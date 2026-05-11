@@ -51,6 +51,10 @@ if (args.Length > 0)
     {
         return Qos.Service.Lifecycle.WindowsServiceInstaller.RunStartService();
     }
+    if (string.Equals(firstFlag, "--tray", StringComparison.OrdinalIgnoreCase))
+    {
+        return Qos.Service.Lifecycle.WindowsTrayHost.Run(args);
+    }
 }
 #endif
 
