@@ -61,6 +61,13 @@ RestartApplications=no
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+[Messages]
+; Soften Inno's default "Some elements could not be removed" warning.
+; The process-stop logic in [Code] should ensure we always reach
+; UninstalledAll, but if a stray file is held open we'd rather not
+; alarm the user.
+UninstalledMost=%1 uninstall complete.%n%nA few files were still in use and will be cleaned up on next sign-in.
+
 [Files]
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
@@ -83,15 +90,56 @@ Filename: "http://localhost:9400/"; Flags: shellexec nowait skipifsilent; Status
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "QosUninstall"
 
 [Code]
+// Win32 imports used to lift the wizard above other windows after an
+// elevated relaunch. Without this, Windows' foreground-lock can leave
+// the wizard behind the user's existing windows (Explorer, browser,
+// etc.) which makes the install look like it stalled.
+function SetForegroundWindow(hWnd: Integer): Boolean;
+  external 'SetForegroundWindow@user32.dll stdcall';
+function ShowWindow(hWnd: Integer; nCmdShow: Integer): Boolean;
+  external 'ShowWindow@user32.dll stdcall';
+function AllowSetForegroundWindow(dwProcessId: DWORD): Boolean;
+  external 'AllowSetForegroundWindow@user32.dll stdcall';
+
+procedure BringWizardToFront();
+begin
+  if WizardForm <> nil then
+  begin
+    AllowSetForegroundWindow($FFFFFFFF); // ASFW_ANY
+    ShowWindow(WizardForm.Handle, 9);    // SW_RESTORE
+    WizardForm.BringToFront();
+    SetForegroundWindow(WizardForm.Handle);
+  end;
+end;
+
+procedure InitializeWizard();
+begin
+  BringWizardToFront();
+end;
+
 procedure StopServiceIfRunning();
 var
   ResultCode: Integer;
 begin
-  // Best-effort stop before we overwrite files. The --install step will
-  // also stop+delete the service, but doing it here too means we never
-  // try to overwrite a locked Qos.exe during the [Files] copy.
+  // Best-effort stop before we overwrite or remove files. Order matters:
+  //   1. Ask the SCM to stop the service. This triggers a graceful
+  //      shutdown which itself should tear down any child OpenRGB /
+  //      overlay processes the service spawned.
+  //   2. Kill the umbrella Qos.exe (service + tray + launcher all share
+  //      this image name).
+  //   3. Kill known sidecar EXEs by image name in case they were
+  //      orphaned (OpenRGB, qos-overlay). /T also kills any descendants.
+  //   4. Sleep so the OS releases file handles before [Files] cleanup.
   Exec(ExpandConstant('{sys}\sc.exe'), 'stop QosService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Sleep(1500);
+  // Qos.exe: no /T - taskkill /T descends into the matched process's tree,
+  // which (defensively) could include Inno's own helper if it's ever
+  // launched as a Qos.exe descendant. /F alone covers every Qos.exe
+  // instance we care about.
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM Qos.exe /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  // Sidecars are leaves in the process tree; /T is safe and useful.
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM OpenRGB.exe /F /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM qos-overlay.exe /F /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(1500);
 end;
 

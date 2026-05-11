@@ -360,29 +360,27 @@ public static class TrayIcon
         var port = ResolveDashboardPort(servicePort);
         DiagFile($"OpenLocalWindow port={port}");
 
-        var url = $"http://localhost:{port}/";
-        var edgePath = FindEdge();
+        // Look for an existing Qos --app window. Constrain to actual
+        // msedge.exe processes with a non-zero MainWindowHandle - this avoids
+        // matching File Explorer, zombie windows, or other apps that happen
+        // to have "Qos" in their title.
+        var existing = FindExistingQosAppWindow();
+        if (existing != IntPtr.Zero)
+        {
+            FocusWindow(existing);
+            DiagFile($"focused existing msedge --app window 0x{existing.ToInt64():X}");
+            return;
+        }
 
+        var edgePath = FindEdge();
         if (edgePath is null)
         {
-            // No Edge installed: fall back to the system default browser.
             DiagFile("Edge not found, falling back to default browser");
             OpenDashboard(port);
             return;
         }
 
-        // Always spawn fresh. The previous strategy (FindExistingAppWindow +
-        // FocusWindow) was matching stale or off-screen windows by title and
-        // silently no-op'ing the focus. The previous --user-data-dir strategy
-        // wedged Edge into zombie launcher processes that spawned 10+ helper
-        // msedge.exe instances without a visible window each time the data
-        // dir's profile lock fought itself across launches.
-        //
-        // Using Edge's default profile (no --user-data-dir) means the user's
-        // existing Edge cookies/extensions show up in the window - acceptable
-        // for a localhost-only dashboard. Edge's normal --app dedup handles
-        // multiple launches: it either reuses an existing --app window for
-        // the same URL or pops a fresh one. Both outcomes are correct.
+        var url = $"http://localhost:{port}/";
         var psi = new System.Diagnostics.ProcessStartInfo
         {
             FileName = edgePath,
@@ -400,6 +398,36 @@ public static class TrayIcon
             DiagFile($"Edge --app failed: {ex.Message}, falling back to default browser");
             OpenDashboard(port);
         }
+    }
+
+    /// <summary>
+    /// Returns the MainWindowHandle of any currently-running msedge.exe
+    /// whose window title starts with "Qos". Avoids the FindExistingAppWindow
+    /// trap of matching by title alone across ALL top-level windows (which
+    /// could pick up File Explorer or stale handles).
+    /// </summary>
+    private static IntPtr FindExistingQosAppWindow()
+    {
+        try
+        {
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName("msedge"))
+            {
+                try
+                {
+                    if (p.MainWindowHandle == IntPtr.Zero) continue;
+                    var title = p.MainWindowTitle;
+                    if (!string.IsNullOrEmpty(title) &&
+                        title.StartsWith("Qos", StringComparison.OrdinalIgnoreCase))
+                    {
+                        return p.MainWindowHandle;
+                    }
+                }
+                catch { /* process exited mid-iteration */ }
+                finally { p.Dispose(); }
+            }
+        }
+        catch { /* best-effort */ }
+        return IntPtr.Zero;
     }
 
     private static int ResolveDashboardPort(int servicePort)

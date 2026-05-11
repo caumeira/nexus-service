@@ -108,9 +108,13 @@ $sd = sc.exe sdshow $Service 2>$null
 if ($sd -match "\(A;;LCRP;;;AU\)") { P "DACL grants SERVICE_START to Authenticated Users" }
 else { F "DACL does NOT grant SERVICE_START to AU" }
 
+# Add/Remove Programs registration is owned by Inno Setup (the _is1 key),
+# not by Qos.exe --install. Bare-EXE smoke tests therefore should NOT see
+# an HKLM\...\Uninstall\Qos entry; if one is present it's stale from an
+# older build and the install path is supposed to clear it.
 $reg = Get-ItemProperty -Path $UninstallKey -ErrorAction SilentlyContinue
-if ($reg -and $reg.DisplayName -eq "Qos") { P "Add/Remove Programs entry written" }
-else { F "Add/Remove Programs entry missing" }
+if (-not $reg) { P "no stale legacy Uninstall\Qos reg key" }
+else { F "unexpected legacy Uninstall\Qos reg key present after --install" }
 
 $fw = netsh advfirewall firewall show rule name=$FirewallRule 2>$null
 if ($fw -match "Enabled.*Yes") { P "firewall rule enabled" }

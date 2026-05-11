@@ -37,8 +37,9 @@ internal static class WindowsServiceInstaller
     /// <summary>
     /// `Qos.exe --install` entry. Self-elevates if needed; copies files to
     /// %ProgramFiles%\Qos\ if invoked from elsewhere; registers the Windows
-    /// Service; installs PawnIO; opens the firewall; writes the Add/Remove
-    /// Programs registry key; starts the service.
+    /// Service; installs PawnIO; opens the firewall; starts the service.
+    /// Add/Remove Programs registration is owned by the Inno Setup wrapper
+    /// (the {AppId}_is1 key), not by this method.
     /// </summary>
     public static int RunInstall(string[] args)
     {
@@ -160,9 +161,15 @@ internal static class WindowsServiceInstaller
                 $"localport={DefaultPort}",
                 "profile=private,domain");
 
-            // 6. Add/Remove Programs registration.
-            Log("writing uninstall registry key");
-            WriteUninstallRegistry(installDir, installedExe);
+            // 6. Add/Remove Programs registration is owned by Inno Setup
+            // (the {AppId}_is1 key). We used to write our own HKLM\...\Qos
+            // entry here, which caused two rows in the Apps & Features list.
+            // Inno's entry is authoritative because its uninstall flow
+            // (unins000.exe) also removes the install dir on top of our
+            // --uninstall step. We still try to delete the legacy "Qos" key
+            // below in case an older install left one behind.
+            try { Registry.LocalMachine.DeleteSubKeyTree(UninstallRegKey, throwOnMissingSubKey: false); }
+            catch (Exception ex) { Log($"WARN legacy uninstall reg cleanup failed: {ex.Message}"); }
 
             // 7. Start Menu shortcut (best-effort).
             try { CreateStartMenuShortcut(installedExe); }
@@ -225,8 +232,22 @@ internal static class WindowsServiceInstaller
         RunSc("stop", ServiceName);
         WaitForServiceStop(TimeSpan.FromSeconds(10));
 
+        // Kill sibling Qos / sidecar processes so sc delete can complete
+        // synchronously instead of being deferred until handles release.
+        // Without this the service "comes back" on the next boot.
+        Log("killing tray / sidecar processes");
+        KillSiblingProcesses("Qos.exe");
+        KillSiblingProcesses("OpenRGB.exe");
+        KillSiblingProcesses("qos-overlay.exe");
+
         Log("deleting QosService");
         RunSc("delete", ServiceName);
+
+        // Clear the per-user tray autostart. Same HKCU-vs-elevated-token
+        // caveat as the install path - acceptable for the consent UAC flow.
+        Log("removing tray autostart");
+        try { new WindowsStartupProvider().SetEnabled(false, string.Empty, string.Empty); }
+        catch (Exception ex) { Log($"WARN HKCU\\Run\\Qos delete failed: {ex.Message}"); }
 
         Log("removing firewall rule");
         RunNetsh("advfirewall", "firewall", "delete", "rule",
@@ -356,31 +377,6 @@ internal static class WindowsServiceInstaller
         }
     }
 
-    private static void WriteUninstallRegistry(string installDir, string installedExe)
-    {
-        using var key = Registry.LocalMachine.CreateSubKey(UninstallRegKey, writable: true);
-        if (key is null)
-        {
-            Log("WARN could not open uninstall reg key");
-            return;
-        }
-        key.SetValue("DisplayName", "Qos");
-        key.SetValue("DisplayVersion", ResolveVersion());
-        key.SetValue("Publisher", "Nexus Qos");
-        key.SetValue("InstallLocation", installDir);
-        key.SetValue("UninstallString", $"\"{installedExe}\" --uninstall");
-        key.SetValue("QuietUninstallString", $"\"{installedExe}\" --uninstall --silent");
-        key.SetValue("DisplayIcon", installedExe);
-        key.SetValue("NoModify", 1, RegistryValueKind.DWord);
-        key.SetValue("NoRepair", 1, RegistryValueKind.DWord);
-    }
-
-    private static string ResolveVersion()
-    {
-        try { return Qos.Service.BuildInfo.Version; }
-        catch { return "1.0.0"; }
-    }
-
     private static void CreateStartMenuShortcut(string targetExe)
     {
         // Drop a .url shortcut to the dashboard (more useful than the exe itself
@@ -501,6 +497,35 @@ internal static class WindowsServiceInstaller
     {
         var (code, _) = RunCli("netsh.exe", args);
         return code == 0;
+    }
+
+    private static bool KillSiblingProcesses(string imageName)
+    {
+        // Kill all running processes that match imageName, except the
+        // current process. Done in-process rather than via taskkill /T to
+        // avoid the documented quirk that /T also descends into the
+        // matched process's tree (which could include us transitively).
+        var self = Process.GetCurrentProcess().Id;
+        var nameNoExt = imageName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase)
+            ? imageName[..^4]
+            : imageName;
+        var killedAny = false;
+        try
+        {
+            foreach (var p in Process.GetProcessesByName(nameNoExt))
+            {
+                try
+                {
+                    if (p.Id == self) continue;
+                    p.Kill(entireProcessTree: true);
+                    killedAny = true;
+                }
+                catch { /* race: process exited, or access denied */ }
+                finally { p.Dispose(); }
+            }
+        }
+        catch { /* best-effort */ }
+        return killedAny;
     }
 
     private static (int Code, string Output) RunCli(string exe, string[] args, bool suppressOutput = false)

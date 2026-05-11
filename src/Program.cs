@@ -670,14 +670,18 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 {
     app.Lifetime.ApplicationStarted.Register(() =>
     {
-        if (!suppressStartupWindow)
+        if (serviceMode)
         {
-            Qos.Service.Platform.Windows.TrayIcon.OpenLocalWindow();
-            Console.WriteLine("[qos-service] app window launched");
+            Console.WriteLine("[qos-service] startup window suppressed (LocalSystem session 0 has no interactive desktop)");
+        }
+        else if (suppressStartupWindow)
+        {
+            Console.WriteLine("[qos-service] startup window suppressed (--no-window)");
         }
         else
         {
-            Console.WriteLine("[qos-service] startup window suppressed (--no-window)");
+            Qos.Service.Platform.Windows.TrayIcon.OpenLocalWindow();
+            Console.WriteLine("[qos-service] app window launched");
         }
 
         // Auto-launch the panel kiosk if the setting is enabled AND a recognized
