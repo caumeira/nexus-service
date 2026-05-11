@@ -358,51 +358,46 @@ public static class TrayIcon
     public static void OpenLocalWindow(int servicePort = 0)
     {
         var port = ResolveDashboardPort(servicePort);
-
-        // Fast path: we still hold a handle to the process we launched and
-        // it's alive. Just focus its window.
-        if (_appProcess is not null && !_appProcess.HasExited)
-        {
-            try
-            {
-                _appProcess.Refresh();
-                var h = _appProcess.MainWindowHandle;
-                if (h != IntPtr.Zero)
-                {
-                    FocusWindow(h);
-                    return;
-                }
-            }
-            catch { /* fall through to fallback / spawn */ }
-        }
-
-        // Fallback: we lost the process reference (service restarted with
-        // the window still open, Edge was updated, etc.). Sweep top-level
-        // windows and focus the one whose title is "Qos" before
-        // spawning a duplicate.
-        var existing = FindExistingAppWindow();
-        if (existing != IntPtr.Zero)
-        {
-            FocusWindow(existing);
-            return;
-        }
+        DiagFile($"OpenLocalWindow port={port}");
 
         var url = $"http://localhost:{port}/";
         var edgePath = FindEdge();
-        if (edgePath is not null)
+
+        if (edgePath is null)
         {
-            var dataDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "qos-app");
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = edgePath,
-                UseShellExecute = false,
-            };
-            psi.ArgumentList.Add($"--app={url}");
-            psi.ArgumentList.Add($"--user-data-dir={dataDir}");
-            _appProcess = System.Diagnostics.Process.Start(psi);
+            // No Edge installed: fall back to the system default browser.
+            DiagFile("Edge not found, falling back to default browser");
+            OpenDashboard(port);
+            return;
         }
-        else
+
+        // Always spawn fresh. The previous strategy (FindExistingAppWindow +
+        // FocusWindow) was matching stale or off-screen windows by title and
+        // silently no-op'ing the focus. The previous --user-data-dir strategy
+        // wedged Edge into zombie launcher processes that spawned 10+ helper
+        // msedge.exe instances without a visible window each time the data
+        // dir's profile lock fought itself across launches.
+        //
+        // Using Edge's default profile (no --user-data-dir) means the user's
+        // existing Edge cookies/extensions show up in the window - acceptable
+        // for a localhost-only dashboard. Edge's normal --app dedup handles
+        // multiple launches: it either reuses an existing --app window for
+        // the same URL or pops a fresh one. Both outcomes are correct.
+        var psi = new System.Diagnostics.ProcessStartInfo
         {
+            FileName = edgePath,
+            UseShellExecute = false,
+        };
+        psi.ArgumentList.Add($"--app={url}");
+        psi.ArgumentList.Add("--new-window");
+        try
+        {
+            var p = System.Diagnostics.Process.Start(psi);
+            DiagFile($"Edge --app spawned pid={p?.Id.ToString() ?? "null"}");
+        }
+        catch (Exception ex)
+        {
+            DiagFile($"Edge --app failed: {ex.Message}, falling back to default browser");
             OpenDashboard(port);
         }
     }
