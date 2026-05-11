@@ -47,6 +47,7 @@ internal static class WindowsLauncher
             case ServiceState.Running:
                 Console.WriteLine("[launcher] service is running; opening dashboard");
                 EnsureTrayRunning();
+                WaitForPing(TimeSpan.FromSeconds(10));
                 OpenDashboard();
                 return 0;
 
@@ -54,6 +55,7 @@ internal static class WindowsLauncher
                 Console.WriteLine("[launcher] service is starting; waiting briefly");
                 WaitForState(ServiceState.Running, TimeSpan.FromSeconds(10));
                 EnsureTrayRunning();
+                WaitForPing(TimeSpan.FromSeconds(10));
                 OpenDashboard();
                 return 0;
 
@@ -62,6 +64,11 @@ internal static class WindowsLauncher
                 if (TryStartService())
                 {
                     EnsureTrayRunning();
+                    // sc.exe start returns when SCM accepts the request, and our
+                    // ServiceMain sets RUNNING as soon as we hand the web app off
+                    // to a worker thread - the port isn't actually bound yet. Wait
+                    // for /ping so the browser opens against a ready service.
+                    WaitForPing(TimeSpan.FromSeconds(15));
                     OpenDashboard();
                     return 0;
                 }
@@ -149,6 +156,26 @@ internal static class WindowsLauncher
         {
             if (QueryServiceState() == target) return true;
             Thread.Sleep(500);
+        }
+        return false;
+    }
+
+    private static bool WaitForPing(TimeSpan timeout)
+    {
+        // Even when SCM reports RUNNING, our ServiceMain set that state right
+        // after handing off the web app to a worker thread - Kestrel may not
+        // have bound :9400 yet. Hit /ping until we get a 2xx (or give up).
+        var deadline = DateTime.UtcNow + timeout;
+        using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(1) };
+        while (DateTime.UtcNow < deadline)
+        {
+            try
+            {
+                var resp = http.GetAsync($"http://localhost:{DefaultPort}/ping").GetAwaiter().GetResult();
+                if (resp.IsSuccessStatusCode) return true;
+            }
+            catch { }
+            Thread.Sleep(300);
         }
         return false;
     }
