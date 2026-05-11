@@ -25,7 +25,7 @@ public sealed class MediaLibrary
 
     public MediaLibrary()
         : this(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
             "qOS", "media"))
     {
     }

@@ -31,6 +31,17 @@ if (args.Length > 0 && args[0] == "--install-pawnio")
     return Qos.Service.Lifecycle.PawnIoInstaller.RunElevatedInstall();
 }
 
+// --service mode: run under SCM as a real Windows Service. The SCM dispatcher
+// blocks the main thread, so we let WindowsServiceHost orchestrate startup
+// and stop signals; the app itself is built normally below and torn down via
+// the CancellationToken passed to RunAsync. Single-instance mutex and
+// auto-elevation are short-circuited because SCM owns lifecycle here.
+var serviceMode = args.Any(a => string.Equals(a, "--service", StringComparison.OrdinalIgnoreCase));
+if (serviceMode)
+{
+    args = args.Where(a => !string.Equals(a, "--service", StringComparison.OrdinalIgnoreCase)).ToArray();
+}
+
 // Dashboard "Launch" button targets qos://start-admin so the service
 // comes up elevated. If we were started via that URL and we're not already
 // elevated, spawn an elevated child (UAC prompt) and exit. Has to happen
@@ -86,15 +97,18 @@ var servicePort = ServiceLaunchIntent.ResolveServicePort(url);
 // Single-instance guard — if another qos-service is already running,
 // open or focus the dashboard window instead of spawning a second service.
 // When relaunching elevated, retry for up to 10s while the parent shuts down.
-System.Threading.Mutex singleInstance;
-bool isFirst;
+// Skipped under SCM: the service controller already enforces single-instance.
+System.Threading.Mutex? singleInstance = null;
+if (!serviceMode)
 {
+    bool isFirst;
     var deadline = DateTime.UtcNow.AddSeconds(isRelaunchElevated ? 10 : 0);
     while (true)
     {
         singleInstance = new System.Threading.Mutex(true, "Global\\QosServiceMutex", out isFirst);
         if (isFirst) break;
         singleInstance.Dispose();
+        singleInstance = null;
         if (!isRelaunchElevated || DateTime.UtcNow >= deadline)
         {
             Console.WriteLine("[qos-service] already running, opening dashboard window");
@@ -112,10 +126,12 @@ using var _singleInstance = singleInstance;
 // the only path that triggers a UAC prompt; subsequent double-clicks while
 // the service is running hit the second-instance handoff above and never
 // prompt. --no-window means schtask logon launch - skip auto-elevate so we
-// don't ambush the user with UAC at sign-in.
+// don't ambush the user with UAC at sign-in. --service skips because SCM
+// already runs us as LocalSystem.
 if (OperatingSystem.IsWindows()
     && !isRelaunchElevated
     && !suppressStartupWindow
+    && !serviceMode
     && !Qos.Service.Platform.ProcessElevation.GetCurrent().IsElevated)
 {
     var coldStartElevation = Qos.Service.Lifecycle.ProcessRelauncher.TryRelaunchAsAdmin();
@@ -758,6 +774,17 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
     catch { /* shutdown */ }
     return 0;
 }
+
+#if WINDOWS
+if (serviceMode)
+{
+    return Qos.Service.Lifecycle.WindowsServiceHost.Run(args, async (_, ct) =>
+    {
+        await app.RunAsync(ct).ConfigureAwait(false);
+        return 0;
+    });
+}
+#endif
 
 app.Run();
 return 0;

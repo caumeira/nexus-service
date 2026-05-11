@@ -360,7 +360,7 @@ public static class PawnIoInstaller
     }
 
     private static string LogPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "qOS", "pawnio-install.log");
 
     private static void Log(string msg)

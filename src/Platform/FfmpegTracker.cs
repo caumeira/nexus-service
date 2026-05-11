@@ -118,7 +118,7 @@ public static class FfmpegTracker
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "qOS");
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "qOS");
         }
         var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
         if (string.IsNullOrEmpty(xdg))

@@ -66,7 +66,7 @@ public sealed class GpuContext : IDisposable
     public bool Available => _initTried && !_failed && !_disposed;
 
     private static readonly string LogPath = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "qOS", "gpu.log");
 
     public static void Log(string line)

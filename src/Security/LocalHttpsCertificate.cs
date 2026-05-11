@@ -96,7 +96,10 @@ public static class LocalHttpsCertificate
         string root;
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            root = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            // Machine-scope cert: LocalSystem service owns it. Sharing the same
+            // cert across all users on the box is desirable - the phone trusts
+            // one cert per host, not one per user.
+            root = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         }
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {

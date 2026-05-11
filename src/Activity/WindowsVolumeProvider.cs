@@ -87,7 +87,7 @@ public sealed unsafe class WindowsVolumeProvider : IVolumeProvider, IDisposable
     {
         try
         {
-            var path = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData), "qOS", "volume.log");
+            var path = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.CommonApplicationData), "qOS", "volume.log");
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
             lock (s_logLock)
             {

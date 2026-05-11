@@ -42,7 +42,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     private volatile bool _stopRequested;
 
     private static readonly string PidFilePath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "qOS", "panel-desktop-pid.txt");
 
     public PanelOverlayHostLauncher()

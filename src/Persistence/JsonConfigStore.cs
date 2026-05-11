@@ -195,8 +195,10 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(localAppData, "qOS", "settings.json");
+            // Machine-scope: settings belong to the LocalSystem service, not the
+            // logged-in user. CommonApplicationData = %ProgramData%.
+            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            return Path.Combine(programData, "qOS", "settings.json");
         }
 
         // Linux / others

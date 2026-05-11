@@ -60,8 +60,10 @@ public static class ServiceLog
             var home = Environment.GetEnvironmentVariable("HOME") ?? "/tmp";
             return Path.Combine(home, ".local", "state", "qos", "logs");
         }
-        var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-        return Path.Combine(local, "qOS", "logs");
+        // Windows: machine-scope logs under %ProgramData% so the LocalSystem
+        // service can write them and an admin can inspect them post-incident.
+        var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        return Path.Combine(programData, "qOS", "logs");
     }
 
     private static void RotateIfTooLarge(string path)

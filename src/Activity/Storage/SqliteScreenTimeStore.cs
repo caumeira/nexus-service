@@ -376,8 +376,10 @@ public sealed class SqliteScreenTimeStore : IScreenTimeStore
         }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(localAppData, "qOS", "screentime.db");
+            // Machine-scope DB. Service runs as LocalSystem so user-scoped
+            // LocalApplicationData would resolve to system32\config\systemprofile.
+            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            return Path.Combine(programData, "qOS", "screentime.db");
         }
         var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
         if (string.IsNullOrEmpty(xdg))

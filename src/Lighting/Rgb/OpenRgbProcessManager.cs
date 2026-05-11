@@ -92,7 +92,7 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// </summary>
     public static string ResolveConfigDir()
     {
-        var baseDir = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+        var baseDir = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         if (string.IsNullOrEmpty(baseDir))
         {
             baseDir = Path.GetTempPath();
