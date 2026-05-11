@@ -1,136 +1,115 @@
 using System;
-using System.Diagnostics;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+
+#if WINDOWS
+using Microsoft.Win32;
+#endif
 
 namespace Qos.Service.Lifecycle;
 
 /// <summary>
-/// Real Windows autostart via Task Scheduler (schtasks.exe).
-/// Creates a logon-triggered task at HIGHEST run level so the service
-/// starts automatically when the user logs in. Uses /F (force) to
-/// overwrite any existing task on re-enable.
+/// Per-user "start at logon" toggle for the Qos tray helper. The daemon
+/// itself runs as a LocalSystem Windows Service from boot, so it doesn't
+/// need a startup hook. This provider only controls whether the tray UI
+/// (Qos.exe --tray) auto-launches when the user signs in.
+///
+/// Backed by <c>HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Qos</c>.
+/// HKCU is per-user and writable without elevation, so the dashboard can
+/// flip the toggle on/off without UAC.
+///
+/// Legacy: prior versions registered a logon-triggered scheduled task
+/// (<c>QosService</c>) under the user's identity to autostart the daemon.
+/// That task is no longer needed and is cleaned up here on first run.
 /// </summary>
 public sealed class WindowsStartupProvider : IStartupProvider
 {
-    private const string PrimaryTaskName = "QosService";
-    private const string LegacyTaskName = "Qos";
+#if WINDOWS
+    private const string HkcuRunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string ValueName = "Qos";
+    private const string LegacySchtaskName = "QosService";
+    private const string LegacySchtaskAlternate = "Qos";
+
+    private static bool _legacyCleanupDone;
+#endif
 
     public bool IsEnabled()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return false;
-        }
-
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return false;
+#if WINDOWS
         try
         {
-            return IsTaskEnabled(PrimaryTaskName) || IsTaskEnabled(LegacyTaskName);
+            using var key = Registry.CurrentUser.OpenSubKey(HkcuRunKey, writable: false);
+            if (key is null) return false;
+            return key.GetValue(ValueName) is string s && !string.IsNullOrWhiteSpace(s);
         }
         catch { return false; }
+#else
+        return false;
+#endif
     }
 
     public bool SetEnabled(bool enabled, string path, string arguments)
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return false;
-        }
-
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return false;
+#if WINDOWS
         try
         {
+            CleanupLegacySchtaskOnce();
+
+            using var key = Registry.CurrentUser.CreateSubKey(HkcuRunKey, writable: true);
+            if (key is null) return false;
+
             if (enabled)
             {
-                // --no-window keeps the service silent at logon: it boots,
-                // serves the dashboard, but the Edge app-mode window is not
-                // auto-opened. Manual tray / double-click / protocol launches
-                // still open it.
-                var combinedArgs = string.IsNullOrWhiteSpace(arguments)
-                    ? "--no-window"
-                    : $"{arguments} --no-window";
-                var command = $"\"{path}\" {combinedArgs}";
-                var created = RunSchtasks(
-                    "/Create",
-                    "/TN", PrimaryTaskName,
-                    "/TR", command,
-                    "/SC", "ONLOGON",
-                    "/RL", "HIGHEST",
-                    "/F");
-                if (created)
-                {
-                    DeleteTaskIfExists(LegacyTaskName);
-                }
-                return created;
+                // path is the daemon's installed EXE. For tray autostart we
+                // always want --tray mode regardless of any extra arguments
+                // the caller passes.
+                var command = $"\"{path}\" --tray";
+                key.SetValue(ValueName, command, RegistryValueKind.String);
             }
             else
             {
-                return DeleteTaskIfExists(PrimaryTaskName) & DeleteTaskIfExists(LegacyTaskName);
+                key.DeleteValue(ValueName, throwOnMissingValue: false);
             }
+            return true;
         }
         catch { return false; }
+#else
+        return false;
+#endif
     }
 
-    private static bool IsTaskEnabled(string taskName)
+#if WINDOWS
+    private static void CleanupLegacySchtaskOnce()
     {
-        var result = RunSchtasksWithOutput("/Query", "/TN", taskName, "/FO", "LIST", "/V");
-        if (result.ExitCode != 0)
-        {
-            return false;
-        }
-
-        foreach (var line in result.Output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries))
-        {
-            var trimmed = line.TrimStart();
-            if (!trimmed.StartsWith("Scheduled Task State:", StringComparison.OrdinalIgnoreCase))
-            {
-                continue;
-            }
-
-            return trimmed.Contains("Enabled", StringComparison.OrdinalIgnoreCase)
-                && !trimmed.Contains("Disabled", StringComparison.OrdinalIgnoreCase);
-        }
-
-        // Older Windows builds can omit the state line; if the query succeeds,
-        // fall back to existence rather than matching unrelated "Disabled"
-        // fields such as Idle Time.
-        return true;
+        if (_legacyCleanupDone) return;
+        _legacyCleanupDone = true;
+        // Best-effort: drop any leftover logon schtask from the pre-service
+        // era. Ignored failures (task absent, no permission, etc.) are fine
+        // because the SCM service supersedes whatever the task would have
+        // done anyway.
+        try { RunSchtasks("/Delete", "/TN", LegacySchtaskName, "/F"); } catch { }
+        try { RunSchtasks("/Delete", "/TN", LegacySchtaskAlternate, "/F"); } catch { }
     }
 
-    private static bool TaskExists(string taskName) =>
-        RunSchtasksWithOutput("/Query", "/TN", taskName).ExitCode == 0;
-
-    private static bool DeleteTaskIfExists(string taskName) =>
-        !TaskExists(taskName) || RunSchtasks("/Delete", "/TN", taskName, "/F");
-
-    private static bool RunSchtasks(params string[] args) =>
-        RunSchtasksWithOutput(args).ExitCode == 0;
-
-    private static (int ExitCode, string Output) RunSchtasksWithOutput(params string[] args)
+    [SupportedOSPlatform("windows")]
+    private static void RunSchtasks(params string[] args)
     {
-        var psi = new ProcessStartInfo("schtasks")
+        var psi = new System.Diagnostics.ProcessStartInfo("schtasks")
         {
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        foreach (var arg in args)
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        using var p = System.Diagnostics.Process.Start(psi);
+        if (p is null) return;
+        if (!p.WaitForExit(5000))
         {
-            psi.ArgumentList.Add(arg);
+            try { p.Kill(entireProcessTree: true); } catch { }
         }
-
-        using var proc = Process.Start(psi)!;
-        var stdout = proc.StandardOutput.ReadToEndAsync();
-        var stderr = proc.StandardError.ReadToEndAsync();
-        if (!proc.WaitForExit(10000))
-        {
-            try
-            { proc.Kill(entireProcessTree: true); }
-            catch { /* best-effort */ }
-            return (-1, "");
-        }
-
-        var output = stdout.GetAwaiter().GetResult();
-        var error = stderr.GetAwaiter().GetResult();
-        return (proc.ExitCode, output + error);
     }
+#endif
 }
