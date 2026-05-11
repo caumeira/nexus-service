@@ -311,6 +311,10 @@ public static class QosServiceCollectionExtensions
 #else
         services.AddSingleton<IPawnIoProvider, StubPawnIoProvider>();
 #endif
+
+        // Replay persisted lighting + cooling state to hardware on startup.
+        // Lives in Lifecycle because it doesn't belong to a single domain.
+        services.AddHostedService<AutoRestoreOnStart>();
         return services;
     }
 
