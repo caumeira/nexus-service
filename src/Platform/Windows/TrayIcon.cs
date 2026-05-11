@@ -338,20 +338,17 @@ public static class TrayIcon
                 return;
             }
 
-            // Existing window check: focus + navigate instead of spawning.
+            // Existing window check: just focus it. We do NOT try to navigate
+            // an already-open --app window to a specific path: Edge has no
+            // external API for "navigate this HWND", and the previous
+            // Process.Start(url, UseShellExecute=true) fallback handed the URL
+            // to the OS default browser, which is never what the user wanted.
+            // Users that need a different view click inside the open window.
             var existing = FindExistingQosAppWindow();
             if (existing != IntPtr.Zero)
             {
                 FocusWindow(existing);
                 DiagFile($"focused existing msedge --app window 0x{existing.ToInt64():X}");
-                if (path != "/")
-                {
-                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
-                    {
-                        FileName = $"http://localhost:{port}{path}",
-                        UseShellExecute = true,
-                    });
-                }
                 return;
             }
 
