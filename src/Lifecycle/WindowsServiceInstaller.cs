@@ -407,9 +407,17 @@ internal static class WindowsServiceInstaller
             MoveFileEx(path, null, MOVEFILE_DELAY_UNTIL_REBOOT);
             Log($"locked files in {path} scheduled for delete on reboot");
         }
-        catch (UnauthorizedAccessException ex)
+        catch (UnauthorizedAccessException)
         {
-            Log($"WARN delete failed for {path}: {ex.Message}");
+            // The uninstaller usually IS the qOS.exe being deleted, so the
+            // .exe holds its own write lock. Schedule everything for delete
+            // on reboot - the next start will reclaim a clean dir.
+            foreach (var f in Directory.GetFiles(path, "*", SearchOption.AllDirectories))
+            {
+                MoveFileEx(f, null, MOVEFILE_DELAY_UNTIL_REBOOT);
+            }
+            MoveFileEx(path, null, MOVEFILE_DELAY_UNTIL_REBOOT);
+            Log($"{path} pending delete on reboot (uninstaller holds its own EXE lock)");
         }
     }
 
