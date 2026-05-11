@@ -25,6 +25,7 @@ internal static class WindowsTrayHost
 
     public static int Run(string[] args)
     {
+        Diag("WindowsTrayHost.Run entered");
         if (!OperatingSystem.IsWindows()) return 0;
 
         // Per-session single-instance. The Local\ namespace is automatically
@@ -60,7 +61,9 @@ internal static class WindowsTrayHost
             },
             isEnabled: () => startup.IsEnabled());
 
+        Diag("calling TrayIcon.SetVisible(true)");
         Platform.Windows.TrayIcon.SetVisible(true);
+        Diag("SetVisible returned");
 
         // Tray runs on a background STA thread (see TrayIcon.cs). Keep the
         // main thread alive until the user picks Exit from the menu.
@@ -68,6 +71,24 @@ internal static class WindowsTrayHost
 
         Platform.Windows.TrayIcon.SetVisible(false);
         return 0;
+    }
+
+    private static void Diag(string msg)
+    {
+        // Direct write to a known absolute path. Bypasses TEMP resolution
+        // and AppendAllText quirks - just FileStream.Write with autoflush.
+        try
+        {
+            using var fs = new System.IO.FileStream(
+                @"C:\Users\Public\qos-tray-debug.log",
+                System.IO.FileMode.Append,
+                System.IO.FileAccess.Write,
+                System.IO.FileShare.ReadWrite);
+            var line = $"{DateTime.Now:HH:mm:ss.fff} [{System.Diagnostics.Process.GetCurrentProcess().Id}] {msg}\n";
+            var bytes = System.Text.Encoding.UTF8.GetBytes(line);
+            fs.Write(bytes, 0, bytes.Length);
+        }
+        catch { }
     }
 
     private static void EnsureServiceRunning()

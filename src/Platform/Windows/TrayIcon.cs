@@ -142,6 +142,7 @@ public static class TrayIcon
     {
         try
         {
+            DiagFile("TrayIcon.Run() entered");
             _pinnedProc = Proc;
 
             var cls = new WNDCLASSEX
@@ -202,6 +203,7 @@ public static class TrayIcon
                 _iconDataReady = true;
                 ApplyIconVisibilityNoThrow();
             }
+            DiagFile($"tray ready hwnd=0x{hwnd.ToInt64():X} hIcon=0x{hIcon.ToInt64():X}");
 
             // Message pump
             MSG msg;
@@ -245,6 +247,24 @@ public static class TrayIcon
         }
     }
 
+    private static void DiagFile(string msg)
+    {
+        // Direct FileStream write to a known absolute path. C:\Users\Public
+        // is world-writable, no env-var resolution needed.
+        try
+        {
+            using var fs = new System.IO.FileStream(
+                @"C:\Users\Public\qos-tray-debug.log",
+                System.IO.FileMode.Append,
+                System.IO.FileAccess.Write,
+                System.IO.FileShare.ReadWrite);
+            var line = $"{DateTime.Now:HH:mm:ss.fff} [TrayIcon p{System.Diagnostics.Process.GetCurrentProcess().Id}] {msg}\n";
+            var bytes = System.Text.Encoding.UTF8.GetBytes(line);
+            fs.Write(bytes, 0, bytes.Length);
+        }
+        catch { }
+    }
+
     private static IntPtr Proc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
     {
         try
@@ -252,6 +272,8 @@ public static class TrayIcon
             if (msg == WM_TRAYICON)
             {
                 var ev = lParam.ToInt32() & 0xFFFF;
+                DiagFile($"tray ev=0x{ev:X4}");
+
                 if (ev == WM_RBUTTONUP)
                 {
                     POINT pt;
