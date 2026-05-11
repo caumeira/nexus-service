@@ -4,7 +4,7 @@
 $ErrorActionPreference = "SilentlyContinue"
 $port = 19494
 $base = "http://localhost:$port"
-$dll = "bin\Debug\net10.0\qOS.dll"
+$dll = "bin\Debug\net10.0\Qos.dll"
 
 # Start service as a background job (works over SSH unlike Start-Process).
 # Use the dotnet CLI from PATH; fall back to the per-user .NET install.

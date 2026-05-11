@@ -7,7 +7,7 @@ using System.Threading;
 namespace Qos.Service.Lifecycle;
 
 /// <summary>
-/// Entry point for <c>qOS.exe --tray</c>: lightweight user-session
+/// Entry point for <c>Qos.exe --tray</c>: lightweight user-session
 /// process that owns the system tray icon (and, later, the desktop
 /// widgets). It is NOT the daemon - the daemon runs as a LocalSystem
 /// Windows Service in Session 0 and is invisible to interactive users.

@@ -7,7 +7,7 @@ using System.Threading;
 namespace Qos.Service.Lifecycle;
 
 /// <summary>
-/// Default qOS.exe no-args entrypoint. Detects current install state and
+/// Default Qos.exe no-args entrypoint. Detects current install state and
 /// dispatches accordingly. The launcher NEVER starts the daemon in-process
 /// and (other than the first-time install path) NEVER triggers a UAC
 /// prompt - the SERVICE_START DACL granted to Authenticated Users at
@@ -41,7 +41,7 @@ internal static class WindowsLauncher
             case ServiceState.NotInstalled:
                 // First-time install: this is the only path that prompts
                 // UAC. --install handles the self-elevate internally.
-                Console.WriteLine("[launcher] qOS is not installed yet; running --install");
+                Console.WriteLine("[launcher] Qos is not installed yet; running --install");
                 return WindowsServiceInstaller.RunInstall(Array.Empty<string>());
 
             case ServiceState.Running:
@@ -174,7 +174,7 @@ internal static class WindowsLauncher
 
     private static void EnsureTrayRunning()
     {
-        // Best-effort: spawn qOS.exe --tray if no tray is alive in this
+        // Best-effort: spawn Qos.exe --tray if no tray is alive in this
         // session. The tray's per-session mutex handles deduplication, so a
         // racing second spawn just exits silently.
         try

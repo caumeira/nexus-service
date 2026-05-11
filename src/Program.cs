@@ -1,4 +1,4 @@
-// qOS local service — Minimal API host for Native AOT.
+// Qos local service — Minimal API host for Native AOT.
 //
 // Default bind: http://localhost:9400.
 // Override with the first command-line arg:
@@ -58,7 +58,7 @@ if (args.Length > 0)
 }
 
 // No-args (and not --service / --install / --tray / --no-window etc.)
-// means the user double-clicked qOS.exe. Once the SCM service is in
+// means the user double-clicked Qos.exe. Once the SCM service is in
 // charge of running the daemon, the launcher's only jobs are: detect
 // service state, spawn the tray if missing, open the dashboard. The
 // old cold-start self-elevation path is dead - the service is already
@@ -82,7 +82,7 @@ if (serviceMode)
     args = args.Where(a => !string.Equals(a, "--service", StringComparison.OrdinalIgnoreCase)).ToArray();
 }
 
-// Protocol-handler URLs from the dashboard. The new world (qOS as a
+// Protocol-handler URLs from the dashboard. The new world (Qos as a
 // LocalSystem Windows Service) replaces the old "start-admin"
 // self-elevation pathway with a "restart-service" that calls into
 // sc.exe. Both URLs are handled here so legacy dashboard builds still
@@ -110,7 +110,7 @@ if (isRelaunchElevated)
 
 // --no-window suppresses the auto-launched dashboard Edge window on startup.
 // Set by the WindowsStartupProvider when registering the logon-triggered
-// schtask: when the user enables "Start qOS on system startup", the
+// schtask: when the user enables "Start Qos on system startup", the
 // service should come up silently in the background. Manual launches (tray
 // click, double-click, qos:// protocol) still open the window through
 // the second-instance path or the explicit tray handler.
@@ -259,21 +259,21 @@ builder.Services.AddHttpClient();
 // All DI registrations live in per-domain extension methods under
 // src/DependencyInjection/. Order matters only where there are cross-domain
 // dependencies (e.g. Lighting consumes the OpenRGB controller registered in
-// AddqOSLighting before AddqOSDevices uses it as ILightingDeviceProvider).
+// AddQosLighting before AddQosDevices uses it as ILightingDeviceProvider).
 builder.Services
-    .AddqOSCore()
-    .AddqOSSensors()
-    .AddqOSCooling()
-    .AddqOSBenchmarks()
-    .AddqOSLighting()
-    .AddqOSDevices()
-    .AddqOSPeripherals()
-    .AddqOSActivity()
-    .AddqOSNetwork()
-    .AddqOSLifecycle()
-    .AddqOSWeather()
-    .AddqOSPanel(servicePort)
-    .AddqOSLinuxDBus();
+    .AddQosCore()
+    .AddQosSensors()
+    .AddQosCooling()
+    .AddQosBenchmarks()
+    .AddQosLighting()
+    .AddQosDevices()
+    .AddQosPeripherals()
+    .AddQosActivity()
+    .AddQosNetwork()
+    .AddQosLifecycle()
+    .AddQosWeather()
+    .AddQosPanel(servicePort)
+    .AddQosLinuxDBus();
 
 // ── Build ──
 var app = builder.Build();
@@ -515,7 +515,7 @@ app.Use(async (ctx, next) =>
         return;
     }
 
-    await Qos.Service.Auth.AuthErrorResponse.WriteAsync(ctx, 401, "Unauthorized", "This panel is not paired with the qOS service.");
+    await Qos.Service.Auth.AuthErrorResponse.WriteAsync(ctx, 401, "Unauthorized", "This panel is not paired with the Qos service.");
 });
 
 // ── Map all routes ──
@@ -567,7 +567,7 @@ Console.WriteLine($"[qos-service] listening on {url}");
 
 // System tray icon (Windows only) — hides console, shows tray with right-click menu.
 // Skipped under --service: Session 0 cannot show UI, so the tray must be a
-// separate user-session process (Phase 4: qOS.exe --tray). Leaving the tray
+// separate user-session process (Phase 4: Qos.exe --tray). Leaving the tray
 // init in here would create a stale NotifyIcon in Session 0 that nobody sees.
 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !serviceMode)
 {
@@ -747,7 +747,7 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
 if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
 {
     // Auto-open the dashboard window when the .app finishes launching, so
-    // double-clicking qOS.app behaves like the Windows tray launch:
+    // double-clicking Qos.app behaves like the Windows tray launch:
     // the user always sees a window, not just a hidden menu-bar agent.
     // Uses the in-process WKWebView host (MacAppWindow) - no Chrome / Edge
     // dependency, the chromeless window is built from AppKit + WebKit which
@@ -779,7 +779,7 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             Qos.Service.Platform.Mac.MacStatusBar.StopRunLoop();
         },
         // LaunchServices delivers kAEReopenApplication when the user
-        // re-launches qOS.app while it's already running, or clicks the
+        // re-launches Qos.app while it's already running, or clicks the
         // running app's Dock icon. Bring the existing window forward without
         // reloading the WKWebView - if the user is mid-navigation in the
         // dashboard, a Dock click must not refresh them back to the start.

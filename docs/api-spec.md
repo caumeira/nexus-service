@@ -1,4 +1,4 @@
-# qOS Service — API Spec
+# Qos Service — API Spec
 
 Source of truth for the contract test suite. Mirrors the the original control service surface 1:1 by route + verb.
 Each endpoint has an `impl` column: **real** = working implementation, **stub** = returns well-formed empty/disconnected data, **macOS** = real on macOS only.
@@ -236,7 +236,7 @@ Each endpoint has an `impl` column: **real** = working implementation, **stub** 
 - `IStartupProvider` — autostart toggle
 
 ## Persistence (IConfigStore)
-File: `~/Library/Application Support/qOS/settings.json` (macOS), `%LOCALAPPDATA%/qOS/settings.json` (Windows).
+File: `~/Library/Application Support/Qos/settings.json` (macOS), `%LOCALAPPDATA%/Qos/settings.json` (Windows).
 Atomic write via tmp+rename. Schema-versioned. Sections:
 - `lighting` — current sync, brightness, speed, frame rate, scale ratio
 - `keeb` — game mode, rotary functions, sensitivity, macros, firmware lighting

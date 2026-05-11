@@ -113,12 +113,12 @@ public static class FfmpegTracker
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            return Path.Combine(home, "Library", "Application Support", "qOS");
+            return Path.Combine(home, "Library", "Application Support", "Qos");
         }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "qOS");
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Qos");
         }
         var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
         if (string.IsNullOrEmpty(xdg))
@@ -126,6 +126,6 @@ public static class FfmpegTracker
             xdg = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
         }
 
-        return Path.Combine(xdg, "qOS");
+        return Path.Combine(xdg, "Qos");
     }
 }

@@ -29,7 +29,7 @@ namespace Qos.Service.DependencyInjection;
 /// </summary>
 public static class QosServiceCollectionExtensions
 {
-    public static IServiceCollection AddqOSCore(this IServiceCollection services)
+    public static IServiceCollection AddQosCore(this IServiceCollection services)
     {
 #if WINDOWS
         services.AddSingleton<LhmComputer>();
@@ -52,7 +52,7 @@ public static class QosServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddqOSSensors(this IServiceCollection services)
+    public static IServiceCollection AddQosSensors(this IServiceCollection services)
     {
 #if WINDOWS
         services.AddSingleton<ISensorProvider, LibreHardwareSensorProvider>();
@@ -67,7 +67,7 @@ public static class QosServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddqOSCooling(this IServiceCollection services)
+    public static IServiceCollection AddQosCooling(this IServiceCollection services)
     {
         services.AddSingleton<StubCoolingProvider>();
 #if WINDOWS
@@ -94,7 +94,7 @@ public static class QosServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddqOSLighting(this IServiceCollection services)
+    public static IServiceCollection AddQosLighting(this IServiceCollection services)
     {
         services.AddSingleton<LightingEngine>();
         services.AddSingleton(_ => new Qos.Service.Lighting.Engine.Gpu.GpuContext(160, 90));
@@ -121,7 +121,7 @@ public static class QosServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddqOSDevices(this IServiceCollection services)
+    public static IServiceCollection AddQosDevices(this IServiceCollection services)
     {
         services.AddSingleton<StubDeviceProvider>();
         services.AddSingleton<IDeviceProvider>(sp => sp.GetRequiredService<StubDeviceProvider>());
@@ -172,7 +172,7 @@ public static class QosServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddqOSPeripherals(this IServiceCollection services)
+    public static IServiceCollection AddQosPeripherals(this IServiceCollection services)
     {
 #if WINDOWS
         services.AddSingleton<Qos.Service.Peripherals.Hid.IHidEnumerator, Qos.Service.Peripherals.Hid.WindowsHidEnumerator>();
@@ -211,7 +211,7 @@ public static class QosServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddqOSActivity(this IServiceCollection services)
+    public static IServiceCollection AddQosActivity(this IServiceCollection services)
     {
         services.AddSingleton<Qos.Service.Activity.Storage.IScreenTimeStore>(_ =>
         {
@@ -267,7 +267,7 @@ public static class QosServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddqOSNetwork(this IServiceCollection services)
+    public static IServiceCollection AddQosNetwork(this IServiceCollection services)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
@@ -296,7 +296,7 @@ public static class QosServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddqOSLifecycle(this IServiceCollection services)
+    public static IServiceCollection AddQosLifecycle(this IServiceCollection services)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             services.AddSingleton<IStartupProvider, MacStartupProvider>();
@@ -314,7 +314,7 @@ public static class QosServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddqOSBenchmarks(this IServiceCollection services)
+    public static IServiceCollection AddQosBenchmarks(this IServiceCollection services)
     {
         services.AddSingleton<Qos.Service.Benchmarks.IBenchmarkProvider, Qos.Service.Benchmarks.Providers.DefaultBenchmarkProvider>();
         services.AddSingleton<Qos.Service.Benchmarks.BenchmarkRunner>();
@@ -323,13 +323,13 @@ public static class QosServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddqOSWeather(this IServiceCollection services)
+    public static IServiceCollection AddQosWeather(this IServiceCollection services)
     {
         services.AddSingleton<Qos.Service.Platform.Weather.IWeatherProvider, Qos.Service.Platform.Weather.OpenMeteoWeatherProvider>();
         return services;
     }
 
-    public static IServiceCollection AddqOSPanel(this IServiceCollection services, int servicePort)
+    public static IServiceCollection AddQosPanel(this IServiceCollection services, int servicePort)
     {
         services.AddSingleton(sp => new Qos.Service.Panel.PanelKioskLauncher(servicePort, sp.GetRequiredService<TokenService>()));
         services.AddSingleton<Qos.Service.Panel.PanelOverlayHostLauncher>();
@@ -356,7 +356,7 @@ public static class QosServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddqOSLinuxDBus(this IServiceCollection services)
+    public static IServiceCollection AddQosLinuxDBus(this IServiceCollection services)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {

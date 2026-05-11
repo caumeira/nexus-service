@@ -53,7 +53,7 @@ public static class ServiceLog
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             var home = Environment.GetEnvironmentVariable("HOME") ?? "/tmp";
-            return Path.Combine(home, "Library", "Logs", "qOS");
+            return Path.Combine(home, "Library", "Logs", "Qos");
         }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
@@ -63,7 +63,7 @@ public static class ServiceLog
         // Windows: machine-scope logs under %ProgramData% so the LocalSystem
         // service can write them and an admin can inspect them post-incident.
         var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-        return Path.Combine(programData, "qOS", "logs");
+        return Path.Combine(programData, "Qos", "logs");
     }
 
     private static void RotateIfTooLarge(string path)

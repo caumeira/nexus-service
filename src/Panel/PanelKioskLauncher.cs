@@ -67,7 +67,7 @@ public sealed class PanelKioskLauncher
         {
             var userDataDir = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "qOS", "PanelKiosk");
+                "Qos", "PanelKiosk");
 
             var psi = new ProcessStartInfo
             {
@@ -202,13 +202,13 @@ public sealed class PanelKioskLauncher
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "qOS");
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Qos");
         }
 
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         return RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
-            ? Path.Combine(home, "Library", "Application Support", "qOS")
-            : Path.Combine(home, ".config", "qOS");
+            ? Path.Combine(home, "Library", "Application Support", "Qos")
+            : Path.Combine(home, ".config", "Qos");
     }
 
     private static readonly string[] PanelDisplayNames =

@@ -7,7 +7,7 @@
     <key>CFBundleName</key>
     <string>qos-overlay-helper</string>
     <key>CFBundleDisplayName</key>
-    <string>qOS Overlay Helper</string>
+    <string>Qos Overlay Helper</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>

@@ -45,6 +45,6 @@ public static class LifecycleRoutes
         }
         catch { /* best-effort fallback below */ }
 
-        return Path.Combine(AppContext.BaseDirectory, "qOS.exe");
+        return Path.Combine(AppContext.BaseDirectory, "Qos.exe");
     }
 }

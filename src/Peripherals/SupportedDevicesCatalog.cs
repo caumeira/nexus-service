@@ -4,7 +4,7 @@ using Qos.Service.Models.Peripherals;
 namespace Qos.Service.Peripherals;
 
 /// <summary>
-/// Hand-curated list of peripherals qOS knows about. Users search this to
+/// Hand-curated list of peripherals Qos knows about. Users search this to
 /// answer "is my device supported?". The modal highlights rows whose VID/PID
 /// matches a currently-plugged-in device via the raw USB enumerator.
 /// </summary>

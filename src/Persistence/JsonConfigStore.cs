@@ -9,9 +9,9 @@ namespace Qos.Service.Persistence;
 
 /// <summary>
 /// File-backed QosSettings store.
-/// Path: ~/Library/Application Support/qOS/settings.json on macOS,
-///       %LOCALAPPDATA%/qOS/settings.json on Windows,
-///       $XDG_CONFIG_HOME/qOS/settings.json (or ~/.config/qOS) on Linux.
+/// Path: ~/Library/Application Support/Qos/settings.json on macOS,
+///       %LOCALAPPDATA%/Qos/settings.json on Windows,
+///       $XDG_CONFIG_HOME/Qos/settings.json (or ~/.config/Qos) on Linux.
 ///
 /// Concurrency: a single global lock around load/save. Updates mutate the in-memory
 /// doc synchronously, but the disk write is coalesced to a short debounce window so
@@ -191,14 +191,14 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            return Path.Combine(home, "Library", "Application Support", "qOS", "settings.json");
+            return Path.Combine(home, "Library", "Application Support", "Qos", "settings.json");
         }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             // Machine-scope: settings belong to the LocalSystem service, not the
             // logged-in user. CommonApplicationData = %ProgramData%.
             var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            return Path.Combine(programData, "qOS", "settings.json");
+            return Path.Combine(programData, "Qos", "settings.json");
         }
 
         // Linux / others
@@ -207,7 +207,7 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         {
             xdg = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
         }
-        return Path.Combine(xdg, "qOS", "settings.json");
+        return Path.Combine(xdg, "Qos", "settings.json");
     }
 
     // Station was removed in AMP-98. System.Text.Json silently drops unknown

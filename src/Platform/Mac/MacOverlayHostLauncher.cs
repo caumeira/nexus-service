@@ -11,7 +11,7 @@ namespace Qos.Service.Platform.Mac;
 /// <summary>
 /// macOS implementation of <see cref="IOverlayHost"/>. Spawns the Swift
 /// sidecar <c>qos-overlay-helper</c> from
-/// <c>qOS.app/Contents/MacOS/</c>, which renders one transparent
+/// <c>Qos.app/Contents/MacOS/</c>, which renders one transparent
 /// borderless NSWindow + WKWebView per NSScreen. Mirrors the
 /// <see cref="PanelOverlayHostLauncher"/> Windows path: spawn on enable,
 /// kill on disable, restart on crash with linear backoff.
@@ -176,8 +176,8 @@ public sealed class MacOverlayHostLauncher : IOverlayHost
     private static string? ResolveHelperPath()
     {
         // .app bundle layout: AppContext.BaseDirectory is
-        // qOS.app/Contents/MacOS/. Helpers live alongside the main
-        // binary so TCC attributes any permission grants to the qOS
+        // Qos.app/Contents/MacOS/. Helpers live alongside the main
+        // binary so TCC attributes any permission grants to the Qos
         // bundle, not to a separate identity.
         var dir = AppContext.BaseDirectory;
         if (string.IsNullOrEmpty(dir)) return null;

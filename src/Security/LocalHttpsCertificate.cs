@@ -42,7 +42,7 @@ public static class LocalHttpsCertificate
 
         using var rsa = RSA.Create(2048);
         var req = new CertificateRequest(
-            "CN=qOS Local",
+            "CN=Qos Local",
             rsa,
             HashAlgorithmName.SHA256,
             RSASignaturePadding.Pkcs1);
@@ -114,7 +114,7 @@ public static class LocalHttpsCertificate
                 ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
         }
 
-        return Path.Combine(root, "qOS", "qos-local-https.pfx");
+        return Path.Combine(root, "Qos", "qos-local-https.pfx");
     }
 
     private static IEnumerable<IPAddress> GetLocalIpv4Addresses()

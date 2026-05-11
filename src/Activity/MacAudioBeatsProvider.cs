@@ -22,7 +22,7 @@ namespace Qos.Service.Activity;
 /// keeps the C# side a normal stdin/stdout pipe consumer.
 ///
 /// TCC: the helper triggers a Screen Recording permission prompt on first
-/// run. macOS attributes the prompt to the parent bundle (qOS.app)
+/// run. macOS attributes the prompt to the parent bundle (Qos.app)
 /// because the helper lives under <c>Contents/MacOS</c>. If the helper
 /// binary is missing (dev runs from <c>bin/Debug</c> without
 /// <c>build-helper.sh</c> having been run) the provider logs a clear error

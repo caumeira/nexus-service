@@ -22,7 +22,7 @@ public static class PawnIoPaths
     /// </summary>
     public static string InstalledSysPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "qOS", "PawnIO", "PawnIO.sys");
+        "Qos", "PawnIO", "PawnIO.sys");
 
     /// <summary>
     /// PawnIOLib.dll location, preferring system install over bundled copy.

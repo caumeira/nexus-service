@@ -87,7 +87,7 @@ public sealed class OpenRgbProcessManager : IDisposable
 
     /// <summary>
     /// Service-owned OpenRGB config directory. Defaults to
-    /// <c>%LOCALAPPDATA%\qOS\openrgb-config</c> on Windows so we
+    /// <c>%LOCALAPPDATA%\Qos\openrgb-config</c> on Windows so we
     /// don't collide with any user-installed OpenRGB.
     /// </summary>
     public static string ResolveConfigDir()
@@ -98,7 +98,7 @@ public sealed class OpenRgbProcessManager : IDisposable
             baseDir = Path.GetTempPath();
         }
 
-        return Path.Combine(baseDir, "qOS", "openrgb-config");
+        return Path.Combine(baseDir, "Qos", "openrgb-config");
     }
 
     /// <summary>
@@ -128,7 +128,7 @@ public sealed class OpenRgbProcessManager : IDisposable
             CleanupOrphans();
 
             // Use a service-owned config directory so we don't collide with any
-            // user-installed OpenRGB. Lives under %LOCALAPPDATA%\qOS on Windows.
+            // user-installed OpenRGB. Lives under %LOCALAPPDATA%\Qos on Windows.
             var configDir = ResolveConfigDir();
             try
             { Directory.CreateDirectory(configDir); }

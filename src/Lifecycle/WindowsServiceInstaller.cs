@@ -11,7 +11,7 @@ using Microsoft.Win32;
 namespace Qos.Service.Lifecycle;
 
 /// <summary>
-/// Canonical install / uninstall primitive for qOS as a Windows Service.
+/// Canonical install / uninstall primitive for Qos as a Windows Service.
 /// Both the Inno installer and a bare-EXE self-install invoke
 /// <see cref="RunInstall"/> / <see cref="RunUninstall"/>.
 ///
@@ -26,17 +26,17 @@ namespace Qos.Service.Lifecycle;
 internal static class WindowsServiceInstaller
 {
     public const string ServiceName = "QosService";
-    public const string ServiceDisplayName = "qOS Service";
-    public const string ServiceDescription = "qOS hardware monitoring and control";
-    public const string InstallDirName = "qOS";
-    public const string BinaryName = "qOS.exe";
-    public const string FirewallRuleName = "qOSService";
-    public const string UninstallRegKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\qOS";
+    public const string ServiceDisplayName = "Qos Service";
+    public const string ServiceDescription = "Qos hardware monitoring and control";
+    public const string InstallDirName = "Qos";
+    public const string BinaryName = "Qos.exe";
+    public const string FirewallRuleName = "QosService";
+    public const string UninstallRegKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Qos";
     public const int DefaultPort = 9400;
 
     /// <summary>
-    /// `qOS.exe --install` entry. Self-elevates if needed; copies files to
-    /// %ProgramFiles%\qOS\ if invoked from elsewhere; registers the Windows
+    /// `Qos.exe --install` entry. Self-elevates if needed; copies files to
+    /// %ProgramFiles%\Qos\ if invoked from elsewhere; registers the Windows
     /// Service; installs PawnIO; opens the firewall; writes the Add/Remove
     /// Programs registry key; starts the service.
     /// </summary>
@@ -177,10 +177,10 @@ internal static class WindowsServiceInstaller
     }
 
     /// <summary>
-    /// `qOS.exe --uninstall` entry. Stops + deletes the service, removes the
+    /// `Qos.exe --uninstall` entry. Stops + deletes the service, removes the
     /// firewall rule, Add/Remove entry, Start Menu shortcut, and the install
     /// dir (best-effort; locked files scheduled for delete-on-reboot). Does
-    /// NOT delete %ProgramData%\qOS\ by default - pass --purge to wipe user
+    /// NOT delete %ProgramData%\Qos\ by default - pass --purge to wipe user
     /// data. PawnIO is left installed (harmless and shared with other tools).
     /// </summary>
     public static int RunUninstall(string[] args)
@@ -230,7 +230,7 @@ internal static class WindowsServiceInstaller
     }
 
     /// <summary>
-    /// `qOS.exe --start-service` entry. Unprivileged: works because --install
+    /// `Qos.exe --start-service` entry. Unprivileged: works because --install
     /// granted SERVICE_START to Authenticated Users. Useful for scripting and
     /// as an explicit recovery hook the dashboard can shell out to.
     /// </summary>
@@ -335,9 +335,9 @@ internal static class WindowsServiceInstaller
             Log("WARN could not open uninstall reg key");
             return;
         }
-        key.SetValue("DisplayName", "qOS");
+        key.SetValue("DisplayName", "Qos");
         key.SetValue("DisplayVersion", ResolveVersion());
-        key.SetValue("Publisher", "Nexus qOS");
+        key.SetValue("Publisher", "Nexus Qos");
         key.SetValue("InstallLocation", installDir);
         key.SetValue("UninstallString", $"\"{installedExe}\" --uninstall");
         key.SetValue("QuietUninstallString", $"\"{installedExe}\" --uninstall --silent");
@@ -357,9 +357,9 @@ internal static class WindowsServiceInstaller
         // Drop a .url shortcut to the dashboard (more useful than the exe itself
         // for end users). We avoid the COM ShellLink approach for AOT safety.
         var startMenu = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu);
-        var dir = Path.Combine(startMenu, "Programs", "qOS");
+        var dir = Path.Combine(startMenu, "Programs", "Qos");
         Directory.CreateDirectory(dir);
-        var lnk = Path.Combine(dir, "qOS Dashboard.url");
+        var lnk = Path.Combine(dir, "Qos Dashboard.url");
         var content = $"[InternetShortcut]\r\nURL=http://localhost:{DefaultPort}/\r\nIconFile={targetExe}\r\nIconIndex=0\r\n";
         File.WriteAllText(lnk, content);
     }
@@ -367,7 +367,7 @@ internal static class WindowsServiceInstaller
     private static void DeleteShortcut(string installDir)
     {
         var startMenu = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu);
-        var dir = Path.Combine(startMenu, "Programs", "qOS");
+        var dir = Path.Combine(startMenu, "Programs", "Qos");
         if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
     }
 
@@ -409,7 +409,7 @@ internal static class WindowsServiceInstaller
         }
         catch (UnauthorizedAccessException)
         {
-            // The uninstaller usually IS the qOS.exe being deleted, so the
+            // The uninstaller usually IS the Qos.exe being deleted, so the
             // .exe holds its own write lock. Schedule everything for delete
             // on reboot - the next start will reclaim a clean dir.
             foreach (var f in Directory.GetFiles(path, "*", SearchOption.AllDirectories))

@@ -13,7 +13,7 @@ namespace Qos.Service.Lifecycle;
 public sealed class WindowsStartupProvider : IStartupProvider
 {
     private const string PrimaryTaskName = "QosService";
-    private const string LegacyTaskName = "qOS";
+    private const string LegacyTaskName = "Qos";
 
     public bool IsEnabled()
     {

@@ -117,7 +117,7 @@ public sealed class LinuxTrayHost : IDisposable
     {
         WriteDictEntry(w, "Category", "s", ww => ww.WriteString("ApplicationStatus"));
         WriteDictEntry(w, "Id", "s", ww => ww.WriteString("qos-service"));
-        WriteDictEntry(w, "Title", "s", ww => ww.WriteString("qOS"));
+        WriteDictEntry(w, "Title", "s", ww => ww.WriteString("Qos"));
         WriteDictEntry(w, "Status", "s", ww => ww.WriteString("Active"));
         WriteDictEntry(w, "IconName", "s", ww => ww.WriteString("applications-system"));
         WriteDictEntry(w, "ItemIsMenu", "b", ww => ww.WriteBool(false));
@@ -138,7 +138,7 @@ public sealed class LinuxTrayHost : IDisposable
                 w.WriteVariant("s", ww => ww.WriteString("qos-service"));
                 return;
             case "Title":
-                w.WriteVariant("s", ww => ww.WriteString("qOS"));
+                w.WriteVariant("s", ww => ww.WriteString("Qos"));
                 return;
             case "Status":
                 w.WriteVariant("s", ww => ww.WriteString("Active"));
@@ -195,7 +195,7 @@ public sealed class LinuxTrayHost : IDisposable
                         WriteMenuItemVariant(w, MenuOpenDashboard, "Open Dashboard", false);
                         WriteMenuItemVariant(w, MenuSettings, "Settings", false);
                         WriteMenuItemVariant(w, MenuSeparator, "", true);
-                        WriteMenuItemVariant(w, MenuQuit, "Quit qOS", false);
+                        WriteMenuItemVariant(w, MenuQuit, "Quit Qos", false);
                         w.CloseArray();
                     });
                 case "GetGroupProperties":
@@ -205,7 +205,7 @@ public sealed class LinuxTrayHost : IDisposable
                         WriteMenuItemStruct(w, MenuOpenDashboard, "Open Dashboard", false);
                         WriteMenuItemStruct(w, MenuSettings, "Settings", false);
                         WriteMenuItemStruct(w, MenuSeparator, "", true);
-                        WriteMenuItemStruct(w, MenuQuit, "Quit qOS", false);
+                        WriteMenuItemStruct(w, MenuQuit, "Quit Qos", false);
                         w.CloseArray();
                     });
                 case "AboutToShow":

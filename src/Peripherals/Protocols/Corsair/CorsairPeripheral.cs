@@ -9,7 +9,7 @@ namespace Qos.Service.Peripherals.Protocols.Corsair;
 /// reverse-engineered to the level Razer / HID++ are in the open-source world,
 /// so for v1 we recognize the device identity and surface it in the UI but
 /// don't expose live capability controls yet. Configuration is "planned" —
-/// the user sees that qOS knows about their Corsair peripheral.
+/// the user sees that Qos knows about their Corsair peripheral.
 /// </summary>
 public sealed class CorsairPeripheral : IPeripheral
 {

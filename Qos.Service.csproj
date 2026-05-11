@@ -12,7 +12,7 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>Qos.Service</RootNamespace>
-    <AssemblyName>qOS</AssemblyName>
+    <AssemblyName>Qos</AssemblyName>
     <InvariantGlobalization>true</InvariantGlobalization>
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <PublishAot>true</PublishAot>
@@ -225,7 +225,7 @@
 
        The pawnio/ subfolder gets the kernel driver package (.sys/.inf/.cat)
        and license files. PawnIOLib.dll is also placed next to
-       qOS.exe (for LibreHardwareMonitor's SuperIO detection —
+       Qos.exe (for LibreHardwareMonitor's SuperIO detection —
        LHM 0.9.6 uses PawnIO for LPC bus access since WinRing0 got revoked)
        and next to OpenRGB-headless.exe (OpenRGB loads it for SMBus probing).
 

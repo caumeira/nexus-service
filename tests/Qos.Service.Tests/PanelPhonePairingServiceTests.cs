@@ -12,7 +12,7 @@ public class PanelPhonePairingServiceTests
 {
     private const string UserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148";
     private const string AndroidUserAgent = "Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro) AppleWebKit/537.36 Mobile Safari/537.36";
-    private const string NativeIosUserAgent = "qOS/1 CFNetwork/3860.500.112 Darwin/25.4.0";
+    private const string NativeIosUserAgent = "Qos/1 CFNetwork/3860.500.112 Darwin/25.4.0";
 
     [Fact]
     public void CreatePairQr_UsesSixtySecondTtl()

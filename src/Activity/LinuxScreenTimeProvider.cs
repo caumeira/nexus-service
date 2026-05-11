@@ -329,11 +329,11 @@ public sealed class LinuxScreenTimeProvider : IScreenTimeProvider, IHostedServic
     private const string MetadataJson = """
 {
   "KPlugin": {
-    "Authors": [{"Name": "qOS"}],
+    "Authors": [{"Name": "Qos"}],
     "Category": "Window Management",
-    "Description": "Reports focused window changes to the qOS service via D-Bus",
+    "Description": "Reports focused window changes to the Qos service via D-Bus",
     "Id": "qos-focus",
-    "Name": "qOS Focus Tracker",
+    "Name": "Qos Focus Tracker",
     "ServiceTypes": ["KWin/Script"],
     "Version": "1.0",
     "EnabledByDefault": true

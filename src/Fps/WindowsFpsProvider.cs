@@ -12,7 +12,7 @@ public sealed class WindowsFpsProvider : IFpsProvider
     private const int StaleFrameMs = 2000;
     private const float GaugeMaximumFps = 240f;
     private const string SensorName = "FPS";
-    private static readonly string SessionName = $"qOS-Fps-{Environment.ProcessId}";
+    private static readonly string SessionName = $"Qos-Fps-{Environment.ProcessId}";
     private static readonly Guid DxgKrnlProviderGuid = new("802EC45A-1E99-4B83-9920-87C98277BA9D");
     private static readonly TraceEventID PresentInfoEventId = (TraceEventID)0x00b8;
 

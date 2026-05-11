@@ -24,7 +24,7 @@
 //
 // Lifecycle: dies on parent process exit (we monitor stdin EOF). Re-spawned
 // by the service on demand. Single instance via PID file in
-// ~/Library/Application Support/qOS/.
+// ~/Library/Application Support/Qos/.
 
 import AppKit
 import WebKit

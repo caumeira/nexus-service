@@ -67,7 +67,7 @@ public sealed class GpuContext : IDisposable
 
     private static readonly string LogPath = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "qOS", "gpu.log");
+        "Qos", "gpu.log");
 
     public static void Log(string line)
     {

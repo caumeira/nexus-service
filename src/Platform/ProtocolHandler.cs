@@ -43,7 +43,7 @@ public static class ProtocolHandler
         // Detect whether we're running as a native AOT exe or via `dotnet <dll>`.
         // Environment.ProcessPath returns dotnet.exe when run via `dotnet`, so we
         // check for the native exe first, then fall back to a `dotnet <dll>` command.
-        var nativeExe = Path.Combine(AppContext.BaseDirectory, "qOS.exe");
+        var nativeExe = Path.Combine(AppContext.BaseDirectory, "Qos.exe");
         string command;
         string iconPath;
 
@@ -69,7 +69,7 @@ public static class ProtocolHandler
         }
 
         using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Classes\qos");
-        key.SetValue("", "URL:qOS Protocol");
+        key.SetValue("", "URL:Qos Protocol");
         key.SetValue("URL Protocol", "");
 
         using var iconKey = key.CreateSubKey("DefaultIcon");
@@ -103,7 +103,7 @@ public static class ProtocolHandler
         // Create a minimal .app bundle in ~/Applications/
         var appDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "Applications", "qOS.app");
+            "Applications", "Qos.app");
         var contentsDir = Path.Combine(appDir, "Contents");
         var macosDir = Path.Combine(contentsDir, "MacOS");
 
@@ -117,14 +117,14 @@ public static class ProtocolHandler
     <key>CFBundleIdentifier</key>
     <string>com.nexusqos.panel.launcher</string>
     <key>CFBundleName</key>
-    <string>qOS</string>
+    <string>Qos</string>
     <key>CFBundleExecutable</key>
     <string>qos-launcher</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
             <key>CFBundleURLName</key>
-            <string>qOS Protocol</string>
+            <string>Qos Protocol</string>
             <key>CFBundleURLSchemes</key>
             <array>
                 <string>qos</string>
@@ -161,7 +161,7 @@ public static class ProtocolHandler
         Directory.CreateDirectory(appsDir);
 
         var desktop = $@"[Desktop Entry]
-Name=qOS
+Name=Qos
 Exec=""{exePath}"" %u
 Type=Application
 NoDisplay=true

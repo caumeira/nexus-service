@@ -43,7 +43,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
 
     private static readonly string PidFilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "qOS", "panel-desktop-pid.txt");
+        "Qos", "panel-desktop-pid.txt");
 
     public PanelOverlayHostLauncher()
     {
@@ -246,7 +246,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     // ── Windows Job Object plumbing ──
     // CreateJobObject + JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE makes every
     // process assigned to the job die when this handle closes (= when
-    // qOS.exe exits, including taskkill /F or hard crash).
+    // Qos.exe exits, including taskkill /F or hard crash).
 
     private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
     private const int JobObjectExtendedLimitInformation = 9;

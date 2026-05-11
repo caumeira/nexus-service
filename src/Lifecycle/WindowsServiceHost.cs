@@ -8,7 +8,7 @@ using System.Threading.Tasks;
 namespace Qos.Service.Lifecycle;
 
 /// <summary>
-/// Windows SCM dispatcher for running the qOS daemon as a real Windows
+/// Windows SCM dispatcher for running the Qos daemon as a real Windows
 /// Service (LocalSystem, Automatic). AOT-safe: raw P/Invoke against
 /// advapi32.dll, no `System.ServiceProcess.ServiceBase` reflection.
 ///

@@ -1,4 +1,4 @@
-# Builds qOS-Setup.exe from an existing AOT publish output.
+# Builds Qos-Setup.exe from an existing AOT publish output.
 #
 # This is NOT part of the regular AOT publish cycle. Run it explicitly when you
 # want a fresh installer (e.g. before a release). The dev workflow stays:
@@ -35,7 +35,7 @@ $iscc = "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
 
 if (-not (Test-Path $iss))  { throw "Missing Qos.iss next to this script: $iss" }
 if (-not (Test-Path $iscc)) { throw "Inno Setup 6 not installed. Run: winget install JRSoftware.InnoSetup" }
-if (-not (Test-Path (Join-Path $PublishDir "qOS.exe"))) {
+if (-not (Test-Path (Join-Path $PublishDir "Qos.exe"))) {
     throw "AOT publish not found at $PublishDir. Run dotnet publish first."
 }
 
@@ -52,11 +52,11 @@ try {
     Pop-Location
 }
 
-$out = Join-Path $scriptDir "output\qOS-Setup.exe"
+$out = Join-Path $scriptDir "output\Qos-Setup.exe"
 # Drop a copy at the parent qos/ dir so the latest installer always lives
 # next to the other top-level qos artifacts, not buried in installer\output.
 $dropDir = (Resolve-Path (Join-Path $scriptDir "..\..")).Path
-$drop    = Join-Path $dropDir "qOS-Setup.exe"
+$drop    = Join-Path $dropDir "Qos-Setup.exe"
 Copy-Item $out $drop -Force
 
 $size = [math]::Round((Get-Item $out).Length / 1MB, 2)

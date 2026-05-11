@@ -24,7 +24,7 @@ public enum PawnIoInstallResult
 /// <summary>
 /// Auto-installs the bundled PawnIO kernel driver via pnputil.
 ///
-/// On first launch, qOS.exe self-elevates (one UAC prompt) and reruns
+/// On first launch, Qos.exe self-elevates (one UAC prompt) and reruns
 /// itself with --install-pawnio. The elevated child runs pnputil /add-driver /install
 /// against the bundled PawnIO.inf, which copies the driver to the driver store,
 /// creates the root device node, and starts the kernel service. Subsequent
@@ -120,7 +120,7 @@ public static class PawnIoInstaller
     }
 
     /// <summary>
-    /// Elevated entry point. Called when qOS.exe is launched with the
+    /// Elevated entry point. Called when Qos.exe is launched with the
     /// --install-pawnio command-line arg. Runs pnputil to install the bundled driver.
     /// Returns 0 on success, 1 on failure.
     /// </summary>
@@ -361,7 +361,7 @@ public static class PawnIoInstaller
 
     private static string LogPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "qOS", "pawnio-install.log");
+        "Qos", "pawnio-install.log");
 
     private static void Log(string msg)
     {

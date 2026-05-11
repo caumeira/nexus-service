@@ -549,7 +549,7 @@ public sealed class PanelPhonePairingService
             return "iPad";
         if (userAgent.Contains("iPhone", StringComparison.OrdinalIgnoreCase))
             return "iPhone";
-        if (userAgent.Contains("qOS/", StringComparison.OrdinalIgnoreCase) &&
+        if (userAgent.Contains("Qos/", StringComparison.OrdinalIgnoreCase) &&
             userAgent.Contains("CFNetwork", StringComparison.OrdinalIgnoreCase) &&
             userAgent.Contains("Darwin", StringComparison.OrdinalIgnoreCase))
         {
@@ -608,7 +608,7 @@ public sealed class PanelPhonePairingService
             " ",
             (value ?? "").Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
         if (normalized.Length == 0)
-            return "qOS PC";
+            return "Qos PC";
         return normalized.Length <= 64 ? normalized : normalized[..64];
     }
 
@@ -635,7 +635,7 @@ public sealed class PanelPhonePairingService
             // Fall through to the product fallback below.
         }
 
-        return "qOS PC";
+        return "Qos PC";
     }
 
     private static string? ReadFirstOutputLine(string fileName, params string[] arguments)

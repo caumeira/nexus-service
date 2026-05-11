@@ -54,7 +54,7 @@ public static class AuthErrorResponse
         var safeDetail = WebUtility.HtmlEncode(detail);
         return "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
             + "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1,viewport-fit=cover\">"
-            + $"<title>{safeCode} - qOS</title>"
+            + $"<title>{safeCode} - Qos</title>"
             + "<style>"
             + "html,body{margin:0;height:100%;background:#0f0f0f;color:#e6e6e6;font-family:system-ui,-apple-system,Segoe UI,sans-serif;-webkit-font-smoothing:antialiased}"
             + "body{display:flex;align-items:center;justify-content:center;padding:24px;box-sizing:border-box}"
@@ -67,7 +67,7 @@ public static class AuthErrorResponse
             + ".retry:hover{background:#2a2a2a;border-color:#3a3a3a}"
             + "@media (prefers-color-scheme: light){html,body{background:#fafafa;color:#1a1a1a}.badge{border-color:#e5e5e5;color:#666}.detail{color:#666}.retry{background:#f0f0f0;color:#1a1a1a;border-color:#d4d4d4}.retry:hover{background:#e8e8e8;border-color:#bcbcbc}}"
             + "</style></head><body>"
-            + $"<div class=\"card\"><div class=\"badge\">qOS</div>"
+            + $"<div class=\"card\"><div class=\"badge\">Qos</div>"
             + $"<div class=\"code\">{status}</div>"
             + $"<p class=\"title\">{safeCode}</p>"
             + $"<p class=\"detail\">{safeDetail}</p>"

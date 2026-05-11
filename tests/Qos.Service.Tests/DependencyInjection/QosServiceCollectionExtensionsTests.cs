@@ -25,18 +25,18 @@ public class QosServiceCollectionExtensionsTests
     {
         var services = new ServiceCollection();
         services
-            .AddqOSCore()
-            .AddqOSSensors()
-            .AddqOSCooling()
-            .AddqOSBenchmarks()
-            .AddqOSLighting()
-            .AddqOSDevices()
-            .AddqOSPeripherals()
-            .AddqOSActivity()
-            .AddqOSNetwork()
-            .AddqOSLifecycle()
-            .AddqOSWeather()
-            .AddqOSPanel(servicePort: 9400);
+            .AddQosCore()
+            .AddQosSensors()
+            .AddQosCooling()
+            .AddQosBenchmarks()
+            .AddQosLighting()
+            .AddQosDevices()
+            .AddQosPeripherals()
+            .AddQosActivity()
+            .AddQosNetwork()
+            .AddQosLifecycle()
+            .AddQosWeather()
+            .AddQosPanel(servicePort: 9400);
         services.AddLogging();
         services.AddHttpClient();
         return services.BuildServiceProvider();

@@ -7,7 +7,7 @@ namespace Qos.Service.Platform.Windows;
 /// <summary>
 /// System tray icon for qos-service on Windows.
 /// Pure Win32 - no WinForms. Creates a NotifyIcon in the system tray
-/// with right-click menu (Open qOS / Open in Browser / Device Panel / Exit).
+/// with right-click menu (Open Qos / Open in Browser / Device Panel / Exit).
 /// </summary>
 public static class TrayIcon
 {
@@ -134,7 +134,7 @@ public static class TrayIcon
             {
                 cbSize = Marshal.SizeOf<WNDCLASSEX>(),
                 lpfnWndProc = _pinnedProc,
-                lpszClassName = "qOSTrayWnd",
+                lpszClassName = "QosTrayWnd",
                 hInstance = GetModuleHandle(null),
             };
 
@@ -180,7 +180,7 @@ public static class TrayIcon
             }
 
             nid.hIcon = hIcon;
-            nid.szTip = "qOS";
+            nid.szTip = "Qos";
 
             lock (_sync)
             {
@@ -243,7 +243,7 @@ public static class TrayIcon
                     POINT pt;
                     GetCursorPos(out pt);
                     var menu = CreatePopupMenu();
-                    AppendMenu(menu, 0, IDM_OPEN_APP, "Open qOS");
+                    AppendMenu(menu, 0, IDM_OPEN_APP, "Open Qos");
                     AppendMenu(menu, 0, IDM_OPEN_BROWSER, "Open in Browser");
                     AppendMenu(menu, MF_SEPARATOR, 0, "");
                     var panelFlag = (_isPanelRunning?.Invoke() ?? false) ? MF_CHECKED : MF_UNCHECKED;
@@ -326,7 +326,7 @@ public static class TrayIcon
 
         // Fallback: we lost the process reference (service restarted with
         // the window still open, Edge was updated, etc.). Sweep top-level
-        // windows and focus the one whose title is "qOS" before
+        // windows and focus the one whose title is "Qos" before
         // spawning a duplicate.
         var existing = FindExistingAppWindow();
         if (existing != IntPtr.Zero)
@@ -390,7 +390,7 @@ public static class TrayIcon
             // Skip tool windows. Our floating desktop overlays
             // (qos-overlay.exe) carry WS_EX_TOOLWINDOW so they don't
             // show in Alt-Tab; they also have a title that starts with
-            // "qOS", which would otherwise match here. The dashboard
+            // "Qos", which would otherwise match here. The dashboard
             // window is a regular Edge --app top-level (no toolwindow bit).
             const int GWL_EXSTYLE_LOCAL = -20;
             const int WS_EX_TOOLWINDOW_LOCAL = 0x00000080;
@@ -408,10 +408,10 @@ public static class TrayIcon
             GetWindowText(hwnd, sb, sb.Capacity);
             var title = sb.ToString();
             // Edge --app puts the page title verbatim in the window
-            // caption. Our SPA is titled "qOS"; match any window that
-            // starts with that so we still catch "qOS - <section>"
+            // caption. Our SPA is titled "Qos"; match any window that
+            // starts with that so we still catch "Qos - <section>"
             // style titles if we ever add them.
-            if (title.StartsWith("qOS", StringComparison.OrdinalIgnoreCase))
+            if (title.StartsWith("Qos", StringComparison.OrdinalIgnoreCase))
             {
                 result = hwnd;
                 return false; // stop enumeration
