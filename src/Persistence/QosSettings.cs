@@ -100,6 +100,7 @@ public sealed class UiSettingsPatch
     public bool? OverlayWidgetsAlwaysOnTop { get; set; }
     public int? OverlayWidgetScale { get; set; }
     public double? OverlayWidgetOpacity { get; set; }
+    public int? OverlayWidgetsMonitor { get; set; }
     public List<Qos.Service.Models.Panel.OverlayWidgetDto>? OverlayLayout { get; set; }
 }
 
@@ -156,6 +157,21 @@ public sealed class UiSettings
     public int OverlayWidgetScale { get; set; } = 100;
     /// <summary>Per-card background opacity for desktop widgets (0..1). Applied to --panel-card-bg-opacity on the overlay's panel-root so the card surface, border, and shadow fade together over the wallpaper. Default 1.0 (fully opaque). The overlay host always composites with per-pixel alpha so this takes visible effect immediately on Windows and macOS.</summary>
     public double OverlayWidgetOpacity { get; set; } = 1.0;
+    /// <summary>
+    /// Which monitor the single floating widget overlay renders on.
+    /// Zero-based index into <c>EnumDisplayMonitors</c> order. -1 means
+    /// "use the OS-flagged primary monitor" (default; sentinel for
+    /// first-run before the user opens the popup and picks one). On
+    /// change the overlay's SPA pushes a setMonitor webMessage that
+    /// moves the existing window via SetWindowPos in ~15 ms (no
+    /// teardown); the 5 s prefs poll is the safety-net fallback that
+    /// tears down + recreates the OverlayWindow if the fast path
+    /// didn't fire (e.g. WebSocket dropped). Carried in profile
+    /// sharing as a convenience, but the index is workstation-local -
+    /// importing a profile that picked monitor 2 onto a single-display
+    /// machine relies on the host's out-of-range fallback to primary.
+    /// </summary>
+    public int OverlayWidgetsMonitor { get; set; } = -1;
     /// <summary>Profile-scoped floating desktop widget layout. Sparse list - one entry per pinned widget with its (monitor, col, row, size). Empty means no widgets pinned. See plans/desktop-widgets-v1.md.</summary>
     public List<Qos.Service.Models.Panel.OverlayWidgetDto> OverlayLayout { get; set; } = new();
 }

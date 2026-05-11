@@ -105,6 +105,7 @@ public static class ProfileSharing
         target.OverlayWidgetsAlwaysOnTop = source.OverlayWidgetsAlwaysOnTop;
         target.OverlayWidgetScale = source.OverlayWidgetScale;
         target.OverlayWidgetOpacity = source.OverlayWidgetOpacity;
+        target.OverlayWidgetsMonitor = source.OverlayWidgetsMonitor;
         target.OverlayLayout = source.OverlayLayout ?? new();
     }
 }

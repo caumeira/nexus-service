@@ -342,10 +342,11 @@
 
   <!-- Publish the floating-widget overlay host (qos-overlay.exe) into
        <publish>/overlay/ as part of the service publish on Windows. The
-       overlay is a WinForms self-contained framework-dependent EXE because
-       WinForms does not support AOT in .NET 10 (NETSDK1175), so it lives
-       in a subdirectory to keep its CLR + WinForms + WebView2 native blobs
-       out of the AOT-native service root.
+       overlay is itself an AOT-native binary (raw Win32 + direct
+       WebView2 C-API P/Invoke) so the published payload is just
+       qos-overlay.exe + WebView2Loader.dll. It still lives in a
+       subdirectory to keep its WebView2 user-data + COM scaffolding
+       cleanly separated from the service root.
 
        Failure modes are hard <Error>s, not warnings: skipping the overlay
        leaves the desktop widgets feature silently broken (host not found,
@@ -383,12 +384,15 @@
            Text="Overlay publish completed without the host EXE at $(_OverlayPublishDir)qos-overlay.exe. Desktop widgets will not run." />
     <Error Condition="!Exists('$(_OverlayPublishDir)WebView2Loader.dll')"
            Text="Overlay publish missing WebView2Loader.dll at $(_OverlayPublishDir). Host process would start but WebView2 init would fail silently and no widgets would render." />
-    <Error Condition="!Exists('$(_OverlayPublishDir)Microsoft.Web.WebView2.Core.dll')"
-           Text="Overlay publish missing Microsoft.Web.WebView2.Core.dll at $(_OverlayPublishDir). WebView2 cannot initialise without it." />
-    <Error Condition="!Exists('$(_OverlayPublishDir)Microsoft.Web.WebView2.WinForms.dll')"
-           Text="Overlay publish missing Microsoft.Web.WebView2.WinForms.dll at $(_OverlayPublishDir). The WinForms host cannot embed the WebView2 control without it." />
-    <Error Condition="!Exists('$(_OverlayPublishDir)System.Windows.Forms.dll')"
-           Text="Overlay publish missing System.Windows.Forms.dll at $(_OverlayPublishDir). Self-contained WinForms publish failed to copy framework assemblies." />
+    <!-- The overlay rewrite drops the managed Microsoft.Web.WebView2.Core
+         wrapper (NativeAOT-incompatible) and the WinForms host entirely. It
+         P/Invokes WebView2Loader.dll directly and walks COM vtables. The
+         only files that need to land are qos-overlay.exe + WebView2Loader.dll. -->
+    <!-- ILC writes a 20+ MB pdb AFTER the overlay's own AfterTargets="Publish"
+         strip target runs, so we cannot remove it from the overlay side.
+         Delete it here, after the overlay publish has fully settled, to keep
+         debug symbols out of Qos-Setup.exe. -->
+    <Delete Files="$(_OverlayPublishDir)qos-overlay.pdb" />
   </Target>
 
   <!-- Bake git commit count as version -->

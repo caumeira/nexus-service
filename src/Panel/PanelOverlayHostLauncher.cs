@@ -11,9 +11,9 @@ namespace Qos.Service.Panel;
 /// Spawns and supervises qos-overlay.exe, the WebView2 host that
 /// renders floating widgets on the Windows desktop. The host lives in the
 /// `overlay/` subdirectory next to the service exe; that layout is enforced
-/// by the PublishOverlayHost MSBuild target so the WinForms self-contained
-/// payload (CLR + WebView2 native loader) cannot collide with the
-/// AOT-native service root.
+/// by the PublishOverlayHost MSBuild target. The overlay is a raw-Win32 +
+/// direct WebView2 C-API P/Invoke binary published with PublishAot=true -
+/// the only files in overlay/ are qos-overlay.exe and WebView2Loader.dll.
 ///
 /// Lifecycle:
 /// - Started at service boot when <c>UiSettings.OverlayWidgetsEnabled</c>

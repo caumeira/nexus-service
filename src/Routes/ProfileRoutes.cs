@@ -359,6 +359,15 @@ public static class ProfileRoutes
                 {
                     s.Ui.OverlayWidgetOpacity = Math.Clamp(body.OverlayWidgetOpacity.Value, 0, 1);
                 }
+                if (body.OverlayWidgetsMonitor.HasValue)
+                {
+                    // -1 (primary) or any non-negative index. Don't clamp
+                    // to a max here - the overlay host validates against
+                    // the actual enumerated monitor count and falls back
+                    // to primary if the index is out of range.
+                    var v = body.OverlayWidgetsMonitor.Value;
+                    s.Ui.OverlayWidgetsMonitor = v < -1 ? -1 : v;
+                }
                 if (body.OverlayLayout is not null)
                     s.Ui.OverlayLayout = body.OverlayLayout;
             });
