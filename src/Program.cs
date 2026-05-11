@@ -633,6 +633,47 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !serviceMode)
 
 }
 
+// In service mode the tray is a separate user-session process; the service
+// can't draw a NotifyIcon itself. Reconcile here: when ShowWindowsTrayIcon
+// flips, spawn the tray via TrayBootstrapper or terminate the running tray.
+if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && serviceMode)
+{
+    var trayStore = app.Services.GetRequiredService<IConfigStore>();
+    var lastVisible = trayStore.Load().Ui.ShowWindowsTrayIcon;
+    trayStore.OnChanged += () =>
+    {
+        try
+        {
+            var nowVisible = trayStore.Load().Ui.ShowWindowsTrayIcon;
+            if (nowVisible == lastVisible) return;
+            lastVisible = nowVisible;
+            if (nowVisible)
+            {
+                Qos.Service.Lifecycle.TrayBootstrapper.TryLaunch(trayStore);
+            }
+            else
+            {
+                // Kill any Qos.exe running in a non-zero session - that's
+                // the user-session tray; the service itself is Session 0.
+                var self = System.Diagnostics.Process.GetCurrentProcess().Id;
+                foreach (var p in System.Diagnostics.Process.GetProcessesByName("Qos"))
+                {
+                    try
+                    {
+                        if (p.Id != self && p.SessionId != 0)
+                        {
+                            p.Kill();
+                        }
+                    }
+                    catch { /* race: process exited */ }
+                    finally { p.Dispose(); }
+                }
+            }
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"[tray-reconcile] {ex.Message}"); }
+    };
+}
+
 // Cross-platform overlay host wiring (Windows qos-overlay.exe sidecar
 // or Mac qos-overlay-helper Swift sidecar - same predicate either way).
 // Reconciles on every settings change: run iff

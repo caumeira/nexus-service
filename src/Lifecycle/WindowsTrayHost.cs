@@ -49,6 +49,11 @@ internal static class WindowsTrayHost
             return 0;
         }
 
+        // onExit is only invoked by the watchdog now (service stopped
+        // externally). The tray's menu no longer has a "Hide tray" entry -
+        // dismissing the tray icon is a dashboard concern. So onExit just
+        // signals exit; it does NOT touch ShowWindowsTrayIcon (the user
+        // didn't ask to disable the tray, the service died).
         Platform.Windows.TrayIcon.Configure(
             DefaultPort,
             onExit: () => s_exitEvent.Set());

@@ -24,7 +24,6 @@ public static class TrayIcon
     private const int WM_RBUTTONUP = 0x0205;
     private const int IDM_OPEN_APP = 1;
     private const int IDM_OPEN_SETTINGS = 2;
-    private const int IDM_HIDE_TRAY = 3;
     private const int MF_SEPARATOR = 0x0800;
     private const int MF_CHECKED = 0x0008;
     private const int MF_UNCHECKED = 0x0000;
@@ -281,8 +280,6 @@ public static class TrayIcon
                     var menu = CreatePopupMenu();
                     AppendMenu(menu, 0, IDM_OPEN_APP, "Open");
                     AppendMenu(menu, 0, IDM_OPEN_SETTINGS, "Settings");
-                    AppendMenu(menu, MF_SEPARATOR, 0, "");
-                    AppendMenu(menu, 0, IDM_HIDE_TRAY, "Hide tray");
                     SetForegroundWindow(hwnd);
                     TrackPopupMenu(menu, 0, pt.X, pt.Y, 0, hwnd, IntPtr.Zero);
                     DestroyMenu(menu);
@@ -305,10 +302,6 @@ public static class TrayIcon
                 else if (id == IDM_OPEN_SETTINGS)
                 {
                     OpenLocalWindow(servicePort: 0, path: "/settings");
-                }
-                else if (id == IDM_HIDE_TRAY)
-                {
-                    _onExit?.Invoke();
                 }
             }
         }
