@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32" fill="none">
+  <!-- Chip body with bolt punched out via even-odd fill rule -->
+  <path fill-rule="evenodd" clip-rule="evenodd" fill="#000"
+        d="M 9 4 C 7.343 4 6 5.343 6 7 L 6 25 C 6 26.657 7.343 28 9 28 L 23 28 C 24.657 28 26 26.657 26 25 L 26 7 C 26 5.343 24.657 4 23 4 L 9 4 Z
+           M 18.5 7 L 10 17 L 15 17 L 13.5 25 L 22 15 L 17 15 L 18.5 7 Z"/>
+  <!-- Pins — left -->
+  <rect x="2" y="9" width="5" height="2.5" rx="0.8" fill="#000"/>
+  <rect x="2" y="14.75" width="5" height="2.5" rx="0.8" fill="#000"/>
+  <rect x="2" y="20.5" width="5" height="2.5" rx="0.8" fill="#000"/>
+  <!-- Pins — right -->
+  <rect x="25" y="9" width="5" height="2.5" rx="0.8" fill="#000"/>
+  <rect x="25" y="14.75" width="5" height="2.5" rx="0.8" fill="#000"/>
+  <rect x="25" y="20.5" width="5" height="2.5" rx="0.8" fill="#000"/>
+</svg>

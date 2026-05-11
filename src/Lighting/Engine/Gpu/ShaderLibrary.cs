@@ -1,0 +1,125 @@
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.IO;
+using System.Reflection;
+
+namespace Qos.Service.Lighting.Engine.Gpu;
+
+/// <summary>
+/// Loads GLSL fragment sources from per-effect .frag files embedded via
+/// &lt;EmbeddedResource&gt; in the csproj. Each shader is authored as a plain
+/// .frag file under Lighting/Engine/Gpu/Shaders/ and prefixed at load time
+/// with the shared _prelude.frag.
+///
+/// Why not inline strings: isolated files give us syntax highlighting,
+/// glslangValidator coverage, and one-line diffs when a shader changes.
+/// Why embedded: AOT + single-file publish doesn't know how to find
+/// loose files next to the exe, so bundling them into the assembly's
+/// manifest is the portable, zero-config path.
+///
+/// Cross-platform story: today these are GLSL 330 core, consumed by the
+/// desktop-GL backend on Windows (and Linux when we add it). macOS needs
+/// Metal or translated GLSL-via-SPIR-V-Cross — see the Gpu/ README for the
+/// Phase 2 plan. The file-based layout makes that switch viable without
+/// re-authoring every effect.
+/// </summary>
+internal static class ShaderLibrary
+{
+    private const string ResourcePrefix = "Qos.Service.Lighting.Engine.Gpu.Shaders.";
+    private const string PreludeResource = ResourcePrefix + "_prelude.frag";
+
+    // Asm-manifest resource names use dots for directory separators, so the
+    // prelude shows up as Qos.Service.Lighting.Engine.Gpu.Shaders._prelude.frag
+    // after MSBuild normalises. Cached at first use, no IO on the hot path.
+    private static readonly Assembly Asm = typeof(ShaderLibrary).Assembly;
+    private static readonly ConcurrentDictionary<string, string> Cache = new();
+    private static readonly string Prelude = LoadRaw(PreludeResource);
+
+    /// <summary>Resolve an effect name ("plasma") to its concatenated GLSL source.</summary>
+    public static string Get(string effectName)
+    {
+        return Cache.GetOrAdd(effectName, key =>
+        {
+            var body = LoadRaw(ResourcePrefix + key + ".frag");
+            return Prelude + "\n" + body;
+        });
+    }
+
+    // ── Named accessors kept for call-site clarity ─────────────────────────
+    // Every switch arm in LightingProvider.BuildAnimateEffect references these.
+    public static string Rainbow => Get("rainbow");
+    public static string Plasma => Get("plasma");
+    public static string Fire => Get("fire");
+    public static string Spiral => Get("spiral");
+    public static string Matrix => Get("matrix");
+    public static string Meteor => Get("meteor");
+    public static string Ripple => Get("ripple");
+    public static string Wave => Get("wave");
+    public static string GradientWave => Get("gradientwave");
+    public static string Ball => Get("ball");
+    public static string Radar => Get("radar");
+    public static string Pulse => Get("pulse");
+    public static string Watercolor => Get("watercolor");
+    public static string Jellyfish => Get("jellyfish");
+    public static string Aurora => Get("aurora");
+    public static string LavaLamp => Get("lavalamp");
+    public static string Starfield => Get("starfield");
+    public static string VoronoiCells => Get("voronoi");
+    public static string NeonRain => Get("neonrain");
+    public static string Bursts => Get("bursts");
+    public static string Nebula => Get("nebula");
+    public static string LavaFissure => Get("lavafissure");
+    public static string Kaleidoscope => Get("kaleidoscope");
+    public static string Wormhole => Get("wormhole");
+    public static string Interference => Get("interference");
+    public static string SacredGeometry => Get("sacredgeometry");
+    public static string Tessellation => Get("tessellation");
+    public static string DomainWarp => Get("domainwarp");
+    public static string InkBloom => Get("inkbloom");
+    public static string CosmicDust => Get("cosmicdust");
+    public static string ChromaSpiral => Get("chromaspiral");
+    public static string NeonGrid => Get("neongrid");
+    public static string OilSlick => Get("oilslick");
+    public static string NeonCube => Get("neoncube");
+    public static string Bubbles => Get("bubbles");
+    public static string SilkWave => Get("silkwave");
+    public static string PrismWave => Get("prismwave");
+    public static string CrystalTunnel => Get("crystaltunnel");
+    public static string RibbonFlow => Get("ribbonflow");
+
+    /// <summary>Every registered effect key (matches the .frag filename without extension).</summary>
+    public static IReadOnlyList<string> AllEffectKeys { get; } = new[]
+    {
+        "rainbow", "plasma", "fire", "spiral", "matrix", "meteor",
+        "ripple", "wave", "gradientwave", "ball", "radar", "pulse",
+        "watercolor", "jellyfish", "aurora", "lavalamp", "starfield",
+        "voronoi", "neonrain", "bursts", "nebula",
+        "lavafissure", "kaleidoscope", "wormhole",
+        "interference",
+        "sacredgeometry", "tessellation", "domainwarp",
+        "inkbloom", "cosmicdust", "chromaspiral",
+        "neongrid", "oilslick", "neoncube",
+        "caustics", "galaxy", "starpath",
+        "plasmaglobe", "lightning", "flowfield", "ferrofluid",
+        "liquidchrome",
+        "hextunnel", "mandelbrot", "circuit",
+        "bokeh", "sandstorm", "dotmatrix",
+        "bubbles", "silkwave",
+        "prismwave", "crystaltunnel", "ribbonflow",
+        // Audio-reactive set - all react to u_audioLevel / u_audioBass /
+        // u_audioMid / u_audioHigh / u_audioBeat / u_spectrum and all
+        // have an always-on idle animation for when no audio is captured.
+        "spectrumbars", "spectrumradial", "scope", "basspulse",
+        "beatstrobe", "harmonicstar", "audiotunnel", "bassbloom",
+    };
+
+    private static string LoadRaw(string resourceName)
+    {
+        using var stream = Asm.GetManifestResourceStream(resourceName)
+            ?? throw new FileNotFoundException(
+                $"Embedded shader resource '{resourceName}' missing. " +
+                $"Ensure <EmbeddedResource Include=\"Lighting\\Engine\\Gpu\\Shaders\\**\\*.frag\"/> is in the csproj.");
+        using var reader = new StreamReader(stream);
+        return reader.ReadToEnd();
+    }
+}

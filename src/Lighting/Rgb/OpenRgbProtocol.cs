@@ -1,0 +1,421 @@
+using System;
+using System.Buffers.Binary;
+using System.Collections.Generic;
+using System.Text;
+
+namespace Qos.Service.Lighting.Rgb;
+
+/// <summary>
+/// Binary serializers for the OpenRGB SDK protocol. The protocol is little-endian
+/// throughout, prefixed with a 16-byte header on every packet.
+///
+/// We only implement the minimum surface needed for "device support":
+///   - HELLO     (40, REQUEST_PROTOCOL_VERSION) — handshake
+///   - SET_NAME  (50, SET_CLIENT_NAME)          — identify ourselves
+///   - GET_COUNT (0,  REQUEST_CONTROLLER_COUNT) — how many devices
+///   - GET_DATA  (1,  REQUEST_CONTROLLER_DATA)  — full controller struct
+///   - SET_MODE  (1100, SET_CUSTOM_MODE)        — switch device to direct mode
+///   - UPDATE    (1050, RGBCONTROLLER_UPDATELEDS) — push a frame
+///
+/// Reference: NetworkProtocol.h in CalcProgrammer1/OpenRGB.
+///
+/// AOT-safe: zero reflection, no LINQ on hot paths, uses BinaryPrimitives.
+/// </summary>
+public static class OpenRgbProtocol
+{
+    public const int HeaderSize = 16;
+    public const int CurrentProtocolVersion = 4;
+    public static readonly byte[] MagicBytes = new byte[] { 0x4F, 0x52, 0x47, 0x42 }; // "ORGB"
+
+    public enum PacketId : uint
+    {
+        RequestControllerCount = 0,
+        RequestControllerData = 1,
+        RequestProtocolVersion = 40,
+        SetClientName = 50,
+        DeviceListUpdated = 100,
+        SetCustomMode = 1100,
+        RgbControllerUpdateLeds = 1050,
+        RgbControllerUpdateZoneLeds = 1051,
+        RgbControllerResizeZone = 1000,
+    }
+
+    /// <summary>
+    /// Write the 16-byte header into the start of <paramref name="buffer"/>.
+    /// </summary>
+    public static void WriteHeader(Span<byte> buffer, uint deviceIndex, PacketId packetId, uint dataSize)
+    {
+        if (buffer.Length < HeaderSize)
+        {
+            throw new ArgumentException("buffer too small for header", nameof(buffer));
+        }
+
+        buffer[0] = MagicBytes[0];
+        buffer[1] = MagicBytes[1];
+        buffer[2] = MagicBytes[2];
+        buffer[3] = MagicBytes[3];
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.Slice(4, 4), deviceIndex);
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.Slice(8, 4), (uint)packetId);
+        BinaryPrimitives.WriteUInt32LittleEndian(buffer.Slice(12, 4), dataSize);
+    }
+
+    /// <summary>
+    /// Parse a header from the first 16 bytes of <paramref name="buffer"/>.
+    /// </summary>
+    public static (uint deviceIndex, PacketId packetId, uint dataSize) ReadHeader(ReadOnlySpan<byte> buffer)
+    {
+        if (buffer.Length < HeaderSize)
+        {
+            throw new ArgumentException("buffer too small for header", nameof(buffer));
+        }
+
+        if (buffer[0] != MagicBytes[0] || buffer[1] != MagicBytes[1] ||
+            buffer[2] != MagicBytes[2] || buffer[3] != MagicBytes[3])
+        {
+            throw new InvalidOperationException("packet magic bytes are not 'ORGB'");
+        }
+
+        var deviceIndex = BinaryPrimitives.ReadUInt32LittleEndian(buffer.Slice(4, 4));
+        var packetId = (PacketId)BinaryPrimitives.ReadUInt32LittleEndian(buffer.Slice(8, 4));
+        var dataSize = BinaryPrimitives.ReadUInt32LittleEndian(buffer.Slice(12, 4));
+        return (deviceIndex, packetId, dataSize);
+    }
+
+    /// <summary>
+    /// SET_CLIENT_NAME body: raw UTF-8 bytes + a trailing NUL terminator.
+    /// </summary>
+    public static byte[] BuildSetClientNameBody(string name)
+    {
+        var nameBytes = Encoding.UTF8.GetBytes(name);
+        var body = new byte[nameBytes.Length + 1];
+        Buffer.BlockCopy(nameBytes, 0, body, 0, nameBytes.Length);
+        body[nameBytes.Length] = 0;
+        return body;
+    }
+
+    /// <summary>
+    /// REQUEST_PROTOCOL_VERSION body: a single uint32 client protocol version.
+    /// </summary>
+    public static byte[] BuildProtocolVersionBody(uint version)
+    {
+        var body = new byte[4];
+        BinaryPrimitives.WriteUInt32LittleEndian(body, version);
+        return body;
+    }
+
+    /// <summary>
+    /// REQUEST_CONTROLLER_DATA body: a single uint32 protocol version we want
+    /// the controller serialized for.
+    /// </summary>
+    public static byte[] BuildRequestControllerDataBody(uint version) => BuildProtocolVersionBody(version);
+
+    /// <summary>
+    /// RGBCONTROLLER_UPDATELEDS body for device with the given LED colors.
+    /// Body layout:
+    ///   uint32 data_size  (total body size including itself)
+    ///   uint16 led_count
+    ///   for each LED: uint8 R, uint8 G, uint8 B, uint8 padding
+    /// </summary>
+    public static byte[] BuildUpdateLedsBody(ReadOnlySpan<RgbColor> colors)
+    {
+        // 4 (data_size) + 2 (led_count) + 4 * N
+        var bodySize = 4 + 2 + (4 * colors.Length);
+        var body = new byte[bodySize];
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(0, 4), (uint)bodySize);
+        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(4, 2), (ushort)colors.Length);
+        for (int i = 0; i < colors.Length; i++)
+        {
+            var off = 6 + (4 * i);
+            body[off + 0] = colors[i].R;
+            body[off + 1] = colors[i].G;
+            body[off + 2] = colors[i].B;
+            body[off + 3] = 0; // padding
+        }
+        return body;
+    }
+
+    /// <summary>
+    /// RGBCONTROLLER_UPDATEZONELEDS body. Pushes colors to a single zone within
+    /// a device. Used so each motherboard ARGB header can be updated without
+    /// touching the other headers on the same physical controller.
+    /// Body layout:
+    ///   uint32 data_size  (total body size including itself)
+    ///   uint32 zone_index
+    ///   uint16 led_count
+    ///   for each LED: uint8 R, uint8 G, uint8 B, uint8 padding
+    /// </summary>
+    public static byte[] BuildUpdateZoneLedsBody(uint zoneIndex, ReadOnlySpan<RgbColor> colors)
+    {
+        // 4 (data_size) + 4 (zone_index) + 2 (led_count) + 4 * N
+        var bodySize = 4 + 4 + 2 + (4 * colors.Length);
+        var body = new byte[bodySize];
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(0, 4), (uint)bodySize);
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(4, 4), zoneIndex);
+        BinaryPrimitives.WriteUInt16LittleEndian(body.AsSpan(8, 2), (ushort)colors.Length);
+        for (int i = 0; i < colors.Length; i++)
+        {
+            var off = 10 + (4 * i);
+            body[off + 0] = colors[i].R;
+            body[off + 1] = colors[i].G;
+            body[off + 2] = colors[i].B;
+            body[off + 3] = 0; // padding
+        }
+        return body;
+    }
+
+    /// <summary>
+    /// RGBCONTROLLER_RESIZEZONE body. Asks the OpenRGB server to reconfigure the
+    /// LED count on a zone. Used for motherboard ARGB headers where the LED count
+    /// is user-configured (ARGB has no feedback line).
+    /// Body layout:
+    ///   int32  zone_index
+    ///   uint32 new_size
+    /// </summary>
+    public static byte[] BuildResizeZoneBody(int zoneIndex, uint newSize)
+    {
+        var body = new byte[8];
+        BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(0, 4), zoneIndex);
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(4, 4), newSize);
+        return body;
+    }
+
+    /// <summary>
+    /// Parse the REQUEST_CONTROLLER_DATA reply body. We only extract the fields
+    /// our integration needs (name + total led_count + zones). Everything else
+    /// (mode internals, color tables, matrix data, alt-names, flags) is skipped
+    /// past so we don't have to maintain the full controller struct serializer
+    /// just to display a device list.
+    ///
+    /// Layout — verified against upstream `RGBController::GetDeviceDescription`
+    /// in OpenRGB master (RGBController/RGBController.cpp). The optional fields
+    /// MUST be parsed in exactly this order:
+    ///
+    ///   uint32 data_size
+    ///   uint32 device_type
+    ///   bstring name
+    ///   [v1+] bstring vendor
+    ///   bstring description
+    ///   bstring version
+    ///   bstring serial
+    ///   bstring location
+    ///   uint16 num_modes
+    ///   uint32 active_mode
+    ///   per mode:
+    ///     bstring name
+    ///     int32  value
+    ///     uint32 flags
+    ///     uint32 speed_min
+    ///     uint32 speed_max
+    ///     [v3+] uint32 brightness_min
+    ///     [v3+] uint32 brightness_max
+    ///     uint32 colors_min
+    ///     uint32 colors_max
+    ///     uint32 speed
+    ///     [v3+] uint32 brightness
+    ///     uint32 direction
+    ///     uint32 color_mode
+    ///     uint16 num_colors
+    ///     num_colors * uint32 color
+    ///   uint16 num_zones
+    ///   per zone:
+    ///     bstring name
+    ///     uint32 type
+    ///     uint32 leds_min
+    ///     uint32 leds_max
+    ///     uint32 leds_count
+    ///     uint16 matrix_len
+    ///     matrix_len bytes
+    ///     [v4+] uint16 num_segments
+    ///       per segment: bstring name, uint32 type, uint32 start_idx, uint32 leds_count
+    ///     [v5+] uint32 zone_flags
+    ///   uint16 num_leds
+    ///   per led: bstring name, uint32 value
+    ///   [v5+] uint16 num_led_alt_names
+    ///     per alt name: bstring
+    ///   [v5+] uint32 controller_flags
+    ///   uint16 num_colors
+    ///   num_colors * uint32 color
+    /// </summary>
+    public static RgbDevice ParseControllerData(int deviceIndex, ReadOnlySpan<byte> body, uint protocolVersion)
+    {
+        var pos = 0;
+
+        EnsureBytes(body, pos, 4, "data_size");
+        pos += 4;
+        EnsureBytes(body, pos, 4, "device_type");
+        var typeNum = BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(pos, 4));
+        pos += 4;
+
+        var name = ReadBString(body, ref pos);
+        var vendor = "";
+        if (protocolVersion >= 1)
+        {
+            vendor = ReadBString(body, ref pos);
+        }
+
+        ReadBString(body, ref pos);     // description
+        ReadBString(body, ref pos);     // version
+        var serial = ReadBString(body, ref pos);
+        var location = ReadBString(body, ref pos);
+
+        // num_modes + active_mode + per-mode entries
+        EnsureBytes(body, pos, 2, "num_modes");
+        var modeCount = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(pos, 2));
+        pos += 2;
+        EnsureBytes(body, pos, 4, "active_mode");
+        pos += 4; // active_mode (uint32) — present at all protocol versions
+        for (int i = 0; i < modeCount; i++)
+        {
+            ReadBString(body, ref pos);   // mode name
+            // Per-mode fixed-size block: value(4) + flags(4) + speed_min(4) + speed_max(4)
+            //   [+ brightness_min(4) + brightness_max(4) on v3+]
+            //   + colors_min(4) + colors_max(4) + speed(4) [+ brightness(4) on v3+]
+            //   + direction(4) + color_mode(4)
+            var modeFixed = 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4 + 4;
+            if (protocolVersion >= 3)
+            {
+                modeFixed += 4 + 4 + 4; // brightness min/max + brightness
+            }
+
+            EnsureBytes(body, pos, modeFixed, $"mode[{i}] fixed block");
+            pos += modeFixed;
+            EnsureBytes(body, pos, 2, $"mode[{i}] num_colors");
+            var modeColorCount = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(pos, 2));
+            pos += 2;
+            var colorsBytes = 4 * modeColorCount;
+            EnsureBytes(body, pos, colorsBytes, $"mode[{i}] colors[]");
+            pos += colorsBytes;
+        }
+
+        // num_zones + per-zone entries
+        EnsureBytes(body, pos, 2, "num_zones");
+        var zoneCount = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(pos, 2));
+        pos += 2;
+        var zones = new List<RgbZone>(zoneCount);
+        for (int i = 0; i < zoneCount; i++)
+        {
+            var zoneName = ReadBString(body, ref pos);
+            // type(4) + leds_min(4) + leds_max(4) + leds_count(4)
+            EnsureBytes(body, pos, 16, $"zone[{i}] fixed block");
+            var zoneType = BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(pos, 4));
+            pos += 4;
+            pos += 4 + 4; // leds_min + leds_max
+            var zoneLeds = BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(pos, 4));
+            pos += 4;
+            EnsureBytes(body, pos, 2, $"zone[{i}] matrix_len");
+            var matrixLen = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(pos, 2));
+            pos += 2;
+            EnsureBytes(body, pos, matrixLen, $"zone[{i}] matrix payload");
+            int matrixWidth = 0, matrixHeight = 0;
+            int[]? matrixMap = null;
+            if (matrixLen >= 8)
+            {
+                matrixHeight = (int)BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(pos, 4));
+                matrixWidth = (int)BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(pos + 4, 4));
+                var cellCount = matrixHeight * matrixWidth;
+                var expected = 8 + cellCount * 4;
+                if (cellCount > 0 && matrixLen >= expected)
+                {
+                    matrixMap = new int[cellCount];
+                    for (int c = 0; c < cellCount; c++)
+                    {
+                        var v = BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(pos + 8 + c * 4, 4));
+                        matrixMap[c] = v == 0xFFFFFFFFu ? -1 : (int)v;
+                    }
+                }
+                else
+                {
+                    matrixWidth = 0;
+                    matrixHeight = 0;
+                }
+            }
+            pos += matrixLen;
+            if (protocolVersion >= 4)
+            {
+                EnsureBytes(body, pos, 2, $"zone[{i}] num_segments");
+                var segmentCount = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(pos, 2));
+                pos += 2;
+                for (int s = 0; s < segmentCount; s++)
+                {
+                    ReadBString(body, ref pos); // segment name
+                    EnsureBytes(body, pos, 12, $"zone[{i}] segment[{s}] fixed block");
+                    pos += 12; // type + start_idx + leds_count
+                }
+            }
+            if (protocolVersion >= 5)
+            {
+                EnsureBytes(body, pos, 4, $"zone[{i}] zone_flags");
+                pos += 4;
+            }
+            zones.Add(new RgbZone
+            {
+                Name = zoneName,
+                ZoneType = zoneType,
+                LedCount = (int)zoneLeds,
+                MatrixWidth = matrixWidth,
+                MatrixHeight = matrixHeight,
+                MatrixMap = matrixMap,
+            });
+        }
+
+        EnsureBytes(body, pos, 2, "num_leds");
+        var ledCount = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(pos, 2));
+        pos += 2;
+
+        var ledNames = new List<string>(ledCount);
+        for (int i = 0; i < ledCount; i++)
+        {
+            var ledName = ReadBString(body, ref pos);
+            EnsureBytes(body, pos, 4, $"led[{i}] value");
+            pos += 4; // led value
+            ledNames.Add(ledName);
+        }
+
+        return new RgbDevice
+        {
+            Index = deviceIndex,
+            Name = name,
+            Type = typeNum,
+            LedCount = ledCount,
+            Vendor = vendor,
+            Serial = serial,
+            Location = location,
+            LedNames = ledNames,
+            Zones = zones,
+        };
+    }
+
+    /// <summary>
+    /// Read an OpenRGB "bstring" — uint16 length prefix + that many UTF-8 bytes
+    /// (the length includes the trailing NUL terminator). A length of 1 means
+    /// an empty string with just the NUL byte.
+    /// </summary>
+    private static string ReadBString(ReadOnlySpan<byte> body, ref int pos)
+    {
+        EnsureBytes(body, pos, 2, "bstring length");
+        var len = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(pos, 2));
+        pos += 2;
+        if (len == 0)
+        {
+            // Malformed — every bstring should at least have the NUL terminator.
+            // Treat as empty without advancing.
+            return string.Empty;
+        }
+        EnsureBytes(body, pos, len, "bstring payload");
+        // The length includes the trailing NUL terminator in the body.
+        // Strip the NUL when decoding.
+        var contentLen = len - 1;
+        var s = contentLen > 0 ? Encoding.UTF8.GetString(body.Slice(pos, contentLen)) : string.Empty;
+        pos += len;
+        return s;
+    }
+
+    private static void EnsureBytes(ReadOnlySpan<byte> body, int pos, int needed, string field)
+    {
+        if (pos < 0 || needed < 0 || pos + needed > body.Length)
+        {
+            throw new InvalidOperationException(
+                $"OpenRGB controller data truncated reading {field}: pos={pos} needed={needed} body_len={body.Length}");
+        }
+    }
+}

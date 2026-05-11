@@ -1,0 +1,72 @@
+using System.Collections.Generic;
+using System.Linq;
+using Qos.Service.Devices.Detection;
+using Qos.Service.Models.Devices;
+
+namespace Qos.Service.Devices;
+
+/// <summary>
+/// Aggregates all registered IDeviceHandler instances and coordinates USB enumeration
+/// to produce the unified device list. This is the single entry point for device queries.
+/// </summary>
+public sealed class DeviceManager
+{
+    private readonly IReadOnlyList<IDeviceHandler> _handlers;
+    private readonly IUsbEnumerator _enumerator;
+
+    public DeviceManager(IEnumerable<IDeviceHandler> handlers, IUsbEnumerator enumerator)
+    {
+        _handlers = handlers.ToList();
+        _enumerator = enumerator;
+    }
+
+    /// <summary>
+    /// Enumerates USB devices, checks each handler, and returns the full device list.
+    /// </summary>
+    public List<DeviceListItem> GetAll()
+    {
+        var usbDevices = _enumerator.Enumerate();
+        return _handlers.Select(h => new DeviceListItem
+        {
+            Id = h.Id,
+            Name = h.Name,
+            Category = h.Category,
+            Connected = h.IsConnected(usbDevices),
+            FirmwareVersion = h.GetFirmwareVersion(),
+        }).ToList();
+    }
+
+    /// <summary>
+    /// Returns every USB device the OS reports, with full details. Backs /devices/usb/all.
+    /// Dedupes by (VID, PID, Name, Manufacturer) so composite-device interface rows that
+    /// share a name don't appear multiple times. Handler matching still runs against the
+    /// full raw enumerator list, so dedupe here has no effect on recognition.
+    /// </summary>
+    public List<UsbDeviceDetail> GetUsbDevices()
+    {
+        var seen = new HashSet<string>(System.StringComparer.OrdinalIgnoreCase);
+        var result = new List<UsbDeviceDetail>();
+        foreach (var e in _enumerator.Enumerate())
+        {
+            var key = $"{e.VendorId:X4}:{e.ProductId:X4}:{e.Name}:{e.Manufacturer}";
+            if (!seen.Add(key))
+            {
+                continue;
+            }
+            result.Add(new UsbDeviceDetail
+            {
+                VendorId = $"0x{e.VendorId:X4}",
+                ProductId = $"0x{e.ProductId:X4}",
+                Name = e.Name,
+                Manufacturer = e.Manufacturer,
+                Serial = e.Serial,
+                Location = e.Location,
+                Class = e.Class,
+                Speed = e.Speed,
+                Driver = e.Driver,
+                HardwareId = e.HardwareId,
+            });
+        }
+        return result;
+    }
+}

@@ -1,0 +1,460 @@
+using System;
+using System.Buffers;
+using System.Buffers.Binary;
+using System.Collections.Generic;
+using System.IO;
+using System.Net;
+using System.Net.Sockets;
+using System.Threading;
+using System.Threading.Tasks;
+
+namespace Qos.Service.Lighting.Rgb;
+
+/// <summary>
+/// TCP client for the OpenRGB SDK server. Connects to 127.0.0.1:6742 by default,
+/// performs the handshake (SET_CLIENT_NAME + REQUEST_PROTOCOL_VERSION), and exposes
+/// device-list / push-frame operations.
+///
+/// Thread-safety: every public operation acquires <see cref="_writeLock"/> for the
+/// duration of the request/response round-trip. The OpenRGB protocol is not multiplexed,
+/// so we serialize all access to the single TCP socket.
+///
+/// AOT: pure System.Net.Sockets + ArrayPool, zero reflection, zero JSON.
+/// </summary>
+public sealed class OpenRgbController : IRgbController
+{
+    private const string ClientName = "qos";
+    private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan IoTimeout = TimeSpan.FromSeconds(3);
+
+    private readonly string _host;
+    private readonly int _port;
+    private readonly SemaphoreSlim _writeLock = new(1, 1);
+
+    private TcpClient? _tcp;
+    private NetworkStream? _stream;
+    private uint _protocolVersion;
+    private bool _disposed;
+
+    public OpenRgbController(string host = "127.0.0.1", int port = 6742)
+    {
+        _host = host;
+        _port = port;
+    }
+
+    public bool IsConnected
+    {
+        get
+        {
+            // Volatile reads to avoid torn observation; the cleanup path
+            // sets both fields to null while holding _writeLock, so other
+            // threads might briefly observe a half-disposed state otherwise.
+            var tcp = Volatile.Read(ref _tcp);
+            var stream = Volatile.Read(ref _stream);
+            return tcp is { Connected: true } && stream is not null;
+        }
+    }
+
+    public event Action? DeviceListChanged;
+
+    public async Task<bool> TryConnectAsync(CancellationToken ct = default)
+    {
+        if (_disposed)
+        {
+            return false;
+        }
+
+        if (IsConnected)
+        {
+            return true;
+        }
+
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            CleanupSocketLocked();
+
+            var tcp = new TcpClient { NoDelay = true };
+            try
+            {
+                using var connectCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+                connectCts.CancelAfter(ConnectTimeout);
+                await tcp.ConnectAsync(_host, _port, connectCts.Token).ConfigureAwait(false);
+            }
+            catch
+            {
+                tcp.Dispose();
+                return false;
+            }
+
+            _tcp = tcp;
+            _stream = tcp.GetStream();
+            _stream.ReadTimeout = (int)IoTimeout.TotalMilliseconds;
+            _stream.WriteTimeout = (int)IoTimeout.TotalMilliseconds;
+
+            try
+            {
+                await SendPacketLockedAsync(deviceIndex: 0,
+                    OpenRgbProtocol.PacketId.SetClientName,
+                    OpenRgbProtocol.BuildSetClientNameBody(ClientName),
+                    ct).ConfigureAwait(false);
+
+                // Negotiate protocol version
+                await SendPacketLockedAsync(deviceIndex: 0,
+                    OpenRgbProtocol.PacketId.RequestProtocolVersion,
+                    OpenRgbProtocol.BuildProtocolVersionBody(OpenRgbProtocol.CurrentProtocolVersion),
+                    ct).ConfigureAwait(false);
+
+                var (replyId, replyBody) = await ReadPacketLockedAsync(ct).ConfigureAwait(false);
+                if (replyId != OpenRgbProtocol.PacketId.RequestProtocolVersion || replyBody.Length < 4)
+                {
+                    CleanupSocketLocked();
+                    return false;
+                }
+                var serverVersion = BinaryPrimitives.ReadUInt32LittleEndian(replyBody.AsSpan(0, 4));
+                _protocolVersion = Math.Min(OpenRgbProtocol.CurrentProtocolVersion, serverVersion);
+            }
+            catch
+            {
+                CleanupSocketLocked();
+                return false;
+            }
+
+            // Surface a "list refreshed" tick to subscribers — they were probably waiting for it.
+            try
+            { DeviceListChanged?.Invoke(); }
+            catch { }
+            return true;
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task DisconnectAsync()
+    {
+        await _writeLock.WaitAsync().ConfigureAwait(false);
+        try
+        { CleanupSocketLocked(); }
+        finally { _writeLock.Release(); }
+    }
+
+    public async Task<IReadOnlyList<RgbDevice>> GetDevicesAsync(CancellationToken ct = default)
+    {
+        if (!IsConnected)
+        {
+            return Array.Empty<RgbDevice>();
+        }
+
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            // Get controller count
+            await SendPacketLockedAsync(0, OpenRgbProtocol.PacketId.RequestControllerCount, body: null, ct)
+                .ConfigureAwait(false);
+            var (countId, countBody) = await ReadExpectedLockedAsync(
+                OpenRgbProtocol.PacketId.RequestControllerCount, expectedDeviceIndex: 0, ct).ConfigureAwait(false);
+            if (countId != OpenRgbProtocol.PacketId.RequestControllerCount || countBody.Length < 4)
+            {
+                return Array.Empty<RgbDevice>();
+            }
+
+            var count = (int)BinaryPrimitives.ReadUInt32LittleEndian(countBody.AsSpan(0, 4));
+            if (count <= 0)
+            {
+                return Array.Empty<RgbDevice>();
+            }
+
+            var devices = new List<RgbDevice>(count);
+            for (int i = 0; i < count; i++)
+            {
+                await SendPacketLockedAsync((uint)i, OpenRgbProtocol.PacketId.RequestControllerData,
+                    OpenRgbProtocol.BuildRequestControllerDataBody(_protocolVersion), ct).ConfigureAwait(false);
+                var (replyId, replyBody) = await ReadExpectedLockedAsync(
+                    OpenRgbProtocol.PacketId.RequestControllerData, expectedDeviceIndex: (uint)i, ct).ConfigureAwait(false);
+                if (replyId != OpenRgbProtocol.PacketId.RequestControllerData)
+                {
+                    continue;
+                }
+
+                try
+                {
+                    var dev = OpenRgbProtocol.ParseControllerData(i, replyBody, _protocolVersion);
+                    devices.Add(dev);
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[openrgb] failed to parse controller {i} (protocol={_protocolVersion}, body={replyBody.Length}B): {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+            return devices;
+        }
+        finally
+        {
+            _writeLock.Release();
+        }
+    }
+
+    public async Task SetDirectModeAsync(int deviceIndex, CancellationToken ct = default)
+    {
+        if (!IsConnected)
+        {
+            return;
+        }
+
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            await SendPacketLockedAsync((uint)deviceIndex,
+                OpenRgbProtocol.PacketId.SetCustomMode, body: null, ct).ConfigureAwait(false);
+        }
+        finally { _writeLock.Release(); }
+    }
+
+    public async Task PushFrameAsync(int deviceIndex, ReadOnlyMemory<RgbColor> colors, CancellationToken ct = default)
+    {
+        if (!IsConnected || colors.Length == 0)
+        {
+            return;
+        }
+
+        // Acquire BEFORE the try block — if WaitAsync throws (canceled/disposed)
+        // we must NOT call Release on a semaphore we never acquired.
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            try
+            {
+                var body = OpenRgbProtocol.BuildUpdateLedsBody(colors.Span);
+                await SendPacketLockedAsync((uint)deviceIndex,
+                    OpenRgbProtocol.PacketId.RgbControllerUpdateLeds, body, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[openrgb] push frame to device {deviceIndex} failed: {ex.Message}");
+                CleanupSocketLocked();
+            }
+        }
+        finally { _writeLock.Release(); }
+    }
+
+    public async Task SetOffAsync(int deviceIndex, int ledCount, CancellationToken ct = default)
+    {
+        if (ledCount <= 0)
+        {
+            return;
+        }
+
+        var pool = ArrayPool<RgbColor>.Shared.Rent(ledCount);
+        try
+        {
+            Array.Clear(pool, 0, ledCount);
+            await PushFrameAsync(deviceIndex, pool.AsMemory(0, ledCount), ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<RgbColor>.Shared.Return(pool);
+        }
+    }
+
+    public async Task PushZoneFrameAsync(int deviceIndex, int zoneIndex, ReadOnlyMemory<RgbColor> colors, CancellationToken ct = default)
+    {
+        if (!IsConnected || colors.Length == 0 || zoneIndex < 0)
+        {
+            return;
+        }
+
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            try
+            {
+                var body = OpenRgbProtocol.BuildUpdateZoneLedsBody((uint)zoneIndex, colors.Span);
+                await SendPacketLockedAsync((uint)deviceIndex,
+                    OpenRgbProtocol.PacketId.RgbControllerUpdateZoneLeds, body, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[openrgb] push zone frame to device {deviceIndex} zone {zoneIndex} failed: {ex.Message}");
+                CleanupSocketLocked();
+            }
+        }
+        finally { _writeLock.Release(); }
+    }
+
+    public async Task ResizeZoneAsync(int deviceIndex, int zoneIndex, int newSize, CancellationToken ct = default)
+    {
+        if (!IsConnected || zoneIndex < 0 || newSize < 0)
+        {
+            return;
+        }
+
+        await _writeLock.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            try
+            {
+                var body = OpenRgbProtocol.BuildResizeZoneBody(zoneIndex, (uint)newSize);
+                await SendPacketLockedAsync((uint)deviceIndex,
+                    OpenRgbProtocol.PacketId.RgbControllerResizeZone, body, ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[openrgb] resize device {deviceIndex} zone {zoneIndex} -> {newSize} failed: {ex.Message}");
+                CleanupSocketLocked();
+            }
+        }
+        finally { _writeLock.Release(); }
+    }
+
+    // ── private helpers (called with _writeLock held) ─────────────────────
+
+    private async Task SendPacketLockedAsync(uint deviceIndex, OpenRgbProtocol.PacketId packetId, byte[]? body, CancellationToken ct)
+    {
+        if (_stream is null)
+        {
+            throw new IOException("not connected");
+        }
+
+        var bodyLen = body?.Length ?? 0;
+        var total = OpenRgbProtocol.HeaderSize + bodyLen;
+        var buffer = ArrayPool<byte>.Shared.Rent(total);
+        try
+        {
+            OpenRgbProtocol.WriteHeader(buffer.AsSpan(0, OpenRgbProtocol.HeaderSize), deviceIndex, packetId, (uint)bodyLen);
+            if (body is { Length: > 0 })
+            {
+                Buffer.BlockCopy(body, 0, buffer, OpenRgbProtocol.HeaderSize, bodyLen);
+            }
+
+            await _stream.WriteAsync(buffer.AsMemory(0, total), ct).ConfigureAwait(false);
+            await _stream.FlushAsync(ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            ArrayPool<byte>.Shared.Return(buffer);
+        }
+    }
+
+    private async Task<(OpenRgbProtocol.PacketId id, byte[] body)> ReadPacketLockedAsync(CancellationToken ct)
+    {
+        if (_stream is null)
+        {
+            throw new IOException("not connected");
+        }
+
+        var headerBuf = new byte[OpenRgbProtocol.HeaderSize];
+        await ReadExactLockedAsync(headerBuf, ct).ConfigureAwait(false);
+        var (_, packetId, dataSize) = OpenRgbProtocol.ReadHeader(headerBuf);
+
+        var body = dataSize == 0 ? Array.Empty<byte>() : new byte[dataSize];
+        if (dataSize > 0)
+        {
+            await ReadExactLockedAsync(body, ct).ConfigureAwait(false);
+        }
+
+        return (packetId, body);
+    }
+
+    /// <summary>
+    /// Read packets from the stream, filtering out unsolicited notifications
+    /// (DEVICE_LIST_UPDATED) until we get one matching <paramref name="expected"/>
+    /// at <paramref name="expectedDeviceIndex"/>.
+    ///
+    /// OpenRGB sends DEVICE_LIST_UPDATED (id 100) at any time when devices are
+    /// added/removed during runtime detection. If we treat that packet as a
+    /// reply to our REQUEST_CONTROLLER_DATA we get desynced. We must filter it.
+    /// </summary>
+    private async Task<(OpenRgbProtocol.PacketId id, byte[] body)> ReadExpectedLockedAsync(
+        OpenRgbProtocol.PacketId expected, uint expectedDeviceIndex, CancellationToken ct)
+    {
+        if (_stream is null)
+        {
+            throw new IOException("not connected");
+        }
+
+        // Bound the loop so we never spin forever on a desync.
+        for (int attempt = 0; attempt < 16; attempt++)
+        {
+            var headerBuf = new byte[OpenRgbProtocol.HeaderSize];
+            await ReadExactLockedAsync(headerBuf, ct).ConfigureAwait(false);
+            var (devIdx, packetId, dataSize) = OpenRgbProtocol.ReadHeader(headerBuf);
+
+            var body = dataSize == 0 ? Array.Empty<byte>() : new byte[dataSize];
+            if (dataSize > 0)
+            {
+                await ReadExactLockedAsync(body, ct).ConfigureAwait(false);
+            }
+
+            if (packetId == OpenRgbProtocol.PacketId.DeviceListUpdated)
+            {
+                // Async device-list change notification — fire event and try again.
+                try
+                { DeviceListChanged?.Invoke(); }
+                catch { }
+                continue;
+            }
+
+            if (packetId == expected && devIdx == expectedDeviceIndex)
+            {
+                return (packetId, body);
+            }
+
+            // Some other unexpected packet — log once and try the next one.
+            // Don't tear down the connection: a single stale packet from a previous
+            // request shouldn't kill the session.
+            Console.Error.WriteLine(
+                $"[openrgb] unexpected packet id={(uint)packetId} devIdx={devIdx} (waiting for {(uint)expected} idx {expectedDeviceIndex})");
+        }
+        throw new IOException($"OpenRGB: gave up waiting for {expected} after 16 unexpected packets");
+    }
+
+    private async Task ReadExactLockedAsync(byte[] buffer, CancellationToken ct)
+    {
+        if (_stream is null)
+        {
+            throw new IOException("not connected");
+        }
+
+        var read = 0;
+        while (read < buffer.Length)
+        {
+            var n = await _stream.ReadAsync(buffer.AsMemory(read, buffer.Length - read), ct).ConfigureAwait(false);
+            if (n == 0)
+            {
+                throw new EndOfStreamException("OpenRGB connection closed");
+            }
+
+            read += n;
+        }
+    }
+
+    private void CleanupSocketLocked()
+    {
+        try
+        { _stream?.Dispose(); }
+        catch { }
+        try
+        { _tcp?.Close(); }
+        catch { }
+        try
+        { _tcp?.Dispose(); }
+        catch { }
+        _stream = null;
+        _tcp = null;
+        _protocolVersion = 0;
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed)
+        {
+            return;
+        }
+
+        _disposed = true;
+        await DisconnectAsync().ConfigureAwait(false);
+        _writeLock.Dispose();
+    }
+}

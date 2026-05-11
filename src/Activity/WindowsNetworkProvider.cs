@@ -1,0 +1,145 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Linq;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using Qos.Service.Models.Activity;
+using Qos.Service.Sockets;
+
+namespace Qos.Service.Activity;
+
+/// <summary>
+/// Windows network monitor. Polls <c>netstat -n -o</c> to discover which
+/// processes have active connections to a non-loopback peer (loopback PIDs
+/// are dropped so the web client / panel kiosk talking to qos-service
+/// over localhost do not appear as network users), then reads cumulative
+/// I/O byte counters via <c>GetProcessIoCounters</c>. Only samples when
+/// subscribers exist.
+/// </summary>
+public sealed class WindowsNetworkProvider : BackgroundService, INetworkProvider
+{
+    private volatile IReadOnlyList<NetworkProcessInfo> _snapshot = Array.Empty<NetworkProcessInfo>();
+    private int _intervalMs = 1000;
+    private readonly MultiplexHub _hub;
+
+    public WindowsNetworkProvider(MultiplexHub hub) { _hub = hub; }
+
+    public IReadOnlyList<NetworkProcessInfo> GetSnapshot() => _snapshot;
+    public void SetInterval(int ms) => _intervalMs = Math.Max(200, ms);
+
+    private bool HasSubscribers =>
+        _hub.TopicHasSubscribers("network") || _hub.TopicHasSubscribers("monitoring");
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        await Task.Delay(2000, stoppingToken);
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                if (HasSubscribers) Sample();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[network-win] sample failed: {ex.Message}");
+            }
+
+            try { await Task.Delay(_intervalMs, stoppingToken); }
+            catch (TaskCanceledException) { break; }
+        }
+    }
+
+    private void Sample()
+    {
+        // netstat -n -o works without admin and includes the owning PID:
+        //   Proto  Local Address       Foreign Address     State         PID
+        //   TCP    192.168.1.35:50123  142.250.80.46:443   ESTABLISHED   9876
+        var output = ShellOut("netstat", "-n", "-o");
+        if (string.IsNullOrEmpty(output))
+        {
+            _snapshot = Array.Empty<NetworkProcessInfo>();
+            return;
+        }
+
+        // Step 1: Parse PIDs whose connections include a non-loopback peer.
+        // Pure-loopback PIDs (qos-service itself, the panel/Y70 launchers)
+        // are dropped here so they never reach the per-process I/O counters.
+        var activePids = NetstatParser.ParseInternetActivePids(output);
+
+        // Step 2: Resolve PIDs to process names and get cumulative I/O counters
+        var current = new Dictionary<string, (long bytesIn, long bytesOut)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var pid in activePids)
+        {
+            try
+            {
+                using var proc = Process.GetProcessById(pid);
+                var name = proc.ProcessName;
+                if (GetProcessIoCounters(proc.Handle, out var counters))
+                {
+                    var read = (long)counters.ReadTransferCount;
+                    var write = (long)counters.WriteTransferCount;
+                    if (current.TryGetValue(name, out var prev))
+                        current[name] = (prev.bytesIn + read, prev.bytesOut + write);
+                    else
+                        current[name] = (read, write);
+                }
+            }
+            catch { } // Process may have exited or access denied
+        }
+
+        // Step 3: Store cumulative snapshot (frontend calculates rates from deltas)
+        _snapshot = current
+            .Where(kv => kv.Value.bytesIn + kv.Value.bytesOut > 0)
+            .OrderByDescending(kv => kv.Value.bytesIn + kv.Value.bytesOut)
+            .Select(kv => new NetworkProcessInfo
+            {
+                Name = kv.Key,
+                BytesIn = kv.Value.bytesIn,
+                BytesOut = kv.Value.bytesOut,
+            })
+            .ToList();
+    }
+
+    private static string ShellOut(string fileName, params string[] args)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo
+            {
+                FileName = fileName,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+            };
+            foreach (var a in args) psi.ArgumentList.Add(a);
+            using var proc = Process.Start(psi);
+            if (proc is null) return "";
+            var output = proc.StandardOutput.ReadToEnd();
+            if (!proc.WaitForExit(5000))
+            {
+                try { proc.Kill(); } catch { }
+            }
+            return output;
+        }
+        catch { return ""; }
+    }
+
+    // Win32 P/Invoke for process I/O counters
+    [StructLayout(LayoutKind.Sequential)]
+    private struct IO_COUNTERS
+    {
+        public ulong ReadOperationCount;
+        public ulong WriteOperationCount;
+        public ulong OtherOperationCount;
+        public ulong ReadTransferCount;
+        public ulong WriteTransferCount;
+        public ulong OtherTransferCount;
+    }
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    private static extern bool GetProcessIoCounters(IntPtr hProcess, out IO_COUNTERS lpIoCounters);
+}

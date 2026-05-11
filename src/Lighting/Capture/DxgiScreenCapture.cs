@@ -1,0 +1,140 @@
+#if WINDOWS
+using System;
+using System.Runtime.InteropServices;
+using Vortice.DXGI;
+using Vortice.Direct3D;
+using Vortice.Direct3D11;
+
+namespace Qos.Service.Lighting.Capture;
+
+public sealed class DxgiScreenCapture : IDisposable
+{
+    private ID3D11Device? _device;
+    private ID3D11DeviceContext? _context;
+    private IDXGIOutputDuplication? _duplication;
+    private ID3D11Texture2D? _stagingTexture;
+    private int _screenW, _screenH;
+    private bool _frameAcquired, _disposed;
+
+    public bool IsInitialized => _duplication is not null;
+    public int ScreenWidth => _screenW;
+    public int ScreenHeight => _screenH;
+
+    public bool Initialize(uint outputIndex = 0)
+    {
+        try
+        {
+            using var factory = DXGI.CreateDXGIFactory1<IDXGIFactory1>();
+            factory.EnumAdapters1(0u, out var adapter);
+            D3D11.D3D11CreateDevice(adapter, DriverType.Unknown, DeviceCreationFlags.BgraSupport, null, out _device, out _, out _context);
+            if (_device is null || _context is null) { adapter.Dispose(); return false; }
+            adapter.EnumOutputs(outputIndex, out var output);
+            adapter.Dispose();
+            var desc = output.Description;
+            _screenW = desc.DesktopCoordinates.Right - desc.DesktopCoordinates.Left;
+            _screenH = desc.DesktopCoordinates.Bottom - desc.DesktopCoordinates.Top;
+            using var output1 = output.QueryInterface<IDXGIOutput1>();
+            output.Dispose();
+            _duplication = output1.DuplicateOutput(_device);
+            _stagingTexture = _device.CreateTexture2D(new Texture2DDescription
+            {
+                Width = (uint)_screenW, Height = (uint)_screenH, MipLevels = 1, ArraySize = 1,
+                Format = Format.B8G8R8A8_UNorm, SampleDescription = new SampleDescription(1, 0),
+                Usage = ResourceUsage.Staging, CPUAccessFlags = CpuAccessFlags.Read,
+            });
+            return true;
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"[dxgi-capture] init failed: {ex.Message}"); Dispose(); return false; }
+    }
+
+    public bool AcquireFrame(uint timeoutMs = 0)
+    {
+        if (_duplication is null || _context is null || _stagingTexture is null) return false;
+        if (_frameAcquired) ReleaseFrame();
+        try
+        {
+            var result = _duplication.AcquireNextFrame(timeoutMs, out _, out var resource);
+            if (result.Failure) return false;
+            using var tex = resource!.QueryInterface<ID3D11Texture2D>();
+            _context.CopyResource(_stagingTexture, tex);
+            _context.Flush();
+            _duplication.ReleaseFrame();
+            resource.Dispose();
+            _frameAcquired = true;
+            return true;
+        }
+        catch { return false; }
+    }
+
+    public byte[]? ReadRegion(int x, int y, int w, int h)
+    {
+        if (!_frameAcquired || _context is null || _stagingTexture is null) return null;
+        x = Math.Clamp(x, 0, _screenW - 1); y = Math.Clamp(y, 0, _screenH - 1);
+        w = Math.Clamp(w, 1, _screenW - x); h = Math.Clamp(h, 1, _screenH - y);
+        try
+        {
+            var mapped = _context.Map(_stagingTexture, 0, MapMode.Read);
+            try
+            {
+                var rgb = new byte[w * h * 3];
+                var srcPtr = mapped.DataPointer; var rowPitch = (int)mapped.RowPitch;
+                for (int row = 0; row < h; row++)
+                {
+                    var srcRow = srcPtr + (y + row) * rowPitch + x * 4;
+                    for (int col = 0; col < w; col++)
+                    {
+                        var pixel = srcRow + col * 4; var dstOff = (row * w + col) * 3;
+                        rgb[dstOff] = Marshal.ReadByte(pixel + 2);
+                        rgb[dstOff + 1] = Marshal.ReadByte(pixel + 1);
+                        rgb[dstOff + 2] = Marshal.ReadByte(pixel);
+                    }
+                }
+                return rgb;
+            }
+            finally { _context.Unmap(_stagingTexture, 0); }
+        }
+        catch { return null; }
+    }
+
+    public unsafe bool BlitToCanvas(Engine.CanvasBuffer canvas)
+    {
+        if (!_frameAcquired || _context is null || _stagingTexture is null) return false;
+        try
+        {
+            var mapped = _context.Map(_stagingTexture, 0, MapMode.Read);
+            try
+            {
+                var cw = canvas.Width;
+                var ch = canvas.Height;
+                var rowPitch = (int)mapped.RowPitch;
+                var src = (byte*)mapped.DataPointer;
+                for (int y = 0; y < ch; y++)
+                {
+                    var sy = y * _screenH / ch;
+                    var srcRow = src + sy * rowPitch;
+                    for (int x = 0; x < cw; x++)
+                    {
+                        var sx = x * _screenW / cw;
+                        var p = srcRow + sx * 4;
+                        canvas.SetPixel(x, y, p[2], p[1], p[0]);
+                    }
+                }
+                return true;
+            }
+            finally { _context.Unmap(_stagingTexture, 0); }
+        }
+        catch { return false; }
+    }
+
+    public void ReleaseFrame()
+    {
+        _frameAcquired = false;
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return; _disposed = true;
+        ReleaseFrame(); _duplication?.Dispose(); _stagingTexture?.Dispose(); _context?.Dispose(); _device?.Dispose();
+    }
+}
+#endif

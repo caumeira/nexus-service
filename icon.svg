@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256" viewBox="0 0 32 32" fill="none">
+  <defs>
+    <linearGradient id="silver" gradientUnits="userSpaceOnUse" x1="0" y1="4" x2="0" y2="28">
+      <stop offset="0%" stop-color="#dcdcdc"/>
+      <stop offset="100%" stop-color="#8a8a8a"/>
+    </linearGradient>
+  </defs>
+  <g fill="url(#silver)">
+    <path fill-rule="evenodd" d="M9 4 H23 A3 3 0 0 1 26 7 V25 A3 3 0 0 1 23 28 H9 A3 3 0 0 1 6 25 V7 A3 3 0 0 1 9 4 Z M18.5 7 L10 17 h5 l-1.5 8 L22 15 h-5 l1.5 -8 z"/>
+    <rect x="2" y="9" width="5" height="2.5" rx="0.8"/>
+    <rect x="2" y="14.75" width="5" height="2.5" rx="0.8"/>
+    <rect x="2" y="20.5" width="5" height="2.5" rx="0.8"/>
+    <rect x="25" y="9" width="5" height="2.5" rx="0.8"/>
+    <rect x="25" y="14.75" width="5" height="2.5" rx="0.8"/>
+    <rect x="25" y="20.5" width="5" height="2.5" rx="0.8"/>
+  </g>
+</svg>

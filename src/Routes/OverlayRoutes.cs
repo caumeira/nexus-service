@@ -1,0 +1,195 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Qos.Service.Auth;
+using Qos.Service.Models;
+using Qos.Service.Models.Panel;
+using Qos.Service.Persistence;
+using Qos.Service.Serialization;
+using Qos.Service.Sockets;
+
+namespace Qos.Service.Routes;
+
+/// <summary>
+/// Floating desktop widget endpoints. State is profile-scoped under
+/// <c>UiSettings.OverlayLayout</c>; mutations broadcast the existing
+/// <c>prefs</c> topic so the desktop host (and any open SPA tab) refetches.
+/// See plans/desktop-widgets-v1.md.
+/// </summary>
+public static class OverlayRoutes
+{
+    // Defaults assume the SPA's 86-px desktop cell on a 1920x1200 monitor:
+    // floor(1920/86) = 22, floor(1200/86) = 13. Sizing here only affects
+    // first-free-cell auto-placement; the SPA still owns runtime cell px.
+    private const int DefaultGridCols = 22;
+    private const int DefaultGridRows = 13;
+
+    // Whitelist of widget sizes the panel engine renders. Anything else
+    // would poison the persisted layout - the SPA falls back to "2x2"
+    // visually but the bogus string round-trips on every save.
+    private static readonly HashSet<string> AllowedSizes = new(StringComparer.Ordinal)
+    {
+        "1x1", "2x2", "2x4", "4x2", "4x4",
+    };
+
+    private static string NormalizeSize(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "2x2";
+        return AllowedSizes.Contains(raw) ? raw : "2x2";
+    }
+
+    public static void MapOverlayEndpoints(this WebApplication app)
+    {
+        app.MapGet("/overlay/widgets", (IConfigStore store) =>
+        {
+            return Results.Json(
+                store.Load().Ui.OverlayLayout,
+                AppJsonContext.Default.ListOverlayWidgetDto);
+        }).AllowPanel();
+
+        app.MapPost("/overlay/widgets", (OverlayWidgetCreateBody body, IConfigStore store, ProfileManager pm, MultiplexHub hub) =>
+        {
+            if (string.IsNullOrWhiteSpace(body.Type))
+                return Results.BadRequest(ApiResponse.Fail("type is required"));
+
+            var entry = new OverlayWidgetDto
+            {
+                Id = Guid.NewGuid().ToString("N"),
+                Type = body.Type,
+                Size = NormalizeSize(body.Size),
+                Monitor = body.Monitor ?? 0,
+                Config = body.Config,
+            };
+
+            store.Update(s =>
+            {
+                double col, row;
+                if (body.Col.HasValue && body.Row.HasValue)
+                {
+                    col = body.Col.Value;
+                    row = body.Row.Value;
+                }
+                else
+                {
+                    var (c, r) = FindFirstFreeCell(
+                        s.Ui.OverlayLayout, entry.Monitor,
+                        SizeWidth(entry.Size), SizeHeight(entry.Size));
+                    col = c;
+                    row = r;
+                }
+                entry.Col = col;
+                entry.Row = row;
+                s.Ui.OverlayLayout.Add(entry);
+
+                if (!s.Ui.OverlayWidgetsEnabled)
+                    s.Ui.OverlayWidgetsEnabled = true;
+            });
+            pm.MarkDirty();
+            PanelTopics.BroadcastPrefs(hub);
+
+            return Results.Json(entry, AppJsonContext.Default.OverlayWidgetDto);
+        }).AllowPanel();
+
+        app.MapPatch("/overlay/widgets/{id}", (string id, OverlayWidgetPatch body, IConfigStore store, ProfileManager pm, MultiplexHub hub) =>
+        {
+            OverlayWidgetDto? updated = null;
+            store.Update(s =>
+            {
+                var entry = s.Ui.OverlayLayout.FirstOrDefault(w => w.Id == id);
+                if (entry is null) return;
+                if (body.Size is not null) entry.Size = NormalizeSize(body.Size);
+                if (body.Monitor.HasValue) entry.Monitor = body.Monitor.Value;
+                if (body.Col.HasValue) entry.Col = body.Col.Value;
+                if (body.Row.HasValue) entry.Row = body.Row.Value;
+                if (body.Config is not null) entry.Config = body.Config;
+                updated = entry;
+            });
+
+            if (updated is null)
+                return Results.NotFound(ApiResponse.Fail("widget not found"));
+
+            pm.MarkDirty();
+            PanelTopics.BroadcastPrefs(hub);
+            return Results.Json(updated, AppJsonContext.Default.OverlayWidgetDto);
+        }).AllowPanel();
+
+        app.MapDelete("/overlay/widgets/{id}", (string id, IConfigStore store, ProfileManager pm, MultiplexHub hub) =>
+        {
+            var removed = false;
+            store.Update(s =>
+            {
+                var idx = s.Ui.OverlayLayout.FindIndex(w => w.Id == id);
+                if (idx < 0) return;
+                s.Ui.OverlayLayout.RemoveAt(idx);
+                removed = true;
+            });
+            if (!removed)
+                return Results.NotFound(ApiResponse.Fail("widget not found"));
+            pm.MarkDirty();
+            PanelTopics.BroadcastPrefs(hub);
+            return Results.Ok(ApiResponse.Ok("removed"));
+        }).AllowPanel();
+    }
+
+    private static (int col, int row) FindFirstFreeCell(
+        List<OverlayWidgetDto> existing, int monitor, int w, int h)
+    {
+        // Row-major scan over a default grid in WHOLE cells. Existing widgets
+        // can be at fractional positions (0.25 increments); we conservatively
+        // mark every cell their bounding box overlaps as occupied so the
+        // first-free scan doesn't drop a new widget on top of a half-shifted
+        // neighbour.
+        var occupied = new HashSet<(int, int)>();
+        foreach (var entry in existing)
+        {
+            if (entry.Monitor != monitor) continue;
+            var left = (int)Math.Floor(entry.Col);
+            var right = (int)Math.Ceiling(entry.Col + SizeWidth(entry.Size));
+            var top = (int)Math.Floor(entry.Row);
+            var bottom = (int)Math.Ceiling(entry.Row + SizeHeight(entry.Size));
+            for (var c = left; c < right; c++)
+            {
+                for (var r = top; r < bottom; r++)
+                {
+                    occupied.Add((c, r));
+                }
+            }
+        }
+        for (var row = 0; row + h <= DefaultGridRows; row++)
+        {
+            for (var col = 0; col + w <= DefaultGridCols; col++)
+            {
+                var clear = true;
+                for (var dc = 0; dc < w && clear; dc++)
+                {
+                    for (var dr = 0; dr < h && clear; dr++)
+                    {
+                        if (occupied.Contains((col + dc, row + dr))) clear = false;
+                    }
+                }
+                if (clear) return (col, row);
+            }
+        }
+        return (0, 0);
+    }
+
+    private static int SizeWidth(string size) => size switch
+    {
+        "1x1" => 1,
+        "2x2" => 2,
+        "2x4" => 2,
+        "4x2" => 4,
+        "4x4" => 4,
+        _ => 2,
+    };
+
+    private static int SizeHeight(string size) => size switch
+    {
+        "1x1" => 1,
+        "2x2" => 2,
+        "2x4" => 4,
+        "4x2" => 2,
+        "4x4" => 4,
+        _ => 2,
+    };
+}

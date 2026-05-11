@@ -1,0 +1,160 @@
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Threading.Tasks;
+using Qos.Service.Models.Media;
+using Qos.Service.Platform;
+
+namespace Qos.Service.Media;
+
+/// <summary>
+/// Converts uploaded files to optimized frame sequences for the lighting engine.
+/// All formats (static images, animated GIFs, videos) go through ffmpeg. A
+/// single ffmpeg pass produces raw RGB24 frames at the canvas resolution (160x90)
+/// written consecutively to frames.bin; a second pass captures the first frame as
+/// thumb.jpg for UI previews. Static images collapse to a 1-frame output; animated
+/// content is capped at 30 fps / 300 frames.
+/// </summary>
+public static class MediaImporter
+{
+    public const int CanvasWidth = 160;
+    public const int CanvasHeight = 90;
+    public const int MaxFps = 30;
+    public const int MaxFrames = 300;
+    public const long MaxFileSize = 100 * 1024 * 1024;
+    public const int ThumbWidth = 480;
+    public const int ThumbHeight = 270;
+
+    private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif" };
+    private static readonly string[] AnimatedExtensions = { ".gif", ".mp4", ".webm", ".mov", ".avi", ".mkv", ".wmv", ".m4v", ".mpg", ".mpeg" };
+
+    public static async Task<ImportResult> ImportAsync(MediaLibrary library, string sourcePath, string originalName)
+    {
+        var ext = Path.GetExtension(originalName).ToLowerInvariant();
+        var baseName = Path.GetFileNameWithoutExtension(originalName);
+        var id = SanitizeId($"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds():x}-{baseName}");
+
+        bool isImage = Array.Exists(ImageExtensions, e => e == ext);
+        bool isAnimated = Array.Exists(AnimatedExtensions, e => e == ext);
+        if (!isImage && !isAnimated)
+        {
+            return ImportResult.Failure("Unsupported file format");
+        }
+
+        if (FfmpegResolver.Path is null)
+        {
+            return ImportResult.Failure("Media conversion requires ffmpeg, which is missing. Reinstall qos-service.");
+        }
+
+        var dir = library.GetItemDir(id);
+        try
+        {
+            Directory.CreateDirectory(dir);
+            var framesPath = library.GetFramesBinPath(id);
+            var thumbPath = library.GetThumbPath(id);
+
+            var scaleFilter = $"scale={CanvasWidth}:{CanvasHeight}:force_original_aspect_ratio=decrease,pad={CanvasWidth}:{CanvasHeight}:-1:-1:color=black";
+            var thumbScaleFilter = $"scale={ThumbWidth}:{ThumbHeight}:force_original_aspect_ratio=decrease,pad={ThumbWidth}:{ThumbHeight}:-1:-1:color=black";
+
+            if (isImage)
+            {
+                await RunFfmpeg("-y", "-i", sourcePath, "-vf", scaleFilter, "-frames:v", "1",
+                    "-f", "rawvideo", "-pix_fmt", "rgb24", framesPath);
+            }
+            else
+            {
+                await RunFfmpeg("-y", "-i", sourcePath, "-vf", scaleFilter, "-r", MaxFps.ToString(),
+                    "-frames:v", MaxFrames.ToString(), "-f", "rawvideo", "-pix_fmt", "rgb24", framesPath);
+            }
+
+            if (!File.Exists(framesPath) || new FileInfo(framesPath).Length == 0)
+            {
+                library.DeleteItem(id);
+                return ImportResult.Failure("ffmpeg produced no frames");
+            }
+
+            var frameByteCount = CanvasWidth * CanvasHeight * 3L;
+            var totalBytes = new FileInfo(framesPath).Length;
+            var frameCount = (int)(totalBytes / frameByteCount);
+            if (frameCount == 0)
+            {
+                library.DeleteItem(id);
+                return ImportResult.Failure("Frame decode failed");
+            }
+
+            await RunFfmpeg("-y", "-i", sourcePath, "-vf", thumbScaleFilter, "-frames:v", "1",
+                "-q:v", "5", thumbPath);
+
+            var item = new MediaItem
+            {
+                Id = id,
+                Name = originalName,
+                Type = frameCount > 1 ? "animated" : "static",
+                Frames = frameCount,
+                Fps = frameCount > 1 ? MaxFps : 0,
+                Width = CanvasWidth,
+                Height = CanvasHeight,
+                ImportedAtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
+            };
+            library.SaveMeta(item);
+            return ImportResult.Success(item);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[media-import] failed: {ex.Message}");
+            library.DeleteItem(id);
+            return ImportResult.Failure(ex.Message);
+        }
+    }
+
+    private static async Task RunFfmpeg(params string[] args)
+    {
+        var ffmpegPath = FfmpegResolver.Path
+            ?? throw new InvalidOperationException("ffmpeg not found");
+
+        var psi = new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            UseShellExecute = false,
+            RedirectStandardError = true,
+            RedirectStandardOutput = true,
+            CreateNoWindow = true,
+        };
+        foreach (var arg in args)
+        {
+            psi.ArgumentList.Add(arg);
+        }
+
+        using var proc = Process.Start(psi)
+            ?? throw new InvalidOperationException("ffmpeg failed to start");
+
+        var stderrTask = proc.StandardError.ReadToEndAsync();
+        await proc.WaitForExitAsync();
+        var stderr = await stderrTask;
+        if (proc.ExitCode != 0)
+        {
+            var tail = stderr.Length > 400 ? stderr[^400..] : stderr;
+            throw new InvalidOperationException($"ffmpeg exit {proc.ExitCode}: {tail.Trim()}");
+        }
+    }
+
+    private static string SanitizeId(string id)
+    {
+        var chars = id.ToCharArray();
+        for (int i = 0; i < chars.Length; i++)
+        {
+            if (!char.IsLetterOrDigit(chars[i]) && chars[i] != '-' && chars[i] != '_')
+            {
+                chars[i] = '_';
+            }
+        }
+        return new string(chars).Substring(0, Math.Min(chars.Length, 64));
+    }
+
+    public readonly record struct ImportResult(MediaItem? Item, string? Error)
+    {
+        public bool Ok => Item is not null;
+        public static ImportResult Success(MediaItem item) => new(item, null);
+        public static ImportResult Failure(string error) => new(null, error);
+    }
+}

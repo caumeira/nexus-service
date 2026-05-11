@@ -1,0 +1,189 @@
+using System.Collections.Concurrent;
+using Qos.Service.Cooling;
+using Qos.Service.Models.Cooling;
+using Qos.Service.Persistence;
+using Qos.Service.Sockets;
+
+namespace Qos.Service.Tests.Integration;
+
+/// <summary>
+/// End-to-end coverage of the profile-switch &rarr; curve-apply flow. A
+/// regression in any of these links looks "fine" in isolation: the profile API
+/// returns success, settings.json has the new curves, the frontend shows the
+/// new active profile. Meanwhile the curve engine is still driving fans with
+/// the old profile's speeds and the user hears no change. That's the silent
+/// failure this suite guards against.
+///
+/// What's exercised:
+///   1. <see cref="JsonConfigStore"/> swap of the active profile's settings
+///      into the cached in-memory doc via <see cref="ProfileManager.SwitchProfile"/>
+///   2. <see cref="CurveEngine.Tick"/> reading the new curves from
+///      <see cref="IConfigStore"/> on the next tick
+///   3. <see cref="IFanControlProvider.SetFanSpeed"/> being called with the
+///      duty derived from the NEW profile's curve, not the old one
+///
+/// Runs against real <see cref="ProfileManager"/> + <see cref="JsonConfigStore"/>
+/// against a temp directory; the fan provider is an in-memory recorder so we
+/// can assert on the duty writes without any hardware.
+/// </summary>
+public class ProfileSwitchTests : IDisposable
+{
+    private readonly string _tempDir;
+    private readonly JsonConfigStore _store;
+    private readonly ProfileManager _profiles;
+
+    public ProfileSwitchTests()
+    {
+        _tempDir = Path.Combine(Path.GetTempPath(), "qos-profile-switch-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(_tempDir);
+        var settingsPath = Path.Combine(_tempDir, "settings.json");
+        _store = new JsonConfigStore(settingsPath);
+        _profiles = new ProfileManager(_store);
+        _profiles.Initialize();
+    }
+
+    public void Dispose()
+    {
+        _profiles.Dispose();
+        _store.Dispose();
+        try { Directory.Delete(_tempDir, recursive: true); } catch { }
+    }
+
+    // Minimal recording fan provider. Captures SetFanSpeed writes so tests can
+    // assert which duty cycles were actually pushed to hardware, and returns a
+    // configurable temperature so curve evaluation is deterministic.
+    private sealed class RecordingFanProvider : IFanControlProvider
+    {
+        public readonly ConcurrentQueue<(string ChannelId, int DutyPercent)> Writes = new();
+        public float Temperature { get; set; } = 60f;
+
+        public IReadOnlyList<FanChannel> GetFanChannels() => Array.Empty<FanChannel>();
+        public IReadOnlyList<TemperatureSource> GetTemperatureSources() => Array.Empty<TemperatureSource>();
+        public float? ReadTemperature(string sensorId) => Temperature;
+        public int SetFanSpeed(string channelId, int dutyPercent)
+        {
+            Writes.Enqueue((channelId, dutyPercent));
+            return dutyPercent;
+        }
+        public void ReleaseFan(string channelId) { }
+        public void ReleaseAll() { }
+        public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(
+            IReadOnlyList<string> fanIds,
+            IProgress<FanCalibrationProgress> progress,
+            CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<FanCalibration>>(Array.Empty<FanCalibration>());
+    }
+
+    private static List<CurveDocument> MakeCurve(string fanId, string sensorId, int flatSpeed) => new()
+    {
+        new CurveDocument
+        {
+            Id = "c-" + flatSpeed,
+            Name = "Fan " + flatSpeed,
+            Type = "Flat",
+            Input = new CurveInputDocument { Id = sensorId, Type = "Temperature", Device = "" },
+            Outputs = new List<CurveOutputDocument>
+            {
+                new() { Id = fanId, Type = "Fan" },
+            },
+            Flat = new FlatCurveData { Speed = flatSpeed },
+        },
+    };
+
+    [Fact]
+    public void SwitchProfile_ReplacesCurvesInStore_AndNextTickWritesNewDuty()
+    {
+        // Arrange: active profile "Default" with a 30% flat curve.
+        var activeId = _profiles.GetActiveEntry()!.Id;
+        _store.Update(s => s.Cooling.Curves = MakeCurve("fan-1", "cpu-0", 30));
+        _store.FlushNow();
+        _profiles.SaveActiveProfile();
+
+        // Second profile "Performance" with a 80% flat curve.
+        var perfEntry = _profiles.CreateProfile("Performance");
+        _store.Update(s => s.Cooling.Curves = MakeCurve("fan-1", "cpu-0", 80));
+        _store.FlushNow();
+        _profiles.SaveActiveProfile();
+
+        // Back to Default (CreateProfile left us on Performance).
+        _profiles.SwitchProfile(activeId);
+
+        // Act: first tick under the Default profile should write 30.
+        var fans = new RecordingFanProvider();
+        var engine = new CurveEngine(fans, _store, new MultiplexHub());
+        engine.Tick();
+
+        var firstWrite = Assert.Single(fans.Writes);
+        Assert.Equal("fan-1", firstWrite.ChannelId);
+        Assert.Equal(30, firstWrite.DutyPercent);
+
+        // Switch to Performance. The store must now reflect the new curves on
+        // the next CurveEngine.Tick(). Previously we'd capture 30 again if the
+        // switch didn't actually swap settings in memory.
+        _profiles.SwitchProfile(perfEntry.Id);
+        engine.Tick();
+
+        Assert.Equal(2, fans.Writes.Count);
+        var writes = fans.Writes.ToArray();
+        Assert.Equal(30, writes[0].DutyPercent);
+        Assert.Equal(80, writes[1].DutyPercent);
+    }
+
+    [Fact]
+    public void SwitchProfile_FiresOnProfileSwitched_Once_PerSwitch()
+    {
+        var activeId = _profiles.GetActiveEntry()!.Id;
+        var second = _profiles.CreateProfile("Second");
+        _profiles.SwitchProfile(activeId);
+
+        int count = 0;
+        _profiles.OnProfileSwitched += () => count++;
+
+        _profiles.SwitchProfile(second.Id);
+        Assert.Equal(1, count);
+
+        // No-op switch (already active) must NOT re-fire the event; a
+        // regression here would cause every /profiles/{id}/switch for the
+        // current profile to reset cooling and lighting state.
+        _profiles.SwitchProfile(second.Id);
+        Assert.Equal(1, count);
+
+        _profiles.SwitchProfile(activeId);
+        Assert.Equal(2, count);
+    }
+
+    [Fact]
+    public void CreateProfile_PersistsToDisk_AndIsLoadable_AfterDispose()
+    {
+        var entry = _profiles.CreateProfile("Quiet");
+        _store.Update(s => s.Cooling.Curves = MakeCurve("fan-1", "cpu-0", 15));
+        _store.FlushNow();
+        _profiles.SaveActiveProfile();
+
+        // Simulate a process restart: dispose + rebuild the manager against
+        // the same settings dir. The profile + curve set must survive.
+        _profiles.Dispose();
+        _store.Dispose();
+
+        var store2 = new JsonConfigStore(Path.Combine(_tempDir, "settings.json"));
+        var pm2 = new ProfileManager(store2);
+        pm2.Initialize();
+
+        var manifest = pm2.GetManifest();
+        Assert.Contains(manifest.Profiles, p => p.Id == entry.Id && p.Name == "Quiet");
+        pm2.SwitchProfile(entry.Id);
+        Assert.Equal(15, store2.Load().Cooling.Curves[0].Flat!.Speed);
+
+        pm2.Dispose();
+        store2.Dispose();
+    }
+
+    [Theory]
+    [InlineData("missing")]
+    [InlineData("../settings")]
+    [InlineData("x/../../settings")]
+    public void ExportProfileJson_RejectsIdsOutsideManifest(string id)
+    {
+        Assert.Null(_profiles.ExportProfileJson(id));
+    }
+}

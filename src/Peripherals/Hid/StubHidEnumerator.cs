@@ -1,0 +1,10 @@
+using System.Collections.Generic;
+
+namespace Qos.Service.Peripherals.Hid;
+
+/// <summary>No-op HID enumerator for platforms without a real implementation yet.</summary>
+public sealed class StubHidEnumerator : IHidEnumerator
+{
+    public IReadOnlyList<HidDeviceInfo> Find(int vendorId, int productId) => System.Array.Empty<HidDeviceInfo>();
+    public IHidDevice? Open(string path) => null;
+}

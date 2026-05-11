@@ -1,0 +1,6 @@
+{
+  "configProperties": {
+    "Microsoft.AspNetCore.Mvc.ApiExplorer.IsEnhancedModelMetadataSupported": true,
+    "System.Text.Json.JsonSerializer.IsReflectionEnabledByDefault": true
+  }
+}

@@ -1,0 +1,368 @@
+using System.Runtime.InteropServices;
+using Qos.Service.Activity;
+using Qos.Service.Auth;
+using Qos.Service.Cooling;
+using Qos.Service.Devices;
+using Qos.Service.Discord;
+using Qos.Service.Fps;
+using Qos.Service.Lifecycle;
+using Qos.Service.Lighting;
+using Qos.Service.Lighting.Engine;
+using Qos.Service.Obs;
+using Qos.Service.Peripherals.Keeb;
+using Qos.Service.Peripherals.Q60;
+using Qos.Service.Peripherals.Y70;
+using Qos.Service.Persistence;
+using Qos.Service.Platform;
+using Qos.Service.Sensors;
+using Qos.Service.Sockets;
+using Qos.Service.Steam;
+using Microsoft.Extensions.DependencyInjection;
+
+namespace Qos.Service.DependencyInjection;
+
+/// <summary>
+/// Per-domain DI extension methods. Program.cs composes them into a single
+/// fluent chain instead of inlining ~400 lines of platform-conditional
+/// AddSingleton blocks. Each method keeps its own #if WINDOWS / runtime
+/// platform checks so the AOT trim model is unchanged.
+/// </summary>
+public static class QosServiceCollectionExtensions
+{
+    public static IServiceCollection AddqOSCore(this IServiceCollection services)
+    {
+#if WINDOWS
+        services.AddSingleton<LhmComputer>();
+        services.AddSingleton<IPerformanceProvider, Qos.Service.Platform.Windows.WindowsPerformanceProvider>();
+#else
+        services.AddSingleton<IPerformanceProvider>(_ => PerformanceProviderFactory.Create());
+#endif
+        services.AddSingleton<IConfigStore, JsonConfigStore>();
+        services.AddSingleton<TokenService>();
+
+#if WINDOWS
+        services.AddSingleton<IFpsProvider, WindowsFpsProvider>();
+#else
+        services.AddSingleton<IFpsProvider, StubFpsProvider>();
+#endif
+        services.AddSingleton<MultiplexHub>();
+        services.AddSingleton<LightingOutputHub>();
+        services.AddSingleton<Qos.Service.Monitoring.MonitoringBroadcaster>();
+        services.AddHostedService(sp => sp.GetRequiredService<Qos.Service.Monitoring.MonitoringBroadcaster>());
+        return services;
+    }
+
+    public static IServiceCollection AddqOSSensors(this IServiceCollection services)
+    {
+#if WINDOWS
+        services.AddSingleton<ISensorProvider, LibreHardwareSensorProvider>();
+#else
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            services.AddSingleton<ISensorProvider, LinuxSensorProvider>();
+        else
+            services.AddSingleton<ISensorProvider, MacSensorProvider>();
+#endif
+        services.AddSingleton<ProcessMonitor>();
+        services.AddHostedService(sp => sp.GetRequiredService<ProcessMonitor>());
+        return services;
+    }
+
+    public static IServiceCollection AddqOSCooling(this IServiceCollection services)
+    {
+        services.AddSingleton<StubCoolingProvider>();
+#if WINDOWS
+        services.AddSingleton<WindowsFanControlProvider>();
+        services.AddSingleton<IFanControlProvider>(sp => sp.GetRequiredService<WindowsFanControlProvider>());
+        services.AddSingleton<ICoolingProvider>(sp => sp.GetRequiredService<WindowsFanControlProvider>());
+#else
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            services.AddSingleton<MacFanControlProvider>();
+            services.AddSingleton<IFanControlProvider>(sp => sp.GetRequiredService<MacFanControlProvider>());
+            services.AddSingleton<ICoolingProvider>(sp => sp.GetRequiredService<MacFanControlProvider>());
+        }
+        else
+        {
+            services.AddSingleton<IFanControlProvider>(sp => sp.GetRequiredService<StubCoolingProvider>());
+            services.AddSingleton<ICoolingProvider>(sp => sp.GetRequiredService<StubCoolingProvider>());
+        }
+#endif
+        services.AddSingleton<ICurveProvider>(sp => sp.GetRequiredService<StubCoolingProvider>());
+        services.AddSingleton<CurveEngine>();
+        services.AddHostedService(sp => sp.GetRequiredService<CurveEngine>());
+        services.AddSingleton<CalibrationRunner>();
+        return services;
+    }
+
+    public static IServiceCollection AddqOSLighting(this IServiceCollection services)
+    {
+        services.AddSingleton<LightingEngine>();
+        services.AddSingleton(_ => new Qos.Service.Lighting.Engine.Gpu.GpuContext(160, 90));
+        services.AddSingleton<ILightingProvider, LightingProvider>();
+        services.AddSingleton<IObsProvider, ObsProvider>();
+        services.AddSingleton<ISteamProvider, SteamProvider>();
+        services.AddSingleton<IDiscordProvider, DiscordProvider>();
+
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        {
+            services.AddSingleton<Qos.Service.Lighting.Rgb.OpenRgbProcessManager>();
+            services.AddSingleton<Qos.Service.Lighting.Rgb.IRgbController>(_ =>
+                new Qos.Service.Lighting.Rgb.OpenRgbController());
+            services.AddSingleton<Qos.Service.Lighting.Rgb.RgbBridge>();
+        }
+        else
+        {
+            services.AddSingleton<Qos.Service.Lighting.Rgb.IRgbController, Qos.Service.Lighting.Rgb.NoOpRgbController>();
+        }
+
+        if (OperatingSystem.IsWindows())
+            services.AddHostedService<Qos.Service.Lighting.Rgb.PowerEventListener>();
+
+        return services;
+    }
+
+    public static IServiceCollection AddqOSDevices(this IServiceCollection services)
+    {
+        services.AddSingleton<StubDeviceProvider>();
+        services.AddSingleton<IDeviceProvider>(sp => sp.GetRequiredService<StubDeviceProvider>());
+
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+            services.AddSingleton<ILightingDeviceProvider, Qos.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>();
+        else
+            services.AddSingleton<ILightingDeviceProvider>(sp => sp.GetRequiredService<StubDeviceProvider>());
+
+        services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.CnvsHandler>();
+        services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.Q60Handler>();
+        services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.Q80Handler>();
+        services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.Y70Handler>();
+        services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.KeebHandler>();
+        services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.FanHubHandler>();
+
+#if WINDOWS
+        services.AddSingleton<Qos.Service.Devices.Detection.WindowsUsbEnumerator>();
+        services.AddSingleton<Qos.Service.Devices.Detection.IUsbEnumerator>(sp =>
+            new Qos.Service.Devices.Detection.CachingUsbEnumerator(
+                sp.GetRequiredService<Qos.Service.Devices.Detection.WindowsUsbEnumerator>()));
+#else
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            services.AddSingleton<Qos.Service.Devices.Detection.MacUsbEnumerator>();
+            services.AddSingleton<Qos.Service.Devices.Detection.IUsbEnumerator>(sp =>
+                new Qos.Service.Devices.Detection.CachingUsbEnumerator(
+                    sp.GetRequiredService<Qos.Service.Devices.Detection.MacUsbEnumerator>()));
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            services.AddSingleton<Qos.Service.Devices.Detection.LinuxUsbEnumerator>();
+            services.AddSingleton<Qos.Service.Devices.Detection.IUsbEnumerator>(sp =>
+                new Qos.Service.Devices.Detection.CachingUsbEnumerator(
+                    sp.GetRequiredService<Qos.Service.Devices.Detection.LinuxUsbEnumerator>()));
+        }
+        else
+        {
+            services.AddSingleton<Qos.Service.Devices.Detection.StubUsbEnumerator>();
+            services.AddSingleton<Qos.Service.Devices.Detection.IUsbEnumerator>(sp =>
+                new Qos.Service.Devices.Detection.CachingUsbEnumerator(
+                    sp.GetRequiredService<Qos.Service.Devices.Detection.StubUsbEnumerator>()));
+        }
+#endif
+        services.AddSingleton<DeviceManager>();
+        services.AddSingleton<Qos.Service.Devices.DeviceBroadcaster>();
+        services.AddHostedService(sp => sp.GetRequiredService<Qos.Service.Devices.DeviceBroadcaster>());
+        return services;
+    }
+
+    public static IServiceCollection AddqOSPeripherals(this IServiceCollection services)
+    {
+#if WINDOWS
+        services.AddSingleton<Qos.Service.Peripherals.Hid.IHidEnumerator, Qos.Service.Peripherals.Hid.WindowsHidEnumerator>();
+#else
+        services.AddSingleton<Qos.Service.Peripherals.Hid.IHidEnumerator, Qos.Service.Peripherals.Hid.StubHidEnumerator>();
+#endif
+        services.AddSingleton<Qos.Service.Peripherals.PeripheralRegistry>();
+
+        services.AddSingleton<StubKeebProvider>();
+        services.AddSingleton<IKeebProvider>(sp => sp.GetRequiredService<StubKeebProvider>());
+#if WINDOWS
+        services.AddSingleton<IInputterProvider, WindowsInputter>();
+#else
+        services.AddSingleton<IInputterProvider>(sp => sp.GetRequiredService<StubKeebProvider>());
+#endif
+
+        services.AddSingleton<IY70Provider, StubY70Provider>();
+        services.AddSingleton<IQ60Provider, StubQ60Provider>();
+
+#if WINDOWS
+        services.AddSingleton<Qos.Service.Platform.Displays.IDisplayBrightnessProvider,
+            Qos.Service.Platform.Displays.WindowsDisplayBrightnessProvider>();
+#else
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            services.AddSingleton<Qos.Service.Platform.Displays.IDisplayBrightnessProvider,
+                Qos.Service.Platform.Displays.MacDisplayBrightnessProvider>();
+        }
+        else
+        {
+            services.AddSingleton<Qos.Service.Platform.Displays.IDisplayBrightnessProvider,
+                Qos.Service.Platform.Displays.StubDisplayBrightnessProvider>();
+        }
+#endif
+        services.AddSingleton<Qos.Service.Platform.Displays.DisplayBrightnessController>();
+        return services;
+    }
+
+    public static IServiceCollection AddqOSActivity(this IServiceCollection services)
+    {
+        services.AddSingleton<Qos.Service.Activity.Storage.IScreenTimeStore>(_ =>
+        {
+            try
+            {
+                return new Qos.Service.Activity.Storage.SqliteScreenTimeStore();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[screentime-store] sqlite unavailable, using in-memory: {ex.Message}");
+                return new Qos.Service.Activity.Storage.InMemoryScreenTimeStore();
+            }
+        });
+
+#if WINDOWS
+        services.AddSingleton<IScreenTimeProvider, WindowsScreenTimeProvider>();
+        services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
+        services.AddSingleton<IShortcutsProvider, WindowsShortcutsProvider>();
+        services.AddSingleton<IMediaProvider, WindowsMediaProvider>();
+        services.AddSingleton<IVolumeProvider, WindowsVolumeProvider>();
+        services.AddSingleton<IBeatsProvider, WasapiLoopbackBeatsProvider>();
+#else
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            services.AddSingleton<IScreenTimeProvider, MacScreenTimeProvider>();
+            services.AddSingleton<IAppDetectionProvider, MacAppDetectionProvider>();
+            services.AddSingleton<IShortcutsProvider, MacShortcutsProvider>();
+            services.AddSingleton<IMediaProvider, MacMediaProvider>();
+            services.AddSingleton<IVolumeProvider, MacVolumeProvider>();
+            services.AddSingleton<IBeatsProvider, MacAudioBeatsProvider>();
+        }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            services.AddSingleton<Qos.Service.Activity.LinuxScreenTimeProvider>();
+            services.AddHostedService(sp => sp.GetRequiredService<Qos.Service.Activity.LinuxScreenTimeProvider>());
+            services.AddSingleton<IScreenTimeProvider>(sp => sp.GetRequiredService<Qos.Service.Activity.LinuxScreenTimeProvider>());
+            services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
+            services.AddSingleton<IShortcutsProvider, LinuxShortcutsProvider>();
+            services.AddSingleton<IMediaProvider, StubMediaProvider>();
+            services.AddSingleton<IVolumeProvider, StubVolumeProvider>();
+            services.AddSingleton<IBeatsProvider, BeatsProvider>();
+        }
+        else
+        {
+            services.AddSingleton<IScreenTimeProvider, StubScreenTimeProvider>();
+            services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
+            services.AddSingleton<IShortcutsProvider, StubShortcutsProvider>();
+            services.AddSingleton<IMediaProvider, StubMediaProvider>();
+            services.AddSingleton<IVolumeProvider, StubVolumeProvider>();
+            services.AddSingleton<IBeatsProvider, StubBeatsProvider>();
+        }
+#endif
+        return services;
+    }
+
+    public static IServiceCollection AddqOSNetwork(this IServiceCollection services)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            services.AddSingleton<MacNetworkProvider>();
+            services.AddHostedService(sp => sp.GetRequiredService<MacNetworkProvider>());
+            services.AddSingleton<INetworkProvider>(sp => sp.GetRequiredService<MacNetworkProvider>());
+        }
+#if WINDOWS
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            services.AddSingleton<WindowsNetworkProvider>();
+            services.AddHostedService(sp => sp.GetRequiredService<WindowsNetworkProvider>());
+            services.AddSingleton<INetworkProvider>(sp => sp.GetRequiredService<WindowsNetworkProvider>());
+        }
+#endif
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            services.AddSingleton<LinuxNetworkProvider>();
+            services.AddHostedService(sp => sp.GetRequiredService<LinuxNetworkProvider>());
+            services.AddSingleton<INetworkProvider>(sp => sp.GetRequiredService<LinuxNetworkProvider>());
+        }
+        else
+        {
+            services.AddSingleton<INetworkProvider, StubNetworkProvider>();
+        }
+        return services;
+    }
+
+    public static IServiceCollection AddqOSLifecycle(this IServiceCollection services)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            services.AddSingleton<IStartupProvider, MacStartupProvider>();
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            services.AddSingleton<IStartupProvider, WindowsStartupProvider>();
+        else
+            services.AddSingleton<IStartupProvider, StubStartupProvider>();
+
+        services.AddSingleton<IShutdownProvider, StubShutdownProvider>();
+#if WINDOWS
+        services.AddSingleton<IPawnIoProvider, PawnIoProvider>();
+#else
+        services.AddSingleton<IPawnIoProvider, StubPawnIoProvider>();
+#endif
+        return services;
+    }
+
+    public static IServiceCollection AddqOSBenchmarks(this IServiceCollection services)
+    {
+        services.AddSingleton<Qos.Service.Benchmarks.IBenchmarkProvider, Qos.Service.Benchmarks.Providers.DefaultBenchmarkProvider>();
+        services.AddSingleton<Qos.Service.Benchmarks.BenchmarkRunner>();
+        services.AddSingleton<ProfileManager>();
+        services.AddSingleton<Qos.Service.Media.MediaLibrary>();
+        return services;
+    }
+
+    public static IServiceCollection AddqOSWeather(this IServiceCollection services)
+    {
+        services.AddSingleton<Qos.Service.Platform.Weather.IWeatherProvider, Qos.Service.Platform.Weather.OpenMeteoWeatherProvider>();
+        return services;
+    }
+
+    public static IServiceCollection AddqOSPanel(this IServiceCollection services, int servicePort)
+    {
+        services.AddSingleton(sp => new Qos.Service.Panel.PanelKioskLauncher(servicePort, sp.GetRequiredService<TokenService>()));
+        services.AddSingleton<Qos.Service.Panel.PanelOverlayHostLauncher>();
+        // IOverlayHost picks the right impl per OS. Mac spawns the Swift
+        // sidecar qos-overlay-helper (transparent NSWindow + WKWebView
+        // per NSScreen). Windows spawns qos-overlay.exe (WinForms +
+        // WebView2). Linux is a no-op until an X11/Wayland surface is added.
+        if (OperatingSystem.IsMacOS())
+        {
+            Qos.Service.Platform.Mac.MacOverlayHostLauncher.Configure(servicePort);
+            services.AddSingleton<Qos.Service.Panel.IOverlayHost, Qos.Service.Platform.Mac.MacOverlayHostLauncher>();
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<Qos.Service.Panel.IOverlayHost>(sp =>
+                sp.GetRequiredService<Qos.Service.Panel.PanelOverlayHostLauncher>());
+        }
+        else
+        {
+            services.AddSingleton<Qos.Service.Panel.IOverlayHost, Qos.Service.Panel.NoopOverlayHost>();
+        }
+        services.AddSingleton<Qos.Service.Panel.PanelPhonePairingService>();
+        services.AddSingleton<Qos.Service.Panel.PanelDeviceRegistry>();
+        return services;
+    }
+
+    public static IServiceCollection AddqOSLinuxDBus(this IServiceCollection services)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            services.AddSingleton<Qos.Service.Platform.Linux.DBus.DBusConnection>();
+            services.AddHostedService<Qos.Service.Platform.Linux.LinuxTrayService>();
+        }
+        return services;
+    }
+}

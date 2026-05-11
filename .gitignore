@@ -1,0 +1,48 @@
+# .NET
+bin/
+obj/
+# Catch every flavour of publish output (publish-aot, publish-mac,
+# publish-mac-aot, publish-linux, publish-win, etc.) without having to
+# enumerate every variant.
+publish/
+publish-*/
+*.user
+*.suo
+.vs/
+
+# macOS .app bundles produced by Bundled/macos/build-app.sh after publish.
+*.app/
+
+# Compiled OpenRGB-headless drops live in Bundled/{rid}/openrgb/ and are
+# produced by qos-rgb/bundle-macos.sh (or scripts/build-windows.bat on
+# Windows) from the openrgb-headless submodule. Don't commit binaries.
+# PawnIO under Bundled/win-x64/pawnio/ stays tracked — it's a signed kernel
+# driver that can't be rebuilt without Microsoft attestation.
+Bundled/*/openrgb/
+# ffmpeg is vendored at Bundled/{rid}/ffmpeg/ but too large to commit
+# (~96 MB on Windows). Fetched from gyan.dev/ffmpeg at setup time.
+Bundled/*/ffmpeg/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# wwwroot is populated by `npm run build` in qos-web; ignore the bundled artifact
+# but keep the directory itself so the csproj <Content Include> doesn't error.
+wwwroot/*
+!wwwroot/.gitkeep
+CHANGELOG.md
+.deep-build/
+
+# ffmpeg source + build intermediates produced by scripts/build-ffmpeg-minimal.sh
+build/
+
+# AOT publish output (regenerated; metadata leaks personal paths)
+builds/

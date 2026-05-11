@@ -1,0 +1,413 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <!-- Windows builds target a Win10-versioned TFM so we can use C#/WinRT
+         projections (Windows.Media.Control for GSMTC media sessions, etc).
+         macOS/Linux stay on plain net10.0. The condition keys on RID first so
+         cross-compilation from Mac (`-r win-x64`) picks the Windows TFM. -->
+    <TargetFramework Condition="$(RuntimeIdentifier.StartsWith('win')) OR $([MSBuild]::IsOSPlatform('Windows'))">net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework Condition="!$(RuntimeIdentifier.StartsWith('win')) AND !$([MSBuild]::IsOSPlatform('Windows'))">net10.0</TargetFramework>
+    <SupportedOSPlatformVersion Condition="$(RuntimeIdentifier.StartsWith('win')) OR $([MSBuild]::IsOSPlatform('Windows'))">10.0.19041.0</SupportedOSPlatformVersion>
+    <EnableWindowsTargeting Condition="!$([MSBuild]::IsOSPlatform('Windows'))">true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <RootNamespace>Qos.Service</RootNamespace>
+    <AssemblyName>qOS</AssemblyName>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <ApplicationIcon>icon.ico</ApplicationIcon>
+    <PublishAot>true</PublishAot>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DebugType>none</DebugType>
+    <DebugSymbols>false</DebugSymbols>
+    <EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
+    <!-- WinExe subsystem on Windows: no console window, service lives in system tray only -->
+    <OutputType Condition="$([MSBuild]::IsOSPlatform('Windows'))">WinExe</OutputType>
+    <!-- Embed Win32 manifest with requestedExecutionLevel=highestAvailable so
+         double-clicking the EXE on an admin account triggers UAC and runs
+         elevated. Standard accounts launch unelevated (no prompt). The
+         scheduled task path is unaffected (it sets RunLevel separately). -->
+    <ApplicationManifest Condition="$([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))">app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <!-- Windows: define WINDOWS constant + include LibreHardwareMonitor.
+       Supports both native builds (IsOSPlatform) and cross-compilation (RID starts with 'win'). -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))">
+    <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))">
+    <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
+    <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.1.13" />
+    <PackageReference Include="Microsoft.Win32.SystemEvents" Version="9.0.0" />
+    <PackageReference Include="Vortice.DXGI" Version="3.8.3" />
+    <PackageReference Include="Vortice.Direct3D11" Version="3.8.3" />
+    <!-- WindowsMediaController wraps GlobalSystemMediaTransportControlsSessionManager
+         (GSMTC) and exposes a Sessions dictionary + change events. Same library
+         the reference Windows control service uses; survives AOT because the
+         Windows TFM gives us C#/WinRT projections at compile time. -->
+    <PackageReference Include="Dubya.WindowsMediaController" Version="2.5.6" />
+    <!-- LibreHardwareMonitorLib transitively pulls Mono.Posix.NETStandard for
+         Linux/macOS file IO. On Windows nothing in LHM hits those code paths,
+         so the native libMonoPosixHelper.dll + MonoPosixHelper.dll (~1.5 MB)
+         are dead weight in the publish. Keep the managed ref so LHM compiles,
+         strip the native blobs. -->
+    <PackageReference Include="Mono.Posix.NETStandard" Version="1.0.0" ExcludeAssets="native" />
+  </ItemGroup>
+
+  <!-- Cross-platform OpenGL for GPU-rendered lighting effects. Silk.NET binds to
+       the native GL driver via P/Invoke (AOT-safe) and GLFW provides a hidden
+       window + context. OpenTK.redist.glfw ships the GLFW native blob - we
+       reference it directly with GeneratePathProperty so the CopyGlfwNative
+       target below can find the per-RID dll/dylib without hard-coding a
+       version in the path. -->
+  <ItemGroup>
+    <PackageReference Include="Silk.NET.OpenGL" Version="2.22.0" />
+    <PackageReference Include="Silk.NET.Windowing" Version="2.22.0" />
+    <PackageReference Include="Silk.NET.Windowing.Glfw" Version="2.22.0" />
+    <PackageReference Include="OpenTK.redist.glfw" Version="3.3.0-pre20200830200122" GeneratePathProperty="true" />
+  </ItemGroup>
+
+  <!-- SQLite for the screen-time persistent store. Uses raw SqliteConnection +
+       SqliteCommand only (no EF Core, which is reflection-heavy and not AOT-safe).
+       The native e_sqlite3 lib is bundled by SQLitePCLRaw.bundle_e_sqlite3
+       (transitive via Microsoft.Data.Sqlite). TrimmerRootAssembly keeps the
+       reflection-using initialization path from being stripped under AOT. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Data.Sqlite" Version="9.0.0" />
+    <TrimmerRootAssembly Include="Microsoft.Data.Sqlite" />
+    <TrimmerRootAssembly Include="SQLitePCLRaw.core" />
+    <TrimmerRootAssembly Include="SQLitePCLRaw.provider.e_sqlite3" />
+    <TrimmerRootAssembly Include="SQLitePCLRaw.batteries_v2" />
+  </ItemGroup>
+
+  <!-- QRCoder: pure-managed QR code SVG generation for the panel phone pairing flow. -->
+  <ItemGroup>
+    <PackageReference Include="QRCoder" Version="1.6.0" />
+  </ItemGroup>
+
+  <!-- AOT publish strips native assets from `runtimes/<rid>/native/` that aren't
+       statically referenced. Silk.NET loads GLFW via dynamic P/Invoke, so we
+       manually copy the native into the publish dir. -->
+  <Target Name="CopyGlfwNative" AfterTargets="Publish">
+    <ItemGroup>
+      <_GlfwWin Include="$(PkgOpenTK_redist_glfw)\runtimes\win-x64\native\glfw3.dll" />
+      <_GlfwMac Include="$(PkgOpenTK_redist_glfw)\runtimes\osx\native\libglfw.3.dylib" />
+      <_GlfwLinux Include="$(PkgOpenTK_redist_glfw)\runtimes\linux-x64\native\libglfw.so.3" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_GlfwWin)" DestinationFolder="$(PublishDir)"
+          Condition="$(RuntimeIdentifier.StartsWith('win')) AND Exists('@(_GlfwWin)')" />
+    <Copy SourceFiles="@(_GlfwMac)" DestinationFolder="$(PublishDir)"
+          Condition="$(RuntimeIdentifier.StartsWith('osx')) AND Exists('@(_GlfwMac)')" />
+    <Copy SourceFiles="@(_GlfwLinux)" DestinationFolder="$(PublishDir)"
+          Condition="$(RuntimeIdentifier.StartsWith('linux')) AND Exists('@(_GlfwLinux)')" />
+  </Target>
+
+  <!-- icon.ico is embedded in the exe via <ApplicationIcon> above (Win32
+       resource ID 32512). TrayIcon.cs and the OS taskbar load it from there;
+       no need to also ship the loose file. -->
+  <ItemGroup>
+    <None Include="icon.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="Never" />
+  </ItemGroup>
+
+  <!-- Expose internal test-only helpers (e.g. USB enumerator parsers) to the xUnit project -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Qos.Service.Tests" />
+  </ItemGroup>
+
+  <!-- Static data assets shipped with the service live under data/. Files are
+       baked in as embedded resources so the AOT binary is fully self-contained.
+       openrgb-supported-devices.json is extracted from the openrgb-headless
+       source by scripts/extract-supported-devices.py in the qos-rgb repo. -->
+  <ItemGroup>
+    <EmbeddedResource Include="data\openrgb-supported-devices.json">
+      <LogicalName>openrgb-supported-devices.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- GLSL fragment shaders: one file per animate effect under
+       src/Lighting/Engine/Gpu/Shaders/. Loaded at runtime from the assembly
+       manifest by ShaderLibrary.cs so AOT single-file publish works.
+       LogicalName pins the manifest resource name to a stable identifier
+       independent of source-folder layout (ShaderLibrary.cs hardcodes the
+       prefix). -->
+  <ItemGroup>
+    <EmbeddedResource Include="src\Lighting\Engine\Gpu\Shaders\**\*.frag">
+      <LogicalName>Qos.Service.Lighting.Engine.Gpu.Shaders.%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- Device protocol specs embedded into the AOT binary. -->
+  <ItemGroup>
+    <EmbeddedResource Include="protocols\razer-mouse.json">
+      <LogicalName>razer-mouse.json</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
+  <!-- macOS status bar icons (template images that adapt to dark/light menu bar) -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) OR $(RuntimeIdentifier.StartsWith('osx'))">
+    <Content Include="Bundled\macos\status-icon.png">
+      <Link>status-icon.png</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="Bundled\macos\status-icon@2x.png">
+      <Link>status-icon@2x.png</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- OpenRGB-headless binaries are NOT committed (see .gitignore) — they're
+       built from sibling repo qos-rgb/openrgb-headless and bundled into
+       Bundled/{rid}/openrgb/. Fail Publish loudly if the bundle is missing,
+       since silently skipping the <Content Include> below ships an app
+       without RGB support. -->
+  <Target Name="EnsureOpenRgbBundle" BeforeTargets="Publish">
+    <Error Condition="$(RuntimeIdentifier.StartsWith('osx')) AND !Exists('Bundled/osx-arm64/openrgb/OpenRGB-headless')"
+           Text="OpenRGB macOS bundle missing at Bundled/osx-arm64/openrgb/. Build it: cd ../qos-rgb/openrgb-headless &amp;&amp; qmake OpenRGB.pro CONFIG+=release CONFIG+=sdk_no_version_check &amp;&amp; make -j ; then cd .. &amp;&amp; ./bundle-macos.sh" />
+    <Error Condition="$(RuntimeIdentifier.StartsWith('win')) AND !Exists('Bundled\win-x64\openrgb\OpenRGB-headless.exe')"
+           Text="OpenRGB Windows bundle missing at Bundled\win-x64\openrgb\. Build it: cd ..\qos-rgb\openrgb-headless\scripts &amp;&amp; build-windows.bat ; then copy OpenRGB-headless.exe + hidapi.dll + libusb-1.0.dll + LICENSE into Bundled\win-x64\openrgb\." />
+  </Target>
+
+  <!-- Bundle openrgb-headless for macOS (binary + dylibs + license). -->
+  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('OSX')) OR $(RuntimeIdentifier.StartsWith('osx'))) AND Exists('Bundled/osx-arm64/openrgb')">
+    <Content Include="Bundled\osx-arm64\openrgb\**\*.*">
+      <Link>openrgb\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Bundle the OpenRGB headless build (Windows only). Drop the binary +
+       any required DLLs into Bundled/win-x64/openrgb/ and they'll be copied
+       to {output}/openrgb/ on `dotnet publish -r win-x64`. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\openrgb')">
+    <Content Include="Bundled\win-x64\openrgb\**\*.*">
+      <Link>openrgb\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Bundle ffmpeg for each platform. Used by media import (uploaded images/
+       gifs/videos -> raw frame sequence), screen mirror (gdigrab on Win,
+       avfoundation on mac -> lighting strip), and audio beats capture.
+       Produced by scripts/build-ffmpeg-minimal.sh - a custom LGPL-only build
+       that strips everything except the codecs / filters / devices this
+       service actually uses (~4-15 MB vs ~96 MB for a stock ffmpeg build).
+       Binaries are not committed; run the build script before publish. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\ffmpeg')">
+    <Content Include="Bundled\win-x64\ffmpeg\**\*.*">
+      <Link>ffmpeg\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('OSX')) OR $(RuntimeIdentifier.StartsWith('osx'))) AND Exists('Bundled/osx-arm64/ffmpeg')">
+    <Content Include="Bundled/osx-arm64/ffmpeg/**/*.*">
+      <Link>ffmpeg/%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('Linux')) OR $(RuntimeIdentifier.StartsWith('linux'))) AND Exists('Bundled/linux-x64/ffmpeg')">
+    <Content Include="Bundled/linux-x64/ffmpeg/**/*.*">
+      <Link>ffmpeg/%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Bundle the PawnIO kernel driver (Windows only). PawnIO.sys is the kernel
+       driver, PawnIOLib.dll is the user-mode wrapper, COPYING is the GPL-2.0
+       license, NOTICE is our attribution. The driver is auto-installed at
+       first launch via pnputil + SetupAPI (see Lifecycle/PawnIoInstaller.cs).
+
+       The pawnio/ subfolder gets the kernel driver package (.sys/.inf/.cat)
+       and license files. PawnIOLib.dll is also placed next to
+       qOS.exe (for LibreHardwareMonitor's SuperIO detection —
+       LHM 0.9.6 uses PawnIO for LPC bus access since WinRing0 got revoked)
+       and next to OpenRGB-headless.exe (OpenRGB loads it for SMBus probing).
+
+       We use <Content> for the pawnio/ folder (kernel driver + license) and
+       the exe-dir copy, then <None> for the openrgb/ copy — <None> lives in
+       a separate MSBuild item collection so the duplicate-identity check
+       doesn't trip. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))">
+    <Content Include="Bundled\win-x64\pawnio\**\*.*" Exclude="Bundled\win-x64\pawnio\PawnIOLib.dll" Condition="Exists('Bundled\win-x64\pawnio')">
+      <Link>pawnio\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <Content Include="Bundled\win-x64\pawnio\PawnIOLib.dll" Condition="Exists('Bundled\win-x64\pawnio\PawnIOLib.dll')">
+      <Link>PawnIOLib.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+    <None Include="Bundled\win-x64\pawnio\PawnIOLib.dll" Condition="Exists('Bundled\win-x64\pawnio\PawnIOLib.dll')">
+      <Link>openrgb\PawnIOLib.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+  </ItemGroup>
+
+  <!-- Exclude test project from main build (SDK auto-includes all .cs) -->
+  <ItemGroup>
+    <Compile Remove="tests/**" />
+    <Content Remove="tests/**" />
+    <None Remove="tests/**" />
+  </ItemGroup>
+
+  <!-- Exclude vendored ffmpeg build-tooling source trees that happen to contain .cs files -->
+  <ItemGroup>
+    <Compile Remove="build/**" />
+    <Content Remove="build/**" />
+    <None Remove="build/**" />
+  </ItemGroup>
+
+  <!-- Defensive exclude: prior `dotnet publish` outputs at the project root
+       (publish/, publish-aot/, publish-mac/, publish-mac-aot/, publish-win/)
+       would otherwise be swept into Content and recursively copied into the
+       next publish's staging dir, ballooning into multi-GB nested trees. -->
+  <ItemGroup>
+    <Content Remove="publish/**" />
+    <Content Remove="publish-*/**" />
+    <None Remove="publish/**" />
+    <None Remove="publish-*/**" />
+    <Compile Remove="publish/**" />
+    <Compile Remove="publish-*/**" />
+  </ItemGroup>
+
+  <!-- Non-Windows: exclude Windows-only providers so AOT doesn't try to link them -->
+  <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) AND !$(RuntimeIdentifier.StartsWith('win'))">
+    <Compile Remove="src/Sensors/LhmComputer.cs" />
+    <Compile Remove="src/Sensors/LibreHardwareSensorProvider.cs" />
+    <Compile Remove="src/Cooling/WindowsFanControlProvider.cs" />
+    <Compile Remove="src/Cooling/FanCalibrator.cs" />
+    <Compile Remove="src/Activity/WindowsScreenTimeProvider.cs" />
+    <Compile Remove="src/Activity/WindowsMediaProvider.cs" />
+    <Compile Remove="src/Activity/WindowsNetworkProvider.cs" />
+    <Compile Remove="src/Activity/WindowsVolumeProvider.cs" />
+    <Compile Remove="src/Fps/WindowsFpsProvider.cs" />
+    <Compile Remove="src/Peripherals/Keeb/WindowsInputter.cs" />
+    <Compile Remove="src/Lifecycle/PawnIoProvider.cs" />
+    <Compile Remove="src/Devices/Detection/WindowsUsbEnumerator.cs" />
+    <Compile Remove="src/Lighting/Capture/DxgiScreenCapture.cs" />
+    <Compile Remove="src/Peripherals/Hid/WindowsHidEnumerator.cs" />
+    <Compile Remove="src/Peripherals/Hid/WindowsHidDevice.cs" />
+    <Compile Remove="src/Platform/Windows/WindowsPerformanceProvider.cs" />
+    <Compile Remove="src/Platform/Displays/WindowsDisplayBrightnessProvider.cs" />
+    <Compile Remove="src/Activity/WasapiLoopbackBeatsProvider.cs" />
+    <Compile Remove="src/Activity/WindowsShortcutsProvider.cs" />
+  </ItemGroup>
+  <!-- Build qos-web for service and copy to wwwroot/.
+       Skip with: dotnet build -p:BuildWeb=false -->
+  <Target Name="BuildWebForService" BeforeTargets="Build" Condition="'$(BuildWeb)' != 'false' AND Exists('../qos-web/package.json')">
+    <Message Text="Building qos-web for service..." Importance="high" />
+    <!-- arch -arm64 ensures native node runs on Apple Silicon even if dotnet is x64 (Rosetta) -->
+    <Exec Command="arch -arm64 npm run build:service" WorkingDirectory="../qos-web" Condition="$([MSBuild]::IsOSPlatform('OSX'))" EnvironmentVariables="BUILD_TARGET=service" />
+    <Exec Command="npm run build:service" WorkingDirectory="../qos-web" Condition="!$([MSBuild]::IsOSPlatform('OSX'))" EnvironmentVariables="BUILD_TARGET=service" />
+    <RemoveDir Directories="wwwroot" Condition="Exists('wwwroot')" />
+    <MakeDir Directories="wwwroot" />
+    <ItemGroup>
+      <_WebDist Include="../qos-web/dist/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_WebDist)" DestinationFiles="@(_WebDist->'wwwroot/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <!-- Also copy to bin output so dotnet run finds wwwroot at runtime -->
+    <Copy SourceFiles="@(_WebDist)" DestinationFiles="@(_WebDist->'$(OutputPath)wwwroot/%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- Trim SDK-generated files we don't need at runtime:
+       - staticwebassets.endpoints.json: only used by MapStaticAssets() which we
+         don't call (we use UseStaticFiles)
+       - runtimeconfig.template.json: build-time template, AOT exes have no
+         runtime config to populate
+       - data/*.json: shipped as embedded resources by EmbeddedResource items;
+         the Web SDK auto-copies project-tree json as Content, drop those
+         duplicates -->
+  <Target Name="TrimUnwantedPublishOutputs" AfterTargets="Publish">
+    <ItemGroup>
+      <_TrimFromPublish Include="$(PublishDir)$(AssemblyName).staticwebassets.endpoints.json" />
+      <_TrimFromPublish Include="$(PublishDir)runtimeconfig.template.json" />
+      <_TrimFromPublish Include="$(PublishDir)data\**\*.json" />
+    </ItemGroup>
+    <Delete Files="@(_TrimFromPublish)" />
+    <RemoveDir Directories="$(PublishDir)data" Condition="Exists('$(PublishDir)data')" />
+  </Target>
+
+  <!-- macOS: wrap the published AOT binary into a proper .app bundle after publish -->
+  <Target Name="PackageMacApp" AfterTargets="Publish" Condition="$(RuntimeIdentifier.StartsWith('osx'))">
+    <Exec Command="bash &quot;$(MSBuildProjectDirectory)/Bundled/macos/build-app.sh&quot; &quot;$(PublishDir)&quot; &quot;$(PublishDir)..&quot;" />
+  </Target>
+
+  <!-- Publish the floating-widget overlay host (qos-overlay.exe) into
+       <publish>/overlay/ as part of the service publish on Windows. The
+       overlay is a WinForms self-contained framework-dependent EXE because
+       WinForms does not support AOT in .NET 10 (NETSDK1175), so it lives
+       in a subdirectory to keep its CLR + WinForms + WebView2 native blobs
+       out of the AOT-native service root.
+
+       Failure modes are hard <Error>s, not warnings: skipping the overlay
+       leaves the desktop widgets feature silently broken (host not found,
+       launcher logs one line, no widgets render, no user-visible failure). -->
+  <!-- Probe two layouts because Mac dev tree uses sibling `qos-overlay/`
+       while the Windows deploy strips the `qos-` prefix to bare `overlay/`
+       (per .agents/skills/build-pc/SKILL.md). The first one that exists wins. -->
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('win'))">
+    <_OverlayProjectMac>$(MSBuildThisFileDirectory)..\qos-overlay\Qos.Overlay.csproj</_OverlayProjectMac>
+    <_OverlayProjectPc>$(MSBuildThisFileDirectory)..\overlay\Qos.Overlay.csproj</_OverlayProjectPc>
+    <_OverlayProject Condition="Exists('$(_OverlayProjectMac)')">$(_OverlayProjectMac)</_OverlayProject>
+    <_OverlayProject Condition="'$(_OverlayProject)' == '' AND Exists('$(_OverlayProjectPc)')">$(_OverlayProjectPc)</_OverlayProject>
+  </PropertyGroup>
+
+  <Target Name="EnsureOverlayProject" BeforeTargets="Publish"
+          Condition="$(RuntimeIdentifier.StartsWith('win'))">
+    <Error Condition="'$(_OverlayProject)' == ''"
+           Text="Cannot publish service for Windows: qos-overlay project not found. Looked at '$(_OverlayProjectMac)' and '$(_OverlayProjectPc)'. The desktop widgets host (qos-overlay.exe) cannot be built. Sync or restore the sibling repo before publishing." />
+  </Target>
+
+  <Target Name="PublishOverlayHost" AfterTargets="Publish"
+          Condition="$(RuntimeIdentifier.StartsWith('win'))">
+    <PropertyGroup>
+      <!-- EnsureTrailingSlash defends against -p:PublishDir=foo\bar (no slash)
+           collapsing the concat into 'foo\baroverlay\'. -->
+      <_OverlayPublishDir>$([MSBuild]::EnsureTrailingSlash('$(PublishDir)'))overlay\</_OverlayPublishDir>
+      <!-- Strip the trailing '\' before quoting in the Exec command: on
+           Windows cmd.exe / dotnet's arg parser, "...\" is interpreted as an
+           escaped quote, which can collapse the rest of the command line. -->
+      <_OverlayPublishDirArg>$(_OverlayPublishDir.TrimEnd('\'))</_OverlayPublishDirArg>
+    </PropertyGroup>
+    <Message Text="Publishing qos-overlay (desktop widget host) -&gt; $(_OverlayPublishDir)" Importance="high" />
+    <Exec Command="dotnet publish &quot;$(_OverlayProject)&quot; -c Release -r win-x64 --self-contained true -o &quot;$(_OverlayPublishDirArg)&quot;" />
+    <Error Condition="!Exists('$(_OverlayPublishDir)qos-overlay.exe')"
+           Text="Overlay publish completed without the host EXE at $(_OverlayPublishDir)qos-overlay.exe. Desktop widgets will not run." />
+    <Error Condition="!Exists('$(_OverlayPublishDir)WebView2Loader.dll')"
+           Text="Overlay publish missing WebView2Loader.dll at $(_OverlayPublishDir). Host process would start but WebView2 init would fail silently and no widgets would render." />
+    <Error Condition="!Exists('$(_OverlayPublishDir)Microsoft.Web.WebView2.Core.dll')"
+           Text="Overlay publish missing Microsoft.Web.WebView2.Core.dll at $(_OverlayPublishDir). WebView2 cannot initialise without it." />
+    <Error Condition="!Exists('$(_OverlayPublishDir)Microsoft.Web.WebView2.WinForms.dll')"
+           Text="Overlay publish missing Microsoft.Web.WebView2.WinForms.dll at $(_OverlayPublishDir). The WinForms host cannot embed the WebView2 control without it." />
+    <Error Condition="!Exists('$(_OverlayPublishDir)System.Windows.Forms.dll')"
+           Text="Overlay publish missing System.Windows.Forms.dll at $(_OverlayPublishDir). Self-contained WinForms publish failed to copy framework assemblies." />
+  </Target>
+
+  <!-- Bake git commit count as version -->
+  <Target Name="SetGitVersion" BeforeTargets="CoreCompile">
+    <Exec Command="git rev-list --count HEAD 2>NUL" ConsoleToMsBuild="true" IgnoreExitCode="true"
+          Condition="$([MSBuild]::IsOSPlatform('Windows'))">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitCount" />
+    </Exec>
+    <Exec Command="git rev-list --count HEAD 2>/dev/null" ConsoleToMsBuild="true" IgnoreExitCode="true"
+          Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
+      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitCount" />
+    </Exec>
+    <PropertyGroup>
+      <GitCommitCount Condition="'$(GitCommitCount)' == ''">0</GitCommitCount>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)GitVersion.g.cs" Lines="namespace Qos.Service { internal static partial class BuildInfo { public const string Version = &quot;v$(GitCommitCount)&quot;%3B } }" Overwrite="true" />
+    <ItemGroup>
+      <Compile Include="$(IntermediateOutputPath)GitVersion.g.cs" />
+    </ItemGroup>
+  </Target>
+
+</Project>

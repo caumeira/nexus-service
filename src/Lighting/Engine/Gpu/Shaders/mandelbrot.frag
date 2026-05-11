@@ -1,0 +1,48 @@
+uniform float u_speed;
+uniform float u_depth;     // extra: iteration count scaling
+uniform float u_rotation;  // extra: zoom rate multiplier
+uniform float u_brightness;// extra: brightness
+
+// Real Mandelbrot zoom with a cosine-driven breathing depth so the loop
+// is smooth with no snap and no wrap. Interior points get their own
+// palette sample instead of pure black, so the set silhouette still has
+// texture at deep zoom. z = z*z + c is the only iteration - no overlays,
+// no blended layers.
+void main() {
+    vec2 uv = uvCentered();
+    float t = u_time * u_speed;
+    int maxIter = int(clamp(u_depth * 40.0, 50.0, 280.0));
+    float bright = clamp(u_brightness, 0.0, 3.0);
+    float rate = max(u_rotation, 0.05);
+
+    // Cosine ramp of zoom depth: 0 -> max -> 0 -> max ... all smooth.
+    // Max depth stays below float32's precision floor so the interior
+    // never goes fully black mid-zoom.
+    float zoomT = 6.5 * (1.0 - cos(t * rate * 0.25));
+    float scale = 1.8 * exp(-zoomT);
+
+    vec2 c = vec2(-0.743643887037151, 0.131825904205330) + uv * scale;
+    vec2 z = vec2(0.0);
+    float iter = 0.0;
+    bool escaped = false;
+    for (int i = 0; i < 280; i++) {
+        if (i >= maxIter) break;
+        z = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + c;
+        float r2 = dot(z, z);
+        if (r2 > 256.0) {
+            iter = float(i) + 1.0 - log2(log2(r2) * 0.5);
+            escaped = true;
+            break;
+        }
+    }
+
+    vec3 col;
+    if (escaped) {
+        col = tintedPalette(iter * 0.025 - t * 0.03) * bright;
+    } else {
+        // Interior shading via last z magnitude so the set silhouette
+        // isn't a flat black hole.
+        col = tintedPalette(dot(z, z) * 0.08 + t * 0.05) * bright * 0.2;
+    }
+    fragColor = vec4(finalize(col), 1.0);
+}

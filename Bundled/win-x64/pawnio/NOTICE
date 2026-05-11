@@ -1,0 +1,16 @@
+PawnIO 2.2.0
+Copyright (C) 2026 namazso <admin@namazso.eu>
+
+This product bundles PawnIO, an input/output driver for Windows.
+
+  Source:  https://github.com/namazso/PawnIO
+  Website: https://pawnio.eu
+  License: GNU General Public License v2.0 (see COPYING)
+
+PawnIO is licensed under GPL-2.0 with a special linking exception
+that permits combining with non-GPL code that communicates with
+PawnIO solely through the device IO control interface. qOS
+uses PawnIO this way: qos-service calls into PawnIOLib.dll,
+which talks to the PawnIO kernel driver only via DeviceIoControl
+IOCTLs. qOS is not a derivative work of PawnIO and is not
+itself bound by the GPL.

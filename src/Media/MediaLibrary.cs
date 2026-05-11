@@ -1,0 +1,170 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Text.Json;
+using Qos.Service.Models.Media;
+using Qos.Service.Persistence;
+using Qos.Service.Serialization;
+
+namespace Qos.Service.Media;
+
+/// <summary>
+/// Manages a folder-based media library for lighting effects. Each imported
+/// item gets its own folder: meta.json + thumb.jpg + frames.bin. frames.bin
+/// is raw RGB24 at the canvas resolution stored in meta (Width x Height), one
+/// frame after another. thumb.jpg is a JPEG of the first frame for UI grid
+/// previews.
+/// </summary>
+public sealed class MediaLibrary
+{
+    private const string MetaFileName = "meta.json";
+    private const string ThumbFileName = "thumb.jpg";
+    private const string FramesFileName = "frames.bin";
+
+    private readonly string _rootDir;
+
+    public MediaLibrary()
+        : this(Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "qOS", "media"))
+    {
+    }
+
+    public MediaLibrary(string rootDir)
+    {
+        _rootDir = rootDir;
+        Directory.CreateDirectory(_rootDir);
+    }
+
+    public string RootDir => _rootDir;
+
+    public static bool IsValidId(string? id)
+    {
+        if (string.IsNullOrWhiteSpace(id) || id.Length > 64)
+            return false;
+
+        foreach (var ch in id)
+        {
+            if (!char.IsLetterOrDigit(ch) && ch != '-' && ch != '_')
+                return false;
+        }
+
+        return true;
+    }
+
+    public List<MediaItem> ListItems()
+    {
+        var items = new List<MediaItem>();
+        if (!Directory.Exists(_rootDir))
+        {
+            return items;
+        }
+
+        foreach (var dir in Directory.GetDirectories(_rootDir))
+        {
+            if (!HasCompleteItemFiles(dir))
+            {
+                continue;
+            }
+
+            try
+            {
+                var json = File.ReadAllText(Path.Combine(dir, MetaFileName));
+                var item = JsonSerializer.Deserialize(json, AppJsonContext.Default.MediaItem);
+                if (item is not null && IsValidId(item.Id))
+                {
+                    items.Add(item);
+                }
+            }
+            catch { /* skip corrupt entries */ }
+        }
+
+        items.Sort((a, b) => b.ImportedAtUnixMs.CompareTo(a.ImportedAtUnixMs));
+        return items;
+    }
+
+    public MediaItem? GetItem(string id)
+    {
+        if (!IsValidId(id))
+        {
+            return null;
+        }
+
+        var metaPath = Path.Combine(_rootDir, id, MetaFileName);
+        if (!File.Exists(metaPath))
+        {
+            return null;
+        }
+
+        try
+        {
+            var item = JsonSerializer.Deserialize(File.ReadAllText(metaPath), AppJsonContext.Default.MediaItem);
+            return item is not null && IsValidId(item.Id) ? item : null;
+        }
+        catch { return null; }
+    }
+
+    public string GetItemDir(string id) => Path.Combine(_rootDir, RequireValidId(id));
+    public string GetThumbPath(string id) => Path.Combine(_rootDir, RequireValidId(id), ThumbFileName);
+    public string GetFramesBinPath(string id) => Path.Combine(_rootDir, RequireValidId(id), FramesFileName);
+
+    public void SaveMeta(MediaItem item)
+    {
+        var dir = Path.Combine(_rootDir, item.Id);
+        Directory.CreateDirectory(dir);
+        AtomicJsonFile.Write(Path.Combine(dir, MetaFileName), JsonSerializer.Serialize(item, AppJsonContext.Default.MediaItem));
+    }
+
+    public bool DeleteItem(string id)
+    {
+        if (!IsValidId(id))
+        {
+            return false;
+        }
+
+        var dir = Path.Combine(_rootDir, id);
+        if (!Directory.Exists(dir))
+        {
+            return true;
+        }
+
+        TryDeleteFile(Path.Combine(dir, MetaFileName));
+        TryDeleteFile(Path.Combine(dir, ThumbFileName));
+        TryDeleteFile(Path.Combine(dir, FramesFileName));
+
+        try
+        {
+            Directory.Delete(dir, recursive: true);
+            return true;
+        }
+        catch
+        {
+            return !HasCompleteItemFiles(dir);
+        }
+    }
+
+    private static bool HasCompleteItemFiles(string dir)
+    {
+        return Directory.Exists(dir)
+            && File.Exists(Path.Combine(dir, MetaFileName))
+            && File.Exists(Path.Combine(dir, ThumbFileName))
+            && File.Exists(Path.Combine(dir, FramesFileName));
+    }
+
+    private static void TryDeleteFile(string path)
+    {
+        try
+        {
+            File.Delete(path);
+        }
+        catch { }
+    }
+
+    private static string RequireValidId(string id)
+    {
+        if (!IsValidId(id))
+            throw new ArgumentException("Invalid media id.", nameof(id));
+
+        return id;
+    }
+}
