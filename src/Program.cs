@@ -56,6 +56,19 @@ if (args.Length > 0)
         return Qos.Service.Lifecycle.WindowsTrayHost.Run(args);
     }
 }
+
+// No-args (and not --service / --install / --tray / --no-window etc.)
+// means the user double-clicked qOS.exe. Once the SCM service is in
+// charge of running the daemon, the launcher's only jobs are: detect
+// service state, spawn the tray if missing, open the dashboard. The
+// old cold-start self-elevation path is dead - the service is already
+// LocalSystem, so prompting the user for UAC here would be useless.
+// No need to check serviceMode here - SCM never invokes the daemon with
+// zero arguments; the binPath we register always includes --service.
+if (args.Length == 0)
+{
+    return Qos.Service.Lifecycle.WindowsLauncher.Run();
+}
 #endif
 
 // --service mode: run under SCM as a real Windows Service. The SCM dispatcher
