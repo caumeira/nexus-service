@@ -153,6 +153,20 @@ internal static class WindowsServiceInstaller
             try { CreateStartMenuShortcut(installedExe); }
             catch (Exception ex) { Log($"WARN Start Menu shortcut failed: {ex.Message}"); }
 
+            // 7a. Enable tray autostart by default. Writes HKCU\Run\Qos for
+            // the user running the installer. When invoked via Inno (elevated
+            // user account), HKCU resolves to the real user. When invoked via
+            // a SYSTEM-context test fixture, it writes to SYSTEM's profile
+            // which is harmless. The user can opt out later via the tray menu
+            // "Start at logon" toggle (also HKCU-writable, no admin needed).
+            try
+            {
+                var startup = new WindowsStartupProvider();
+                startup.SetEnabled(true, installedExe, arguments: string.Empty);
+                Log("tray autostart enabled (HKCU\\Run\\Qos)");
+            }
+            catch (Exception ex) { Log($"WARN tray autostart write failed: {ex.Message}"); }
+
             // 8. Start the service.
             Log("starting QosService");
             RunSc("start", ServiceName);

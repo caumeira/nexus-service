@@ -46,6 +46,20 @@ internal static class WindowsTrayHost
             DefaultPort,
             onExit: () => s_exitEvent.Set());
 
+        // Wire the "Start at logon" toggle. HKCU\Software\Microsoft\Windows\
+        // CurrentVersion\Run\Qos -> "<install dir>\Qos.exe" --tray. Per-user,
+        // no UAC required to flip on or off.
+        var startup = new WindowsStartupProvider();
+        var trayExe = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName
+                      ?? string.Empty;
+        Platform.Windows.TrayIcon.ConfigureAutostart(
+            onToggle: () =>
+            {
+                var nowEnabled = startup.IsEnabled();
+                startup.SetEnabled(!nowEnabled, trayExe, arguments: string.Empty);
+            },
+            isEnabled: () => startup.IsEnabled());
+
         Platform.Windows.TrayIcon.SetVisible(true);
 
         // Tray runs on a background STA thread (see TrayIcon.cs). Keep the

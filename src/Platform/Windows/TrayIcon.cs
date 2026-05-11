@@ -26,6 +26,7 @@ public static class TrayIcon
     private const int IDM_OPEN_APP = 3;
     private const int IDM_TOGGLE_PANEL = 4;
     private const int IDM_TOGGLE_DESKTOP_TOPMOST = 5;
+    private const int IDM_TOGGLE_AUTOSTART = 6;
     private const int MF_SEPARATOR = 0x0800;
     private const int MF_CHECKED = 0x0008;
     private const int MF_UNCHECKED = 0x0000;
@@ -38,6 +39,8 @@ public static class TrayIcon
     private static Action? _onToggleOverlayTopmost;
     private static Func<bool>? _isOverlayTopmost;
     private static Func<bool>? _hasOverlayWidgets;
+    private static Action? _onToggleAutostart;
+    private static Func<bool>? _isAutostartEnabled;
     private static WndProcDelegate? _pinnedProc; // prevent GC
     private static readonly object _sync = new();
     private static Thread? _thread;
@@ -62,6 +65,16 @@ public static class TrayIcon
         _onExit = onExit;
         _onTogglePanel = onTogglePanel;
         _isPanelRunning = isPanelRunning;
+    }
+
+    /// <summary>
+    /// Wire the "Start at logon" menu toggle. When both callbacks are non-null
+    /// the tray menu shows a checkable item that flips HKCU\Run autostart.
+    /// </summary>
+    public static void ConfigureAutostart(Action onToggle, Func<bool> isEnabled)
+    {
+        _onToggleAutostart = onToggle;
+        _isAutostartEnabled = isEnabled;
     }
 
     public static void ConfigureDesktop(
@@ -245,13 +258,22 @@ public static class TrayIcon
                     var menu = CreatePopupMenu();
                     AppendMenu(menu, 0, IDM_OPEN_APP, "Open Qos");
                     AppendMenu(menu, 0, IDM_OPEN_BROWSER, "Open in Browser");
-                    AppendMenu(menu, MF_SEPARATOR, 0, "");
-                    var panelFlag = (_isPanelRunning?.Invoke() ?? false) ? MF_CHECKED : MF_UNCHECKED;
-                    AppendMenu(menu, panelFlag, IDM_TOGGLE_PANEL, "Device Panel");
+                    if (_onTogglePanel is not null)
+                    {
+                        AppendMenu(menu, MF_SEPARATOR, 0, "");
+                        var panelFlag = (_isPanelRunning?.Invoke() ?? false) ? MF_CHECKED : MF_UNCHECKED;
+                        AppendMenu(menu, panelFlag, IDM_TOGGLE_PANEL, "Device Panel");
+                    }
                     if (_hasOverlayWidgets?.Invoke() ?? false)
                     {
                         var topmostFlag = (_isOverlayTopmost?.Invoke() ?? false) ? MF_CHECKED : MF_UNCHECKED;
                         AppendMenu(menu, topmostFlag, IDM_TOGGLE_DESKTOP_TOPMOST, "Widgets always on top");
+                    }
+                    if (_onToggleAutostart is not null && _isAutostartEnabled is not null)
+                    {
+                        AppendMenu(menu, MF_SEPARATOR, 0, "");
+                        var autostartFlag = _isAutostartEnabled() ? MF_CHECKED : MF_UNCHECKED;
+                        AppendMenu(menu, autostartFlag, IDM_TOGGLE_AUTOSTART, "Start at logon");
                     }
                     AppendMenu(menu, MF_SEPARATOR, 0, "");
                     AppendMenu(menu, 0, IDM_EXIT, "Exit");
@@ -282,6 +304,10 @@ public static class TrayIcon
                 else if (id == IDM_TOGGLE_DESKTOP_TOPMOST)
                 {
                     _onToggleOverlayTopmost?.Invoke();
+                }
+                else if (id == IDM_TOGGLE_AUTOSTART)
+                {
+                    _onToggleAutostart?.Invoke();
                 }
                 else if (id == IDM_EXIT)
                 {
