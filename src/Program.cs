@@ -69,25 +69,20 @@ if (serviceMode)
     args = args.Where(a => !string.Equals(a, "--service", StringComparison.OrdinalIgnoreCase)).ToArray();
 }
 
-// Dashboard "Launch" button targets qos://start-admin so the service
-// comes up elevated. If we were started via that URL and we're not already
-// elevated, spawn an elevated child (UAC prompt) and exit. Has to happen
-// before the single-instance mutex so the elevated child can acquire it.
+// Protocol-handler URLs from the dashboard. The new world (qOS as a
+// LocalSystem Windows Service) replaces the old "start-admin"
+// self-elevation pathway with a "restart-service" that calls into
+// sc.exe. Both URLs are handled here so legacy dashboard builds still
+// work (start-admin now just maps to restart-service - the service is
+// already LocalSystem, so "restart as admin" is meaningless).
+#if WINDOWS
 if (args.Length > 0
-    && args[0].StartsWith("qos://start-admin", StringComparison.OrdinalIgnoreCase))
+    && (args[0].StartsWith("qos://restart-service", StringComparison.OrdinalIgnoreCase)
+        || args[0].StartsWith("qos://start-admin", StringComparison.OrdinalIgnoreCase)))
 {
-    if (OperatingSystem.IsWindows()
-        && !Qos.Service.Platform.ProcessElevation.GetCurrent().IsElevated)
-    {
-        var elevateResult = Qos.Service.Lifecycle.ProcessRelauncher.TryRelaunchAsAdmin();
-        if (elevateResult == Qos.Service.Lifecycle.RelaunchResult.Started)
-        {
-            return 0;
-        }
-        // UAC denied / failed: fall through and start unelevated. The
-        // dashboard popover will still offer "Restart as administrator".
-    }
+    return Qos.Service.Lifecycle.WindowsServiceInstaller.RunStartService();
 }
+#endif
 
 // --relaunch-elevated is set by ProcessRelauncher when the prior unelevated
 // instance asked Windows to spawn us with UAC. The prior instance is exiting
