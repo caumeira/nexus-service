@@ -31,6 +31,29 @@ if (args.Length > 0 && args[0] == "--install-pawnio")
     return Qos.Service.Lifecycle.PawnIoInstaller.RunElevatedInstall();
 }
 
+// Install / uninstall / recovery primitives. Each one short-circuits the
+// daemon startup and returns immediately - none of these modes ever build
+// the WebApplication. Self-elevation happens inside the installer when
+// required.
+#if WINDOWS
+if (args.Length > 0)
+{
+    var firstFlag = args[0];
+    if (string.Equals(firstFlag, "--install", StringComparison.OrdinalIgnoreCase))
+    {
+        return Qos.Service.Lifecycle.WindowsServiceInstaller.RunInstall(args);
+    }
+    if (string.Equals(firstFlag, "--uninstall", StringComparison.OrdinalIgnoreCase))
+    {
+        return Qos.Service.Lifecycle.WindowsServiceInstaller.RunUninstall(args);
+    }
+    if (string.Equals(firstFlag, "--start-service", StringComparison.OrdinalIgnoreCase))
+    {
+        return Qos.Service.Lifecycle.WindowsServiceInstaller.RunStartService();
+    }
+}
+#endif
+
 // --service mode: run under SCM as a real Windows Service. The SCM dispatcher
 // blocks the main thread, so we let WindowsServiceHost orchestrate startup
 // and stop signals; the app itself is built normally below and torn down via
