@@ -553,8 +553,11 @@ Qos.Service.Platform.ProtocolHandler.Register();
 
 Console.WriteLine($"[qos-service] listening on {url}");
 
-// System tray icon (Windows only) — hides console, shows tray with right-click menu
-if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+// System tray icon (Windows only) — hides console, shows tray with right-click menu.
+// Skipped under --service: Session 0 cannot show UI, so the tray must be a
+// separate user-session process (Phase 4: qOS.exe --tray). Leaving the tray
+// init in here would create a stale NotifyIcon in Session 0 that nobody sees.
+if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !serviceMode)
 {
     var panelLauncher = app.Services.GetRequiredService<Qos.Service.Panel.PanelKioskLauncher>();
     var store = app.Services.GetRequiredService<IConfigStore>();
