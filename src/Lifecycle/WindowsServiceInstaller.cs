@@ -30,7 +30,7 @@ internal static class WindowsServiceInstaller
     public const string ServiceDescription = "qOS hardware monitoring and control";
     public const string InstallDirName = "qOS";
     public const string BinaryName = "qOS.exe";
-    public const string FirewallRuleName = "qOS Service";
+    public const string FirewallRuleName = "qOSService";
     public const string UninstallRegKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\qOS";
     public const int DefaultPort = 9400;
 
@@ -91,21 +91,26 @@ internal static class WindowsServiceInstaller
             }
 
             // 2. Create and configure the service.
+            //
+            // sc.exe is finicky: each `key= value` pair must be two separate
+            // tokens, with the trailing-space form of the key. binPath value
+            // needs internal quotes around the EXE path so the space in
+            // "Program Files" doesn't split the launcher arg.
             Log("creating Windows Service");
             if (!RunSc("create", ServiceName,
-                $"binPath= \"{installedExe} --service\"",
-                "start= auto",
-                "obj= LocalSystem",
-                $"DisplayName= \"{ServiceDisplayName}\"",
-                "depend= PawnIO"))
+                "binPath=", $"\"{installedExe}\" --service",
+                "start=", "auto",
+                "obj=", "LocalSystem",
+                "DisplayName=", ServiceDisplayName,
+                "depend=", "PawnIO"))
             {
                 return 3;
             }
 
-            RunSc("description", ServiceName, $"\"{ServiceDescription}\"");
+            RunSc("description", ServiceName, ServiceDescription);
             RunSc("failure", ServiceName,
-                "reset= 86400",
-                "actions= restart/5000/restart/5000/restart/5000");
+                "reset=", "86400",
+                "actions=", "restart/5000/restart/5000/restart/5000");
 
             // 3. Grant SERVICE_START to Authenticated Users (no UAC needed for
             // failsafe path - manual stop + double-click recovers without prompt).
@@ -126,13 +131,16 @@ internal static class WindowsServiceInstaller
             pawnTask.GetAwaiter().GetResult();
 
             // 5. Firewall rule for LAN access (phone pairing on private network).
+            // Rule name has no spaces and the program path has no embedded
+            // quotes - netsh is even pickier than sc.exe about ArgumentList
+            // tokenization.
             Log("configuring firewall rule");
             RunNetsh("advfirewall", "firewall", "delete", "rule",
-                $"name=\"{FirewallRuleName}\"");
+                $"name={FirewallRuleName}");
             RunNetsh("advfirewall", "firewall", "add", "rule",
-                $"name=\"{FirewallRuleName}\"",
+                $"name={FirewallRuleName}",
                 "dir=in", "action=allow",
-                $"program=\"{installedExe}\"",
+                $"program={installedExe}",
                 "protocol=TCP",
                 $"localport={DefaultPort}",
                 "profile=private,domain");
