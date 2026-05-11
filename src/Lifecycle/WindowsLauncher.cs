@@ -182,20 +182,28 @@ internal static class WindowsLauncher
 
     private static void OpenDashboard()
     {
-        // Shell-execute the dashboard URL so it opens in the user's default
-        // browser. This works from any session because we're already in the
-        // user's interactive session (this is the launcher, not the service).
+        // Open the dashboard in an Edge --app frameless window (the same
+        // path the tray's "Open Qos" menu uses). Falls back to the user's
+        // default browser if Edge isn't found.
         try
         {
-            var psi = new ProcessStartInfo($"http://localhost:{DefaultPort}/")
-            {
-                UseShellExecute = true,
-            };
-            Process.Start(psi);
+            Platform.Windows.TrayIcon.OpenLocalWindow(DefaultPort);
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[launcher] failed to open dashboard: {ex.Message}");
+            Console.Error.WriteLine($"[launcher] OpenLocalWindow failed, falling back to browser: {ex.Message}");
+            try
+            {
+                var psi = new ProcessStartInfo($"http://localhost:{DefaultPort}/")
+                {
+                    UseShellExecute = true,
+                };
+                Process.Start(psi);
+            }
+            catch (Exception ex2)
+            {
+                Console.Error.WriteLine($"[launcher] failed to open dashboard: {ex2.Message}");
+            }
         }
     }
 

@@ -19,6 +19,7 @@ public static class TrayIcon
     private const int WM_USER = 0x0400;
     private const int WM_TRAYICON = WM_USER + 88;
     private const int WM_COMMAND = 0x0111;
+    private const int WM_LBUTTONUP = 0x0202;
     private const int WM_LBUTTONDBLCLK = 0x0203;
     private const int WM_RBUTTONUP = 0x0205;
     private const int IDM_OPEN_BROWSER = 1;
@@ -281,8 +282,11 @@ public static class TrayIcon
                     TrackPopupMenu(menu, 0, pt.X, pt.Y, 0, hwnd, IntPtr.Zero);
                     DestroyMenu(menu);
                 }
-                else if (ev == WM_LBUTTONDBLCLK)
+                else if (ev == WM_LBUTTONUP || ev == WM_LBUTTONDBLCLK)
                 {
+                    // Single OR double left-click opens the window. Matches
+                    // the standard modern tray UX - users don't have to
+                    // remember whether to single- or double-click.
                     OpenLocalWindow();
                 }
             }
