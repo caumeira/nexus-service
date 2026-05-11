@@ -70,6 +70,21 @@ internal static class WindowsServiceInstaller
                 Path.GetFullPath(installDir).TrimEnd('\\'),
                 StringComparison.OrdinalIgnoreCase);
 
+            // Sanity check the payload before we touch the running service.
+            // The single most common foot-gun is `dotnet publish` running
+            // without a fresh qos-web/dist copied to aot/wwwroot/ - the
+            // install would succeed but the dashboard would be empty.
+            var sourceWwwroot = Path.Combine(sourceDir, "wwwroot");
+            if (!Directory.Exists(sourceWwwroot) ||
+                !File.Exists(Path.Combine(sourceWwwroot, "index.html")))
+            {
+                Console.Error.WriteLine(
+                    $"[install] FATAL: {sourceWwwroot}\\index.html is missing. " +
+                    "Did you forget to `npm run build:service` in qos-web and copy dist/ into wwwroot/? " +
+                    "Refusing to install without a populated web bundle.");
+                return 4;
+            }
+
             if (!alreadyInPlace)
             {
                 Log("copying payload to install dir");

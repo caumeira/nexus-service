@@ -87,9 +87,9 @@ procedure StopServiceIfRunning();
 var
   ResultCode: Integer;
 begin
-  ; Best-effort stop before we overwrite files. The --install step will
-  ; also stop+delete the service, but doing it here too means we never
-  ; try to overwrite a locked Qos.exe during the [Files] copy.
+  // Best-effort stop before we overwrite files. The --install step will
+  // also stop+delete the service, but doing it here too means we never
+  // try to overwrite a locked Qos.exe during the [Files] copy.
   Exec(ExpandConstant('{sys}\sc.exe'), 'stop QosService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM Qos.exe /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Sleep(1500);
