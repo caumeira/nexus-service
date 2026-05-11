@@ -17,6 +17,7 @@ using Qos.Service.Models.Peripherals.Y70;
 using Qos.Service.Models.Sensors;
 using Qos.Service.Models.Steam;
 using Qos.Service.Platform;
+using Qos.Service.Routes;
 
 namespace Qos.Service.Serialization;
 
@@ -70,6 +71,8 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(List<FanProfile>))]
 [JsonSerializable(typeof(GetProfilesResponse))]
 [JsonSerializable(typeof(ApplyProfileResponse))]
+[JsonSerializable(typeof(StartupModeBody))]
+[JsonSerializable(typeof(StartupModeDto))]
 [JsonSerializable(typeof(FanCalibration))]
 [JsonSerializable(typeof(List<FanCalibration>))]
 [JsonSerializable(typeof(FanCalibrationPoint))]

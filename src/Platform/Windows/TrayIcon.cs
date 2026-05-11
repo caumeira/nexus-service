@@ -22,12 +22,9 @@ public static class TrayIcon
     private const int WM_LBUTTONUP = 0x0202;
     private const int WM_LBUTTONDBLCLK = 0x0203;
     private const int WM_RBUTTONUP = 0x0205;
-    private const int IDM_OPEN_BROWSER = 1;
-    private const int IDM_EXIT = 2;
-    private const int IDM_OPEN_APP = 3;
-    private const int IDM_TOGGLE_PANEL = 4;
-    private const int IDM_TOGGLE_DESKTOP_TOPMOST = 5;
-    private const int IDM_TOGGLE_AUTOSTART = 6;
+    private const int IDM_OPEN_APP = 1;
+    private const int IDM_OPEN_SETTINGS = 2;
+    private const int IDM_HIDE_TRAY = 3;
     private const int MF_SEPARATOR = 0x0800;
     private const int MF_CHECKED = 0x0008;
     private const int MF_UNCHECKED = 0x0000;
@@ -50,12 +47,15 @@ public static class TrayIcon
     private static bool _iconDataReady;
     private static NOTIFYICONDATA _nid;
 
-    // Tracks the msedge.exe instance launched by OpenLocalWindow so we can
-    // focus the existing window on the next click instead of spawning a
-    // second one. Because we pass a dedicated --user-data-dir, the process
-    // we start IS the top-level Edge browser for that profile - so its
-    // MainWindowHandle resolves to the --app window.
-    private static System.Diagnostics.Process? _appProcess;
+    // Race guard for rapid tray clicks: between the moment we spawn an Edge
+    // --app and the moment its window title becomes "Qos*" (~1-2s), the
+    // FindExistingQosAppWindow probe can't detect the in-flight window. A
+    // second click during that gap used to spawn a second Edge. Time-only
+    // guard - PID liveness is unreliable because Edge's launcher process
+    // exits within ~30ms after forking the actual browser.
+    private static readonly object _spawnLock = new();
+    private static DateTime _lastSpawnUtc = DateTime.MinValue;
+    private static readonly TimeSpan SpawnSettleWindow = TimeSpan.FromSeconds(4);
     // Pinned callback - EnumWindows requires a delegate that isn't GC'd
     // mid-enumeration.
     private static EnumWindowsDelegate? _pinnedEnumProc;
@@ -279,27 +279,10 @@ public static class TrayIcon
                     POINT pt;
                     GetCursorPos(out pt);
                     var menu = CreatePopupMenu();
-                    AppendMenu(menu, 0, IDM_OPEN_APP, "Open Qos");
-                    AppendMenu(menu, 0, IDM_OPEN_BROWSER, "Open in Browser");
-                    if (_onTogglePanel is not null)
-                    {
-                        AppendMenu(menu, MF_SEPARATOR, 0, "");
-                        var panelFlag = (_isPanelRunning?.Invoke() ?? false) ? MF_CHECKED : MF_UNCHECKED;
-                        AppendMenu(menu, panelFlag, IDM_TOGGLE_PANEL, "Device Panel");
-                    }
-                    if (_hasOverlayWidgets?.Invoke() ?? false)
-                    {
-                        var topmostFlag = (_isOverlayTopmost?.Invoke() ?? false) ? MF_CHECKED : MF_UNCHECKED;
-                        AppendMenu(menu, topmostFlag, IDM_TOGGLE_DESKTOP_TOPMOST, "Widgets always on top");
-                    }
-                    if (_onToggleAutostart is not null && _isAutostartEnabled is not null)
-                    {
-                        AppendMenu(menu, MF_SEPARATOR, 0, "");
-                        var autostartFlag = _isAutostartEnabled() ? MF_CHECKED : MF_UNCHECKED;
-                        AppendMenu(menu, autostartFlag, IDM_TOGGLE_AUTOSTART, "Start at logon");
-                    }
+                    AppendMenu(menu, 0, IDM_OPEN_APP, "Open");
+                    AppendMenu(menu, 0, IDM_OPEN_SETTINGS, "Settings");
                     AppendMenu(menu, MF_SEPARATOR, 0, "");
-                    AppendMenu(menu, 0, IDM_EXIT, "Exit");
+                    AppendMenu(menu, 0, IDM_HIDE_TRAY, "Hide tray");
                     SetForegroundWindow(hwnd);
                     TrackPopupMenu(menu, 0, pt.X, pt.Y, 0, hwnd, IntPtr.Zero);
                     DestroyMenu(menu);
@@ -319,23 +302,11 @@ public static class TrayIcon
                 {
                     OpenLocalWindow();
                 }
-                else if (id == IDM_OPEN_BROWSER)
+                else if (id == IDM_OPEN_SETTINGS)
                 {
-                    OpenDashboard();
+                    OpenLocalWindow(servicePort: 0, path: "/settings");
                 }
-                else if (id == IDM_TOGGLE_PANEL)
-                {
-                    _onTogglePanel?.Invoke();
-                }
-                else if (id == IDM_TOGGLE_DESKTOP_TOPMOST)
-                {
-                    _onToggleOverlayTopmost?.Invoke();
-                }
-                else if (id == IDM_TOGGLE_AUTOSTART)
-                {
-                    _onToggleAutostart?.Invoke();
-                }
-                else if (id == IDM_EXIT)
+                else if (id == IDM_HIDE_TRAY)
                 {
                     _onExit?.Invoke();
                 }
@@ -345,60 +316,82 @@ public static class TrayIcon
         return DefWindowProc(hwnd, msg, wParam, lParam);
     }
 
-    private static void OpenDashboard(int servicePort = 0)
+    private static void OpenDashboard(int servicePort = 0, string path = "/")
     {
         var port = ResolveDashboardPort(servicePort);
         System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
         {
-            FileName = $"http://localhost:{port}/",
+            FileName = $"http://localhost:{port}{path}",
             UseShellExecute = true,
         });
     }
 
-    public static void OpenLocalWindow(int servicePort = 0)
+    public static void OpenLocalWindow(int servicePort = 0, string path = "/")
     {
         var port = ResolveDashboardPort(servicePort);
-        DiagFile($"OpenLocalWindow port={port}");
+        DiagFile($"OpenLocalWindow port={port} path={path}");
 
-        // Look for an existing Qos --app window. Constrain to actual
-        // msedge.exe processes with a non-zero MainWindowHandle - this avoids
-        // matching File Explorer, zombie windows, or other apps that happen
-        // to have "Qos" in their title.
-        var existing = FindExistingQosAppWindow();
-        if (existing != IntPtr.Zero)
+        lock (_spawnLock)
         {
-            FocusWindow(existing);
-            DiagFile($"focused existing msedge --app window 0x{existing.ToInt64():X}");
-            return;
-        }
+            // Spawn-in-flight guard: if we started an Edge --app less than
+            // SpawnSettleWindow ago, drop this click. We rely on time only,
+            // NOT on whether the launcher PID is still alive: Edge does a
+            // multi-process dance where the launcher exits within ~30ms
+            // after forking the actual browser process, so PID-liveness is
+            // false within milliseconds of a real successful spawn.
+            if (_lastSpawnUtc != DateTime.MinValue && DateTime.UtcNow - _lastSpawnUtc < SpawnSettleWindow)
+            {
+                DiagFile($"spawn in flight (age={(DateTime.UtcNow - _lastSpawnUtc).TotalMilliseconds:F0}ms); dropping click");
+                return;
+            }
 
-        var edgePath = FindEdge();
-        if (edgePath is null)
-        {
-            DiagFile("Edge not found, falling back to default browser");
-            OpenDashboard(port);
-            return;
-        }
+            // Existing window check: focus + navigate instead of spawning.
+            var existing = FindExistingQosAppWindow();
+            if (existing != IntPtr.Zero)
+            {
+                FocusWindow(existing);
+                DiagFile($"focused existing msedge --app window 0x{existing.ToInt64():X}");
+                if (path != "/")
+                {
+                    System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                    {
+                        FileName = $"http://localhost:{port}{path}",
+                        UseShellExecute = true,
+                    });
+                }
+                return;
+            }
 
-        var url = $"http://localhost:{port}/";
-        var psi = new System.Diagnostics.ProcessStartInfo
-        {
-            FileName = edgePath,
-            UseShellExecute = false,
-        };
-        psi.ArgumentList.Add($"--app={url}");
-        psi.ArgumentList.Add("--new-window");
-        try
-        {
-            var p = System.Diagnostics.Process.Start(psi);
-            DiagFile($"Edge --app spawned pid={p?.Id.ToString() ?? "null"}");
-        }
-        catch (Exception ex)
-        {
-            DiagFile($"Edge --app failed: {ex.Message}, falling back to default browser");
-            OpenDashboard(port);
+            var edgePath = FindEdge();
+            if (edgePath is null)
+            {
+                DiagFile("Edge not found, falling back to default browser");
+                OpenDashboard(port, path);
+                return;
+            }
+
+            var url = $"http://localhost:{port}{path}";
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = edgePath,
+                UseShellExecute = false,
+            };
+            psi.ArgumentList.Add($"--app={url}");
+            psi.ArgumentList.Add("--new-window");
+            try
+            {
+                var p = System.Diagnostics.Process.Start(psi);
+                _lastSpawnUtc = DateTime.UtcNow;
+                DiagFile($"Edge --app spawned pid={p?.Id.ToString() ?? "null"}");
+            }
+            catch (Exception ex)
+            {
+                DiagFile($"Edge --app failed: {ex.Message}, falling back to default browser");
+                OpenDashboard(port);
+            }
         }
     }
+
 
     /// <summary>
     /// Returns the MainWindowHandle of any currently-running msedge.exe

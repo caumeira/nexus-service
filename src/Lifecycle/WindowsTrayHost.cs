@@ -38,35 +38,47 @@ internal static class WindowsTrayHost
             return 0;
         }
 
-        // Make sure the service is up before we go interactive. If it's
-        // stopped, kick it (works without UAC because --install granted
-        // SERVICE_START to Authenticated Users).
-        EnsureServiceRunning();
+        // Tray follows the service: if the service is stopped (e.g., the
+        // user disabled "Start Qos at system startup", or hit the Stop
+        // button in Settings), the tray has nothing to surface, so exit
+        // immediately. We deliberately do NOT auto-start the service here -
+        // that would defeat the user's choice.
+        if (!IsServiceRunning())
+        {
+            Console.WriteLine("[tray] QosService not running; tray exits");
+            return 0;
+        }
 
         Platform.Windows.TrayIcon.Configure(
             DefaultPort,
             onExit: () => s_exitEvent.Set());
 
-        // Wire the "Start at logon" toggle. HKCU\Software\Microsoft\Windows\
-        // CurrentVersion\Run\Qos -> "<install dir>\Qos.exe" --tray. Per-user,
-        // no UAC required to flip on or off.
-        var startup = new WindowsStartupProvider();
-        var trayExe = System.Diagnostics.Process.GetCurrentProcess().MainModule?.FileName
-                      ?? string.Empty;
-        Platform.Windows.TrayIcon.ConfigureAutostart(
-            onToggle: () =>
-            {
-                var nowEnabled = startup.IsEnabled();
-                startup.SetEnabled(!nowEnabled, trayExe, arguments: string.Empty);
-            },
-            isEnabled: () => startup.IsEnabled());
-
         Diag("calling TrayIcon.SetVisible(true)");
         Platform.Windows.TrayIcon.SetVisible(true);
         Diag("SetVisible returned");
 
+        // Background watchdog: when the service stops (Stop button in
+        // Settings, schtasks reboot, etc.) the tray icon should vanish on
+        // its own. Polls SCM every 5s; calls onExit on first STOPPED read.
+        var watchdog = new Thread(() =>
+        {
+            while (!s_exitEvent.IsSet)
+            {
+                System.Threading.Thread.Sleep(5000);
+                if (s_exitEvent.IsSet) return;
+                if (!IsServiceRunning())
+                {
+                    Console.WriteLine("[tray] QosService stopped externally; tray exits");
+                    s_exitEvent.Set();
+                    return;
+                }
+            }
+        }) { IsBackground = true };
+        watchdog.Start();
+
         // Tray runs on a background STA thread (see TrayIcon.cs). Keep the
-        // main thread alive until the user picks Exit from the menu.
+        // main thread alive until the user picks Hide tray from the menu
+        // or the watchdog detects the service stopped.
         s_exitEvent.Wait();
 
         Platform.Windows.TrayIcon.SetVisible(false);
@@ -91,12 +103,8 @@ internal static class WindowsTrayHost
         catch { }
     }
 
-    private static void EnsureServiceRunning()
+    private static bool IsServiceRunning()
     {
-        // Best-effort: query the service controller status and start the
-        // service if it's stopped. Any failure here is non-fatal - the user
-        // can still open the dashboard, which will simply fail to connect
-        // until the service comes up.
         try
         {
             var psi = new ProcessStartInfo("sc.exe")
@@ -109,28 +117,13 @@ internal static class WindowsTrayHost
             psi.ArgumentList.Add("query");
             psi.ArgumentList.Add(WindowsServiceInstaller.ServiceName);
             using var p = Process.Start(psi);
-            if (p is null) return;
+            if (p is null) return false;
             var output = p.StandardOutput.ReadToEnd();
             p.WaitForExit(5000);
-            if (p.ExitCode != 0) return;
-            if (output.Contains("STOPPED", StringComparison.OrdinalIgnoreCase))
-            {
-                // Stopped: try to start. No UAC needed thanks to the DACL grant.
-                var startPsi = new ProcessStartInfo("sc.exe")
-                {
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                };
-                startPsi.ArgumentList.Add("start");
-                startPsi.ArgumentList.Add(WindowsServiceInstaller.ServiceName);
-                using var sp = Process.Start(startPsi);
-                sp?.WaitForExit(10000);
-            }
+            if (p.ExitCode != 0) return false;
+            return output.Contains("RUNNING", StringComparison.OrdinalIgnoreCase);
         }
-        catch
-        {
-            // Non-fatal.
-        }
+        catch { return false; }
     }
 }
 #endif

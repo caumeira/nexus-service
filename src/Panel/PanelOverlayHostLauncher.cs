@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -80,16 +81,23 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         {
             _stopRequested = false;
             _lastSpawnUtc = DateTime.UtcNow;
-            var psi = new ProcessStartInfo
-            {
-                FileName = hostPath,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                // cwd must be the overlay/ subdir so WebView2Loader.dll
-                // resolves alongside the host exe.
-                WorkingDirectory = Path.GetDirectoryName(hostPath)!,
-            };
-            _process = Process.Start(psi);
+            // Spawn in the active console user session when we're running
+            // as LocalSystem (the service case). Without this the overlay
+            // process lands in Session 0, where (a) no windows it draws are
+            // ever visible to the user, and (b) WebView2 refuses to use the
+            // SYSTEM profile's AppData path. When running in user mode
+            // (e.g., a future broker split, or dev / standalone runs), fall
+            // back to a plain Process.Start.
+            var workingDir = Path.GetDirectoryName(hostPath)!;
+            _process = System.Security.Principal.WindowsIdentity.GetCurrent().IsSystem
+                ? StartInActiveUserSession(hostPath, workingDir)
+                : Process.Start(new ProcessStartInfo
+                {
+                    FileName = hostPath,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    WorkingDirectory = workingDir,
+                });
             if (_process is not null)
             {
                 WritePidFile(_process.Id);
@@ -175,6 +183,125 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         catch { }
     }
 
+    // -----------------------------------------------------------------------
+    // Cross-session spawn: when the service runs as LocalSystem in Session 0,
+    // we need CreateProcessAsUser to land the overlay in the user's
+    // interactive session so its windows actually render on the desktop.
+    //
+    // Sequence:
+    //   1. WTSGetActiveConsoleSessionId -> active console session
+    //   2. WTSQueryUserToken            -> primary token for that session
+    //   3. CreateEnvironmentBlock       -> user's env (USERPROFILE etc.)
+    //   4. CreateProcessAsUser          -> spawn the host with that token
+    // -----------------------------------------------------------------------
+
+    private static Process? StartInActiveUserSession(string exePath, string workingDir)
+    {
+        // Use schtasks instead of CreateProcessAsUser / CreateProcessWithTokenW
+        // for cross-session spawning. Direct Win32 paths repeatedly hit
+        // STATUS_DLL_INIT_FAILED (0xC0000142) and ERROR_INVALID_PARAMETER (87)
+        // because the user's profile + window-station / desktop ACLs need
+        // bespoke setup the Task Scheduler service already handles for us.
+        // Tradeoff: we lose direct parent-child handle tracking, but we
+        // recover the PID by polling qos-overlay.exe after Run completes.
+        var username = ResolveActiveConsoleUsername();
+        if (string.IsNullOrEmpty(username))
+        {
+            Console.Error.WriteLine("[overlay-host] no active console user; deferring");
+            return null;
+        }
+        // Unique task name so concurrent spawns or stale tasks don't collide.
+        var taskName = $"QosOverlayLaunch_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
+        try
+        {
+            // /IT = interactive, /SC ONCE + a future /ST so the task only
+            // fires on our explicit /Run call. /F overwrites if collides.
+            if (!Schtasks("/Create", "/TN", taskName, "/TR", $"\"{exePath}\"",
+                          "/SC", "ONCE", "/ST", "23:59", "/RU", username, "/IT", "/F"))
+            {
+                return null;
+            }
+            // Snapshot existing qos-overlay PIDs before /Run so we can detect
+            // the new one by set difference.
+            var before = Process.GetProcessesByName("qos-overlay").Select(p => p.Id).ToHashSet();
+            if (!Schtasks("/Run", "/TN", taskName))
+            {
+                return null;
+            }
+            // The task creates the process asynchronously; poll briefly.
+            Process? spawned = null;
+            for (var attempt = 0; attempt < 30 && spawned is null; attempt++)
+            {
+                System.Threading.Thread.Sleep(100);
+                foreach (var p in Process.GetProcessesByName("qos-overlay"))
+                {
+                    if (!before.Contains(p.Id)) { spawned = p; break; }
+                    p.Dispose();
+                }
+            }
+            if (spawned is null)
+            {
+                Console.Error.WriteLine("[overlay-host] schtasks /Run did not produce a qos-overlay process");
+                return null;
+            }
+            Console.WriteLine($"[overlay-host] spawned in user session via schtasks pid {spawned.Id}");
+            return spawned;
+        }
+        finally
+        {
+            // Best-effort cleanup - leaves no schtasks residue.
+            Schtasks("/Delete", "/TN", taskName, "/F");
+        }
+    }
+
+    private static string ResolveActiveConsoleUsername()
+    {
+        var sessionId = WTSGetActiveConsoleSessionId();
+        if (sessionId == 0xFFFFFFFF) return string.Empty;
+        var buf = IntPtr.Zero;
+        try
+        {
+            // WTSUserName = 5
+            if (!WTSQuerySessionInformation(IntPtr.Zero, sessionId, 5, out buf, out var bytes) || buf == IntPtr.Zero)
+            {
+                return string.Empty;
+            }
+            return Marshal.PtrToStringUni(buf) ?? string.Empty;
+        }
+        catch { return string.Empty; }
+        finally { if (buf != IntPtr.Zero) WTSFreeMemory(buf); }
+    }
+
+    private static bool Schtasks(params string[] args)
+    {
+        var psi = new ProcessStartInfo("schtasks.exe")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true,
+        };
+        foreach (var a in args) psi.ArgumentList.Add(a);
+        try
+        {
+            using var p = Process.Start(psi);
+            if (p is null) return false;
+            var stderr = p.StandardError.ReadToEnd();
+            p.WaitForExit(10000);
+            if (p.ExitCode != 0)
+            {
+                Console.Error.WriteLine($"[overlay-host] schtasks {args[0]} exit {p.ExitCode}: {stderr.Trim()}");
+                return false;
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[overlay-host] schtasks {args[0]} failed: {ex.Message}");
+            return false;
+        }
+    }
+
     private static string? ResolveHostPath()
     {
         // AppContext.BaseDirectory is single-file-safe and AOT-safe; both
@@ -187,6 +314,11 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
 
     private void OnExited(object? sender, EventArgs e)
     {
+        var exitCode = "?";
+        try { if (_process is not null) exitCode = _process.ExitCode.ToString(); }
+        catch { /* handle already gone */ }
+        Console.WriteLine($"[overlay-host] OnExited fired; exit code {exitCode}");
+
         // Stop() was called; this callback was already in flight on the
         // threadpool when Stop ran (handler unsubscribe doesn't drain
         // pending invocations). Don't respawn.
@@ -200,7 +332,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             _consecutiveFailures++;
             if (_consecutiveFailures > 3)
             {
-                Console.Error.WriteLine($"[overlay-host] giving up after {_consecutiveFailures} rapid failures");
+                Console.Error.WriteLine($"[overlay-host] giving up after {_consecutiveFailures} rapid failures (last exit code {exitCode})");
                 return;
             }
         }
@@ -208,7 +340,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         {
             _consecutiveFailures = 0;
         }
-        Console.WriteLine($"[overlay-host] exited (code {_process?.ExitCode}); restarting");
+        Console.WriteLine($"[overlay-host] exited (code {exitCode}); restarting");
         _process = null;
         // Give the host a moment before respawning. Run on the default
         // scheduler with explicit error handling so a Start() throw is
@@ -298,6 +430,19 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     [DllImport("kernel32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool AssignProcessToJobObject(IntPtr hJob, IntPtr hProcess);
+
+    // ── Cross-session spawn plumbing (just enough to identify the active user) ──
+
+    [DllImport("kernel32.dll")]
+    private static extern uint WTSGetActiveConsoleSessionId();
+
+    [DllImport("wtsapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool WTSQuerySessionInformation(
+        IntPtr hServer, uint sessionId, int infoClass, out IntPtr ppBuffer, out uint pBytesReturned);
+
+    [DllImport("wtsapi32.dll")]
+    private static extern void WTSFreeMemory(IntPtr pMemory);
 
     private static IntPtr CreateChildKillJob()
     {

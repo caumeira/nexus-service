@@ -483,6 +483,19 @@ app.Use(async (ctx, next) =>
         return;
     }
 
+    // Localhost-only routes (service control: stop, startup-mode) are
+    // rejected with 404 for any non-loopback caller, before token
+    // validation so the route's existence is never leaked to LAN scanners.
+    if (ctx.GetEndpoint()?.Metadata.GetMetadata<LocalhostOnlyAccess>() is not null)
+    {
+        var remote = ctx.Connection.RemoteIpAddress;
+        if (remote is null || !IPAddress.IsLoopback(remote))
+        {
+            ctx.Response.StatusCode = StatusCodes.Status404NotFound;
+            return;
+        }
+    }
+
     var tokens = ctx.RequestServices.GetRequiredService<TokenService>();
     var panelPairing = ctx.RequestServices.GetRequiredService<Qos.Service.Panel.PanelPhonePairingService>();
     var requestToken = AuthRequestPolicy.ExtractBearerOrQueryToken(ctx);
@@ -522,6 +535,7 @@ app.Use(async (ctx, next) =>
 app.MapPingEndpoints();
 app.MapAuthEndpoints();
 app.MapSystemEndpoints();
+app.MapServiceControlEndpoints();
 app.MapCoolingEndpoints();
 app.MapBenchmarkEndpoints();
 app.MapLightingEndpoints();
@@ -673,6 +687,12 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         if (serviceMode)
         {
             Console.WriteLine("[qos-service] startup window suppressed (LocalSystem session 0 has no interactive desktop)");
+            // In service mode we don't have a tray of our own to host. If the
+            // user has tray enabled and is logged in, spawn Qos.exe --tray in
+            // their session so the icon appears after install / service
+            // restart without waiting for the next logon.
+            var trayStore = app.Services.GetRequiredService<Qos.Service.Persistence.IConfigStore>();
+            Qos.Service.Lifecycle.TrayBootstrapper.TryLaunch(trayStore);
         }
         else if (suppressStartupWindow)
         {
