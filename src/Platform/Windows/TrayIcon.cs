@@ -367,12 +367,32 @@ public static class TrayIcon
                 return;
             }
 
-            // Existing window check: just focus it. We do NOT try to navigate
-            // an already-open --app window to a specific path: Edge has no
-            // external API for "navigate this HWND", and the previous
-            // Process.Start(url, UseShellExecute=true) fallback handed the URL
-            // to the OS default browser, which is never what the user wanted.
-            // Users that need a different view click inside the open window.
+            // Preferred path: the qos-overlay process hosts a WebView2
+            // dashboard window that shares the Chromium process tree with
+            // the overlay widgets - far cheaper than spawning a fresh
+            // Edge --app tree. Sending the registered ShowDashboard
+            // message either creates or focuses the dashboard window.
+            if (TrySendShowDashboardToOverlay())
+            {
+                DiagFile("ShowDashboard posted to qos-overlay marshaler");
+                return;
+            }
+
+            // Overlay process not running - try to start it before falling
+            // back to the heavy Edge --app path. EnsureOverlayRunning is
+            // best-effort; on success the marshaler usually appears within
+            // a few seconds. We retry the send once after the spawn.
+            if (EnsureOverlayRunning() && TrySendShowDashboardToOverlay(timeoutMs: 8000))
+            {
+                _lastSpawnUtc = DateTime.UtcNow;
+                DiagFile("started qos-overlay and posted ShowDashboard");
+                return;
+            }
+
+            DiagFile("qos-overlay unreachable, falling back to Edge --app");
+
+            // Fallback: legacy Edge --app spawn. Only reached when the
+            // overlay binary is missing or refuses to start.
             var existing = FindExistingQosAppWindow();
             if (existing != IntPtr.Zero)
             {
@@ -457,8 +477,105 @@ public static class TrayIcon
                 PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
                 DiagFile($"posted WM_CLOSE to Qos --app window 0x{hwnd.ToInt64():X}");
             }
+            // Also post the same message to the qos-overlay dashboard
+            // window if it's currently visible. We don't kill the overlay
+            // process - the dashboard window's WM_CLOSE handler just hides
+            // it so reopen stays instant.
+            var dashHwnd = FindWindow(OverlayDashboardClassName, null);
+            if (dashHwnd != IntPtr.Zero)
+            {
+                PostMessage(dashHwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                DiagFile($"posted WM_CLOSE to qos-overlay dashboard 0x{dashHwnd.ToInt64():X}");
+            }
         }
         catch { /* best-effort */ }
+    }
+
+    private const string OverlayMarshalerClassName = "Qos.Overlay.Marshaler";
+    private const string OverlayDashboardClassName = "Qos.Overlay.Dashboard";
+    private const string ShowDashboardMessageName = "Qos.Overlay.ShowDashboard";
+
+    /// <summary>
+    /// Tries to deliver a ShowDashboard message to the running qos-overlay
+    /// process's marshaler window. Returns false if no marshaler is found
+    /// within <paramref name="timeoutMs"/> (default: 0, i.e. one-shot
+    /// check; pass a positive value after spawning the overlay to give it
+    /// time to register its window).
+    /// </summary>
+    private static bool TrySendShowDashboardToOverlay(int timeoutMs = 0)
+    {
+        try
+        {
+            var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+            IntPtr marshaler;
+            while (true)
+            {
+                marshaler = FindWindow(OverlayMarshalerClassName, null);
+                if (marshaler != IntPtr.Zero) break;
+                if (DateTime.UtcNow >= deadline) return false;
+                System.Threading.Thread.Sleep(150);
+            }
+            var msg = RegisterWindowMessage(ShowDashboardMessageName);
+            if (msg == 0)
+            {
+                DiagFile("RegisterWindowMessage(ShowDashboard) failed");
+                return false;
+            }
+            var ok = PostMessage(marshaler, msg, IntPtr.Zero, IntPtr.Zero);
+            if (!ok) DiagFile($"PostMessage(ShowDashboard) to 0x{marshaler.ToInt64():X} failed");
+            return ok;
+        }
+        catch (Exception ex)
+        {
+            DiagFile($"TrySendShowDashboardToOverlay: {ex.Message}");
+            return false;
+        }
+    }
+
+    /// <summary>
+    /// Starts qos-overlay.exe in the current user session. We're already
+    /// running in the interactive session via the schtasks-hopped
+    /// <c>Qos.exe --open-app</c>, so a plain Process.Start is sufficient
+    /// (no cross-session CreateProcessAsUser dance). Returns true on
+    /// successful Process.Start, false if the binary is missing or the
+    /// start fails.
+    /// </summary>
+    private static bool EnsureOverlayRunning()
+    {
+        try
+        {
+            // First check is cheap: if any qos-overlay.exe is alive in
+            // the current user's session, just wait for its marshaler.
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName("qos-overlay"))
+            {
+                p.Dispose();
+                return true;
+            }
+
+            var serviceDir = System.AppContext.BaseDirectory;
+            if (string.IsNullOrEmpty(serviceDir)) return false;
+            var hostPath = System.IO.Path.Combine(serviceDir, "overlay", "qos-overlay.exe");
+            if (!System.IO.File.Exists(hostPath))
+            {
+                DiagFile($"qos-overlay.exe not found at {hostPath}");
+                return false;
+            }
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = hostPath,
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                WorkingDirectory = System.IO.Path.GetDirectoryName(hostPath)!,
+            };
+            var proc = System.Diagnostics.Process.Start(psi);
+            DiagFile($"spawned qos-overlay pid={proc?.Id.ToString() ?? "null"}");
+            return proc is not null;
+        }
+        catch (Exception ex)
+        {
+            DiagFile($"EnsureOverlayRunning: {ex.Message}");
+            return false;
+        }
     }
 
     /// <summary>
@@ -684,6 +801,8 @@ public static class TrayIcon
     private struct POINT { public int X, Y; }
     [DllImport("user32")] private static extern bool SetForegroundWindow(IntPtr hwnd);
     [DllImport("user32", CharSet = CharSet.Unicode)] private static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32", CharSet = CharSet.Unicode, EntryPoint = "FindWindowW")] private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
+    [DllImport("user32", CharSet = CharSet.Unicode, EntryPoint = "RegisterWindowMessageW")] private static extern uint RegisterWindowMessage(string lpString);
     [DllImport("shell32", CharSet = CharSet.Unicode)] private static extern bool Shell_NotifyIcon(int msg, ref NOTIFYICONDATA data);
 
     // Single-instance window focus path

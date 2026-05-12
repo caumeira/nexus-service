@@ -66,6 +66,20 @@ public sealed class HelperShutdownPayload
 }
 
 /// <summary>
+/// Payload for `overlay.prefsChanged`. Service-to-helper, one-way. The
+/// service fires this on every settings.json change so the helper can
+/// PostMessage the qos-overlay marshaler to repoll preferences without
+/// waiting for its 5s timer. Used to make the desktop-widget toggle (and
+/// any other live overlay-relevant setting) feel instant. The service
+/// itself cannot post to the overlay window directly because it runs in
+/// Session 0; the helper runs in the user session where FindWindow can
+/// see the marshaler.
+/// </summary>
+public sealed class OverlayPrefsChangedPayload
+{
+}
+
+/// <summary>
 /// Payload for `service.requestStop`. Helper-to-service. Fired when the
 /// user clicks "Shut down" in the tray. The service handler calls
 /// IHostApplicationLifetime.StopApplication so the daemon runs the same
@@ -184,4 +198,54 @@ public sealed class StringResult
 public sealed class DisplayListResult
 {
     public List<Qos.Service.Models.Displays.DisplayDto> Displays { get; set; } = new();
+}
+
+/// <summary>
+/// Payload for `monitor.enumerate`. Service-to-helper command. Empty - the
+/// helper enumerates every attached display via DXGI in its user session
+/// and returns the full list. Session 0 (LocalSystem service) cannot see
+/// DXGI outputs at all, so the helper is the authoritative source.
+/// </summary>
+public sealed class MonitorEnumerateRequest
+{
+}
+
+/// <summary>Response payload for `monitor.enumerate`. Empty list means no displays detected (or no helper connected).</summary>
+public sealed class MonitorListResult
+{
+    public List<Qos.Service.Models.Lighting.ScreenSyncMonitor> Monitors { get; set; } = new();
+}
+
+/// <summary>
+/// Payload for `screenMirror.start`. Service-to-helper command. Tells the
+/// helper to begin DXGI desktop duplication on the chosen monitor and push
+/// downsampled frames (canvas-resolution RGB24) back via
+/// <see cref="ScreenMirrorFramePayload"/>. Width/Height are the destination
+/// canvas size; the helper resamples on its side so the wire payload stays
+/// small (160x90 RGB24 = 43 KB).
+/// </summary>
+public sealed class ScreenMirrorStartPayload
+{
+    public string MonitorId { get; set; } = "";
+    public int Width { get; set; }
+    public int Height { get; set; }
+}
+
+/// <summary>Payload for `screenMirror.stop`. Service-to-helper command. Stops the helper-side capture thread and releases DXGI resources.</summary>
+public sealed class ScreenMirrorStopPayload
+{
+}
+
+/// <summary>
+/// Payload for `screenMirror.frame`. Helper-to-service push, one envelope
+/// per captured frame. <see cref="Bytes"/> is canvas-resolution RGB24
+/// already downscaled on the helper side; the service blits straight to
+/// the lighting canvas. <see cref="Width"/>/<see cref="Height"/> must match
+/// the helper's chosen output size so the service can validate.
+/// </summary>
+public sealed class ScreenMirrorFramePayload
+{
+    public int Width { get; set; }
+    public int Height { get; set; }
+    public byte[] Bytes { get; set; } = System.Array.Empty<byte>();
 }

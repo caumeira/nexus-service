@@ -758,6 +758,9 @@ if (serviceMode)
 {
     var overlayHost = app.Services.GetRequiredService<Qos.Service.Panel.IOverlayHost>();
     var overlayStore = app.Services.GetRequiredService<IConfigStore>();
+#if WINDOWS
+    var overlayHelperCommands = app.Services.GetService<Qos.Service.Helper.HelperCommandClient>();
+#endif
     overlayStore.OnChanged += () =>
     {
         try
@@ -768,10 +771,17 @@ if (serviceMode)
             {
                 overlayHost.Start();
             }
-            else if (!shouldRun && overlayHost.IsRunning)
-            {
-                overlayHost.Stop();
-            }
+            // Note: we deliberately do NOT call overlayHost.Stop() when
+            // shouldRun goes false. The overlay process also hosts the
+            // main dashboard window; killing it would close the dashboard
+            // mid-use whenever the user toggles widgets off. Instead we
+            // nudge the overlay via the user-session helper so it repolls
+            // preferences immediately and tears down / recreates widget
+            // HWNDs in-process. The overlay's own 5 s prefs poll remains
+            // as a safety net if the helper isn't connected.
+#if WINDOWS
+            try { _ = overlayHelperCommands?.NotifyOverlayPrefsChangedAsync(); } catch { }
+#endif
         }
         catch { /* best-effort */ }
     };

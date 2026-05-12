@@ -7,6 +7,7 @@ using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
 using Qos.Service.Models.Displays;
+using Qos.Service.Models.Lighting;
 using Qos.Service.Serialization;
 
 namespace Qos.Service.Helper;
@@ -59,6 +60,23 @@ public sealed class HelperCommandClient
             type: "helper.shutdown",
             payload: new HelperShutdownPayload(),
             payloadType: AppJsonContext.Default.HelperShutdownPayload,
+            ct: ct);
+    }
+
+    /// <summary>
+    /// Nudge the user-session helper to wake the qos-overlay marshaler so
+    /// it re-reads preferences immediately. Fire-and-forget; the overlay's
+    /// 5s prefs poll is still the safety net if the helper isn't connected
+    /// or the message gets dropped.
+    /// </summary>
+    public Task NotifyOverlayPrefsChangedAsync(CancellationToken ct = default)
+    {
+        var conn = _registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "overlay.prefsChanged",
+            payload: new OverlayPrefsChangedPayload(),
+            payloadType: AppJsonContext.Default.OverlayPrefsChangedPayload,
             ct: ct);
     }
 
@@ -149,6 +167,50 @@ public sealed class HelperCommandClient
         var r = await InvokeAsync("displayBrightness.setVcp", new DisplayBrightnessRequest { Id = id, Code = code, Value = value }, AppJsonContext.Default.DisplayBrightnessRequest, ct).ConfigureAwait(false);
         var dto = ReadResult(r, AppJsonContext.Default.BoolResult);
         return dto?.Value ?? false;
+    }
+
+    /// <summary>
+    /// Enumerate attached monitors via the helper. DXGI cannot see desktop
+    /// outputs from Session 0, so the helper (running in the interactive
+    /// user session) is the source of truth. Returns empty when no helper
+    /// is connected.
+    /// </summary>
+    public async Task<List<ScreenSyncMonitor>> MonitorEnumerateAsync(CancellationToken ct = default)
+    {
+        var r = await InvokeAsync("monitor.enumerate", new MonitorEnumerateRequest(), AppJsonContext.Default.MonitorEnumerateRequest, ct).ConfigureAwait(false);
+        var dto = ReadResult(r, AppJsonContext.Default.MonitorListResult);
+        return dto?.Monitors ?? new List<ScreenSyncMonitor>();
+    }
+
+    /// <summary>
+    /// Start helper-side screen capture. Same Session 0 limitation as
+    /// enumeration: <see cref="IDXGIOutputDuplication"/> cannot see desktop
+    /// outputs under LocalSystem, so the helper does the capture in Session 1
+    /// and pushes canvas-resolution frames back via
+    /// <c>screenMirror.frame</c> envelopes. Fire-and-forget (no Id, the
+    /// frames themselves are the success signal); no-op when no helper.
+    /// </summary>
+    public Task ScreenCaptureStartAsync(string monitorId, int width, int height, CancellationToken ct = default)
+    {
+        var conn = _registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "screenMirror.start",
+            payload: new ScreenMirrorStartPayload { MonitorId = monitorId, Width = width, Height = height },
+            payloadType: AppJsonContext.Default.ScreenMirrorStartPayload,
+            ct: ct);
+    }
+
+    /// <summary>Stop helper-side screen capture. Fire-and-forget. Helper releases DXGI resources and the capture thread exits.</summary>
+    public Task ScreenCaptureStopAsync(CancellationToken ct = default)
+    {
+        var conn = _registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "screenMirror.stop",
+            payload: new ScreenMirrorStopPayload(),
+            payloadType: AppJsonContext.Default.ScreenMirrorStopPayload,
+            ct: ct);
     }
 
     private async Task<HelperResult?> InvokeAsync<TPayload>(string type, TPayload payload, JsonTypeInfo<TPayload> payloadType, CancellationToken ct)

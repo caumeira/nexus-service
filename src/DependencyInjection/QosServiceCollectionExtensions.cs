@@ -197,6 +197,16 @@ public static class QosServiceCollectionExtensions
         // laptop-panel APIs are unreliable from Session 0.
         services.AddSingleton<Qos.Service.Platform.Displays.IDisplayBrightnessProvider,
             Qos.Service.Platform.Displays.HelperDisplayBrightnessProxy>();
+        // Monitor enumeration follows the same Session 0 limitation: DXGI
+        // EnumOutputs returns nothing under LocalSystem, so the helper does
+        // the enumeration and we proxy.
+        services.AddSingleton<Qos.Service.Platform.IMonitorEnumerator,
+            Qos.Service.Platform.Displays.HelperMonitorEnumeratorProxy>();
+        // Screen-mirror frames also flow through the helper - DXGI desktop
+        // duplication is Session 0-blind, so the helper captures + downsamples
+        // and pushes canvas-resolution RGB24 over the pipe.
+        services.AddSingleton<Qos.Service.Lighting.Capture.IScreenFrameSource,
+            Qos.Service.Lighting.Capture.HelperScreenFrameSource>();
 #else
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
@@ -208,6 +218,8 @@ public static class QosServiceCollectionExtensions
             services.AddSingleton<Qos.Service.Platform.Displays.IDisplayBrightnessProvider,
                 Qos.Service.Platform.Displays.StubDisplayBrightnessProvider>();
         }
+        services.AddSingleton<Qos.Service.Platform.IMonitorEnumerator,
+            Qos.Service.Platform.DefaultMonitorEnumerator>();
 #endif
         services.AddSingleton<Qos.Service.Platform.Displays.DisplayBrightnessController>();
         return services;

@@ -4,6 +4,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Qos.Service.Lighting.Capture;
 using Qos.Service.Platform;
 
 namespace Qos.Service.Lighting.Engine.Effects;
@@ -13,6 +14,7 @@ public sealed class ScreenMirrorEffect : IEffect
     public string Name => "screen";
     private readonly string _monitorId;
     private readonly PostProcessState _postProcess;
+    private readonly IScreenFrameSource? _frameSource;
     private readonly object _frameLock = new();
     private byte[]? _latestFrame;
     private int _captureW, _captureH;
@@ -24,10 +26,11 @@ public sealed class ScreenMirrorEffect : IEffect
     private Process? _proc;
     private Task? _readerTask;
 
-    public ScreenMirrorEffect(string monitorId = "", PostProcessState? postProcess = null)
+    public ScreenMirrorEffect(string monitorId = "", PostProcessState? postProcess = null, IScreenFrameSource? frameSource = null)
     {
         _monitorId = monitorId;
         _postProcess = postProcess ?? new PostProcessState();
+        _frameSource = frameSource;
     }
 #if WINDOWS
     private Capture.DxgiScreenCapture? _dxgi;
@@ -38,6 +41,19 @@ public sealed class ScreenMirrorEffect : IEffect
         if (!_started)
         {
             EnsureStarted(canvas.Width, canvas.Height);
+        }
+        if (_frameSource is not null)
+        {
+            var helperFrame = _frameSource.TryAcquireFrame(out var helperW, out var helperH);
+            if (helperFrame is null || helperW <= 0 || helperH <= 0)
+            {
+                canvas.Fill(20, 20, 24);
+                return;
+            }
+            BlitToCanvas(canvas, helperFrame, helperW, helperH);
+            canvas.ApplyFlip(_postProcess.FlipX, _postProcess.FlipY);
+            canvas.ApplyPostProcess(_postProcess);
+            return;
         }
 #if WINDOWS
         if (_dxgi is not null && _dxgi.IsInitialized)
@@ -112,6 +128,12 @@ public sealed class ScreenMirrorEffect : IEffect
         _started = true;
         _captureW = w;
         _captureH = h;
+        if (_frameSource is not null)
+        {
+            try { _frameSource.Start(_monitorId, w, h); Console.Error.WriteLine("[screen-mirror] using helper frame source"); }
+            catch (Exception ex) { Console.Error.WriteLine($"[screen-mirror] helper frame source start failed: {ex.Message}"); }
+            return;
+        }
 #if WINDOWS
         var outputIdx = uint.TryParse(_monitorId, out var idx) ? idx : 0u;
         _dxgi = new Capture.DxgiScreenCapture();
@@ -193,6 +215,10 @@ public sealed class ScreenMirrorEffect : IEffect
 
     public void Dispose()
     {
+        if (_frameSource is not null)
+        {
+            try { _frameSource.Stop(); } catch { }
+        }
 #if WINDOWS
         _dxgi?.Dispose();
 #endif

@@ -4,9 +4,11 @@ using Qos.Service.Lighting.Engine;
 using Qos.Service.Lighting.Engine.Effects;
 using Qos.Service.Lighting.Engine.Gpu;
 using Qos.Service.Lighting.Rgb;
+using Qos.Service.Lighting.Capture;
 using Qos.Service.Media;
 using Qos.Service.Models.Lighting;
 using Qos.Service.Persistence;
+using Qos.Service.Platform;
 using Qos.Service.Sockets;
 
 namespace Qos.Service.Lighting;
@@ -28,6 +30,8 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     private readonly RgbBridge? _rgb;
     private readonly GpuContext _gpu;
     private readonly MediaLibrary _media;
+    private readonly IMonitorEnumerator _monitors;
+    private readonly IScreenFrameSource? _frameSource;
 
     // Live-reactive post-process holders shared between the effect and the
     // /lighting/{mode}/effect endpoint. The endpoint mutates the fields; the
@@ -37,7 +41,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     private readonly PostProcessState _screenPP = new();
     private readonly PostProcessState _mediaPP = new();
 
-    public LightingProvider(IConfigStore store, LightingEngine engine, LightingOutputHub hub, GpuContext gpu, MediaLibrary media, RgbBridge? rgb = null)
+    public LightingProvider(IConfigStore store, LightingEngine engine, LightingOutputHub hub, GpuContext gpu, MediaLibrary media, IMonitorEnumerator monitors, IScreenFrameSource? frameSource = null, RgbBridge? rgb = null)
     {
         _store = store;
         _engine = engine;
@@ -45,6 +49,8 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         _rgb = rgb;
         _gpu = gpu;
         _media = media;
+        _monitors = monitors;
+        _frameSource = frameSource;
 
         var s = _store.Load().Lighting;
         _screenPP.Set(s.ScreenEffect.Hue, s.ScreenEffect.Colorize, s.ScreenEffect.Saturation, s.ScreenEffect.Contrast, s.ScreenEffect.FlipX, s.ScreenEffect.FlipY);
@@ -111,7 +117,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     public ScreenSyncOptions GetScreenSyncOptions() => new()
     {
         Effects = new[] { "average" },
-        Monitors = Platform.MonitorEnumerator.List(),
+        Monitors = _monitors.Enumerate(),
     };
 
     public void StartStatic(StaticHeadlessStart body)
@@ -521,7 +527,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // client calls /start with empty post-process fields before it has
         // fetched the current values, overwriting here would silently clobber
         // the user's saved look back to identity on every mode swap.
-        _engine.SetEffect(new ScreenMirrorEffect(body.Monitor, _screenPP));
+        _engine.SetEffect(new ScreenMirrorEffect(body.Monitor, _screenPP, _frameSource));
         _store.Update(s => s.Lighting.Sync = "screen");
     }
 

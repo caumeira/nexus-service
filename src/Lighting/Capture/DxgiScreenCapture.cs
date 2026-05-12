@@ -96,6 +96,49 @@ public sealed class DxgiScreenCapture : IDisposable
         catch { return null; }
     }
 
+    /// <summary>
+    /// Downscale the currently-acquired frame into a flat RGB24 byte
+    /// buffer (size <paramref name="dstW"/>*<paramref name="dstH"/>*3).
+    /// Used by the user-session helper to ship canvas-resolution frames
+    /// to the service over the named pipe without allocating a full
+    /// CanvasBuffer.
+    /// </summary>
+    public unsafe bool BlitToBuffer(byte[] dst, int dstW, int dstH)
+    {
+        if (!_frameAcquired || _context is null || _stagingTexture is null) return false;
+        if (dst.Length < dstW * dstH * 3) return false;
+        try
+        {
+            var mapped = _context.Map(_stagingTexture, 0, MapMode.Read);
+            try
+            {
+                var rowPitch = (int)mapped.RowPitch;
+                var src = (byte*)mapped.DataPointer;
+                fixed (byte* dstPtr = dst)
+                {
+                    for (int y = 0; y < dstH; y++)
+                    {
+                        var sy = y * _screenH / dstH;
+                        var srcRow = src + sy * rowPitch;
+                        var dstRow = dstPtr + y * dstW * 3;
+                        for (int x = 0; x < dstW; x++)
+                        {
+                            var sx = x * _screenW / dstW;
+                            var p = srcRow + sx * 4;
+                            var d = dstRow + x * 3;
+                            d[0] = p[2];
+                            d[1] = p[1];
+                            d[2] = p[0];
+                        }
+                    }
+                }
+                return true;
+            }
+            finally { _context.Unmap(_stagingTexture, 0); }
+        }
+        catch { return false; }
+    }
+
     public unsafe bool BlitToCanvas(Engine.CanvasBuffer canvas)
     {
         if (!_frameAcquired || _context is null || _stagingTexture is null) return false;

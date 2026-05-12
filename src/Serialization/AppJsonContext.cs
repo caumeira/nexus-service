@@ -397,6 +397,7 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(HelperHello))]
 [JsonSerializable(typeof(TraySetVisiblePayload))]
 [JsonSerializable(typeof(HelperShutdownPayload))]
+[JsonSerializable(typeof(OverlayPrefsChangedPayload))]
 [JsonSerializable(typeof(ServiceRequestStopPayload))]
 [JsonSerializable(typeof(ScreenTimeSessionPayload))]
 [JsonSerializable(typeof(ScreenTimeFocusPayload))]
@@ -410,6 +411,11 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(BoolResult))]
 [JsonSerializable(typeof(StringResult))]
 [JsonSerializable(typeof(DisplayListResult))]
+[JsonSerializable(typeof(MonitorEnumerateRequest))]
+[JsonSerializable(typeof(MonitorListResult))]
+[JsonSerializable(typeof(ScreenMirrorStartPayload))]
+[JsonSerializable(typeof(ScreenMirrorStopPayload))]
+[JsonSerializable(typeof(ScreenMirrorFramePayload))]
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

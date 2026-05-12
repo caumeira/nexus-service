@@ -1,6 +1,7 @@
 #if WINDOWS
 using System;
 using System.Diagnostics;
+using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
@@ -93,6 +94,7 @@ internal static class WindowsUserHelper
         // nothing else here changes.
         using var screenTime = new ScreenTimePoller(outbound);
         using var media = new MediaPusher(outbound);
+        using var screenCapture = new ScreenCapturePusher(outbound);
         var brightness = new Platform.Displays.WindowsDisplayBrightnessProvider();
 
         var commands = new HelperClientCommands(
@@ -109,9 +111,28 @@ internal static class WindowsUserHelper
                 try { Platform.Windows.TrayIcon.CloseAppWindow(); } catch { }
                 s_exit.Cancel();
             },
+            notifyOverlayPrefsChanged: () =>
+            {
+                // Wake the overlay's marshaler so it repolls preferences
+                // immediately (e.g. the user toggled widgets off). We run
+                // in the same Windows session as qos-overlay, so FindWindow
+                // can see the marshaler that the service-side cannot.
+                try
+                {
+                    var hwnd = FindWindowW(OverlayMarshalerClassName, null);
+                    if (hwnd != IntPtr.Zero)
+                    {
+                        var msg = RegisterWindowMessageW(OverlayPrefsChangedMessageName);
+                        if (msg != 0) PostMessageW(hwnd, msg, IntPtr.Zero, IntPtr.Zero);
+                    }
+                }
+                catch { /* best-effort wake; 5 s poll is the safety net */ }
+            },
             mediaControl: (source, action) => media.Control(source, action),
             getAlbumArt: source => media.GetAlbumArt(source),
-            brightness: brightness);
+            brightness: brightness,
+            screenMirrorStart: (monitorId, w, h) => screenCapture.Start(monitorId, w, h),
+            screenMirrorStop: () => screenCapture.Stop());
         var client = new HelperClientLoop(commands, outbound);
         var pipeTask = Task.Run(() => client.RunAsync(s_exit.Token));
 
@@ -191,6 +212,20 @@ internal static class WindowsUserHelper
         }
         catch { return ServiceState.Other; }
     }
+
+    // Win32 plumbing for the cross-process overlay marshaler wake. Lives
+    // here rather than in a shared file because this is the only consumer.
+    private const string OverlayMarshalerClassName = "Qos.Overlay.Marshaler";
+    private const string OverlayPrefsChangedMessageName = "Qos.Overlay.PrefsChanged";
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern IntPtr FindWindowW(string? lpClassName, string? lpWindowName);
+
+    [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern uint RegisterWindowMessageW(string lpString);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool PostMessageW(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
 
     private static void Diag(string msg)
     {
