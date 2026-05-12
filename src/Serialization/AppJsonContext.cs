@@ -396,6 +396,8 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(HelperResult))]
 [JsonSerializable(typeof(HelperHello))]
 [JsonSerializable(typeof(TraySetVisiblePayload))]
+[JsonSerializable(typeof(HelperShutdownPayload))]
+[JsonSerializable(typeof(ServiceRequestStopPayload))]
 [JsonSerializable(typeof(ScreenTimeSessionPayload))]
 [JsonSerializable(typeof(ScreenTimeFocusPayload))]
 [JsonSerializable(typeof(MediaSnapshotPayload))]

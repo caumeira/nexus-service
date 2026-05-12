@@ -19,17 +19,20 @@ namespace Qos.Service.Helper;
 public sealed class HelperClientCommands
 {
     private readonly Action<bool> _setTrayVisible;
+    private readonly Action? _shutdown;
     private readonly Action<string, string>? _mediaControl;
     private readonly Func<string, byte[]>? _getAlbumArt;
     private readonly IDisplayBrightnessProvider? _brightness;
 
     public HelperClientCommands(
         Action<bool> setTrayVisible,
+        Action? shutdown = null,
         Action<string, string>? mediaControl = null,
         Func<string, byte[]>? getAlbumArt = null,
         IDisplayBrightnessProvider? brightness = null)
     {
         _setTrayVisible = setTrayVisible;
+        _shutdown = shutdown;
         _mediaControl = mediaControl;
         _getAlbumArt = getAlbumArt;
         _brightness = brightness;
@@ -46,6 +49,15 @@ public sealed class HelperClientCommands
                         if (env.Payload is null) return Task.FromResult(Ok(env.Id));
                         var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TraySetVisiblePayload);
                         _setTrayVisible(p?.Visible ?? false);
+                        return Task.FromResult(Ok(env.Id));
+                    }
+                case "helper.shutdown":
+                    {
+                        // Service-initiated teardown: close the user's
+                        // --app window and exit the helper so the tray icon
+                        // goes with it. Sent as a one-way envelope (no Id),
+                        // so the Ok return is a formality the loop swallows.
+                        try { _shutdown?.Invoke(); } catch { }
                         return Task.FromResult(Ok(env.Id));
                     }
                 case "media.control":

@@ -30,6 +30,7 @@ public static class TrayIcon
     private const int MF_CHECKED = 0x0008;
     private const int MF_UNCHECKED = 0x0000;
     private const int DefaultServicePort = 9400;
+    private const uint WM_CLOSE = 0x0010;
 
     // uxtheme.dll ordinal 135: SetPreferredAppMode(int mode). The current
     // int-taking signature shipped in Windows 10 1903 (build 18362); the
@@ -389,6 +390,14 @@ public static class TrayIcon
             }
 
             var url = $"http://localhost:{port}{path}";
+            // Isolated profile dir under ProgramData so Authenticated Users can
+            // read/write it without a roaming-profile redirect. Mirrors the
+            // panel-kiosk launcher's location convention.
+            var userDataDir = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "Qos", "DashboardEdge");
+            try { System.IO.Directory.CreateDirectory(userDataDir); } catch { /* best-effort */ }
+
             var psi = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = edgePath,
@@ -396,6 +405,21 @@ public static class TrayIcon
             };
             psi.ArgumentList.Add($"--app={url}");
             psi.ArgumentList.Add("--new-window");
+            // Isolated profile - cuts Edge sync, extensions, identity, sidebar,
+            // Copilot, Workspaces, and the rest of the user-profile baggage
+            // that the --app would otherwise drag in from the default profile.
+            psi.ArgumentList.Add($"--user-data-dir={userDataDir}");
+            psi.ArgumentList.Add("--no-first-run");
+            psi.ArgumentList.Add("--no-default-browser-check");
+            psi.ArgumentList.Add("--disable-features=msEdgeSidebarV2,msEdgeSplitWindow,msEdgeWorkspaces,msEdgeJSONViewer");
+            psi.ArgumentList.Add("--disable-sync");
+            psi.ArgumentList.Add("--disable-extensions");
+            psi.ArgumentList.Add("--disable-background-mode");
+            psi.ArgumentList.Add("--disable-background-networking");
+            psi.ArgumentList.Add("--disable-default-apps");
+            psi.ArgumentList.Add("--disable-notifications");
+            psi.ArgumentList.Add("--disable-session-crashed-bubble");
+            psi.ArgumentList.Add("--disable-infobars");
             try
             {
                 var p = System.Diagnostics.Process.Start(psi);
@@ -410,6 +434,32 @@ public static class TrayIcon
         }
     }
 
+
+    /// <summary>
+    /// Close any open standalone Qos --app window (the Edge --app shell
+    /// hosting the dashboard). Best-effort, fire-and-forget: posts WM_CLOSE
+    /// to the HWND found by <see cref="FindExistingQosAppWindow"/> and
+    /// returns immediately - Edge processes the close on its own message
+    /// loop ms later. No-op when no such window exists.
+    ///
+    /// Used by the tray "Shut down" handler and by the service's
+    /// ApplicationStopping hook so that quitting Qos always tears the
+    /// window down, matching the settings "Stop Qos" UX path (which closes
+    /// the window via window.close() from the React side).
+    /// </summary>
+    public static void CloseAppWindow()
+    {
+        try
+        {
+            var hwnd = FindExistingQosAppWindow();
+            if (hwnd != IntPtr.Zero)
+            {
+                PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+                DiagFile($"posted WM_CLOSE to Qos --app window 0x{hwnd.ToInt64():X}");
+            }
+        }
+        catch { /* best-effort */ }
+    }
 
     /// <summary>
     /// Returns the MainWindowHandle of any currently-running msedge.exe
@@ -633,6 +683,7 @@ public static class TrayIcon
     [StructLayout(LayoutKind.Sequential)]
     private struct POINT { public int X, Y; }
     [DllImport("user32")] private static extern bool SetForegroundWindow(IntPtr hwnd);
+    [DllImport("user32", CharSet = CharSet.Unicode)] private static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("shell32", CharSet = CharSet.Unicode)] private static extern bool Shell_NotifyIcon(int msg, ref NOTIFYICONDATA data);
 
     // Single-instance window focus path

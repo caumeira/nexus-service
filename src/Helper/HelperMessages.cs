@@ -55,6 +55,29 @@ public sealed class TraySetVisiblePayload
 }
 
 /// <summary>
+/// Payload for `helper.shutdown`. Service-to-helper. The service signals
+/// this from its ApplicationStopping hook so the helper closes its --app
+/// window (Edge --app shell) and exits, matching the settings "Stop Qos"
+/// UX where stopping the service also tears down the tray and window.
+/// No fields - the envelope's existence is the signal.
+/// </summary>
+public sealed class HelperShutdownPayload
+{
+}
+
+/// <summary>
+/// Payload for `service.requestStop`. Helper-to-service. Fired when the
+/// user clicks "Shut down" in the tray. The service handler calls
+/// IHostApplicationLifetime.StopApplication so the daemon runs the same
+/// graceful shutdown the /service/stop HTTP route uses. Going over the
+/// already-authenticated pipe avoids needing to widen the service's
+/// SCM DACL with SERVICE_STOP for the interactive user. No fields.
+/// </summary>
+public sealed class ServiceRequestStopPayload
+{
+}
+
+/// <summary>
 /// Payload for `screenTime.session`. Helper-to-service, one-way. Emitted
 /// when the foreground window changes (closing out the prior session) or
 /// when the user goes idle long enough to clip the session early.

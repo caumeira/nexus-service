@@ -52,27 +52,40 @@ internal static class WindowsUserHelper
             return 0;
         }
 
+        // Pipe client to the service. Reconnects with backoff on drop.
+        // Outbound is shared with the helper-side providers (screen-time
+        // poller, media pusher, etc.) so they can emit envelopes without
+        // touching the pipe directly. Constructed before the tray so the
+        // "Shut down" closure can capture it for the stop-request send.
+        var outbound = new HelperOutbound();
+
         // Tray icon: visible by default until the service tells us otherwise.
         // The server-driven model (HelperCommandClient.SetTrayVisibleAsync)
         // pushes the current ShowWindowsTrayIcon value on every successful
         // connect, so the icon settles to the persisted preference within
         // ~1s of bootstrap. Defaulting to "visible" avoids a transient
         // disappearance during service restarts.
+        //
+        // "Shut down" in the tray menu must match the settings "Stop Qos"
+        // UX: service stopped, --app window closed, tray gone. The stop
+        // request rides the existing pipe (already authenticated) so the
+        // service runs its graceful StopApplication path; sc.exe stop
+        // would 5 (Access Denied) here because the SCM DACL only grants
+        // Authenticated Users START + QUERY, not STOP.
         Platform.Windows.TrayIcon.Configure(
             DefaultPort,
-            onExit: () => s_exit.Cancel());
+            onExit: () =>
+            {
+                try { Platform.Windows.TrayIcon.CloseAppWindow(); } catch { }
+                try { RequestServiceStop(outbound); } catch { }
+                s_exit.Cancel();
+            });
         Platform.Windows.TrayIcon.SetVisible(true);
 
         // Watchdog: only exits the helper when the service is uninstalled.
         // Transient stopped states are fine; the pipe client handles them.
         var watchdog = new Thread(WatchdogLoop) { IsBackground = true };
         watchdog.Start();
-
-        // Pipe client to the service. Reconnects with backoff on drop.
-        // Outbound is shared with the helper-side providers (screen-time
-        // poller, media pusher, etc.) so they can emit envelopes without
-        // touching the pipe directly.
-        var outbound = new HelperOutbound();
 
         // User-session providers. Each one owns its own polling/listening
         // and pushes envelopes through the shared outbound. Adding a new
@@ -84,6 +97,18 @@ internal static class WindowsUserHelper
 
         var commands = new HelperClientCommands(
             setTrayVisible: visible => Platform.Windows.TrayIcon.SetVisible(visible),
+            shutdown: () =>
+            {
+                // Service-driven teardown: it's stopping (e.g. user hit
+                // "Stop Qos" in settings), so close the --app window and
+                // exit the helper so the tray icon goes too. We do NOT
+                // also send service.requestStop here - that would echo
+                // the very stop the service has already initiated. Tray
+                // onExit is the symmetric path that pushes the stop the
+                // other way; do not "fix" this asymmetry.
+                try { Platform.Windows.TrayIcon.CloseAppWindow(); } catch { }
+                s_exit.Cancel();
+            },
             mediaControl: (source, action) => media.Control(source, action),
             getAlbumArt: source => media.GetAlbumArt(source),
             brightness: brightness);
@@ -110,6 +135,32 @@ internal static class WindowsUserHelper
                 s_exit.Cancel();
                 return;
             }
+        }
+    }
+
+    /// <summary>
+    /// Ask the service to stop, over the pipe. The service handler calls
+    /// IHostApplicationLifetime.StopApplication so the daemon runs the
+    /// same graceful path /service/stop uses. We briefly block to make
+    /// sure the frame actually leaves the wire before the caller cancels
+    /// s_exit (which tears down the pipe loop); a timeout falls through
+    /// if the service isn't currently connected, in which case there's
+    /// no daemon to stop anyway.
+    /// </summary>
+    private static void RequestServiceStop(HelperOutbound outbound)
+    {
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+            outbound.SendAsync(
+                type: "service.requestStop",
+                payload: new ServiceRequestStopPayload(),
+                payloadType: Qos.Service.Serialization.AppJsonContext.Default.ServiceRequestStopPayload,
+                ct: cts.Token).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[helper] pipe stop request failed: {ex.Message}");
         }
     }
 

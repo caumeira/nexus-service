@@ -44,6 +44,25 @@ public sealed class HelperCommandClient
     }
 
     /// <summary>
+    /// Tell the helper that the service is shutting down: it should close
+    /// the standalone --app window and exit so the tray icon disappears.
+    /// Fired from the service's ApplicationStopping hook so both the
+    /// settings "Stop Qos" path and the tray "Shut down" path (which goes
+    /// through SCM) converge on the same teardown UX. No-op when no helper
+    /// is currently connected.
+    /// </summary>
+    public Task SendShutdownAsync(CancellationToken ct = default)
+    {
+        var conn = _registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "helper.shutdown",
+            payload: new HelperShutdownPayload(),
+            payloadType: AppJsonContext.Default.HelperShutdownPayload,
+            ct: ct);
+    }
+
+    /// <summary>
     /// Fire a media transport command (play / pause / next / ...) at the
     /// helper's GSMTC session. Fire-and-forget; we don't surface failures
     /// back into the HTTP route caller.

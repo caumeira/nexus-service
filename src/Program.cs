@@ -713,6 +713,41 @@ if (serviceMode)
         }
         catch (Exception ex) { Console.Error.WriteLine($"[helper-sync] {ex.Message}"); }
     };
+
+    // Helper-initiated stop. The tray "Shut down" item sends this over
+    // the already-authenticated pipe rather than calling sc.exe stop -
+    // the service's SCM DACL only grants Authenticated Users
+    // QUERY_STATUS + START, not STOP, so an unelevated user-session
+    // helper cannot stop the daemon via SCM. StopApplication runs the
+    // same graceful path /service/stop uses; the ApplicationStopping
+    // hook below then notifies the helper back via helper.shutdown.
+    helperRegistry.InboundEnvelope += (_, env) =>
+    {
+        if (env.Type != "service.requestStop") return;
+        try { app.Lifetime.StopApplication(); }
+        catch (Exception ex) { Console.Error.WriteLine($"[helper-sync] requestStop failed: {ex.Message}"); }
+    };
+
+    // Quitting the service must take the user-session UI with it: close
+    // the --app window and exit the helper so the tray icon disappears.
+    // Without this, "Stop Qos" in the settings UI would stop the daemon
+    // but leave an orphaned Edge --app window pointing at a dead port and
+    // a stale tray icon in the user session. The helper's pipe drops a
+    // moment later when the service host tears down its pipe server.
+    app.Lifetime.ApplicationStopping.Register(() =>
+    {
+        try
+        {
+            // Short timeout: the host is about to tear down the pipe
+            // server, so a slow helper can't be allowed to delay shutdown.
+            // Single-shot GetAny() snapshot: a helper reconnecting mid-
+            // teardown won't be notified, which is fine while Phase 1
+            // ships single-session; revisit if multi-user lands.
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
+            helperCommands.SendShutdownAsync(cts.Token).GetAwaiter().GetResult();
+        }
+        catch { /* helper may not be connected; nothing to do */ }
+    });
 }
 #endif
 
