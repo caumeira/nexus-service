@@ -328,7 +328,7 @@ public class PanelPhonePairingServiceTests
 
     private static PanelPhonePairingService NewService(InMemoryConfigStore store)
     {
-        return new PanelPhonePairingService(store)
+        return new PanelPhonePairingService(store, new Qos.Service.Sockets.MultiplexHub())
         {
             PublicLinkHost = "",
         };

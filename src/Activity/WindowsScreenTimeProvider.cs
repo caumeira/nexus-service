@@ -1,85 +1,78 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
-using System.Runtime.InteropServices;
-using System.Threading;
+using System.Text.Json;
 using Qos.Service.Activity.Storage;
+using Qos.Service.Helper;
 using Qos.Service.Models.Activity;
 using Qos.Service.Persistence;
-using Qos.Service.Platform;
+using Qos.Service.Serialization;
 
 namespace Qos.Service.Activity;
 
+/// <summary>
+/// Windows screen-time provider. Foreground-window polling lives in the
+/// user-session helper (LocalSystem in Session 0 can't see the interactive
+/// desktop), and the helper sends envelopes here:
+///   - <c>screenTime.session</c> -> append to SQLite via IScreenTimeStore.
+///   - <c>screenTime.focus</c>   -> update the in-memory current session.
+/// Queries (GetCurrentSession / GetTodayUsage) read from the in-memory
+/// focus snapshot and the store; they are unaffected by helper connectivity
+/// (a stale current session falls off when the helper sends focus="" or
+/// the session ages past tracking horizons).
+/// </summary>
 public sealed class WindowsScreenTimeProvider : IScreenTimeProvider, IDisposable
 {
-    private const long IdleThresholdMs = 3 * 60 * 1000;
-
     private readonly IScreenTimeStore _store;
     private readonly IConfigStore _config;
-    private readonly JitteredPeriodicTimer _timer;
+    private readonly HelperRegistry _helper;
     private readonly object _lock = new();
 
     private string _currentApp = "";
     private int _currentPid;
     private long _sessionStartUtcMs;
-    private long _lastPollUtcMs;
 
-    public WindowsScreenTimeProvider(IScreenTimeStore store, IConfigStore config)
+    public WindowsScreenTimeProvider(IScreenTimeStore store, IConfigStore config, HelperRegistry helper)
     {
         _store = store;
         _config = config;
-        _lastPollUtcMs = NowUtcMs();
-        _timer = new JitteredPeriodicTimer(periodMs: 2000, jitterMs: 200, Poll);
+        _helper = helper;
+        _helper.InboundEnvelope += OnEnvelope;
     }
 
-    private void Poll()
+    private void OnEnvelope(HelperConnection _, HelperEnvelope env)
     {
         try
         {
-            var hwnd = GetForegroundWindow();
-            if (hwnd == IntPtr.Zero) return;
-            GetWindowThreadProcessId(hwnd, out var pid);
-            if (pid == 0) return;
-
-            string appName;
-            try
+            switch (env.Type)
             {
-                using var proc = Process.GetProcessById((int)pid);
-                appName = proc.ProcessName;
+                case "screenTime.session":
+                    {
+                        if (env.Payload is null) return;
+                        var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.ScreenTimeSessionPayload);
+                        if (p is null) return;
+                        if (!IsTrackingEnabled()) return;
+                        _store.RecordSession(p.App, null, p.StartedUtcMs, p.EndedUtcMs);
+                        break;
+                    }
+                case "screenTime.focus":
+                    {
+                        if (env.Payload is null) return;
+                        var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.ScreenTimeFocusPayload);
+                        if (p is null) return;
+                        lock (_lock)
+                        {
+                            _currentApp = p.App;
+                            _currentPid = p.Pid;
+                            _sessionStartUtcMs = p.StartedUtcMs;
+                        }
+                        break;
+                    }
             }
-            catch { return; }
-
-            ApplyFocus(appName, (int)pid);
         }
-        catch { }
-    }
-
-    private void ApplyFocus(string appName, int pid)
-    {
-        lock (_lock)
+        catch (Exception ex)
         {
-            var now = NowUtcMs();
-            var idleGap = now - _lastPollUtcMs;
-
-            if (pid != _currentPid && !string.IsNullOrEmpty(appName))
-            {
-                if (!string.IsNullOrEmpty(_currentApp))
-                {
-                    var endUtc = idleGap > IdleThresholdMs ? _lastPollUtcMs : now;
-                    TryRecord(_currentApp, _sessionStartUtcMs, endUtc);
-                }
-                _currentApp = appName;
-                _currentPid = pid;
-                _sessionStartUtcMs = now;
-            }
-            else if (idleGap > IdleThresholdMs && !string.IsNullOrEmpty(_currentApp))
-            {
-                TryRecord(_currentApp, _sessionStartUtcMs, _lastPollUtcMs);
-                _sessionStartUtcMs = now;
-            }
-
-            _lastPollUtcMs = now;
+            Console.Error.WriteLine($"[screen-time] envelope handling failed: {ex.Message}");
         }
     }
 
@@ -128,12 +121,6 @@ public sealed class WindowsScreenTimeProvider : IScreenTimeProvider, IDisposable
         }
     }
 
-    private void TryRecord(string app, long startUtc, long endUtc)
-    {
-        if (!IsTrackingEnabled()) return;
-        _store.RecordSession(app, null, startUtc, endUtc);
-    }
-
     private bool IsTrackingEnabled()
     {
         try { return _config.Load().ScreenTime?.TrackingEnabled ?? true; }
@@ -142,14 +129,7 @@ public sealed class WindowsScreenTimeProvider : IScreenTimeProvider, IDisposable
 
     public void Dispose()
     {
-        _timer.Dispose();
-        lock (_lock)
-        {
-            if (!string.IsNullOrEmpty(_currentApp))
-            {
-                TryRecord(_currentApp, _sessionStartUtcMs, NowUtcMs());
-            }
-        }
+        _helper.InboundEnvelope -= OnEnvelope;
     }
 
     private static long NowUtcMs() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -163,10 +143,4 @@ public sealed class WindowsScreenTimeProvider : IScreenTimeProvider, IDisposable
         Hours = ts.Hours,
         Days = ts.Days,
     };
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 }

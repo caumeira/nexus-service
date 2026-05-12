@@ -65,9 +65,9 @@ internal static class ServiceControlRoutes
             // The service runs as LocalSystem in Session 0 - spawning Edge
             // --app from here would land in a non-interactive session and
             // never show. Delegate to a one-shot Qos.exe --open-app in the
-            // active console session (same schtasks hop the tray bootstrap
+            // active console session (same schtasks hop the helper bootstrap
             // uses).
-            Qos.Service.Lifecycle.TrayBootstrapper.LaunchOpenApp();
+            Qos.Service.Lifecycle.UserHelperBootstrapper.LaunchOpenApp();
 #else
             if (OperatingSystem.IsMacOS())
             {

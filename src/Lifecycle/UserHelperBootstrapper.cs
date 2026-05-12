@@ -5,50 +5,46 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading.Tasks;
-using Qos.Service.Persistence;
 
 namespace Qos.Service.Lifecycle;
 
 /// <summary>
-/// Spawns <c>Qos.exe --tray</c> in the active console user's session when
-/// the service comes up. Necessary because the service is LocalSystem in
-/// Session 0 - it can't draw a tray icon itself, and HKCU\Run only fires
-/// at logon (not on service restart or post-install).
+/// Spawns <c>Qos.exe --helper</c> in the active console user's session when
+/// the LocalSystem service comes up. Necessary because the service is
+/// LocalSystem in Session 0 - it can't draw a tray icon, can't see the
+/// foreground window, can't query SMTC media, etc. The helper lives in the
+/// user session and does all of that on the service's behalf.
 ///
-/// Gated by <see cref="UiSettings.ShowWindowsTrayIcon"/>: if the user has
-/// the tray icon disabled in dashboard settings, we don't spawn.
+/// Unconditional: no <c>ShowWindowsTrayIcon</c> gate. That preference now
+/// only controls tray-icon visibility, not whether the helper exists. The
+/// helper hosts more than the tray.
 ///
 /// Cross-session launch uses schtasks (Task Scheduler service handles the
 /// session/profile setup that direct CreateProcessAsUser fails on).
 /// </summary>
 [SupportedOSPlatform("windows")]
-internal static class TrayBootstrapper
+internal static class UserHelperBootstrapper
 {
-    public static void TryLaunch(IConfigStore store)
+    public static void EnsureLaunched()
     {
         try
         {
-            if (!store.Load().Ui.ShowWindowsTrayIcon)
-            {
-                Console.WriteLine("[tray-bootstrap] ShowWindowsTrayIcon is false; skipping");
-                return;
-            }
-            SpawnInUserSession("--tray", "tray-bootstrap", "QosTrayBootstrap");
+            SpawnInUserSession("--helper", "helper-bootstrap", "QosHelperBootstrap");
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[tray-bootstrap] failed: {ex.Message}");
+            Console.Error.WriteLine($"[helper-bootstrap] failed: {ex.Message}");
         }
     }
 
     /// <summary>
-    /// Mirror of <see cref="TryLaunch"/> for the "open the dashboard window"
+    /// Mirror of <see cref="EnsureLaunched"/> for the "open the dashboard window"
     /// hotline. The desktop widget context menu's "Open dashboard" entry hits
     /// <c>POST /service/open-app</c>; the service handler runs as LocalSystem
     /// in Session 0 and cannot spawn an interactive Edge --app on its own,
     /// so we delegate to a one-shot <c>Qos.exe --open-app</c> in the active
     /// console session, which then runs the same Edge --app spawn path the
-    /// tray uses.
+    /// helper uses.
     /// </summary>
     public static void LaunchOpenApp()
     {
@@ -78,8 +74,6 @@ internal static class TrayBootstrapper
             return;
         }
 
-        // ProcessId alone collides if the service is fast-crash-looped
-        // and a previous task wasn't /Delete'd cleanly; append Ticks.
         var taskName = $"{taskPrefix}_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
         if (!Schtasks("/Create", "/TN", taskName, "/TR", $"\"{exePath}\" {qosArg}",
                       "/SC", "ONCE", "/ST", "23:59", "/RU", username, "/IT", "/F"))

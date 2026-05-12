@@ -18,7 +18,7 @@ namespace Qos.Service.Lifecycle;
 ///   Query SCM: is QosService registered?
 ///     No  -> self-elevate, run --install on self (the ONLY UAC path).
 ///     Yes -> Query status.
-///            Running       -> spawn --tray if not running, open dashboard.
+///            Running       -> spawn --helper if not running, open dashboard.
 ///            StartPending  -> wait briefly, retry, then dashboard.
 ///            Stopped       -> StartService() directly (DACL grant; no UAC),
 ///                             then open dashboard.
@@ -46,7 +46,7 @@ internal static class WindowsLauncher
 
             case ServiceState.Running:
                 Console.WriteLine("[launcher] service is running; opening dashboard");
-                EnsureTrayRunning();
+                EnsureHelperRunning();
                 WaitForPing(TimeSpan.FromSeconds(10));
                 OpenDashboard();
                 return 0;
@@ -54,7 +54,7 @@ internal static class WindowsLauncher
             case ServiceState.StartPending:
                 Console.WriteLine("[launcher] service is starting; waiting briefly");
                 WaitForState(ServiceState.Running, TimeSpan.FromSeconds(10));
-                EnsureTrayRunning();
+                EnsureHelperRunning();
                 WaitForPing(TimeSpan.FromSeconds(10));
                 OpenDashboard();
                 return 0;
@@ -63,7 +63,7 @@ internal static class WindowsLauncher
                 Console.WriteLine("[launcher] service is stopped; starting unprivileged (DACL grant)");
                 if (TryStartService())
                 {
-                    EnsureTrayRunning();
+                    EnsureHelperRunning();
                     // sc.exe start returns when SCM accepts the request, and our
                     // ServiceMain sets RUNNING as soon as we hand the web app off
                     // to a worker thread - the port isn't actually bound yet. Wait
@@ -207,11 +207,11 @@ internal static class WindowsLauncher
         }
     }
 
-    private static void EnsureTrayRunning()
+    private static void EnsureHelperRunning()
     {
-        // Best-effort: spawn Qos.exe --tray if no tray is alive in this
-        // session. The tray's per-session mutex handles deduplication, so a
-        // racing second spawn just exits silently.
+        // Best-effort: spawn Qos.exe --helper if no helper is alive in this
+        // session. The helper's per-session mutex (Local\QosHelper) handles
+        // deduplication, so a racing second spawn just exits silently.
         try
         {
             var exe = Process.GetCurrentProcess().MainModule?.FileName;
@@ -221,7 +221,7 @@ internal static class WindowsLauncher
                 UseShellExecute = false,
                 CreateNoWindow = true,
             };
-            psi.ArgumentList.Add("--tray");
+            psi.ArgumentList.Add("--helper");
             Process.Start(psi);
         }
         catch

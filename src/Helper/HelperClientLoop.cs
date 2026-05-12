@@ -1,0 +1,141 @@
+#if WINDOWS
+using System;
+using System.IO;
+using System.IO.Pipes;
+using System.Runtime.Versioning;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Qos.Service.Serialization;
+
+namespace Qos.Service.Helper;
+
+/// <summary>
+/// Helper-side pipe client: connect to <c>\\.\pipe\Qos.Helper</c>, send the
+/// hello envelope, then read envelopes and route them through
+/// <see cref="HelperClientCommands"/>. Reconnects with exponential backoff
+/// when the pipe drops (service restart, transient close), so the helper
+/// stays a long-lived companion regardless of service lifetime.
+///
+/// One instance lives for the lifetime of the helper process. Cancel the
+/// token to shut it down.
+/// </summary>
+[SupportedOSPlatform("windows")]
+public sealed class HelperClientLoop
+{
+    private const int ConnectTimeoutMs = 5000;
+
+    private readonly HelperClientCommands _commands;
+    private readonly HelperOutbound _outbound;
+
+    public HelperClientLoop(HelperClientCommands commands, HelperOutbound outbound)
+    {
+        _commands = commands;
+        _outbound = outbound;
+    }
+
+    public async Task RunAsync(CancellationToken exit)
+    {
+        var backoff = TimeSpan.FromSeconds(1);
+        while (!exit.IsCancellationRequested)
+        {
+            try
+            {
+                using var pipe = new NamedPipeClientStream(
+                    serverName: ".",
+                    pipeName: HelperPipeServer.PipeName,
+                    direction: PipeDirection.InOut,
+                    options: PipeOptions.Asynchronous);
+
+                await pipe.ConnectAsync(ConnectTimeoutMs, exit).ConfigureAwait(false);
+
+                await SendHelloAsync(pipe, exit).ConfigureAwait(false);
+                backoff = TimeSpan.FromSeconds(1);
+
+                _outbound.SetActivePipe(pipe);
+                try
+                {
+                    await ReadLoopAsync(pipe, exit).ConfigureAwait(false);
+                }
+                finally
+                {
+                    // Drain pending sends before letting the using-block
+                    // dispose the pipe, so HelperOutbound never tries to
+                    // write to a disposed stream.
+                    await _outbound.ClearActivePipeAsync().ConfigureAwait(false);
+                }
+            }
+            catch (OperationCanceledException) { return; }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[helper-client] pipe error: {ex.Message}");
+                await _outbound.ClearActivePipeAsync().ConfigureAwait(false);
+            }
+
+            try { await Task.Delay(backoff, exit).ConfigureAwait(false); }
+            catch (OperationCanceledException) { return; }
+            backoff = TimeSpan.FromSeconds(Math.Min(backoff.TotalSeconds * 2, 30));
+        }
+    }
+
+    private static async Task SendHelloAsync(NamedPipeClientStream pipe, CancellationToken ct)
+    {
+        var hello = new HelperHello
+        {
+            SessionId = System.Diagnostics.Process.GetCurrentProcess().SessionId,
+            Pid = Environment.ProcessId,
+            Version = BuildInfo.Version,
+        };
+        var env = new HelperEnvelope
+        {
+            Type = "hello",
+            Payload = JsonSerializer.SerializeToElement(hello, AppJsonContext.Default.HelperHello),
+        };
+        var bytes = JsonSerializer.SerializeToUtf8Bytes(env, AppJsonContext.Default.HelperEnvelope);
+        // Direct write is safe here - the read loop hasn't started yet and
+        // no helper-side provider can have a reference to the pipe.
+        await Framing.WriteFrameAsync(pipe, bytes, ct).ConfigureAwait(false);
+    }
+
+    private async Task ReadLoopAsync(NamedPipeClientStream pipe, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested && pipe.IsConnected)
+        {
+            var env = await ReadEnvelopeAsync(pipe, ct).ConfigureAwait(false);
+            if (env is null) return;
+            _ = HandleAsync(pipe, env, ct);
+        }
+    }
+
+    private async Task HandleAsync(NamedPipeClientStream pipe, HelperEnvelope env, CancellationToken ct)
+    {
+        try
+        {
+            var result = await _commands.HandleAsync(env, ct).ConfigureAwait(false);
+            if (env.Id is null) return; // fire-and-forget; no reply expected
+
+            var reply = new HelperEnvelope
+            {
+                Type = "result",
+                Id = env.Id,
+                Payload = JsonSerializer.SerializeToElement(result, AppJsonContext.Default.HelperResult),
+            };
+            var bytes = JsonSerializer.SerializeToUtf8Bytes(reply, AppJsonContext.Default.HelperEnvelope);
+            // Reply writes don't go through HelperOutbound; they're driven
+            // by the read loop itself and ride the same pipe sequentially.
+            await Framing.WriteFrameAsync(pipe, bytes, ct).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[helper-client] handle failed for type={env.Type}: {ex.Message}");
+        }
+    }
+
+    private static async Task<HelperEnvelope?> ReadEnvelopeAsync(PipeStream pipe, CancellationToken ct)
+    {
+        var payload = await Framing.ReadFrameAsync(pipe, ct).ConfigureAwait(false);
+        if (payload is null) return null;
+        return JsonSerializer.Deserialize(payload, AppJsonContext.Default.HelperEnvelope);
+    }
+}
+#endif

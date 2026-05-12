@@ -51,9 +51,12 @@ if (args.Length > 0)
     {
         return Qos.Service.Lifecycle.WindowsServiceInstaller.RunStartService();
     }
-    if (string.Equals(firstFlag, "--tray", StringComparison.OrdinalIgnoreCase))
+    if (string.Equals(firstFlag, "--helper", StringComparison.OrdinalIgnoreCase)
+        || string.Equals(firstFlag, "--tray", StringComparison.OrdinalIgnoreCase))
     {
-        return Qos.Service.Lifecycle.WindowsTrayHost.Run(args);
+        // --tray is the legacy alias kept for existing HKCU\Run entries on
+        // pre-helper installs. Both route to the same user-session companion.
+        return Qos.Service.Lifecycle.WindowsUserHelper.Run(args);
     }
     if (string.Equals(firstFlag, "--open-app", StringComparison.OrdinalIgnoreCase))
     {
@@ -281,7 +284,8 @@ builder.Services
     .AddQosLifecycle()
     .AddQosWeather()
     .AddQosPanel(servicePort)
-    .AddQosLinuxDBus();
+    .AddQosLinuxDBus()
+    .AddQosHelper();
 
 // ── Build ──
 var app = builder.Build();
@@ -673,13 +677,31 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !serviceMode)
 
 }
 
-// In service mode the tray is a separate user-session process; the service
-// can't draw a NotifyIcon itself. Reconcile here: when ShowWindowsTrayIcon
-// flips, spawn the tray via TrayBootstrapper or terminate the running tray.
-if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && serviceMode)
+// In service mode the helper is a separate long-lived user-session process
+// connected over a named pipe. ShowWindowsTrayIcon no longer controls the
+// helper's existence (it always runs so providers like screen-time stay
+// alive); we just push the visibility flip down the pipe and let the helper
+// hide/show its NotifyIcon in place.
+#if WINDOWS
+if (serviceMode)
 {
     var trayStore = app.Services.GetRequiredService<IConfigStore>();
+    var helperCommands = app.Services.GetRequiredService<Qos.Service.Helper.HelperCommandClient>();
+    var helperRegistry = app.Services.GetRequiredService<Qos.Service.Helper.HelperRegistry>();
     var lastVisible = trayStore.Load().Ui.ShowWindowsTrayIcon;
+
+    // Push current state on every fresh helper connect. Handles first
+    // bootstrap, service restart, helper crash-and-respawn.
+    helperRegistry.Connected += conn =>
+    {
+        try
+        {
+            var current = trayStore.Load().Ui.ShowWindowsTrayIcon;
+            _ = helperCommands.SetTrayVisibleAsync(current);
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"[helper-sync] initial state failed: {ex.Message}"); }
+    };
+
     trayStore.OnChanged += () =>
     {
         try
@@ -687,32 +709,12 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && serviceMode)
             var nowVisible = trayStore.Load().Ui.ShowWindowsTrayIcon;
             if (nowVisible == lastVisible) return;
             lastVisible = nowVisible;
-            if (nowVisible)
-            {
-                Qos.Service.Lifecycle.TrayBootstrapper.TryLaunch(trayStore);
-            }
-            else
-            {
-                // Kill any Qos.exe running in a non-zero session - that's
-                // the user-session tray; the service itself is Session 0.
-                var self = System.Diagnostics.Process.GetCurrentProcess().Id;
-                foreach (var p in System.Diagnostics.Process.GetProcessesByName("Qos"))
-                {
-                    try
-                    {
-                        if (p.Id != self && p.SessionId != 0)
-                        {
-                            p.Kill();
-                        }
-                    }
-                    catch { /* race: process exited */ }
-                    finally { p.Dispose(); }
-                }
-            }
+            _ = helperCommands.SetTrayVisibleAsync(nowVisible);
         }
-        catch (Exception ex) { Console.Error.WriteLine($"[tray-reconcile] {ex.Message}"); }
+        catch (Exception ex) { Console.Error.WriteLine($"[helper-sync] {ex.Message}"); }
     };
 }
+#endif
 
 // Cross-platform overlay host wiring (Windows qos-overlay.exe sidecar
 // or Mac qos-overlay-helper Swift sidecar - same predicate either way).
@@ -768,12 +770,13 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         if (serviceMode)
         {
             Console.WriteLine("[qos-service] startup window suppressed (LocalSystem session 0 has no interactive desktop)");
-            // In service mode we don't have a tray of our own to host. If the
-            // user has tray enabled and is logged in, spawn Qos.exe --tray in
-            // their session so the icon appears after install / service
-            // restart without waiting for the next logon.
-            var trayStore = app.Services.GetRequiredService<Qos.Service.Persistence.IConfigStore>();
-            Qos.Service.Lifecycle.TrayBootstrapper.TryLaunch(trayStore);
+#if WINDOWS
+            // Always launch the user-session helper. Its lifetime is decoupled
+            // from any pref - the helper hosts the tray icon, screen-time
+            // poller, media/brightness providers, etc. ShowWindowsTrayIcon
+            // only controls icon visibility now, not whether the helper exists.
+            Qos.Service.Lifecycle.UserHelperBootstrapper.EnsureLaunched();
+#endif
         }
         else if (suppressStartupWindow)
         {

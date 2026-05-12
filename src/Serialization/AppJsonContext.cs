@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using Qos.Service.Activity;
+using Qos.Service.Helper;
 using Qos.Service.Models;
 using Qos.Service.Models.Activity;
 using Qos.Service.Models.Benchmarks;
@@ -389,6 +390,24 @@ namespace Qos.Service.Serialization;
 
 [JsonSerializable(typeof(float[]))]
 [JsonSerializable(typeof(List<string>))]
+
+// Helper IPC (Windows user-session companion process)
+[JsonSerializable(typeof(HelperEnvelope))]
+[JsonSerializable(typeof(HelperResult))]
+[JsonSerializable(typeof(HelperHello))]
+[JsonSerializable(typeof(TraySetVisiblePayload))]
+[JsonSerializable(typeof(ScreenTimeSessionPayload))]
+[JsonSerializable(typeof(ScreenTimeFocusPayload))]
+[JsonSerializable(typeof(MediaSnapshotPayload))]
+[JsonSerializable(typeof(MediaControlPayload))]
+[JsonSerializable(typeof(AlbumArtRequest))]
+[JsonSerializable(typeof(AlbumArtResult))]
+[JsonSerializable(typeof(DisplayBrightnessRequest))]
+[JsonSerializable(typeof(NullableIntResult))]
+[JsonSerializable(typeof(DisplayVcpResult))]
+[JsonSerializable(typeof(BoolResult))]
+[JsonSerializable(typeof(StringResult))]
+[JsonSerializable(typeof(DisplayListResult))]
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

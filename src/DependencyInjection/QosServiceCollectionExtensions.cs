@@ -193,8 +193,10 @@ public static class QosServiceCollectionExtensions
         services.AddSingleton<IQ60Provider, StubQ60Provider>();
 
 #if WINDOWS
+        // Brightness proxies through the user-session helper - DDC/CI and
+        // laptop-panel APIs are unreliable from Session 0.
         services.AddSingleton<Qos.Service.Platform.Displays.IDisplayBrightnessProvider,
-            Qos.Service.Platform.Displays.WindowsDisplayBrightnessProvider>();
+            Qos.Service.Platform.Displays.HelperDisplayBrightnessProxy>();
 #else
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
@@ -367,6 +369,25 @@ public static class QosServiceCollectionExtensions
             services.AddSingleton<Qos.Service.Platform.Linux.DBus.DBusConnection>();
             services.AddHostedService<Qos.Service.Platform.Linux.LinuxTrayService>();
         }
+        return services;
+    }
+
+    /// <summary>
+    /// Windows user-session helper IPC. The named-pipe server, registry, and
+    /// typed command client. Other platforms run their providers natively in
+    /// the user-context daemon, so no helper subsystem is registered.
+    /// </summary>
+    public static IServiceCollection AddQosHelper(this IServiceCollection services)
+    {
+#if WINDOWS
+        if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<Qos.Service.Helper.HelperRegistry>();
+            services.AddSingleton<Qos.Service.Helper.HelperCommandClient>();
+            services.AddSingleton<Qos.Service.Helper.HelperPipeServer>();
+            services.AddHostedService(sp => sp.GetRequiredService<Qos.Service.Helper.HelperPipeServer>());
+        }
+#endif
         return services;
     }
 }

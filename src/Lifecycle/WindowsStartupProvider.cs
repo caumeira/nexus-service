@@ -9,10 +9,10 @@ using Microsoft.Win32;
 namespace Qos.Service.Lifecycle;
 
 /// <summary>
-/// Per-user "start at logon" toggle for the Qos tray helper. The daemon
-/// itself runs as a LocalSystem Windows Service from boot, so it doesn't
-/// need a startup hook. This provider only controls whether the tray UI
-/// (Qos.exe --tray) auto-launches when the user signs in.
+/// Per-user "start at logon" toggle for the Qos user-session helper. The
+/// daemon itself runs as a LocalSystem Windows Service from boot, so it
+/// doesn't need a startup hook. This provider only controls whether the
+/// helper companion (Qos.exe --helper) auto-launches at sign-in.
 ///
 /// Backed by <c>HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Qos</c>.
 /// HKCU is per-user and writable without elevation, so the dashboard can
@@ -62,10 +62,10 @@ public sealed class WindowsStartupProvider : IStartupProvider
 
             if (enabled)
             {
-                // path is the daemon's installed EXE. For tray autostart we
-                // always want --tray mode regardless of any extra arguments
+                // path is the daemon's installed EXE. For helper autostart we
+                // always want --helper mode regardless of any extra arguments
                 // the caller passes.
-                var command = $"\"{path}\" --tray";
+                var command = $"\"{path}\" --helper";
                 key.SetValue(ValueName, command, RegistryValueKind.String);
             }
             else
