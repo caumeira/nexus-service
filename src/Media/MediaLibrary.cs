@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Qos.Service.Models.Media;
 using Qos.Service.Persistence;
@@ -24,10 +25,28 @@ public sealed class MediaLibrary
     private readonly string _rootDir;
 
     public MediaLibrary()
-        : this(Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-            "Qos", "media"))
+        : this(Path.Combine(ResolveDefaultRoot(), "Qos", "media"))
     {
+    }
+
+    private static string ResolveDefaultRoot()
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                "Library",
+                "Application Support");
+        }
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            return Environment.GetEnvironmentVariable("XDG_DATA_HOME")
+                ?? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+                    ".local",
+                    "share");
+        }
+        return Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
     }
 
     public MediaLibrary(string rootDir)
