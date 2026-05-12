@@ -41,6 +41,15 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     /// the next Start().
     /// </summary>
     private volatile bool _stopRequested;
+    /// <summary>
+    /// True while a background spawn is in flight. We dispatch the
+    /// schtasks dance to a Task so the HTTP request that triggered the
+    /// reconcile doesn't wait the 1-3 s it takes for the task scheduler
+    /// to materialize a new process. Subsequent Start() calls during
+    /// this window are no-ops to avoid stacking multiple in-flight
+    /// schtasks tasks.
+    /// </summary>
+    private volatile bool _starting;
 
     private static readonly string PidFilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
@@ -59,11 +68,15 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         }
     }
 
-    public bool IsRunning => _process is { HasExited: false };
+    public bool IsRunning => _process is { HasExited: false } || _starting;
 
     /// <summary>
-    /// Start the host process if it isn't already running. No-ops on
-    /// non-Windows. Returns true if the process is alive after the call.
+    /// Request the host process be started if it isn't already running or
+    /// being started. Non-blocking: the actual schtasks dance runs on a
+    /// background Task so the HTTP request thread that triggered the
+    /// reconcile (profile switch, widget add, etc.) doesn't wait for
+    /// Task Scheduler to materialize the new process. Returns true if a
+    /// spawn was requested or one was already in flight.
     /// </summary>
     public bool Start()
     {
@@ -77,10 +90,35 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             return false;
         }
 
-        try
+        // Dedupe concurrent Start calls. A reconcile that fires Start()
+        // back-to-back (e.g., the widget-add path that flips both
+        // OverlayLayout and OverlayWidgetsEnabled in the same Update)
+        // would otherwise queue multiple background tasks.
+        lock (_lock)
         {
+            if (_starting) return true;
+            if (IsRunning) return true;
+            _starting = true;
             _stopRequested = false;
             _lastSpawnUtc = DateTime.UtcNow;
+        }
+
+        _ = System.Threading.Tasks.Task.Run(() => SpawnHostBlocking(hostPath));
+        return true;
+    }
+
+    /// <summary>
+    /// The actual spawn path - blocking. Always runs on a background
+    /// thread via <see cref="Start"/>. Sets <c>_process</c> on success,
+    /// wires the kill-on-close job + exit handler, and clears
+    /// <c>_starting</c> before returning so that an OnExited-triggered
+    /// respawn (process died immediately after spawn) doesn't see a
+    /// stale "starting in progress" flag and short-circuit.
+    /// </summary>
+    private void SpawnHostBlocking(string hostPath)
+    {
+        try
+        {
             // Spawn in the active console user session when we're running
             // as LocalSystem (the service case). Without this the overlay
             // process lands in Session 0, where (a) no windows it draws are
@@ -89,7 +127,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             // (e.g., a future broker split, or dev / standalone runs), fall
             // back to a plain Process.Start.
             var workingDir = Path.GetDirectoryName(hostPath)!;
-            _process = System.Security.Principal.WindowsIdentity.GetCurrent().IsSystem
+            var proc = System.Security.Principal.WindowsIdentity.GetCurrent().IsSystem
                 ? StartInActiveUserSession(hostPath, workingDir)
                 : Process.Start(new ProcessStartInfo
                 {
@@ -98,31 +136,30 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
                     CreateNoWindow = true,
                     WorkingDirectory = workingDir,
                 });
-            if (_process is not null)
+            _process = proc;
+            if (proc is not null)
             {
-                WritePidFile(_process.Id);
-                _process.EnableRaisingEvents = true;
-                _process.Exited += OnExited;
-                // Bind to the kill-on-close job so the host dies with us.
+                WritePidFile(proc.Id);
+                proc.EnableRaisingEvents = true;
+                proc.Exited += OnExited;
                 if (_jobHandle != IntPtr.Zero)
                 {
-                    try
-                    {
-                        AssignProcessToJobObject(_jobHandle, _process.Handle);
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine($"[overlay-host] job-object assign failed: {ex.Message}");
-                    }
+                    try { AssignProcessToJobObject(_jobHandle, proc.Handle); }
+                    catch (Exception ex) { Console.Error.WriteLine($"[overlay-host] job-object assign failed: {ex.Message}"); }
                 }
-                Console.WriteLine($"[overlay-host] started pid {_process.Id}");
+                Console.WriteLine($"[overlay-host] started pid {proc.Id}");
             }
-            return IsRunning;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[overlay-host] failed to start: {ex.Message}");
-            return false;
+        }
+        finally
+        {
+            // Clear before returning so a same-thread OnExited that
+            // synchronously queued its respawn Task (with 2s delay) sees
+            // _starting=false by the time the respawn runs.
+            _starting = false;
         }
     }
 
@@ -131,6 +168,11 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         // Latch the stop intent BEFORE attempting Kill so that a queued
         // OnExited (already on the threadpool) sees it and skips respawn.
         _stopRequested = true;
+        // Also clear the spawn-in-flight flag; otherwise IsRunning would
+        // keep returning true until the background SpawnHostBlocking
+        // finishes, blocking a subsequent Start() during a quick stop /
+        // re-enable cycle.
+        _starting = false;
         var proc = _process;
         _process = null;
         if (proc is not null)
@@ -315,7 +357,8 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     private void OnExited(object? sender, EventArgs e)
     {
         var exitCode = "?";
-        try { if (_process is not null) exitCode = _process.ExitCode.ToString(); }
+        int? rawExitCode = null;
+        try { if (_process is not null) { rawExitCode = _process.ExitCode; exitCode = rawExitCode.Value.ToString(); } }
         catch { /* handle already gone */ }
         Console.WriteLine($"[overlay-host] OnExited fired; exit code {exitCode}");
 
@@ -323,6 +366,18 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         // threadpool when Stop ran (handler unsubscribe doesn't drain
         // pending invocations). Don't respawn.
         if (_stopRequested) return;
+
+        // Exit code 0 = deliberate self-shutdown (overlay idled out: no
+        // widgets, no dashboard). The reconcile and the tray's
+        // EnsureOverlayRunning re-spawn the host when something actually
+        // needs it again, so we deliberately do NOT restart here.
+        if (rawExitCode == 0)
+        {
+            Console.WriteLine("[overlay-host] clean exit; not respawning");
+            _process = null;
+            _consecutiveFailures = 0;
+            return;
+        }
 
         // Linear backoff cap: don't restart more than 3 times in a row
         // within 30s. Prevents tight crash-loop hammering.

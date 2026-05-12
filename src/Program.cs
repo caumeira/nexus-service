@@ -771,15 +771,24 @@ if (serviceMode)
             {
                 overlayHost.Start();
             }
-            // Note: we deliberately do NOT call overlayHost.Stop() when
-            // shouldRun goes false. The overlay process also hosts the
-            // main dashboard window; killing it would close the dashboard
-            // mid-use whenever the user toggles widgets off. Instead we
-            // nudge the overlay via the user-session helper so it repolls
-            // preferences immediately and tears down / recreates widget
-            // HWNDs in-process. The overlay's own 5 s prefs poll remains
-            // as a safety net if the helper isn't connected.
+#if !WINDOWS
+            else if (!shouldRun && overlayHost.IsRunning)
+            {
+                // Mac / other: the helper renders only widgets and has
+                // no internal teardown path - killing it is the canonical
+                // way to remove widgets from the screen when the layout
+                // drops to zero or the user disables.
+                // Windows skips this branch: the overlay process also
+                // hosts the main dashboard window and tears down widget
+                // HWNDs in-process via its own prefs poll, then idle-
+                // exits once both widgets and dashboard are gone.
+                overlayHost.Stop();
+            }
+#endif
 #if WINDOWS
+            // Push-notify the Windows overlay so it repolls preferences
+            // immediately instead of waiting for its 5 s timer. No-op on
+            // platforms where the helper / pipe doesn't exist.
             try { _ = overlayHelperCommands?.NotifyOverlayPrefsChangedAsync(); } catch { }
 #endif
         }

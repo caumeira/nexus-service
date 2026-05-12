@@ -521,6 +521,20 @@ public static class TrayIcon
                 DiagFile("RegisterWindowMessage(ShowDashboard) failed");
                 return false;
             }
+            // Foreground-stealing handoff: SetForegroundWindow only works
+            // for the process that owns the current foreground. The user
+            // just clicked the tray, so WE are the foreground - hand the
+            // privilege to the overlay process for its imminent SetForeground
+            // call on the dashboard HWND. Without this, the dashboard shows
+            // up correctly Z-ordered but unfocused and stays behind whatever
+            // the user was using.
+            try
+            {
+                GetWindowThreadProcessId(marshaler, out var overlayPid);
+                if (overlayPid != 0) AllowSetForegroundWindow(overlayPid);
+            }
+            catch { /* fall through; worst case is unfocused window */ }
+
             var ok = PostMessage(marshaler, msg, IntPtr.Zero, IntPtr.Zero);
             if (!ok) DiagFile($"PostMessage(ShowDashboard) to 0x{marshaler.ToInt64():X} failed");
             return ok;
@@ -803,6 +817,8 @@ public static class TrayIcon
     [DllImport("user32", CharSet = CharSet.Unicode)] private static extern bool PostMessage(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam);
     [DllImport("user32", CharSet = CharSet.Unicode, EntryPoint = "FindWindowW")] private static extern IntPtr FindWindow(string? lpClassName, string? lpWindowName);
     [DllImport("user32", CharSet = CharSet.Unicode, EntryPoint = "RegisterWindowMessageW")] private static extern uint RegisterWindowMessage(string lpString);
+    [DllImport("user32")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
+    [DllImport("user32")] private static extern bool AllowSetForegroundWindow(uint dwProcessId);
     [DllImport("shell32", CharSet = CharSet.Unicode)] private static extern bool Shell_NotifyIcon(int msg, ref NOTIFYICONDATA data);
 
     // Single-instance window focus path
