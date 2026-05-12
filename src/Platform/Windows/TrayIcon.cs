@@ -24,10 +24,21 @@ public static class TrayIcon
     private const int WM_RBUTTONUP = 0x0205;
     private const int IDM_OPEN_APP = 1;
     private const int IDM_OPEN_SETTINGS = 2;
+    private const int IDM_SHUTDOWN = 3;
+    private const int MF_STRING = 0x0000;
     private const int MF_SEPARATOR = 0x0800;
     private const int MF_CHECKED = 0x0008;
     private const int MF_UNCHECKED = 0x0000;
     private const int DefaultServicePort = 9400;
+
+    // uxtheme.dll ordinal 135: SetPreferredAppMode(int mode). The current
+    // int-taking signature shipped in Windows 10 1903 (build 18362); the
+    // earlier 1809 ABI used the same ordinal for AllowDarkModeForApp(bool),
+    // so any call must be gated on the build number to avoid silently
+    // coercing an int to BOOL on older systems.
+    private const int APPMODE_DEFAULT = 0;
+    private const int APPMODE_ALLOW_DARK = 1;
+    private const int SetPreferredAppModeMinBuild = 18362;
 
     private static int _port;
     private static Action? _onExit;
@@ -166,6 +177,10 @@ public static class TrayIcon
                 return;
             }
 
+            // Opt the process into Windows 11 immersive theming so the
+            // right-click popup menu picks up the system dark/light theme.
+            ApplyImmersiveTheme();
+
             var nid = new NOTIFYICONDATA();
             nid.cbSize = Marshal.SizeOf<NOTIFYICONDATA>();
             nid.hWnd = hwnd;
@@ -277,9 +292,14 @@ public static class TrayIcon
                 {
                     POINT pt;
                     GetCursorPos(out pt);
+                    // Re-apply on every popup so theme changes the user makes
+                    // in Settings flow through without restarting the service.
+                    ApplyImmersiveTheme();
                     var menu = CreatePopupMenu();
-                    AppendMenu(menu, 0, IDM_OPEN_APP, "Open");
-                    AppendMenu(menu, 0, IDM_OPEN_SETTINGS, "Settings");
+                    AppendMenu(menu, MF_STRING, IDM_OPEN_APP, "Open");
+                    AppendMenu(menu, MF_STRING, IDM_OPEN_SETTINGS, "Settings");
+                    AppendMenu(menu, MF_SEPARATOR, 0, string.Empty);
+                    AppendMenu(menu, MF_STRING, IDM_SHUTDOWN, "Shut down");
                     SetForegroundWindow(hwnd);
                     TrackPopupMenu(menu, 0, pt.X, pt.Y, 0, hwnd, IntPtr.Zero);
                     DestroyMenu(menu);
@@ -302,6 +322,14 @@ public static class TrayIcon
                 else if (id == IDM_OPEN_SETTINGS)
                 {
                     OpenLocalWindow(servicePort: 0, path: "/settings");
+                }
+                else if (id == IDM_SHUTDOWN)
+                {
+                    // Defensive try: _onExit ends in Environment.Exit so the
+                    // happy path doesn't return; only a throw inside the
+                    // pre-Exit cleanup (panel close, overlay stop) would land
+                    // here. We swallow because there is nothing useful to do.
+                    try { _onExit?.Invoke(); } catch { }
                 }
             }
         }
@@ -480,6 +508,55 @@ public static class TrayIcon
         return result;
     }
 
+    /// <summary>
+    /// Opts the process into the system's dark/light app theme so that popup
+    /// menus drawn via TrackPopupMenu render with Windows 11 immersive
+    /// colors (dark menu surface, light text, accent highlight) instead of
+    /// the legacy classic-theme white menu. Process-wide state, not
+    /// per-window. Safe to call repeatedly. Uses undocumented uxtheme.dll
+    /// ordinals stable since Windows 10 1903; the same approach File
+    /// Explorer and Notepad use.
+    /// </summary>
+    private static void ApplyImmersiveTheme()
+    {
+        // Build gate: the int-taking SetPreferredAppMode only exists on
+        // 1903+. Calling on 1809 binds to the older BOOL-taking
+        // AllowDarkModeForApp and would coerce APPMODE_ALLOW_DARK (1) to
+        // TRUE - which happens to do the right thing, but relying on that
+        // coincidence is fragile, so just skip on older builds.
+        if (Environment.OSVersion.Version.Build < SetPreferredAppModeMinBuild)
+        {
+            return;
+        }
+
+        try
+        {
+            // ALLOW_DARK lets popup menus follow the user's Apps light/dark
+            // preference; DEFAULT clears any prior allow so light-mode users
+            // get the standard light menu. We avoid FORCE_* so we never
+            // override the user's per-process app-mode preference.
+            var mode = IsSystemDarkMode() ? APPMODE_ALLOW_DARK : APPMODE_DEFAULT;
+            try { SetPreferredAppMode(mode); } catch { }
+            try { FlushMenuThemes(); } catch { }
+        }
+        catch { /* theming is non-critical */ }
+    }
+
+    private static bool IsSystemDarkMode()
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(
+                @"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize");
+            if (key?.GetValue("AppsUseLightTheme") is int v)
+            {
+                return v == 0;
+            }
+        }
+        catch { }
+        return false;
+    }
+
     private static string? FindEdge()
     {
         string[] candidates =
@@ -569,4 +646,13 @@ public static class TrayIcon
     [DllImport("user32")] private static extern bool IsIconic(IntPtr hwnd);
     [DllImport("user32")] private static extern bool ShowWindow(IntPtr hwnd, int cmdShow);
     [DllImport("user32", SetLastError = true)] private static extern int GetWindowLong(IntPtr hwnd, int nIndex);
+
+    // Windows 11 immersive theming for popup menus. uxtheme ordinals 135 +
+    // 136 are undocumented but have been ABI-stable since Windows 10 1903
+    // and are used by Windows itself.
+    [DllImport("uxtheme", EntryPoint = "#135", SetLastError = false)]
+    private static extern int SetPreferredAppMode(int appMode);
+
+    [DllImport("uxtheme", EntryPoint = "#136", SetLastError = false)]
+    private static extern void FlushMenuThemes();
 }
