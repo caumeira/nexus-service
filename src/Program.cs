@@ -55,6 +55,14 @@ if (args.Length > 0)
     {
         return Qos.Service.Lifecycle.WindowsTrayHost.Run(args);
     }
+    if (string.Equals(firstFlag, "--open-app", StringComparison.OrdinalIgnoreCase))
+    {
+        // One-shot invoked by the service via schtasks when the desktop
+        // widget context menu's "Open dashboard" item is clicked. We just
+        // run the same Edge --app launcher the tray uses and exit.
+        Qos.Service.Platform.Windows.TrayIcon.OpenLocalWindow();
+        return 0;
+    }
 }
 
 // No-args (and not --service / --install / --tray / --no-window etc.)

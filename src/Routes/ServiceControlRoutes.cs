@@ -58,6 +58,24 @@ internal static class ServiceControlRoutes
             });
             return Results.Ok(ApiResponse.Ok());
         }).LocalhostOnly();
+
+        app.MapPost("/service/open-app", () =>
+        {
+#if WINDOWS
+            // The service runs as LocalSystem in Session 0 - spawning Edge
+            // --app from here would land in a non-interactive session and
+            // never show. Delegate to a one-shot Qos.exe --open-app in the
+            // active console session (same schtasks hop the tray bootstrap
+            // uses).
+            Qos.Service.Lifecycle.TrayBootstrapper.LaunchOpenApp();
+#else
+            if (OperatingSystem.IsMacOS())
+            {
+                Qos.Service.Platform.Mac.MacAppWindow.OpenOrFocus(Qos.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
+            }
+#endif
+            return Results.Ok(ApiResponse.Ok());
+        }).LocalhostOnly();
     }
 
     private const string ServiceName = "QosService";

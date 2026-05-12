@@ -33,41 +33,63 @@ internal static class TrayBootstrapper
                 Console.WriteLine("[tray-bootstrap] ShowWindowsTrayIcon is false; skipping");
                 return;
             }
-
-            var username = ResolveActiveConsoleUsername();
-            if (string.IsNullOrEmpty(username))
-            {
-                Console.WriteLine("[tray-bootstrap] no active console user; deferring to next logon");
-                return;
-            }
-
-            var exePath = Path.Combine(AppContext.BaseDirectory, "Qos.exe");
-            if (!File.Exists(exePath))
-            {
-                Console.Error.WriteLine($"[tray-bootstrap] Qos.exe not found at {exePath}");
-                return;
-            }
-
-            // The tray binary has its own per-session mutex, so a double-
-            // bootstrap (e.g. user is already logged in with a tray, and
-            // we spawn another) is harmless - the second exits silently.
-            // ProcessId alone collides if the service is fast-crash-looped
-            // and a previous task wasn't /Delete'd cleanly; append Ticks.
-            var taskName = $"QosTrayBootstrap_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
-            if (!Schtasks("/Create", "/TN", taskName, "/TR", $"\"{exePath}\" --tray",
-                          "/SC", "ONCE", "/ST", "23:59", "/RU", username, "/IT", "/F"))
-            {
-                return;
-            }
-            try { Schtasks("/Run", "/TN", taskName); }
-            finally { Schtasks("/Delete", "/TN", taskName, "/F"); }
-
-            Console.WriteLine($"[tray-bootstrap] launched tray as {username}");
+            SpawnInUserSession("--tray", "tray-bootstrap", "QosTrayBootstrap");
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[tray-bootstrap] failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Mirror of <see cref="TryLaunch"/> for the "open the dashboard window"
+    /// hotline. The desktop widget context menu's "Open dashboard" entry hits
+    /// <c>POST /service/open-app</c>; the service handler runs as LocalSystem
+    /// in Session 0 and cannot spawn an interactive Edge --app on its own,
+    /// so we delegate to a one-shot <c>Qos.exe --open-app</c> in the active
+    /// console session, which then runs the same Edge --app spawn path the
+    /// tray uses.
+    /// </summary>
+    public static void LaunchOpenApp()
+    {
+        try
+        {
+            SpawnInUserSession("--open-app", "open-app", "QosOpenApp");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[open-app] failed: {ex.Message}");
+        }
+    }
+
+    private static void SpawnInUserSession(string qosArg, string logTag, string taskPrefix)
+    {
+        var username = ResolveActiveConsoleUsername();
+        if (string.IsNullOrEmpty(username))
+        {
+            Console.WriteLine($"[{logTag}] no active console user; skipping");
+            return;
+        }
+
+        var exePath = Path.Combine(AppContext.BaseDirectory, "Qos.exe");
+        if (!File.Exists(exePath))
+        {
+            Console.Error.WriteLine($"[{logTag}] Qos.exe not found at {exePath}");
+            return;
+        }
+
+        // ProcessId alone collides if the service is fast-crash-looped
+        // and a previous task wasn't /Delete'd cleanly; append Ticks.
+        var taskName = $"{taskPrefix}_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
+        if (!Schtasks("/Create", "/TN", taskName, "/TR", $"\"{exePath}\" {qosArg}",
+                      "/SC", "ONCE", "/ST", "23:59", "/RU", username, "/IT", "/F"))
+        {
+            return;
+        }
+        try { Schtasks("/Run", "/TN", taskName); }
+        finally { Schtasks("/Delete", "/TN", taskName, "/F"); }
+
+        Console.WriteLine($"[{logTag}] launched {qosArg} as {username}");
     }
 
     private static string ResolveActiveConsoleUsername()
