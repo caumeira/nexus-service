@@ -91,6 +91,23 @@ internal static class WindowsServiceInstaller
                 Log("copying payload to install dir");
                 Directory.CreateDirectory(installDir);
                 StopAndDeleteServiceIfPresent();
+                // Subdirs with file-name churn across releases (WinForms ->
+                // AOT overlay, hashed SPA bundle chunks). CopyDirectory
+                // would overwrite by-name but leaves stale entries behind,
+                // bloating the install dir indefinitely. Wipe them so the
+                // payload lands clean. Top-level files in installDir are
+                // left alone - they're either the running EXE (locked) or
+                // native deps with stable names that overwrite cleanly.
+                foreach (var sub in new[] { "overlay", "wwwroot" })
+                {
+                    var subTarget = Path.Combine(installDir, sub);
+                    if (Directory.Exists(subTarget))
+                    {
+                        Log($"wiping stale {sub}\\ before copy");
+                        try { Directory.Delete(subTarget, recursive: true); }
+                        catch (Exception ex) { Console.Error.WriteLine($"[install] wipe {sub} failed (continuing): {ex.Message}"); }
+                    }
+                }
                 CopyDirectory(sourceDir, installDir);
             }
             else
