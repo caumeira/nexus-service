@@ -470,6 +470,14 @@ public sealed class AuthSettings
 {
     public string Token { get; set; } = "";
     public List<PanelPhoneSessionToken> PanelPhoneSessions { get; set; } = new();
+    /// <summary>
+    /// Master killswitch for the Pair Remote feature. When false, any
+    /// request authenticated via a phone-session cookie/bearer is rejected
+    /// with 403 RemoteDisabled and every active phone-session WebSocket is
+    /// closed. Paired devices remain in <see cref="PanelPhoneSessions"/> so
+    /// they can resume automatically when the switch goes back on. Workstation-level.
+    /// </summary>
+    public bool RemoteControlEnabled { get; set; } = true;
 }
 
 public sealed class PanelPhoneSessionToken

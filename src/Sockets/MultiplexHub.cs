@@ -112,10 +112,20 @@ public sealed class MultiplexHub
 
     public int ClientCount => _clients.Count;
 
-    public async Task HandleClientAsync(WebSocket socket, CancellationToken cancellationToken = default)
+    public Task HandleClientAsync(WebSocket socket, CancellationToken cancellationToken = default)
+        => HandleClientAsync(socket, phoneSessionId: null, cancellationToken);
+
+    /// <summary>
+    /// Accept a multiplexed WebSocket. When <paramref name="phoneSessionId"/>
+    /// is non-null, this client is treated as a Pair Remote session and can
+    /// be force-closed by <see cref="KickPhoneSessionsAsync"/> /
+    /// <see cref="KickAllPhoneAsync"/>. Local desktop / panel-kiosk callers
+    /// pass null and stay unkickable.
+    /// </summary>
+    public async Task HandleClientAsync(WebSocket socket, string? phoneSessionId, CancellationToken cancellationToken = default)
     {
         var id = Guid.NewGuid();
-        var client = new SubscribedClient(socket);
+        var client = new SubscribedClient(socket, phoneSessionId);
         _clients[id] = client;
 
         try
@@ -183,6 +193,47 @@ public sealed class MultiplexHub
         try
         { OnBroadcastForTest?.Invoke(topic, envelope); }
         catch { /* swallow */ }
+    }
+
+    /// <summary>
+    /// Force-close every connected phone-session WebSocket whose session id
+    /// matches one in <paramref name="sessionIds"/>. The socket transitions
+    /// to <see cref="WebSocketState.CloseSent"/> which unblocks the receive
+    /// loop in <see cref="HandleClientAsync"/>, and the finalizer there
+    /// removes the entry from <see cref="_clients"/>. Local desktop / panel
+    /// clients (phoneSessionId == null) are never touched. Kicks fan out
+    /// in parallel so a single slow socket can't delay the rest - "OFF
+    /// means OFF" must not stall on one stuck client.
+    /// </summary>
+    public Task KickPhoneSessionsAsync(IReadOnlyCollection<string> sessionIds)
+    {
+        if (sessionIds.Count == 0)
+            return Task.CompletedTask;
+
+        var ids = new HashSet<string>(sessionIds, StringComparer.Ordinal);
+        var tasks = new List<Task>();
+        foreach (var (_, client) in _clients)
+        {
+            if (client.PhoneSessionId is { } sid && ids.Contains(sid))
+                tasks.Add(client.CloseRevokedAsync());
+        }
+        return tasks.Count == 0 ? Task.CompletedTask : Task.WhenAll(tasks);
+    }
+
+    /// <summary>
+    /// Force-close every connected phone-session WebSocket. Used when the
+    /// remote-control killswitch is toggled off and on "Remove all sessions".
+    /// Parallel for the same reason as <see cref="KickPhoneSessionsAsync"/>.
+    /// </summary>
+    public Task KickAllPhoneAsync()
+    {
+        var tasks = new List<Task>();
+        foreach (var (_, client) in _clients)
+        {
+            if (client.PhoneSessionId is not null)
+                tasks.Add(client.CloseRevokedAsync());
+        }
+        return tasks.Count == 0 ? Task.CompletedTask : Task.WhenAll(tasks);
     }
 
     /// <summary>
@@ -318,7 +369,35 @@ public sealed class MultiplexHub
         private readonly HashSet<string> _topics = new(StringComparer.OrdinalIgnoreCase);
         private readonly object _topicLock = new();
 
-        public SubscribedClient(WebSocket socket) { _socket = socket; }
+        /// <summary>
+        /// When non-null, this client is a Pair Remote session and can be
+        /// force-disconnected by <see cref="MultiplexHub.KickPhoneSessionsAsync"/>.
+        /// Null means a trusted local client (desktop app or panel kiosk).
+        /// </summary>
+        public string? PhoneSessionId { get; }
+
+        public SubscribedClient(WebSocket socket, string? phoneSessionId = null)
+        {
+            _socket = socket;
+            PhoneSessionId = phoneSessionId;
+        }
+
+        public async Task CloseRevokedAsync()
+        {
+            await _writeLock.WaitAsync();
+            try
+            {
+                if (_socket.State == WebSocketState.Open)
+                {
+                    await _socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "revoked", CancellationToken.None);
+                }
+            }
+            catch { }
+            finally
+            {
+                _writeLock.Release();
+            }
+        }
 
         public bool IsSubscribed(string topic)
         {

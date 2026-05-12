@@ -131,6 +131,8 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhoneSessionDto))]
 [JsonSerializable(typeof(List<Qos.Service.Models.Panel.PanelPhoneSessionDto>))]
 [JsonSerializable(typeof(Qos.Service.Models.Panel.PanelStatusResponse))]
+[JsonSerializable(typeof(Qos.Service.Models.Panel.RemoteControlStateResponse))]
+[JsonSerializable(typeof(Qos.Service.Models.Panel.RemoteControlToggleRequest))]
 
 // Displays (system monitors: brightness + DDC/CI VCP)
 [JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayDto))]

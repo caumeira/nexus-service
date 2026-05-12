@@ -27,7 +27,7 @@ public class PanelPhonePairingServiceTests
     [Fact]
     public void CreatePairQr_EmitsHttpPortForBrowserFallback()
     {
-        var service = new PanelPhonePairingService(new InMemoryConfigStore())
+        var service = new PanelPhonePairingService(new InMemoryConfigStore(), new Qos.Service.Sockets.MultiplexHub())
         {
             ServicePort = 9400,
             HttpsPort = 9443,
@@ -47,7 +47,7 @@ public class PanelPhonePairingServiceTests
     {
         // Catches an alias regression where httpPort is accidentally derived
         // from HttpsPort instead of the plain-HTTP service port.
-        var service = new PanelPhonePairingService(new InMemoryConfigStore())
+        var service = new PanelPhonePairingService(new InMemoryConfigStore(), new Qos.Service.Sockets.MultiplexHub())
         {
             ServicePort = 9500,
             HttpsPort = 9443,
@@ -65,11 +65,11 @@ public class PanelPhonePairingServiceTests
     [Fact]
     public void CreatePairQr_EmbedsMachineNameForNativeAppLabel()
     {
-        var service = new PanelPhonePairingService(new InMemoryConfigStore())
+        var service = new PanelPhonePairingService(new InMemoryConfigStore(), new Qos.Service.Sockets.MultiplexHub())
         {
-            MachineName = "Desk PC",
             PublicLinkHost = "nexusqos.com",
         };
+        service.SetHostDisplayName("Desk PC");
 
         var qr = service.CreatePairQr();
 
@@ -81,7 +81,7 @@ public class PanelPhonePairingServiceTests
     public void Claim_ReturnsMachineNameForLegacyPairLinks()
     {
         var service = NewService(new InMemoryConfigStore());
-        service.MachineName = "Studio Workstation";
+        service.SetHostDisplayName("Studio Workstation");
 
         var result = service.Claim(PairTokenFrom(service.CreatePairQr()), NewContext(NativeIosUserAgent, "192.168.1.53"));
 
@@ -93,7 +93,7 @@ public class PanelPhonePairingServiceTests
     public void GetServiceInfo_ReturnsNormalizedMachineName()
     {
         var service = NewService(new InMemoryConfigStore());
-        service.MachineName = "  Studio   Mac  ";
+        service.SetHostDisplayName("  Studio   Mac  ");
 
         var result = service.GetServiceInfo();
 
@@ -208,19 +208,57 @@ public class PanelPhonePairingServiceTests
     }
 
     [Fact]
-    public void RevokeAllSessions_RemovesEveryAuthorizedDevice()
+    public async Task RevokeAllSessions_RemovesEveryAuthorizedDevice()
     {
         var store = new InMemoryConfigStore();
         var service = NewService(store);
         var first = service.Claim(PairTokenFrom(service.CreatePairQr()), NewContext(UserAgent, "192.168.1.50"));
         var second = service.Claim(PairTokenFrom(service.CreatePairQr()), NewContext(UserAgent, "192.168.1.51"));
 
-        var removed = service.RevokeAllSessions();
+        var removed = await service.RevokeAllSessionsAsync();
 
         Assert.Equal(2, removed);
         Assert.Empty(service.GetSessions(0).Sessions);
         Assert.False(service.ValidateSessionToken(first.Token));
         Assert.False(service.ValidateSessionToken(second.Token));
+    }
+
+    [Fact]
+    public async Task SetRemoteControlEnabled_FalseRefusesNewClaims()
+    {
+        var service = NewService(new InMemoryConfigStore());
+
+        Assert.True(service.GetRemoteControlEnabled());
+        await service.SetRemoteControlEnabledAsync(false);
+        Assert.False(service.GetRemoteControlEnabled());
+
+        var result = service.Claim(
+            PairTokenFrom(service.CreatePairQr()),
+            NewContext(UserAgent, "192.168.1.60"));
+
+        Assert.False(result.Paired);
+        Assert.Equal("remote-disabled", result.Error);
+
+        await service.SetRemoteControlEnabledAsync(true);
+        var allowed = service.Claim(
+            PairTokenFrom(service.CreatePairQr()),
+            NewContext(UserAgent, "192.168.1.60"));
+        Assert.True(allowed.Paired);
+    }
+
+    [Fact]
+    public void TryValidateSessionToken_ReturnsMatchedSessionId()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        var claim = service.Claim(
+            PairTokenFrom(service.CreatePairQr()),
+            NewContext(NativeIosUserAgent, "192.168.1.53"));
+
+        Assert.True(service.TryValidateSessionToken(claim.Token, context: null, out var sessionId));
+        Assert.False(string.IsNullOrWhiteSpace(sessionId));
+
+        var listed = Assert.Single(service.GetSessions(0).Sessions);
+        Assert.Equal(listed.Id, sessionId);
     }
 
     [Fact]

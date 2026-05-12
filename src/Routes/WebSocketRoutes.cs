@@ -12,7 +12,11 @@ public static class WebSocketRoutes
 {
     public static void MapWebSocketEndpoints(this WebApplication app)
     {
-        // Multiplexed WebSocket — single endpoint with dynamic topic subscriptions
+        // Multiplexed WebSocket - single endpoint with dynamic topic subscriptions.
+        // ctx.Items["PhoneSessionId"] is populated by the auth middleware when
+        // the request authenticated via a phone-session cookie/bearer; null
+        // means a desktop/panel-kiosk client and the connection is never
+        // eligible for the Pair Remote killswitch.
         app.Map("/ws", async (HttpContext ctx) =>
         {
             if (!ctx.WebSockets.IsWebSocketRequest)
@@ -22,9 +26,10 @@ public static class WebSocketRoutes
                 await ctx.Response.WriteAsync("{\"error\":true,\"msg\":\"WebSocket expected\"}");
                 return;
             }
+            var phoneSessionId = ctx.Items.TryGetValue("PhoneSessionId", out var raw) ? raw as string : null;
             using WebSocket socket = await ctx.WebSockets.AcceptWebSocketAsync();
             var hub = ctx.RequestServices.GetRequiredService<MultiplexHub>();
-            await hub.HandleClientAsync(socket, cancellationToken: ctx.RequestAborted);
+            await hub.HandleClientAsync(socket, phoneSessionId, ctx.RequestAborted);
         });
 
         // Lighting output — binary 60fps frames (not multiplexed)

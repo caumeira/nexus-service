@@ -78,3 +78,13 @@ public sealed class PanelStatusResponse
     public bool PhoneConnected { get; set; }
     public int PhoneSubscribers { get; set; }
 }
+
+public sealed class RemoteControlStateResponse
+{
+    public bool Enabled { get; set; }
+}
+
+public sealed class RemoteControlToggleRequest
+{
+    public bool Enabled { get; set; }
+}

@@ -81,12 +81,12 @@ public static class PanelRoutes
                 AppJsonContext.Default.PanelPhoneSessionsResponse);
         });
 
-        app.MapDelete("/panel/phone/sessions", (HttpContext ctx, PanelPhonePairingService pairing, TokenService tokens) =>
+        app.MapDelete("/panel/phone/sessions", async (HttpContext ctx, PanelPhonePairingService pairing, TokenService tokens) =>
         {
             if (!HasServiceToken(ctx, tokens))
                 return Results.Unauthorized();
 
-            var removed = pairing.RevokeAllSessions();
+            var removed = await pairing.RevokeAllSessionsAsync();
             return Results.Ok(ApiResponse.Ok($"revoked {removed} sessions"));
         });
 
@@ -103,14 +103,38 @@ public static class PanelRoutes
                 : Results.NotFound(ApiResponse.Fail("session not found"));
         });
 
-        app.MapDelete("/panel/phone/sessions/{id}", (string id, HttpContext ctx, PanelPhonePairingService pairing, TokenService tokens) =>
+        app.MapDelete("/panel/phone/sessions/{id}", async (string id, HttpContext ctx, PanelPhonePairingService pairing, TokenService tokens) =>
         {
             if (!HasServiceToken(ctx, tokens))
                 return Results.Unauthorized();
 
-            return pairing.RevokeSession(id)
+            return await pairing.RevokeSessionAsync(id)
                 ? Results.Ok(ApiResponse.Ok("revoked"))
                 : Results.NotFound(ApiResponse.Fail("session not found"));
+        });
+
+        // Pair Remote killswitch. GET is public (the auth middleware whitelists
+        // the path) so a locked-out phone can poll for re-enable instead of
+        // freezing on stale data. POST is desktop-token only: paired remotes
+        // can never re-enable themselves after being kicked, and the panel
+        // kiosk cannot accidentally take its own remotes offline. The local
+        // desktop UI already has the /pair token.
+        app.MapGet("/panel/phone/remote-control", (PanelPhonePairingService pairing) =>
+        {
+            return Results.Json(
+                new RemoteControlStateResponse { Enabled = pairing.GetRemoteControlEnabled() },
+                AppJsonContext.Default.RemoteControlStateResponse);
+        });
+
+        app.MapPost("/panel/phone/remote-control", async (RemoteControlToggleRequest body, HttpContext ctx, PanelPhonePairingService pairing, TokenService tokens) =>
+        {
+            if (!HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+
+            await pairing.SetRemoteControlEnabledAsync(body.Enabled);
+            return Results.Json(
+                new RemoteControlStateResponse { Enabled = pairing.GetRemoteControlEnabled() },
+                AppJsonContext.Default.RemoteControlStateResponse);
         });
 
         app.MapGet("/panel/devices", (PanelDeviceRegistry registry) =>

@@ -444,6 +444,20 @@ app.Use(async (ctx, next) =>
         return;
     }
 
+    // Pair Remote killswitch state read. Public so paired phones can poll for
+    // re-enable while their session is locked out. The body is a single
+    // boolean - not sensitive, and learning "the host has disabled remotes"
+    // is exactly the information the locked-out client needs to render a
+    // graceful "disabled" UI instead of hammering reconnects. Kept here with
+    // the other public paths so the bypass list stays contiguous; any new
+    // gate added below this point will not accidentally affect it.
+    if (ctx.Request.Method == "GET" &&
+        path.Equals("/panel/phone/remote-control", StringComparison.OrdinalIgnoreCase))
+    {
+        await next(ctx);
+        return;
+    }
+
     // Short-lived phone-panel pairing claims are validated at the handler level.
     if (path.Equals("/panel/phone/claim", StringComparison.OrdinalIgnoreCase))
     {
@@ -506,12 +520,24 @@ app.Use(async (ctx, next) =>
     }
 
     var cookieToken = ctx.Request.Cookies[Qos.Service.Panel.PanelPhonePairingService.SessionCookieName];
+    string sessionId = "";
     var hasPanelSession =
-        panelPairing.ValidateSessionToken(requestToken, ctx) ||
+        panelPairing.TryValidateSessionToken(requestToken, ctx, out sessionId) ||
         (!string.Equals(requestToken, cookieToken, StringComparison.Ordinal) &&
-         panelPairing.ValidateSessionToken(cookieToken, ctx));
+         panelPairing.TryValidateSessionToken(cookieToken, ctx, out sessionId));
     if (hasPanelSession)
     {
+        // Pair Remote killswitch. When OFF, any request authenticated via a
+        // phone-session token is rejected even though the session is otherwise
+        // valid. The matching WS sockets have already been closed by
+        // SetRemoteControlEnabledAsync; this guards new HTTP / WS upgrade
+        // attempts from previously-paired devices.
+        if (!panelPairing.GetRemoteControlEnabled())
+        {
+            await Qos.Service.Auth.AuthErrorResponse.WriteAsync(ctx, 403, "RemoteDisabled", "Remote control is currently disabled.");
+            return;
+        }
+
         if (AuthRequestPolicy.RejectsInsecureCsrf(ctx))
         {
             await Qos.Service.Auth.AuthErrorResponse.WriteAsync(ctx, 403, "CSRF", "Cross-site request blocked.");
@@ -520,6 +546,12 @@ app.Use(async (ctx, next) =>
 
         if (AuthRequestPolicy.IsPanelSessionAllowed(ctx))
         {
+            // Tag the request so the /ws upgrade can register the
+            // resulting socket with MultiplexHub under this phone-session
+            // id - that's how KickPhoneSessionsAsync / KickAllPhoneAsync
+            // find the right sockets to close.
+            if (!string.IsNullOrEmpty(sessionId))
+                ctx.Items["PhoneSessionId"] = sessionId;
             await next(ctx);
             return;
         }

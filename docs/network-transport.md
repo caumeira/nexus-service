@@ -397,10 +397,11 @@ message paths:
 | User-visible flow | Actual network path | Count |
 |---|---|---:|
 | Desktop sees panel/kiosk/phone status | desktop `GET /panel/status` -> service; response is `msg`, `kioskRunning`, `phoneConnected`, `phoneSubscribers` | every `500 ms` while desktop online |
-| Desktop opens phone pairing modal | desktop `GET /panel/phone/pair-qr` and `GET /panel/phone/sessions` -> service | immediate |
+| Desktop opens phone pairing modal | desktop `GET /panel/phone/pair-qr`, `GET /panel/phone/sessions`, and `GET /panel/phone/remote-control` -> service | immediate |
 | Desktop keeps phone sessions fresh while modal is open | desktop `GET /panel/phone/sessions` -> service | every `3000 ms` |
 | Desktop refreshes phone QR | desktop `GET /panel/phone/pair-qr` -> service | about every `85 s` before the `90 s` QR expiry |
-| Phone claims pairing | phone `POST /panel/phone/claim` -> service | once per QR claim |
+| Desktop toggles the Pair Remote killswitch | desktop `POST /panel/phone/remote-control {enabled}` -> service. On `false` the service force-closes every phone-session WebSocket with close code `1008` reason `"revoked"` and persists the new state in `AuthSettings.RemoteControlEnabled`. Subsequent phone-authenticated REST and `/ws` upgrade attempts return `403 RemoteDisabled` until re-enabled. | event |
+| Phone claims pairing | phone `POST /panel/phone/claim` -> service. Refused with `{paired:false, error:"remote-disabled"}` while killswitch is OFF. | once per QR claim |
 | Native app refreshes computer label | phone `GET /panel/phone/service-info?token=...` -> service | once on native app launch or pair switch |
 | Phone appears connected to desktop | phone subscribes `panel/phone/presence` on `/ws`; desktop reads count through `/panel/status` | one WS subscribe plus desktop's existing poll |
 | Panel layout/theme sync between dashboard, kiosk, and phone | each panel surface fetches/posts `/preferences`; BroadcastChannel only syncs tabs in the same browser profile | network only on fetch/post |

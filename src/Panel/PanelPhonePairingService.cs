@@ -5,9 +5,11 @@ using System.Linq;
 using System.Net;
 using System.Security.Cryptography;
 using System.Text;
+using System.Threading.Tasks;
 using Qos.Service.Models.Panel;
 using Qos.Service.Net;
 using Qos.Service.Persistence;
+using Qos.Service.Sockets;
 
 namespace Qos.Service.Panel;
 
@@ -30,6 +32,7 @@ public sealed class PanelPhonePairingService
     private static readonly long HttpSessionIdleMs = (long)HttpSessionIdle.TotalMilliseconds;
 
     private readonly IConfigStore _store;
+    private readonly MultiplexHub _hub;
     private readonly object _lock = new();
     private readonly Dictionary<string, DateTime> _pairTokens = new(StringComparer.Ordinal);
 
@@ -60,9 +63,10 @@ public sealed class PanelPhonePairingService
     /// </summary>
     public string MachineName => ResolveMachineName();
 
-    public PanelPhonePairingService(IConfigStore store)
+    public PanelPhonePairingService(IConfigStore store, MultiplexHub hub)
     {
         _store = store;
+        _hub = hub;
     }
 
     private string ResolveMachineName()
@@ -156,6 +160,9 @@ public sealed class PanelPhonePairingService
 
     public PanelPhoneClaimResponse Claim(string pairToken, HttpContext context)
     {
+        if (!GetRemoteControlEnabled())
+            return new PanelPhoneClaimResponse { Paired = false, Error = "remote-disabled" };
+
         if (string.IsNullOrWhiteSpace(pairToken))
             return new PanelPhoneClaimResponse { Paired = false, Error = "missing pairing token" };
 
@@ -252,7 +259,7 @@ public sealed class PanelPhonePairingService
         };
     }
 
-    public bool RevokeSession(string id)
+    public async Task<bool> RevokeSessionAsync(string id)
     {
         if (string.IsNullOrWhiteSpace(id))
             return false;
@@ -266,6 +273,8 @@ public sealed class PanelPhonePairingService
             removed = sessions.RemoveAll(session =>
                 string.Equals(session.Id, id, StringComparison.Ordinal)) > 0;
         });
+        if (removed)
+            await _hub.KickPhoneSessionsAsync(new[] { id });
         return removed;
     }
 
@@ -298,7 +307,7 @@ public sealed class PanelPhonePairingService
         return updated;
     }
 
-    public int RevokeAllSessions()
+    public async Task<int> RevokeAllSessionsAsync()
     {
         var removed = 0;
         _store.Update(s =>
@@ -310,14 +319,58 @@ public sealed class PanelPhonePairingService
             removed = sessions.Count;
             sessions.Clear();
         });
+        if (removed > 0)
+            await _hub.KickAllPhoneAsync();
         return removed;
     }
 
+    /// <summary>
+    /// Returns true if Pair Remote requests are accepted. When false, the
+    /// auth middleware rejects any phone-session-authenticated request with
+    /// 403 RemoteDisabled and the claim endpoint refuses new pairings.
+    /// </summary>
+    public bool GetRemoteControlEnabled()
+    {
+        var auth = _store.Load().Auth;
+        return auth?.RemoteControlEnabled ?? true;
+    }
+
+    /// <summary>
+    /// Persists the killswitch state. On a true -> false transition every
+    /// active phone-session WebSocket is closed immediately so the user's
+    /// "OFF means OFF" expectation holds without waiting for cookie expiry
+    /// or the next HTTP request.
+    /// </summary>
+    public async Task SetRemoteControlEnabledAsync(bool enabled)
+    {
+        var changed = false;
+        _store.Update(s =>
+        {
+            s.Auth ??= new AuthSettings();
+            if (s.Auth.RemoteControlEnabled == enabled)
+                return;
+            s.Auth.RemoteControlEnabled = enabled;
+            changed = true;
+        });
+        if (changed && !enabled)
+            await _hub.KickAllPhoneAsync();
+    }
+
     public bool ValidateSessionToken(string? token)
-        => ValidateSessionToken(token, context: null);
+        => TryValidateSessionToken(token, context: null, out _);
 
     public bool ValidateSessionToken(string? token, HttpContext? context)
+        => TryValidateSessionToken(token, context, out _);
+
+    /// <summary>
+    /// Same as <see cref="ValidateSessionToken(string?, HttpContext?)"/> but
+    /// returns the matched session id on success. The auth middleware uses
+    /// this to stash the id on <see cref="HttpContext.Items"/> so the WS
+    /// upgrade can tag the connection for the Pair Remote killswitch.
+    /// </summary>
+    public bool TryValidateSessionToken(string? token, HttpContext? context, out string sessionId)
     {
+        sessionId = "";
         if (string.IsNullOrWhiteSpace(token))
             return false;
 
@@ -366,6 +419,7 @@ public sealed class PanelPhonePairingService
 
                 if (now - lastSeen >= LastSeenRefreshMs)
                     TouchSession(hash, now);
+                sessionId = session.Id ?? "";
                 return true;
             }
         }
