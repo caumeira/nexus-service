@@ -123,6 +123,8 @@ public sealed class PostProcessBody
     public float Colorize { get; set; }
     public float Saturation { get; set; } = 1f;
     public float Contrast { get; set; } = 1f;
+    public bool FlipX { get; set; }
+    public bool FlipY { get; set; }
     /// <summary>False while the user drags a slider. True on release or programmatic change.</summary>
     public bool Persist { get; set; } = true;
 }

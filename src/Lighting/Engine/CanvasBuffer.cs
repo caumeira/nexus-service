@@ -66,4 +66,43 @@ public sealed class CanvasBuffer
     /// their output responds to the same four sliders the animate shaders do.
     /// </summary>
     public void ApplyPostProcess(PostProcessState state) => RgbPostProcess.Apply(_pixels, state);
+
+    /// <summary>
+    /// In-place geometric flip of the canvas pixels. Used by the Mirror-mode
+    /// filter set so the LED canvas can display a mirrored copy of the source
+    /// frame without round-tripping pixels to the client. Both flags can be set
+    /// at once for a 180-degree flip.
+    /// </summary>
+    public void ApplyFlip(bool flipX, bool flipY)
+    {
+        if (!flipX && !flipY) return;
+        if (flipX)
+        {
+            for (int y = 0; y < Height; y++)
+            {
+                int rowOff = y * Width * 3;
+                for (int x = 0; x < Width / 2; x++)
+                {
+                    int a = rowOff + x * 3;
+                    int b = rowOff + (Width - 1 - x) * 3;
+                    (_pixels[a], _pixels[b]) = (_pixels[b], _pixels[a]);
+                    (_pixels[a + 1], _pixels[b + 1]) = (_pixels[b + 1], _pixels[a + 1]);
+                    (_pixels[a + 2], _pixels[b + 2]) = (_pixels[b + 2], _pixels[a + 2]);
+                }
+            }
+        }
+        if (flipY)
+        {
+            int rowBytes = Width * 3;
+            var tmp = new byte[rowBytes];
+            for (int y = 0; y < Height / 2; y++)
+            {
+                int top = y * rowBytes;
+                int bot = (Height - 1 - y) * rowBytes;
+                Buffer.BlockCopy(_pixels, top, tmp, 0, rowBytes);
+                Buffer.BlockCopy(_pixels, bot, _pixels, top, rowBytes);
+                Buffer.BlockCopy(tmp, 0, _pixels, bot, rowBytes);
+            }
+        }
+    }
 }

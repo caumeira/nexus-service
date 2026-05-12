@@ -61,10 +61,13 @@ public sealed class ScreenMirrorEffect : IEffect
                 // DXGI only hands us a fresh frame when something on screen
                 // actually changed. On cached ticks the canvas still holds the
                 // post-processed output from the last blit - re-running
-                // ApplyPostProcess here would compound the transform each frame
-                // (colors drift toward mid-gray, tint creeps in). Only apply
-                // post-process when we actually got new source pixels.
-                if (freshFrame) canvas.ApplyPostProcess(_postProcess);
+                // ApplyPostProcess (or ApplyFlip) here would compound the
+                // transform each frame. Only re-apply when we got new pixels.
+                if (freshFrame)
+                {
+                    canvas.ApplyFlip(_postProcess.FlipX, _postProcess.FlipY);
+                    canvas.ApplyPostProcess(_postProcess);
+                }
                 return;
             }
             canvas.Fill(20, 20, 24);
@@ -78,6 +81,7 @@ public sealed class ScreenMirrorEffect : IEffect
         if (frame is null)
         { canvas.Fill(20, 20, 24); return; }
         BlitToCanvas(canvas, frame, fw, fh);
+        canvas.ApplyFlip(_postProcess.FlipX, _postProcess.FlipY);
         canvas.ApplyPostProcess(_postProcess);
     }
 

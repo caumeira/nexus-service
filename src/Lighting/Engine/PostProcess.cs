@@ -16,17 +16,23 @@ public sealed class PostProcessState
     public float Colorize;
     public float Saturation = 1f;
     public float Contrast = 1f;
+    public bool FlipX;
+    public bool FlipY;
 
-    public void Set(float hue, float colorize, float saturation, float contrast)
+    public void Set(float hue, float colorize, float saturation, float contrast, bool flipX = false, bool flipY = false)
     {
         Hue = hue;
         Colorize = colorize;
         Saturation = saturation;
         Contrast = contrast;
+        FlipX = flipX;
+        FlipY = flipY;
     }
 
     public bool IsIdentity()
         => Hue == 0f && Colorize == 0f && Saturation == 1f && Contrast == 1f;
+
+    public bool IsFlipIdentity() => !FlipX && !FlipY;
 }
 
 /// <summary>

@@ -68,7 +68,7 @@ public class LightingPostProcessTests : IDisposable
     [Fact]
     public void UpdateScreenEffect_PersistsWhenPersistTrue()
     {
-        _provider.UpdateScreenEffect(0.25f, 0.5f, 1.2f, 1.1f, persist: true);
+        _provider.UpdateScreenEffect(0.25f, 0.5f, 1.2f, 1.1f, flipX: false, flipY: false, persist: true);
         _store.FlushNow();
 
         var s = _store.Load().Lighting.ScreenEffect;
@@ -76,13 +76,15 @@ public class LightingPostProcessTests : IDisposable
         Assert.Equal(0.5f, s.Colorize);
         Assert.Equal(1.2f, s.Saturation);
         Assert.Equal(1.1f, s.Contrast);
+        Assert.False(s.FlipX);
+        Assert.False(s.FlipY);
     }
 
     [Fact]
     public void UpdateScreenEffect_SkipsPersistWhenPersistFalse()
     {
         // Prime disk with a baseline so we can detect a subsequent write.
-        _provider.UpdateScreenEffect(0.1f, 0.1f, 1f, 1f, persist: true);
+        _provider.UpdateScreenEffect(0.1f, 0.1f, 1f, 1f, flipX: false, flipY: false, persist: true);
         _store.FlushNow();
         var baselineMtime = File.GetLastWriteTimeUtc(_settingsPath);
         var baselineLen = new FileInfo(_settingsPath).Length;
@@ -90,7 +92,7 @@ public class LightingPostProcessTests : IDisposable
         // Live-drag updates: should update in-memory state but NOT touch disk.
         for (int i = 0; i < 30; i++)
         {
-            _provider.UpdateScreenEffect(i / 30f, 0.5f, 1f, 1f, persist: false);
+            _provider.UpdateScreenEffect(i / 30f, 0.5f, 1f, 1f, flipX: false, flipY: false, persist: false);
         }
         _store.FlushNow();
 
@@ -101,8 +103,8 @@ public class LightingPostProcessTests : IDisposable
     [Fact]
     public void UpdateMediaEffect_PersistsIndependentlyFromScreen()
     {
-        _provider.UpdateScreenEffect(0.1f, 0.1f, 1f, 1f, persist: true);
-        _provider.UpdateMediaEffect(0.9f, 0.8f, 2f, 1.5f, persist: true);
+        _provider.UpdateScreenEffect(0.1f, 0.1f, 1f, 1f, flipX: false, flipY: false, persist: true);
+        _provider.UpdateMediaEffect(0.9f, 0.8f, 2f, 1.5f, flipX: false, flipY: false, persist: true);
         _store.FlushNow();
 
         var s = _store.Load().Lighting;
@@ -114,6 +116,17 @@ public class LightingPostProcessTests : IDisposable
     }
 
     [Fact]
+    public void UpdateScreenEffect_PersistsFlipFlags()
+    {
+        _provider.UpdateScreenEffect(0f, 0f, 1f, 1f, flipX: true, flipY: true, persist: true);
+        _store.FlushNow();
+
+        var s = _store.Load().Lighting.ScreenEffect;
+        Assert.True(s.FlipX);
+        Assert.True(s.FlipY);
+    }
+
+    [Fact]
     public void DefaultsAreIdentity()
     {
         var s = _store.Load().Lighting;
@@ -121,9 +134,43 @@ public class LightingPostProcessTests : IDisposable
         Assert.Equal(0f, s.ScreenEffect.Colorize);
         Assert.Equal(1f, s.ScreenEffect.Saturation);
         Assert.Equal(1f, s.ScreenEffect.Contrast);
+        Assert.False(s.ScreenEffect.FlipX);
+        Assert.False(s.ScreenEffect.FlipY);
         Assert.Equal(0f, s.MediaEffect.Hue);
         Assert.Equal(0f, s.MediaEffect.Colorize);
         Assert.Equal(1f, s.MediaEffect.Saturation);
         Assert.Equal(1f, s.MediaEffect.Contrast);
+        Assert.False(s.MediaEffect.FlipX);
+        Assert.False(s.MediaEffect.FlipY);
+    }
+
+    [Fact]
+    public void CanvasBuffer_FlipX_MirrorsRows()
+    {
+        var canvas = new CanvasBuffer(4, 2);
+        canvas.SetPixel(0, 0, 10, 20, 30);
+        canvas.SetPixel(3, 0, 40, 50, 60);
+        canvas.SetPixel(0, 1, 70, 80, 90);
+        canvas.SetPixel(3, 1, 100, 110, 120);
+
+        canvas.ApplyFlip(flipX: true, flipY: false);
+
+        Assert.Equal(((byte)40, (byte)50, (byte)60), canvas.GetPixel(0, 0));
+        Assert.Equal(((byte)10, (byte)20, (byte)30), canvas.GetPixel(3, 0));
+        Assert.Equal(((byte)100, (byte)110, (byte)120), canvas.GetPixel(0, 1));
+        Assert.Equal(((byte)70, (byte)80, (byte)90), canvas.GetPixel(3, 1));
+    }
+
+    [Fact]
+    public void CanvasBuffer_FlipY_MirrorsColumns()
+    {
+        var canvas = new CanvasBuffer(2, 4);
+        canvas.SetPixel(0, 0, 10, 20, 30);
+        canvas.SetPixel(0, 3, 40, 50, 60);
+
+        canvas.ApplyFlip(flipX: false, flipY: true);
+
+        Assert.Equal(((byte)40, (byte)50, (byte)60), canvas.GetPixel(0, 0));
+        Assert.Equal(((byte)10, (byte)20, (byte)30), canvas.GetPixel(0, 3));
     }
 }

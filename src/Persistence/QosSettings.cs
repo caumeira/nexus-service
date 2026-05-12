@@ -210,6 +210,10 @@ public sealed class PostProcessSettings
     public float Colorize { get; set; }
     public float Saturation { get; set; } = 1f;
     public float Contrast { get; set; } = 1f;
+    /// <summary>Mirror the frame horizontally before applying the colour post-process. Used by the Mirror-mode filter set.</summary>
+    public bool FlipX { get; set; }
+    /// <summary>Mirror the frame vertically before applying the colour post-process.</summary>
+    public bool FlipY { get; set; }
 }
 
 public sealed class StaticColorSettings

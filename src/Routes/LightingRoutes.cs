@@ -151,7 +151,7 @@ public static class LightingRoutes
             store.Load().Lighting.ScreenEffect).AllowPanel();
         app.MapPost("/lighting/screen/effect", (Qos.Service.Models.Lighting.PostProcessBody body, ILightingProvider l, MultiplexHub hub) =>
         {
-            l.UpdateScreenEffect(body.Hue, body.Colorize, body.Saturation, body.Contrast, body.Persist);
+            l.UpdateScreenEffect(body.Hue, body.Colorize, body.Saturation, body.Contrast, body.FlipX, body.FlipY, body.Persist);
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
@@ -159,7 +159,7 @@ public static class LightingRoutes
             store.Load().Lighting.MediaEffect).AllowPanel();
         app.MapPost("/lighting/media/effect", (Qos.Service.Models.Lighting.PostProcessBody body, ILightingProvider l, MultiplexHub hub) =>
         {
-            l.UpdateMediaEffect(body.Hue, body.Colorize, body.Saturation, body.Contrast, body.Persist);
+            l.UpdateMediaEffect(body.Hue, body.Colorize, body.Saturation, body.Contrast, body.FlipX, body.FlipY, body.Persist);
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();

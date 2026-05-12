@@ -29,10 +29,10 @@ public interface ILightingProvider
     bool StartMedia(string mediaId);
     void SetStreaming(SetHeadlessStreaming body);
 
-    /// <summary>Update the Screen Mirror post-process (hue / colorize / saturation / contrast). Persists to settings when persist=true.</summary>
-    void UpdateScreenEffect(float hue, float colorize, float saturation, float contrast, bool persist);
+    /// <summary>Update the Mirror post-process (hue / colorize / saturation / contrast + flip X/Y). Persists to settings when persist=true.</summary>
+    void UpdateScreenEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist);
     /// <summary>Update the Media post-process. Same semantics as UpdateScreenEffect.</summary>
-    void UpdateMediaEffect(float hue, float colorize, float saturation, float contrast, bool persist);
+    void UpdateMediaEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist);
 
     /// <summary>Render the given animate effect to a 160x90 BMP for UI previews.</summary>
     byte[]? CaptureAnimateThumbnail(string key, bool skipCache = false);

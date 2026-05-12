@@ -64,6 +64,7 @@ public sealed class MediaFramesEffect : IEffect
         if (_frameWidth == canvas.Width && _frameHeight == canvas.Height)
         {
             canvas.WriteFromRgb(new ReadOnlySpan<byte>(_frames, offset, perFrame));
+            canvas.ApplyFlip(_postProcess.FlipX, _postProcess.FlipY);
             canvas.ApplyPostProcess(_postProcess);
             return;
         }
@@ -80,6 +81,7 @@ public sealed class MediaFramesEffect : IEffect
                 canvas.SetPixel(x, y, _frames[srcOff], _frames[srcOff + 1], _frames[srcOff + 2]);
             }
         }
+        canvas.ApplyFlip(_postProcess.FlipX, _postProcess.FlipY);
         canvas.ApplyPostProcess(_postProcess);
     }
 

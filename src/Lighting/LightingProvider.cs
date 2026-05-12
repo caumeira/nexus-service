@@ -47,8 +47,8 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         _media = media;
 
         var s = _store.Load().Lighting;
-        _screenPP.Set(s.ScreenEffect.Hue, s.ScreenEffect.Colorize, s.ScreenEffect.Saturation, s.ScreenEffect.Contrast);
-        _mediaPP.Set(s.MediaEffect.Hue, s.MediaEffect.Colorize, s.MediaEffect.Saturation, s.MediaEffect.Contrast);
+        _screenPP.Set(s.ScreenEffect.Hue, s.ScreenEffect.Colorize, s.ScreenEffect.Saturation, s.ScreenEffect.Contrast, s.ScreenEffect.FlipX, s.ScreenEffect.FlipY);
+        _mediaPP.Set(s.MediaEffect.Hue, s.MediaEffect.Colorize, s.MediaEffect.Saturation, s.MediaEffect.Contrast, s.MediaEffect.FlipX, s.MediaEffect.FlipY);
 
         _engine.OnFrame += frame => _ = _hub.BroadcastBinaryAsync(frame);
     }
@@ -534,9 +534,9 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     /// <summary>Same alias for the Media post-process holder.</summary>
     public PostProcessState MediaPostProcess => _mediaPP;
 
-    public void UpdateScreenEffect(float hue, float colorize, float saturation, float contrast, bool persist)
+    public void UpdateScreenEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist)
     {
-        _screenPP.Set(hue, colorize, saturation, contrast);
+        _screenPP.Set(hue, colorize, saturation, contrast, flipX, flipY);
         if (!persist)
             return;
         _store.Update(s =>
@@ -545,12 +545,14 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             s.Lighting.ScreenEffect.Colorize = colorize;
             s.Lighting.ScreenEffect.Saturation = saturation;
             s.Lighting.ScreenEffect.Contrast = contrast;
+            s.Lighting.ScreenEffect.FlipX = flipX;
+            s.Lighting.ScreenEffect.FlipY = flipY;
         });
     }
 
-    public void UpdateMediaEffect(float hue, float colorize, float saturation, float contrast, bool persist)
+    public void UpdateMediaEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist)
     {
-        _mediaPP.Set(hue, colorize, saturation, contrast);
+        _mediaPP.Set(hue, colorize, saturation, contrast, flipX, flipY);
         if (!persist)
             return;
         _store.Update(s =>
@@ -559,6 +561,8 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             s.Lighting.MediaEffect.Colorize = colorize;
             s.Lighting.MediaEffect.Saturation = saturation;
             s.Lighting.MediaEffect.Contrast = contrast;
+            s.Lighting.MediaEffect.FlipX = flipX;
+            s.Lighting.MediaEffect.FlipY = flipY;
         });
     }
 

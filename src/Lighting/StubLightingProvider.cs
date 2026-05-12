@@ -65,7 +65,7 @@ public sealed class StubLightingProvider : ILightingProvider
     public void SetStreaming(SetHeadlessStreaming body) { /* persist later if needed */ }
     public byte[]? CaptureAnimateThumbnail(string key, bool skipCache = false) => null;
 
-    public void UpdateScreenEffect(float hue, float colorize, float saturation, float contrast, bool persist)
+    public void UpdateScreenEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist)
     {
         if (!persist)
             return;
@@ -75,10 +75,12 @@ public sealed class StubLightingProvider : ILightingProvider
             s.Lighting.ScreenEffect.Colorize = colorize;
             s.Lighting.ScreenEffect.Saturation = saturation;
             s.Lighting.ScreenEffect.Contrast = contrast;
+            s.Lighting.ScreenEffect.FlipX = flipX;
+            s.Lighting.ScreenEffect.FlipY = flipY;
         });
     }
 
-    public void UpdateMediaEffect(float hue, float colorize, float saturation, float contrast, bool persist)
+    public void UpdateMediaEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist)
     {
         if (!persist)
             return;
@@ -88,6 +90,8 @@ public sealed class StubLightingProvider : ILightingProvider
             s.Lighting.MediaEffect.Colorize = colorize;
             s.Lighting.MediaEffect.Saturation = saturation;
             s.Lighting.MediaEffect.Contrast = contrast;
+            s.Lighting.MediaEffect.FlipX = flipX;
+            s.Lighting.MediaEffect.FlipY = flipY;
         });
     }
 }
