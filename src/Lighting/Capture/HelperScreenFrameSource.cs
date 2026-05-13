@@ -3,6 +3,7 @@ using System;
 using System.Runtime.Versioning;
 using System.Text.Json;
 using Qos.Service.Helper;
+using Qos.Service.Helper.Domains;
 using Qos.Service.Serialization;
 
 namespace Qos.Service.Lighting.Capture;
@@ -20,17 +21,15 @@ namespace Qos.Service.Lighting.Capture;
 public sealed class HelperScreenFrameSource : IScreenFrameSource
 {
     private readonly HelperRegistry _registry;
-    private readonly HelperCommandClient _commands;
     private readonly object _lock = new();
     private byte[]? _latest;
     private int _latestW, _latestH;
     private int _expectedW, _expectedH;
     private bool _subscribed;
 
-    public HelperScreenFrameSource(HelperRegistry registry, HelperCommandClient commands)
+    public HelperScreenFrameSource(HelperRegistry registry)
     {
         _registry = registry;
-        _commands = commands;
     }
 
     public void Start(string monitorId, int width, int height)
@@ -54,7 +53,7 @@ public sealed class HelperScreenFrameSource : IScreenFrameSource
         // internally; until then TryAcquireFrame returns null and the
         // effect renders dark grey, which is the same behavior as
         // a stalled DXGI/ffmpeg startup.
-        _ = _commands.ScreenCaptureStartAsync(monitorId, width, height);
+        _ = ScreenMirrorCommands.StartAsync(_registry, monitorId, width, height);
     }
 
     public void Stop()
@@ -63,7 +62,7 @@ public sealed class HelperScreenFrameSource : IScreenFrameSource
         // LightingEngine.SetEffect under its swap lock when the old effect
         // is disposed - blocking here can stall the next effect's
         // construction.
-        _ = _commands.ScreenCaptureStopAsync();
+        _ = ScreenMirrorCommands.StopAsync(_registry);
         lock (_lock)
         {
             _latest = null;

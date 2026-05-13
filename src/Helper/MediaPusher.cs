@@ -9,6 +9,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Qos.Service.Activity;
+using Qos.Service.Helper.Domains;
 using Qos.Service.Models.Activity;
 using Qos.Service.Serialization;
 using Windows.Media;
@@ -154,7 +155,7 @@ public sealed class MediaPusher : IDisposable
     }
 
     /// <summary>
-    /// Called by HelperClientCommands when a `media.control` envelope arrives.
+    /// Called by MediaHandler when a `media.control` envelope arrives.
     /// </summary>
     public void Control(string source, string action)
     {
@@ -212,7 +213,7 @@ public sealed class MediaPusher : IDisposable
     }
 
     /// <summary>
-    /// Called by HelperClientCommands when a `media.getAlbumArt` envelope arrives.
+    /// Called by MediaHandler when a `media.getAlbumArt` envelope arrives.
     /// </summary>
     public byte[] GetAlbumArt(string source)
     {

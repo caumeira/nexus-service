@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
+using Qos.Service.Helper.Domains;
 using Qos.Service.Platform;
 using Qos.Service.Serialization;
 

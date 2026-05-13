@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Qos.Service.Helper;
+using Qos.Service.Helper.Domains;
 using Qos.Service.Models.Activity;
 using Qos.Service.Serialization;
 
@@ -16,7 +17,8 @@ namespace Qos.Service.Activity;
 /// helper (Session 0 cannot see GlobalSystemMediaTransportControls). The
 /// helper pushes <c>media.snapshot</c> envelopes on session changes; we
 /// cache the latest and serve it to <see cref="GetSessions"/>. Control()
-/// and GetAlbumArt() flip back into the helper via HelperCommandClient.
+/// and GetAlbumArt() flip back into the helper via
+/// <see cref="MediaCommands"/>.
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]
 public sealed class WindowsMediaProvider : IMediaProvider, IDisposable
@@ -24,15 +26,13 @@ public sealed class WindowsMediaProvider : IMediaProvider, IDisposable
     private static readonly TimeSpan AlbumArtCacheTtl = TimeSpan.FromSeconds(30);
 
     private readonly HelperRegistry _helper;
-    private readonly HelperCommandClient _commands;
     private readonly object _lock = new();
     private Dictionary<string, MediaSession> _snapshot = new(StringComparer.OrdinalIgnoreCase);
     private readonly ConcurrentDictionary<string, CachedArt> _artCache = new(StringComparer.OrdinalIgnoreCase);
 
-    public WindowsMediaProvider(HelperRegistry helper, HelperCommandClient commands)
+    public WindowsMediaProvider(HelperRegistry helper)
     {
         _helper = helper;
-        _commands = commands;
         _helper.InboundEnvelope += OnEnvelope;
     }
 
@@ -74,7 +74,7 @@ public sealed class WindowsMediaProvider : IMediaProvider, IDisposable
 
     public void Control(string source, string action)
     {
-        _ = _commands.MediaControlAsync(source, action);
+        _ = MediaCommands.ControlAsync(_helper, source, action);
     }
 
     public byte[] GetAlbumArt(string source)
@@ -90,7 +90,7 @@ public sealed class WindowsMediaProvider : IMediaProvider, IDisposable
 
         try
         {
-            var bytes = _commands.GetAlbumArtAsync(source).GetAwaiter().GetResult();
+            var bytes = MediaCommands.GetAlbumArtAsync(_helper, source).GetAwaiter().GetResult();
             _artCache[source] = new CachedArt(bytes, key, DateTime.UtcNow);
             return bytes;
         }

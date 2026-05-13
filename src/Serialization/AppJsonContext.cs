@@ -391,31 +391,42 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(float[]))]
 [JsonSerializable(typeof(List<string>))]
 
-// Helper IPC (Windows user-session companion process)
+// Helper IPC transport + per-domain payloads. Grouped by domain for
+// readability. Types themselves live under src/Helper/ and
+// src/Helper/Domains/; this file is the single AOT JSON-registration
+// surface (the JsonSourceGenerator does not deal well with partial
+// declarations of JsonSerializerContext spread across many files).
 [JsonSerializable(typeof(HelperEnvelope))]
 [JsonSerializable(typeof(HelperResult))]
 [JsonSerializable(typeof(HelperHello))]
-[JsonSerializable(typeof(TraySetVisiblePayload))]
-[JsonSerializable(typeof(HelperShutdownPayload))]
-[JsonSerializable(typeof(OverlayPrefsChangedPayload))]
-[JsonSerializable(typeof(ServiceRequestStopPayload))]
-[JsonSerializable(typeof(ScreenTimeSessionPayload))]
-[JsonSerializable(typeof(ScreenTimeFocusPayload))]
-[JsonSerializable(typeof(MediaSnapshotPayload))]
-[JsonSerializable(typeof(MediaControlPayload))]
-[JsonSerializable(typeof(AlbumArtRequest))]
-[JsonSerializable(typeof(AlbumArtResult))]
-[JsonSerializable(typeof(DisplayBrightnessRequest))]
-[JsonSerializable(typeof(NullableIntResult))]
-[JsonSerializable(typeof(DisplayVcpResult))]
-[JsonSerializable(typeof(BoolResult))]
-[JsonSerializable(typeof(StringResult))]
-[JsonSerializable(typeof(DisplayListResult))]
-[JsonSerializable(typeof(MonitorEnumerateRequest))]
-[JsonSerializable(typeof(MonitorListResult))]
-[JsonSerializable(typeof(ScreenMirrorStartPayload))]
-[JsonSerializable(typeof(ScreenMirrorStopPayload))]
-[JsonSerializable(typeof(ScreenMirrorFramePayload))]
+// Lifecycle
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.HelperShutdownPayload))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.OverlayPrefsChangedPayload))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.ServiceRequestStopPayload))]
+// Tray
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.TraySetVisiblePayload))]
+// Screen-time
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenTimeSessionPayload))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenTimeFocusPayload))]
+// Media
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.MediaSnapshotPayload))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.MediaControlPayload))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.AlbumArtRequest))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.AlbumArtResult))]
+// Brightness
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.DisplayBrightnessRequest))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.StringResult))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.NullableIntResult))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.DisplayVcpResult))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.BoolResult))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.DisplayListResult))]
+// Monitors
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.MonitorEnumerateRequest))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.MonitorListResult))]
+// Screen mirror
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenMirrorStartPayload))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenMirrorStopPayload))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenMirrorFramePayload))]
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

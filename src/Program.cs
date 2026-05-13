@@ -686,7 +686,6 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !serviceMode)
 if (serviceMode)
 {
     var trayStore = app.Services.GetRequiredService<IConfigStore>();
-    var helperCommands = app.Services.GetRequiredService<Qos.Service.Helper.HelperCommandClient>();
     var helperRegistry = app.Services.GetRequiredService<Qos.Service.Helper.HelperRegistry>();
     var lastVisible = trayStore.Load().Ui.ShowWindowsTrayIcon;
 
@@ -697,7 +696,7 @@ if (serviceMode)
         try
         {
             var current = trayStore.Load().Ui.ShowWindowsTrayIcon;
-            _ = helperCommands.SetTrayVisibleAsync(current);
+            _ = Qos.Service.Helper.Domains.TrayCommands.SetVisibleAsync(helperRegistry, current);
         }
         catch (Exception ex) { Console.Error.WriteLine($"[helper-sync] initial state failed: {ex.Message}"); }
     };
@@ -709,7 +708,7 @@ if (serviceMode)
             var nowVisible = trayStore.Load().Ui.ShowWindowsTrayIcon;
             if (nowVisible == lastVisible) return;
             lastVisible = nowVisible;
-            _ = helperCommands.SetTrayVisibleAsync(nowVisible);
+            _ = Qos.Service.Helper.Domains.TrayCommands.SetVisibleAsync(helperRegistry, nowVisible);
         }
         catch (Exception ex) { Console.Error.WriteLine($"[helper-sync] {ex.Message}"); }
     };
@@ -744,7 +743,7 @@ if (serviceMode)
             // teardown won't be notified, which is fine while Phase 1
             // ships single-session; revisit if multi-user lands.
             using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(2));
-            helperCommands.SendShutdownAsync(cts.Token).GetAwaiter().GetResult();
+            Qos.Service.Helper.Domains.LifecycleCommands.SendShutdownAsync(helperRegistry, cts.Token).GetAwaiter().GetResult();
         }
         catch { /* helper may not be connected; nothing to do */ }
     });
@@ -759,7 +758,7 @@ if (serviceMode)
     var overlayHost = app.Services.GetRequiredService<Qos.Service.Panel.IOverlayHost>();
     var overlayStore = app.Services.GetRequiredService<IConfigStore>();
 #if WINDOWS
-    var overlayHelperCommands = app.Services.GetService<Qos.Service.Helper.HelperCommandClient>();
+    var overlayHelperRegistry = app.Services.GetService<Qos.Service.Helper.HelperRegistry>();
 #endif
     overlayStore.OnChanged += () =>
     {
@@ -789,7 +788,12 @@ if (serviceMode)
             // Push-notify the Windows overlay so it repolls preferences
             // immediately instead of waiting for its 5 s timer. No-op on
             // platforms where the helper / pipe doesn't exist.
-            try { _ = overlayHelperCommands?.NotifyOverlayPrefsChangedAsync(); } catch { }
+            try
+            {
+                if (overlayHelperRegistry is not null)
+                    _ = Qos.Service.Helper.Domains.LifecycleCommands.NotifyOverlayPrefsChangedAsync(overlayHelperRegistry);
+            }
+            catch { }
 #endif
         }
         catch { /* best-effort */ }

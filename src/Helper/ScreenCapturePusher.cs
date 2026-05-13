@@ -3,6 +3,7 @@ using System;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
+using Qos.Service.Helper.Domains;
 using Qos.Service.Lighting.Capture;
 using Qos.Service.Serialization;
 

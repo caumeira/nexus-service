@@ -395,7 +395,6 @@ public static class QosServiceCollectionExtensions
         if (OperatingSystem.IsWindows())
         {
             services.AddSingleton<Qos.Service.Helper.HelperRegistry>();
-            services.AddSingleton<Qos.Service.Helper.HelperCommandClient>();
             services.AddSingleton<Qos.Service.Helper.HelperPipeServer>();
             services.AddHostedService(sp => sp.GetRequiredService<Qos.Service.Helper.HelperPipeServer>());
         }

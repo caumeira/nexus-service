@@ -6,6 +6,7 @@ using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using Qos.Service.Helper;
+using Qos.Service.Helper.Domains;
 
 namespace Qos.Service.Lifecycle;
 
@@ -97,9 +98,13 @@ internal static class WindowsUserHelper
         using var screenCapture = new ScreenCapturePusher(outbound);
         var brightness = new Platform.Displays.WindowsDisplayBrightnessProvider();
 
-        var commands = new HelperClientCommands(
-            setTrayVisible: visible => Platform.Windows.TrayIcon.SetVisible(visible),
-            shutdown: () =>
+        // Each domain registers its own envelope handler against this
+        // registry. Adding a new domain = create the handler class in
+        // Helper/Domains/ and call .Register(handlerRegistry) here.
+        var handlerRegistry = new HelperHandlerRegistry();
+        new TrayHandler(Platform.Windows.TrayIcon.SetVisible).Register(handlerRegistry);
+        new LifecycleHandler(
+            onShutdown: () =>
             {
                 // Service-driven teardown: it's stopping (e.g. user hit
                 // "Stop Qos" in settings), so close the --app window and
@@ -111,7 +116,7 @@ internal static class WindowsUserHelper
                 try { Platform.Windows.TrayIcon.CloseAppWindow(); } catch { }
                 s_exit.Cancel();
             },
-            notifyOverlayPrefsChanged: () =>
+            onOverlayPrefsChanged: () =>
             {
                 // Wake the overlay's marshaler so it repolls preferences
                 // immediately (e.g. the user toggled widgets off). We run
@@ -127,13 +132,13 @@ internal static class WindowsUserHelper
                     }
                 }
                 catch { /* best-effort wake; 5 s poll is the safety net */ }
-            },
-            mediaControl: (source, action) => media.Control(source, action),
-            getAlbumArt: source => media.GetAlbumArt(source),
-            brightness: brightness,
-            screenMirrorStart: (monitorId, w, h) => screenCapture.Start(monitorId, w, h),
-            screenMirrorStop: () => screenCapture.Stop());
-        var client = new HelperClientLoop(commands, outbound);
+            }).Register(handlerRegistry);
+        new MediaHandler(media.Control, media.GetAlbumArt).Register(handlerRegistry);
+        new BrightnessHandler(brightness).Register(handlerRegistry);
+        new MonitorsHandler().Register(handlerRegistry);
+        new ScreenMirrorHandler(screenCapture.Start, screenCapture.Stop).Register(handlerRegistry);
+
+        var client = new HelperClientLoop(handlerRegistry, outbound);
         var pipeTask = Task.Run(() => client.RunAsync(s_exit.Token));
 
         try { s_exit.Token.WaitHandle.WaitOne(); }

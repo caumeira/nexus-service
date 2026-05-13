@@ -13,7 +13,7 @@ namespace Qos.Service.Helper;
 /// <summary>
 /// Helper-side pipe client: connect to <c>\\.\pipe\Qos.Helper</c>, send the
 /// hello envelope, then read envelopes and route them through
-/// <see cref="HelperClientCommands"/>. Reconnects with exponential backoff
+/// <see cref="HelperHandlerRegistry"/>. Reconnects with exponential backoff
 /// when the pipe drops (service restart, transient close), so the helper
 /// stays a long-lived companion regardless of service lifetime.
 ///
@@ -25,12 +25,12 @@ public sealed class HelperClientLoop
 {
     private const int ConnectTimeoutMs = 5000;
 
-    private readonly HelperClientCommands _commands;
+    private readonly HelperHandlerRegistry _registry;
     private readonly HelperOutbound _outbound;
 
-    public HelperClientLoop(HelperClientCommands commands, HelperOutbound outbound)
+    public HelperClientLoop(HelperHandlerRegistry registry, HelperOutbound outbound)
     {
-        _commands = commands;
+        _registry = registry;
         _outbound = outbound;
     }
 
@@ -111,7 +111,7 @@ public sealed class HelperClientLoop
     {
         try
         {
-            var result = await _commands.HandleAsync(env, ct).ConfigureAwait(false);
+            var result = await _registry.DispatchAsync(env, ct).ConfigureAwait(false);
             if (env.Id is null) return; // fire-and-forget; no reply expected
 
             var reply = new HelperEnvelope
