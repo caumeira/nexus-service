@@ -54,6 +54,8 @@ public class Curve
     public MixedCurve? Mixed { get; set; }
     /// <summary>"silent" | "balanced" | "performance" for the shared preset curves; null for user curves. Independent of Type.</summary>
     public string? Preset { get; set; }
+    /// <summary>For preset curves only: true when the curve's Type + Linear params match <see cref="Qos.Service.Cooling.FanProfiles.PresetDefaults"/>. Null for user curves. Drives the Reset-to-defaults button's enabled state in the SPA, so the FE doesn't have to mirror PresetDefaults locally.</summary>
+    public bool? IsDefault { get; set; }
 }
 
 public class CurveInput

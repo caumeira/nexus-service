@@ -196,6 +196,26 @@ public static class FanProfiles
     }
 
     /// <summary>
+    /// True when a preset curve's Type + Linear params still match
+    /// <see cref="PresetDefaults"/>. Used by /cooling/curves so the SPA can
+    /// gate the Reset-to-defaults button without having to mirror the default
+    /// values locally. Returns false for non-Linear preset curves or curves
+    /// without a Preset flag.
+    /// </summary>
+    public static bool IsPresetCurveAtDefaults(CurveDocument c)
+    {
+        if (c.Preset is null) return false;
+        if (c.Type != "Linear" || c.Linear is null) return false;
+        var d = PresetDefaults.For(c.Preset);
+        // Float `==` is sound here: every PresetDefaults value (3.0, 1.5, 0.5,
+        // integers) is exactly representable in binary64, and the slider /
+        // JSON round-trip preserves the same canonical value with no drift.
+        return c.Linear.ResponseTime == d.ResponseTime
+            && c.Linear.MinTemp == d.MinTemp && c.Linear.MaxTemp == d.MaxTemp
+            && c.Linear.MinSpeed == d.MinSpeed && c.Linear.MaxSpeed == d.MaxSpeed;
+    }
+
+    /// <summary>
     /// Restore a Silent / Balanced / Performance preset curve to its default
     /// Linear template. Fan attachments + list position are preserved so the
     /// active preset stays in effect; only the template resets. If the curve

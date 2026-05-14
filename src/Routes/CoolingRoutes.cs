@@ -52,6 +52,7 @@ public static class CoolingRoutes
                     Fn = d.Mixed.Fn,
                 },
                 Preset = d.Preset,
+                IsDefault = d.Preset is null ? null : FanProfiles.IsPresetCurveAtDefaults(d),
             }).ToList();
             return new GetCurvesResponse
             {
