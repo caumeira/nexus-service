@@ -85,7 +85,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
         try
         {
             // SchemaVersion bumped.
-            Assert.Equal(3, s.SchemaVersion);
+            Assert.Equal(4, s.SchemaVersion);
 
             // Theme moved.
             Assert.Equal("es", s.Theme.Language);
@@ -140,25 +140,25 @@ public class JsonConfigStoreMigrationTests : IDisposable
     }
 
     [Fact]
-    public void Load_NoOpOnAlreadyV3()
+    public void Load_NoOpOnAlreadyV4()
     {
-        // A v3 settings.json: nested blocks already in place, schemaVersion=3.
-        var v3Json = """
+        // A v4 settings.json: nested blocks already in place, schemaVersion=4.
+        var v4Json = """
         {
-          "schemaVersion": 3,
+          "schemaVersion": 4,
           "theme": { "themeMode": "dark", "accentColor": "#aabbcc", "language": "en" },
           "panel": { "autoLaunch": true, "themeMode": "system" },
           "overlay": { "enabled": true, "scale": 120 },
           "monitoring": { "showAverage": true }
         }
         """;
-        File.WriteAllText(_settingsPath, v3Json);
+        File.WriteAllText(_settingsPath, v4Json);
 
         var store = new JsonConfigStore(_settingsPath);
         var s = store.Load();
         try
         {
-            Assert.Equal(3, s.SchemaVersion);
+            Assert.Equal(4, s.SchemaVersion);
             Assert.Equal("dark", s.Theme.ThemeMode);
             Assert.Equal("#aabbcc", s.Theme.AccentColor);
             Assert.True(s.Panel.AutoLaunch);
@@ -169,6 +169,75 @@ public class JsonConfigStoreMigrationTests : IDisposable
         {
             store.Dispose();
         }
+    }
+
+    [Fact]
+    public void Load_V3ToV4_FansOutMarketplaceConfigToLayoutPlacements()
+    {
+        // v3 settings.json with the type-scoped `widgets` bag carrying a
+        // marketplace widget's config AND two placements of that widget in
+        // the desktop dashboard. After migration the bag is gone and both
+        // placements have the config copied onto their own Config dict.
+        var v3Json = """
+        {
+          "schemaVersion": 3,
+          "panel": {
+            "dashboardLayout": {
+              "layoutSchemaVersion": 2,
+              "surface": "desktop",
+              "pages": [{
+                "id": "p1",
+                "widgets": [
+                  { "id": "a", "type": "marketplace:com.nexusqos.weather", "size": "2x2", "col": 0, "row": 0 },
+                  { "id": "b", "type": "marketplace:com.nexusqos.weather", "size": "2x2", "col": 2, "row": 0 },
+                  { "id": "c", "type": "clock", "size": "2x2", "col": 4, "row": 0 }
+                ]
+              }]
+            }
+          },
+          "widgets": {
+            "com.nexusqos.weather": {
+              "label": "\"Berlin\"",
+              "units": "\"metric\""
+            }
+          }
+        }
+        """;
+        File.WriteAllText(_settingsPath, v3Json);
+
+        var store = new JsonConfigStore(_settingsPath);
+        store.Load();
+        try
+        {
+            store.FlushNow();
+        }
+        finally
+        {
+            store.Dispose();
+        }
+
+        var onDisk = File.ReadAllText(_settingsPath);
+        var doc = JsonNode.Parse(onDisk) as JsonObject;
+        Assert.NotNull(doc);
+        Assert.Equal(4, doc!["schemaVersion"]!.GetValue<int>());
+
+        // Top-level widgets bag is gone.
+        Assert.False(doc.ContainsKey("widgets"));
+
+        var widgets = doc["panel"]!["dashboardLayout"]!["pages"]![0]!["widgets"] as JsonArray;
+        Assert.NotNull(widgets);
+
+        // Both weather placements pick up the config.
+        var a = widgets![0]!["config"] as JsonObject;
+        var b = widgets[1]!["config"] as JsonObject;
+        Assert.NotNull(a);
+        Assert.Equal("Berlin", a!["label"]!.GetValue<string>());
+        Assert.Equal("metric", a["units"]!.GetValue<string>());
+        Assert.NotNull(b);
+        Assert.Equal("Berlin", b!["label"]!.GetValue<string>());
+
+        // Non-marketplace widget is untouched.
+        Assert.True(widgets[2]!["config"] is null || widgets[2]!["config"] is JsonObject empty && empty.Count == 0);
     }
 
     [Fact]
@@ -243,7 +312,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
         var s = store.Load();
         try
         {
-            Assert.Equal(3, s.SchemaVersion);
+            Assert.Equal(4, s.SchemaVersion);
             Assert.Equal("light", s.Theme.ThemeMode);
             Assert.True(s.Panel.AutoLaunch);
         }

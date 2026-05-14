@@ -13,8 +13,8 @@ namespace Qos.Service.Persistence;
 /// </summary>
 public sealed class QosSettings
 {
-    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). <see cref="JsonConfigStore"/> migrates v1/v2 (or missing) records on load.</summary>
-    public int SchemaVersion { get; set; } = 3;
+    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag — every placement keeps its own config under <see cref="Qos.Service.Models.Panel.PanelWidgetDto.Config"/>. <see cref="JsonConfigStore"/> migrates v1/v2/v3 (or missing) records on load.</summary>
+    public int SchemaVersion { get; set; } = 4;
 
     public ThemeSettings Theme { get; set; } = new();
     public MonitoringSettings Monitoring { get; set; } = new();
@@ -43,13 +43,6 @@ public sealed class QosSettings
     /// <summary>Category ids currently set to Shared. Allowed values: "lighting", "cooling", "theme", "dashboard". Categories not in this list are per-profile (the default). NOT profile-scoped: workstation-level. Hardware-bound state (Keeb, Y70, Devices, panel defaults) always lives at workstation root and is never per-profile, so it never appears here.</summary>
     public List<string> SharedCategories { get; set; } = new();
 
-    /// <summary>
-    /// Per-widget setting overrides keyed by widget id (e.g. <c>com.nexusqos.cpu-temp</c>).
-    /// Inner dictionary maps the manifest's <c>settings[].key</c> to the user's
-    /// JSON-encoded value. Reads merge manifest defaults under this map; writes
-    /// land here without touching the manifest.
-    /// </summary>
-    public Dictionary<string, Dictionary<string, string>> Widgets { get; set; } = new();
 }
 
 public sealed class ScreenTimeSettings

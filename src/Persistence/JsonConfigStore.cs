@@ -72,7 +72,8 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
                 //      UiSettings into matching top-level POCOs (schema v1 → v2).
                 var afterOverlay = MigrateLegacyOverlayKeys(json);
                 var afterV1 = MigrateV1ToV2(afterOverlay);
-                var migratedJson = MigrateV2ToV3(afterV1);
+                var afterV2 = MigrateV2ToV3(afterV1);
+                var migratedJson = MigrateV3ToV4(afterV2);
                 if (!ReferenceEquals(migratedJson, json))
                 {
                     _dirty = true;
@@ -252,7 +253,7 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     /// </summary>
     public static string MigrateLegacyJson(string json)
     {
-        return MigrateV2ToV3(MigrateV1ToV2(MigrateLegacyOverlayKeys(json)));
+        return MigrateV3ToV4(MigrateV2ToV3(MigrateV1ToV2(MigrateLegacyOverlayKeys(json))));
     }
 
     private static string MigrateLegacyOverlayKeys(string json)
@@ -430,5 +431,123 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
             if (inner is null) continue;
             cfg[key] = inner.DeepClone();
         }
+    }
+
+    // v3 (type-scoped marketplace widget settings) → v4 (per-instance config
+    // on every placement). v3 stored marketplace settings in a top-level
+    // `widgets` map keyed by marketplace id, where the value was a flat
+    // `Dictionary<key, jsonString>`; one config bag shared across every
+    // placement of the same widget. v4 deletes that map and copies each
+    // entry's key-values into every PanelWidgetDto.Config whose Type is
+    // `"marketplace:" + marketplaceId`, across the desktop dashboard, every
+    // PanelDevices[*].Layout, and dock entries.
+    private static string MigrateV3ToV4(string json)
+    {
+        JsonNode? root;
+        try { root = JsonNode.Parse(json); }
+        catch (JsonException) { return json; }
+        if (root is not JsonObject obj) return json;
+
+        int sv = 0;
+        if (obj.TryGetPropertyValue("schemaVersion", out var svNode) && svNode is JsonValue v && v.TryGetValue<int>(out var parsed))
+            sv = parsed;
+        if (sv >= 4) return json;
+
+        if (obj["widgets"] is JsonObject widgetsBag)
+        {
+            // Build a marketplaceId → parsed-config dictionary so we can fan
+            // out cheaply. Each stored value is a JSON-encoded string; parse
+            // back to a JsonNode tree once per marketplace id.
+            var fanout = new Dictionary<string, JsonObject>(System.StringComparer.Ordinal);
+            foreach (var kv in widgetsBag)
+            {
+                if (kv.Value is not JsonObject inner) continue;
+                var parsed2 = new JsonObject();
+                foreach (var kv2 in inner)
+                {
+                    if (kv2.Value is JsonValue stored && stored.TryGetValue<string>(out var raw))
+                    {
+                        try
+                        {
+                            var node = JsonNode.Parse(raw);
+                            if (node is not null) parsed2[kv2.Key] = node;
+                        }
+                        catch (JsonException) { /* skip corrupt entries */ }
+                    }
+                }
+                if (parsed2.Count > 0) fanout[kv.Key] = parsed2;
+            }
+
+            // Walk every PanelWidgetDto and apply the fan-out by type prefix.
+            ApplyMarketplaceFanout(obj, fanout);
+        }
+
+        obj.Remove("widgets");
+        obj["schemaVersion"] = 4;
+        return obj.ToJsonString();
+    }
+
+    private static void ApplyMarketplaceFanout(JsonObject root, Dictionary<string, JsonObject> fanout)
+    {
+        // Desktop dashboard: panel.dashboardLayout.pages[*].widgets[*]
+        if (root["panel"] is JsonObject panel && panel["dashboardLayout"] is JsonObject dash)
+        {
+            ApplyFanoutToLayout(dash, fanout);
+        }
+        // Per-device layouts: panelDevices.*.layout.{pages|dock.widgets}
+        if (root["panelDevices"] is JsonObject devices)
+        {
+            foreach (var kv in devices)
+            {
+                if (kv.Value is JsonObject device && device["layout"] is JsonObject deviceLayout)
+                {
+                    ApplyFanoutToLayout(deviceLayout, fanout);
+                }
+            }
+        }
+    }
+
+    private static void ApplyFanoutToLayout(JsonObject layout, Dictionary<string, JsonObject> fanout)
+    {
+        if (layout["pages"] is JsonArray pages)
+        {
+            foreach (var page in pages)
+            {
+                if (page is JsonObject po && po["widgets"] is JsonArray widgets)
+                {
+                    foreach (var w in widgets)
+                    {
+                        if (w is JsonObject wo) ApplyFanoutToWidget(wo, fanout);
+                    }
+                }
+            }
+        }
+        if (layout["dock"] is JsonObject dock && dock["widgets"] is JsonArray dockWidgets)
+        {
+            foreach (var w in dockWidgets)
+            {
+                if (w is JsonObject wo) ApplyFanoutToWidget(wo, fanout);
+            }
+        }
+    }
+
+    private static void ApplyFanoutToWidget(JsonObject widget, Dictionary<string, JsonObject> fanout)
+    {
+        if (widget["type"] is not JsonValue tv || !tv.TryGetValue<string>(out var type)) return;
+        const string prefix = "marketplace:";
+        if (!type.StartsWith(prefix, System.StringComparison.Ordinal)) return;
+        var marketplaceId = type.Substring(prefix.Length);
+        if (!fanout.TryGetValue(marketplaceId, out var seed)) return;
+
+        // Merge into existing config if present, otherwise create. Existing
+        // per-instance keys win — a user who already started using v4-style
+        // per-placement config keeps their edits.
+        var cfg = widget["config"] as JsonObject ?? new JsonObject();
+        foreach (var kv in seed)
+        {
+            if (cfg.ContainsKey(kv.Key)) continue;
+            cfg[kv.Key] = kv.Value!.DeepClone();
+        }
+        if (cfg.Count > 0) widget["config"] = cfg;
     }
 }

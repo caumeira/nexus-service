@@ -71,19 +71,20 @@ public static class WidgetRoutes
             return Results.Json(BuildListing(entry), AppJsonContext.Default.WidgetInstalledListing);
         }).AllowPanel();
 
-        app.MapGet("/widgets-api/installed/{id}/settings", (string id, WidgetRegistry registry, WidgetSettingsService settings) =>
+        app.MapGet("/widgets-api/instance/{instanceId}/settings",
+            (string instanceId, WidgetSettingsService settings) =>
         {
-            if (!WidgetIds.IsValid(id)) return Results.NotFound();
-            if (!registry.TryGet(id, out var entry)) return Results.NotFound();
-            return Results.Json(settings.Get(id, entry.Manifest), AppJsonContext.Default.WidgetSettingsDocument);
+            // Instance ids are GUIDs assigned at widget-placement time, so we
+            // don't apply the marketplace-id charset whitelist. The service
+            // returns an empty doc when the id doesn't resolve to a known
+            // placement — the SPA renders that as "no settings".
+            return Results.Json(settings.Get(instanceId), AppJsonContext.Default.WidgetSettingsDocument);
         }).AllowPanel();
 
-        app.MapPatch("/widgets-api/installed/{id}/settings",
-            (string id, WidgetSettingsPatch body, WidgetRegistry registry, WidgetSettingsService settings) =>
+        app.MapPatch("/widgets-api/instance/{instanceId}/settings",
+            (string instanceId, WidgetSettingsPatch body, WidgetSettingsService settings) =>
         {
-            if (!WidgetIds.IsValid(id)) return Results.NotFound();
-            if (!registry.TryGet(id, out var entry)) return Results.NotFound();
-            var updated = settings.Apply(id, entry.Manifest, body);
+            var updated = settings.Apply(instanceId, body);
             return Results.Json(updated, AppJsonContext.Default.WidgetSettingsDocument);
         }).AllowPanel();
 
