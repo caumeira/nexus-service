@@ -12,23 +12,17 @@ namespace Qos.Service.Sensors;
 
 /// <summary>
 /// macOS sensor provider. Every method returns well-formed data (never null,
-/// never throws); on macOS it shells out to standard tools (`top`, `sysctl`,
-/// `vm_stat`, `df`, `system_profiler`). Windows uses LibreHardwareSensorProvider
-/// and Linux uses LinuxSensorProvider; this class is never constructed on
-/// those platforms (see DI wiring in Program.cs).
+/// never throws); CPU load and VM stats come from Mach <c>host_statistics</c>
+/// syscalls via <see cref="Platform.Mac.MachStats"/>, and the remaining
+/// metadata is gathered from <c>sysctl</c>, <c>df</c>, and <c>system_profiler</c>.
+/// Windows uses LibreHardwareSensorProvider and Linux uses
+/// LinuxSensorProvider; this class is never constructed on those platforms
+/// (see DI wiring in Program.cs).
 /// </summary>
 public sealed class MacSensorProvider : ISensorProvider
 {
     private static readonly IReadOnlyList<HardwareSensor> EmptySensors = Array.Empty<HardwareSensor>();
     private static readonly IReadOnlyList<string> EmptyStrings = Array.Empty<string>();
-
-    // Regexes for top output — compiled once, reused per call.
-    private static readonly Regex CpuRegex = new(
-        @"CPU usage:\s*([\d.]+)%\s*user,\s*([\d.]+)%\s*sys,\s*([\d.]+)%\s*idle",
-        RegexOptions.Compiled);
-    private static readonly Regex MemRegex = new(
-        @"PhysMem:\s*([\d.]+)([GMK])\s*used.*?([\d.]+)([GMK])\s*unused",
-        RegexOptions.Compiled);
 
     // Cached static hardware data — fetched once, never changes at runtime.
     private string? _cpuModel;

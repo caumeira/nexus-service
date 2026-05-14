@@ -10,8 +10,9 @@ namespace Qos.Service.Widgets;
 /// (signed); dev installs (unsigned) shadow both but render a dev banner.
 /// </summary>
 /// <remarks>
-/// Phase 0 only does discovery and serving. Signing verification, install
-/// writes, and dev-banner rendering all land in Phase 3.
+/// Discovery + serving live here; install / uninstall writes are handled by
+/// <see cref="WidgetInstaller"/>. Signing verification and dev-banner
+/// rendering are still pending.
 /// </remarks>
 public static class WidgetInstallPaths
 {

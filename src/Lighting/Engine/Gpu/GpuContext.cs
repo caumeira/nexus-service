@@ -10,9 +10,10 @@ namespace Qos.Service.Lighting.Engine.Gpu;
 
 /// <summary>
 /// Owns a single shared offscreen OpenGL 3.3 core context used by every shader
-/// effect. Thread-safety: all GL work serialises through <see cref="Lock"/> and
-/// calls <see cref="MakeCurrent"/> first, so the lighting engine task thread
-/// (which can hop across the thread pool) is fine.
+/// effect. Thread-safety: all GL work runs on the dedicated <c>_glThread</c>;
+/// callers off that thread go through <see cref="Invoke"/>, which marshals the
+/// work onto it and blocks until completion. <see cref="Lock"/> only guards
+/// lazy initialization.
 ///
 /// If init fails the context is marked unavailable and shader effects fall
 /// back to their CPU implementations.

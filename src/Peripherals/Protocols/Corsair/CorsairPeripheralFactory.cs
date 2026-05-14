@@ -5,9 +5,11 @@ using Qos.Service.Peripherals.Hid;
 namespace Qos.Service.Peripherals.Protocols.Corsair;
 
 /// <summary>
-/// Maps Corsair VID/PID pairs to device metadata. Mice with implemented protocol
-/// (M65 Pro etc.) open the HID control interface and instantiate a fully-capable
-/// peripheral; others fall back to a detection-only shell.
+/// Maps Corsair VID/PID pairs to device metadata. Every entry in
+/// <see cref="Models"/> currently has <c>HasProtocol = false</c>, so
+/// <see cref="TryCreate"/> always returns a detection-only
+/// <see cref="CorsairPeripheral"/>. The protocol branch is kept for
+/// future "Bragi"-generation mice that use HID feature reports.
 /// </summary>
 public sealed class CorsairPeripheralFactory
 {

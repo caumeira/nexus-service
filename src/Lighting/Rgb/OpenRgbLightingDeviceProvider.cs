@@ -82,9 +82,7 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider
                 continue;
             }
 
-            // Motherboard with more than one zone - emit one card per zone. The
-            // legacy-key migration already ran at the top of GetAll so zone 0's
-            // prefs / layout below read the already-migrated values.
+            // Motherboard with more than one zone - emit one card per zone.
             for (int z = 0; z < d.Zones.Count; z++)
             {
                 var zone = d.Zones[z];

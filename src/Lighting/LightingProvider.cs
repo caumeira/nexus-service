@@ -20,7 +20,8 @@ namespace Qos.Service.Lighting;
 /// know what was running, even if engine restart-on-restart isn't wired yet.
 ///
 /// Each /lighting/{name}/headless-start route maps to one IEffect implementation.
-/// Future effects (Music, Gif) plug in by adding a case to the relevant Start* method.
+/// New effect modes plug in by adding an interface method, a route, and a Start*
+/// implementation that calls _engine.SetEffect.
 /// </summary>
 public sealed class LightingProvider : ILightingProvider, IDisposable
 {

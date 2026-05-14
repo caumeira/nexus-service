@@ -11,12 +11,13 @@ using Qos.Service.Models;
 namespace Qos.Service.Routes;
 
 /// <summary>
-/// Service-control surface. Three operations:
+/// Service-control surface. Four operations:
 ///   GET  /service/startup-mode  -> current SCM start type (auto/demand)
 ///   POST /service/startup-mode  -> change SCM start type for next boot
 ///   POST /service/stop          -> graceful self-stop
+///   POST /service/open-app      -> ensure dashboard is open
 ///
-/// All three are protected by two stacked gates:
+/// All are protected by two stacked gates:
 ///   1. <see cref="LocalhostOnlyEndpointExtensions.LocalhostOnly"/> - the
 ///      auth middleware 404s any non-loopback caller before token checks
 ///      even fire, so the route's existence isn't leaked to LAN scanners.

@@ -9,13 +9,10 @@ namespace Qos.Service.Lighting.Rgb;
 /// Binary serializers for the OpenRGB SDK protocol. The protocol is little-endian
 /// throughout, prefixed with a 16-byte header on every packet.
 ///
-/// We only implement the minimum surface needed for "device support":
-///   - HELLO     (40, REQUEST_PROTOCOL_VERSION) — handshake
-///   - SET_NAME  (50, SET_CLIENT_NAME)          — identify ourselves
-///   - GET_COUNT (0,  REQUEST_CONTROLLER_COUNT) — how many devices
-///   - GET_DATA  (1,  REQUEST_CONTROLLER_DATA)  — full controller struct
-///   - SET_MODE  (1100, SET_CUSTOM_MODE)        — switch device to direct mode
-///   - UPDATE    (1050, RGBCONTROLLER_UPDATELEDS) — push a frame
+/// See <see cref="PacketId"/> for the full set. The opcodes serialized here
+/// cover the handshake (HELLO / SET_NAME), enumeration (GET_COUNT / GET_DATA
+/// / DEVICE_LIST_UPDATED), mode switching (SET_CUSTOM_MODE), and frame push
+/// (UPDATE_LEDS / UPDATE_ZONE_LEDS / RESIZE_ZONE).
 ///
 /// Reference: NetworkProtocol.h in CalcProgrammer1/OpenRGB.
 ///

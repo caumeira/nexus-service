@@ -13,8 +13,9 @@ namespace Qos.Service.Cooling;
 
 /// <summary>
 /// Background service that evaluates fan curves and drives fan speeds.
-/// Runs every 1 second: reads temperatures, evaluates curves, writes
-/// fan duty cycles, and broadcasts state via WebSocket hubs.
+/// Default tick is 1 s (configurable via SetInterval, minimum 500 ms):
+/// reads temperatures, evaluates curves, writes fan duty cycles, and
+/// broadcasts state via WebSocket hubs.
 ///
 /// On shutdown, releases all fans back to BIOS control to prevent fans
 /// from being stuck at a low speed after the service exits.

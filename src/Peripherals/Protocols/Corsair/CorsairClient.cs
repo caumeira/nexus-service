@@ -5,10 +5,15 @@ using Qos.Service.Peripherals.Hid;
 namespace Qos.Service.Peripherals.Protocols.Corsair;
 
 /// <summary>
-/// Corsair mouse/keyboard vendor-protocol transport. Uses 65-byte HID feature
-/// reports (report ID prefix + 64 byte payload) on the control interface
-/// (usually MI_01). Protocol structure derived from ckb-next / OpenRGB
-/// observations of the pre-iCUE-4 generation of Corsair peripherals.
+/// Corsair mouse/keyboard vendor-protocol transport. Currently unused — no
+/// model in <see cref="CorsairPeripheralFactory.Models"/> sets
+/// <c>HasProtocol = true</c>, so this client is never constructed. Retained
+/// for future "Bragi"-generation mice that use HID feature reports.
+///
+/// Uses 65-byte HID feature reports (report ID prefix + 64 byte payload) on
+/// the control interface (usually MI_01). Protocol structure derived from
+/// ckb-next / OpenRGB observations of the pre-iCUE-4 generation of Corsair
+/// peripherals.
 ///
 /// Command frame (the 64-byte payload, after the report ID prefix):
 /// <code>

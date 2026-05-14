@@ -188,8 +188,8 @@ public sealed class ConflictWatcher : BackgroundService
 
     /// <summary>
     /// Walk every running process exactly once and group by ProcessName so
-    /// that matching against the catalog's ~30 names is O(catalog × hits).
-    /// Using OrdinalIgnoreCase aligns with how the .NET Process API casefolds
+    /// matching against the catalog is O(catalog × hits) instead of
+    /// O(catalog × procs). OrdinalIgnoreCase matches how .NET casefolds
     /// Windows executable names.
     /// </summary>
     private static Dictionary<string, List<(int Pid, string? Path)>> BuildProcessNameIndex()
@@ -277,9 +277,9 @@ public sealed class ConflictWatcher : BackgroundService
         catch
         {
             // MainModule access is denied for cross-session / elevated
-            // processes. Fall back to comparing just the directory; if the
-            // user installed their own OpenRGB inside our install dir
-            // they'll have to live with the warning being suppressed.
+            // processes. We can't prove the binary is ours, so let the
+            // warning fire — even if the suspect is in fact our headless
+            // OpenRGB.
             return false;
         }
     }

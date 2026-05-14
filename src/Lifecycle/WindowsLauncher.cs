@@ -22,9 +22,9 @@ namespace Qos.Service.Lifecycle;
 ///            StartPending  -> wait briefly, retry, then dashboard.
 ///            Stopped       -> StartService() directly (DACL grant; no UAC),
 ///                             then open dashboard.
-///            Other         -> attempt unprivileged StartService(); on failure
-///                             open dashboard anyway and let the user see the
-///                             service-down state.
+///            Other / StopPending -> log the state and open the dashboard so
+///                             the user sees the service-down banner; SCM
+///                             state is ambiguous so we don't try to start.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal static class WindowsLauncher

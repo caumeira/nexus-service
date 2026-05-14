@@ -188,7 +188,6 @@ if (OperatingSystem.IsWindows()
     // UAC denied or relaunch failed: fall through and start unelevated.
 }
 
-// Strip qos:// protocol args - these come from browser launches.
 // Bind on all interfaces so phones on the same LAN can reach the panel
 // phone pairing surface without internet.
 var httpsPort = servicePort == 9400 ? 9443 : servicePort + 443;

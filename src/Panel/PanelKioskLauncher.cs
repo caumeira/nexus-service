@@ -11,8 +11,10 @@ namespace Qos.Service.Panel;
 /// borderless, no address bar, no tabs.
 ///
 /// Detection priority:
-/// 1. Any secondary monitor (the Y70 touch panel shows up as a second display)
-/// 2. Fallback: no launch if only a primary display is connected
+/// 1. Display whose EDID name matches PanelDisplayNames (HYTE Y70Touch /
+///    Y70ti / HYTE GT LCD).
+/// 2. First non-primary monitor (testing without recognized hardware).
+/// 3. No launch if only one display is connected.
 ///
 /// Uses msedge.exe --kiosk which is preinstalled on Windows 10/11.
 /// Zero additional dependencies.

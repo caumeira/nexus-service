@@ -1,15 +1,15 @@
 namespace Qos.Service.Panel;
 
 /// <summary>
-/// Lifecycle abstraction for the floating desktop widget host. Two impls:
+/// Lifecycle abstraction for the floating desktop widget host. Three impls:
 /// <c>PanelOverlayHostLauncher</c> on Windows (spawns qos-overlay.exe
 /// out-of-proc; the overlay is a raw Win32 + direct-WebView2 P/Invoke AOT
 /// binary, isolated from the service process so a WebView2 crash cannot
-/// take the service down), <c>MacOverlayHost</c> on macOS (in-process
-/// AppKit + WKWebView, no second binary needed because the service is
-/// already a .app and the mac publish is non-AOT). Linux gets
-/// <c>NoopOverlayHost</c>. Callers in Program.cs go through this interface
-/// so the reconcile loop is platform-agnostic.
+/// take the service down), <c>MacOverlayHostLauncher</c> on macOS (spawns
+/// a separate AppKit + WKWebView helper since the service is already a
+/// .app and the mac publish is non-AOT), and <c>NoopOverlayHost</c> on
+/// Linux / unsupported platforms. Callers in Program.cs go through this
+/// interface so the reconcile loop is platform-agnostic.
 /// </summary>
 public interface IOverlayHost
 {

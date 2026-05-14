@@ -11,12 +11,11 @@ namespace Qos.Service.Activity;
 /// Windows-only audio-loopback provider that captures the default render
 /// endpoint (i.e. whatever's playing through the speakers) via WASAPI.
 ///
-/// Why this exists alongside <see cref="BeatsProvider"/>: BeatsProvider uses
-/// ffmpeg + dshow "Stereo Mix", which requires an ffmpeg binary on the user's
-/// PATH and a legacy loopback recording device that Windows disables by
-/// default on most modern sound hardware. WASAPI loopback is built into
-/// Windows (Vista+), captures the active output without any driver support,
-/// and doesn't need any setup from the user.
+/// Why this exists alongside <see cref="BeatsProvider"/>: BeatsProvider is
+/// the Linux fallback (ffmpeg + PulseAudio). On Windows we use WASAPI
+/// loopback directly because it's built into Windows (Vista+), requires no
+/// extra binary, and captures the active output without any driver support
+/// or user setup.
 ///
 /// Implementation notes: we call WASAPI COM interfaces via direct vtable
 /// dispatch using function pointers. This avoids ComImport's reflection-based
@@ -295,8 +294,9 @@ internal sealed unsafe class WasapiCapturer : IDisposable
             }
 
             // Allocate a ~200ms loopback buffer. We don't need a large buffer:
-            // the loop polls every 5ms, which is well below a 200ms overflow
-            // window, and loopback capture lags real-time by its own minimum.
+            // the capture loop sleeps 10ms between drained packets, well
+            // below the 200ms overflow window, and loopback capture already
+            // lags real-time by its own minimum.
             long hnsBuffer = 200 * ReftimesPerMs;
             // IAudioClient.Initialize (slot 3).
             var initialize = (delegate* unmanaged[Stdcall]<IntPtr, int, uint, long, long, IntPtr, IntPtr, int>)acVtbl[3];

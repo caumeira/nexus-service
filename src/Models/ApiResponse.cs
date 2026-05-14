@@ -4,8 +4,6 @@ namespace Qos.Service.Models;
 
 /// <summary>
 /// Base envelope returned by every endpoint that doesn't have a more specific shape.
-/// Base envelope returned by every endpoint that does not have a more specific shape.
-/// 
 /// </summary>
 public class ApiResponse
 {

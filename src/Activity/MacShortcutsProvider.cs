@@ -10,7 +10,8 @@ namespace Qos.Service.Activity;
 
 /// <summary>
 /// Real macOS shortcuts provider.
-/// - GetAll() enumerates /Applications and ~/Applications for .app bundles
+/// - GetAll() enumerates /Applications, /System/Applications, and
+///   ~/Applications for .app bundles
 /// - GetIcon() extracts the app icon from the bundle's Resources/*.icns, converts to PNG via sips
 /// - Launch() shells out to `open -a`
 /// </summary>

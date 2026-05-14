@@ -11,8 +11,9 @@ using Microsoft.Extensions.Hosting;
 namespace Qos.Service.Activity;
 
 /// <summary>
-/// Background service that samples running processes every ~2s and exposes the
-/// latest snapshot via GetProcesses(). Only samples when at least one WebSocket
+/// Background service that samples running processes about once a second
+/// (configurable via SetInterval, minimum 200 ms) and exposes the latest
+/// snapshot via GetProcesses(). Only samples when at least one WebSocket
 /// client is subscribed to process or monitoring topics.
 /// </summary>
 public sealed class ProcessMonitor : BackgroundService

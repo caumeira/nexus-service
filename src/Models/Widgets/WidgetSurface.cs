@@ -1,12 +1,8 @@
-using System;
-
 namespace Qos.Service.Models.Widgets;
 
 /// <summary>
-/// Canonical surface names. Bundle manifests list strings from this set in
-/// the <c>surfaces</c> array; the host filters listings + adverts by them.
-/// Phase 0 ships only the dashboard surface; <c>Panel</c> and <c>Overlay</c>
-/// are reserved for Phase 8.
+/// Canonical surface names accepted in a widget manifest's <c>surfaces</c>
+/// array.
 /// </summary>
 public static class WidgetSurface
 {
@@ -16,7 +12,4 @@ public static class WidgetSurface
 
     public static bool IsKnown(string value) =>
         value is Dashboard or Panel or Overlay;
-
-    public static bool IsActiveInPhase0(string value) =>
-        string.Equals(value, Dashboard, StringComparison.Ordinal);
 }

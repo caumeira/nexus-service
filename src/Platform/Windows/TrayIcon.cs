@@ -7,7 +7,7 @@ namespace Qos.Service.Platform.Windows;
 /// <summary>
 /// System tray icon for qos-service on Windows.
 /// Pure Win32 - no WinForms. Creates a NotifyIcon in the system tray
-/// with right-click menu (Open Qos / Open in Browser / Device Panel / Exit).
+/// with right-click menu (Open / Settings / Shut down).
 /// </summary>
 public static class TrayIcon
 {

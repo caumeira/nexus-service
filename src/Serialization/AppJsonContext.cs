@@ -148,8 +148,6 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayVcpParams))]
 [JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayListResponse))]
 
-// Panel macros
-
 // Weather
 [JsonSerializable(typeof(Qos.Service.Models.Weather.WeatherSnapshot))]
 [JsonSerializable(typeof(Qos.Service.Models.Weather.WeatherHourlyForecast))]

@@ -20,8 +20,9 @@ namespace Qos.Service.Routes;
 /// <list type="bullet">
 /// <item><c>GET /widgets-api/installed</c> - everything the registry sees.</item>
 /// <item><c>GET /widgets-api/installed/{id}</c> - one widget, including manifest view tree.</item>
-/// <item><c>GET /widgets-api/installed/{id}/asset/{**path}</c> - declared static assets
-///   (icons, SVGs) bound by the manifest's <c>view</c> tree. Restricted to image MIME.</item>
+/// <item><c>GET /widgets-api/installed/{id}/asset/{**path}</c> - static assets
+///   (icons, SVGs) under the widget bundle. Restricted to image extensions
+///   (PNG/JPG/WEBP/GIF/ICO/SVG); no manifest-tree binding enforced.</item>
 /// <item><c>GET / PATCH /widgets-api/installed/{id}/settings</c> - per-widget user settings.</item>
 /// <item><c>GET /widgets-api/code/{sessionId}/worker.js</c> + sibling module
 ///   files - the Tier 2 worker source, served behind a per-spawn session
@@ -29,7 +30,8 @@ namespace Qos.Service.Routes;
 ///   declared <c>code: worker</c> can mint a session.</item>
 /// </list>
 ///
-/// Install / uninstall / fetch-proxy live in <see cref="WidgetMarketplaceRoutes"/>.
+/// Install, uninstall, available list, and fetch-proxy endpoints are
+/// registered below alongside the asset / settings routes.
 /// </summary>
 public static class WidgetRoutes
 {

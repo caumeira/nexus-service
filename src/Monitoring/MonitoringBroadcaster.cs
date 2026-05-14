@@ -19,9 +19,8 @@ namespace Qos.Service.Monitoring;
 
 /// <summary>
 /// Subscription-aware broadcaster that checks which topics have subscribers
-/// each tick and only gathers data from the required sources. Independent
-/// data sources (LHM sensors vs process/network snapshots) are gathered in
-/// parallel so one never blocks the other.
+/// each tick and only gathers data from the required sources. Reads are
+/// volatile snapshots (~1 ms each) so Tick gathers them sequentially.
 /// </summary>
 public sealed class MonitoringBroadcaster : BackgroundService
 {

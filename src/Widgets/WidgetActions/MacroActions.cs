@@ -19,11 +19,11 @@ namespace Qos.Service.Widgets.WidgetActions;
 /// </summary>
 public static class MacroActions
 {
-    // Per-key cooldown for user-visible side effects. A widget granted
+    // Per-URL cooldown for user-visible side effects. A widget granted
     // `macros.openUrl` could otherwise tick every dispatch refresh and
-    // spawn browser tabs unattended. Keyed by `<widgetId>:<actionName>:<args-hash>`
-    // so two different macros (or two different URLs in the same macro)
-    // each get their own bucket.
+    // spawn browser tabs unattended. Keyed by `openUrl:<absolute-url>` —
+    // the same URL is rate-limited globally regardless of which widget
+    // dispatched it.
     private const int OpenUrlCooldownMs = 2_000;
     private static readonly ConcurrentDictionary<string, long> _lastDispatchAt = new(StringComparer.Ordinal);
 

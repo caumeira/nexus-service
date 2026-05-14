@@ -21,8 +21,8 @@ namespace Qos.Service.Widgets;
 /// <list type="bullet">
 ///   <item>URL must be a valid absolute HTTPS URL (no HTTP, no file://, no data:).</item>
 ///   <item>Host must match the widget manifest's <c>capabilities.net.fetch</c>
-///         allowlist. Wildcard hosts (<c>*.example.com</c>) match a single
-///         level subdomain.</item>
+///         allowlist. Wildcard hosts (<c>*.example.com</c>) match any
+///         subdomain depth (suffix match on <c>.example.com</c>).</item>
 ///   <item>Response body capped at <see cref="MaxBodyBytes"/>; oversized
 ///         responses are truncated + flagged.</item>
 ///   <item>Per-widget rate limit (<see cref="MaxRequestsPerMinute"/> rolling).</item>

@@ -9,7 +9,8 @@ namespace Qos.Service.Platform;
 /// Self-registers on first run — no installer needed, no admin rights.
 ///
 /// Windows: HKCU\Software\Classes\qos → shell\open\command → exe path
-/// macOS:   ~/Library/Services/ .plist (or relies on app bundle CFBundleURLTypes)
+/// macOS:   ~/Applications/Qos.app bundle with Info.plist CFBundleURLTypes
+///          (registered via lsregister)
 /// Linux:   ~/.local/share/applications/qos.desktop + xdg-mime
 /// </summary>
 public static class ProtocolHandler

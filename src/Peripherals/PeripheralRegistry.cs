@@ -12,7 +12,7 @@ namespace Qos.Service.Peripherals;
 /// <summary>
 /// Owns the live set of third-party peripherals detected on the system. Polls the
 /// existing USB enumerator on demand; for each matching VID/PID it delegates to the
-/// appropriate vendor factory (Razer today; Logitech/Corsair to follow).
+/// appropriate vendor factory (Razer + Corsair today; Logitech HID++ to follow).
 ///
 /// Instances are cached by (VID, PID, Serial) to keep HID handles open across requests.
 /// Unplugged devices are closed and removed on the next snapshot that omits them.

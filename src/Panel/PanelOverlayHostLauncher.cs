@@ -227,14 +227,9 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
 
     // -----------------------------------------------------------------------
     // Cross-session spawn: when the service runs as LocalSystem in Session 0,
-    // we need CreateProcessAsUser to land the overlay in the user's
-    // interactive session so its windows actually render on the desktop.
-    //
-    // Sequence:
-    //   1. WTSGetActiveConsoleSessionId -> active console session
-    //   2. WTSQueryUserToken            -> primary token for that session
-    //   3. CreateEnvironmentBlock       -> user's env (USERPROFILE etc.)
-    //   4. CreateProcessAsUser          -> spawn the host with that token
+    // we need to land the overlay in the user's interactive session so its
+    // windows actually render on the desktop. Implementation uses schtasks
+    // (see comment inside StartInActiveUserSession for why).
     // -----------------------------------------------------------------------
 
     private static Process? StartInActiveUserSession(string exePath, string workingDir)
