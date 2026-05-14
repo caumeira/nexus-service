@@ -428,6 +428,14 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenMirrorStopPayload))]
 [JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenMirrorFramePayload))]
 
+// Conflict warning system - sidebar alarm for competing third-party apps.
+[JsonSerializable(typeof(Qos.Service.Models.Conflicts.DetectedConflict))]
+[JsonSerializable(typeof(List<Qos.Service.Models.Conflicts.DetectedConflict>))]
+[JsonSerializable(typeof(Qos.Service.Models.Conflicts.GetConflictsResponse))]
+[JsonSerializable(typeof(Qos.Service.Models.Conflicts.KillConflictBody))]
+[JsonSerializable(typeof(Qos.Service.Models.Conflicts.KillConflictResponse))]
+[JsonSerializable(typeof(Qos.Service.Models.Conflicts.ConflictsFrame))]
+
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

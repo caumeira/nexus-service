@@ -598,6 +598,7 @@ app.MapPanelEndpoints();
 app.MapPanelMacroRoutes();
 app.MapOverlayEndpoints();
 app.MapWeatherEndpoints();
+app.MapConflictEndpoints();
 app.MapWebSocketEndpoints();
 
 {

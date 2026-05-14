@@ -49,6 +49,16 @@ public static class QosServiceCollectionExtensions
         services.AddSingleton<LightingOutputHub>();
         services.AddSingleton<Qos.Service.Monitoring.MonitoringBroadcaster>();
         services.AddHostedService(sp => sp.GetRequiredService<Qos.Service.Monitoring.MonitoringBroadcaster>());
+        // ConflictWatcher polls the running process list against
+        // ConflictAppCatalog and publishes to the "conflicts" multiplex
+        // topic. OpenRgbProcessManager is only registered on Win/Mac, so
+        // we resolve it as optional so the watcher can ignore the bundled
+        // child OpenRGB process where present.
+        services.AddSingleton<Qos.Service.Conflicts.ConflictWatcher>(sp =>
+            new Qos.Service.Conflicts.ConflictWatcher(
+                sp.GetRequiredService<MultiplexHub>(),
+                sp.GetService<Qos.Service.Lighting.Rgb.OpenRgbProcessManager>()));
+        services.AddHostedService(sp => sp.GetRequiredService<Qos.Service.Conflicts.ConflictWatcher>());
         return services;
     }
 
