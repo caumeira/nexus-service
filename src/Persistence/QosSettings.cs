@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Qos.Service.Defaults;
 
 namespace Qos.Service.Persistence;
 
@@ -49,13 +50,13 @@ public sealed class QosSettings
 public sealed class ScreenTimeSettings
 {
     /// <summary>When false, providers stop writing new focus sessions to the store. Reads of existing history continue to work.</summary>
-    public bool TrackingEnabled { get; set; } = true;
+    public bool TrackingEnabled { get; set; } = InstallDefaults.ScreenTime.TrackingEnabled;
 }
 
 public sealed class ObsSettings
 {
-    public string Host { get; set; } = "127.0.0.1";
-    public int Port { get; set; } = 4455;
+    public string Host { get; set; } = InstallDefaults.Obs.Host;
+    public int Port { get; set; } = InstallDefaults.Obs.Port;
     public string Password { get; set; } = "";
 }
 
@@ -114,17 +115,17 @@ public sealed class UiSettingsPatch
 
 public sealed class UiSettings
 {
-    public string Language { get; set; } = "en";
-    public string ThemeMode { get; set; } = "system";
-    public string AccentColor { get; set; } = "#8b5cf6";
+    public string Language { get; set; } = InstallDefaults.Theme.Language;
+    public string ThemeMode { get; set; } = InstallDefaults.Theme.ThemeMode;
+    public string AccentColor { get; set; } = InstallDefaults.Theme.AccentColor;
     public bool DisableConflictAlerts { get; set; }
-    public bool MonitoringShowAverage { get; set; } = true;
+    public bool MonitoringShowAverage { get; set; } = InstallDefaults.Monitoring.ShowAverage;
     /// <summary>IDs of sections collapsed on the Monitoring "Detailed" tab. Default empty = every section expanded. The SPA writes the full list on every toggle so the persisted state matches the current UI exactly.</summary>
     public List<string> MonitoringDetailedCollapsed { get; set; } = new();
-    /// <summary>macOS only - whether to show the menu bar status icon. Default true.</summary>
-    public bool ShowMacStatusBarIcon { get; set; } = true;
-    /// <summary>Windows only - whether to show the system tray icon. Default true.</summary>
-    public bool ShowWindowsTrayIcon { get; set; } = true;
+    /// <summary>macOS only - whether to show the menu bar status icon.</summary>
+    public bool ShowMacStatusBarIcon { get; set; } = InstallDefaults.Monitoring.ShowMacStatusBarIcon;
+    /// <summary>Windows only - whether to show the system tray icon.</summary>
+    public bool ShowWindowsTrayIcon { get; set; } = InstallDefaults.Monitoring.ShowWindowsTrayIcon;
     /// <summary>User-defined display order for fan channels in the Cooling view. Nullable so a partial POST /preferences that omits this field doesn't clobber the saved order.</summary>
     public List<string>? FanChannelOrder { get; set; }
     /// <summary>Legacy: panel devices used to live here, scoped per profile. Now lives at <c>QosSettings.PanelDevices</c> (top-level, hardware-scoped). Kept nullable so old settings.json / profile files deserialize cleanly; <c>JsonConfigStore.Load</c> + <c>ProfileManager.LoadProfileIntoSettings</c> migrate the entries to the top-level registry and null this out so it stops being written.</summary>
@@ -132,11 +133,11 @@ public sealed class UiSettings
     /// <summary>Auto-launch the panel kiosk when a recognized device display (Y70/Y80) is detected at startup. Default false.</summary>
     public bool PanelAutoLaunch { get; set; }
     /// <summary>When true, panel theme mode follows the main desktop theme mode.</summary>
-    public bool PanelThemeSyncWithDesktop { get; set; } = true;
+    public bool PanelThemeSyncWithDesktop { get; set; } = InstallDefaults.Panel.ThemeSyncWithDesktop;
     /// <summary>Panel-specific theme mode: "system", "dark", or "light".</summary>
-    public string PanelThemeMode { get; set; } = "system";
+    public string PanelThemeMode { get; set; } = InstallDefaults.Panel.ThemeMode;
     /// <summary>When true, panel accent follows the main desktop accent color.</summary>
-    public bool PanelAccentSyncWithDesktop { get; set; } = true;
+    public bool PanelAccentSyncWithDesktop { get; set; } = InstallDefaults.Panel.AccentSyncWithDesktop;
     /// <summary>Panel-specific accent color override. Null means inherit from the main app accent.</summary>
     public string? PanelAccentColor { get; set; }
     /// <summary>Panel-specific background color override for the dark resolved theme. Null uses the default dark panel background.</summary>
@@ -144,27 +145,27 @@ public sealed class UiSettings
     /// <summary>Panel-specific background color override for the light resolved theme. Null uses the paired light preset (or the dark value if it's a custom hex).</summary>
     public string? PanelBackgroundColorLight { get; set; }
     /// <summary>Panel background renderer: "solid" for color fill, "shader" for a local WebGL animation.</summary>
-    public string PanelBackgroundMode { get; set; } = "solid";
+    public string PanelBackgroundMode { get; set; } = InstallDefaults.Panel.BackgroundMode;
     /// <summary>Local shader effect key used when PanelBackgroundMode is "shader".</summary>
-    public string PanelBackgroundEffect { get; set; } = "aurora";
+    public string PanelBackgroundEffect { get; set; } = InstallDefaults.Panel.BackgroundEffect;
     /// <summary>Selected 1..4 visual template slot, persisted as zero-based index.</summary>
     public int PanelBackgroundTemplate { get; set; }
     /// <summary>Shader layer opacity. The solid background remains underneath as a readability fallback.</summary>
-    public double PanelBackgroundOpacity { get; set; } = 0.4;
-    /// <summary>Per-widget card background opacity (0..1). Default 1.0 (fully opaque) so widgets stay readable; lowering it lets the panel background show through the widget surfaces.</summary>
-    public double PanelWidgetOpacity { get; set; } = 1.0;
+    public double PanelBackgroundOpacity { get; set; } = InstallDefaults.Panel.BackgroundOpacity;
+    /// <summary>Per-widget card background opacity (0..1). Fully opaque keeps widgets readable; lowering it lets the panel background show through.</summary>
+    public double PanelWidgetOpacity { get; set; } = InstallDefaults.Panel.WidgetOpacity;
     /// <summary>Whether to render the iOS-style widget name label below each cell on the panel + dashboard. When false the label strip collapses and widgets reclaim the vertical space.</summary>
-    public bool PanelWidgetLabels { get; set; } = true;
+    public bool PanelWidgetLabels { get; set; } = InstallDefaults.Panel.WidgetLabels;
     /// <summary>Profile-scoped desktop dashboard widget layout. Null means the SPA seeds its built-in dashboard default on first load.</summary>
     public Qos.Service.Models.Panel.PanelLayoutDto? DashboardLayout { get; set; }
     /// <summary>Whether qos-overlay.exe is spawned by the service. Default false; flipped true the first time the user pins a widget. Profile-scoped because layout is profile-scoped.</summary>
-    public bool OverlayWidgetsEnabled { get; set; } = false;
+    public bool OverlayWidgetsEnabled { get; set; } = InstallDefaults.Overlay.Enabled;
     /// <summary>Global Z-order toggle for floating desktop widgets. False (default) = parented to WorkerW, behind windows. True = HWND_TOPMOST, above everything.</summary>
-    public bool OverlayWidgetsAlwaysOnTop { get; set; } = false;
-    /// <summary>Cell-size scale percentage for the desktop widget overlay (50-200). Drives both the layout grid AND the in-widget content sizing via the --panel-cell-size CSS variable. Default 100 = panel base of 86 px.</summary>
-    public int OverlayWidgetScale { get; set; } = 100;
-    /// <summary>Per-card background opacity for desktop widgets (0..1). Applied to --panel-card-bg-opacity on the overlay's panel-root so the card surface, border, and shadow fade together over the wallpaper. Default 1.0 (fully opaque). The overlay host always composites with per-pixel alpha so this takes visible effect immediately on Windows and macOS.</summary>
-    public double OverlayWidgetOpacity { get; set; } = 1.0;
+    public bool OverlayWidgetsAlwaysOnTop { get; set; } = InstallDefaults.Overlay.AlwaysOnTop;
+    /// <summary>Cell-size scale percentage for the desktop widget overlay (50-200). Drives both the layout grid AND the in-widget content sizing via the --panel-cell-size CSS variable. 100 = panel base of 86 px.</summary>
+    public int OverlayWidgetScale { get; set; } = InstallDefaults.Overlay.Scale;
+    /// <summary>Per-card background opacity for desktop widgets (0..1). Applied to --panel-card-bg-opacity on the overlay's panel-root so the card surface, border, and shadow fade together over the wallpaper. The overlay host always composites with per-pixel alpha so this takes visible effect immediately on Windows and macOS.</summary>
+    public double OverlayWidgetOpacity { get; set; } = InstallDefaults.Overlay.Opacity;
     /// <summary>
     /// Which monitor the single floating widget overlay renders on.
     /// Zero-based index into <c>EnumDisplayMonitors</c> order. -1 means
@@ -179,28 +180,28 @@ public sealed class UiSettings
     /// importing a profile that picked monitor 2 onto a single-display
     /// machine relies on the host's out-of-range fallback to primary.
     /// </summary>
-    public int OverlayWidgetsMonitor { get; set; } = -1;
+    public int OverlayWidgetsMonitor { get; set; } = InstallDefaults.Overlay.Monitor;
     /// <summary>Profile-scoped floating desktop widget layout. Sparse list - one entry per pinned widget with its (monitor, col, row, size). Empty means no widgets pinned. See plans/desktop-widgets-v1.md.</summary>
     public List<Qos.Service.Models.Panel.OverlayWidgetDto> OverlayLayout { get; set; } = new();
 }
 
 public sealed class LightingSettings
 {
-    public string Sync { get; set; } = "none";
+    public string Sync { get; set; } = InstallDefaults.Lighting.Sync;
     public Dictionary<string, float> BrightnessScale { get; set; } = new();
-    public bool BrightnessEnabled { get; set; } = false;
+    public bool BrightnessEnabled { get; set; } = InstallDefaults.Lighting.BrightnessEnabled;
     public Dictionary<string, int> SpeedScale { get; set; } = new();
-    public bool SpeedEnabled { get; set; } = false;
-    public int FrameRate { get; set; } = 60;
-    public double ScaleRatio { get; set; } = 1.0;
+    public bool SpeedEnabled { get; set; } = InstallDefaults.Lighting.SpeedEnabled;
+    public int FrameRate { get; set; } = InstallDefaults.Lighting.FrameRate;
+    public double ScaleRatio { get; set; } = InstallDefaults.Lighting.ScaleRatio;
     public Dictionary<string, DeviceLayout> DeviceLayouts { get; set; } = new();
     public string LastMediaId { get; set; } = "";
     public AnimateSettings Animate { get; set; } = new();
-    /// <summary>Last static colour the user picked (r,g,b 0..255). Defaults to red.</summary>
+    /// <summary>Last static colour the user picked (r,g,b 0..255).</summary>
     public StaticColorSettings StaticColor { get; set; } = new();
     /// <summary>When true, BeatsProvider runs audio capture + spectrum analysis and
     /// publishes to AudioState so shaders react via the u_audio* uniforms.</summary>
-    public bool MusicReactive { get; set; } = false;
+    public bool MusicReactive { get; set; } = InstallDefaults.Lighting.MusicReactive;
     /// <summary>Post-process applied to the Screen Mirror frame stream (hue / colorize / saturation / contrast). Persists across sessions so the user's tweak survives a service restart.</summary>
     public PostProcessSettings ScreenEffect { get; set; } = new();
     /// <summary>Post-process applied to Media Library playback frames. Same shape as ScreenEffect but tracked independently - users typically tune media differently from screen capture.</summary>
@@ -214,10 +215,10 @@ public sealed class LightingSettings
 /// </summary>
 public sealed class PostProcessSettings
 {
-    public float Hue { get; set; }
-    public float Colorize { get; set; }
-    public float Saturation { get; set; } = 1f;
-    public float Contrast { get; set; } = 1f;
+    public float Hue { get; set; } = InstallDefaults.Lighting.PostProcess.Hue;
+    public float Colorize { get; set; } = InstallDefaults.Lighting.PostProcess.Colorize;
+    public float Saturation { get; set; } = InstallDefaults.Lighting.PostProcess.Saturation;
+    public float Contrast { get; set; } = InstallDefaults.Lighting.PostProcess.Contrast;
     /// <summary>Mirror the frame horizontally before applying the colour post-process. Used by the Mirror-mode filter set.</summary>
     public bool FlipX { get; set; }
     /// <summary>Mirror the frame vertically before applying the colour post-process.</summary>
@@ -226,15 +227,15 @@ public sealed class PostProcessSettings
 
 public sealed class StaticColorSettings
 {
-    public byte R { get; set; } = 255;
-    public byte G { get; set; }
-    public byte B { get; set; }
+    public byte R { get; set; } = InstallDefaults.Lighting.StaticColor.R;
+    public byte G { get; set; } = InstallDefaults.Lighting.StaticColor.G;
+    public byte B { get; set; } = InstallDefaults.Lighting.StaticColor.B;
 }
 
 public sealed class AnimateSettings
 {
     /// <summary>Key of the last-selected animate effect.</summary>
-    public string Effect { get; set; } = "rainbow";
+    public string Effect { get; set; } = InstallDefaults.Lighting.Animate.Effect;
     /// <summary>Full slider state keyed by effect name. Each effect remembers its own
     /// speed / hue / colorize / intensity / custom params so switching between them
     /// restores exactly what the user last saw rather than overwriting with defaults.</summary>
@@ -248,12 +249,12 @@ public sealed class AnimateSettings
 
 public sealed class AnimateEffectState
 {
-    public int Speed { get; set; } = 50;
-    public float Intensity { get; set; } = 1f;
-    public float Hue { get; set; } = 0f;
-    public float Colorize { get; set; } = 0f;
-    public float Saturation { get; set; } = 1f;
-    public float Contrast { get; set; } = 1f;
+    public int Speed { get; set; } = InstallDefaults.Lighting.Animate.State.Speed;
+    public float Intensity { get; set; } = InstallDefaults.Lighting.Animate.State.Intensity;
+    public float Hue { get; set; } = InstallDefaults.Lighting.Animate.State.Hue;
+    public float Colorize { get; set; } = InstallDefaults.Lighting.Animate.State.Colorize;
+    public float Saturation { get; set; } = InstallDefaults.Lighting.Animate.State.Saturation;
+    public float Contrast { get; set; } = InstallDefaults.Lighting.Animate.State.Contrast;
     public Dictionary<string, float> Params { get; set; } = new();
 }
 
@@ -270,17 +271,17 @@ public sealed class DeviceLayout
 {
     public float X { get; set; }
     public float Y { get; set; }
-    public float W { get; set; } = 80;
-    public float H { get; set; } = 80;
+    public float W { get; set; } = InstallDefaults.Cooling.DeviceLayoutSize.W;
+    public float H { get; set; } = InstallDefaults.Cooling.DeviceLayoutSize.H;
     public int Rotation { get; set; }
 }
 
 public sealed class KeebSettings
 {
-    public string RotaryLeft { get; set; } = "VolumeAdjustment";
-    public string RotaryRight { get; set; } = "BrightnessAdjustment";
+    public string RotaryLeft { get; set; } = InstallDefaults.Keeb.RotaryLeft;
+    public string RotaryRight { get; set; } = InstallDefaults.Keeb.RotaryRight;
     public List<KeebRotaryAppOverride> RotaryApps { get; set; } = new();
-    public string RotarySensitivity { get; set; } = "Balanced";
+    public string RotarySensitivity { get; set; } = InstallDefaults.Keeb.RotarySensitivity;
 
     public KeebGameMode GameMode { get; set; } = new();
     public KeebFirmwareLighting FirmwareLighting { get; set; } = new();
@@ -304,13 +305,13 @@ public sealed class KeebGameMode
 
 public sealed class KeebFirmwareLighting
 {
-    public string AnimationMode { get; set; } = "Static";
-    public string Speed { get; set; } = "Medium";
-    public string Direction { get; set; } = "Forward";
-    public int Brightness { get; set; } = 80;
-    public bool KeyReactive { get; set; }
-    public bool KeyReactiveMask { get; set; }
-    public string KeyReactiveMode { get; set; } = "Off";
+    public string AnimationMode { get; set; } = InstallDefaults.Keeb.FirmwareLighting.AnimationMode;
+    public string Speed { get; set; } = InstallDefaults.Keeb.FirmwareLighting.Speed;
+    public string Direction { get; set; } = InstallDefaults.Keeb.FirmwareLighting.Direction;
+    public int Brightness { get; set; } = InstallDefaults.Keeb.FirmwareLighting.Brightness;
+    public bool KeyReactive { get; set; } = InstallDefaults.Keeb.FirmwareLighting.KeyReactive;
+    public bool KeyReactiveMask { get; set; } = InstallDefaults.Keeb.FirmwareLighting.KeyReactiveMask;
+    public string KeyReactiveMode { get; set; } = InstallDefaults.Keeb.FirmwareLighting.KeyReactiveMode;
     public RgbaColor KeyReactiveColor { get; set; } = new();
     public bool KeyIndicator { get; set; }
 }
@@ -335,7 +336,7 @@ public sealed class KeebMacroKey
 
 public sealed class CoolingSettings
 {
-    public double GlobalSpeedModifier { get; set; } = 1.0;
+    public double GlobalSpeedModifier { get; set; } = InstallDefaults.Cooling.GlobalSpeedModifier;
     public List<CurveDocument> Curves { get; set; } = new();
     public MiniHubLayout MiniHubLayout { get; set; } = new();
     /// <summary>User-defined fan names keyed by channel ID. Only valid while the hardware mapping is unchanged.</summary>
@@ -343,8 +344,8 @@ public sealed class CoolingSettings
     public Dictionary<string, Qos.Service.Models.Cooling.FanCalibration> FanCalibrations { get; set; } = new();
     /// <summary>Manually-set fan duty percentages keyed by channel ID. Persisted so they survive restarts and profile switches.</summary>
     public Dictionary<string, int> ManualSpeeds { get; set; } = new();
-    /// <summary>Active cooling preset: "off" | "silent" | "balanced" | "performance" | "custom". Default "custom" so existing installs upgrade cleanly.</summary>
-    public string ActivePreset { get; set; } = "custom";
+    /// <summary>Active cooling preset: "off" | "silent" | "balanced" | "performance" | "custom". "custom" lets existing installs upgrade cleanly.</summary>
+    public string ActivePreset { get; set; } = InstallDefaults.Cooling.ActivePreset;
     /// <summary>Last-known custom mapping of fan channel id -> curve id. Empty entries mean the fan was on BIOS Control. Used to restore custom assignments when leaving Silent/Balanced/Performance/Off.</summary>
     public Dictionary<string, string> CustomFanCurveAssignments { get; set; } = new();
 }
@@ -423,9 +424,9 @@ public sealed class MiniHubLayout
 public sealed class Y70Settings
 {
     /// <summary>"Landscape", "Portrait", "LandscapeFlipped", "PortraitFlipped"</summary>
-    public string Orientation { get; set; } = "Landscape";
-    public int Brightness { get; set; } = 80;
-    public bool ScreenOff { get; set; }
+    public string Orientation { get; set; } = InstallDefaults.Y70.Orientation;
+    public int Brightness { get; set; } = InstallDefaults.Y70.Brightness;
+    public bool ScreenOff { get; set; } = InstallDefaults.Y70.ScreenOff;
 }
 
 public sealed class DevicesSettings
@@ -461,9 +462,9 @@ public sealed class LedPositionOverride
 
 public sealed class LightingDevicePreference
 {
-    public int Brightness { get; set; } = 100;
+    public int Brightness { get; set; } = InstallDefaults.Lighting.DevicePreference.Brightness;
     public float Hue { get; set; }
-    public float Saturation { get; set; } = 1.0f;
+    public float Saturation { get; set; } = InstallDefaults.Lighting.DevicePreference.Saturation;
 }
 
 public sealed class MotherboardLedChannel
@@ -474,8 +475,8 @@ public sealed class MotherboardLedChannel
 
 public sealed class CnvsSettings
 {
-    public bool PlayAnimation { get; set; } = true;
-    public bool PlayWhenPCOff { get; set; } = false;
+    public bool PlayAnimation { get; set; } = InstallDefaults.Cnvs.PlayAnimation;
+    public bool PlayWhenPCOff { get; set; } = InstallDefaults.Cnvs.PlayWhenPCOff;
 }
 
 public sealed class AuthSettings
@@ -489,7 +490,7 @@ public sealed class AuthSettings
     /// closed. Paired devices remain in <see cref="PanelPhoneSessions"/> so
     /// they can resume automatically when the switch goes back on. Workstation-level.
     /// </summary>
-    public bool RemoteControlEnabled { get; set; } = true;
+    public bool RemoteControlEnabled { get; set; } = InstallDefaults.Auth.RemoteControlEnabled;
 }
 
 public sealed class PanelPhoneSessionToken

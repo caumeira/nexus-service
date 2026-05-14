@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Qos.Service.Defaults;
 using Qos.Service.Models.Cooling;
 using Qos.Service.Persistence;
 
@@ -344,17 +345,19 @@ public static class FanProfiles
     /// <summary>
     /// Default Linear curve parameters per preset. Preset curves are
     /// recreated from these values when the user has deleted them.
+    /// Values are sourced from data/install-defaults.json via
+    /// <see cref="InstallDefaults"/>.
     /// </summary>
     public readonly record struct PresetCurveDefaults(double ResponseTime, double MinTemp, double MaxTemp, double MinSpeed, double MaxSpeed);
 
     public static class PresetDefaults
     {
-        public static PresetCurveDefaults For(string presetName) => presetName switch
+        public static PresetCurveDefaults For(string presetName)
         {
-            "silent" => new(3.0, 45, 85, 20, 70),
-            "balanced" => new(1.5, 35, 75, 30, 90),
-            "performance" => new(0.5, 30, 65, 50, 100),
-            _ => new(1.0, 30, 80, 30, 100),
-        };
+            if (InstallDefaults.Cooling.Presets.TryGetValue(presetName, out var p))
+                return new(p.ResponseTime, p.MinTemp, p.MaxTemp, p.MinSpeed, p.MaxSpeed);
+            // Fallback for unknown preset names (canonical guards upstream prevent this in practice).
+            return new(1.0, 30, 80, 30, 100);
+        }
     }
 }

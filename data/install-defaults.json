@@ -1,0 +1,150 @@
+{
+  "_comment": "Canonical install-time defaults for Qos. Edit here, not in C# class initializers or TS modules. The qos-service Defaults loader reads this on startup; QosSettings + FanProfiles + PanelLayoutDefaults pull their literals from it. The qos-web debug-tools export menu serializes the running config in the same shape so paste-it-back-to-the-AI round-trips cleanly. Schema is camelCase; add new fields by domain.",
+
+  "theme": {
+    "language": "en",
+    "themeMode": "system",
+    "accentColor": "#8b5cf6"
+  },
+
+  "monitoring": {
+    "showAverage": true,
+    "showMacStatusBarIcon": true,
+    "showWindowsTrayIcon": true
+  },
+
+  "panel": {
+    "autoLaunch": false,
+    "themeSyncWithDesktop": true,
+    "themeMode": "system",
+    "accentSyncWithDesktop": true,
+    "backgroundMode": "solid",
+    "backgroundEffect": "aurora",
+    "backgroundTemplate": 0,
+    "backgroundOpacity": 0.4,
+    "widgetOpacity": 1.0,
+    "widgetLabels": true,
+    "layouts": {
+      "desktop": {
+        "layoutSchemaVersion": 2,
+        "surface": "desktop",
+        "widgets": [
+          { "type": "clock",      "size": "4x2", "col": 0, "row": 0 },
+          { "type": "monitoring", "size": "4x4", "col": 0, "row": 2 }
+        ]
+      },
+      "y70": {
+        "layoutSchemaVersion": 2,
+        "surface": "y70",
+        "widgets": [
+          { "type": "clock",      "size": "4x2", "col": 0, "row": 0 },
+          { "type": "monitoring", "size": "4x4", "col": 0, "row": 2 }
+        ]
+      },
+      "phone": {
+        "layoutSchemaVersion": 2,
+        "surface": "phone",
+        "widgets": [
+          { "type": "clock",      "size": "4x2", "col": 0, "row": 0 },
+          { "type": "monitoring", "size": "4x4", "col": 0, "row": 2 }
+        ]
+      },
+      "q60": {
+        "layoutSchemaVersion": 2,
+        "surface": "q60",
+        "widgets": [
+          { "type": "monitoring", "size": "2x4", "col": 0, "row": 0 }
+        ]
+      }
+    }
+  },
+
+  "overlay": {
+    "enabled": false,
+    "alwaysOnTop": false,
+    "scale": 100,
+    "opacity": 1.0,
+    "monitor": -1
+  },
+
+  "lighting": {
+    "sync": "none",
+    "brightnessEnabled": false,
+    "speedEnabled": false,
+    "frameRate": 60,
+    "scaleRatio": 1.0,
+    "musicReactive": false,
+    "staticColor": { "r": 255, "g": 0, "b": 0 },
+    "animate": {
+      "effect": "rainbow",
+      "state": {
+        "speed": 50,
+        "intensity": 1.0,
+        "hue": 0.0,
+        "colorize": 0.0,
+        "saturation": 1.0,
+        "contrast": 1.0
+      }
+    },
+    "postProcess": {
+      "hue": 0.0,
+      "colorize": 0.0,
+      "saturation": 1.0,
+      "contrast": 1.0
+    },
+    "devicePreference": {
+      "brightness": 100,
+      "saturation": 1.0
+    }
+  },
+
+  "y70": {
+    "orientation": "Landscape",
+    "brightness": 80,
+    "screenOff": false
+  },
+
+  "keeb": {
+    "rotaryLeft": "VolumeAdjustment",
+    "rotaryRight": "BrightnessAdjustment",
+    "rotarySensitivity": "Balanced",
+    "firmwareLighting": {
+      "animationMode": "Static",
+      "speed": "Medium",
+      "direction": "Forward",
+      "brightness": 80,
+      "keyReactive": false,
+      "keyReactiveMask": false,
+      "keyReactiveMode": "Off"
+    }
+  },
+
+  "cooling": {
+    "globalSpeedModifier": 1.0,
+    "activePreset": "custom",
+    "presets": {
+      "silent":      { "responseTime": 3.0, "minTemp": 45, "maxTemp": 85, "minSpeed": 20, "maxSpeed": 70  },
+      "balanced":    { "responseTime": 1.5, "minTemp": 35, "maxTemp": 75, "minSpeed": 30, "maxSpeed": 90  },
+      "performance": { "responseTime": 0.5, "minTemp": 30, "maxTemp": 65, "minSpeed": 50, "maxSpeed": 100 }
+    },
+    "deviceLayoutSize": { "w": 80, "h": 80 }
+  },
+
+  "obs": {
+    "host": "127.0.0.1",
+    "port": 4455
+  },
+
+  "screenTime": {
+    "trackingEnabled": true
+  },
+
+  "cnvs": {
+    "playAnimation": true,
+    "playWhenPCOff": false
+  },
+
+  "auth": {
+    "remoteControlEnabled": true
+  }
+}

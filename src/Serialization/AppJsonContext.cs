@@ -478,6 +478,11 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(Qos.Service.Models.Conflicts.KillConflictResponse))]
 [JsonSerializable(typeof(Qos.Service.Models.Conflicts.ConflictsFrame))]
 
+// Install-time defaults table - read once on startup from the embedded
+// data/install-defaults.json resource. Nested POCOs are picked up
+// transitively by the source generator.
+[JsonSerializable(typeof(Qos.Service.Defaults.InstallDefaultsDocument))]
+
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

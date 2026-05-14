@@ -122,6 +122,13 @@
     <EmbeddedResource Include="data\openrgb-supported-devices.json">
       <LogicalName>openrgb-supported-devices.json</LogicalName>
     </EmbeddedResource>
+    <!-- Canonical install-time defaults. Read once by InstallDefaults at
+         startup and exposed to every subsystem (FanProfiles, QosSettings,
+         PanelLayoutDefaults, etc.) so default values live in exactly one
+         file instead of scattered C# initializers. -->
+    <EmbeddedResource Include="data\install-defaults.json">
+      <LogicalName>install-defaults.json</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!-- GLSL fragment shaders: one file per animate effect under

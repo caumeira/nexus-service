@@ -624,6 +624,7 @@ app.Use(async (ctx, next) =>
 
 // ── Map all routes ──
 app.MapPingEndpoints();
+app.MapDefaultsEndpoints();
 app.MapAuthEndpoints();
 app.MapSystemEndpoints();
 app.MapServiceControlEndpoints();
