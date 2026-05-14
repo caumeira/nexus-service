@@ -59,7 +59,6 @@ internal sealed class StubSensorProvider : ISensorProvider
     public IReadOnlyList<StorageDriveInfo> GetStorageInfo() => Array.Empty<StorageDriveInfo>();
     public IReadOnlyList<HardwareSensor> GetMotherboardSensors() => Array.Empty<HardwareSensor>();
     public string GetMotherboardModel() => "test-mobo";
-    public IReadOnlyList<HardwareSensor> GetFpsSensors() => Array.Empty<HardwareSensor>();
     public SensorExtras GetSensorExtras()
     {
         ExtrasReads++;

@@ -573,8 +573,6 @@ public sealed class LinuxSensorProvider : ISensorProvider
     private static string TryDmi(string stringArg)
         => ShellExecutor.Run("/usr/sbin/dmidecode", 2000, "-s", stringArg).Trim();
 
-    public IReadOnlyList<HardwareSensor> GetFpsSensors() => EmptySensors;
-
     public SensorExtras GetSensorExtras()
     {
         // Best-effort Linux extras. We surface battery state from

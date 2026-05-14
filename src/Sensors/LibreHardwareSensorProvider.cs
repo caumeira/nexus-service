@@ -314,8 +314,6 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
         catch { return ""; }
     }
 
-    public IReadOnlyList<HardwareSensor> GetFpsSensors() => Array.Empty<HardwareSensor>();
-
     public SensorExtras GetSensorExtras()
     {
         _lhm.Update(TimeSpan.FromMilliseconds(100));

@@ -448,10 +448,6 @@ public sealed class MacSensorProvider : ISensorProvider
         return _storageBrandModel;
     }
 
-    // ── FPS (not available on macOS without a game overlay) ──────
-
-    public IReadOnlyList<HardwareSensor> GetFpsSensors() => EmptySensors;
-
     // macOS has no equivalent surface for the Detailed-tab extras (battery /
     // PSU / per-NIC throughput / cooler / NVMe controller / EC). Return an
     // empty extras frame and let the SPA hide the corresponding sections.

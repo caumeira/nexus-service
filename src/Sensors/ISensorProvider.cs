@@ -43,8 +43,6 @@ public interface ISensorProvider
     IReadOnlyList<HardwareSensor> GetMotherboardSensors();
     string GetMotherboardModel();
 
-    IReadOnlyList<HardwareSensor> GetFpsSensors();
-
     /// <summary>
     /// Hardware families the Monitoring Detailed tab surfaces but no other
     /// page consumes. Implementations should walk all hardware sources they
