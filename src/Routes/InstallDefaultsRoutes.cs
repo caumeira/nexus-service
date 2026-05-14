@@ -1,5 +1,8 @@
+using System.Collections.Generic;
+using System.Linq;
 using Qos.Service.Auth;
 using Qos.Service.Defaults;
+using Qos.Service.Models.Panel;
 using Qos.Service.Persistence;
 
 namespace Qos.Service.Routes;
@@ -47,10 +50,24 @@ public static class InstallDefaultsRoutes
                     BackgroundOpacity = s.Ui.PanelBackgroundOpacity,
                     WidgetOpacity = s.Ui.PanelWidgetOpacity,
                     WidgetLabels = s.Ui.PanelWidgetLabels,
-                    // Layouts stay sourced from the canonical install-defaults;
-                    // live layouts are per-device records under PanelDevices and
-                    // don't map back onto the four canonical surfaces directly.
-                    Layouts = InstallDefaults.Panel.Layouts,
+                    // Project the LIVE layouts back into install-defaults
+                    // shape so paste-to-defaults captures what the user
+                    // actually has on screen. Desktop comes from
+                    // UiSettings.DashboardLayout (profile-scoped); kiosk
+                    // surfaces come from the first matching PanelDevices
+                    // record. Any surface with no live layout falls back to
+                    // canonical so the snapshot is always complete.
+                    Layouts = new PanelLayoutsDefaults
+                    {
+                        Desktop = ProjectLayout(s.Ui.DashboardLayout, "desktop")
+                                  ?? InstallDefaults.Panel.Layouts.Desktop,
+                        Y70     = ProjectFirstDeviceLayout(s.PanelDevices, "y70")
+                                  ?? InstallDefaults.Panel.Layouts.Y70,
+                        Phone   = ProjectFirstDeviceLayout(s.PanelDevices, "phone")
+                                  ?? InstallDefaults.Panel.Layouts.Phone,
+                        Q60     = ProjectFirstDeviceLayout(s.PanelDevices, "q60")
+                                  ?? InstallDefaults.Panel.Layouts.Q60,
+                    },
                 },
                 Overlay = new OverlayDefaults
                 {
@@ -150,5 +167,31 @@ public static class InstallDefaultsRoutes
                 },
             };
         }).AllowPanel();
+    }
+
+    // Flatten a runtime PanelLayoutDto (pages → widgets) into the
+    // install-defaults shape (single flat widget list, no ids / config).
+    private static PanelLayoutDefault? ProjectLayout(PanelLayoutDto? dto, string surface)
+    {
+        if (dto is null) return null;
+        var widgets = (dto.Pages.FirstOrDefault()?.Widgets ?? new List<PanelWidgetDto>())
+            .Select(w => new PanelLayoutWidget { Type = w.Type, Size = w.Size, Col = w.Col, Row = w.Row })
+            .ToList();
+        return new PanelLayoutDefault
+        {
+            LayoutSchemaVersion = dto.LayoutSchemaVersion,
+            Surface = surface,
+            Widgets = widgets,
+        };
+    }
+
+    private static PanelLayoutDefault? ProjectFirstDeviceLayout(Dictionary<string, PanelDeviceRecord> devices, string surface)
+    {
+        var match = devices.Values
+            .Where(d => d.Layout is not null
+                && string.Equals(d.Layout.Surface, surface, System.StringComparison.OrdinalIgnoreCase))
+            .Select(d => d.Layout)
+            .FirstOrDefault();
+        return ProjectLayout(match, surface);
     }
 }
