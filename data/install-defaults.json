@@ -22,38 +22,79 @@
     "backgroundEffect": "aurora",
     "backgroundTemplate": 0,
     "backgroundOpacity": 0.4,
-    "widgetOpacity": 1.0,
+    "widgetOpacity": 1,
     "widgetLabels": true,
     "layouts": {
       "desktop": {
         "layoutSchemaVersion": 2,
         "surface": "desktop",
         "widgets": [
-          { "type": "clock",      "size": "4x2", "col": 0, "row": 0 },
-          { "type": "monitoring", "size": "4x4", "col": 0, "row": 2 }
+          {
+            "type": "lighting",
+            "size": "4x2",
+            "col": 0,
+            "row": 0
+          },
+          {
+            "type": "cooling",
+            "size": "4x2",
+            "col": 0,
+            "row": 2
+          },
+          {
+            "type": "marketplace:com.nexusqos.weather",
+            "size": "2x2",
+            "col": 4,
+            "row": 0
+          }
         ]
       },
       "y70": {
         "layoutSchemaVersion": 2,
         "surface": "y70",
         "widgets": [
-          { "type": "clock",      "size": "4x2", "col": 0, "row": 0 },
-          { "type": "monitoring", "size": "4x4", "col": 0, "row": 2 }
+          {
+            "type": "clock",
+            "size": "4x2",
+            "col": 0,
+            "row": 0
+          },
+          {
+            "type": "monitoring",
+            "size": "4x4",
+            "col": 0,
+            "row": 2
+          }
         ]
       },
       "phone": {
         "layoutSchemaVersion": 2,
         "surface": "phone",
         "widgets": [
-          { "type": "clock",      "size": "4x2", "col": 0, "row": 0 },
-          { "type": "monitoring", "size": "4x4", "col": 0, "row": 2 }
+          {
+            "type": "clock",
+            "size": "4x2",
+            "col": 0,
+            "row": 0
+          },
+          {
+            "type": "monitoring",
+            "size": "4x4",
+            "col": 0,
+            "row": 2
+          }
         ]
       },
       "q60": {
         "layoutSchemaVersion": 2,
         "surface": "q60",
         "widgets": [
-          { "type": "monitoring", "size": "2x4", "col": 0, "row": 0 }
+          {
+            "type": "monitoring",
+            "size": "2x4",
+            "col": 0,
+            "row": 0
+          }
         ]
       }
     }
