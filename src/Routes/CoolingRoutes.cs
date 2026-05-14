@@ -163,6 +163,21 @@ public static class CoolingRoutes
             return Results.Ok(new ApplyProfileResponse { Applied = applied });
         }).AllowPanel();
 
+        // Reset a Silent / Balanced / Performance preset curve to its default
+        // type + Linear parameters. Fan attachments stay intact so the active
+        // preset doesn't flip to "custom" as a side effect of the reset.
+        app.MapPost("/cooling/profile/{name}/reset", (string name, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
+        {
+            var canonical = (name ?? "").ToLowerInvariant();
+            if (canonical != "silent" && canonical != "balanced" && canonical != "performance")
+            {
+                return Results.BadRequest(new ApiResponse { Error = true, Msg = $"Cannot reset preset: {name}" });
+            }
+            FanProfiles.ResetPresetCurve(canonical, f, store);
+            PanelTopics.BroadcastCooling(hub);
+            return Results.Ok(ApiResponse.Ok());
+        }).AllowPanel();
+
         // Calibration — fire-and-forget, poll status
         app.MapPost("/cooling/calibrate", (StartCalibrationBody body, IFanControlProvider f, CalibrationRunner runner) =>
         {

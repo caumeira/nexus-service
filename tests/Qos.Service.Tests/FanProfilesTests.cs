@@ -271,13 +271,22 @@ public class FanProfilesTests : IDisposable
     }
 
     [Fact]
-    public void DerivePresetFromCurves_PresetWithManualOverrideIsCustom()
+    public void DerivePresetFromCurves_AttachedFanIgnoresManualSpeedsEntry()
     {
-        // All fans on preset-silent but one of them has a manual override:
-        // the user broke out of the shared regime -> custom.
+        // The curve engine routes its per-tick computed duty through the same
+        // SetFanSpeed path that records ManualSpeeds, so every curve-attached
+        // fan accumulates a "manual" entry there within milliseconds of the
+        // preset becoming active. Derivation must ignore those entries for
+        // attached fans — otherwise the active preset flips to "custom" on
+        // the next curve save. (Original bug repro: silent + slider drag ->
+        // briefly "custom".)
         FanProfiles.Apply("silent", _fans, _store);
-        _store.Update(s => s.Cooling.ManualSpeeds["fan1"] = 50);
-        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, _fans));
+        _store.Update(s =>
+        {
+            s.Cooling.ManualSpeeds["fan1"] = 25;
+            s.Cooling.ManualSpeeds["fan2"] = 25;
+        });
+        Assert.Equal("silent", FanProfiles.DerivePresetFromCurves(_store, _fans));
     }
 
     [Fact]
@@ -286,6 +295,62 @@ public class FanProfilesTests : IDisposable
         FanProfiles.Apply("auto", _fans, _store);
         var s = _store.Load();
         Assert.Equal("off", s.Cooling.ActivePreset);
+    }
+
+[Fact]
+    public void ResetPresetCurve_RestoresLinearDefaults()
+    {
+        FanProfiles.Apply("silent", _fans, _store);
+        // User edits the silent curve away from defaults and switches it to
+        // Flat type.
+        _store.Update(s =>
+        {
+            var preset = s.Cooling.Curves.First(c => c.Preset == "silent");
+            preset.Type = "Flat";
+            preset.Flat = new FlatCurveData { Speed = 99 };
+            preset.Linear!.MinTemp = 99;
+        });
+
+        FanProfiles.ResetPresetCurve("silent", _fans, _store);
+
+        var s = _store.Load();
+        var preset = s.Cooling.Curves.First(c => c.Preset == "silent");
+        var defaults = FanProfiles.PresetDefaults.For("silent");
+        Assert.Equal("Linear", preset.Type);
+        Assert.Null(preset.Flat);
+        Assert.Equal(defaults.MinTemp, preset.Linear!.MinTemp);
+        Assert.Equal(defaults.MaxTemp, preset.Linear.MaxTemp);
+        Assert.Equal(defaults.MinSpeed, preset.Linear.MinSpeed);
+        Assert.Equal(defaults.MaxSpeed, preset.Linear.MaxSpeed);
+        Assert.Equal(defaults.ResponseTime, preset.Linear.ResponseTime);
+    }
+
+    [Fact]
+    public void ResetPresetCurve_PreservesFanAttachments()
+    {
+        FanProfiles.Apply("balanced", _fans, _store);
+        FanProfiles.ResetPresetCurve("balanced", _fans, _store);
+
+        var s = _store.Load();
+        var preset = s.Cooling.Curves.First(c => c.Preset == "balanced");
+        Assert.Equal(2, preset.Outputs.Count);
+        // Active preset is unaffected by a template-only reset.
+        Assert.Equal("balanced", FanProfiles.DerivePresetFromCurves(_store, _fans));
+    }
+
+    [Fact]
+    public void ResetPresetCurve_IgnoresUnknownPreset()
+    {
+        FanProfiles.Apply("silent", _fans, _store);
+        // Mutate the silent curve so a regression that drops the canonical
+        // guard would visibly clobber this value.
+        _store.Update(s => s.Cooling.Curves.First(c => c.Preset == "silent").Linear!.MinTemp = 11);
+        FanProfiles.ResetPresetCurve("custom", _fans, _store);
+        FanProfiles.ResetPresetCurve("nonsense", _fans, _store);
+
+        var s = _store.Load();
+        Assert.Equal("silent", s.Cooling.ActivePreset);
+        Assert.Equal(11, s.Cooling.Curves.First(c => c.Preset == "silent").Linear!.MinTemp);
     }
 
     private sealed class FakeFanProvider : IFanControlProvider

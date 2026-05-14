@@ -166,13 +166,21 @@ public static class FanProfiles
                 }
             }
         }
-        var manualSet = settings.Cooling.ManualSpeeds.Keys.Where(fanIds.Contains).ToHashSet();
+        // Manual overrides only count for fans NOT already driven by a curve.
+        // The curve engine writes its per-tick computed duty through the same
+        // SetFanSpeed path that records ManualSpeeds, so every curve-attached
+        // fan accumulates a stale entry there — including fans bound to the
+        // preset curve. Counting those would flip the active preset back to
+        // "custom" on the next curve save (the original bug repro).
+        var manualUnattached = settings.Cooling.ManualSpeeds.Keys
+            .Where(id => fanIds.Contains(id) && !attachment.ContainsKey(id))
+            .ToHashSet();
 
-        // All fans BIOS = no attachment AND no manual override on any fan.
-        if (attachment.Count == 0 && manualSet.Count == 0) return "off";
+        // All fans BIOS = no attachment AND no genuine manual override.
+        if (attachment.Count == 0 && manualUnattached.Count == 0) return "off";
 
-        // All fans on the same preset curve, with no manual overrides.
-        if (manualSet.Count == 0)
+        // All fans on the same preset curve, with no genuine manual overrides.
+        if (manualUnattached.Count == 0)
         {
             foreach (var presetName in new[] { "silent", "balanced", "performance" })
             {
@@ -185,6 +193,47 @@ public static class FanProfiles
         }
 
         return "custom";
+    }
+
+    /// <summary>
+    /// Restore a Silent / Balanced / Performance preset curve to its default
+    /// Linear template. Fan attachments + list position are preserved so the
+    /// active preset stays in effect; only the template resets. If the curve
+    /// was previously deleted, recreate it at defaults via EnsurePresetCurve.
+    /// </summary>
+    public static void ResetPresetCurve(string presetName, IFanControlProvider fans, IConfigStore store)
+    {
+        var canonical = (presetName ?? "").ToLowerInvariant();
+        if (canonical != "silent" && canonical != "balanced" && canonical != "performance") return;
+        var inputSensor = PreferredInput(fans.GetTemperatureSources());
+        var defaults = PresetDefaults.For(canonical);
+
+        store.Update(s =>
+        {
+            // EnsurePresetCurve returns the existing curve (normalizing the
+            // Preset flag) or creates a fresh one at defaults. Either way we
+            // then forcibly overwrite the template fields below; the redundant
+            // write on the just-created path is harmless.
+            var curve = EnsurePresetCurve(s.Cooling.Curves, canonical, inputSensor);
+            curve.Name = DisplayName(canonical);
+            curve.Type = "Linear";
+            // Only overwrite the input binding when we actually have a sensor
+            // to bind to — a transient LHM read during reset shouldn't strip
+            // a perfectly valid existing input.
+            if (inputSensor is not null)
+            {
+                curve.Input = new CurveInputDocument { Id = inputSensor.Id, Type = "Temperature", Device = inputSensor.Category };
+            }
+            curve.Linear = new LinearCurveData
+            {
+                ResponseTime = defaults.ResponseTime,
+                MinTemp = defaults.MinTemp, MaxTemp = defaults.MaxTemp,
+                MinSpeed = defaults.MinSpeed, MaxSpeed = defaults.MaxSpeed,
+            };
+            curve.Flat = null;
+            curve.Graph = null;
+            curve.Mixed = null;
+        });
     }
 
     /// <summary>
