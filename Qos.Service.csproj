@@ -395,6 +395,30 @@
     <Delete Files="$(_OverlayPublishDir)qos-overlay.pdb" />
   </Target>
 
+  <!-- First-party + community widgets. Live in the separate `qos-widgets`
+       submodule (../qos-widgets in this layout); MSBuild copies them into
+       <output>/widgets/<id>/, matching the bundled-install root the
+       WidgetRegistry scans. The host renders the declarative view
+       (qos.widget/2) and, for Tier 2 widgets, serves worker.js + sibling
+       module files (lib/*.js) over a per-spawn /widgets-api/code/<session>
+       URL. The Web SDK's default Content include sometimes shadows the
+       Link metadata; remove + re-add to ensure our metadata wins. -->
+  <PropertyGroup>
+    <QosWidgetsRoot Condition="'$(QosWidgetsRoot)' == ''">$(MSBuildThisFileDirectory)..\qos-widgets\widgets</QosWidgetsRoot>
+  </PropertyGroup>
+  <Target Name="CheckQosWidgetsSubmodule" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(QosWidgetsRoot)')"
+           Text="qos-widgets submodule missing at $(QosWidgetsRoot). Run: git submodule update --init qos-widgets" />
+  </Target>
+  <ItemGroup>
+    <Content Remove="$(QosWidgetsRoot)\**\*" />
+    <Content Include="$(QosWidgetsRoot)\**\*">
+      <Link>widgets\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
   <!-- Bake git commit count as version -->
   <Target Name="SetGitVersion" BeforeTargets="CoreCompile">
     <Exec Command="git rev-list --count HEAD 2>NUL" ConsoleToMsBuild="true" IgnoreExitCode="true"

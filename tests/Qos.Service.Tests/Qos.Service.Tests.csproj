@@ -23,4 +23,13 @@
     <Using Include="Xunit" />
   </ItemGroup>
 
+  <!-- Widget fixture bundles copy to the test output dir so registry tests
+       can point at a real directory tree. Anything new under Widgets/Fixtures/
+       is included automatically. -->
+  <ItemGroup>
+    <Content Include="Widgets/Fixtures/**/*">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
 </Project>

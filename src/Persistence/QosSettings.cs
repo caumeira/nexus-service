@@ -36,6 +36,14 @@ public sealed class QosSettings
 
     /// <summary>Category ids currently set to Shared. Allowed values: "lighting", "cooling", "theme", "dashboard". Categories not in this list are per-profile (the default). NOT profile-scoped: workstation-level. Hardware-bound state (Keeb, Y70, Devices, panel defaults) always lives at workstation root and is never per-profile, so it never appears here.</summary>
     public List<string> SharedCategories { get; set; } = new();
+
+    /// <summary>
+    /// Per-widget setting overrides keyed by widget id (e.g. <c>com.nexusqos.cpu-temp</c>).
+    /// Inner dictionary maps the manifest's <c>settings[].key</c> to the user's
+    /// JSON-encoded value. Reads merge manifest defaults under this map; writes
+    /// land here without touching the manifest.
+    /// </summary>
+    public Dictionary<string, Dictionary<string, string>> Widgets { get; set; } = new();
 }
 
 public sealed class ScreenTimeSettings

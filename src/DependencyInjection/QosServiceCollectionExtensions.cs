@@ -357,6 +357,32 @@ public static class QosServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Widget runtime. Phase 0 only registers discovery; serving routes are
+    /// wired in <see cref="Qos.Service.Routes.WidgetRoutes.MapWidgetEndpoints"/>
+    /// in Program.cs.
+    /// </summary>
+    public static IServiceCollection AddQosWidgets(this IServiceCollection services)
+    {
+        services.AddSingleton<Qos.Service.Widgets.WidgetRegistry>();
+        services.AddSingleton<Qos.Service.Widgets.WidgetSettingsService>();
+        services.AddSingleton<Qos.Service.Widgets.WidgetProxyService>();
+        services.AddSingleton<Qos.Service.Widgets.WidgetInstaller>();
+        services.AddSingleton<Qos.Service.Widgets.WidgetCodeSessionService>();
+        services.AddSingleton<Qos.Service.Widgets.WidgetActionRegistry>(sp =>
+        {
+            var registry = new Qos.Service.Widgets.WidgetActionRegistry();
+            // First-party action modules. Each registers its own actions
+            // by name; the manifest's capabilities.dispatch allowlist
+            // gates per-widget access.
+            Qos.Service.Widgets.WidgetActions.DisplayActions.RegisterAll(registry);
+            Qos.Service.Widgets.WidgetActions.ScreentimeActions.RegisterAll(registry);
+            Qos.Service.Widgets.WidgetActions.MacroActions.RegisterAll(registry);
+            return registry;
+        });
+        return services;
+    }
+
     public static IServiceCollection AddQosPanel(this IServiceCollection services, int servicePort)
     {
         services.AddSingleton(sp => new Qos.Service.Panel.PanelKioskLauncher(servicePort, sp.GetRequiredService<TokenService>()));

@@ -17,6 +17,7 @@ using Qos.Service.Models.Peripherals.Q60;
 using Qos.Service.Models.Peripherals.Y70;
 using Qos.Service.Models.Sensors;
 using Qos.Service.Models.Steam;
+using Qos.Service.Models.Widgets;
 using Qos.Service.Platform;
 using Qos.Service.Routes;
 
@@ -148,8 +149,6 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayListResponse))]
 
 // Panel macros
-[JsonSerializable(typeof(Qos.Service.Models.Panel.OpenUrlRequest))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.ShortcutRequest))]
 
 // Weather
 [JsonSerializable(typeof(Qos.Service.Models.Weather.WeatherSnapshot))]
@@ -399,6 +398,11 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(HelperEnvelope))]
 [JsonSerializable(typeof(HelperResult))]
 [JsonSerializable(typeof(HelperHello))]
+#if WINDOWS
+// Helper IPC payload types live under `#if WINDOWS` so they only register
+// where the helper actually runs. Same gate as the per-domain files under
+// src/Helper/Domains/; without this the non-Windows TFM does not compile
+// because Qos.Service.Helper.Domains is absent there.
 // Lifecycle
 [JsonSerializable(typeof(Qos.Service.Helper.Domains.HelperShutdownPayload))]
 [JsonSerializable(typeof(Qos.Service.Helper.Domains.OverlayPrefsChangedPayload))]
@@ -427,6 +431,46 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenMirrorStartPayload))]
 [JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenMirrorStopPayload))]
 [JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenMirrorFramePayload))]
+#endif
+
+// Widgets - declarative runtime (qos.widget/2 schema)
+[JsonSerializable(typeof(WidgetManifest))]
+[JsonSerializable(typeof(WidgetManifestAuthor))]
+[JsonSerializable(typeof(WidgetManifestViewport))]
+[JsonSerializable(typeof(WidgetManifestCapabilities))]
+[JsonSerializable(typeof(WidgetManifestSettingEntry))]
+[JsonSerializable(typeof(List<WidgetManifestSettingEntry>))]
+[JsonSerializable(typeof(WidgetManifestDataSource))]
+[JsonSerializable(typeof(Dictionary<string, WidgetManifestDataSource>))]
+[JsonSerializable(typeof(WidgetClockSource))]
+[JsonSerializable(typeof(WidgetHostSource))]
+[JsonSerializable(typeof(WidgetActionAckDto))]
+[JsonSerializable(typeof(ScreentimeHistoryEntryDto))]
+[JsonSerializable(typeof(ScreentimeFocusDto))]
+[JsonSerializable(typeof(ScreentimeTodayDto))]
+[JsonSerializable(typeof(List<ScreentimeHistoryEntryDto>))]
+[JsonSerializable(typeof(WidgetManifestFont))]
+[JsonSerializable(typeof(List<WidgetManifestFont>))]
+[JsonSerializable(typeof(WidgetInstalledListing))]
+[JsonSerializable(typeof(WidgetInstalledListingResponse))]
+[JsonSerializable(typeof(List<WidgetInstalledListing>))]
+[JsonSerializable(typeof(WidgetCatalogEntry))]
+[JsonSerializable(typeof(WidgetCatalogResponse))]
+[JsonSerializable(typeof(List<WidgetCatalogEntry>))]
+[JsonSerializable(typeof(WidgetInstallRequest))]
+[JsonSerializable(typeof(WidgetInstallResponse))]
+[JsonSerializable(typeof(WidgetCodeSessionResponse))]
+[JsonSerializable(typeof(Qos.Service.Models.Panel.OpenUrlRequest))]
+[JsonSerializable(typeof(Qos.Service.Models.Panel.ShortcutRequest))]
+// Widgets - settings
+[JsonSerializable(typeof(WidgetSettingsDocument))]
+[JsonSerializable(typeof(WidgetSettingsPatch))]
+[JsonSerializable(typeof(Dictionary<string, System.Text.Json.JsonElement>))]
+// Widgets - proxy
+[JsonSerializable(typeof(WidgetProxyRequest))]
+[JsonSerializable(typeof(WidgetProxyResponse))]
+[JsonSerializable(typeof(WidgetDispatchRequest))]
+[JsonSerializable(typeof(WidgetDispatchResponse))]
 
 // Conflict warning system - sidebar alarm for competing third-party apps.
 [JsonSerializable(typeof(Qos.Service.Models.Conflicts.DetectedConflict))]
