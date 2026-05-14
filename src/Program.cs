@@ -666,7 +666,6 @@ app.MapFallbackToFile("index.html");
 
 // Kill orphan processes from previous crashed sessions.
 Qos.Service.Platform.FfmpegTracker.CleanupOrphans();
-Qos.Service.Panel.PanelKioskLauncher.CleanupOrphans();
 Qos.Service.Panel.PanelOverlayHostLauncher.CleanupOrphans();
 Qos.Service.Lighting.Rgb.OpenRgbProcessManager.CleanupOrphans();
 
@@ -817,7 +816,10 @@ if (serviceMode)
         try
         {
             var snapshot = overlayStore.Load();
-            var shouldRun = snapshot.Overlay.Enabled && snapshot.Overlay.Layout.Count > 0;
+            // qos-overlay hosts widgets, the dashboard window, AND the panel
+            // kiosk. Start it when any of those need to be on.
+            var shouldRun = (snapshot.Overlay.Enabled && snapshot.Overlay.Layout.Count > 0)
+                            || snapshot.Panel.AutoLaunch;
             if (shouldRun && !overlayHost.IsRunning)
             {
                 overlayHost.Start();
@@ -854,7 +856,9 @@ if (serviceMode)
     app.Lifetime.ApplicationStarted.Register(() =>
     {
         var initial = overlayStore.Load();
-        if (initial.Overlay.Enabled && initial.Overlay.Layout.Count > 0)
+        var shouldStartHost = (initial.Overlay.Enabled && initial.Overlay.Layout.Count > 0)
+                              || initial.Panel.AutoLaunch;
+        if (shouldStartHost)
         {
             _ = Task.Run(async () =>
             {
@@ -898,27 +902,10 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             Console.WriteLine("[qos-service] app window launched");
         }
 
-        // Auto-launch the panel kiosk if the setting is enabled AND a recognized
-        // device display (Y70/Y80) is connected. Runs on a background thread with
-        // a short delay so the display subsystem is fully initialized after logon.
-        var store2 = app.Services.GetRequiredService<Qos.Service.Persistence.IConfigStore>();
-        if (store2.Load().Panel.AutoLaunch)
-        {
-            _ = Task.Run(async () =>
-            {
-                await Task.Delay(3000);
-                if (Qos.Service.Panel.PanelKioskLauncher.IsPanelDisplayConnected())
-                {
-                    var kiosk = app.Services.GetRequiredService<Qos.Service.Panel.PanelKioskLauncher>();
-                    if (!kiosk.IsRunning)
-                    {
-                        kiosk.Launch();
-                        Console.WriteLine("[panel] auto-launched on recognized display");
-                    }
-                }
-            });
-        }
-
+        // Panel kiosk auto-launch is owned by qos-overlay (Session-2 user
+        // context) — see PanelDisplay.Find + PanelKioskWindow in the overlay
+        // process. The service used to launch msedge directly here, which
+        // landed in Session 0 under LocalSystem and rendered offscreen.
     });
 
     // Kill panel kiosk webview on any shutdown (Ctrl+C, Task Manager, Stop-Process, etc.)

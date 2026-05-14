@@ -49,6 +49,11 @@ public static class PanelLayoutDefaults
                         Size = w.Size,
                         Col = w.Col,
                         Row = w.Row,
+                        // Carry the seed's Config through so install-defaults
+                        // can pre-populate per-widget settings (e.g. monitoring
+                        // sensors, clock design). Null means "use the widget's
+                        // own component-default behavior".
+                        Config = w.Config,
                     }).ToList(),
                 },
             },

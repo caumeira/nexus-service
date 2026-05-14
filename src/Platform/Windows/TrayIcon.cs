@@ -496,13 +496,20 @@ public static class TrayIcon
     private const string ShowDashboardMessageName = "Qos.Overlay.ShowDashboard";
 
     /// <summary>
-    /// Tries to deliver a ShowDashboard message to the running qos-overlay
+    /// Tries to deliver a registered window message to the running qos-overlay
     /// process's marshaler window. Returns false if no marshaler is found
     /// within <paramref name="timeoutMs"/> (default: 0, i.e. one-shot
     /// check; pass a positive value after spawning the overlay to give it
     /// time to register its window).
     /// </summary>
-    private static bool TrySendShowDashboardToOverlay(int timeoutMs = 0)
+    /// <param name="messageName">Registered window message name (e.g.
+    /// <c>"Qos.Overlay.ShowDashboard"</c>, <c>"Qos.Overlay.ShowPanelKiosk"</c>).</param>
+    /// <param name="handoffForeground">When true, calls
+    /// <c>AllowSetForegroundWindow</c> on the overlay process before posting
+    /// so it can raise/focus its window. Set for click-driven launches
+    /// (ShowDashboard); leave false for background triggers like the kiosk
+    /// auto-launch where there's no foreground privilege to hand off.</param>
+    internal static bool TryPostToOverlayMarshaler(string messageName, int timeoutMs = 0, bool handoffForeground = false)
     {
         try
         {
@@ -515,36 +522,39 @@ public static class TrayIcon
                 if (DateTime.UtcNow >= deadline) return false;
                 System.Threading.Thread.Sleep(150);
             }
-            var msg = RegisterWindowMessage(ShowDashboardMessageName);
+            var msg = RegisterWindowMessage(messageName);
             if (msg == 0)
             {
-                DiagFile("RegisterWindowMessage(ShowDashboard) failed");
+                DiagFile($"RegisterWindowMessage({messageName}) failed");
                 return false;
             }
-            // Foreground-stealing handoff: SetForegroundWindow only works
-            // for the process that owns the current foreground. The user
-            // just clicked the tray, so WE are the foreground - hand the
-            // privilege to the overlay process for its imminent SetForeground
-            // call on the dashboard HWND. Without this, the dashboard shows
-            // up correctly Z-ordered but unfocused and stays behind whatever
-            // the user was using.
-            try
+            if (handoffForeground)
             {
-                GetWindowThreadProcessId(marshaler, out var overlayPid);
-                if (overlayPid != 0) AllowSetForegroundWindow(overlayPid);
+                // SetForegroundWindow only works for the process that owns
+                // the current foreground. The caller (e.g., tray click) is
+                // foreground; hand the privilege to the overlay so its
+                // imminent SetForeground call lands.
+                try
+                {
+                    GetWindowThreadProcessId(marshaler, out var overlayPid);
+                    if (overlayPid != 0) AllowSetForegroundWindow(overlayPid);
+                }
+                catch { /* worst case is unfocused window */ }
             }
-            catch { /* fall through; worst case is unfocused window */ }
 
             var ok = PostMessage(marshaler, msg, IntPtr.Zero, IntPtr.Zero);
-            if (!ok) DiagFile($"PostMessage(ShowDashboard) to 0x{marshaler.ToInt64():X} failed");
+            if (!ok) DiagFile($"PostMessage({messageName}) to 0x{marshaler.ToInt64():X} failed");
             return ok;
         }
         catch (Exception ex)
         {
-            DiagFile($"TrySendShowDashboardToOverlay: {ex.Message}");
+            DiagFile($"TryPostToOverlayMarshaler({messageName}): {ex.Message}");
             return false;
         }
     }
+
+    private static bool TrySendShowDashboardToOverlay(int timeoutMs = 0)
+        => TryPostToOverlayMarshaler(ShowDashboardMessageName, timeoutMs, handoffForeground: true);
 
     /// <summary>
     /// Starts qos-overlay.exe in the current user session. We're already

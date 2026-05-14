@@ -71,7 +71,8 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
                 //   2. Nest flat Ui.{theme/panel/overlay/monitoring} fields out of
                 //      UiSettings into matching top-level POCOs (schema v1 → v2).
                 var afterOverlay = MigrateLegacyOverlayKeys(json);
-                var migratedJson = MigrateV1ToV2(afterOverlay);
+                var afterV1 = MigrateV1ToV2(afterOverlay);
+                var migratedJson = MigrateV2ToV3(afterV1);
                 if (!ReferenceEquals(migratedJson, json))
                 {
                     _dirty = true;
@@ -244,15 +245,14 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     };
 
     /// <summary>
-    /// Runs both legacy migrations (overlay key rename + v1→v2 nested shape)
-    /// on a raw JSON string. Exposed publicly so per-profile JSON files
-    /// loaded by <see cref="ProfileManager"/> get the same treatment as the
-    /// master settings.json. Idempotent: re-running on already-migrated JSON
-    /// returns the input unchanged.
+    /// Runs every legacy migration on a raw JSON string. Exposed publicly so
+    /// per-profile JSON files loaded by <see cref="ProfileManager"/> get the
+    /// same treatment as the master settings.json. Idempotent: re-running on
+    /// already-migrated JSON returns the input unchanged.
     /// </summary>
     public static string MigrateLegacyJson(string json)
     {
-        return MigrateV1ToV2(MigrateLegacyOverlayKeys(json));
+        return MigrateV2ToV3(MigrateV1ToV2(MigrateLegacyOverlayKeys(json)));
     }
 
     private static string MigrateLegacyOverlayKeys(string json)
@@ -353,5 +353,82 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         var clone = node.DeepClone();
         src.Remove(srcKey);
         dst[dstKey] = clone;
+    }
+
+    // v2 (typed-union widget config) → v3 (raw-JSON widget config). v2 stored
+    // every per-widget config value as `{ "s": "x" }` / `{ "n": 42 }` /
+    // `{ "b": true }` so the source-generated `PanelConfigValue` POCO could be
+    // AOT-deserialized; v3 stores values raw (string / number / bool / object
+    // / array) and the wire type is `Dictionary<string, JsonElement>`.
+    //
+    // Algorithm: every JsonObject named "config" anywhere in the document gets
+    // its entries unwrapped — a single-property `{ s }`/`{ n }`/`{ b }` wrapper
+    // is replaced by its raw value; anything else (a structured object the
+    // user already migrated, or a marketplace widget value) passes through
+    // untouched. Idempotent: re-running on v3 data is a no-op.
+    private static string MigrateV2ToV3(string json)
+    {
+        JsonNode? root;
+        try { root = JsonNode.Parse(json); }
+        catch (JsonException) { return json; }
+        if (root is not JsonObject obj) return json;
+
+        int sv = 0;
+        if (obj.TryGetPropertyValue("schemaVersion", out var svNode) && svNode is JsonValue v && v.TryGetValue<int>(out var parsed))
+            sv = parsed;
+        if (sv >= 3) return json;
+
+        UnwrapConfigsRecursive(obj);
+        obj["schemaVersion"] = 3;
+        return obj.ToJsonString();
+    }
+
+    private static void UnwrapConfigsRecursive(JsonNode node)
+    {
+        if (node is JsonObject jo)
+        {
+            // First, recurse into children so we hit nested config dicts.
+            // Snapshot keys because we may mutate the object's entries.
+            var keys = new List<string>();
+            foreach (var kv in jo) keys.Add(kv.Key);
+            foreach (var key in keys)
+            {
+                var child = jo[key];
+                if (child is null) continue;
+                if (key == "config" && child is JsonObject cfg)
+                {
+                    UnwrapConfigDict(cfg);
+                }
+                else
+                {
+                    UnwrapConfigsRecursive(child);
+                }
+            }
+        }
+        else if (node is JsonArray ja)
+        {
+            foreach (var item in ja)
+            {
+                if (item is not null) UnwrapConfigsRecursive(item);
+            }
+        }
+    }
+
+    private static void UnwrapConfigDict(JsonObject cfg)
+    {
+        // Snapshot keys before mutation.
+        var keys = new List<string>();
+        foreach (var kv in cfg) keys.Add(kv.Key);
+        foreach (var key in keys)
+        {
+            if (cfg[key] is not JsonObject wrapper) continue;
+            if (wrapper.Count != 1) continue;
+            JsonNode? inner = null;
+            if (wrapper.TryGetPropertyValue("s", out var s) && s is not null) inner = s;
+            else if (wrapper.TryGetPropertyValue("n", out var n) && n is not null) inner = n;
+            else if (wrapper.TryGetPropertyValue("b", out var b) && b is not null) inner = b;
+            if (inner is null) continue;
+            cfg[key] = inner.DeepClone();
+        }
     }
 }

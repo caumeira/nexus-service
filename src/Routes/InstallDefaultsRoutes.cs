@@ -178,7 +178,7 @@ public static class InstallDefaultsRoutes
     {
         if (dto is null) return null;
         var widgets = (dto.Pages.FirstOrDefault()?.Widgets ?? new List<PanelWidgetDto>())
-            .Select(w => new PanelLayoutWidget { Type = w.Type, Size = w.Size, Col = w.Col, Row = w.Row })
+            .Select(w => new PanelLayoutWidget { Type = w.Type, Size = w.Size, Col = w.Col, Row = w.Row, Config = w.Config })
             .ToList();
         return new PanelLayoutDefault
         {

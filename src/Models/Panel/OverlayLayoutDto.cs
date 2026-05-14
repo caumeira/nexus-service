@@ -29,7 +29,7 @@ public sealed class OverlayWidgetDto
     /// as <see cref="Col"/>.</summary>
     public double Row { get; set; }
 
-    public Dictionary<string, PanelConfigValue>? Config { get; set; }
+    public Dictionary<string, System.Text.Json.JsonElement>? Config { get; set; }
 }
 
 /// <summary>
@@ -44,7 +44,7 @@ public sealed class OverlayWidgetCreateBody
     public int? Monitor { get; set; }
     public double? Col { get; set; }
     public double? Row { get; set; }
-    public Dictionary<string, PanelConfigValue>? Config { get; set; }
+    public Dictionary<string, System.Text.Json.JsonElement>? Config { get; set; }
 }
 
 /// <summary>
@@ -57,5 +57,5 @@ public sealed class OverlayWidgetPatch
     public int? Monitor { get; set; }
     public double? Col { get; set; }
     public double? Row { get; set; }
-    public Dictionary<string, PanelConfigValue>? Config { get; set; }
+    public Dictionary<string, System.Text.Json.JsonElement>? Config { get; set; }
 }

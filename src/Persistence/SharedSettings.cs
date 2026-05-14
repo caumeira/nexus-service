@@ -83,6 +83,8 @@ public sealed class PanelLayoutWidget
     public string Size { get; set; } = "";
     public int Col { get; set; }
     public int Row { get; set; }
+    /// <summary>Optional per-instance seed config copied verbatim into the new widget instance when this seed is materialized. Same shape as <see cref="PanelWidgetDto.Config"/>: keys are widget-defined; values are raw JSON.</summary>
+    public Dictionary<string, System.Text.Json.JsonElement>? Config { get; set; }
 }
 
 // GET /preferences response. Mirrors PreferencesPatch shape so the SPA reads

@@ -385,7 +385,7 @@ public static class QosServiceCollectionExtensions
 
     public static IServiceCollection AddQosPanel(this IServiceCollection services, int servicePort)
     {
-        services.AddSingleton(sp => new Qos.Service.Panel.PanelKioskLauncher(servicePort, sp.GetRequiredService<TokenService>()));
+        services.AddSingleton<Qos.Service.Panel.PanelKioskLauncher>();
         services.AddSingleton<Qos.Service.Panel.PanelOverlayHostLauncher>();
         // IOverlayHost picks the right impl per OS. Mac spawns the Swift
         // sidecar qos-overlay-helper (transparent NSWindow + WKWebView

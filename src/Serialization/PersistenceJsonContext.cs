@@ -26,6 +26,8 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(PanelLayoutDefault))]
 [JsonSerializable(typeof(PanelLayoutWidget))]
 [JsonSerializable(typeof(List<PanelLayoutWidget>))]
+[JsonSerializable(typeof(Dictionary<string, System.Text.Json.JsonElement>))]
+[JsonSerializable(typeof(System.Text.Json.JsonElement))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

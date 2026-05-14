@@ -13,8 +13,8 @@ namespace Qos.Service.Persistence;
 /// </summary>
 public sealed class QosSettings
 {
-    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. <see cref="JsonConfigStore"/> migrates v1 (or missing) records on load.</summary>
-    public int SchemaVersion { get; set; } = 2;
+    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). <see cref="JsonConfigStore"/> migrates v1/v2 (or missing) records on load.</summary>
+    public int SchemaVersion { get; set; } = 3;
 
     public ThemeSettings Theme { get; set; } = new();
     public MonitoringSettings Monitoring { get; set; } = new();

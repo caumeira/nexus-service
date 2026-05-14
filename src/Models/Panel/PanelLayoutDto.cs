@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json;
 
 namespace Qos.Service.Models.Panel;
 
@@ -72,16 +73,11 @@ public sealed class PanelWidgetDto
 
     public bool IsImmersive { get; set; }
 
-    public Dictionary<string, PanelConfigValue>? Config { get; set; }
-}
-
-/// <summary>
-/// Typed union for per-widget config values. AOT-safe - no object / dynamic.
-/// Exactly one of S, N, B is non-null.
-/// </summary>
-public sealed class PanelConfigValue
-{
-    public string? S { get; set; }
-    public double? N { get; set; }
-    public bool? B { get; set; }
+    /// <summary>
+    /// Per-instance widget config. Values are raw JSON — widget code reads
+    /// scalars directly (string / number / bool) or structured shapes (arrays,
+    /// objects) declared by the widget itself. Same wire shape native panel
+    /// widgets and marketplace widgets both write to.
+    /// </summary>
+    public Dictionary<string, JsonElement>? Config { get; set; }
 }

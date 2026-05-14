@@ -85,7 +85,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
         try
         {
             // SchemaVersion bumped.
-            Assert.Equal(2, s.SchemaVersion);
+            Assert.Equal(3, s.SchemaVersion);
 
             // Theme moved.
             Assert.Equal("es", s.Theme.Language);
@@ -140,25 +140,25 @@ public class JsonConfigStoreMigrationTests : IDisposable
     }
 
     [Fact]
-    public void Load_NoOpOnAlreadyV2()
+    public void Load_NoOpOnAlreadyV3()
     {
-        // A v2 settings.json: nested blocks already in place, schemaVersion=2.
-        var v2Json = """
+        // A v3 settings.json: nested blocks already in place, schemaVersion=3.
+        var v3Json = """
         {
-          "schemaVersion": 2,
+          "schemaVersion": 3,
           "theme": { "themeMode": "dark", "accentColor": "#aabbcc", "language": "en" },
           "panel": { "autoLaunch": true, "themeMode": "system" },
           "overlay": { "enabled": true, "scale": 120 },
           "monitoring": { "showAverage": true }
         }
         """;
-        File.WriteAllText(_settingsPath, v2Json);
+        File.WriteAllText(_settingsPath, v3Json);
 
         var store = new JsonConfigStore(_settingsPath);
         var s = store.Load();
         try
         {
-            Assert.Equal(2, s.SchemaVersion);
+            Assert.Equal(3, s.SchemaVersion);
             Assert.Equal("dark", s.Theme.ThemeMode);
             Assert.Equal("#aabbcc", s.Theme.AccentColor);
             Assert.True(s.Panel.AutoLaunch);
@@ -169,6 +169,59 @@ public class JsonConfigStoreMigrationTests : IDisposable
         {
             store.Dispose();
         }
+    }
+
+    [Fact]
+    public void Load_V2ToV3_UnwrapsPanelConfigWrappers()
+    {
+        // v2 settings.json with `{s/n/b}` wrapper-style widget config values.
+        // After migration the wrappers are gone and raw JSON values remain.
+        var v2Json = """
+        {
+          "schemaVersion": 2,
+          "panel": {
+            "dashboardLayout": {
+              "layoutSchemaVersion": 2,
+              "surface": "desktop",
+              "pages": [{
+                "id": "p1",
+                "widgets": [{
+                  "id": "w1", "type": "clock", "size": "4x2", "col": 0, "row": 0,
+                  "config": {
+                    "design": { "s": "minimal" },
+                    "showSeconds": { "b": true },
+                    "speed": { "n": 42 }
+                  }
+                }]
+              }]
+            }
+          }
+        }
+        """;
+        File.WriteAllText(_settingsPath, v2Json);
+
+        var store = new JsonConfigStore(_settingsPath);
+        store.Load();
+        try
+        {
+            store.FlushNow();
+        }
+        finally
+        {
+            store.Dispose();
+        }
+
+        var onDisk = File.ReadAllText(_settingsPath);
+        var doc = JsonNode.Parse(onDisk) as JsonObject;
+        Assert.NotNull(doc);
+        Assert.Equal(3, doc!["schemaVersion"]!.GetValue<int>());
+
+        var widget = doc["panel"]!["dashboardLayout"]!["pages"]![0]!["widgets"]![0]!;
+        var cfg = widget!["config"] as JsonObject;
+        Assert.NotNull(cfg);
+        Assert.Equal("minimal", cfg!["design"]!.GetValue<string>());
+        Assert.True(cfg["showSeconds"]!.GetValue<bool>());
+        Assert.Equal(42, cfg["speed"]!.GetValue<int>());
     }
 
     [Fact]
@@ -190,7 +243,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
         var s = store.Load();
         try
         {
-            Assert.Equal(2, s.SchemaVersion);
+            Assert.Equal(3, s.SchemaVersion);
             Assert.Equal("light", s.Theme.ThemeMode);
             Assert.True(s.Panel.AutoLaunch);
         }
