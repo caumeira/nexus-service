@@ -31,7 +31,7 @@ public class LightingPostProcessTests : IDisposable
         _engine = new LightingEngine();
         _hub = new LightingOutputHub();
         _gpu = new GpuContext(160, 90);
-        _provider = new LightingProvider(_store, _engine, _hub, _gpu, new MediaLibrary());
+        _provider = new LightingProvider(_store, _engine, _hub, _gpu, new MediaLibrary(), new Qos.Service.Platform.DefaultMonitorEnumerator());
     }
 
     public void Dispose()
