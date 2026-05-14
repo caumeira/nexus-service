@@ -449,7 +449,9 @@ app.Use(async (ctx, next) =>
                 "font-src 'self' data: https://fonts.gstatic.com; " +
                 "img-src 'self' data: blob:; " +
                 "connect-src 'self' ws: wss:; " +
-                "frame-ancestors 'none'; " +
+                // 'self' (not 'none') so PanelEmbedFrame.tsx can iframe /panel?simulator=1
+                // for the Y70/panel device popup. Same-origin only; external embedding stays blocked.
+                "frame-ancestors 'self'; " +
                 "base-uri 'self'; " +
                 "object-src 'none'";
             ctx.Response.Headers["X-Content-Type-Options"] = "nosniff";
