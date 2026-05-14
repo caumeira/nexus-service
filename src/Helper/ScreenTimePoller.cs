@@ -38,6 +38,7 @@ public sealed class ScreenTimePoller : IDisposable
     private int _currentPid;
     private long _sessionStartUtcMs;
     private long _lastPollUtcMs;
+    private bool _wasConnected;
 
     public ScreenTimePoller(HelperOutbound outbound)
     {
@@ -50,6 +51,16 @@ public sealed class ScreenTimePoller : IDisposable
     {
         try
         {
+            // Pipe reconnect: the helper-side cached focus survives across
+            // reconnects, but the service's in-memory state was wiped on
+            // restart and the change-only emit won't fire until the user
+            // switches windows. Force a re-broadcast so downstream
+            // consumers (e.g. the FPS provider) recover.
+            var connected = _outbound.IsConnected;
+            var justReconnected = connected && !_wasConnected;
+            _wasConnected = connected;
+            if (justReconnected) RebroadcastCurrentFocus();
+
             var hwnd = GetForegroundWindow();
             if (hwnd == IntPtr.Zero) return;
             GetWindowThreadProcessId(hwnd, out var pid);
@@ -66,6 +77,29 @@ public sealed class ScreenTimePoller : IDisposable
             ApplyFocus(appName, (int)pid);
         }
         catch { }
+    }
+
+    private void RebroadcastCurrentFocus()
+    {
+        string app;
+        int pid;
+        long started;
+        lock (_lock)
+        {
+            if (string.IsNullOrEmpty(_currentApp)) return;
+            app = _currentApp;
+            pid = _currentPid;
+            started = _sessionStartUtcMs;
+        }
+        _ = _outbound.SendAsync(
+            "screenTime.focus",
+            new ScreenTimeFocusPayload
+            {
+                App = app,
+                Pid = pid,
+                StartedUtcMs = started,
+            },
+            AppJsonContext.Default.ScreenTimeFocusPayload);
     }
 
     private void ApplyFocus(string appName, int pid)

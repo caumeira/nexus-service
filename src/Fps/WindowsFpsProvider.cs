@@ -1,5 +1,6 @@
-using System.Diagnostics;
 using System.Runtime.InteropServices;
+using Qos.Service.Activity;
+using Qos.Service.Models.Activity;
 using Qos.Service.Models.Sensors;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Session;
@@ -11,11 +12,19 @@ public sealed class WindowsFpsProvider : IFpsProvider
     private const int FocusScanDelayMs = 250;
     private const int StaleFrameMs = 2000;
     private const float GaugeMaximumFps = 240f;
+    private const float GaugeMaximumFrameMs = 50f;
     private const string SensorName = "FPS";
+    private const string FrameTimeName = "Frame Time";
     private static readonly string SessionName = $"Qos-Fps-{Environment.ProcessId}";
     private static readonly Guid DxgKrnlProviderGuid = new("802EC45A-1E99-4B83-9920-87C98277BA9D");
     private static readonly TraceEventID PresentInfoEventId = (TraceEventID)0x00b8;
 
+    // The qos-service runs as LocalSystem in Session 0, which has no
+    // interactive desktop — GetForegroundWindow() from here always returns
+    // nothing useful. The user-session helper polls foreground via
+    // ScreenTimePoller and publishes the PID through IScreenTimeProvider,
+    // so we read the target PID from there.
+    private readonly IScreenTimeProvider _screenTime;
     private readonly object _gate = new();
     private readonly FpsCalculator _calculator = new();
 
@@ -30,6 +39,11 @@ public sealed class WindowsFpsProvider : IFpsProvider
     private DateTime _lastPresentUtc = DateTime.MinValue;
     private DateTime _nextStartAllowedUtc = DateTime.MinValue;
     private DateTime _lastErrorLoggedUtc = DateTime.MinValue;
+
+    public WindowsFpsProvider(IScreenTimeProvider screenTime)
+    {
+        _screenTime = screenTime;
+    }
 
     public void Start()
     {
@@ -104,8 +118,11 @@ public sealed class WindowsFpsProvider : IFpsProvider
                 : $"{SensorName} ({_targetName})";
             var isFresh = _hasValue
                 && (DateTime.UtcNow - _lastPresentUtc).TotalMilliseconds <= StaleFrameMs;
-            var value = isFresh ? (float)Math.Max(0, _fps) : 0f;
-            var formatted = isFresh ? $"{value:F0} fps" : "-";
+            var fpsValue = isFresh ? (float)Math.Max(0, _fps) : 0f;
+            var fpsFormatted = isFresh ? $"{fpsValue:F0}" : "-";
+            var frameMs = isFresh && fpsValue > 0 ? 1000f / fpsValue : 0f;
+            var frameMsFormatted = isFresh && fpsValue > 0 ? $"{frameMs:F1} ms" : "-";
+            var parent = new SensorParent { Id = "fps", Name = parentName };
 
             return new HardwareComponent
             {
@@ -118,19 +135,38 @@ public sealed class WindowsFpsProvider : IFpsProvider
                         Id = "fps/current",
                         Name = SensorName,
                         Type = "Framerate",
-                        Value = value,
+                        Value = fpsValue,
                         Min = 0,
-                        Max = value,
-                        Average = value,
-                        Usage = value,
+                        Max = fpsValue,
+                        Average = fpsValue,
+                        Usage = fpsValue,
                         TheoreticalMaximum = GaugeMaximumFps,
                         Units = "fps",
-                        Formatted = formatted,
-                        FormattedMin = "0 fps",
-                        FormattedMax = $"{GaugeMaximumFps:F0} fps",
-                        FormattedAverage = formatted,
-                        FormattedUsage = formatted,
-                        Parent = new SensorParent { Id = "fps", Name = parentName },
+                        Formatted = fpsFormatted,
+                        FormattedMin = "0",
+                        FormattedMax = $"{GaugeMaximumFps:F0}",
+                        FormattedAverage = fpsFormatted,
+                        FormattedUsage = fpsFormatted,
+                        Parent = parent,
+                    },
+                    new()
+                    {
+                        Id = "fps/frame-time",
+                        Name = FrameTimeName,
+                        Type = "FrameTime",
+                        Value = frameMs,
+                        Min = 0,
+                        Max = frameMs,
+                        Average = frameMs,
+                        Usage = frameMs,
+                        TheoreticalMaximum = GaugeMaximumFrameMs,
+                        Units = "ms",
+                        Formatted = frameMsFormatted,
+                        FormattedMin = "0 ms",
+                        FormattedMax = $"{GaugeMaximumFrameMs:F0} ms",
+                        FormattedAverage = frameMsFormatted,
+                        FormattedUsage = frameMsFormatted,
+                        Parent = parent,
                     },
                 },
             };
@@ -145,7 +181,7 @@ public sealed class WindowsFpsProvider : IFpsProvider
         {
             while (!token.IsCancellationRequested)
             {
-                var target = GetForegroundTarget();
+                var target = GetForegroundTargetFromHelper();
                 lock (_gate)
                 {
                     if (_cts is null || token.IsCancellationRequested)
@@ -308,35 +344,16 @@ public sealed class WindowsFpsProvider : IFpsProvider
         catch { }
     }
 
-    private static (int Pid, string Name) GetForegroundTarget()
+    private (int Pid, string Name) GetForegroundTargetFromHelper()
     {
-        var hwnd = GetForegroundWindow();
-        if (hwnd == IntPtr.Zero || !IsWindow(hwnd))
-            return (0, "");
+        FocusSession? session;
+        try { session = _screenTime.GetCurrentSession(); }
+        catch { return (0, ""); }
 
-        _ = GetWindowThreadProcessId(hwnd, out var pid);
-        if (pid == 0)
-            return (0, "");
-
-        try
-        {
-            using var process = Process.GetProcessById((int)pid);
-            return ((int)pid, process.ProcessName);
-        }
-        catch
-        {
-            return ((int)pid, $"PID {pid}");
-        }
+        if (session is null) return (0, "");
+        if (!int.TryParse(session.Id, out var pid) || pid <= 0) return (0, "");
+        return (pid, session.Name ?? "");
     }
-
-    [DllImport("user32.dll")]
-    private static extern IntPtr GetForegroundWindow();
-
-    [DllImport("user32.dll")]
-    private static extern bool IsWindow(IntPtr hWnd);
-
-    [DllImport("user32.dll")]
-    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
 
     private const uint EventTraceControlStop = 1;
 
