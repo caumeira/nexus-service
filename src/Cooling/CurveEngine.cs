@@ -141,7 +141,7 @@ public sealed class CurveEngine : BackgroundService
                 var appliedSpeed = (int)Math.Round(smoothedSpeed);
                 if (TryReserveWrite(output.Id, appliedSpeed, nowMs))
                 {
-                    _fans.SetFanSpeed(output.Id, appliedSpeed);
+                    _fans.DriveFanSpeed(output.Id, appliedSpeed);
                 }
                 drivenChannels.Add(output.Id);
                 outputStates.Add(new CurveOutputState

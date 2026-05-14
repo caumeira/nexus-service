@@ -49,9 +49,9 @@ public class ProfileSwitchTests : IDisposable
         try { Directory.Delete(_tempDir, recursive: true); } catch { }
     }
 
-    // Minimal recording fan provider. Captures SetFanSpeed writes so tests can
-    // assert which duty cycles were actually pushed to hardware, and returns a
-    // configurable temperature so curve evaluation is deterministic.
+    // Minimal recording fan provider. Captures every hardware write so tests
+    // can assert which duty cycles were actually pushed, regardless of whether
+    // the caller was a user-intent SetFanSpeed or the engine's DriveFanSpeed.
     private sealed class RecordingFanProvider : IFanControlProvider
     {
         public readonly ConcurrentQueue<(string ChannelId, int DutyPercent)> Writes = new();
@@ -65,6 +65,7 @@ public class ProfileSwitchTests : IDisposable
             Writes.Enqueue((channelId, dutyPercent));
             return dutyPercent;
         }
+        public void DriveFanSpeed(string channelId, int dutyPercent) => Writes.Enqueue((channelId, dutyPercent));
         public void ReleaseFan(string channelId) { }
         public void ReleaseAll() { }
         public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(

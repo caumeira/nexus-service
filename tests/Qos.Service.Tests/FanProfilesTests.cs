@@ -273,13 +273,12 @@ public class FanProfilesTests : IDisposable
     [Fact]
     public void DerivePresetFromCurves_AttachedFanIgnoresManualSpeedsEntry()
     {
-        // The curve engine routes its per-tick computed duty through the same
-        // SetFanSpeed path that records ManualSpeeds, so every curve-attached
-        // fan accumulates a "manual" entry there within milliseconds of the
-        // preset becoming active. Derivation must ignore those entries for
-        // attached fans — otherwise the active preset flips to "custom" on
-        // the next curve save. (Original bug repro: silent + slider drag ->
-        // briefly "custom".)
+        // Belt-and-suspenders alongside the IFanControlProvider.DriveFanSpeed
+        // split: CurveEngine no longer writes to ManualSpeeds, but a user can
+        // still set manual then attach the fan to a curve, leaving a stale
+        // entry. Derivation must ignore manual entries for fans that ARE
+        // attached to a curve — otherwise the active preset flips to "custom"
+        // even though every fan is being driven by the preset curve.
         FanProfiles.Apply("silent", _fans, _store);
         _store.Update(s =>
         {
@@ -369,6 +368,7 @@ public class FanProfilesTests : IDisposable
         public IReadOnlyList<TemperatureSource> GetTemperatureSources() => _temps;
         public float? ReadTemperature(string sensorId) => null;
         public int SetFanSpeed(string channelId, int dutyPercent) => Math.Clamp(dutyPercent, 0, 100);
+        public void DriveFanSpeed(string channelId, int dutyPercent) { }
         public void ReleaseFan(string channelId) => Released.Add(channelId);
         public void ReleaseAll() => Released.AddRange(_channels.Select(c => c.Id));
         public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(

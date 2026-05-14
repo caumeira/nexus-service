@@ -54,7 +54,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
         // Fans bound to any curve output are reported as "Curve" so the sidebar
         // dot + Cooling view restoration can tell curve-driven fans apart from
         // user-set bias speeds. _softwareControlled alone cannot distinguish
-        // them because CurveEngine.SetFanSpeed also adds to that set.
+        // them because the engine's DriveFanSpeed path adds to that set too.
         var curveOutputs = new HashSet<string>();
         foreach (var c in settings.Cooling.Curves)
         {
@@ -142,6 +142,17 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
         _softwareControlled.Add(channelId);
         _config.Update(s => s.Cooling.ManualSpeeds[channelId] = clamped);
         return clamped;
+    }
+
+    public void DriveFanSpeed(string channelId, int dutyPercent)
+    {
+        var clamped = Math.Clamp(dutyPercent, 0, 100);
+        var mappings = EnsureDiscovered();
+        var mapping = mappings.FirstOrDefault(m => m.Id == channelId);
+        if (mapping is null) return;
+        mapping.ControlSensor.Control.SetSoftware(clamped);
+        _softwareControlled.Add(channelId);
+        // No ManualSpeeds write — see interface doc.
     }
 
     public void ReleaseFan(string channelId)

@@ -94,6 +94,8 @@ public sealed class MacFanControlProvider : IFanControlProvider, ICoolingProvide
         return Math.Clamp(dutyPercent, 0, 100);
     }
 
+    public void DriveFanSpeed(string channelId, int dutyPercent) => SetFanSpeed(channelId, dutyPercent);
+
     public void ReleaseFan(string channelId) { }
     public void ReleaseAll() { }
 

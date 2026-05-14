@@ -167,11 +167,11 @@ public static class FanProfiles
             }
         }
         // Manual overrides only count for fans NOT already driven by a curve.
-        // The curve engine writes its per-tick computed duty through the same
-        // SetFanSpeed path that records ManualSpeeds, so every curve-attached
-        // fan accumulates a stale entry there — including fans bound to the
-        // preset curve. Counting those would flip the active preset back to
-        // "custom" on the next curve save (the original bug repro).
+        // CurveEngine writes through DriveFanSpeed (no ManualSpeeds touch), so
+        // it can't pollute the dict. But a user can still set manual on a fan
+        // and then attach it to a curve via the wire-DnD, leaving a stale
+        // entry that's no longer in effect. Counting those would flip a
+        // perfectly-driven preset to "custom" the next time curves are saved.
         var manualUnattached = settings.Cooling.ManualSpeeds.Keys
             .Where(id => fanIds.Contains(id) && !attachment.ContainsKey(id))
             .ToHashSet();

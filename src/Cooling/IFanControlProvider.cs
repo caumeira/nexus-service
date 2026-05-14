@@ -25,8 +25,17 @@ public interface IFanControlProvider
     /// <summary>Read current temperature by sensor ID. Returns null if sensor not found.</summary>
     float? ReadTemperature(string sensorId);
 
-    /// <summary>Set duty cycle (0-100) on a fan channel. Returns actual value set.</summary>
+    /// <summary>Set duty cycle (0-100) on a fan channel as a user-intent manual
+    /// override. Recorded in Cooling.ManualSpeeds so it survives a restart and
+    /// counts toward "user broke out of the preset" detection.</summary>
     int SetFanSpeed(string channelId, int dutyPercent);
+
+    /// <summary>Engine-driven duty write (curve engine). Drives the hardware
+    /// the same way as <see cref="SetFanSpeed"/> but does NOT record to
+    /// Cooling.ManualSpeeds — those entries are reserved for genuine user
+    /// overrides. Otherwise the curve engine's per-tick writes would pollute
+    /// the override dict and trip preset-derivation logic.</summary>
+    void DriveFanSpeed(string channelId, int dutyPercent);
 
     /// <summary>Release fan channel back to BIOS/automatic control.</summary>
     void ReleaseFan(string channelId);

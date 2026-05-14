@@ -70,6 +70,7 @@ public sealed class StubCoolingProvider : ICoolingProvider, ICurveProvider, IFan
     public IReadOnlyList<TemperatureSource> GetTemperatureSources() => Array.Empty<TemperatureSource>();
     public float? ReadTemperature(string sensorId) => null;
     public int SetFanSpeed(string channelId, int dutyPercent) => System.Math.Clamp(dutyPercent, 0, 100);
+    public void DriveFanSpeed(string channelId, int dutyPercent) { }
     public void ReleaseFan(string channelId) { }
     public void ReleaseAll() { }
     public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(
