@@ -13,8 +13,13 @@ namespace Qos.Service.Persistence;
 /// </summary>
 public sealed class QosSettings
 {
-    public int SchemaVersion { get; set; } = 1;
+    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. <see cref="JsonConfigStore"/> migrates v1 (or missing) records on load.</summary>
+    public int SchemaVersion { get; set; } = 2;
 
+    public ThemeSettings Theme { get; set; } = new();
+    public MonitoringSettings Monitoring { get; set; } = new();
+    public PanelSettings Panel { get; set; } = new();
+    public OverlaySettings Overlay { get; set; } = new();
     public AuthSettings? Auth { get; set; } = new();
     public LightingSettings Lighting { get; set; } = new();
     public KeebSettings Keeb { get; set; } = new();
@@ -73,116 +78,25 @@ public sealed class DiscordSettings
 }
 
 /// <summary>
+/// UI-only residual state that has no install-defaults equivalent. Everything
+/// that mirrors install-defaults.json now lives on QosSettings root in
+/// <see cref="ThemeSettings"/>, <see cref="MonitoringSettings"/>,
+/// <see cref="PanelSettings"/>, and <see cref="OverlaySettings"/>.
+/// </summary>
+public sealed class UiSettings
+{
+    public bool DisableConflictAlerts { get; set; }
+    /// <summary>Legacy: panel devices used to live here, scoped per profile. Now lives at <c>QosSettings.PanelDevices</c> (top-level, hardware-scoped). Kept nullable so old settings.json / profile files deserialize cleanly; <c>JsonConfigStore.Load</c> + <c>ProfileManager.LoadProfileIntoSettings</c> migrate the entries to the top-level registry and null this out so it stops being written.</summary>
+    public Dictionary<string, Qos.Service.Models.Panel.PanelDeviceRecord>? PanelDevices { get; set; }
+}
+
+/// <summary>
 /// Partial update DTO for POST /preferences. Every field is nullable so the
-/// handler can tell "client left this out" from "client explicitly sent this
-/// value". If the full UiSettings type is used here, missing fields take their
-/// class-initializer defaults (e.g. ShowMacStatusBarIcon=true) and the handler
-/// then writes those defaults back to disk, clobbering whatever the user had
-/// set.
+/// handler can distinguish "client left this out" from "client explicitly sent value".
 /// </summary>
 public sealed class UiSettingsPatch
 {
-    public string? Language { get; set; }
-    public string? ThemeMode { get; set; }
-    public string? AccentColor { get; set; }
     public bool? DisableConflictAlerts { get; set; }
-    public bool? MonitoringShowAverage { get; set; }
-    public List<string>? MonitoringDetailedCollapsed { get; set; }
-    public bool? ShowMacStatusBarIcon { get; set; }
-    public bool? ShowWindowsTrayIcon { get; set; }
-    public List<string>? FanChannelOrder { get; set; }
-    public bool? PanelAutoLaunch { get; set; }
-    public bool? PanelThemeSyncWithDesktop { get; set; }
-    public string? PanelThemeMode { get; set; }
-    public bool? PanelAccentSyncWithDesktop { get; set; }
-    public string? PanelAccentColor { get; set; }
-    public string? PanelBackgroundColor { get; set; }
-    public string? PanelBackgroundColorLight { get; set; }
-    public string? PanelBackgroundMode { get; set; }
-    public string? PanelBackgroundEffect { get; set; }
-    public int? PanelBackgroundTemplate { get; set; }
-    public double? PanelBackgroundOpacity { get; set; }
-    public double? PanelWidgetOpacity { get; set; }
-    public bool? PanelWidgetLabels { get; set; }
-    public Qos.Service.Models.Panel.PanelLayoutDto? DashboardLayout { get; set; }
-    public bool? OverlayWidgetsEnabled { get; set; }
-    public bool? OverlayWidgetsAlwaysOnTop { get; set; }
-    public int? OverlayWidgetScale { get; set; }
-    public double? OverlayWidgetOpacity { get; set; }
-    public int? OverlayWidgetsMonitor { get; set; }
-    public List<Qos.Service.Models.Panel.OverlayWidgetDto>? OverlayLayout { get; set; }
-}
-
-public sealed class UiSettings
-{
-    public string Language { get; set; } = InstallDefaults.Theme.Language;
-    public string ThemeMode { get; set; } = InstallDefaults.Theme.ThemeMode;
-    public string AccentColor { get; set; } = InstallDefaults.Theme.AccentColor;
-    public bool DisableConflictAlerts { get; set; }
-    public bool MonitoringShowAverage { get; set; } = InstallDefaults.Monitoring.ShowAverage;
-    /// <summary>IDs of sections collapsed on the Monitoring "Detailed" tab. Default empty = every section expanded. The SPA writes the full list on every toggle so the persisted state matches the current UI exactly.</summary>
-    public List<string> MonitoringDetailedCollapsed { get; set; } = new();
-    /// <summary>macOS only - whether to show the menu bar status icon.</summary>
-    public bool ShowMacStatusBarIcon { get; set; } = InstallDefaults.Monitoring.ShowMacStatusBarIcon;
-    /// <summary>Windows only - whether to show the system tray icon.</summary>
-    public bool ShowWindowsTrayIcon { get; set; } = InstallDefaults.Monitoring.ShowWindowsTrayIcon;
-    /// <summary>User-defined display order for fan channels in the Cooling view. Nullable so a partial POST /preferences that omits this field doesn't clobber the saved order.</summary>
-    public List<string>? FanChannelOrder { get; set; }
-    /// <summary>Legacy: panel devices used to live here, scoped per profile. Now lives at <c>QosSettings.PanelDevices</c> (top-level, hardware-scoped). Kept nullable so old settings.json / profile files deserialize cleanly; <c>JsonConfigStore.Load</c> + <c>ProfileManager.LoadProfileIntoSettings</c> migrate the entries to the top-level registry and null this out so it stops being written.</summary>
-    public Dictionary<string, Qos.Service.Models.Panel.PanelDeviceRecord>? PanelDevices { get; set; }
-    /// <summary>Auto-launch the panel kiosk when a recognized device display (Y70/Y80) is detected at startup. Default false.</summary>
-    public bool PanelAutoLaunch { get; set; }
-    /// <summary>When true, panel theme mode follows the main desktop theme mode.</summary>
-    public bool PanelThemeSyncWithDesktop { get; set; } = InstallDefaults.Panel.ThemeSyncWithDesktop;
-    /// <summary>Panel-specific theme mode: "system", "dark", or "light".</summary>
-    public string PanelThemeMode { get; set; } = InstallDefaults.Panel.ThemeMode;
-    /// <summary>When true, panel accent follows the main desktop accent color.</summary>
-    public bool PanelAccentSyncWithDesktop { get; set; } = InstallDefaults.Panel.AccentSyncWithDesktop;
-    /// <summary>Panel-specific accent color override. Null means inherit from the main app accent.</summary>
-    public string? PanelAccentColor { get; set; }
-    /// <summary>Panel-specific background color override for the dark resolved theme. Null uses the default dark panel background.</summary>
-    public string? PanelBackgroundColor { get; set; }
-    /// <summary>Panel-specific background color override for the light resolved theme. Null uses the paired light preset (or the dark value if it's a custom hex).</summary>
-    public string? PanelBackgroundColorLight { get; set; }
-    /// <summary>Panel background renderer: "solid" for color fill, "shader" for a local WebGL animation.</summary>
-    public string PanelBackgroundMode { get; set; } = InstallDefaults.Panel.BackgroundMode;
-    /// <summary>Local shader effect key used when PanelBackgroundMode is "shader".</summary>
-    public string PanelBackgroundEffect { get; set; } = InstallDefaults.Panel.BackgroundEffect;
-    /// <summary>Selected 1..4 visual template slot, persisted as zero-based index.</summary>
-    public int PanelBackgroundTemplate { get; set; }
-    /// <summary>Shader layer opacity. The solid background remains underneath as a readability fallback.</summary>
-    public double PanelBackgroundOpacity { get; set; } = InstallDefaults.Panel.BackgroundOpacity;
-    /// <summary>Per-widget card background opacity (0..1). Fully opaque keeps widgets readable; lowering it lets the panel background show through.</summary>
-    public double PanelWidgetOpacity { get; set; } = InstallDefaults.Panel.WidgetOpacity;
-    /// <summary>Whether to render the iOS-style widget name label below each cell on the panel + dashboard. When false the label strip collapses and widgets reclaim the vertical space.</summary>
-    public bool PanelWidgetLabels { get; set; } = InstallDefaults.Panel.WidgetLabels;
-    /// <summary>Profile-scoped desktop dashboard widget layout. Null means the SPA seeds its built-in dashboard default on first load.</summary>
-    public Qos.Service.Models.Panel.PanelLayoutDto? DashboardLayout { get; set; }
-    /// <summary>Whether qos-overlay.exe is spawned by the service. Default false; flipped true the first time the user pins a widget. Profile-scoped because layout is profile-scoped.</summary>
-    public bool OverlayWidgetsEnabled { get; set; } = InstallDefaults.Overlay.Enabled;
-    /// <summary>Global Z-order toggle for floating desktop widgets. False (default) = parented to WorkerW, behind windows. True = HWND_TOPMOST, above everything.</summary>
-    public bool OverlayWidgetsAlwaysOnTop { get; set; } = InstallDefaults.Overlay.AlwaysOnTop;
-    /// <summary>Cell-size scale percentage for the desktop widget overlay (50-200). Drives both the layout grid AND the in-widget content sizing via the --panel-cell-size CSS variable. 100 = panel base of 86 px.</summary>
-    public int OverlayWidgetScale { get; set; } = InstallDefaults.Overlay.Scale;
-    /// <summary>Per-card background opacity for desktop widgets (0..1). Applied to --panel-card-bg-opacity on the overlay's panel-root so the card surface, border, and shadow fade together over the wallpaper. The overlay host always composites with per-pixel alpha so this takes visible effect immediately on Windows and macOS.</summary>
-    public double OverlayWidgetOpacity { get; set; } = InstallDefaults.Overlay.Opacity;
-    /// <summary>
-    /// Which monitor the single floating widget overlay renders on.
-    /// Zero-based index into <c>EnumDisplayMonitors</c> order. -1 means
-    /// "use the OS-flagged primary monitor" (default; sentinel for
-    /// first-run before the user opens the popup and picks one). On
-    /// change the overlay's SPA pushes a setMonitor webMessage that
-    /// moves the existing window via SetWindowPos in ~15 ms (no
-    /// teardown); the 5 s prefs poll is the safety-net fallback that
-    /// tears down + recreates the OverlayWindow if the fast path
-    /// didn't fire (e.g. WebSocket dropped). Carried in profile
-    /// sharing as a convenience, but the index is workstation-local -
-    /// importing a profile that picked monitor 2 onto a single-display
-    /// machine relies on the host's out-of-range fallback to primary.
-    /// </summary>
-    public int OverlayWidgetsMonitor { get; set; } = InstallDefaults.Overlay.Monitor;
-    /// <summary>Profile-scoped floating desktop widget layout. Sparse list - one entry per pinned widget with its (monitor, col, row, size). Empty means no widgets pinned. See plans/desktop-widgets-v1.md.</summary>
-    public List<Qos.Service.Models.Panel.OverlayWidgetDto> OverlayLayout { get; set; } = new();
 }
 
 public sealed class LightingSettings
@@ -348,6 +262,8 @@ public sealed class CoolingSettings
     public string ActivePreset { get; set; } = InstallDefaults.Cooling.ActivePreset;
     /// <summary>Last-known custom mapping of fan channel id -> curve id. Empty entries mean the fan was on BIOS Control. Used to restore custom assignments when leaving Silent/Balanced/Performance/Off.</summary>
     public Dictionary<string, string> CustomFanCurveAssignments { get; set; } = new();
+    /// <summary>User-defined display order for fan channels in the Cooling view. Nullable so a partial POST /preferences that omits this field doesn't clobber the saved order.</summary>
+    public List<string>? FanChannelOrder { get; set; }
 }
 
 public sealed class CurveDocument

@@ -4,16 +4,16 @@ using System.Collections.Generic;
 namespace Qos.Service.Persistence;
 
 /// <summary>
-/// Routing helpers for the per-category profile sharing feature. Four categories
-/// correspond to the QosSettings sections that the user can pin to a Primary
-/// profile (so switching profiles still loads that profile's data for the pinned
-/// category). Theme and Dashboard split <see cref="UiSettings"/> at the
-/// (Language/ThemeMode/AccentColor) boundary; everything else under Ui that's
-/// truly per-profile (monitoring view state, dashboard widget layout, overlay
-/// floating widgets) lives under Dashboard. Hardware-bound state - Keeb, Y70,
-/// Devices, all Panel* defaults under Ui, system tray / status bar toggles -
-/// lives at the QosSettings root and is NEVER profile-scoped, so it has
-/// no entry here.
+/// Routing helpers for the per-category profile sharing feature. Four
+/// categories correspond to the QosSettings sections that the user can pin to
+/// a Primary profile (so switching profiles still loads that profile's data
+/// for the pinned category). Theme copies the entire <see cref="ThemeSettings"/>
+/// block; Dashboard copies the desktop-side per-profile state (monitoring view
+/// state, fan-channel order, the desktop dashboard layout, overlay floating
+/// widgets, conflict-alert toggle). Panel cosmetics + AutoLaunch live at the
+/// QosSettings root under <see cref="PanelSettings"/>; they're workstation-level
+/// (they describe how panel devices look and behave, not the active profile)
+/// so they are NEVER copied via sharing.
 /// </summary>
 public static class ProfileSharing
 {
@@ -45,27 +45,31 @@ public static class ProfileSharing
         return null;
     }
 
-    /// <summary>Copies the named category from <paramref name="source"/> onto <paramref name="target"/>. For Theme/Dashboard, the corresponding subset of Ui fields is copied; the other Ui fields on target are preserved.</summary>
+    /// <summary>Copies the named category from <paramref name="source"/> onto <paramref name="target"/>. Sibling state on target is preserved.</summary>
     public static void ApplyCategory(QosSettings target, QosSettings source, string category)
     {
         switch (Normalize(category))
         {
             case Lighting:
-                target.Lighting = source.Lighting ?? new LightingSettings();
+                target.Lighting = source.Lighting;
                 break;
             case Cooling:
-                target.Cooling = source.Cooling ?? new CoolingSettings();
+                target.Cooling = source.Cooling;
                 break;
             case Theme:
-                CopyTheme(source.Ui ?? new UiSettings(), target.Ui ??= new UiSettings());
+                target.Theme = source.Theme;
                 break;
             case Dashboard:
-                CopyDashboard(source.Ui ?? new UiSettings(), target.Ui ??= new UiSettings());
+                target.Monitoring = source.Monitoring;
+                target.Cooling.FanChannelOrder = source.Cooling.FanChannelOrder;
+                target.Panel.DashboardLayout = source.Panel.DashboardLayout;
+                target.Overlay = source.Overlay;
+                target.Ui.DisableConflictAlerts = source.Ui.DisableConflictAlerts;
                 break;
         }
     }
 
-    /// <summary>Resets the named category on <paramref name="target"/> to a fresh default value. For Theme/Dashboard the corresponding Ui subset is reset; the other Ui subset is preserved.</summary>
+    /// <summary>Resets the named category on <paramref name="target"/> to a fresh default value. Sibling state is preserved.</summary>
     public static void ResetCategory(QosSettings target, string category)
     {
         switch (Normalize(category))
@@ -77,35 +81,15 @@ public static class ProfileSharing
                 target.Cooling = new CoolingSettings();
                 break;
             case Theme:
-                CopyTheme(new UiSettings(), target.Ui ??= new UiSettings());
+                target.Theme = new ThemeSettings();
                 break;
             case Dashboard:
-                CopyDashboard(new UiSettings(), target.Ui ??= new UiSettings());
+                target.Monitoring = new MonitoringSettings();
+                target.Cooling.FanChannelOrder = null;
+                target.Panel.DashboardLayout = null;
+                target.Overlay = new OverlaySettings();
+                target.Ui.DisableConflictAlerts = false;
                 break;
         }
-    }
-
-    /// <summary>Theme = Language + ThemeMode + AccentColor.</summary>
-    private static void CopyTheme(UiSettings source, UiSettings target)
-    {
-        target.Language = source.Language;
-        target.ThemeMode = source.ThemeMode;
-        target.AccentColor = source.AccentColor;
-    }
-
-    /// <summary>Dashboard = the desktop-side per-profile Ui fields: monitoring view state, fan-channel display order, dashboard widget layout, overlay floating widgets, and the conflict-alert toggle. Panel-related Ui fields (PanelTheme*, PanelAccent*, PanelBackground*, PanelWidgetOpacity, PanelWidgetLabels, PanelAutoLaunch) are workstation-level - they describe how panel devices look and behave, not the active profile - so they are NOT copied here. Same for system tray / status bar toggles, which are OS-level prefs.</summary>
-    private static void CopyDashboard(UiSettings source, UiSettings target)
-    {
-        target.DisableConflictAlerts = source.DisableConflictAlerts;
-        target.MonitoringShowAverage = source.MonitoringShowAverage;
-        target.MonitoringDetailedCollapsed = source.MonitoringDetailedCollapsed ?? new List<string>();
-        target.FanChannelOrder = source.FanChannelOrder;
-        target.DashboardLayout = source.DashboardLayout;
-        target.OverlayWidgetsEnabled = source.OverlayWidgetsEnabled;
-        target.OverlayWidgetsAlwaysOnTop = source.OverlayWidgetsAlwaysOnTop;
-        target.OverlayWidgetScale = source.OverlayWidgetScale;
-        target.OverlayWidgetOpacity = source.OverlayWidgetOpacity;
-        target.OverlayWidgetsMonitor = source.OverlayWidgetsMonitor;
-        target.OverlayLayout = source.OverlayLayout ?? new();
     }
 }

@@ -16,6 +16,16 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(Dictionary<string, List<LedPositionOverride>>))]
 [JsonSerializable(typeof(ProfileManifest))]
 [JsonSerializable(typeof(ProfileExport))]
+// Shared POCOs nested under QosSettings root — picked up transitively but
+// listed explicitly so the source generator emits the proper converters.
+[JsonSerializable(typeof(ThemeSettings))]
+[JsonSerializable(typeof(MonitoringSettings))]
+[JsonSerializable(typeof(PanelSettings))]
+[JsonSerializable(typeof(OverlaySettings))]
+[JsonSerializable(typeof(PanelLayoutsDefaults))]
+[JsonSerializable(typeof(PanelLayoutDefault))]
+[JsonSerializable(typeof(PanelLayoutWidget))]
+[JsonSerializable(typeof(List<PanelLayoutWidget>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

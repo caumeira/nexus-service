@@ -24,58 +24,61 @@ public static class InstallDefaultsRoutes
         app.MapGet("/defaults/snapshot", (IConfigStore store) =>
         {
             var s = store.Load();
+            // Project the live profile into install-defaults shape. Cosmetic
+            // fields are copied as-is; runtime-only fields (DashboardLayout,
+            // Overlay.Layout, Monitoring.DetailedCollapsed) are intentionally
+            // omitted so paste-back-to-install-defaults doesn't smuggle
+            // per-user state into the shipped JSON. Layouts is populated by
+            // projecting live desktop dashboard + first matching device
+            // record per surface, falling back to canonical when absent.
             return new InstallDefaultsDocument
             {
-                Theme = new ThemeDefaults
+                Theme = new ThemeSettings
                 {
-                    Language = s.Ui.Language,
-                    ThemeMode = s.Ui.ThemeMode,
-                    AccentColor = s.Ui.AccentColor,
+                    Language = s.Theme.Language,
+                    ThemeMode = s.Theme.ThemeMode,
+                    AccentColor = s.Theme.AccentColor,
                 },
-                Monitoring = new MonitoringDefaults
+                Monitoring = new MonitoringSettings
                 {
-                    ShowAverage = s.Ui.MonitoringShowAverage,
-                    ShowMacStatusBarIcon = s.Ui.ShowMacStatusBarIcon,
-                    ShowWindowsTrayIcon = s.Ui.ShowWindowsTrayIcon,
+                    ShowAverage = s.Monitoring.ShowAverage,
+                    ShowMacStatusBarIcon = s.Monitoring.ShowMacStatusBarIcon,
+                    ShowWindowsTrayIcon = s.Monitoring.ShowWindowsTrayIcon,
                 },
-                Panel = new PanelDefaults
+                Panel = new PanelSettings
                 {
-                    AutoLaunch = s.Ui.PanelAutoLaunch,
-                    ThemeSyncWithDesktop = s.Ui.PanelThemeSyncWithDesktop,
-                    ThemeMode = s.Ui.PanelThemeMode,
-                    AccentSyncWithDesktop = s.Ui.PanelAccentSyncWithDesktop,
-                    BackgroundMode = s.Ui.PanelBackgroundMode,
-                    BackgroundEffect = s.Ui.PanelBackgroundEffect,
-                    BackgroundTemplate = s.Ui.PanelBackgroundTemplate,
-                    BackgroundOpacity = s.Ui.PanelBackgroundOpacity,
-                    WidgetOpacity = s.Ui.PanelWidgetOpacity,
-                    WidgetLabels = s.Ui.PanelWidgetLabels,
-                    // Project the LIVE layouts back into install-defaults
-                    // shape so paste-to-defaults captures what the user
-                    // actually has on screen. Desktop comes from
-                    // UiSettings.DashboardLayout (profile-scoped); kiosk
-                    // surfaces come from the first matching PanelDevices
-                    // record. Any surface with no live layout falls back to
-                    // canonical so the snapshot is always complete.
+                    AutoLaunch = s.Panel.AutoLaunch,
+                    ThemeSyncWithDesktop = s.Panel.ThemeSyncWithDesktop,
+                    ThemeMode = s.Panel.ThemeMode,
+                    AccentSyncWithDesktop = s.Panel.AccentSyncWithDesktop,
+                    AccentColor = s.Panel.AccentColor,
+                    BackgroundColor = s.Panel.BackgroundColor,
+                    BackgroundColorLight = s.Panel.BackgroundColorLight,
+                    BackgroundMode = s.Panel.BackgroundMode,
+                    BackgroundEffect = s.Panel.BackgroundEffect,
+                    BackgroundTemplate = s.Panel.BackgroundTemplate,
+                    BackgroundOpacity = s.Panel.BackgroundOpacity,
+                    WidgetOpacity = s.Panel.WidgetOpacity,
+                    WidgetLabels = s.Panel.WidgetLabels,
                     Layouts = new PanelLayoutsDefaults
                     {
-                        Desktop = ProjectLayout(s.Ui.DashboardLayout, "desktop")
-                                  ?? InstallDefaults.Panel.Layouts.Desktop,
+                        Desktop = ProjectLayout(s.Panel.DashboardLayout, "desktop")
+                                  ?? InstallDefaults.Panel.Layouts?.Desktop ?? new(),
                         Y70     = ProjectFirstDeviceLayout(s.PanelDevices, "y70")
-                                  ?? InstallDefaults.Panel.Layouts.Y70,
+                                  ?? InstallDefaults.Panel.Layouts?.Y70 ?? new(),
                         Phone   = ProjectFirstDeviceLayout(s.PanelDevices, "phone")
-                                  ?? InstallDefaults.Panel.Layouts.Phone,
+                                  ?? InstallDefaults.Panel.Layouts?.Phone ?? new(),
                         Q60     = ProjectFirstDeviceLayout(s.PanelDevices, "q60")
-                                  ?? InstallDefaults.Panel.Layouts.Q60,
+                                  ?? InstallDefaults.Panel.Layouts?.Q60 ?? new(),
                     },
                 },
-                Overlay = new OverlayDefaults
+                Overlay = new OverlaySettings
                 {
-                    Enabled = s.Ui.OverlayWidgetsEnabled,
-                    AlwaysOnTop = s.Ui.OverlayWidgetsAlwaysOnTop,
-                    Scale = s.Ui.OverlayWidgetScale,
-                    Opacity = s.Ui.OverlayWidgetOpacity,
-                    Monitor = s.Ui.OverlayWidgetsMonitor,
+                    Enabled = s.Overlay.Enabled,
+                    AlwaysOnTop = s.Overlay.AlwaysOnTop,
+                    Scale = s.Overlay.Scale,
+                    Opacity = s.Overlay.Opacity,
+                    Monitor = s.Overlay.Monitor,
                 },
                 Lighting = new LightingDefaults
                 {

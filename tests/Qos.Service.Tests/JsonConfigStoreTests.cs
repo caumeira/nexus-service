@@ -28,7 +28,7 @@ public class JsonConfigStoreTests : IDisposable
         var settings = store.Load();
 
         Assert.NotNull(settings);
-        Assert.Equal(1, settings.SchemaVersion);
+        Assert.Equal(2, settings.SchemaVersion);
         Assert.True(File.Exists(_settingsPath), "settings.json should be created on first load");
     }
 
@@ -70,7 +70,7 @@ public class JsonConfigStoreTests : IDisposable
         var settings = store.Load();
 
         Assert.NotNull(settings);
-        Assert.Equal(1, settings.SchemaVersion);
+        Assert.Equal(2, settings.SchemaVersion);
     }
 
     [Fact]
@@ -82,7 +82,7 @@ public class JsonConfigStoreTests : IDisposable
             s.Auth = new AuthSettings { Token = "test-token-123" };
             s.Lighting.FrameRate = 120;
             s.Lighting.Sync = "rainbow";
-            s.Ui.DashboardLayout = new PanelLayoutDto
+            s.Panel.DashboardLayout = new PanelLayoutDto
             {
                 Surface = "desktop",
                 Pages = new List<PanelPageDto>
@@ -111,8 +111,8 @@ public class JsonConfigStoreTests : IDisposable
         Assert.Equal("test-token-123", loaded.Auth?.Token);
         Assert.Equal(120, loaded.Lighting.FrameRate);
         Assert.Equal("rainbow", loaded.Lighting.Sync);
-        Assert.Equal("desktop", loaded.Ui.DashboardLayout?.Surface);
-        Assert.Equal("monitoring", loaded.Ui.DashboardLayout?.Pages[0].Widgets[0].Type);
+        Assert.Equal("desktop", loaded.Panel.DashboardLayout?.Surface);
+        Assert.Equal("monitoring", loaded.Panel.DashboardLayout?.Pages[0].Widgets[0].Type);
     }
 }
 

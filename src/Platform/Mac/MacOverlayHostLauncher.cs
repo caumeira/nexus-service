@@ -65,7 +65,7 @@ public sealed class MacOverlayHostLauncher : IOverlayHost
             {
                 _stopRequested = false;
                 _lastSpawnUtc = DateTime.UtcNow;
-                var alwaysOnTop = _store.Load().Ui.OverlayWidgetsAlwaysOnTop ? "true" : "false";
+                var alwaysOnTop = _store.Load().Overlay.AlwaysOnTop ? "true" : "false";
                 var psi = new ProcessStartInfo
                 {
                     FileName = helperPath,

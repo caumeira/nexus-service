@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
+using Qos.Service.Persistence;
 using Qos.Service.Serialization;
 
 namespace Qos.Service.Defaults;
@@ -29,10 +30,10 @@ public static class InstallDefaults
     /// caller ever needs to mutate, project to a new <see cref="InstallDefaultsDocument"/> first.
     /// </summary>
     public static InstallDefaultsDocument All => _doc.Value;
-    public static ThemeDefaults Theme => All.Theme;
-    public static MonitoringDefaults Monitoring => All.Monitoring;
-    public static PanelDefaults Panel => All.Panel;
-    public static OverlayDefaults Overlay => All.Overlay;
+    public static ThemeSettings Theme => All.Theme;
+    public static MonitoringSettings Monitoring => All.Monitoring;
+    public static PanelSettings Panel => All.Panel;
+    public static OverlaySettings Overlay => All.Overlay;
     public static LightingDefaults Lighting => All.Lighting;
     public static Y70Defaults Y70 => All.Y70;
     public static KeebDefaults Keeb => All.Keeb;
@@ -71,10 +72,10 @@ public static class InstallDefaults
 
 public sealed class InstallDefaultsDocument
 {
-    public ThemeDefaults Theme { get; set; } = new();
-    public MonitoringDefaults Monitoring { get; set; } = new();
-    public PanelDefaults Panel { get; set; } = new();
-    public OverlayDefaults Overlay { get; set; } = new();
+    public ThemeSettings Theme { get; set; } = new();
+    public MonitoringSettings Monitoring { get; set; } = new();
+    public PanelSettings Panel { get; set; } = new() { Layouts = new() };
+    public OverlaySettings Overlay { get; set; } = new();
     public LightingDefaults Lighting { get; set; } = new();
     public Y70Defaults Y70 { get; set; } = new();
     public KeebDefaults Keeb { get; set; } = new();
@@ -85,66 +86,10 @@ public sealed class InstallDefaultsDocument
     public AuthDefaults Auth { get; set; } = new();
 }
 
-public sealed class ThemeDefaults
-{
-    public string Language { get; set; } = "en";
-    public string ThemeMode { get; set; } = "system";
-    public string AccentColor { get; set; } = "#8b5cf6";
-}
-
-public sealed class MonitoringDefaults
-{
-    public bool ShowAverage { get; set; } = true;
-    public bool ShowMacStatusBarIcon { get; set; } = true;
-    public bool ShowWindowsTrayIcon { get; set; } = true;
-}
-
-public sealed class PanelDefaults
-{
-    public bool AutoLaunch { get; set; }
-    public bool ThemeSyncWithDesktop { get; set; } = true;
-    public string ThemeMode { get; set; } = "system";
-    public bool AccentSyncWithDesktop { get; set; } = true;
-    public string BackgroundMode { get; set; } = "solid";
-    public string BackgroundEffect { get; set; } = "aurora";
-    public int BackgroundTemplate { get; set; }
-    public double BackgroundOpacity { get; set; } = 0.4;
-    public double WidgetOpacity { get; set; } = 1.0;
-    public bool WidgetLabels { get; set; } = true;
-    public PanelLayoutsDefaults Layouts { get; set; } = new();
-}
-
-public sealed class PanelLayoutsDefaults
-{
-    public PanelLayoutDefault Desktop { get; set; } = new();
-    public PanelLayoutDefault Y70 { get; set; } = new();
-    public PanelLayoutDefault Phone { get; set; } = new();
-    public PanelLayoutDefault Q60 { get; set; } = new();
-}
-
-public sealed class PanelLayoutDefault
-{
-    public int LayoutSchemaVersion { get; set; } = 2;
-    public string Surface { get; set; } = "";
-    public List<PanelLayoutWidget> Widgets { get; set; } = new();
-}
-
-public sealed class PanelLayoutWidget
-{
-    public string Type { get; set; } = "";
-    public string Size { get; set; } = "";
-    public int Col { get; set; }
-    public int Row { get; set; }
-}
-
-public sealed class OverlayDefaults
-{
-    public bool Enabled { get; set; }
-    public bool AlwaysOnTop { get; set; }
-    public int Scale { get; set; } = 100;
-    public double Opacity { get; set; } = 1.0;
-    public int Monitor { get; set; } = -1;
-}
+// ThemeSettings, MonitoringSettings, PanelSettings, OverlaySettings and the
+// PanelLayouts* seed types live in Persistence/SharedSettings.cs — same POCOs
+// are reused by QosSettings so the install-defaults shape and the live profile
+// shape stay in lockstep.
 
 public sealed class LightingDefaults
 {

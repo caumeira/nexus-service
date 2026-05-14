@@ -42,10 +42,10 @@
             "row": 2
           },
           {
-            "type": "marketplace:com.nexusqos.weather",
-            "size": "2x2",
-            "col": 4,
-            "row": 0
+            "type": "devices",
+            "size": "4x2",
+            "col": 0,
+            "row": 4
           }
         ]
       },

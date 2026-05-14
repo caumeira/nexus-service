@@ -44,12 +44,21 @@ public static class ProfileRoutes
             try
             {
                 pm.SwitchProfile(id);
-                var ui = store.Load().Ui;
-                // Profile switches swap the entire Ui block - everyone refetches.
+                var s = store.Load();
+                var prefs = new Preferences
+                {
+                    Theme = s.Theme,
+                    Panel = s.Panel,
+                    Overlay = s.Overlay,
+                    Monitoring = s.Monitoring,
+                    Cooling = new CoolingPrefs { FanChannelOrder = s.Cooling.FanChannelOrder },
+                    Ui = s.Ui,
+                };
+                // Profile switches swap the entire prefs block — everyone refetches via the broadcast.
                 PanelTopics.BroadcastPrefs(hub);
                 PanelTopics.BroadcastLighting(hub);
                 PanelTopics.BroadcastCooling(hub);
-                return Results.Ok(new SwitchProfileResponse { Switched = id, Ui = ui });
+                return Results.Ok(new SwitchProfileResponse { Switched = id, Prefs = prefs });
             }
             catch (KeyNotFoundException)
             {
@@ -135,7 +144,16 @@ public static class ProfileRoutes
 
         app.MapGet("/preferences", (IConfigStore store) =>
         {
-            return store.Load().Ui;
+            var s = store.Load();
+            return new Preferences
+            {
+                Theme = s.Theme,
+                Panel = s.Panel,
+                Overlay = s.Overlay,
+                Monitoring = s.Monitoring,
+                Cooling = new CoolingPrefs { FanChannelOrder = s.Cooling.FanChannelOrder },
+                Ui = s.Ui,
+            };
         }).AllowPanel();
 
         // Read current sharing config: which profile is the Primary, which
@@ -279,97 +297,88 @@ public static class ProfileRoutes
             }
         });
 
-        app.MapPost("/preferences", (UiSettingsPatch body, IConfigStore store, ProfileManager pm, MultiplexHub hub) =>
+        app.MapPost("/preferences", (PreferencesPatch body, IConfigStore store, ProfileManager pm, MultiplexHub hub) =>
         {
             store.Update(s =>
             {
-                if (body.Language is not null)
-                    s.Ui.Language = body.Language;
-                if (body.ThemeMode is not null)
-                    s.Ui.ThemeMode = body.ThemeMode;
-                if (body.AccentColor is not null)
-                    s.Ui.AccentColor = body.AccentColor;
-                if (body.DisableConflictAlerts.HasValue)
-                    s.Ui.DisableConflictAlerts = body.DisableConflictAlerts.Value;
-                if (body.MonitoringShowAverage.HasValue)
-                    s.Ui.MonitoringShowAverage = body.MonitoringShowAverage.Value;
-                if (body.MonitoringDetailedCollapsed is not null)
-                    s.Ui.MonitoringDetailedCollapsed = body.MonitoringDetailedCollapsed;
-                if (body.ShowMacStatusBarIcon.HasValue)
-                    s.Ui.ShowMacStatusBarIcon = body.ShowMacStatusBarIcon.Value;
-                if (body.ShowWindowsTrayIcon.HasValue)
-                    s.Ui.ShowWindowsTrayIcon = body.ShowWindowsTrayIcon.Value;
-                if (body.PanelAutoLaunch.HasValue)
-                    s.Ui.PanelAutoLaunch = body.PanelAutoLaunch.Value;
-                if (body.FanChannelOrder is not null)
-                    s.Ui.FanChannelOrder = body.FanChannelOrder;
-                if (body.PanelThemeSyncWithDesktop.HasValue)
-                    s.Ui.PanelThemeSyncWithDesktop = body.PanelThemeSyncWithDesktop.Value;
-                if (body.PanelThemeMode is not null)
-                    s.Ui.PanelThemeMode = body.PanelThemeMode;
-                if (body.PanelAccentSyncWithDesktop.HasValue)
-                    s.Ui.PanelAccentSyncWithDesktop = body.PanelAccentSyncWithDesktop.Value;
-                if (body.PanelAccentColor is not null)
-                    s.Ui.PanelAccentColor = body.PanelAccentColor;
-                if (body.PanelBackgroundColor is not null)
-                    s.Ui.PanelBackgroundColor = body.PanelBackgroundColor;
-                if (body.PanelBackgroundColorLight is not null)
-                    s.Ui.PanelBackgroundColorLight = body.PanelBackgroundColorLight;
-                if (body.PanelBackgroundMode is not null)
-                    s.Ui.PanelBackgroundMode = body.PanelBackgroundMode;
-                if (body.PanelBackgroundEffect is not null)
-                    s.Ui.PanelBackgroundEffect = body.PanelBackgroundEffect;
-                if (body.PanelBackgroundTemplate.HasValue)
-                    s.Ui.PanelBackgroundTemplate = body.PanelBackgroundTemplate.Value;
-                if (body.PanelBackgroundOpacity.HasValue)
-                    s.Ui.PanelBackgroundOpacity = body.PanelBackgroundOpacity.Value;
-                if (body.PanelWidgetOpacity.HasValue)
-                    s.Ui.PanelWidgetOpacity = body.PanelWidgetOpacity.Value;
-                if (body.PanelWidgetLabels.HasValue)
-                    s.Ui.PanelWidgetLabels = body.PanelWidgetLabels.Value;
-                if (body.DashboardLayout is not null)
-                    s.Ui.DashboardLayout = body.DashboardLayout;
-                if (body.OverlayWidgetsEnabled.HasValue)
-                    s.Ui.OverlayWidgetsEnabled = body.OverlayWidgetsEnabled.Value;
-                if (body.OverlayWidgetsAlwaysOnTop.HasValue)
-                    s.Ui.OverlayWidgetsAlwaysOnTop = body.OverlayWidgetsAlwaysOnTop.Value;
-                if (body.OverlayWidgetScale.HasValue)
+                if (body.Theme is { } theme)
                 {
-                    var newScale = Math.Clamp(body.OverlayWidgetScale.Value, 50, 200);
-                    var oldScale = s.Ui.OverlayWidgetScale > 0 ? s.Ui.OverlayWidgetScale : 100;
-                    // When the scale changes, rescale every widget's
-                    // (col, row) so the *visual* position stays put.
-                    // ratio = old / new because at 100->200% a widget at
-                    // col 4 should now be at col 2 (half as many cells
-                    // covers the same pixels). Snap to the 0.25 drag grid
-                    // and clamp to >=0 (max-clamping happens client-side
-                    // where the monitor size is known).
-                    if (oldScale != newScale)
+                    if (theme.Language is not null)    s.Theme.Language    = theme.Language;
+                    if (theme.ThemeMode is not null)   s.Theme.ThemeMode   = theme.ThemeMode;
+                    if (theme.AccentColor is not null) s.Theme.AccentColor = theme.AccentColor;
+                }
+                if (body.Panel is { } panel)
+                {
+                    if (panel.AutoLaunch.HasValue)               s.Panel.AutoLaunch            = panel.AutoLaunch.Value;
+                    if (panel.ThemeSyncWithDesktop.HasValue)     s.Panel.ThemeSyncWithDesktop  = panel.ThemeSyncWithDesktop.Value;
+                    if (panel.ThemeMode is not null)             s.Panel.ThemeMode             = panel.ThemeMode;
+                    if (panel.AccentSyncWithDesktop.HasValue)    s.Panel.AccentSyncWithDesktop = panel.AccentSyncWithDesktop.Value;
+                    if (panel.AccentColor is not null)           s.Panel.AccentColor           = panel.AccentColor;
+                    if (panel.BackgroundColor is not null)       s.Panel.BackgroundColor       = panel.BackgroundColor;
+                    if (panel.BackgroundColorLight is not null)  s.Panel.BackgroundColorLight  = panel.BackgroundColorLight;
+                    if (panel.BackgroundMode is not null)        s.Panel.BackgroundMode        = panel.BackgroundMode;
+                    if (panel.BackgroundEffect is not null)      s.Panel.BackgroundEffect      = panel.BackgroundEffect;
+                    if (panel.BackgroundTemplate.HasValue)       s.Panel.BackgroundTemplate    = panel.BackgroundTemplate.Value;
+                    if (panel.BackgroundOpacity.HasValue)        s.Panel.BackgroundOpacity     = panel.BackgroundOpacity.Value;
+                    if (panel.WidgetOpacity.HasValue)            s.Panel.WidgetOpacity         = panel.WidgetOpacity.Value;
+                    if (panel.WidgetLabels.HasValue)             s.Panel.WidgetLabels          = panel.WidgetLabels.Value;
+                    if (panel.DashboardLayout is not null)       s.Panel.DashboardLayout       = panel.DashboardLayout;
+                }
+                if (body.Overlay is { } overlay)
+                {
+                    if (overlay.Enabled.HasValue)      s.Overlay.Enabled     = overlay.Enabled.Value;
+                    if (overlay.AlwaysOnTop.HasValue)  s.Overlay.AlwaysOnTop = overlay.AlwaysOnTop.Value;
+                    if (overlay.Scale.HasValue)
                     {
-                        var ratio = (double)oldScale / newScale;
-                        foreach (var w in s.Ui.OverlayLayout)
+                        var newScale = Math.Clamp(overlay.Scale.Value, 50, 200);
+                        var oldScale = s.Overlay.Scale > 0 ? s.Overlay.Scale : 100;
+                        // Rescale every pinned widget's (col, row) so the *visual*
+                        // position stays put when the cell-size scale changes.
+                        // ratio = old / new because at 100→200% a widget at col 4
+                        // should land at col 2 (half as many cells cover the same
+                        // pixels). Snap to the 0.25 drag grid and clamp ≥0; max
+                        // clamp happens client-side where monitor size is known.
+                        if (oldScale != newScale && s.Overlay.Layout is { } layout)
                         {
-                            w.Col = Math.Max(0, Math.Round(w.Col * ratio * 4) / 4);
-                            w.Row = Math.Max(0, Math.Round(w.Row * ratio * 4) / 4);
+                            var ratio = (double)oldScale / newScale;
+                            foreach (var w in layout)
+                            {
+                                w.Col = Math.Max(0, Math.Round(w.Col * ratio * 4) / 4);
+                                w.Row = Math.Max(0, Math.Round(w.Row * ratio * 4) / 4);
+                            }
                         }
+                        s.Overlay.Scale = newScale;
                     }
-                    s.Ui.OverlayWidgetScale = newScale;
+                    if (overlay.Opacity.HasValue)
+                    {
+                        s.Overlay.Opacity = Math.Clamp(overlay.Opacity.Value, 0, 1);
+                    }
+                    if (overlay.Monitor.HasValue)
+                    {
+                        // -1 (primary) or any non-negative index. Don't clamp to a
+                        // max here — the overlay host validates against the
+                        // enumerated monitor count and falls back to primary if
+                        // the index is out of range.
+                        var v = overlay.Monitor.Value;
+                        s.Overlay.Monitor = v < -1 ? -1 : v;
+                    }
+                    if (overlay.Layout is not null) s.Overlay.Layout = overlay.Layout;
                 }
-                if (body.OverlayWidgetOpacity.HasValue)
+                if (body.Monitoring is { } monitoring)
                 {
-                    s.Ui.OverlayWidgetOpacity = Math.Clamp(body.OverlayWidgetOpacity.Value, 0, 1);
+                    if (monitoring.ShowAverage.HasValue)         s.Monitoring.ShowAverage          = monitoring.ShowAverage.Value;
+                    if (monitoring.ShowMacStatusBarIcon.HasValue) s.Monitoring.ShowMacStatusBarIcon = monitoring.ShowMacStatusBarIcon.Value;
+                    if (monitoring.ShowWindowsTrayIcon.HasValue)  s.Monitoring.ShowWindowsTrayIcon  = monitoring.ShowWindowsTrayIcon.Value;
+                    if (monitoring.DetailedCollapsed is not null) s.Monitoring.DetailedCollapsed   = monitoring.DetailedCollapsed;
                 }
-                if (body.OverlayWidgetsMonitor.HasValue)
+                if (body.Cooling is { } cooling)
                 {
-                    // -1 (primary) or any non-negative index. Don't clamp
-                    // to a max here - the overlay host validates against
-                    // the actual enumerated monitor count and falls back
-                    // to primary if the index is out of range.
-                    var v = body.OverlayWidgetsMonitor.Value;
-                    s.Ui.OverlayWidgetsMonitor = v < -1 ? -1 : v;
+                    if (cooling.FanChannelOrder is not null) s.Cooling.FanChannelOrder = cooling.FanChannelOrder;
                 }
-                if (body.OverlayLayout is not null)
-                    s.Ui.OverlayLayout = body.OverlayLayout;
+                if (body.Ui is { } ui)
+                {
+                    if (ui.DisableConflictAlerts.HasValue) s.Ui.DisableConflictAlerts = ui.DisableConflictAlerts.Value;
+                }
             });
             pm.MarkDirty();
             PanelTopics.BroadcastPrefs(hub);

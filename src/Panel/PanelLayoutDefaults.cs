@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Qos.Service.Defaults;
 using Qos.Service.Models.Panel;
+using Qos.Service.Persistence;
 
 namespace Qos.Service.Panel;
 
@@ -19,12 +20,15 @@ public static class PanelLayoutDefaults
 
     public static PanelLayoutDto ForSurface(string surface)
     {
+        // Layouts is nullable on the shared PanelSettings POCO (live profiles
+        // leave it null); install-defaults always populates it.
+        var layouts = InstallDefaults.Panel.Layouts ?? new PanelLayoutsDefaults();
         var src = surface switch
         {
-            "desktop" => InstallDefaults.Panel.Layouts.Desktop,
-            "phone" => InstallDefaults.Panel.Layouts.Phone,
-            "q60" => InstallDefaults.Panel.Layouts.Q60,
-            _ => InstallDefaults.Panel.Layouts.Y70,
+            "desktop" => layouts.Desktop,
+            "phone" => layouts.Phone,
+            "q60" => layouts.Q60,
+            _ => layouts.Y70,
         };
         return new PanelLayoutDto
         {

@@ -17,7 +17,7 @@ public class ProfileResponse : ApiResponse
 public class SwitchProfileResponse : ApiResponse
 {
     public string Switched { get; set; } = "";
-    public UiSettings? Ui { get; set; }
+    public Preferences? Prefs { get; set; }
 }
 
 public class CreateProfileBody

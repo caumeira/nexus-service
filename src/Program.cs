@@ -709,19 +709,19 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !serviceMode)
     Qos.Service.Platform.Windows.TrayIcon.ConfigureDesktop(
         onToggleOverlayTopmost: () =>
         {
-            store.Update(s => s.Ui.OverlayWidgetsAlwaysOnTop = !s.Ui.OverlayWidgetsAlwaysOnTop);
+            store.Update(s => s.Overlay.AlwaysOnTop = !s.Overlay.AlwaysOnTop);
             Qos.Service.Sockets.PanelTopics.BroadcastPrefs(hub);
         },
-        isOverlayTopmost: () => store.Load().Ui.OverlayWidgetsAlwaysOnTop,
-        hasOverlayWidgets: () => store.Load().Ui.OverlayLayout.Count > 0);
+        isOverlayTopmost: () => store.Load().Overlay.AlwaysOnTop,
+        hasOverlayWidgets: () => store.Load().Overlay.Layout.Count > 0);
 
-    Qos.Service.Platform.Windows.TrayIcon.SetVisible(store.Load().Ui.ShowWindowsTrayIcon);
+    Qos.Service.Platform.Windows.TrayIcon.SetVisible(store.Load().Monitoring.ShowWindowsTrayIcon);
 
     store.OnChanged += () =>
     {
         try
         {
-            var show = store.Load().Ui.ShowWindowsTrayIcon;
+            var show = store.Load().Monitoring.ShowWindowsTrayIcon;
             Qos.Service.Platform.Windows.TrayIcon.SetVisible(show);
         }
         catch { /* best-effort */ }
@@ -739,7 +739,7 @@ if (serviceMode)
 {
     var trayStore = app.Services.GetRequiredService<IConfigStore>();
     var helperRegistry = app.Services.GetRequiredService<Qos.Service.Helper.HelperRegistry>();
-    var lastVisible = trayStore.Load().Ui.ShowWindowsTrayIcon;
+    var lastVisible = trayStore.Load().Monitoring.ShowWindowsTrayIcon;
 
     // Push current state on every fresh helper connect. Handles first
     // bootstrap, service restart, helper crash-and-respawn.
@@ -747,7 +747,7 @@ if (serviceMode)
     {
         try
         {
-            var current = trayStore.Load().Ui.ShowWindowsTrayIcon;
+            var current = trayStore.Load().Monitoring.ShowWindowsTrayIcon;
             _ = Qos.Service.Helper.Domains.TrayCommands.SetVisibleAsync(helperRegistry, current);
         }
         catch (Exception ex) { Console.Error.WriteLine($"[helper-sync] initial state failed: {ex.Message}"); }
@@ -757,7 +757,7 @@ if (serviceMode)
     {
         try
         {
-            var nowVisible = trayStore.Load().Ui.ShowWindowsTrayIcon;
+            var nowVisible = trayStore.Load().Monitoring.ShowWindowsTrayIcon;
             if (nowVisible == lastVisible) return;
             lastVisible = nowVisible;
             _ = Qos.Service.Helper.Domains.TrayCommands.SetVisibleAsync(helperRegistry, nowVisible);
@@ -816,8 +816,8 @@ if (serviceMode)
     {
         try
         {
-            var ui = overlayStore.Load().Ui;
-            var shouldRun = ui.OverlayWidgetsEnabled && ui.OverlayLayout.Count > 0;
+            var snapshot = overlayStore.Load();
+            var shouldRun = snapshot.Overlay.Enabled && snapshot.Overlay.Layout.Count > 0;
             if (shouldRun && !overlayHost.IsRunning)
             {
                 overlayHost.Start();
@@ -853,8 +853,8 @@ if (serviceMode)
 
     app.Lifetime.ApplicationStarted.Register(() =>
     {
-        var initialUi = overlayStore.Load().Ui;
-        if (initialUi.OverlayWidgetsEnabled && initialUi.OverlayLayout.Count > 0)
+        var initial = overlayStore.Load();
+        if (initial.Overlay.Enabled && initial.Overlay.Layout.Count > 0)
         {
             _ = Task.Run(async () =>
             {
@@ -902,7 +902,7 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         // device display (Y70/Y80) is connected. Runs on a background thread with
         // a short delay so the display subsystem is fully initialized after logon.
         var store2 = app.Services.GetRequiredService<Qos.Service.Persistence.IConfigStore>();
-        if (store2.Load().Ui.PanelAutoLaunch)
+        if (store2.Load().Panel.AutoLaunch)
         {
             _ = Task.Run(async () =>
             {
@@ -982,7 +982,7 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
     // Only show status bar if the profile says so (default true)
     var store = app.Services.GetRequiredService<Qos.Service.Persistence.IConfigStore>();
     var settings = store.Load();
-    var showIcon = settings.Ui.ShowMacStatusBarIcon;
+    var showIcon = settings.Monitoring.ShowMacStatusBarIcon;
 
     var iconPath = Path.Combine(AppContext.BaseDirectory, "status-icon.png");
 
@@ -1014,7 +1014,7 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
     {
         try
         {
-            var show = store.Load().Ui.ShowMacStatusBarIcon;
+            var show = store.Load().Monitoring.ShowMacStatusBarIcon;
             Qos.Service.Platform.Mac.MacStatusBar.SetVisible(show);
         }
         catch { /* best-effort */ }

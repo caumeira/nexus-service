@@ -12,7 +12,7 @@ namespace Qos.Service.Routes;
 
 /// <summary>
 /// Floating desktop widget endpoints. State is profile-scoped under
-/// <c>UiSettings.OverlayLayout</c>; mutations broadcast the existing
+/// <c>OverlaySettings.Layout</c>; mutations broadcast the existing
 /// <c>prefs</c> topic so the desktop host (and any open SPA tab) refetches.
 /// See plans/desktop-widgets-v1.md.
 /// </summary>
@@ -43,7 +43,7 @@ public static class OverlayRoutes
         app.MapGet("/overlay/widgets", (IConfigStore store) =>
         {
             return Results.Json(
-                store.Load().Ui.OverlayLayout,
+                store.Load().Overlay.Layout,
                 AppJsonContext.Default.ListOverlayWidgetDto);
         }).AllowPanel();
 
@@ -72,17 +72,17 @@ public static class OverlayRoutes
                 else
                 {
                     var (c, r) = FindFirstFreeCell(
-                        s.Ui.OverlayLayout, entry.Monitor,
+                        s.Overlay.Layout, entry.Monitor,
                         SizeWidth(entry.Size), SizeHeight(entry.Size));
                     col = c;
                     row = r;
                 }
                 entry.Col = col;
                 entry.Row = row;
-                s.Ui.OverlayLayout.Add(entry);
+                s.Overlay.Layout.Add(entry);
 
-                if (!s.Ui.OverlayWidgetsEnabled)
-                    s.Ui.OverlayWidgetsEnabled = true;
+                if (!s.Overlay.Enabled)
+                    s.Overlay.Enabled = true;
             });
             pm.MarkDirty();
             PanelTopics.BroadcastPrefs(hub);
@@ -95,7 +95,7 @@ public static class OverlayRoutes
             OverlayWidgetDto? updated = null;
             store.Update(s =>
             {
-                var entry = s.Ui.OverlayLayout.FirstOrDefault(w => w.Id == id);
+                var entry = s.Overlay.Layout.FirstOrDefault(w => w.Id == id);
                 if (entry is null) return;
                 if (body.Size is not null) entry.Size = NormalizeSize(body.Size);
                 if (body.Monitor.HasValue) entry.Monitor = body.Monitor.Value;
@@ -118,9 +118,9 @@ public static class OverlayRoutes
             var removed = false;
             store.Update(s =>
             {
-                var idx = s.Ui.OverlayLayout.FindIndex(w => w.Id == id);
+                var idx = s.Overlay.Layout.FindIndex(w => w.Id == id);
                 if (idx < 0) return;
-                s.Ui.OverlayLayout.RemoveAt(idx);
+                s.Overlay.Layout.RemoveAt(idx);
                 removed = true;
             });
             if (!removed)

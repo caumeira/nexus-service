@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using Qos.Service.Serialization;
 
@@ -65,12 +66,12 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
             try
             {
                 var json = File.ReadAllText(SettingsPath);
-                // Pre-deserialize migration: the floating-widget surface was
-                // renamed from `desktop*` to `overlay*` keys after first ship.
-                // Existing settings.json files still carry the old names; do a
-                // cheap top-level rename so OverlayWidgetsEnabled / OverlayLayout
-                // / etc. populate from the user's prior data instead of resetting.
-                var migratedJson = MigrateLegacyOverlayKeys(json);
+                // Pre-deserialize migrations run in order:
+                //   1. Rename legacy `desktop*` keys to `overlay*` (early-dev rename).
+                //   2. Nest flat Ui.{theme/panel/overlay/monitoring} fields out of
+                //      UiSettings into matching top-level POCOs (schema v1 → v2).
+                var afterOverlay = MigrateLegacyOverlayKeys(json);
+                var migratedJson = MigrateV1ToV2(afterOverlay);
                 if (!ReferenceEquals(migratedJson, json))
                 {
                     _dirty = true;
@@ -242,6 +243,18 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         ("\"desktopLayout\"",              "\"overlayLayout\""),
     };
 
+    /// <summary>
+    /// Runs both legacy migrations (overlay key rename + v1→v2 nested shape)
+    /// on a raw JSON string. Exposed publicly so per-profile JSON files
+    /// loaded by <see cref="ProfileManager"/> get the same treatment as the
+    /// master settings.json. Idempotent: re-running on already-migrated JSON
+    /// returns the input unchanged.
+    /// </summary>
+    public static string MigrateLegacyJson(string json)
+    {
+        return MigrateV1ToV2(MigrateLegacyOverlayKeys(json));
+    }
+
     private static string MigrateLegacyOverlayKeys(string json)
     {
         var changed = false;
@@ -255,5 +268,90 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
             }
         }
         return changed ? current : json;
+    }
+
+    // v1 (flat) → v2 (nested) migration. v1 stores theme/panel/overlay/monitoring
+    // fields flat on Ui (Ui.PanelThemeMode, Ui.OverlayWidgetsEnabled, etc.); v2
+    // moves them into matching top-level POCOs that mirror install-defaults.json
+    // (Theme.ThemeMode, Panel.ThemeMode, Overlay.Enabled, Monitoring.ShowAverage,
+    // etc.) and shifts Ui.FanChannelOrder into Cooling.FanChannelOrder.
+    //
+    // Triggered when the persisted SchemaVersion is below 2; for files that
+    // predate the SchemaVersion field entirely the absent property reads as 0
+    // and migration still runs. Idempotent: re-running on already-migrated data
+    // is a no-op (the flat ui.panel* keys are gone, so MoveField returns early).
+    private static string MigrateV1ToV2(string json)
+    {
+        JsonNode? root;
+        try { root = JsonNode.Parse(json); }
+        catch (JsonException) { return json; }
+        if (root is not JsonObject obj) return json;
+
+        int sv = 0;
+        if (obj.TryGetPropertyValue("schemaVersion", out var svNode) && svNode is JsonValue v && v.TryGetValue<int>(out var parsed))
+            sv = parsed;
+        if (sv >= 2) return json;
+
+        if (obj["ui"] is JsonObject ui)
+        {
+            var theme = obj["theme"] as JsonObject ?? new JsonObject();
+            MoveField(ui, "language",    theme, "language");
+            MoveField(ui, "themeMode",   theme, "themeMode");
+            MoveField(ui, "accentColor", theme, "accentColor");
+            if (theme.Count > 0 && obj["theme"] is null) obj["theme"] = theme;
+
+            var panel = obj["panel"] as JsonObject ?? new JsonObject();
+            MoveField(ui, "panelAutoLaunch",            panel, "autoLaunch");
+            MoveField(ui, "panelThemeSyncWithDesktop",  panel, "themeSyncWithDesktop");
+            MoveField(ui, "panelThemeMode",             panel, "themeMode");
+            MoveField(ui, "panelAccentSyncWithDesktop", panel, "accentSyncWithDesktop");
+            MoveField(ui, "panelAccentColor",           panel, "accentColor");
+            MoveField(ui, "panelBackgroundColor",       panel, "backgroundColor");
+            MoveField(ui, "panelBackgroundColorLight",  panel, "backgroundColorLight");
+            MoveField(ui, "panelBackgroundMode",        panel, "backgroundMode");
+            MoveField(ui, "panelBackgroundEffect",      panel, "backgroundEffect");
+            MoveField(ui, "panelBackgroundTemplate",    panel, "backgroundTemplate");
+            MoveField(ui, "panelBackgroundOpacity",     panel, "backgroundOpacity");
+            MoveField(ui, "panelWidgetOpacity",         panel, "widgetOpacity");
+            MoveField(ui, "panelWidgetLabels",          panel, "widgetLabels");
+            MoveField(ui, "dashboardLayout",            panel, "dashboardLayout");
+            if (panel.Count > 0 && obj["panel"] is null) obj["panel"] = panel;
+
+            var overlay = obj["overlay"] as JsonObject ?? new JsonObject();
+            MoveField(ui, "overlayWidgetsEnabled",     overlay, "enabled");
+            MoveField(ui, "overlayWidgetsAlwaysOnTop", overlay, "alwaysOnTop");
+            MoveField(ui, "overlayWidgetScale",        overlay, "scale");
+            MoveField(ui, "overlayWidgetOpacity",      overlay, "opacity");
+            MoveField(ui, "overlayWidgetsMonitor",     overlay, "monitor");
+            MoveField(ui, "overlayLayout",             overlay, "layout");
+            if (overlay.Count > 0 && obj["overlay"] is null) obj["overlay"] = overlay;
+
+            var monitoring = obj["monitoring"] as JsonObject ?? new JsonObject();
+            MoveField(ui, "monitoringShowAverage",        monitoring, "showAverage");
+            MoveField(ui, "monitoringDetailedCollapsed",  monitoring, "detailedCollapsed");
+            MoveField(ui, "showMacStatusBarIcon",         monitoring, "showMacStatusBarIcon");
+            MoveField(ui, "showWindowsTrayIcon",          monitoring, "showWindowsTrayIcon");
+            if (monitoring.Count > 0 && obj["monitoring"] is null) obj["monitoring"] = monitoring;
+
+            var cooling = obj["cooling"] as JsonObject ?? new JsonObject();
+            MoveField(ui, "fanChannelOrder", cooling, "fanChannelOrder");
+            if (cooling.Count > 0 && obj["cooling"] is null) obj["cooling"] = cooling;
+        }
+
+        obj["schemaVersion"] = 2;
+        return obj.ToJsonString();
+    }
+
+    private static void MoveField(JsonObject src, string srcKey, JsonObject dst, string dstKey)
+    {
+        if (!src.TryGetPropertyValue(srcKey, out var node) || node is null)
+        {
+            src.Remove(srcKey); // null-valued field — drop it
+            return;
+        }
+        // DeepClone detaches from src so the assignment to dst is legal.
+        var clone = node.DeepClone();
+        src.Remove(srcKey);
+        dst[dstKey] = clone;
     }
 }

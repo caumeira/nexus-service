@@ -285,7 +285,7 @@ public sealed class ProfileManager : IDisposable
 
             try
             {
-                var json = File.ReadAllText(filePath);
+                var json = JsonConfigStore.MigrateLegacyJson(File.ReadAllText(filePath));
                 var settings = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.QosSettings);
                 if (settings != null)
                 {
@@ -362,13 +362,16 @@ public sealed class ProfileManager : IDisposable
 
     public ProfileEntry ImportProfileJson(string json)
     {
-        var wrapper = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.ProfileExport);
+        // Imported profile JSON could be v1 shape from an older export.
+        // Migration is idempotent so it's safe to apply to v2 input too.
+        var migrated = JsonConfigStore.MigrateLegacyJson(json);
+        var wrapper = JsonSerializer.Deserialize(migrated, PersistenceJsonContext.Default.ProfileExport);
         if (wrapper?.Settings is not null)
         {
             return ImportProfile(wrapper.Name ?? "Imported", wrapper.Settings);
         }
 
-        var data = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.QosSettings)
+        var data = JsonSerializer.Deserialize(migrated, PersistenceJsonContext.Default.QosSettings)
                    ?? throw new InvalidOperationException("Invalid profile data.");
         return ImportProfile("Imported", data);
     }
@@ -469,12 +472,12 @@ public sealed class ProfileManager : IDisposable
             s.Lighting = data.Lighting ?? new LightingSettings();
             s.Cooling = data.Cooling ?? new CoolingSettings();
 
-            if (data.Ui != null)
-            {
-                s.Ui ??= new UiSettings();
-                ProfileSharing.ApplyCategory(s, data, ProfileSharing.Theme);
-                ProfileSharing.ApplyCategory(s, data, ProfileSharing.Dashboard);
-            }
+            // Theme + Dashboard categories now live in dedicated top-level
+            // blocks (Theme, Monitoring, Overlay, Panel.DashboardLayout) — no
+            // need to gate on `data.Ui` since that block is now reduced to
+            // residual flags. Always copy both categories.
+            ProfileSharing.ApplyCategory(s, data, ProfileSharing.Theme);
+            ProfileSharing.ApplyCategory(s, data, ProfileSharing.Dashboard);
 
             // PanelDevices is hardware-scoped, not profile-scoped: do NOT
             // copy from profileData. We just lift any legacy per-profile
@@ -494,7 +497,8 @@ public sealed class ProfileManager : IDisposable
         }
         try
         {
-            return JsonSerializer.Deserialize(File.ReadAllText(path), PersistenceJsonContext.Default.QosSettings);
+            var json = JsonConfigStore.MigrateLegacyJson(File.ReadAllText(path));
+            return JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.QosSettings);
         }
         catch
         {
@@ -511,7 +515,8 @@ public sealed class ProfileManager : IDisposable
         {
             try
             {
-                target = JsonSerializer.Deserialize(File.ReadAllText(path), PersistenceJsonContext.Default.QosSettings)
+                var migrated = JsonConfigStore.MigrateLegacyJson(File.ReadAllText(path));
+                target = JsonSerializer.Deserialize(migrated, PersistenceJsonContext.Default.QosSettings)
                          ?? new QosSettings();
             }
             catch
