@@ -99,6 +99,24 @@ public static class LightingRoutes
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         });
+
+        // Master brightness slider: multiplies every LED channel before it leaves
+        // the RGB bridge. Read live by RgbBridge.OnFrame, so a POST takes effect
+        // on the next frame push without restarting any effect.
+        app.MapGet("/lighting/global-brightness", (Qos.Service.Persistence.IConfigStore store) =>
+            new Models.Lighting.GlobalBrightnessBody { Value = store.Load().Lighting.GlobalBrightness }).AllowPanel();
+        app.MapPost("/lighting/global-brightness", (Models.Lighting.GlobalBrightnessBody body,
+            Qos.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
+        {
+            // Math.Clamp(NaN, ...) returns NaN, which would propagate through
+            // RgbBridge.OnFrame and zero every LED. Treat a non-finite payload
+            // as "no change requested" — fall back to the documented default.
+            var safe = float.IsFinite(body.Value) ? body.Value : 1.0f;
+            var clamped = Math.Clamp(safe, 0f, 1f);
+            store.Update(s => s.Lighting.GlobalBrightness = clamped);
+            PanelTopics.BroadcastLighting(hub);
+            return ApiResponse.Ok();
+        }).AllowPanel();
         app.MapPost("/lighting/speed", (SpeedScale body, ILightingProvider l, MultiplexHub hub) =>
         {
             l.SetSpeed(body);

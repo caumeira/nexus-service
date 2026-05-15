@@ -33,6 +33,14 @@ public class BrightnessScale
     public bool Enabled { get; set; }
 }
 
+/// <summary>Master multiplier applied to every LED channel before it leaves the
+/// RGB bridge. 0..1 (UI slider is 0..100% and divides client-side). Both the
+/// /lighting/global-brightness GET response and POST body share this shape.</summary>
+public class GlobalBrightnessBody
+{
+    public float Value { get; set; } = 1.0f;
+}
+
 public class SpeedScale
 {
     public Dictionary<string, int> Scale { get; set; } = new();

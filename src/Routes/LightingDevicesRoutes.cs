@@ -67,9 +67,14 @@ public static partial class DevicesRoutes
         });
 
         // Force-rescan: restart OpenRGB subprocess (only for plugins that scan once at boot)
-        app.MapPost("/devices/lighting-devices/rescan", (Qos.Service.Lighting.Rgb.RgbBridge? bridge) =>
+        // Broadcasts a `lighting` topic frame so the SPA's useRgbStatus hook
+        // refetches /lighting/status immediately and observes `scanning=true`
+        // without waiting for an unrelated mutation. The hook's poll-while-
+        // scanning loop then tracks the rescan to completion on its own.
+        app.MapPost("/devices/lighting-devices/rescan", (Qos.Service.Lighting.Rgb.RgbBridge? bridge, Qos.Service.Sockets.MultiplexHub hub) =>
         {
             bridge?.ForceRescan();
+            Qos.Service.Sockets.PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         });
 
@@ -86,6 +91,7 @@ public static partial class DevicesRoutes
             if (device is null)
                 return Results.Json(new LedMapResponse { Id = id }, Qos.Service.Serialization.AppJsonContext.Default.LedMapResponse);
 
+            var settings = store.Load();
             float[] defU, defV;
             int ledCount;
             string[] zoneTypes;
@@ -93,7 +99,13 @@ public static partial class DevicesRoutes
             if (zoneIdx >= 0 && zoneIdx < device.Zones.Count)
             {
                 var zone = device.Zones[zoneIdx];
-                ledCount = zone.LedCount;
+                // 12V single-zone headers ignore RESIZEZONE on the wire so OpenRGB
+                // keeps reporting the physical 1-LED placeholder even after the user
+                // has persisted "60". Trust the persisted value for the LED map so
+                // the editor's count field stays in sync with the device card.
+                ledCount = settings.Devices.ZoneLedCounts.TryGetValue(id, out var persistedCount)
+                    ? persistedCount
+                    : zone.LedCount;
                 globalOffset = 0;
                 for (int z = 0; z < zoneIdx; z++)
                     globalOffset += device.Zones[z].LedCount;
@@ -129,7 +141,6 @@ public static partial class DevicesRoutes
                 }
             }
 
-            var settings = store.Load();
             var customSet = new HashSet<int>();
             var disabledSet = new HashSet<int>();
             if (defaults != true)

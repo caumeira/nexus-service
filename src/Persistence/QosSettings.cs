@@ -97,6 +97,11 @@ public sealed class LightingSettings
     public string Sync { get; set; } = InstallDefaults.Lighting.Sync;
     public Dictionary<string, float> BrightnessScale { get; set; } = new();
     public bool BrightnessEnabled { get; set; } = InstallDefaults.Lighting.BrightnessEnabled;
+    /// <summary>Master multiplier applied to every LED channel before it leaves
+    /// the RGB bridge. Combines with per-device <see cref="LightingDevicePreference.Brightness"/>
+    /// so the effective brightness for a given LED is <c>global * device / 100</c>.
+    /// Range 0..1; default 1.0 (no attenuation).</summary>
+    public float GlobalBrightness { get; set; } = 1.0f;
     public Dictionary<string, int> SpeedScale { get; set; } = new();
     public bool SpeedEnabled { get; set; } = InstallDefaults.Lighting.SpeedEnabled;
     public int FrameRate { get; set; } = InstallDefaults.Lighting.FrameRate;

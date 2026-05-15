@@ -198,6 +198,7 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(SetFrameRateBody))]
 [JsonSerializable(typeof(SetScaleRatioBody))]
 [JsonSerializable(typeof(BrightnessScale))]
+[JsonSerializable(typeof(Qos.Service.Models.Lighting.GlobalBrightnessBody))]
 [JsonSerializable(typeof(SpeedScale))]
 [JsonSerializable(typeof(StaticHeadlessStart))]
 [JsonSerializable(typeof(AnimateHeadlessStart))]

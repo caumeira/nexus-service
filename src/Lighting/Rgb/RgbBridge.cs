@@ -100,10 +100,13 @@ public sealed class RgbBridge : IDisposable
     private readonly SemaphoreSlim _refreshSemaphore = new(1, 1);
     private int _lastUsbCount = -1;        // -1 = not yet observed; no bounce on first read
 
-    // Identify: split id -> colour + expiration. OnFrame consults this so the
-    // active effect keeps running but the user's chosen zone pulses a unique
-    // colour for a few seconds so they know which physical strip it is.
-    private readonly ConcurrentDictionary<string, (RgbColor color, long expirationTicks)> _identifyOverrides = new();
+    // Identify: split id -> start + expiration. OnFrame consults this so the
+    // active effect keeps running but the user's chosen zone flashes white on
+    // and off so they know which physical strip it is. The flash period is
+    // fixed (see IdentifyFlashPeriodMs) and applied uniformly to all queued
+    // identifies so adjacent zones blink in phase if both are running.
+    private readonly ConcurrentDictionary<string, (long startTicks, long expirationTicks)> _identifyOverrides = new();
+    private const int IdentifyFlashPeriodMs = 500;
     // Zone resize requests enqueued from SetZoneLedCount. Drained and applied
     // via OpenRGB's RESIZEZONE opcode inside RefreshDevicesAsync under the
     // refresh semaphore so it never races with the frame push path.
@@ -329,57 +332,19 @@ public sealed class RgbBridge : IDisposable
 
     /// <summary>
     /// Start identifying a logical lighting device (whole OpenRGB device or a
-    /// single motherboard zone). OnFrame consults the override and overwrites
-    /// the zone's slice with a unique colour until the duration elapses. The
-    /// active lighting effect keeps running underneath; identify recovers
-    /// automatically when the window closes.
+    /// single motherboard zone). OnFrame consults the override and flashes the
+    /// zone's slice white on / off until the duration elapses. The active
+    /// lighting effect keeps running underneath; identify recovers automatically
+    /// when the window closes.
     /// </summary>
     public void BeginIdentify(string id, int durationMs)
     {
         if (string.IsNullOrEmpty(id))
             return;
         durationMs = Math.Clamp(durationMs, 250, 10000);
-        var color = ColorForIdentify(id);
-        var expiration = DateTime.UtcNow.Ticks + TimeSpan.FromMilliseconds(durationMs).Ticks;
-        _identifyOverrides[id] = (color, expiration);
-    }
-
-    private static RgbColor ColorForIdentify(string id)
-    {
-        // Hash the id so adjacent zone ids ("openrgb-0-0" vs "openrgb-0-1")
-        // pulse visibly different colours - a predictable hash is fine here.
-        int hash = 0;
-        for (int i = 0; i < id.Length; i++)
-        {
-            hash = unchecked((hash * 131) + id[i]);
-        }
-        var hue = (uint)((hash & 0x7FFFFFFF) % 360);
-        return HsvToRgb(hue, 1f, 1f);
-    }
-
-    private static RgbColor HsvToRgb(uint hDeg, float s, float v)
-    {
-        var c = v * s;
-        var hPrime = hDeg / 60f;
-        var x = c * (1f - MathF.Abs((hPrime % 2f) - 1f));
-        var m = v - c;
-        float r = 0f, g = 0f, b = 0f;
-        if (hPrime < 1f)
-        { r = c; g = x; }
-        else if (hPrime < 2f)
-        { r = x; g = c; }
-        else if (hPrime < 3f)
-        { g = c; b = x; }
-        else if (hPrime < 4f)
-        { g = x; b = c; }
-        else if (hPrime < 5f)
-        { r = x; b = c; }
-        else
-        { r = c; b = x; }
-        return new RgbColor(
-            (byte)MathF.Round((r + m) * 255f),
-            (byte)MathF.Round((g + m) * 255f),
-            (byte)MathF.Round((b + m) * 255f));
+        var now = DateTime.UtcNow.Ticks;
+        var expiration = now + TimeSpan.FromMilliseconds(durationMs).Ticks;
+        _identifyOverrides[id] = (now, expiration);
     }
 
     private void BounceSubprocess()
@@ -1040,8 +1005,11 @@ public sealed class RgbBridge : IDisposable
 
         // Safe because SetPower/SetDisabled replace the list reference rather than
         // mutating in place - whatever we read here won't change under us.
-        var disabled = _store.Load().Devices.DisabledLightingDevices;
+        var settings = _store.Load();
+        var disabled = settings.Devices.DisabledLightingDevices;
         var disabledCount = disabled.Count;
+        var devicePrefs = settings.Devices.LightingDevicePrefs;
+        var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var nowTicks = DateTime.UtcNow.Ticks;
 
         _touchedPhysicals.Clear();
@@ -1087,19 +1055,53 @@ public sealed class RgbBridge : IDisposable
                 _identifyOverrides.TryRemove(dev.Id, out _);
             }
 
+            // Combined brightness multiplier: global slider * per-device slider.
+            // Both are user-facing 0..100 sliders; identify ignores brightness
+            // so the flash always reads as max-bright white even when the user
+            // has dimmed the device or the global multiplier.
+            // The Dictionary<,> on LightingDevicePrefs is mutated in place by
+            // SetBrightness writers; a concurrent insert during this read can
+            // throw InvalidOperationException. Catch it and fall back to full
+            // brightness for this frame; the next frame will see the new state.
+            int devBrightness;
+            try { devBrightness = devicePrefs.TryGetValue(dev.Id, out var pref) ? pref.Brightness : 100; }
+            catch (InvalidOperationException) { devBrightness = 100; }
+            var brightnessMul = globalBrightness * Math.Clamp(devBrightness, 0, 100) / 100.0;
+
             if (isOff)
             {
                 for (int led = 0; led < writeLen; led++)
                 {
-                    buffer[zoneOffset + led] = new RgbColor(0, 0, 0);
+                    buffer[zoneOffset + led] = RgbColor.Black;
                 }
             }
             else if (hasIdentify)
             {
-                var c = idOverride.color;
+                // 500ms cycle (250ms on, 250ms off) -> 4 flashes per 2s window.
+                // Math.Max guards against the const ever being lowered below 2,
+                // which would zero the integer divisor and throw DivideByZero.
+                var elapsedMs = (nowTicks - idOverride.startTicks) / TimeSpan.TicksPerMillisecond;
+                var halfPeriod = Math.Max(1, IdentifyFlashPeriodMs / 2);
+                var on = (elapsedMs / halfPeriod) % 2 == 0;
+                var flash = on ? new RgbColor(255, 255, 255) : RgbColor.Black;
                 for (int led = 0; led < writeLen; led++)
                 {
-                    buffer[zoneOffset + led] = c;
+                    buffer[zoneOffset + led] = flash;
+                }
+            }
+            else if (brightnessMul >= 0.999)
+            {
+                for (int led = 0; led < writeLen; led++)
+                {
+                    var off2 = pos + led * 3;
+                    buffer[zoneOffset + led] = new RgbColor(frame[off2], frame[off2 + 1], frame[off2 + 2]);
+                }
+            }
+            else if (brightnessMul <= 0.0)
+            {
+                for (int led = 0; led < writeLen; led++)
+                {
+                    buffer[zoneOffset + led] = RgbColor.Black;
                 }
             }
             else
@@ -1107,7 +1109,7 @@ public sealed class RgbBridge : IDisposable
                 for (int led = 0; led < writeLen; led++)
                 {
                     var off2 = pos + led * 3;
-                    buffer[zoneOffset + led] = new RgbColor(frame[off2], frame[off2 + 1], frame[off2 + 2]);
+                    buffer[zoneOffset + led] = new RgbColor(frame[off2], frame[off2 + 1], frame[off2 + 2]).Scale(brightnessMul);
                 }
             }
             _touchedPhysicals.Add(dev.PhysicalIndex);
