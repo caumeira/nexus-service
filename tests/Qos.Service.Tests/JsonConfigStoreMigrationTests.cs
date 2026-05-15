@@ -85,7 +85,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
         try
         {
             // SchemaVersion bumped.
-            Assert.Equal(4, s.SchemaVersion);
+            Assert.Equal(5, s.SchemaVersion);
 
             // Theme moved.
             Assert.Equal("es", s.Theme.Language);
@@ -140,25 +140,25 @@ public class JsonConfigStoreMigrationTests : IDisposable
     }
 
     [Fact]
-    public void Load_NoOpOnAlreadyV4()
+    public void Load_NoOpOnAlreadyV5()
     {
-        // A v4 settings.json: nested blocks already in place, schemaVersion=4.
-        var v4Json = """
+        // A v5 settings.json: nested blocks already in place, schemaVersion=5.
+        var v5Json = """
         {
-          "schemaVersion": 4,
+          "schemaVersion": 5,
           "theme": { "themeMode": "dark", "accentColor": "#aabbcc", "language": "en" },
           "panel": { "autoLaunch": true, "themeMode": "system" },
           "overlay": { "enabled": true, "scale": 120 },
           "monitoring": { "showAverage": true }
         }
         """;
-        File.WriteAllText(_settingsPath, v4Json);
+        File.WriteAllText(_settingsPath, v5Json);
 
         var store = new JsonConfigStore(_settingsPath);
         var s = store.Load();
         try
         {
-            Assert.Equal(4, s.SchemaVersion);
+            Assert.Equal(5, s.SchemaVersion);
             Assert.Equal("dark", s.Theme.ThemeMode);
             Assert.Equal("#aabbcc", s.Theme.AccentColor);
             Assert.True(s.Panel.AutoLaunch);
@@ -219,7 +219,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
         var onDisk = File.ReadAllText(_settingsPath);
         var doc = JsonNode.Parse(onDisk) as JsonObject;
         Assert.NotNull(doc);
-        Assert.Equal(4, doc!["schemaVersion"]!.GetValue<int>());
+        Assert.Equal(5, doc!["schemaVersion"]!.GetValue<int>());
 
         // Top-level widgets bag is gone.
         Assert.False(doc.ContainsKey("widgets"));
@@ -312,7 +312,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
         var s = store.Load();
         try
         {
-            Assert.Equal(4, s.SchemaVersion);
+            Assert.Equal(5, s.SchemaVersion);
             Assert.Equal("light", s.Theme.ThemeMode);
             Assert.True(s.Panel.AutoLaunch);
         }

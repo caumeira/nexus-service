@@ -73,7 +73,7 @@ internal sealed class AutoRestoreOnStart : BackgroundService
         // "custom" needs no re-apply (the curves already carry their fan
         // assignments). "off" was already idle; skipping avoids stomping on
         // a user who manually set a fan duty before we reached this point.
-        if (current is "silent" or "balanced" or "performance")
+        if (current is "silent" or "balanced" or "turbo")
         {
             FanProfiles.Apply(current, _fans, _store);
             Console.WriteLine($"[auto-restore] cooling preset re-applied: {current}");

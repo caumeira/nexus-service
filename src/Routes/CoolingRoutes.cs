@@ -170,7 +170,7 @@ public static class CoolingRoutes
         app.MapPost("/cooling/profile/{name}/reset", (string name, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
         {
             var canonical = (name ?? "").ToLowerInvariant();
-            if (canonical != "silent" && canonical != "balanced" && canonical != "performance")
+            if (canonical != "silent" && canonical != "balanced" && canonical != "turbo")
             {
                 return Results.BadRequest(new ApiResponse { Error = true, Msg = $"Cannot reset preset: {name}" });
             }

@@ -13,8 +13,8 @@ namespace Qos.Service.Persistence;
 /// </summary>
 public sealed class QosSettings
 {
-    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag — every placement keeps its own config under <see cref="Qos.Service.Models.Panel.PanelWidgetDto.Config"/>. <see cref="JsonConfigStore"/> migrates v1/v2/v3 (or missing) records on load.</summary>
-    public int SchemaVersion { get; set; } = 4;
+    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag — every placement keeps its own config under <see cref="Qos.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. <see cref="JsonConfigStore"/> migrates v1/v2/v3/v4 (or missing) records on load.</summary>
+    public int SchemaVersion { get; set; } = 5;
 
     public ThemeSettings Theme { get; set; } = new();
     public MonitoringSettings Monitoring { get; set; } = new();
@@ -251,7 +251,7 @@ public sealed class CoolingSettings
     public Dictionary<string, Qos.Service.Models.Cooling.FanCalibration> FanCalibrations { get; set; } = new();
     /// <summary>Manually-set fan duty percentages keyed by channel ID. Persisted so they survive restarts and profile switches.</summary>
     public Dictionary<string, int> ManualSpeeds { get; set; } = new();
-    /// <summary>Active cooling preset: "off" | "silent" | "balanced" | "performance" | "custom". "custom" lets existing installs upgrade cleanly.</summary>
+    /// <summary>Active cooling preset: "off" | "silent" | "balanced" | "turbo" | "custom". "custom" lets existing installs upgrade cleanly.</summary>
     public string ActivePreset { get; set; } = InstallDefaults.Cooling.ActivePreset;
     /// <summary>Last-known custom mapping of fan channel id -> curve id. Empty entries mean the fan was on BIOS Control. Used to restore custom assignments when leaving Silent/Balanced/Performance/Off.</summary>
     public Dictionary<string, string> CustomFanCurveAssignments { get; set; } = new();
@@ -271,7 +271,7 @@ public sealed class CurveDocument
     public LinearCurveData? Linear { get; set; }
     public GraphCurveData? Graph { get; set; }
     public MixedCurveData? Mixed { get; set; }
-    /// <summary>One of "silent" | "balanced" | "performance" when this curve is the shared preset curve; null for user-authored curves. Independent of Type so a preset curve can be Linear or Graph.</summary>
+    /// <summary>One of "silent" | "balanced" | "turbo" when this curve is the shared preset curve; null for user-authored curves. Independent of Type so a preset curve can be Linear or Graph.</summary>
     public string? Preset { get; set; }
 }
 

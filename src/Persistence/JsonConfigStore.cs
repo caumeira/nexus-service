@@ -73,7 +73,8 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
                 var afterOverlay = MigrateLegacyOverlayKeys(json);
                 var afterV1 = MigrateV1ToV2(afterOverlay);
                 var afterV2 = MigrateV2ToV3(afterV1);
-                var migratedJson = MigrateV3ToV4(afterV2);
+                var afterV3 = MigrateV3ToV4(afterV2);
+                var migratedJson = MigrateV4ToV5(afterV3);
                 if (!ReferenceEquals(migratedJson, json))
                 {
                     _dirty = true;
@@ -253,7 +254,7 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     /// </summary>
     public static string MigrateLegacyJson(string json)
     {
-        return MigrateV3ToV4(MigrateV2ToV3(MigrateV1ToV2(MigrateLegacyOverlayKeys(json))));
+        return MigrateV4ToV5(MigrateV3ToV4(MigrateV2ToV3(MigrateV1ToV2(MigrateLegacyOverlayKeys(json)))));
     }
 
     private static string MigrateLegacyOverlayKeys(string json)
@@ -549,5 +550,47 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
             cfg[kv.Key] = kv.Value!.DeepClone();
         }
         if (cfg.Count > 0) widget["config"] = cfg;
+    }
+
+    // v4 → v5: renames the "performance" cooling preset to "turbo". Touches
+    // cooling.activePreset, every cooling.curves[*].preset string, and the
+    // canonical curve id "preset-performance" → "preset-turbo".
+    private static string MigrateV4ToV5(string json)
+    {
+        JsonNode? root;
+        try { root = JsonNode.Parse(json); }
+        catch (JsonException) { return json; }
+        if (root is not JsonObject obj) return json;
+
+        int sv = 0;
+        if (obj.TryGetPropertyValue("schemaVersion", out var svNode) && svNode is JsonValue v && v.TryGetValue<int>(out var parsed))
+            sv = parsed;
+        if (sv >= 5) return json;
+
+        if (obj["cooling"] is JsonObject cooling)
+        {
+            if (cooling["activePreset"] is JsonValue ap && ap.TryGetValue<string>(out var apStr) && apStr == "performance")
+            {
+                cooling["activePreset"] = "turbo";
+            }
+            if (cooling["curves"] is JsonArray curves)
+            {
+                foreach (var curve in curves)
+                {
+                    if (curve is not JsonObject co) continue;
+                    if (co["preset"] is JsonValue pv && pv.TryGetValue<string>(out var pStr) && pStr == "performance")
+                    {
+                        co["preset"] = "turbo";
+                    }
+                    if (co["id"] is JsonValue iv && iv.TryGetValue<string>(out var iStr) && iStr == "preset-performance")
+                    {
+                        co["id"] = "preset-turbo";
+                    }
+                }
+            }
+        }
+
+        obj["schemaVersion"] = 5;
+        return obj.ToJsonString();
     }
 }

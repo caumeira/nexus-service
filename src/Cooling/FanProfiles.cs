@@ -7,9 +7,9 @@ using Qos.Service.Persistence;
 namespace Qos.Service.Cooling;
 
 /// <summary>
-/// Built-in fan presets: Off, Silent, Balanced, Performance, Custom.
+/// Built-in fan presets: Off, Silent, Balanced, Turbo, Custom.
 ///
-/// Applying Silent / Balanced / Performance ensures a single shared "preset
+/// Applying Silent / Balanced / Turbo ensures a single shared "preset
 /// curve" exists with id `preset-{name}`, attaches every fan to it, and
 /// detaches those fans from any user curve. User curves are NOT deleted.
 ///
@@ -31,7 +31,7 @@ public static class FanProfiles
         new FanProfile { Name = "off", Description = "All fans released to BIOS Control" },
         new FanProfile { Name = "silent", Description = "Quiet operation - fans stay low until temperatures demand it" },
         new FanProfile { Name = "balanced", Description = "Moderate cooling - responsive but not aggressive" },
-        new FanProfile { Name = "performance", Description = "Maximum cooling - fans run fast to keep temperatures low" },
+        new FanProfile { Name = "turbo", Description = "Maximum cooling - fans run fast to keep temperatures low" },
         new FanProfile { Name = "custom", Description = "User-defined per-fan curve assignments" },
     };
 
@@ -59,7 +59,7 @@ public static class FanProfiles
             {
                 case "silent":
                 case "balanced":
-                case "performance":
+                case "turbo":
                     {
                         var presetCurve = EnsurePresetCurve(s.Cooling.Curves, canonical, inputSensor);
                         // Detach all fans from non-preset curves so the preset curve owns them.
@@ -183,7 +183,7 @@ public static class FanProfiles
         // All fans on the same preset curve, with no genuine manual overrides.
         if (manualUnattached.Count == 0)
         {
-            foreach (var presetName in new[] { "silent", "balanced", "performance" })
+            foreach (var presetName in new[] { "silent", "balanced", "turbo" })
             {
                 var presetId = $"preset-{presetName}";
                 if (fanIds.All(id => attachment.TryGetValue(id, out var cid) && cid == presetId))
@@ -217,7 +217,7 @@ public static class FanProfiles
     }
 
     /// <summary>
-    /// Restore a Silent / Balanced / Performance preset curve to its default
+    /// Restore a Silent / Balanced / Turbo preset curve to its default
     /// Linear template. Fan attachments + list position are preserved so the
     /// active preset stays in effect; only the template resets. If the curve
     /// was previously deleted, recreate it at defaults via EnsurePresetCurve.
@@ -225,7 +225,7 @@ public static class FanProfiles
     public static void ResetPresetCurve(string presetName, IFanControlProvider fans, IConfigStore store)
     {
         var canonical = (presetName ?? "").ToLowerInvariant();
-        if (canonical != "silent" && canonical != "balanced" && canonical != "performance") return;
+        if (canonical != "silent" && canonical != "balanced" && canonical != "turbo") return;
         var inputSensor = PreferredInput(fans.GetTemperatureSources());
         var defaults = PresetDefaults.For(canonical);
 
@@ -328,7 +328,7 @@ public static class FanProfiles
             "off" or "auto" => "off",
             "silent" => "silent",
             "balanced" => "balanced",
-            "performance" => "performance",
+            "turbo" => "turbo",
             "custom" => "custom",
             _ => "custom",
         };
@@ -338,7 +338,7 @@ public static class FanProfiles
     {
         "silent" => "Silent",
         "balanced" => "Balanced",
-        "performance" => "Performance",
+        "turbo" => "Turbo",
         _ => presetName,
     };
 
