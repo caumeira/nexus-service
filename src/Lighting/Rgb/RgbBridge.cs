@@ -497,6 +497,18 @@ public sealed class RgbBridge : IDisposable
             {
                 return;
             }
+
+            // Subprocess restarted (crash recovery or explicit bounce): every
+            // controller in the new OpenRGB instance is in its cold-start mode.
+            // Clear _directModeApplied so RefreshDevicesAsync re-issues
+            // SetCustomMode for each device. Critical for ENE DRAM — without
+            // re-issuing, the controller stays in whatever hardware preset
+            // mode it boots into (typically a rainbow/breathing effect) and
+            // silently ignores per-LED UpdateLEDs writes.
+            lock (_lock)
+            {
+                _directModeApplied = new();
+            }
         }
 
         await RefreshDevicesAsync().ConfigureAwait(false);
