@@ -173,7 +173,9 @@
     <Error Condition="$(RuntimeIdentifier.StartsWith('osx')) AND !Exists('Bundled/osx-arm64/openrgb/OpenRGB-headless')"
            Text="OpenRGB macOS bundle missing at Bundled/osx-arm64/openrgb/. Build it: cd ../qos-rgb/openrgb-headless &amp;&amp; qmake OpenRGB.pro CONFIG+=release CONFIG+=sdk_no_version_check &amp;&amp; make -j ; then cd .. &amp;&amp; ./bundle-macos.sh" />
     <Error Condition="$(RuntimeIdentifier.StartsWith('win')) AND !Exists('Bundled\win-x64\openrgb\OpenRGB-headless.exe')"
-           Text="OpenRGB Windows bundle missing at Bundled\win-x64\openrgb\. Build it: cd ..\qos-rgb\openrgb-headless\scripts &amp;&amp; build-windows.bat ; then copy OpenRGB-headless.exe + hidapi.dll + libusb-1.0.dll + LICENSE into Bundled\win-x64\openrgb\." />
+           Text="OpenRGB Windows bundle missing at Bundled\win-x64\openrgb\. Build it: cd ..\qos-rgb\openrgb-headless\scripts &amp;&amp; build-windows.bat ; then copy OpenRGB-headless.exe + hidapi.dll + libusb-1.0.dll + LICENSE into Bundled\win-x64\openrgb\. (PawnIOLib.dll + Smbus*.bin / LpcIO.bin are wired in separately from Bundled\win-x64\pawnio\.)" />
+    <Error Condition="$(RuntimeIdentifier.StartsWith('win')) AND !Exists('Bundled\win-x64\pawnio\modules\SmbusI801.bin')"
+           Text="PawnIO SMBus modules missing at Bundled\win-x64\pawnio\modules\. These are tracked in git; if they vanished, restore from openrgb-headless/dependencies/PawnIO/modules/. Without them OpenRGB cannot probe SMBus (RGB DRAM stays invisible)." />
   </Target>
 
   <!-- Bundle openrgb-headless for macOS (binary + dylibs + license). -->
@@ -227,21 +229,30 @@
 
   <!-- Bundle the PawnIO kernel driver (Windows only). PawnIO.sys is the kernel
        driver, PawnIOLib.dll is the user-mode wrapper, COPYING is the GPL-2.0
-       license, NOTICE is our attribution. The driver is auto-installed at
-       first launch via pnputil + SetupAPI (see Lifecycle/PawnIoInstaller.cs).
+       license, NOTICE is our attribution, modules\*.bin are the chipset-
+       specific PawnIO payloads PawnIOLib loads at runtime (Intel I801 SMBus,
+       AMD PIIX4 SMBus, Nuvoton NCT6793 secondary SMBus, generic LpcIO). The
+       driver is auto-installed at first launch via pnputil + SetupAPI (see
+       Lifecycle/PawnIoInstaller.cs).
 
-       The pawnio/ subfolder gets the kernel driver package (.sys/.inf/.cat)
-       and license files. PawnIOLib.dll is also placed next to
-       Qos.exe (for LibreHardwareMonitor's SuperIO detection —
-       LHM 0.9.6 uses PawnIO for LPC bus access since WinRing0 got revoked)
-       and next to OpenRGB-headless.exe (OpenRGB loads it for SMBus probing).
+       Output layout:
+         - pawnio\               — kernel driver package (.sys/.inf/.cat) + license
+         - PawnIOLib.dll         — next to Qos.exe (LibreHardwareMonitor 0.9.6
+                                   uses PawnIO for LPC bus access since WinRing0
+                                   got revoked)
+         - openrgb\PawnIOLib.dll — next to OpenRGB-headless.exe (OpenRGB loads
+                                   it for SMBus probing of RGB DRAM)
+         - openrgb\*.bin         — PawnIO chipset modules (PawnIOLib looks for
+                                   them in the executable's directory). Without
+                                   these, OpenRGB can't probe SMBus and RGB RAM
+                                   stays invisible.
 
        We use <Content> for the pawnio/ folder (kernel driver + license) and
-       the exe-dir copy, then <None> for the openrgb/ copy — <None> lives in
+       the exe-dir copy, then <None> for the openrgb/ copies — <None> lives in
        a separate MSBuild item collection so the duplicate-identity check
        doesn't trip. -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))">
-    <Content Include="Bundled\win-x64\pawnio\**\*.*" Exclude="Bundled\win-x64\pawnio\PawnIOLib.dll" Condition="Exists('Bundled\win-x64\pawnio')">
+    <Content Include="Bundled\win-x64\pawnio\**\*.*" Exclude="Bundled\win-x64\pawnio\PawnIOLib.dll;Bundled\win-x64\pawnio\modules\**\*.*" Condition="Exists('Bundled\win-x64\pawnio')">
       <Link>pawnio\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
@@ -253,6 +264,11 @@
     </Content>
     <None Include="Bundled\win-x64\pawnio\PawnIOLib.dll" Condition="Exists('Bundled\win-x64\pawnio\PawnIOLib.dll')">
       <Link>openrgb\PawnIOLib.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </None>
+    <None Include="Bundled\win-x64\pawnio\modules\*.bin" Condition="Exists('Bundled\win-x64\pawnio\modules')">
+      <Link>openrgb\%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </None>

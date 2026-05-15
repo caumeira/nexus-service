@@ -313,11 +313,6 @@ public sealed class OpenRgbProcessManager : IDisposable
         {
             return true;
         }
-        // PawnIO probes — only relevant for SMBus motherboards we don't ship the .bin files for.
-        if (line.Contains("PawnIO initialization aborted"))
-        {
-            return true;
-        }
         // Optional sound card detector that always fails on machines without an AE-5.
         if (line.Contains("[Creative SoundBlaster AE-5]"))
         {
