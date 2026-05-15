@@ -42,6 +42,13 @@ public sealed class PanelDeviceCapabilities
     public bool? Touch { get; set; }
     public bool? Dock { get; set; }
     public string? Orientation { get; set; }
+    // Viewport hints reported by the kiosk SPA itself - the kiosk knows its
+    // own CSS viewport and devicePixelRatio (== Windows display scaling on
+    // the panel monitor). The dashboard reads these to size the simulator
+    // iframe to match the actual hardware instead of the hardcoded profile.
+    public int? CssWidth { get; set; }
+    public int? CssHeight { get; set; }
+    public double? Dpr { get; set; }
 }
 
 /// <summary>
