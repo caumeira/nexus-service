@@ -196,7 +196,7 @@ public sealed class OpenRgbController : IRgbController
         }
     }
 
-    public async Task SetDirectModeAsync(int deviceIndex, CancellationToken ct = default)
+    public async Task SetDirectModeAsync(RgbDevice device, CancellationToken ct = default)
     {
         if (!IsConnected)
         {
@@ -206,8 +206,25 @@ public sealed class OpenRgbController : IRgbController
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
         {
-            await SendPacketLockedAsync((uint)deviceIndex,
-                OpenRgbProtocol.PacketId.SetCustomMode, body: null, ct).ConfigureAwait(false);
+            var mode = device.FindCustomMode();
+            if (mode is not null)
+            {
+                // UPDATE_MODE: server runs SetModeDescription + UpdateMode, which
+                // calls DeviceUpdateMode on the controller. Required for ENE-style
+                // controllers that gate per-LED writes on the hardware mode register.
+                var body = OpenRgbProtocol.BuildUpdateModeBody(mode.Index, mode.Bytes);
+                await SendPacketLockedAsync((uint)device.Index,
+                    OpenRgbProtocol.PacketId.RgbControllerUpdateMode, body, ct).ConfigureAwait(false);
+            }
+            else
+            {
+                // Defensive fallback for controllers that didn't expose a recognized
+                // per-LED mode in their mode list. SET_CUSTOM_MODE has the right
+                // semantics for those (most peripherals' UpdateLEDs path writes
+                // per-LED registers directly without honoring active_mode).
+                await SendPacketLockedAsync((uint)device.Index,
+                    OpenRgbProtocol.PacketId.SetCustomMode, body: null, ct).ConfigureAwait(false);
+            }
         }
         finally { _writeLock.Release(); }
     }

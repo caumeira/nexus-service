@@ -17,6 +17,31 @@ public sealed class RgbDevice
     public string Location { get; set; } = "";
     public List<string> LedNames { get; set; } = new();
     public List<RgbZone> Zones { get; set; } = new();
+    public List<RgbMode> Modes { get; set; } = new();
+
+    /// <summary>
+    /// Pick the best "per-LED control" mode using OpenRGB's own priority order:
+    /// Direct &gt; Custom &gt; Static, with color_mode = PER_LED (1) or MODE_SPECIFIC (2).
+    /// This is what we want to apply via UPDATE_MODE so the controller's hardware
+    /// mode register is actually flipped (SET_CUSTOM_MODE only updates the server's
+    /// in-memory active_mode and never calls DeviceUpdateMode, leaving controllers
+    /// with hardware mode registers — ENE DRAM is the canonical example — silently
+    /// rejecting subsequent UPDATE_LEDS pushes).
+    /// </summary>
+    public RgbMode? FindCustomMode()
+    {
+        foreach (var preferredName in new[] { "Direct", "Custom", "Static" })
+        {
+            foreach (var m in Modes)
+            {
+                if (m.Name == preferredName && (m.ColorMode == 1u || m.ColorMode == 2u))
+                {
+                    return m;
+                }
+            }
+        }
+        return null;
+    }
 
     private string? _stableId;
 
@@ -59,4 +84,20 @@ public sealed class RgbZone
     public int MatrixHeight { get; set; }
     /// <summary>Row-major grid of zone-local LED indices. -1 means the cell is unpopulated (gap in the key layout). null when no matrix was provided.</summary>
     public int[]? MatrixMap { get; set; }
+}
+
+/// <summary>
+/// One mode entry from the OpenRGB controller data response. We keep the raw
+/// bytes of the mode struct (everything from the name bstring through the
+/// trailing colors[]) so we can echo it back verbatim via UPDATE_MODE without
+/// having to re-serialize each field per OpenRGB's per-version wire format.
+/// </summary>
+public sealed class RgbMode
+{
+    public int Index { get; set; }
+    public string Name { get; set; } = "";
+    /// <summary>color_mode field: 0=NONE, 1=PER_LED, 2=MODE_SPECIFIC, 3=RANDOM.</summary>
+    public uint ColorMode { get; set; }
+    /// <summary>Raw mode-entry bytes as they appeared in the controller-data response.</summary>
+    public byte[] Bytes { get; set; } = System.Array.Empty<byte>();
 }

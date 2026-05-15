@@ -37,11 +37,17 @@ public interface IRgbController : IAsyncDisposable
     Task<IReadOnlyList<RgbDevice>> GetDevicesAsync(CancellationToken ct = default);
 
     /// <summary>
-    /// Switch the device at <paramref name="deviceIndex"/> into direct-control mode.
-    /// Required before any UPDATE_LEDS push will be honored on devices that have a
-    /// non-direct mode active.
+    /// Switch <paramref name="device"/> into direct-control mode by sending
+    /// UPDATE_MODE (1101) with the device's "Direct" (or Custom/Static) per-LED
+    /// mode descriptor. This causes the OpenRGB server to call the controller's
+    /// <c>DeviceUpdateMode()</c>, which for ENE-style DRAM controllers actually
+    /// flips the hardware mode register over SMBus. The lighter SET_CUSTOM_MODE
+    /// packet (1100) only updates the server's in-memory active_mode and never
+    /// reaches the hardware, which is why per-LED writes silently fail on RGB
+    /// RAM until UPDATE_MODE is used. Required before any UPDATE_LEDS push will
+    /// be honored on devices that have a non-direct mode active.
     /// </summary>
-    Task SetDirectModeAsync(int deviceIndex, CancellationToken ct = default);
+    Task SetDirectModeAsync(RgbDevice device, CancellationToken ct = default);
 
     /// <summary>
     /// Push a frame of colors to the device. The colors array length must equal

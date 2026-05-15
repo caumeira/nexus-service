@@ -21,7 +21,7 @@ public sealed class NoOpRgbController : IRgbController
     public Task<IReadOnlyList<RgbDevice>> GetDevicesAsync(CancellationToken ct = default) =>
         Task.FromResult<IReadOnlyList<RgbDevice>>(Array.Empty<RgbDevice>());
 
-    public Task SetDirectModeAsync(int deviceIndex, CancellationToken ct = default) => Task.CompletedTask;
+    public Task SetDirectModeAsync(RgbDevice device, CancellationToken ct = default) => Task.CompletedTask;
     public Task PushFrameAsync(int deviceIndex, ReadOnlyMemory<RgbColor> colors, CancellationToken ct = default) => Task.CompletedTask;
     public Task SetOffAsync(int deviceIndex, int ledCount, CancellationToken ct = default) => Task.CompletedTask;
     public Task PushZoneFrameAsync(int deviceIndex, int zoneIndex, ReadOnlyMemory<RgbColor> colors, CancellationToken ct = default) => Task.CompletedTask;

@@ -32,6 +32,7 @@ public static class OpenRgbProtocol
         SetClientName = 50,
         DeviceListUpdated = 100,
         SetCustomMode = 1100,
+        RgbControllerUpdateMode = 1101,
         RgbControllerUpdateLeds = 1050,
         RgbControllerUpdateZoneLeds = 1051,
         RgbControllerResizeZone = 1000,
@@ -261,9 +262,11 @@ public static class OpenRgbProtocol
         pos += 2;
         EnsureBytes(body, pos, 4, "active_mode");
         pos += 4; // active_mode (uint32) — present at all protocol versions
+        var modes = new List<RgbMode>(modeCount);
         for (int i = 0; i < modeCount; i++)
         {
-            ReadBString(body, ref pos);   // mode name
+            var modeStart = pos;
+            var modeName = ReadBString(body, ref pos);
             // Per-mode fixed-size block: value(4) + flags(4) + speed_min(4) + speed_max(4)
             //   [+ brightness_min(4) + brightness_max(4) on v3+]
             //   + colors_min(4) + colors_max(4) + speed(4) [+ brightness(4) on v3+]
@@ -275,6 +278,10 @@ public static class OpenRgbProtocol
             }
 
             EnsureBytes(body, pos, modeFixed, $"mode[{i}] fixed block");
+            // color_mode is the LAST uint32 in the fixed block — capture it so we
+            // can pick the right mode to apply for per-LED control without parsing
+            // every field in between.
+            var colorMode = BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(pos + modeFixed - 4, 4));
             pos += modeFixed;
             EnsureBytes(body, pos, 2, $"mode[{i}] num_colors");
             var modeColorCount = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(pos, 2));
@@ -282,6 +289,13 @@ public static class OpenRgbProtocol
             var colorsBytes = 4 * modeColorCount;
             EnsureBytes(body, pos, colorsBytes, $"mode[{i}] colors[]");
             pos += colorsBytes;
+            modes.Add(new RgbMode
+            {
+                Index = i,
+                Name = modeName,
+                ColorMode = colorMode,
+                Bytes = body.Slice(modeStart, pos - modeStart).ToArray(),
+            });
         }
 
         // num_zones + per-zone entries
@@ -379,7 +393,37 @@ public static class OpenRgbProtocol
             Location = location,
             LedNames = ledNames,
             Zones = zones,
+            Modes = modes,
         };
+    }
+
+    /// <summary>
+    /// Build the RGBCONTROLLER_UPDATEMODE body. The OpenRGB SDK server runs
+    /// <c>SetModeDescription(data)</c> then <c>UpdateMode()</c> on receipt, which
+    /// calls each controller's <c>DeviceUpdateMode()</c> — for ENE-style DRAM
+    /// controllers that's where the SMBus write to the hardware mode register
+    /// actually happens. The lighter SET_CUSTOM_MODE packet (1100) only updates
+    /// the server's in-memory active_mode and does NOT call UpdateMode(), so
+    /// controllers with hardware mode registers silently reject the subsequent
+    /// per-LED writes until UPDATE_MODE flips the register.
+    ///
+    /// Body layout:
+    ///   uint32 data_size (total body size including itself)
+    ///   int32  mode_idx
+    ///   [mode-entry bytes — same wire format the server emitted in CONTROLLER_DATA]
+    ///
+    /// We echo the mode bytes back verbatim rather than re-serializing field-
+    /// by-field so we don't have to maintain a full per-protocol-version writer
+    /// matching <c>RGBController::GetModeDescription</c>.
+    /// </summary>
+    public static byte[] BuildUpdateModeBody(int modeIdx, ReadOnlySpan<byte> modeBytes)
+    {
+        var bodySize = 4 + 4 + modeBytes.Length;
+        var body = new byte[bodySize];
+        BinaryPrimitives.WriteUInt32LittleEndian(body.AsSpan(0, 4), (uint)bodySize);
+        BinaryPrimitives.WriteInt32LittleEndian(body.AsSpan(4, 4), modeIdx);
+        modeBytes.CopyTo(body.AsSpan(8));
+        return body;
     }
 
     /// <summary>

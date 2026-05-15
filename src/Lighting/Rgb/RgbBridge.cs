@@ -619,7 +619,7 @@ public sealed class RgbBridge : IDisposable
 
                 try
                 {
-                    await _controller.SetDirectModeAsync(dev.Index).ConfigureAwait(false);
+                    await _controller.SetDirectModeAsync(dev).ConfigureAwait(false);
                     lock (_lock)
                     {
                         _directModeApplied.Add(dev.Index);
