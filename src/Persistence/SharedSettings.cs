@@ -28,6 +28,9 @@ public sealed class MonitoringSettings
 
 public sealed class PanelSettings
 {
+    /// <summary>Runtime visibility of the Y70 panel kiosk. When true, the
+    /// qos-overlay sidecar opens the kiosk window (and auto-relaunches when
+    /// the Y70 reconnects). Surfaced as "Show Panel" in the UI.</summary>
     public bool AutoLaunch { get; set; }
     public bool ThemeSyncWithDesktop { get; set; } = true;
     public string ThemeMode { get; set; } = "system";

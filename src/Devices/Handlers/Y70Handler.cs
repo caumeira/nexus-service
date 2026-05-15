@@ -14,6 +14,7 @@ public sealed class Y70Handler : IDeviceHandler
 
     public IReadOnlyList<UsbId> Identifiers { get; } = new[]
     {
+        new UsbId(HyteVid, 0x0C01), // HYTE Y70 Display (USB Serial Device — observed on test hardware)
         new UsbId(HyteVid, 0x0700), // Y70 Touch
         new UsbId(HyteVid, 0x0701), // Y70 Touch Infinite
         new UsbId(HyteVid, 0x0702), // Y70 Touch Truly

@@ -693,15 +693,16 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !serviceMode)
         },
         onTogglePanel: () =>
         {
-            if (panelLauncher.IsRunning)
-            {
-                panelLauncher.Close();
-            }
-            else
-            {
-                panelLauncher.Launch();
-            }
+            // Flip the AutoLaunch / Show Panel setting; the overlay-host
+            // watcher below mirrors it onto the qos-overlay kiosk window.
+            // Keeping a single source of truth means modal + tray + overlay
+            // all stay in sync. The OnChanged cascade broadcasts /prefs on
+            // its own — no explicit BroadcastPrefs needed here.
+            store.Update(s => s.Panel.AutoLaunch = !s.Panel.AutoLaunch);
         },
+        // Tray checkmark reflects actual kiosk-window state via FindWindow,
+        // not the persisted setting — that way a dead/crashed overlay shows
+        // unchecked even if AutoLaunch is still true.
         isPanelRunning: () => panelLauncher.IsRunning);
 
     var hub = app.Services.GetRequiredService<Qos.Service.Sockets.MultiplexHub>();
@@ -808,6 +809,8 @@ if (serviceMode)
 {
     var overlayHost = app.Services.GetRequiredService<Qos.Service.Panel.IOverlayHost>();
     var overlayStore = app.Services.GetRequiredService<IConfigStore>();
+    var panelKioskLauncher = app.Services.GetRequiredService<Qos.Service.Panel.PanelKioskLauncher>();
+    var lastShowPanel = overlayStore.Load().Panel.AutoLaunch;
 #if WINDOWS
     var overlayHelperRegistry = app.Services.GetService<Qos.Service.Helper.HelperRegistry>();
 #endif
@@ -849,6 +852,17 @@ if (serviceMode)
             }
             catch { }
 #endif
+            // Mirror Panel.AutoLaunch edge-changes onto the qos-overlay kiosk
+            // window by posting Show/HidePanelKiosk to the overlay marshaler.
+            // The overlay process may not be alive yet on a fresh true-edge;
+            // overlayHost.Start() was already invoked above and the overlay
+            // is responsible for repolling panel.AutoLaunch during startup.
+            if (snapshot.Panel.AutoLaunch != lastShowPanel)
+            {
+                lastShowPanel = snapshot.Panel.AutoLaunch;
+                if (snapshot.Panel.AutoLaunch) panelKioskLauncher.Launch();
+                else panelKioskLauncher.Close();
+            }
         }
         catch { /* best-effort */ }
     };
