@@ -33,6 +33,7 @@ internal static class WindowsServiceInstaller
     public const string FirewallRuleName = "QosService";
     public const string UninstallRegKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Qos";
     public const int DefaultPort = 9400;
+    public const int DefaultHttpsPort = 9443;
 
     /// <summary>
     /// `Qos.exe --install` entry. Self-elevates if needed; copies files to
@@ -163,7 +164,11 @@ internal static class WindowsServiceInstaller
             var pawnTask = PawnIoInstaller.EnsureInstalledAsync();
             pawnTask.GetAwaiter().GetResult();
 
-            // 5. Firewall rule for LAN access (phone pairing on private network).
+            // 5. Firewall rule for LAN access (phone pairing on any network).
+            // Opens both the plain-HTTP port (browser fallback) and the
+            // HTTPS port the iOS app uses. `public` is included because
+            // home Wi-Fi often auto-classifies as Public on Windows, and
+            // pairing is still protected by SPKI pinning + pair tokens.
             // Rule name has no spaces and the program path has no embedded
             // quotes - netsh is even pickier than sc.exe about ArgumentList
             // tokenization.
@@ -175,8 +180,8 @@ internal static class WindowsServiceInstaller
                 "dir=in", "action=allow",
                 $"program={installedExe}",
                 "protocol=TCP",
-                $"localport={DefaultPort}",
-                "profile=private,domain");
+                $"localport={DefaultPort},{DefaultHttpsPort}",
+                "profile=private,domain,public");
 
             // 6. Add/Remove Programs registration is owned by Inno Setup
             // (the {AppId}_is1 key). We used to write our own HKLM\...\Qos
