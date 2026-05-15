@@ -810,6 +810,10 @@ if (serviceMode)
     var overlayHost = app.Services.GetRequiredService<Qos.Service.Panel.IOverlayHost>();
     var overlayStore = app.Services.GetRequiredService<IConfigStore>();
     var panelKioskLauncher = app.Services.GetRequiredService<Qos.Service.Panel.PanelKioskLauncher>();
+    // Lock guards the edge-detect against concurrent IConfigStore.Update()
+    // callers — without it two writers racing into OnChanged could both pass
+    // the equality check on a stale lastShowPanel and double-Launch/Close.
+    var showPanelEdgeLock = new object();
     var lastShowPanel = overlayStore.Load().Panel.AutoLaunch;
 #if WINDOWS
     var overlayHelperRegistry = app.Services.GetService<Qos.Service.Helper.HelperRegistry>();
@@ -857,10 +861,23 @@ if (serviceMode)
             // The overlay process may not be alive yet on a fresh true-edge;
             // overlayHost.Start() was already invoked above and the overlay
             // is responsible for repolling panel.AutoLaunch during startup.
-            if (snapshot.Panel.AutoLaunch != lastShowPanel)
+            // The lock serializes the compare-and-swap so concurrent
+            // store.Update() writers can't both pass the edge-check on a
+            // stale lastShowPanel and double-fire Launch/Close.
+            bool edgeFired = false;
+            bool target = false;
+            lock (showPanelEdgeLock)
             {
-                lastShowPanel = snapshot.Panel.AutoLaunch;
-                if (snapshot.Panel.AutoLaunch) panelKioskLauncher.Launch();
+                if (snapshot.Panel.AutoLaunch != lastShowPanel)
+                {
+                    lastShowPanel = snapshot.Panel.AutoLaunch;
+                    edgeFired = true;
+                    target = snapshot.Panel.AutoLaunch;
+                }
+            }
+            if (edgeFired)
+            {
+                if (target) panelKioskLauncher.Launch();
                 else panelKioskLauncher.Close();
             }
         }
