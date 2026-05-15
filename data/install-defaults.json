@@ -82,7 +82,7 @@
               "slot0_sensor": "CPU Total",
               "slot0_design": "sparkline",
               "slot1_device": "memory",
-              "slot1_sensor": "Memory Usage",
+              "slot1_sensor": "Memory Used",
               "slot1_design": "halfgauge"
             }
           },
