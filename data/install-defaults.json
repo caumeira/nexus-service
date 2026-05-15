@@ -72,16 +72,31 @@
         "surface": "phone",
         "widgets": [
           {
-            "type": "clock",
+            "type": "monitoring",
             "size": "4x2",
             "col": 0,
-            "row": 0
+            "row": 0,
+            "config": {
+              "slotCount": 2,
+              "slot0_device": "cpu",
+              "slot0_sensor": "CPU Total",
+              "slot0_design": "sparkline",
+              "slot1_device": "memory",
+              "slot1_sensor": "Memory Usage",
+              "slot1_design": "halfgauge"
+            }
           },
           {
-            "type": "monitoring",
-            "size": "4x4",
+            "type": "lighting",
+            "size": "4x2",
             "col": 0,
             "row": 2
+          },
+          {
+            "type": "cooling",
+            "size": "4x2",
+            "col": 0,
+            "row": 4
           }
         ]
       },

@@ -156,11 +156,12 @@ public static class PanelRoutes
             var record = registry.Get(id);
             if (record is null)
                 return Results.NotFound(ApiResponse.Fail("device not found"));
-            // Persisted layout if present, else the generic starter. The
-            // starter isn't written back; it only persists once the client
-            // posts an edit.
+            // Persisted layout if present, else the surface-specific
+            // starter. The starter isn't written back; it only persists once
+            // the client posts an edit. Falls back to the y70 seed when the
+            // device record has no capabilities yet (pre-handshake GETs).
             if (record.Layout is null)
-                record.Layout = PanelLayoutDefaults.Default();
+                record.Layout = PanelLayoutDefaults.ForSurface(record.Capabilities?.Surface ?? "y70");
             registry.Touch(id);
             return Results.Json(record, AppJsonContext.Default.PanelDeviceRecord);
         }).AllowPanel();
