@@ -437,6 +437,9 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(Qos.Service.Helper.Domains.DisplayVcpResult))]
 [JsonSerializable(typeof(Qos.Service.Helper.Domains.BoolResult))]
 [JsonSerializable(typeof(Qos.Service.Helper.Domains.DisplayListResult))]
+// Orientation
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.DisplayOrientationRequest))]
+[JsonSerializable(typeof(Qos.Service.Helper.Domains.DisplayOrientationResult))]
 // Monitors
 [JsonSerializable(typeof(Qos.Service.Helper.Domains.MonitorEnumerateRequest))]
 [JsonSerializable(typeof(Qos.Service.Helper.Domains.MonitorListResult))]

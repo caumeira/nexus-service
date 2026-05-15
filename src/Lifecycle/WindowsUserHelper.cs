@@ -136,6 +136,7 @@ internal static class WindowsUserHelper
         new MediaHandler(media.Control, media.GetAlbumArt).Register(handlerRegistry);
         new BrightnessHandler(brightness).Register(handlerRegistry);
         new MonitorsHandler().Register(handlerRegistry);
+        new OrientationHandler(new Platform.Displays.WindowsDisplayOrientationProvider()).Register(handlerRegistry);
         new ScreenMirrorHandler(screenCapture.Start, screenCapture.Stop).Register(handlerRegistry);
 
         var client = new HelperClientLoop(handlerRegistry, outbound);

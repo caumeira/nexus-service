@@ -207,6 +207,10 @@ public static class QosServiceCollectionExtensions
         // laptop-panel APIs are unreliable from Session 0.
         services.AddSingleton<Qos.Service.Platform.Displays.IDisplayBrightnessProvider,
             Qos.Service.Platform.Displays.HelperDisplayBrightnessProxy>();
+        // Y70 display rotation also routes through the helper: Session 0
+        // cannot ChangeDisplaySettingsEx against the user's monitors.
+        services.AddSingleton<Qos.Service.Platform.Displays.IDisplayOrientationProvider,
+            Qos.Service.Platform.Displays.HelperDisplayOrientationProxy>();
         // Monitor enumeration follows the same Session 0 limitation: DXGI
         // EnumOutputs returns nothing under LocalSystem, so the helper does
         // the enumeration and we proxy.
@@ -230,6 +234,8 @@ public static class QosServiceCollectionExtensions
         }
         services.AddSingleton<Qos.Service.Platform.IMonitorEnumerator,
             Qos.Service.Platform.DefaultMonitorEnumerator>();
+        services.AddSingleton<Qos.Service.Platform.Displays.IDisplayOrientationProvider,
+            Qos.Service.Platform.Displays.NoopDisplayOrientationProvider>();
 #endif
         services.AddSingleton<Qos.Service.Platform.Displays.DisplayBrightnessController>();
         return services;
