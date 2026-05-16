@@ -19,51 +19,75 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
 {
     private readonly ILightingDeviceProvider _openRgb;
     private readonly Np50LightingDeviceProvider _np50;
+    private readonly MiniHubLightingDeviceProvider _miniHub;
 
-    public CompositeLightingDeviceProvider(ILightingDeviceProvider openRgb, Np50LightingDeviceProvider np50)
+    public CompositeLightingDeviceProvider(
+        ILightingDeviceProvider openRgb,
+        Np50LightingDeviceProvider np50,
+        MiniHubLightingDeviceProvider miniHub)
     {
         _openRgb = openRgb;
         _np50 = np50;
+        _miniHub = miniHub;
     }
 
-    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected;
+    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
     {
         var rgb = _openRgb.GetAll();
-        var hub = _np50.GetAll();
 
-        // Filter out OpenRGB's NP50 entry when our own provider is live.
-        // OpenRGB used to drive the NP50 logo strip via the device's COM
-        // port, but qos-service now opens that port exclusively for the
-        // hub heartbeat — OpenRGB's entry becomes a zombie that the
-        // animation system can't actually push frames to. Hide it so the
-        // user only sees the real, controllable NP50 surface.
-        if (_np50.IsConnected && rgb.Devices.Count > 0)
+        // Filter out OpenRGB's NP50/MiniHub entries when our own providers
+        // are live. qos-service now opens those COM ports exclusively for
+        // hub control; OpenRGB's entries become zombies the animation
+        // system can't push frames to.
+        if (rgb.Devices.Count > 0)
         {
-            rgb.Devices.RemoveAll(d =>
-                d.Name.Contains("Nexus Portal NP50", StringComparison.OrdinalIgnoreCase) ||
-                d.Name.Contains("HYTE NP50", StringComparison.OrdinalIgnoreCase));
+            if (_np50.IsConnected)
+            {
+                rgb.Devices.RemoveAll(d =>
+                    d.Name.Contains("Nexus Portal NP50", StringComparison.OrdinalIgnoreCase) ||
+                    d.Name.Contains("HYTE NP50", StringComparison.OrdinalIgnoreCase));
+            }
+            if (_miniHub.IsConnected)
+            {
+                rgb.Devices.RemoveAll(d =>
+                    d.Name.Contains("MiniHub", StringComparison.OrdinalIgnoreCase) ||
+                    d.Name.Contains("HYTE Mini", StringComparison.OrdinalIgnoreCase));
+            }
         }
 
-        if (hub.Devices.Count == 0) return rgb;
-        // IsInit follows whichever side has actually initialized; the UI just
-        // wants to know "is anything ready to render?". OR both flags.
-        rgb.IsInit = rgb.IsInit || hub.IsInit;
-        rgb.Devices.AddRange(hub.Devices);
+        var hub = _np50.GetAll();
+        if (hub.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || hub.IsInit;
+            rgb.Devices.AddRange(hub.Devices);
+        }
+        var mini = _miniHub.GetAll();
+        if (mini.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || mini.IsInit;
+            rgb.Devices.AddRange(mini.Devices);
+        }
         return rgb;
     }
 
     public void SetDisabled(IReadOnlyList<string> ids)
     {
         // Per-id routing: split the ids and dispatch each batch to its owner.
-        // Keeps both providers' "I own these ids" invariants intact.
+        // Keeps each provider's "I own these ids" invariants intact.
         var rgbIds = new List<string>(ids.Count);
-        var hubIds = new List<string>(ids.Count);
+        var np50Ids = new List<string>(ids.Count);
+        var miniIds = new List<string>(ids.Count);
         foreach (var id in ids)
-            (IsNp50Id(id) ? hubIds : rgbIds).Add(id);
+        {
+            if (IsNp50Id(id)) np50Ids.Add(id);
+            else if (IsMiniHubId(id)) miniIds.Add(id);
+            else rgbIds.Add(id);
+        }
         if (rgbIds.Count > 0) _openRgb.SetDisabled(rgbIds);
-        if (hubIds.Count > 0) _np50.SetDisabled(hubIds);
+        if (np50Ids.Count > 0) _np50.SetDisabled(np50Ids);
+        if (miniIds.Count > 0) _miniHub.SetDisabled(miniIds);
     }
 
     public void SetPower(string id, bool on) { Pick(id).SetPower(id, on); }
@@ -73,8 +97,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     public void SetZoneLedCount(string id, int count) { Pick(id).SetZoneLedCount(id, count); }
     public void Identify(string id, int durationMs) { Pick(id).Identify(id, durationMs); }
 
-    private ILightingDeviceProvider Pick(string id) => IsNp50Id(id) ? _np50 : _openRgb;
+    private ILightingDeviceProvider Pick(string id)
+        => IsNp50Id(id) ? _np50 : IsMiniHubId(id) ? _miniHub : _openRgb;
 
     private static bool IsNp50Id(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("np50:", StringComparison.Ordinal);
+
+    private static bool IsMiniHubId(string id) =>
+        !string.IsNullOrEmpty(id) && id.StartsWith("minihub:", StringComparison.Ordinal);
 }

@@ -3,9 +3,10 @@ using System;
 namespace Qos.Service.Peripherals.Hyte.Np50;
 
 /// <summary>
-/// Raw byte transport to an NP50 hub. Sits between <see cref="Np50Protocol"/>
-/// (pure builders/parsers) and the actual OS-level serial port. Exposed as an
-/// interface so the heartbeat worker and tests can swap in fakes.
+/// Raw byte transport to a HYTE serial-over-USB hub (NP50, MiniHub, etc.).
+/// Sits between the per-hub protocol module (pure builders/parsers) and the
+/// actual OS-level serial port. Exposed as an interface so the heartbeat
+/// workers and tests can swap in fakes.
 /// </summary>
 public interface INp50Transport : IDisposable
 {

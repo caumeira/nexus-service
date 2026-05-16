@@ -157,9 +157,12 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
         {
             effectiveLedCount = Math.Clamp(persisted, 0, firmwareLedCount);
         }
-        // Position: use persisted layout if present, otherwise lay them out
-        // as strips in the same lower-canvas band the motherboard zones use.
-        var (defX, defY, defW, defH) = Rgb.OpenRgbLightingDeviceProvider.DefaultStripLayout(zoneIndex + 64);
+        // Position: persisted layout wins. Defaults place NP50 zones in
+        // their own visible band on the canvas (below OpenRGB strips at
+        // y≈380, well within the engine's 600-px canvas height — the old
+        // "+64 slot" math put them at y=2620, off-canvas, which read as
+        // "no boundary visible / can't drag" in the panel.
+        var (defX, defY, defW, defH) = DefaultNp50Layout(zoneIndex);
         layouts.TryGetValue(id, out var layout);
         return new LightingDevice
         {
@@ -312,7 +315,7 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
         {
             effectiveLedCount = Math.Clamp(persisted, 0, firmwareLedCount);
         }
-        var (defX, defY, defW, defH) = Rgb.OpenRgbLightingDeviceProvider.DefaultStripLayout(zoneIndex + 64);
+        var (defX, defY, defW, defH) = DefaultNp50Layout(zoneIndex);
         layouts.TryGetValue(id, out var layout);
         var rot = ((((layout?.Rotation ?? 0) % 360) + 360) % 360);
         return new DeviceFrame(
@@ -324,6 +327,25 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
             w: layout?.W ?? defW,
             h: layout?.H ?? defH,
             rotation: rot);
+    }
+
+    /// <summary>
+    /// Visible-canvas default layout for NP50 zones. Canvas runs 0..1000 ×
+    /// 0..600; OpenRGB strips live around y=380, so we tuck NP50 zones into
+    /// y=490 in a horizontal row. The user can drag them anywhere afterward
+    /// and the layout persists to settings.Lighting.DeviceLayouts.
+    /// </summary>
+    private static (float x, float y, float w, float h) DefaultNp50Layout(int slot)
+    {
+        const float Y = 490f;
+        const float W = 200f;
+        const float H = 60f;
+        const float Gap = 220f;
+        const float BaseX = 40f;
+        const int Cols = 4;
+        var col = slot % Cols;
+        var row = slot / Cols;
+        return (BaseX + col * Gap, Y + row * 70f, W, H);
     }
 }
 

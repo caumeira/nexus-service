@@ -162,18 +162,30 @@ public static class QosServiceCollectionExtensions
             sp => sp.GetRequiredService<Qos.Service.Lighting.Np50LightingDeviceProvider>());
         services.AddSingleton<Qos.Service.Lighting.Np50LightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Qos.Service.Lighting.Np50LightingFrameWriter>());
+
+        // MiniHub: lighting-only v1, mirrors the NP50 stack with a separate
+        // hub coordinator + heartbeat + frame writer. Composite lighting
+        // provider routes between OpenRGB / NP50 / MiniHub by id prefix.
+        services.AddSingleton<Qos.Service.Lighting.MiniHubLightingDeviceProvider>();
+        services.AddSingleton<Qos.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Qos.Service.Lighting.MiniHubLightingDeviceProvider>());
+        services.AddSingleton<Qos.Service.Lighting.MiniHubLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Qos.Service.Lighting.MiniHubLightingFrameWriter>());
+
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
         {
             services.AddSingleton<Qos.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>();
             services.AddSingleton<ILightingDeviceProvider>(sp => new Qos.Service.Lighting.CompositeLightingDeviceProvider(
                 sp.GetRequiredService<Qos.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>(),
-                sp.GetRequiredService<Qos.Service.Lighting.Np50LightingDeviceProvider>()));
+                sp.GetRequiredService<Qos.Service.Lighting.Np50LightingDeviceProvider>(),
+                sp.GetRequiredService<Qos.Service.Lighting.MiniHubLightingDeviceProvider>()));
         }
         else
         {
             services.AddSingleton<ILightingDeviceProvider>(sp => new Qos.Service.Lighting.CompositeLightingDeviceProvider(
                 sp.GetRequiredService<StubDeviceProvider>(),
-                sp.GetRequiredService<Qos.Service.Lighting.Np50LightingDeviceProvider>()));
+                sp.GetRequiredService<Qos.Service.Lighting.Np50LightingDeviceProvider>(),
+                sp.GetRequiredService<Qos.Service.Lighting.MiniHubLightingDeviceProvider>()));
         }
 
         services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.CnvsHandler>();
@@ -202,6 +214,27 @@ public static class QosServiceCollectionExtensions
         services.AddSingleton<Qos.Service.Peripherals.Hyte.Np50.Np50HeartbeatWorker>();
         services.AddHostedService(sp =>
             sp.GetRequiredService<Qos.Service.Peripherals.Hyte.Np50.Np50HeartbeatWorker>());
+
+        // MiniHub hub: own port-discovery instance (we don't bind it to
+        // INp50PortDiscovery in DI because that interface is already taken
+        // by the NP50 binding — instead the hub factory below constructs
+        // the MiniHub-specific discovery inline). Transport factory reuses
+        // the generic serial-port wrapper since it's product-agnostic.
+        services.AddSingleton<Qos.Service.Peripherals.Hyte.MiniHub.MiniHubHub>(sp =>
+        {
+            Qos.Service.Peripherals.Hyte.Np50.INp50PortDiscovery discovery;
+#if WINDOWS
+            discovery = new Qos.Service.Peripherals.Hyte.MiniHub.WindowsMiniHubPortDiscovery();
+#else
+            discovery = new Qos.Service.Peripherals.Hyte.MiniHub.StubMiniHubPortDiscovery();
+#endif
+            return new Qos.Service.Peripherals.Hyte.MiniHub.MiniHubHub(
+                discovery,
+                port => new Qos.Service.Peripherals.Hyte.Np50.Np50SerialTransport(port.PortName, port.Serial));
+        });
+        services.AddSingleton<Qos.Service.Peripherals.Hyte.MiniHub.MiniHubHeartbeatWorker>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Qos.Service.Peripherals.Hyte.MiniHub.MiniHubHeartbeatWorker>());
 
 #if WINDOWS
         services.AddSingleton<Qos.Service.Devices.Detection.WindowsUsbEnumerator>();
