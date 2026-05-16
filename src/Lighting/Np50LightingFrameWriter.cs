@@ -32,21 +32,19 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
     private readonly LightingEngine _engine;
     private readonly Np50Hub _hub;
     private readonly IConfigStore _store;
+    private readonly Np50IdentifyTracker _identify;
     private Action<ReadOnlyMemory<byte>>? _frameHandler;
 
     // Per-port pending buffers, allocated lazily on first write so we don't
     // hold storage for empty ports.
     private readonly RgbColor[]?[] _portBuffers = new RgbColor[Np50Protocol.PortCount][];
 
-    // Per-id identify expiry — populated by /devices/lighting-devices/identify
-    // calls. Frames within the window flash full white at 4 Hz.
-    private readonly Dictionary<string, (long startTicks, long expirationTicks)> _identify = new();
-
-    public Np50LightingFrameWriter(LightingEngine engine, Np50Hub hub, IConfigStore store)
+    public Np50LightingFrameWriter(LightingEngine engine, Np50Hub hub, IConfigStore store, Np50IdentifyTracker identify)
     {
         _engine = engine;
         _hub = hub;
         _store = store;
+        _identify = identify;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -64,13 +62,6 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
     }
 
     public void Dispose() => StopAsync(default).GetAwaiter().GetResult();
-
-    /// <summary>Schedule an identify flash for a specific NP50-owned device id.</summary>
-    public void ArmIdentify(string id, int durationMs)
-    {
-        var now = DateTime.UtcNow.Ticks;
-        _identify[id] = (now, now + TimeSpan.FromMilliseconds(durationMs).Ticks);
-    }
 
     // Per-frame staging structures. Allocated once, cleared each tick.
     private readonly List<DeviceFrame>[] _stripsByPort =
@@ -196,16 +187,7 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
     }
 
     private bool TryGetActiveIdentify(string id, long nowTicks, out long startTicks)
-    {
-        if (_identify.TryGetValue(id, out var entry) && nowTicks < entry.expirationTicks)
-        {
-            startTicks = entry.startTicks;
-            return true;
-        }
-        if (entry.expirationTicks != 0) _identify.Remove(id);
-        startTicks = 0;
-        return false;
-    }
+        => _identify.TryGetActive(id, nowTicks, out startTicks);
 
     private static void FillBufferSlice(RgbColor[] dst, int dstStart, ReadOnlySpan<byte> src, int ledCount,
         double brightnessMul, bool hasIdentify, long identifyStartTicks, long nowTicks)

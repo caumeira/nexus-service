@@ -4,6 +4,7 @@ using Qos.Service.Devices;
 using Qos.Service.Lighting.Engine;
 using Qos.Service.Models.Devices;
 using Qos.Service.Peripherals.Hyte.Np50;
+using Qos.Service.Persistence;
 
 namespace Qos.Service.Lighting;
 
@@ -33,10 +34,14 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
     private string _lastSignature = "";
 
     private readonly Np50Hub _hub;
+    private readonly IConfigStore _store;
+    private readonly Np50IdentifyTracker _identify;
 
-    public Np50LightingDeviceProvider(Np50Hub hub)
+    public Np50LightingDeviceProvider(Np50Hub hub, IConfigStore store, Np50IdentifyTracker identify)
     {
         _hub = hub;
+        _store = store;
+        _identify = identify;
     }
 
     public bool IsConnected => _hub.IsConnected;
@@ -79,59 +84,141 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
         if (!_hub.IsConnected) return resp;
 
         var hubId = _hub.DeviceId;
+        var settings = _store.Load();
+        var disabled = settings.Devices.DisabledLightingDevices;
+        var prefs = settings.Devices.LightingDevicePrefs;
 
-        // Parent device: the NP50 hub itself. No own LEDs (the firmware
-        // logo strip is part of port-1 streaming, not a separate zone).
-        resp.Devices.Add(new LightingDevice
-        {
-            Id = hubId,
-            Name = "HYTE NP50",
-            Type = "Hub",
-            IconType = "hub",
-            LedsOn = true,
-            Brightness = 100,
-            LedCount = 0,
-        });
+        // Each NP50-driven zone is a standalone drivable device. We don't
+        // emit the bare hub (no LEDs of its own → renders as "detected but
+        // not drivable" clutter in the UI) and we don't use parentDeviceId
+        // — that field is reserved for OpenRGB motherboard-zone splits the
+        // UI knows how to render. Top-level cards with descriptive names
+        // ("HYTE NP50 Logo", "LS10 (Port 1 #1)", …) keep the lighting page
+        // surface uniform.
 
-        // Children: every attached module, in port + chain order. We index
-        // ZoneIndex globally across the hub so the frontend can use a
-        // single integer to identify which slot a click came from.
-        var zoneIdx = 0;
+        resp.Devices.Add(BuildDeviceEntry(
+            id: $"{hubId}:logo",
+            name: "HYTE NP50 Logo",
+            type: "ledstrip",
+            iconType: "strip",
+            ledCount: LogoLedCount,
+            disabled, prefs));
+
         foreach (var port in _hub.State.Ports)
         {
             foreach (var dev in port.Devices)
             {
-                resp.Devices.Add(new LightingDevice
-                {
-                    Id = $"{hubId}:port{port.Index}:dev{dev.Index}",
-                    Name = $"{dev.Model} (Port {port.Index} #{dev.Index})",
-                    Type = dev.Model, // "LS10" | "LS30" | "FP12"
-                    IconType = dev.Model == "FP12" ? "fan" : "strip",
-                    LedsOn = true,
-                    Brightness = 100,
-                    LedCount = dev.LedCount,
-                    ParentDeviceId = hubId,
-                    ZoneIndex = zoneIdx++,
-                });
+                if (dev.LedCount <= 0) continue;
+                resp.Devices.Add(BuildDeviceEntry(
+                    id: $"{hubId}:port{port.Index}:dev{dev.Index}",
+                    name: $"{dev.Model} (NP50 Port {port.Index} #{dev.Index})",
+                    type: "ledstrip",
+                    iconType: dev.Model == "FP12" ? "fan" : "strip",
+                    ledCount: dev.LedCount,
+                    disabled, prefs));
             }
         }
         return resp;
     }
 
-    // Setters are no-ops at the provider level — the LightingEngine + RgbBridge
-    // pipeline reads the same DisabledLightingDevices / LightingDevicePrefs
-    // settings that drive OpenRGB devices, so power / brightness / disabled
-    // already work for NP50 frames via the shared frame-write path. Hue /
-    // saturation aren't device-side knobs; they map to whatever effect the
-    // engine is currently rendering. SetZoneLedCount is a no-op because NP50
-    // module LED counts are fixed by the firmware (LS10=20, LS30=62).
-    public void SetDisabled(IReadOnlyList<string> ids) { }
-    public void SetPower(string id, bool on) { }
-    public void SetBrightness(string id, int brightness) { }
-    public void SetHue(string id, float hue) { }
-    public void SetSaturation(string id, float saturation) { }
+    private static LightingDevice BuildDeviceEntry(
+        string id, string name, string type, string iconType, int ledCount,
+        IReadOnlyList<string> disabled,
+        IReadOnlyDictionary<string, LightingDevicePreference> prefs)
+    {
+        // Honour persisted state when reporting the card so the UI's toggle
+        // and brightness slider reflect what the writer is actually doing.
+        var isOn = true;
+        for (var i = 0; i < disabled.Count; i++)
+        { if (disabled[i] == id) { isOn = false; break; } }
+        var brightness = 100;
+        var hue = 0f;
+        var saturation = 0f;
+        if (prefs.TryGetValue(id, out var pref))
+        {
+            brightness = pref.Brightness;
+            hue = pref.Hue;
+            saturation = pref.Saturation;
+        }
+        return new LightingDevice
+        {
+            Id = id,
+            Name = name,
+            Type = type,
+            IconType = iconType,
+            LedsOn = isOn,
+            Brightness = brightness,
+            Hue = hue,
+            Saturation = saturation,
+            LedCount = ledCount,
+        };
+    }
+
+    // Setters persist to the same shared settings store OpenRGB uses, so the
+    // engine→writer pipeline picks up the new state on the next frame.
+    // Mirrors OpenRgbLightingDeviceProvider's atomic list-replacement
+    // strategy so the 30fps frame reader never sees a torn DisabledList.
+
+    public void SetDisabled(IReadOnlyList<string> ids) => _store.Update(s =>
+    {
+        s.Devices.DisabledLightingDevices = new List<string>(ids);
+    });
+
+    public void SetPower(string id, bool on) => _store.Update(s =>
+    {
+        var current = s.Devices.DisabledLightingDevices;
+        if (on)
+        {
+            if (!current.Contains(id)) return;
+            var next = new List<string>(current.Count);
+            foreach (var x in current) if (x != id) next.Add(x);
+            s.Devices.DisabledLightingDevices = next;
+        }
+        else
+        {
+            if (current.Contains(id)) return;
+            var next = new List<string>(current.Count + 1);
+            next.AddRange(current);
+            next.Add(id);
+            s.Devices.DisabledLightingDevices = next;
+        }
+    });
+
+    public void SetBrightness(string id, int brightness) => _store.Update(s =>
+    {
+        if (!s.Devices.LightingDevicePrefs.TryGetValue(id, out var pref))
+        {
+            pref = new LightingDevicePreference();
+            s.Devices.LightingDevicePrefs[id] = pref;
+        }
+        pref.Brightness = Math.Clamp(brightness, 0, 100);
+    });
+
+    public void SetHue(string id, float hue) => _store.Update(s =>
+    {
+        if (!s.Devices.LightingDevicePrefs.TryGetValue(id, out var pref))
+        {
+            pref = new LightingDevicePreference();
+            s.Devices.LightingDevicePrefs[id] = pref;
+        }
+        pref.Hue = hue;
+    });
+
+    public void SetSaturation(string id, float saturation) => _store.Update(s =>
+    {
+        if (!s.Devices.LightingDevicePrefs.TryGetValue(id, out var pref))
+        {
+            pref = new LightingDevicePreference();
+            s.Devices.LightingDevicePrefs[id] = pref;
+        }
+        pref.Saturation = saturation;
+    });
+
+    // NP50 module LED counts are fixed by the firmware (LS10=20, LS30=62);
+    // there's no RESIZEZONE equivalent in the protocol.
     public void SetZoneLedCount(string id, int count) { }
-    public void Identify(string id, int durationMs) { }
+
+    public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);
 
     // ── ILightingFrameContributor ──
 
@@ -173,5 +260,41 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
             }
         }
         return frames;
+    }
+}
+
+/// <summary>
+/// Singleton tracker for identify-flash requests against NP50-driven LEDs.
+/// Lets <see cref="Np50LightingDeviceProvider.Identify"/> schedule a flash
+/// and <see cref="Np50LightingFrameWriter"/> read it without a direct
+/// dependency between the two (which would otherwise form a cycle through
+/// DI on the lighting engine path).
+/// </summary>
+public sealed class Np50IdentifyTracker
+{
+    private readonly object _lock = new();
+    private readonly Dictionary<string, (long startTicks, long expirationTicks)> _entries = new();
+
+    public void Schedule(string id, int durationMs)
+    {
+        if (string.IsNullOrEmpty(id)) return;
+        var now = DateTime.UtcNow.Ticks;
+        var dur = Math.Max(1, durationMs);
+        lock (_lock) _entries[id] = (now, now + TimeSpan.FromMilliseconds(dur).Ticks);
+    }
+
+    public bool TryGetActive(string id, long nowTicks, out long startTicks)
+    {
+        lock (_lock)
+        {
+            if (_entries.TryGetValue(id, out var entry) && nowTicks < entry.expirationTicks)
+            {
+                startTicks = entry.startTicks;
+                return true;
+            }
+            if (entry.expirationTicks != 0) _entries.Remove(id);
+        }
+        startTicks = 0;
+        return false;
     }
 }

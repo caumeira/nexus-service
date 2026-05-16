@@ -156,6 +156,7 @@ public static class QosServiceCollectionExtensions
         // array and the engine's per-tick OnFrame fires for them. The
         // Np50LightingFrameWriter hosted service consumes those frames and
         // pushes per-port LED buffers to the hub.
+        services.AddSingleton<Qos.Service.Lighting.Np50IdentifyTracker>();
         services.AddSingleton<Qos.Service.Lighting.Np50LightingDeviceProvider>();
         services.AddSingleton<Qos.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Qos.Service.Lighting.Np50LightingDeviceProvider>());
