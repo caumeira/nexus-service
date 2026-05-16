@@ -151,7 +151,16 @@ public static class QosServiceCollectionExtensions
         // etc.) + NP50 hub (LS10 / LS30 / FP12 daisy-chained off Nexus Link
         // ports). The composite routes by id prefix so existing
         // /devices/lighting-devices/* routes don't change shape.
+        // Np50LightingDeviceProvider doubles as an ILightingFrameContributor
+        // so the RgbBridge can include NP50 zones in the engine's DeviceFrame
+        // array and the engine's per-tick OnFrame fires for them. The
+        // Np50LightingFrameWriter hosted service consumes those frames and
+        // pushes per-port LED buffers to the hub.
         services.AddSingleton<Qos.Service.Lighting.Np50LightingDeviceProvider>();
+        services.AddSingleton<Qos.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Qos.Service.Lighting.Np50LightingDeviceProvider>());
+        services.AddSingleton<Qos.Service.Lighting.Np50LightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Qos.Service.Lighting.Np50LightingFrameWriter>());
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
         {
             services.AddSingleton<Qos.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>();

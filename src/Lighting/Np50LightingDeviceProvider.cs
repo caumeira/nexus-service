@@ -1,5 +1,7 @@
+using System;
 using System.Collections.Generic;
 using Qos.Service.Devices;
+using Qos.Service.Lighting.Engine;
 using Qos.Service.Models.Devices;
 using Qos.Service.Peripherals.Hyte.Np50;
 
@@ -18,8 +20,18 @@ namespace Qos.Service.Lighting;
 /// no-ops. Phase-3.5 will wire them into <see cref="Np50Hub.WriteLighting"/>
 /// once the per-zone color picker shape settles.
 /// </summary>
-public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider
+public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor
 {
+    /// <summary>Number of LEDs on the NP50 hub logo strip (the firmware-controlled prefix on streaming channel 1).</summary>
+    public const int LogoLedCount = 6;
+
+    /// <summary>
+    /// Cached fan-list signature used to debounce <see cref="DevicesChanged"/>:
+    /// we only fire when the actual lit-device topology changes (a strip is
+    /// plugged/unplugged), not on every fan-temp/RPM tick.
+    /// </summary>
+    private string _lastSignature = "";
+
     private readonly Np50Hub _hub;
 
     public Np50LightingDeviceProvider(Np50Hub hub)
@@ -28,6 +40,38 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider
     }
 
     public bool IsConnected => _hub.IsConnected;
+
+    public event Action? DevicesChanged;
+
+    /// <summary>
+    /// Called by the heartbeat worker (which polls the hub) so the bridge
+    /// can rebuild frame mappings when the lit-device topology changes.
+    /// Cheap signature compare keeps non-topology ticks silent.
+    /// </summary>
+    public void OnHubStateUpdated()
+    {
+        var sig = BuildSignature();
+        if (sig == _lastSignature) return;
+        _lastSignature = sig;
+        try { DevicesChanged?.Invoke(); } catch { /* subscriber failures shouldn't bubble */ }
+    }
+
+    private string BuildSignature()
+    {
+        if (!_hub.IsConnected) return "disconnected";
+        var sb = new System.Text.StringBuilder(_hub.DeviceId);
+        sb.Append('|');
+        foreach (var port in _hub.State.Ports)
+        {
+            sb.Append("p").Append(port.Index).Append(':');
+            foreach (var dev in port.Devices)
+            {
+                sb.Append(dev.Model).Append(dev.LedCount).Append(',');
+            }
+            sb.Append(';');
+        }
+        return sb.ToString();
+    }
 
     public GetLightingDevicesResponse GetAll()
     {
@@ -74,8 +118,13 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider
         return resp;
     }
 
-    // Setters are no-ops in v1. The composite provider routes by id prefix
-    // so OpenRGB calls don't accidentally land here.
+    // Setters are no-ops at the provider level — the LightingEngine + RgbBridge
+    // pipeline reads the same DisabledLightingDevices / LightingDevicePrefs
+    // settings that drive OpenRGB devices, so power / brightness / disabled
+    // already work for NP50 frames via the shared frame-write path. Hue /
+    // saturation aren't device-side knobs; they map to whatever effect the
+    // engine is currently rendering. SetZoneLedCount is a no-op because NP50
+    // module LED counts are fixed by the firmware (LS10=20, LS30=62).
     public void SetDisabled(IReadOnlyList<string> ids) { }
     public void SetPower(string id, bool on) { }
     public void SetBrightness(string id, int brightness) { }
@@ -83,4 +132,46 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider
     public void SetSaturation(string id, float saturation) { }
     public void SetZoneLedCount(string id, int count) { }
     public void Identify(string id, int durationMs) { }
+
+    // ── ILightingFrameContributor ──
+
+    public IReadOnlyList<DeviceFrame> BuildFrames(int startingIndex)
+    {
+        if (!_hub.IsConnected) return Array.Empty<DeviceFrame>();
+        var frames = new List<DeviceFrame>();
+        var hubId = _hub.DeviceId;
+        var idx = startingIndex;
+
+        // Logo strip first — 6 LEDs on the hub itself, prefixed onto port-1
+        // streaming. Layout: a small rectangle to the right of the cards.
+        // Engine canvas-samples linearly along this rect since there's no
+        // matrix UV (LedU/LedV) provided.
+        frames.Add(new DeviceFrame(
+            index: idx++,
+            id: $"{hubId}:logo",
+            ledCount: LogoLedCount,
+            x: 820, y: 480, w: 80, h: 30, rotation: 0));
+
+        // Each Nexus Link module is its own zone. Lay them out vertically,
+        // grouped per port, so the canvas sample produces a sensible default
+        // even before the user repositions them on the lighting page.
+        const float baseY = 320f;
+        const float perRowY = 50f;
+        foreach (var port in _hub.State.Ports)
+        {
+            for (var i = 0; i < port.Devices.Count; i++)
+            {
+                var dev = port.Devices[i];
+                if (dev.LedCount <= 0) continue;
+                frames.Add(new DeviceFrame(
+                    index: idx++,
+                    id: $"{hubId}:port{port.Index}:dev{dev.Index}",
+                    ledCount: dev.LedCount,
+                    x: 820,
+                    y: baseY + (port.Index - 1) * 110f + i * perRowY,
+                    w: 160, h: 30, rotation: 0));
+            }
+        }
+        return frames;
+    }
 }

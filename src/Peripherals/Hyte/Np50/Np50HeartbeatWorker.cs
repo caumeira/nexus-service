@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Qos.Service.Lighting;
 using Qos.Service.Sockets;
 
 namespace Qos.Service.Peripherals.Hyte.Np50;
@@ -27,14 +28,16 @@ public sealed class Np50HeartbeatWorker : BackgroundService
 {
     private readonly Np50Hub _hub;
     private readonly MultiplexHub _wsHub;
+    private readonly Np50LightingDeviceProvider? _lighting;
     private string _lastBroadcastFwVersion = "";
     private bool _lastConnected;
     private byte _lastWarningSummary;
 
-    public Np50HeartbeatWorker(Np50Hub hub, MultiplexHub wsHub)
+    public Np50HeartbeatWorker(Np50Hub hub, MultiplexHub wsHub, Np50LightingDeviceProvider? lighting = null)
     {
         _hub = hub;
         _wsHub = wsHub;
+        _lighting = lighting;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -105,6 +108,12 @@ public sealed class Np50HeartbeatWorker : BackgroundService
         {
             _hub.PollPort(port);
         }
+
+        // Tell the lighting contributor that the lit-device topology may
+        // have changed (a strip hot-plugged onto a port, hub reconnected,
+        // etc.). The contributor debounces internally; calling this every
+        // tick is cheap.
+        _lighting?.OnHubStateUpdated();
 
         // Detailed warning bytes only when the summary is non-zero. Saves a
         // pointless command on the happy path.
