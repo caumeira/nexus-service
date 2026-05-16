@@ -42,7 +42,7 @@ public sealed class WindowsNp50PortDiscovery : INp50PortDiscovery
                 result.Add(new Np50PortInfo
                 {
                     PortName = portName,
-                    Serial = ParseSerial(hardwareId, ReadStringProperty(devInfo, ref devData, Native.SPDRP_DEVICEDESC)),
+                    Serial = ReadInstanceId(devInfo, ref devData),
                 });
             }
         }
@@ -95,19 +95,22 @@ public sealed class WindowsNp50PortDiscovery : INp50PortDiscovery
     }
 
     /// <summary>
-    /// Extract the USB serial number from a hardware-id string. The shape is
-    /// typically "USB\VID_3402&amp;PID_0901&amp;..." — we don't actually find a
-    /// serial here on most NP50 firmwares, so fall back to the device
-    /// description when the hardware id has no serial segment.
+    /// Pull the device instance id (e.g. "USB\VID_3402&amp;PID_0901\205B338B3232")
+    /// and extract the trailing segment as the device serial. SetupDiGetDeviceInstanceId
+    /// is the only API call that surfaces the full instance id including the
+    /// serial; SPDRP_HARDWAREID stops short of it.
     /// </summary>
-    private static string ParseSerial(string hardwareId, string deviceDesc)
+    private static string ReadInstanceId(IntPtr devInfo, ref Native.SP_DEVINFO_DATA devData)
     {
-        // SetupAPI doesn't expose the SERIALNUMBER segment via SPDRP_HARDWAREID;
-        // the most reliable cross-firmware identifier we have without opening
-        // the port is the device path's instance id. The caller can always
-        // refine once we've successfully spoken to the hub.
-        var desc = deviceDesc?.Trim() ?? "";
-        return string.IsNullOrEmpty(desc) ? "np50" : desc;
+        var buf = new char[256];
+        if (!Native.SetupDiGetDeviceInstanceId(devInfo, ref devData, buf, (uint)buf.Length, out var needed))
+            return "";
+        var instanceId = new string(buf, 0, Math.Max(0, (int)needed - 1)); // strip the trailing NUL
+        // Instance id shape: "USB\VID_xxxx&PID_yyyy\SERIAL". Take everything
+        // after the last backslash as the serial.
+        var lastSlash = instanceId.LastIndexOf('\\');
+        if (lastSlash < 0 || lastSlash == instanceId.Length - 1) return instanceId;
+        return instanceId.Substring(lastSlash + 1);
     }
 
     // ── P/Invoke ──
@@ -159,6 +162,15 @@ public sealed class WindowsNp50PortDiscovery : INp50PortDiscovery
 
         [DllImport("advapi32.dll", SetLastError = true)]
         public static extern int RegCloseKey(IntPtr hKey);
+
+        [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true,
+            EntryPoint = "SetupDiGetDeviceInstanceIdW")]
+        public static extern bool SetupDiGetDeviceInstanceId(
+            IntPtr deviceInfoSet,
+            ref SP_DEVINFO_DATA deviceInfoData,
+            [Out] char[] deviceInstanceId,
+            uint deviceInstanceIdSize,
+            out uint requiredSize);
     }
 }
 #endif

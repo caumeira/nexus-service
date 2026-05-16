@@ -224,36 +224,44 @@ public class Np50ProtocolTests
     }
 
     [Fact]
-    public void ParseChannelInfo_decodes_two_fans_and_stops_at_empty_slot()
+    public void ParseChannelInfo_decodes_two_fans_and_stops_when_type_byte_is_zero()
     {
-        // Two populated slots followed by an empty one (device count 0).
+        // Two populated slots followed by an empty one.
         // Slot 0: FF CC + 12-byte device frame. Slot 1: 00 00 prefix + frame.
+        // Empty slot: Type byte (off+3) == 0 is the real stop signal — on
+        // firmware 2.0.3.1 the device-count byte at off+2 stays non-zero
+        // in trailing empty slots, so the spec-doc "stop at DC=0" was wrong.
         var resp = new byte[12 * 3];
 
-        // Slot 0: LS30 fan, 62 LEDs, RPM bytes 0x05 0x00 → 60_000 / (500*4) = 30
+        // Slot 0: LS30 fan, 62 LEDs.
+        // Temp bytes 0x0B 0x05 → uint16 BE / 100 = 2821/100 = 28.21°C.
+        // RPM bytes 0x05 0x00 → 60_000 / ((5*100 + 0)*4) = 30 RPM.
         resp[0] = 0xFF; resp[1] = 0xCC;
         resp[2] = 0x01;       // device count 1
         resp[3] = 0x02;       // LS30
         resp[4] = 0x10;       // hw version
         resp[5] = 62;         // led count
-        resp[6] = 0; resp[7] = 1; // fan temp absent sentinel (H=0, L=1)
-        resp[8] = 0x05; resp[9] = 0x00;
+        resp[6] = 0x0B; resp[7] = 0x05; // temp 28.21°C
+        resp[8] = 0x05; resp[9] = 0x00; // rpm 30
         resp[10] = 0x02;      // orientation Up
         resp[11] = 0x01;      // touch byte ignored for LS30
 
-        // Slot 1: FP12 fan, touching
+        // Slot 1: FP12 fan, touching, no temp probe (0,0 sentinel).
         resp[12] = 0x00; resp[13] = 0x00;
         resp[14] = 0x02;
         resp[15] = 0x03;      // FP12
         resp[16] = 0x05;
         resp[17] = 20;        // 20 LEDs reported (unusual for FP12 but we honor the wire)
-        resp[18] = 0; resp[19] = 1;
+        resp[18] = 0; resp[19] = 0; // no probe
         resp[20] = 0x02; resp[21] = 0x00;
         resp[22] = 0x00;      // orientation Back
         resp[23] = 0x00;      // touching
 
-        // Slot 2: device count 0 → parser stops.
-        // (rest is zeros)
+        // Slot 2: type byte 0x00 → parser stops. Device-count byte stays
+        // non-zero just like real hardware does.
+        resp[24] = 0x00; resp[25] = 0x00;
+        resp[26] = 0x05;      // arbitrary non-zero device count
+        resp[27] = 0x00;      // type byte zero — STOP signal
 
         var port = new Np50Port { Index = 2 };
         Np50Protocol.ParseChannelInfo(resp, port);
@@ -262,11 +270,14 @@ public class Np50ProtocolTests
 
         Assert.Equal("LS30", port.Devices[0].Model);
         Assert.Equal(62, port.Devices[0].LedCount);
-        Assert.Null(port.Devices[0].TempC);       // absent sentinel
+        Assert.NotNull(port.Devices[0].TempC);
+        Assert.Equal(28.21f, port.Devices[0].TempC!.Value, 2);
+        Assert.Equal(30, port.Devices[0].Rpm);
         Assert.Equal("Up", port.Devices[0].Orientation);
         Assert.False(port.Devices[0].Touching);   // LS30 ignores touch byte
 
         Assert.Equal("FP12", port.Devices[1].Model);
+        Assert.Null(port.Devices[1].TempC);       // no probe
         Assert.True(port.Devices[1].Touching);    // FP12 + 0x00 touch byte
     }
 
@@ -279,11 +290,28 @@ public class Np50ProtocolTests
         var resp = new byte[24];
         resp[0] = 0xFF; resp[1] = 0xCC; resp[2] = 0x01; resp[3] = 0x01; // one LS10
         resp[5] = 20;
-        resp[6] = 0; resp[7] = 1;
+        // resp[15] (next slot's type byte) is 0 → parser stops.
         Np50Protocol.ParseChannelInfo(resp, port);
 
         Assert.Single(port.Devices);
         Assert.Equal("LS10", port.Devices[0].Model);
+    }
+
+    [Fact]
+    public void DecodeFanTempC_returns_null_for_no_probe_sentinel()
+    {
+        Assert.Null(Np50Protocol.DecodeFanTempC(0, 0));
+    }
+
+    [Theory]
+    [InlineData(0x0B, 0x05, 28.21f)]   // observed: LS10 on Port 1
+    [InlineData(0x08, 0x16, 20.70f)]   // observed: LS10 on Port 2 #2
+    [InlineData(0x0E, 0x22, 36.18f)]   // observed: LS10 on Port 1 (warmer)
+    public void DecodeFanTempC_decodes_uint16_in_hundredths_of_C(byte high, byte low, float expected)
+    {
+        var t = Np50Protocol.DecodeFanTempC(high, low);
+        Assert.NotNull(t);
+        Assert.Equal(expected, t!.Value, 2);
     }
 
     [Fact]

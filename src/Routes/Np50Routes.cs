@@ -121,6 +121,17 @@ public static partial class DevicesRoutes
             return Results.Ok();
         });
 
+        // Debug-only: ask the hub to dump the next channel-info response for
+        // a port into the service log as hex. Lets us reverse-engineer the
+        // actual byte layout when the spec doc table is ambiguous.
+        app.MapPost("/devices/np50/debug/dump/{port:int}", (int port, Np50Hub hub) =>
+        {
+            if (port < 1 || port > Np50Protocol.PortCount)
+                return Results.BadRequest(new { error = $"port must be in 1..{Np50Protocol.PortCount}" });
+            hub.DumpNextPortResponse(port);
+            return Results.Ok(new { armed = true, port });
+        });
+
         // Pulse every connected fan on a port with a unique color so the user
         // can physically identify which port is which. The duration is
         // intentionally short — UI calls this when the user hovers a port in

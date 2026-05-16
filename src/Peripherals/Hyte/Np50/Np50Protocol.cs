@@ -211,14 +211,18 @@ public static class Np50Protocol
         {
             var off = i * slotSize;
             // First slot carries the FF CC header; subsequent slots start with 00 00.
-            // Device-count byte at off+2 is 1-based; 0 means "no fan in this slot".
-            var deviceCount = response[off + 2];
-            if (deviceCount == 0) break;
-
+            // The spec doc says to stop when the Device Count byte (off+2) is 0,
+            // but on real firmware (2.0.3.1) the device-count byte stays
+            // non-zero in empty trailing slots — it's the Device Type byte
+            // (off+3) that drops to 0x00 when no fan is present. That's the
+            // reliable stop condition.
             var typeByte = response[off + 3];
+            if (typeByte == 0x00) break;
+
+            var deviceCount = response[off + 2];
             var fan = new Np50FanDevice
             {
-                Index = deviceCount,
+                Index = deviceCount > 0 ? deviceCount : i + 1,
                 Model = typeByte switch
                 {
                     0x01 => "LS10",
@@ -228,7 +232,13 @@ public static class Np50Protocol
                 },
                 HardwareVersion = response[off + 4],
                 LedCount = response[off + 5],
-                TempC = TryDecodeTempC(response[off + 6], response[off + 7], FanOrPump.Fan),
+                // Temperature: bytes 6-7 as big-endian uint16 / 100. The
+                // spec doc shows these as ADC voltage bytes for a lookup
+                // table, but observed bytes on firmware 2.0.3.1 match a
+                // direct °C × 100 encoding instead. Real LS10s on the
+                // bench produce 28.21°C and 20.7°C from raw 0x0B05 and
+                // 0x0816, which lines up with hub cable temp and ambient.
+                TempC = DecodeFanTempC(response[off + 6], response[off + 7]),
                 Rpm = DecodeRpm(response[off + 8], response[off + 9]),
                 Orientation = response[off + 10] switch
                 {
@@ -295,6 +305,18 @@ public static class Np50Protocol
     /// debugging odd readings can see the underlying ADC voltage.
     /// </summary>
     public static double DecodeVoltage(byte high, byte low) => 3.3 * (high * 100.0 + low) / 4096.0;
+
+    /// <summary>
+    /// Per-fan temperature decode for the "Get Channel Info" response (bytes
+    /// 6-7 of each 12-byte slot). Empirically firmware 2.0.3.1 encodes the
+    /// reading as a big-endian uint16 in hundredths of °C; (0, 0) means "no
+    /// probe present" on this module. Returns null in that case.
+    /// </summary>
+    public static float? DecodeFanTempC(byte high, byte low)
+    {
+        if (high == 0 && low == 0) return null;
+        return ((high << 8) | low) / 100f;
+    }
 
     /// <summary>
     /// Convert ADC voltage bytes to °C using the right lookup table. Returns null when the

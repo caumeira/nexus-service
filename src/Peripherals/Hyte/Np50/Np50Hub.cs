@@ -104,7 +104,37 @@ public sealed class Np50Hub : IDisposable
             Np50Protocol.BuildGetChannelInfo(port),
             expectedLength: 240,
             timeoutMs: 400,
-            response => Np50Protocol.ParseChannelInfo(response, p));
+            response =>
+            {
+                // Temporary diagnostic: dump the raw response so we can verify
+                // the on-wire byte layout against the spec. Remove once the
+                // parser is known correct against real hardware.
+                if (_logRawPort && port == _logRawPort_PortIndex)
+                {
+                    _logRawPort = false;
+                    var hex = new System.Text.StringBuilder(response.Length * 3);
+                    for (var i = 0; i < response.Length; i++)
+                    {
+                        if (i > 0 && i % 12 == 0) hex.Append('|');
+                        hex.Append(response[i].ToString("X2")).Append(' ');
+                    }
+                    Console.Error.WriteLine($"[np50] port{port} raw ({response.Length}B): {hex}");
+                }
+                Np50Protocol.ParseChannelInfo(response, p);
+            });
+    }
+
+    // One-shot raw dump trigger. Set via DumpNextPortResponse() then cleared
+    // after the next poll fires. Lets routes / debugging code capture the
+    // bytes without filling the log on every tick.
+    private bool _logRawPort;
+    private int _logRawPort_PortIndex = 1;
+
+    /// <summary>Capture the next channel-info response for <paramref name="port"/> into the service log as hex.</summary>
+    public void DumpNextPortResponse(int port)
+    {
+        _logRawPort_PortIndex = port;
+        _logRawPort = true;
     }
 
     public bool PollWarningDetail()
@@ -167,6 +197,12 @@ public sealed class Np50Hub : IDisposable
         var transport = _transport!;
         try
         {
+            // Drain stale bytes from any prior short read so the response we're
+            // about to issue is parsed off the right offset. The hub sometimes
+            // sends slightly more than the documented payload (firmware-side
+            // FW-animation block in newer FW), and a leftover byte misaligns
+            // the next 12-byte-slot parse to nonsense.
+            transport.DiscardInput();
             transport.Write(request);
             var buf = new byte[expectedLength];
             var n = transport.Read(buf, timeoutMs);

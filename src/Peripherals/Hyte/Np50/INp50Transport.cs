@@ -22,6 +22,14 @@ public interface INp50Transport : IDisposable
     void Write(ReadOnlySpan<byte> data);
 
     /// <summary>
+    /// Drop any unread bytes sitting in the OS input buffer. Called before
+    /// each request to guard against a previous read that didn't drain — if
+    /// PollHubInfo's 20-byte read happens to leave 4 bytes behind, the next
+    /// command's response would otherwise be parsed off-by-4.
+    /// </summary>
+    void DiscardInput();
+
+    /// <summary>
     /// Read up to <paramref name="buffer"/>.Length bytes, returning the number actually read.
     /// Returns 0 on timeout. Throws if the port has been disposed/disconnected.
     /// </summary>

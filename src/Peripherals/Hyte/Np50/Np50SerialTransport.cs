@@ -60,6 +60,15 @@ public sealed class Np50SerialTransport : INp50Transport
         }
     }
 
+    public void DiscardInput()
+    {
+        if (_disposed) return;
+        lock (_ioLock)
+        {
+            try { if (_port.IsOpen) _port.DiscardInBuffer(); } catch { /* port may have closed mid-call */ }
+        }
+    }
+
     public int Read(Span<byte> buffer, int timeoutMs)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(Np50SerialTransport));
