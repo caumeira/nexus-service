@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Qos.Service.Models;
 using Qos.Service.Models.Discord;
 using Qos.Service.Persistence;
+using Qos.Service.Security;
 
 namespace Qos.Service.Discord;
 
@@ -39,7 +40,7 @@ public sealed class DiscordProvider : IDiscordProvider
             }
             else if (body.ClientSecret is not null && body.ClientSecret.Trim().Length > 0)
             {
-                s.Discord.ClientSecret = body.ClientSecret.Trim();
+                s.Discord.ClientSecret = SecretProtector.Protect(body.ClientSecret.Trim());
             }
         });
     }
@@ -142,7 +143,9 @@ public sealed class DiscordProvider : IDiscordProvider
     {
         var settings = _store.Load().Discord;
         var clientId = FirstNonEmpty(settings.ClientId, Environment.GetEnvironmentVariable("QOS_DISCORD_CLIENT_ID"));
-        var clientSecret = FirstNonEmpty(settings.ClientSecret, Environment.GetEnvironmentVariable("QOS_DISCORD_CLIENT_SECRET"));
+        var clientSecret = FirstNonEmpty(
+            SecretProtector.Unprotect(settings.ClientSecret),
+            Environment.GetEnvironmentVariable("QOS_DISCORD_CLIENT_SECRET"));
         return new DiscordRuntimeConfig(clientId, clientSecret.Length > 0);
     }
 

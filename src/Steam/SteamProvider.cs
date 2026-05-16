@@ -4,6 +4,7 @@ using System.Text.Json;
 using Qos.Service.Models;
 using Qos.Service.Models.Steam;
 using Qos.Service.Persistence;
+using Qos.Service.Security;
 #if WINDOWS
 using Microsoft.Win32;
 #endif
@@ -41,7 +42,7 @@ public sealed class SteamProvider : ISteamProvider
         var settings = _store.Load().Steam;
         return new SteamConfigResponse
         {
-            HasApiKey = !string.IsNullOrWhiteSpace(settings.ApiKey),
+            HasApiKey = !string.IsNullOrWhiteSpace(SecretProtector.Unprotect(settings.ApiKey)),
             SteamId = settings.SteamId,
             AutoDetectedSteamId = ResolveSteamIdFromLocalClient() ?? "",
         };
@@ -61,7 +62,7 @@ public sealed class SteamProvider : ISteamProvider
             }
             else if (body.ApiKey is not null && body.ApiKey.Trim().Length > 0)
             {
-                s.Steam.ApiKey = body.ApiKey.Trim();
+                s.Steam.ApiKey = SecretProtector.Protect(body.ApiKey.Trim());
             }
         });
         ClearCache();
@@ -157,8 +158,11 @@ public sealed class SteamProvider : ISteamProvider
         return achievements;
     }
 
-    public ApiResponse Launch()
+    public ApiResponse Launch(int? appId = null)
     {
+        // steam://run/<appId> starts a specific game (installs first if not
+        // local). Null appId opens the Steam client to its main window.
+        var url = appId is > 0 ? $"steam://run/{appId}" : "steam://open/main";
         try
         {
             if (OperatingSystem.IsMacOS())
@@ -166,12 +170,12 @@ public sealed class SteamProvider : ISteamProvider
                 Process.Start(new ProcessStartInfo("open")
                 {
                     UseShellExecute = false,
-                    ArgumentList = { "steam://open/main" },
+                    ArgumentList = { url },
                 });
             }
             else
             {
-                Process.Start(new ProcessStartInfo("steam://open/main")
+                Process.Start(new ProcessStartInfo(url)
                 {
                     UseShellExecute = true,
                 });
@@ -197,7 +201,7 @@ public sealed class SteamProvider : ISteamProvider
     private SteamRuntimeConfig ResolveConfig()
     {
         var settings = _store.Load().Steam;
-        var apiKey = settings.ApiKey.Trim();
+        var apiKey = SecretProtector.Unprotect(settings.ApiKey).Trim();
         var steamId = settings.SteamId.Trim();
         if (steamId.Length == 0)
         {

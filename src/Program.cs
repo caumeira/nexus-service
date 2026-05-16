@@ -447,7 +447,15 @@ app.Use(async (ctx, next) =>
                 "child-src 'self' blob:; " +
                 "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
                 "font-src 'self' data: https://fonts.gstatic.com; " +
-                "img-src 'self' data: blob:; " +
+                // Steam widget pulls avatars, game icons, and game headers
+                // from Valve's CDNs; Discord widget pulls avatars, guild icons,
+                // and banners from Discord's. Both are CDN-hosted blob URLs
+                // returned by the upstream APIs — there is no service-side
+                // proxy, so the browser fetches them directly and they must
+                // be whitelisted here or `img.onerror` fires.
+                "img-src 'self' data: blob: " +
+                "https://*.steamstatic.com https://media.steampowered.com " +
+                "https://cdn.discordapp.com https://media.discordapp.net; " +
                 "connect-src 'self' ws: wss:; " +
                 // 'self' (not 'none') so PanelEmbedFrame.tsx can iframe /panel?simulator=1
                 // for the Y70/panel device popup. Same-origin only; external embedding stays blocked.

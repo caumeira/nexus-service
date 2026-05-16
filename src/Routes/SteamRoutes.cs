@@ -25,6 +25,6 @@ public static class SteamRoutes
             await steam.GetFriendsAsync(ct).ConfigureAwait(false)).AllowPanel();
         app.MapGet("/api/steam/achievements/{appId:int}", async (int appId, ISteamProvider steam, CancellationToken ct) =>
             await steam.GetAchievementsAsync(appId, ct).ConfigureAwait(false)).AllowPanel();
-        app.MapPost("/api/steam/launch", (ISteamProvider steam) => steam.Launch()).AllowPanel();
+        app.MapPost("/api/steam/launch", (int? appId, ISteamProvider steam) => steam.Launch(appId)).AllowPanel();
     }
 }

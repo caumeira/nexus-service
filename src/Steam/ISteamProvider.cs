@@ -13,5 +13,5 @@ public interface ISteamProvider
     Task<List<SteamOwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken);
     Task<List<SteamFriendSummary>> GetFriendsAsync(CancellationToken cancellationToken);
     Task<List<SteamAchievement>> GetAchievementsAsync(int appId, CancellationToken cancellationToken);
-    ApiResponse Launch();
+    ApiResponse Launch(int? appId = null);
 }

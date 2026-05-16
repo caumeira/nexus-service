@@ -85,6 +85,13 @@
     <PackageReference Include="QRCoder" Version="1.6.0" />
   </ItemGroup>
 
+  <!-- DPAPI at-rest protection for small secrets (Steam API key, Discord
+       client secret). Cross-platform package; throws PlatformNotSupportedException
+       off-Windows, which SecretProtector guards behind OperatingSystem.IsWindows(). -->
+  <ItemGroup>
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="9.0.0" />
+  </ItemGroup>
+
   <!-- AOT publish strips native assets from `runtimes/<rid>/native/` that aren't
        statically referenced. Silk.NET loads GLFW via dynamic P/Invoke, so we
        manually copy the native into the publish dir. -->
