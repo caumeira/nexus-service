@@ -176,6 +176,15 @@
        Bundled/{rid}/openrgb/. Fail Publish loudly if the bundle is missing,
        since silently skipping the <Content Include> below ships an app
        without RGB support. -->
+  <!-- macOS ships AOT-only. We do not distribute non-AOT macOS builds because
+       they drag in the full .NET runtime + managed DLLs and behave differently
+       at runtime than what end users get. Fail the publish loudly if anyone
+       overrides PublishAot=false for an osx-* RID. -->
+  <Target Name="EnsureMacAot" BeforeTargets="Publish" Condition="$(RuntimeIdentifier.StartsWith('osx'))">
+    <Error Condition="'$(PublishAot)' != 'true'"
+           Text="macOS publish requires PublishAot=true. Non-AOT macOS builds are not shipped. Drop any -p:PublishAot=false override and re-run." />
+  </Target>
+
   <Target Name="EnsureOpenRgbBundle" BeforeTargets="Publish">
     <Error Condition="$(RuntimeIdentifier.StartsWith('osx')) AND !Exists('Bundled/osx-arm64/openrgb/OpenRGB-headless')"
            Text="OpenRGB macOS bundle missing at Bundled/osx-arm64/openrgb/. Build it: cd ../qos-rgb/openrgb-headless &amp;&amp; qmake OpenRGB.pro CONFIG+=release CONFIG+=sdk_no_version_check &amp;&amp; make -j ; then cd .. &amp;&amp; ./bundle-macos.sh" />

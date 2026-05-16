@@ -13,8 +13,15 @@ namespace Qos.Service.Persistence;
 /// </summary>
 public sealed class QosSettings
 {
+    /// <summary>
+    /// Latest persisted-settings schema number. Bump in lockstep when adding
+    /// a migration in <c>JsonConfigStore.Load()</c>. Lives as a constant so
+    /// tests and tooling can reference "current" without bit-rotting.
+    /// </summary>
+    public const int CurrentSchemaVersion = 5;
+
     /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag — every placement keeps its own config under <see cref="Qos.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. <see cref="JsonConfigStore"/> migrates v1/v2/v3/v4 (or missing) records on load.</summary>
-    public int SchemaVersion { get; set; } = 5;
+    public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     public ThemeSettings Theme { get; set; } = new();
     public MonitoringSettings Monitoring { get; set; } = new();

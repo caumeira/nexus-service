@@ -56,11 +56,12 @@ public class OpenRgbProtocolTests
     public void BuildSetClientNameBody_AppendsNul()
     {
         var body = OpenRgbProtocol.BuildSetClientNameBody("qos");
-        // 'a' 'm' 'p' 'g' 'r' 'a' 'd' 'e' '\0'
-        Assert.Equal(9, body.Length);
-        Assert.Equal((byte)'a', body[0]);
-        Assert.Equal((byte)'e', body[7]);
-        Assert.Equal(0, body[8]);
+        // 'q' 'o' 's' '\0'
+        Assert.Equal(4, body.Length);
+        Assert.Equal((byte)'q', body[0]);
+        Assert.Equal((byte)'o', body[1]);
+        Assert.Equal((byte)'s', body[2]);
+        Assert.Equal(0, body[3]);
     }
 
     [Fact]

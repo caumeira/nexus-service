@@ -112,6 +112,12 @@ public class ProfileSwitchTests : IDisposable
         // Act: first tick under the Default profile should write 30.
         var fans = new RecordingFanProvider();
         var engine = new CurveEngine(fans, _store, new MultiplexHub());
+        // Production wires ProfileManager.OnProfileSwitched →
+        // CurveEngine.ResetSmoothing in Program.cs so the engine's per-channel
+        // 250ms rate limiter doesn't suppress the first post-switch write.
+        // Replicate that here; otherwise the second Tick() below races the
+        // limiter and the new curve never reaches the fan provider.
+        _profiles.OnProfileSwitched += engine.ResetSmoothing;
         engine.Tick();
 
         var firstWrite = Assert.Single(fans.Writes);

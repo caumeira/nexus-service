@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Default run settings for Qos.Service.Tests.
+
+  TestCaseFilter: excludes [Trait("Category", "Manual")] tests by default.
+  These are real benchmark runs (CPU/GPU/RAM/storage timers) that take
+  around a minute combined and would dominate every `dotnet test`
+  invocation. Run them explicitly with the companion runsettings:
+
+    dotnet test  settings qos-benchmarks.runsettings
+
+  (single dash placeholder above to avoid the XML comment restriction
+  on double-dash sequences.)
+
+  VSTest ANDs `<TestCaseFilter>` from runsettings with any  filter
+  flag, so the only way to flip from "exclude Manual" to "include only
+  Manual" is to point at a different runsettings file.
+
+  The build-pc skill and the pre-push hook rely on this default so the
+  per-build test gate stays fast.
+-->
+<RunSettings>
+  <RunConfiguration>
+    <TestCaseFilter>Category!=Manual</TestCaseFilter>
+  </RunConfiguration>
+</RunSettings>

@@ -2,46 +2,112 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using Qos.Service.Models.Panel;
 using Qos.Service.Models.Widgets;
 using Qos.Service.Persistence;
 using Qos.Service.Widgets;
 
 namespace Qos.Service.Tests.Widgets;
 
+/// <summary>
+/// Per-instance marketplace widget settings storage. Each placement carries
+/// its own <see cref="PanelWidgetDto.Config"/> dictionary in the layout;
+/// the service merges manifest defaults on read and writes overrides on
+/// apply. Tests wire up a real <see cref="WidgetRegistry"/> against a
+/// fixture manifest folder so registry behavior (schema gate, folder/id
+/// match) is exercised end-to-end.
+/// </summary>
 public class WidgetSettingsServiceTests : IDisposable
 {
+    private const string WidgetId = "com.nexusqos.test";
+    private const string InstanceId = "test-instance";
+    private const string MarketplaceType = "marketplace:" + WidgetId;
+
+    private readonly string _tempDir;
     private readonly string _settingsPath;
     private readonly JsonConfigStore _store;
+    private readonly WidgetRegistry _registry;
 
     public WidgetSettingsServiceTests()
     {
-        _settingsPath = Path.Combine(Path.GetTempPath(), "qos-widget-settings-" + Guid.NewGuid().ToString("N")[..8] + ".json");
+        _tempDir = Path.Combine(Path.GetTempPath(), "qos-widget-settings-tests-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(_tempDir, "widgets-root"));
+        _settingsPath = Path.Combine(_tempDir, "settings.json");
         _store = new JsonConfigStore(_settingsPath);
+        var widgetsRoot = Path.Combine(_tempDir, "widgets-root");
+        _registry = new WidgetRegistry(() => new[]
+        {
+            new WidgetInstallPaths.Root(widgetsRoot, WidgetInstallPaths.Source.User),
+        });
     }
 
     public void Dispose()
     {
         _store.Dispose();
-        try { File.Delete(_settingsPath); } catch { /* best effort */ }
+        try { Directory.Delete(_tempDir, recursive: true); } catch { /* best effort */ }
     }
 
-    private static WidgetManifest ManifestWithSettings(params (string Key, string DefaultJson)[] entries)
+    /// <summary>
+    /// Write a manifest fixture and seed a single placement in the dashboard
+    /// layout. Returns a fresh <see cref="WidgetSettingsService"/> ready to use.
+    /// </summary>
+    private WidgetSettingsService SetupWidget(params (string Key, string DefaultJson)[] settings)
     {
-        var m = new WidgetManifest { Id = "com.nexusqos.test", Name = "Test", Version = "1.0.0", Schema = "qos.widget/2" };
-        foreach (var (key, defaultJson) in entries)
+        var widgetDir = Path.Combine(_tempDir, "widgets-root", WidgetId);
+        Directory.CreateDirectory(widgetDir);
+        File.WriteAllText(Path.Combine(widgetDir, "manifest.json"), BuildManifestJson(settings));
+
+        _store.Update(s =>
         {
-            using var doc = JsonDocument.Parse(defaultJson);
-            m.Settings.Add(new WidgetManifestSettingEntry { Key = key, Type = "string", Default = doc.RootElement.Clone() });
+            s.Panel.DashboardLayout = new PanelLayoutDto
+            {
+                Pages =
+                {
+                    new PanelPageDto
+                    {
+                        Id = "page-1",
+                        Widgets =
+                        {
+                            new PanelWidgetDto { Id = InstanceId, Type = MarketplaceType, Size = "2x2" },
+                        },
+                    },
+                },
+            };
+        });
+
+        _registry.Refresh();
+        return new WidgetSettingsService(_store, _registry);
+    }
+
+    private static string BuildManifestJson((string Key, string DefaultJson)[] settings)
+    {
+        var settingsJson = new System.Text.StringBuilder();
+        for (var i = 0; i < settings.Length; i++)
+        {
+            if (i > 0) settingsJson.Append(',');
+            settingsJson.Append($"{{\"key\":\"{settings[i].Key}\",\"type\":\"string\",\"default\":{settings[i].DefaultJson}}}");
         }
-        return m;
+        return $$"""
+        {
+          "schema": "qos.widget/2",
+          "id": "{{WidgetId}}",
+          "name": "Test Widget",
+          "version": "1.0.0",
+          "min_qos_version": "0.0.0",
+          "surfaces": ["dashboard"],
+          "sizes": ["2x2"],
+          "view": {"type":"text","text":"x"},
+          "settings": [{{settingsJson}}]
+        }
+        """;
     }
 
     [Fact]
     public void Get_returns_manifest_defaults_when_no_overrides()
     {
-        var svc = new WidgetSettingsService(_store);
-        var manifest = ManifestWithSettings(("color", "\"#ff8800\""), ("scale", "1"));
-        var doc = svc.Get("com.nexusqos.test", manifest);
+        var svc = SetupWidget(("color", "\"#ff8800\""), ("scale", "1"));
+
+        var doc = svc.Get(InstanceId);
 
         Assert.Equal(2, doc.Values.Count);
         Assert.Equal("#ff8800", doc.Values["color"].GetString());
@@ -51,130 +117,178 @@ public class WidgetSettingsServiceTests : IDisposable
     [Fact]
     public void Apply_persists_overrides_and_round_trips_through_reload()
     {
-        var svc = new WidgetSettingsService(_store);
-        var manifest = ManifestWithSettings(("color", "\"#ff8800\""), ("scale", "1"));
+        var svc = SetupWidget(("color", "\"#ff8800\""), ("scale", "1"));
 
         using var colorDoc = JsonDocument.Parse("\"#00ffaa\"");
-        var patch = new WidgetSettingsPatch
+        svc.Apply(InstanceId, new WidgetSettingsPatch
         {
             Set = new Dictionary<string, JsonElement> { ["color"] = colorDoc.RootElement.Clone() },
-        };
-        svc.Apply("com.nexusqos.test", manifest, patch);
+        });
         _store.FlushNow();
 
-        // Reload via a fresh store pointing at the same file (simulates a
-        // qos-service restart).
+        // Reload via a fresh store + registry pointing at the same fixtures
+        // (simulates a qos-service restart).
         using var reloaded = new JsonConfigStore(_settingsPath);
-        var reloadedSvc = new WidgetSettingsService(reloaded);
-        var got = reloadedSvc.Get("com.nexusqos.test", manifest);
+        var widgetsRoot = Path.Combine(_tempDir, "widgets-root");
+        var registry2 = new WidgetRegistry(() => new[]
+        {
+            new WidgetInstallPaths.Root(widgetsRoot, WidgetInstallPaths.Source.User),
+        });
+        var reloadedSvc = new WidgetSettingsService(reloaded, registry2);
+
+        var got = reloadedSvc.Get(InstanceId);
         Assert.Equal("#00ffaa", got.Values["color"].GetString());
-        // Unchanged key still shows the manifest default.
         Assert.Equal(1, got.Values["scale"].GetInt32());
     }
 
     [Fact]
     public void Apply_reset_drops_back_to_manifest_default()
     {
-        var svc = new WidgetSettingsService(_store);
-        var manifest = ManifestWithSettings(("color", "\"#ff8800\""));
+        var svc = SetupWidget(("color", "\"#ff8800\""));
 
         using var override1 = JsonDocument.Parse("\"#123456\"");
-        svc.Apply("com.nexusqos.test", manifest, new WidgetSettingsPatch
+        svc.Apply(InstanceId, new WidgetSettingsPatch
         {
             Set = new Dictionary<string, JsonElement> { ["color"] = override1.RootElement.Clone() },
         });
-        var doc1 = svc.Get("com.nexusqos.test", manifest);
-        Assert.Equal("#123456", doc1.Values["color"].GetString());
+        Assert.Equal("#123456", svc.Get(InstanceId).Values["color"].GetString());
 
-        svc.Apply("com.nexusqos.test", manifest, new WidgetSettingsPatch { Reset = new List<string> { "color" } });
-        var doc2 = svc.Get("com.nexusqos.test", manifest);
-        Assert.Equal("#ff8800", doc2.Values["color"].GetString());
+        svc.Apply(InstanceId, new WidgetSettingsPatch { Reset = new List<string> { "color" } });
+        Assert.Equal("#ff8800", svc.Get(InstanceId).Values["color"].GetString());
     }
 
     [Fact]
     public void Apply_set_then_reset_overlap_reset_wins()
     {
-        var svc = new WidgetSettingsService(_store);
-        var manifest = ManifestWithSettings(("color", "\"#ff8800\""));
+        var svc = SetupWidget(("color", "\"#ff8800\""));
 
         using var doc = JsonDocument.Parse("\"#ABCDEF\"");
-        svc.Apply("com.nexusqos.test", manifest, new WidgetSettingsPatch
+        svc.Apply(InstanceId, new WidgetSettingsPatch
         {
             Set = new Dictionary<string, JsonElement> { ["color"] = doc.RootElement.Clone() },
             Reset = new List<string> { "color" },
         });
 
-        var got = svc.Get("com.nexusqos.test", manifest);
-        Assert.Equal("#ff8800", got.Values["color"].GetString()); // reset wins
+        Assert.Equal("#ff8800", svc.Get(InstanceId).Values["color"].GetString());
     }
 
     [Fact]
-    public void Apply_empty_patch_does_not_insert_a_hollow_widget_entry()
+    public void Apply_empty_patch_does_not_insert_a_hollow_config_block()
     {
-        var svc = new WidgetSettingsService(_store);
-        var manifest = ManifestWithSettings(("color", "\"#ff8800\""));
-        svc.Apply("com.nexusqos.test", manifest, new WidgetSettingsPatch());
+        var svc = SetupWidget(("color", "\"#ff8800\""));
+
+        svc.Apply(InstanceId, new WidgetSettingsPatch());
         _store.FlushNow();
 
         var loaded = JsonDocument.Parse(File.ReadAllText(_settingsPath)).RootElement;
-        var widgets = loaded.GetProperty("widgets");
-        Assert.False(widgets.TryGetProperty("com.nexusqos.test", out _));
+        var widget = FindWidgetJson(loaded, InstanceId);
+        Assert.False(widget.TryGetProperty("config", out _));
     }
 
     [Fact]
-    public void Reset_only_removes_the_widget_entry_when_no_overrides_remain()
+    public void Reset_only_removes_the_config_block_when_no_overrides_remain()
     {
-        var svc = new WidgetSettingsService(_store);
-        var manifest = ManifestWithSettings(("color", "\"#ff8800\""));
+        var svc = SetupWidget(("color", "\"#ff8800\""));
 
         using var doc = JsonDocument.Parse("\"#abcdef\"");
-        svc.Apply("com.nexusqos.test", manifest, new WidgetSettingsPatch
+        svc.Apply(InstanceId, new WidgetSettingsPatch
         {
             Set = new Dictionary<string, JsonElement> { ["color"] = doc.RootElement.Clone() },
         });
-        svc.Apply("com.nexusqos.test", manifest, new WidgetSettingsPatch { Reset = new List<string> { "color" } });
+        svc.Apply(InstanceId, new WidgetSettingsPatch { Reset = new List<string> { "color" } });
         _store.FlushNow();
 
         var loaded = JsonDocument.Parse(File.ReadAllText(_settingsPath)).RootElement;
-        var widgets = loaded.GetProperty("widgets");
-        Assert.False(widgets.TryGetProperty("com.nexusqos.test", out _));
+        var widget = FindWidgetJson(loaded, InstanceId);
+        Assert.False(widget.TryGetProperty("config", out _));
     }
 
     [Fact]
     public void Settings_round_trip_handles_quoted_strings_unicode_and_large_blobs()
     {
-        var svc = new WidgetSettingsService(_store);
-        var manifest = ManifestWithSettings(("blob", "\"\""));
+        var svc = SetupWidget(("blob", "\"\""));
+
         var weird = "He said \"hi\" — 🎉 " + new string('x', 4096);
-        var stored = JsonSerializer.Serialize(weird);
-        using var doc = JsonDocument.Parse(stored);
-        svc.Apply("com.nexusqos.test", manifest, new WidgetSettingsPatch
+        using var doc = JsonDocument.Parse(JsonSerializer.Serialize(weird));
+        svc.Apply(InstanceId, new WidgetSettingsPatch
         {
             Set = new Dictionary<string, JsonElement> { ["blob"] = doc.RootElement.Clone() },
         });
         _store.FlushNow();
+
         using var reloaded = new JsonConfigStore(_settingsPath);
-        var got = new WidgetSettingsService(reloaded).Get("com.nexusqos.test", manifest);
+        var widgetsRoot = Path.Combine(_tempDir, "widgets-root");
+        var registry2 = new WidgetRegistry(() => new[]
+        {
+            new WidgetInstallPaths.Root(widgetsRoot, WidgetInstallPaths.Source.User),
+        });
+        var got = new WidgetSettingsService(reloaded, registry2).Get(InstanceId);
         Assert.Equal(weird, got.Values["blob"].GetString());
     }
 
     [Fact]
     public void Apply_silently_drops_keys_not_in_manifest()
     {
-        var svc = new WidgetSettingsService(_store);
-        var manifest = ManifestWithSettings(("color", "\"#ff8800\""));
+        var svc = SetupWidget(("color", "\"#ff8800\""));
 
         using var stray = JsonDocument.Parse("\"hostile\"");
-        svc.Apply("com.nexusqos.test", manifest, new WidgetSettingsPatch
+        using var color = JsonDocument.Parse("\"#abcdef\"");
+        svc.Apply(InstanceId, new WidgetSettingsPatch
         {
             Set = new Dictionary<string, JsonElement>
             {
-                ["color"] = JsonDocument.Parse("\"#abcdef\"").RootElement.Clone(),
+                ["color"] = color.RootElement.Clone(),
                 ["unknown.key"] = stray.RootElement.Clone(),
             },
         });
-        var doc = svc.Get("com.nexusqos.test", manifest);
+        var doc = svc.Get(InstanceId);
         Assert.False(doc.Values.ContainsKey("unknown.key"));
         Assert.Equal("#abcdef", doc.Values["color"].GetString());
+    }
+
+    [Fact]
+    public void Get_returns_empty_doc_for_unknown_instance_id()
+    {
+        var svc = SetupWidget(("color", "\"#ff8800\""));
+        var doc = svc.Get("does-not-exist");
+        Assert.Empty(doc.Values);
+    }
+
+    [Fact]
+    public void Get_returns_empty_doc_for_non_marketplace_widget_type()
+    {
+        SetupWidget(("color", "\"#ff8800\""));
+        _store.Update(s =>
+        {
+            s.Panel.DashboardLayout!.Pages[0].Widgets.Add(new PanelWidgetDto
+            {
+                Id = "native-clock",
+                Type = "clock", // not the marketplace: prefix
+                Size = "1x1",
+            });
+        });
+
+        var svc = new WidgetSettingsService(_store, _registry);
+        var doc = svc.Get("native-clock");
+        Assert.Empty(doc.Values);
+    }
+
+    // ── Helpers ──
+
+    /// <summary>
+    /// Walk the persisted settings JSON to the placement entry with this id.
+    /// Mirrors the way the service's FindWidget locates placements at runtime.
+    /// </summary>
+    private static JsonElement FindWidgetJson(JsonElement root, string instanceId)
+    {
+        var pages = root.GetProperty("panel").GetProperty("dashboardLayout").GetProperty("pages");
+        foreach (var page in pages.EnumerateArray())
+        {
+            foreach (var w in page.GetProperty("widgets").EnumerateArray())
+            {
+                if (w.GetProperty("id").GetString() == instanceId) return w;
+            }
+        }
+        throw new InvalidOperationException($"Widget {instanceId} not found in persisted settings.");
     }
 }
