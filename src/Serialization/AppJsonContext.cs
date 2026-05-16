@@ -13,7 +13,7 @@ using Qos.Service.Models.Lighting;
 using Qos.Service.Models.Obs;
 using Qos.Service.Models.Peripherals;
 using Qos.Service.Models.Peripherals.Keeb;
-using Qos.Service.Models.Peripherals.Q60;
+using Qos.Service.Models.Peripherals.QSeries;
 using Qos.Service.Models.Peripherals.Y70;
 using Qos.Service.Models.Sensors;
 using Qos.Service.Models.Steam;
@@ -340,7 +340,7 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(Y70ToggleScreenParams))]
 [JsonSerializable(typeof(Y70IsRotatedResponse))]
 [JsonSerializable(typeof(GetSerialNumberResponse))]
-[JsonSerializable(typeof(GetQ60TimeResponse))]
+[JsonSerializable(typeof(GetQSeriesTimeResponse))]
 
 // Activity
 [JsonSerializable(typeof(FocusSession))]

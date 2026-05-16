@@ -24,9 +24,19 @@ public static class AuthRequestPolicy
             return false;
 
         var fetchSite = ctx.Request.Headers["Sec-Fetch-Site"].ToString();
+        // Android WebView (and modern Chromium-based kiosks) send
+        // `Sec-Fetch-Site: cross-site` for top-level navigations to a
+        // new origin even when the user originated the request — there
+        // is no prior origin to compare against. Accepting that value
+        // is safe for the SPA-shell GET path: it only serves index.html,
+        // not API data; the SPA then has to authenticate via /pair
+        // (which is loopback-only) before any sensitive call. CSRF on
+        // state-changing endpoints is enforced separately by
+        // `RejectsInsecureCsrf`.
         return fetchSite.Length == 0 ||
                string.Equals(fetchSite, "none", StringComparison.OrdinalIgnoreCase) ||
-               string.Equals(fetchSite, "same-origin", StringComparison.OrdinalIgnoreCase);
+               string.Equals(fetchSite, "same-origin", StringComparison.OrdinalIgnoreCase) ||
+               string.Equals(fetchSite, "cross-site", StringComparison.OrdinalIgnoreCase);
     }
 
     public static string? ExtractBearerOrQueryToken(HttpContext ctx)

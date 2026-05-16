@@ -490,7 +490,9 @@ app.Use(async (ctx, next) =>
 
     // Public paths
     if (path.Equals("/ping", StringComparison.OrdinalIgnoreCase) ||
-        path.Equals("/pair", StringComparison.OrdinalIgnoreCase))
+        path.Equals("/pair", StringComparison.OrdinalIgnoreCase) ||
+        path.Equals("/ready", StringComparison.OrdinalIgnoreCase) ||
+        path.Equals("/hardware/profile", StringComparison.OrdinalIgnoreCase))
     {
         await next(ctx);
         return;

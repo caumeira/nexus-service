@@ -10,7 +10,7 @@ using Qos.Service.Lighting;
 using Qos.Service.Lighting.Engine;
 using Qos.Service.Obs;
 using Qos.Service.Peripherals.Keeb;
-using Qos.Service.Peripherals.Q60;
+using Qos.Service.Peripherals.QSeries;
 using Qos.Service.Peripherals.Y70;
 using Qos.Service.Persistence;
 using Qos.Service.Platform;
@@ -142,8 +142,7 @@ public static class QosServiceCollectionExtensions
             services.AddSingleton<ILightingDeviceProvider>(sp => sp.GetRequiredService<StubDeviceProvider>());
 
         services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.CnvsHandler>();
-        services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.Q60Handler>();
-        services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.Q80Handler>();
+        services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.QSeriesHandler>();
         services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.Y70Handler>();
         services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.KeebHandler>();
         services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.FanHubHandler>();
@@ -200,7 +199,7 @@ public static class QosServiceCollectionExtensions
 #endif
 
         services.AddSingleton<IY70Provider, StubY70Provider>();
-        services.AddSingleton<IQ60Provider, StubQ60Provider>();
+        services.AddSingleton<IQSeriesProvider, StubQSeriesProvider>();
 
 #if WINDOWS
         // Brightness proxies through the user-session helper - DDC/CI and

@@ -239,9 +239,9 @@ check_http GET /y70/toggle
 check_http POST /y70/toggle '{"toggle":false}'
 check_http GET /y70/is-rotated
 
-# Q60
-check_http GET /q60/serial
-check_http GET /q60/timev0
+# Q-series (Q60 + Q80)
+check_http GET /qseries/serial
+check_http GET /qseries/timev0
 
 # System displays
 check_http GET /displays

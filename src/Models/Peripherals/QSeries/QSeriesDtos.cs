@@ -1,12 +1,12 @@
-namespace Qos.Service.Models.Peripherals.Q60;
+namespace Qos.Service.Models.Peripherals.QSeries;
 
 public class GetSerialNumberResponse : ApiResponse
 {
-    public string Name { get; set; } = "Q60";
+    public string Name { get; set; } = "Q-series";
     public string Serial { get; set; } = "";
 }
 
-public class GetQ60TimeResponse
+public class GetQSeriesTimeResponse
 {
     public string Time { get; set; } = "";
 }
