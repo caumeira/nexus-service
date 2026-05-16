@@ -16,18 +16,10 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 mkdir -p "$APP/Contents/Resources"
 
-# Copy binary + managed assemblies + wwwroot + status icons next to the
-# executable (AppContext.BaseDirectory). Self-contained non-AOT publish
-# produces Qos (native bootstrap) plus Qos.dll/.deps.json/.runtimeconfig.json
-# alongside it; all four are required at runtime.
+# macOS ships AOT-only - the publish output is a single self-contained native
+# binary, no managed Qos.dll / *.deps.json / *.runtimeconfig.json sidecars.
+# Copy whatever the AOT publish produced at the staging root.
 cp "$STAGING/Qos" "$APP/Contents/MacOS/"
-cp "$STAGING/Qos.dll" "$APP/Contents/MacOS/"
-cp "$STAGING/Qos.deps.json" "$APP/Contents/MacOS/"
-cp "$STAGING/Qos.runtimeconfig.json" "$APP/Contents/MacOS/"
-# Copy all other managed assemblies too (LibreHardware*, etc.)
-for f in "$STAGING"/*.dll "$STAGING"/*.pdb; do
-    [ -f "$f" ] && cp "$f" "$APP/Contents/MacOS/"
-done
 [ -d "$STAGING/wwwroot" ] && cp -R "$STAGING/wwwroot" "$APP/Contents/MacOS/"
 [ -d "$STAGING/openrgb" ] && cp -R "$STAGING/openrgb" "$APP/Contents/MacOS/"
 [ -d "$STAGING/ffmpeg" ] && cp -R "$STAGING/ffmpeg" "$APP/Contents/MacOS/"
