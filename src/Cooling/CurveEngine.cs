@@ -175,7 +175,12 @@ public sealed class CurveEngine : BackgroundService
             _ = _hub.BroadcastTopicAsync("cooling-curves", env);
         }
 
-        if (_hub.TopicHasSubscribers("cooling"))
+        // "cooling-realtime" is the 1 Hz fan-channel stream consumed by the
+        // realtime RPM/duty displays. The "cooling" topic (PanelTopics.BroadcastCooling)
+        // is reserved for event-driven state-change notifications fired by
+        // route mutations - subscribers there only refetch on real changes
+        // instead of every tick.
+        if (_hub.TopicHasSubscribers("cooling-realtime"))
         {
             var channels = _fans.GetFanChannels();
             var component = new CoolingComponent
@@ -201,9 +206,9 @@ public sealed class CurveEngine : BackgroundService
             {
                 CoolingComponents = new List<CoolingComponent> { component },
             };
-            var env = WsEnvelope.Build("cooling", payload,
+            var env = WsEnvelope.Build("cooling-realtime", payload,
                 AppJsonContext.Default.GetAllCoolingResponse);
-            _ = _hub.BroadcastTopicAsync("cooling", env);
+            _ = _hub.BroadcastTopicAsync("cooling-realtime", env);
         }
     }
 
