@@ -204,11 +204,36 @@ catch (Exception ex)
 // Set content root to the exe's directory so wwwroot/ is found
 // regardless of which directory the user double-clicks from.
 var exeDir = AppContext.BaseDirectory;
+// Dev override: if `<CommonAppData>/Qos/wwwroot-dev/index.html` exists,
+// serve from there instead of the installed wwwroot. Lets us replace the
+// SPA bundle on a running install without elevating into Program Files
+// (which on the Q60 bench rig triggers a USB perturbation that degrades
+// the device's WebView GPU state). The override is a sibling of the
+// installer payload, not a merge — it fully shadows the bundled wwwroot
+// when present, so the dev push must contain a full SPA build.
+static string ResolveWebRoot(string exeDir)
+{
+    var defaultRoot = Path.Combine(exeDir, "wwwroot");
+    if (!OperatingSystem.IsWindows()) return defaultRoot;
+    try
+    {
+        var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+        if (string.IsNullOrEmpty(commonAppData)) return defaultRoot;
+        var dev = Path.Combine(commonAppData, "Qos", "wwwroot-dev");
+        if (File.Exists(Path.Combine(dev, "index.html")))
+        {
+            Console.Error.WriteLine($"[qos-service] wwwroot dev override active: {dev}");
+            return dev;
+        }
+    }
+    catch { /* fall through to default */ }
+    return defaultRoot;
+}
 var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
 {
     Args = args,
     ContentRootPath = exeDir,
-    WebRootPath = Path.Combine(exeDir, "wwwroot"),
+    WebRootPath = ResolveWebRoot(exeDir),
 });
 // Kestrel + form upload body limits. Default Kestrel cap is 30 MB which drops
 // larger multipart uploads before /media/import sees them (the browser then
