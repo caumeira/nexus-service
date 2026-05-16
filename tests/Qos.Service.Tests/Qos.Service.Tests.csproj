@@ -6,6 +6,11 @@
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- qos.runsettings excludes Category=Manual (the long benchmark runs)
+         by default so `dotnet test` stays fast. Run benchmarks with
+         `dotnet test  filter "Category=Manual"` (single dash placeholder
+         here to avoid the XML-comment double-dash restriction). -->
+    <RunSettingsFilePath>$(MSBuildThisFileDirectory)qos.runsettings</RunSettingsFilePath>
   </PropertyGroup>
 
   <ItemGroup>

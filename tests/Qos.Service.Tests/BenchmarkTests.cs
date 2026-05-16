@@ -37,7 +37,12 @@ public class BenchmarkTests
         Assert.True(weakStorage < balanced * 0.75);
     }
 
-    [Fact(Timeout = 60_000)]
+    // The four "ProducesPositiveScore" tests actually run the benchmarks
+    // end-to-end (20s + 20s + 9s + 8s ≈ 57s, ~91% of the suite). They're
+    // tagged Manual so the default `dotnet test` (and the build-pc + pre-push
+    // gates) skip them. Run them explicitly with:
+    //   dotnet test --filter Category=Manual
+    [Fact(Timeout = 60_000), Trait("Category", "Manual")]
     public async Task Cpu_ProducesPositiveScore()
     {
         var provider = new DefaultBenchmarkProvider();
@@ -48,7 +53,7 @@ public class BenchmarkTests
         Assert.True(result.RawValue > 0);
     }
 
-    [Fact(Timeout = 30_000)]
+    [Fact(Timeout = 30_000), Trait("Category", "Manual")]
     public async Task Ram_ProducesPositiveScore()
     {
         var provider = new DefaultBenchmarkProvider();
@@ -58,7 +63,7 @@ public class BenchmarkTests
         Assert.True(result.Score > 0);
     }
 
-    [Fact(Timeout = 60_000)]
+    [Fact(Timeout = 60_000), Trait("Category", "Manual")]
     public async Task Storage_ProducesPositiveScore()
     {
         var provider = new DefaultBenchmarkProvider();
@@ -68,7 +73,7 @@ public class BenchmarkTests
         Assert.True(result.Score > 0, $"expected positive storage score, got {result.Score}. detail={result.Detail}");
     }
 
-    [Fact(Timeout = 30_000)]
+    [Fact(Timeout = 30_000), Trait("Category", "Manual")]
     public async Task Gpu_SimdProxy_ProducesPositiveScore()
     {
         var provider = new DefaultBenchmarkProvider();

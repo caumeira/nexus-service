@@ -85,7 +85,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
         try
         {
             // SchemaVersion bumped.
-            Assert.Equal(5, s.SchemaVersion);
+            Assert.Equal(QosSettings.CurrentSchemaVersion, s.SchemaVersion);
 
             // Theme moved.
             Assert.Equal("es", s.Theme.Language);
@@ -158,7 +158,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
         var s = store.Load();
         try
         {
-            Assert.Equal(5, s.SchemaVersion);
+            Assert.Equal(QosSettings.CurrentSchemaVersion, s.SchemaVersion);
             Assert.Equal("dark", s.Theme.ThemeMode);
             Assert.Equal("#aabbcc", s.Theme.AccentColor);
             Assert.True(s.Panel.AutoLaunch);
@@ -219,7 +219,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
         var onDisk = File.ReadAllText(_settingsPath);
         var doc = JsonNode.Parse(onDisk) as JsonObject;
         Assert.NotNull(doc);
-        Assert.Equal(5, doc!["schemaVersion"]!.GetValue<int>());
+        Assert.Equal(QosSettings.CurrentSchemaVersion, doc!["schemaVersion"]!.GetValue<int>());
 
         // Top-level widgets bag is gone.
         Assert.False(doc.ContainsKey("widgets"));
@@ -283,7 +283,9 @@ public class JsonConfigStoreMigrationTests : IDisposable
         var onDisk = File.ReadAllText(_settingsPath);
         var doc = JsonNode.Parse(onDisk) as JsonObject;
         Assert.NotNull(doc);
-        Assert.Equal(3, doc!["schemaVersion"]!.GetValue<int>());
+        // Migration chain runs through to the current schema, not the
+        // version this test was originally written against (v3).
+        Assert.Equal(QosSettings.CurrentSchemaVersion, doc!["schemaVersion"]!.GetValue<int>());
 
         var widget = doc["panel"]!["dashboardLayout"]!["pages"]![0]!["widgets"]![0]!;
         var cfg = widget!["config"] as JsonObject;
@@ -312,7 +314,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
         var s = store.Load();
         try
         {
-            Assert.Equal(5, s.SchemaVersion);
+            Assert.Equal(QosSettings.CurrentSchemaVersion, s.SchemaVersion);
             Assert.Equal("light", s.Theme.ThemeMode);
             Assert.True(s.Panel.AutoLaunch);
         }
@@ -349,7 +351,9 @@ public class JsonConfigStoreMigrationTests : IDisposable
         var onDisk = File.ReadAllText(_settingsPath);
         var doc = JsonNode.Parse(onDisk) as JsonObject;
         Assert.NotNull(doc);
-        Assert.Equal(2, doc!["schemaVersion"]!.GetValue<int>());
+        // Migration chain runs through to the current schema, not the
+        // version this test was originally written against (v2).
+        Assert.Equal(QosSettings.CurrentSchemaVersion, doc!["schemaVersion"]!.GetValue<int>());
         Assert.Equal("dark", doc["theme"]!["themeMode"]!.GetValue<string>());
         Assert.True(doc["panel"]!["autoLaunch"]!.GetValue<bool>());
         // ui block should no longer carry the moved field.
