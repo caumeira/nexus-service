@@ -87,70 +87,100 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
         var settings = _store.Load();
         var disabled = settings.Devices.DisabledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
+        var layouts = settings.Lighting.DeviceLayouts;
+        var zoneLedCounts = settings.Devices.ZoneLedCounts;
 
-        // Each NP50-driven zone is a standalone drivable device. We don't
-        // emit the bare hub (no LEDs of its own → renders as "detected but
-        // not drivable" clutter in the UI) and we don't use parentDeviceId
-        // — that field is reserved for OpenRGB motherboard-zone splits the
-        // UI knows how to render. Top-level cards with descriptive names
-        // ("HYTE NP50 Logo", "LS10 (Port 1 #1)", …) keep the lighting page
-        // surface uniform.
+        // Each NP50-driven zone is exposed as a top-level drivable card that
+        // groups under a "HYTE NP50" header via the same parentDeviceId
+        // mechanism the motherboard ARGB-strip split uses. The hub itself
+        // is never emitted (no LEDs of its own → would render as "detected
+        // but not drivable" clutter); the header just needs a non-empty
+        // parentDeviceId shared by all NP50 zones. Names follow the
+        // "{ParentPrefix} - {ZoneName}" convention DevicePanel splits on.
+        var slot = 0;
 
-        resp.Devices.Add(BuildDeviceEntry(
+        resp.Devices.Add(BuildZone(
             id: $"{hubId}:logo",
-            name: "HYTE NP50 Logo",
-            type: "ledstrip",
+            name: "HYTE NP50 - Logo Strip",
             iconType: "strip",
-            ledCount: LogoLedCount,
-            disabled, prefs));
+            firmwareLedCount: LogoLedCount,
+            zoneIndex: slot++,
+            parentDeviceId: hubId,
+            disabled, prefs, layouts, zoneLedCounts));
 
         foreach (var port in _hub.State.Ports)
         {
             foreach (var dev in port.Devices)
             {
                 if (dev.LedCount <= 0) continue;
-                resp.Devices.Add(BuildDeviceEntry(
+                resp.Devices.Add(BuildZone(
                     id: $"{hubId}:port{port.Index}:dev{dev.Index}",
-                    name: $"{dev.Model} (NP50 Port {port.Index} #{dev.Index})",
-                    type: "ledstrip",
+                    name: $"HYTE NP50 - {dev.Model} (Port {port.Index} #{dev.Index})",
                     iconType: dev.Model == "FP12" ? "fan" : "strip",
-                    ledCount: dev.LedCount,
-                    disabled, prefs));
+                    firmwareLedCount: dev.LedCount,
+                    zoneIndex: slot++,
+                    parentDeviceId: hubId,
+                    disabled, prefs, layouts, zoneLedCounts));
             }
         }
         return resp;
     }
 
-    private static LightingDevice BuildDeviceEntry(
-        string id, string name, string type, string iconType, int ledCount,
+    private static LightingDevice BuildZone(
+        string id, string name, string iconType,
+        int firmwareLedCount, int zoneIndex, string parentDeviceId,
         IReadOnlyList<string> disabled,
-        IReadOnlyDictionary<string, LightingDevicePreference> prefs)
+        IReadOnlyDictionary<string, LightingDevicePreference> prefs,
+        IReadOnlyDictionary<string, Persistence.DeviceLayout> layouts,
+        IReadOnlyDictionary<string, int> zoneLedCounts)
     {
-        // Honour persisted state when reporting the card so the UI's toggle
-        // and brightness slider reflect what the writer is actually doing.
+        // Honour persisted state when reporting the card so the UI's toggle,
+        // brightness slider, position, and LED count all reflect what the
+        // writer is actually doing.
         var isOn = true;
         for (var i = 0; i < disabled.Count; i++)
         { if (disabled[i] == id) { isOn = false; break; } }
         var brightness = 100;
         var hue = 0f;
-        var saturation = 0f;
+        var saturation = 1f;
         if (prefs.TryGetValue(id, out var pref))
         {
             brightness = pref.Brightness;
             hue = pref.Hue;
             saturation = pref.Saturation;
         }
+        // LED count: persisted override wins so the user can shorten a strip
+        // they've only partially wired. Capped at the firmware-reported max
+        // so we never claim more LEDs than the hub can actually drive.
+        var effectiveLedCount = firmwareLedCount;
+        if (zoneLedCounts.TryGetValue(id, out var persisted))
+        {
+            effectiveLedCount = Math.Clamp(persisted, 0, firmwareLedCount);
+        }
+        // Position: use persisted layout if present, otherwise lay them out
+        // as strips in the same lower-canvas band the motherboard zones use.
+        var (defX, defY, defW, defH) = Rgb.OpenRgbLightingDeviceProvider.DefaultStripLayout(zoneIndex + 64);
+        layouts.TryGetValue(id, out var layout);
         return new LightingDevice
         {
             Id = id,
             Name = name,
-            Type = type,
+            Type = "ledstrip",
             IconType = iconType,
             LedsOn = isOn,
             Brightness = brightness,
             Hue = hue,
             Saturation = saturation,
-            LedCount = ledCount,
+            LedCount = effectiveLedCount,
+            CanvasX = layout?.X ?? defX,
+            CanvasY = layout?.Y ?? defY,
+            CanvasW = layout?.W ?? defW,
+            CanvasH = layout?.H ?? defH,
+            CanvasRotation = ((((layout?.Rotation ?? 0) % 360) + 360) % 360),
+            ParentDeviceId = parentDeviceId,
+            ZoneIndex = zoneIndex,
+            ZoneType = "linear",
+            ZoneResizable = true,
         };
     }
 
@@ -214,9 +244,17 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
         pref.Saturation = saturation;
     });
 
-    // NP50 module LED counts are fixed by the firmware (LS10=20, LS30=62);
-    // there's no RESIZEZONE equivalent in the protocol.
-    public void SetZoneLedCount(string id, int count) { }
+    // NP50 module LED counts are fixed by the firmware (LS10=20, LS30=62),
+    // but the user can persist a SMALLER logical count if a strip is only
+    // partially wired or they want to trim the canvas-sample area. Stored
+    // alongside OpenRGB zone-led-count overrides so the engine sees a
+    // single source of truth. Values above the firmware max are clamped on
+    // read in GetAll.
+    public void SetZoneLedCount(string id, int count)
+    {
+        if (count < 0) return;
+        _store.Update(s => s.Devices.ZoneLedCounts[id] = count);
+    }
 
     public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);
 
@@ -228,38 +266,64 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
         var frames = new List<DeviceFrame>();
         var hubId = _hub.DeviceId;
         var idx = startingIndex;
+        var settings = _store.Load();
+        var layouts = settings.Lighting.DeviceLayouts;
+        var zoneLedCounts = settings.Devices.ZoneLedCounts;
 
-        // Logo strip first — 6 LEDs on the hub itself, prefixed onto port-1
-        // streaming. Layout: a small rectangle to the right of the cards.
-        // Engine canvas-samples linearly along this rect since there's no
-        // matrix UV (LedU/LedV) provided.
-        frames.Add(new DeviceFrame(
-            index: idx++,
+        // IDs + layout positions stay in lockstep with what GetAll returns —
+        // the engine's canvas-sample step uses the per-frame X/Y/W/H, and
+        // the lighting-page card editor writes to the same DeviceLayouts
+        // store, so dragging a card moves where the engine samples colors
+        // from. EffectiveLedCount honours the user's "trim a strip" override
+        // bounded by the firmware-reported max.
+        var slot = 0;
+
+        frames.Add(BuildDeviceFrame(
             id: $"{hubId}:logo",
-            ledCount: LogoLedCount,
-            x: 820, y: 480, w: 80, h: 30, rotation: 0));
+            firmwareLedCount: LogoLedCount,
+            zoneIndex: slot++,
+            layouts, zoneLedCounts,
+            idx: ref idx));
 
-        // Each Nexus Link module is its own zone. Lay them out vertically,
-        // grouped per port, so the canvas sample produces a sensible default
-        // even before the user repositions them on the lighting page.
-        const float baseY = 320f;
-        const float perRowY = 50f;
         foreach (var port in _hub.State.Ports)
         {
-            for (var i = 0; i < port.Devices.Count; i++)
+            foreach (var dev in port.Devices)
             {
-                var dev = port.Devices[i];
                 if (dev.LedCount <= 0) continue;
-                frames.Add(new DeviceFrame(
-                    index: idx++,
+                frames.Add(BuildDeviceFrame(
                     id: $"{hubId}:port{port.Index}:dev{dev.Index}",
-                    ledCount: dev.LedCount,
-                    x: 820,
-                    y: baseY + (port.Index - 1) * 110f + i * perRowY,
-                    w: 160, h: 30, rotation: 0));
+                    firmwareLedCount: dev.LedCount,
+                    zoneIndex: slot++,
+                    layouts, zoneLedCounts,
+                    idx: ref idx));
             }
         }
         return frames;
+    }
+
+    private static DeviceFrame BuildDeviceFrame(
+        string id, int firmwareLedCount, int zoneIndex,
+        IReadOnlyDictionary<string, Persistence.DeviceLayout> layouts,
+        IReadOnlyDictionary<string, int> zoneLedCounts,
+        ref int idx)
+    {
+        var effectiveLedCount = firmwareLedCount;
+        if (zoneLedCounts.TryGetValue(id, out var persisted))
+        {
+            effectiveLedCount = Math.Clamp(persisted, 0, firmwareLedCount);
+        }
+        var (defX, defY, defW, defH) = Rgb.OpenRgbLightingDeviceProvider.DefaultStripLayout(zoneIndex + 64);
+        layouts.TryGetValue(id, out var layout);
+        var rot = ((((layout?.Rotation ?? 0) % 360) + 360) % 360);
+        return new DeviceFrame(
+            index: idx++,
+            id: id,
+            ledCount: effectiveLedCount,
+            x: layout?.X ?? defX,
+            y: layout?.Y ?? defY,
+            w: layout?.W ?? defW,
+            h: layout?.H ?? defH,
+            rotation: rot);
     }
 }
 
