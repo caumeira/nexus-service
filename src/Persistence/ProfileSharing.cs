@@ -62,6 +62,8 @@ public static class ProfileSharing
             case Dashboard:
                 target.Monitoring = source.Monitoring;
                 target.Cooling.FanChannelOrder = source.Cooling.FanChannelOrder;
+                target.Cooling.PreferredCpuTempSensorId = source.Cooling.PreferredCpuTempSensorId;
+                target.Cooling.PreferredGpuTempSensorId = source.Cooling.PreferredGpuTempSensorId;
                 target.Panel.DashboardLayout = source.Panel.DashboardLayout;
                 target.Overlay = source.Overlay;
                 target.Ui.DisableConflictAlerts = source.Ui.DisableConflictAlerts;
@@ -86,6 +88,8 @@ public static class ProfileSharing
             case Dashboard:
                 target.Monitoring = new MonitoringSettings();
                 target.Cooling.FanChannelOrder = null;
+                target.Cooling.PreferredCpuTempSensorId = null;
+                target.Cooling.PreferredGpuTempSensorId = null;
                 target.Panel.DashboardLayout = null;
                 target.Overlay = new OverlaySettings();
                 target.Ui.DisableConflictAlerts = false;

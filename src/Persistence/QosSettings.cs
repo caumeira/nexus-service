@@ -262,6 +262,10 @@ public sealed class CoolingSettings
     public Dictionary<string, string> CustomFanCurveAssignments { get; set; } = new();
     /// <summary>User-defined display order for fan channels in the Cooling view. Nullable so a partial POST /preferences that omits this field doesn't clobber the saved order.</summary>
     public List<string>? FanChannelOrder { get; set; }
+    /// <summary>User-chosen sensor id for the CPU "temperature" reading shown across the Cooling page, Monitoring dashboard, and Cooling widget. Storage layer: null = auto (UI falls back to its default picker), non-null = pinned sensor id. The patch layer collapses an inbound empty string to null on write so the persisted JSON only ever holds null or a real id.</summary>
+    public string? PreferredCpuTempSensorId { get; set; }
+    /// <summary>User-chosen sensor id for the GPU "temperature" reading shown across the Cooling page, Monitoring dashboard, and Cooling widget. Same nullable semantics as <see cref="PreferredCpuTempSensorId"/>.</summary>
+    public string? PreferredGpuTempSensorId { get; set; }
 }
 
 public sealed class CurveDocument

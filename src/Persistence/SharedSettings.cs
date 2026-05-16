@@ -112,6 +112,8 @@ public sealed class Preferences
 public sealed class CoolingPrefs
 {
     public List<string>? FanChannelOrder { get; set; }
+    public string? PreferredCpuTempSensorId { get; set; }
+    public string? PreferredGpuTempSensorId { get; set; }
 }
 
 // PATCH wrappers. POST /preferences accepts PreferencesPatch with optional
@@ -175,4 +177,11 @@ public sealed class MonitoringSettingsPatch
 public sealed class CoolingPrefsPatch
 {
     public List<string>? FanChannelOrder { get; set; }
+    // The two sensor-id fields reuse `string?` for both "field omitted" and
+    // "reset to auto" — null on the wire means the client did not send it
+    // (handler preserves the stored value); an empty string means the user
+    // explicitly cleared their pinned choice (handler stores null). Do not
+    // collapse these into a single semantic without updating ProfileRoutes.
+    public string? PreferredCpuTempSensorId { get; set; }
+    public string? PreferredGpuTempSensorId { get; set; }
 }

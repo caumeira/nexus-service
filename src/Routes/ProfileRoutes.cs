@@ -51,7 +51,12 @@ public static class ProfileRoutes
                     Panel = s.Panel,
                     Overlay = s.Overlay,
                     Monitoring = s.Monitoring,
-                    Cooling = new CoolingPrefs { FanChannelOrder = s.Cooling.FanChannelOrder },
+                    Cooling = new CoolingPrefs
+                    {
+                        FanChannelOrder = s.Cooling.FanChannelOrder,
+                        PreferredCpuTempSensorId = s.Cooling.PreferredCpuTempSensorId,
+                        PreferredGpuTempSensorId = s.Cooling.PreferredGpuTempSensorId,
+                    },
                     Ui = s.Ui,
                 };
                 // Profile switches swap the entire prefs block — everyone refetches via the broadcast.
@@ -151,7 +156,12 @@ public static class ProfileRoutes
                 Panel = s.Panel,
                 Overlay = s.Overlay,
                 Monitoring = s.Monitoring,
-                Cooling = new CoolingPrefs { FanChannelOrder = s.Cooling.FanChannelOrder },
+                Cooling = new CoolingPrefs
+                {
+                    FanChannelOrder = s.Cooling.FanChannelOrder,
+                    PreferredCpuTempSensorId = s.Cooling.PreferredCpuTempSensorId,
+                    PreferredGpuTempSensorId = s.Cooling.PreferredGpuTempSensorId,
+                },
                 Ui = s.Ui,
             };
         }).AllowPanel();
@@ -375,6 +385,12 @@ public static class ProfileRoutes
                 if (body.Cooling is { } cooling)
                 {
                     if (cooling.FanChannelOrder is not null) s.Cooling.FanChannelOrder = cooling.FanChannelOrder;
+                    // Empty string is a meaningful "clear back to auto" value, distinct
+                    // from null which means "client didn't send this field".
+                    if (cooling.PreferredCpuTempSensorId is not null)
+                        s.Cooling.PreferredCpuTempSensorId = cooling.PreferredCpuTempSensorId.Length == 0 ? null : cooling.PreferredCpuTempSensorId;
+                    if (cooling.PreferredGpuTempSensorId is not null)
+                        s.Cooling.PreferredGpuTempSensorId = cooling.PreferredGpuTempSensorId.Length == 0 ? null : cooling.PreferredGpuTempSensorId;
                 }
                 if (body.Ui is { } ui)
                 {
