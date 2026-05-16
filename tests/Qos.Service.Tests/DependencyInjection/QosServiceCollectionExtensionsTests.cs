@@ -82,7 +82,7 @@ public class QosServiceCollectionExtensionsTests
         var sp = Build();
         Assert.NotNull(sp!.GetRequiredService<DeviceManager>());
         var handlers = sp.GetServices<IDeviceHandler>().ToArray();
-        Assert.Equal(6, handlers.Length); // CNVS, Q60, Q80, Y70, Keeb, FanHub
+        Assert.Equal(7, handlers.Length); // CNVS, Q60, Q80, Y70, Keeb, FanHub, NP50
     }
 
     [Fact]

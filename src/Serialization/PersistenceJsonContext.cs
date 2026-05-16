@@ -1,10 +1,13 @@
 using System.Text.Json.Serialization;
+using Qos.Service.Devices.Firmware;
 using Qos.Service.Models.Profiles;
 using Qos.Service.Persistence;
 
 namespace Qos.Service.Serialization;
 
 [JsonSerializable(typeof(QosSettings))]
+[JsonSerializable(typeof(FirmwareManifest))]
+[JsonSerializable(typeof(FirmwareFile))]
 [JsonSerializable(typeof(AuthSettings))]
 [JsonSerializable(typeof(ObsSettings))]
 [JsonSerializable(typeof(SteamSettings))]

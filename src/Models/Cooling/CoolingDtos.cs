@@ -117,6 +117,22 @@ public sealed class FanChannel
     public int? MinDuty { get; set; }
     public string? Classification { get; set; }
     public bool Calibrated => MinRpm is not null;
+
+    // External-device metadata. All null for motherboard/GPU fans; populated
+    // only when the channel belongs to a USB hub like NP50. Drives
+    // device-grouped rendering on the cooling page.
+
+    /// <summary>Stable per-device id, e.g. "np50:1A2B3C". Null for motherboard.</summary>
+    public string? DeviceId { get; set; }
+
+    /// <summary>Human-readable port label, e.g. "Port 1" or "Legacy 4-pin". Null for motherboard.</summary>
+    public string? PortLabel { get; set; }
+
+    /// <summary>Connected fan model, e.g. "LS30" | "LS10" | "FP12". Null when unknown or motherboard.</summary>
+    public string? FanModel { get; set; }
+
+    /// <summary>"Back" | "Down" | "Up" | "Front". NP50-style orientation reported by the fan. Null otherwise.</summary>
+    public string? Orientation { get; set; }
 }
 
 /// <summary>A temperature sensor available as curve input.</summary>
@@ -124,9 +140,41 @@ public sealed class TemperatureSource
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
-    /// <summary>"CPU", "GPU", "Motherboard", "Storage"</summary>
+    /// <summary>"CPU" | "GPU" | "Motherboard" | "Storage" | "Hub"</summary>
     public string Category { get; set; } = "";
     public float Value { get; set; }
+
+    /// <summary>Stable per-device id when this sensor lives on an external device (e.g. NP50 per-fan probe). Null for motherboard/CPU/GPU.</summary>
+    public string? DeviceId { get; set; }
+}
+
+// ----- Device warnings (AmpScale / device-count / LED-count overloads) -----
+
+/// <summary>
+/// A single warning surfaced by a cooling device (NP50 AmpScale today,
+/// other hubs later). Frontend renders these as toasts + per-device badges.
+/// </summary>
+public sealed class CoolingWarning
+{
+    /// <summary>Owning device id, e.g. "np50:1A2B3C".</summary>
+    public string DeviceId { get; set; } = "";
+
+    /// <summary>Port label the warning applies to, or null for device-level warnings.</summary>
+    public string? Port { get; set; }
+
+    /// <summary>Machine-readable code, e.g. "current_overflow" | "led_count_exceeded" | "device_count_exceeded".</summary>
+    public string Code { get; set; } = "";
+
+    /// <summary>Human-readable message suitable for UI display.</summary>
+    public string Message { get; set; } = "";
+
+    /// <summary>"info" | "warning" | "error". Drives toast/badge styling.</summary>
+    public string Severity { get; set; } = "warning";
+}
+
+public sealed class GetCoolingWarningsResponse : ApiResponse
+{
+    public List<CoolingWarning> Warnings { get; set; } = new();
 }
 
 public sealed class GetCurvesResponse : ApiResponse

@@ -80,23 +80,34 @@ public static class QosServiceCollectionExtensions
     public static IServiceCollection AddQosCooling(this IServiceCollection services)
     {
         services.AddSingleton<StubCoolingProvider>();
+        // Pick the motherboard-side provider per platform, registered under
+        // the concrete type. The public IFanControlProvider / ICoolingProvider
+        // bindings below resolve to CompositeFanControlProvider so the curve
+        // engine and routes see motherboard + NP50 channels through one shape.
 #if WINDOWS
         services.AddSingleton<WindowsFanControlProvider>();
-        services.AddSingleton<IFanControlProvider>(sp => sp.GetRequiredService<WindowsFanControlProvider>());
-        services.AddSingleton<ICoolingProvider>(sp => sp.GetRequiredService<WindowsFanControlProvider>());
+        services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
+            sp.GetRequiredService<WindowsFanControlProvider>(),
+            sp.GetRequiredService<Np50CoolingProvider>()));
+        services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #else
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             services.AddSingleton<MacFanControlProvider>();
-            services.AddSingleton<IFanControlProvider>(sp => sp.GetRequiredService<MacFanControlProvider>());
-            services.AddSingleton<ICoolingProvider>(sp => sp.GetRequiredService<MacFanControlProvider>());
+            services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
+                sp.GetRequiredService<MacFanControlProvider>(),
+                sp.GetRequiredService<Np50CoolingProvider>()));
+            services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
         }
         else
         {
-            services.AddSingleton<IFanControlProvider>(sp => sp.GetRequiredService<StubCoolingProvider>());
-            services.AddSingleton<ICoolingProvider>(sp => sp.GetRequiredService<StubCoolingProvider>());
+            services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
+                sp.GetRequiredService<StubCoolingProvider>(),
+                sp.GetRequiredService<Np50CoolingProvider>()));
+            services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
         }
 #endif
+        services.AddSingleton<Np50CoolingProvider>();
         services.AddSingleton<ICurveProvider>(sp => sp.GetRequiredService<StubCoolingProvider>());
         services.AddSingleton<CurveEngine>();
         services.AddHostedService(sp => sp.GetRequiredService<CurveEngine>());
@@ -147,6 +158,26 @@ public static class QosServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.Y70Handler>();
         services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.KeebHandler>();
         services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.FanHubHandler>();
+        services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.Np50Handler>();
+
+        // NP50 hub: serial port discovery + transport factory + singleton hub +
+        // 2-second heartbeat poller. Discovery is Windows-only for now; non-
+        // Windows builds get a stub that finds nothing (the hub silently stays
+        // disconnected, which keeps the rest of the service composing cleanly).
+#if WINDOWS
+        services.AddSingleton<Qos.Service.Peripherals.Hyte.Np50.INp50PortDiscovery,
+                              Qos.Service.Peripherals.Hyte.Np50.WindowsNp50PortDiscovery>();
+#else
+        services.AddSingleton<Qos.Service.Peripherals.Hyte.Np50.INp50PortDiscovery,
+                              Qos.Service.Peripherals.Hyte.Np50.StubNp50PortDiscovery>();
+#endif
+        services.AddSingleton<Qos.Service.Peripherals.Hyte.Np50.Np50Hub>(sp =>
+            new Qos.Service.Peripherals.Hyte.Np50.Np50Hub(
+                sp.GetRequiredService<Qos.Service.Peripherals.Hyte.Np50.INp50PortDiscovery>(),
+                port => new Qos.Service.Peripherals.Hyte.Np50.Np50SerialTransport(port.PortName, port.Serial)));
+        services.AddSingleton<Qos.Service.Peripherals.Hyte.Np50.Np50HeartbeatWorker>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Qos.Service.Peripherals.Hyte.Np50.Np50HeartbeatWorker>());
 
 #if WINDOWS
         services.AddSingleton<Qos.Service.Devices.Detection.WindowsUsbEnumerator>();
