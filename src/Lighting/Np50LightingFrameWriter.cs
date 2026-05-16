@@ -29,11 +29,22 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
     private const string LogoIdSuffix = ":logo";
     private const string PortIdInfix = ":port";
 
+    /// <summary>
+    /// Writer tick period. 33 ms = 30 Hz, matching the engine's default
+    /// frame interval, so we push at the same rate the canvas sampler
+    /// updates. We drive our own timer (rather than subscribing to
+    /// <see cref="LightingEngine.OnFrame"/>) so disabled zones still
+    /// receive blank-out frames when no effect is active — otherwise
+    /// "turn off" silently strands the hub at its last lit state.
+    /// </summary>
+    private const int TickPeriodMs = 33;
+
     private readonly LightingEngine _engine;
     private readonly Np50Hub _hub;
     private readonly IConfigStore _store;
     private readonly Np50IdentifyTracker _identify;
-    private Action<ReadOnlyMemory<byte>>? _frameHandler;
+    private CancellationTokenSource? _cts;
+    private Task? _loop;
 
     // Per-port pending buffers, allocated lazily on first write so we don't
     // hold storage for empty ports.
@@ -49,19 +60,40 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
-        _frameHandler = OnFrame;
-        _engine.OnFrame += _frameHandler;
+        _cts = new CancellationTokenSource();
+        _loop = Task.Run(() => RunAsync(_cts.Token));
         return Task.CompletedTask;
     }
 
-    public Task StopAsync(CancellationToken cancellationToken)
+    public async Task StopAsync(CancellationToken cancellationToken)
     {
-        if (_frameHandler is not null) _engine.OnFrame -= _frameHandler;
-        _frameHandler = null;
-        return Task.CompletedTask;
+        _cts?.Cancel();
+        if (_loop is not null)
+        {
+            try { await _loop.WaitAsync(TimeSpan.FromSeconds(2), cancellationToken); }
+            catch { /* shutdown best-effort */ }
+        }
+        _cts?.Dispose();
+        _cts = null;
+        _loop = null;
     }
 
     public void Dispose() => StopAsync(default).GetAwaiter().GetResult();
+
+    private async Task RunAsync(CancellationToken ct)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(TickPeriodMs));
+        while (!ct.IsCancellationRequested)
+        {
+            try { Tick(); }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[np50-lighting-writer] tick exception: {ex.GetType().Name}: {ex.Message}");
+            }
+            try { if (!await timer.WaitForNextTickAsync(ct).ConfigureAwait(false)) break; }
+            catch (OperationCanceledException) { break; }
+        }
+    }
 
     // Per-frame staging structures. Allocated once, cleared each tick.
     private readonly List<DeviceFrame>[] _stripsByPort =
@@ -72,12 +104,8 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
     };
     private DeviceFrame? _logoFrame;
 
-    private void OnFrame(ReadOnlyMemory<byte> frameMem)
+    private void Tick()
     {
-        // The serialized engine frame blob is unused — we read the per-device
-        // LED bytes off DeviceFrame.LedBytes directly, which is also the
-        // canonical post-canvas-sample view.
-        _ = frameMem;
         if (!_hub.IsConnected) return;
         var devices = _engine.Devices;
         if (devices.Length == 0) return;
