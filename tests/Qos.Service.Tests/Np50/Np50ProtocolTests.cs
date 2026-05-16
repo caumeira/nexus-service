@@ -57,16 +57,31 @@ public class Np50ProtocolTests
     [InlineData(Np50Protocol.ModeSoftware)]
     [InlineData(Np50Protocol.ModeMotherboard)]
     [InlineData(Np50Protocol.ModeStatic)]
-    public void BuildSetCoolingMode_writes_header_and_mode_into_12_byte_buffer(byte mode)
+    public void BuildSetCoolingMode_writes_v2_15_byte_buffer_with_all_parameters(byte mode)
     {
-        var buf = Np50Protocol.BuildSetCoolingMode(mode);
-        Assert.Equal(12, buf.Length);
+        var buf = Np50Protocol.BuildSetCoolingMode(
+            mode,
+            staticSpeedPercent: 75,
+            turboOff: true,
+            fwAnimation: 0x02,
+            fwR: 0xAA, fwG: 0xBB, fwB: 0xCC,
+            fwBrightness: 80);
+        Assert.Equal(15, buf.Length);
         Assert.Equal(0xFF, buf[0]);
         Assert.Equal(0xCC, buf[1]);
         Assert.Equal(0x02, buf[2]);
         Assert.Equal(0x00, buf[3]);
         Assert.Equal(mode, buf[4]);
-        for (var i = 5; i < buf.Length; i++) Assert.Equal(0x00, buf[i]);
+        Assert.Equal(75, buf[5]);
+        Assert.Equal(0x00, buf[6]);   // RPM mode
+        Assert.Equal(0x00, buf[7]);   // reserved
+        Assert.Equal(0x00, buf[8]);   // reserved
+        Assert.Equal(0x01, buf[9]);   // turbo off
+        Assert.Equal(0x02, buf[10]);  // fw animation
+        Assert.Equal(0xAA, buf[11]);
+        Assert.Equal(0xBB, buf[12]);
+        Assert.Equal(0xCC, buf[13]);
+        Assert.Equal(80, buf[14]);
     }
 
     [Fact]

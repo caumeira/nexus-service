@@ -32,6 +32,23 @@ public sealed class Np50Hub : IDisposable
     /// <summary>Latest state snapshot. Reads are safe without a lock (POCO; eventual consistency is fine for UI).</summary>
     public Np50State State { get; } = new();
 
+    /// <summary>
+    /// Desired hub cooling mode. When set, the heartbeat re-asserts it on
+    /// every tick if the hub's reported mode drifts. Lets us recover from
+    /// a single mode-switch command being lost (firmware 2.0.3.1 sometimes
+    /// needs the command twice to actually flip) and from the hub reverting
+    /// after a brief heartbeat lapse. Null = "don't care", leave the hub in
+    /// whatever state the firmware default puts it in.
+    /// </summary>
+    public byte? DesiredCoolingMode { get; private set; }
+
+    /// <summary>Set the persistent desired cooling mode. Heartbeat enforces it.</summary>
+    public void SetDesiredCoolingMode(byte? mode)
+    {
+        DesiredCoolingMode = mode;
+        if (mode is byte m) SetCoolingMode(m);
+    }
+
     /// <summary>True iff the hub is currently open and reachable.</summary>
     public bool IsConnected => _transport is { IsOpen: true };
 
@@ -161,7 +178,20 @@ public sealed class Np50Hub : IDisposable
 
     // ── Writes ──
 
-    public bool SetCoolingMode(byte mode) => SendOnly(Np50Protocol.BuildSetCoolingMode(mode));
+    public bool SetCoolingMode(byte mode)
+    {
+        // v2 mode-switch wants every parameter filled — pass through the
+        // current firmware-animation state so changing cooling mode doesn't
+        // accidentally clobber the user's LED setup.
+        var hi = State.HubInfo;
+        return SendOnly(Np50Protocol.BuildSetCoolingMode(
+            mode,
+            staticSpeedPercent: 50,
+            turboOff: true,
+            fwAnimation: hi.FirmwareAnimation,
+            fwR: hi.FirmwareAnimR, fwG: hi.FirmwareAnimG, fwB: hi.FirmwareAnimB,
+            fwBrightness: hi.FirmwareAnimBrightness == 0 ? (byte)100 : hi.FirmwareAnimBrightness));
+    }
 
     public bool SetLegacyFanSpeed(int percent)
     {

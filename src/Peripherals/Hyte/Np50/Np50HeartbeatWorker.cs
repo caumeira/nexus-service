@@ -81,6 +81,24 @@ public sealed class Np50HeartbeatWorker : BackgroundService
             _hub.PollFirmwareVersion();
         }
 
+        // Enforce desired cooling mode. Firmware 2.0.3.1 occasionally needs
+        // the mode-switch command repeated to actually flip (the v2 15-byte
+        // form works but isn't always immediate). If the user has asked us
+        // to hold Software mode, re-send on every tick until the reported
+        // mode catches up — once it matches, the no-op cost is one extra
+        // write per 2s. If desired is null we leave the hub alone.
+        if (_hub.DesiredCoolingMode is byte desired)
+        {
+            var current = _hub.State.HubInfo.CoolingMode switch
+            {
+                "Software" => Np50Protocol.ModeSoftware,
+                "Motherboard" => Np50Protocol.ModeMotherboard,
+                "Static" => Np50Protocol.ModeStatic,
+                _ => (byte)0,
+            };
+            if (current != desired) _hub.SetCoolingMode(desired);
+        }
+
         // Pull per-port info every tick. Even with no fans attached the hub
         // returns a valid empty response cheaply.
         for (var port = 1; port <= Np50Protocol.PortCount; port++)

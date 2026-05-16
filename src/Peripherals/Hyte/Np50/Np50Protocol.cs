@@ -74,17 +74,36 @@ public static class Np50Protocol
     public static byte[] BuildGetWarningDetail() => new byte[] { Frame0, OpControl, SubWarningDetail };
 
     /// <summary>
-    /// Build the "Set NP50 Cooling Mode" v1 request (12 bytes; rest reserved).
-    /// Use <see cref="ModeSoftware"/>, <see cref="ModeMotherboard"/>, or <see cref="ModeStatic"/>.
+    /// Build the "Set NP50 Cooling Mode" v2 request (15 bytes; all parameters
+    /// filled). v1 (12-byte) form is silently ignored by firmware 2.0.3.1 on
+    /// the bench. Pass the current firmware-animation state through so we
+    /// don't accidentally clobber it when changing cooling mode.
     /// </summary>
-    public static byte[] BuildSetCoolingMode(byte mode)
+    public static byte[] BuildSetCoolingMode(
+        byte mode,
+        byte staticSpeedPercent = 50,
+        bool turboOff = true,
+        byte fwAnimation = 0,
+        byte fwR = 0, byte fwG = 0, byte fwB = 0,
+        byte fwBrightness = 100)
     {
         if (mode != ModeSoftware && mode != ModeMotherboard && mode != ModeStatic)
             throw new ArgumentException($"Unknown cooling mode 0x{mode:X2}", nameof(mode));
-        var buf = new byte[12];
+        // Per spec v2: 15 bytes, "need to fill in all parameters". Order:
+        //   [0]=FF [1]=CC [2]=0x02 [3]=0x00 [4]=MODE [5]=Speed [6]=RpmMode
+        //   [7..8]=Reserve [9]=Turbo (0=on, 1=off) [10]=FwAnim
+        //   [11..13]=RGB  [14]=FwBrightness
+        var buf = new byte[15];
         buf[0] = Frame0; buf[1] = OpControl; buf[2] = SubSetControl;
-        buf[3] = 0x00;   // channel 0 = hub-level
+        buf[3] = 0x00;                               // channel 0 = hub-level
         buf[4] = mode;
+        buf[5] = staticSpeedPercent;                 // only meaningful in static mode; harmless otherwise
+        buf[6] = 0x00;                               // RPM mode (spec: must be 0)
+        buf[7] = 0x00; buf[8] = 0x00;                // reserved
+        buf[9] = turboOff ? (byte)0x01 : (byte)0x00; // turbo off=1, on=0 per spec
+        buf[10] = fwAnimation;
+        buf[11] = fwR; buf[12] = fwG; buf[13] = fwB;
+        buf[14] = fwBrightness;
         return buf;
     }
 

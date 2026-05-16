@@ -147,10 +147,24 @@ public static class QosServiceCollectionExtensions
         services.AddSingleton<StubDeviceProvider>();
         services.AddSingleton<IDeviceProvider>(sp => sp.GetRequiredService<StubDeviceProvider>());
 
+        // Lighting provider composition: OpenRGB (motherboard / RAM / AIO /
+        // etc.) + NP50 hub (LS10 / LS30 / FP12 daisy-chained off Nexus Link
+        // ports). The composite routes by id prefix so existing
+        // /devices/lighting-devices/* routes don't change shape.
+        services.AddSingleton<Qos.Service.Lighting.Np50LightingDeviceProvider>();
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
-            services.AddSingleton<ILightingDeviceProvider, Qos.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>();
+        {
+            services.AddSingleton<Qos.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>();
+            services.AddSingleton<ILightingDeviceProvider>(sp => new Qos.Service.Lighting.CompositeLightingDeviceProvider(
+                sp.GetRequiredService<Qos.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>(),
+                sp.GetRequiredService<Qos.Service.Lighting.Np50LightingDeviceProvider>()));
+        }
         else
-            services.AddSingleton<ILightingDeviceProvider>(sp => sp.GetRequiredService<StubDeviceProvider>());
+        {
+            services.AddSingleton<ILightingDeviceProvider>(sp => new Qos.Service.Lighting.CompositeLightingDeviceProvider(
+                sp.GetRequiredService<StubDeviceProvider>(),
+                sp.GetRequiredService<Qos.Service.Lighting.Np50LightingDeviceProvider>()));
+        }
 
         services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.CnvsHandler>();
         services.AddSingleton<IDeviceHandler, Qos.Service.Devices.Handlers.Q60Handler>();

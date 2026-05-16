@@ -84,6 +84,11 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
         {
             foreach (var fan in port.Devices)
             {
+                // Only FP12 is a real fan. LS10/LS30 are light strips —
+                // they carry a temp probe (surfaced as a sensor below) but
+                // no fan blade and no RPM, so they don't belong here.
+                if (!IsFanModule(fan.Model)) continue;
+
                 var id = $"np50:{serial}:port{port.Index}:dev{fan.Index}";
                 var slot = fan.Index - 1;
                 var duty = slot >= 0 && slot < Np50Protocol.MaxDevicesPerPort
@@ -106,6 +111,10 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
 
         return result;
     }
+
+    /// <summary>True for Nexus Link modules that carry an actual fan blade. LS-series are light strips only.</summary>
+    private static bool IsFanModule(string model) =>
+        string.Equals(model, "FP12", System.StringComparison.Ordinal);
 
     public IReadOnlyList<TemperatureSource> GetTemperatureSources()
     {
@@ -177,14 +186,14 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
         // to release a single channel that lives on the hub.
         if (!channelId.StartsWith("np50:", StringComparison.Ordinal)) return;
         if (!_hub.IsConnected) return;
-        _hub.SetCoolingMode(Np50Protocol.ModeMotherboard);
+        _hub.SetDesiredCoolingMode(Np50Protocol.ModeMotherboard);
         _softwareModeAsserted = false;
     }
 
     public void ReleaseAll()
     {
         if (!_hub.IsConnected) return;
-        _hub.SetCoolingMode(Np50Protocol.ModeMotherboard);
+        _hub.SetDesiredCoolingMode(Np50Protocol.ModeMotherboard);
         _softwareModeAsserted = false;
     }
 
@@ -252,14 +261,26 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
     {
         _ = isUserIntent; // NP50 doesn't distinguish; future ManualSpeeds wiring can.
         if (!channelId.StartsWith("np50:", StringComparison.Ordinal)) return;
-        if (!_hub.IsConnected) return;
+        if (!_hub.IsConnected)
+        {
+            System.Console.Error.WriteLine($"[np50-cooling] write to {channelId} dropped: hub not connected");
+            return;
+        }
 
-        AssertSoftwareModeIfNeeded();
+        // Latch desired mode to Software so the heartbeat re-asserts it on
+        // every tick (firmware 2.0.3.1 occasionally needs the mode-switch
+        // command repeated to actually flip). SetDesiredCoolingMode also
+        // sends the first attempt immediately, so the next duty write often
+        // lands while the hub is already in Software mode.
+        _hub.SetDesiredCoolingMode(Np50Protocol.ModeSoftware);
+        var modeOk = true;
 
         if (channelId.EndsWith(":legacy", StringComparison.Ordinal))
         {
             _pendingLegacyDuty = dutyPercent;
-            _hub.SetLegacyFanSpeed(dutyPercent);
+            var writeOk = _hub.SetLegacyFanSpeed(dutyPercent);
+            System.Console.Error.WriteLine(
+                $"[np50-cooling] legacy 4-pin -> {dutyPercent}% (modeOk={modeOk} writeOk={writeOk} hubMode={_hub.State.HubInfo.CoolingMode})");
             return;
         }
 
@@ -284,11 +305,11 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
         _hub.SetPortFanSpeeds(port, portList);
     }
 
+    // Kept for ReleaseFan/ReleaseAll to track that software-mode was once
+    // asserted. ApplyChannelWrite now re-asserts on every write directly so
+    // a 5s-heartbeat-lapse doesn't strand the hub in motherboard mode.
     private void AssertSoftwareModeIfNeeded()
     {
-        // Re-assert software mode every time the hub serial changes (reconnect)
-        // or on first write of a session. The Get-Info heartbeat doesn't refresh
-        // the mode itself; that's what this is for.
         if (_softwareModeAsserted && _lastConnectedSerial == _hub.State.Serial) return;
         if (_hub.SetCoolingMode(Np50Protocol.ModeSoftware))
         {
