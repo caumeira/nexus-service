@@ -37,13 +37,17 @@ public static class LightingRoutes
         }).AllowPanel();
         app.MapGet("/lighting/static/settings", (Qos.Service.Persistence.IConfigStore store) =>
             store.Load().Lighting.StaticColor).AllowPanel();
-        app.MapGet("/lighting/effects/{key}/thumbnail.bmp", (string key, ILightingProvider l, HttpRequest req) =>
+        app.MapGet("/lighting/effects/{key}/thumbnail.bmp", (string key, ILightingProvider l, HttpRequest req, HttpResponse res) =>
         {
             var fresh = req.Query.ContainsKey("fresh");
             var bytes = l.CaptureAnimateThumbnail(key, skipCache: fresh);
-            return bytes is null
-                ? Results.NotFound()
-                : Results.File(bytes, "image/bmp");
+            if (bytes is null) return Results.NotFound();
+            // Thumbnails are deterministic per effect key (signature + shader)
+            // for a service-process lifetime. Long-cache so /lighting reloads
+            // don't refetch 60 BMPs on every page mount. ?fresh stays as the
+            // dev override; the cache header is dropped on that path.
+            if (!fresh) res.Headers.CacheControl = "public, max-age=86400";
+            return Results.File(bytes, "image/bmp");
         }).AllowPanel();
         // Music reactive toggle: starts/stops the audio capture pipeline. When
         // off, AudioState stays at zero and every shader reverts to its idle

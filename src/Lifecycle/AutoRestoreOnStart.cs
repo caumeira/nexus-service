@@ -8,6 +8,7 @@ using Qos.Service.Lighting;
 using Qos.Service.Models.Common;
 using Qos.Service.Models.Lighting;
 using Qos.Service.Persistence;
+using Qos.Service.Sockets;
 
 namespace Qos.Service.Lifecycle;
 
@@ -27,6 +28,7 @@ internal sealed class AutoRestoreOnStart : BackgroundService
     private readonly IConfigStore _store;
     private readonly ILightingProvider _lighting;
     private readonly IFanControlProvider _fans;
+    private readonly MultiplexHub _hub;
 
     // Snapshot at construction so we can tell, when ExecuteAsync wakes up
     // 4s later, whether the user changed anything in the meantime via the
@@ -38,11 +40,13 @@ internal sealed class AutoRestoreOnStart : BackgroundService
     public AutoRestoreOnStart(
         IConfigStore store,
         ILightingProvider lighting,
-        IFanControlProvider fans)
+        IFanControlProvider fans,
+        MultiplexHub hub)
     {
         _store = store;
         _lighting = lighting;
         _fans = fans;
+        _hub = hub;
         var initial = _store.Load();
         _coolingPresetAtBoot = initial.Cooling.ActivePreset ?? "";
         _lightingSyncAtBoot = initial.Lighting.Sync ?? "";
@@ -53,14 +57,18 @@ internal sealed class AutoRestoreOnStart : BackgroundService
         try { await Task.Delay(InitialDelay, stoppingToken); }
         catch (TaskCanceledException) { return; }
 
-        try { RestoreCooling(); }
+        // Broadcast after each restoration: clients that connected during the
+        // 4s init window fetched /lighting/status (or /cooling/status) before
+        // the engine had the persisted state in memory, so they're showing a
+        // stale "none" / "off" view. The topic ping forces them to refetch.
+        try { if (RestoreCooling()) PanelTopics.BroadcastCooling(_hub); }
         catch (Exception ex) { Console.Error.WriteLine($"[auto-restore] cooling failed: {ex.Message}"); }
 
-        try { RestoreLighting(); }
+        try { if (RestoreLighting()) PanelTopics.BroadcastLighting(_hub); }
         catch (Exception ex) { Console.Error.WriteLine($"[auto-restore] lighting failed: {ex.Message}"); }
     }
 
-    private void RestoreCooling()
+    private bool RestoreCooling()
     {
         var current = _store.Load().Cooling.ActivePreset ?? "";
         // If the user picked a different preset in the dashboard during the
@@ -68,7 +76,7 @@ internal sealed class AutoRestoreOnStart : BackgroundService
         if (!string.Equals(current, _coolingPresetAtBoot, StringComparison.OrdinalIgnoreCase))
         {
             Console.WriteLine($"[auto-restore] cooling preset changed since boot ({_coolingPresetAtBoot} -> {current}), leaving as-is");
-            return;
+            return false;
         }
         // "custom" needs no re-apply (the curves already carry their fan
         // assignments). "off" was already idle; skipping avoids stomping on
@@ -77,10 +85,12 @@ internal sealed class AutoRestoreOnStart : BackgroundService
         {
             FanProfiles.Apply(current, _fans, _store);
             Console.WriteLine($"[auto-restore] cooling preset re-applied: {current}");
+            return true;
         }
+        return false;
     }
 
-    private void RestoreLighting()
+    private bool RestoreLighting()
     {
         var s = _store.Load().Lighting;
         var sync = s.Sync ?? "";
@@ -89,11 +99,11 @@ internal sealed class AutoRestoreOnStart : BackgroundService
         if (!string.Equals(sync, _lightingSyncAtBoot, StringComparison.OrdinalIgnoreCase))
         {
             Console.WriteLine($"[auto-restore] lighting sync changed since boot ({_lightingSyncAtBoot} -> {sync}), leaving as-is");
-            return;
+            return false;
         }
         if (string.IsNullOrEmpty(sync) || string.Equals(sync, "none", StringComparison.OrdinalIgnoreCase))
         {
-            return;
+            return false;
         }
 
         switch (sync.ToLowerInvariant())
@@ -104,22 +114,22 @@ internal sealed class AutoRestoreOnStart : BackgroundService
                     Color = new RGBA { R = s.StaticColor.R, G = s.StaticColor.G, B = s.StaticColor.B },
                 });
                 Console.WriteLine("[auto-restore] lighting: static");
-                break;
+                return true;
 
             case "music":
                 _lighting.StartMusic(new MusicHeadlessStart());
                 Console.WriteLine("[auto-restore] lighting: music");
-                break;
+                return true;
 
             case "screen":
                 _lighting.StartScreen(new ScreenHeadlessStart());
                 Console.WriteLine("[auto-restore] lighting: screen");
-                break;
+                return true;
 
             case "gif":
                 // No persisted path list to restore from; explicit case keeps
                 // "gif" from falling through to the shader-name default below.
-                break;
+                return false;
 
             case "media":
                 var mediaId = s.LastMediaId;
@@ -128,13 +138,14 @@ internal sealed class AutoRestoreOnStart : BackgroundService
                     if (_lighting.StartMedia(mediaId))
                     {
                         Console.WriteLine($"[auto-restore] lighting: media ({mediaId})");
+                        return true;
                     }
                     else
                     {
                         Console.WriteLine($"[auto-restore] lighting: media item {mediaId} missing, skipped");
                     }
                 }
-                break;
+                return false;
 
             default:
                 // Animate: Sync is the shader effect name. Pull the saved
@@ -157,7 +168,7 @@ internal sealed class AutoRestoreOnStart : BackgroundService
                     Params = AnimateParamsToList(saved.Params),
                 });
                 Console.WriteLine($"[auto-restore] lighting: animate/{effect}");
-                break;
+                return true;
         }
     }
 
