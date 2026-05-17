@@ -26,7 +26,7 @@ public class DeviceDetectionTests
     private static readonly IDeviceHandler[] AllHandlers =
     {
         new CnvsHandler(),
-        new Q60Handler(),
+        new QSeriesHandler(),
         new FanHubHandler(),
     };
 
@@ -41,7 +41,7 @@ public class DeviceDetectionTests
 
         Assert.Equal(AllHandlers.Length, items.Count);
         Assert.Contains(items, i => i.Id == "cnvs");
-        Assert.Contains(items, i => i.Id == "q60");
+        Assert.Contains(items, i => i.Id == "qseries");
         Assert.Contains(items, i => i.Id == "fan-hub");
     }
 
@@ -56,9 +56,9 @@ public class DeviceDetectionTests
         Assert.Equal("CNVS", cnvs.Name);
         Assert.Equal("controller", cnvs.Category);
 
-        var q60 = items.Single(i => i.Id == "q60");
-        Assert.Equal("Q60", q60.Name);
-        Assert.Equal("display", q60.Category);
+        var qs = items.Single(i => i.Id == "qseries");
+        Assert.Equal("Q-series", qs.Name);
+        Assert.Equal("display", qs.Category);
     }
 
     // ---- Handler.IsConnected() — returns true when matching VID/PID is in the device list ----
@@ -66,7 +66,7 @@ public class DeviceDetectionTests
     [Fact]
     public void IsConnected_ReturnsTrue_WhenMatchingDevicePresent()
     {
-        var handler = new Q60Handler();
+        var handler = new QSeriesHandler();
         var devices = new List<UsbDeviceEntry>
         {
             new() { VendorId = 0x3402, ProductId = 0x0600, Name = "Q60" },
@@ -80,7 +80,7 @@ public class DeviceDetectionTests
     [Fact]
     public void IsConnected_ReturnsFalse_WhenNoMatchingDevice()
     {
-        var handler = new Q60Handler();
+        var handler = new QSeriesHandler();
         var devices = new List<UsbDeviceEntry>
         {
             new() { VendorId = 0x1234, ProductId = 0x5678, Name = "Unrelated Device" },
@@ -92,7 +92,7 @@ public class DeviceDetectionTests
     [Fact]
     public void IsConnected_ReturnsFalse_WhenListIsEmpty()
     {
-        var handler = new Q60Handler();
+        var handler = new QSeriesHandler();
 
         Assert.False(handler.IsConnected(new List<UsbDeviceEntry>()));
     }
@@ -151,7 +151,7 @@ public class DeviceDetectionTests
 
         var items = manager.GetAll();
 
-        Assert.True(items.Single(i => i.Id == "q60").Connected);
+        Assert.True(items.Single(i => i.Id == "qseries").Connected);
         Assert.False(items.Single(i => i.Id == "cnvs").Connected);
         Assert.False(items.Single(i => i.Id == "fan-hub").Connected);
     }
@@ -162,14 +162,14 @@ public class DeviceDetectionTests
     public void GetAll_WithSingleHandler_ReturnsOnlyThatDevice()
     {
         var manager = new DeviceManager(
-            new IDeviceHandler[] { new Q60Handler() },
+            new IDeviceHandler[] { new QSeriesHandler() },
             new StubUsbEnumerator()
         );
 
         var items = manager.GetAll();
 
         Assert.Single(items);
-        Assert.Equal("q60", items[0].Id);
+        Assert.Equal("qseries", items[0].Id);
     }
 
     [Fact]
@@ -198,6 +198,6 @@ public class DeviceDetectionTests
         Assert.Equal(2, items.Count);
         Assert.Contains(items, i => i.Id == "cnvs");
         Assert.Contains(items, i => i.Id == "fan-hub");
-        Assert.DoesNotContain(items, i => i.Id == "q60");
+        Assert.DoesNotContain(items, i => i.Id == "qseries");
     }
 }

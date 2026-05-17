@@ -135,14 +135,13 @@ Each endpoint has an `impl` column: **real** = working implementation, **stub** 
 | POST | `/y70/toggle`     | real (persist) | |
 | GET  | `/y70/is-rotated` | stub | |
 
-## /q60
+## /qseries
+Q-series (Q60 + Q80). The two AIO LCD variants behave identically and
+share routes; PID-level distinction lives in `QSeriesHandler`.
 | Verb | Path | impl | Notes |
 |---|---|---|---|
-| WS   | `/q60`           | stub | passthrough WS |
-| GET  | `/q60/serial`    | stub | |
-| GET  | `/q60/timev0`    | real | formatted server time |
-| WS   | `/q60/lighting`  | stub | |
-| WS   | `/q60/time`      | real | broadcasts every 1s |
+| GET  | `/qseries/serial`    | stub | |
+| GET  | `/qseries/timev0`    | real | formatted server time |
 
 ## /displays
 | Verb | Path | impl | Notes |

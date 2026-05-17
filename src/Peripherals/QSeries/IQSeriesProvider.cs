@@ -1,6 +1,6 @@
-namespace Qos.Service.Peripherals.Q60;
+namespace Qos.Service.Peripherals.QSeries;
 
-public interface IQ60Provider
+public interface IQSeriesProvider
 {
     bool IsConnected();
     string GetSerial();

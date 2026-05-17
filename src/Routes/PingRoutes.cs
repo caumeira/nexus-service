@@ -23,5 +23,18 @@ public static class PingRoutes
             Platform = platform,
             MachineName = pairing.MachineName,
         });
+
+        // Bare-bones health and config endpoints for the HYTE OEM Q-series
+        // launcher (`com.companyname.thiccapp`). Its RN bootstrap polls
+        // `/ready` and `/hardware/profile` on `ports.backend`; if either
+        // returns non-2xx the launcher flips its WebView back to the idle
+        // face. By serving stubs here on the qos service we let the OEM's
+        // WebView stay open and load our panel at `/panel/{deviceId}`.
+        // Raw-JSON literals because the .NET 10 AOT JsonSerializer rejects
+        // anonymous types at runtime — we'd otherwise hit 500s here.
+        app.MapGet("/ready", () => Results.Content("{\"ready\":true}", "application/json"));
+        app.MapGet("/hardware/profile", () => Results.Content(
+            "{\"offlineView\":\"default\",\"disableDisplayWithoutSata\":false,\"intervalDuration\":0,\"mediaFiles\":[],\"text\":\"\",\"preview\":false}",
+            "application/json"));
     }
 }

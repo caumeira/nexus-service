@@ -1,9 +1,9 @@
 using Qos.Service.Auth;
 using Qos.Service.Models;
 using Qos.Service.Models.Displays;
-using Qos.Service.Models.Peripherals.Q60;
+using Qos.Service.Models.Peripherals.QSeries;
 using Qos.Service.Models.Peripherals.Y70;
-using Qos.Service.Peripherals.Q60;
+using Qos.Service.Peripherals.QSeries;
 using Qos.Service.Peripherals.Y70;
 using Qos.Service.Platform.Displays;
 
@@ -35,9 +35,9 @@ public static class DisplayRoutes
         }).AllowPanel();
         app.MapGet("/y70/is-rotated", (IY70Provider y) => new Y70IsRotatedResponse { IsRotated = y.IsRotated() }).AllowPanel();
 
-        // Q60
-        app.MapGet("/q60/serial", (IQ60Provider q) => new GetSerialNumberResponse { Serial = q.GetSerial() });
-        app.MapGet("/q60/timev0", (IQ60Provider q) => new GetQ60TimeResponse { Time = q.GetFormattedTime() });
+        // Q-series (Q60 + Q80)
+        app.MapGet("/qseries/serial", (IQSeriesProvider q) => new GetSerialNumberResponse { Serial = q.GetSerial() });
+        app.MapGet("/qseries/timev0", (IQSeriesProvider q) => new GetQSeriesTimeResponse { Time = q.GetFormattedTime() });
 
         // System monitors (external DDC/CI + internal panels)
         app.MapGet("/displays", (DisplayBrightnessController d) => d.ListDisplays()).AllowPanel();

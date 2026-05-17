@@ -1,9 +1,9 @@
 using System;
 using System.Globalization;
 
-namespace Qos.Service.Peripherals.Q60;
+namespace Qos.Service.Peripherals.QSeries;
 
-public sealed class StubQ60Provider : IQ60Provider
+public sealed class StubQSeriesProvider : IQSeriesProvider
 {
     public bool IsConnected() => false;
     public string GetSerial() => "";

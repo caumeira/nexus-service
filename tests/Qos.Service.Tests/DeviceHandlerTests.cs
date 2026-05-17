@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Linq;
 using Qos.Service.Devices;
 using Qos.Service.Devices.Handlers;
 using Xunit;
@@ -90,29 +91,31 @@ public class DeviceHandlerTests
     }
 
     [Fact]
-    public void Q60_and_Q80_have_distinct_ids()
+    public void QSeries_handler_covers_Q60_and_Q80()
     {
-        var q60 = new Q60Handler();
-        var q80 = new Q80Handler();
-        Assert.NotEqual(q60.Id, q80.Id);
+        var qs = new QSeriesHandler();
+        // Q-series handler reports both PIDs; the on-device runtime and
+        // the qos panel pipeline treat Q60 and Q80 identically.
+        var pids = qs.Identifiers.Select(id => id.ProductId).ToHashSet();
+        Assert.Contains(0x0600, pids); // Q60
+        Assert.Contains(0x0603, pids); // Q80
     }
 
     [Fact]
-    public void Y70_and_Q60_categories_are_displays()
+    public void Y70_and_QSeries_categories_are_displays()
     {
         var y70 = new Y70Handler();
-        var q60 = new Q60Handler();
+        var qs = new QSeriesHandler();
         // Both are device-display peripherals; exact category strings are
         // implementation detail but should be non-empty.
         Assert.False(string.IsNullOrEmpty(y70.Category));
-        Assert.False(string.IsNullOrEmpty(q60.Category));
+        Assert.False(string.IsNullOrEmpty(qs.Category));
     }
 
     public static IEnumerable<object[]> AllHandlers()
     {
         yield return new object[] { new CnvsHandler() };
-        yield return new object[] { new Q60Handler() };
-        yield return new object[] { new Q80Handler() };
+        yield return new object[] { new QSeriesHandler() };
         yield return new object[] { new Y70Handler() };
         yield return new object[] { new KeebHandler() };
         yield return new object[] { new FanHubHandler() };

@@ -106,9 +106,27 @@
         "widgets": [
           {
             "type": "monitoring",
-            "size": "2x4",
+            "size": "2x2",
             "col": 0,
-            "row": 0
+            "row": 0,
+            "config": {
+              "slotCount": 1,
+              "slot0_device": "cpu",
+              "slot0_sensor": "CPU Total",
+              "slot0_design": "sparkline"
+            }
+          },
+          {
+            "type": "monitoring",
+            "size": "2x2",
+            "col": 0,
+            "row": 2,
+            "config": {
+              "slotCount": 1,
+              "slot0_device": "gpu",
+              "slot0_sensor": "GPU Core",
+              "slot0_design": "sparkline"
+            }
           }
         ]
       }
