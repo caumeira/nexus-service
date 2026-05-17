@@ -390,6 +390,19 @@ public static class QosServiceCollectionExtensions
 
     public static IServiceCollection AddQosPanel(this IServiceCollection services, int servicePort)
     {
+        // QSeriesPortWatcher keeps `adb reverse tcp:{servicePort}` alive
+        // while a HYTE Q60 / Q80 USB display is attached. Without it,
+        // every time Y70's adb-server restarts the panel's multiplex
+        // WebSocket on the Q-series silently freezes. Windows-only — the
+        // Q-series host stack lives on the Y70 PC.
+        if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<Qos.Service.QSeries.QSeriesPortWatcher>(
+                _ => new Qos.Service.QSeries.QSeriesPortWatcher(servicePort));
+            services.AddHostedService(sp =>
+                sp.GetRequiredService<Qos.Service.QSeries.QSeriesPortWatcher>());
+        }
+
         services.AddSingleton<Qos.Service.Panel.PanelKioskLauncher>();
         services.AddSingleton<Qos.Service.Panel.PanelOverlayHostLauncher>();
         // IOverlayHost picks the right impl per OS. Mac spawns the Swift
