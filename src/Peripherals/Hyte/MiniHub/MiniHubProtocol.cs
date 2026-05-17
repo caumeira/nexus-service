@@ -20,8 +20,18 @@ public static class MiniHubProtocol
     public const int VendorId = 0x3402;
     public const int ProductId = 0x0900;
 
-    /// <summary>Two physical LED-capable ports on the hub; the spec calls them Port 3 and Port 4.</summary>
-    public const int LedPortCount = 2;
+    /// <summary>All four physical ports can carry LEDs (ports 1+2 = RGB-fan rings, ports 3+4 = LED strips).</summary>
+    public const int LedPortCount = 4;
+
+    // Fixed padded streaming buffer sizes per the reference IBPMiniHubController.
+    // Header is 7 bytes; remaining bytes hold N×3 RGB triples. The firmware
+    // seems to expect these exact lengths regardless of declared LED count
+    // — sending shorter frames leaves unaddressed LEDs holding their last
+    // colors, which manifests as random LEDs staying lit after "off".
+    public const int Port4MaxLedCount = 100;            // Port 4 = "big" output (100 LEDs)
+    public const int OtherPortMaxLedCount = 50;         // Ports 1, 2, 3 (50 LEDs each)
+    private const int Port4PaddedLength = 7 + Port4MaxLedCount * 3;     // 307
+    private const int OtherPortPaddedLength = 7 + OtherPortMaxLedCount * 3; // 157
 
     // ── Wire constants ──
 
@@ -56,31 +66,39 @@ public static class MiniHubProtocol
     }
 
     /// <summary>
-    /// Build an LED streaming frame for one of the hub's LED channels.
-    /// <paramref name="channel"/> identifies the LED port (per the spec
-    /// it's a 1-based index addressing the two LED-capable ports).
-    /// Bytes 0-6 are header, then 3 bytes per LED in R, G, B order.
+    /// Build an LED streaming frame for one of the hub's four channels.
+    /// Always emits a fixed-length padded buffer (307 bytes for channel 4,
+    /// 157 bytes for channels 1-3) matching HYTE's reference
+    /// implementation. The firmware reads exactly that many bytes per
+    /// frame; sending shorter buffers leaves trailing LEDs holding their
+    /// previous colors and surfaces as "flicker on off". Header's declared
+    /// LED count = the user's actual count; LEDs past that index are zero-
+    /// padded so they go dark whenever the firmware does address them.
+    /// Bytes after the 7-byte header are R, G, B triples (not GRB like NP50).
     /// </summary>
     public static byte[] BuildLightingStream(int channel, ReadOnlySpan<RgbColor> leds)
     {
         if (channel < 1 || channel > LedPortCount)
             throw new ArgumentOutOfRangeException(nameof(channel), channel, $"Channel must be in 1..{LedPortCount}.");
-        if (leds.Length > ushort.MaxValue)
-            throw new ArgumentException("LED buffer too large for two-byte length field.", nameof(leds));
-        var buf = new byte[7 + leds.Length * 3];
+        var padded = channel == 4 ? Port4PaddedLength : OtherPortPaddedLength;
+        var maxLeds = channel == 4 ? Port4MaxLedCount : OtherPortMaxLedCount;
+        var declaredCount = Math.Min(leds.Length, maxLeds);
+        var buf = new byte[padded];
         buf[0] = Frame0; buf[1] = OpLighting; buf[2] = SubStreaming;
         buf[3] = (byte)channel;
-        buf[4] = (byte)((leds.Length >> 8) & 0xFF);
-        buf[5] = (byte)(leds.Length & 0xFF);
-        // buf[6] reserved
-        for (var i = 0; i < leds.Length; i++)
+        buf[4] = (byte)((declaredCount >> 8) & 0xFF);
+        buf[5] = (byte)(declaredCount & 0xFF);
+        // buf[6] reserved (0)
+        for (var i = 0; i < declaredCount; i++)
         {
             var off = 7 + i * 3;
-            // R G B byte order — not GRB like NP50.
             buf[off + 0] = leds[i].R;
             buf[off + 1] = leds[i].G;
             buf[off + 2] = leds[i].B;
         }
+        // Bytes from 7 + declaredCount*3 .. padded-1 stay zero — the new-byte[]
+        // default. Acts as a deterministic "blank past N" so the firmware
+        // can't keep stale colors.
         return buf;
     }
 

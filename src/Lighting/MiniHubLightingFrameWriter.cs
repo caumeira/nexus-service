@@ -82,10 +82,16 @@ public sealed class MiniHubLightingFrameWriter : IHostedService, IDisposable
         var nowTicks = DateTime.UtcNow.Ticks;
 
         var hubId = _hub.DeviceId;
-        // Channel 1 = port 3, channel 2 = port 4 per the spec table.
-        TryPushZone(devices, $"{hubId}:port3", channel: 1, disabled, prefs, globalBrightness, nowTicks);
-        if (_hub.State.Port4.LedCount > 0)
-            TryPushZone(devices, $"{hubId}:port4", channel: 2, disabled, prefs, globalBrightness, nowTicks);
+        // Push every channel every tick — even channels with zero declared
+        // LEDs get a padded blank frame, which the hub firmware honours by
+        // blacking out the strip. The per-channel padded buffer comes from
+        // MiniHubProtocol.BuildLightingStream, so each WriteLighting call
+        // emits exactly 307 bytes (channel 4) or 157 bytes (channels 1-3)
+        // regardless of how many LEDs the user has wired.
+        TryPushZone(devices, $"{hubId}:port1", channel: 1, disabled, prefs, globalBrightness, nowTicks);
+        TryPushZone(devices, $"{hubId}:port2", channel: 2, disabled, prefs, globalBrightness, nowTicks);
+        TryPushZone(devices, $"{hubId}:port3", channel: 3, disabled, prefs, globalBrightness, nowTicks);
+        TryPushZone(devices, $"{hubId}:port4", channel: 4, disabled, prefs, globalBrightness, nowTicks);
     }
 
     private void TryPushZone(DeviceFrame[] devices, string id, int channel,
@@ -96,18 +102,25 @@ public sealed class MiniHubLightingFrameWriter : IHostedService, IDisposable
         DeviceFrame? frame = null;
         for (var i = 0; i < devices.Length; i++)
         { if (devices[i].Id == id) { frame = devices[i]; break; } }
-        if (frame is null || frame.LedCount <= 0) return;
-
+        // Always push something — even a zero-LED frame goes out as a fully
+        // zero-padded buffer, which BuildLightingStream then sends to the
+        // hub. Skipping a channel means the hub eventually drops back to
+        // its firmware animation on that strip. Cheap: BuildLightingStream
+        // produces a fixed 157/307-byte frame regardless of declared count.
+        var ledCount = frame is null ? 0 : frame.LedCount;
         var brightnessMul = ComputeBrightnessMul(id, disabled, prefs, globalBrightness);
         var hasIdentify = _identify.TryGetActive(id, nowTicks, out var startTicks);
 
         var idx = channel - 1;
         var buf = _portBuffers[idx];
-        if (buf is null || buf.Length < frame.LedCount)
-            _portBuffers[idx] = new MiniHubColor[Math.Max(frame.LedCount, 64)];
+        if (buf is null || buf.Length < Math.Max(ledCount, 1))
+            _portBuffers[idx] = new MiniHubColor[Math.Max(ledCount, 64)];
         var dst = _portBuffers[idx]!;
-        FillBufferSlice(dst, 0, frame.LedBytes, frame.LedCount, brightnessMul, hasIdentify, startTicks, nowTicks);
-        _hub.WriteLighting(channel, new ReadOnlySpan<MiniHubColor>(dst, 0, frame.LedCount));
+        if (ledCount > 0 && frame is not null)
+        {
+            FillBufferSlice(dst, 0, frame.LedBytes, ledCount, brightnessMul, hasIdentify, startTicks, nowTicks);
+        }
+        _hub.WriteLighting(channel, new ReadOnlySpan<MiniHubColor>(dst, 0, ledCount));
     }
 
     private static double ComputeBrightnessMul(string id,

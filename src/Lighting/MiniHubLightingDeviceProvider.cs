@@ -60,25 +60,27 @@ public sealed class MiniHubLightingDeviceProvider : ILightingDeviceProvider, ILi
         var counts = settings.Devices.ZoneLedCounts;
         var slot = 0;
 
-        resp.Devices.Add(BuildZone(
-            id: $"{hubId}:port3",
-            name: "HYTE MiniHub - Port 3 LED Strip",
-            firmwareLedCount: _hub.State.Port3.LedCount,
-            zoneIndex: slot++,
-            parentDeviceId: hubId,
-            disabled, prefs, layouts, counts));
+        // All four physical ports can carry LEDs. The MiniHub firmware
+        // doesn't enumerate them — the official HYTE tool keeps the per-
+        // port LED counts in a user-edited config (MiniHubLayoutConfig).
+        // We mirror that: emit all four LED zones unconditionally with
+        // sensible defaults (matching the spec table and the typical
+        // 1-fan + 3-fan layout), let the user resize via the settings
+        // modal (ZoneResizable=true), and persist the user's value into
+        // ZoneLedCounts which BuildZone honours below.
+        AddZone($"{hubId}:port1", "HYTE MiniHub - Port 1 (1× RGB Fan)", _hub.State.Port1.LedCount);
+        AddZone($"{hubId}:port2", "HYTE MiniHub - Port 2 (3× RGB Fans)", _hub.State.Port2.LedCount);
+        AddZone($"{hubId}:port3", "HYTE MiniHub - Port 3 (LED Strip)", _hub.State.Port3.LedCount);
+        AddZone($"{hubId}:port4", "HYTE MiniHub - Port 4 (LED Strip)", _hub.State.Port4.LedCount);
+        return resp;
 
-        if (_hub.State.Port4.LedCount > 0)
+        void AddZone(string id, string name, int firmwareLedCount)
         {
             resp.Devices.Add(BuildZone(
-                id: $"{hubId}:port4",
-                name: "HYTE MiniHub - Port 4 LED Strip",
-                firmwareLedCount: _hub.State.Port4.LedCount,
-                zoneIndex: slot++,
-                parentDeviceId: hubId,
+                id: id, name: name, firmwareLedCount: firmwareLedCount,
+                zoneIndex: slot++, parentDeviceId: hubId,
                 disabled, prefs, layouts, counts));
         }
-        return resp;
     }
 
     private static LightingDevice BuildZone(
@@ -178,16 +180,15 @@ public sealed class MiniHubLightingDeviceProvider : ILightingDeviceProvider, ILi
         var counts = settings.Devices.ZoneLedCounts;
         var slot = 0;
 
-        frames.Add(BuildDeviceFrame(
-            id: $"{hubId}:port3", firmwareLedCount: _hub.State.Port3.LedCount,
-            zoneIndex: slot++, layouts, counts, idx: ref idx));
-
-        if (_hub.State.Port4.LedCount > 0)
-        {
-            frames.Add(BuildDeviceFrame(
-                id: $"{hubId}:port4", firmwareLedCount: _hub.State.Port4.LedCount,
-                zoneIndex: slot++, layouts, counts, idx: ref idx));
-        }
+        // One DeviceFrame per channel. Channels 1+2 cover the RGB-fan rings
+        // on the Nexus-Link fan ports; 3+4 are the standalone LED outputs.
+        // Always emitted regardless of declared LED count so the writer
+        // always pushes a blank frame to every channel — keeps the hub
+        // from falling back to firmware animation on un-addressed channels.
+        frames.Add(BuildDeviceFrame($"{hubId}:port1", _hub.State.Port1.LedCount, slot++, layouts, counts, ref idx));
+        frames.Add(BuildDeviceFrame($"{hubId}:port2", _hub.State.Port2.LedCount, slot++, layouts, counts, ref idx));
+        frames.Add(BuildDeviceFrame($"{hubId}:port3", _hub.State.Port3.LedCount, slot++, layouts, counts, ref idx));
+        frames.Add(BuildDeviceFrame($"{hubId}:port4", _hub.State.Port4.LedCount, slot++, layouts, counts, ref idx));
         return frames;
     }
 
