@@ -33,10 +33,9 @@ public sealed class PanelPhonePairingService
     private static readonly long SessionIdleMs = (long)SessionIdle.TotalMilliseconds;
     private static readonly long HttpSessionIdleMs = (long)HttpSessionIdle.TotalMilliseconds;
 
-    // Manual pair-code (BT-SSP-style numeric comparison) tunables. One
-    // active code at a time; phone+host must both approve before a session
-    // token is issued.
-    public const int PairCodeTtlSeconds = 120;
+    // Manual pair-code (BT-SSP-style numeric comparison) tunables. Matches
+    // the QR TTL so both pairing paths feel identical from the dashboard.
+    public const int PairCodeTtlSeconds = 60;
     private const int PairCodeMaxAttempts = 5;
     private const long PairCodeLockoutMs = 5 * 60 * 1000;
     private static readonly byte[] SasInfoPrefix = Encoding.UTF8.GetBytes("qos-pair-sas-v1|");
