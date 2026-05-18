@@ -32,21 +32,27 @@ namespace Qos.Service.QSeries;
 ///
 /// USB-FFS adbd is also fragile: cycling the host adb-server mid-stream
 /// can wedge the device-side daemon into <c>offline</c> state, requiring
-/// a power-cycle to recover (we can't restart adbd without root). To get
-/// out from under that, on the FIRST sight of a Q-series device over USB
-/// we:
-///   1. Read its LAN IPv4 address via <c>adb shell ip route</c>.
-///   2. Send <c>adb -s &lt;serial&gt; tcpip 5555</c> — adbd restarts and
-///      starts listening on tcp:5555 in addition to (or instead of) USB.
-///   3. Issue <c>adb connect &lt;ip&gt;:5555</c> on the host side so the
-///      adb-server now sees the device over TCP.
-///   4. Persist <c>(serial, ip)</c> to
-///      <c>%ProgramData%\Qos\qseries-transports.json</c>.
-/// On subsequent service starts, the watcher reads the file and proactively
-/// reconnects each known device — no USB enumeration required. After
-/// promotion the panel runs over WiFi; USB serves only as power + the
-/// re-bootstrap channel if the device forgets tcpip mode (e.g. after a
-/// device reboot).
+/// a power-cycle to recover (we can't restart adbd without root). The
+/// watcher has two complementary recovery paths for this:
+///
+/// 1. <b>Per-tick USB reset for wedged-offline devices</b>. When a serial
+///    we've previously identified as Q-series has been in <c>offline</c>
+///    state for &gt;30 s, the watcher resolves the device's USB composite
+///    parent (<c>USB\VID_xxxx&amp;PID_yyyy\&lt;adb-serial&gt;</c>) and runs
+///    <c>pnputil /restart-device</c>. That forces a real USB reset on the
+///    device side, which restarts adbd inside the firmware and clears the
+///    handshake wedge. Two-minute cooldown per instance keeps a truly
+///    unplugged device from getting hammered.
+///
+/// 2. <b>Bootstrap to adb-over-TCP (WiFi).</b> If the device happens to
+///    be on a LAN (HYTE Q60/Q80 firmware can boot WiFi but the touch-less
+///    panel can't enter SSID credentials, so this path is dormant on
+///    stock units), the watcher reads the device's IP and promotes the
+///    transport from USB-FFS to TCP via <c>adb tcpip 5555</c>. After
+///    promotion, panel transport runs over WiFi; USB cycling becomes
+///    irrelevant. The watcher persists <c>(serial, ip)</c> to
+///    <c>%ProgramData%\Qos\qseries-transports.json</c> so subsequent
+///    service starts can reconnect without a USB round-trip.
 ///
 /// The 10 s reverse-port refresh (matches nexus's <c>ADBInterface.startPing</c>
 /// from HYTE-ProductTeam/nexus
@@ -84,6 +90,25 @@ public sealed class QSeriesPortWatcher : BackgroundService
         "THICC_Q_Series",
     };
 
+    /// <summary>
+    /// How long a Q-series device must stay in adb <c>offline</c> state
+    /// before the watcher attempts a USB reset to recover it. Picked to be
+    /// longer than the natural USB hiccup window (a deploy that touches
+    /// adb-server may leave the device in offline for ~5–15 s while
+    /// adb-server re-handshakes) so we don't churn the device when a
+    /// natural recovery is already underway.
+    /// </summary>
+    private static readonly TimeSpan OfflineRecoveryThreshold = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Minimum time between consecutive recovery attempts for the same
+    /// device. Without a cooldown, a USB device that's stuck offline
+    /// (e.g. yanked physically, dead cable) would get hammered with
+    /// pnputil restarts every tick. Two minutes is long enough that a
+    /// natural recovery from one restart has time to complete.
+    /// </summary>
+    private static readonly TimeSpan RecoveryCooldown = TimeSpan.FromMinutes(2);
+
     private readonly int _servicePort;
     private readonly string _localSpec;
     private readonly string _remoteSpec;
@@ -100,6 +125,31 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// Mutated in place — we never replace the reference, so it's readonly.
     /// </summary>
     private readonly Dictionary<string, QSeriesTransportRecord> _promoted;
+
+    /// <summary>
+    /// Serials we've ever seen reported by adb with a Q-series model
+    /// string. When a serial later shows up as <c>offline</c>, the model
+    /// field on the offline-device entry is unreliable, so we can't
+    /// re-identify it as Q-series — but we *can* check membership here.
+    /// Cleared only when the device is unplugged entirely (not when it
+    /// goes offline).
+    /// </summary>
+    private readonly HashSet<string> _knownQSeriesSerials = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// First time we saw a given serial in <c>offline</c> state on a
+    /// continuous run. Reset to (none) when the device returns to
+    /// <c>online</c>, or when the device disappears from adb's list.
+    /// </summary>
+    private readonly Dictionary<string, DateTimeOffset> _offlineSince = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Last time we ran <c>pnputil /restart-device</c> for a given USB
+    /// instance ID. Cooldown is per-instance because that's the granularity
+    /// pnputil acts on; if the user unplugs and replugs a different Q-series
+    /// device the new instance ID gets its own fresh cooldown.
+    /// </summary>
+    private readonly Dictionary<string, DateTimeOffset> _lastRecoveryByInstanceId = new(StringComparer.Ordinal);
 
     public QSeriesPortWatcher(int servicePort)
         : this(servicePort, new QSeriesTransportStore()) { }
@@ -190,12 +240,20 @@ public sealed class QSeriesPortWatcher : BackgroundService
             throw;
         }
 
+        var deviceList = devices.ToList();
+
+        // Recovery pass: if any previously-seen Q-series serial is in
+        // `offline` state long enough, kick the USB stack on its instance
+        // ID to force a real bus reset. That's what unwedges device-side
+        // adbd without a power-cycle. Runs first so a successful restart's
+        // re-enumeration is visible by the time the reverse-port pass runs.
+        await TryRecoverOfflineQSeriesDevicesAsync(deviceList, ct);
+
         // For every persisted (USB → TCP) promotion: if that device's TCP
         // transport isn't already in adb's device list, fire a one-shot
         // `adb connect`. Cheap (a few bytes to the local adb-server, no-op
         // when the transport is already up) and runs every tick so a
         // transient TCP drop self-heals without waiting for USB attach.
-        var deviceList = devices.ToList();
         if (_promoted.Count > 0)
         {
             await ReconnectMissingTransportsAsync(deviceList, ct);
@@ -214,6 +272,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
             if (string.IsNullOrEmpty(device.Serial)) continue;
             if (device.State != DeviceState.Online) continue;
             if (!IsQSeries(device)) continue;
+            // Once we've seen a serial come online as Q-series, remember
+            // it so a future offline-pass can correctly identify it even
+            // when adb can't query the model anymore.
+            _knownQSeriesSerials.Add(device.Serial);
             if (QSeriesTransport.IsTcpSerial(device.Serial)) continue;
             if (_promoted.ContainsKey(device.Serial)) continue;
             await TryPromoteToTcpAsync(device, ct);
@@ -270,6 +332,186 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 Console.Error.WriteLine(
                     $"[qseries-port-watcher] reconnect {tcpSerial} failed: {ex.GetType().Name}: {ex.Message}");
             }
+        }
+    }
+
+    /// <summary>
+    /// Walk the current adb device list; for any serial that we've
+    /// previously identified as Q-series and is now stuck in
+    /// <c>offline</c> state past <see cref="OfflineRecoveryThreshold"/>,
+    /// resolve its USB composite parent and run <c>pnputil /restart-device</c>.
+    /// That triggers a real USB bus reset, which restarts adbd inside
+    /// the device firmware and clears the half-broken handshake state
+    /// the daemon ends up in after a mid-stream adb-server cycle.
+    /// </summary>
+    /// <remarks>
+    /// Why pnputil and not <c>adb usb</c>/<c>adb kill-server</c>: those
+    /// only touch host-side state. The wedge is on the device side —
+    /// adbd has acknowledged the USB-FFS endpoint but won't complete the
+    /// handshake. Without root we can't restart adbd from inside, so we
+    /// fall back to making the device side observe a USB-level reset.
+    /// </remarks>
+    private async Task TryRecoverOfflineQSeriesDevicesAsync(IReadOnlyCollection<DeviceData> deviceList, CancellationToken ct)
+    {
+        // Windows-only: pnputil ships with Windows since Vista, and the
+        // wedge symptom (offline adb device after a server cycle) is the
+        // one we're actually seeing on the Y70 build PC. Linux/Mac dev
+        // hosts would need their own USB-reset path (e.g. usbreset(1)).
+        if (!OperatingSystem.IsWindows()) return;
+
+        var now = DateTimeOffset.UtcNow;
+        var present = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var device in deviceList)
+        {
+            if (string.IsNullOrEmpty(device.Serial)) continue;
+            present.Add(device.Serial);
+            if (!_knownQSeriesSerials.Contains(device.Serial)) continue;
+
+            if (device.State == DeviceState.Online)
+            {
+                _offlineSince.Remove(device.Serial);
+                continue;
+            }
+            if (device.State != DeviceState.Offline) continue;
+
+            if (!_offlineSince.TryGetValue(device.Serial, out var since))
+            {
+                _offlineSince[device.Serial] = now;
+                continue;
+            }
+            var offlineFor = now - since;
+            if (offlineFor < OfflineRecoveryThreshold) continue;
+
+            var instanceId = TryFindUsbInstanceId(device.Serial);
+            if (instanceId is null)
+            {
+                Console.Error.WriteLine(
+                    $"[qseries-port-watcher] {device.Serial}: offline for {offlineFor.TotalSeconds:F0}s but no matching USB instance id found");
+                // Defer: don't reset _offlineSince — maybe the device
+                // re-enumerates with a different name on its own.
+                continue;
+            }
+
+            if (_lastRecoveryByInstanceId.TryGetValue(instanceId, out var last)
+                && now - last < RecoveryCooldown)
+            {
+                continue;
+            }
+
+            Console.Error.WriteLine(
+                $"[qseries-port-watcher] {device.Serial}: offline for {offlineFor.TotalSeconds:F0}s, running pnputil /restart-device {instanceId}");
+            _lastRecoveryByInstanceId[instanceId] = now;
+            if (RunPnputilRestartDevice(instanceId, out var pnputilOut))
+            {
+                Console.Error.WriteLine(
+                    $"[qseries-port-watcher] {device.Serial}: pnputil restart succeeded; awaiting re-enumeration ({pnputilOut})");
+                // Reset offline tracking so we get a fresh 30 s window
+                // if the device fails to recover after the restart.
+                _offlineSince.Remove(device.Serial);
+            }
+            else
+            {
+                Console.Error.WriteLine(
+                    $"[qseries-port-watcher] {device.Serial}: pnputil restart failed: {pnputilOut}");
+            }
+
+            // Tiny pause so the next steps of the tick (reverse-port
+            // apply, etc.) see at least a partially-reconnected world.
+            try { await Task.Delay(TimeSpan.FromSeconds(2), ct); }
+            catch (TaskCanceledException) { return; }
+        }
+
+        // Forget serials that have disappeared from adb entirely (cable
+        // unplug). A re-attach gets a fresh offline-since timer.
+        foreach (var key in _offlineSince.Keys.Where(k => !present.Contains(k)).ToList())
+        {
+            _offlineSince.Remove(key);
+        }
+    }
+
+    /// <summary>
+    /// Look up the USB composite-device InstanceId whose tail matches an
+    /// adb device serial. HYTE Q60/Q80 composite InstanceIds always end
+    /// with the adb serial (<c>USB\VID_xxxx&amp;PID_yyyy\&lt;serial&gt;</c>),
+    /// so the match is straightforward. Uses PowerShell + Get-PnpDevice
+    /// to avoid hand-rolled SetupAPI P/Invokes.
+    /// </summary>
+    private static string? TryFindUsbInstanceId(string adbSerial)
+    {
+        if (!OperatingSystem.IsWindows()) return null;
+        if (string.IsNullOrEmpty(adbSerial)) return null;
+        // Pattern: any USB InstanceId whose tail is "\<serial>". Single
+        // quote the literal serial so PowerShell doesn't interpolate.
+        var psScript =
+            "Get-PnpDevice -Class USB " +
+            "| Where-Object { $_.InstanceId -like '*\\" + adbSerial + "' } " +
+            "| Select-Object -First 1 -ExpandProperty InstanceId";
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -NonInteractive -Command \"{psScript}\"",
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            if (p is null) return null;
+            if (!p.WaitForExit(5_000))
+            {
+                try { p.Kill(true); } catch { }
+                return null;
+            }
+            var stdout = p.StandardOutput.ReadToEnd().Trim();
+            return string.IsNullOrEmpty(stdout) ? null : stdout;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
+    /// Shell out to <c>pnputil /restart-device "&lt;instanceId&gt;"</c>.
+    /// Returns true on exit 0 (or 3010, which pnputil emits for "reboot
+    /// recommended" and we don't care about). Captures the output for
+    /// the caller's log line. QosService runs as LocalSystem so it has
+    /// the rights pnputil needs without a UAC prompt.
+    /// </summary>
+    private static bool RunPnputilRestartDevice(string instanceId, out string output)
+    {
+        output = string.Empty;
+        if (!OperatingSystem.IsWindows()) return false;
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo
+            {
+                FileName = "pnputil.exe",
+                Arguments = $"/restart-device \"{instanceId}\"",
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            if (p is null) return false;
+            if (!p.WaitForExit(15_000))
+            {
+                try { p.Kill(true); } catch { }
+                output = "timed out after 15s";
+                return false;
+            }
+            var stdout = p.StandardOutput.ReadToEnd().Trim();
+            var stderr = p.StandardError.ReadToEnd().Trim();
+            output = string.IsNullOrEmpty(stderr) ? stdout : $"{stdout} | err: {stderr}";
+            // 0 = success; 3010 = success + reboot recommended (not for
+            // /restart-device, but defensive).
+            return p.ExitCode == 0 || p.ExitCode == 3010;
+        }
+        catch (Exception ex)
+        {
+            output = $"{ex.GetType().Name}: {ex.Message}";
+            return false;
         }
     }
 
