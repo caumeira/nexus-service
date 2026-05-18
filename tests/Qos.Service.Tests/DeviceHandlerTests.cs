@@ -94,11 +94,16 @@ public class DeviceHandlerTests
     public void QSeries_handler_covers_Q60_and_Q80()
     {
         var qs = new QSeriesHandler();
-        // Q-series handler reports both PIDs; the on-device runtime and
-        // the qos panel pipeline treat Q60 and Q80 identically.
+        // Q-series handler reports both PIDs under both VIDs; the on-
+        // device runtime and the qos panel pipeline treat Q60 and Q80
+        // identically. Bench firmware enumerates under MediaTek's VID
+        // (0x0E8D); HYTE's own VID (0x3402) is kept as a defensive
+        // fallback for a future revision.
         var pids = qs.Identifiers.Select(id => id.ProductId).ToHashSet();
-        Assert.Contains(0x0600, pids); // Q60
-        Assert.Contains(0x0603, pids); // Q80
+        Assert.Contains(0x201D, pids); // Q60 under MediaTek VID (bench-verified)
+        Assert.Contains(0x201C, pids); // Q80 under MediaTek VID
+        Assert.Contains(0x0600, pids); // Q60 legacy HYTE VID
+        Assert.Contains(0x0603, pids); // Q80 legacy HYTE VID
     }
 
     [Fact]
