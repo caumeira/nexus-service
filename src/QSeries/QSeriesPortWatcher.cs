@@ -293,6 +293,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
             seenSerials.Add(device.Serial);
             await EnsureReverseAsync(device, ct);
+            await EnsureQshellForegroundAsync(device, ct);
         }
 
         // Forget any serials that disappeared so a re-attach gets a fresh
@@ -747,6 +748,90 @@ public sealed class QSeriesPortWatcher : BackgroundService
             }
         }
         return null;
+    }
+
+    /// <summary>
+    /// Activity component to bring to foreground when no panel is visible.
+    /// Matches the package + activity names in
+    /// <c>hyte-qseries-android/android/app/src/main/AndroidManifest.xml</c>.
+    /// </summary>
+    private const string QshellComponent = "com.nexusqos.panel.qshell/.MainActivity";
+
+    /// <summary>
+    /// String the device's foreground-window dump prints when qshell owns
+    /// focus. We only need a substring match — the surrounding line will
+    /// look like <c>mCurrentFocus=Window{... com.nexusqos.panel.qshell/...}</c>.
+    /// </summary>
+    private const string QshellFocusMarker = "com.nexusqos.panel.qshell";
+
+    /// <summary>
+    /// Last time we ran <c>am start</c> on a given serial. Throttles the
+    /// re-launch path: if we've just restarted qshell, give Android a
+    /// couple of ticks to finish bringing it up before we try again. The
+    /// foreground check itself is cheap (~30 ms) so we still run it every
+    /// tick — only the actual <c>am start</c> is throttled.
+    /// </summary>
+    private readonly Dictionary<string, DateTimeOffset> _lastQshellStartBySerial = new(StringComparer.Ordinal);
+
+    private static readonly TimeSpan QshellRestartThrottle = TimeSpan.FromSeconds(15);
+
+    /// <summary>
+    /// Make sure qshell (<c>com.nexusqos.panel.qshell</c>) is the foreground
+    /// activity on a connected Q-series device. We dump the foreground
+    /// window via <c>dumpsys window mCurrentFocus</c>; if anything other
+    /// than qshell holds focus we run <c>am start</c> to bring it back.
+    ///
+    /// This is the recovery seam for:
+    ///   - first-attach (qshell hasn't been launched yet; the OEM HOME
+    ///     launcher is foreground),
+    ///   - after a USB reset (qshell got killed when its WebView lost
+    ///     transport; the OEM launcher reclaimed foreground),
+    ///   - user-triggered <c>am force-stop com.nexusqos.panel.qshell</c>,
+    ///   - device reboot.
+    /// </summary>
+    private async Task EnsureQshellForegroundAsync(DeviceData device, CancellationToken ct)
+    {
+        // Foreground check. `dumpsys window` is verbose, so let the
+        // device-side grep narrow it down — Q-series firmware has busybox
+        // grep available (verified bench: HYTE_Q60_Display Android 11).
+        var focusReceiver = new ConsoleOutputReceiver();
+        try
+        {
+            await _client.ExecuteShellCommandAsync(device, "dumpsys window | grep mCurrentFocus", focusReceiver, ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            Console.Error.WriteLine(
+                $"[qseries-port-watcher] {device.Serial}: foreground check failed: {ex.GetType().Name}");
+            return;
+        }
+        if (focusReceiver.ToString().Contains(QshellFocusMarker, StringComparison.Ordinal))
+        {
+            // qshell already owns focus — nothing to do.
+            return;
+        }
+
+        // Throttle: if we just kicked am start, give it time to take.
+        var now = DateTimeOffset.UtcNow;
+        if (_lastQshellStartBySerial.TryGetValue(device.Serial, out var last)
+            && now - last < QshellRestartThrottle)
+        {
+            return;
+        }
+        _lastQshellStartBySerial[device.Serial] = now;
+
+        var startReceiver = new ConsoleOutputReceiver();
+        try
+        {
+            await _client.ExecuteShellCommandAsync(device, $"am start -n {QshellComponent}", startReceiver, ct);
+            Console.Error.WriteLine(
+                $"[qseries-port-watcher] {device.Serial}: qshell not in foreground, ran am start ({startReceiver.ToString().Trim()})");
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            Console.Error.WriteLine(
+                $"[qseries-port-watcher] {device.Serial}: am start qshell failed: {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     private async Task EnsureReverseAsync(DeviceData device, CancellationToken ct)
