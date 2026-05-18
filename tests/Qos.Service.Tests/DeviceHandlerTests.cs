@@ -82,12 +82,66 @@ public class DeviceHandlerTests
     [MemberData(nameof(AllHandlers))]
     public void Every_handler_detects_each_of_its_own_identifiers(IDeviceHandler handler)
     {
+        // QSeriesHandler matches by USB product-name string rather than
+        // raw (VID, PID), since the Q-series enumerates with different
+        // PIDs in each USB mode. Probe it with a representative name so
+        // the same generic identifier-listing assertion still holds.
+        var probeName = handler is QSeriesHandler ? "HYTE Q60 Display" : "Test";
         foreach (var id in handler.Identifiers)
         {
-            var detected = new List<UsbDeviceEntry> { Entry(id.VendorId, id.ProductId) };
+            var detected = new List<UsbDeviceEntry> { Entry(id.VendorId, id.ProductId, probeName) };
             Assert.True(handler.IsConnected(detected),
                 $"{handler.Name} should detect {id.VendorId:X4}:{id.ProductId:X4}");
         }
+    }
+
+    [Fact]
+    public void QSeries_handler_detects_by_product_name()
+    {
+        var qs = new QSeriesHandler();
+        // Bench-verified product strings from a real Q60 (and the
+        // analogous Q80 ones). VID is one of the known Q-series vendors
+        // (MediaTek 0x0E8D or HYTE 0x3402); PID can be anything.
+        Assert.True(qs.IsConnected(new List<UsbDeviceEntry>
+        {
+            new() { VendorId = 0x0E8D, ProductId = 0x2048, Name = "HYTE Q60 Display" },
+        }), "should match Q60 ADB-mode descriptor");
+        Assert.True(qs.IsConnected(new List<UsbDeviceEntry>
+        {
+            new() { VendorId = 0x3402, ProductId = 0x0400, Name = "HYTE THICC Q60" },
+        }), "should match THICC Q60 descriptor under HYTE VID");
+        Assert.True(qs.IsConnected(new List<UsbDeviceEntry>
+        {
+            new() { VendorId = 0x0E8D, ProductId = 0xFFFF, Name = "HYTE Q80 Display" },
+        }), "should match Q80 (any PID under MediaTek VID)");
+    }
+
+    [Fact]
+    public void QSeries_handler_rejects_non_qseries_devices_under_known_vids()
+    {
+        var qs = new QSeriesHandler();
+        // MediaTek and HYTE VIDs cover lots of other devices; the name
+        // gate keeps the handler from claiming them all.
+        Assert.False(qs.IsConnected(new List<UsbDeviceEntry>
+        {
+            new() { VendorId = 0x0E8D, ProductId = 0x2080, Name = "MediaTek Preloader" },
+        }));
+        Assert.False(qs.IsConnected(new List<UsbDeviceEntry>
+        {
+            new() { VendorId = 0x3402, ProductId = 0x0C01, Name = "HYTE Y70 Display" },
+        }));
+    }
+
+    [Fact]
+    public void QSeries_handler_rejects_qseries_name_under_unknown_vid()
+    {
+        var qs = new QSeriesHandler();
+        // A random "Q60" in the descriptor under a third-party VID
+        // shouldn't trip the handler — keeps the name-match honest.
+        Assert.False(qs.IsConnected(new List<UsbDeviceEntry>
+        {
+            new() { VendorId = 0x1234, ProductId = 0xABCD, Name = "Generic Q60 Adapter" },
+        }));
     }
 
     [Fact]
