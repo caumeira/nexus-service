@@ -86,13 +86,20 @@ public class AuthRequestPolicyTests
     }
 
     [Fact]
-    public void SpaShellFallback_BlocksCrossSiteHtmlNavigation()
+    public void SpaShellFallback_AllowsCrossSiteHtmlNavigation()
     {
+        // Android System WebView (and Chromium-based kiosks) send
+        // `Sec-Fetch-Site: cross-site` on top-level navigations to a new
+        // origin, even when the user originated the request — there is no
+        // prior origin to compare against. Accepting that value is safe
+        // for the SPA-shell GET path: it only returns index.html, not API
+        // data. CSRF on state-changing endpoints is enforced separately by
+        // RejectsInsecureCsrf.
         var ctx = NewContext("GET", "/settings");
         ctx.Request.Headers.Accept = "text/html";
         ctx.Request.Headers["Sec-Fetch-Site"] = "cross-site";
 
-        Assert.False(AuthRequestPolicy.IsSpaShellFallbackAllowed(ctx));
+        Assert.True(AuthRequestPolicy.IsSpaShellFallbackAllowed(ctx));
     }
 
     [Fact]
