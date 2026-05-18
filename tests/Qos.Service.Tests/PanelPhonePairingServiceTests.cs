@@ -476,8 +476,11 @@ public class PanelPhonePairingServiceTests
     }
 
     [Fact]
-    public void HostDecisionPairCode_Approve_ThenPhoneConfirm_IssuesToken()
+    public void HostApprove_ThenPhonePoll_IssuesToken()
     {
+        // The phone's polling /confirm IS the wait. There's no separate
+        // "phone approves" gesture - the user-visible model is "type code,
+        // compare SAS, click Allow on the system, phone connects."
         var store = new InMemoryConfigStore();
         var service = NewService(store);
         service.SpkiFingerprint = "fp-stub";
@@ -485,35 +488,21 @@ public class PanelPhonePairingServiceTests
         var submit = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
         Assert.True(submit.Accepted);
 
-        var host = service.HostDecisionPairCode(submit.RequestId, approved: true);
-        Assert.Equal("waiting-phone", host.Status);
-
-        var confirm = service.ConfirmPairCode(submit.RequestId, approved: true, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
-        Assert.Equal("approved", confirm.Status);
-        Assert.False(string.IsNullOrEmpty(confirm.Token));
-        Assert.Equal("fp-stub", confirm.SpkiFingerprint);
-
-        // Session token is usable, just like a QR-claim session.
-        Assert.True(service.ValidateSessionToken(confirm.Token, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true)));
-    }
-
-    [Fact]
-    public void PhoneConfirm_FirstThenHostApprove_AlsoIssuesToken()
-    {
-        var service = NewService(new InMemoryConfigStore());
-        var start = service.StartPairCode();
-        var submit = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
-
-        var phoneFirst = service.ConfirmPairCode(submit.RequestId, approved: true, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
-        Assert.Equal("waiting-host", phoneFirst.Status);
-        Assert.Equal("", phoneFirst.Token);
+        // Phone polls before host approves -> waiting-host, no token yet.
+        var beforeApprove = service.ConfirmPairCode(submit.RequestId, approved: true, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.Equal("waiting-host", beforeApprove.Status);
+        Assert.Equal("", beforeApprove.Token);
 
         var host = service.HostDecisionPairCode(submit.RequestId, approved: true);
         Assert.Equal("approved", host.Status);
 
-        var phoneAgain = service.ConfirmPairCode(submit.RequestId, approved: true, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
-        Assert.Equal("approved", phoneAgain.Status);
-        Assert.False(string.IsNullOrEmpty(phoneAgain.Token));
+        // Next poll picks up the host approval and gets the token.
+        var afterApprove = service.ConfirmPairCode(submit.RequestId, approved: true, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.Equal("approved", afterApprove.Status);
+        Assert.False(string.IsNullOrEmpty(afterApprove.Token));
+        Assert.Equal("fp-stub", afterApprove.SpkiFingerprint);
+
+        Assert.True(service.ValidateSessionToken(afterApprove.Token, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true)));
     }
 
     [Fact]

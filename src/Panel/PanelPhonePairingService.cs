@@ -942,10 +942,13 @@ public sealed class PanelPhonePairingService
     }
 
     /// <summary>
-    /// Phone-side approval / poll. When the host has also approved, the
-    /// response carries the freshly-minted session token and the canonical
-    /// SPKI fingerprint (so the phone can verify what it captured during
-    /// the TLS handshake matches what the server claims it offered).
+    /// Phone-side poll. The phone calls this repeatedly while the user is
+    /// waiting for the host to click Allow on the dashboard. When the host
+    /// has approved, the response carries the freshly-minted session token
+    /// and the canonical SPKI fingerprint (so the phone can verify what it
+    /// captured during the TLS handshake matches what the server says it
+    /// presented). Pass <paramref name="approved"/> false to cancel a
+    /// waiting request (the user closed the sheet).
     /// Requires HTTPS - the session token issued here is treated as
     /// ClaimedOverHttps so the long 30-day idle applies, and that's only
     /// safe if the channel was actually pinned.
@@ -980,14 +983,15 @@ public sealed class PanelPhonePairingService
             }
 
             // Host already denied (state retained so the phone learns the
-            // canonical "denied" instead of "unknown"). Now-irrelevant
-            // phone vote: drop the state and report the host's decision.
+            // canonical "denied" instead of "unknown"). Drop the state on
+            // the phone's next touch and report the host's decision.
             if (state.HostDenied)
             {
                 _pairCode = null;
                 return new PanelPhonePairCodeConfirmResponse { Status = "denied" };
             }
 
+            // Phone user-cancel (closed the sheet or hit Cancel).
             if (!approved)
             {
                 _pairCode = null;
@@ -1000,13 +1004,14 @@ public sealed class PanelPhonePairingService
                 return new PanelPhonePairCodeConfirmResponse { Status = "denied" };
             }
 
-            state.PhoneApproved = true;
-
+            // The phone's presence on this endpoint IS the confirmation -
+            // the user typed the code, sees the SAS, and is alive on the
+            // device. Only the host's Allow gates token issuance; this
+            // matches the user-visible model "compare SAS, then click
+            // Allow on the system."
             if (!state.HostApproved)
                 return new PanelPhonePairCodeConfirmResponse { Status = "waiting-host" };
 
-            // Both sides approved - hand off the state object and clear
-            // _pairCode now so a concurrent caller can't double-issue.
             sessionToIssue = state;
             _pairCode = null;
             result = new PanelPhonePairCodeConfirmResponse { Status = "approved" };
@@ -1068,11 +1073,10 @@ public sealed class PanelPhonePairingService
             state.HostApproved = true;
             // Token issuance happens on the phone's next /confirm poll so
             // the cookie/token lives in that response - keeps the host
-            // endpoint side-effect-free for the network stack.
-            return new PanelPhonePairCodeHostDecisionResponse
-            {
-                Status = state.PhoneApproved ? "approved" : "waiting-phone",
-            };
+            // endpoint side-effect-free for the network stack. The phone
+            // is already polling at 1 Hz, so the token arrives within a
+            // second of the host pressing Allow.
+            return new PanelPhonePairCodeHostDecisionResponse { Status = "approved" };
         }
     }
 
