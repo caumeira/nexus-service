@@ -88,3 +88,78 @@ public sealed class RemoteControlToggleRequest
 {
     public bool Enabled { get; set; }
 }
+
+// Manual pair-code flow (BT-SSP-style numeric comparison). Additive to the
+// QR flow for camera-less devices. The phone POSTs the typed code, server
+// returns a SAS bound to the leaf SPKI; user visually compares SAS on both
+// screens and dual-approves before a session token is issued.
+
+public sealed class PanelPhonePairCodeStartResponse
+{
+    public string Host { get; set; } = "";
+    public int Port { get; set; }
+    public string Code { get; set; } = "";
+    public int TtlSeconds { get; set; }
+    public long ExpiresAt { get; set; }
+}
+
+public sealed class PanelPhonePairCodeSubmitBody
+{
+    public string Code { get; set; } = "";
+}
+
+public sealed class PanelPhonePairCodeSubmitResponse
+{
+    public bool Accepted { get; set; }
+    public string RequestId { get; set; } = "";
+    public string Sas { get; set; } = "";
+    public string SpkiFingerprint { get; set; } = "";
+    public string MachineName { get; set; } = "";
+    public long ExpiresAt { get; set; }
+    public string Error { get; set; } = "";
+    public int RetryAfterSeconds { get; set; }
+}
+
+public sealed class PanelPhonePairCodeConfirmBody
+{
+    public string RequestId { get; set; } = "";
+    public bool Approved { get; set; }
+}
+
+public sealed class PanelPhonePairCodeConfirmResponse
+{
+    /// <summary>One of: waiting-host, approved, denied, expired, unknown.</summary>
+    public string Status { get; set; } = "";
+    public string Token { get; set; } = "";
+    public string MachineName { get; set; } = "";
+    public string SpkiFingerprint { get; set; } = "";
+}
+
+public sealed class PanelPhonePairCodeHostDecisionBody
+{
+    public string RequestId { get; set; } = "";
+    public bool Approved { get; set; }
+}
+
+public sealed class PanelPhonePairCodeHostDecisionResponse
+{
+    public string Status { get; set; } = "";
+}
+
+/// <summary>
+/// Multiplex frame for the dashboard. <c>Kind</c> = "request" means a phone
+/// just submitted the active code and is awaiting host confirmation.
+/// "cancelled" carries a <c>Reason</c> (expired, phone-denied, host-denied,
+/// host-started-new-code) so the dashboard can clear its prompt.
+/// </summary>
+public sealed class PanelPhonePairCodeRequestFrame
+{
+    public string Kind { get; set; } = "";
+    public string RequestId { get; set; } = "";
+    public string Sas { get; set; } = "";
+    public string DeviceLabel { get; set; } = "";
+    public string RemoteAddress { get; set; } = "";
+    public string UserAgent { get; set; } = "";
+    public long ExpiresAt { get; set; }
+    public string Reason { get; set; } = "";
+}

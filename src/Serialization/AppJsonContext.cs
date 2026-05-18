@@ -149,6 +149,14 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(Qos.Service.Models.Panel.PanelStatusResponse))]
 [JsonSerializable(typeof(Qos.Service.Models.Panel.RemoteControlStateResponse))]
 [JsonSerializable(typeof(Qos.Service.Models.Panel.RemoteControlToggleRequest))]
+[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeStartResponse))]
+[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeSubmitBody))]
+[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeSubmitResponse))]
+[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeConfirmBody))]
+[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeConfirmResponse))]
+[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeHostDecisionBody))]
+[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeHostDecisionResponse))]
+[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeRequestFrame))]
 
 // Displays (system monitors: brightness + DDC/CI VCP)
 [JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayDto))]

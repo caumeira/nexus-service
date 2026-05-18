@@ -137,6 +137,53 @@ public static class PanelRoutes
                 AppJsonContext.Default.RemoteControlStateResponse);
         });
 
+        // Manual pair-code flow. /start + /host-decision require the desktop
+        // token (only a user at the PC can mint / approve a code). /submit
+        // and /confirm are public so the phone (no session yet) can drive its
+        // half; the auth bypass is added to the middleware list in Program.cs.
+        app.MapPost("/panel/phone/pair-code/start", (HttpContext ctx, PanelPhonePairingService pairing, TokenService tokens) =>
+        {
+            if (!HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+            return Results.Json(pairing.StartPairCode(), AppJsonContext.Default.PanelPhonePairCodeStartResponse);
+        });
+
+        app.MapPost("/panel/phone/pair-code/submit", (HttpContext ctx, PanelPhonePairCodeSubmitBody body, PanelPhonePairingService pairing) =>
+        {
+            var result = pairing.SubmitPairCode(body?.Code ?? "", ctx);
+            return result.Accepted
+                ? Results.Json(result, AppJsonContext.Default.PanelPhonePairCodeSubmitResponse)
+                : Results.Json(result, AppJsonContext.Default.PanelPhonePairCodeSubmitResponse, statusCode: result.Error == "rate-limited" ? 429 : 400);
+        });
+
+        app.MapPost("/panel/phone/pair-code/confirm", (HttpContext ctx, PanelPhonePairCodeConfirmBody body, PanelPhonePairingService pairing) =>
+        {
+            var result = pairing.ConfirmPairCode(body?.RequestId ?? "", body?.Approved ?? false, ctx);
+            if (result.Status == "approved" && !string.IsNullOrEmpty(result.Token))
+            {
+                ctx.Response.Cookies.Append(
+                    PanelPhonePairingService.SessionCookieName,
+                    result.Token,
+                    new CookieOptions
+                    {
+                        HttpOnly = true,
+                        Secure = ctx.Request.IsHttps,
+                        SameSite = SameSiteMode.Lax,
+                        Path = "/",
+                        MaxAge = PanelPhonePairingService.SessionIdle,
+                    });
+            }
+            return Results.Json(result, AppJsonContext.Default.PanelPhonePairCodeConfirmResponse);
+        });
+
+        app.MapPost("/panel/phone/pair-code/host-decision", (HttpContext ctx, PanelPhonePairCodeHostDecisionBody body, PanelPhonePairingService pairing, TokenService tokens) =>
+        {
+            if (!HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+            var result = pairing.HostDecisionPairCode(body?.RequestId ?? "", body?.Approved ?? false);
+            return Results.Json(result, AppJsonContext.Default.PanelPhonePairCodeHostDecisionResponse);
+        });
+
         app.MapGet("/panel/devices", (PanelDeviceRegistry registry) =>
         {
             return Results.Json(

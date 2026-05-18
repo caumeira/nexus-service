@@ -544,6 +544,17 @@ app.Use(async (ctx, next) =>
         return;
     }
 
+    // Manual pair-code phone-side endpoints. The handler enforces rate limit,
+    // single-use, TTL, and SAS binding. /start and /host-decision (the desktop
+    // halves) stay behind the bearer-token gate via the route handler.
+    if (ctx.Request.Method == "POST" &&
+        (path.Equals("/panel/phone/pair-code/submit", StringComparison.OrdinalIgnoreCase) ||
+         path.Equals("/panel/phone/pair-code/confirm", StringComparison.OrdinalIgnoreCase)))
+    {
+        await next(ctx);
+        return;
+    }
+
     // The phone QR opens the SPA shell without an Authorization header. iOS may
     // report the navigation as cross-site after the QR/certificate handoff, so
     // allow only this GET shell route here; the claim/API calls are still gated.
