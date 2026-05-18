@@ -1,6 +1,7 @@
 using System.Text.Json.Serialization;
 using Qos.Service.Models.Profiles;
 using Qos.Service.Persistence;
+using Qos.Service.QSeries;
 
 namespace Qos.Service.Serialization;
 
@@ -28,6 +29,12 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(List<PanelLayoutWidget>))]
 [JsonSerializable(typeof(Dictionary<string, System.Text.Json.JsonElement>))]
 [JsonSerializable(typeof(System.Text.Json.JsonElement))]
+// QSeriesTransportStore: (USB-serial → TCP transport record). Lets the
+// service remember which Q-series devices have been promoted to
+// adb-over-WiFi so panel transport survives USB-FFS adb wedges across
+// service / adb-server restarts.
+[JsonSerializable(typeof(QSeriesTransportRecord))]
+[JsonSerializable(typeof(Dictionary<string, QSeriesTransportRecord>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
