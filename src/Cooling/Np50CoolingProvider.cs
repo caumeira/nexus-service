@@ -51,6 +51,13 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
     private bool _softwareModeAsserted;
     private string _lastConnectedSerial = "";
 
+    // Channels under user-set software control. Used to surface Mode="Manual"
+    // back to the panel — without it the panel snaps a freshly Manual-clicked
+    // hub fan back to BIOS on the next cooling-topic refresh (see
+    // CoolingView.refreshCoolingConfig which derives Manual purely from
+    // FanChannel.Mode for channels not bound to a curve).
+    private readonly HashSet<string> _softwareControlled = new();
+
     public Np50CoolingProvider(Np50Hub hub)
     {
         _hub = hub;
@@ -73,7 +80,7 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
             Name = "Legacy 4-pin",
             DutyPercent = _pendingLegacyDuty,
             Rpm = _hub.State.HubInfo.LegacyFanRpm,
-            Mode = "Auto",
+            Mode = _softwareControlled.Contains(legacyId) ? FanModes.Manual : FanModes.Auto,
             DeviceId = deviceId,
             PortLabel = "Legacy 4-pin",
             FanModel = null,
@@ -100,7 +107,7 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
                     Name = $"{fan.Model} (Port {port.Index} #{fan.Index})",
                     DutyPercent = duty,
                     Rpm = fan.Rpm,
-                    Mode = "Auto",
+                    Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
                     DeviceId = deviceId,
                     PortLabel = $"Port {port.Index}",
                     FanModel = fan.Model,
@@ -180,18 +187,23 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
 
     public void ReleaseFan(string channelId)
     {
-        // NP50 doesn't have a per-channel "release". The hub-level cooling
-        // mode controls all fans: switching back to Motherboard hands every
-        // fan back to MB control. Honor that semantic when the caller asks
-        // to release a single channel that lives on the hub.
+        // NP50 cooling mode is hub-level; flip back to Motherboard only when
+        // every channel on the hub has been released, so a wire-DnD
+        // disconnect on one fan doesn't yank PWM out from under sibling
+        // fans that are still actively driven.
         if (!channelId.StartsWith("np50:", StringComparison.Ordinal)) return;
+        _softwareControlled.Remove(channelId);
         if (!_hub.IsConnected) return;
-        _hub.SetDesiredCoolingMode(Np50Protocol.ModeMotherboard);
-        _softwareModeAsserted = false;
+        if (_softwareControlled.Count == 0)
+        {
+            _hub.SetDesiredCoolingMode(Np50Protocol.ModeMotherboard);
+            _softwareModeAsserted = false;
+        }
     }
 
     public void ReleaseAll()
     {
+        _softwareControlled.Clear();
         if (!_hub.IsConnected) return;
         _hub.SetDesiredCoolingMode(Np50Protocol.ModeMotherboard);
         _softwareModeAsserted = false;
@@ -266,6 +278,11 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
             System.Console.Error.WriteLine($"[np50-cooling] write to {channelId} dropped: hub not connected");
             return;
         }
+        // Driving a channel implies software control; record so the next
+        // GetFanChannels reports Mode="Manual" and the panel doesn't snap
+        // the user's Manual selection back to BIOS on the cooling-topic
+        // refresh.
+        _softwareControlled.Add(channelId);
 
         // Latch desired mode to Software so the heartbeat re-asserts it on
         // every tick (firmware 2.0.3.1 occasionally needs the mode-switch

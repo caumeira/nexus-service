@@ -110,8 +110,8 @@ public sealed class FanChannel
     public string Name { get; set; } = "";
     public int DutyPercent { get; set; }
     public int Rpm { get; set; }
-    /// <summary>"Auto" | "Manual" | "Curve"</summary>
-    public string Mode { get; set; } = "Auto";
+    /// <summary>One of <see cref="FanModes.Auto"/>, <see cref="FanModes.Manual"/>, <see cref="FanModes.Curve"/>.</summary>
+    public string Mode { get; set; } = FanModes.Auto;
     public int? MinRpm { get; set; }
     public int? MaxRpm { get; set; }
     public int? MinDuty { get; set; }
@@ -202,7 +202,7 @@ public sealed class SetFanSpeedResponse : ApiResponse
 {
     public string ChannelId { get; set; } = "";
     public int Speed { get; set; }
-    public string Mode { get; set; } = "Manual";
+    public string Mode { get; set; } = FanModes.Manual;
 }
 
 public sealed class SetFanNameBody

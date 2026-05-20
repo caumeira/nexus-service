@@ -28,6 +28,20 @@ namespace Qos.Service.Cooling;
 public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvider
 {
     private readonly MiniHubHub _hub;
+    // Diagnostic: log GetFanChannels return shape once per minute so a
+    // missing-on-cooling-page report can be diagnosed without a redeploy.
+    private DateTime _nextTraceUtc = DateTime.MinValue;
+
+    // Channels the user has placed under software control (Manual mode or
+    // curve-bound). Tracked here because the MiniHub firmware only has a
+    // hub-level Software/Motherboard mode switch — there is no per-port
+    // "Manual" flag we can query back. Without this, GetFanChannels would
+    // return Mode="Auto" for a freshly Manual-clicked channel, and the
+    // panel's refreshCoolingConfig would snap the UI back to BIOS the
+    // moment the next cooling-topic broadcast fires (the panel decides
+    // Manual vs BIOS purely from FanChannel.Mode + saved curves output
+    // list — see CoolingView.refreshCoolingConfig).
+    private readonly HashSet<string> _softwareControlled = new();
 
     public MiniHubCoolingProvider(MiniHubHub hub)
     {
@@ -38,36 +52,40 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
 
     public IReadOnlyList<FanChannel> GetFanChannels()
     {
-        if (!_hub.IsConnected) return Array.Empty<FanChannel>();
+        var connected = _hub.IsConnected;
         var state = _hub.State;
         var serial = state.Serial;
+        TraceIfDue(connected, serial, state);
+        if (!connected) return Array.Empty<FanChannel>();
         if (string.IsNullOrEmpty(serial)) return Array.Empty<FanChannel>();
         var deviceId = _hub.DeviceId;
         var result = new List<FanChannel>(2);
 
         if (state.Port1Fans > 0)
         {
+            var id = Port1Id(serial);
             result.Add(new FanChannel
             {
-                Id = Port1Id(serial),
+                Id = id,
                 Name = "Port 1 Fan",
                 DutyPercent = state.Port1Duty,
                 Rpm = state.Port1Rpm,
-                Mode = "Auto",
+                Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
                 PortLabel = "Port 1",
             });
         }
         if (state.Port2Fans > 0)
         {
+            var id = Port2Id(serial);
             var label = state.Port2Fans == 1 ? "Port 2 Fan" : $"Port 2 Fans ({state.Port2Fans})";
             result.Add(new FanChannel
             {
-                Id = Port2Id(serial),
+                Id = id,
                 Name = label,
                 DutyPercent = state.Port2Duty,
                 Rpm = state.Port2Rpm,
-                Mode = "Auto",
+                Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
                 PortLabel = "Port 2",
             });
@@ -99,19 +117,23 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
 
     public void ReleaseFan(string channelId)
     {
-        // MiniHub control mode is hub-level, not per-port — flipping back to
-        // motherboard hands BOTH ports to the MB header simultaneously. The
-        // heartbeat worker will reassert software mode on the next tick if
-        // any qos consumer still expects to drive a port, so this matches
-        // the "release this one channel" intent for as long as no other
-        // channel is actively driven.
+        // MiniHub control mode is hub-level, not per-port. Drop the channel
+        // from the software-control tracker; only flip the entire hub back
+        // to motherboard mode once nothing else needs software-driven PWM,
+        // so a wire-DnD disconnect on one port doesn't yank PWM out from
+        // under another port that is still actively driven.
         if (!IsMiniHubId(channelId)) return;
+        _softwareControlled.Remove(channelId);
         if (!_hub.IsConnected) return;
-        _hub.SetFanControlMode(MiniHubProtocol.FanModeMotherboard);
+        if (_softwareControlled.Count == 0)
+        {
+            _hub.SetFanControlMode(MiniHubProtocol.FanModeMotherboard);
+        }
     }
 
     public void ReleaseAll()
     {
+        _softwareControlled.Clear();
         if (!_hub.IsConnected) return;
         _hub.SetFanControlMode(MiniHubProtocol.FanModeMotherboard);
     }
@@ -185,6 +207,10 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
             Console.Error.WriteLine($"[minihub-cooling] write to {channelId} dropped: hub not connected");
             return;
         }
+        // Driving this channel implies software control; record so the next
+        // GetFanChannels returns Mode="Manual" and the panel doesn't snap
+        // the user's selection back to BIOS on the cooling-topic refresh.
+        _softwareControlled.Add(channelId);
         var state = _hub.State;
         var port1Target = state.Port1Duty;
         var port2Target = state.Port2Duty;
@@ -206,4 +232,15 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
 
     private static string Port1Id(string serial) => $"minihub:{serial}:port1";
     private static string Port2Id(string serial) => $"minihub:{serial}:port2";
+
+    private void TraceIfDue(bool connected, string serial, MiniHubState state)
+    {
+        var now = DateTime.UtcNow;
+        if (now < _nextTraceUtc) return;
+        _nextTraceUtc = now.AddSeconds(60);
+        Console.Error.WriteLine(
+            $"[minihub-cooling] GetFanChannels connected={connected} serial={serial} " +
+            $"port1Fans={state.Port1Fans} port2Fans={state.Port2Fans} " +
+            $"port1Rpm={state.Port1Rpm} port2Rpm={state.Port2Rpm}");
+    }
 }

@@ -19,6 +19,8 @@ public sealed class MiniHubHeartbeatWorker : BackgroundService
     private readonly MiniHubHub _hub;
     private bool _rgbModeAsserted;
     private bool _fanModeAsserted;
+    private int _tickCount;
+    private const int TraceEveryNTicks = 15; // every ~30 s with the 2 s timer
 
     public MiniHubHeartbeatWorker(MiniHubHub hub) { _hub = hub; }
 
@@ -59,6 +61,14 @@ public sealed class MiniHubHeartbeatWorker : BackgroundService
         }
         // Poll tachs every tick so the cooling page shows live RPM. Cheap —
         // one 3-byte write + 9-byte read at 0.5 Hz.
-        _hub.PollFanSpeeds();
+        var pollOk = _hub.PollFanSpeeds();
+        if (++_tickCount % TraceEveryNTicks == 1)
+        {
+            var s = _hub.State;
+            Console.Error.WriteLine(
+                $"[minihub-cooling] poll#{_tickCount} ok={pollOk} serial={s.Serial} " +
+                $"port1Fans={s.Port1Fans} port1Rpm={s.Port1Rpm} port1Duty={s.Port1Duty} " +
+                $"port2Fans={s.Port2Fans} port2Rpm={s.Port2Rpm} port2Duty={s.Port2Duty}");
+        }
     }
 }
