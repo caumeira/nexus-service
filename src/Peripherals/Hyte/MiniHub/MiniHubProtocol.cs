@@ -47,12 +47,25 @@ public static class MiniHubProtocol
 
     private const byte SubGetFirmwareVersion = 0x02;
     private const byte SubSetRgbControlMode = 0x03;
+    private const byte SubSetFanSpeed = 0x04;
     private const byte SubSetFanControlMode = 0x05;
     private const byte SubGetFanSpeed = 0x06;
     private const byte SubStreaming = 0x03;
 
     public const byte RgbModeMotherboard = 0x01;
     public const byte RgbModeSoftware = 0x00;
+
+    public const byte FanModeMotherboard = 0x01;
+    public const byte FanModeSoftware = 0x00;
+
+    // The MiniHub firmware clamps fan PWM below 10% to 0%, but accepts values
+    // in the 10..100 range. Match HYTE's reference (IBPMiniHubController) which
+    // also clamps to [10, 100] before sending.
+    public const int FanMinDutyPercent = 10;
+    public const int FanMaxDutyPercent = 100;
+
+    // Get-fan-speed response length per the spec table (9 bytes total).
+    public const int GetFanSpeedResponseLength = 9;
 
     // ── Builders ──
 
@@ -69,6 +82,69 @@ public static class MiniHubProtocol
         if (mode != RgbModeSoftware && mode != RgbModeMotherboard)
             throw new ArgumentException($"Unknown RGB control mode 0x{mode:X2}", nameof(mode));
         return new byte[] { Frame0, OpControl, SubSetRgbControlMode, mode };
+    }
+
+    /// <summary>
+    /// Build the "Set Fan Control Mode" request (4 bytes). Software mode is
+    /// required before any <see cref="BuildSetFanSpeed"/> write actually
+    /// reaches the fans — by default the hub hands fan PWM to the motherboard
+    /// header so qos writes are ignored until this command flips the mode.
+    /// </summary>
+    public static byte[] BuildSetFanControlMode(byte mode)
+    {
+        if (mode != FanModeSoftware && mode != FanModeMotherboard)
+            throw new ArgumentException($"Unknown fan control mode 0x{mode:X2}", nameof(mode));
+        return new byte[] { Frame0, OpControl, SubSetFanControlMode, mode };
+    }
+
+    /// <summary>
+    /// Build the "Set Fan Speed" request. The MiniHub spec doc shows an
+    /// 11-byte frame (channels 3 + 4 forced to 0), but HYTE's shipping
+    /// reference (<c>IBPMiniHubController.SetFanSpeed</c>) writes only the
+    /// first 7 bytes — <c>FF DD 04 00 &lt;port1%&gt; 00 &lt;port2%&gt;</c>.
+    /// Same bug-for-bug rationale as <see cref="BuildLightingStream"/>: the
+    /// shipping firmware is what works against real hardware, so we follow
+    /// the reference rather than the spec table.
+    /// Inputs outside <c>[FanMinDutyPercent, FanMaxDutyPercent]</c> are
+    /// clamped to that range (matches HYTE), so a curve engine emitting 0%
+    /// still pins to 10% — there is no firmware-accepted "stop" duty.
+    /// </summary>
+    public static byte[] BuildSetFanSpeed(int port1Percent, int port2Percent)
+    {
+        var p1 = (byte)Math.Clamp(port1Percent, FanMinDutyPercent, FanMaxDutyPercent);
+        var p2 = (byte)Math.Clamp(port2Percent, FanMinDutyPercent, FanMaxDutyPercent);
+        return new byte[] { Frame0, OpControl, SubSetFanSpeed, 0x00, p1, 0x00, p2 };
+    }
+
+    /// <summary>Build the "Get Fan Speed" request (3 bytes). Response is 9 bytes long.</summary>
+    public static byte[] BuildGetFanSpeed() => new byte[] { Frame0, OpControl, SubGetFanSpeed };
+
+    /// <summary>
+    /// Parse the 9-byte fan-speed response into per-port RPM values.
+    /// Wire shape per spec:
+    /// <c>FF DD 06 01 _ &lt;period1&gt; 02 _ &lt;period2&gt;</c> where the
+    /// period bytes encode the time between tachometer pulses. RPM follows
+    /// HYTE's reference formula <c>60000 / (period * 0.4)</c>; a period byte
+    /// of 0 means "no tach signal" → 0 RPM. Returns false if the header
+    /// doesn't match the expected get-fan-speed reply (transport hiccup,
+    /// wrong device on the port, etc.).
+    /// </summary>
+    public static bool TryParseFanSpeeds(ReadOnlySpan<byte> response, out int port1Rpm, out int port2Rpm)
+    {
+        port1Rpm = 0;
+        port2Rpm = 0;
+        if (response.Length < GetFanSpeedResponseLength) return false;
+        if (response[0] != Frame0 || response[1] != OpControl || response[2] != SubGetFanSpeed) return false;
+        port1Rpm = PeriodToRpm(response[5]);
+        port2Rpm = PeriodToRpm(response[8]);
+        return true;
+    }
+
+    private static int PeriodToRpm(byte periodByte)
+    {
+        if (periodByte == 0) return 0;
+        var rpm = (int)(60_000.0 / (periodByte * 0.4));
+        return rpm > 0 ? rpm : 0;
     }
 
     // Per HYTE's reference (IBPMiniHubController.cs:200), the two LED-count

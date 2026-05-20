@@ -88,7 +88,8 @@ public static class QosServiceCollectionExtensions
         services.AddSingleton<WindowsFanControlProvider>();
         services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
             sp.GetRequiredService<WindowsFanControlProvider>(),
-            sp.GetRequiredService<Np50CoolingProvider>()));
+            sp.GetRequiredService<Np50CoolingProvider>(),
+            sp.GetRequiredService<MiniHubCoolingProvider>()));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #else
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
@@ -96,18 +97,21 @@ public static class QosServiceCollectionExtensions
             services.AddSingleton<MacFanControlProvider>();
             services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
                 sp.GetRequiredService<MacFanControlProvider>(),
-                sp.GetRequiredService<Np50CoolingProvider>()));
+                sp.GetRequiredService<Np50CoolingProvider>(),
+                sp.GetRequiredService<MiniHubCoolingProvider>()));
             services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
         }
         else
         {
             services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
                 sp.GetRequiredService<StubCoolingProvider>(),
-                sp.GetRequiredService<Np50CoolingProvider>()));
+                sp.GetRequiredService<Np50CoolingProvider>(),
+                sp.GetRequiredService<MiniHubCoolingProvider>()));
             services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
         }
 #endif
         services.AddSingleton<Np50CoolingProvider>();
+        services.AddSingleton<MiniHubCoolingProvider>();
         services.AddSingleton<ICurveProvider>(sp => sp.GetRequiredService<StubCoolingProvider>());
         services.AddSingleton<CurveEngine>();
         services.AddHostedService(sp => sp.GetRequiredService<CurveEngine>());

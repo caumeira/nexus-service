@@ -30,6 +30,36 @@ public sealed class MiniHubState
     public MiniHubLedZone Port2 { get; set; } = new() { Channel = 2, LedCount = 48 };
     public MiniHubLedZone Port3 { get; set; } = new() { Channel = 3, LedCount = 16 };
     public MiniHubLedZone Port4 { get; set; } = new() { Channel = 4, LedCount = 0 };
+
+    // ── Fan / cooling state ──
+
+    /// <summary>
+    /// Fans wired to port 1 (0 or 1). Mirrors HYTE's MiniHubLayoutConfig.Port1Fans.
+    /// Drives whether the cooling page renders a Port 1 fan card. Defaults to 1
+    /// because HYTE's reference and the Y70 stock configuration both ship with
+    /// the rear fan wired to port 1.
+    /// </summary>
+    public int Port1Fans { get; set; } = 1;
+
+    /// <summary>
+    /// Fans wired to port 2 (0..3 daisy-chained). Defaults to 3 to match the
+    /// Y70 stock front-fan trio. All chained fans share one PWM duty and one
+    /// tach reading — port 2 surfaces as a single logical "Port 2 Fans" card
+    /// in the cooling list, not one card per chained fan.
+    /// </summary>
+    public int Port2Fans { get; set; } = 3;
+
+    /// <summary>Last polled port-1 tach reading in RPM. 0 when the port has no fan or the firmware reports no tach signal.</summary>
+    public int Port1Rpm { get; set; }
+
+    /// <summary>Last polled port-2 tach reading in RPM. With a 3-fan daisy chain this is the speed of the fan whose tach wire the hub samples (firmware-defined).</summary>
+    public int Port2Rpm { get; set; }
+
+    /// <summary>Last commanded port-1 duty (10..100%). 0 means the port has never been driven from software.</summary>
+    public int Port1Duty { get; set; }
+
+    /// <summary>Last commanded port-2 duty (10..100%).</summary>
+    public int Port2Duty { get; set; }
 }
 
 /// <summary>One MiniHub LED port — the user can adjust LedCount if the strip they wired differs from the firmware default.</summary>

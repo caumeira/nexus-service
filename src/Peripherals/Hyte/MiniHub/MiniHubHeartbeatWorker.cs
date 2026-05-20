@@ -7,21 +7,24 @@ namespace Qos.Service.Peripherals.Hyte.MiniHub;
 
 /// <summary>
 /// Background poller for the MiniHub. Much simpler than NP50's heartbeat
-/// because the MiniHub doesn't have a 5s revert-to-firmware timer and
-/// has no per-port fan/temp poll in v1. The worker's job is just to
-/// (a) keep trying to open the port until the device shows up, (b) read
-/// the firmware version once on first connect, (c) re-assert software
-/// RGB mode after a reconnect so our LED frames take effect.
+/// because the MiniHub doesn't have a 5s revert-to-firmware timer. The
+/// worker's jobs are: (a) keep trying to open the port until the device
+/// shows up, (b) read the firmware version once on first connect,
+/// (c) re-assert software RGB + fan control modes after a reconnect so our
+/// LED frames and fan writes take effect, (d) poll the per-port tach
+/// readings so the cooling page can show live RPM.
 /// </summary>
 public sealed class MiniHubHeartbeatWorker : BackgroundService
 {
     private readonly MiniHubHub _hub;
-    private bool _modeAsserted;
+    private bool _rgbModeAsserted;
+    private bool _fanModeAsserted;
 
     public MiniHubHeartbeatWorker(MiniHubHub hub) { _hub = hub; }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        Console.Error.WriteLine("[minihub-heartbeat] ExecuteAsync started");
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -36,18 +39,26 @@ public sealed class MiniHubHeartbeatWorker : BackgroundService
     public void Tick()
     {
         var connectedBefore = _hub.IsConnected;
-        if (!_hub.EnsureConnected()) { _modeAsserted = false; return; }
-        // First connect ⇒ read FW version + assert software RGB mode so
-        // our lighting writes take effect. Cheap to re-assert on each
-        // reconnect; no-op for steady-state.
+        if (!_hub.EnsureConnected()) { _rgbModeAsserted = false; _fanModeAsserted = false; return; }
+        // First connect ⇒ read FW version + assert software control modes so
+        // our lighting writes and fan-speed writes take effect. Cheap to
+        // re-assert on each reconnect; no-op for steady-state.
         if (!connectedBefore || string.IsNullOrEmpty(_hub.State.FirmwareVersion))
         {
             _hub.PollFirmwareVersion();
         }
-        if (!_modeAsserted)
+        if (!_rgbModeAsserted)
         {
             if (_hub.SetRgbControlMode(MiniHubProtocol.RgbModeSoftware))
-                _modeAsserted = true;
+                _rgbModeAsserted = true;
         }
+        if (!_fanModeAsserted)
+        {
+            if (_hub.SetFanControlMode(MiniHubProtocol.FanModeSoftware))
+                _fanModeAsserted = true;
+        }
+        // Poll tachs every tick so the cooling page shows live RPM. Cheap —
+        // one 3-byte write + 9-byte read at 0.5 Hz.
+        _hub.PollFanSpeeds();
     }
 }

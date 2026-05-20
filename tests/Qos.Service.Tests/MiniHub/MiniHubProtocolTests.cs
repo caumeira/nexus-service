@@ -149,6 +149,95 @@ public class MiniHubProtocolTests
         }
     }
 
+    // ── Fan commands ──
+
+    [Theory]
+    [InlineData(MiniHubProtocol.FanModeSoftware)]
+    [InlineData(MiniHubProtocol.FanModeMotherboard)]
+    public void BuildSetFanControlMode_emits_FF_DD_05_mode(byte mode)
+    {
+        Assert.Equal(new byte[] { 0xFF, 0xDD, 0x05, mode }, MiniHubProtocol.BuildSetFanControlMode(mode));
+    }
+
+    [Fact]
+    public void BuildSetFanControlMode_rejects_unknown_mode_byte()
+    {
+        Assert.Throws<ArgumentException>(() => MiniHubProtocol.BuildSetFanControlMode(0x99));
+    }
+
+    [Fact]
+    public void BuildSetFanSpeed_matches_HYTE_reference_7_byte_frame()
+    {
+        // HYTE's shipping IBPMiniHubController.SetFanSpeed (line 324) writes
+        // only `FF DD 04 00 <p1> 00 <p2>` — 7 bytes total — even though the
+        // spec doc shows an 11-byte frame. The firmware ignores the trailing
+        // channel-3/4 bytes and the shipping agent never sends them.
+        Assert.Equal(
+            new byte[] { 0xFF, 0xDD, 0x04, 0x00, 50, 0x00, 80 },
+            MiniHubProtocol.BuildSetFanSpeed(50, 80));
+    }
+
+    [Theory]
+    [InlineData(0, 10)]
+    [InlineData(-50, 10)]
+    [InlineData(5, 10)]
+    [InlineData(10, 10)]
+    [InlineData(75, 75)]
+    [InlineData(100, 100)]
+    [InlineData(150, 100)]
+    public void BuildSetFanSpeed_clamps_inputs_to_10_through_100(int input, byte expected)
+    {
+        var buf = MiniHubProtocol.BuildSetFanSpeed(input, input);
+        Assert.Equal(expected, buf[4]); // port 1
+        Assert.Equal(expected, buf[6]); // port 2
+    }
+
+    [Fact]
+    public void BuildGetFanSpeed_emits_FF_DD_06()
+    {
+        Assert.Equal(new byte[] { 0xFF, 0xDD, 0x06 }, MiniHubProtocol.BuildGetFanSpeed());
+    }
+
+    [Fact]
+    public void TryParseFanSpeeds_applies_60000_over_period_times_0_4_formula()
+    {
+        // Reference: IBPMiniHubController.GetFanRPM (line 328).
+        // rpm = 60000 / (periodByte * 0.4). Pick periods that yield clean ints.
+        // period = 21 → 60000 / 8.4 ≈ 7142.857… → int = 7142
+        // period = 88 → 60000 / 35.2 ≈ 1704.545… → int = 1704
+        var response = new byte[]
+        {
+            0xFF, 0xDD, 0x06,
+            0x01, 0x00, 21, // port 1: period byte = 21
+            0x02, 0x00, 88, // port 2: period byte = 88
+        };
+        Assert.True(MiniHubProtocol.TryParseFanSpeeds(response, out var rpm1, out var rpm2));
+        Assert.Equal(7142, rpm1);
+        Assert.Equal(1704, rpm2);
+    }
+
+    [Fact]
+    public void TryParseFanSpeeds_returns_zero_rpm_for_period_byte_0()
+    {
+        // Period 0 = no tach signal (port empty / fan stalled / no tach wire).
+        // HYTE's reference also gates this — division by zero would be int.MaxValue.
+        var response = new byte[] { 0xFF, 0xDD, 0x06, 0x01, 0x00, 0x00, 0x02, 0x00, 0x00 };
+        Assert.True(MiniHubProtocol.TryParseFanSpeeds(response, out var rpm1, out var rpm2));
+        Assert.Equal(0, rpm1);
+        Assert.Equal(0, rpm2);
+    }
+
+    [Fact]
+    public void TryParseFanSpeeds_rejects_short_or_wrong_header_responses()
+    {
+        Assert.False(MiniHubProtocol.TryParseFanSpeeds(
+            new byte[] { 0xFF, 0xDD, 0x06, 0x01, 0x00 }, out _, out _));
+        Assert.False(MiniHubProtocol.TryParseFanSpeeds(
+            new byte[] { 0xFF, 0xCC, 0x06, 0x01, 0x00, 0x10, 0x02, 0x00, 0x10 }, out _, out _));
+        Assert.False(MiniHubProtocol.TryParseFanSpeeds(
+            new byte[] { 0xFF, 0xDD, 0x02, 0x01, 0x00, 0x10, 0x02, 0x00, 0x10 }, out _, out _));
+    }
+
     // ── Firmware version parser ──
 
     [Fact]

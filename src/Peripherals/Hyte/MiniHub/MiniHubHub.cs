@@ -97,6 +97,56 @@ public sealed class MiniHubHub : IDisposable
     public bool WriteLighting(int channel, ReadOnlySpan<RgbColor> leds)
         => SendOnly(MiniHubProtocol.BuildLightingStream(channel, leds));
 
+    public bool SetFanControlMode(byte mode) => SendOnly(MiniHubProtocol.BuildSetFanControlMode(mode));
+
+    /// <summary>
+    /// Push a single port-pair PWM update to the hub. Both ports are written
+    /// in one frame (the protocol has no per-port command); pass the
+    /// previously-applied value for whichever port the caller doesn't want
+    /// to change. Stores the commanded values on <see cref="State"/> so the
+    /// cooling provider can read them back without a round-trip.
+    /// </summary>
+    public bool WriteFanSpeed(int port1Percent, int port2Percent)
+    {
+        var ok = SendOnly(MiniHubProtocol.BuildSetFanSpeed(port1Percent, port2Percent));
+        if (ok)
+        {
+            State.Port1Duty = Math.Clamp(port1Percent, MiniHubProtocol.FanMinDutyPercent, MiniHubProtocol.FanMaxDutyPercent);
+            State.Port2Duty = Math.Clamp(port2Percent, MiniHubProtocol.FanMinDutyPercent, MiniHubProtocol.FanMaxDutyPercent);
+        }
+        return ok;
+    }
+
+    /// <summary>
+    /// Query both port tach readings and stash them on <see cref="State"/>.
+    /// Returns false on transport hiccup or malformed reply so the heartbeat
+    /// can drop the transport and re-discover the port. The 300 ms read
+    /// budget matches <see cref="PollFirmwareVersion"/>.
+    /// </summary>
+    public bool PollFanSpeeds()
+    {
+        if (!EnsureConnected()) return false;
+        var transport = _transport!;
+        try
+        {
+            transport.DiscardInput();
+            transport.Write(MiniHubProtocol.BuildGetFanSpeed());
+            var buf = new byte[MiniHubProtocol.GetFanSpeedResponseLength];
+            var n = transport.Read(buf, 300);
+            if (n < MiniHubProtocol.GetFanSpeedResponseLength) { Disconnect(); return false; }
+            if (!MiniHubProtocol.TryParseFanSpeeds(buf.AsSpan(0, n), out var rpm1, out var rpm2)) return false;
+            State.Port1Rpm = rpm1;
+            State.Port2Rpm = rpm2;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[minihub] get-fan-speed exchange failed: {ex.GetType().Name}: {ex.Message}");
+            Disconnect();
+            return false;
+        }
+    }
+
     public void Dispose()
     {
         if (_disposed) return;
