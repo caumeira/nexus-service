@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Qos.Service.Peripherals.Hyte.Np50;
 
 namespace Qos.Service.Peripherals.Hyte.MiniHub;
@@ -107,12 +108,35 @@ public sealed class MiniHubHub : IDisposable
     {
         if (!EnsureConnected()) return false;
         var transport = _transport!;
-        try { transport.Write(request); return true; }
+        try
+        {
+            transport.Write(request);
+            _consecutiveWriteFailures = 0;
+            return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            return false;
+        }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[minihub] write failed: {ex.GetType().Name}: {ex.Message}");
-            Disconnect();
+            // See Np50Hub.SendOnly for the rationale: a single transient
+            // write hiccup at 30 Hz used to tear down the shared transport
+            // (which also affects the other hub on the same USB bus) and
+            // surface as visible flicker. Soften to "log and retry" until
+            // a sustained burst makes it clear the port is actually dead.
+            var n = Interlocked.Increment(ref _consecutiveWriteFailures);
+            Console.Error.WriteLine($"[minihub] write failed (#{n}): {ex.GetType().Name}: {ex.Message}");
+            if (n >= ConsecutiveWriteFailureThreshold)
+            {
+                Console.Error.WriteLine($"[minihub] {n} consecutive write failures — dropping transport so next tick rediscovers");
+                _consecutiveWriteFailures = 0;
+                Disconnect();
+            }
             return false;
         }
     }
+
+    private int _consecutiveWriteFailures;
+    private const int ConsecutiveWriteFailureThreshold = 5;
 }

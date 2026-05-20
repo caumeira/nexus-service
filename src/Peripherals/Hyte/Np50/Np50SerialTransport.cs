@@ -5,20 +5,37 @@ using System.Threading;
 namespace Qos.Service.Peripherals.Hyte.Np50;
 
 /// <summary>
-/// <see cref="INp50Transport"/> backed by <see cref="SerialPort"/>. NP50 enumerates
-/// as a USB CDC virtual COM port, so the baud rate is nominal — the USB stack
-/// boundaries the packets. We pick conservative defaults (115200 8N1) that
-/// match common CDC firmware expectations.
+/// <see cref="INp50Transport"/> backed by <see cref="SerialPort"/>. NP50 / MiniHub
+/// enumerate as USB CDC virtual COM ports, so the baud rate is nominal — the
+/// USB stack frames the packets. We pick conservative defaults (115200 8N1)
+/// that match common CDC firmware expectations.
 ///
-/// Writes block until the OS accepts them. Reads honor the per-call timeout
-/// by temporarily setting <see cref="SerialPort.ReadTimeout"/> — concurrent
-/// reads on the same instance are NOT supported (the heartbeat worker owns
-/// the single read path).
+/// Concurrency model: <b>writes and reads use independent locks</b> so a
+/// long heartbeat read (the 240-byte port-info poll has a 400 ms timeout
+/// and the worker chains three of them) does NOT block the 30 Hz lighting
+/// writer. SerialPort's underlying read/write streams are independent —
+/// concurrent Write-during-Read on a single port instance is fine as long
+/// as multiple writers are serialised among themselves (which the write
+/// lock guarantees).
+///
+/// HYTE's shipping nexus-control-service takes the same shape via a
+/// background write queue (<c>SmartHubCommandBase._executionQueue</c>)
+/// that never shares a lock with reads. Two locks gets us the same
+/// property without a queue thread.
 /// </summary>
 public sealed class Np50SerialTransport : INp50Transport
 {
     private readonly SerialPort _port;
-    private readonly object _ioLock = new();
+    // Writes from many threads (lighting writer, heartbeat, route handlers
+    // changing cooling mode / fan speed) get serialised here so the wire
+    // never sees interleaved bytes from two commands. Held briefly: a
+    // single Write call returns once the OS has accepted the bytes.
+    private readonly object _writeLock = new();
+    // Reads + DiscardInput take this lock. Held for the full per-poll
+    // timeout (up to a few hundred ms), so it MUST NOT be the same lock
+    // writes take. Only the heartbeat worker reads, so this lock sees
+    // single-threaded use in practice.
+    private readonly object _readLock = new();
     private bool _disposed;
 
     public Np50SerialTransport(string portName, string serial)
@@ -51,7 +68,7 @@ public sealed class Np50SerialTransport : INp50Transport
     public void Write(ReadOnlySpan<byte> data)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(Np50SerialTransport));
-        lock (_ioLock)
+        lock (_writeLock)
         {
             // SerialPort.Write expects a byte[] + offset + count. Allocate per-call
             // rather than reuse a buffer so callers don't need to synchronize.
@@ -63,7 +80,7 @@ public sealed class Np50SerialTransport : INp50Transport
     public void DiscardInput()
     {
         if (_disposed) return;
-        lock (_ioLock)
+        lock (_readLock)
         {
             try { if (_port.IsOpen) _port.DiscardInBuffer(); } catch { /* port may have closed mid-call */ }
         }
@@ -72,7 +89,7 @@ public sealed class Np50SerialTransport : INp50Transport
     public int Read(Span<byte> buffer, int timeoutMs)
     {
         if (_disposed) throw new ObjectDisposedException(nameof(Np50SerialTransport));
-        lock (_ioLock)
+        lock (_readLock)
         {
             // Loop until we have what the caller asked for, the timeout elapses,
             // or the port closes underneath us. SerialPort.Read returns "at least 1

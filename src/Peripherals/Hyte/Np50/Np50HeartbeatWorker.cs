@@ -26,12 +26,15 @@ namespace Qos.Service.Peripherals.Hyte.Np50;
 /// </summary>
 public sealed class Np50HeartbeatWorker : BackgroundService
 {
+    private const long ModeAssertCooldownMs = 30_000;
+
     private readonly Np50Hub _hub;
     private readonly MultiplexHub _wsHub;
     private readonly Np50LightingDeviceProvider? _lighting;
     private string _lastBroadcastFwVersion = "";
     private bool _lastConnected;
     private byte _lastWarningSummary;
+    private long _lastModeAssertMs;
 
     public Np50HeartbeatWorker(Np50Hub hub, MultiplexHub wsHub, Np50LightingDeviceProvider? lighting = null)
     {
@@ -84,12 +87,16 @@ public sealed class Np50HeartbeatWorker : BackgroundService
             _hub.PollFirmwareVersion();
         }
 
-        // Enforce desired cooling mode. Firmware 2.0.3.1 occasionally needs
-        // the mode-switch command repeated to actually flip (the v2 15-byte
-        // form works but isn't always immediate). If the user has asked us
-        // to hold Software mode, re-send on every tick until the reported
-        // mode catches up — once it matches, the no-op cost is one extra
-        // write per 2s. If desired is null we leave the hub alone.
+        // Enforce desired cooling mode. We used to re-send on EVERY drift
+        // detection, which can fire mid-frame and surface as a one-frame
+        // RGB glitch on connected strips (the 15-byte SetCoolingMode
+        // command parses on the same UART thread the LED stream rides).
+        // Match HYTE's shipping nexus-control-service: assert mode only
+        // when there's a genuine state change to push — first time we see
+        // the hub this session (no FW version yet), and at most once per
+        // 30 s of sustained drift. That keeps the rare firmware-2.0.3.1
+        // "needs the command twice" path covered without injecting a
+        // command burst into the 30 Hz lighting stream.
         if (_hub.DesiredCoolingMode is byte desired)
         {
             var current = _hub.State.HubInfo.CoolingMode switch
@@ -99,7 +106,25 @@ public sealed class Np50HeartbeatWorker : BackgroundService
                 "Static" => Np50Protocol.ModeStatic,
                 _ => (byte)0,
             };
-            if (current != desired) _hub.SetCoolingMode(desired);
+            var driftDetected = current != desired;
+            var nowMs = Environment.TickCount64;
+            if (driftDetected)
+            {
+                var firstSeen = !connectedBefore || string.IsNullOrEmpty(_hub.State.FirmwareVersion);
+                var rateLimitElapsed = nowMs - _lastModeAssertMs >= ModeAssertCooldownMs;
+                if (firstSeen || rateLimitElapsed)
+                {
+                    _hub.SetCoolingMode(desired);
+                    _lastModeAssertMs = nowMs;
+                }
+            }
+            else
+            {
+                // Reset the cooldown so the next drift event can re-assert
+                // immediately. Without this a quick mode-change → drift →
+                // reconverge cycle would silently swallow the next real one.
+                _lastModeAssertMs = 0;
+            }
         }
 
         // Pull per-port info every tick. Even with no fans attached the hub

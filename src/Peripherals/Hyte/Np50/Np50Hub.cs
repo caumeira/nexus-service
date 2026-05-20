@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 
 namespace Qos.Service.Peripherals.Hyte.Np50;
 
@@ -261,13 +262,36 @@ public sealed class Np50Hub : IDisposable
         try
         {
             transport.Write(request);
+            _consecutiveWriteFailures = 0;
             return true;
+        }
+        catch (ObjectDisposedException)
+        {
+            // Port was torn down by Dispose/Disconnect from another thread.
+            // Don't double-disconnect; just report the write failed.
+            return false;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[np50] write failed: {ex.GetType().Name}: {ex.Message}");
-            Disconnect();
+            // A single transient write hiccup (USB scheduling jitter, brief
+            // buffer pressure) used to call Disconnect() — which then
+            // dropped the entire transport for ~2 s until the next heartbeat
+            // rediscovered, surfacing as a visible RGB stutter on every
+            // strip. HYTE's reference (SmartHubCommandBase.Write) just logs
+            // and lets the next frame retry; only escalate to a real
+            // Disconnect after a sustained burst of failures.
+            var n = Interlocked.Increment(ref _consecutiveWriteFailures);
+            Console.Error.WriteLine($"[np50] write failed (#{n}): {ex.GetType().Name}: {ex.Message}");
+            if (n >= ConsecutiveWriteFailureThreshold)
+            {
+                Console.Error.WriteLine($"[np50] {n} consecutive write failures — dropping transport so next tick rediscovers");
+                _consecutiveWriteFailures = 0;
+                Disconnect();
+            }
             return false;
         }
     }
+
+    private int _consecutiveWriteFailures;
+    private const int ConsecutiveWriteFailureThreshold = 5;
 }
