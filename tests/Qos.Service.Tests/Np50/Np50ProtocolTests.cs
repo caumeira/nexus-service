@@ -152,8 +152,11 @@ public class Np50ProtocolTests
         Assert.Equal(0xEE, buf[1]);
         Assert.Equal(0x01, buf[2]);
         Assert.Equal(0x03, buf[3]); // port 3
-        Assert.Equal(0x00, buf[4]); // led count high byte
-        Assert.Equal(0x02, buf[5]); // led count low byte (2 LEDs)
+        // HYTE reference (CoolingHubBaseController.SendToHardware) hardcodes
+        // these two bytes to the magic 0x01 0x68 regardless of the real
+        // LED count — see the comment on LedCountMagicHigh/Low.
+        Assert.Equal(0x01, buf[4]);
+        Assert.Equal(0x68, buf[5]);
         Assert.Equal(0x00, buf[6]); // reserved
 
         // LED 0: GRB
@@ -167,12 +170,18 @@ public class Np50ProtocolTests
     }
 
     [Fact]
-    public void BuildLightingStream_writes_two_byte_LED_count_high_first()
+    public void BuildLightingStream_always_emits_LedCount_magic_constant_0x0168()
     {
-        var leds = new RgbColor[300];
-        var buf = Np50Protocol.BuildLightingStream(1, leds);
-        Assert.Equal(0x01, buf[4]); // 300 >> 8 = 1
-        Assert.Equal(0x2C, buf[5]); // 300 & 0xFF = 0x2C
+        // Reference: HYTE nexus-control-service CoolingHubBaseController.cs:336
+        // emits 0x01 0x68 in bytes 4/5 for every frame, ignoring the real LED
+        // count. Match that exactly so we behave identically against the same
+        // firmware revisions HYTE qualified on.
+        foreach (var ledCount in new[] { 0, 1, 6, 30, 90, 250, 300 })
+        {
+            var buf = Np50Protocol.BuildLightingStream(1, new RgbColor[ledCount]);
+            Assert.Equal(0x01, buf[4]);
+            Assert.Equal(0x68, buf[5]);
+        }
     }
 
     // ── Parsers ──

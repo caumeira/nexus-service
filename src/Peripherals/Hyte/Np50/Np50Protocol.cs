@@ -148,6 +148,16 @@ public static class Np50Protocol
         return buf;
     }
 
+    // HYTE's CoolingHubBaseController.SendToHardware writes 0x01 0x68 (= 360)
+    // into the two LED-count header bytes regardless of how many LEDs the
+    // frame actually carries. The spec says these are LedCount_H/L; the
+    // shipping firmware ignores that and accepts whatever bytes follow up
+    // to the wire-frame boundary. Match the reference exactly — sending the
+    // real count has been observed to leave the firmware mid-latch in
+    // some firmware revs.
+    private const byte LedCountMagicHigh = 0x01;
+    private const byte LedCountMagicLow = 0x68;
+
     /// <summary>
     /// Build an LED streaming frame for a port (7-byte header + 3 bytes per LED in GRB order).
     /// Channel 1's first 6 LEDs are the HYTE logo; callers that want to drive the logo prefix
@@ -162,8 +172,10 @@ public static class Np50Protocol
         var buf = new byte[7 + leds.Length * 3];
         buf[0] = Frame0; buf[1] = OpLighting; buf[2] = 0x01;
         buf[3] = (byte)port;
-        buf[4] = (byte)((leds.Length >> 8) & 0xFF); // LED count high
-        buf[5] = (byte)(leds.Length & 0xFF);        // LED count low
+        // LED-count header is the constant 0x01 0x68 per HYTE's reference.
+        // Do NOT replace with the real count — see comment above the constants.
+        buf[4] = LedCountMagicHigh;
+        buf[5] = LedCountMagicLow;
         // buf[6] reserved
         for (var i = 0; i < leds.Length; i++)
         {
