@@ -89,6 +89,34 @@ public sealed class RemoteControlToggleRequest
     public bool Enabled { get; set; }
 }
 
+/// <summary>Wi-Fi discoverability (mDNS) preference; AirDrop-style three-state.</summary>
+public sealed class PairBroadcastStateResponse
+{
+    /// <summary>"never" | "always" | "until"</summary>
+    public string Mode { get; set; } = "always";
+    /// <summary>Unix-seconds expiry when Mode == "until"; 0 otherwise.</summary>
+    public long UntilUnixSeconds { get; set; }
+}
+
+public sealed class PairBroadcastSetRequest
+{
+    public string Mode { get; set; } = "always";
+    public long UntilUnixSeconds { get; set; }
+}
+
+/// <summary>
+/// iOS-side Wi-Fi pair initiate. Sent the moment a discovered Qos service is
+/// tapped: server runs the same SAS-comparison handshake as /pair-code/submit
+/// but without an out-of-band 6-digit code (the user's Allow click on the
+/// desktop is the OOB). Same response shape as the code-submit path so the
+/// phone-side state machine can be shared between the two flows.
+/// </summary>
+public sealed class PairWifiInitiateRequest
+{
+    /// <summary>Human-readable phone label, e.g. "Nicola's iPhone". Optional, trimmed to 64 chars on the wire.</summary>
+    public string DeviceName { get; set; } = "";
+}
+
 // Manual pair-code flow (BT-SSP-style numeric comparison). Additive to the
 // QR flow for camera-less devices. The phone POSTs the typed code, server
 // returns a SAS bound to the leaf SPKI; user visually compares SAS on both

@@ -216,6 +216,11 @@ builder.Services
     .AddQosLinuxDBus()
     .AddQosHelper();
 
+// mDNS / Bonjour advertiser for the iOS companion app's Wi-Fi discovery.
+// Reads HttpsPort + SpkiFingerprint + MachineName off PanelPhonePairingService
+// after the Pairing config block below has populated them.
+builder.Services.AddHostedService<Qos.Service.Discovery.MdnsAdvertiser>();
+
 // ── Build ──
 var app = builder.Build();
 

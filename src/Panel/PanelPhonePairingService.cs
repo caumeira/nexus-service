@@ -371,6 +371,50 @@ public sealed class PanelPhonePairingService
             await _hub.KickAllPhoneAsync();
     }
 
+    /// <summary>
+    /// Returns the current Wi-Fi discoverability preference. Reading
+    /// passes through the persisted document and collapses an expired
+    /// "until <ts>" window to "never" so callers see a single source of
+    /// truth without having to check the timestamp themselves. Does not
+    /// mutate the persisted state.
+    /// </summary>
+    public (string Mode, long UntilUnixSeconds) GetPairBroadcast()
+    {
+        var raw = _store.Load().Auth?.PairBroadcast ?? new PairBroadcastSettings();
+        if (raw.Mode == "until" && raw.UntilUnixSeconds <= DateTimeOffset.UtcNow.ToUnixTimeSeconds())
+            return ("never", 0);
+        return (raw.Mode, raw.UntilUnixSeconds);
+    }
+
+    /// <summary>
+    /// Persists a Wi-Fi discoverability preference. <paramref name="mode"/>
+    /// must be "never", "always", or "until"; for "until" the caller passes
+    /// a future Unix-seconds expiry (clamped to a maximum of 24h ahead so a
+    /// stale write can't pin broadcast on forever).
+    /// </summary>
+    public void SetPairBroadcast(string mode, long untilUnixSeconds)
+    {
+        // Default unknown modes to "never" rather than "always": a misbehaving
+        // client sending an unrecognised string should land in the safer state,
+        // not silently enable LAN discoverability.
+        var normalized = mode switch
+        {
+            "never" => ("never", 0L),
+            "always" => ("always", 0L),
+            "until" => ("until", Math.Min(
+                untilUnixSeconds,
+                DateTimeOffset.UtcNow.AddHours(24).ToUnixTimeSeconds())),
+            _ => ("never", 0L)
+        };
+        _store.Update(s =>
+        {
+            s.Auth ??= new AuthSettings();
+            s.Auth.PairBroadcast ??= new PairBroadcastSettings();
+            s.Auth.PairBroadcast.Mode = normalized.Item1;
+            s.Auth.PairBroadcast.UntilUnixSeconds = normalized.Item2;
+        });
+    }
+
     public bool ValidateSessionToken(string? token)
         => TryValidateSessionToken(token, context: null, out _);
 
@@ -936,6 +980,111 @@ public sealed class PanelPhonePairingService
                 SpkiFingerprint = SpkiFingerprint,
                 MachineName = NormalizeMachineName(MachineName),
                 ExpiresAt = state.ExpiresAt,
+            };
+        }
+    }
+
+    /// <summary>
+    /// Phone-side: Wi-Fi-discovered pair handshake. Same SAS-comparison
+    /// model as <see cref="SubmitPairCode"/> but with no out-of-band code
+    /// — the phone found us via Bonjour, the user taps the discovered
+    /// device, and the OOB authentication is the user's physical Allow
+    /// click on the desktop (matching Bluetooth-style numeric comparison).
+    ///
+    /// Rate-limited per remote IP (same lockout as the code flow) so a
+    /// malicious LAN host can't pop the pair modal in a tight loop. If a
+    /// pair request is already in flight, returns "in-use"; user must
+    /// resolve the existing one first.
+    /// REQUIRES HTTPS for the same reason as SubmitPairCode: the SAS
+    /// binds to the captured SPKI; over plain HTTP that binding is
+    /// meaningless.
+    /// </summary>
+    public PanelPhonePairCodeSubmitResponse InitiatePairWifi(string deviceName, HttpContext context)
+    {
+        if (!GetRemoteControlEnabled())
+            return new PanelPhonePairCodeSubmitResponse { Error = "remote-disabled" };
+
+        if (!context.Request.IsHttps)
+            return new PanelPhonePairCodeSubmitResponse { Error = "https-required" };
+
+        var remoteAddress = NormalizeRemoteAddress(context.Connection.RemoteIpAddress?.ToString());
+        var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var expires = nowMs + PairCodeTtlSeconds * 1000L;
+
+        lock (_pairCodeLock)
+        {
+            PruneAttemptsLocked(nowMs);
+
+            if (TryGetLockoutLocked(remoteAddress, nowMs) is { } lockoutSecondsRemaining)
+            {
+                return new PanelPhonePairCodeSubmitResponse
+                {
+                    Error = "rate-limited",
+                    RetryAfterSeconds = lockoutSecondsRemaining,
+                };
+            }
+
+            // Single-flight: if a code-mode or wifi-mode request is in
+            // flight, refuse the new initiate. Resolves the same race
+            // SubmitPairCode guards against (in-flight handshake hijack).
+            // Also count this as a failed attempt so a LAN scanner can't
+            // spam /pair-wifi/initiate to probe whether a pair handshake
+            // is in progress without hitting the rate-limit threshold.
+            if (_pairCode is { ExpiresAt: var ttl } && ttl > nowMs && !string.IsNullOrEmpty(_pairCode.RequestId))
+            {
+                RegisterFailedAttemptLocked(remoteAddress, nowMs);
+                return new PanelPhonePairCodeSubmitResponse { Error = "code-in-use" };
+            }
+
+            // Clear any leftover expired state.
+            if (_pairCode is { ExpiresAt: var oldTtl } && oldTtl <= nowMs)
+            {
+                _pairCode = null;
+            }
+
+            // Mint a fresh SAS bound to the captured SPKI. The "code" in
+            // PairCodeState is empty for wifi-initiated requests; ComputeSas
+            // still derives a stable 6-digit SAS from (code || nonce || spki),
+            // which the dashboard renders for the user to compare against
+            // the value displayed on the phone.
+            var nonce = RandomNumberGenerator.GetBytes(16);
+            var requestId = CreateToken(16);
+            var sas = ComputeSas(string.Empty, nonce, SpkiFingerprint);
+            var userAgent = context.Request.Headers["User-Agent"].ToString();
+            var deviceLabel = string.IsNullOrWhiteSpace(deviceName) ? DescribeDevice(userAgent) : deviceName.Trim();
+            if (deviceLabel.Length > 64) deviceLabel = deviceLabel[..64];
+
+            _pairCode = new PairCodeState
+            {
+                Code = string.Empty,
+                Nonce = nonce,
+                ExpiresAt = expires,
+                RequestId = requestId,
+                Sas = sas,
+                PhoneRemoteAddress = remoteAddress,
+                PhoneUserAgent = userAgent,
+                ClaimedOverHttps = context.Request.IsHttps,
+            };
+
+            PanelTopics.BroadcastPairCodeRequest(_hub, new PanelPhonePairCodeRequestFrame
+            {
+                Kind = "request",
+                RequestId = requestId,
+                Sas = sas,
+                DeviceLabel = deviceLabel,
+                RemoteAddress = remoteAddress,
+                UserAgent = userAgent,
+                ExpiresAt = expires,
+            });
+
+            return new PanelPhonePairCodeSubmitResponse
+            {
+                Accepted = true,
+                RequestId = requestId,
+                Sas = sas,
+                SpkiFingerprint = SpkiFingerprint,
+                MachineName = NormalizeMachineName(MachineName),
+                ExpiresAt = expires,
             };
         }
     }

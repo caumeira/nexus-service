@@ -43,6 +43,10 @@ internal static class PathAuthMiddleware
             // exactly the info a locked-out client needs.
             "/panel/phone/remote-control",
             "/panel/phone",
+            // Wi-Fi broadcast preference. Public read so the iOS app can
+            // tell the user "this PC isn't broadcasting" without already
+            // being paired. Write is desktop-token only.
+            "/panel/phone/pair-broadcast",
         };
 
     private static readonly HashSet<string> PublicPostPaths =
@@ -50,6 +54,10 @@ internal static class PathAuthMiddleware
         {
             "/panel/phone/pair-code/submit",
             "/panel/phone/pair-code/confirm",
+            // iOS Wi-Fi discovery → pair initiate. SAS-comparison handshake
+            // with no 6-digit code; handler enforces the same rate limit as
+            // /pair-code/submit.
+            "/panel/phone/pair-wifi/initiate",
         };
 
     private static readonly string[] StaticAssetExtensions =

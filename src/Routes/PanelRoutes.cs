@@ -137,6 +137,40 @@ public static class PanelRoutes
                 AppJsonContext.Default.RemoteControlStateResponse);
         });
 
+        // Wi-Fi (mDNS) discoverability preference. Public read; desktop-token write.
+        app.MapGet("/panel/phone/pair-broadcast", (PanelPhonePairingService pairing) =>
+        {
+            var (mode, until) = pairing.GetPairBroadcast();
+            return Results.Json(
+                new PairBroadcastStateResponse { Mode = mode, UntilUnixSeconds = until },
+                AppJsonContext.Default.PairBroadcastStateResponse);
+        });
+
+        app.MapPost("/panel/phone/pair-broadcast", (PairBroadcastSetRequest body, HttpContext ctx, PanelPhonePairingService pairing, TokenService tokens) =>
+        {
+            if (!HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+
+            pairing.SetPairBroadcast(body.Mode ?? "always", body.UntilUnixSeconds);
+            var (mode, until) = pairing.GetPairBroadcast();
+            return Results.Json(
+                new PairBroadcastStateResponse { Mode = mode, UntilUnixSeconds = until },
+                AppJsonContext.Default.PairBroadcastStateResponse);
+        });
+
+        // iOS Wi-Fi discovery → tap → initiate. Same SAS-comparison handshake as
+        // /pair-code/submit but with no 6-digit code — phone discovered us over
+        // Bonjour, user's Allow click on the desktop is the OOB authentication.
+        // Public (auth-bypassed in PathAuthMiddleware) and rate-limited inside
+        // the service (per-IP lockout shared with the code flow).
+        app.MapPost("/panel/phone/pair-wifi/initiate", (HttpContext ctx, PairWifiInitiateRequest body, PanelPhonePairingService pairing) =>
+        {
+            var result = pairing.InitiatePairWifi(body?.DeviceName ?? "", ctx);
+            return result.Accepted
+                ? Results.Json(result, AppJsonContext.Default.PanelPhonePairCodeSubmitResponse)
+                : Results.Json(result, AppJsonContext.Default.PanelPhonePairCodeSubmitResponse, statusCode: result.Error == "rate-limited" ? 429 : 400);
+        });
+
         // Manual pair-code flow. /start + /host-decision require the desktop
         // token (only a user at the PC can mint / approve a code). /submit
         // and /confirm are public so the phone (no session yet) can drive its
