@@ -93,10 +93,13 @@ public static class CoolingRoutes
         app.MapPost("/cooling/fan/{id}/speed", (string id, SetFanSpeedBody body, IFanControlProvider f, Qos.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
         {
             id = Uri.UnescapeDataString(id);
+            // Detach from any curve first. Otherwise CurveEngine would
+            // re-drive the fan on the next tick (silent overriding the user's
+            // manual choice) and the active-preset derivation would still
+            // count this fan as on the shared preset, leaving the chip lit.
+            FanProfiles.DetachFanFromCurves(id, store);
             var actual = f.SetFanSpeed(id, body.Speed);
             store.Update(s => s.Cooling.ManualSpeeds[id] = actual);
-            // Manual override changes the per-fan effective state; rederive so
-            // the active preset reflects the new mix (manual on any fan -> custom).
             var derivedAfterSpeed = FanProfiles.DerivePresetFromCurves(store, f);
             store.Update(s => s.Cooling.ActivePreset = derivedAfterSpeed);
             PanelTopics.BroadcastCooling(hub);
@@ -106,10 +109,12 @@ public static class CoolingRoutes
         app.MapPost("/cooling/fan/{id}/auto", (string id, IFanControlProvider f, Qos.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
         {
             id = Uri.UnescapeDataString(id);
+            // Same rationale as /speed: drop any curve attachment so the BIOS
+            // release actually persists past the next CurveEngine tick, and so
+            // derivation sees this fan as truly off-preset.
+            FanProfiles.DetachFanFromCurves(id, store);
             f.ReleaseFan(id);
             store.Update(s => s.Cooling.ManualSpeeds.Remove(id));
-            // Going to BIOS for one fan can change the active preset (e.g. last
-            // fan in silent goes to BIOS -> may become custom or off).
             var derivedAfterAuto = FanProfiles.DerivePresetFromCurves(store, f);
             store.Update(s => s.Cooling.ActivePreset = derivedAfterAuto);
             PanelTopics.BroadcastCooling(hub);

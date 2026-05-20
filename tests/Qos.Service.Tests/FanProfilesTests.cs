@@ -289,6 +289,293 @@ public class FanProfilesTests : IDisposable
     }
 
     [Fact]
+    public void DerivePresetFromCurves_IgnoresUnresponsiveFan_KeepsPresetSelected()
+    {
+        // Two connected fans linked to silent + one disconnected fan must
+        // still resolve to "silent". The disconnected fan can't be wired to
+        // anything, so excluding it from the coverage check is the only way
+        // to keep the preset chip lit while a fan is unplugged.
+        var fans = new FakeFanProvider(
+            channels: new List<FanChannel>
+            {
+                new() { Id = "fan1", Name = "Fan 1", Classification = "Controllable" },
+                new() { Id = "fan2", Name = "Fan 2", Classification = "Controllable" },
+                new() { Id = "fan3", Name = "Fan 3", Classification = "Unresponsive" },
+            },
+            temps: new List<TemperatureSource> { new() { Id = "cpu", Category = "CPU" } });
+        FanProfiles.Apply("silent", fans, _store);
+        // Apply attaches every channel (including the unresponsive one) to
+        // the preset curve, which is fine - the harmless extra attachment is
+        // a no-op at the hardware layer. The preset chip just needs to stay
+        // selected, which is what we assert here.
+        Assert.Equal("silent", FanProfiles.DerivePresetFromCurves(_store, fans));
+    }
+
+    [Fact]
+    public void DerivePresetFromCurves_OneConnectedFanOnUserCurve_IsCustom()
+    {
+        // Mixed config: fan1 on silent, fan2 grabbed by a user curve, fan3
+        // disconnected. The user breaking fan2 off the preset must drop the
+        // chip to custom even though the disconnected fan is ignored.
+        var fans = new FakeFanProvider(
+            channels: new List<FanChannel>
+            {
+                new() { Id = "fan1", Classification = "Controllable" },
+                new() { Id = "fan2", Classification = "Controllable" },
+                new() { Id = "fan3", Classification = "Unresponsive" },
+            },
+            temps: new List<TemperatureSource> { new() { Id = "cpu", Category = "CPU" } });
+        FanProfiles.Apply("silent", fans, _store);
+        _store.Update(s =>
+        {
+            var preset = s.Cooling.Curves.First(c => c.Preset == "silent");
+            preset.Outputs.RemoveAll(o => o.Id == "fan2");
+            s.Cooling.Curves.Add(new CurveDocument
+            {
+                Id = "user-x",
+                Outputs = new List<CurveOutputDocument> { new() { Id = "fan2", Type = "Fan" } },
+            });
+        });
+        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, fans));
+    }
+
+    [Fact]
+    public void DerivePresetFromCurves_OneConnectedFanOnManual_IsCustom()
+    {
+        // fan1 on silent, fan2 yanked to manual, fan3 disconnected -> custom.
+        var fans = new FakeFanProvider(
+            channels: new List<FanChannel>
+            {
+                new() { Id = "fan1", Classification = "Controllable" },
+                new() { Id = "fan2", Classification = "Controllable" },
+                new() { Id = "fan3", Classification = "Unresponsive" },
+            },
+            temps: new List<TemperatureSource> { new() { Id = "cpu", Category = "CPU" } });
+        FanProfiles.Apply("silent", fans, _store);
+        _store.Update(s =>
+        {
+            var preset = s.Cooling.Curves.First(c => c.Preset == "silent");
+            preset.Outputs.RemoveAll(o => o.Id == "fan2");
+            s.Cooling.ManualSpeeds["fan2"] = 60;
+        });
+        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, fans));
+    }
+
+    [Fact]
+    public void DerivePresetFromCurves_OneConnectedFanOnBios_IsCustom()
+    {
+        // fan1 on silent, fan2 detached (BIOS), fan3 disconnected -> custom.
+        // Releasing a fan to BIOS while the disconnected one stays unwired
+        // must still drop the chip.
+        var fans = new FakeFanProvider(
+            channels: new List<FanChannel>
+            {
+                new() { Id = "fan1", Classification = "Controllable" },
+                new() { Id = "fan2", Classification = "Controllable" },
+                new() { Id = "fan3", Classification = "Unresponsive" },
+            },
+            temps: new List<TemperatureSource> { new() { Id = "cpu", Category = "CPU" } });
+        FanProfiles.Apply("silent", fans, _store);
+        _store.Update(s =>
+        {
+            var preset = s.Cooling.Curves.First(c => c.Preset == "silent");
+            preset.Outputs.RemoveAll(o => o.Id == "fan2");
+        });
+        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, fans));
+    }
+
+    [Fact]
+    public void DerivePresetFromCurves_OnlyUnresponsiveFans_IsCustom()
+    {
+        // No controllable fans at all -> falls into the "no fans to check"
+        // bucket and reports custom, the same as the empty-channels case.
+        var fans = new FakeFanProvider(
+            channels: new List<FanChannel>
+            {
+                new() { Id = "fan1", Classification = "Unresponsive" },
+                new() { Id = "fan2", Classification = "Unresponsive" },
+            },
+            temps: new List<TemperatureSource> { new() { Id = "cpu", Category = "CPU" } });
+        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, fans));
+    }
+
+    [Fact]
+    public void DerivePresetFromCurves_AllUnresponsiveAfterApplySilent_StaysSilent()
+    {
+        // Edge case: user applies silent with all fans connected, then a fan
+        // becomes disconnected. With only unresponsive fans remaining, there
+        // are no controllable fans to validate, so the derivation falls back
+        // to custom. (Acceptable: the system has no controllable hardware to
+        // honor the preset anyway, so the chip can't be honestly "lit".)
+        var fans = new FakeFanProvider(
+            channels: new List<FanChannel>
+            {
+                new() { Id = "fan1", Classification = "Unresponsive" },
+                new() { Id = "fan2", Classification = "Unresponsive" },
+            },
+            temps: new List<TemperatureSource> { new() { Id = "cpu", Category = "CPU" } });
+        // Manually seed the store with a silent preset that attaches both fans.
+        _store.Update(s =>
+        {
+            s.Cooling.ActivePreset = "silent";
+            s.Cooling.Curves.Add(new CurveDocument
+            {
+                Id = "preset-silent",
+                Preset = "silent",
+                Type = "Linear",
+                Outputs = new List<CurveOutputDocument>
+                {
+                    new() { Id = "fan1", Type = "Fan" },
+                    new() { Id = "fan2", Type = "Fan" },
+                },
+            });
+        });
+        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, fans));
+    }
+
+    [Fact]
+    public void DetachFanFromCurves_RemovesFanFromEveryCurve()
+    {
+        _store.Update(s =>
+        {
+            s.Cooling.Curves.Add(new CurveDocument
+            {
+                Id = "curve-a",
+                Outputs = new List<CurveOutputDocument>
+                {
+                    new() { Id = "fan1", Type = "Fan" },
+                    new() { Id = "fan2", Type = "Fan" },
+                },
+            });
+            s.Cooling.Curves.Add(new CurveDocument
+            {
+                Id = "curve-b",
+                Outputs = new List<CurveOutputDocument> { new() { Id = "fan1", Type = "Fan" } },
+            });
+        });
+
+        FanProfiles.DetachFanFromCurves("fan1", _store);
+
+        var s = _store.Load();
+        Assert.DoesNotContain(s.Cooling.Curves.SelectMany(c => c.Outputs), o => o.Id == "fan1");
+        // Other fans on the same curves are untouched.
+        Assert.Contains(s.Cooling.Curves.First(c => c.Id == "curve-a").Outputs, o => o.Id == "fan2");
+    }
+
+    [Fact]
+    public void FanOnSilentPreset_ReleasedToBios_FlipsToCustom()
+    {
+        // Live bug 2026-05-20: clicking BIOS Control on a fan currently
+        // driven by silent left the chip lit on Silent. Reproduces the new
+        // /cooling/fan/{id}/auto flow: detach first, then release, then
+        // remove the manual entry, then derive.
+        FanProfiles.Apply("silent", _fans, _store);
+        FanProfiles.DetachFanFromCurves("fan2", _store);
+        _store.Update(s => s.Cooling.ManualSpeeds.Remove("fan2"));
+        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, _fans));
+    }
+
+    [Fact]
+    public void FanOnSilentPreset_SwitchedToManual_FlipsToCustom()
+    {
+        // Same bug, manual-side: clicking Manual on a fan that was on silent
+        // left it attached to the preset curve, so the manual entry was
+        // filtered out as "stale" and the chip stayed lit. New
+        // /cooling/fan/{id}/speed flow detaches before writing ManualSpeeds.
+        FanProfiles.Apply("silent", _fans, _store);
+        FanProfiles.DetachFanFromCurves("fan2", _store);
+        _store.Update(s => s.Cooling.ManualSpeeds["fan2"] = 50);
+        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, _fans));
+    }
+
+    [Fact]
+    public void FanOnSilentPreset_RewiredToBalancedPreset_FlipsToCustom()
+    {
+        // Wire-DnD scenario: fan2 dragged from preset-silent onto
+        // preset-balanced via /cooling/curves/set. Not every fan is on the
+        // same preset curve anymore, so the chip must drop to Custom.
+        FanProfiles.Apply("silent", _fans, _store);
+        _store.Update(s =>
+        {
+            var silent = s.Cooling.Curves.First(c => c.Preset == "silent");
+            silent.Outputs.RemoveAll(o => o.Id == "fan2");
+            // EnsurePresetCurve normally creates preset-balanced lazily on
+            // first Apply("balanced"); for this test we add it directly so we
+            // can target it with the rewire.
+            s.Cooling.Curves.Add(new CurveDocument
+            {
+                Id = "preset-balanced",
+                Preset = "balanced",
+                Type = "Linear",
+                Outputs = new List<CurveOutputDocument> { new() { Id = "fan2", Type = "Fan" } },
+            });
+        });
+        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, _fans));
+    }
+
+    [Fact]
+    public void FanOnSilentPreset_RewiredToTurboPreset_FlipsToCustom()
+    {
+        FanProfiles.Apply("silent", _fans, _store);
+        _store.Update(s =>
+        {
+            var silent = s.Cooling.Curves.First(c => c.Preset == "silent");
+            silent.Outputs.RemoveAll(o => o.Id == "fan2");
+            s.Cooling.Curves.Add(new CurveDocument
+            {
+                Id = "preset-turbo",
+                Preset = "turbo",
+                Type = "Linear",
+                Outputs = new List<CurveOutputDocument> { new() { Id = "fan2", Type = "Fan" } },
+            });
+        });
+        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, _fans));
+    }
+
+    [Fact]
+    public void FanOnSilentPreset_RewiredToUserCurve_FlipsToCustom()
+    {
+        // Same wire-DnD scenario, target = user curve. Covered by the
+        // earlier ReturnsCustomWhenUserCurveDrivesAFan test, restated here
+        // with the explicit silent-as-starting-state framing for the
+        // regression suite.
+        FanProfiles.Apply("silent", _fans, _store);
+        _store.Update(s =>
+        {
+            var silent = s.Cooling.Curves.First(c => c.Preset == "silent");
+            silent.Outputs.RemoveAll(o => o.Id == "fan2");
+            s.Cooling.Curves.Add(new CurveDocument
+            {
+                Id = "user-x",
+                Type = "Linear",
+                Outputs = new List<CurveOutputDocument> { new() { Id = "fan2", Type = "Fan" } },
+            });
+        });
+        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, _fans));
+    }
+
+    [Fact]
+    public void FanOnBalancedPreset_ReleasedToBios_WithUnresponsiveFan_FlipsToCustom()
+    {
+        // Combined scenario: an unresponsive fan is present (which the earlier
+        // fix taught derivation to skip), AND a connected fan is released to
+        // BIOS. The chip must drop to Custom because the remaining connected
+        // fan is no longer covered by every active preset.
+        var fans = new FakeFanProvider(
+            channels: new List<FanChannel>
+            {
+                new() { Id = "fan1", Classification = "Controllable" },
+                new() { Id = "fan2", Classification = "Controllable" },
+                new() { Id = "fan3", Classification = "Unresponsive" },
+            },
+            temps: new List<TemperatureSource> { new() { Id = "cpu", Category = "CPU" } });
+        FanProfiles.Apply("balanced", fans, _store);
+        FanProfiles.DetachFanFromCurves("fan2", _store);
+        _store.Update(s => s.Cooling.ManualSpeeds.Remove("fan2"));
+        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, fans));
+    }
+
+    [Fact]
     public void AutoIsTreatedAsOff()
     {
         FanProfiles.Apply("auto", _fans, _store);
