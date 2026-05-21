@@ -326,6 +326,229 @@ public class PanelPhonePairingServiceTests
         Assert.True(service.ValidateSessionToken(claim.Token, context: null));
     }
 
+    // -- Manual pair-code (BT-SSP Numeric Comparison) tests --------------
+
+    [Fact]
+    public void StartPairCode_ReturnsSixDigitCodeAndHostPort()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        service.ServicePort = 9400;
+
+        var resp = service.StartPairCode();
+
+        Assert.Equal(6, resp.Code.Length);
+        Assert.All(resp.Code, c => Assert.InRange(c, '0', '9'));
+        Assert.Equal(PanelPhonePairingService.PairCodeTtlSeconds, resp.TtlSeconds);
+        Assert.True(resp.Port > 0);
+        Assert.True(resp.ExpiresAt > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+    }
+
+    [Fact]
+    public void SubmitPairCode_OverPlainHttp_Rejected()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        service.StartPairCode();
+        var r = service.SubmitPairCode("123456", NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: false));
+        Assert.Equal("https-required", r.Error);
+    }
+
+    [Fact]
+    public void ConfirmPairCode_OverPlainHttp_Rejected()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        var start = service.StartPairCode();
+        var submit = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        var r = service.ConfirmPairCode(submit.RequestId, true, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: false));
+        Assert.Equal("https-required", r.Status);
+    }
+
+    [Fact]
+    public void StartPairCode_RemoteDisabled_ReturnsEmpty()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        service.SetRemoteControlEnabledAsync(false).GetAwaiter().GetResult();
+        var resp = service.StartPairCode();
+        Assert.Equal("", resp.Code);
+        Assert.Equal(0, resp.TtlSeconds);
+    }
+
+    [Fact]
+    public void SubmitPairCode_WrongCode_BurnsAttemptAndLocksOutAtFive()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        service.StartPairCode();
+
+        for (var i = 0; i < 5; i++)
+        {
+            var r = service.SubmitPairCode("000000", NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+            Assert.Equal("invalid-code", r.Error);
+        }
+
+        var locked = service.SubmitPairCode("000000", NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.Equal("rate-limited", locked.Error);
+        Assert.True(locked.RetryAfterSeconds > 0);
+    }
+
+    [Fact]
+    public void SubmitPairCode_RightCode_ReturnsDeterministicSasAndRequestId()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        service.SpkiFingerprint = "fp-stub";
+        var start = service.StartPairCode();
+
+        var r = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+
+        Assert.True(r.Accepted);
+        Assert.Equal(6, r.Sas.Length);
+        Assert.All(r.Sas, c => Assert.InRange(c, '0', '9'));
+        Assert.False(string.IsNullOrEmpty(r.RequestId));
+        Assert.Equal("fp-stub", r.SpkiFingerprint);
+    }
+
+    [Fact]
+    public void SubmitPairCode_RightCode_AfterPriorFailures_ClearsLockoutCounter()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        var start = service.StartPairCode();
+
+        for (var i = 0; i < 4; i++)
+            service.SubmitPairCode("000000", NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+
+        var ok = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.True(ok.Accepted);
+
+        // After success the counter is cleared; a fresh /start lets the
+        // same IP retry without inheriting the prior session's strikes.
+        var start2 = service.StartPairCode();
+        for (var i = 0; i < 4; i++)
+        {
+            var r = service.SubmitPairCode("999999", NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+            Assert.Equal("invalid-code", r.Error);
+        }
+        var ok2 = service.SubmitPairCode(start2.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.True(ok2.Accepted);
+    }
+
+    [Fact]
+    public void SubmitPairCode_NoActiveCode_Rejected()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        var r = service.SubmitPairCode("123456", NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.Equal("no-active-code", r.Error);
+    }
+
+    [Fact]
+    public void SubmitPairCode_SecondSubmit_WhileFirstInFlight_Rejected()
+    {
+        // Prevents the race where a second submitter (or attacker who got
+        // the same plaintext code from somewhere) overwrites the in-flight
+        // RequestId / PhoneRemoteAddress and hijacks the dual-confirm.
+        var service = NewService(new InMemoryConfigStore());
+        var start = service.StartPairCode();
+        var first = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.True(first.Accepted);
+
+        var second = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.99", isHttps: true));
+        Assert.Equal("code-in-use", second.Error);
+    }
+
+    [Fact]
+    public void ComputeSas_DependsOnSpki()
+    {
+        // The MITM defense: same code + same nonce + different SPKI must
+        // produce a different SAS. If this ever returns equal, the SPKI
+        // binding regressed and the SAS comparison stops being a defense.
+        var nonce = new byte[16];
+        for (var i = 0; i < nonce.Length; i++) nonce[i] = (byte)i;
+
+        var sasReal = PanelPhonePairingService.ComputeSas("123456", nonce, "real-spki");
+        var sasMitm = PanelPhonePairingService.ComputeSas("123456", nonce, "attacker-spki");
+        Assert.NotEqual(sasReal, sasMitm);
+
+        // Deterministic for the same triple - the dashboard and the phone
+        // both compute it from the same inputs and must agree.
+        var sasRealAgain = PanelPhonePairingService.ComputeSas("123456", nonce, "real-spki");
+        Assert.Equal(sasReal, sasRealAgain);
+
+        // Shape: 6 digits.
+        Assert.Equal(6, sasReal.Length);
+        Assert.All(sasReal, c => Assert.InRange(c, '0', '9'));
+    }
+
+    [Fact]
+    public void HostApprove_ThenPhonePoll_IssuesToken()
+    {
+        // The phone's polling /confirm IS the wait. There's no separate
+        // "phone approves" gesture - the user-visible model is "type code,
+        // compare SAS, click Allow on the system, phone connects."
+        var store = new InMemoryConfigStore();
+        var service = NewService(store);
+        service.SpkiFingerprint = "fp-stub";
+        var start = service.StartPairCode();
+        var submit = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.True(submit.Accepted);
+
+        // Phone polls before host approves -> waiting-host, no token yet.
+        var beforeApprove = service.ConfirmPairCode(submit.RequestId, approved: true, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.Equal("waiting-host", beforeApprove.Status);
+        Assert.Equal("", beforeApprove.Token);
+
+        var host = service.HostDecisionPairCode(submit.RequestId, approved: true);
+        Assert.Equal("approved", host.Status);
+
+        // Next poll picks up the host approval and gets the token.
+        var afterApprove = service.ConfirmPairCode(submit.RequestId, approved: true, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.Equal("approved", afterApprove.Status);
+        Assert.False(string.IsNullOrEmpty(afterApprove.Token));
+        Assert.Equal("fp-stub", afterApprove.SpkiFingerprint);
+
+        Assert.True(service.ValidateSessionToken(afterApprove.Token, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true)));
+    }
+
+    [Fact]
+    public void HostDeny_PhoneSeesDeniedOnNextPoll()
+    {
+        // Previously: state was nulled on host-deny, so the phone's next
+        // poll got "unknown" - indistinguishable from a stale requestId.
+        // Now state is kept (HostDenied=true) and the phone learns the
+        // canonical "denied".
+        var service = NewService(new InMemoryConfigStore());
+        var start = service.StartPairCode();
+        var submit = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+
+        var host = service.HostDecisionPairCode(submit.RequestId, approved: false);
+        Assert.Equal("denied", host.Status);
+
+        var confirm = service.ConfirmPairCode(submit.RequestId, approved: true, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.Equal("denied", confirm.Status);
+    }
+
+    [Fact]
+    public void PhoneDeny_Cancels_HostSeesUnknownAfter()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        var start = service.StartPairCode();
+        var submit = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+
+        var phoneDeny = service.ConfirmPairCode(submit.RequestId, approved: false, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.Equal("denied", phoneDeny.Status);
+
+        var host = service.HostDecisionPairCode(submit.RequestId, approved: true);
+        Assert.Equal("unknown", host.Status);
+    }
+
+    [Fact]
+    public void Start_AfterInflightSubmit_SupersedesPriorRequest()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        var start1 = service.StartPairCode();
+        var submit1 = service.SubmitPairCode(start1.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+
+        service.StartPairCode();
+        var followUp = service.ConfirmPairCode(submit1.RequestId, approved: true, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.Equal("unknown", followUp.Status);
+    }
+
     private static PanelPhonePairingService NewService(InMemoryConfigStore store)
     {
         return new PanelPhonePairingService(store, new Qos.Service.Sockets.MultiplexHub())

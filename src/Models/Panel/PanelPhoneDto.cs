@@ -88,3 +88,106 @@ public sealed class RemoteControlToggleRequest
 {
     public bool Enabled { get; set; }
 }
+
+/// <summary>Wi-Fi discoverability (mDNS) preference; AirDrop-style three-state.</summary>
+public sealed class PairBroadcastStateResponse
+{
+    /// <summary>"never" | "always" | "until"</summary>
+    public string Mode { get; set; } = "always";
+    /// <summary>Unix-seconds expiry when Mode == "until"; 0 otherwise.</summary>
+    public long UntilUnixSeconds { get; set; }
+}
+
+public sealed class PairBroadcastSetRequest
+{
+    public string Mode { get; set; } = "always";
+    public long UntilUnixSeconds { get; set; }
+}
+
+/// <summary>
+/// iOS-side Wi-Fi pair initiate. Sent the moment a discovered Qos service is
+/// tapped: server runs the same SAS-comparison handshake as /pair-code/submit
+/// but without an out-of-band 6-digit code (the user's Allow click on the
+/// desktop is the OOB). Same response shape as the code-submit path so the
+/// phone-side state machine can be shared between the two flows.
+/// </summary>
+public sealed class PairWifiInitiateRequest
+{
+    /// <summary>Human-readable phone label, e.g. "Nicola's iPhone". Optional, trimmed to 64 chars on the wire.</summary>
+    public string DeviceName { get; set; } = "";
+}
+
+// Manual pair-code flow (BT-SSP-style numeric comparison). Additive to the
+// QR flow for camera-less devices. The phone POSTs the typed code, server
+// returns a SAS bound to the leaf SPKI; user visually compares SAS on both
+// screens and dual-approves before a session token is issued.
+
+public sealed class PanelPhonePairCodeStartResponse
+{
+    public string Host { get; set; } = "";
+    public int Port { get; set; }
+    public string Code { get; set; } = "";
+    public int TtlSeconds { get; set; }
+    public long ExpiresAt { get; set; }
+}
+
+public sealed class PanelPhonePairCodeSubmitBody
+{
+    public string Code { get; set; } = "";
+}
+
+public sealed class PanelPhonePairCodeSubmitResponse
+{
+    public bool Accepted { get; set; }
+    public string RequestId { get; set; } = "";
+    public string Sas { get; set; } = "";
+    public string SpkiFingerprint { get; set; } = "";
+    public string MachineName { get; set; } = "";
+    public long ExpiresAt { get; set; }
+    public string Error { get; set; } = "";
+    public int RetryAfterSeconds { get; set; }
+}
+
+public sealed class PanelPhonePairCodeConfirmBody
+{
+    public string RequestId { get; set; } = "";
+    public bool Approved { get; set; }
+}
+
+public sealed class PanelPhonePairCodeConfirmResponse
+{
+    /// <summary>One of: waiting-host, approved, denied, expired, unknown.</summary>
+    public string Status { get; set; } = "";
+    public string Token { get; set; } = "";
+    public string MachineName { get; set; } = "";
+    public string SpkiFingerprint { get; set; } = "";
+}
+
+public sealed class PanelPhonePairCodeHostDecisionBody
+{
+    public string RequestId { get; set; } = "";
+    public bool Approved { get; set; }
+}
+
+public sealed class PanelPhonePairCodeHostDecisionResponse
+{
+    public string Status { get; set; } = "";
+}
+
+/// <summary>
+/// Multiplex frame for the dashboard. <c>Kind</c> = "request" means a phone
+/// just submitted the active code and is awaiting host confirmation.
+/// "cancelled" carries a <c>Reason</c> (expired, phone-denied, host-denied,
+/// host-started-new-code) so the dashboard can clear its prompt.
+/// </summary>
+public sealed class PanelPhonePairCodeRequestFrame
+{
+    public string Kind { get; set; } = "";
+    public string RequestId { get; set; } = "";
+    public string Sas { get; set; } = "";
+    public string DeviceLabel { get; set; } = "";
+    public string RemoteAddress { get; set; } = "";
+    public string UserAgent { get; set; } = "";
+    public long ExpiresAt { get; set; }
+    public string Reason { get; set; } = "";
+}

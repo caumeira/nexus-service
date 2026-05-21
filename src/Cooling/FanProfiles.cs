@@ -147,11 +147,17 @@ public static class FanProfiles
     ///   - Anything else -> "custom".
     /// "Manual on at least one fan" never resolves to "off" or a preset; the
     /// user explicitly broke out of the shared regime.
+    /// Fans classified as Unresponsive are ignored: they're physically
+    /// disconnected, can't be wired to any curve, and would otherwise force
+    /// every preset check to fail on `fanIds.All(...)`.
     /// </summary>
     public static string DerivePresetFromCurves(IConfigStore store, IFanControlProvider fans)
     {
         var channels = fans.GetFanChannels();
-        var fanIds = channels.Select(c => c.Id).ToHashSet();
+        var fanIds = channels
+            .Where(c => c.Classification != "Unresponsive")
+            .Select(c => c.Id)
+            .ToHashSet();
         if (fanIds.Count == 0) return "custom";
 
         var settings = store.Load();
@@ -194,6 +200,25 @@ public static class FanProfiles
         }
 
         return "custom";
+    }
+
+    /// <summary>
+    /// Remove every curve attachment for this fan. Used by the Manual /
+    /// BIOS-release routes so the user's explicit per-fan choice isn't
+    /// re-overridden by CurveEngine on the next tick (it would otherwise see
+    /// the fan still in a curve's Outputs and drive it again), and so the
+    /// active-preset derivation correctly sees the fan as no longer on the
+    /// shared preset.
+    /// </summary>
+    public static void DetachFanFromCurves(string fanId, IConfigStore store)
+    {
+        store.Update(s =>
+        {
+            foreach (var curve in s.Cooling.Curves)
+            {
+                curve.Outputs.RemoveAll(o => o.Id == fanId);
+            }
+        });
     }
 
     /// <summary>

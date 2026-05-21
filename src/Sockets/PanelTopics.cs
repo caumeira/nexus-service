@@ -16,6 +16,12 @@ public static class PanelTopics
     public const string Cooling = "cooling";
     public const string CoolingWarnings = "cooling/warnings";
     public const string PanelDevice = "panel/device";
+    /// <summary>
+    /// Manual pair-code lifecycle. Dashboard subscribes while the Pair
+    /// Remote sheet is open; payload kinds are "request" (phone submitted
+    /// the active code) and "cancelled" (expired / denied / superseded).
+    /// </summary>
+    public const string PairCodeRequest = "panel/phone/pair-code/request";
 
     public static void BroadcastPrefs(MultiplexHub hub)
     {
@@ -67,6 +73,14 @@ public static class PanelTopics
         var frame = new PanelDeviceChangedFrame { Revision = Now(), DeviceId = deviceId };
         var env = WsEnvelope.Build(PanelDevice, frame, AppJsonContext.Default.PanelDeviceChangedFrame);
         _ = hub.BroadcastTopicAsync(PanelDevice, env);
+    }
+
+    public static void BroadcastPairCodeRequest(MultiplexHub hub, PanelPhonePairCodeRequestFrame frame)
+    {
+        if (!hub.TopicHasSubscribers(PairCodeRequest))
+            return;
+        var env = WsEnvelope.Build(PairCodeRequest, frame, AppJsonContext.Default.PanelPhonePairCodeRequestFrame);
+        _ = hub.BroadcastTopicAsync(PairCodeRequest, env);
     }
 
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();

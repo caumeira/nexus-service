@@ -416,6 +416,29 @@ public sealed class AuthSettings
     /// they can resume automatically when the switch goes back on. Workstation-level.
     /// </summary>
     public bool RemoteControlEnabled { get; set; } = InstallDefaults.Auth.RemoteControlEnabled;
+
+    /// <summary>
+    /// Controls whether the iOS companion app can find this host via
+    /// Bonjour / mDNS over Wi-Fi. AirDrop-style three-state preference:
+    /// <c>"never"</c>, <c>"always"</c> (default), or <c>"until"</c> with
+    /// <see cref="PairBroadcastSettings.UntilUnixSeconds"/> set to the
+    /// expiry. The QR + manual pair-code flows are unaffected.
+    /// </summary>
+    public PairBroadcastSettings PairBroadcast { get; set; } = new();
+}
+
+public sealed class PairBroadcastSettings
+{
+    /// <summary>"never" | "always" | "until"</summary>
+    public string Mode { get; set; } = "always";
+
+    /// <summary>
+    /// Expiry timestamp (Unix seconds, UTC) for the <c>"until"</c> mode.
+    /// Ignored for other modes. When <c>Mode == "until"</c> and the
+    /// current time exceeds this value, the broadcast is treated as off
+    /// and the next setting write should revert <c>Mode</c> to <c>"never"</c>.
+    /// </summary>
+    public long UntilUnixSeconds { get; set; }
 }
 
 public sealed class PanelPhoneSessionToken
