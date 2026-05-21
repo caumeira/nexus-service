@@ -68,10 +68,10 @@ public sealed class MiniHubLightingDeviceProvider : ILightingDeviceProvider, ILi
         // 1-fan + 3-fan layout), let the user resize via the settings
         // modal (ZoneResizable=true), and persist the user's value into
         // ZoneLedCounts which BuildZone honours below.
-        AddZone($"{hubId}:port1", "HYTE MiniHub - Port 1 (1× RGB Fan)", _hub.State.Port1.LedCount);
-        AddZone($"{hubId}:port2", "HYTE MiniHub - Port 2 (3× RGB Fans)", _hub.State.Port2.LedCount);
-        AddZone($"{hubId}:port3", "HYTE MiniHub - Port 3 (LED Strip)", _hub.State.Port3.LedCount);
-        AddZone($"{hubId}:port4", "HYTE MiniHub - Port 4 (LED Strip)", _hub.State.Port4.LedCount);
+        AddZone($"{hubId}:port1", $"{MiniHubHub.ProductName} - Port 1 (1× RGB Fan)", _hub.State.Port1.LedCount);
+        AddZone($"{hubId}:port2", $"{MiniHubHub.ProductName} - Port 2 (3× RGB Fans)", _hub.State.Port2.LedCount);
+        AddZone($"{hubId}:port3", $"{MiniHubHub.ProductName} - Port 3 (LED Strip)", _hub.State.Port3.LedCount);
+        AddZone($"{hubId}:port4", $"{MiniHubHub.ProductName} - Port 4 (LED Strip)", _hub.State.Port4.LedCount);
         return resp;
 
         void AddZone(string id, string name, int firmwareLedCount)
@@ -169,6 +169,11 @@ public sealed class MiniHubLightingDeviceProvider : ILightingDeviceProvider, ILi
 
     public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);
 
+    // Same rationale as Np50LightingDeviceProvider._frameCache: reuse the
+    // DeviceFrame instance across RgbBridge's 3 s refresh so the writer
+    // doesn't see a fresh zero-filled frame for one tick and blank the hub.
+    private readonly Dictionary<string, DeviceFrame> _frameCache = new();
+
     public IReadOnlyList<DeviceFrame> BuildFrames(int startingIndex)
     {
         if (!_hub.IsConnected) return Array.Empty<DeviceFrame>();
@@ -185,14 +190,26 @@ public sealed class MiniHubLightingDeviceProvider : ILightingDeviceProvider, ILi
         // Always emitted regardless of declared LED count so the writer
         // always pushes a blank frame to every channel — keeps the hub
         // from falling back to firmware animation on un-addressed channels.
-        frames.Add(BuildDeviceFrame($"{hubId}:port1", _hub.State.Port1.LedCount, slot++, layouts, counts, ref idx));
-        frames.Add(BuildDeviceFrame($"{hubId}:port2", _hub.State.Port2.LedCount, slot++, layouts, counts, ref idx));
-        frames.Add(BuildDeviceFrame($"{hubId}:port3", _hub.State.Port3.LedCount, slot++, layouts, counts, ref idx));
-        frames.Add(BuildDeviceFrame($"{hubId}:port4", _hub.State.Port4.LedCount, slot++, layouts, counts, ref idx));
+        frames.Add(BuildOrReuseFrame($"{hubId}:port1", _hub.State.Port1.LedCount, slot++, layouts, counts, ref idx));
+        frames.Add(BuildOrReuseFrame($"{hubId}:port2", _hub.State.Port2.LedCount, slot++, layouts, counts, ref idx));
+        frames.Add(BuildOrReuseFrame($"{hubId}:port3", _hub.State.Port3.LedCount, slot++, layouts, counts, ref idx));
+        frames.Add(BuildOrReuseFrame($"{hubId}:port4", _hub.State.Port4.LedCount, slot++, layouts, counts, ref idx));
+
+        // Prune cache entries no longer in the live set (e.g. hub serial
+        // changed). For MiniHub the live set is fixed at 4 ports so this
+        // mostly only fires across reconnects to a different physical hub.
+        if (_frameCache.Count > frames.Count)
+        {
+            var live = new HashSet<string>(frames.Count);
+            foreach (var f in frames) live.Add(f.Id);
+            var stale = new List<string>();
+            foreach (var k in _frameCache.Keys) if (!live.Contains(k)) stale.Add(k);
+            foreach (var k in stale) _frameCache.Remove(k);
+        }
         return frames;
     }
 
-    private static DeviceFrame BuildDeviceFrame(
+    private DeviceFrame BuildOrReuseFrame(
         string id, int firmwareLedCount, int zoneIndex,
         IReadOnlyDictionary<string, DeviceLayout> layouts,
         IReadOnlyDictionary<string, int> counts,
@@ -204,10 +221,26 @@ public sealed class MiniHubLightingDeviceProvider : ILightingDeviceProvider, ILi
         var (defX, defY, defW, defH) = DefaultMiniHubLayout(zoneIndex);
         layouts.TryGetValue(id, out var layout);
         var rot = ((((layout?.Rotation ?? 0) % 360) + 360) % 360);
-        return new DeviceFrame(
-            index: idx++, id: id, ledCount: effectiveLedCount,
+        var thisIdx = idx++;
+
+        if (_frameCache.TryGetValue(id, out var existing)
+            && existing.Index == thisIdx
+            && existing.LedCount == effectiveLedCount)
+        {
+            existing.X = layout?.X ?? defX;
+            existing.Y = layout?.Y ?? defY;
+            existing.W = layout?.W ?? defW;
+            existing.H = layout?.H ?? defH;
+            existing.Rotation = rot;
+            return existing;
+        }
+
+        var frame = new DeviceFrame(
+            index: thisIdx, id: id, ledCount: effectiveLedCount,
             x: layout?.X ?? defX, y: layout?.Y ?? defY,
             w: layout?.W ?? defW, h: layout?.H ?? defH, rotation: rot);
+        _frameCache[id] = frame;
+        return frame;
     }
 
     /// <summary>Default canvas slots for MiniHub zones. Placed just below the NP50 row so they coexist on a typical canvas without overlap.</summary>

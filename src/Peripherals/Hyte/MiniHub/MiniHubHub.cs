@@ -12,6 +12,18 @@ namespace Qos.Service.Peripherals.Hyte.MiniHub;
 /// </summary>
 public sealed class MiniHubHub : IDisposable
 {
+    /// <summary>
+    /// Single source of truth for this device's user-facing product label.
+    /// Both the lighting and cooling providers reference this so the
+    /// panel's lighting page and cooling page show the SAME name for the
+    /// same physical device — without this they drift (the lighting page
+    /// hardcoded "HYTE MiniHub" while the cooling page briefly tried
+    /// "iBUYPOWER Mini Hub", which surfaced as two labels for one device).
+    /// The MiniHub firmware does not self-report a name; the canonical
+    /// value comes from HYTE's own product taxonomy.
+    /// </summary>
+    public const string ProductName = "HYTE MiniHub";
+
     private readonly INp50PortDiscovery _discovery;
     private readonly Func<Np50PortInfo, INp50Transport> _transportFactory;
     private readonly object _lock = new();

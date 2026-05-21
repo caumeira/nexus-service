@@ -18,6 +18,13 @@ namespace Qos.Service.Peripherals.Hyte.Np50;
 /// </summary>
 public sealed class Np50Hub : IDisposable
 {
+    /// <summary>
+    /// Single source of truth for this device's user-facing product label.
+    /// Both the lighting and cooling providers reference this so the panel
+    /// shows the SAME name on every page that surfaces this device.
+    /// </summary>
+    public const string ProductName = "HYTE NP50";
+
     private readonly INp50PortDiscovery _discovery;
     private readonly Func<Np50PortInfo, INp50Transport> _transportFactory;
     private readonly object _lock = new();
@@ -204,6 +211,35 @@ public sealed class Np50Hub : IDisposable
 
     public bool SetPortFanSpeeds(int port, IReadOnlyList<int> perFanPercent)
         => SendOnly(Np50Protocol.BuildSetPortFanSpeeds(port, perFanPercent));
+
+    /// <summary>
+    /// Disable the firmware's boot-up rainbow animation. Pair with
+    /// <see cref="SetFirmwareLightingOff"/> when entering software lighting
+    /// mode so the hub's defaults don't bleed through our software stream.
+    /// </summary>
+    public bool SetStartAnimationOff(bool off)
+        => SendOnly(Np50Protocol.BuildSetStartAnimationOff(off));
+
+    /// <summary>
+    /// Disable the firmware's steady-state default animation. MUST be sent
+    /// when running in software lighting mode — without it, any LED our
+    /// wire frame doesn't address (e.g. the first LED of each port's
+    /// daisy-chain on some firmware revs) keeps cycling the firmware
+    /// rainbow on top of the software stream.
+    /// </summary>
+    public bool SetFirmwareLightingOff(bool off)
+        => SendOnly(Np50Protocol.BuildSetFirmwareLightingOff(off));
+
+    /// <summary>
+    /// Push the firmware-animation state directly to the MCU. Pair with
+    /// <see cref="SetFirmwareLightingOff"/>: the EEPROM-saved off flag
+    /// (0x07) doesn't appear to clear an animation already running on
+    /// the live MCU — only this 0x0C direct-write does. Call with
+    /// <c>animation=0, r=g=b=0, brightness=0</c> to fully silence the
+    /// firmware default animation while we stream software LED frames.
+    /// </summary>
+    public bool WriteFirmwareAnimationToMcu(byte animation, byte r, byte g, byte b, byte brightness)
+        => SendOnly(Np50Protocol.BuildWriteFirmwareAnimationToMcu(animation, r, g, b, brightness));
 
     public bool WriteLighting(int port, ReadOnlySpan<RgbColor> leds)
         => SendOnly(Np50Protocol.BuildLightingStream(port, leds));

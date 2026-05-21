@@ -125,6 +125,15 @@ public sealed class FanChannel
     /// <summary>Stable per-device id, e.g. "np50:1A2B3C". Null for motherboard.</summary>
     public string? DeviceId { get; set; }
 
+    /// <summary>
+    /// User-facing product name of the owning device, e.g. "HYTE NP50" or
+    /// "HYTE MiniHub". Identical for every channel on the same device — the
+    /// cooling page groups by <see cref="DeviceId"/> and labels the group
+    /// from any group member's <see cref="DeviceName"/>, so the lighting and
+    /// cooling pages always show the same name for the same physical device.
+    /// </summary>
+    public string? DeviceName { get; set; }
+
     /// <summary>Human-readable port label, e.g. "Port 1" or "Legacy 4-pin". Null for motherboard.</summary>
     public string? PortLabel { get; set; }
 

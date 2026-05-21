@@ -8,7 +8,7 @@ using Qos.Service.Peripherals.Hyte.MiniHub;
 namespace Qos.Service.Cooling;
 
 /// <summary>
-/// Bridges the HYTE IBP MiniHub into the cooling subsystem. The MiniHub has
+/// Bridges the HYTE MiniHub into the cooling subsystem. The MiniHub has
 /// only two physical fan ports — port 1 (1 fan) and port 2 (up to 3
 /// daisy-chained fans sharing one tach + one PWM). We surface one
 /// <see cref="FanChannel"/> per populated port, mirroring HYTE's own
@@ -72,6 +72,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
                 Rpm = state.Port1Rpm,
                 Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
+                DeviceName = MiniHubHub.ProductName,
                 PortLabel = "Port 1",
             });
         }
@@ -87,6 +88,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
                 Rpm = state.Port2Rpm,
                 Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
+                DeviceName = MiniHubHub.ProductName,
                 PortLabel = "Port 2",
             });
         }
@@ -187,7 +189,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
             new CoolingComponent
             {
                 Id = _hub.DeviceId,
-                Name = "HYTE IBP MiniHub",
+                Name = MiniHubHub.ProductName,
                 Type = "MiniHub",
                 Devices = devices,
             },

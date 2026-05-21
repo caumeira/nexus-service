@@ -101,7 +101,7 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
 
         resp.Devices.Add(BuildZone(
             id: $"{hubId}:logo",
-            name: "HYTE NP50 - Logo Strip",
+            name: $"{Np50Hub.ProductName} - Logo Strip",
             iconType: "strip",
             firmwareLedCount: LogoLedCount,
             zoneIndex: slot++,
@@ -115,7 +115,7 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
                 if (dev.LedCount <= 0) continue;
                 resp.Devices.Add(BuildZone(
                     id: $"{hubId}:port{port.Index}:dev{dev.Index}",
-                    name: $"HYTE NP50 - {dev.Model} (Port {port.Index} #{dev.Index})",
+                    name: $"{Np50Hub.ProductName} - {dev.Model} (Port {port.Index} #{dev.Index})",
                     iconType: dev.Model == "FP12" ? "fan" : "strip",
                     firmwareLedCount: dev.LedCount,
                     zoneIndex: slot++,
@@ -263,6 +263,15 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
 
     // ── ILightingFrameContributor ──
 
+    // Frames built on previous BuildFrames calls, keyed by id. Reused when
+    // the topology hasn't changed so the existing DeviceFrame instance (and
+    // its LED buffer holding the last rendered colors) survives the 3 s
+    // RgbBridge.RefreshDevicesAsync rebuild. Without this every refresh
+    // hands the writer a fresh, zero-filled frame for one tick and the hub
+    // sees a black-out — the OpenRGB path avoids this via
+    // RgbBridge.BuildOrReuseFrame; contributors need the same protection.
+    private readonly Dictionary<string, DeviceFrame> _frameCache = new();
+
     public IReadOnlyList<DeviceFrame> BuildFrames(int startingIndex)
     {
         if (!_hub.IsConnected) return Array.Empty<DeviceFrame>();
@@ -281,7 +290,7 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
         // bounded by the firmware-reported max.
         var slot = 0;
 
-        frames.Add(BuildDeviceFrame(
+        frames.Add(BuildOrReuseFrame(
             id: $"{hubId}:logo",
             firmwareLedCount: LogoLedCount,
             zoneIndex: slot++,
@@ -293,7 +302,7 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
             foreach (var dev in port.Devices)
             {
                 if (dev.LedCount <= 0) continue;
-                frames.Add(BuildDeviceFrame(
+                frames.Add(BuildOrReuseFrame(
                     id: $"{hubId}:port{port.Index}:dev{dev.Index}",
                     firmwareLedCount: dev.LedCount,
                     zoneIndex: slot++,
@@ -301,10 +310,21 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
                     idx: ref idx));
             }
         }
+
+        // Prune cache entries no longer in the live set so a removed strip
+        // doesn't keep its DeviceFrame pinned forever.
+        if (_frameCache.Count > frames.Count)
+        {
+            var live = new HashSet<string>(frames.Count);
+            foreach (var f in frames) live.Add(f.Id);
+            var stale = new List<string>();
+            foreach (var k in _frameCache.Keys) if (!live.Contains(k)) stale.Add(k);
+            foreach (var k in stale) _frameCache.Remove(k);
+        }
         return frames;
     }
 
-    private static DeviceFrame BuildDeviceFrame(
+    private DeviceFrame BuildOrReuseFrame(
         string id, int firmwareLedCount, int zoneIndex,
         IReadOnlyDictionary<string, Persistence.DeviceLayout> layouts,
         IReadOnlyDictionary<string, int> zoneLedCounts,
@@ -318,8 +338,27 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
         var (defX, defY, defW, defH) = DefaultNp50Layout(zoneIndex);
         layouts.TryGetValue(id, out var layout);
         var rot = ((((layout?.Rotation ?? 0) % 360) + 360) % 360);
-        return new DeviceFrame(
-            index: idx++,
+        var thisIdx = idx++;
+
+        // Reuse if id + Index + LedCount all match — same criteria as
+        // RgbBridge.BuildOrReuseFrame. X/Y/W/H/Rotation are {get; set;} on
+        // DeviceFrame so we can update layout on the existing instance
+        // without forcing a fresh allocation (and the zero-LED buffer that
+        // comes with it).
+        if (_frameCache.TryGetValue(id, out var existing)
+            && existing.Index == thisIdx
+            && existing.LedCount == effectiveLedCount)
+        {
+            existing.X = layout?.X ?? defX;
+            existing.Y = layout?.Y ?? defY;
+            existing.W = layout?.W ?? defW;
+            existing.H = layout?.H ?? defH;
+            existing.Rotation = rot;
+            return existing;
+        }
+
+        var frame = new DeviceFrame(
+            index: thisIdx,
             id: id,
             ledCount: effectiveLedCount,
             x: layout?.X ?? defX,
@@ -327,6 +366,8 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
             w: layout?.W ?? defW,
             h: layout?.H ?? defH,
             rotation: rot);
+        _frameCache[id] = frame;
+        return frame;
     }
 
     /// <summary>

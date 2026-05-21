@@ -82,6 +82,7 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
             Rpm = _hub.State.HubInfo.LegacyFanRpm,
             Mode = _softwareControlled.Contains(legacyId) ? FanModes.Manual : FanModes.Auto,
             DeviceId = deviceId,
+            DeviceName = Np50Hub.ProductName,
             PortLabel = "Legacy 4-pin",
             FanModel = null,
             Orientation = null,
@@ -109,6 +110,7 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
                     Rpm = fan.Rpm,
                     Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
                     DeviceId = deviceId,
+                    DeviceName = Np50Hub.ProductName,
                     PortLabel = $"Port {port.Index}",
                     FanModel = fan.Model,
                     Orientation = fan.Orientation,
@@ -260,7 +262,7 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
             new CoolingComponent
             {
                 Id = deviceId,
-                Name = "HYTE NP50",
+                Name = Np50Hub.ProductName,
                 Type = "NP50",
                 Devices = devices,
             },
