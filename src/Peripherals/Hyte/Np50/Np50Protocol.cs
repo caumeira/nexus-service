@@ -33,6 +33,15 @@ public static class Np50Protocol
     /// <summary>Number of Nexus Link Type-C ports on the hub.</summary>
     public const int PortCount = 3;
 
+    /// <summary>
+    /// Number of port frames HYTE emits per LED-stream cycle. NP50 has 3
+    /// physical Nexus Link ports for fans, but the firmware-side lighting
+    /// loop iterates 4 (per HYTE's <c>CoolingHubBaseController.SendToHardware</c>),
+    /// and skipping the 4th appears to leave the latch un-committed on
+    /// firmware 2.0.5.1 — strips stay dark even with valid 1..3 frames.
+    /// </summary>
+    public const int LightingCyclePortCount = 4;
+
     /// <summary>Maximum daisy-chained fans per port the protocol can address.</summary>
     public const int MaxDevicesPerPort = 18;
 
@@ -72,6 +81,71 @@ public static class Np50Protocol
 
     /// <summary>Build the "Get Warning Detail" request (3 bytes).</summary>
     public static byte[] BuildGetWarningDetail() => new byte[] { Frame0, OpControl, SubWarningDetail };
+
+    /// <summary>
+    /// Build the "Set Start Animation Off" request (4 bytes). When passed
+    /// <c>true</c>, the firmware's boot-up rainbow animation is suppressed
+    /// so the LEDs don't briefly cycle when the hub powers on / our software
+    /// takes over. Bytes: <c>0xFF 0xCC 0x05 [0x01 or 0x00]</c>. Matches
+    /// HYTE's reference <c>NP50Command.SetStartAnimationOff</c>.
+    /// </summary>
+    public static byte[] BuildSetStartAnimationOff(bool off)
+        => new byte[] { Frame0, OpControl, 0x05, off ? (byte)0x01 : (byte)0x00 };
+
+    /// <summary>
+    /// Build the "Set Firmware Lighting Off" request (4 bytes). When passed
+    /// <c>true</c>, the firmware stops driving its built-in default animation
+    /// on any LED. Critical when running in software lighting mode — without
+    /// it, the firmware animation runs in parallel with our stream and shows
+    /// through on any LED our wire frame doesn't update (observed
+    /// symptom: the first strip LED on every port permanently cycles a
+    /// rainbow, "permanent firmware rainbow mode", regardless of whether
+    /// the user has the strips switched on or off in software). Bytes:
+    /// <c>0xFF 0xCC 0x07 [0x01 or 0x00]</c>. Matches HYTE's reference
+    /// <c>NP50Command.SetFirmwareLightingOff</c>.
+    /// </summary>
+    public static byte[] BuildSetFirmwareLightingOff(bool off)
+        => new byte[] { Frame0, OpControl, 0x07, off ? (byte)0x01 : (byte)0x00 };
+
+    /// <summary>
+    /// Build the "Write Firmware Animation to MCU" request (9 bytes).
+    /// Direct write to the microcontroller — bypasses the EEPROM-saving
+    /// 0x02/0x07 paths and takes immediate effect on the live MCU state.
+    /// Matches HYTE's reference <c>SmartHubCommandBase.WriteFwAnimationToMcu</c>:
+    /// <c>0xFF 0xCC 0x0C animation R G B brightness 0x01(SAVE)</c>.
+    /// Animation byte values per spec doc section 14:
+    /// <c>0x01 Color</c>, <c>0x02 Rainbow</c>, <c>0x03 Breathe</c>,
+    /// <c>0x04 Rainbow Gradient</c>. We pass <c>0x00</c> (undocumented
+    /// but observed-effective) with brightness 0 to fully suppress the
+    /// firmware animation while we're streaming software-controlled LED
+    /// frames. The 0x05/0x07 commands appear to set the persistent
+    /// "off" flag in EEPROM but do NOT clear the currently-running MCU
+    /// animation — this 0x0C path is the one HYTE always pairs with
+    /// any firmware-animation change in <c>SwitchFwAnimation</c>.
+    /// </summary>
+    public static byte[] BuildWriteFirmwareAnimationToMcu(
+        byte animation, byte r, byte g, byte b, byte brightness)
+        => new byte[] { Frame0, OpControl, 0x0C, animation, r, g, b, brightness, 0x01 };
+
+    /// <summary>
+    /// Build the "Get NP50 Firmware Animation" request (3 bytes). Returns 9
+    /// bytes containing the current firmware-driven animation state — opcode
+    /// 0xCC 0x0D per HYTE's <c>ControlHubCommand.GetFwAnimation</c>.
+    /// </summary>
+    public static byte[] BuildGetFirmwareAnimation()
+        => new byte[] { Frame0, OpControl, 0x0D };
+
+    /// <summary>
+    /// Build the "Get NP50 Firmware Default Mode" request (4 bytes).
+    /// Returns 17 bytes from the EEPROM-persisted default-mode block:
+    /// [4]=DefaultMode (0=Static, 1=Motherboard), [5]=StaticFanPercentage,
+    /// [6]=IsStartAnimationOff, [7]=IsFirmwareLightingOff. Bytes 0..3 are
+    /// the standard FF CC 04 echo header. Matches HYTE's
+    /// <c>SmartHubCommandBase.GetFirmwareDefaultMode</c>.
+    /// </summary>
+    public static byte[] BuildGetFirmwareDefaultMode()
+        => new byte[] { Frame0, OpControl, 0x04, 0x00 };
+
 
     /// <summary>
     /// Build the "Set NP50 Cooling Mode" v2 request (15 bytes; all parameters
@@ -164,23 +238,23 @@ public static class Np50Protocol
     /// their port-1 buffer with 6 logo LEDs before the fan LEDs. The hub spec caps channel 3
     /// at 750 bytes of LED payload (250 LEDs); callers must enforce that.
     /// </summary>
+    public const int LightingStreamMinFrameBytes = 90;
+
     public static byte[] BuildLightingStream(int port, ReadOnlySpan<RgbColor> leds)
     {
-        EnsurePort(port);
+        EnsureLightingPort(port);
         if (leds.Length > ushort.MaxValue)
             throw new ArgumentException("LED buffer too large for two-byte length field.", nameof(leds));
-        var buf = new byte[7 + leds.Length * 3];
+        var dataBytes = 7 + leds.Length * 3;
+        var frameSize = Math.Max(dataBytes, LightingStreamMinFrameBytes);
+        var buf = new byte[frameSize];
         buf[0] = Frame0; buf[1] = OpLighting; buf[2] = 0x01;
         buf[3] = (byte)port;
-        // LED-count header is the constant 0x01 0x68 per HYTE's reference.
-        // Do NOT replace with the real count — see comment above the constants.
         buf[4] = LedCountMagicHigh;
         buf[5] = LedCountMagicLow;
-        // buf[6] reserved
         for (var i = 0; i < leds.Length; i++)
         {
             var off = 7 + i * 3;
-            // GRB byte order, not RGB. Easy footgun.
             buf[off + 0] = leds[i].G;
             buf[off + 1] = leds[i].R;
             buf[off + 2] = leds[i].B;
@@ -223,6 +297,30 @@ public static class Np50Protocol
             target.FirmwareAnimB = response[18];
             target.FirmwareAnimBrightness = response[19];
         }
+    }
+
+    public readonly record struct Np50FirmwareDefaults(
+        byte DefaultMode,
+        byte StaticFanPercent,
+        bool IsStartAnimationOff,
+        bool IsFirmwareLightingOff);
+
+    /// <summary>
+    /// Parse the 17-byte response to "Get Firmware Default Mode". Layout per
+    /// HYTE's <c>NP50DefaultInfoModel</c>: header at [0..3], DefaultMode at [4],
+    /// StaticFanPercentage at [5], IsStartAnimationOff at [6],
+    /// IsFirmwareLightingOff at [7]. Bytes 8..16 are reserved / not documented.
+    /// </summary>
+    public static Np50FirmwareDefaults ParseFirmwareDefaultMode(ReadOnlySpan<byte> response)
+    {
+        if (response.Length < 8)
+            throw new ArgumentException($"Firmware default-mode response too short: {response.Length} bytes", nameof(response));
+        ExpectHeader(response, OpControl, "GetFirmwareDefaultMode");
+        return new Np50FirmwareDefaults(
+            DefaultMode: response[4],
+            StaticFanPercent: response[5],
+            IsStartAnimationOff: response[6] == 0x01,
+            IsFirmwareLightingOff: response[7] == 0x01);
     }
 
     /// <summary>
@@ -384,6 +482,12 @@ public static class Np50Protocol
         target.CurrentOverflow = (raw & 0x02) != 0;
         target.PortDeviceCountExceeded = (raw & 0x04) != 0;
         target.TotalDeviceCountExceeded = (raw & 0x08) != 0;
+    }
+
+    private static void EnsureLightingPort(int port)
+    {
+        if (port < 1 || port > LightingCyclePortCount)
+            throw new ArgumentOutOfRangeException(nameof(port), port, $"Port must be in 1..{LightingCyclePortCount}.");
     }
 
     private static void EnsurePort(int port)

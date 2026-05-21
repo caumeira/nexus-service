@@ -134,44 +134,49 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
             _stripsByPort[port - 1].Add(dev);
         }
 
-        var anyTouched = _logoFrame is not null;
-        for (var p = 1; p <= Np50Protocol.PortCount; p++)
+        // Always emit the full 4-port cycle (HYTE's CoolingHubBaseController.SendToHardware
+        // iterates devicePort 0..3 regardless of which channels are populated).
+        // Empty ports get a 7-byte header padded to 90 bytes by BuildLightingStream.
+        // Skipping empty ports appears to leave firmware 2.0.5.1's lighting latch
+        // un-committed, which matches the "strips dark even with non-zero wire data"
+        // symptom we'd otherwise be unable to explain.
+        for (var p = 1; p <= Np50Protocol.LightingCyclePortCount; p++)
         {
-            var strips = _stripsByPort[p - 1];
-            if (strips.Count == 0 && (p != 1 || _logoFrame is null)) continue;
+            int total = 0;
+            var strips = p <= Np50Protocol.PortCount ? _stripsByPort[p - 1] : null;
+            if (p == 1 && _logoFrame is not null) total += Np50LightingDeviceProvider.LogoLedCount;
+            if (strips is not null) foreach (var s in strips) total += s.LedCount;
 
-            // Build the per-port LED buffer. Port 1 gets the 6-LED logo
-            // prefix; ports 2/3 are just the daisy-chained strip LEDs.
-            var total = (p == 1 && _logoFrame is not null ? Np50LightingDeviceProvider.LogoLedCount : 0);
-            foreach (var s in strips) total += s.LedCount;
-            if (total <= 0) continue;
-            EnsurePortCapacity(p, total);
-
-            var dstIdx = 0;
-            if (p == 1 && _logoFrame is not null)
+            if (total > 0)
             {
-                CopyIntoBuffer(_portBuffers[p - 1]!, dstIdx, _logoFrame,
-                    Math.Min(_logoFrame.LedCount, Np50LightingDeviceProvider.LogoLedCount),
-                    settings, disabled, devicePrefs, globalBrightness, nowTicks);
-                dstIdx += Np50LightingDeviceProvider.LogoLedCount;
-                anyTouched = true;
+                EnsurePortCapacity(p, total);
+                var dstIdx = 0;
+                if (p == 1 && _logoFrame is not null)
+                {
+                    CopyIntoBuffer(_portBuffers[p - 1]!, dstIdx, _logoFrame,
+                        Math.Min(_logoFrame.LedCount, Np50LightingDeviceProvider.LogoLedCount),
+                        settings, disabled, devicePrefs, globalBrightness, nowTicks);
+                    dstIdx += Np50LightingDeviceProvider.LogoLedCount;
+                }
+                if (strips is not null)
+                {
+                    foreach (var strip in strips)
+                    {
+                        CopyIntoBuffer(_portBuffers[p - 1]!, dstIdx, strip, strip.LedCount,
+                            settings, disabled, devicePrefs, globalBrightness, nowTicks);
+                        dstIdx += strip.LedCount;
+                    }
+                }
+                var span = new ReadOnlySpan<RgbColor>(_portBuffers[p - 1], 0, total);
+                _hub.WriteLighting(p, span);
             }
-            foreach (var strip in strips)
+            else
             {
-                CopyIntoBuffer(_portBuffers[p - 1]!, dstIdx, strip, strip.LedCount,
-                    settings, disabled, devicePrefs, globalBrightness, nowTicks);
-                dstIdx += strip.LedCount;
-                anyTouched = true;
+                // Empty port: still send the framing-only header. BuildLightingStream
+                // pads to 90 bytes which is what the firmware expects per HYTE.
+                _hub.WriteLighting(p, ReadOnlySpan<RgbColor>.Empty);
             }
-
-            // Send.
-            var span = new ReadOnlySpan<RgbColor>(_portBuffers[p - 1], 0, total);
-            _hub.WriteLighting(p, span);
         }
-
-        // anyTouched is computed for future feature gates (e.g. skipping
-        // writes when nothing changed); not currently acted on.
-        if (!anyTouched) { /* no-op */ }
     }
 
     private void CopyIntoBuffer(RgbColor[] dst, int dstStart, DeviceFrame frame, int writeLen,

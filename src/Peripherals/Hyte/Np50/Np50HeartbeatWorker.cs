@@ -35,7 +35,6 @@ public sealed class Np50HeartbeatWorker : BackgroundService
     private bool _lastConnected;
     private byte _lastWarningSummary;
     private long _lastModeAssertMs;
-    private bool _firmwareAnimationDisabled;
 
     public Np50HeartbeatWorker(Np50Hub hub, MultiplexHub wsHub, Np50LightingDeviceProvider? lighting = null)
     {
@@ -46,7 +45,6 @@ public sealed class Np50HeartbeatWorker : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Console.Error.WriteLine("[np50-heartbeat] ExecuteAsync started");
         var period = TimeSpan.FromMilliseconds(Np50Protocol.RecommendedPollMs);
         // PeriodicTimer skips drift accumulation if a tick runs long.
         using var timer = new PeriodicTimer(period);
@@ -78,11 +76,6 @@ public sealed class Np50HeartbeatWorker : BackgroundService
         // or the hub reverts. PollHubInfo also opens the port if needed.
         if (!_hub.PollHubInfo())
         {
-            // Reset the firmware-animation flag so reconnect re-asserts it.
-            // Without this, a brief USB hiccup leaves _firmwareAnimationDisabled
-            // stuck at true and we never resend the disable command, so the
-            // first-LED rainbow comes back on the next reconnect.
-            _firmwareAnimationDisabled = false;
             BroadcastIfConnectionChanged(connectedBefore: connectedBefore, connectedAfter: false);
             return;
         }
@@ -92,32 +85,6 @@ public sealed class Np50HeartbeatWorker : BackgroundService
         if (!connectedBefore || string.IsNullOrEmpty(_hub.State.FirmwareVersion))
         {
             _hub.PollFirmwareVersion();
-        }
-
-        // Undo the side effects of an earlier WIP that sent
-        // SetStartAnimationOff(true) + SetFirmwareLightingOff(true) +
-        // WriteFirmwareAnimationToMcu(animation:0, brightness:0, SAVE=1)
-        // on every reconnect. Each of those commands persists to EEPROM
-        // (the trailing 0x01 SAVE byte on 0x0C; the 0x05 / 0x07 flag
-        // commands are persistent by design), so a hub that booted under
-        // the buggy build now boots with:
-        //   - "start animation off" persistently set
-        //   - "firmware lighting off" persistently set
-        //   - firmware brightness pinned to 0
-        // Net effect: LS10 / LS30 strips stay dark even with our
-        // software stream running, because the hub's brightness multiplier
-        // pre-empts software output.
-        //
-        // Send the inverse commands once per fresh connect to undo all
-        // three. HYTE's reference never sends any of these during normal
-        // operation, so leaving them at the "OFF=false / brightness=100"
-        // values mirrors a never-touched-firmware-state baseline.
-        if (!_firmwareAnimationDisabled)
-        {
-            var aOff = _hub.SetStartAnimationOff(false);
-            var lOff = _hub.SetFirmwareLightingOff(false);
-            var mcuOff = _hub.WriteFirmwareAnimationToMcu(animation: 0, r: 0, g: 0, b: 0, brightness: 100);
-            if (aOff && lOff && mcuOff) _firmwareAnimationDisabled = true;
         }
 
         // Enforce desired cooling mode. We used to re-send on EVERY drift

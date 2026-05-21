@@ -241,6 +241,41 @@ public sealed class Np50Hub : IDisposable
     public bool WriteFirmwareAnimationToMcu(byte animation, byte r, byte g, byte b, byte brightness)
         => SendOnly(Np50Protocol.BuildWriteFirmwareAnimationToMcu(animation, r, g, b, brightness));
 
+    /// <summary>
+    /// Read the 17-byte EEPROM-persisted firmware default-mode block (opcode
+    /// 0xCC 0x04). Use this before issuing any SAVE-byte write to default-mode
+    /// fields to verify what's actually there — `SendOnly` returning true only
+    /// means the bytes left the wire, not that the firmware accepted them.
+    /// See `.agents/rules/failure-log.md` 2026-05-21 EEPROM read-before-write.
+    /// </summary>
+    public byte[]? GetFirmwareDefaultModeRaw()
+    {
+        byte[]? result = null;
+        var ok = Exchange(
+            Np50Protocol.BuildGetFirmwareDefaultMode(),
+            expectedLength: 17,
+            timeoutMs: 300,
+            response => result = response.ToArray());
+        return ok ? result : null;
+    }
+
+    /// <summary>
+    /// Read raw 9-byte firmware-animation state (opcode 0xCC 0x0D). Payload
+    /// layout after the 4-byte header: anim, R, G, B, brightness. Pair with
+    /// <see cref="WriteFirmwareAnimationToMcu"/> to verify SAVE-byte writes
+    /// actually persisted.
+    /// </summary>
+    public byte[]? GetFirmwareAnimationRaw()
+    {
+        byte[]? result = null;
+        var ok = Exchange(
+            Np50Protocol.BuildGetFirmwareAnimation(),
+            expectedLength: 9,
+            timeoutMs: 300,
+            response => result = response.ToArray());
+        return ok ? result : null;
+    }
+
     public bool WriteLighting(int port, ReadOnlySpan<RgbColor> leds)
         => SendOnly(Np50Protocol.BuildLightingStream(port, leds));
 

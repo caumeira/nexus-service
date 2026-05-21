@@ -54,6 +54,46 @@ public class Np50ProtocolTests
     }
 
     [Theory]
+    [InlineData(true, 0x01)]
+    [InlineData(false, 0x00)]
+    public void BuildSetStartAnimationOff_emits_FF_CC_05_flag(bool off, byte expectedFlag)
+    {
+        Assert.Equal(new byte[] { 0xFF, 0xCC, 0x05, expectedFlag }, Np50Protocol.BuildSetStartAnimationOff(off));
+    }
+
+    [Theory]
+    [InlineData(true, 0x01)]
+    [InlineData(false, 0x00)]
+    public void BuildSetFirmwareLightingOff_emits_FF_CC_07_flag(bool off, byte expectedFlag)
+    {
+        // Reference: HYTE nexus-control-service NP50Command.SetFirmwareLightingOff
+        // emits these exact bytes. Required to keep the firmware's default
+        // rainbow off when we're streaming software lighting.
+        Assert.Equal(new byte[] { 0xFF, 0xCC, 0x07, expectedFlag }, Np50Protocol.BuildSetFirmwareLightingOff(off));
+    }
+
+    [Fact]
+    public void BuildWriteFirmwareAnimationToMcu_emits_FF_CC_0C_anim_RGB_brightness_save()
+    {
+        // Reference: HYTE nexus-control-service SmartHubCommandBase.WriteFwAnimationToMcu
+        // emits these exact bytes. The trailing 0x01 is the SAVE flag.
+        var bytes = Np50Protocol.BuildWriteFirmwareAnimationToMcu(
+            animation: 0x02, r: 0xAA, g: 0xBB, b: 0xCC, brightness: 0x32);
+        Assert.Equal(new byte[] { 0xFF, 0xCC, 0x0C, 0x02, 0xAA, 0xBB, 0xCC, 0x32, 0x01 }, bytes);
+    }
+
+    [Fact]
+    public void BuildWriteFirmwareAnimationToMcu_with_all_zeros_disables_animation()
+    {
+        // animation=0 + brightness=0 is what we send on first connect to
+        // silence the live MCU firmware animation. The MCU stops driving
+        // any LED with its default rainbow even if those LEDs aren't
+        // addressed by the software LED stream.
+        var bytes = Np50Protocol.BuildWriteFirmwareAnimationToMcu(0, 0, 0, 0, 0);
+        Assert.Equal(new byte[] { 0xFF, 0xCC, 0x0C, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 }, bytes);
+    }
+
+    [Theory]
     [InlineData(Np50Protocol.ModeSoftware)]
     [InlineData(Np50Protocol.ModeMotherboard)]
     [InlineData(Np50Protocol.ModeStatic)]
@@ -147,7 +187,10 @@ public class Np50ProtocolTests
             new RgbColor(R: 0xAA, G: 0xBB, B: 0xCC),
         };
         var buf = Np50Protocol.BuildLightingStream(port: 3, leds);
-        Assert.Equal(7 + 2 * 3, buf.Length);
+        // HYTE pads to a 90-byte minimum (CoolingHubBaseController.SendToHardware
+        // calls PadListWithZeros(90)). Frames shorter than 90 bytes appear to be
+        // silently dropped by firmware 2.0.3.1, so we always emit ≥90.
+        Assert.Equal(Np50Protocol.LightingStreamMinFrameBytes, buf.Length);
         Assert.Equal(0xFF, buf[0]);
         Assert.Equal(0xEE, buf[1]);
         Assert.Equal(0x01, buf[2]);
@@ -182,6 +225,34 @@ public class Np50ProtocolTests
             Assert.Equal(0x01, buf[4]);
             Assert.Equal(0x68, buf[5]);
         }
+    }
+
+    [Fact]
+    public void BuildLightingStream_pads_empty_port_frame_to_90_bytes()
+    {
+        // Empty-port frames (port 4 in the 4-port HYTE cycle when no devices
+        // are attached) MUST still pad to the 90-byte minimum. The
+        // 4-port-cycle dark-strips bug took a full day to find because
+        // firmware 2.0.5.1 silently drops short frames and never commits the
+        // LED latch. Lock this contract in.
+        var buf = Np50Protocol.BuildLightingStream(port: 4, ReadOnlySpan<RgbColor>.Empty);
+        Assert.Equal(Np50Protocol.LightingStreamMinFrameBytes, buf.Length);
+        Assert.Equal(new byte[] { 0xFF, 0xEE, 0x01, 0x04, 0x01, 0x68, 0x00 }, buf[..7]);
+        for (var i = 7; i < buf.Length; i++) Assert.Equal(0, buf[i]);
+    }
+
+    [Fact]
+    public void BuildLightingStream_accepts_port_4_rejects_port_5()
+    {
+        // The lighting-stream cycle is 4 frames per tick (HYTE's
+        // CoolingHubBaseController iterates devicePort 0..3) — port 4 must
+        // be addressable even though NP50 only has 3 fan ports. Anything
+        // past port 4 is out of contract.
+        _ = Np50Protocol.BuildLightingStream(port: 4, ReadOnlySpan<RgbColor>.Empty);
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Np50Protocol.BuildLightingStream(port: 5, ReadOnlySpan<RgbColor>.Empty));
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            Np50Protocol.BuildLightingStream(port: 0, ReadOnlySpan<RgbColor>.Empty));
     }
 
     // ── Parsers ──
