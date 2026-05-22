@@ -180,6 +180,7 @@ public sealed class ProfileManager : IDisposable
 
     public void DeleteProfile(string profileId)
     {
+        bool switched;
         lock (_lock)
         {
             if (_manifest.Profiles.Count <= 1)
@@ -209,17 +210,22 @@ public sealed class ProfileManager : IDisposable
                 catch { }
             }
 
-            if (_manifest.ActiveProfileId == profileId)
+            switched = _manifest.ActiveProfileId == profileId;
+            if (switched)
             {
                 _manifest.ActiveProfileId = _manifest.Profiles[0].Id;
                 LoadProfileIntoSettings(_manifest.ActiveProfileId);
-                SaveManifest();
-                OnProfileSwitched?.Invoke();
             }
-            else
-            {
-                SaveManifest();
-            }
+            SaveManifest();
+        }
+
+        // Fire OUTSIDE the lock; the handler does hardware I/O (fan
+        // enumeration, lighting engine reapply via LiveEngineSync) that
+        // would otherwise block every other ProfileManager call for
+        // potentially seconds. Matches SwitchProfile's pattern.
+        if (switched)
+        {
+            OnProfileSwitched?.Invoke();
         }
     }
 

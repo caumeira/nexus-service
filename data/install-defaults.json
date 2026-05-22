@@ -4,7 +4,7 @@
   "theme": {
     "language": "en",
     "themeMode": "system",
-    "accentColor": "#8b5cf6"
+    "accentColor": "#3b82f6"
   },
 
   "monitoring": {
@@ -133,7 +133,7 @@
   },
 
   "lighting": {
-    "sync": "none",
+    "sync": "plasma",
     "brightnessEnabled": false,
     "speedEnabled": false,
     "frameRate": 60,
@@ -141,7 +141,7 @@
     "musicReactive": false,
     "staticColor": { "r": 255, "g": 0, "b": 0 },
     "animate": {
-      "effect": "rainbow",
+      "effect": "plasma",
       "state": {
         "speed": 50,
         "intensity": 1.0,
@@ -186,7 +186,7 @@
 
   "cooling": {
     "globalSpeedModifier": 1.0,
-    "activePreset": "custom",
+    "activePreset": "silent",
     "presets": {
       "silent":      { "responseTime": 3.0, "minTemp": 45, "maxTemp": 85, "minSpeed": 20, "maxSpeed": 70  },
       "balanced":    { "responseTime": 1.5, "minTemp": 35, "maxTemp": 75, "minSpeed": 30, "maxSpeed": 90  },

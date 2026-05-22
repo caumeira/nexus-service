@@ -14,7 +14,7 @@ public sealed class ThemeSettings
 {
     public string Language { get; set; } = "en";
     public string ThemeMode { get; set; } = "system";
-    public string AccentColor { get; set; } = "#8b5cf6";
+    public string AccentColor { get; set; } = "#3b82f6";
 }
 
 public sealed class MonitoringSettings

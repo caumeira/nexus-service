@@ -1,4 +1,6 @@
 using Qos.Service.Auth;
+using Qos.Service.Cooling;
+using Qos.Service.Lifecycle;
 using Qos.Service.Lighting;
 using Qos.Service.Models;
 using Qos.Service.Models.Profiles;
@@ -232,7 +234,7 @@ public static class ProfileRoutes
         // Shared categories are untouched. If the named profile is the active
         // one, in-memory state is updated and a broadcast fires; otherwise the
         // reset only touches that profile's JSON on disk.
-        app.MapPost("/profiles/{id}/reset", (string id, ProfileManager pm, ILightingProvider lp, MultiplexHub hub, IConfigStore store) =>
+        app.MapPost("/profiles/{id}/reset", (string id, ProfileManager pm, ILightingProvider lp, IFanControlProvider fans, MultiplexHub hub, IConfigStore store) =>
         {
             try
             {
@@ -253,6 +255,13 @@ public static class ProfileRoutes
                     catch { }
                 }
                 pm.ResetProfile(id);
+                // Re-engage engines from the freshly-defaulted settings so the
+                // "on by default" cooling preset + lighting sync mode actually
+                // run instead of leaving the engines idle.
+                if (isActive)
+                {
+                    LiveEngineSync.Apply(store, fans, lp);
+                }
                 PanelTopics.BroadcastPrefs(hub);
                 PanelTopics.BroadcastLighting(hub);
                 PanelTopics.BroadcastCooling(hub);
@@ -268,11 +277,19 @@ public static class ProfileRoutes
         // redirected to the Primary's data and affects every profile. If the
         // category is per-profile, only the named profile's JSON is touched
         // (and in-memory state if the named profile is active).
-        app.MapPost("/profiles/{id}/reset/{category}", (string id, string category, ProfileManager pm, ILightingProvider lp, MultiplexHub hub, IConfigStore store) =>
+        app.MapPost("/profiles/{id}/reset/{category}", (string id, string category, ProfileManager pm, ILightingProvider lp, IFanControlProvider fans, MultiplexHub hub, IConfigStore store) =>
         {
             try
             {
                 var normalized = ProfileSharing.Normalize(category);
+                var settings = store.Load();
+                var isActive = id == pm.GetManifest().ActiveProfileId;
+                // Capture the shared flag for the reset category BEFORE the
+                // reset runs — ResetCategory doesn't mutate SharedCategories
+                // today, but the post-reset re-engage decision should read
+                // the value that was in force at request time.
+                var categoryIsShared = normalized != null
+                    && settings.SharedCategories.Contains(normalized);
                 if (normalized == ProfileSharing.Lighting)
                 {
                     // StopAll only when the reset will actually flip the live
@@ -281,10 +298,7 @@ public static class ProfileRoutes
                     // the active profile. Per-profile reset on a different
                     // profile only touches a stored JSON, so leave the live
                     // engine alone.
-                    var settings = store.Load();
-                    var isActive = id == pm.GetManifest().ActiveProfileId;
-                    var isShared = settings.SharedCategories.Contains(ProfileSharing.Lighting);
-                    if (isShared || isActive)
+                    if (categoryIsShared || isActive)
                     {
                         try
                         { lp.StopAll(); }
@@ -292,6 +306,13 @@ public static class ProfileRoutes
                     }
                 }
                 pm.ResetCategory(id, category);
+                // Re-engage engines from the freshly-defaulted settings when
+                // the live state actually changed (active profile, or shared
+                // category that writes through to active).
+                if (isActive || categoryIsShared)
+                {
+                    LiveEngineSync.Apply(store, fans, lp);
+                }
                 PanelTopics.BroadcastPrefs(hub);
                 PanelTopics.BroadcastLighting(hub);
                 PanelTopics.BroadcastCooling(hub);

@@ -56,6 +56,8 @@ internal static class AppBootstrap
         var fans = app.Services.GetRequiredService<IFanControlProvider>();
         var curveEngine = app.Services.GetRequiredService<CurveEngine>();
         var lightingEngine = app.Services.GetRequiredService<LightingEngine>();
+        var lightingProvider = app.Services.GetRequiredService<ILightingProvider>();
+        var configStore = app.Services.GetRequiredService<IConfigStore>();
         profileManager.OnProfileSwitched += () =>
         {
             try
@@ -63,6 +65,11 @@ internal static class AppBootstrap
                 fans.ReleaseAll();
                 curveEngine.ResetSmoothing();
                 lightingEngine.Stop();
+                // Re-engage engines with the incoming profile's settings so
+                // a profile that has "silent" cooling + a plasma effect
+                // resumes after the switch instead of leaving the engines
+                // idle until the user clicks something.
+                LiveEngineSync.Apply(configStore, fans, lightingProvider);
             }
             catch (Exception ex)
             {

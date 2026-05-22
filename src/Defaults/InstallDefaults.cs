@@ -93,7 +93,7 @@ public sealed class InstallDefaultsDocument
 
 public sealed class LightingDefaults
 {
-    public string Sync { get; set; } = "none";
+    public string Sync { get; set; } = "plasma";
     public bool BrightnessEnabled { get; set; }
     public bool SpeedEnabled { get; set; }
     public int FrameRate { get; set; } = 60;
@@ -114,7 +114,7 @@ public sealed class LightingStaticColor
 
 public sealed class LightingAnimateDefaults
 {
-    public string Effect { get; set; } = "rainbow";
+    public string Effect { get; set; } = "plasma";
     public LightingAnimateState State { get; set; } = new();
 }
 
@@ -171,7 +171,7 @@ public sealed class KeebFirmwareLightingDefaults
 public sealed class CoolingDefaults
 {
     public double GlobalSpeedModifier { get; set; } = 1.0;
-    public string ActivePreset { get; set; } = "custom";
+    public string ActivePreset { get; set; } = "silent";
     public Dictionary<string, CoolingPresetDefault> Presets { get; set; } = new();
     public CoolingDeviceLayoutSize DeviceLayoutSize { get; set; } = new();
 }
