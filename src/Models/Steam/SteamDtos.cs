@@ -92,3 +92,48 @@ public sealed class SteamAchievement
     public string? Name { get; set; }
     public string? Description { get; set; }
 }
+
+public sealed class SteamCurrentPlayers
+{
+    public int PlayerCount { get; set; }
+}
+
+public sealed class SteamNewsItem
+{
+    public string Gid { get; set; } = "";
+    public string Title { get; set; } = "";
+    public string Url { get; set; } = "";
+    public string Author { get; set; } = "";
+    public string Contents { get; set; } = "";
+    public string FeedLabel { get; set; } = "";
+    public long Date { get; set; }
+    public string FeedName { get; set; } = "";
+    public int FeedType { get; set; }
+    public int AppId { get; set; }
+}
+
+public sealed class SteamGlobalAchievement
+{
+    public string Name { get; set; } = "";
+    public double Percent { get; set; }
+}
+
+public sealed class SteamUserStat
+{
+    public string Name { get; set; } = "";
+    public double Value { get; set; }
+}
+
+public sealed class SteamAppDetails
+{
+    public int AppId { get; set; }
+    public string Name { get; set; } = "";
+    public string HeaderImage { get; set; } = "";
+    public string ShortDescription { get; set; } = "";
+    public List<string> Developers { get; set; } = new();
+    public List<string> Publishers { get; set; } = new();
+    public List<string> Genres { get; set; } = new();
+    public string ReleaseDate { get; set; } = "";
+    public bool IsFree { get; set; }
+    public int? MetacriticScore { get; set; }
+}

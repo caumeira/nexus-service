@@ -275,6 +275,14 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(List<SteamFriendSummary>))]
 [JsonSerializable(typeof(SteamAchievement))]
 [JsonSerializable(typeof(List<SteamAchievement>))]
+[JsonSerializable(typeof(SteamCurrentPlayers))]
+[JsonSerializable(typeof(SteamNewsItem))]
+[JsonSerializable(typeof(List<SteamNewsItem>))]
+[JsonSerializable(typeof(SteamGlobalAchievement))]
+[JsonSerializable(typeof(List<SteamGlobalAchievement>))]
+[JsonSerializable(typeof(SteamUserStat))]
+[JsonSerializable(typeof(List<SteamUserStat>))]
+[JsonSerializable(typeof(SteamAppDetails))]
 
 // Discord
 [JsonSerializable(typeof(DiscordConfigResponse))]

@@ -25,6 +25,16 @@ public static class SteamRoutes
             await steam.GetFriendsAsync(ct).ConfigureAwait(false)).AllowPanel();
         app.MapGet("/api/steam/achievements/{appId:int}", async (int appId, ISteamProvider steam, CancellationToken ct) =>
             await steam.GetAchievementsAsync(appId, ct).ConfigureAwait(false)).AllowPanel();
+        app.MapGet("/api/steam/current-players/{appId:int}", async (int appId, ISteamProvider steam, CancellationToken ct) =>
+            await steam.GetCurrentPlayersAsync(appId, ct).ConfigureAwait(false)).AllowPanel();
+        app.MapGet("/api/steam/news/{appId:int}", async (int appId, int? count, int? maxLength, ISteamProvider steam, CancellationToken ct) =>
+            await steam.GetNewsAsync(appId, count ?? 5, maxLength ?? 300, ct).ConfigureAwait(false)).AllowPanel();
+        app.MapGet("/api/steam/global-achievements/{appId:int}", async (int appId, ISteamProvider steam, CancellationToken ct) =>
+            await steam.GetGlobalAchievementsAsync(appId, ct).ConfigureAwait(false)).AllowPanel();
+        app.MapGet("/api/steam/user-stats/{appId:int}", async (int appId, ISteamProvider steam, CancellationToken ct) =>
+            await steam.GetUserStatsAsync(appId, ct).ConfigureAwait(false)).AllowPanel();
+        app.MapGet("/api/steam/app-details/{appId:int}", async (int appId, ISteamProvider steam, CancellationToken ct) =>
+            await steam.GetAppDetailsAsync(appId, ct).ConfigureAwait(false)).AllowPanel();
         app.MapPost("/api/steam/launch", (int? appId, ISteamProvider steam) => steam.Launch(appId)).AllowPanel();
     }
 }

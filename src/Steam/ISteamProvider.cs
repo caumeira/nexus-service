@@ -13,5 +13,10 @@ public interface ISteamProvider
     Task<List<SteamOwnedGame>> GetOwnedGamesAsync(CancellationToken cancellationToken);
     Task<List<SteamFriendSummary>> GetFriendsAsync(CancellationToken cancellationToken);
     Task<List<SteamAchievement>> GetAchievementsAsync(int appId, CancellationToken cancellationToken);
+    Task<SteamCurrentPlayers> GetCurrentPlayersAsync(int appId, CancellationToken cancellationToken);
+    Task<List<SteamNewsItem>> GetNewsAsync(int appId, int count, int maxLength, CancellationToken cancellationToken);
+    Task<List<SteamGlobalAchievement>> GetGlobalAchievementsAsync(int appId, CancellationToken cancellationToken);
+    Task<List<SteamUserStat>> GetUserStatsAsync(int appId, CancellationToken cancellationToken);
+    Task<SteamAppDetails?> GetAppDetailsAsync(int appId, CancellationToken cancellationToken);
     ApiResponse Launch(int? appId = null);
 }

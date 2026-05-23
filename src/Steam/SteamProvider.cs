@@ -158,6 +158,38 @@ public sealed class SteamProvider : ISteamProvider
         return achievements;
     }
 
+    // The next five endpoints are intentionally pass-through with no caching.
+    // The expanded Steam page hits Steam directly each call so "live" panels
+    // (concurrent players, news, recent unlocks) reflect actual server state.
+    public async Task<SteamCurrentPlayers> GetCurrentPlayersAsync(int appId, CancellationToken cancellationToken)
+    {
+        return await CreateAnonymousClient().GetCurrentPlayersAsync(appId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<List<SteamNewsItem>> GetNewsAsync(int appId, int count, int maxLength, CancellationToken cancellationToken)
+    {
+        return await CreateAnonymousClient().GetNewsAsync(appId, count, maxLength, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<List<SteamGlobalAchievement>> GetGlobalAchievementsAsync(int appId, CancellationToken cancellationToken)
+    {
+        return await CreateAnonymousClient().GetGlobalAchievementsAsync(appId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<List<SteamUserStat>> GetUserStatsAsync(int appId, CancellationToken cancellationToken)
+    {
+        var config = EnsureReady();
+        return await CreateClient(config).GetUserStatsAsync(appId, cancellationToken).ConfigureAwait(false);
+    }
+
+    public async Task<SteamAppDetails?> GetAppDetailsAsync(int appId, CancellationToken cancellationToken)
+    {
+        return await CreateAnonymousClient().GetAppDetailsAsync(appId, cancellationToken).ConfigureAwait(false);
+    }
+
+    private SteamApiClient CreateAnonymousClient() =>
+        new(_httpClientFactory.CreateClient(), "", "");
+
     public ApiResponse Launch(int? appId = null)
     {
         // steam://run/<appId> starts a specific game (installs first if not
@@ -597,6 +629,178 @@ internal sealed class SteamApiClient
         {
             return new List<SteamAchievement>();
         }
+    }
+
+    public async Task<SteamCurrentPlayers> GetCurrentPlayersAsync(int appId, CancellationToken cancellationToken)
+    {
+        using var doc = await GetJsonAsync("ISteamUserStats/GetNumberOfCurrentPlayers/v1", new Dictionary<string, string>
+        {
+            ["appid"] = appId.ToString(CultureInfo.InvariantCulture),
+        }, cancellationToken).ConfigureAwait(false);
+
+        if (doc.RootElement.TryGetProperty("response", out var resp))
+        {
+            return new SteamCurrentPlayers { PlayerCount = ReadInt(resp, "player_count") };
+        }
+        return new SteamCurrentPlayers();
+    }
+
+    public async Task<List<SteamNewsItem>> GetNewsAsync(int appId, int count, int maxLength, CancellationToken cancellationToken)
+    {
+        using var doc = await GetJsonAsync("ISteamNews/GetNewsForApp/v2", new Dictionary<string, string>
+        {
+            ["appid"] = appId.ToString(CultureInfo.InvariantCulture),
+            ["count"] = count.ToString(CultureInfo.InvariantCulture),
+            ["maxlength"] = maxLength.ToString(CultureInfo.InvariantCulture),
+            ["format"] = "json",
+        }, cancellationToken).ConfigureAwait(false);
+
+        var list = new List<SteamNewsItem>();
+        if (!TryGetArray(doc.RootElement, "appnews", "newsitems", out var items))
+        {
+            return list;
+        }
+        foreach (var item in items.EnumerateArray())
+        {
+            list.Add(new SteamNewsItem
+            {
+                Gid = ReadString(item, "gid"),
+                Title = ReadString(item, "title"),
+                Url = ReadString(item, "url"),
+                Author = ReadString(item, "author"),
+                Contents = ReadString(item, "contents"),
+                FeedLabel = ReadString(item, "feedlabel"),
+                Date = ReadLong(item, "date"),
+                FeedName = ReadString(item, "feedname"),
+                FeedType = ReadInt(item, "feed_type"),
+                AppId = ReadInt(item, "appid"),
+            });
+        }
+        return list;
+    }
+
+    public async Task<List<SteamGlobalAchievement>> GetGlobalAchievementsAsync(int appId, CancellationToken cancellationToken)
+    {
+        using var doc = await GetJsonAsync("ISteamUserStats/GetGlobalAchievementPercentagesForApp/v2", new Dictionary<string, string>
+        {
+            ["gameid"] = appId.ToString(CultureInfo.InvariantCulture),
+        }, cancellationToken).ConfigureAwait(false);
+
+        var list = new List<SteamGlobalAchievement>();
+        if (!TryGetArray(doc.RootElement, "achievementpercentages", "achievements", out var arr))
+        {
+            return list;
+        }
+        foreach (var item in arr.EnumerateArray())
+        {
+            list.Add(new SteamGlobalAchievement
+            {
+                Name = ReadString(item, "name"),
+                Percent = item.TryGetProperty("percent", out var p) && p.TryGetDouble(out var d) ? d : 0,
+            });
+        }
+        return list;
+    }
+
+    public async Task<List<SteamUserStat>> GetUserStatsAsync(int appId, CancellationToken cancellationToken)
+    {
+        // Per-game stats only exist if the game defines them and the user has
+        // recorded values. Steam returns 400/403 for games with no stats schema
+        // or a private profile - both translate to "no stats to show", not an
+        // error the UI should surface.
+        try
+        {
+            using var doc = await GetJsonAsync("ISteamUserStats/GetUserStatsForGame/v2", new Dictionary<string, string>
+            {
+                ["key"] = _apiKey,
+                ["steamid"] = _steamId,
+                ["appid"] = appId.ToString(CultureInfo.InvariantCulture),
+            }, cancellationToken).ConfigureAwait(false);
+
+            var list = new List<SteamUserStat>();
+            if (!TryGetArray(doc.RootElement, "playerstats", "stats", out var arr))
+            {
+                return list;
+            }
+            foreach (var item in arr.EnumerateArray())
+            {
+                list.Add(new SteamUserStat
+                {
+                    Name = ReadString(item, "name"),
+                    Value = item.TryGetProperty("value", out var v) && v.TryGetDouble(out var d) ? d : 0,
+                });
+            }
+            return list;
+        }
+        catch (SteamApiException ex) when (ex.StatusCode == 400 || ex.StatusCode == 403)
+        {
+            return new List<SteamUserStat>();
+        }
+    }
+
+    public async Task<SteamAppDetails?> GetAppDetailsAsync(int appId, CancellationToken cancellationToken)
+    {
+        // Storefront API lives on a different host and doesn't take an API key;
+        // it returns { "<appid>": { success, data } }. success=false on region
+        // restrictions or unknown appids - return null to the caller so the UI
+        // can render the rest of the drilldown without the metadata block.
+        var url = $"https://store.steampowered.com/api/appdetails?appids={appId}&cc=us&l=english";
+        using var response = await _http.GetAsync(url, cancellationToken).ConfigureAwait(false);
+        if (!response.IsSuccessStatusCode)
+        {
+            return null;
+        }
+        var stream = await response.Content.ReadAsStreamAsync(cancellationToken).ConfigureAwait(false);
+        using var doc = await JsonDocument.ParseAsync(stream, cancellationToken: cancellationToken).ConfigureAwait(false);
+
+        if (!doc.RootElement.TryGetProperty(appId.ToString(CultureInfo.InvariantCulture), out var wrapper)) return null;
+        if (!wrapper.TryGetProperty("success", out var ok) || ok.ValueKind != JsonValueKind.True) return null;
+        if (!wrapper.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Object) return null;
+
+        var details = new SteamAppDetails
+        {
+            AppId = appId,
+            Name = ReadString(data, "name"),
+            HeaderImage = ReadString(data, "header_image"),
+            ShortDescription = ReadString(data, "short_description"),
+            IsFree = data.TryGetProperty("is_free", out var f) && f.ValueKind == JsonValueKind.True,
+        };
+        if (data.TryGetProperty("developers", out var devs) && devs.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var d in devs.EnumerateArray())
+            {
+                var s = d.GetString();
+                if (!string.IsNullOrEmpty(s)) details.Developers.Add(s);
+            }
+        }
+        if (data.TryGetProperty("publishers", out var pubs) && pubs.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var p in pubs.EnumerateArray())
+            {
+                var s = p.GetString();
+                if (!string.IsNullOrEmpty(s)) details.Publishers.Add(s);
+            }
+        }
+        if (data.TryGetProperty("genres", out var genres) && genres.ValueKind == JsonValueKind.Array)
+        {
+            foreach (var g in genres.EnumerateArray())
+            {
+                if (g.TryGetProperty("description", out var gd))
+                {
+                    var s = gd.GetString();
+                    if (!string.IsNullOrEmpty(s)) details.Genres.Add(s);
+                }
+            }
+        }
+        if (data.TryGetProperty("release_date", out var rd) && rd.TryGetProperty("date", out var rds))
+        {
+            details.ReleaseDate = rds.GetString() ?? "";
+        }
+        if (data.TryGetProperty("metacritic", out var mc) && mc.TryGetProperty("score", out var ms) && ms.TryGetInt32(out var msv))
+        {
+            details.MetacriticScore = msv;
+        }
+        return details;
     }
 
     private async Task<JsonDocument> GetJsonAsync(string endpoint, Dictionary<string, string> parameters, CancellationToken cancellationToken)
