@@ -321,16 +321,22 @@
   </ItemGroup>
 
   <!-- Defensive exclude: prior `dotnet publish` outputs at the project root
-       (publish/, publish-aot/, publish-mac/, publish-mac-aot/, publish-win/)
-       would otherwise be swept into Content and recursively copied into the
-       next publish's staging dir, ballooning into multi-GB nested trees. -->
+       (publish/, publish-aot/, publish-mac/, publish-mac-aot/, publish-win/,
+       builds/) would otherwise be swept into Content and recursively copied
+       into the next publish's staging dir, ballooning into multi-GB nested
+       trees. `builds/` is the legacy macOS publish path (see .gitignore) —
+       without this exclude, a stale `builds/osx-arm64/Qos.app` left over
+       from an earlier mac publish gets bundled into Qos-Setup.exe. -->
   <ItemGroup>
     <Content Remove="publish/**" />
     <Content Remove="publish-*/**" />
+    <Content Remove="builds/**" />
     <None Remove="publish/**" />
     <None Remove="publish-*/**" />
+    <None Remove="builds/**" />
     <Compile Remove="publish/**" />
     <Compile Remove="publish-*/**" />
+    <Compile Remove="builds/**" />
   </ItemGroup>
 
   <!-- Non-Windows: exclude Windows-only providers so AOT doesn't try to link them -->
