@@ -1,4 +1,4 @@
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 // Early-exit CLI dispatch + flag parsing for Program.cs. Each handler
 // short-circuits the daemon startup; the rest of the binary never builds
@@ -18,7 +18,7 @@ internal static class CommandLineEntry
             // widget context menu's "Open dashboard" item is clicked.
             ["--open-app"] = static _ =>
             {
-                Qos.Service.Platform.Windows.TrayIcon.OpenLocalWindow();
+                Nexus.Service.Platform.Windows.TrayIcon.OpenLocalWindow();
                 return 0;
             },
         };
@@ -36,7 +36,7 @@ internal static class CommandLineEntry
         if (args.Length > 0 && WindowsHandlers.TryGetValue(args[0], out var handler))
             return handler(args);
 
-        // No-args means the user double-clicked Qos.exe. With SCM owning the
+        // No-args means the user double-clicked Nexus.exe. With SCM owning the
         // daemon, the launcher just detects service state, spawns the tray if
         // missing, and opens the dashboard - no cold-start self-elevation.
         if (args.Length == 0)
@@ -46,8 +46,8 @@ internal static class CommandLineEntry
         // legacy alias mapping onto restart-service; the service is already
         // LocalSystem so "restart as admin" is a no-op naming-wise.
         if (args.Length > 0 && (
-                args[0].StartsWith("qos://restart-service", StringComparison.OrdinalIgnoreCase)
-                || args[0].StartsWith("qos://start-admin", StringComparison.OrdinalIgnoreCase)))
+                args[0].StartsWith("nexus://restart-service", StringComparison.OrdinalIgnoreCase)
+                || args[0].StartsWith("nexus://start-admin", StringComparison.OrdinalIgnoreCase)))
             return WindowsServiceInstaller.RunStartService();
 #endif
         return null;

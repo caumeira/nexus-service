@@ -5,7 +5,7 @@ using Vortice.DXGI;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
 
-namespace Qos.Service.Lighting.Capture;
+namespace Nexus.Service.Lighting.Capture;
 
 public sealed class DxgiScreenCapture : IDisposable
 {

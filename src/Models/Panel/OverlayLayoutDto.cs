@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Panel;
+namespace Nexus.Service.Models.Panel;
 
 /// <summary>
 /// Floating desktop widget. Positioned by cell coordinates on a sparse grid;

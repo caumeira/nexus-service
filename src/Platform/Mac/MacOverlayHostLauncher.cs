@@ -2,16 +2,16 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading;
-using Qos.Service.Auth;
-using Qos.Service.Panel;
-using Qos.Service.Persistence;
+using Nexus.Service.Auth;
+using Nexus.Service.Panel;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Platform.Mac;
+namespace Nexus.Service.Platform.Mac;
 
 /// <summary>
 /// macOS implementation of <see cref="IOverlayHost"/>. Spawns the Swift
-/// sidecar <c>qos-overlay-helper</c> from
-/// <c>Qos.app/Contents/MacOS/</c>, which renders one transparent
+/// sidecar <c>nexus-overlay-helper</c> from
+/// <c>Nexus.app/Contents/MacOS/</c>, which renders one transparent
 /// borderless NSWindow + WKWebView per NSScreen. Mirrors the
 /// <see cref="PanelOverlayHostLauncher"/> Windows path: spawn on enable,
 /// kill on disable, restart on crash with linear backoff.
@@ -57,7 +57,7 @@ public sealed class MacOverlayHostLauncher : IOverlayHost
             var helperPath = ResolveHelperPath();
             if (helperPath is null || !File.Exists(helperPath))
             {
-                Console.Error.WriteLine($"[overlay-helper] helper not found at '{helperPath ?? "<null>"}'; the .app bundle's build-app.sh must compile and copy qos-overlay-helper. Desktop widgets disabled.");
+                Console.Error.WriteLine($"[overlay-helper] helper not found at '{helperPath ?? "<null>"}'; the .app bundle's build-app.sh must compile and copy nexus-overlay-helper. Desktop widgets disabled.");
                 return false;
             }
 
@@ -176,11 +176,11 @@ public sealed class MacOverlayHostLauncher : IOverlayHost
     private static string? ResolveHelperPath()
     {
         // .app bundle layout: AppContext.BaseDirectory is
-        // Qos.app/Contents/MacOS/. Helpers live alongside the main
-        // binary so TCC attributes any permission grants to the Qos
+        // Nexus.app/Contents/MacOS/. Helpers live alongside the main
+        // binary so TCC attributes any permission grants to the Nexus
         // bundle, not to a separate identity.
         var dir = AppContext.BaseDirectory;
         if (string.IsNullOrEmpty(dir)) return null;
-        return Path.Combine(dir, "qos-overlay-helper");
+        return Path.Combine(dir, "nexus-overlay-helper");
     }
 }

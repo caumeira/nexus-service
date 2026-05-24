@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Qos.Service.Peripherals.Hyte.Np50;
+namespace Nexus.Service.Peripherals.Hyte.Np50;
 
 /// <summary>
 /// Pure builders + parsers for the HYTE NP50 serial-over-USB protocol.

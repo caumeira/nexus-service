@@ -10,10 +10,10 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
-using Qos.Service.Panel;
-using Qos.Service.Persistence;
+using Nexus.Service.Panel;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Discovery;
+namespace Nexus.Service.Discovery;
 
 /// <summary>
 /// Minimal DNS-SD over mDNS responder for the iOS companion app's
@@ -40,8 +40,8 @@ public sealed class MdnsAdvertiser : IHostedService, IDisposable
     private Task? _runLoop;
     private Timer? _expiryTimer;
     private byte[]? _cachedAnnouncement;
-    private string _hostLabel = "qos";
-    private string _instanceLabel = "Qos";
+    private string _hostLabel = "nexus";
+    private string _instanceLabel = "Nexus";
     private int _httpsPort;
     private string _machineName = "";
     private string _spki = "";
@@ -66,8 +66,8 @@ public sealed class MdnsAdvertiser : IHostedService, IDisposable
             return Task.CompletedTask;
         }
 
-        _hostLabel = SanitiseDnsLabel(_machineName, fallback: "qos");
-        _instanceLabel = string.IsNullOrWhiteSpace(_machineName) ? "Qos" : _machineName;
+        _hostLabel = SanitiseDnsLabel(_machineName, fallback: "nexus");
+        _instanceLabel = string.IsNullOrWhiteSpace(_machineName) ? "Nexus" : _machineName;
 
         _store.OnChanged += OnSettingsChanged;
         ApplyBroadcastPreference();

@@ -6,7 +6,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Helper;
+namespace Nexus.Service.Helper;
 
 /// <summary>
 /// Length-prefix framing over a byte-mode pipe. Each frame is a 4-byte

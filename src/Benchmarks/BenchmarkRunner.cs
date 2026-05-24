@@ -2,12 +2,12 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Benchmarks;
-using Qos.Service.Sensors;
-using Qos.Service.Serialization;
-using Qos.Service.Sockets;
+using Nexus.Service.Models.Benchmarks;
+using Nexus.Service.Sensors;
+using Nexus.Service.Serialization;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Benchmarks;
+namespace Nexus.Service.Benchmarks;
 
 public enum BenchmarkState
 {

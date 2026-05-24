@@ -1,4 +1,4 @@
-namespace Qos.Service.Lighting.Engine.Effects;
+namespace Nexus.Service.Lighting.Engine.Effects;
 
 public sealed class StaticEffect : IEffect
 {

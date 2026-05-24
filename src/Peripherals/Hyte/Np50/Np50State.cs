@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Peripherals.Hyte.Np50;
+namespace Nexus.Service.Peripherals.Hyte.Np50;
 
 // State records that the heartbeat worker fills in from device polls and
 // that the cooling/lighting capabilities + REST endpoints read from. Plain

@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Cooling;
-using Qos.Service.Peripherals.Hyte.Np50;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Peripherals.Hyte.Np50;
 
-namespace Qos.Service.Cooling;
+namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// Bridges the NP50 hub into the cooling subsystem.

@@ -1,8 +1,8 @@
-using Qos.Service.Devices;
-using Qos.Service.Models;
-using Qos.Service.Models.Devices;
+using Nexus.Service.Devices;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Devices;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static partial class DevicesRoutes
 {
@@ -11,11 +11,11 @@ public static partial class DevicesRoutes
         app.MapGet("/devices/lighting-devices/all", (ILightingDeviceProvider ld) =>
             ld.GetAll());
 
-        app.MapPost("/devices/lighting-devices/layout", (SaveDeviceLayoutBody body, Qos.Service.Persistence.IConfigStore store, Qos.Service.Lighting.Engine.LightingEngine engine) =>
+        app.MapPost("/devices/lighting-devices/layout", (SaveDeviceLayoutBody body, Nexus.Service.Persistence.IConfigStore store, Nexus.Service.Lighting.Engine.LightingEngine engine) =>
         {
             store.Update(s =>
             {
-                s.Lighting.DeviceLayouts[body.Id] = new Qos.Service.Persistence.DeviceLayout
+                s.Lighting.DeviceLayouts[body.Id] = new Nexus.Service.Persistence.DeviceLayout
                 { X = body.X, Y = body.Y, W = body.W, H = body.H, Rotation = body.Rotation };
             });
             foreach (var dev in engine.Devices)
@@ -71,25 +71,25 @@ public static partial class DevicesRoutes
         // refetches /lighting/status immediately and observes `scanning=true`
         // without waiting for an unrelated mutation. The hook's poll-while-
         // scanning loop then tracks the rescan to completion on its own.
-        app.MapPost("/devices/lighting-devices/rescan", (Qos.Service.Lighting.Rgb.RgbBridge? bridge, Qos.Service.Sockets.MultiplexHub hub) =>
+        app.MapPost("/devices/lighting-devices/rescan", (Nexus.Service.Lighting.Rgb.RgbBridge? bridge, Nexus.Service.Sockets.MultiplexHub hub) =>
         {
             bridge?.ForceRescan();
-            Qos.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         });
 
         // LED map: get resolved positions (defaults + custom overrides)
         app.MapGet("/devices/lighting-devices/{id}/led-map", (string id, bool? defaults,
-            Qos.Service.Lighting.Rgb.RgbBridge? bridge,
-            Qos.Service.Lighting.Engine.LightingEngine engine,
-            Qos.Service.Persistence.IConfigStore store) =>
+            Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
+            Nexus.Service.Lighting.Engine.LightingEngine engine,
+            Nexus.Service.Persistence.IConfigStore store) =>
         {
             if (bridge is null)
-                return Results.Json(new LedMapResponse { Id = id }, Qos.Service.Serialization.AppJsonContext.Default.LedMapResponse);
+                return Results.Json(new LedMapResponse { Id = id }, Nexus.Service.Serialization.AppJsonContext.Default.LedMapResponse);
 
             var (device, zoneIdx) = ResolveDevice(id, bridge.Devices);
             if (device is null)
-                return Results.Json(new LedMapResponse { Id = id }, Qos.Service.Serialization.AppJsonContext.Default.LedMapResponse);
+                return Results.Json(new LedMapResponse { Id = id }, Nexus.Service.Serialization.AppJsonContext.Default.LedMapResponse);
 
             var settings = store.Load();
             float[] defU, defV;
@@ -123,7 +123,7 @@ public static partial class DevicesRoutes
             }
             else
             {
-                var (dU, dV) = Qos.Service.Lighting.Rgb.LedUvComputer.ComputeDefaults(device);
+                var (dU, dV) = Nexus.Service.Lighting.Rgb.LedUvComputer.ComputeDefaults(device);
                 defU = dU;
                 defV = dV;
                 ledCount = device.LedCount;
@@ -199,14 +199,14 @@ public static partial class DevicesRoutes
                 Leds = leds,
                 HasCustomOverrides = customSet.Count > 0,
                 AspectRatio = savedRatio > 0 ? savedRatio : 0,
-            }, Qos.Service.Serialization.AppJsonContext.Default.LedMapResponse);
+            }, Nexus.Service.Serialization.AppJsonContext.Default.LedMapResponse);
         });
 
         // LED map: save custom overrides
         app.MapPost("/devices/lighting-devices/{id}/led-map", (string id, SaveLedMapBody body,
-            Qos.Service.Persistence.IConfigStore store,
-            Qos.Service.Lighting.Engine.LightingEngine engine,
-            Qos.Service.Lighting.Rgb.RgbBridge? bridge) =>
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Lighting.Engine.LightingEngine engine,
+            Nexus.Service.Lighting.Rgb.RgbBridge? bridge) =>
         {
             store.Update(s =>
             {
@@ -220,9 +220,9 @@ public static partial class DevicesRoutes
 
         // LED map: reset to defaults
         app.MapDelete("/devices/lighting-devices/{id}/led-map", (string id,
-            Qos.Service.Persistence.IConfigStore store,
-            Qos.Service.Lighting.Engine.LightingEngine engine,
-            Qos.Service.Lighting.Rgb.RgbBridge? bridge) =>
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Lighting.Engine.LightingEngine engine,
+            Nexus.Service.Lighting.Rgb.RgbBridge? bridge) =>
         {
             store.Update(s =>
             {
@@ -235,7 +235,7 @@ public static partial class DevicesRoutes
 
         // LED map editor: highlight specific LEDs (white, rest dark)
         app.MapPost("/devices/lighting-devices/{id}/led-highlight", (string id, LedHighlightBody body,
-            Qos.Service.Lighting.Engine.LightingEngine engine) =>
+            Nexus.Service.Lighting.Engine.LightingEngine engine) =>
         {
             foreach (var frame in engine.Devices)
             {
@@ -250,7 +250,7 @@ public static partial class DevicesRoutes
 
         // LED map editor: directional test pattern
         app.MapPost("/devices/lighting-devices/{id}/led-test-pattern", (string id, LedTestPatternBody body,
-            Qos.Service.Lighting.Engine.LightingEngine engine) =>
+            Nexus.Service.Lighting.Engine.LightingEngine engine) =>
         {
             foreach (var frame in engine.Devices)
             {
@@ -266,7 +266,7 @@ public static partial class DevicesRoutes
 
         // LED map editor: clear all overlays
         app.MapDelete("/devices/lighting-devices/{id}/led-editor", (string id,
-            Qos.Service.Lighting.Engine.LightingEngine engine) =>
+            Nexus.Service.Lighting.Engine.LightingEngine engine) =>
         {
             foreach (var frame in engine.Devices)
             {

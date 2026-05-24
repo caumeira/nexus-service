@@ -1,27 +1,27 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
-using Qos.Service.Activity;
-using Qos.Service.Helper;
-using Qos.Service.Models;
-using Qos.Service.Models.Activity;
-using Qos.Service.Models.Benchmarks;
-using Qos.Service.Models.Cooling;
-using Qos.Service.Models.Devices;
-using Qos.Service.Models.Discord;
-using Qos.Service.Models.Lifecycle;
-using Qos.Service.Models.Lighting;
-using Qos.Service.Models.Obs;
-using Qos.Service.Models.Peripherals;
-using Qos.Service.Models.Peripherals.Keeb;
-using Qos.Service.Models.Peripherals.QSeries;
-using Qos.Service.Models.Peripherals.Y70;
-using Qos.Service.Models.Sensors;
-using Qos.Service.Models.Steam;
-using Qos.Service.Models.Widgets;
-using Qos.Service.Platform;
-using Qos.Service.Routes;
+using Nexus.Service.Activity;
+using Nexus.Service.Helper;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Models.Benchmarks;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Models.Devices;
+using Nexus.Service.Models.Discord;
+using Nexus.Service.Models.Lifecycle;
+using Nexus.Service.Models.Lighting;
+using Nexus.Service.Models.Obs;
+using Nexus.Service.Models.Peripherals;
+using Nexus.Service.Models.Peripherals.Keeb;
+using Nexus.Service.Models.Peripherals.QSeries;
+using Nexus.Service.Models.Peripherals.Y70;
+using Nexus.Service.Models.Sensors;
+using Nexus.Service.Models.Steam;
+using Nexus.Service.Models.Widgets;
+using Nexus.Service.Platform;
+using Nexus.Service.Routes;
 
-namespace Qos.Service.Serialization;
+namespace Nexus.Service.Serialization;
 
 // Ping + Auth
 [JsonSerializable(typeof(ApiResponse))]
@@ -60,19 +60,19 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(GetCoolingWarningsResponse))]
 
 // NP50 device state surface
-[JsonSerializable(typeof(Qos.Service.Routes.Np50StateResponse))]
-[JsonSerializable(typeof(Qos.Service.Peripherals.Hyte.Np50.Np50State))]
-[JsonSerializable(typeof(Qos.Service.Peripherals.Hyte.Np50.Np50HubInfo))]
-[JsonSerializable(typeof(Qos.Service.Peripherals.Hyte.Np50.Np50Port))]
-[JsonSerializable(typeof(List<Qos.Service.Peripherals.Hyte.Np50.Np50Port>))]
-[JsonSerializable(typeof(Qos.Service.Peripherals.Hyte.Np50.Np50FanDevice))]
-[JsonSerializable(typeof(List<Qos.Service.Peripherals.Hyte.Np50.Np50FanDevice>))]
-[JsonSerializable(typeof(Qos.Service.Peripherals.Hyte.Np50.Np50WarningDetail))]
-[JsonSerializable(typeof(Qos.Service.Peripherals.Hyte.Np50.Np50PortWarning))]
-[JsonSerializable(typeof(Qos.Service.Routes.Np50LightingRequest))]
-[JsonSerializable(typeof(Qos.Service.Routes.Np50LedColor))]
-[JsonSerializable(typeof(List<Qos.Service.Routes.Np50LedColor>))]
-[JsonSerializable(typeof(Qos.Service.Routes.Np50FirmwareResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Np50StateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.Hyte.Np50.Np50State))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.Hyte.Np50.Np50HubInfo))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.Hyte.Np50.Np50Port))]
+[JsonSerializable(typeof(List<Nexus.Service.Peripherals.Hyte.Np50.Np50Port>))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.Hyte.Np50.Np50FanDevice))]
+[JsonSerializable(typeof(List<Nexus.Service.Peripherals.Hyte.Np50.Np50FanDevice>))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.Hyte.Np50.Np50WarningDetail))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.Hyte.Np50.Np50PortWarning))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Np50LightingRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Np50LedColor))]
+[JsonSerializable(typeof(List<Nexus.Service.Routes.Np50LedColor>))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Np50FirmwareResponse))]
 
 // Fan control
 [JsonSerializable(typeof(FanChannel))]
@@ -102,124 +102,124 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(CoolingStatusResponse))]
 [JsonSerializable(typeof(LightingStatusResponse))]
 [JsonSerializable(typeof(List<float>))]
-[JsonSerializable(typeof(Qos.Service.Models.Lighting.MusicReactiveBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.MusicReactiveBody))]
 [JsonSerializable(typeof(CalibrationStartResponse))]
 [JsonSerializable(typeof(GetCalibrationsResponse))]
 
 // Profiles
-[JsonSerializable(typeof(Qos.Service.Persistence.ProfileManifest))]
-[JsonSerializable(typeof(Qos.Service.Persistence.ProfileEntry))]
-[JsonSerializable(typeof(List<Qos.Service.Persistence.ProfileEntry>))]
-[JsonSerializable(typeof(Qos.Service.Persistence.UiSettings))]
-[JsonSerializable(typeof(Qos.Service.Persistence.UiSettingsPatch))]
-[JsonSerializable(typeof(Qos.Service.Persistence.ThemeSettings))]
-[JsonSerializable(typeof(Qos.Service.Persistence.MonitoringSettings))]
-[JsonSerializable(typeof(Qos.Service.Persistence.PanelSettings))]
-[JsonSerializable(typeof(Qos.Service.Persistence.OverlaySettings))]
-[JsonSerializable(typeof(Qos.Service.Persistence.PanelLayoutsDefaults))]
-[JsonSerializable(typeof(Qos.Service.Persistence.PanelLayoutDefault))]
-[JsonSerializable(typeof(Qos.Service.Persistence.PanelLayoutWidget))]
-[JsonSerializable(typeof(List<Qos.Service.Persistence.PanelLayoutWidget>))]
-[JsonSerializable(typeof(Qos.Service.Persistence.Preferences))]
-[JsonSerializable(typeof(Qos.Service.Persistence.CoolingPrefs))]
-[JsonSerializable(typeof(Qos.Service.Persistence.PreferencesPatch))]
-[JsonSerializable(typeof(Qos.Service.Persistence.ThemeSettingsPatch))]
-[JsonSerializable(typeof(Qos.Service.Persistence.PanelSettingsPatch))]
-[JsonSerializable(typeof(Qos.Service.Persistence.OverlaySettingsPatch))]
-[JsonSerializable(typeof(Qos.Service.Persistence.MonitoringSettingsPatch))]
-[JsonSerializable(typeof(Qos.Service.Persistence.CoolingPrefsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.ProfileManifest))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.ProfileEntry))]
+[JsonSerializable(typeof(List<Nexus.Service.Persistence.ProfileEntry>))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.UiSettings))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.UiSettingsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.ThemeSettings))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.MonitoringSettings))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.PanelSettings))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.OverlaySettings))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.PanelLayoutsDefaults))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.PanelLayoutDefault))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.PanelLayoutWidget))]
+[JsonSerializable(typeof(List<Nexus.Service.Persistence.PanelLayoutWidget>))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.Preferences))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.CoolingPrefs))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.PreferencesPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.ThemeSettingsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.PanelSettingsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.OverlaySettingsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.MonitoringSettingsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.CoolingPrefsPatch))]
 
 // Panel widget engine - per-device records, layouts, control-state push frames.
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelLayoutDto))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPageDto))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelWidgetDto))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelDockDto))]
-[JsonSerializable(typeof(List<Qos.Service.Models.Panel.PanelPageDto>))]
-[JsonSerializable(typeof(List<Qos.Service.Models.Panel.PanelWidgetDto>))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelDeviceRecord))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelDeviceCapabilities))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelDevicePatch))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelDeviceCreateBody))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelDeviceListResponse))]
-[JsonSerializable(typeof(List<Qos.Service.Models.Panel.PanelDeviceRecord>))]
-[JsonSerializable(typeof(Dictionary<string, Qos.Service.Models.Panel.PanelDeviceRecord>))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PrefsChangedFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelLayoutDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPageDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelWidgetDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelDockDto))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Panel.PanelPageDto>))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Panel.PanelWidgetDto>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelDeviceRecord))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelDeviceCapabilities))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelDevicePatch))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelDeviceCreateBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelDeviceListResponse))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Panel.PanelDeviceRecord>))]
+[JsonSerializable(typeof(Dictionary<string, Nexus.Service.Models.Panel.PanelDeviceRecord>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PrefsChangedFrame))]
 
 // Desktop widgets - floating panel widgets on the Windows desktop.
-[JsonSerializable(typeof(Qos.Service.Models.Panel.OverlayWidgetDto))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.OverlayWidgetCreateBody))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.OverlayWidgetPatch))]
-[JsonSerializable(typeof(List<Qos.Service.Models.Panel.OverlayWidgetDto>))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.LightingChangedFrame))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.CoolingChangedFrame))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.CoolingWarningsChangedFrame))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.DevicesChangedFrame))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelDeviceChangedFrame))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairQrResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhoneClaimBody))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhoneClaimResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhoneServiceInfoResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhoneSessionNameBody))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelHostNameBody))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelHostNameResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhoneSessionsResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhoneSessionDto))]
-[JsonSerializable(typeof(List<Qos.Service.Models.Panel.PanelPhoneSessionDto>))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelStatusResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.RemoteControlStateResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.RemoteControlToggleRequest))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PairBroadcastStateResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PairBroadcastSetRequest))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PairWifiInitiateRequest))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeStartResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeSubmitBody))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeSubmitResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeConfirmBody))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeConfirmResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeHostDecisionBody))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeHostDecisionResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.PanelPhonePairCodeRequestFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.OverlayWidgetDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.OverlayWidgetCreateBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.OverlayWidgetPatch))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Panel.OverlayWidgetDto>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.LightingChangedFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.CoolingChangedFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.CoolingWarningsChangedFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.DevicesChangedFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelDeviceChangedFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhonePairQrResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhoneClaimBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhoneClaimResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhoneServiceInfoResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhoneSessionNameBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelHostNameBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelHostNameResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhoneSessionsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhoneSessionDto))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Panel.PanelPhoneSessionDto>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelStatusResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.RemoteControlStateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.RemoteControlToggleRequest))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PairBroadcastStateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PairBroadcastSetRequest))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PairWifiInitiateRequest))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhonePairCodeStartResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhonePairCodeSubmitBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhonePairCodeSubmitResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhonePairCodeConfirmBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhonePairCodeConfirmResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhonePairCodeHostDecisionBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhonePairCodeHostDecisionResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhonePairCodeRequestFrame))]
 
 // Displays (system monitors: brightness + DDC/CI VCP)
-[JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayDto))]
-[JsonSerializable(typeof(List<Qos.Service.Models.Displays.DisplayDto>))]
-[JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayCapabilitiesDto))]
-[JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayBrightnessControlDto))]
-[JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayBrightnessWritePolicy))]
-[JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayBrightnessDto))]
-[JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayBrightnessParams))]
-[JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayVcpDto))]
-[JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayVcpParams))]
-[JsonSerializable(typeof(Qos.Service.Models.Displays.DisplayListResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayDto))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Displays.DisplayDto>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayCapabilitiesDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayBrightnessControlDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayBrightnessWritePolicy))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayBrightnessDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayBrightnessParams))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayVcpDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayVcpParams))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayListResponse))]
 
 // Weather
-[JsonSerializable(typeof(Qos.Service.Models.Weather.WeatherSnapshot))]
-[JsonSerializable(typeof(Qos.Service.Models.Weather.WeatherHourlyForecast))]
-[JsonSerializable(typeof(List<Qos.Service.Models.Weather.WeatherHourlyForecast>))]
-[JsonSerializable(typeof(Qos.Service.Models.Weather.WeatherDailyForecast))]
-[JsonSerializable(typeof(List<Qos.Service.Models.Weather.WeatherDailyForecast>))]
-[JsonSerializable(typeof(Qos.Service.Platform.Weather.IpLocation))]
-[JsonSerializable(typeof(Qos.Service.Platform.Weather.OpenMeteoResponse))]
-[JsonSerializable(typeof(Qos.Service.Platform.Weather.OpenMeteoCurrent))]
-[JsonSerializable(typeof(Qos.Service.Platform.Weather.OpenMeteoHourly))]
-[JsonSerializable(typeof(Qos.Service.Platform.Weather.OpenMeteoDaily))]
-[JsonSerializable(typeof(Qos.Service.Models.Profiles.ListProfilesResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Profiles.ProfileResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Profiles.SwitchProfileResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Profiles.CreateProfileBody))]
-[JsonSerializable(typeof(Qos.Service.Models.Profiles.RenameProfileBody))]
-[JsonSerializable(typeof(Qos.Service.Models.Profiles.ProfileExport))]
-[JsonSerializable(typeof(Qos.Service.Models.Profiles.SharingResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Profiles.SetPrimaryBody))]
-[JsonSerializable(typeof(Qos.Service.Models.Profiles.SetCategorySharedBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherSnapshot))]
+[JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherHourlyForecast))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Weather.WeatherHourlyForecast>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherDailyForecast))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Weather.WeatherDailyForecast>))]
+[JsonSerializable(typeof(Nexus.Service.Platform.Weather.IpLocation))]
+[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoResponse))]
+[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoCurrent))]
+[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoHourly))]
+[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoDaily))]
+[JsonSerializable(typeof(Nexus.Service.Models.Profiles.ListProfilesResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Profiles.ProfileResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Profiles.SwitchProfileResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Profiles.CreateProfileBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Profiles.RenameProfileBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Profiles.ProfileExport))]
+[JsonSerializable(typeof(Nexus.Service.Models.Profiles.SharingResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Profiles.SetPrimaryBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Profiles.SetCategorySharedBody))]
 
 // Media library
-[JsonSerializable(typeof(Qos.Service.Models.Media.MediaItem))]
-[JsonSerializable(typeof(List<Qos.Service.Models.Media.MediaItem>))]
-[JsonSerializable(typeof(Qos.Service.Models.Media.MediaLibraryResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Media.MediaImportResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Media.MediaPlayResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Media.MediaCurrentResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Media.MediaItem))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Media.MediaItem>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Media.MediaLibraryResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Media.MediaImportResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Media.MediaPlayResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Media.MediaCurrentResponse))]
 
 // Lighting
 [JsonSerializable(typeof(AudioStateSnapshot))]
@@ -228,20 +228,20 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(SetFrameRateBody))]
 [JsonSerializable(typeof(SetScaleRatioBody))]
 [JsonSerializable(typeof(BrightnessScale))]
-[JsonSerializable(typeof(Qos.Service.Models.Lighting.GlobalBrightnessBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.GlobalBrightnessBody))]
 [JsonSerializable(typeof(SpeedScale))]
 [JsonSerializable(typeof(StaticHeadlessStart))]
 [JsonSerializable(typeof(AnimateHeadlessStart))]
 [JsonSerializable(typeof(SetAnimateTemplatesBody))]
 [JsonSerializable(typeof(ShaderParam))]
 [JsonSerializable(typeof(List<ShaderParam>))]
-[JsonSerializable(typeof(Qos.Service.Persistence.AnimateSettings))]
-[JsonSerializable(typeof(Qos.Service.Persistence.AnimateEffectState))]
-[JsonSerializable(typeof(Qos.Service.Persistence.AnimateEffectTemplates))]
-[JsonSerializable(typeof(Qos.Service.Persistence.StaticColorSettings))]
-[JsonSerializable(typeof(Dictionary<string, Qos.Service.Persistence.AnimateEffectState>))]
-[JsonSerializable(typeof(Dictionary<string, Qos.Service.Persistence.AnimateEffectTemplates>))]
-[JsonSerializable(typeof(List<Qos.Service.Persistence.AnimateEffectState>))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.AnimateSettings))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.AnimateEffectState))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.AnimateEffectTemplates))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.StaticColorSettings))]
+[JsonSerializable(typeof(Dictionary<string, Nexus.Service.Persistence.AnimateEffectState>))]
+[JsonSerializable(typeof(Dictionary<string, Nexus.Service.Persistence.AnimateEffectTemplates>))]
+[JsonSerializable(typeof(List<Nexus.Service.Persistence.AnimateEffectState>))]
 [JsonSerializable(typeof(Dictionary<string, Dictionary<string, float>>))]
 [JsonSerializable(typeof(MusicHeadlessStart))]
 [JsonSerializable(typeof(ScreenHeadlessStart))]
@@ -250,8 +250,8 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(List<ScreenSyncMonitor>))]
 [JsonSerializable(typeof(GifHeadlessStart))]
 [JsonSerializable(typeof(SetHeadlessStreaming))]
-[JsonSerializable(typeof(Qos.Service.Models.Lighting.PostProcessBody))]
-[JsonSerializable(typeof(Qos.Service.Persistence.PostProcessSettings))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.PostProcessBody))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.PostProcessSettings))]
 
 // OBS
 [JsonSerializable(typeof(ObsConfigResponse))]
@@ -300,7 +300,7 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(DiscordVoiceToggleBody))]
 
 // Devices
-[JsonSerializable(typeof(Qos.Service.Persistence.DeviceLayout))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.DeviceLayout))]
 [JsonSerializable(typeof(SaveDeviceLayoutBody))]
 [JsonSerializable(typeof(DeviceListItem))]
 [JsonSerializable(typeof(List<DeviceListItem>))]
@@ -314,12 +314,12 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(SupportedDeviceDto))]
 [JsonSerializable(typeof(List<SupportedDeviceDto>))]
 [JsonSerializable(typeof(GetSupportedDevicesResponse))]
-[JsonSerializable(typeof(Qos.Service.Peripherals.OpenRgbSupportedDevicesFile))]
-[JsonSerializable(typeof(Qos.Service.Peripherals.OpenRgbSupportedDeviceEntry))]
-[JsonSerializable(typeof(List<Qos.Service.Peripherals.OpenRgbSupportedDeviceEntry>))]
-[JsonSerializable(typeof(Qos.Service.Peripherals.Protocols.Razer.RazerMouseSpec))]
-[JsonSerializable(typeof(Qos.Service.Peripherals.Protocols.Razer.RazerMouseSpecEntry))]
-[JsonSerializable(typeof(List<Qos.Service.Peripherals.Protocols.Razer.RazerMouseSpecEntry>))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.OpenRgbSupportedDevicesFile))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.OpenRgbSupportedDeviceEntry))]
+[JsonSerializable(typeof(List<Nexus.Service.Peripherals.OpenRgbSupportedDeviceEntry>))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.Protocols.Razer.RazerMouseSpec))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.Protocols.Razer.RazerMouseSpecEntry))]
+[JsonSerializable(typeof(List<Nexus.Service.Peripherals.Protocols.Razer.RazerMouseSpecEntry>))]
 [JsonSerializable(typeof(DpiState))]
 [JsonSerializable(typeof(PollingState))]
 [JsonSerializable(typeof(BatteryState))]
@@ -352,8 +352,8 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(LedMapEntry))]
 [JsonSerializable(typeof(List<LedMapEntry>))]
 [JsonSerializable(typeof(SaveLedMapBody))]
-[JsonSerializable(typeof(Qos.Service.Persistence.LedPositionOverride))]
-[JsonSerializable(typeof(List<Qos.Service.Persistence.LedPositionOverride>))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.LedPositionOverride))]
+[JsonSerializable(typeof(List<Nexus.Service.Persistence.LedPositionOverride>))]
 [JsonSerializable(typeof(LedHighlightBody))]
 [JsonSerializable(typeof(LedTestPatternBody))]
 
@@ -426,7 +426,7 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(ScreenTimeFrame))]
 
 // Monitoring (multiplexed WebSocket composite frame)
-[JsonSerializable(typeof(Qos.Service.Models.Monitoring.MonitoringFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Monitoring.MonitoringFrame))]
 
 // Benchmarks
 [JsonSerializable(typeof(BenchmarkSubScore))]
@@ -453,41 +453,41 @@ namespace Qos.Service.Serialization;
 // Helper IPC payload types live under `#if WINDOWS` so they only register
 // where the helper actually runs. Same gate as the per-domain files under
 // src/Helper/Domains/; without this the non-Windows TFM does not compile
-// because Qos.Service.Helper.Domains is absent there.
+// because Nexus.Service.Helper.Domains is absent there.
 // Lifecycle
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.HelperShutdownPayload))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.OverlayPrefsChangedPayload))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.ServiceRequestStopPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.HelperShutdownPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.OverlayPrefsChangedPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ServiceRequestStopPayload))]
 // Tray
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.TraySetVisiblePayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.TraySetVisiblePayload))]
 // Screen-time
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenTimeSessionPayload))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenTimeFocusPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenTimeSessionPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenTimeFocusPayload))]
 // Media
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.MediaSnapshotPayload))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.MediaControlPayload))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.AlbumArtRequest))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.AlbumArtResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.MediaSnapshotPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.MediaControlPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.AlbumArtRequest))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.AlbumArtResult))]
 // Brightness
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.DisplayBrightnessRequest))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.StringResult))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.NullableIntResult))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.DisplayVcpResult))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.BoolResult))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.DisplayListResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.DisplayBrightnessRequest))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.StringResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.NullableIntResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.DisplayVcpResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.BoolResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.DisplayListResult))]
 // Orientation
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.DisplayOrientationRequest))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.DisplayOrientationResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.DisplayOrientationRequest))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.DisplayOrientationResult))]
 // Monitors
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.MonitorEnumerateRequest))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.MonitorListResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.MonitorEnumerateRequest))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.MonitorListResult))]
 // Screen mirror
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenMirrorStartPayload))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenMirrorStopPayload))]
-[JsonSerializable(typeof(Qos.Service.Helper.Domains.ScreenMirrorFramePayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorStartPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorStopPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorFramePayload))]
 #endif
 
-// Widgets - declarative runtime (qos.widget/2 schema)
+// Widgets - declarative runtime (nexus.widget/2 schema)
 [JsonSerializable(typeof(WidgetManifest))]
 [JsonSerializable(typeof(WidgetManifestAuthor))]
 [JsonSerializable(typeof(WidgetManifestViewport))]
@@ -514,8 +514,8 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(WidgetInstallRequest))]
 [JsonSerializable(typeof(WidgetInstallResponse))]
 [JsonSerializable(typeof(WidgetCodeSessionResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.OpenUrlRequest))]
-[JsonSerializable(typeof(Qos.Service.Models.Panel.ShortcutRequest))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.OpenUrlRequest))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.ShortcutRequest))]
 // Widgets - settings
 [JsonSerializable(typeof(WidgetSettingsDocument))]
 [JsonSerializable(typeof(WidgetSettingsPatch))]
@@ -527,17 +527,17 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(WidgetDispatchResponse))]
 
 // Conflict warning system - sidebar alarm for competing third-party apps.
-[JsonSerializable(typeof(Qos.Service.Models.Conflicts.DetectedConflict))]
-[JsonSerializable(typeof(List<Qos.Service.Models.Conflicts.DetectedConflict>))]
-[JsonSerializable(typeof(Qos.Service.Models.Conflicts.GetConflictsResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Conflicts.KillConflictBody))]
-[JsonSerializable(typeof(Qos.Service.Models.Conflicts.KillConflictResponse))]
-[JsonSerializable(typeof(Qos.Service.Models.Conflicts.ConflictsFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Conflicts.DetectedConflict))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Conflicts.DetectedConflict>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Conflicts.GetConflictsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Conflicts.KillConflictBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Conflicts.KillConflictResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Conflicts.ConflictsFrame))]
 
 // Install-time defaults table - read once on startup from the embedded
 // data/install-defaults.json resource. Nested POCOs are picked up
 // transitively by the source generator.
-[JsonSerializable(typeof(Qos.Service.Defaults.InstallDefaultsDocument))]
+[JsonSerializable(typeof(Nexus.Service.Defaults.InstallDefaultsDocument))]
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

@@ -3,15 +3,15 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
-using Qos.Service.Serialization;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Persistence;
+namespace Nexus.Service.Persistence;
 
 /// <summary>
-/// File-backed QosSettings store.
-/// Path: ~/Library/Application Support/Qos/settings.json on macOS,
-///       %LOCALAPPDATA%/Qos/settings.json on Windows,
-///       $XDG_CONFIG_HOME/Qos/settings.json (or ~/.config/Qos) on Linux.
+/// File-backed NexusSettings store.
+/// Path: ~/Library/Application Support/Nexus/settings.json on macOS,
+///       %LOCALAPPDATA%/Nexus/settings.json on Windows,
+///       $XDG_CONFIG_HOME/Nexus/settings.json (or ~/.config/Nexus) on Linux.
 ///
 /// Concurrency: a single global lock around load/save. Updates mutate the in-memory
 /// doc synchronously, but the disk write is coalesced to a short debounce window so
@@ -26,7 +26,7 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     private const int FlushDebounceMs = 300;
 
     private readonly object _lock = new();
-    private QosSettings? _cached;
+    private NexusSettings? _cached;
     private Timer? _flushTimer;
     private bool _dirty;
     private bool _disposed;
@@ -46,7 +46,7 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
 
     public string SettingsPath { get; }
 
-    public QosSettings Load()
+    public NexusSettings Load()
     {
         lock (_lock)
         {
@@ -57,7 +57,7 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
 
             if (!File.Exists(SettingsPath))
             {
-                _cached = new QosSettings();
+                _cached = new NexusSettings();
                 Persist(_cached);
                 return _cached;
             }
@@ -65,12 +65,12 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
             try
             {
                 var json = File.ReadAllText(SettingsPath);
-                _cached = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.QosSettings) ?? new QosSettings();
+                _cached = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.NexusSettings) ?? new NexusSettings();
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[qos-service] settings.json corrupted, starting fresh: {ex.Message}");
-                _cached = new QosSettings();
+                Console.Error.WriteLine($"[nexus-service] settings.json corrupted, starting fresh: {ex.Message}");
+                _cached = new NexusSettings();
             }
 
             return _cached;
@@ -79,7 +79,7 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
 
     public event Action? OnChanged;
 
-    public void Update(Action<QosSettings> mutator)
+    public void Update(Action<NexusSettings> mutator)
     {
         lock (_lock)
         {
@@ -124,7 +124,7 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
             {
                 return;
             }
-            json = JsonSerializer.Serialize(_cached, PersistenceJsonContext.Default.QosSettings);
+            json = JsonSerializer.Serialize(_cached, PersistenceJsonContext.Default.NexusSettings);
             _dirty = false;
         }
 
@@ -133,12 +133,12 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         catch (Exception ex) { Console.Error.WriteLine($"[config-store] flush failed: {ex.Message}"); }
     }
 
-    private void Persist(QosSettings doc)
+    private void Persist(NexusSettings doc)
     {
         // Used only for the first-run synchronous write (Load sees no settings
         // file and writes defaults immediately). Runtime updates go through the
         // debounced flush path.
-        var json = JsonSerializer.Serialize(doc, PersistenceJsonContext.Default.QosSettings);
+        var json = JsonSerializer.Serialize(doc, PersistenceJsonContext.Default.NexusSettings);
         WriteAtomic(json);
     }
 
@@ -166,14 +166,14 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            return Path.Combine(home, "Library", "Application Support", "Qos", "settings.json");
+            return Path.Combine(home, "Library", "Application Support", "Nexus", "settings.json");
         }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             // Machine-scope: settings belong to the LocalSystem service, not the
             // logged-in user. CommonApplicationData = %ProgramData%.
             var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            return Path.Combine(programData, "Qos", "settings.json");
+            return Path.Combine(programData, "Nexus", "settings.json");
         }
 
         // Linux / others
@@ -182,7 +182,7 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         {
             xdg = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
         }
-        return Path.Combine(xdg, "Qos", "settings.json");
+        return Path.Combine(xdg, "Nexus", "settings.json");
     }
 
 }

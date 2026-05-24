@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Devices;
+namespace Nexus.Service.Models.Devices;
 
 // ----- /devices/all — unified device list -----
 
@@ -171,7 +171,7 @@ public sealed class LedMapEntry
 
 public sealed class SaveLedMapBody
 {
-    public List<Qos.Service.Persistence.LedPositionOverride> Overrides { get; set; } = new();
+    public List<Nexus.Service.Persistence.LedPositionOverride> Overrides { get; set; } = new();
     public float AspectRatio { get; set; }
 }
 

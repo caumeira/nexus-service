@@ -1,7 +1,7 @@
 using System.Net.WebSockets;
-using Qos.Service.Sockets;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 /// <summary>
 /// WebSocket endpoints. The multiplexed <c>/ws</c> endpoint handles all JSON

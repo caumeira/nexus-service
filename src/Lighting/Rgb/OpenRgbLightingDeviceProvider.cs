@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
-using Qos.Service.Devices;
-using Qos.Service.Models.Devices;
-using Qos.Service.Persistence;
+using Nexus.Service.Devices;
+using Nexus.Service.Models.Devices;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Lighting.Rgb;
+namespace Nexus.Service.Lighting.Rgb;
 
 /// <summary>
 /// Real <see cref="ILightingDeviceProvider"/> backed by the OpenRGB SDK via the

@@ -1,8 +1,8 @@
-using Qos.Service.Models;
-using Qos.Service.Models.Peripherals.Keeb;
-using Qos.Service.Peripherals.Keeb;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Peripherals.Keeb;
+using Nexus.Service.Peripherals.Keeb;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class KeebRoutes
 {

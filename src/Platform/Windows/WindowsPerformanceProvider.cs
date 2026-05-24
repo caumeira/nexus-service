@@ -1,7 +1,7 @@
-using Qos.Service.Sensors;
+using Nexus.Service.Sensors;
 using LibreHardwareMonitor.Hardware;
 
-namespace Qos.Service.Platform.Windows;
+namespace Nexus.Service.Platform.Windows;
 
 /// <summary>
 /// Windows system-wide CPU + memory sampler. Reuses the shared

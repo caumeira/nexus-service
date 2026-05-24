@@ -1,6 +1,6 @@
 using System.IO;
 
-namespace Qos.Service.Persistence;
+namespace Nexus.Service.Persistence;
 
 /// <summary>
 /// Crash-safe text/JSON writer. Writes the payload to "&lt;path&gt;.tmp",

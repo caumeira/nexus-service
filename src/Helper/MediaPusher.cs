@@ -8,16 +8,16 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Activity;
-using Qos.Service.Helper.Domains;
-using Qos.Service.Models.Activity;
-using Qos.Service.Serialization;
+using Nexus.Service.Activity;
+using Nexus.Service.Helper.Domains;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Serialization;
 using Windows.Media;
 using Windows.Media.Control;
 using Windows.Storage.Streams;
 using WindowsMediaController;
 
-namespace Qos.Service.Helper;
+namespace Nexus.Service.Helper;
 
 /// <summary>
 /// Helper-side GSMTC bridge. Owns the <see cref="MediaManager"/> in the

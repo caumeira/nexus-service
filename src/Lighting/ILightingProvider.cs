@@ -1,6 +1,6 @@
-using Qos.Service.Models.Lighting;
+using Nexus.Service.Models.Lighting;
 
-namespace Qos.Service.Lighting;
+namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Aggregate read/write surface for the /lighting/* family. The stub backs

@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 /// <summary>
 /// Tracks ffmpeg subprocesses spawned by this service (screen mirror, beats)
@@ -95,7 +95,7 @@ public static class FfmpegTracker
                         if (proc.ProcessName.Contains("ffmpeg", StringComparison.OrdinalIgnoreCase))
                         {
                             proc.Kill();
-                            Console.WriteLine($"[qos-service] killed orphan ffmpeg (pid {pid})");
+                            Console.WriteLine($"[nexus-service] killed orphan ffmpeg (pid {pid})");
                         }
                         proc.Dispose();
                     }
@@ -113,12 +113,12 @@ public static class FfmpegTracker
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            return Path.Combine(home, "Library", "Application Support", "Qos");
+            return Path.Combine(home, "Library", "Application Support", "Nexus");
         }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             return Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Qos");
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Nexus");
         }
         var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
         if (string.IsNullOrEmpty(xdg))
@@ -126,6 +126,6 @@ public static class FfmpegTracker
             xdg = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
         }
 
-        return Path.Combine(xdg, "Qos");
+        return Path.Combine(xdg, "Nexus");
     }
 }

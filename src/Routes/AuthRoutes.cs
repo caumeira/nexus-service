@@ -1,9 +1,9 @@
 using System.Net;
-using Qos.Service.Auth;
-using Qos.Service.Models;
-using Qos.Service.Serialization;
+using Nexus.Service.Auth;
+using Nexus.Service.Models;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class AuthRoutes
 {

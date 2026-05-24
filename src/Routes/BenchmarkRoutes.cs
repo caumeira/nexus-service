@@ -1,9 +1,9 @@
-using Qos.Service.Benchmarks;
-using Qos.Service.Models;
-using Qos.Service.Models.Benchmarks;
-using Qos.Service.Serialization;
+using Nexus.Service.Benchmarks;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Benchmarks;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class BenchmarkRoutes
 {

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 
-namespace Qos.Service.Models.Widgets;
+namespace Nexus.Service.Models.Widgets;
 
 /// <summary>
 /// Generic acknowledgement payload for fire-and-forget host actions

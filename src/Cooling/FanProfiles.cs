@@ -1,10 +1,10 @@
 using System.Collections.Generic;
 using System.Linq;
-using Qos.Service.Defaults;
-using Qos.Service.Models.Cooling;
-using Qos.Service.Persistence;
+using Nexus.Service.Defaults;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Cooling;
+namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// Built-in fan presets: Off, Silent, Balanced, Turbo, Custom.

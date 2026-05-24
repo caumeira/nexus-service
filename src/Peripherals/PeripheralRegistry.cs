@@ -1,13 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Qos.Service.Devices;
-using Qos.Service.Devices.Detection;
-using Qos.Service.Peripherals.Hid;
-using Qos.Service.Peripherals.Protocols.Corsair;
-using Qos.Service.Peripherals.Protocols.Razer;
+using Nexus.Service.Devices;
+using Nexus.Service.Devices.Detection;
+using Nexus.Service.Peripherals.Hid;
+using Nexus.Service.Peripherals.Protocols.Corsair;
+using Nexus.Service.Peripherals.Protocols.Razer;
 
-namespace Qos.Service.Peripherals;
+namespace Nexus.Service.Peripherals;
 
 /// <summary>
 /// Owns the live set of third-party peripherals detected on the system. Polls the

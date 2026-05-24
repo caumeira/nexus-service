@@ -3,17 +3,17 @@ using System;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Serialization;
+using Nexus.Service.Serialization;
 
 // ---------- Wire messages + AppJsonContext entries ----------
 
-namespace Qos.Service.Helper.Domains
+namespace Nexus.Service.Helper.Domains
 {
     /// <summary>
     /// Payload for <c>helper.shutdown</c>. Service-to-helper. The service
     /// fires this from its ApplicationStopping hook so the helper closes
     /// its --app window (Edge --app shell) and exits, matching the
-    /// settings "Stop Qos" UX. No fields - the envelope's existence is
+    /// settings "Stop Nexus" UX. No fields - the envelope's existence is
     /// the signal.
     /// </summary>
     public sealed class HelperShutdownPayload { }
@@ -21,7 +21,7 @@ namespace Qos.Service.Helper.Domains
     /// <summary>
     /// Payload for <c>overlay.prefsChanged</c>. Service-to-helper, one-way.
     /// The service fires this on every settings.json change so the helper
-    /// can PostMessage the qos-overlay marshaler to repoll preferences
+    /// can PostMessage the nexus-overlay marshaler to repoll preferences
     /// without waiting for its 5 s timer. The service itself cannot post
     /// to the overlay window directly because it runs in Session 0; the
     /// helper runs in the user session where FindWindow can see the

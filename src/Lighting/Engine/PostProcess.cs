@@ -1,6 +1,6 @@
 using System;
 
-namespace Qos.Service.Lighting.Engine;
+namespace Nexus.Service.Lighting.Engine;
 
 /// <summary>
 /// Shared, mutable holder for the four canvas post-process params used by

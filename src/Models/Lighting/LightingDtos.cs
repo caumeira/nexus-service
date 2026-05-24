@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Qos.Service.Models.Common;
+using Nexus.Service.Models.Common;
 
-namespace Qos.Service.Models.Lighting;
+namespace Nexus.Service.Models.Lighting;
 
 public sealed class AudioStateSnapshot
 {
@@ -66,7 +66,7 @@ public sealed class MusicReactiveBody
 /// is a dumb store here - it never constructs templates itself.</summary>
 public class SetAnimateTemplatesBody
 {
-    public Dictionary<string, Qos.Service.Persistence.AnimateEffectTemplates> Templates { get; set; } = new();
+    public Dictionary<string, Nexus.Service.Persistence.AnimateEffectTemplates> Templates { get; set; } = new();
 }
 
 public class AnimateHeadlessStart

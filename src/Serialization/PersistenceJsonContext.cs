@@ -1,12 +1,12 @@
 using System.Text.Json.Serialization;
-using Qos.Service.Devices.Firmware;
-using Qos.Service.Models.Profiles;
-using Qos.Service.Persistence;
-using Qos.Service.QSeries;
+using Nexus.Service.Devices.Firmware;
+using Nexus.Service.Models.Profiles;
+using Nexus.Service.Persistence;
+using Nexus.Service.QSeries;
 
-namespace Qos.Service.Serialization;
+namespace Nexus.Service.Serialization;
 
-[JsonSerializable(typeof(QosSettings))]
+[JsonSerializable(typeof(NexusSettings))]
 [JsonSerializable(typeof(FirmwareManifest))]
 [JsonSerializable(typeof(FirmwareFile))]
 [JsonSerializable(typeof(AuthSettings))]
@@ -20,7 +20,7 @@ namespace Qos.Service.Serialization;
 [JsonSerializable(typeof(Dictionary<string, List<LedPositionOverride>>))]
 [JsonSerializable(typeof(ProfileManifest))]
 [JsonSerializable(typeof(ProfileExport))]
-// Shared POCOs nested under QosSettings root — picked up transitively but
+// Shared POCOs nested under NexusSettings root — picked up transitively but
 // listed explicitly so the source generator emits the proper converters.
 [JsonSerializable(typeof(ThemeSettings))]
 [JsonSerializable(typeof(MonitoringSettings))]

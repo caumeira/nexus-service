@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json;
 
-namespace Qos.Service.Models.Panel;
+namespace Nexus.Service.Models.Panel;
 
 /// <summary>
 /// Layout for the panel widget engine. Kiosk layouts live on panel device

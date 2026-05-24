@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
-using Qos.Service.Devices;
-using Qos.Service.Lighting.Engine;
-using Qos.Service.Models.Devices;
-using Qos.Service.Peripherals.Hyte.MiniHub;
-using Qos.Service.Persistence;
+using Nexus.Service.Devices;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Models.Devices;
+using Nexus.Service.Peripherals.Hyte.MiniHub;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Lighting;
+namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Exposes the MiniHub's 2 LED-capable ports (port 3 and port 4) as

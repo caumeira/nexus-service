@@ -1,10 +1,10 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Peripherals;
+namespace Nexus.Service.Peripherals;
 
 /// <summary>
 /// Common interface for third-party peripherals (Logitech mice, Razer mice/keyboards,
-/// Corsair, etc.) that Qos can read and configure beyond simple VID/PID detection.
+/// Corsair, etc.) that Nexus can read and configure beyond simple VID/PID detection.
 ///
 /// Capabilities are composable traits — each peripheral implements whichever subset
 /// of capability interfaces its protocol supports. Consumers check via

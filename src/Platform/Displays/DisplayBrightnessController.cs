@@ -1,7 +1,7 @@
 using System.Collections.Concurrent;
-using Qos.Service.Models.Displays;
+using Nexus.Service.Models.Displays;
 
-namespace Qos.Service.Platform.Displays;
+namespace Nexus.Service.Platform.Displays;
 
 /// <summary>
 /// Hardware-facing write coordinator for display brightness. The panel can send

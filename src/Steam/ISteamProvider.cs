@@ -1,7 +1,7 @@
-using Qos.Service.Models;
-using Qos.Service.Models.Steam;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Steam;
 
-namespace Qos.Service.Steam;
+namespace Nexus.Service.Steam;
 
 public interface ISteamProvider
 {

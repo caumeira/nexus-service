@@ -1,6 +1,6 @@
 using System;
 
-namespace Qos.Service.Widgets;
+namespace Nexus.Service.Widgets;
 
 /// <summary>
 /// Widget id validation. Ids are reverse-DNS, ASCII, lowercase, with dots

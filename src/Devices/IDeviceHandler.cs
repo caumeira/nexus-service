@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Devices;
+namespace Nexus.Service.Devices;
 
 /// <summary>
 /// Defines a modular device handler. Each supported device type implements this interface.

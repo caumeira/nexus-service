@@ -5,7 +5,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Sockets;
+namespace Nexus.Service.Sockets;
 
 /// <summary>
 /// Minimal WebSocket fan-out helper. Each WS endpoint gets its own WebSocketHub

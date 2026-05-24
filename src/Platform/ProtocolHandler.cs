@@ -2,16 +2,16 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 /// <summary>
-/// Registers the qos:// custom protocol handler so browsers can launch the service.
+/// Registers the nexus:// custom protocol handler so browsers can launch the service.
 /// Self-registers on first run — no installer needed, no admin rights.
 ///
-/// Windows: HKCU\Software\Classes\qos → shell\open\command → exe path
-/// macOS:   ~/Applications/Qos.app bundle with Info.plist CFBundleURLTypes
+/// Windows: HKCU\Software\Classes\nexus → shell\open\command → exe path
+/// macOS:   ~/Applications/Nexus.app bundle with Info.plist CFBundleURLTypes
 ///          (registered via lsregister)
-/// Linux:   ~/.local/share/applications/qos.desktop + xdg-mime
+/// Linux:   ~/.local/share/applications/nexus.desktop + xdg-mime
 /// </summary>
 public static class ProtocolHandler
 {
@@ -34,7 +34,7 @@ public static class ProtocolHandler
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[protocol] failed to register qos:// handler: {ex.Message}");
+            Console.Error.WriteLine($"[protocol] failed to register nexus:// handler: {ex.Message}");
         }
     }
 
@@ -44,7 +44,7 @@ public static class ProtocolHandler
         // Detect whether we're running as a native AOT exe or via `dotnet <dll>`.
         // Environment.ProcessPath returns dotnet.exe when run via `dotnet`, so we
         // check for the native exe first, then fall back to a `dotnet <dll>` command.
-        var nativeExe = Path.Combine(AppContext.BaseDirectory, "Qos.exe");
+        var nativeExe = Path.Combine(AppContext.BaseDirectory, "Nexus.exe");
         string command;
         string iconPath;
 
@@ -57,7 +57,7 @@ public static class ProtocolHandler
         else
         {
             // Dev / framework-dependent — register as `dotnet <dll>`.
-            var dllPath = Path.Combine(AppContext.BaseDirectory, "qos-service.dll");
+            var dllPath = Path.Combine(AppContext.BaseDirectory, "nexus-service.dll");
             var dotnetPath = Environment.ProcessPath ?? "dotnet";
             // If ProcessPath is the dotnet host, use it; otherwise find dotnet on PATH.
             if (!dotnetPath.EndsWith("dotnet.exe", StringComparison.OrdinalIgnoreCase)
@@ -69,8 +69,8 @@ public static class ProtocolHandler
             iconPath = $"\"{dllPath}\",0";
         }
 
-        using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Classes\qos");
-        key.SetValue("", "URL:Qos Protocol");
+        using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(@"Software\Classes\nexus");
+        key.SetValue("", "URL:Nexus Protocol");
         key.SetValue("URL Protocol", "");
 
         using var iconKey = key.CreateSubKey("DefaultIcon");
@@ -79,13 +79,13 @@ public static class ProtocolHandler
         using var cmdKey = key.CreateSubKey(@"shell\open\command");
         cmdKey.SetValue("", command);
 
-        Console.WriteLine($"[protocol] registered qos:// handler (Windows registry): {command}");
+        Console.WriteLine($"[protocol] registered nexus:// handler (Windows registry): {command}");
     }
 
     private static void RegisterMacOS()
     {
         // Create a minimal .app bundle wrapper that registers the URL scheme.
-        var exePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "qos-service");
+        var exePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "nexus-service");
 
         // Detect dev mode: ProcessPath is the dotnet host, not our binary.
         // In that case, launch via `dotnet <dll>` instead of the bare exe.
@@ -93,7 +93,7 @@ public static class ProtocolHandler
         string launchCommand;
         if (isDotnetHost)
         {
-            var dllPath = Path.Combine(AppContext.BaseDirectory, "qos-service.dll");
+            var dllPath = Path.Combine(AppContext.BaseDirectory, "nexus-service.dll");
             launchCommand = $@"exec ""{exePath}"" ""{dllPath}"" ""$@""";
         }
         else
@@ -104,7 +104,7 @@ public static class ProtocolHandler
         // Create a minimal .app bundle in ~/Applications/
         var appDir = Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-            "Applications", "Qos.app");
+            "Applications", "Nexus.app");
         var contentsDir = Path.Combine(appDir, "Contents");
         var macosDir = Path.Combine(contentsDir, "MacOS");
 
@@ -118,17 +118,17 @@ public static class ProtocolHandler
     <key>CFBundleIdentifier</key>
     <string>com.nexusqos.panel.launcher</string>
     <key>CFBundleName</key>
-    <string>Qos</string>
+    <string>Nexus</string>
     <key>CFBundleExecutable</key>
-    <string>qos-launcher</string>
+    <string>nexus-launcher</string>
     <key>CFBundleURLTypes</key>
     <array>
         <dict>
             <key>CFBundleURLName</key>
-            <string>Qos Protocol</string>
+            <string>Nexus Protocol</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>qos</string>
+                <string>nexus</string>
             </array>
         </dict>
     </array>
@@ -139,7 +139,7 @@ public static class ProtocolHandler
 
         // Shell script launcher that starts the actual service
         var launcher = $"#!/bin/bash\n{launchCommand}\n";
-        var launcherPath = Path.Combine(macosDir, "qos-launcher");
+        var launcherPath = Path.Combine(macosDir, "nexus-launcher");
         File.WriteAllText(launcherPath, launcher);
         // chmod +x
         System.Diagnostics.Process.Start("chmod", $"+x \"{launcherPath}\"")?.WaitForExit(3000);
@@ -148,12 +148,12 @@ public static class ProtocolHandler
         System.Diagnostics.Process.Start("/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/LaunchServices.framework/Versions/A/Support/lsregister",
             $"-R \"{appDir}\"")?.WaitForExit(3000);
 
-        Console.WriteLine("[protocol] registered qos:// handler (macOS app bundle)");
+        Console.WriteLine("[protocol] registered nexus:// handler (macOS app bundle)");
     }
 
     private static void RegisterLinux()
     {
-        var exePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "qos-service");
+        var exePath = Environment.ProcessPath ?? Path.Combine(AppContext.BaseDirectory, "nexus-service");
         var appsDir = Path.Combine(
             Environment.GetEnvironmentVariable("XDG_DATA_HOME")
                 ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "share"),
@@ -162,18 +162,18 @@ public static class ProtocolHandler
         Directory.CreateDirectory(appsDir);
 
         var desktop = $@"[Desktop Entry]
-Name=Qos
+Name=Nexus
 Exec=""{exePath}"" %u
 Type=Application
 NoDisplay=true
-MimeType=x-scheme-handler/qos;
+MimeType=x-scheme-handler/nexus;
 ";
-        File.WriteAllText(Path.Combine(appsDir, "qos.desktop"), desktop);
+        File.WriteAllText(Path.Combine(appsDir, "nexus.desktop"), desktop);
 
         // Register as default handler
         System.Diagnostics.Process.Start("xdg-mime",
-            "default qos.desktop x-scheme-handler/qos")?.WaitForExit(3000);
+            "default nexus.desktop x-scheme-handler/nexus")?.WaitForExit(3000);
 
-        Console.WriteLine("[protocol] registered qos:// handler (Linux .desktop)");
+        Console.WriteLine("[protocol] registered nexus:// handler (Linux .desktop)");
     }
 }

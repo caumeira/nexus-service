@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
-using Qos.Service.Activity;
-using Qos.Service.Models.Widgets;
-using Qos.Service.Serialization;
+using Nexus.Service.Activity;
+using Nexus.Service.Models.Widgets;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Widgets.WidgetActions;
+namespace Nexus.Service.Widgets.WidgetActions;
 
 /// <summary>
 /// Host actions surfacing screen-time data to declarative widgets.

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Qos.Service.Devices.Handlers;
+namespace Nexus.Service.Devices.Handlers;
 
 /// <summary>Y70 touch display — multiple panel variants (standard, Infinite, Truly).</summary>
 public sealed class Y70Handler : IDeviceHandler

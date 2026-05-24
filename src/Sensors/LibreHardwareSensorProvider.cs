@@ -4,10 +4,10 @@ using System.Diagnostics;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using Qos.Service.Models.Sensors;
+using Nexus.Service.Models.Sensors;
 using LibreHardwareMonitor.Hardware;
 
-namespace Qos.Service.Sensors;
+namespace Nexus.Service.Sensors;
 
 /// <summary>
 /// Windows sensor provider backed by LibreHardwareMonitorLib. Reads CPU, GPU,

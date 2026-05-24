@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Sensors;
+namespace Nexus.Service.Models.Sensors;
 
 /// <summary>
 /// Extra hardware components surfaced only to the Monitoring "Detailed" tab.

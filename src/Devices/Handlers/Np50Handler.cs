@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
-using Qos.Service.Peripherals.Hyte.Np50;
+using Nexus.Service.Peripherals.Hyte.Np50;
 
-namespace Qos.Service.Devices.Handlers;
+namespace Nexus.Service.Devices.Handlers;
 
 /// <summary>
 /// HYTE NP50 Nexus Link fan + lighting hub. Connection state and firmware

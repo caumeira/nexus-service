@@ -2,9 +2,9 @@ using System;
 using System.ComponentModel;
 using System.Diagnostics;
 using System.Threading.Tasks;
-using Qos.Service.Platform;
+using Nexus.Service.Platform;
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 public enum RelaunchResult
 {

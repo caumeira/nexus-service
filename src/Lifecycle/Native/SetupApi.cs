@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Qos.Service.Lifecycle.Native;
+namespace Nexus.Service.Lifecycle.Native;
 
 /// <summary>
 /// P/Invoke declarations for SetupAPI (setupapi.dll) and newdev.dll. Used by

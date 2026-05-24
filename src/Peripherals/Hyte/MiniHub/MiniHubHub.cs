@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
-using Qos.Service.Peripherals.Hyte.Np50;
+using Nexus.Service.Peripherals.Hyte.Np50;
 
-namespace Qos.Service.Peripherals.Hyte.MiniHub;
+namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 
 /// <summary>
 /// Singleton coordinator for a HYTE IBP MiniHub. Mirrors <see cref="Np50Hub"/>
@@ -22,7 +22,7 @@ public sealed class MiniHubHub : IDisposable
     /// <c>UniversalHardwareInfo</c> entry for this VID/PID
     /// (VID_3402&amp;PID_0900) is <c>"iBUYPOWER Mini Hub"</c>; we use the
     /// no-space spelling <c>"iBUYPOWER MiniHub"</c> per the user-facing
-    /// branding chosen for the qos panel.
+    /// branding chosen for the nexus panel.
     /// </summary>
     public const string ProductName = "iBUYPOWER MiniHub";
 

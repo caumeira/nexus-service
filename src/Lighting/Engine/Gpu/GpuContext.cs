@@ -6,7 +6,7 @@ using Silk.NET.Maths;
 using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
 
-namespace Qos.Service.Lighting.Engine.Gpu;
+namespace Nexus.Service.Lighting.Engine.Gpu;
 
 /// <summary>
 /// Owns a single shared offscreen OpenGL 3.3 core context used by every shader
@@ -68,7 +68,7 @@ public sealed class GpuContext : IDisposable
 
     private static readonly string LogPath = System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "Qos", "gpu.log");
+        "Nexus", "gpu.log");
 
     public static void Log(string line)
     {
@@ -93,7 +93,7 @@ public sealed class GpuContext : IDisposable
 
         _initTried = true;
 
-        _glThread = new Thread(GlThreadMain) { IsBackground = true, Name = "qos-gl" };
+        _glThread = new Thread(GlThreadMain) { IsBackground = true, Name = "nexus-gl" };
         _glThread.Start();
         if (!_initDone.Wait(TimeSpan.FromSeconds(10)))
         {
@@ -183,7 +183,7 @@ public sealed class GpuContext : IDisposable
                 ShouldSwapAutomatically = false,
                 VSync = false,
                 Size = new Vector2D<int>(_width, _height),
-                Title = "qos-gpu",
+                Title = "nexus-gpu",
                 API = new GraphicsAPI(
                     ContextAPI.OpenGL,
                     ContextProfile.Core,

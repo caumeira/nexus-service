@@ -1,8 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
-using Qos.Service.Peripherals.Hid;
+using Nexus.Service.Peripherals.Hid;
 
-namespace Qos.Service.Peripherals.Protocols.Corsair;
+namespace Nexus.Service.Peripherals.Protocols.Corsair;
 
 /// <summary>
 /// Maps Corsair VID/PID pairs to device metadata. Every entry in
@@ -18,7 +18,7 @@ public sealed class CorsairPeripheralFactory
     // NOTE: Corsair M65 Pro and friends use USB vendor control transfers (bRequestType=0x40),
     // not HID feature reports. Configuring them would require replacing the Windows HID
     // driver with a WinUSB filter (Zadig-style), which breaks the mouse's normal operation.
-    // That's an unacceptable UX tradeoff for Qos, so we do detection-only.
+    // That's an unacceptable UX tradeoff for Nexus, so we do detection-only.
     // Newer Corsair mice on the "Bragi" protocol (e.g. Scimitar Elite Bragi) reportedly
     // DO use HID reports — those could be supported in a future pass.
     private static readonly Dictionary<int, (string Name, string Category, bool HasProtocol)> Models = new()

@@ -1,4 +1,4 @@
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 /// <summary>
 /// Cross-platform abstraction for reading system-wide CPU/Memory/GPU usage.

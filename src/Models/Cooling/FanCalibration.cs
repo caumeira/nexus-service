@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Cooling;
+namespace Nexus.Service.Models.Cooling;
 
 public sealed class FanCalibration
 {

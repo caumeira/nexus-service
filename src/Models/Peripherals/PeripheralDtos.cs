@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Peripherals;
+namespace Nexus.Service.Models.Peripherals;
 
 /// <summary>Item in /peripherals list — live, detected peripherals with capabilities.</summary>
 public sealed class PeripheralDto

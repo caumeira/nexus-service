@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Text.Json;
-using Qos.Service.Persistence;
-using Qos.Service.Serialization;
+using Nexus.Service.Persistence;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Defaults;
+namespace Nexus.Service.Defaults;
 
 /// <summary>
 /// Canonical install-time defaults. Data lives in data/install-defaults.json
@@ -12,7 +12,7 @@ namespace Qos.Service.Defaults;
 /// typed accessors so every subsystem can read the same canonical values
 /// instead of hardcoding literal initializers.
 ///
-/// The qos-web debug-tools export menu serializes the running config in this
+/// The nexus-web debug-tools export menu serializes the running config in this
 /// exact shape so the user can paste the output back to the AI; the AI then
 /// rewrites install-defaults.json and ships. One file, one source of truth.
 ///
@@ -88,7 +88,7 @@ public sealed class InstallDefaultsDocument
 
 // ThemeSettings, MonitoringSettings, PanelSettings, OverlaySettings and the
 // PanelLayouts* seed types live in Persistence/SharedSettings.cs — same POCOs
-// are reused by QosSettings so the install-defaults shape and the live profile
+// are reused by NexusSettings so the install-defaults shape and the live profile
 // shape stay in lockstep.
 
 public sealed class LightingDefaults

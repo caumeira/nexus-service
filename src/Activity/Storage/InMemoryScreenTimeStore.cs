@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Qos.Service.Models.Activity;
+using Nexus.Service.Models.Activity;
 
-namespace Qos.Service.Activity.Storage;
+namespace Nexus.Service.Activity.Storage;
 
 /// <summary>
 /// Non-persistent fallback used in unit tests and as a last-resort stub when the

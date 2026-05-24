@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices;
-using Qos.Service.Models;
-using Qos.Service.Panel;
+using Nexus.Service.Models;
+using Nexus.Service.Panel;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class PingRoutes
 {
@@ -17,7 +17,7 @@ public static class PingRoutes
         // next ping (no service restart).
         app.MapGet("/ping", (PanelPhonePairingService pairing) => new PingResponse
         {
-            Service = "qos-service",
+            Service = "nexus-service",
             Version = BuildInfo.Version,
             Initialized = true,
             Platform = platform,
@@ -28,7 +28,7 @@ public static class PingRoutes
         // launcher (`com.companyname.thiccapp`). Its RN bootstrap polls
         // `/ready` and `/hardware/profile` on `ports.backend`; if either
         // returns non-2xx the launcher flips its WebView back to the idle
-        // face. By serving stubs here on the qos service we let the OEM's
+        // face. By serving stubs here on the nexus service we let the OEM's
         // WebView stay open and load our panel at `/panel/{deviceId}`.
         // Raw-JSON literals because the .NET 10 AOT JsonSerializer rejects
         // anonymous types at runtime — we'd otherwise hit 500s here.

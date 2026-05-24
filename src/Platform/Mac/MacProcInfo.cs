@@ -2,7 +2,7 @@ using System;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Qos.Service.Platform.Mac;
+namespace Nexus.Service.Platform.Mac;
 
 internal static class MacProcInfo
 {

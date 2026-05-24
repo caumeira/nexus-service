@@ -1,4 +1,4 @@
-namespace Qos.Service.Peripherals.Capabilities;
+namespace Nexus.Service.Peripherals.Capabilities;
 
 public interface ISleepCapability : IPeripheralCapability
 {

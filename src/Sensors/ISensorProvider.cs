@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Qos.Service.Models.Sensors;
+using Nexus.Service.Models.Sensors;
 
-namespace Qos.Service.Sensors;
+namespace Nexus.Service.Sensors;
 
 /// <summary>
 /// Cross-platform read interface for system sensor data. Implementations are

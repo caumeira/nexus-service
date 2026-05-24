@@ -3,7 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Helper;
+namespace Nexus.Service.Helper;
 
 /// <summary>
 /// Tracks the active helper connection per WTS session id. One connection

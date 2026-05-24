@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Persistence;
+namespace Nexus.Service.Persistence;
 
 public sealed class ProfileManifest
 {

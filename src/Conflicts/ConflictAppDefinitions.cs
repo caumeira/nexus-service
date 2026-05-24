@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 
-namespace Qos.Service.Conflicts;
+namespace Nexus.Service.Conflicts;
 
 /// <summary>
-/// Static catalog of third-party apps that compete with Qos for hardware
+/// Static catalog of third-party apps that compete with Nexus for hardware
 /// control (RGB lighting, fan speeds, peripheral firmware, GPU overlays).
 /// The ConflictWatcher scans running processes and surfaces any match in
 /// the sidebar warning.
@@ -15,7 +15,7 @@ namespace Qos.Service.Conflicts;
 /// Comparisons are case-insensitive.
 ///
 /// Layout mirrors the HYTE Nexus RgbAppRegistry (the user's reference list)
-/// with Qos categories grafted on for the sidebar UI.
+/// with Nexus categories grafted on for the sidebar UI.
 /// </summary>
 public sealed class ConflictAppDefinition
 {
@@ -35,9 +35,9 @@ public sealed class ConflictAppDefinition
 public static class ConflictAppCatalog
 {
     /// <summary>
-    /// Curated list of apps that visibly fight Qos when run alongside it.
+    /// Curated list of apps that visibly fight Nexus when run alongside it.
     /// Mirrors HYTE Nexus's RgbAppRegistry so existing Nexus users see the
-    /// same coverage in Qos. ProcessNames are the Windows
+    /// same coverage in Nexus. ProcessNames are the Windows
     /// <see cref="System.Diagnostics.Process.ProcessName"/> form (basename
     /// without the .exe extension).
     /// </summary>
@@ -72,7 +72,7 @@ public static class ConflictAppCatalog
             Id = "openrgb",
             DisplayName = "OpenRGB",
             Category = "lighting",
-            // Qos bundles its own headless OpenRGB subprocess (see qos-rgb). A
+            // Nexus bundles its own headless OpenRGB subprocess (see nexus-rgb). A
             // user-launched OpenRGB.exe with its own GUI will conflict, but our
             // bundled child process runs from inside our install dir, so the
             // watcher filters it out at scan time (see ConflictWatcher).

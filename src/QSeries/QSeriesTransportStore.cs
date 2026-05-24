@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
-using Qos.Service.Persistence;
-using Qos.Service.Serialization;
+using Nexus.Service.Persistence;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.QSeries;
+namespace Nexus.Service.QSeries;
 
 /// <summary>
 /// Disk-backed map of <c>(USB serial → TCP transport record)</c>. Lets the
@@ -13,7 +13,7 @@ namespace Qos.Service.QSeries;
 /// so a service restart (or USB drop) can re-establish the panel transport
 /// without waiting for the device to re-enumerate over USB.
 ///
-/// File layout: <c>%ProgramData%\Qos\qseries-transports.json</c>. Written
+/// File layout: <c>%ProgramData%\Nexus\qseries-transports.json</c>. Written
 /// atomically via <see cref="AtomicJsonFile"/> — a power loss mid-write
 /// leaves either the previous file or the new file intact, never a
 /// half-written one.
@@ -44,7 +44,7 @@ public sealed class QSeriesTransportStore
         // machine-scope location on Linux/Mac. Same root the service
         // already uses for logs, settings.json, screen-time db, etc.
         var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-        return Path.Combine(commonAppData, "Qos", "qseries-transports.json");
+        return Path.Combine(commonAppData, "Nexus", "qseries-transports.json");
     }
 
     /// <summary>
@@ -80,7 +80,7 @@ public sealed class QSeriesTransportStore
     }
 
     /// <summary>
-    /// Persist the full map atomically. Creating <c>%ProgramData%\Qos\</c>
+    /// Persist the full map atomically. Creating <c>%ProgramData%\Nexus\</c>
     /// on first write is harmless even when running unelevated because
     /// the installer creates that directory with Authenticated Users +
     /// Modify rights; if the directory is missing entirely we create it

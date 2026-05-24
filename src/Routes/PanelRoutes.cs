@@ -1,12 +1,12 @@
-using Qos.Service.Auth;
-using Qos.Service.Models;
-using Qos.Service.Models.Panel;
-using Qos.Service.Panel;
-using Qos.Service.Persistence;
-using Qos.Service.Serialization;
-using Qos.Service.Sockets;
+using Nexus.Service.Auth;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Panel;
+using Nexus.Service.Panel;
+using Nexus.Service.Persistence;
+using Nexus.Service.Serialization;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class PanelRoutes
 {
@@ -252,7 +252,7 @@ public static class PanelRoutes
             var updated = registry.Patch(id, body);
             if (updated is null)
                 return Results.NotFound(ApiResponse.Fail("device not found"));
-            // PanelDevices is hardware-scoped (top-level on QosSettings),
+            // PanelDevices is hardware-scoped (top-level on NexusSettings),
             // not part of any profile snapshot. Registry mutations already go
             // through _store.Update -> OnChanged -> ProfileManager.MarkDirty
             // for the active-profile flush of OTHER fields; we don't need the

@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using Qos.Service.Models.Cooling;
-using Qos.Service.Persistence;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Cooling;
+namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// Cross-platform stub. Reports no cooling hardware so the SPA renders an empty

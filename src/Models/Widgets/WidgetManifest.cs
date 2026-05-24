@@ -2,11 +2,11 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
-namespace Qos.Service.Models.Widgets;
+namespace Nexus.Service.Models.Widgets;
 
 /// <summary>
 /// Parsed <c>manifest.json</c> for an installed widget under the declarative
-/// schema <c>qos.widget/2</c>. Field names match the on-disk JSON. See
+/// schema <c>nexus.widget/2</c>. Field names match the on-disk JSON. See
 /// <c>plans/widget-sdk.md</c> for the authoritative contract.
 /// </summary>
 public sealed class WidgetManifest
@@ -136,7 +136,7 @@ public sealed class WidgetManifestCapabilities
 
     /// <summary>HTTPS hosts the widget may fetch from. Phase 2 uses the
     /// host-mediated proxy (`/widgets-api/proxy`) for both Tier 1 declarative
-    /// fetch sources and Tier 2 worker `qos.net.fetch` calls.</summary>
+    /// fetch sources and Tier 2 worker `nexus.net.fetch` calls.</summary>
     [JsonPropertyName("net.fetch")]
     public List<string> NetFetch { get; set; } = new();
 
@@ -155,7 +155,7 @@ public sealed class WidgetManifestCapabilities
     /// <summary>
     /// Opt-in Tier 2 capability. When <c>true</c>, the bundle must ship
     /// a <c>worker.js</c> alongside the manifest; the host spawns a Web
-    /// Worker per widget instance and exposes the <c>qos.*</c> API there.
+    /// Worker per widget instance and exposes the <c>nexus.*</c> API there.
     /// Stored as the JSON discriminator string (currently only "worker").
     /// </summary>
     [JsonPropertyName("code")]
@@ -203,7 +203,7 @@ public sealed class WidgetManifestDataSource
 
     /// <summary>
     /// When set, this binding receives values published by the bundle's
-    /// worker.js via <c>qos.publish</c>. The string value is the
+    /// worker.js via <c>nexus.publish</c>. The string value is the
     /// publish-payload key. Mutually exclusive with sensor/fetch.
     /// </summary>
     [JsonPropertyName("worker")]

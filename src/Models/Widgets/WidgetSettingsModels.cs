@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json;
 
-namespace Qos.Service.Models.Widgets;
+namespace Nexus.Service.Models.Widgets;
 
 /// <summary>
 /// Effective widget settings document: manifest defaults overlaid with the

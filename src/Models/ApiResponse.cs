@@ -1,6 +1,6 @@
 using System.Text.Json.Serialization;
 
-namespace Qos.Service.Models;
+namespace Nexus.Service.Models;
 
 /// <summary>
 /// Base envelope returned by every endpoint that doesn't have a more specific shape.

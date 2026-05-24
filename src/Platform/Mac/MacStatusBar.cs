@@ -4,7 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace Qos.Service.Platform.Mac;
+namespace Nexus.Service.Platform.Mac;
 
 /// <summary>
 /// macOS menu bar status item using NSStatusBar via Objective-C runtime P/Invoke.
@@ -22,7 +22,7 @@ internal static class MacStatusBar
     private static Action? _onOpenSettings;
     private static Action? _onQuit;
     // Fired when LaunchServices re-activates this already-running .app (the
-    // user double-clicked Qos.app while it was already running). For
+    // user double-clicked Nexus.app while it was already running). For
     // LSUIElement=true apps, a re-launch never spawns a new process - macOS
     // just delivers a kAEReopenApplication AppleEvent to the existing
     // instance. We forward that to the dashboard-open path so the user
@@ -33,7 +33,7 @@ internal static class MacStatusBar
 
     private static IntPtr _statusItem; // NSStatusItem (strong ref)
     private static IntPtr _menu;       // NSMenu (strong ref)
-    private static IntPtr _targetObj;  // instance of our dynamic QosStatusTarget class
+    private static IntPtr _targetObj;  // instance of our dynamic NexusStatusTarget class
     private static bool _initialized;
     private static bool? _visible;
 
@@ -237,7 +237,7 @@ internal static class MacStatusBar
 
     // ── Dynamic Objective-C target class for menu callbacks ──────────────────
     //
-    // We create an NSObject subclass at runtime named "QosStatusTarget"
+    // We create an NSObject subclass at runtime named "NexusStatusTarget"
     // with three selectors (openDashboard:, openSettings:, quitApp:). Each
     // method is a static C function (UnmanagedCallersOnly) that invokes the
     // corresponding Action. Menu items target this instance.
@@ -245,11 +245,11 @@ internal static class MacStatusBar
     private static unsafe void RegisterTargetClass()
     {
         IntPtr nsObject = ClassGet("NSObject");
-        IntPtr targetClass = objc_allocateClassPair(nsObject, "QosStatusTarget", IntPtr.Zero);
+        IntPtr targetClass = objc_allocateClassPair(nsObject, "NexusStatusTarget", IntPtr.Zero);
         if (targetClass == IntPtr.Zero)
         {
             // Class might already exist from a previous init attempt; look it up.
-            targetClass = ClassGet("QosStatusTarget");
+            targetClass = ClassGet("NexusStatusTarget");
             if (targetClass == IntPtr.Zero)
                 throw new InvalidOperationException("Failed to allocate target class");
         }
@@ -371,7 +371,7 @@ internal static class MacStatusBar
         // Separator
         IntPtr sep = MsgSend(_classNSMenuItem, _selSeparatorItem);
         MsgSend(_menu, _selAddItem, sep);
-        AddMenuItem(_menu, "Quit Qos", "quitApp:");
+        AddMenuItem(_menu, "Quit Nexus", "quitApp:");
 
         MsgSend(_statusItem, _selSetMenu, _menu);
 

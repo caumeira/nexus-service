@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Qos.Service.Models.Cooling;
+using Nexus.Service.Models.Cooling;
 
-namespace Qos.Service.Cooling;
+namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// Read interface for cooling components (AIOs, hubs, fans, pumps). Stub

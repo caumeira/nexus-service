@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Cooling;
-using Qos.Service.Peripherals.Hyte.MiniHub;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Peripherals.Hyte.MiniHub;
 
-namespace Qos.Service.Cooling;
+namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// Bridges the HYTE MiniHub into the cooling subsystem. The MiniHub has

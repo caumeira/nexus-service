@@ -1,11 +1,11 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Qos.Service.Defaults;
-using Qos.Service.Models.Panel;
-using Qos.Service.Persistence;
+using Nexus.Service.Defaults;
+using Nexus.Service.Models.Panel;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Panel;
+namespace Nexus.Service.Panel;
 
 /// <summary>
 /// Starter layout for a freshly registered panel device. Per-surface

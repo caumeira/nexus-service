@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Peripherals.Capabilities;
+namespace Nexus.Service.Peripherals.Capabilities;
 
 public interface IPollingRateCapability : IPeripheralCapability
 {

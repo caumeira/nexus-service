@@ -1,17 +1,17 @@
 using System;
 using System.Threading.Tasks;
-using Qos.Service.Lighting.Engine;
-using Qos.Service.Lighting.Engine.Effects;
-using Qos.Service.Lighting.Engine.Gpu;
-using Qos.Service.Lighting.Rgb;
-using Qos.Service.Lighting.Capture;
-using Qos.Service.Media;
-using Qos.Service.Models.Lighting;
-using Qos.Service.Persistence;
-using Qos.Service.Platform;
-using Qos.Service.Sockets;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Engine.Effects;
+using Nexus.Service.Lighting.Engine.Gpu;
+using Nexus.Service.Lighting.Rgb;
+using Nexus.Service.Lighting.Capture;
+using Nexus.Service.Media;
+using Nexus.Service.Models.Lighting;
+using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Lighting;
+namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Real lighting provider — wraps the cross-platform LightingEngine and bridges
@@ -189,7 +189,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             // effects' saved states are untouched so switching back restores
             // exactly what the user last set for each one.
             s.Lighting.Animate.Effect = name;
-            s.Lighting.Animate.States[name] = new Qos.Service.Persistence.AnimateEffectState
+            s.Lighting.Animate.States[name] = new Nexus.Service.Persistence.AnimateEffectState
             {
                 Speed = body.Speed,
                 Intensity = intensity,
@@ -254,7 +254,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // colorize + speed so the thumbnail shows the iconic look (fire orange,
         // matrix green, nebula purple, etc.) instead of a generic rainbow.
         // The signature table mirrors SIGNATURES in
-        // qos-web/src/types/lightingTemplates.ts.
+        // nexus-web/src/types/lightingTemplates.ts.
         var canvas = new Engine.CanvasBuffer(160, 90);
         var sig = SignatureFor(name);
         var thumbSpeed = sig.Speed / 50f;

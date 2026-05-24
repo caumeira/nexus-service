@@ -4,10 +4,10 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Lighting;
-using Qos.Service.Serialization;
+using Nexus.Service.Models.Lighting;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Helper.Domains
+namespace Nexus.Service.Helper.Domains
 {
     /// <summary>
     /// Payload for <c>monitor.enumerate</c>. Service-to-helper RPC. Empty -
@@ -59,7 +59,7 @@ namespace Qos.Service.Helper.Domains
         {
             registry.Register("monitor.enumerate", (env, _) =>
             {
-                var monitors = Qos.Service.Platform.MonitorEnumerator.List();
+                var monitors = Nexus.Service.Platform.MonitorEnumerator.List();
                 return Task.FromResult(new HelperResult
                 {
                     Id = env.Id ?? "",

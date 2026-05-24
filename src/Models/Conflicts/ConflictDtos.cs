@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Conflicts;
+namespace Nexus.Service.Models.Conflicts;
 
 /// <summary>
-/// Single match returned by <see cref="Qos.Service.Conflicts.ConflictWatcher"/>.
+/// Single match returned by <see cref="Nexus.Service.Conflicts.ConflictWatcher"/>.
 /// Pid is the lowest matched pid for the process name (the SPA only ever
 /// asks to terminate by Id; the pid is informational).
 /// </summary>

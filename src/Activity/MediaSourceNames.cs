@@ -1,6 +1,6 @@
 using System;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Maps a Windows GSMTC SourceAppUserModelId to a user-friendly label

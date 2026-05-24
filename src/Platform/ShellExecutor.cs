@@ -1,7 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 /// <summary>
 /// Synchronous and async helpers around Process.Start for shell-out style

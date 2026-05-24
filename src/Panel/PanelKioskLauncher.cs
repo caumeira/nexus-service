@@ -1,27 +1,27 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Qos.Service.Panel;
+namespace Nexus.Service.Panel;
 
 /// <summary>
-/// Thin shim around the qos-overlay process's panel-kiosk window. The actual
-/// fullscreen WebView2 lives in qos-overlay (Session 2, user context); this
-/// class just posts <c>Qos.Overlay.ShowPanelKiosk</c> /
-/// <c>Qos.Overlay.HidePanelKiosk</c> registered window messages to the
+/// Thin shim around the nexus-overlay process's panel-kiosk window. The actual
+/// fullscreen WebView2 lives in nexus-overlay (Session 2, user context); this
+/// class just posts <c>Nexus.Overlay.ShowPanelKiosk</c> /
+/// <c>Nexus.Overlay.HidePanelKiosk</c> registered window messages to the
 /// overlay's marshaler via the shared <see cref="Platform.Windows.TrayIcon.TryPostToOverlayMarshaler"/>
 /// helper. The overlay itself runs the panel-display match and owns the
 /// kiosk window's lifecycle.
 /// </summary>
 public sealed class PanelKioskLauncher
 {
-    // Must match the qos-overlay registered-window-message names in
-    // qos-overlay/src/Program.cs (ShowPanelKioskMessageName / HidePanelKioskMessageName).
-    private const string ShowPanelKioskMessageName = "Qos.Overlay.ShowPanelKiosk";
-    private const string HidePanelKioskMessageName = "Qos.Overlay.HidePanelKiosk";
-    private const string PanelKioskClassName = "Qos.Overlay.PanelKiosk";
+    // Must match the nexus-overlay registered-window-message names in
+    // nexus-overlay/src/Program.cs (ShowPanelKioskMessageName / HidePanelKioskMessageName).
+    private const string ShowPanelKioskMessageName = "Nexus.Overlay.ShowPanelKiosk";
+    private const string HidePanelKioskMessageName = "Nexus.Overlay.HidePanelKiosk";
+    private const string PanelKioskClassName = "Nexus.Overlay.PanelKiosk";
 
     /// <summary>
-    /// Best-effort check via <c>FindWindow("Qos.Overlay.PanelKiosk", null)</c>.
+    /// Best-effort check via <c>FindWindow("Nexus.Overlay.PanelKiosk", null)</c>.
     /// From a Session 0 caller (LocalSystem service) this is a false-negative
     /// because the kiosk window lives in the user session and isn't visible to
     /// a service-mode FindWindow. Callers in the user session (tray, dashboard

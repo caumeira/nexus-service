@@ -1,10 +1,10 @@
 using System.Collections.Generic;
-using Qos.Service.Models.Peripherals;
+using Nexus.Service.Models.Peripherals;
 
-namespace Qos.Service.Peripherals;
+namespace Nexus.Service.Peripherals;
 
 /// <summary>
-/// Hand-curated list of peripherals Qos knows about. Users search this to
+/// Hand-curated list of peripherals Nexus knows about. Users search this to
 /// answer "is my device supported?". The modal highlights rows whose VID/PID
 /// matches a currently-plugged-in device via the raw USB enumerator.
 /// </summary>

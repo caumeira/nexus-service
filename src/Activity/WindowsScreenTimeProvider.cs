@@ -2,13 +2,13 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
-using Qos.Service.Activity.Storage;
-using Qos.Service.Helper;
-using Qos.Service.Models.Activity;
-using Qos.Service.Persistence;
-using Qos.Service.Serialization;
+using Nexus.Service.Activity.Storage;
+using Nexus.Service.Helper;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Persistence;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Windows screen-time provider. Foreground-window polling lives in the

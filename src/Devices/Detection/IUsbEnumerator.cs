@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Devices.Detection;
+namespace Nexus.Service.Devices.Detection;
 
 /// <summary>
 /// Cross-platform USB device enumeration.

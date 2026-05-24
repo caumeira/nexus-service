@@ -2,12 +2,12 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Qos.Service.Lighting.Engine;
-using Qos.Service.Peripherals.Hyte.MiniHub;
-using Qos.Service.Persistence;
-using MiniHubColor = Qos.Service.Peripherals.Hyte.MiniHub.RgbColor;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Peripherals.Hyte.MiniHub;
+using Nexus.Service.Persistence;
+using MiniHubColor = Nexus.Service.Peripherals.Hyte.MiniHub.RgbColor;
 
-namespace Qos.Service.Lighting;
+namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Pushes per-frame engine output to the MiniHub. Same pattern as

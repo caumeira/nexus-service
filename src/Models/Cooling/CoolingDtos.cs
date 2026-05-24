@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Cooling;
+namespace Nexus.Service.Models.Cooling;
 
 // ----- Top-level cooling component shape (for /cooling/all) -----
 
@@ -54,7 +54,7 @@ public class Curve
     public MixedCurve? Mixed { get; set; }
     /// <summary>"silent" | "balanced" | "turbo" for the shared preset curves; null for user curves. Independent of Type.</summary>
     public string? Preset { get; set; }
-    /// <summary>For preset curves only: true when the curve's Type + Linear params match <see cref="Qos.Service.Cooling.FanProfiles.PresetDefaults"/>. Null for user curves. Drives the Reset-to-defaults button's enabled state in the SPA, so the FE doesn't have to mirror PresetDefaults locally.</summary>
+    /// <summary>For preset curves only: true when the curve's Type + Linear params match <see cref="Nexus.Service.Cooling.FanProfiles.PresetDefaults"/>. Null for user curves. Drives the Reset-to-defaults button's enabled state in the SPA, so the FE doesn't have to mirror PresetDefaults locally.</summary>
     public bool? IsDefault { get; set; }
 }
 

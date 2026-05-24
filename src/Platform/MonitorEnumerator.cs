@@ -3,12 +3,12 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using Qos.Service.Models.Lighting;
+using Nexus.Service.Models.Lighting;
 #if WINDOWS
 using Vortice.DXGI;
 #endif
 
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 public static class MonitorEnumerator
 {

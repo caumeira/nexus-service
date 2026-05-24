@@ -1,5 +1,5 @@
 {
-  "_comment": "Canonical install-time defaults for Qos. Edit here, not in C# class initializers or TS modules. The qos-service Defaults loader reads this on startup; QosSettings + FanProfiles + PanelLayoutDefaults pull their literals from it. The qos-web debug-tools export menu serializes the running config in the same shape so paste-it-back-to-the-AI round-trips cleanly. Schema is camelCase; add new fields by domain.",
+  "_comment": "Canonical install-time defaults for Nexus. Edit here, not in C# class initializers or TS modules. The nexus-service Defaults loader reads this on startup; NexusSettings + FanProfiles + PanelLayoutDefaults pull their literals from it. The nexus-web debug-tools export menu serializes the running config in the same shape so paste-it-back-to-the-AI round-trips cleanly. Schema is camelCase; add new fields by domain.",
 
   "theme": {
     "language": "en",

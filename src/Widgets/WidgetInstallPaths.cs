@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 
-namespace Qos.Service.Widgets;
+namespace Nexus.Service.Widgets;
 
 /// <summary>
 /// Per-OS install roots scanned by <see cref="WidgetRegistry"/>. Precedence
@@ -51,17 +51,17 @@ public static class WidgetInstallPaths
         if (OperatingSystem.IsWindows())
         {
             var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            return string.IsNullOrEmpty(appData) ? "" : Path.Combine(appData, "Qos");
+            return string.IsNullOrEmpty(appData) ? "" : Path.Combine(appData, "Nexus");
         }
         if (OperatingSystem.IsMacOS())
         {
             var home = Environment.GetEnvironmentVariable("HOME") ?? "";
-            return string.IsNullOrEmpty(home) ? "" : Path.Combine(home, "Library", "Application Support", "Qos");
+            return string.IsNullOrEmpty(home) ? "" : Path.Combine(home, "Library", "Application Support", "Nexus");
         }
-        // Linux: XDG_DATA_HOME or ~/.local/share/Qos
+        // Linux: XDG_DATA_HOME or ~/.local/share/Nexus
         var xdg = Environment.GetEnvironmentVariable("XDG_DATA_HOME");
-        if (!string.IsNullOrEmpty(xdg)) return Path.Combine(xdg, "Qos");
+        if (!string.IsNullOrEmpty(xdg)) return Path.Combine(xdg, "Nexus");
         var linHome = Environment.GetEnvironmentVariable("HOME") ?? "";
-        return string.IsNullOrEmpty(linHome) ? "" : Path.Combine(linHome, ".local", "share", "Qos");
+        return string.IsNullOrEmpty(linHome) ? "" : Path.Combine(linHome, ".local", "share", "Nexus");
     }
 }

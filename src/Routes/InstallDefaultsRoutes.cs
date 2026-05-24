@@ -1,11 +1,11 @@
 using System.Collections.Generic;
 using System.Linq;
-using Qos.Service.Auth;
-using Qos.Service.Defaults;
-using Qos.Service.Models.Panel;
-using Qos.Service.Persistence;
+using Nexus.Service.Auth;
+using Nexus.Service.Defaults;
+using Nexus.Service.Models.Panel;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class InstallDefaultsRoutes
 {

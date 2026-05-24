@@ -3,13 +3,13 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Lighting.Engine;
-using Qos.Service.Models.Activity;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Models.Activity;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
-/// macOS audio capture: spawns the bundled <c>qos-audio-helper</c> Swift
+/// macOS audio capture: spawns the bundled <c>nexus-audio-helper</c> Swift
 /// sidecar, which uses ScreenCaptureKit to grab the system audio output and
 /// pipes float32 mono PCM at 44100 Hz to its stdout. We read from the pipe
 /// in <see cref="AudioAnalyser.WindowSize"/>-sample windows and feed the
@@ -22,7 +22,7 @@ namespace Qos.Service.Activity;
 /// keeps the C# side a normal stdin/stdout pipe consumer.
 ///
 /// TCC: the helper triggers a Screen Recording permission prompt on first
-/// run. macOS attributes the prompt to the parent bundle (Qos.app)
+/// run. macOS attributes the prompt to the parent bundle (Nexus.app)
 /// because the helper lives under <c>Contents/MacOS</c>. If the helper
 /// binary is missing (dev runs from <c>bin/Debug</c> without
 /// <c>build-helper.sh</c> having been run) the provider logs a clear error
@@ -60,7 +60,7 @@ public sealed class MacAudioBeatsProvider : IBeatsProvider
         }
         catch (Exception ex)
         {
-            Qos.Service.Lighting.Engine.Gpu.GpuContext.Log($"[mac-audio] start failed: {ex.Message}");
+            Nexus.Service.Lighting.Engine.Gpu.GpuContext.Log($"[mac-audio] start failed: {ex.Message}");
             lock (_lock) { _running = false; }
         }
     }
@@ -94,7 +94,7 @@ public sealed class MacAudioBeatsProvider : IBeatsProvider
 
     private void StartHelper()
     {
-        var helperPath = Path.Combine(AppContext.BaseDirectory, "qos-audio-helper");
+        var helperPath = Path.Combine(AppContext.BaseDirectory, "nexus-audio-helper");
         if (!File.Exists(helperPath))
         {
             throw new FileNotFoundException(
@@ -126,14 +126,14 @@ public sealed class MacAudioBeatsProvider : IBeatsProvider
                     if (line is null) break;
                     if (line.Length > 0)
                     {
-                        Qos.Service.Lighting.Engine.Gpu.GpuContext.Log($"[mac-audio] helper: {line}");
+                        Nexus.Service.Lighting.Engine.Gpu.GpuContext.Log($"[mac-audio] helper: {line}");
                     }
                 }
             }
             catch { /* swallow */ }
         });
 
-        Qos.Service.Lighting.Engine.Gpu.GpuContext.Log(
+        Nexus.Service.Lighting.Engine.Gpu.GpuContext.Log(
             $"[mac-audio] helper started (pid {_proc.Id}); awaiting samples on stdout");
     }
 
@@ -167,7 +167,7 @@ public sealed class MacAudioBeatsProvider : IBeatsProvider
         catch (IOException) { /* pipe closed */ }
         catch (Exception ex)
         {
-            Qos.Service.Lighting.Engine.Gpu.GpuContext.Log($"[mac-audio] capture loop crashed: {ex.Message}");
+            Nexus.Service.Lighting.Engine.Gpu.GpuContext.Log($"[mac-audio] capture loop crashed: {ex.Message}");
         }
     }
 

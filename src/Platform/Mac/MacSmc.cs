@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Qos.Service.Platform.Mac;
+namespace Nexus.Service.Platform.Mac;
 
 /// <summary>
 /// Read-only IOKit AppleSMC client. Works on Apple Silicon and Intel Macs.

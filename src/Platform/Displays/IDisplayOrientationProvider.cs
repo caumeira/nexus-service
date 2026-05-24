@@ -1,4 +1,4 @@
-namespace Qos.Service.Platform.Displays;
+namespace Nexus.Service.Platform.Displays;
 
 /// <summary>
 /// Rotates the physical Y70 panel display via the Windows display subsystem.

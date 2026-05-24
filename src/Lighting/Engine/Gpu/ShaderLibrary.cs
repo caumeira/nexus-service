@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Reflection;
 
-namespace Qos.Service.Lighting.Engine.Gpu;
+namespace Nexus.Service.Lighting.Engine.Gpu;
 
 /// <summary>
 /// Loads GLSL fragment sources from per-effect .frag files embedded via
@@ -25,11 +25,11 @@ namespace Qos.Service.Lighting.Engine.Gpu;
 /// </summary>
 internal static class ShaderLibrary
 {
-    private const string ResourcePrefix = "Qos.Service.Lighting.Engine.Gpu.Shaders.";
+    private const string ResourcePrefix = "Nexus.Service.Lighting.Engine.Gpu.Shaders.";
     private const string PreludeResource = ResourcePrefix + "_prelude.frag";
 
     // Asm-manifest resource names use dots for directory separators, so the
-    // prelude shows up as Qos.Service.Lighting.Engine.Gpu.Shaders._prelude.frag
+    // prelude shows up as Nexus.Service.Lighting.Engine.Gpu.Shaders._prelude.frag
     // after MSBuild normalises. Cached at first use, no IO on the hot path.
     private static readonly Assembly Asm = typeof(ShaderLibrary).Assembly;
     private static readonly ConcurrentDictionary<string, string> Cache = new();

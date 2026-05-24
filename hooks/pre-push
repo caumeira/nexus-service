@@ -3,7 +3,7 @@
 # Pre-push: gate every push on a green test suite.
 #
 # Default `dotnet test` runs ~541 unit/integration tests in ~1s, thanks to
-# tests/Qos.Service.Tests/qos.runsettings which excludes [Trait("Category",
+# tests/Nexus.Service.Tests/nexus.runsettings which excludes [Trait("Category",
 # "Manual")] benchmark runs. Bypass with `git push --no-verify` when
 # intentional (e.g. pushing a branch that's known-broken for review).
 #
@@ -20,8 +20,8 @@ if ! command -v "$DOTNET" >/dev/null 2>&1 && [ ! -x "$DOTNET" ]; then
     exit 1
 fi
 
-echo "pre-push: running qos-service tests (fast suite; excludes Category=Manual)"
-if ! "$DOTNET" test "$REPO_ROOT/Qos.Service.csproj" --nologo -p:BuildWeb=false; then
+echo "pre-push: running nexus-service tests (fast suite; excludes Category=Manual)"
+if ! "$DOTNET" test "$REPO_ROOT/Nexus.Service.csproj" --nologo -p:BuildWeb=false; then
     echo
     echo "pre-push: tests failed. Push aborted." >&2
     echo "  - Fix the failing tests, OR" >&2

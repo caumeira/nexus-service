@@ -5,11 +5,11 @@ using System.Diagnostics;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Qos.Service.Activity;
-using Qos.Service.Models.Widgets;
-using Qos.Service.Serialization;
+using Nexus.Service.Activity;
+using Nexus.Service.Models.Widgets;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Widgets.WidgetActions;
+namespace Nexus.Service.Widgets.WidgetActions;
 
 /// <summary>
 /// Macro-style host actions: open a URL, simulate a keyboard shortcut,

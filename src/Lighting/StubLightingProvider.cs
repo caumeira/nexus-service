@@ -1,7 +1,7 @@
-using Qos.Service.Models.Lighting;
-using Qos.Service.Persistence;
+using Nexus.Service.Models.Lighting;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Lighting;
+namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Persistence-backed lighting stub. Every "start X" call records the new sync

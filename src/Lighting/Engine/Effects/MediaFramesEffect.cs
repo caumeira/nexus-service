@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace Qos.Service.Lighting.Engine.Effects;
+namespace Nexus.Service.Lighting.Engine.Effects;
 
 /// <summary>
 /// Renders a media item imported through MediaLibrary: a raw RGB24 byte

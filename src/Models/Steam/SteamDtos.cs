@@ -1,6 +1,6 @@
-using Qos.Service.Models;
+using Nexus.Service.Models;
 
-namespace Qos.Service.Models.Steam;
+namespace Nexus.Service.Models.Steam;
 
 public enum SteamPersonaState
 {

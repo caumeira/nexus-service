@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Qos.Service.Lighting.Engine;
-using Qos.Service.Peripherals.Hyte.Np50;
-using Qos.Service.Persistence;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Peripherals.Hyte.Np50;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Lighting;
+namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Pushes per-frame engine output to the NP50 hub. Mirrors what
@@ -180,7 +180,7 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
     }
 
     private void CopyIntoBuffer(RgbColor[] dst, int dstStart, DeviceFrame frame, int writeLen,
-        QosSettings settings, IReadOnlyList<string> disabled,
+        NexusSettings settings, IReadOnlyList<string> disabled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         float globalBrightness, long nowTicks)
     {

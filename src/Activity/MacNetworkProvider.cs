@@ -4,10 +4,10 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Activity;
-using Qos.Service.Sockets;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// macOS network monitor using nettop. Only samples when subscribers exist.

@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using Qos.Service.Devices;
-using Qos.Service.Models.Devices;
+using Nexus.Service.Devices;
+using Nexus.Service.Models.Devices;
 
-namespace Qos.Service.Lighting;
+namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Aggregates the OpenRGB-backed lighting devices (motherboard, RAM, AIO,
@@ -38,7 +38,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         var rgb = _openRgb.GetAll();
 
         // Filter out OpenRGB's NP50/MiniHub entries when our own providers
-        // are live. qos-service now opens those COM ports exclusively for
+        // are live. nexus-service now opens those COM ports exclusively for
         // hub control; OpenRGB's entries become zombies the animation
         // system can't push frames to.
         if (rgb.Devices.Count > 0)

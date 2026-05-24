@@ -1,8 +1,8 @@
 using System;
-using Qos.Service.Lighting.Engine;
-using Qos.Service.Models.Activity;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Models.Activity;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Shared beat detection + FFT-based spectrum analysis used by every audio

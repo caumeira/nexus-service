@@ -7,10 +7,10 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Persistence;
-using Qos.Service.Serialization;
+using Nexus.Service.Persistence;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Devices.Firmware;
+namespace Nexus.Service.Devices.Firmware;
 
 /// <summary>
 /// File-system + HTTP-backed implementation of <see cref="IFirmwareStore"/>.
@@ -243,7 +243,7 @@ public sealed class FirmwareStore : IFirmwareStore
             // Machine-scope: the LocalSystem service owns the cache so
             // every user on the box sees the same firmware versions.
             var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            return Path.Combine(programData, "Qos", "firmware");
+            return Path.Combine(programData, "Nexus", "firmware");
         }
 
         // Linux. XDG_CACHE_HOME is the right home for downloaded/regenerable
@@ -254,6 +254,6 @@ public sealed class FirmwareStore : IFirmwareStore
         {
             xdg = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache");
         }
-        return Path.Combine(xdg, "Qos", "firmware");
+        return Path.Combine(xdg, "Nexus", "firmware");
     }
 }

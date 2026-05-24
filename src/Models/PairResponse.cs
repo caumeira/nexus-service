@@ -1,3 +1,3 @@
-namespace Qos.Service.Models;
+namespace Nexus.Service.Models;
 
 public record PairResponse(string Token);

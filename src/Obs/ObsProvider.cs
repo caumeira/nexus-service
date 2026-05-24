@@ -2,11 +2,11 @@ using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
-using Qos.Service.Models;
-using Qos.Service.Models.Obs;
-using Qos.Service.Persistence;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Obs;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Obs;
+namespace Nexus.Service.Obs;
 
 public sealed class ObsProvider : IObsProvider, IDisposable
 {

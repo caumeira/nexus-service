@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Weather;
+namespace Nexus.Service.Models.Weather;
 
 /// <summary>
 /// Current weather payload for the panel weather widget.

@@ -1,7 +1,7 @@
-using Qos.Service.Models;
-using Qos.Service.Models.Discord;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Discord;
 
-namespace Qos.Service.Discord;
+namespace Nexus.Service.Discord;
 
 public interface IDiscordProvider
 {

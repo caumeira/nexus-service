@@ -1,7 +1,7 @@
-using Qos.Service.Auth;
-using Qos.Service.Platform.Weather;
+using Nexus.Service.Auth;
+using Nexus.Service.Platform.Weather;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class WeatherRoutes
 {

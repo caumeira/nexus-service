@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds a minimal ffmpeg binary sized for qos-service's narrow use cases:
+# Builds a minimal ffmpeg binary sized for nexus-service's narrow use cases:
 #   - decode images / gifs / common video containers (jpg, png, gif, mp4, webm, mov, avi, mkv, wmv, m4v, mpg)
 #   - downscale + pad (libswscale via scale/pad filters)
 #   - write raw rgb24 pipe/file and mjpeg thumbnails
@@ -191,7 +191,7 @@ case "$TARGET" in
     # into the target sysroot so ffmpeg's png/tiff/matroska paths compile.
     # Cached between runs so this only pays the ~30s once.
     MINGW_ROOT="$(x86_64-w64-mingw32-gcc --print-sysroot)/x86_64-w64-mingw32"
-    MINGW_DEPS_SENTINEL="${MINGW_ROOT}/.qos-deps-built"
+    MINGW_DEPS_SENTINEL="${MINGW_ROOT}/.nexus-deps-built"
     if [[ ! -f "${MINGW_DEPS_SENTINEL}" ]]; then
       echo "[ffmpeg] building zlib + bzip2 into mingw sysroot (one-time)..."
       DEPS_WORK="${BUILD_ROOT}/mingw-deps"
@@ -264,7 +264,7 @@ make distclean 2>/dev/null || true
 ./configure \
   "${COMMON_CONFIG[@]}" \
   "${EXTRA_CONFIG[@]}" \
-  --prefix=/qos-ffmpeg
+  --prefix=/nexus-ffmpeg
 
 echo "[ffmpeg] compiling..."
 make -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)"

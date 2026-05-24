@@ -1,4 +1,4 @@
-namespace Qos.Service.Models;
+namespace Nexus.Service.Models;
 
 public record PingResponse
 {

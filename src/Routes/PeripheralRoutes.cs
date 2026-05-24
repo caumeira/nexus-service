@@ -1,10 +1,10 @@
 using System.Linq;
-using Qos.Service.Models;
-using Qos.Service.Models.Peripherals;
-using Qos.Service.Peripherals;
-using Qos.Service.Peripherals.Capabilities;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Peripherals;
+using Nexus.Service.Peripherals;
+using Nexus.Service.Peripherals.Capabilities;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class PeripheralRoutes
 {

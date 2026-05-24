@@ -2,9 +2,9 @@ using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
-using Qos.Service.Routes;
+using Nexus.Service.Routes;
 
-namespace Qos.Service.Auth;
+namespace Nexus.Service.Auth;
 
 // Path-based auth gate. Runs after UseRouting so we can read
 // LocalhostOnlyAccess metadata off the matched endpoint, but in front of
@@ -125,7 +125,7 @@ internal static class PathAuthMiddleware
             }
 
             var tokens = ctx.RequestServices.GetRequiredService<TokenService>();
-            var panelPairing = ctx.RequestServices.GetRequiredService<Qos.Service.Panel.PanelPhonePairingService>();
+            var panelPairing = ctx.RequestServices.GetRequiredService<Nexus.Service.Panel.PanelPhonePairingService>();
             var requestToken = AuthRequestPolicy.ExtractBearerOrQueryToken(ctx);
             if (tokens.Validate(requestToken))
             {
@@ -133,7 +133,7 @@ internal static class PathAuthMiddleware
                 return;
             }
 
-            var cookieToken = ctx.Request.Cookies[Qos.Service.Panel.PanelPhonePairingService.SessionCookieName];
+            var cookieToken = ctx.Request.Cookies[Nexus.Service.Panel.PanelPhonePairingService.SessionCookieName];
             var hasPanelSession =
                 panelPairing.TryValidateSessionToken(requestToken, ctx, out var sessionId)
                 || (!string.Equals(requestToken, cookieToken, StringComparison.Ordinal)
@@ -141,7 +141,7 @@ internal static class PathAuthMiddleware
 
             if (!hasPanelSession)
             {
-                await AuthErrorResponse.WriteAsync(ctx, 401, "Unauthorized", "This panel is not paired with the Qos service.");
+                await AuthErrorResponse.WriteAsync(ctx, 401, "Unauthorized", "This panel is not paired with the Nexus service.");
                 return;
             }
 

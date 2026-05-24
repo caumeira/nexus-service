@@ -1,14 +1,14 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
-using Qos.Service.Panel;
-using Qos.Service.Persistence;
-using Qos.Service.Sockets;
+using Nexus.Service.Panel;
+using Nexus.Service.Persistence;
+using Nexus.Service.Sockets;
 #if WINDOWS
-using Qos.Service.Helper;
-using Qos.Service.Helper.Domains;
+using Nexus.Service.Helper;
+using Nexus.Service.Helper.Domains;
 #endif
 
-namespace Qos.Service.Platform.Windows;
+namespace Nexus.Service.Platform.Windows;
 
 // Windows-only post-Build wiring for the tray icon, helper-pipe sync, and
 // the app-window auto-launch on startup. Each piece is gated by the calling
@@ -18,7 +18,7 @@ internal static class TrayBootstrap
 {
     // Interactive Windows session: hides console, shows tray with right-click menu.
     // Skipped under --service: Session 0 cannot show UI, so the tray must be a
-    // separate user-session process (Phase 4: Qos.exe --tray). Leaving the
+    // separate user-session process (Phase 4: Nexus.exe --tray). Leaving the
     // tray init in here would create a stale NotifyIcon in Session 0.
     public static void ConfigureTray(WebApplication app)
     {
@@ -36,7 +36,7 @@ internal static class TrayBootstrap
             onTogglePanel: () =>
             {
                 // Flip the AutoLaunch / Show Panel setting; the overlay-host
-                // watcher mirrors it onto the qos-overlay kiosk window. The
+                // watcher mirrors it onto the nexus-overlay kiosk window. The
                 // OnChanged cascade broadcasts /prefs on its own.
                 store.Update(s => s.Panel.AutoLaunch = !s.Panel.AutoLaunch);
             },
@@ -112,7 +112,7 @@ internal static class TrayBootstrap
 
         // Quitting must take the user-session UI with it: close the --app
         // window and exit the helper so the tray icon disappears. Without
-        // this, "Stop Qos" leaves an orphaned Edge --app window pointing at
+        // this, "Stop Nexus" leaves an orphaned Edge --app window pointing at
         // a dead port and a stale tray icon in the user session.
         app.Lifetime.ApplicationStopping.Register(() =>
         {
@@ -135,22 +135,22 @@ internal static class TrayBootstrap
         {
             if (serviceMode)
             {
-                Console.WriteLine("[qos-service] startup window suppressed (LocalSystem session 0 has no interactive desktop)");
+                Console.WriteLine("[nexus-service] startup window suppressed (LocalSystem session 0 has no interactive desktop)");
 #if WINDOWS
                 // Always launch the user-session helper. Its lifetime is decoupled
                 // from any pref - the helper hosts the tray icon, screen-time
                 // poller, media/brightness providers, etc.
-                Qos.Service.Lifecycle.UserHelperBootstrapper.EnsureLaunched();
+                Nexus.Service.Lifecycle.UserHelperBootstrapper.EnsureLaunched();
 #endif
             }
             else if (suppressStartupWindow)
             {
-                Console.WriteLine("[qos-service] startup window suppressed (--no-window)");
+                Console.WriteLine("[nexus-service] startup window suppressed (--no-window)");
             }
             else
             {
                 TrayIcon.OpenLocalWindow();
-                Console.WriteLine("[qos-service] app window launched");
+                Console.WriteLine("[nexus-service] app window launched");
             }
         });
 
@@ -174,7 +174,7 @@ internal static class TrayBootstrap
         {
             try
             {
-                var result = await Qos.Service.Lifecycle.PawnIoInstaller.EnsureInstalledAsync();
+                var result = await Nexus.Service.Lifecycle.PawnIoInstaller.EnsureInstalledAsync();
                 Console.Error.WriteLine($"[pawnio] driver state: {result}");
             }
             catch (Exception ex)

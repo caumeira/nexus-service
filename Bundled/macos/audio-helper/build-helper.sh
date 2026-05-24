@@ -1,7 +1,7 @@
 #!/bin/bash
-# Compile the qos-audio-helper Swift sidecar.
+# Compile the nexus-audio-helper Swift sidecar.
 # Usage: ./build-helper.sh <output-dir>
-#   output-dir: directory the resulting `qos-audio-helper` binary lands in.
+#   output-dir: directory the resulting `nexus-audio-helper` binary lands in.
 #
 # Runs only on macOS. Linux / Windows builds skip silently.
 
@@ -37,14 +37,14 @@ swiftc -O -target arm64-apple-macos13.0 \
     -Xlinker __TEXT \
     -Xlinker __info_plist \
     -Xlinker "$SCRIPT_DIR/Info.plist" \
-    "$SRC" -o "$OUT/qos-audio-helper"
+    "$SRC" -o "$OUT/nexus-audio-helper"
 
 # Re-sign ad-hoc so the embedded Info.plist is hashed into the code-signing
 # directory. Without re-signing, codesign sees a binary whose pages don't
 # match the linker-emitted signature and refuses to load it.
-codesign -s - --force "$OUT/qos-audio-helper"
+codesign -s - --force "$OUT/nexus-audio-helper"
 
 # Strip extended attributes that would trigger Gatekeeper warnings.
-xattr -cr "$OUT/qos-audio-helper" 2>/dev/null || true
+xattr -cr "$OUT/nexus-audio-helper" 2>/dev/null || true
 
-echo "[audio-helper] built: $OUT/qos-audio-helper"
+echo "[audio-helper] built: $OUT/nexus-audio-helper"

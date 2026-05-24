@@ -4,7 +4,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 
-namespace Qos.Service.Peripherals.Hid;
+namespace Nexus.Service.Peripherals.Hid;
 
 /// <summary>
 /// Windows HID enumeration and I/O via SetupAPI + hid.dll P/Invoke. Narrow surface

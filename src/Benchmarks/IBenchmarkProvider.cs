@@ -1,9 +1,9 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Benchmarks;
+using Nexus.Service.Models.Benchmarks;
 
-namespace Qos.Service.Benchmarks;
+namespace Nexus.Service.Benchmarks;
 
 /// <summary>
 /// Cross-platform contract for the four sub-benchmarks. Implementations must

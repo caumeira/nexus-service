@@ -1,9 +1,9 @@
 using System.Diagnostics;
-using Qos.Service.Lifecycle;
-using Qos.Service.Models;
-using Qos.Service.Models.Lifecycle;
+using Nexus.Service.Lifecycle;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Lifecycle;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class LifecycleRoutes
 {
@@ -45,6 +45,6 @@ public static class LifecycleRoutes
         }
         catch { /* best-effort fallback below */ }
 
-        return Path.Combine(AppContext.BaseDirectory, "Qos.exe");
+        return Path.Combine(AppContext.BaseDirectory, "Nexus.exe");
     }
 }

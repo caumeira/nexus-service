@@ -1,8 +1,8 @@
 using System;
-using Qos.Service.Models.Panel;
-using Qos.Service.Serialization;
+using Nexus.Service.Models.Panel;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Sockets;
+namespace Nexus.Service.Sockets;
 
 /// <summary>
 /// Small fan-out helpers for the four panel-related multiplex topics.

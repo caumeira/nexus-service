@@ -1,4 +1,4 @@
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 internal static class MediaArtworkCacheKey
 {

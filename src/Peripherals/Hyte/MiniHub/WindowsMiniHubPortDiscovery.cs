@@ -4,9 +4,9 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32;
-using Qos.Service.Peripherals.Hyte.Np50;
+using Nexus.Service.Peripherals.Hyte.Np50;
 
-namespace Qos.Service.Peripherals.Hyte.MiniHub;
+namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 
 /// <summary>
 /// SetupAPI-based discovery for HYTE MiniHubs on Windows. Mirrors

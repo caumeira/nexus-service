@@ -1,10 +1,10 @@
 using System.IO;
-using Qos.Service.Auth;
-using Qos.Service.Lighting;
-using Qos.Service.Media;
-using Qos.Service.Models.Media;
+using Nexus.Service.Auth;
+using Nexus.Service.Lighting;
+using Nexus.Service.Media;
+using Nexus.Service.Models.Media;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class MediaLibraryRoutes
 {
@@ -32,7 +32,7 @@ public static class MediaLibraryRoutes
                 return Results.BadRequest(new MediaImportResponse { Error = true, Msg = $"File too large (max {MediaImporter.MaxFileSize / 1024 / 1024} MB)" });
             }
 
-            var tempPath = Path.Combine(Path.GetTempPath(), $"qos-import-{Guid.NewGuid()}{Path.GetExtension(file.FileName)}");
+            var tempPath = Path.Combine(Path.GetTempPath(), $"nexus-import-{Guid.NewGuid()}{Path.GetExtension(file.FileName)}");
             try
             {
                 using (var stream = File.Create(tempPath))
@@ -115,7 +115,7 @@ public static class MediaLibraryRoutes
                 : Results.NotFound();
         }).AllowPanel();
 
-        app.MapGet("/media/current", (Qos.Service.Persistence.IConfigStore store, MediaLibrary lib) =>
+        app.MapGet("/media/current", (Nexus.Service.Persistence.IConfigStore store, MediaLibrary lib) =>
         {
             var lastId = store.Load().Lighting.LastMediaId;
             return new MediaCurrentResponse

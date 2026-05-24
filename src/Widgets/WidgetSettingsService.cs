@@ -1,18 +1,18 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
-using Qos.Service.Models.Panel;
-using Qos.Service.Models.Widgets;
-using Qos.Service.Persistence;
+using Nexus.Service.Models.Panel;
+using Nexus.Service.Models.Widgets;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Widgets;
+namespace Nexus.Service.Widgets;
 
 /// <summary>
 /// Reads + writes per-instance marketplace widget settings via the layout
 /// stored on <see cref="IConfigStore"/>. Each placement has its own
 /// <see cref="PanelWidgetDto.Config"/> dictionary; manifest defaults are
 /// merged on read so widget code sees a complete document. Type-scoped
-/// storage (the old <c>QosSettings.Widgets</c> bag) was retired in schema v4.
+/// storage (the old <c>NexusSettings.Widgets</c> bag) was retired in schema v4.
 /// </summary>
 public sealed class WidgetSettingsService
 {
@@ -96,7 +96,7 @@ public sealed class WidgetSettingsService
     /// device). Also resolves the marketplace manifest so callers don't need
     /// a second lookup. Returns false if either step fails.
     /// </summary>
-    private bool TryResolve(QosSettings s, string instanceId, out PanelWidgetDto? widget, out WidgetManifest? manifest)
+    private bool TryResolve(NexusSettings s, string instanceId, out PanelWidgetDto? widget, out WidgetManifest? manifest)
     {
         widget = FindWidget(s, instanceId);
         manifest = null;
@@ -108,7 +108,7 @@ public sealed class WidgetSettingsService
         return true;
     }
 
-    private static PanelWidgetDto? FindWidget(QosSettings s, string instanceId)
+    private static PanelWidgetDto? FindWidget(NexusSettings s, string instanceId)
     {
         var dash = s.Panel.DashboardLayout;
         if (dash is not null)

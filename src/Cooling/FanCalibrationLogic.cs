@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Qos.Service.Models.Cooling;
+using Nexus.Service.Models.Cooling;
 
-namespace Qos.Service.Cooling;
+namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// Pure classification and stability detection logic for fan calibration.

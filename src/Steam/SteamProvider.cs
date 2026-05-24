@@ -1,15 +1,15 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
-using Qos.Service.Models;
-using Qos.Service.Models.Steam;
-using Qos.Service.Persistence;
-using Qos.Service.Security;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Steam;
+using Nexus.Service.Persistence;
+using Nexus.Service.Security;
 #if WINDOWS
 using Microsoft.Win32;
 #endif
 
-namespace Qos.Service.Steam;
+namespace Nexus.Service.Steam;
 
 public sealed class SteamProvider : ISteamProvider
 {

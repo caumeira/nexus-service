@@ -9,7 +9,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Sockets;
+namespace Nexus.Service.Sockets;
 
 /// <summary>
 /// Single multiplexed WebSocket hub. Clients connect to one endpoint and send

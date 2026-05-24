@@ -1,4 +1,4 @@
-namespace Qos.Service.Models.Common;
+namespace Nexus.Service.Models.Common;
 
 /// <summary>
 /// Color used in firmware lighting + animations. Bytes for RGB, double for A (0..1).

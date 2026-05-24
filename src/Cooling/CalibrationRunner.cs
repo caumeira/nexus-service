@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Cooling;
+using Nexus.Service.Models.Cooling;
 
-namespace Qos.Service.Cooling;
+namespace Nexus.Service.Cooling;
 
 public enum CalibrationState { Idle, Running, Complete }
 

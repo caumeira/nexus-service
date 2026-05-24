@@ -1,4 +1,4 @@
-namespace Qos.Service.Models.Panel;
+namespace Nexus.Service.Models.Panel;
 
 public sealed class PanelPhonePairQrResponse
 {
@@ -105,7 +105,7 @@ public sealed class PairBroadcastSetRequest
 }
 
 /// <summary>
-/// iOS-side Wi-Fi pair initiate. Sent the moment a discovered Qos service is
+/// iOS-side Wi-Fi pair initiate. Sent the moment a discovered Nexus service is
 /// tapped: server runs the same SAS-comparison handshake as /pair-code/submit
 /// but without an out-of-band 6-digit code (the user's Allow click on the
 /// desktop is the OOB). Same response shape as the code-submit path so the

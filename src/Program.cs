@@ -1,8 +1,8 @@
-// Qos local service — Minimal API host for Native AOT.
+// Nexus local service — Minimal API host for Native AOT.
 //
 // Default bind: http://localhost:9400.
 // Override with the first command-line arg:
-//     qos-service http://localhost:9400
+//     nexus-service http://localhost:9400
 
 using System.Net;
 using System.Net.NetworkInformation;
@@ -10,41 +10,41 @@ using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json.Serialization;
-using Qos.Service.Activity;
-using Qos.Service.Auth;
-using Qos.Service.Cooling;
-using Qos.Service.DependencyInjection;
-using Qos.Service.Lighting;
-using Qos.Service.Lighting.Engine;
-using Qos.Service.Persistence;
-using Qos.Service.Platform;
-using Qos.Service.Routes;
-using Qos.Service.Security;
-using Qos.Service.Serialization;
-using Qos.Service.Sockets;
+using Nexus.Service.Activity;
+using Nexus.Service.Auth;
+using Nexus.Service.Cooling;
+using Nexus.Service.DependencyInjection;
+using Nexus.Service.Lighting;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
+using Nexus.Service.Routes;
+using Nexus.Service.Security;
+using Nexus.Service.Serialization;
+using Nexus.Service.Sockets;
 
 // Early-exit CLI flags (install/uninstall/tray/--open-app/protocol URLs,
 // or no-args double-click on Windows). Each handler short-circuits the
 // daemon startup. Runs before the single-instance mutex because
 // --install-pawnio is briefly a second instance during the elevated install.
-if (Qos.Service.Lifecycle.CommandLineEntry.TryEarlyExit(args) is int earlyExit)
+if (Nexus.Service.Lifecycle.CommandLineEntry.TryEarlyExit(args) is int earlyExit)
     return earlyExit;
 
 // Pull out the lifecycle flags that gate behaviour later (SCM service
 // mode, --no-window startup suppression, --relaunch-elevated self-elevation
 // follow-up). The cleaned args are forwarded to the host below.
 var (cliArgs, serviceMode, suppressStartupWindow, isRelaunchElevated) =
-    Qos.Service.Lifecycle.CommandLineEntry.StripLifecycleFlags(args);
+    Nexus.Service.Lifecycle.CommandLineEntry.StripLifecycleFlags(args);
 args = cliArgs;
 
 // Capture stdout / stderr to a rotating service.log file before anything else
 // writes to the console. Doesn't change Console behaviour - just tees output.
-Qos.Service.Platform.ServiceLog.Initialize();
+Nexus.Service.Platform.ServiceLog.Initialize();
 
 var url = ServiceLaunchIntent.ResolveServiceUrl(args);
 var servicePort = ServiceLaunchIntent.ResolveServicePort(url);
 
-// Single-instance guard — if another qos-service is already running,
+// Single-instance guard — if another nexus-service is already running,
 // open or focus the dashboard window instead of spawning a second service.
 // When relaunching elevated, retry for up to 10s while the parent shuts down.
 // Skipped under SCM: the service controller already enforces single-instance.
@@ -55,13 +55,13 @@ if (!serviceMode)
     var deadline = DateTime.UtcNow.AddSeconds(isRelaunchElevated ? 10 : 0);
     while (true)
     {
-        singleInstance = new System.Threading.Mutex(true, "Global\\QosServiceMutex", out isFirst);
+        singleInstance = new System.Threading.Mutex(true, "Global\\NexusServiceMutex", out isFirst);
         if (isFirst) break;
         singleInstance.Dispose();
         singleInstance = null;
         if (!isRelaunchElevated || DateTime.UtcNow >= deadline)
         {
-            Console.WriteLine("[qos-service] already running, opening dashboard window");
+            Console.WriteLine("[nexus-service] already running, opening dashboard window");
             OpenExistingServiceWindow(servicePort);
             return 0;
         }
@@ -82,10 +82,10 @@ if (OperatingSystem.IsWindows()
     && !isRelaunchElevated
     && !suppressStartupWindow
     && !serviceMode
-    && !Qos.Service.Platform.ProcessElevation.GetCurrent().IsElevated)
+    && !Nexus.Service.Platform.ProcessElevation.GetCurrent().IsElevated)
 {
-    var coldStartElevation = Qos.Service.Lifecycle.ProcessRelauncher.TryRelaunchAsAdmin();
-    if (coldStartElevation == Qos.Service.Lifecycle.RelaunchResult.Started)
+    var coldStartElevation = Nexus.Service.Lifecycle.ProcessRelauncher.TryRelaunchAsAdmin();
+    if (coldStartElevation == Nexus.Service.Lifecycle.RelaunchResult.Started)
     {
         return 0;
     }
@@ -102,13 +102,13 @@ try
 }
 catch (Exception ex)
 {
-    Console.Error.WriteLine($"[qos-service] local HTTPS disabled: {ex.Message}");
+    Console.Error.WriteLine($"[nexus-service] local HTTPS disabled: {ex.Message}");
 }
 
 // Set content root to the exe's directory so wwwroot/ is found
 // regardless of which directory the user double-clicks from.
 var exeDir = AppContext.BaseDirectory;
-// Dev override: if `<CommonAppData>/Qos/wwwroot-dev/index.html` exists,
+// Dev override: if `<CommonAppData>/Nexus/wwwroot-dev/index.html` exists,
 // serve from there instead of the installed wwwroot. Lets us replace the
 // SPA bundle on a running install without elevating into Program Files
 // (which on the Q60 bench rig triggers a USB perturbation that degrades
@@ -123,10 +123,10 @@ static string ResolveWebRoot(string exeDir)
     {
         var commonAppData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
         if (string.IsNullOrEmpty(commonAppData)) return defaultRoot;
-        var dev = Path.Combine(commonAppData, "Qos", "wwwroot-dev");
+        var dev = Path.Combine(commonAppData, "Nexus", "wwwroot-dev");
         if (File.Exists(Path.Combine(dev, "index.html")))
         {
-            Console.Error.WriteLine($"[qos-service] wwwroot dev override active: {dev}");
+            Console.Error.WriteLine($"[nexus-service] wwwroot dev override active: {dev}");
             return dev;
         }
     }
@@ -145,7 +145,7 @@ var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
 // the route-level check is the only place we reject oversized uploads.
 builder.WebHost.ConfigureKestrel(k =>
 {
-    k.Limits.MaxRequestBodySize = Qos.Service.Media.MediaImporter.MaxFileSize;
+    k.Limits.MaxRequestBodySize = Nexus.Service.Media.MediaImporter.MaxFileSize;
     k.ListenAnyIP(servicePort);
     if (localHttpsCertificate is not null)
     {
@@ -154,7 +154,7 @@ builder.WebHost.ConfigureKestrel(k =>
 });
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
 {
-    o.MultipartBodyLengthLimit = Qos.Service.Media.MediaImporter.MaxFileSize;
+    o.MultipartBodyLengthLimit = Nexus.Service.Media.MediaImporter.MaxFileSize;
     o.ValueLengthLimit = int.MaxValue;
 });
 
@@ -219,14 +219,14 @@ builder.Services
 // mDNS / Bonjour advertiser for the iOS companion app's Wi-Fi discovery.
 // Reads HttpsPort + SpkiFingerprint + MachineName off PanelPhonePairingService
 // after the Pairing config block below has populated them.
-builder.Services.AddHostedService<Qos.Service.Discovery.MdnsAdvertiser>();
+builder.Services.AddHostedService<Nexus.Service.Discovery.MdnsAdvertiser>();
 
 // ── Build ──
 var app = builder.Build();
 
-Qos.Service.Lifecycle.AppBootstrap.EagerInitGpu(app);
-Qos.Service.Lifecycle.AppBootstrap.InitializeProfiles(app);
-Qos.Service.Lifecycle.AppBootstrap.WireBeatsAndPresence(app);
+Nexus.Service.Lifecycle.AppBootstrap.EagerInitGpu(app);
+Nexus.Service.Lifecycle.AppBootstrap.InitializeProfiles(app);
+Nexus.Service.Lifecycle.AppBootstrap.WireBeatsAndPresence(app);
 
 // Middleware pipeline
 var wsOptions = new WebSocketOptions();
@@ -281,11 +281,11 @@ app.MapConflictEndpoints();
 app.MapWebSocketEndpoints();
 
 {
-    var pairing = app.Services.GetRequiredService<Qos.Service.Panel.PanelPhonePairingService>();
+    var pairing = app.Services.GetRequiredService<Nexus.Service.Panel.PanelPhonePairingService>();
     pairing.ServicePort = servicePort;
     pairing.HttpsPort = localHttpsCertificate is not null ? httpsPort : 0;
     pairing.SpkiFingerprint = localHttpsCertificate is not null
-        ? Qos.Service.Security.LocalHttpsCertificate.ComputeSpkiBase64Url(localHttpsCertificate)
+        ? Nexus.Service.Security.LocalHttpsCertificate.ComputeSpkiBase64Url(localHttpsCertificate)
         : string.Empty;
 }
 
@@ -293,35 +293,35 @@ app.MapWebSocketEndpoints();
 app.MapFallbackToFile("index.html");
 
 // Kill orphan processes from previous crashed sessions.
-Qos.Service.Platform.FfmpegTracker.CleanupOrphans();
-Qos.Service.Panel.PanelOverlayHostLauncher.CleanupOrphans();
-Qos.Service.Lighting.Rgb.OpenRgbProcessManager.CleanupOrphans();
+Nexus.Service.Platform.FfmpegTracker.CleanupOrphans();
+Nexus.Service.Panel.PanelOverlayHostLauncher.CleanupOrphans();
+Nexus.Service.Lighting.Rgb.OpenRgbProcessManager.CleanupOrphans();
 
-// Register qos:// protocol handler (idempotent — safe on every launch)
-Qos.Service.Platform.ProtocolHandler.Register();
+// Register nexus:// protocol handler (idempotent — safe on every launch)
+Nexus.Service.Platform.ProtocolHandler.Register();
 
-Console.WriteLine($"[qos-service] listening on {url}");
+Console.WriteLine($"[nexus-service] listening on {url}");
 
 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !serviceMode)
-    Qos.Service.Platform.Windows.TrayBootstrap.ConfigureTray(app);
+    Nexus.Service.Platform.Windows.TrayBootstrap.ConfigureTray(app);
 
 #if WINDOWS
 if (serviceMode)
-    Qos.Service.Platform.Windows.TrayBootstrap.WireHelperPipe(app);
+    Nexus.Service.Platform.Windows.TrayBootstrap.WireHelperPipe(app);
 #endif
 
-Qos.Service.Panel.OverlayHostBootstrap.Wire(app);
+Nexus.Service.Panel.OverlayHostBootstrap.Wire(app);
 
 if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-    Qos.Service.Platform.Windows.TrayBootstrap.WireAppWindowAndPawnIo(app, serviceMode, suppressStartupWindow);
+    Nexus.Service.Platform.Windows.TrayBootstrap.WireAppWindowAndPawnIo(app, serviceMode, suppressStartupWindow);
 
 if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-    return Qos.Service.Platform.Mac.MacAppBootstrap.Run(app, servicePort);
+    return Nexus.Service.Platform.Mac.MacAppBootstrap.Run(app, servicePort);
 
 #if WINDOWS
 if (serviceMode)
 {
-    return Qos.Service.Lifecycle.WindowsServiceHost.Run(args, async (_, ct) =>
+    return Nexus.Service.Lifecycle.WindowsServiceHost.Run(args, async (_, ct) =>
     {
         await app.RunAsync(ct).ConfigureAwait(false);
         return 0;
@@ -391,7 +391,7 @@ static void OpenExistingServiceWindow(int servicePort)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
-            Qos.Service.Platform.Windows.TrayIcon.OpenLocalWindow(servicePort);
+            Nexus.Service.Platform.Windows.TrayIcon.OpenLocalWindow(servicePort);
             return;
         }
 
@@ -399,7 +399,7 @@ static void OpenExistingServiceWindow(int servicePort)
     }
     catch (Exception ex)
     {
-        Console.Error.WriteLine($"[qos-service] second launch window handoff failed: {ex.Message}");
+        Console.Error.WriteLine($"[nexus-service] second launch window handoff failed: {ex.Message}");
     }
 }
 
@@ -430,7 +430,7 @@ static void OpenInAppMode(string url)
 
         if (browser is not null)
         {
-            var dataDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "qos-app");
+            var dataDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "nexus-app");
             var psi = new System.Diagnostics.ProcessStartInfo
             {
                 FileName = browser,

@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
-using Qos.Service.Models.Activity;
-using Qos.Service.Platform;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Platform;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Real macOS media provider via AppleScript. Queries Spotify and Music.app

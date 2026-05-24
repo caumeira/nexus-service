@@ -4,9 +4,9 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
-using Qos.Service.Models.Activity;
+using Nexus.Service.Models.Activity;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 public sealed class LinuxShortcutsProvider : IShortcutsProvider
 {

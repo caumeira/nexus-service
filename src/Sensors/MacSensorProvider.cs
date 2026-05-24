@@ -5,10 +5,10 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using Qos.Service.Models.Sensors;
-using Qos.Service.Platform;
+using Nexus.Service.Models.Sensors;
+using Nexus.Service.Platform;
 
-namespace Qos.Service.Sensors;
+namespace Nexus.Service.Sensors;
 
 /// <summary>
 /// macOS sensor provider. Every method returns well-formed data (never null,

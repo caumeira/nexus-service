@@ -3,7 +3,7 @@ using System.Buffers.Binary;
 using System.Collections.Generic;
 using System.Text;
 
-namespace Qos.Service.Lighting.Rgb;
+namespace Nexus.Service.Lighting.Rgb;
 
 /// <summary>
 /// Binary serializers for the OpenRGB SDK protocol. The protocol is little-endian

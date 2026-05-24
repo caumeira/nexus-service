@@ -1,6 +1,6 @@
 using System;
 
-namespace Qos.Service.Peripherals.Hyte.Np50;
+namespace Nexus.Service.Peripherals.Hyte.Np50;
 
 /// <summary>
 /// Raw byte transport to a HYTE serial-over-USB hub (NP50, MiniHub, etc.).

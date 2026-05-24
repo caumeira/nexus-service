@@ -2,10 +2,10 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
-using Qos.Service.Models.Activity;
+using Nexus.Service.Models.Activity;
 using Microsoft.Data.Sqlite;
 
-namespace Qos.Service.Activity.Storage;
+namespace Nexus.Service.Activity.Storage;
 
 /// <summary>
 /// SQLite-backed persistent store for screen-time sessions. One file per install,
@@ -372,20 +372,20 @@ public sealed class SqliteScreenTimeStore : IScreenTimeStore
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            return Path.Combine(home, "Library", "Application Support", "Qos", "screentime.db");
+            return Path.Combine(home, "Library", "Application Support", "Nexus", "screentime.db");
         }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
         {
             // Machine-scope DB. Service runs as LocalSystem so user-scoped
             // LocalApplicationData would resolve to system32\config\systemprofile.
             var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            return Path.Combine(programData, "Qos", "screentime.db");
+            return Path.Combine(programData, "Nexus", "screentime.db");
         }
         var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
         if (string.IsNullOrEmpty(xdg))
         {
             xdg = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
         }
-        return Path.Combine(xdg, "Qos", "screentime.db");
+        return Path.Combine(xdg, "Nexus", "screentime.db");
     }
 }

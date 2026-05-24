@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Platform.Mac;
+namespace Nexus.Service.Platform.Mac;
 
 public sealed class MacPerformanceProvider : IPerformanceProvider
 {

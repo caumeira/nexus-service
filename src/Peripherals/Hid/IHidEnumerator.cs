@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Peripherals.Hid;
+namespace Nexus.Service.Peripherals.Hid;
 
 /// <summary>
 /// Enumerates HID devices matching a VID/PID filter and opens them for vendor-protocol

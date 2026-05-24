@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
-using Qos.Service.Models.Media;
-using Qos.Service.Persistence;
-using Qos.Service.Serialization;
+using Nexus.Service.Models.Media;
+using Nexus.Service.Persistence;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Media;
+namespace Nexus.Service.Media;
 
 /// <summary>
 /// Manages a folder-based media library for lighting effects. Each imported
@@ -25,7 +25,7 @@ public sealed class MediaLibrary
     private readonly string _rootDir;
 
     public MediaLibrary()
-        : this(Path.Combine(ResolveDefaultRoot(), "Qos", "media"))
+        : this(Path.Combine(ResolveDefaultRoot(), "Nexus", "media"))
     {
     }
 

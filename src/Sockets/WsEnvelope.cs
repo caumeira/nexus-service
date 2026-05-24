@@ -3,7 +3,7 @@ using System.Buffers;
 using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 
-namespace Qos.Service.Sockets;
+namespace Nexus.Service.Sockets;
 
 /// <summary>
 /// Builds <c>{"t":"topic","d":{ ... }}</c> envelopes for the multiplexed WebSocket.

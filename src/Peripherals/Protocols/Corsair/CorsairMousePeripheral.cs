@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Qos.Service.Peripherals.Capabilities;
+using Nexus.Service.Peripherals.Capabilities;
 
-namespace Qos.Service.Peripherals.Protocols.Corsair;
+namespace Nexus.Service.Peripherals.Protocols.Corsair;
 
 /// <summary>
 /// Corsair mouse with DPI + polling configuration. First pass uses the

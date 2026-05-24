@@ -4,11 +4,11 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Displays;
-using Qos.Service.Platform.Displays;
-using Qos.Service.Serialization;
+using Nexus.Service.Models.Displays;
+using Nexus.Service.Platform.Displays;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Helper.Domains
+namespace Nexus.Service.Helper.Domains
 {
     /// <summary>
     /// Combined request payload for the <c>displayBrightness.*</c> commands.

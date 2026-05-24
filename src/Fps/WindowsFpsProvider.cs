@@ -1,11 +1,11 @@
 using System.Runtime.InteropServices;
-using Qos.Service.Activity;
-using Qos.Service.Models.Activity;
-using Qos.Service.Models.Sensors;
+using Nexus.Service.Activity;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Models.Sensors;
 using Microsoft.Diagnostics.Tracing;
 using Microsoft.Diagnostics.Tracing.Session;
 
-namespace Qos.Service.Fps;
+namespace Nexus.Service.Fps;
 
 public sealed class WindowsFpsProvider : IFpsProvider
 {
@@ -15,11 +15,11 @@ public sealed class WindowsFpsProvider : IFpsProvider
     private const float GaugeMaximumFrameMs = 50f;
     private const string SensorName = "FPS";
     private const string FrameTimeName = "Frame Time";
-    private static readonly string SessionName = $"Qos-Fps-{Environment.ProcessId}";
+    private static readonly string SessionName = $"Nexus-Fps-{Environment.ProcessId}";
     private static readonly Guid DxgKrnlProviderGuid = new("802EC45A-1E99-4B83-9920-87C98277BA9D");
     private static readonly TraceEventID PresentInfoEventId = (TraceEventID)0x00b8;
 
-    // The qos-service runs as LocalSystem in Session 0, which has no
+    // The nexus-service runs as LocalSystem in Session 0, which has no
     // interactive desktop — GetForegroundWindow() from here always returns
     // nothing useful. The user-session helper polls foreground via
     // ScreenTimePoller and publishes the PID through IScreenTimeProvider,

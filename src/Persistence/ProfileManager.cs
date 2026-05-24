@@ -4,11 +4,11 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
-using Qos.Service.Models.Profiles;
-using Qos.Service.Platform;
-using Qos.Service.Serialization;
+using Nexus.Service.Models.Profiles;
+using Nexus.Service.Platform;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Persistence;
+namespace Nexus.Service.Persistence;
 
 public sealed class ProfileManager : IDisposable
 {
@@ -64,7 +64,7 @@ public sealed class ProfileManager : IDisposable
 
             // PrimaryProfileId defaults to the (current) active profile so the
             // hardware-bound shared categories (the field-initializer default
-            // on QosSettings.SharedCategories: keeb/y70/devices) resolve
+            // on NexusSettings.SharedCategories: keeb/y70/devices) resolve
             // to a valid source on day one. Repaired on every boot in case a
             // previously-set Primary was deleted while the service was off.
             _store.Update(s =>
@@ -264,7 +264,7 @@ public sealed class ProfileManager : IDisposable
         _dirty = true;
     }
 
-    public QosSettings? ExportProfile(string profileId)
+    public NexusSettings? ExportProfile(string profileId)
     {
         lock (_lock)
         {
@@ -292,7 +292,7 @@ public sealed class ProfileManager : IDisposable
             try
             {
                 var json = File.ReadAllText(filePath);
-                var settings = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.QosSettings);
+                var settings = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.NexusSettings);
                 if (settings != null)
                 {
                     settings.Auth = null;
@@ -323,7 +323,7 @@ public sealed class ProfileManager : IDisposable
         return JsonSerializer.Serialize(wrapper, PersistenceJsonContext.Default.ProfileExport);
     }
 
-    public ProfileEntry ImportProfile(string name, QosSettings data)
+    public ProfileEntry ImportProfile(string name, NexusSettings data)
     {
         lock (_lock)
         {
@@ -356,7 +356,7 @@ public sealed class ProfileManager : IDisposable
             var entry = new ProfileEntry { Id = id, Name = unique, CreatedAt = now, UpdatedAt = now };
 
             var filePath = ProfileFilePath(id);
-            var json = JsonSerializer.Serialize(data, PersistenceJsonContext.Default.QosSettings);
+            var json = JsonSerializer.Serialize(data, PersistenceJsonContext.Default.NexusSettings);
             WriteAtomic(filePath, json);
 
             _manifest.Profiles.Add(entry);
@@ -376,7 +376,7 @@ public sealed class ProfileManager : IDisposable
             return ImportProfile(wrapper.Name ?? "Imported", wrapper.Settings);
         }
 
-        var data = JsonSerializer.Deserialize(migrated, PersistenceJsonContext.Default.QosSettings)
+        var data = JsonSerializer.Deserialize(migrated, PersistenceJsonContext.Default.NexusSettings)
                    ?? throw new InvalidOperationException("Invalid profile data.");
         return ImportProfile("Imported", data);
     }
@@ -462,7 +462,7 @@ public sealed class ProfileManager : IDisposable
         // Profile JSONs only carry per-profile data (Lighting, Cooling, and
         // the Theme + Dashboard subsets of Ui). Hardware-bound state
         // (Keeb, Y70, Devices, every Panel* field on Ui, the OS tray/status
-        // toggles) lives at QosSettings root and follows the device,
+        // toggles) lives at NexusSettings root and follows the device,
         // not the active profile - so we do not copy those sections from
         // the profile file. They keep whatever the canonical settings.json
         // already loaded into in-memory.
@@ -490,7 +490,7 @@ public sealed class ProfileManager : IDisposable
     }
 
     /// <summary>Returns the raw deserialized contents of a profile file, or null if missing/corrupt. Used by sharing-aware load and copy paths.</summary>
-    private QosSettings? ReadProfileFile(string profileId)
+    private NexusSettings? ReadProfileFile(string profileId)
     {
         var path = ProfileFilePath(profileId);
         if (!File.Exists(path))
@@ -500,7 +500,7 @@ public sealed class ProfileManager : IDisposable
         try
         {
             var json = File.ReadAllText(path);
-            return JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.QosSettings);
+            return JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.NexusSettings);
         }
         catch
         {
@@ -509,26 +509,26 @@ public sealed class ProfileManager : IDisposable
     }
 
     /// <summary>Reads the on-disk profile file, applies the named categories from <paramref name="source"/> via <see cref="ProfileSharing.ApplyCategory"/>, and writes it back atomically. Used to mirror shared-category writes to the Primary, and to propagate values when sharing is turned off.</summary>
-    private void UpdateProfileFile(string profileId, IEnumerable<string> categories, QosSettings source)
+    private void UpdateProfileFile(string profileId, IEnumerable<string> categories, NexusSettings source)
     {
         var path = ProfileFilePath(profileId);
-        QosSettings target;
+        NexusSettings target;
         if (File.Exists(path))
         {
             try
             {
                 var migrated = File.ReadAllText(path);
-                target = JsonSerializer.Deserialize(migrated, PersistenceJsonContext.Default.QosSettings)
-                         ?? new QosSettings();
+                target = JsonSerializer.Deserialize(migrated, PersistenceJsonContext.Default.NexusSettings)
+                         ?? new NexusSettings();
             }
             catch
             {
-                target = new QosSettings();
+                target = new NexusSettings();
             }
         }
         else
         {
-            target = new QosSettings();
+            target = new NexusSettings();
         }
 
         foreach (var cat in categories)
@@ -543,14 +543,14 @@ public sealed class ProfileManager : IDisposable
         target.SharedCategories = new List<string>();
         target.PanelDevices = new();
 
-        var json = JsonSerializer.Serialize(target, PersistenceJsonContext.Default.QosSettings);
+        var json = JsonSerializer.Serialize(target, PersistenceJsonContext.Default.NexusSettings);
         WriteAtomic(path, json);
     }
 
 
-    private QosSettings CloneSettings(QosSettings source)
+    private NexusSettings CloneSettings(NexusSettings source)
     {
-        return new QosSettings
+        return new NexusSettings
         {
             SchemaVersion = source.SchemaVersion,
             Auth = source.Auth,
@@ -729,7 +729,7 @@ public sealed class ProfileManager : IDisposable
                 }
                 else
                 {
-                    var data = ReadProfileFile(profileId) ?? new QosSettings();
+                    var data = ReadProfileFile(profileId) ?? new NexusSettings();
                     ProfileSharing.ResetCategory(data, normalized);
                     UpdateProfileFile(profileId, new[] { normalized }, data);
                 }
@@ -771,7 +771,7 @@ public sealed class ProfileManager : IDisposable
             }
             else
             {
-                var data = ReadProfileFile(profileId) ?? new QosSettings();
+                var data = ReadProfileFile(profileId) ?? new NexusSettings();
                 foreach (var cat in perProfileCats)
                 {
                     ProfileSharing.ResetCategory(data, cat);

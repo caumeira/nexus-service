@@ -1,9 +1,9 @@
 using System;
 using System.Runtime.InteropServices;
 using System.Threading;
-using Qos.Service.Models.Peripherals.Keeb;
+using Nexus.Service.Models.Peripherals.Keeb;
 
-namespace Qos.Service.Peripherals.Keeb;
+namespace Nexus.Service.Peripherals.Keeb;
 
 /// <summary>
 /// Windows keyboard input injection via SendInput P/Invoke.

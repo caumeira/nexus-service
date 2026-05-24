@@ -6,10 +6,10 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 /// <summary>
-/// Spawns <c>Qos.exe --helper</c> in the active console user's session when
+/// Spawns <c>Nexus.exe --helper</c> in the active console user's session when
 /// the LocalSystem service comes up. Necessary because the service is
 /// LocalSystem in Session 0 - it can't draw a tray icon, can't see the
 /// foreground window, can't query SMTC media, etc. The helper lives in the
@@ -29,7 +29,7 @@ internal static class UserHelperBootstrapper
     {
         try
         {
-            SpawnInUserSession("--helper", "helper-bootstrap", "QosHelperBootstrap");
+            SpawnInUserSession("--helper", "helper-bootstrap", "NexusHelperBootstrap");
         }
         catch (Exception ex)
         {
@@ -42,7 +42,7 @@ internal static class UserHelperBootstrapper
     /// hotline. The desktop widget context menu's "Open dashboard" entry hits
     /// <c>POST /service/open-app</c>; the service handler runs as LocalSystem
     /// in Session 0 and cannot spawn an interactive Edge --app on its own,
-    /// so we delegate to a one-shot <c>Qos.exe --open-app</c> in the active
+    /// so we delegate to a one-shot <c>Nexus.exe --open-app</c> in the active
     /// console session, which then runs the same Edge --app spawn path the
     /// helper uses.
     /// </summary>
@@ -50,7 +50,7 @@ internal static class UserHelperBootstrapper
     {
         try
         {
-            SpawnInUserSession("--open-app", "open-app", "QosOpenApp");
+            SpawnInUserSession("--open-app", "open-app", "NexusOpenApp");
         }
         catch (Exception ex)
         {
@@ -58,7 +58,7 @@ internal static class UserHelperBootstrapper
         }
     }
 
-    private static void SpawnInUserSession(string qosArg, string logTag, string taskPrefix)
+    private static void SpawnInUserSession(string nexusArg, string logTag, string taskPrefix)
     {
         var username = ResolveActiveConsoleUsername();
         if (string.IsNullOrEmpty(username))
@@ -67,15 +67,15 @@ internal static class UserHelperBootstrapper
             return;
         }
 
-        var exePath = Path.Combine(AppContext.BaseDirectory, "Qos.exe");
+        var exePath = Path.Combine(AppContext.BaseDirectory, "Nexus.exe");
         if (!File.Exists(exePath))
         {
-            Console.Error.WriteLine($"[{logTag}] Qos.exe not found at {exePath}");
+            Console.Error.WriteLine($"[{logTag}] Nexus.exe not found at {exePath}");
             return;
         }
 
         var taskName = $"{taskPrefix}_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
-        if (!Schtasks("/Create", "/TN", taskName, "/TR", $"\"{exePath}\" {qosArg}",
+        if (!Schtasks("/Create", "/TN", taskName, "/TR", $"\"{exePath}\" {nexusArg}",
                       "/SC", "ONCE", "/ST", "23:59", "/RU", username, "/IT", "/F"))
         {
             return;
@@ -83,7 +83,7 @@ internal static class UserHelperBootstrapper
         try { Schtasks("/Run", "/TN", taskName); }
         finally { Schtasks("/Delete", "/TN", taskName, "/F"); }
 
-        Console.WriteLine($"[{logTag}] launched {qosArg} as {username}");
+        Console.WriteLine($"[{logTag}] launched {nexusArg} as {username}");
     }
 
     private static string ResolveActiveConsoleUsername()

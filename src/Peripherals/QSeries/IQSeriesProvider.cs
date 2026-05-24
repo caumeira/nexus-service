@@ -1,4 +1,4 @@
-namespace Qos.Service.Peripherals.QSeries;
+namespace Nexus.Service.Peripherals.QSeries;
 
 public interface IQSeriesProvider
 {

@@ -3,12 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.RegularExpressions;
 using System.Threading;
-using Qos.Service.Activity.Storage;
-using Qos.Service.Models.Activity;
-using Qos.Service.Persistence;
-using Qos.Service.Platform;
+using Nexus.Service.Activity.Storage;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 public sealed class MacScreenTimeProvider : IScreenTimeProvider, IDisposable
 {

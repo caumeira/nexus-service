@@ -1,6 +1,6 @@
 using System;
 
-namespace Qos.Service.Benchmarks;
+namespace Nexus.Service.Benchmarks;
 
 internal static class Scoring
 {

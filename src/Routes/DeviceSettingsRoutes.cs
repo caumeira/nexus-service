@@ -1,7 +1,7 @@
-using Qos.Service.Devices;
-using Qos.Service.Models.Devices;
+using Nexus.Service.Devices;
+using Nexus.Service.Models.Devices;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static partial class DevicesRoutes
 {

@@ -1,6 +1,6 @@
-using Qos.Service.Models.Peripherals.Keeb;
+using Nexus.Service.Models.Peripherals.Keeb;
 
-namespace Qos.Service.Peripherals.Keeb;
+namespace Nexus.Service.Peripherals.Keeb;
 
 public interface IKeebProvider
 {

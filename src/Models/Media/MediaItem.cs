@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Media;
+namespace Nexus.Service.Models.Media;
 
 public sealed class MediaItem
 {

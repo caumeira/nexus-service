@@ -3,7 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 /// <summary>
 /// Real macOS autostart via launchd. Writes a plist to ~/Library/LaunchAgents/
@@ -78,9 +78,9 @@ public sealed class MacStartupProvider : IStartupProvider
     <key>KeepAlive</key>
     <true/>
     <key>StandardOutPath</key>
-    <string>/tmp/qos-service.log</string>
+    <string>/tmp/nexus-service.log</string>
     <key>StandardErrorPath</key>
-    <string>/tmp/qos-service.err</string>
+    <string>/tmp/nexus-service.err</string>
 </dict>
 </plist>";
 

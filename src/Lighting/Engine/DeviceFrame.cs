@@ -1,6 +1,6 @@
 using System;
 
-namespace Qos.Service.Lighting.Engine;
+namespace Nexus.Service.Lighting.Engine;
 
 public sealed class DeviceFrame
 {

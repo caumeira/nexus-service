@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
-using Qos.Service.Peripherals.Hid;
+using Nexus.Service.Peripherals.Hid;
 
-namespace Qos.Service.Peripherals.Protocols.Razer;
+namespace Nexus.Service.Peripherals.Protocols.Razer;
 
 /// <summary>
 /// Protocol transport for Razer HID devices. Exchanges <see cref="RazerReport"/>s over

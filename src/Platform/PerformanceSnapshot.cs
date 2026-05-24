@@ -1,4 +1,4 @@
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 /// <summary>
 /// One sample of system-wide performance counters.

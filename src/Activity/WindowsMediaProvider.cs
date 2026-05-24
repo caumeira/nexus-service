@@ -5,12 +5,12 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Helper;
-using Qos.Service.Helper.Domains;
-using Qos.Service.Models.Activity;
-using Qos.Service.Serialization;
+using Nexus.Service.Helper;
+using Nexus.Service.Helper.Domains;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Service-side media provider. GSMTC enumeration runs in the user-session

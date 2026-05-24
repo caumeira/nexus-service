@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Qos.Service.Devices.Handlers;
+namespace Nexus.Service.Devices.Handlers;
 
 /// <summary>HYTE keyboards (MK series).</summary>
 public sealed class KeebHandler : IDeviceHandler

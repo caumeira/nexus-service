@@ -4,9 +4,9 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Serialization;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Helper.Domains
+namespace Nexus.Service.Helper.Domains
 {
     /// <summary>
     /// Payload for <c>trayIcon.setVisible</c>. Service-to-helper. The

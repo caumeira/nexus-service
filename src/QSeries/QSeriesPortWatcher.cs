@@ -12,16 +12,16 @@ using AdvancedSharpAdbClient.Models;
 using AdvancedSharpAdbClient.Receivers;
 using Microsoft.Extensions.Hosting;
 
-namespace Qos.Service.QSeries;
+namespace Nexus.Service.QSeries;
 
 /// <summary>
-/// Keeps the loopback bridge between qos-service and a connected HYTE
+/// Keeps the loopback bridge between nexus-service and a connected HYTE
 /// Q60 / Q80 panel alive — and, after the first successful contact, gets
 /// us off USB-FFS adb entirely.
 ///
 /// The Q-series Android shell (`com.nexusqos.panel.qshell`) loads the
-/// Qos panel SPA from <c>http://localhost:9400</c>. On the panel side
-/// that localhost only reaches qos-service because the host has
+/// Nexus panel SPA from <c>http://localhost:9400</c>. On the panel side
+/// that localhost only reaches nexus-service because the host has
 /// <c>adb reverse tcp:9400 tcp:9400</c> applied to the attached Q-series
 /// display. The reverse is owned by the host's adb-server process — when
 /// the daemon exits (because another shell ran an <c>adb</c> command
@@ -51,7 +51,7 @@ namespace Qos.Service.QSeries;
 ///    transport from USB-FFS to TCP via <c>adb tcpip 5555</c>. After
 ///    promotion, panel transport runs over WiFi; USB cycling becomes
 ///    irrelevant. The watcher persists <c>(serial, ip)</c> to
-///    <c>%ProgramData%\Qos\qseries-transports.json</c> so subsequent
+///    <c>%ProgramData%\Nexus\qseries-transports.json</c> so subsequent
 ///    service starts can reconnect without a USB round-trip.
 ///
 /// The 10 s reverse-port refresh (matches nexus's <c>ADBInterface.startPing</c>
@@ -169,9 +169,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Initial delay matches the other BackgroundServices in qos-service
+        // Initial delay matches the other BackgroundServices in nexus-service
         // — gives the rest of the stack a moment to finish boot before we
-        // start poking the adb-server (which the qos host may itself be
+        // start poking the adb-server (which the nexus host may itself be
         // booting alongside us via the bundled adb.exe).
         try { await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken); }
         catch (TaskCanceledException) { return; }
@@ -477,7 +477,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// Shell out to <c>pnputil /restart-device "&lt;instanceId&gt;"</c>.
     /// Returns true on exit 0 (or 3010, which pnputil emits for "reboot
     /// recommended" and we don't care about). Captures the output for
-    /// the caller's log line. QosService runs as LocalSystem so it has
+    /// the caller's log line. NexusService runs as LocalSystem so it has
     /// the rights pnputil needs without a UAC prompt.
     /// </summary>
     private static bool RunPnputilRestartDevice(string instanceId, out string output)

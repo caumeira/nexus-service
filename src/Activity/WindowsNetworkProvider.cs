@@ -5,15 +5,15 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Activity;
-using Qos.Service.Sockets;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Windows network monitor. Polls <c>netstat -n -o</c> to discover which
 /// processes have active connections to a non-loopback peer (loopback PIDs
-/// are dropped so the web client / panel kiosk talking to qos-service
+/// are dropped so the web client / panel kiosk talking to nexus-service
 /// over localhost do not appear as network users), then reads cumulative
 /// I/O byte counters via <c>GetProcessIoCounters</c>. Only samples when
 /// subscribers exist.
@@ -65,7 +65,7 @@ public sealed class WindowsNetworkProvider : BackgroundService, INetworkProvider
         }
 
         // Step 1: Parse PIDs whose connections include a non-loopback peer.
-        // Pure-loopback PIDs (qos-service itself, the panel/Y70 launchers)
+        // Pure-loopback PIDs (nexus-service itself, the panel/Y70 launchers)
         // are dropped here so they never reach the per-process I/O counters.
         var activePids = NetstatParser.ParseInternetActivePids(output);
 

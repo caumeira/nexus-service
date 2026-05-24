@@ -5,9 +5,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.nexusqos.panel.service.overlay-helper</string>
     <key>CFBundleName</key>
-    <string>qos-overlay-helper</string>
+    <string>nexus-overlay-helper</string>
     <key>CFBundleDisplayName</key>
-    <string>Qos Overlay Helper</string>
+    <string>Nexus Overlay Helper</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>
@@ -15,7 +15,7 @@
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleExecutable</key>
-    <string>qos-overlay-helper</string>
+    <string>nexus-overlay-helper</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSUIElement</key>

@@ -1,7 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json;
 
-namespace Qos.Service.Models.Widgets;
+namespace Nexus.Service.Models.Widgets;
 
 /// <summary>
 /// Listing payload returned by <c>GET /widgets-api/installed</c>. Carries

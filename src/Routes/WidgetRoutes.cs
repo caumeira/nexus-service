@@ -4,12 +4,12 @@ using System.IO;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
-using Qos.Service.Auth;
-using Qos.Service.Models.Widgets;
-using Qos.Service.Serialization;
-using Qos.Service.Widgets;
+using Nexus.Service.Auth;
+using Nexus.Service.Models.Widgets;
+using Nexus.Service.Serialization;
+using Nexus.Service.Widgets;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 /// <summary>
 /// Widget marketplace endpoints. The runtime is declarative now (the host

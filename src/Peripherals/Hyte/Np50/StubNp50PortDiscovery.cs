@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Peripherals.Hyte.Np50;
+namespace Nexus.Service.Peripherals.Hyte.Np50;
 
 /// <summary>
 /// Non-Windows discovery stub. Returns an empty list so the rest of the

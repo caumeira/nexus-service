@@ -8,14 +8,14 @@ using System.Text;
 using System.Threading;
 using Microsoft.Win32;
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 /// <summary>
-/// Canonical install / uninstall primitive for Qos as a Windows Service.
+/// Canonical install / uninstall primitive for Nexus as a Windows Service.
 /// Both the Inno installer and a bare-EXE self-install invoke
 /// <see cref="RunInstall"/> / <see cref="RunUninstall"/>.
 ///
-/// Service identity: <c>QosService</c>, running as <c>LocalSystem</c>,
+/// Service identity: <c>NexusService</c>, running as <c>LocalSystem</c>,
 /// start type <c>Automatic</c>, depends on the PawnIO kernel driver.
 ///
 /// AOT-friendly: shells out to sc.exe / netsh.exe / pnputil.exe rather than
@@ -25,19 +25,19 @@ namespace Qos.Service.Lifecycle;
 [SupportedOSPlatform("windows")]
 internal static class WindowsServiceInstaller
 {
-    public const string ServiceName = "QosService";
-    public const string ServiceDisplayName = "Qos Service";
-    public const string ServiceDescription = "Qos hardware monitoring and control";
-    public const string InstallDirName = "Qos";
-    public const string BinaryName = "Qos.exe";
-    public const string FirewallRuleName = "QosService";
-    public const string UninstallRegKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Qos";
+    public const string ServiceName = "NexusService";
+    public const string ServiceDisplayName = "Nexus Service";
+    public const string ServiceDescription = "Nexus hardware monitoring and control";
+    public const string InstallDirName = "Nexus";
+    public const string BinaryName = "Nexus.exe";
+    public const string FirewallRuleName = "NexusService";
+    public const string UninstallRegKey = @"SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\Nexus";
     public const int DefaultPort = 9400;
     public const int DefaultHttpsPort = 9443;
 
     /// <summary>
-    /// `Qos.exe --install` entry. Self-elevates if needed; copies files to
-    /// %ProgramFiles%\Qos\ if invoked from elsewhere; registers the Windows
+    /// `Nexus.exe --install` entry. Self-elevates if needed; copies files to
+    /// %ProgramFiles%\Nexus\ if invoked from elsewhere; registers the Windows
     /// Service; installs PawnIO; opens the firewall; starts the service.
     /// Add/Remove Programs registration is owned by the Inno Setup wrapper
     /// (the {AppId}_is1 key), not by this method.
@@ -74,7 +74,7 @@ internal static class WindowsServiceInstaller
 
             // Sanity check the payload before we touch the running service.
             // The single most common foot-gun is `dotnet publish` running
-            // without a fresh qos-web/dist copied to aot/wwwroot/ - the
+            // without a fresh nexus-web/dist copied to aot/wwwroot/ - the
             // install would succeed but the dashboard would be empty.
             var sourceWwwroot = Path.Combine(sourceDir, "wwwroot");
             if (!Directory.Exists(sourceWwwroot) ||
@@ -82,7 +82,7 @@ internal static class WindowsServiceInstaller
             {
                 Console.Error.WriteLine(
                     $"[install] FATAL: {sourceWwwroot}\\index.html is missing. " +
-                    "Did you forget to `npm run build:service` in qos-web and copy dist/ into wwwroot/? " +
+                    "Did you forget to `npm run build:service` in nexus-web and copy dist/ into wwwroot/? " +
                     "Refusing to install without a populated web bundle.");
                 return 4;
             }
@@ -184,11 +184,11 @@ internal static class WindowsServiceInstaller
                 "profile=private,domain,public");
 
             // 6. Add/Remove Programs registration is owned by Inno Setup
-            // (the {AppId}_is1 key). We used to write our own HKLM\...\Qos
+            // (the {AppId}_is1 key). We used to write our own HKLM\...\Nexus
             // entry here, which caused two rows in the Apps & Features list.
             // Inno's entry is authoritative because its uninstall flow
             // (unins000.exe) also removes the install dir on top of our
-            // --uninstall step. We still try to delete the legacy "Qos" key
+            // --uninstall step. We still try to delete the legacy "Nexus" key
             // below in case an older install left one behind.
             try { Registry.LocalMachine.DeleteSubKeyTree(UninstallRegKey, throwOnMissingSubKey: false); }
             catch (Exception ex) { Log($"WARN legacy uninstall reg cleanup failed: {ex.Message}"); }
@@ -197,7 +197,7 @@ internal static class WindowsServiceInstaller
             try { CreateStartMenuShortcut(installedExe); }
             catch (Exception ex) { Log($"WARN Start Menu shortcut failed: {ex.Message}"); }
 
-            // 7a. Enable tray autostart by default. Writes HKCU\Run\Qos for
+            // 7a. Enable tray autostart by default. Writes HKCU\Run\Nexus for
             // the user running the installer. When invoked via Inno (elevated
             // user account), HKCU resolves to the real user. When invoked via
             // a SYSTEM-context test fixture, it writes to SYSTEM's profile
@@ -207,12 +207,12 @@ internal static class WindowsServiceInstaller
             {
                 var startup = new WindowsStartupProvider();
                 startup.SetEnabled(true, installedExe, arguments: string.Empty);
-                Log("tray autostart enabled (HKCU\\Run\\Qos)");
+                Log("tray autostart enabled (HKCU\\Run\\Nexus)");
             }
             catch (Exception ex) { Log($"WARN tray autostart write failed: {ex.Message}"); }
 
             // 8. Start the service.
-            Log("starting QosService");
+            Log("starting NexusService");
             RunSc("start", ServiceName);
 
             // 9. Wait for /ping to confirm.
@@ -235,10 +235,10 @@ internal static class WindowsServiceInstaller
     }
 
     /// <summary>
-    /// `Qos.exe --uninstall` entry. Stops + deletes the service, removes the
+    /// `Nexus.exe --uninstall` entry. Stops + deletes the service, removes the
     /// firewall rule, Add/Remove entry, Start Menu shortcut, and the install
     /// dir (best-effort; locked files scheduled for delete-on-reboot). Does
-    /// NOT delete %ProgramData%\Qos\ by default - pass --purge to wipe user
+    /// NOT delete %ProgramData%\Nexus\ by default - pass --purge to wipe user
     /// data. PawnIO is left installed (harmless and shared with other tools).
     /// </summary>
     public static int RunUninstall(string[] args)
@@ -250,26 +250,26 @@ internal static class WindowsServiceInstaller
         }
         var purge = Array.Exists(args, a => string.Equals(a, "--purge", StringComparison.OrdinalIgnoreCase));
 
-        Log("stopping QosService");
+        Log("stopping NexusService");
         RunSc("stop", ServiceName);
         WaitForServiceStop(TimeSpan.FromSeconds(10));
 
-        // Kill sibling Qos / sidecar processes so sc delete can complete
+        // Kill sibling Nexus / sidecar processes so sc delete can complete
         // synchronously instead of being deferred until handles release.
         // Without this the service "comes back" on the next boot.
         Log("killing tray / sidecar processes");
-        KillSiblingProcesses("Qos.exe");
+        KillSiblingProcesses("Nexus.exe");
         KillSiblingProcesses("OpenRGB.exe");
-        KillSiblingProcesses("qos-overlay.exe");
+        KillSiblingProcesses("nexus-overlay.exe");
 
-        Log("deleting QosService");
+        Log("deleting NexusService");
         RunSc("delete", ServiceName);
 
         // Clear the per-user tray autostart. Same HKCU-vs-elevated-token
         // caveat as the install path - acceptable for the consent UAC flow.
         Log("removing tray autostart");
         try { new WindowsStartupProvider().SetEnabled(false, string.Empty, string.Empty); }
-        catch (Exception ex) { Log($"WARN HKCU\\Run\\Qos delete failed: {ex.Message}"); }
+        catch (Exception ex) { Log($"WARN HKCU\\Run\\Nexus delete failed: {ex.Message}"); }
 
         Log("removing firewall rule");
         RunNetsh("advfirewall", "firewall", "delete", "rule",
@@ -302,7 +302,7 @@ internal static class WindowsServiceInstaller
     }
 
     /// <summary>
-    /// `Qos.exe --start-service` entry. Unprivileged: works because --install
+    /// `Nexus.exe --start-service` entry. Unprivileged: works because --install
     /// granted SERVICE_START to Authenticated Users. Useful for scripting and
     /// as an explicit recovery hook the dashboard can shell out to.
     /// </summary>
@@ -359,7 +359,7 @@ internal static class WindowsServiceInstaller
 
     private static void ExtendServiceDaclWithAuthUsersStart()
     {
-        // Read current SDDL via `sc sdshow QosService`, append an ACE granting
+        // Read current SDDL via `sc sdshow NexusService`, append an ACE granting
         // Authenticated Users SERVICE_QUERY_STATUS + SERVICE_START, write back
         // with `sc sdset`. Inheriting the platform default keeps any future
         // ACEs Windows adds in newer releases.
@@ -404,9 +404,9 @@ internal static class WindowsServiceInstaller
         // Drop a .url shortcut to the dashboard (more useful than the exe itself
         // for end users). We avoid the COM ShellLink approach for AOT safety.
         var startMenu = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu);
-        var dir = Path.Combine(startMenu, "Programs", "Qos");
+        var dir = Path.Combine(startMenu, "Programs", "Nexus");
         Directory.CreateDirectory(dir);
-        var lnk = Path.Combine(dir, "Qos Dashboard.url");
+        var lnk = Path.Combine(dir, "Nexus Dashboard.url");
         var content = $"[InternetShortcut]\r\nURL=http://localhost:{DefaultPort}/\r\nIconFile={targetExe}\r\nIconIndex=0\r\n";
         File.WriteAllText(lnk, content);
     }
@@ -414,7 +414,7 @@ internal static class WindowsServiceInstaller
     private static void DeleteShortcut(string installDir)
     {
         var startMenu = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu);
-        var dir = Path.Combine(startMenu, "Programs", "Qos");
+        var dir = Path.Combine(startMenu, "Programs", "Nexus");
         if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true);
     }
 
@@ -456,7 +456,7 @@ internal static class WindowsServiceInstaller
         }
         catch (UnauthorizedAccessException)
         {
-            // The uninstaller usually IS the Qos.exe being deleted, so the
+            // The uninstaller usually IS the Nexus.exe being deleted, so the
             // .exe holds its own write lock. Schedule everything for delete
             // on reboot - the next start will reclaim a clean dir.
             foreach (var f in Directory.GetFiles(path, "*", SearchOption.AllDirectories))

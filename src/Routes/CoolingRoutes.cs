@@ -1,14 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Qos.Service.Auth;
-using Qos.Service.Cooling;
-using Qos.Service.Models;
-using Qos.Service.Models.Cooling;
-using Qos.Service.Persistence;
-using Qos.Service.Sockets;
+using Nexus.Service.Auth;
+using Nexus.Service.Cooling;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Persistence;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class CoolingRoutes
 {
@@ -19,7 +19,7 @@ public static class CoolingRoutes
             new GetAllCoolingResponse { CoolingComponents = new(c.GetAll()) }).AllowPanel();
 
         // Curves
-        app.MapGet("/cooling/curves", (Qos.Service.Persistence.IConfigStore store) =>
+        app.MapGet("/cooling/curves", (Nexus.Service.Persistence.IConfigStore store) =>
         {
             var settings = store.Load();
             var docs = settings.Cooling.Curves;
@@ -90,7 +90,7 @@ public static class CoolingRoutes
         app.MapGet("/cooling/sources", (IFanControlProvider f) =>
             new GetTemperatureSourcesResponse { Sources = new(f.GetTemperatureSources()) }).AllowPanel();
 
-        app.MapPost("/cooling/fan/{id}/speed", (string id, SetFanSpeedBody body, IFanControlProvider f, Qos.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/cooling/fan/{id}/speed", (string id, SetFanSpeedBody body, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
         {
             id = Uri.UnescapeDataString(id);
             // Detach from any curve first. Otherwise CurveEngine would
@@ -103,10 +103,10 @@ public static class CoolingRoutes
             var derivedAfterSpeed = FanProfiles.DerivePresetFromCurves(store, f);
             store.Update(s => s.Cooling.ActivePreset = derivedAfterSpeed);
             PanelTopics.BroadcastCooling(hub);
-            return new SetFanSpeedResponse { ChannelId = id, Speed = actual, Mode = Qos.Service.Models.Cooling.FanModes.Manual };
+            return new SetFanSpeedResponse { ChannelId = id, Speed = actual, Mode = Nexus.Service.Models.Cooling.FanModes.Manual };
         });
 
-        app.MapPost("/cooling/fan/{id}/auto", (string id, IFanControlProvider f, Qos.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/cooling/fan/{id}/auto", (string id, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
         {
             id = Uri.UnescapeDataString(id);
             // Same rationale as /speed: drop any curve attachment so the BIOS
@@ -153,7 +153,7 @@ public static class CoolingRoutes
                 Active = store.Load().Cooling.ActivePreset,
             }).AllowPanel();
 
-        app.MapPost("/cooling/profile/{name}", (string name, IFanControlProvider f, Qos.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/cooling/profile/{name}", (string name, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
         {
             var profile = FanProfiles.GetBuiltInProfiles()
                 .Find(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -191,11 +191,11 @@ public static class CoolingRoutes
             return new CalibrationStartResponse { SessionId = started ? "active" : "", Error = !started, Msg = started ? "Ok" : "Calibration already running" };
         });
 
-        app.MapGet("/cooling/calibrations", (Qos.Service.Persistence.IConfigStore store) =>
+        app.MapGet("/cooling/calibrations", (Nexus.Service.Persistence.IConfigStore store) =>
             new GetCalibrationsResponse { Calibrations = store.Load().Cooling.FanCalibrations.Values.ToList() }).AllowPanel();
 
         // Status summary
-        app.MapGet("/cooling/status", (IFanControlProvider f, CalibrationRunner runner, Qos.Service.Persistence.IConfigStore store) =>
+        app.MapGet("/cooling/status", (IFanControlProvider f, CalibrationRunner runner, Nexus.Service.Persistence.IConfigStore store) =>
         {
             var channels = f.GetFanChannels();
             var curves = store.Load().Cooling.Curves;
@@ -205,8 +205,8 @@ public static class CoolingRoutes
                 CalibrationState = runner.State.ToString().ToLowerInvariant(),
                 ActiveCurves = curves.Count,
                 FanCount = channels.Count,
-                ManualFans = channels.Count(c => c.Mode == Qos.Service.Models.Cooling.FanModes.Manual),
-                ActiveCurveFanCount = channels.Count(c => c.Mode == Qos.Service.Models.Cooling.FanModes.Curve),
+                ManualFans = channels.Count(c => c.Mode == Nexus.Service.Models.Cooling.FanModes.Manual),
+                ActiveCurveFanCount = channels.Count(c => c.Mode == Nexus.Service.Models.Cooling.FanModes.Curve),
             };
         }).AllowPanel();
     }

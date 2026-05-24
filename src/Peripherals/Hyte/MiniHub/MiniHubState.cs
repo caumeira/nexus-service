@@ -1,4 +1,4 @@
-namespace Qos.Service.Peripherals.Hyte.MiniHub;
+namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 
 /// <summary>
 /// Top-level snapshot of a HYTE IBP MiniHub. All four physical ports

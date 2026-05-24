@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Qos.Service.Models.Common;
+using Nexus.Service.Models.Common;
 
-namespace Qos.Service.Models.Peripherals.Keeb;
+namespace Nexus.Service.Models.Peripherals.Keeb;
 
 public class KeyboardState
 {

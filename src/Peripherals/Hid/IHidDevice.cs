@@ -1,6 +1,6 @@
 using System;
 
-namespace Qos.Service.Peripherals.Hid;
+namespace Nexus.Service.Peripherals.Hid;
 
 /// <summary>
 /// Minimal HID device abstraction. Covers feature-report send/receive, which is

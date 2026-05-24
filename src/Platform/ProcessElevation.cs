@@ -5,7 +5,7 @@ using System.Runtime.Versioning;
 using Microsoft.Win32.SafeHandles;
 #endif
 
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 public readonly record struct ProcessElevationSnapshot(
     bool Supported,

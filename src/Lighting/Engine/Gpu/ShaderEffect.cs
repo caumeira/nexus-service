@@ -1,7 +1,7 @@
 using System;
 using Silk.NET.OpenGL;
 
-namespace Qos.Service.Lighting.Engine.Gpu;
+namespace Nexus.Service.Lighting.Engine.Gpu;
 
 /// <summary>
 /// An <see cref="IEffect"/> backed by a fragment shader. Compiles lazily on
@@ -181,23 +181,23 @@ public sealed class ShaderEffect : IEffect
             }
             if (_uAudioLevel >= 0)
             {
-                gl.Uniform1(_uAudioLevel, Qos.Service.Lighting.Engine.AudioState.Level);
+                gl.Uniform1(_uAudioLevel, Nexus.Service.Lighting.Engine.AudioState.Level);
             }
             if (_uAudioBass >= 0)
             {
-                gl.Uniform1(_uAudioBass, Qos.Service.Lighting.Engine.AudioState.Bass);
+                gl.Uniform1(_uAudioBass, Nexus.Service.Lighting.Engine.AudioState.Bass);
             }
             if (_uAudioMid >= 0)
             {
-                gl.Uniform1(_uAudioMid, Qos.Service.Lighting.Engine.AudioState.Mid);
+                gl.Uniform1(_uAudioMid, Nexus.Service.Lighting.Engine.AudioState.Mid);
             }
             if (_uAudioHigh >= 0)
             {
-                gl.Uniform1(_uAudioHigh, Qos.Service.Lighting.Engine.AudioState.High);
+                gl.Uniform1(_uAudioHigh, Nexus.Service.Lighting.Engine.AudioState.High);
             }
             if (_uAudioBeat >= 0)
             {
-                gl.Uniform1(_uAudioBeat, Qos.Service.Lighting.Engine.AudioState.Beat);
+                gl.Uniform1(_uAudioBeat, Nexus.Service.Lighting.Engine.AudioState.Beat);
             }
             if (_uAudioBoost >= 0)
             {
@@ -207,9 +207,9 @@ public sealed class ShaderEffect : IEffect
             {
                 unsafe
                 {
-                    fixed (float* p = Qos.Service.Lighting.Engine.AudioState.Spectrum)
+                    fixed (float* p = Nexus.Service.Lighting.Engine.AudioState.Spectrum)
                     {
-                        gl.Uniform1(_uSpectrum, (uint)Qos.Service.Lighting.Engine.AudioState.SpectrumLength, p);
+                        gl.Uniform1(_uSpectrum, (uint)Nexus.Service.Lighting.Engine.AudioState.SpectrumLength, p);
                     }
                 }
             }

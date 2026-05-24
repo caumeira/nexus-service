@@ -2,7 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 /// <summary>
 /// Single source of truth for locating the ffmpeg binary at runtime. The

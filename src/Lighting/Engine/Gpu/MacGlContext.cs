@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Qos.Service.Lighting.Engine.Gpu;
+namespace Nexus.Service.Lighting.Engine.Gpu;
 
 /// <summary>
 /// Offscreen OpenGL 4.1 core context on macOS via CGL (Apple's low-level GL

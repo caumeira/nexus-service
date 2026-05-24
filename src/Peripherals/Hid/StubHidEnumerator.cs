@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Peripherals.Hid;
+namespace Nexus.Service.Peripherals.Hid;
 
 /// <summary>No-op HID enumerator for platforms without a real implementation yet.</summary>
 public sealed class StubHidEnumerator : IHidEnumerator

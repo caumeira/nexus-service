@@ -3,10 +3,10 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Platform.Displays;
-using Qos.Service.Serialization;
+using Nexus.Service.Platform.Displays;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Helper.Domains
+namespace Nexus.Service.Helper.Domains
 {
     /// <summary>
     /// Request to rotate the Y70 panel display. Orientation strings are the

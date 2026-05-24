@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Qos.Service.Models.Activity;
+using Nexus.Service.Models.Activity;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 // WebSocket broadcast payloads for the "processes", "network", and "screentime"
 // topics emitted by MonitoringBroadcaster.

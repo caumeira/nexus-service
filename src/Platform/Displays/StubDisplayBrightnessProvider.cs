@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Qos.Service.Models.Displays;
+using Nexus.Service.Models.Displays;
 
-namespace Qos.Service.Platform.Displays;
+namespace Nexus.Service.Platform.Displays;
 
 /// <summary>No-op provider for platforms without a real implementation yet.</summary>
 public sealed class StubDisplayBrightnessProvider : IDisplayBrightnessProvider

@@ -2,7 +2,7 @@
 
 ## Overview
 
-Device firmware updates are managed entirely by qos-service (unlike the original
+Device firmware updates are managed entirely by nexus-service (unlike the original
 Nexus client which delegated to external tools). This keeps the update flow self-contained
 and controllable via the REST API.
 
@@ -10,11 +10,11 @@ and controllable via the REST API.
 
 Firmware binaries are stored in a local cache directory.
 
-- **Windows**: `%ProgramData%\Qos\firmware\` (machine-scope so the
+- **Windows**: `%ProgramData%\Nexus\firmware\` (machine-scope so the
   LocalSystem service can write it and every user on the box sees the
   same versions).
-- **Linux**: `$XDG_CACHE_HOME/Qos/firmware/` (defaults to
-  `~/.cache/Qos/firmware/`).
+- **Linux**: `$XDG_CACHE_HOME/Nexus/firmware/` (defaults to
+  `~/.cache/Nexus/firmware/`).
 
 ```
 firmware/

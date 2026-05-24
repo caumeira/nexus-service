@@ -3,11 +3,11 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Cooling;
-using Qos.Service.Sensors;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Sensors;
 using LibreHardwareMonitor.Hardware;
 
-namespace Qos.Service.Cooling;
+namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// Probes a fan's PWM→RPM response by ramping duty from 100% to 0% in 10%

@@ -1,10 +1,10 @@
 using System;
 
-namespace Qos.Service.Lighting.Engine;
+namespace Nexus.Service.Lighting.Engine;
 
 /// <summary>
 /// Shared latest-frame snapshot of audio features that every shader can read
-/// as a uniform. Producer: <see cref="Qos.Service.Activity.BeatsProvider"/>.
+/// as a uniform. Producer: <see cref="Nexus.Service.Activity.BeatsProvider"/>.
 /// Consumers: <see cref="Gpu.ShaderEffect"/>.
 ///
 /// Kept deliberately tiny and allocation-free on both paths: the audio thread

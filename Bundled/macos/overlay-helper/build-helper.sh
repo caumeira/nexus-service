@@ -1,7 +1,7 @@
 #!/bin/bash
-# Compile the qos-overlay-helper Swift sidecar.
+# Compile the nexus-overlay-helper Swift sidecar.
 # Usage: ./build-helper.sh <output-dir>
-#   output-dir: directory the resulting `qos-overlay-helper` binary lands in.
+#   output-dir: directory the resulting `nexus-overlay-helper` binary lands in.
 #
 # Runs only on macOS. Linux / Windows builds skip silently.
 
@@ -34,13 +34,13 @@ swiftc -O -target arm64-apple-macos13.0 \
     -Xlinker __TEXT \
     -Xlinker __info_plist \
     -Xlinker "$SCRIPT_DIR/Info.plist" \
-    "$SRC" -o "$OUT/qos-overlay-helper"
+    "$SRC" -o "$OUT/nexus-overlay-helper"
 
 # Re-sign ad-hoc so the embedded Info.plist is hashed into the code-signing
 # directory.
-codesign -s - --force "$OUT/qos-overlay-helper"
+codesign -s - --force "$OUT/nexus-overlay-helper"
 
 # Strip extended attributes that would trigger Gatekeeper warnings.
-xattr -cr "$OUT/qos-overlay-helper" 2>/dev/null || true
+xattr -cr "$OUT/nexus-overlay-helper" 2>/dev/null || true
 
-echo "[overlay-helper] built: $OUT/qos-overlay-helper"
+echo "[overlay-helper] built: $OUT/nexus-overlay-helper"

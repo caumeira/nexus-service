@@ -1,8 +1,8 @@
-namespace Qos.Service.Models.Widgets;
+namespace Nexus.Service.Models.Widgets;
 
 /// <summary>
 /// JSON-RPC 2.0 error codes used by the host-to-widget bridge.
-/// Standard codes (-32600..-32603) follow the spec; Qos-specific codes
+/// Standard codes (-32600..-32603) follow the spec; Nexus-specific codes
 /// live in the application-error range (-32000..-32099).
 /// </summary>
 public static class WidgetErrorCodes

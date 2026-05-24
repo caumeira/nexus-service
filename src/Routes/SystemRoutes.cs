@@ -1,16 +1,16 @@
-using Qos.Service.Activity;
-using Qos.Service.Auth;
-using Qos.Service.Fps;
-using Qos.Service.Lifecycle;
-using Qos.Service.Models;
-using Qos.Service.Models.Activity;
-using Qos.Service.Models.Sensors;
-using Qos.Service.Monitoring;
-using Qos.Service.Platform;
-using Qos.Service.Sensors;
+using Nexus.Service.Activity;
+using Nexus.Service.Auth;
+using Nexus.Service.Fps;
+using Nexus.Service.Lifecycle;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Models.Sensors;
+using Nexus.Service.Monitoring;
+using Nexus.Service.Platform;
+using Nexus.Service.Sensors;
 using Microsoft.AspNetCore.Mvc;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class SystemRoutes
 {

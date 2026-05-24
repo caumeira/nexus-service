@@ -1,4 +1,4 @@
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 public static class ServiceLaunchIntent
 {
@@ -14,7 +14,7 @@ public static class ServiceLaunchIntent
 
         var candidate = args[0];
         if (string.IsNullOrWhiteSpace(candidate) ||
-            candidate.StartsWith("qos://", StringComparison.OrdinalIgnoreCase))
+            candidate.StartsWith("nexus://", StringComparison.OrdinalIgnoreCase))
         {
             return DefaultBindUrl;
         }

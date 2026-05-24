@@ -6,7 +6,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Platform.Linux.DBus;
+namespace Nexus.Service.Platform.Linux.DBus;
 
 /// <summary>
 /// A pure-C# D-Bus session-bus client. Handles SASL EXTERNAL auth, message

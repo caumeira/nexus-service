@@ -1,6 +1,6 @@
-using Qos.Service.Models;
+using Nexus.Service.Models;
 
-namespace Qos.Service.Models.Obs;
+namespace Nexus.Service.Models.Obs;
 
 public sealed class ObsConfigResponse : ApiResponse
 {

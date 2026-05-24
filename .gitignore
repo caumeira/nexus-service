@@ -14,7 +14,7 @@ publish-*/
 *.app/
 
 # Compiled OpenRGB-headless drops live in Bundled/{rid}/openrgb/ and are
-# produced by qos-rgb/bundle-macos.sh (or scripts/build-windows.bat on
+# produced by nexus-rgb/bundle-macos.sh (or scripts/build-windows.bat on
 # Windows) from the openrgb-headless submodule. Don't commit binaries.
 # PawnIO under Bundled/win-x64/pawnio/ stays tracked — it's a signed kernel
 # driver that can't be rebuilt without Microsoft attestation.
@@ -34,7 +34,7 @@ Thumbs.db
 # Logs
 *.log
 
-# wwwroot is populated by `npm run build` in qos-web; ignore the bundled artifact
+# wwwroot is populated by `npm run build` in nexus-web; ignore the bundled artifact
 # but keep the directory itself so the csproj <Content Include> doesn't error.
 wwwroot/*
 !wwwroot/.gitkeep

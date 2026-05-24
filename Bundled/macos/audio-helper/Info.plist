@@ -5,9 +5,9 @@
     <key>CFBundleIdentifier</key>
     <string>com.nexusqos.panel.service.audio-helper</string>
     <key>CFBundleName</key>
-    <string>qos-audio-helper</string>
+    <string>nexus-audio-helper</string>
     <key>CFBundleDisplayName</key>
-    <string>Qos Audio Helper</string>
+    <string>Nexus Audio Helper</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleVersion</key>
@@ -15,7 +15,7 @@
     <key>CFBundleShortVersionString</key>
     <string>1.0</string>
     <key>CFBundleExecutable</key>
-    <string>qos-audio-helper</string>
+    <string>nexus-audio-helper</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
     <key>LSBackgroundOnly</key>

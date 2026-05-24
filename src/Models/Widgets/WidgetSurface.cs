@@ -1,4 +1,4 @@
-namespace Qos.Service.Models.Widgets;
+namespace Nexus.Service.Models.Widgets;
 
 /// <summary>
 /// Canonical surface names accepted in a widget manifest's <c>surfaces</c>

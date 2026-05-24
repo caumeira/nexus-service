@@ -1,13 +1,13 @@
-using Qos.Service.Auth;
-using Qos.Service.Cooling;
-using Qos.Service.Lifecycle;
-using Qos.Service.Lighting;
-using Qos.Service.Models;
-using Qos.Service.Models.Profiles;
-using Qos.Service.Persistence;
-using Qos.Service.Sockets;
+using Nexus.Service.Auth;
+using Nexus.Service.Cooling;
+using Nexus.Service.Lifecycle;
+using Nexus.Service.Lighting;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Profiles;
+using Nexus.Service.Persistence;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class ProfileRoutes
 {

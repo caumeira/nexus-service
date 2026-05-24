@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
-using Qos.Service.Models.Displays;
+using Nexus.Service.Models.Displays;
 
-namespace Qos.Service.Platform.Displays;
+namespace Nexus.Service.Platform.Displays;
 
 /// <summary>
 /// macOS display enumeration and brightness control. CoreGraphics supplies the

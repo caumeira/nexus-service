@@ -1,7 +1,7 @@
 using System;
 using System.Diagnostics;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Cross-platform utility for killing processes by name or PID.

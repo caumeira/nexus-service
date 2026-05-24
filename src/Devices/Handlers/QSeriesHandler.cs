@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 
-namespace Qos.Service.Devices.Handlers;
+namespace Nexus.Service.Devices.Handlers;
 
 /// <summary>
 /// HYTE Q-series AIO LCD displays (Q60 and Q80). The two variants share

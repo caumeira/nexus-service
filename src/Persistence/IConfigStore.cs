@@ -1,4 +1,4 @@
-namespace Qos.Service.Persistence;
+namespace Nexus.Service.Persistence;
 
 /// <summary>
 /// Single source of truth for persisted user settings. Implementation is JsonConfigStore by default.
@@ -11,13 +11,13 @@ namespace Qos.Service.Persistence;
 public interface IConfigStore
 {
     /// <summary>Load (or return cached) settings document.</summary>
-    QosSettings Load();
+    NexusSettings Load();
 
     /// <summary>
     /// Atomically read-modify-write the settings document.
     /// The mutator runs against a snapshot under a lock; the resulting document is queued for persistence.
     /// </summary>
-    void Update(System.Action<QosSettings> mutator);
+    void Update(System.Action<NexusSettings> mutator);
 
     /// <summary>Force any pending settings write to run now.</summary>
     void FlushNow();

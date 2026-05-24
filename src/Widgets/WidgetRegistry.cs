@@ -3,10 +3,10 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
-using Qos.Service.Models.Widgets;
-using Qos.Service.Serialization;
+using Nexus.Service.Models.Widgets;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Widgets;
+namespace Nexus.Service.Widgets;
 
 /// <summary>
 /// Discovers and caches installed widgets. Scanning is lazy on first read +
@@ -84,7 +84,7 @@ public sealed class WidgetRegistry
                 // rename (and keeps URL → disk-path resolution unambiguous).
                 var folderName = Path.GetFileName(dir);
                 if (!string.Equals(folderName, manifest.Id, StringComparison.Ordinal)) continue;
-                if (!string.Equals(manifest.Schema, "qos.widget/2", StringComparison.Ordinal)) continue;
+                if (!string.Equals(manifest.Schema, "nexus.widget/2", StringComparison.Ordinal)) continue;
                 // View tree must be present (object or per-size map).
                 if (manifest.View.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
                 // Tier 2 worker bundles must ship the worker file they reference.

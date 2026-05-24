@@ -1,5 +1,5 @@
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 /// <summary>
 /// Devices route group entrypoint. The actual route registrations live in
@@ -53,9 +53,9 @@ public static partial class DevicesRoutes
     ///     followed by "-{zoneIdx}".
     ///   - Legacy numeric:     "openrgb-N" or "openrgb-N-Z" (pre-stable-id).
     /// </summary>
-    private static (Qos.Service.Lighting.Rgb.RgbDevice? device, int zoneIndex) ResolveDevice(
+    private static (Nexus.Service.Lighting.Rgb.RgbDevice? device, int zoneIndex) ResolveDevice(
         string id,
-        IReadOnlyList<Qos.Service.Lighting.Rgb.RgbDevice> devices)
+        IReadOnlyList<Nexus.Service.Lighting.Rgb.RgbDevice> devices)
     {
         if (string.IsNullOrEmpty(id) || devices is null || devices.Count == 0)
             return (null, -1);
@@ -94,7 +94,7 @@ public static partial class DevicesRoutes
         return (null, -1);
     }
 
-    private static string[] BuildZoneTypeMap(Qos.Service.Lighting.Rgb.RgbDevice device)
+    private static string[] BuildZoneTypeMap(Nexus.Service.Lighting.Rgb.RgbDevice device)
     {
         var result = new string[device.LedCount];
         int offset = 0;
@@ -115,9 +115,9 @@ public static partial class DevicesRoutes
     }
 
     private static void RefreshEngineLedMap(string id,
-        Qos.Service.Lighting.Engine.LightingEngine engine,
-        Qos.Service.Lighting.Rgb.RgbBridge? bridge,
-        Qos.Service.Persistence.IConfigStore store)
+        Nexus.Service.Lighting.Engine.LightingEngine engine,
+        Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
+        Nexus.Service.Persistence.IConfigStore store)
     {
         if (bridge is null)
             return;
@@ -139,7 +139,7 @@ public static partial class DevicesRoutes
         }
         else
         {
-            var (dU, dV) = Qos.Service.Lighting.Rgb.LedUvComputer.ComputeDefaults(device);
+            var (dU, dV) = Nexus.Service.Lighting.Rgb.LedUvComputer.ComputeDefaults(device);
             ledU = dU;
             ledV = dV;
         }

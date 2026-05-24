@@ -1,6 +1,6 @@
-using Qos.Service.Models;
+using Nexus.Service.Models;
 
-namespace Qos.Service.Models.Discord;
+namespace Nexus.Service.Models.Discord;
 
 public sealed class DiscordConfigResponse : ApiResponse
 {

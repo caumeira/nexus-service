@@ -1,4 +1,4 @@
-namespace Qos.Service.Models.Peripherals.Y70;
+namespace Nexus.Service.Models.Peripherals.Y70;
 
 public class Y70StatusResponse : ApiResponse
 {

@@ -5,9 +5,9 @@ using System.Numerics;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Benchmarks;
+using Nexus.Service.Models.Benchmarks;
 
-namespace Qos.Service.Benchmarks.Providers;
+namespace Nexus.Service.Benchmarks.Providers;
 
 /// <summary>
 /// Cross-platform benchmark provider. All four sub-benchmarks are pure managed
@@ -253,7 +253,7 @@ public sealed class DefaultBenchmarkProvider : IBenchmarkProvider
         {
             var storageResult = await Task.Run(() =>
             {
-                path = Path.Combine(Path.GetTempPath(), $"qos-bench-{Guid.NewGuid():N}.bin");
+                path = Path.Combine(Path.GetTempPath(), $"nexus-bench-{Guid.NewGuid():N}.bin");
                 const int chunk = 1 * 1024 * 1024;
                 const long maxBytes = 4L * 1024 * 1024 * 1024;
                 var block = new byte[chunk];

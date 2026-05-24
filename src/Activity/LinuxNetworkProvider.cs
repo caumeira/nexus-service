@@ -5,11 +5,11 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Activity;
-using Qos.Service.Sockets;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Sockets;
 using Microsoft.Extensions.Hosting;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Linux network/IO monitor. Mirrors the Windows semantic

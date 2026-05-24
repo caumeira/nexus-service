@@ -1,16 +1,16 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
-using Qos.Service.Persistence;
+using Nexus.Service.Persistence;
 #if WINDOWS
-using Qos.Service.Helper;
-using Qos.Service.Helper.Domains;
+using Nexus.Service.Helper;
+using Nexus.Service.Helper.Domains;
 #endif
 
-namespace Qos.Service.Panel;
+namespace Nexus.Service.Panel;
 
-// Cross-platform reconcile for the qos-overlay sidecar process. The same
-// predicate runs on Windows (qos-overlay.exe hosting widgets + dashboard +
-// panel kiosk) and macOS (qos-overlay-helper Swift sidecar for widgets).
+// Cross-platform reconcile for the nexus-overlay sidecar process. The same
+// predicate runs on Windows (nexus-overlay.exe hosting widgets + dashboard +
+// panel kiosk) and macOS (nexus-overlay-helper Swift sidecar for widgets).
 //
 // Run iff (OverlayWidgetsEnabled && layout.Count > 0) || Panel.AutoLaunch.
 // On Mac the helper is killed on the opposite edge (no internal teardown
@@ -65,7 +65,7 @@ internal static class OverlayHostBootstrap
                 }
                 catch { }
 #endif
-                // Mirror Panel.AutoLaunch edge-changes onto the qos-overlay
+                // Mirror Panel.AutoLaunch edge-changes onto the nexus-overlay
                 // kiosk window. Compare-and-swap under the lock so concurrent
                 // store.Update() writers can't both pass the edge-check on a
                 // stale lastShowPanel and double-fire Launch/Close.

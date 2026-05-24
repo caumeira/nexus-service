@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Lighting.Rgb;
+namespace Nexus.Service.Lighting.Rgb;
 
 /// <summary>
 /// One RGB device discovered by the OpenRGB SDK server. Mirrors the subset of

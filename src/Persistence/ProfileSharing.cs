@@ -1,17 +1,17 @@
 using System;
 using System.Collections.Generic;
 
-namespace Qos.Service.Persistence;
+namespace Nexus.Service.Persistence;
 
 /// <summary>
 /// Routing helpers for the per-category profile sharing feature. Four
-/// categories correspond to the QosSettings sections that the user can pin to
+/// categories correspond to the NexusSettings sections that the user can pin to
 /// a Primary profile (so switching profiles still loads that profile's data
 /// for the pinned category). Theme copies the entire <see cref="ThemeSettings"/>
 /// block; Dashboard copies the desktop-side per-profile state (monitoring view
 /// state, fan-channel order, the desktop dashboard layout, overlay floating
 /// widgets, conflict-alert toggle). Panel cosmetics + AutoLaunch live at the
-/// QosSettings root under <see cref="PanelSettings"/>; they're workstation-level
+/// NexusSettings root under <see cref="PanelSettings"/>; they're workstation-level
 /// (they describe how panel devices look and behave, not the active profile)
 /// so they are NEVER copied via sharing.
 /// </summary>
@@ -46,7 +46,7 @@ public static class ProfileSharing
     }
 
     /// <summary>Copies the named category from <paramref name="source"/> onto <paramref name="target"/>. Sibling state on target is preserved.</summary>
-    public static void ApplyCategory(QosSettings target, QosSettings source, string category)
+    public static void ApplyCategory(NexusSettings target, NexusSettings source, string category)
     {
         switch (Normalize(category))
         {
@@ -72,7 +72,7 @@ public static class ProfileSharing
     }
 
     /// <summary>Resets the named category on <paramref name="target"/> to a fresh default value. Sibling state is preserved.</summary>
-    public static void ResetCategory(QosSettings target, string category)
+    public static void ResetCategory(NexusSettings target, string category)
     {
         switch (Normalize(category))
         {

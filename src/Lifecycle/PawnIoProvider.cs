@@ -1,7 +1,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 /// <summary>
 /// Windows-only PawnIO driver detection. Checks two things:

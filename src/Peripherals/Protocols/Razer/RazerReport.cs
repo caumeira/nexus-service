@@ -1,6 +1,6 @@
 using System;
 
-namespace Qos.Service.Peripherals.Protocols.Razer;
+namespace Nexus.Service.Peripherals.Protocols.Razer;
 
 /// <summary>
 /// Razer 90-byte feature report format (derived from OpenRazer's razer_common.c).

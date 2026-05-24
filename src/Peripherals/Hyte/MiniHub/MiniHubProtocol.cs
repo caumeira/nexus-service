@@ -1,6 +1,6 @@
 using System;
 
-namespace Qos.Service.Peripherals.Hyte.MiniHub;
+namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 
 /// <summary>
 /// Pure builders + parsers for the HYTE IBP MiniHub serial-over-USB
@@ -74,7 +74,7 @@ public static class MiniHubProtocol
 
     /// <summary>
     /// Build the "Set RGB Control Mode" request (4 bytes). <see cref="RgbModeSoftware"/>
-    /// gives qos full control; <see cref="RgbModeMotherboard"/> hands off to the
+    /// gives nexus full control; <see cref="RgbModeMotherboard"/> hands off to the
     /// motherboard ARGB header (default after a power cycle).
     /// </summary>
     public static byte[] BuildSetRgbControlMode(byte mode)
@@ -88,7 +88,7 @@ public static class MiniHubProtocol
     /// Build the "Set Fan Control Mode" request (4 bytes). Software mode is
     /// required before any <see cref="BuildSetFanSpeed"/> write actually
     /// reaches the fans — by default the hub hands fan PWM to the motherboard
-    /// header so qos writes are ignored until this command flips the mode.
+    /// header so nexus writes are ignored until this command flips the mode.
     /// </summary>
     public static byte[] BuildSetFanControlMode(byte mode)
     {

@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Panel;
+namespace Nexus.Service.Models.Panel;
 
 /// <summary>
 /// One registered panel device. Keyed by an opaque <c>Id</c> the service

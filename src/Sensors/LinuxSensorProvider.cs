@@ -3,10 +3,10 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
-using Qos.Service.Models.Sensors;
-using Qos.Service.Platform;
+using Nexus.Service.Models.Sensors;
+using Nexus.Service.Platform;
 
-namespace Qos.Service.Sensors;
+namespace Nexus.Service.Sensors;
 
 /// <summary>
 /// Linux sensor provider. Reads CPU/fan/voltage data from /sys/class/hwmon/,

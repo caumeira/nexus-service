@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Lighting.Rgb;
+namespace Nexus.Service.Lighting.Rgb;
 
 /// <summary>
 /// Cross-platform fallback used when no OpenRGB binary is bundled (macOS) or

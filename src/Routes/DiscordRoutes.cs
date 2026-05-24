@@ -1,8 +1,8 @@
-using Qos.Service.Auth;
-using Qos.Service.Discord;
-using Qos.Service.Models.Discord;
+using Nexus.Service.Auth;
+using Nexus.Service.Discord;
+using Nexus.Service.Models.Discord;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class DiscordRoutes
 {

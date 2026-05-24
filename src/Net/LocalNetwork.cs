@@ -4,7 +4,7 @@ using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 
-namespace Qos.Service.Net;
+namespace Nexus.Service.Net;
 
 // Helpers for the panel phone pairing QR flow: resolve a LAN-reachable IP for
 // the device and render a QR-code data URL.

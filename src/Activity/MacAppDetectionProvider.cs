@@ -4,10 +4,10 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
-using Qos.Service.Models.Activity;
-using Qos.Service.Platform;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Platform;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Real macOS app-detection provider.

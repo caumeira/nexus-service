@@ -2,10 +2,10 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Lighting.Engine;
-using Qos.Service.Models.Activity;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Models.Activity;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Windows-only audio-loopback provider that captures the default render
@@ -62,7 +62,7 @@ public sealed class WasapiLoopbackBeatsProvider : IBeatsProvider
         }
         catch (Exception ex)
         {
-            Qos.Service.Lighting.Engine.Gpu.GpuContext.Log($"[wasapi] failed to start: {ex.Message}");
+            Nexus.Service.Lighting.Engine.Gpu.GpuContext.Log($"[wasapi] failed to start: {ex.Message}");
             lock (_lock)
             { _running = false; }
         }
@@ -99,11 +99,11 @@ public sealed class WasapiLoopbackBeatsProvider : IBeatsProvider
         try
         {
             cap = WasapiCapturer.Open();
-            Qos.Service.Lighting.Engine.Gpu.GpuContext.Log($"[wasapi] opened: {cap.SampleRate} Hz, {cap.Channels} ch");
+            Nexus.Service.Lighting.Engine.Gpu.GpuContext.Log($"[wasapi] opened: {cap.SampleRate} Hz, {cap.Channels} ch");
         }
         catch (Exception ex)
         {
-            Qos.Service.Lighting.Engine.Gpu.GpuContext.Log($"[wasapi] open failed: {ex}");
+            Nexus.Service.Lighting.Engine.Gpu.GpuContext.Log($"[wasapi] open failed: {ex}");
             return;
         }
 
@@ -133,7 +133,7 @@ public sealed class WasapiLoopbackBeatsProvider : IBeatsProvider
                 long now = Environment.TickCount64;
                 if (now - lastLogTick > 5000)
                 {
-                    Qos.Service.Lighting.Engine.Gpu.GpuContext.Log(
+                    Nexus.Service.Lighting.Engine.Gpu.GpuContext.Log(
                         $"[wasapi] heartbeat: {totalFrames} frames, {totalAnalyses} analyses in last {(now - lastLogTick) / 1000}s");
                     totalFrames = 0;
                     totalAnalyses = 0;
@@ -193,7 +193,7 @@ public sealed class WasapiLoopbackBeatsProvider : IBeatsProvider
         catch (OperationCanceledException) { /* shutdown */ }
         catch (Exception ex)
         {
-            Qos.Service.Lighting.Engine.Gpu.GpuContext.Log($"[wasapi] capture loop crashed: {ex}");
+            Nexus.Service.Lighting.Engine.Gpu.GpuContext.Log($"[wasapi] capture loop crashed: {ex}");
         }
         finally
         {
@@ -290,7 +290,7 @@ internal sealed unsafe class WasapiCapturer : IDisposable
             // read samples but the math may be off. Log so we can diagnose.
             if (bitsPerSample != 32)
             {
-                Qos.Service.Lighting.Engine.Gpu.GpuContext.Log($"[wasapi] non-float format detected (bits={bitsPerSample}); will read raw");
+                Nexus.Service.Lighting.Engine.Gpu.GpuContext.Log($"[wasapi] non-float format detected (bits={bitsPerSample}); will read raw");
             }
 
             // Allocate a ~200ms loopback buffer. We don't need a large buffer:

@@ -1,10 +1,10 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Qos.Service.Models.Cooling;
-using Qos.Service.Platform.Mac;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Platform.Mac;
 
-namespace Qos.Service.Cooling;
+namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// macOS fan / temperature provider backed by IOKit AppleSMC. Reads real

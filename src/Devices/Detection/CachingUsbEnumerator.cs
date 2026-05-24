@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Qos.Service.Devices.Detection;
+namespace Nexus.Service.Devices.Detection;
 
 /// <summary>
 /// Short-TTL cache over any <see cref="IUsbEnumerator"/>. On Windows the

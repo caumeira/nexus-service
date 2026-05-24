@@ -3,9 +3,9 @@ using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Qos.Service.Serialization;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Peripherals.Protocols.Razer;
+namespace Nexus.Service.Peripherals.Protocols.Razer;
 
 /// <summary>
 /// Razer mouse profile table. Data lives in protocols/razer-mouse.json.

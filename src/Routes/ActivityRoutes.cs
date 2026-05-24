@@ -1,12 +1,12 @@
 using System;
-using Qos.Service.Activity;
-using Qos.Service.Activity.Storage;
-using Qos.Service.Auth;
-using Qos.Service.Models;
-using Qos.Service.Models.Activity;
-using Qos.Service.Persistence;
+using Nexus.Service.Activity;
+using Nexus.Service.Activity.Storage;
+using Nexus.Service.Auth;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class ActivityRoutes
 {

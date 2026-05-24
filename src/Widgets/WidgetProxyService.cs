@@ -9,9 +9,9 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Widgets;
+using Nexus.Service.Models.Widgets;
 
-namespace Qos.Service.Widgets;
+namespace Nexus.Service.Widgets;
 
 /// <summary>
 /// Tier 1 + Tier 2 outbound HTTP proxy for marketplace widgets. The host
@@ -39,10 +39,10 @@ public sealed class WidgetProxyService
     /// <summary>
     /// Default User-Agent sent when the widget doesn't supply one. Public
     /// APIs (CoinGecko, OpenMeteo, ...) reject requests with empty or
-    /// suspicious UAs from server IPs. Identifying as the Qos widget proxy
+    /// suspicious UAs from server IPs. Identifying as the Nexus widget proxy
     /// is also more honest than impersonating a browser.
     /// </summary>
-    public const string DefaultUserAgent = "Qos-Widget-Proxy/1.0 (+https://nexusqos.com)";
+    public const string DefaultUserAgent = "Nexus-Widget-Proxy/1.0 (+https://nexusqos.com)";
 
     private static readonly HashSet<string> AllowedMethods = new(StringComparer.OrdinalIgnoreCase)
     {

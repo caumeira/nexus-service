@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 using System.Linq;
-using Qos.Service.Devices.Detection;
-using Qos.Service.Models.Devices;
+using Nexus.Service.Devices.Detection;
+using Nexus.Service.Models.Devices;
 
-namespace Qos.Service.Devices;
+namespace Nexus.Service.Devices;
 
 /// <summary>
 /// Aggregates all registered IDeviceHandler instances and coordinates USB enumeration

@@ -1,9 +1,9 @@
 using System;
 using System.Security.Cryptography;
 using System.Text;
-using Qos.Service.Persistence;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Auth;
+namespace Nexus.Service.Auth;
 
 /// <summary>
 /// Manages the local pairing token. A 32-byte URL-safe token is generated at

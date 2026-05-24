@@ -1,0 +1,28 @@
+{
+  "schema": "nexus.widget/2",
+  "id": "com.nexusqos.fixture-basic",
+  "name": "Fixture Basic",
+  "version": "1.0.0",
+  "description": "Declarative-schema fixture used by the registry tests.",
+  "min_qos_version": "0.42.0",
+  "surfaces": ["dashboard"],
+  "sizes": ["2x2", "4x2", "4x4"],
+  "default_size": "2x2",
+  "capabilities": {
+    "sensors.read": ["cpu.*"],
+    "rgb.read": false,
+    "rgb.write": false,
+    "net.fetch": [],
+    "config": true
+  },
+  "settings": [
+    { "key": "color", "type": "color", "label": "Ring colour", "default": "#ff8800" }
+  ],
+  "data": {
+    "temp": { "sensor": "cpu.package.temperature" }
+  },
+  "view": {
+    "type": "value",
+    "text": "{temp.formatted}"
+  }
+}

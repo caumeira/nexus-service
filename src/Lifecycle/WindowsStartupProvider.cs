@@ -6,27 +6,27 @@ using System.Runtime.Versioning;
 using Microsoft.Win32;
 #endif
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 /// <summary>
-/// Per-user "start at logon" toggle for the Qos user-session helper. The
+/// Per-user "start at logon" toggle for the Nexus user-session helper. The
 /// daemon itself runs as a LocalSystem Windows Service from boot, so it
 /// doesn't need a startup hook. This provider only controls whether the
-/// helper companion (Qos.exe --helper) auto-launches at sign-in.
+/// helper companion (Nexus.exe --helper) auto-launches at sign-in.
 ///
-/// Backed by <c>HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Qos</c>.
+/// Backed by <c>HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Nexus</c>.
 /// HKCU is per-user and writable without elevation, so the dashboard can
 /// flip the toggle on/off without UAC.
 ///
 /// Legacy: prior versions registered a logon-triggered scheduled task
-/// (<c>QosService</c>) under the user's identity to autostart the daemon.
+/// (<c>NexusService</c>) under the user's identity to autostart the daemon.
 /// That task is no longer needed and is cleaned up here on first run.
 /// </summary>
 public sealed class WindowsStartupProvider : IStartupProvider
 {
 #if WINDOWS
     private const string HkcuRunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
-    private const string ValueName = "Qos";
+    private const string ValueName = "Nexus";
 #endif
 
     public bool IsEnabled()

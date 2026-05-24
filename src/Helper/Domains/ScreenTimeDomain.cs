@@ -1,5 +1,5 @@
 #if WINDOWS
-namespace Qos.Service.Helper.Domains
+namespace Nexus.Service.Helper.Domains
 {
     /// <summary>
     /// Payload for <c>screenTime.session</c>. Helper-to-service, one-way.

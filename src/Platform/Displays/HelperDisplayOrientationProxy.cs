@@ -1,9 +1,9 @@
 #if WINDOWS
 using System.Runtime.Versioning;
-using Qos.Service.Helper;
-using Qos.Service.Helper.Domains;
+using Nexus.Service.Helper;
+using Nexus.Service.Helper.Domains;
 
-namespace Qos.Service.Platform.Displays;
+namespace Nexus.Service.Platform.Displays;
 
 /// <summary>
 /// Service-side <see cref="IDisplayOrientationProvider"/> that proxies the

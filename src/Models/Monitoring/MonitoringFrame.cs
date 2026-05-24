@@ -1,8 +1,8 @@
 using System.Collections.Generic;
-using Qos.Service.Activity;
-using Qos.Service.Models.Sensors;
+using Nexus.Service.Activity;
+using Nexus.Service.Models.Sensors;
 
-namespace Qos.Service.Models.Monitoring;
+namespace Nexus.Service.Models.Monitoring;
 
 /// <summary>
 /// Composite payload for the "monitoring" WebSocket topic. Contains all sensor,

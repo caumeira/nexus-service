@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using Qos.Service.Models.Activity;
+using Nexus.Service.Models.Activity;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 public sealed class StubScreenTimeProvider : IScreenTimeProvider
 {

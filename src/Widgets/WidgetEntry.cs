@@ -1,6 +1,6 @@
-using Qos.Service.Models.Widgets;
+using Nexus.Service.Models.Widgets;
 
-namespace Qos.Service.Widgets;
+namespace Nexus.Service.Widgets;
 
 /// <summary>
 /// Resolved view of one installed widget. The <see cref="RootPath"/> is the

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 
-namespace Qos.Service.Devices.Detection;
+namespace Nexus.Service.Devices.Detection;
 
 /// <summary>
 /// Pure parser for `pnputil /enum-devices /connected /properties` output. We use

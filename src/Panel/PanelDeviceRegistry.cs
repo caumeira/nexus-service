@@ -2,14 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Security.Cryptography;
-using Qos.Service.Models.Panel;
-using Qos.Service.Persistence;
+using Nexus.Service.Models.Panel;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Panel;
+namespace Nexus.Service.Panel;
 
 /// <summary>
 /// Owns the per-device panel records persisted under
-/// <c>QosSettings.PanelDevices</c> (top-level, NOT profile-scoped).
+/// <c>NexusSettings.PanelDevices</c> (top-level, NOT profile-scoped).
 /// Allocation, lookup, patching, removal all flow through here. Phone
 /// pairing keeps its own auth-token registry; this is the identity +
 /// layout surface that any panel device (Y70, kiosk, phone) maps onto via

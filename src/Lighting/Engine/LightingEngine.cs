@@ -2,7 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Lighting.Engine;
+namespace Nexus.Service.Lighting.Engine;
 
 public sealed class LightingEngine : IDisposable
 {

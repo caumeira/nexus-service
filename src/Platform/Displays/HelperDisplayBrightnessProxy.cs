@@ -1,11 +1,11 @@
 #if WINDOWS
 using System.Collections.Generic;
 using System.Runtime.Versioning;
-using Qos.Service.Helper;
-using Qos.Service.Helper.Domains;
-using Qos.Service.Models.Displays;
+using Nexus.Service.Helper;
+using Nexus.Service.Helper.Domains;
+using Nexus.Service.Models.Displays;
 
-namespace Qos.Service.Platform.Displays;
+namespace Nexus.Service.Platform.Displays;
 
 /// <summary>
 /// Service-side IDisplayBrightnessProvider that proxies every call to the

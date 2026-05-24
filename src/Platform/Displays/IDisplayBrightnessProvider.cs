@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Qos.Service.Models.Displays;
+using Nexus.Service.Models.Displays;
 
-namespace Qos.Service.Platform.Displays;
+namespace Nexus.Service.Platform.Displays;
 
 /// <summary>
 /// Cross-platform abstraction for enumerating system displays and reading/writing

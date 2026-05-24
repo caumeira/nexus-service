@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Devices.Firmware;
+namespace Nexus.Service.Devices.Firmware;
 
 /// <summary>
 /// On-disk + remote firmware manifest for a single device type. Mirrors the

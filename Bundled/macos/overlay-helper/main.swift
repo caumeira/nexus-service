@@ -1,7 +1,7 @@
-// qos-overlay-helper
+// nexus-overlay-helper
 //
 // Per-screen transparent borderless NSWindow hosting WKWebView for the
-// floating desktop widgets. Companion to qos-overlay.exe on Windows;
+// floating desktop widgets. Companion to nexus-overlay.exe on Windows;
 // the service spawns this helper when the user has at least one widget
 // pinned, kills it when the last widget is unpinned.
 //
@@ -10,8 +10,8 @@
 // raw objc_msgSend P/Invoke from Native AOT C#. Native Swift expresses
 // this in ~150 lines without the bridge friction.
 //
-// CLI: qos-overlay-helper --port=9400 --token=<bearer>
-//   --port  : qos-service HTTP port. Defaults to 9400.
+// CLI: nexus-overlay-helper --port=9400 --token=<bearer>
+//   --port  : nexus-service HTTP port. Defaults to 9400.
 //   --token : auth bearer token from /pair. Required - the WKWebView
 //             round-trips it to the service for /overlay routes.
 //
@@ -20,11 +20,11 @@
 // * One window per NSScreen; each navigates to /overlay?monitor=N&token=T.
 // * Stays on every Space, doesn't appear in cmd-tab.
 // * Status-window level when --always-on-top, normal level otherwise.
-// * SPA -> host bridge via WKScriptMessageHandler named "qosOverlay".
+// * SPA -> host bridge via WKScriptMessageHandler named "nexusOverlay".
 //
 // Lifecycle: dies on parent process exit (we monitor stdin EOF). Re-spawned
 // by the service on demand. Single instance via PID file in
-// ~/Library/Application Support/Qos/.
+// ~/Library/Application Support/Nexus/.
 
 import AppKit
 import WebKit
@@ -435,7 +435,7 @@ final class OverlayController {
 
         let cfg = WKWebViewConfiguration()
         cfg.processPool = processPool
-        cfg.userContentController.add(bridge, name: "qosOverlay")
+        cfg.userContentController.add(bridge, name: "nexusOverlay")
 
         // Diagnostics: bridgeReady at document-end + 1Hz pulse so the helper
         // can tell the difference between "SPA never loaded" and "SPA loaded
@@ -445,7 +445,7 @@ final class OverlayController {
         // channel is reachable at page load. No periodic pulse - those
         // were diagnostic-only and floor the log file at ~1 line / 2s.
         let probe = WKUserScript(
-            source: "try { window.webkit.messageHandlers.qosOverlay.postMessage(JSON.stringify({type:'bridgeReady',href:location.href})); } catch (e) { }",
+            source: "try { window.webkit.messageHandlers.nexusOverlay.postMessage(JSON.stringify({type:'bridgeReady',href:location.href})); } catch (e) { }",
             injectionTime: .atDocumentEnd,
             forMainFrameOnly: false)
         cfg.userContentController.addUserScript(probe)
@@ -530,12 +530,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         c.start()
         controller = c
 
-        // Die when our parent (qos-service) goes away. NSPipe-based
+        // Die when our parent (nexus-service) goes away. NSPipe-based
         // EOF detection keeps the helper from leaking after a service crash
         // that doesn't close its child cleanly. Mirrors how /Users see
         // launchd reap a parent process.
         let stdin = FileHandle.standardInput
-        DispatchQueue.global(qos: .background).async {
+        DispatchQueue.global(nexus: .background).async {
             let _ = stdin.readDataToEndOfFile()
             DispatchQueue.main.async { NSApplication.shared.terminate(nil) }
         }

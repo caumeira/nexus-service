@@ -2,9 +2,9 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
-using Qos.Service.Platform.Linux.DBus;
+using Nexus.Service.Platform.Linux.DBus;
 
-namespace Qos.Service.Platform.Linux;
+namespace Nexus.Service.Platform.Linux;
 
 /// <summary>
 /// KDE/Plasma system tray icon via D-Bus StatusNotifierItem + com.canonical.dbusmenu.
@@ -116,8 +116,8 @@ public sealed class LinuxTrayHost : IDisposable
     private void WriteSniProperties(DBusWriter w)
     {
         WriteDictEntry(w, "Category", "s", ww => ww.WriteString("ApplicationStatus"));
-        WriteDictEntry(w, "Id", "s", ww => ww.WriteString("qos-service"));
-        WriteDictEntry(w, "Title", "s", ww => ww.WriteString("Qos"));
+        WriteDictEntry(w, "Id", "s", ww => ww.WriteString("nexus-service"));
+        WriteDictEntry(w, "Title", "s", ww => ww.WriteString("Nexus"));
         WriteDictEntry(w, "Status", "s", ww => ww.WriteString("Active"));
         WriteDictEntry(w, "IconName", "s", ww => ww.WriteString("applications-system"));
         WriteDictEntry(w, "ItemIsMenu", "b", ww => ww.WriteBool(false));
@@ -135,10 +135,10 @@ public sealed class LinuxTrayHost : IDisposable
                 w.WriteVariant("s", ww => ww.WriteString("ApplicationStatus"));
                 return;
             case "Id":
-                w.WriteVariant("s", ww => ww.WriteString("qos-service"));
+                w.WriteVariant("s", ww => ww.WriteString("nexus-service"));
                 return;
             case "Title":
-                w.WriteVariant("s", ww => ww.WriteString("Qos"));
+                w.WriteVariant("s", ww => ww.WriteString("Nexus"));
                 return;
             case "Status":
                 w.WriteVariant("s", ww => ww.WriteString("Active"));
@@ -195,7 +195,7 @@ public sealed class LinuxTrayHost : IDisposable
                         WriteMenuItemVariant(w, MenuOpenDashboard, "Open Dashboard", false);
                         WriteMenuItemVariant(w, MenuSettings, "Settings", false);
                         WriteMenuItemVariant(w, MenuSeparator, "", true);
-                        WriteMenuItemVariant(w, MenuQuit, "Quit Qos", false);
+                        WriteMenuItemVariant(w, MenuQuit, "Quit Nexus", false);
                         w.CloseArray();
                     });
                 case "GetGroupProperties":
@@ -205,7 +205,7 @@ public sealed class LinuxTrayHost : IDisposable
                         WriteMenuItemStruct(w, MenuOpenDashboard, "Open Dashboard", false);
                         WriteMenuItemStruct(w, MenuSettings, "Settings", false);
                         WriteMenuItemStruct(w, MenuSeparator, "", true);
-                        WriteMenuItemStruct(w, MenuQuit, "Quit Qos", false);
+                        WriteMenuItemStruct(w, MenuQuit, "Quit Nexus", false);
                         w.CloseArray();
                     });
                 case "AboutToShow":

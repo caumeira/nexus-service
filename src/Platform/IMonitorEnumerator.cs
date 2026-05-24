@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Qos.Service.Models.Lighting;
+using Nexus.Service.Models.Lighting;
 
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 /// <summary>
 /// Source of attached-display info for the screen-mirror UI. Two impls:

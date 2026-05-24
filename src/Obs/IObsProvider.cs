@@ -1,7 +1,7 @@
-using Qos.Service.Models;
-using Qos.Service.Models.Obs;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Obs;
 
-namespace Qos.Service.Obs;
+namespace Nexus.Service.Obs;
 
 public interface IObsProvider
 {

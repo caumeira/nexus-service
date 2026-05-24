@@ -1,9 +1,9 @@
-using Qos.Service.Activity;
-using Qos.Service.Conflicts;
-using Qos.Service.Models;
-using Qos.Service.Models.Conflicts;
+using Nexus.Service.Activity;
+using Nexus.Service.Conflicts;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Conflicts;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 /// <summary>
 /// REST surface for the sidebar conflict warning. The watcher running

@@ -1,9 +1,9 @@
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
-using Qos.Service.Models.Cooling;
-using Qos.Service.Peripherals.Hyte.Np50;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Peripherals.Hyte.Np50;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 /// <summary>
 /// HYTE NP50 device-specific endpoints. The singleton <see cref="Np50Hub"/>
@@ -18,7 +18,7 @@ public static partial class DevicesRoutes
 {
     private static void MapNp50Endpoints(WebApplication app)
     {
-        // Singleton-style endpoint — qos currently supports at most one NP50.
+        // Singleton-style endpoint — nexus currently supports at most one NP50.
         // Per-serial routes get added once multi-hub support arrives; the
         // shape is intentionally compatible (a single NP50 means /devices/np50
         // and /devices/np50/{any-serial} both return the same state).

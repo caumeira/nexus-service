@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Sensors;
+namespace Nexus.Service.Models.Sensors;
 
 /// <summary>
 /// Single sensor reading matching the ISystemSensor JSON shape.

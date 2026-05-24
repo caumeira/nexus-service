@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Qos.Service.Peripherals.Capabilities;
+using Nexus.Service.Peripherals.Capabilities;
 
-namespace Qos.Service.Peripherals.Protocols.Razer;
+namespace Nexus.Service.Peripherals.Protocols.Razer;
 
 /// <summary>
 /// Generic Razer mouse handler driven by <see cref="RazerMouseProfile"/>. Replaces

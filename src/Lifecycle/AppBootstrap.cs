@@ -1,15 +1,15 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
-using Qos.Service.Activity;
-using Qos.Service.Cooling;
-using Qos.Service.Lighting;
-using Qos.Service.Lighting.Engine;
-using Qos.Service.Lighting.Engine.Gpu;
-using Qos.Service.Persistence;
-using Qos.Service.Serialization;
-using Qos.Service.Sockets;
+using Nexus.Service.Activity;
+using Nexus.Service.Cooling;
+using Nexus.Service.Lighting;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Engine.Gpu;
+using Nexus.Service.Persistence;
+using Nexus.Service.Serialization;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 // Post-Build wiring that runs once before the middleware pipeline goes up:
 // GPU eager-init, profile manager init + reapply hook, BeatsProvider/audio
@@ -95,7 +95,7 @@ internal static class AppBootstrap
             }
             if (muxHub.TopicHasSubscribers("audio"))
             {
-                var snap = new Qos.Service.Models.Lighting.AudioStateSnapshot
+                var snap = new Nexus.Service.Models.Lighting.AudioStateSnapshot
                 {
                     Level = AudioState.Level,
                     Bass = AudioState.Bass,
@@ -117,12 +117,12 @@ internal static class AppBootstrap
         // the device-list and the connected-count signal.
         muxHub.OnTopicFirstSubscriber += topic =>
         {
-            if (topic == Qos.Service.Panel.PanelPhonePairingService.PresenceTopic)
+            if (topic == Nexus.Service.Panel.PanelPhonePairingService.PresenceTopic)
                 PanelTopics.BroadcastPanelDevice(muxHub, "presence");
         };
         muxHub.OnTopicLastUnsubscriber += topic =>
         {
-            if (topic == Qos.Service.Panel.PanelPhonePairingService.PresenceTopic)
+            if (topic == Nexus.Service.Panel.PanelPhonePairingService.PresenceTopic)
                 PanelTopics.BroadcastPanelDevice(muxHub, "presence");
         };
 

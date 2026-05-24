@@ -1,10 +1,10 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Platform.Linux.DBus;
+using Nexus.Service.Platform.Linux.DBus;
 using Microsoft.Extensions.Hosting;
 
-namespace Qos.Service.Platform.Linux;
+namespace Nexus.Service.Platform.Linux;
 
 /// <summary>
 /// Spins up the KDE tray icon alongside the web service. Consumes the shared

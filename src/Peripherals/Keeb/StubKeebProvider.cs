@@ -1,9 +1,9 @@
 using System.Collections.Generic;
-using Qos.Service.Models.Common;
-using Qos.Service.Models.Peripherals.Keeb;
-using Qos.Service.Persistence;
+using Nexus.Service.Models.Common;
+using Nexus.Service.Models.Peripherals.Keeb;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Peripherals.Keeb;
+namespace Nexus.Service.Peripherals.Keeb;
 
 public sealed class StubKeebProvider : IKeebProvider, IInputterProvider
 {

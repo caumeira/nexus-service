@@ -2,7 +2,7 @@ using System;
 using System.IO.Ports;
 using System.Threading;
 
-namespace Qos.Service.Peripherals.Hyte.Np50;
+namespace Nexus.Service.Peripherals.Hyte.Np50;
 
 /// <summary>
 /// <see cref="INp50Transport"/> backed by <see cref="SerialPort"/>. NP50 / MiniHub

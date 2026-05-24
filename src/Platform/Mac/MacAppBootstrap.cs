@@ -1,8 +1,8 @@
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
-using Qos.Service.Persistence;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Platform.Mac;
+namespace Nexus.Service.Platform.Mac;
 
 // macOS startup. NSStatusItem + NSWindow must run on the main thread, so the
 // caller starts the web host async (on background threads) and we initialize
@@ -13,14 +13,14 @@ internal static class MacAppBootstrap
     public static int Run(WebApplication app, int servicePort)
     {
         // Auto-open the dashboard window when the .app finishes launching, so
-        // double-clicking Qos.app behaves like the Windows tray launch:
+        // double-clicking Nexus.app behaves like the Windows tray launch:
         // user always sees a window, not just a hidden menu-bar agent.
         // MacAppWindow hosts a WKWebView in-process; the chromeless window
         // is built from AppKit + WebKit, no Chrome / Edge dependency.
         app.Lifetime.ApplicationStarted.Register(() =>
         {
             try { MacAppWindow.OpenOrFocus(ServiceLaunchIntent.LocalDashboardUrl(servicePort)); }
-            catch (Exception ex) { Console.Error.WriteLine($"[qos-service] mac auto-open failed: {ex.Message}"); }
+            catch (Exception ex) { Console.Error.WriteLine($"[nexus-service] mac auto-open failed: {ex.Message}"); }
         });
 
         // Start web host on background thread — returns immediately.
@@ -36,12 +36,12 @@ internal static class MacAppBootstrap
             onOpenSettings: () => MacAppWindow.OpenOrFocus($"http://localhost:{servicePort}/system/settings"),
             onQuit: () =>
             {
-                Console.WriteLine("[qos-service] quit requested from status bar");
+                Console.WriteLine("[nexus-service] quit requested from status bar");
                 _ = app.StopAsync();
                 MacStatusBar.StopRunLoop();
             },
             // LaunchServices delivers kAEReopenApplication when the user
-            // re-launches Qos.app while it's already running, or clicks the
+            // re-launches Nexus.app while it's already running, or clicks the
             // Dock icon. Bring the existing window forward without reloading
             // - if the user is mid-navigation, a Dock click must not refresh
             // them back to the start. navigateIfOpen=false makes

@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using Qos.Service.Models.Widgets;
+using Nexus.Service.Models.Widgets;
 
-namespace Qos.Service.Widgets;
+namespace Nexus.Service.Widgets;
 
 /// <summary>
 /// Filesystem mover for marketplace widgets. v1 catalogue is the bundled +
@@ -82,7 +82,7 @@ public sealed class WidgetInstaller
 
         // Compute the user widgets dir from the install paths enumerator;
         // it's the entry whose Source is User. (On every supported OS that
-        // path is `<appdata>/Qos/widgets/`.)
+        // path is `<appdata>/Nexus/widgets/`.)
         string? userRoot = null;
         foreach (var root in WidgetInstallPaths.Enumerate())
         {

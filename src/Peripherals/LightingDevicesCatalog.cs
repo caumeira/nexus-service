@@ -3,10 +3,10 @@ using System.IO;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Serialization;
-using Qos.Service.Models.Peripherals;
-using Qos.Service.Serialization;
+using Nexus.Service.Models.Peripherals;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Peripherals;
+namespace Nexus.Service.Peripherals;
 
 /// <summary>
 /// The full catalog of RGB-capable devices OpenRGB can drive, extracted at build

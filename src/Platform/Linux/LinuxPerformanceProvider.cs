@@ -4,7 +4,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Platform.Linux;
+namespace Nexus.Service.Platform.Linux;
 
 /// <summary>
 /// Linux implementation of IPerformanceProvider. Reads CPU ticks from /proc/stat

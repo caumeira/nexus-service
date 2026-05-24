@@ -5,7 +5,7 @@ using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Helper;
+namespace Nexus.Service.Helper;
 
 /// <summary>
 /// Helper-side dispatch table. Each domain registers a handler keyed on the

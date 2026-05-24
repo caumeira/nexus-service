@@ -1,4 +1,4 @@
-namespace Qos.Service.Peripherals.Protocols.Razer;
+namespace Nexus.Service.Peripherals.Protocols.Razer;
 
 /// <summary>
 /// How a given Razer mouse implements polling-rate commands. Older generations use a

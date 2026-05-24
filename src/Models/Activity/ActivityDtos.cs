@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Activity;
+namespace Nexus.Service.Models.Activity;
 
 // ----- ScreenTime -----
 

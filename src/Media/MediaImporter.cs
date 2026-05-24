@@ -2,10 +2,10 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
-using Qos.Service.Models.Media;
-using Qos.Service.Platform;
+using Nexus.Service.Models.Media;
+using Nexus.Service.Platform;
 
-namespace Qos.Service.Media;
+namespace Nexus.Service.Media;
 
 /// <summary>
 /// Converts uploaded files to optimized frame sequences for the lighting engine.
@@ -43,7 +43,7 @@ public static class MediaImporter
 
         if (FfmpegResolver.Path is null)
         {
-            return ImportResult.Failure("Media conversion requires ffmpeg, which is missing. Reinstall qos-service.");
+            return ImportResult.Failure("Media conversion requires ffmpeg, which is missing. Reinstall nexus-service.");
         }
 
         var dir = library.GetItemDir(id);

@@ -3,7 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 
-namespace Qos.Service.Peripherals.Hyte.MiniHub;
+namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 
 /// <summary>
 /// Background poller for the MiniHub. Much simpler than NP50's heartbeat

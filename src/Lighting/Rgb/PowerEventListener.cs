@@ -8,7 +8,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Win32;
 #endif
 
-namespace Qos.Service.Lighting.Rgb;
+namespace Nexus.Service.Lighting.Rgb;
 
 /// <summary>
 /// Subscribes to OS power events and bounces the OpenRGB subprocess when the

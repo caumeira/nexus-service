@@ -1,4 +1,4 @@
-namespace Qos.Service.Models.Lifecycle;
+namespace Nexus.Service.Models.Lifecycle;
 
 public class SetWillStartParams
 {

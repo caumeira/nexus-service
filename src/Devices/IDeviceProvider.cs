@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Qos.Service.Models.Devices;
+using Nexus.Service.Models.Devices;
 
-namespace Qos.Service.Devices;
+namespace Nexus.Service.Devices;
 
 public interface IDeviceProvider
 {

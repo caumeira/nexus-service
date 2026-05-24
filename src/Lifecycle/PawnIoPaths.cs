@@ -1,7 +1,7 @@
 using System;
 using System.IO;
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 /// <summary>
 /// Resolves PawnIO file paths. The user-mode DLL prefers a system-installed
@@ -22,7 +22,7 @@ public static class PawnIoPaths
     /// </summary>
     public static string InstalledSysPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "Qos", "PawnIO", "PawnIO.sys");
+        "Nexus", "PawnIO", "PawnIO.sys");
 
     /// <summary>
     /// PawnIOLib.dll location, preferring system install over bundled copy.

@@ -1,4 +1,4 @@
-namespace Qos.Service.Models.Cooling;
+namespace Nexus.Service.Models.Cooling;
 
 /// <summary>
 /// Single source of truth for the <see cref="FanChannel.Mode"/> wire string.
@@ -11,7 +11,7 @@ namespace Qos.Service.Models.Cooling;
 /// </summary>
 public static class FanModes
 {
-    /// <summary>Fan is BIOS-controlled — qos is not driving its PWM.</summary>
+    /// <summary>Fan is BIOS-controlled — nexus is not driving its PWM.</summary>
     public const string Auto = "Auto";
 
     /// <summary>User-set fixed duty (no curve attached).</summary>

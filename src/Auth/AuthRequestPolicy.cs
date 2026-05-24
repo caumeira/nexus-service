@@ -1,7 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 
-namespace Qos.Service.Auth;
+namespace Nexus.Service.Auth;
 
 public static class AuthRequestPolicy
 {

@@ -1,7 +1,7 @@
 using System;
 using LibreHardwareMonitor.Hardware;
 
-namespace Qos.Service.Sensors;
+namespace Nexus.Service.Sensors;
 
 /// <summary>
 /// Shared singleton wrapping the LibreHardwareMonitor Computer instance.

@@ -4,10 +4,10 @@ using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Lighting.Capture;
-using Qos.Service.Platform;
+using Nexus.Service.Lighting.Capture;
+using Nexus.Service.Platform;
 
-namespace Qos.Service.Lighting.Engine.Effects;
+namespace Nexus.Service.Lighting.Engine.Effects;
 
 public sealed class ScreenMirrorEffect : IEffect
 {
@@ -154,7 +154,7 @@ public sealed class ScreenMirrorEffect : IEffect
     {
         _cts = new CancellationTokenSource();
         bool isWin = RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
-        var ffmpegPath = Qos.Service.Platform.FfmpegResolver.Path
+        var ffmpegPath = Nexus.Service.Platform.FfmpegResolver.Path
             ?? throw new InvalidOperationException("ffmpeg not found");
         var psi = new ProcessStartInfo { FileName = ffmpegPath, RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, CreateNoWindow = true };
         psi.ArgumentList.Add("-loglevel");

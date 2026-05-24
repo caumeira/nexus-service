@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Benchmarks;
+namespace Nexus.Service.Models.Benchmarks;
 
 public sealed class HardwareIdentity
 {

@@ -1,13 +1,13 @@
-using Qos.Service.Auth;
-using Qos.Service.Models;
-using Qos.Service.Models.Displays;
-using Qos.Service.Models.Peripherals.QSeries;
-using Qos.Service.Models.Peripherals.Y70;
-using Qos.Service.Peripherals.QSeries;
-using Qos.Service.Peripherals.Y70;
-using Qos.Service.Platform.Displays;
+using Nexus.Service.Auth;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Displays;
+using Nexus.Service.Models.Peripherals.QSeries;
+using Nexus.Service.Models.Peripherals.Y70;
+using Nexus.Service.Peripherals.QSeries;
+using Nexus.Service.Peripherals.Y70;
+using Nexus.Service.Platform.Displays;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class DisplayRoutes
 {

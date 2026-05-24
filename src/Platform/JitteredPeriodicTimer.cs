@@ -1,7 +1,7 @@
 using System;
 using System.Threading;
 
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 /// <summary>
 /// Periodic timer that re-arms with a random offset around the configured

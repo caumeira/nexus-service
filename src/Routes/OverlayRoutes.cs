@@ -1,14 +1,14 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using Qos.Service.Auth;
-using Qos.Service.Models;
-using Qos.Service.Models.Panel;
-using Qos.Service.Persistence;
-using Qos.Service.Serialization;
-using Qos.Service.Sockets;
+using Nexus.Service.Auth;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Panel;
+using Nexus.Service.Persistence;
+using Nexus.Service.Serialization;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 /// <summary>
 /// Floating desktop widget endpoints. State is profile-scoped under

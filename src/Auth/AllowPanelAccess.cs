@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Builder;
 
-namespace Qos.Service.Auth;
+namespace Nexus.Service.Auth;
 
 /// <summary>
 /// Endpoint metadata marker. Routes annotated with <see cref="AllowPanelAccess"/>

@@ -2,7 +2,7 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Devices.Firmware;
+namespace Nexus.Service.Devices.Firmware;
 
 /// <summary>
 /// Local cache + download manager for device firmware binaries. Owns the

@@ -1,7 +1,7 @@
 using System.IO;
 using System.Runtime.InteropServices;
 
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 /// <summary>
 /// Routes Console.Out and Console.Error through a TextWriter that also writes
@@ -53,17 +53,17 @@ public static class ServiceLog
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             var home = Environment.GetEnvironmentVariable("HOME") ?? "/tmp";
-            return Path.Combine(home, "Library", "Logs", "Qos");
+            return Path.Combine(home, "Library", "Logs", "Nexus");
         }
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
             var home = Environment.GetEnvironmentVariable("HOME") ?? "/tmp";
-            return Path.Combine(home, ".local", "state", "qos", "logs");
+            return Path.Combine(home, ".local", "state", "nexus", "logs");
         }
         // Windows: machine-scope logs under %ProgramData% so the LocalSystem
         // service can write them and an admin can inspect them post-incident.
         var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-        return Path.Combine(programData, "Qos", "logs");
+        return Path.Combine(programData, "Nexus", "logs");
     }
 
     private static void RotateIfTooLarge(string path)

@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Pure parsing helpers for Windows <c>netstat -n -o</c> output. Lives in a
@@ -16,7 +16,7 @@ public static class NetstatParser
     /// loopback (127.x.x.x, ::1) or listeners (0.0.0.0:0, *:*) are excluded:
     /// they do not generate any real internet/LAN traffic. This filters out
     /// pure on-box chatter (e.g. the web client and panel kiosk talking to
-    /// qos-service over localhost) so it does not pollute the network
+    /// nexus-service over localhost) so it does not pollute the network
     /// graph.
     /// </summary>
     public static HashSet<int> ParseInternetActivePids(string netstatOutput)

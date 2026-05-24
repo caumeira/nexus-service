@@ -5,15 +5,15 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace Qos.Service.Panel;
+namespace Nexus.Service.Panel;
 
 /// <summary>
-/// Spawns and supervises qos-overlay.exe, the WebView2 host that
+/// Spawns and supervises nexus-overlay.exe, the WebView2 host that
 /// renders floating widgets on the Windows desktop. The host lives in the
 /// `overlay/` subdirectory next to the service exe; that layout is enforced
 /// by the PublishOverlayHost MSBuild target. The overlay is a raw-Win32 +
 /// direct WebView2 C-API P/Invoke binary published with PublishAot=true -
-/// the only files in overlay/ are qos-overlay.exe and WebView2Loader.dll.
+/// the only files in overlay/ are nexus-overlay.exe and WebView2Loader.dll.
 ///
 /// Lifecycle:
 /// - Started at service boot when <c>UiSettings.OverlayWidgetsEnabled</c>
@@ -53,7 +53,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
 
     private static readonly string PidFilePath = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "Qos", "panel-desktop-pid.txt");
+        "Nexus", "panel-desktop-pid.txt");
 
     public PanelOverlayHostLauncher()
     {
@@ -86,7 +86,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         var hostPath = ResolveHostPath();
         if (hostPath is null || !File.Exists(hostPath))
         {
-            Console.Error.WriteLine($"[overlay-host] qos-overlay.exe not found at expected path '{hostPath ?? "<null>"}'; the PublishOverlayHost target must populate <publish>/overlay/. Desktop widgets disabled.");
+            Console.Error.WriteLine($"[overlay-host] nexus-overlay.exe not found at expected path '{hostPath ?? "<null>"}'; the PublishOverlayHost target must populate <publish>/overlay/. Desktop widgets disabled.");
             return false;
         }
 
@@ -212,7 +212,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             try
             {
                 var proc = Process.GetProcessById(pid);
-                if (proc.ProcessName.Contains("qos-overlay", StringComparison.OrdinalIgnoreCase))
+                if (proc.ProcessName.Contains("nexus-overlay", StringComparison.OrdinalIgnoreCase))
                 {
                     proc.Kill(entireProcessTree: true);
                     Console.WriteLine($"[overlay-host] killed orphan (pid {pid})");
@@ -240,7 +240,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         // because the user's profile + window-station / desktop ACLs need
         // bespoke setup the Task Scheduler service already handles for us.
         // Tradeoff: we lose direct parent-child handle tracking, but we
-        // recover the PID by polling qos-overlay.exe after Run completes.
+        // recover the PID by polling nexus-overlay.exe after Run completes.
         var username = ResolveActiveConsoleUsername();
         if (string.IsNullOrEmpty(username))
         {
@@ -248,7 +248,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             return null;
         }
         // Unique task name so concurrent spawns or stale tasks don't collide.
-        var taskName = $"QosOverlayLaunch_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
+        var taskName = $"NexusOverlayLaunch_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
         try
         {
             // /IT = interactive, /SC ONCE + a future /ST so the task only
@@ -258,9 +258,9 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             {
                 return null;
             }
-            // Snapshot existing qos-overlay PIDs before /Run so we can detect
+            // Snapshot existing nexus-overlay PIDs before /Run so we can detect
             // the new one by set difference.
-            var before = Process.GetProcessesByName("qos-overlay").Select(p => p.Id).ToHashSet();
+            var before = Process.GetProcessesByName("nexus-overlay").Select(p => p.Id).ToHashSet();
             if (!Schtasks("/Run", "/TN", taskName))
             {
                 return null;
@@ -270,7 +270,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             for (var attempt = 0; attempt < 30 && spawned is null; attempt++)
             {
                 System.Threading.Thread.Sleep(100);
-                foreach (var p in Process.GetProcessesByName("qos-overlay"))
+                foreach (var p in Process.GetProcessesByName("nexus-overlay"))
                 {
                     if (!before.Contains(p.Id)) { spawned = p; break; }
                     p.Dispose();
@@ -278,7 +278,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             }
             if (spawned is null)
             {
-                Console.Error.WriteLine("[overlay-host] schtasks /Run did not produce a qos-overlay process");
+                Console.Error.WriteLine("[overlay-host] schtasks /Run did not produce a nexus-overlay process");
                 return null;
             }
             Console.WriteLine($"[overlay-host] spawned in user session via schtasks pid {spawned.Id}");
@@ -346,7 +346,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         // under publish modes we use.
         var serviceDir = AppContext.BaseDirectory;
         if (string.IsNullOrEmpty(serviceDir)) return null;
-        return Path.Combine(serviceDir, "overlay", "qos-overlay.exe");
+        return Path.Combine(serviceDir, "overlay", "nexus-overlay.exe");
     }
 
     private void OnExited(object? sender, EventArgs e)
@@ -428,7 +428,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     // ── Windows Job Object plumbing ──
     // CreateJobObject + JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE makes every
     // process assigned to the job die when this handle closes (= when
-    // Qos.exe exits, including taskkill /F or hard crash).
+    // Nexus.exe exits, including taskkill /F or hard crash).
 
     private const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x2000;
     private const int JobObjectExtendedLimitInformation = 9;

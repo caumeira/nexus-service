@@ -1,8 +1,8 @@
 using System;
-using Qos.Service.Persistence;
-using Qos.Service.Platform.Displays;
+using Nexus.Service.Persistence;
+using Nexus.Service.Platform.Displays;
 
-namespace Qos.Service.Peripherals.Y70;
+namespace Nexus.Service.Peripherals.Y70;
 
 public sealed class StubY70Provider : IY70Provider
 {

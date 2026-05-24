@@ -2,9 +2,9 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using Qos.Service.Models.Displays;
+using Nexus.Service.Models.Displays;
 
-namespace Qos.Service.Platform.Displays;
+namespace Nexus.Service.Platform.Displays;
 
 /// <summary>
 /// Windows display brightness via the in-box DDC/CI APIs in dxva2.dll

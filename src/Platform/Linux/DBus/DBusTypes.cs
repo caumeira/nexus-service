@@ -4,7 +4,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Platform.Linux.DBus;
+namespace Nexus.Service.Platform.Linux.DBus;
 
 public enum DBusMessageType : byte
 {

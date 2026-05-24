@@ -4,13 +4,13 @@ using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Activity.Storage;
-using Qos.Service.Models.Activity;
-using Qos.Service.Persistence;
-using Qos.Service.Platform.Linux.DBus;
+using Nexus.Service.Activity.Storage;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Persistence;
+using Nexus.Service.Platform.Linux.DBus;
 using Microsoft.Extensions.Hosting;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Linux screen-time tracker for KDE Plasma 6 (Wayland + X11). Injects a tiny
@@ -22,10 +22,10 @@ namespace Qos.Service.Activity;
 /// </summary>
 public sealed class LinuxScreenTimeProvider : IScreenTimeProvider, IHostedService, IDisposable
 {
-    private const string ServiceName = "org.qos.ScreenTime";
+    private const string ServiceName = "org.nexus.ScreenTime";
     private const string ObjectPath = "/ScreenTime";
-    private const string InterfaceName = "org.qos.ScreenTime";
-    private const string KWinPluginName = "qos-focus";
+    private const string InterfaceName = "org.nexus.ScreenTime";
+    private const string KWinPluginName = "nexus-focus";
     private const long IdleCapMs = 3 * 60 * 1000;
 
     private readonly DBusConnection _dbus;
@@ -329,11 +329,11 @@ public sealed class LinuxScreenTimeProvider : IScreenTimeProvider, IHostedServic
     private const string MetadataJson = """
 {
   "KPlugin": {
-    "Authors": [{"Name": "Qos"}],
+    "Authors": [{"Name": "Nexus"}],
     "Category": "Window Management",
-    "Description": "Reports focused window changes to the Qos service via D-Bus",
-    "Id": "qos-focus",
-    "Name": "Qos Focus Tracker",
+    "Description": "Reports focused window changes to the Nexus service via D-Bus",
+    "Id": "nexus-focus",
+    "Name": "Nexus Focus Tracker",
     "ServiceTypes": ["KWin/Script"],
     "Version": "1.0",
     "EnabledByDefault": true
@@ -348,16 +348,16 @@ function sendFocus(win) {
     var pid = (typeof win.pid === 'number') ? win.pid : 0;
     var name = win.resourceName || win.caption || win.windowClass || "";
     try {
-        callDBus("org.qos.ScreenTime", "/ScreenTime",
-                 "org.qos.ScreenTime", "ReportFocus",
+        callDBus("org.nexus.ScreenTime", "/ScreenTime",
+                 "org.nexus.ScreenTime", "ReportFocus",
                  pid, name);
     } catch (e) {
     }
 }
 
 try {
-    callDBus("org.qos.ScreenTime", "/ScreenTime",
-             "org.qos.ScreenTime", "ReportFocus",
+    callDBus("org.nexus.ScreenTime", "/ScreenTime",
+             "org.nexus.ScreenTime", "ReportFocus",
              0, "__kwin_script_loaded__");
 } catch (e) { }
 
@@ -377,7 +377,7 @@ if (typeof workspace !== 'undefined') {
 <!DOCTYPE node PUBLIC "-//freedesktop//DTD D-BUS Object Introspection 1.0//EN"
  "http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd">
 <node>
-  <interface name="org.qos.ScreenTime">
+  <interface name="org.nexus.ScreenTime">
     <method name="ReportFocus">
       <arg type="u" direction="in" name="pid"/>
       <arg type="s" direction="in" name="name"/>

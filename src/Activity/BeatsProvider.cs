@@ -3,10 +3,10 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Activity;
-using Qos.Service.Platform;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Platform;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Linux audio beat detector backed by ffmpeg (PulseAudio default monitor).

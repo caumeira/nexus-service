@@ -1,4 +1,4 @@
-namespace Qos.Service.Lighting.Rgb;
+namespace Nexus.Service.Lighting.Rgb;
 
 /// <summary>
 /// Single RGB triplet — packed 3 bytes, no padding. The wire format adds a

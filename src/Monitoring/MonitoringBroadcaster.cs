@@ -4,18 +4,18 @@ using System.Linq;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Activity;
-using Qos.Service.Fps;
-using Qos.Service.Models.Activity;
-using Qos.Service.Models.Monitoring;
-using Qos.Service.Models.Sensors;
-using Qos.Service.Platform;
-using Qos.Service.Sensors;
-using Qos.Service.Serialization;
-using Qos.Service.Sockets;
+using Nexus.Service.Activity;
+using Nexus.Service.Fps;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Models.Monitoring;
+using Nexus.Service.Models.Sensors;
+using Nexus.Service.Platform;
+using Nexus.Service.Sensors;
+using Nexus.Service.Serialization;
+using Nexus.Service.Sockets;
 using Microsoft.Extensions.Hosting;
 
-namespace Qos.Service.Monitoring;
+namespace Nexus.Service.Monitoring;
 
 /// <summary>
 /// Subscription-aware broadcaster that checks which topics have subscribers

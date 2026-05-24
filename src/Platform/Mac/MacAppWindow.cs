@@ -3,7 +3,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace Qos.Service.Platform.Mac;
+namespace Nexus.Service.Platform.Mac;
 
 /// <summary>
 /// NSWindow + WKWebView host - the macOS native shell. Replaces the
@@ -12,7 +12,7 @@ namespace Qos.Service.Platform.Mac;
 /// user to install Chrome.
 ///
 /// Uses the standard macOS titled window so the system draws its native
-/// title bar with the "Qos" caption, traffic-light controls
+/// title bar with the "Nexus" caption, traffic-light controls
 /// (close / minimize / maximize) at the top-left, and the standard drag /
 /// resize affordances. WKWebView fills the content view below.
 ///
@@ -88,13 +88,13 @@ internal static class MacAppWindow
             }
 
             IntPtr nsObject = ClassGet("NSObject");
-            IntPtr targetClass = objc_allocateClassPair(nsObject, "QosAppWindowTarget", IntPtr.Zero);
+            IntPtr targetClass = objc_allocateClassPair(nsObject, "NexusAppWindowTarget", IntPtr.Zero);
             if (targetClass == IntPtr.Zero)
             {
                 // A previous registration attempt already created the class.
-                targetClass = ClassGet("QosAppWindowTarget");
+                targetClass = ClassGet("NexusAppWindowTarget");
                 if (targetClass == IntPtr.Zero)
-                    throw new InvalidOperationException("Failed to allocate QosAppWindowTarget");
+                    throw new InvalidOperationException("Failed to allocate NexusAppWindowTarget");
             }
             else
             {
@@ -175,7 +175,7 @@ internal static class MacAppWindow
 
         // ── NSWindow ────────────────────────────────────────────────────────
         // Standard titled window. The system draws the title bar (caption
-        // "Qos", traffic-light controls at top-left); the WKWebView
+        // "Nexus", traffic-light controls at top-left); the WKWebView
         // sits in the content area below.
         const ulong NSWindowStyleMaskTitled = 1UL << 0;
         const ulong NSWindowStyleMaskClosable = 1UL << 1;
@@ -193,7 +193,7 @@ internal static class MacAppWindow
             SelRegister("initWithContentRect:styleMask:backing:defer:"),
             contentRect, styleMask, NSBackingStoreBuffered, false);
 
-        MsgSend(win, SelRegister("setTitle:"), NsString("Qos"));
+        MsgSend(win, SelRegister("setTitle:"), NsString("Nexus"));
         // Default setReleasedWhenClosed:YES is what we want - when the user
         // closes the window via the red traffic light, AppKit deallocates
         // the NSWindow (and its content view chain, including the

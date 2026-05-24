@@ -1,4 +1,4 @@
-namespace Qos.Service.Fps;
+namespace Nexus.Service.Fps;
 
 internal sealed class FpsCalculator
 {

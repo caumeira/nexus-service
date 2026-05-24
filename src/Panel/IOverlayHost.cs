@@ -1,8 +1,8 @@
-namespace Qos.Service.Panel;
+namespace Nexus.Service.Panel;
 
 /// <summary>
 /// Lifecycle abstraction for the floating desktop widget host. Three impls:
-/// <c>PanelOverlayHostLauncher</c> on Windows (spawns qos-overlay.exe
+/// <c>PanelOverlayHostLauncher</c> on Windows (spawns nexus-overlay.exe
 /// out-of-proc; the overlay is a raw Win32 + direct-WebView2 P/Invoke AOT
 /// binary, isolated from the service process so a WebView2 crash cannot
 /// take the service down), <c>MacOverlayHostLauncher</c> on macOS (spawns

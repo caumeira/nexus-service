@@ -8,17 +8,17 @@ using System.Net;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading.Tasks;
-using Qos.Service.Models.Panel;
-using Qos.Service.Net;
-using Qos.Service.Persistence;
-using Qos.Service.Sockets;
+using Nexus.Service.Models.Panel;
+using Nexus.Service.Net;
+using Nexus.Service.Persistence;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Panel;
+namespace Nexus.Service.Panel;
 
 public sealed class PanelPhonePairingService
 {
     public const string PresenceTopic = "panel/phone/presence";
-    public const string SessionCookieName = "qos_phone_token";
+    public const string SessionCookieName = "nexus_phone_token";
     public static readonly TimeSpan SessionIdle = TimeSpan.FromDays(30);
     /// <summary>
     /// Sessions claimed over plain HTTP (browser fallback) get a much
@@ -38,7 +38,7 @@ public sealed class PanelPhonePairingService
     public const int PairCodeTtlSeconds = 60;
     private const int PairCodeMaxAttempts = 5;
     private const long PairCodeLockoutMs = 5 * 60 * 1000;
-    private static readonly byte[] SasInfoPrefix = Encoding.UTF8.GetBytes("qos-pair-sas-v1|");
+    private static readonly byte[] SasInfoPrefix = Encoding.UTF8.GetBytes("nexus-pair-sas-v1|");
 
     private readonly IConfigStore _store;
     private readonly MultiplexHub _hub;
@@ -72,7 +72,7 @@ public sealed class PanelPhonePairingService
 
     /// <summary>
     /// Resolves the user-visible host PC name. Reads
-    /// QosSettings.HostDisplayName each call so a settings update is
+    /// NexusSettings.HostDisplayName each call so a settings update is
     /// reflected immediately in the next QR / claim / /ping payload, then
     /// falls back to the OS-reported machine name when the override is empty.
     /// </summary>
@@ -662,7 +662,7 @@ public sealed class PanelPhonePairingService
             return "iPad";
         if (userAgent.Contains("iPhone", StringComparison.OrdinalIgnoreCase))
             return "iPhone";
-        if (userAgent.Contains("Qos/", StringComparison.OrdinalIgnoreCase) &&
+        if (userAgent.Contains("Nexus/", StringComparison.OrdinalIgnoreCase) &&
             userAgent.Contains("CFNetwork", StringComparison.OrdinalIgnoreCase) &&
             userAgent.Contains("Darwin", StringComparison.OrdinalIgnoreCase))
         {
@@ -721,7 +721,7 @@ public sealed class PanelPhonePairingService
             " ",
             (value ?? "").Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries));
         if (normalized.Length == 0)
-            return "Qos PC";
+            return "Nexus PC";
         return normalized.Length <= 64 ? normalized : normalized[..64];
     }
 
@@ -748,7 +748,7 @@ public sealed class PanelPhonePairingService
             // Fall through to the product fallback below.
         }
 
-        return "Qos PC";
+        return "Nexus PC";
     }
 
     private static string? ReadFirstOutputLine(string fileName, params string[] arguments)
@@ -1265,7 +1265,7 @@ public sealed class PanelPhonePairingService
     }
 
     /// <summary>
-    /// HKDF-SHA256(ikm = code, salt = nonce, info = "qos-pair-sas-v1|" + spki)
+    /// HKDF-SHA256(ikm = code, salt = nonce, info = "nexus-pair-sas-v1|" + spki)
     /// truncated to a 6-digit SAS via RFC-4226-style dynamic truncation
     /// (mask the high bit before mod 1e6 to remove the sign-bias). The
     /// security property is "binds the displayed digits to the SPKI the

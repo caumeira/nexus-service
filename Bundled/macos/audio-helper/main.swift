@@ -1,7 +1,7 @@
-// qos-audio-helper
+// nexus-audio-helper
 //
 // Captures system audio output via ScreenCaptureKit and streams float32 mono PCM
-// at 44100 Hz to stdout. The Qos service spawns this helper, reads its
+// at 44100 Hz to stdout. The Nexus service spawns this helper, reads its
 // stdout, and feeds the samples into AudioAnalyser.
 //
 // Why a helper: ScreenCaptureKit is Swift / Objective-C only and has implicit
@@ -11,8 +11,8 @@
 //
 // Permission: Screen Recording (System Settings -> Privacy & Security ->
 // Screen Recording). The first run triggers the prompt; macOS attributes it
-// to the parent bundle (Qos.app) when this helper lives under
-// Qos.app/Contents/MacOS/.
+// to the parent bundle (Nexus.app) when this helper lives under
+// Nexus.app/Contents/MacOS/.
 //
 // Wire format: little-endian IEEE float32, mono, 44100 Hz, written in raw
 // frames as fast as SCK delivers them.

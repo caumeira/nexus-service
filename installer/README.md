@@ -1,16 +1,16 @@
 # Installer
 
-Builds `Qos-Setup.exe`, the single signed executable end users download
-to install Qos. Wraps the AOT publish output in an Inno Setup 6 wizard
-that lays files into `C:\Program Files\Qos\`, installs the PawnIO kernel
-driver, registers the `QosService` scheduled task (At Logon, elevated),
+Builds `Nexus-Setup.exe`, the single signed executable end users download
+to install Nexus. Wraps the AOT publish output in an Inno Setup 6 wizard
+that lays files into `C:\Program Files\Nexus\`, installs the PawnIO kernel
+driver, registers the `NexusService` scheduled task (At Logon, elevated),
 starts the service, and opens the dashboard in the browser.
 
 This is **not part of the regular AOT publish cycle**. The dev loop stays:
 
 ```
 dotnet publish ...
-schtasks /Run /TN QosService
+schtasks /Run /TN NexusService
 ```
 
 The installer is built explicitly when shipping a release.
@@ -32,7 +32,7 @@ script lookup is `..\..\aot` relative to this folder):
 powershell -File installer\build-installer.ps1
 ```
 
-Output: `installer\output\Qos-Setup.exe` (~17 MB compressed).
+Output: `installer\output\Nexus-Setup.exe` (~17 MB compressed).
 
 Optional flags:
 - `-PublishDir <path>`  override the AOT publish dir
@@ -40,7 +40,7 @@ Optional flags:
 
 ## Files
 
-- `Qos.iss` - Inno Setup script (wizard config, install steps, uninstall)
+- `Nexus.iss` - Inno Setup script (wizard config, install steps, uninstall)
 - `logo-small.bmp` - 58x58 logo shown top-right of the directory page; regenerated
   from `..\icon.ico` if you change the brand mark
 - `build-installer.ps1` - the build entry point, also strips macOS AppleDouble
@@ -49,9 +49,9 @@ Optional flags:
 
 ## Install scope (per-user vs all-users)
 
-Default is per-user (`%LOCALAPPDATA%\Programs\Qos`). The directory page
+Default is per-user (`%LOCALAPPDATA%\Programs\Nexus`). The directory page
 includes a single "Install for all users on this PC" checkbox that flips the
-target to `C:\Program Files\Qos` when checked. No extra wizard pages.
+target to `C:\Program Files\Nexus` when checked. No extra wizard pages.
 
 UAC is required either way because the PawnIO kernel driver install is
 machine-wide (Windows has no per-user kernel drivers). The win of per-user is
@@ -59,7 +59,7 @@ that *future binary updates* can rewrite the exe without UAC. The all-users
 choice exists for shared-PC scenarios where every Windows account on the
 machine needs a single shared install.
 
-The autostart scheduled task (`QosService`, At Logon, elevated) is
+The autostart scheduled task (`NexusService`, At Logon, elevated) is
 always registered for the launching user via `/RU "{username}"`. Other users
 on a per-machine install can still launch the exe manually, but won't get
 auto-start unless they re-register the task themselves.
@@ -69,13 +69,13 @@ auto-start unless they re-register the task themselves.
 The current build is unsigned, so users see a SmartScreen "Windows protected
 your PC" prompt. Three things need an Authenticode signature:
 
-1. `Qos.exe` (signed before being bundled into the installer)
+1. `Nexus.exe` (signed before being bundled into the installer)
 2. `OpenRGB-headless.exe` (already shipped from the openrgb bundle)
-3. `Qos-Setup.exe` (signed after Inno produces it)
+3. `Nexus-Setup.exe` (signed after Inno produces it)
 
 EV cert (~$300-500/yr, USB token) eliminates SmartScreen warnings on day one.
 OV cert (~$60-200/yr) needs reputation to build before SmartScreen relents.
 
-`signtool sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /a Qos-Setup.exe`
+`signtool sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /a Nexus-Setup.exe`
 
 PawnIO.sys is already WHQL-signed by its author, no action needed.

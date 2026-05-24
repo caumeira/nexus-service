@@ -3,7 +3,7 @@ using System.Runtime.Versioning;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Qos.Service.Security;
+namespace Nexus.Service.Security;
 
 /// <summary>
 /// Wraps DPAPI for at-rest protection of small secrets (Steam API key, Discord

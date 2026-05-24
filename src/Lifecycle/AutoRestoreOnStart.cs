@@ -3,14 +3,14 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Qos.Service.Cooling;
-using Qos.Service.Lighting;
-using Qos.Service.Models.Common;
-using Qos.Service.Models.Lighting;
-using Qos.Service.Persistence;
-using Qos.Service.Sockets;
+using Nexus.Service.Cooling;
+using Nexus.Service.Lighting;
+using Nexus.Service.Models.Common;
+using Nexus.Service.Models.Lighting;
+using Nexus.Service.Persistence;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 /// <summary>
 /// One-shot startup task that replays the persisted lighting + cooling state

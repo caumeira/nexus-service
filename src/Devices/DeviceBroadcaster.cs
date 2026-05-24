@@ -4,12 +4,12 @@ using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Devices;
-using Qos.Service.Serialization;
-using Qos.Service.Sockets;
+using Nexus.Service.Models.Devices;
+using Nexus.Service.Serialization;
+using Nexus.Service.Sockets;
 using Microsoft.Extensions.Hosting;
 
-namespace Qos.Service.Devices;
+namespace Nexus.Service.Devices;
 
 /// <summary>
 /// Subscription-aware push for the curated device list (/devices/all) and the

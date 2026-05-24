@@ -1,6 +1,6 @@
 using System.Text.Json;
 
-namespace Qos.Service.Helper;
+namespace Nexus.Service.Helper;
 
 /// <summary>
 /// Wire envelope for every message on the helper pipe in either direction.

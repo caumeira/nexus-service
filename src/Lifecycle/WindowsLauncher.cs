@@ -4,10 +4,10 @@ using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Threading;
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 /// <summary>
-/// Default Qos.exe no-args entrypoint. Detects current install state and
+/// Default Nexus.exe no-args entrypoint. Detects current install state and
 /// dispatches accordingly. The launcher NEVER starts the daemon in-process
 /// and (other than the first-time install path) NEVER triggers a UAC
 /// prompt - the SERVICE_START DACL granted to Authenticated Users at
@@ -15,7 +15,7 @@ namespace Qos.Service.Lifecycle;
 ///
 /// State machine:
 ///
-///   Query SCM: is QosService registered?
+///   Query SCM: is NexusService registered?
 ///     No  -> self-elevate, run --install on self (the ONLY UAC path).
 ///     Yes -> Query status.
 ///            Running       -> spawn --helper if not running, open dashboard.
@@ -41,7 +41,7 @@ internal static class WindowsLauncher
             case ServiceState.NotInstalled:
                 // First-time install: this is the only path that prompts
                 // UAC. --install handles the self-elevate internally.
-                Console.WriteLine("[launcher] Qos is not installed yet; running --install");
+                Console.WriteLine("[launcher] Nexus is not installed yet; running --install");
                 return WindowsServiceInstaller.RunInstall(Array.Empty<string>());
 
             case ServiceState.Running:
@@ -183,7 +183,7 @@ internal static class WindowsLauncher
     private static void OpenDashboard()
     {
         // Open the dashboard in an Edge --app frameless window (the same
-        // path the tray's "Open Qos" menu uses). Falls back to the user's
+        // path the tray's "Open Nexus" menu uses). Falls back to the user's
         // default browser if Edge isn't found.
         try
         {
@@ -209,8 +209,8 @@ internal static class WindowsLauncher
 
     private static void EnsureHelperRunning()
     {
-        // Best-effort: spawn Qos.exe --helper if no helper is alive in this
-        // session. The helper's per-session mutex (Local\QosHelper) handles
+        // Best-effort: spawn Nexus.exe --helper if no helper is alive in this
+        // session. The helper's per-session mutex (Local\NexusHelper) handles
         // deduplication, so a racing second spawn just exits silently.
         try
         {

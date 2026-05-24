@@ -5,10 +5,10 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Activity;
-using Qos.Service.Serialization;
+using Nexus.Service.Models.Activity;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Helper.Domains
+namespace Nexus.Service.Helper.Domains
 {
     /// <summary>
     /// Payload for <c>media.snapshot</c>. Helper-to-service, one-way. The

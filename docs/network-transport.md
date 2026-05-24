@@ -13,7 +13,7 @@ Terms used below:
   shorter forms `/panel`, `/touch`, and `/panel/phone` redirect into the
   per-device URL after allocating or recovering a deviceId from the device's
   own cookie + localStorage cache.
-- `service` means `qos-service`, listening on HTTP port `9400` by default
+- `service` means `nexus-service`, listening on HTTP port `9400` by default
   and optional local HTTPS port `9443` when the local certificate is available.
 - `sidecar` means service-owned local helper processes, such as the OpenRGB
   SDK server on `127.0.0.1:6742`.
@@ -263,7 +263,7 @@ Cooling user actions call `POST /cooling/fan/{id}/speed`,
 `POST /cooling/profile/{name}` accepts the canonical preset keys `off`,
 `silent`, `balanced`, `performance`, and `custom` (legacy `auto` is treated
 as a synonym for `off`). The preset persists in
-`QosSettings.Cooling.ActivePreset` and is returned as `active` from
+`NexusSettings.Cooling.ActivePreset` and is returned as `active` from
 `GET /cooling/profiles`. Switching to `silent`/`balanced`/`performance`
 ensures a single shared `preset-{name}` curve owns every fan; switching to
 `custom` restores the snapshot saved in

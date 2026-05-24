@@ -1,6 +1,6 @@
 using System.Collections.Generic;
 
-namespace Qos.Service.Models.Displays;
+namespace Nexus.Service.Models.Displays;
 
 public sealed class DisplayDto
 {

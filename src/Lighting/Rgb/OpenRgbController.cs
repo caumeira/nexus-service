@@ -8,7 +8,7 @@ using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Lighting.Rgb;
+namespace Nexus.Service.Lighting.Rgb;
 
 /// <summary>
 /// TCP client for the OpenRGB SDK server. Connects to 127.0.0.1:6742 by default,
@@ -23,7 +23,7 @@ namespace Qos.Service.Lighting.Rgb;
 /// </summary>
 public sealed class OpenRgbController : IRgbController
 {
-    private const string ClientName = "qos";
+    private const string ClientName = "nexus";
     private static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(2);
     private static readonly TimeSpan IoTimeout = TimeSpan.FromSeconds(3);
 

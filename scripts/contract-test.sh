@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
-# Contract test suite for qos-service.
+# Contract test suite for nexus-service.
 # Boots the service on a private port, hits every documented HTTP endpoint,
 # and asserts each returns 2xx (or one of the documented client-error codes
 # defined per-endpoint). Exits 0 if all endpoints pass; non-zero on any failure.
 #
-# Run from the qos-service repo root:
+# Run from the nexus-service repo root:
 #   bash scripts/contract-test.sh
 #
 # Requirements: dotnet, curl, jq.
@@ -14,7 +14,7 @@ set -u
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 PORT="${PORT:-19493}"           # not the dev 19492; doesn't collide with a running service
 BASE="http://localhost:${PORT}"
-DLL="$REPO_ROOT/bin/Debug/net10.0/qos-service.dll"
+DLL="$REPO_ROOT/bin/Debug/net10.0/nexus-service.dll"
 PID=""
 
 cleanup() {
@@ -30,7 +30,7 @@ if [[ ! -f "$DLL" ]]; then
   (cd "$REPO_ROOT" && dotnet build >/dev/null 2>&1) || { echo "build failed"; exit 2; }
 fi
 
-dotnet "$DLL" "$BASE" >/tmp/qos-contract-test.log 2>&1 &
+dotnet "$DLL" "$BASE" >/tmp/nexus-contract-test.log 2>&1 &
 PID=$!
 
 # Wait up to 10s for /ping to come up.
@@ -41,7 +41,7 @@ done
 
 if ! curl -fsS -o /dev/null "${BASE}/ping"; then
   echo "[contract-test] service failed to start within 10s. Log:"
-  cat /tmp/qos-contract-test.log
+  cat /tmp/nexus-contract-test.log
   exit 3
 fi
 
@@ -315,7 +315,7 @@ if [[ $FAIL -gt 0 ]]; then
     echo "  - $ep"
   done
   echo "Service log:"
-  tail -50 /tmp/qos-contract-test.log
+  tail -50 /tmp/nexus-contract-test.log
   exit 1
 fi
 exit 0

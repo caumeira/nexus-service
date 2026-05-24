@@ -1,4 +1,4 @@
-namespace Qos.Service.Peripherals.Capabilities;
+namespace Nexus.Service.Peripherals.Capabilities;
 
 /// <summary>
 /// Generic on/off toggle capability used for FN lock, game mode, smooth scroll, etc.

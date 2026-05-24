@@ -1,16 +1,16 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    End-to-end smoke test for the Qos install / uninstall primitives.
+    End-to-end smoke test for the Nexus install / uninstall primitives.
 
 .DESCRIPTION
     Runs against a freshly-published AOT build at -PublishDir. Performs:
 
-      1. Pre-clean (stop+delete any existing QosService, remove install dir).
+      1. Pre-clean (stop+delete any existing NexusService, remove install dir).
       2. --install via a SYSTEM-context scheduled task (no UAC over SSH).
       3. Verify: service registered, running, DACL grant present, firewall
          rule open, Add/Remove Programs reg key written, /ping responds.
-      4. Recovery path: sc.exe stop QosService, then Qos.exe --start-service
+      4. Recovery path: sc.exe stop NexusService, then Nexus.exe --start-service
          from an UNPRIVILEGED process. Service should come back up with NO
          UAC prompt because of the SERVICE_START DACL grant.
       5. --uninstall via SYSTEM-context scheduled task.
@@ -20,12 +20,12 @@
     Prints a PASS/FAIL summary and exits non-zero on any failure.
 
 .PARAMETER PublishDir
-    Path to the AOT-published Qos.exe directory. Default is "..\..\aot"
+    Path to the AOT-published Nexus.exe directory. Default is "..\..\aot"
     relative to the script's parent folder.
 
 .EXAMPLE
     powershell -File scripts\install-uninstall-smoke.ps1
-    powershell -File scripts\install-uninstall-smoke.ps1 -PublishDir C:\Users\me\qos\aot
+    powershell -File scripts\install-uninstall-smoke.ps1 -PublishDir C:\Users\me\nexus\aot
 #>
 
 param(
@@ -42,11 +42,11 @@ if ([string]::IsNullOrEmpty($PublishDir)) {
     }
 }
 
-$Service     = "QosService"
-$InstallDir  = Join-Path ${env:ProgramFiles} "Qos"
-$Binary      = Join-Path $InstallDir "Qos.exe"
-$FirewallRule = "QosService"
-$UninstallKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Qos"
+$Service     = "NexusService"
+$InstallDir  = Join-Path ${env:ProgramFiles} "Nexus"
+$Binary      = Join-Path $InstallDir "Nexus.exe"
+$FirewallRule = "NexusService"
+$UninstallKey = "HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Nexus"
 
 $pass = 0
 $fail = 0
@@ -58,7 +58,7 @@ function Invoke-OneShotElevated([string]$Command, [int]$WaitSeconds = 30) {
     # SSH sessions are unelevated, but we are an admin user. Spawn a
     # one-shot scheduled task that runs as SYSTEM (HIGHEST run level) so
     # the command gets a fully elevated token without a UAC prompt.
-    $taskName = "QosSmoke_" + [Guid]::NewGuid().ToString("N").Substring(0, 8)
+    $taskName = "NexusSmoke_" + [Guid]::NewGuid().ToString("N").Substring(0, 8)
     $tr = $Command -replace '"', '\"'
     schtasks /Create /TN $taskName /TR $tr /SC ONCE /ST 00:00 /RL HIGHEST /F /RU SYSTEM | Out-Null
     schtasks /Run /TN $taskName | Out-Null
@@ -73,14 +73,14 @@ Section "Pre-clean any prior install"
 sc.exe stop $Service 2>$null | Out-Null
 Start-Sleep 2
 sc.exe delete $Service 2>$null | Out-Null
-Stop-Process -Name Qos -Force -ErrorAction SilentlyContinue
+Stop-Process -Name Nexus -Force -ErrorAction SilentlyContinue
 Remove-Item $InstallDir -Recurse -Force -ErrorAction SilentlyContinue
 Remove-Item $UninstallKey -Recurse -ErrorAction SilentlyContinue
 netsh advfirewall firewall delete rule name=$FirewallRule | Out-Null
 P "pre-clean complete"
 
-if (-not (Test-Path (Join-Path $PublishDir "Qos.exe"))) {
-    F "Qos.exe not found at $PublishDir - run dotnet publish first"
+if (-not (Test-Path (Join-Path $PublishDir "Nexus.exe"))) {
+    F "Nexus.exe not found at $PublishDir - run dotnet publish first"
     exit 1
 }
 
@@ -88,7 +88,7 @@ if (-not (Test-Path (Join-Path $PublishDir "Qos.exe"))) {
 # 1. --install via SYSTEM-context one-shot task
 # -----------------------------------------------------------------------------
 Section "--install"
-$installCmd = "`"$(Join-Path $PublishDir 'Qos.exe')`" --install"
+$installCmd = "`"$(Join-Path $PublishDir 'Nexus.exe')`" --install"
 Invoke-OneShotElevated -Command $installCmd -WaitSeconds 40
 
 # -----------------------------------------------------------------------------
@@ -109,12 +109,12 @@ if ($sd -match "\(A;;LCRP;;;AU\)") { P "DACL grants SERVICE_START to Authenticat
 else { F "DACL does NOT grant SERVICE_START to AU" }
 
 # Add/Remove Programs registration is owned by Inno Setup (the _is1 key),
-# not by Qos.exe --install. Bare-EXE smoke tests therefore should NOT see
-# an HKLM\...\Uninstall\Qos entry; if one is present it's stale from an
+# not by Nexus.exe --install. Bare-EXE smoke tests therefore should NOT see
+# an HKLM\...\Uninstall\Nexus entry; if one is present it's stale from an
 # older build and the install path is supposed to clear it.
 $reg = Get-ItemProperty -Path $UninstallKey -ErrorAction SilentlyContinue
-if (-not $reg) { P "no stale legacy Uninstall\Qos reg key" }
-else { F "unexpected legacy Uninstall\Qos reg key present after --install" }
+if (-not $reg) { P "no stale legacy Uninstall\Nexus reg key" }
+else { F "unexpected legacy Uninstall\Nexus reg key present after --install" }
 
 $fw = netsh advfirewall firewall show rule name=$FirewallRule 2>$null
 if ($fw -match "Enabled.*Yes") { P "firewall rule enabled" }
@@ -122,7 +122,7 @@ else { F "firewall rule missing or disabled" }
 
 try {
     $ping = Invoke-RestMethod -Uri "http://localhost:9400/ping" -TimeoutSec 5
-    if ($ping.service -eq "qos-service" -and $ping.initialized) { P "/ping returns initialized=true" }
+    if ($ping.service -eq "nexus-service" -and $ping.initialized) { P "/ping returns initialized=true" }
     else { F "/ping returned unexpected payload" }
 } catch {
     F "/ping unreachable: $($_.Exception.Message)"
@@ -168,7 +168,7 @@ $fw2 = netsh advfirewall firewall show rule name=$FirewallRule 2>&1
 if ($fw2 -match "No rules") { P "firewall rule removed" }
 else { F "firewall rule still present" }
 
-# Install dir may persist if Qos.exe held its own lock (scheduled for
+# Install dir may persist if Nexus.exe held its own lock (scheduled for
 # delete-on-reboot). Accept either gone OR present-but-shrunk.
 if (-not (Test-Path $InstallDir)) {
     P "install dir removed cleanly"

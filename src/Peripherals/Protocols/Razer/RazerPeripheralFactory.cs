@@ -1,7 +1,7 @@
 using System.Linq;
-using Qos.Service.Peripherals.Hid;
+using Nexus.Service.Peripherals.Hid;
 
-namespace Qos.Service.Peripherals.Protocols.Razer;
+namespace Nexus.Service.Peripherals.Protocols.Razer;
 
 /// <summary>
 /// Factory for Razer peripherals. Looks up the VID/PID in the profile tables and

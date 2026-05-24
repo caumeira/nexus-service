@@ -9,8 +9,8 @@ This product bundles PawnIO, an input/output driver for Windows.
 
 PawnIO is licensed under GPL-2.0 with a special linking exception
 that permits combining with non-GPL code that communicates with
-PawnIO solely through the device IO control interface. Qos
-uses PawnIO this way: qos-service calls into PawnIOLib.dll,
+PawnIO solely through the device IO control interface. Nexus
+uses PawnIO this way: nexus-service calls into PawnIOLib.dll,
 which talks to the PawnIO kernel driver only via DeviceIoControl
-IOCTLs. Qos is not a derivative work of PawnIO and is not
+IOCTLs. Nexus is not a derivative work of PawnIO and is not
 itself bound by the GPL.

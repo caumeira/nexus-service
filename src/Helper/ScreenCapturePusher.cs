@@ -3,11 +3,11 @@ using System;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Helper.Domains;
-using Qos.Service.Lighting.Capture;
-using Qos.Service.Serialization;
+using Nexus.Service.Helper.Domains;
+using Nexus.Service.Lighting.Capture;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Helper;
+namespace Nexus.Service.Helper;
 
 /// <summary>
 /// Helper-side screen-capture worker. The service (Session 0 / LocalSystem)

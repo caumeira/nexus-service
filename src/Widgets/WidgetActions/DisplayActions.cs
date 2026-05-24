@@ -2,10 +2,10 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
-using Qos.Service.Platform.Displays;
-using Qos.Service.Serialization;
+using Nexus.Service.Platform.Displays;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Widgets.WidgetActions;
+namespace Nexus.Service.Widgets.WidgetActions;
 
 /// <summary>
 /// Host actions exposed to declarative widgets for display brightness

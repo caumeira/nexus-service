@@ -5,10 +5,10 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Sockets;
+using Nexus.Service.Sockets;
 using Microsoft.Extensions.Hosting;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Background service that samples running processes about once a second

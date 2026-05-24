@@ -6,12 +6,12 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Serialization;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Helper;
+namespace Nexus.Service.Helper;
 
 /// <summary>
-/// Helper-side pipe client: connect to <c>\\.\pipe\Qos.Helper</c>, send the
+/// Helper-side pipe client: connect to <c>\\.\pipe\Nexus.Helper</c>, send the
 /// hello envelope, then read envelopes and route them through
 /// <see cref="HelperHandlerRegistry"/>. Reconnects with exponential backoff
 /// when the pipe drops (service restart, transient close), so the helper

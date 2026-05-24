@@ -1,4 +1,4 @@
-namespace Qos.Service.Peripherals.Y70;
+namespace Nexus.Service.Peripherals.Y70;
 
 public interface IY70Provider
 {

@@ -1,8 +1,8 @@
-using Qos.Service.Auth;
-using Qos.Service.Models.Steam;
-using Qos.Service.Steam;
+using Nexus.Service.Auth;
+using Nexus.Service.Models.Steam;
+using Nexus.Service.Steam;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class SteamRoutes
 {

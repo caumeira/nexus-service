@@ -1,10 +1,10 @@
 using System.Collections.Generic;
-using Qos.Service.Models.Panel;
+using Nexus.Service.Models.Panel;
 
-namespace Qos.Service.Persistence;
+namespace Nexus.Service.Persistence;
 
 // Shared POCOs used by both install-defaults (the seed table) and the live
-// QosSettings document. install-defaults populates the cosmetic + seed fields
+// NexusSettings document. install-defaults populates the cosmetic + seed fields
 // and leaves runtime-only fields (DashboardLayout, OverlayLayout,
 // DetailedCollapsed) null; the live profile populates runtime-only fields and
 // usually leaves Layouts null because the install-defaults table remains the
@@ -29,7 +29,7 @@ public sealed class MonitoringSettings
 public sealed class PanelSettings
 {
     /// <summary>Runtime visibility of the Y70 panel kiosk. When true, the
-    /// qos-overlay sidecar opens the kiosk window (and auto-relaunches when
+    /// nexus-overlay sidecar opens the kiosk window (and auto-relaunches when
     /// the Y70 reconnects). Surfaced as "Show Panel" in the UI.</summary>
     public bool AutoLaunch { get; set; }
     public bool ThemeSyncWithDesktop { get; set; } = true;

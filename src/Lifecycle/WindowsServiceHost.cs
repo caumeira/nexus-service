@@ -5,10 +5,10 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 /// <summary>
-/// Windows SCM dispatcher for running the Qos daemon as a real Windows
+/// Windows SCM dispatcher for running the Nexus daemon as a real Windows
 /// Service (LocalSystem, Automatic). AOT-safe: raw P/Invoke against
 /// advapi32.dll, no `System.ServiceProcess.ServiceBase` reflection.
 ///
@@ -28,7 +28,7 @@ namespace Qos.Service.Lifecycle;
 /// </summary>
 internal static class WindowsServiceHost
 {
-    private const string ServiceName = "QosService";
+    private const string ServiceName = "NexusService";
 
     // Service state codes
     private const uint SERVICE_STOPPED = 0x00000001;
@@ -129,13 +129,13 @@ internal static class WindowsServiceHost
             {
                 // Not under SCM (e.g. dev launched the EXE with --service from a shell).
                 // Fall back to console run so the same flag is useful for local testing.
-                Console.WriteLine("[qos-service] --service used outside SCM; running in console fallback mode");
+                Console.WriteLine("[nexus-service] --service used outside SCM; running in console fallback mode");
                 using var cts = new CancellationTokenSource();
                 Console.CancelKeyPress += (_, e) => { e.Cancel = true; cts.Cancel(); };
                 return runWebApp(args, cts.Token).GetAwaiter().GetResult();
             }
 
-            Console.Error.WriteLine($"[qos-service] StartServiceCtrlDispatcher failed: {err}");
+            Console.Error.WriteLine($"[nexus-service] StartServiceCtrlDispatcher failed: {err}");
             return err;
         }
         finally
@@ -154,7 +154,7 @@ internal static class WindowsServiceHost
             s_statusHandle = RegisterServiceCtrlHandlerExW(ServiceName, handlerPtr, IntPtr.Zero);
             if (s_statusHandle == IntPtr.Zero)
             {
-                Console.Error.WriteLine($"[qos-service] RegisterServiceCtrlHandlerEx failed: {Marshal.GetLastPInvokeError()}");
+                Console.Error.WriteLine($"[nexus-service] RegisterServiceCtrlHandlerEx failed: {Marshal.GetLastPInvokeError()}");
                 return;
             }
 
@@ -219,7 +219,7 @@ internal static class WindowsServiceHost
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[qos-service] app crashed: {ex}");
+            Console.Error.WriteLine($"[nexus-service] app crashed: {ex}");
             return -1;
         }
     }

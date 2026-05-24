@@ -4,18 +4,18 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 
-namespace Qos.Service.Platform.Displays;
+namespace Nexus.Service.Platform.Displays;
 
 /// <summary>
 /// Rotates the HYTE Y70 panel via <c>ChangeDisplaySettingsEx</c>. Runs inside
 /// the user-session helper so the change takes effect on the user's desktop.
-/// Identifies the Y70 by the same hardware DeviceID prefix qos-overlay uses
+/// Identifies the Y70 by the same hardware DeviceID prefix nexus-overlay uses
 /// (<c>MONITOR\RTK0004</c>, the Realtek panel controller).
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvider
 {
-    // Same set as qos-overlay/src/PanelDisplay.cs - keep in sync.
+    // Same set as nexus-overlay/src/PanelDisplay.cs - keep in sync.
     private static readonly string[] KnownDeviceIdPrefixes =
     {
         @"MONITOR\RTK0004", // HYTE Y70ti / Y70 Touch (Realtek panel controller)
@@ -83,7 +83,7 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
     /// <summary>
     /// Walks <c>EnumDisplayMonitors</c> + <c>EnumDisplayDevices</c> to find the
     /// adapter <c>\\.\DISPLAYn</c> hosting a HYTE panel. Mirrors
-    /// <c>qos-overlay/src/PanelDisplay.cs</c>. Calling
+    /// <c>nexus-overlay/src/PanelDisplay.cs</c>. Calling
     /// <c>EnumDisplayDevicesW(null, ...)</c> to enumerate adapters is unreliable
     /// across CLR null-string marshaling paths; the EDM callback gives us a
     /// non-null <c>szDevice</c> for every active monitor.

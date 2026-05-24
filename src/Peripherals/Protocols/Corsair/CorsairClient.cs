@@ -1,8 +1,8 @@
 using System;
 using System.Threading;
-using Qos.Service.Peripherals.Hid;
+using Nexus.Service.Peripherals.Hid;
 
-namespace Qos.Service.Peripherals.Protocols.Corsair;
+namespace Nexus.Service.Peripherals.Protocols.Corsair;
 
 /// <summary>
 /// Corsair mouse/keyboard vendor-protocol transport. Currently unused — no

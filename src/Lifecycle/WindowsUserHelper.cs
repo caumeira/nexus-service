@@ -5,20 +5,20 @@ using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Helper;
-using Qos.Service.Helper.Domains;
+using Nexus.Service.Helper;
+using Nexus.Service.Helper.Domains;
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 /// <summary>
-/// Entry point for <c>Qos.exe --helper</c> (and the legacy <c>--tray</c>
+/// Entry point for <c>Nexus.exe --helper</c> (and the legacy <c>--tray</c>
 /// alias). Long-lived user-session companion process that owns the system
 /// tray icon and acts as the named-pipe client to the LocalSystem service.
 /// All Session 0-blind operations (foreground-window polling, SMTC media,
 /// brightness control, etc.) run here and report to the service via the
 /// pipe.
 ///
-/// Single-instance per logon session via <c>Local\QosHelper</c>. Lifetime
+/// Single-instance per logon session via <c>Local\NexusHelper</c>. Lifetime
 /// is decoupled from <c>ShowWindowsTrayIcon</c> - that preference now
 /// only controls icon visibility; the process keeps running so providers
 /// it hosts stay alive.
@@ -27,7 +27,7 @@ namespace Qos.Service.Lifecycle;
 internal static class WindowsUserHelper
 {
     private const int DefaultPort = 9400;
-    private const string SessionMutexName = @"Local\QosHelper";
+    private const string SessionMutexName = @"Local\NexusHelper";
 
     private static readonly CancellationTokenSource s_exit = new();
 
@@ -50,7 +50,7 @@ internal static class WindowsUserHelper
         // brings the daemon back up.
         if (QueryServiceState() == ServiceState.NotInstalled)
         {
-            Console.WriteLine("[helper] QosService not installed; helper exits");
+            Console.WriteLine("[helper] NexusService not installed; helper exits");
             return 0;
         }
 
@@ -68,7 +68,7 @@ internal static class WindowsUserHelper
         // ~1s of bootstrap. Defaulting to "visible" avoids a transient
         // disappearance during service restarts.
         //
-        // "Shut down" in the tray menu must match the settings "Stop Qos"
+        // "Shut down" in the tray menu must match the settings "Stop Nexus"
         // UX: service stopped, --app window closed, tray gone. The stop
         // request rides the existing pipe (already authenticated) so the
         // service runs its graceful StopApplication path; sc.exe stop
@@ -107,7 +107,7 @@ internal static class WindowsUserHelper
             onShutdown: () =>
             {
                 // Service-driven teardown: it's stopping (e.g. user hit
-                // "Stop Qos" in settings), so close the --app window and
+                // "Stop Nexus" in settings), so close the --app window and
                 // exit the helper so the tray icon goes too. We do NOT
                 // also send service.requestStop here - that would echo
                 // the very stop the service has already initiated. Tray
@@ -120,7 +120,7 @@ internal static class WindowsUserHelper
             {
                 // Wake the overlay's marshaler so it repolls preferences
                 // immediately (e.g. the user toggled widgets off). We run
-                // in the same Windows session as qos-overlay, so FindWindow
+                // in the same Windows session as nexus-overlay, so FindWindow
                 // can see the marshaler that the service-side cannot.
                 try
                 {
@@ -158,7 +158,7 @@ internal static class WindowsUserHelper
             if (s_exit.IsCancellationRequested) return;
             if (QueryServiceState() == ServiceState.NotInstalled)
             {
-                Console.WriteLine("[helper] QosService uninstalled; helper exits");
+                Console.WriteLine("[helper] NexusService uninstalled; helper exits");
                 s_exit.Cancel();
                 return;
             }
@@ -182,7 +182,7 @@ internal static class WindowsUserHelper
             outbound.SendAsync(
                 type: "service.requestStop",
                 payload: new ServiceRequestStopPayload(),
-                payloadType: Qos.Service.Serialization.AppJsonContext.Default.ServiceRequestStopPayload,
+                payloadType: Nexus.Service.Serialization.AppJsonContext.Default.ServiceRequestStopPayload,
                 ct: cts.Token).GetAwaiter().GetResult();
         }
         catch (Exception ex)
@@ -221,8 +221,8 @@ internal static class WindowsUserHelper
 
     // Win32 plumbing for the cross-process overlay marshaler wake. Lives
     // here rather than in a shared file because this is the only consumer.
-    private const string OverlayMarshalerClassName = "Qos.Overlay.Marshaler";
-    private const string OverlayPrefsChangedMessageName = "Qos.Overlay.PrefsChanged";
+    private const string OverlayMarshalerClassName = "Nexus.Overlay.Marshaler";
+    private const string OverlayPrefsChangedMessageName = "Nexus.Overlay.PrefsChanged";
 
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
     private static extern IntPtr FindWindowW(string? lpClassName, string? lpWindowName);
@@ -241,7 +241,7 @@ internal static class WindowsUserHelper
         try
         {
             using var fs = new System.IO.FileStream(
-                @"C:\Users\Public\qos-helper-debug.log",
+                @"C:\Users\Public\nexus-helper-debug.log",
                 System.IO.FileMode.Append,
                 System.IO.FileAccess.Write,
                 System.IO.FileShare.ReadWrite);

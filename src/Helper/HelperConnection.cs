@@ -8,9 +8,9 @@ using System.Text.Json;
 using System.Text.Json.Serialization.Metadata;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Serialization;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Helper;
+namespace Nexus.Service.Helper;
 
 /// <summary>
 /// One named-pipe connection from one helper process. Owns the pipe stream,

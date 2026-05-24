@@ -4,9 +4,9 @@ using System.Net.Http;
 using System.Text.Json.Serialization;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Weather;
+using Nexus.Service.Models.Weather;
 
-namespace Qos.Service.Platform.Weather;
+namespace Nexus.Service.Platform.Weather;
 
 /// <summary>
 /// Cross-platform weather provider backed by Open-Meteo (no API key, free,
@@ -110,7 +110,7 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
             }
 
             var loc = await resp.Content.ReadFromJsonAsync(
-                Qos.Service.Serialization.AppJsonContext.Default.IpLocation
+                Nexus.Service.Serialization.AppJsonContext.Default.IpLocation
             ).ConfigureAwait(false);
             if (loc is null || loc.Latitude is null || loc.Longitude is null)
             {
@@ -146,7 +146,7 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
                 return null;
 
             var payload = await resp.Content.ReadFromJsonAsync(
-                Qos.Service.Serialization.AppJsonContext.Default.OpenMeteoResponse
+                Nexus.Service.Serialization.AppJsonContext.Default.OpenMeteoResponse
             ).ConfigureAwait(false);
             if (payload?.Current is null)
                 return null;

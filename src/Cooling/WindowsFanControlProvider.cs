@@ -3,12 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Cooling;
-using Qos.Service.Persistence;
-using Qos.Service.Sensors;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Persistence;
+using Nexus.Service.Sensors;
 using LibreHardwareMonitor.Hardware;
 
-namespace Qos.Service.Cooling;
+namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// Windows fan control provider backed by LibreHardwareMonitor. Discovers

@@ -2,10 +2,10 @@ using System;
 using System.Runtime.InteropServices;
 using System.Threading;
 
-namespace Qos.Service.Platform.Windows;
+namespace Nexus.Service.Platform.Windows;
 
 /// <summary>
-/// System tray icon for qos-service on Windows.
+/// System tray icon for nexus-service on Windows.
 /// Pure Win32 - no WinForms. Creates a NotifyIcon in the system tray
 /// with right-click menu (Open / Settings / Shut down).
 /// </summary>
@@ -59,7 +59,7 @@ public static class TrayIcon
     private static NOTIFYICONDATA _nid;
 
     // Race guard for rapid tray clicks: between the moment we spawn an Edge
-    // --app and the moment its window title becomes "Qos*" (~1-2s), the
+    // --app and the moment its window title becomes "Nexus*" (~1-2s), the
     // FindExistingQosAppWindow probe can't detect the in-flight window. A
     // second click during that gap used to spawn a second Edge. Time-only
     // guard - PID liveness is unreliable because Edge's launcher process
@@ -160,7 +160,7 @@ public static class TrayIcon
             {
                 cbSize = Marshal.SizeOf<WNDCLASSEX>(),
                 lpfnWndProc = _pinnedProc,
-                lpszClassName = "QosTrayWnd",
+                lpszClassName = "NexusTrayWnd",
                 hInstance = GetModuleHandle(null),
             };
 
@@ -210,7 +210,7 @@ public static class TrayIcon
             }
 
             nid.hIcon = hIcon;
-            nid.szTip = "Qos";
+            nid.szTip = "Nexus";
 
             lock (_sync)
             {
@@ -269,7 +269,7 @@ public static class TrayIcon
         try
         {
             using var fs = new System.IO.FileStream(
-                @"C:\Users\Public\qos-tray-debug.log",
+                @"C:\Users\Public\nexus-tray-debug.log",
                 System.IO.FileMode.Append,
                 System.IO.FileAccess.Write,
                 System.IO.FileShare.ReadWrite);
@@ -367,14 +367,14 @@ public static class TrayIcon
                 return;
             }
 
-            // Preferred path: the qos-overlay process hosts a WebView2
+            // Preferred path: the nexus-overlay process hosts a WebView2
             // dashboard window that shares the Chromium process tree with
             // the overlay widgets - far cheaper than spawning a fresh
             // Edge --app tree. Sending the registered ShowDashboard
             // message either creates or focuses the dashboard window.
             if (TrySendShowDashboardToOverlay())
             {
-                DiagFile("ShowDashboard posted to qos-overlay marshaler");
+                DiagFile("ShowDashboard posted to nexus-overlay marshaler");
                 return;
             }
 
@@ -385,11 +385,11 @@ public static class TrayIcon
             if (EnsureOverlayRunning() && TrySendShowDashboardToOverlay(timeoutMs: 8000))
             {
                 _lastSpawnUtc = DateTime.UtcNow;
-                DiagFile("started qos-overlay and posted ShowDashboard");
+                DiagFile("started nexus-overlay and posted ShowDashboard");
                 return;
             }
 
-            DiagFile("qos-overlay unreachable, falling back to Edge --app");
+            DiagFile("nexus-overlay unreachable, falling back to Edge --app");
 
             // Fallback: legacy Edge --app spawn. Only reached when the
             // overlay binary is missing or refuses to start.
@@ -415,7 +415,7 @@ public static class TrayIcon
             // panel-kiosk launcher's location convention.
             var userDataDir = System.IO.Path.Combine(
                 Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-                "Qos", "DashboardEdge");
+                "Nexus", "DashboardEdge");
             try { System.IO.Directory.CreateDirectory(userDataDir); } catch { /* best-effort */ }
 
             var psi = new System.Diagnostics.ProcessStartInfo
@@ -456,15 +456,15 @@ public static class TrayIcon
 
 
     /// <summary>
-    /// Close any open standalone Qos --app window (the Edge --app shell
+    /// Close any open standalone Nexus --app window (the Edge --app shell
     /// hosting the dashboard). Best-effort, fire-and-forget: posts WM_CLOSE
     /// to the HWND found by <see cref="FindExistingQosAppWindow"/> and
     /// returns immediately - Edge processes the close on its own message
     /// loop ms later. No-op when no such window exists.
     ///
     /// Used by the tray "Shut down" handler and by the service's
-    /// ApplicationStopping hook so that quitting Qos always tears the
-    /// window down, matching the settings "Stop Qos" UX path (which closes
+    /// ApplicationStopping hook so that quitting Nexus always tears the
+    /// window down, matching the settings "Stop Nexus" UX path (which closes
     /// the window via window.close() from the React side).
     /// </summary>
     public static void CloseAppWindow()
@@ -475,9 +475,9 @@ public static class TrayIcon
             if (hwnd != IntPtr.Zero)
             {
                 PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-                DiagFile($"posted WM_CLOSE to Qos --app window 0x{hwnd.ToInt64():X}");
+                DiagFile($"posted WM_CLOSE to Nexus --app window 0x{hwnd.ToInt64():X}");
             }
-            // Also post the same message to the qos-overlay dashboard
+            // Also post the same message to the nexus-overlay dashboard
             // window if it's currently visible. We don't kill the overlay
             // process - the dashboard window's WM_CLOSE handler just hides
             // it so reopen stays instant.
@@ -485,25 +485,25 @@ public static class TrayIcon
             if (dashHwnd != IntPtr.Zero)
             {
                 PostMessage(dashHwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
-                DiagFile($"posted WM_CLOSE to qos-overlay dashboard 0x{dashHwnd.ToInt64():X}");
+                DiagFile($"posted WM_CLOSE to nexus-overlay dashboard 0x{dashHwnd.ToInt64():X}");
             }
         }
         catch { /* best-effort */ }
     }
 
-    private const string OverlayMarshalerClassName = "Qos.Overlay.Marshaler";
-    private const string OverlayDashboardClassName = "Qos.Overlay.Dashboard";
-    private const string ShowDashboardMessageName = "Qos.Overlay.ShowDashboard";
+    private const string OverlayMarshalerClassName = "Nexus.Overlay.Marshaler";
+    private const string OverlayDashboardClassName = "Nexus.Overlay.Dashboard";
+    private const string ShowDashboardMessageName = "Nexus.Overlay.ShowDashboard";
 
     /// <summary>
-    /// Tries to deliver a registered window message to the running qos-overlay
+    /// Tries to deliver a registered window message to the running nexus-overlay
     /// process's marshaler window. Returns false if no marshaler is found
     /// within <paramref name="timeoutMs"/> (default: 0, i.e. one-shot
     /// check; pass a positive value after spawning the overlay to give it
     /// time to register its window).
     /// </summary>
     /// <param name="messageName">Registered window message name (e.g.
-    /// <c>"Qos.Overlay.ShowDashboard"</c>, <c>"Qos.Overlay.ShowPanelKiosk"</c>).</param>
+    /// <c>"Nexus.Overlay.ShowDashboard"</c>, <c>"Nexus.Overlay.ShowPanelKiosk"</c>).</param>
     /// <param name="handoffForeground">When true, calls
     /// <c>AllowSetForegroundWindow</c> on the overlay process before posting
     /// so it can raise/focus its window. Set for click-driven launches
@@ -557,9 +557,9 @@ public static class TrayIcon
         => TryPostToOverlayMarshaler(ShowDashboardMessageName, timeoutMs, handoffForeground: true);
 
     /// <summary>
-    /// Starts qos-overlay.exe in the current user session. We're already
+    /// Starts nexus-overlay.exe in the current user session. We're already
     /// running in the interactive session via the schtasks-hopped
-    /// <c>Qos.exe --open-app</c>, so a plain Process.Start is sufficient
+    /// <c>Nexus.exe --open-app</c>, so a plain Process.Start is sufficient
     /// (no cross-session CreateProcessAsUser dance). Returns true on
     /// successful Process.Start, false if the binary is missing or the
     /// start fails.
@@ -568,9 +568,9 @@ public static class TrayIcon
     {
         try
         {
-            // First check is cheap: if any qos-overlay.exe is alive in
+            // First check is cheap: if any nexus-overlay.exe is alive in
             // the current user's session, just wait for its marshaler.
-            foreach (var p in System.Diagnostics.Process.GetProcessesByName("qos-overlay"))
+            foreach (var p in System.Diagnostics.Process.GetProcessesByName("nexus-overlay"))
             {
                 p.Dispose();
                 return true;
@@ -578,10 +578,10 @@ public static class TrayIcon
 
             var serviceDir = System.AppContext.BaseDirectory;
             if (string.IsNullOrEmpty(serviceDir)) return false;
-            var hostPath = System.IO.Path.Combine(serviceDir, "overlay", "qos-overlay.exe");
+            var hostPath = System.IO.Path.Combine(serviceDir, "overlay", "nexus-overlay.exe");
             if (!System.IO.File.Exists(hostPath))
             {
-                DiagFile($"qos-overlay.exe not found at {hostPath}");
+                DiagFile($"nexus-overlay.exe not found at {hostPath}");
                 return false;
             }
             var psi = new System.Diagnostics.ProcessStartInfo
@@ -592,7 +592,7 @@ public static class TrayIcon
                 WorkingDirectory = System.IO.Path.GetDirectoryName(hostPath)!,
             };
             var proc = System.Diagnostics.Process.Start(psi);
-            DiagFile($"spawned qos-overlay pid={proc?.Id.ToString() ?? "null"}");
+            DiagFile($"spawned nexus-overlay pid={proc?.Id.ToString() ?? "null"}");
             return proc is not null;
         }
         catch (Exception ex)
@@ -604,7 +604,7 @@ public static class TrayIcon
 
     /// <summary>
     /// Returns the MainWindowHandle of any currently-running msedge.exe
-    /// whose window title starts with "Qos". Avoids the FindExistingAppWindow
+    /// whose window title starts with "Nexus". Avoids the FindExistingAppWindow
     /// trap of matching by title alone across ALL top-level windows (which
     /// could pick up File Explorer or stale handles).
     /// </summary>
@@ -619,7 +619,7 @@ public static class TrayIcon
                     if (p.MainWindowHandle == IntPtr.Zero) continue;
                     var title = p.MainWindowTitle;
                     if (!string.IsNullOrEmpty(title) &&
-                        title.StartsWith("Qos", StringComparison.OrdinalIgnoreCase))
+                        title.StartsWith("Nexus", StringComparison.OrdinalIgnoreCase))
                     {
                         return p.MainWindowHandle;
                     }
@@ -665,9 +665,9 @@ public static class TrayIcon
                 return true;
             }
             // Skip tool windows. Our floating desktop overlays
-            // (qos-overlay.exe) carry WS_EX_TOOLWINDOW so they don't
+            // (nexus-overlay.exe) carry WS_EX_TOOLWINDOW so they don't
             // show in Alt-Tab; they also have a title that starts with
-            // "Qos", which would otherwise match here. The dashboard
+            // "Nexus", which would otherwise match here. The dashboard
             // window is a regular Edge --app top-level (no toolwindow bit).
             const int GWL_EXSTYLE_LOCAL = -20;
             const int WS_EX_TOOLWINDOW_LOCAL = 0x00000080;
@@ -685,10 +685,10 @@ public static class TrayIcon
             GetWindowText(hwnd, sb, sb.Capacity);
             var title = sb.ToString();
             // Edge --app puts the page title verbatim in the window
-            // caption. Our SPA is titled "Qos"; match any window that
-            // starts with that so we still catch "Qos - <section>"
+            // caption. Our SPA is titled "Nexus"; match any window that
+            // starts with that so we still catch "Nexus - <section>"
             // style titles if we ever add them.
-            if (title.StartsWith("Qos", StringComparison.OrdinalIgnoreCase))
+            if (title.StartsWith("Nexus", StringComparison.OrdinalIgnoreCase))
             {
                 result = hwnd;
                 return false; // stop enumeration

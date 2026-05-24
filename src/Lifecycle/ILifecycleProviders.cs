@@ -1,4 +1,4 @@
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 public interface IStartupProvider
 {

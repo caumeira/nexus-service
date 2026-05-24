@@ -1,9 +1,9 @@
 using System;
 using System.Collections.Generic;
-using Qos.Service.Models.Devices;
-using Qos.Service.Persistence;
+using Nexus.Service.Models.Devices;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Devices;
+namespace Nexus.Service.Devices;
 
 public sealed class StubDeviceProvider : IDeviceProvider, ILightingDeviceProvider
 {

@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 
-namespace Qos.Service.Devices.Detection;
+namespace Nexus.Service.Devices.Detection;
 
 /// <summary>
 /// Linux USB enumeration via sysfs. Walks /sys/bus/usb/devices/* reading

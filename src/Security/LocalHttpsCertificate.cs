@@ -8,7 +8,7 @@ using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
-namespace Qos.Service.Security;
+namespace Nexus.Service.Security;
 
 public static class LocalHttpsCertificate
 {
@@ -42,7 +42,7 @@ public static class LocalHttpsCertificate
 
         using var rsa = RSA.Create(2048);
         var req = new CertificateRequest(
-            "CN=Qos Local",
+            "CN=Nexus Local",
             rsa,
             HashAlgorithmName.SHA256,
             RSASignaturePadding.Pkcs1);
@@ -114,7 +114,7 @@ public static class LocalHttpsCertificate
                 ?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
         }
 
-        return Path.Combine(root, "Qos", "qos-local-https.pfx");
+        return Path.Combine(root, "Nexus", "nexus-local-https.pfx");
     }
 
     private static IEnumerable<IPAddress> GetLocalIpv4Addresses()

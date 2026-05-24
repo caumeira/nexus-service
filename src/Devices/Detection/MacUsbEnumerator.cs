@@ -3,7 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text.Json;
 
-namespace Qos.Service.Devices.Detection;
+namespace Nexus.Service.Devices.Detection;
 
 /// <summary>
 /// macOS USB enumeration via system_profiler SPUSBDataType -json.

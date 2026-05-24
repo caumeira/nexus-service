@@ -1,7 +1,7 @@
 using System.Collections.Generic;
-using Qos.Service.Persistence;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Models.Profiles;
+namespace Nexus.Service.Models.Profiles;
 
 public class ListProfilesResponse : ApiResponse
 {
@@ -33,13 +33,13 @@ public class RenameProfileBody
 public class ImportProfileBody
 {
     public string Name { get; set; } = "";
-    public QosSettings? Data { get; set; }
+    public NexusSettings? Data { get; set; }
 }
 
 public sealed class ProfileExport
 {
     public string? Name { get; set; }
-    public QosSettings? Settings { get; set; }
+    public NexusSettings? Settings { get; set; }
 }
 
 public class SharingResponse : ApiResponse

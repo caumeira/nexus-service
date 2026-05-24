@@ -1,7 +1,7 @@
 using System;
 using System.Globalization;
 
-namespace Qos.Service.Peripherals.QSeries;
+namespace Nexus.Service.Peripherals.QSeries;
 
 public sealed class StubQSeriesProvider : IQSeriesProvider
 {

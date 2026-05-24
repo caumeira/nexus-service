@@ -1,10 +1,10 @@
 using System.Diagnostics;
-using Qos.Service.Models;
-using Qos.Service.Models.Discord;
-using Qos.Service.Persistence;
-using Qos.Service.Security;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Discord;
+using Nexus.Service.Persistence;
+using Nexus.Service.Security;
 
-namespace Qos.Service.Discord;
+namespace Nexus.Service.Discord;
 
 public sealed class DiscordProvider : IDiscordProvider
 {

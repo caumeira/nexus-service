@@ -1,12 +1,12 @@
 using System;
 using System.Collections.Generic;
-using Qos.Service.Cooling;
-using Qos.Service.Lighting;
-using Qos.Service.Models.Common;
-using Qos.Service.Models.Lighting;
-using Qos.Service.Persistence;
+using Nexus.Service.Cooling;
+using Nexus.Service.Lighting;
+using Nexus.Service.Models.Common;
+using Nexus.Service.Models.Lighting;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Lifecycle;
+namespace Nexus.Service.Lifecycle;
 
 /// <summary>
 /// Engages the live cooling + lighting engines from the current persisted

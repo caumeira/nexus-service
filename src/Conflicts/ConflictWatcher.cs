@@ -6,13 +6,13 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Lighting.Rgb;
-using Qos.Service.Models.Conflicts;
-using Qos.Service.Serialization;
-using Qos.Service.Sockets;
+using Nexus.Service.Lighting.Rgb;
+using Nexus.Service.Models.Conflicts;
+using Nexus.Service.Serialization;
+using Nexus.Service.Sockets;
 using Microsoft.Extensions.Hosting;
 
-namespace Qos.Service.Conflicts;
+namespace Nexus.Service.Conflicts;
 
 /// <summary>
 /// Background service that polls the running process list every 5 s, matches

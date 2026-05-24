@@ -3,11 +3,11 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Devices.Detection;
-using Qos.Service.Lighting.Engine;
-using Qos.Service.Persistence;
+using Nexus.Service.Devices.Detection;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Persistence;
 
-namespace Qos.Service.Lighting.Rgb;
+namespace Nexus.Service.Lighting.Rgb;
 
 /// <summary>
 /// Orchestrates the OpenRGB headless subprocess and the TCP controller, and

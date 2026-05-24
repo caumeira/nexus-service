@@ -1,13 +1,13 @@
-using Qos.Service.Auth;
-using Qos.Service.Devices;
-using Qos.Service.Lighting;
-using Qos.Service.Lighting.Engine.Gpu;
-using Qos.Service.Models;
-using Qos.Service.Models.Lighting;
-using Qos.Service.Serialization;
-using Qos.Service.Sockets;
+using Nexus.Service.Auth;
+using Nexus.Service.Devices;
+using Nexus.Service.Lighting;
+using Nexus.Service.Lighting.Engine.Gpu;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Lighting;
+using Nexus.Service.Serialization;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class LightingRoutes
 {
@@ -27,15 +27,15 @@ public static class LightingRoutes
             return ApiResponse.Ok();
         });
         app.MapGet("/lighting/current", (ILightingProvider l) => new CurrentSyncResponse { Sync = l.GetSync() }).AllowPanel();
-        app.MapGet("/lighting/animate/settings", (Qos.Service.Persistence.IConfigStore store) =>
+        app.MapGet("/lighting/animate/settings", (Nexus.Service.Persistence.IConfigStore store) =>
             store.Load().Lighting.Animate).AllowPanel();
-        app.MapPost("/lighting/animate/templates", (SetAnimateTemplatesBody body, Qos.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/lighting/animate/templates", (SetAnimateTemplatesBody body, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
         {
             store.Update(s => { s.Lighting.Animate.Templates = body.Templates ?? new(); });
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
-        app.MapGet("/lighting/static/settings", (Qos.Service.Persistence.IConfigStore store) =>
+        app.MapGet("/lighting/static/settings", (Nexus.Service.Persistence.IConfigStore store) =>
             store.Load().Lighting.StaticColor).AllowPanel();
         app.MapGet("/lighting/effects/{key}/thumbnail.bmp", (string key, ILightingProvider l, HttpRequest req, HttpResponse res) =>
         {
@@ -53,8 +53,8 @@ public static class LightingRoutes
         // off, AudioState stays at zero and every shader reverts to its idle
         // animation. One pipe in: this is the only switch the user flips.
         app.MapPost("/lighting/music-reactive", (Models.Lighting.MusicReactiveBody body,
-            Qos.Service.Activity.IBeatsProvider beats,
-            Qos.Service.Persistence.IConfigStore store,
+            Nexus.Service.Activity.IBeatsProvider beats,
+            Nexus.Service.Persistence.IConfigStore store,
             MultiplexHub hub) =>
         {
             store.Update(s => s.Lighting.MusicReactive = body.Enabled);
@@ -69,7 +69,7 @@ public static class LightingRoutes
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
-        app.MapGet("/lighting/music-reactive", (Qos.Service.Persistence.IConfigStore store) =>
+        app.MapGet("/lighting/music-reactive", (Nexus.Service.Persistence.IConfigStore store) =>
             new Models.Lighting.MusicReactiveBody { Enabled = store.Load().Lighting.MusicReactive }).AllowPanel();
         app.MapGet("/lighting/shaders/{name}", (string name) =>
         {
@@ -79,14 +79,14 @@ public static class LightingRoutes
             return Results.Json(new ShaderSourceResponse { Frag = ShaderLibrary.Get(name) }, AppJsonContext.Default.ShaderSourceResponse);
         }).AllowPanel();
         app.MapGet("/lighting/screen/monitors", (ILightingProvider l) => l.GetScreenSyncOptions()).AllowPanel();
-        app.MapGet("/lighting/status", (Qos.Service.Lighting.Engine.LightingEngine engine, ILightingDeviceProvider devices, IServiceProvider sp) =>
+        app.MapGet("/lighting/status", (Nexus.Service.Lighting.Engine.LightingEngine engine, ILightingDeviceProvider devices, IServiceProvider sp) =>
         {
             // OpenRgbProcessManager only exists on Windows/macOS; resolve optionally so Linux returns false.
-            var pm = sp.GetService(typeof(Qos.Service.Lighting.Rgb.OpenRgbProcessManager)) as Qos.Service.Lighting.Rgb.OpenRgbProcessManager;
-            var gpu = sp.GetService(typeof(Qos.Service.Lighting.Engine.Gpu.GpuContext)) as Qos.Service.Lighting.Engine.Gpu.GpuContext;
-            var bridge = sp.GetService(typeof(Qos.Service.Lighting.Rgb.RgbBridge)) as Qos.Service.Lighting.Rgb.RgbBridge;
+            var pm = sp.GetService(typeof(Nexus.Service.Lighting.Rgb.OpenRgbProcessManager)) as Nexus.Service.Lighting.Rgb.OpenRgbProcessManager;
+            var gpu = sp.GetService(typeof(Nexus.Service.Lighting.Engine.Gpu.GpuContext)) as Nexus.Service.Lighting.Engine.Gpu.GpuContext;
+            var bridge = sp.GetService(typeof(Nexus.Service.Lighting.Rgb.RgbBridge)) as Nexus.Service.Lighting.Rgb.RgbBridge;
             var rescanning = bridge?.IsRescanning ?? false;
-            return new Qos.Service.Models.Cooling.LightingStatusResponse
+            return new Nexus.Service.Models.Cooling.LightingStatusResponse
             {
                 Effect = engine.CurrentEffectName,
                 Running = engine.CurrentEffectName != "none",
@@ -107,10 +107,10 @@ public static class LightingRoutes
         // Master brightness slider: multiplies every LED channel before it leaves
         // the RGB bridge. Read live by RgbBridge.OnFrame, so a POST takes effect
         // on the next frame push without restarting any effect.
-        app.MapGet("/lighting/global-brightness", (Qos.Service.Persistence.IConfigStore store) =>
+        app.MapGet("/lighting/global-brightness", (Nexus.Service.Persistence.IConfigStore store) =>
             new Models.Lighting.GlobalBrightnessBody { Value = store.Load().Lighting.GlobalBrightness }).AllowPanel();
         app.MapPost("/lighting/global-brightness", (Models.Lighting.GlobalBrightnessBody body,
-            Qos.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
+            Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
         {
             // Math.Clamp(NaN, ...) returns NaN, which would propagate through
             // RgbBridge.OnFrame and zero every LED. Treat a non-finite payload
@@ -169,17 +169,17 @@ public static class LightingRoutes
         // Screen Mirror + Media post-process (hue / colorize / saturation / contrast).
         // Same shape for both modes so the right-pane Effect tab can drive either
         // with one slider set.
-        app.MapGet("/lighting/screen/effect", (Qos.Service.Persistence.IConfigStore store) =>
+        app.MapGet("/lighting/screen/effect", (Nexus.Service.Persistence.IConfigStore store) =>
             store.Load().Lighting.ScreenEffect).AllowPanel();
-        app.MapPost("/lighting/screen/effect", (Qos.Service.Models.Lighting.PostProcessBody body, ILightingProvider l, MultiplexHub hub) =>
+        app.MapPost("/lighting/screen/effect", (Nexus.Service.Models.Lighting.PostProcessBody body, ILightingProvider l, MultiplexHub hub) =>
         {
             l.UpdateScreenEffect(body.Hue, body.Colorize, body.Saturation, body.Contrast, body.FlipX, body.FlipY, body.Persist);
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
-        app.MapGet("/lighting/media/effect", (Qos.Service.Persistence.IConfigStore store) =>
+        app.MapGet("/lighting/media/effect", (Nexus.Service.Persistence.IConfigStore store) =>
             store.Load().Lighting.MediaEffect).AllowPanel();
-        app.MapPost("/lighting/media/effect", (Qos.Service.Models.Lighting.PostProcessBody body, ILightingProvider l, MultiplexHub hub) =>
+        app.MapPost("/lighting/media/effect", (Nexus.Service.Models.Lighting.PostProcessBody body, ILightingProvider l, MultiplexHub hub) =>
         {
             l.UpdateMediaEffect(body.Hue, body.Colorize, body.Saturation, body.Contrast, body.FlipX, body.FlipY, body.Persist);
             PanelTopics.BroadcastLighting(hub);

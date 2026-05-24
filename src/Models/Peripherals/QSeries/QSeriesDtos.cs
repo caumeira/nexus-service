@@ -1,4 +1,4 @@
-namespace Qos.Service.Models.Peripherals.QSeries;
+namespace Nexus.Service.Models.Peripherals.QSeries;
 
 public class GetSerialNumberResponse : ApiResponse
 {

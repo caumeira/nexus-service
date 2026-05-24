@@ -1,7 +1,7 @@
 using System.Threading.Tasks;
-using Qos.Service.Models.Weather;
+using Nexus.Service.Models.Weather;
 
-namespace Qos.Service.Platform.Weather;
+namespace Nexus.Service.Platform.Weather;
 
 /// <summary>
 /// Returns a current weather snapshot. Never throws - returns

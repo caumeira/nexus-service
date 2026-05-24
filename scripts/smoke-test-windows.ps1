@@ -4,7 +4,7 @@
 $ErrorActionPreference = "SilentlyContinue"
 $port = 19494
 $base = "http://localhost:$port"
-$dll = "bin\Debug\net10.0\Qos.dll"
+$dll = "bin\Debug\net10.0\Nexus.dll"
 
 # Start service as a background job (works over SSH unlike Start-Process).
 # Use the dotnet CLI from PATH; fall back to the per-user .NET install.
@@ -76,5 +76,5 @@ Write-Host "Results: $pass passed, $fail failed"
 # Cleanup
 Stop-Job $job -ErrorAction SilentlyContinue
 Remove-Job $job -Force -ErrorAction SilentlyContinue
-Get-Process -Name "dotnet" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*qos*" } | Stop-Process -Force -ErrorAction SilentlyContinue
+Get-Process -Name "dotnet" -ErrorAction SilentlyContinue | Where-Object { $_.CommandLine -like "*nexus*" } | Stop-Process -Force -ErrorAction SilentlyContinue
 exit $fail

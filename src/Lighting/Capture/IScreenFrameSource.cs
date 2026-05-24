@@ -1,4 +1,4 @@
-namespace Qos.Service.Lighting.Capture;
+namespace Nexus.Service.Lighting.Capture;
 
 /// <summary>
 /// Source of canvas-resolution screen-mirror frames. Two impls today:

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Benchmarks-only run settings. The default nexus.runsettings excludes
+  Category=Manual so `dotnet test` stays fast for the per-build gate.
+  Use this file to run ONLY the long benchmark tests:
+
+    dotnet test  settings nexus-benchmarks.runsettings
+
+  (single dash placeholder above to avoid the XML comment restriction
+  on double-dash sequences.)
+-->
+<RunSettings>
+  <RunConfiguration>
+    <TestCaseFilter>Category=Manual</TestCaseFilter>
+  </RunConfiguration>
+</RunSettings>

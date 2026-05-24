@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using Qos.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Engine;
 
-namespace Qos.Service.Lighting;
+namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Hook for non-OpenRGB lighting subsystems (NP50 today, future hubs)

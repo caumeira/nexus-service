@@ -1,7 +1,7 @@
 using System;
 using System.Net;
 
-namespace Qos.Service.QSeries;
+namespace Nexus.Service.QSeries;
 
 /// <summary>
 /// One persisted Q-series TCP transport. Captured once when a Q-series

@@ -1,6 +1,6 @@
-using Qos.Service.Models.Sensors;
+using Nexus.Service.Models.Sensors;
 
-namespace Qos.Service.Fps;
+namespace Nexus.Service.Fps;
 
 public interface IFpsProvider : IDisposable
 {

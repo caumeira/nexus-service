@@ -1,4 +1,4 @@
-namespace Qos.Service.Models.Panel;
+namespace Nexus.Service.Models.Panel;
 
 public sealed class OpenUrlRequest
 {

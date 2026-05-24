@@ -8,7 +8,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 
-namespace Qos.Service.Helper;
+namespace Nexus.Service.Helper;
 
 /// <summary>
 /// Named-pipe accept loop. One server instance at a time; on
@@ -20,7 +20,7 @@ namespace Qos.Service.Helper;
 [SupportedOSPlatform("windows")]
 public sealed class HelperPipeServer : BackgroundService
 {
-    public const string PipeName = "Qos.Helper";
+    public const string PipeName = "Nexus.Helper";
 
     private readonly HelperRegistry _registry;
 

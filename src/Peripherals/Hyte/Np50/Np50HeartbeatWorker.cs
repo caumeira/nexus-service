@@ -2,10 +2,10 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Qos.Service.Lighting;
-using Qos.Service.Sockets;
+using Nexus.Service.Lighting;
+using Nexus.Service.Sockets;
 
-namespace Qos.Service.Peripherals.Hyte.Np50;
+namespace Nexus.Service.Peripherals.Hyte.Np50;
 
 /// <summary>
 /// Background service that polls the NP50 hub on a fixed cadence. Two

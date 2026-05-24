@@ -1,9 +1,9 @@
-using Qos.Service.Auth;
-using Qos.Service.Models;
-using Qos.Service.Models.Obs;
-using Qos.Service.Obs;
+using Nexus.Service.Auth;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Obs;
+using Nexus.Service.Obs;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 public static class ObsRoutes
 {

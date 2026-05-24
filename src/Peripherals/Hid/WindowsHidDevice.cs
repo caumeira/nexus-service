@@ -2,7 +2,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace Qos.Service.Peripherals.Hid;
+namespace Nexus.Service.Peripherals.Hid;
 
 /// <summary>Windows HID device handle wrapper. Non-overlapped feature-report API.</summary>
 public sealed class WindowsHidDevice : IHidDevice

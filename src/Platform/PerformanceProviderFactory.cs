@@ -1,8 +1,8 @@
 using System.Runtime.InteropServices;
-using Qos.Service.Platform.Linux;
-using Qos.Service.Platform.Mac;
+using Nexus.Service.Platform.Linux;
+using Nexus.Service.Platform.Mac;
 
-namespace Qos.Service.Platform;
+namespace Nexus.Service.Platform;
 
 /// <summary>
 /// Non-Windows IPerformanceProvider factory. Windows is registered via DI

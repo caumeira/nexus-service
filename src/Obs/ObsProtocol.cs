@@ -1,7 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 
-namespace Qos.Service.Obs;
+namespace Nexus.Service.Obs;
 
 public static class ObsProtocol
 {

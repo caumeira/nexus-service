@@ -2,9 +2,9 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Cooling;
+using Nexus.Service.Models.Cooling;
 
-namespace Qos.Service.Cooling;
+namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// Aggregates the motherboard fan provider (LibreHardwareMonitor on Windows,

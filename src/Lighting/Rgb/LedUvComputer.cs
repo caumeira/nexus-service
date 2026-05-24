@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
 
-namespace Qos.Service.Lighting.Rgb;
+namespace Nexus.Service.Lighting.Rgb;
 
 public static class LedUvComputer
 {

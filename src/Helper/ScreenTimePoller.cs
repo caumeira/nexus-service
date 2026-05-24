@@ -4,11 +4,11 @@ using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
-using Qos.Service.Helper.Domains;
-using Qos.Service.Platform;
-using Qos.Service.Serialization;
+using Nexus.Service.Helper.Domains;
+using Nexus.Service.Platform;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Helper;
+namespace Nexus.Service.Helper;
 
 /// <summary>
 /// Helper-side foreground-window poller. Polls GetForegroundWindow every

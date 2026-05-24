@@ -5,10 +5,10 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Qos.Service.Auth;
-using Qos.Service.Models;
+using Nexus.Service.Auth;
+using Nexus.Service.Models;
 
-namespace Qos.Service.Routes;
+namespace Nexus.Service.Routes;
 
 /// <summary>
 /// Service-control surface. Four operations:
@@ -65,21 +65,21 @@ internal static class ServiceControlRoutes
 #if WINDOWS
             // The service runs as LocalSystem in Session 0 - spawning Edge
             // --app from here would land in a non-interactive session and
-            // never show. Delegate to a one-shot Qos.exe --open-app in the
+            // never show. Delegate to a one-shot Nexus.exe --open-app in the
             // active console session (same schtasks hop the helper bootstrap
             // uses).
-            Qos.Service.Lifecycle.UserHelperBootstrapper.LaunchOpenApp();
+            Nexus.Service.Lifecycle.UserHelperBootstrapper.LaunchOpenApp();
 #else
             if (OperatingSystem.IsMacOS())
             {
-                Qos.Service.Platform.Mac.MacAppWindow.OpenOrFocus(Qos.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
+                Nexus.Service.Platform.Mac.MacAppWindow.OpenOrFocus(Nexus.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
             }
 #endif
             return Results.Ok(ApiResponse.Ok());
         }).LocalhostOnly();
     }
 
-    private const string ServiceName = "QosService";
+    private const string ServiceName = "NexusService";
 
     private static bool ReadAutoStart()
     {

@@ -2,7 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Security.Cryptography;
 
-namespace Qos.Service.Widgets;
+namespace Nexus.Service.Widgets;
 
 /// <summary>
 /// Short-lived URL-path tokens that authorise a single Tier 2 widget worker

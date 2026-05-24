@@ -3,13 +3,13 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Qos.Service.Models.Cooling;
-using Qos.Service.Persistence;
-using Qos.Service.Serialization;
-using Qos.Service.Sockets;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Persistence;
+using Nexus.Service.Serialization;
+using Nexus.Service.Sockets;
 using Microsoft.Extensions.Hosting;
 
-namespace Qos.Service.Cooling;
+namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// Background service that evaluates fan curves and drives fan speeds.

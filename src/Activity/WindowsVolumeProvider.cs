@@ -3,9 +3,9 @@ using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Threading;
-using Qos.Service.Models.Activity;
+using Nexus.Service.Models.Activity;
 
-namespace Qos.Service.Activity;
+namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Reads and writes the system-wide default-render audio endpoint volume via
@@ -33,7 +33,7 @@ public sealed unsafe class WindowsVolumeProvider : IVolumeProvider, IDisposable
         _comThread = new Thread(RunComLoop)
         {
             IsBackground = true,
-            Name = "QosVolumeCOM",
+            Name = "NexusVolumeCOM",
         };
         _comThread.SetApartmentState(ApartmentState.MTA);
         _comThread.Start();
@@ -87,7 +87,7 @@ public sealed unsafe class WindowsVolumeProvider : IVolumeProvider, IDisposable
     {
         try
         {
-            var path = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.CommonApplicationData), "Qos", "volume.log");
+            var path = System.IO.Path.Combine(System.Environment.GetFolderPath(System.Environment.SpecialFolder.CommonApplicationData), "Nexus", "volume.log");
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path)!);
             lock (s_logLock)
             {

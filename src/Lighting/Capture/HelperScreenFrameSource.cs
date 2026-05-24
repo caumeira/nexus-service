@@ -2,11 +2,11 @@
 using System;
 using System.Runtime.Versioning;
 using System.Text.Json;
-using Qos.Service.Helper;
-using Qos.Service.Helper.Domains;
-using Qos.Service.Serialization;
+using Nexus.Service.Helper;
+using Nexus.Service.Helper.Domains;
+using Nexus.Service.Serialization;
 
-namespace Qos.Service.Lighting.Capture;
+namespace Nexus.Service.Lighting.Capture;
 
 /// <summary>
 /// Service-side <see cref="IScreenFrameSource"/> that delegates capture to
