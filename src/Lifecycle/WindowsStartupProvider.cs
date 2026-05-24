@@ -27,10 +27,6 @@ public sealed class WindowsStartupProvider : IStartupProvider
 #if WINDOWS
     private const string HkcuRunKey = @"Software\Microsoft\Windows\CurrentVersion\Run";
     private const string ValueName = "Qos";
-    private const string LegacySchtaskName = "QosService";
-    private const string LegacySchtaskAlternate = "Qos";
-
-    private static bool _legacyCleanupDone;
 #endif
 
     public bool IsEnabled()
@@ -55,8 +51,6 @@ public sealed class WindowsStartupProvider : IStartupProvider
 #if WINDOWS
         try
         {
-            CleanupLegacySchtaskOnce();
-
             using var key = Registry.CurrentUser.CreateSubKey(HkcuRunKey, writable: true);
             if (key is null) return false;
 
@@ -81,18 +75,6 @@ public sealed class WindowsStartupProvider : IStartupProvider
     }
 
 #if WINDOWS
-    private static void CleanupLegacySchtaskOnce()
-    {
-        if (_legacyCleanupDone) return;
-        _legacyCleanupDone = true;
-        // Best-effort: drop any leftover logon schtask from the pre-service
-        // era. Ignored failures (task absent, no permission, etc.) are fine
-        // because the SCM service supersedes whatever the task would have
-        // done anyway.
-        try { RunSchtasks("/Delete", "/TN", LegacySchtaskName, "/F"); } catch { }
-        try { RunSchtasks("/Delete", "/TN", LegacySchtaskAlternate, "/F"); } catch { }
-    }
-
     [SupportedOSPlatform("windows")]
     private static void RunSchtasks(params string[] args)
     {

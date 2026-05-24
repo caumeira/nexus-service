@@ -13,10 +13,7 @@ internal static class CommandLineEntry
             ["--install"] = WindowsServiceInstaller.RunInstall,
             ["--uninstall"] = WindowsServiceInstaller.RunUninstall,
             ["--start-service"] = static _ => WindowsServiceInstaller.RunStartService(),
-            // --tray is the legacy alias kept for existing HKCU\Run entries on
-            // pre-helper installs. Both route to the same user-session companion.
             ["--helper"] = WindowsUserHelper.Run,
-            ["--tray"] = WindowsUserHelper.Run,
             // One-shot invoked by the service via schtasks when the desktop
             // widget context menu's "Open dashboard" item is clicked.
             ["--open-app"] = static _ =>

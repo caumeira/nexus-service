@@ -38,7 +38,7 @@ public sealed class QosSettings
     public ObsSettings Obs { get; set; } = new();
     public SteamSettings Steam { get; set; } = new();
     public DiscordSettings Discord { get; set; } = new();
-    /// <summary>Registered panel devices keyed by opaque deviceId. Each record carries the per-device layout + theme overrides + capabilities. NOT profile-scoped: device identity is hardware-level and survives profile switches. Was previously stored under <c>Ui.PanelDevices</c>; legacy data is migrated on load.</summary>
+    /// <summary>Registered panel devices keyed by opaque deviceId. Each record carries the per-device layout + theme overrides + capabilities. NOT profile-scoped: device identity is hardware-level and survives profile switches.</summary>
     public Dictionary<string, Qos.Service.Models.Panel.PanelDeviceRecord> PanelDevices { get; set; } = new();
 
     /// <summary>User-overridden display name for this host PC. Empty means "fall back to Environment.MachineName". Surfaced in the panel tray header and in the QR/claim payload paired phones see. NOT profile-scoped: a host has one name regardless of which profile is active.</summary>
@@ -86,8 +86,6 @@ public sealed class DiscordSettings
 public sealed class UiSettings
 {
     public bool DisableConflictAlerts { get; set; }
-    /// <summary>Legacy: panel devices used to live here, scoped per profile. Now lives at <c>QosSettings.PanelDevices</c> (top-level, hardware-scoped). Kept nullable so old settings.json / profile files deserialize cleanly; <c>JsonConfigStore.Load</c> + <c>ProfileManager.LoadProfileIntoSettings</c> migrate the entries to the top-level registry and null this out so it stops being written.</summary>
-    public Dictionary<string, Qos.Service.Models.Panel.PanelDeviceRecord>? PanelDevices { get; set; }
 }
 
 /// <summary>

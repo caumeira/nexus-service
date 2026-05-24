@@ -143,40 +143,6 @@ public sealed class PanelDeviceRegistry
         return removed;
     }
 
-    /// <summary>
-    /// True if the settings object still carries the legacy per-profile
-    /// <c>Ui.PanelDevices</c> field (whether populated or just a leftover empty
-    /// dictionary). Lets the load path skip the dirty-flush when there's
-    /// nothing to migrate.
-    /// </summary>
-    public static bool HasLegacyPanelDevices(QosSettings settings)
-        => settings.Ui.PanelDevices is not null;
-
-    /// <summary>
-    /// Move legacy <c>UiSettings.PanelDevices</c> entries into the top-level
-    /// <c>QosSettings.PanelDevices</c> dictionary, then null the legacy
-    /// field so it stops being written. Idempotent: a no-op if the legacy
-    /// field is already empty/null. Conflicts (same id in both) keep the
-    /// top-level entry, on the assumption it's newer.
-    /// </summary>
-    public static void MigrateLegacyPanelDevices(QosSettings settings)
-    {
-        // Defensive: deserializing JSON with `"panelDevices": null` would
-        // null this out even though the property default is a new dict.
-        settings.PanelDevices ??= new Dictionary<string, PanelDeviceRecord>();
-        var legacy = settings.Ui.PanelDevices;
-        if (legacy is null || legacy.Count == 0)
-        {
-            settings.Ui.PanelDevices = null;
-            return;
-        }
-        foreach (var (id, record) in legacy)
-        {
-            settings.PanelDevices.TryAdd(id, record);
-        }
-        settings.Ui.PanelDevices = null;
-    }
-
     private static string DefaultName(long now)
     {
         var when = DateTimeOffset.FromUnixTimeMilliseconds(now).LocalDateTime;

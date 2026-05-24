@@ -291,7 +291,7 @@ public sealed class ProfileManager : IDisposable
 
             try
             {
-                var json = JsonConfigStore.MigrateLegacyJson(File.ReadAllText(filePath));
+                var json = File.ReadAllText(filePath);
                 var settings = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.QosSettings);
                 if (settings != null)
                 {
@@ -369,8 +369,7 @@ public sealed class ProfileManager : IDisposable
     public ProfileEntry ImportProfileJson(string json)
     {
         // Imported profile JSON could be v1 shape from an older export.
-        // Migration is idempotent so it's safe to apply to v2 input too.
-        var migrated = JsonConfigStore.MigrateLegacyJson(json);
+        var migrated = json;
         var wrapper = JsonSerializer.Deserialize(migrated, PersistenceJsonContext.Default.ProfileExport);
         if (wrapper?.Settings is not null)
         {
@@ -486,10 +485,7 @@ public sealed class ProfileManager : IDisposable
             ProfileSharing.ApplyCategory(s, data, ProfileSharing.Dashboard);
 
             // PanelDevices is hardware-scoped, not profile-scoped: do NOT
-            // copy from profileData. We just lift any legacy per-profile
             // entries that the loaded profile JSON happens to carry into
-            // the top-level registry, then null the legacy field.
-            Qos.Service.Panel.PanelDeviceRegistry.MigrateLegacyPanelDevices(s);
         });
     }
 
@@ -503,7 +499,7 @@ public sealed class ProfileManager : IDisposable
         }
         try
         {
-            var json = JsonConfigStore.MigrateLegacyJson(File.ReadAllText(path));
+            var json = File.ReadAllText(path);
             return JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.QosSettings);
         }
         catch
@@ -521,7 +517,7 @@ public sealed class ProfileManager : IDisposable
         {
             try
             {
-                var migrated = JsonConfigStore.MigrateLegacyJson(File.ReadAllText(path));
+                var migrated = File.ReadAllText(path);
                 target = JsonSerializer.Deserialize(migrated, PersistenceJsonContext.Default.QosSettings)
                          ?? new QosSettings();
             }

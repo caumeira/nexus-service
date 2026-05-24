@@ -9,7 +9,7 @@ public sealed class KeebHandler : IDeviceHandler
     private const int HyteVid = 0x3402;
 
     public string Id => "keeb";
-    public string Name => "Keyboard";
+    public string Name => "Keeb";
     public string Category => "keyboard";
 
     public IReadOnlyList<UsbId> Identifiers { get; } = new[]

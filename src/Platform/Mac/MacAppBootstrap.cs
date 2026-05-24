@@ -33,7 +33,7 @@ internal static class MacAppBootstrap
         MacStatusBar.Initialize(
             iconPath,
             onOpenDashboard: () => MacAppWindow.OpenOrFocus(ServiceLaunchIntent.LocalDashboardUrl(servicePort)),
-            onOpenSettings: () => MacAppWindow.OpenOrFocus($"http://localhost:{servicePort}/my-computer/settings"),
+            onOpenSettings: () => MacAppWindow.OpenOrFocus($"http://localhost:{servicePort}/system/settings"),
             onQuit: () =>
             {
                 Console.WriteLine("[qos-service] quit requested from status bar");
