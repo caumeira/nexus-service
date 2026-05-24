@@ -23,7 +23,9 @@
 #define MyAppPublisher "Nexus Nexus"
 #define MyAppURL "https://nexusqos.com"
 #define MyAppExeName "Nexus.exe"
-#define PublishDir "..\..\aot"
+#ifndef PublishDir
+  #define PublishDir "..\..\aot"
+#endif
 
 [Setup]
 AppId={{8F2E3A4D-9C5B-4E7A-B1F8-3C2A5E9D0F12}
