@@ -1,5 +1,5 @@
 {
-  "count": 1887,
+  "count": 1906,
   "devices": [
     {
       "name": "Bloody B820R",
@@ -957,6 +957,13 @@
       "name": "ASUS ROG Pugio II (Wireless)",
       "vid": "0x0B05",
       "pid": null,
+      "controller": "AsusAuraUSBController",
+      "kind": "hid"
+    },
+    {
+      "name": "ASUS ROG Ryujin AIO",
+      "vid": "0x0B05",
+      "pid": "0x18AE",
       "controller": "AsusAuraUSBController",
       "kind": "hid"
     },
@@ -3089,6 +3096,13 @@
       "kind": "i2c"
     },
     {
+      "name": "ASUS ROG ASTRAL GeForce RTX 5080 WHITE",
+      "vid": null,
+      "pid": null,
+      "controller": "ENESMBusController",
+      "kind": "i2c"
+    },
+    {
       "name": "ASUS ROG ASTRAL GeForce RTX 5090 OC",
       "vid": null,
       "pid": null,
@@ -3817,7 +3831,14 @@
       "kind": "i2c"
     },
     {
-      "name": "ASUS TUF GeForce RTX 5070 Gaming",
+      "name": "ASUS TUF GeForce RTX 5060 Gaming OC",
+      "vid": null,
+      "pid": null,
+      "controller": "ENESMBusController",
+      "kind": "i2c"
+    },
+    {
+      "name": "ASUS TUF GeForce RTX 5070 Gaming OC",
       "vid": null,
       "pid": null,
       "controller": "ENESMBusController",
@@ -3825,6 +3846,13 @@
     },
     {
       "name": "ASUS TUF GeForce RTX 5070 Ti Gaming OC",
+      "vid": null,
+      "pid": null,
+      "controller": "ENESMBusController",
+      "kind": "i2c"
+    },
+    {
+      "name": "ASUS TUF GeForce RTX 5070 Ti Gaming White OC",
       "vid": null,
       "pid": null,
       "controller": "ENESMBusController",
@@ -3916,6 +3944,13 @@
     },
     {
       "name": "ASUS TUF Radeon RX 7800 XT Gaming White OC",
+      "vid": null,
+      "pid": null,
+      "controller": "ENESMBusController",
+      "kind": "i2c"
+    },
+    {
+      "name": "ASUS TUF Radeon RX 7900 GRE Gaming OC",
       "vid": null,
       "pid": null,
       "controller": "ENESMBusController",
@@ -5147,6 +5182,13 @@
       "kind": "i2c"
     },
     {
+      "name": "Gigabyte AORUS GeForce RTX 5080 MASTER ICE",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusion2BlackwellGPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "Gigabyte AORUS GeForce RTX 5080 XTREME WATERFORCE",
       "vid": null,
       "pid": null,
@@ -5497,6 +5539,13 @@
       "kind": "i2c"
     },
     {
+      "name": "Gigabyte AORUS Radeon RX 7900 XTX ELITE 24G",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusion2GPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "Gigabyte GeForce RTX 3060 Ti GAMING OC",
       "vid": null,
       "pid": null,
@@ -5781,6 +5830,13 @@
       "vid": null,
       "pid": null,
       "controller": "GigabyteRGBFusionController",
+      "kind": "i2c"
+    },
+    {
+      "name": "Gigabyte GTX 1050 G1 Gaming",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusionGPUController",
       "kind": "i2c"
     },
     {
@@ -6431,6 +6487,13 @@
       "name": "HyperX Alloy Origins Core (HP)",
       "vid": "0x03F0",
       "pid": "0x098F",
+      "controller": "HyperXKeyboardController",
+      "kind": "hid"
+    },
+    {
+      "name": "HyperX Origins 2 65 (HP)",
+      "vid": "0x03F0",
+      "pid": "0x0CC2",
       "controller": "HyperXKeyboardController",
       "kind": "hid"
     },
@@ -8087,6 +8150,13 @@
       "kind": "i2c"
     },
     {
+      "name": "MSI GeForce RTX 5070 Gaming Trio",
+      "vid": null,
+      "pid": null,
+      "controller": "MSIGPUController",
+      "kind": "i2c"
+    },
+    {
       "name": "MSI GeForce RTX 5070 Ti Gaming Trio OC Plus",
       "vid": null,
       "pid": null,
@@ -8102,6 +8172,13 @@
     },
     {
       "name": "MSI GeForce RTX 5080 Gaming Trio OC",
+      "vid": null,
+      "pid": null,
+      "controller": "MSIGPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "MSI GeForce RTX 5080 SUPRIM LIQUID SOC",
       "vid": null,
       "pid": null,
       "controller": "MSIGPUController",
@@ -9039,6 +9116,13 @@
       "kind": "hid"
     },
     {
+      "name": "MSI Mystic Light MS_7E20",
+      "vid": "0x1462",
+      "pid": "0x7E20",
+      "controller": "MSIMysticLightController",
+      "kind": "hid"
+    },
+    {
       "name": "MSI Mystic Light MS_7E32",
       "vid": "0x1462",
       "pid": "0x7E32",
@@ -9382,6 +9466,13 @@
       "kind": "hid"
     },
     {
+      "name": "Nollie 16_OS2.1",
+      "vid": null,
+      "pid": null,
+      "controller": "NollieController",
+      "kind": "hid"
+    },
+    {
       "name": "Nollie 1CH",
       "vid": null,
       "pid": null,
@@ -9390,6 +9481,13 @@
     },
     {
       "name": "Nollie 1_OS2",
+      "vid": null,
+      "pid": null,
+      "controller": "NollieController",
+      "kind": "hid"
+    },
+    {
+      "name": "Nollie 1_OS2.1",
       "vid": null,
       "pid": null,
       "controller": "NollieController",
@@ -9431,6 +9529,13 @@
       "kind": "hid"
     },
     {
+      "name": "Nollie 32_OS2.1",
+      "vid": null,
+      "pid": null,
+      "controller": "NollieController",
+      "kind": "hid"
+    },
+    {
       "name": "Nollie 8CH",
       "vid": null,
       "pid": null,
@@ -9439,6 +9544,20 @@
     },
     {
       "name": "Nollie 8_OS2",
+      "vid": null,
+      "pid": null,
+      "controller": "NollieController",
+      "kind": "hid"
+    },
+    {
+      "name": "Nollie 8_OS2.1",
+      "vid": null,
+      "pid": null,
+      "controller": "NollieController",
+      "kind": "hid"
+    },
+    {
+      "name": "Prism 8_OS2.1",
       "vid": null,
       "pid": null,
       "controller": "NollieController",
@@ -9457,6 +9576,13 @@
       "pid": null,
       "controller": "OKSController",
       "kind": "hid"
+    },
+    {
+      "name": "PNY GeForce RTX 5060Ti ARGB Epic-X OC",
+      "vid": null,
+      "pid": null,
+      "controller": "PNYARGBEpicXGPUController",
+      "kind": "i2c"
     },
     {
       "name": "PNY GeForce RTX 5070 ARGB Epic-X OC",
@@ -12887,6 +13013,13 @@
       "pid": "0x01ED",
       "controller": "ThingMController",
       "kind": "hid"
+    },
+    {
+      "name": "Thrustmaster Sol",
+      "vid": null,
+      "pid": null,
+      "controller": "ThrustmasterSolController",
+      "kind": "generic"
     },
     {
       "name": "Trust GXT 114",
