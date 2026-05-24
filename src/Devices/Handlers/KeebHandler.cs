@@ -14,8 +14,11 @@ public sealed class KeebHandler : IDeviceHandler
 
     public IReadOnlyList<UsbId> Identifiers { get; } = new[]
     {
-        new UsbId(HyteVid, 0x0900), // MK9
-        new UsbId(HyteVid, 0x0901), // MK9 Pro
+        new UsbId(HyteVid, 0x0300), // Keeb TKL (Suoai)
+        new UsbId(HyteVid, 0x0301), // Redragon Keeb
+        new UsbId(HyteVid, 0x0303), // MK9 Keyboard
+        new UsbId(HyteVid, 0x0304), // MK9 Pro
+        new UsbId(HyteVid, 0x0305), // Redragon KM10 Keeb
     };
 
     public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices) =>
