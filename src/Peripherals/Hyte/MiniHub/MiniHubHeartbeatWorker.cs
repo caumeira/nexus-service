@@ -56,7 +56,13 @@ public sealed class MiniHubHeartbeatWorker : BackgroundService
         }
         if (!_fanModeAsserted)
         {
-            if (_hub.SetFanControlMode(MiniHubProtocol.FanModeSoftware))
+            // Respect a user-pinned mode: if the user picked Motherboard
+            // (BIOS) via PUT /devices/minihub/cooling-mode, re-asserting
+            // Software here would silently undo their choice on every
+            // reconnect. Default unpinned state remains Software so curve
+            // writes work out of the box.
+            var modeToAssert = _hub.DesiredFanControlMode ?? MiniHubProtocol.FanModeSoftware;
+            if (_hub.SetFanControlMode(modeToAssert))
                 _fanModeAsserted = true;
         }
         // Poll tachs every tick so the cooling page shows live RPM. Cheap —

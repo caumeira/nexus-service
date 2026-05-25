@@ -209,6 +209,21 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
             Console.Error.WriteLine($"[minihub-cooling] write to {channelId} dropped: hub not connected");
             return;
         }
+
+        // Bug fix: respect a user-pinned non-Software fan mode. When the user
+        // picked BIOS on a MiniHub fan via PUT /devices/minihub/cooling-mode,
+        // the curve engine's next DriveFanSpeed would call
+        // SetFanControlMode(Software) below and silently flip the hub back —
+        // the user would hear the fan slow as the firmware drops to BIOS PWM,
+        // then immediately speed back up as the next curve tick re-asserts
+        // Software. Drop the write entirely when pinned to Motherboard.
+        var pinned = _hub.DesiredFanControlMode;
+        if (pinned is byte mode && mode != MiniHubProtocol.FanModeSoftware)
+        {
+            _softwareControlled.Remove(channelId);
+            return;
+        }
+
         // Driving this channel implies software control; record so the next
         // GetFanChannels returns Mode="Manual" and the panel doesn't snap
         // the user's selection back to BIOS on the cooling-topic refresh.

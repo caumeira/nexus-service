@@ -42,6 +42,26 @@ public sealed class MiniHubHub : IDisposable
     public bool IsConnected => _transport is { IsOpen: true };
     public string DeviceId => string.IsNullOrEmpty(State.Serial) ? "" : $"minihub:{State.Serial}";
 
+    /// <summary>
+    /// User-pinned fan-control mode. Null = unpinned (cooling provider
+    /// owns it). When set to <see cref="MiniHubProtocol.FanModeMotherboard"/>,
+    /// the cooling provider must NOT re-assert Software on subsequent fan
+    /// writes — otherwise the next curve tick clobbers the user's BIOS
+    /// pick before the hub has even reported the mode change back.
+    /// </summary>
+    public byte? DesiredFanControlMode { get; private set; }
+
+    /// <summary>
+    /// Pin a fan-control mode and immediately push it to the hub. Pass null
+    /// to clear the pin (lets the provider go back to managing mode per
+    /// fan write).
+    /// </summary>
+    public void SetDesiredFanControlMode(byte? mode)
+    {
+        DesiredFanControlMode = mode;
+        if (mode is byte m) SetFanControlMode(m);
+    }
+
     public bool EnsureConnected()
     {
         if (_disposed) return false;
