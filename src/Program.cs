@@ -302,7 +302,7 @@ Nexus.Service.Platform.ProtocolHandler.Register();
 
 Console.WriteLine($"[nexus-service] listening on {url}");
 
-if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) && !serviceMode)
+if (OperatingSystem.IsWindows() && !serviceMode)
     Nexus.Service.Platform.Windows.TrayBootstrap.ConfigureTray(app);
 
 #if WINDOWS
@@ -312,7 +312,7 @@ if (serviceMode)
 
 Nexus.Service.Panel.OverlayHostBootstrap.Wire(app);
 
-if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+if (OperatingSystem.IsWindows())
     Nexus.Service.Platform.Windows.TrayBootstrap.WireAppWindowAndPawnIo(app, serviceMode, suppressStartupWindow);
 
 if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
@@ -389,7 +389,7 @@ static void OpenExistingServiceWindow(int servicePort)
 {
     try
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (OperatingSystem.IsWindows())
         {
             Nexus.Service.Platform.Windows.TrayIcon.OpenLocalWindow(servicePort);
             return;

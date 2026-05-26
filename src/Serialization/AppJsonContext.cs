@@ -58,6 +58,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(CoolingWarning))]
 [JsonSerializable(typeof(List<CoolingWarning>))]
 [JsonSerializable(typeof(GetCoolingWarningsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Cooling.GraphPoint), TypeInfoPropertyName = "CoolingGraphPoint")]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Cooling.GraphPoint>), TypeInfoPropertyName = "CoolingListGraphPoint")]
 
 // NP50 device state surface
 [JsonSerializable(typeof(Nexus.Service.Routes.Np50StateResponse))]
@@ -73,6 +75,12 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.Np50LedColor))]
 [JsonSerializable(typeof(List<Nexus.Service.Routes.Np50LedColor>))]
 [JsonSerializable(typeof(Nexus.Service.Routes.Np50FirmwareResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Np50FirmwareDefaultsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Np50FirmwareDefaultsRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Np50FirmwareAnimationResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Np50FirmwareAnimationRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Np50CoolingModeRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.MiniHubCoolingModeRequest))]
 
 // Fan control
 [JsonSerializable(typeof(FanChannel))]
@@ -110,6 +118,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Persistence.ProfileManifest))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.ProfileEntry))]
 [JsonSerializable(typeof(List<Nexus.Service.Persistence.ProfileEntry>))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.GraphPoint), TypeInfoPropertyName = "PersistenceGraphPoint")]
+[JsonSerializable(typeof(List<Nexus.Service.Persistence.GraphPoint>), TypeInfoPropertyName = "PersistenceListGraphPoint")]
 [JsonSerializable(typeof(Nexus.Service.Persistence.UiSettings))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.UiSettingsPatch))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.ThemeSettings))]

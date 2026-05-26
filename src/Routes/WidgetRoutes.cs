@@ -119,17 +119,25 @@ public static class WidgetRoutes
                    HttpContext ctx) =>
         {
             if (!WidgetIds.IsValid(body.WidgetId))
+            {
                 return Results.Json(new WidgetDispatchResponse { Ok = false, Error = "invalid widget id" },
                     AppJsonContext.Default.WidgetDispatchResponse, statusCode: 400);
+            }
             if (!registry.TryGet(body.WidgetId, out var entry))
+            {
                 return Results.Json(new WidgetDispatchResponse { Ok = false, Error = "widget not installed" },
                     AppJsonContext.Default.WidgetDispatchResponse, statusCode: 404);
+            }
             if (!entry.Manifest.Capabilities.Dispatch.Contains(body.Action))
+            {
                 return Results.Json(new WidgetDispatchResponse { Ok = false, Error = $"action '{body.Action}' not in manifest allowlist" },
                     AppJsonContext.Default.WidgetDispatchResponse, statusCode: 403);
+            }
             if (!actions.TryGet(body.Action, out var handler))
+            {
                 return Results.Json(new WidgetDispatchResponse { Ok = false, Error = $"action '{body.Action}' is not registered" },
                     AppJsonContext.Default.WidgetDispatchResponse, statusCode: 404);
+            }
 
             try
             {
@@ -166,14 +174,20 @@ public static class WidgetRoutes
             (string id, HttpContext ctx, WidgetRegistry registry, WidgetCodeSessionService sessions) =>
         {
             if (!WidgetIds.IsValid(id))
+            {
                 return Results.Json(new WidgetCodeSessionResponse { Error = "invalid widget id" },
                     AppJsonContext.Default.WidgetCodeSessionResponse, statusCode: 400);
+            }
             if (!registry.TryGet(id, out var entry))
+            {
                 return Results.Json(new WidgetCodeSessionResponse { Error = "widget not installed" },
                     AppJsonContext.Default.WidgetCodeSessionResponse, statusCode: 404);
+            }
             if (!entry.Manifest.Capabilities.WorkerCode)
+            {
                 return Results.Json(new WidgetCodeSessionResponse { Error = "widget has no worker code capability" },
                     AppJsonContext.Default.WidgetCodeSessionResponse, statusCode: 400);
+            }
             var token = sessions.Create(id);
             return Results.Json(new WidgetCodeSessionResponse
             {

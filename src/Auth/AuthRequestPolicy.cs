@@ -17,7 +17,9 @@ public static class AuthRequestPolicy
         // and must still authenticate.
         if (ctx.GetEndpoint() is { } endpoint &&
             (endpoint is not RouteEndpoint route || route.Order != int.MaxValue))
+        {
             return false;
+        }
 
         var accept = ctx.Request.Headers.Accept.ToString();
         if (!accept.Contains("text/html", StringComparison.OrdinalIgnoreCase))

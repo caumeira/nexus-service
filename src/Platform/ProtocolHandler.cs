@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 
 namespace Nexus.Service.Platform;
 
@@ -19,15 +20,15 @@ public static class ProtocolHandler
     {
         try
         {
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (OperatingSystem.IsWindows())
             {
                 RegisterWindows();
             }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            else if (OperatingSystem.IsMacOS())
             {
                 RegisterMacOS();
             }
-            else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            else if (OperatingSystem.IsLinux())
             {
                 RegisterLinux();
             }
@@ -38,6 +39,7 @@ public static class ProtocolHandler
         }
     }
 
+    [SupportedOSPlatform("windows")]
     private static void RegisterWindows()
     {
         // HKCU doesn't need admin.

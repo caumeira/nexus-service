@@ -363,10 +363,10 @@ public class PanelPhonePairingServiceTests
     }
 
     [Fact]
-    public void StartPairCode_RemoteDisabled_ReturnsEmpty()
+    public async Task StartPairCode_RemoteDisabled_ReturnsEmpty()
     {
         var service = NewService(new InMemoryConfigStore());
-        service.SetRemoteControlEnabledAsync(false).GetAwaiter().GetResult();
+        await service.SetRemoteControlEnabledAsync(false);
         var resp = service.StartPairCode();
         Assert.Equal("", resp.Code);
         Assert.Equal(0, resp.TtlSeconds);

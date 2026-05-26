@@ -44,13 +44,13 @@ public sealed class PanelKioskLauncher
     /// </summary>
     public bool Launch()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return false;
+        if (!OperatingSystem.IsWindows()) return false;
         return Platform.Windows.TrayIcon.TryPostToOverlayMarshaler(ShowPanelKioskMessageName);
     }
 
     public void Close()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return;
+        if (!OperatingSystem.IsWindows()) return;
         Platform.Windows.TrayIcon.TryPostToOverlayMarshaler(HidePanelKioskMessageName);
     }
 

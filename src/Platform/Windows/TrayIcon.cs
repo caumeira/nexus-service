@@ -1,5 +1,6 @@
 using System;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Threading;
 
 namespace Nexus.Service.Platform.Windows;
@@ -9,6 +10,7 @@ namespace Nexus.Service.Platform.Windows;
 /// Pure Win32 - no WinForms. Creates a NotifyIcon in the system tray
 /// with right-click menu (Open / Settings / Shut down).
 /// </summary>
+[SupportedOSPlatform("windows")]
 public static class TrayIcon
 {
     private const int NIM_ADD = 0x00;

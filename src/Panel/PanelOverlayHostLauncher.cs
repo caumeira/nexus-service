@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
 using System.Threading;
 
 namespace Nexus.Service.Panel;
@@ -33,7 +34,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     private Process? _process;
     private DateTime _lastSpawnUtc = DateTime.MinValue;
     private int _consecutiveFailures;
-    private IntPtr _jobHandle = IntPtr.Zero;
+    private readonly IntPtr _jobHandle = IntPtr.Zero;
     private readonly object _lock = new();
     /// <summary>
     /// Stop() sets this true so a queued OnExited callback - already on
@@ -61,7 +62,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         // child we assign to it is killed when this handle closes - i.e.
         // when the service process exits, including via taskkill /F or
         // a hard crash that ApplicationStopping can't react to.
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        if (OperatingSystem.IsWindows())
         {
             try { _jobHandle = CreateChildKillJob(); }
             catch (Exception ex) { Console.Error.WriteLine($"[overlay-host] job-object init failed: {ex.Message}"); }
@@ -80,7 +81,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     /// </summary>
     public bool Start()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return false;
+        if (!OperatingSystem.IsWindows()) return false;
         if (IsRunning) return true;
 
         var hostPath = ResolveHostPath();
@@ -103,7 +104,11 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             _lastSpawnUtc = DateTime.UtcNow;
         }
 
-        _ = System.Threading.Tasks.Task.Run(() => SpawnHostBlocking(hostPath));
+        _ = System.Threading.Tasks.Task.Run(() =>
+        {
+            if (!OperatingSystem.IsWindows()) return;
+            SpawnHostBlocking(hostPath);
+        });
         return true;
     }
 
@@ -115,6 +120,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     /// respawn (process died immediately after spawn) doesn't see a
     /// stale "starting in progress" flag and short-circuit.
     /// </summary>
+    [SupportedOSPlatform("windows")]
     private void SpawnHostBlocking(string hostPath)
     {
         try
@@ -232,6 +238,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     // (see comment inside StartInActiveUserSession for why).
     // -----------------------------------------------------------------------
 
+    [SupportedOSPlatform("windows")]
     private static Process? StartInActiveUserSession(string exePath, string workingDir)
     {
         // Use schtasks instead of CreateProcessAsUser / CreateProcessWithTokenW
@@ -494,6 +501,7 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     [DllImport("wtsapi32.dll")]
     private static extern void WTSFreeMemory(IntPtr pMemory);
 
+    [SupportedOSPlatform("windows")]
     private static IntPtr CreateChildKillJob()
     {
         var handle = CreateJobObject(IntPtr.Zero, null);
