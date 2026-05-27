@@ -36,6 +36,12 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
 
     // Track which channels are under software control
     private readonly HashSet<string> _softwareControlled = new();
+    // Track which channel id-set we last logged so re-discovery on every
+    // GetFanChannels call doesn't print the same 6-line block at the per-tick
+    // poll rate. Only emit when the discovered set actually changes (channel
+    // added / removed / renamed). Accessed only from DiscoverChannels(),
+    // which itself only runs under _discoveryLock via EnsureDiscovered().
+    private HashSet<string> _lastLoggedChannelIds = new(StringComparer.Ordinal);
 
     public WindowsFanControlProvider(LhmComputer lhm, IConfigStore config)
     {
@@ -318,9 +324,14 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
                 DiscoverFromHardware(result, hw, "GPU");
         }
 
-        Console.Error.WriteLine($"[fan-control] discovered {result.Count} controllable fan channel(s)");
-        foreach (var ch in result)
-            Console.Error.WriteLine($"[fan-control]   {ch.Name} ({ch.Id})");
+        var currentIds = new HashSet<string>(result.Select(c => $"{c.Id}|{c.Name}"), StringComparer.Ordinal);
+        if (!currentIds.SetEquals(_lastLoggedChannelIds))
+        {
+            Console.Error.WriteLine($"[fan-control] discovered {result.Count} controllable fan channel(s)");
+            foreach (var ch in result)
+                Console.Error.WriteLine($"[fan-control]   {ch.Name} ({ch.Id})");
+            _lastLoggedChannelIds = currentIds;
+        }
 
         return result;
     }

@@ -80,6 +80,14 @@ public static class NexusServiceCollectionExtensions
         // spawn. Hard rule: this MUST stay off the startup critical path —
         // see SystemSpecsPrewarmService.ExecuteAsync.
         services.AddHostedService<SystemSpecsPrewarmService>();
+#if WINDOWS
+        // Triggers the IFanControlProvider singleton ctor (which transitively
+        // constructs LhmComputer + kicks off its background Open()) right
+        // after host start. Same "warmup off critical path" pattern as
+        // SystemSpecsPrewarmService. Windows-only because LhmComputer is the
+        // only IFanControlProvider implementation that needs prewarming.
+        services.AddHostedService<LhmWarmupService>();
+#endif
         return services;
     }
 
