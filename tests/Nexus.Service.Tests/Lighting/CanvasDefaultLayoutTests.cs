@@ -70,4 +70,43 @@ public class CanvasDefaultLayoutTests
         Assert.InRange(x, Pad, CanvasW - Pad - w);
         Assert.InRange(y, Pad, CanvasH - Pad - h);
     }
+
+    // Unified-grid invariants: every slot of every reasonable totalCount must (a) stay
+    // inside the drag-legal canvas and (b) not overlap any other slot's rect for the
+    // same totalCount. Covers the user's "stack evenly, NEVER outside the canvas" rule.
+    [Theory]
+    [InlineData(1)]
+    [InlineData(4)]
+    [InlineData(12)]
+    [InlineData(18)]
+    [InlineData(30)]
+    [InlineData(50)]
+    [InlineData(100)]
+    public void CanvasGridLayout_slots_stay_inside_canvas(int totalCount)
+    {
+        for (var i = 0; i < totalCount; i++)
+        {
+            var (x, y, w, h) = Nexus.Service.Lighting.CanvasGridLayout.Slot(i, totalCount);
+            AssertInsideCanvas(x, y, w, h);
+        }
+    }
+
+    [Theory]
+    [InlineData(4)]
+    [InlineData(12)]
+    [InlineData(30)]
+    public void CanvasGridLayout_slots_do_not_overlap(int totalCount)
+    {
+        var rects = new (float x, float y, float w, float h)[totalCount];
+        for (var i = 0; i < totalCount; i++)
+            rects[i] = Nexus.Service.Lighting.CanvasGridLayout.Slot(i, totalCount);
+        for (var i = 0; i < totalCount; i++)
+        for (var j = i + 1; j < totalCount; j++)
+        {
+            var a = rects[i];
+            var b = rects[j];
+            var overlap = !(a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y);
+            Assert.False(overlap, $"slot {i} {a} overlaps slot {j} {b} at totalCount={totalCount}");
+        }
+    }
 }

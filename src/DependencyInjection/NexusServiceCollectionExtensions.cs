@@ -209,7 +209,9 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Np50LightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>(),
-                sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>()));
+                sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         }
         else
         {
@@ -217,7 +219,9 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<StubDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Np50LightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>(),
-                sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>()));
+                sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         }
 
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.CnvsHandler>();
