@@ -243,14 +243,27 @@ public sealed class MiniHubLightingDeviceProvider : ILightingDeviceProvider, ILi
         return frame;
     }
 
-    /// <summary>Default canvas slots for MiniHub zones. Placed just below the NP50 row so they coexist on a typical canvas without overlap.</summary>
-    private static (float x, float y, float w, float h) DefaultMiniHubLayout(int slot)
+    /// <summary>Default canvas slots for MiniHub zones. The earlier
+    /// single-row layout at y=560 actually overflowed the 600-unit canvas
+    /// (cardH=60 → bottom edge at 620) and wrapped horizontally off-screen
+    /// past slot 3, hiding any 4th+ port. Now lifted to y=463 with a 4-col,
+    /// 2-row wrap so all four ports fit on-canvas even when full. The Y was
+    /// further pulled in from 470 to 463 so the second row lands at y=528,
+    /// matching the canvas drag clamp (y + h ≤ CH - PAD = 588) and avoiding
+    /// a one-frame snap-upward on the user's first interaction.</summary>
+    internal static (float x, float y, float w, float h) DefaultMiniHubLayout(int slot)
     {
-        const float Y = 560f;
-        const float W = 240f;
+        const float Y = 463f;
+        const float W = 220f;
         const float H = 60f;
-        const float Gap = 280f;
+        const float Gap = 240f;
         const float BaseX = 40f;
-        return (BaseX + slot * Gap, Y, W, H);
+        const int Cols = 4;
+        const int Rows = 2;
+        const float RowGap = 65f; // row 1 lands at y=528, last edge 588 == clamp
+        var s = ((slot % (Cols * Rows)) + Cols * Rows) % (Cols * Rows);
+        var col = s % Cols;
+        var row = s / Cols;
+        return (BaseX + col * Gap, Y + row * RowGap, W, H);
     }
 }

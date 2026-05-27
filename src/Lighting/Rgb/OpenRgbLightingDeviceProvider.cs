@@ -221,37 +221,46 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider
     /// <summary>
     /// Default on-canvas rectangle for a full device card. Twice the v1 size +
     /// arranged in a 3-column grid so multiple devices don't overlap. Canvas
-    /// coords are 1000x600 internal units; the UI rescales.
+    /// coords are 1000x600 internal units; the UI rescales. Row count is capped
+    /// so no card lands off-canvas; once the grid is full the slot wraps to
+    /// position 0 (the top-left), stacking new cards on existing defaults that
+    /// the user can drag apart — better than silently hiding cards beyond row 5.
     /// </summary>
     internal static (float x, float y, float w, float h) DefaultCardLayout(int slot)
     {
         const float W = 240f;
         const float H = 60f;
         const int Cols = 3;
+        const int Rows = 6; // 40 + 5*90 + 60 = 550 ≤ canvas bottom (588 with PAD)
         const float ColGap = 320f;
         const float RowGap = 90f;
-        var col = slot % Cols;
-        var row = slot / Cols;
+        var s = ((slot % (Cols * Rows)) + Cols * Rows) % (Cols * Rows);
+        var col = s % Cols;
+        var row = s / Cols;
         return (30f + col * ColGap, 40f + row * RowGap, W, H);
     }
 
     /// <summary>
     /// Default on-canvas rectangle for a motherboard ARGB strip zone. Twice the
     /// v1 height + a 2-column grid anchored below the device-card area so
-    /// strips don't pile on top of each other or overlap the cards.
+    /// strips don't pile on top of each other or overlap the cards. Same wrap
+    /// rule as <see cref="DefaultCardLayout"/>: slots past the visible grid
+    /// loop back to the first column/row.
     /// </summary>
     internal static (float x, float y, float w, float h) DefaultStripLayout(int slot)
     {
         const float W = 360f;
         const float H = 60f;
         const int Cols = 2;
+        const int Rows = 3; // 380 + 2*70 + 60 = 580 ≤ canvas bottom
         const float ColGap = 480f;
         const float RowGap = 70f;
         // Strips are anchored in the lower third so device cards (which go
         // top-down from y=40) never collide with strip row 0.
         const float BaseY = 380f;
-        var col = slot % Cols;
-        var row = slot / Cols;
+        var s = ((slot % (Cols * Rows)) + Cols * Rows) % (Cols * Rows);
+        var col = s % Cols;
+        var row = s / Cols;
         return (40f + col * ColGap, BaseY + row * RowGap, W, H);
     }
 
