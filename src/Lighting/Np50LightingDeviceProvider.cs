@@ -373,20 +373,29 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
     /// <summary>
     /// Visible-canvas default layout for NP50 zones. Canvas runs 0..1000 ×
     /// 0..600; OpenRGB strips live around y=380, so we tuck NP50 zones into
-    /// y=490 in a horizontal row. The user can drag them anywhere afterward
-    /// and the layout persists to settings.Lighting.DeviceLayouts.
+    /// the lower band in a 4-wide row. The user can drag them anywhere
+    /// afterward and the layout persists to settings.Lighting.DeviceLayouts.
+    /// Row count is capped so the second row stays inside the drag-legal
+    /// region (the canvas drag clamp is y + h ≤ CH - PAD = 588), beyond that
+    /// we wrap to slot 0 so newly-attached noodles never disappear past the
+    /// bottom edge. Note Y is pulled in from the old 490 to 478 — the canvas
+    /// drag clamp uses a 12-unit PAD, so y=540 would silently snap upward
+    /// on the user's first interaction.
     /// </summary>
-    private static (float x, float y, float w, float h) DefaultNp50Layout(int slot)
+    internal static (float x, float y, float w, float h) DefaultNp50Layout(int slot)
     {
-        const float Y = 490f;
+        const float Y = 478f;
         const float W = 200f;
         const float H = 60f;
         const float Gap = 220f;
         const float BaseX = 40f;
         const int Cols = 4;
-        var col = slot % Cols;
-        var row = slot / Cols;
-        return (BaseX + col * Gap, Y + row * 70f, W, H);
+        const int Rows = 2; // row 1 lands at y=528, last edge 588 == clamp
+        const float RowGap = 50f;
+        var s = ((slot % (Cols * Rows)) + Cols * Rows) % (Cols * Rows);
+        var col = s % Cols;
+        var row = s / Cols;
+        return (BaseX + col * Gap, Y + row * RowGap, W, H);
     }
 }
 
