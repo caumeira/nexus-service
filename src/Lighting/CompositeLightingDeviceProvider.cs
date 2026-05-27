@@ -20,27 +20,30 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     private readonly ILightingDeviceProvider _openRgb;
     private readonly Np50LightingDeviceProvider _np50;
     private readonly MiniHubLightingDeviceProvider _miniHub;
+    private readonly CnvsLightingDeviceProvider _cnvs;
 
     public CompositeLightingDeviceProvider(
         ILightingDeviceProvider openRgb,
         Np50LightingDeviceProvider np50,
-        MiniHubLightingDeviceProvider miniHub)
+        MiniHubLightingDeviceProvider miniHub,
+        CnvsLightingDeviceProvider cnvs)
     {
         _openRgb = openRgb;
         _np50 = np50;
         _miniHub = miniHub;
+        _cnvs = cnvs;
     }
 
-    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected;
+    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _cnvs.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
     {
         var rgb = _openRgb.GetAll();
 
-        // Filter out OpenRGB's NP50/MiniHub entries when our own providers
-        // are live. nexus-service now opens those COM ports exclusively for
-        // hub control; OpenRGB's entries become zombies the animation
-        // system can't push frames to.
+        // Filter out OpenRGB's NP50/MiniHub/CNVS entries when our own
+        // providers are live. nexus-service now opens those COM ports
+        // exclusively for hub control; OpenRGB's entries become zombies
+        // the animation system can't push frames to.
         if (rgb.Devices.Count > 0)
         {
             if (_np50.IsConnected)
@@ -54,6 +57,15 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
                 rgb.Devices.RemoveAll(d =>
                     d.Name.Contains("MiniHub", StringComparison.OrdinalIgnoreCase) ||
                     d.Name.Contains("HYTE Mini", StringComparison.OrdinalIgnoreCase));
+            }
+            if (_cnvs.IsConnected)
+            {
+                // OpenRGB exposes CNVS as "HYTE CNVS" (mousemat). Strip it so
+                // the lighting page doesn't show two CNVS cards (zombie OpenRGB
+                // entry + our live one).
+                rgb.Devices.RemoveAll(d =>
+                    d.Name.Contains("HYTE CNVS", StringComparison.OrdinalIgnoreCase) ||
+                    d.Name.Contains("HYTE Mousemat", StringComparison.OrdinalIgnoreCase));
             }
         }
 
@@ -69,6 +81,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
             rgb.IsInit = rgb.IsInit || mini.IsInit;
             rgb.Devices.AddRange(mini.Devices);
         }
+        var cnvs = _cnvs.GetAll();
+        if (cnvs.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || cnvs.IsInit;
+            rgb.Devices.AddRange(cnvs.Devices);
+        }
         return rgb;
     }
 
@@ -79,15 +97,18 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         var rgbIds = new List<string>(ids.Count);
         var np50Ids = new List<string>(ids.Count);
         var miniIds = new List<string>(ids.Count);
+        var cnvsIds = new List<string>(ids.Count);
         foreach (var id in ids)
         {
             if (IsNp50Id(id)) np50Ids.Add(id);
             else if (IsMiniHubId(id)) miniIds.Add(id);
+            else if (IsCnvsId(id)) cnvsIds.Add(id);
             else rgbIds.Add(id);
         }
         if (rgbIds.Count > 0) _openRgb.SetDisabled(rgbIds);
         if (np50Ids.Count > 0) _np50.SetDisabled(np50Ids);
         if (miniIds.Count > 0) _miniHub.SetDisabled(miniIds);
+        if (cnvsIds.Count > 0) _cnvs.SetDisabled(cnvsIds);
     }
 
     public void SetPower(string id, bool on) { Pick(id).SetPower(id, on); }
@@ -98,11 +119,17 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     public void Identify(string id, int durationMs) { Pick(id).Identify(id, durationMs); }
 
     private ILightingDeviceProvider Pick(string id)
-        => IsNp50Id(id) ? _np50 : IsMiniHubId(id) ? _miniHub : _openRgb;
+        => IsNp50Id(id) ? _np50
+        : IsMiniHubId(id) ? _miniHub
+        : IsCnvsId(id) ? _cnvs
+        : _openRgb;
 
     private static bool IsNp50Id(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("np50:", StringComparison.Ordinal);
 
     private static bool IsMiniHubId(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("minihub:", StringComparison.Ordinal);
+
+    private static bool IsCnvsId(string id) =>
+        !string.IsNullOrEmpty(id) && id.StartsWith("cnvs:", StringComparison.Ordinal);
 }

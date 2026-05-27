@@ -185,12 +185,22 @@ public static class NexusServiceCollectionExtensions
 
         // MiniHub: lighting-only v1, mirrors the NP50 stack with a separate
         // hub coordinator + heartbeat + frame writer. Composite lighting
-        // provider routes between OpenRGB / NP50 / MiniHub by id prefix.
+        // provider routes between OpenRGB / NP50 / MiniHub / CNVS by id prefix.
         services.AddSingleton<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>());
         services.AddSingleton<Nexus.Service.Lighting.MiniHubLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingFrameWriter>());
+
+        // CNVS lighting: our CnvsHub owns COM7, so OpenRGB no longer drives
+        // the mat. This provider surfaces the 50-LED zone to the lighting
+        // engine and the writer pushes 30 Hz LED frames to the hub. Reuses
+        // the Np50IdentifyTracker (it's the shared flash-on-identify state).
+        services.AddSingleton<Nexus.Service.Lighting.CnvsLightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.CnvsLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingFrameWriter>());
 
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
         {
@@ -198,14 +208,16 @@ public static class NexusServiceCollectionExtensions
             services.AddSingleton<ILightingDeviceProvider>(sp => new Nexus.Service.Lighting.CompositeLightingDeviceProvider(
                 sp.GetRequiredService<Nexus.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Np50LightingDeviceProvider>(),
-                sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>()));
+                sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>()));
         }
         else
         {
             services.AddSingleton<ILightingDeviceProvider>(sp => new Nexus.Service.Lighting.CompositeLightingDeviceProvider(
                 sp.GetRequiredService<StubDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Np50LightingDeviceProvider>(),
-                sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>()));
+                sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>()));
         }
 
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.CnvsHandler>();

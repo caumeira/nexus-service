@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Lighting;
 
 namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 
@@ -26,10 +27,16 @@ public sealed class CnvsConnectionWorker : BackgroundService
     private const int TickPeriodMs = 5000;
 
     private readonly CnvsHub _hub;
+    // Optional: the lighting provider rebuilds its DeviceFrame when the hub
+    // (re)connects. Injected so a hot-plug shows up on the lighting page
+    // without a full service restart. Null in non-lighting test fixtures.
+    private readonly CnvsLightingDeviceProvider? _lighting;
+    private bool _wasConnected;
 
-    public CnvsConnectionWorker(CnvsHub hub)
+    public CnvsConnectionWorker(CnvsHub hub, CnvsLightingDeviceProvider? lighting = null)
     {
         _hub = hub;
+        _lighting = lighting;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -44,7 +51,7 @@ public sealed class CnvsConnectionWorker : BackgroundService
         {
             do
             {
-                try { _hub.EnsureConnected(); }
+                try { Tick(); }
                 catch (Exception ex) { Console.Error.WriteLine($"[cnvs-conn] tick failed: {ex.GetType().Name}: {ex.Message}"); }
             }
             while (await timer.WaitForNextTickAsync(stoppingToken));
@@ -52,5 +59,22 @@ public sealed class CnvsConnectionWorker : BackgroundService
         catch (OperationCanceledException) { }
 
         _hub.Disconnect();
+    }
+
+    private void Tick()
+    {
+        _hub.EnsureConnected();
+        var nowConnected = _hub.IsConnected;
+        if (nowConnected != _wasConnected)
+        {
+            _wasConnected = nowConnected;
+            // Tell the lighting provider its DeviceFrame topology changed so
+            // RgbBridge rebuilds the engine's device list. Without this nudge
+            // the lighting page won't show a freshly-plugged CNVS until the
+            // next bridge tick (~3 s anyway, but the explicit signal makes
+            // hot-plug feel instant).
+            try { _lighting?.OnHubStateUpdated(); }
+            catch { /* subscriber failures shouldn't bubble */ }
+        }
     }
 }
