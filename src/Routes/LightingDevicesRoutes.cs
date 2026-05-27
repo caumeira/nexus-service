@@ -26,6 +26,45 @@ public static partial class DevicesRoutes
             return ApiResponse.Ok();
         });
 
+        // Reset every device frame's persisted layout (canvas X/Y/W/H/rotation)
+        // back to the provider-computed defaults. The lighting providers
+        // re-emit defaults on the next GetAll() since DeviceLayouts is empty;
+        // we also mirror those defaults into the live engine frames so running
+        // effects start sampling from the new rectangles on the next tick
+        // (otherwise BuildOrReuseFrame's existing-frame-wins logic would keep
+        // the pre-reset coordinates in memory). Same pattern POST /layout
+        // uses to push a single user-drag into the engine. The lighting-topic
+        // broadcast nudges all connected SPAs to refetch.
+        app.MapDelete("/devices/lighting-devices/layouts", (
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Sockets.MultiplexHub hub,
+            ILightingDeviceProvider lightingProvider,
+            Nexus.Service.Lighting.Engine.LightingEngine engine) =>
+        {
+            store.Update(s =>
+            {
+                s.Lighting.DeviceLayouts.Clear();
+            });
+            var fresh = lightingProvider.GetAll();
+            foreach (var freshDev in fresh.Devices)
+            {
+                foreach (var frame in engine.Devices)
+                {
+                    if (frame.Id == freshDev.Id)
+                    {
+                        frame.X = freshDev.CanvasX;
+                        frame.Y = freshDev.CanvasY;
+                        frame.W = freshDev.CanvasW;
+                        frame.H = freshDev.CanvasH;
+                        frame.Rotation = freshDev.CanvasRotation;
+                        break;
+                    }
+                }
+            }
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            return ApiResponse.Ok();
+        });
+
         app.MapPost("/devices/lighting-devices/disable", (SetDisabledLedsBody body, ILightingDeviceProvider ld) =>
         {
             ld.SetDisabled(body.Devices);
