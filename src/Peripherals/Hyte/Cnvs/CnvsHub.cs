@@ -121,22 +121,52 @@ public sealed class CnvsHub : IDisposable
             if (port is null) return false;
             try
             {
-                var frame = CnvsProtocol.BuildSetSettings(suppressBootAnimation, keepLedsOnWhenPcOff);
+                // The firmware appears to silently drop FF DC 07 writes when
+                // the device is in streaming mode (i.e. after FF DC 05 00).
+                // Bracket the settings write with a transition into firmware
+                // mode and back — mirrors HYTE's SetToFirmwareMode → settings
+                // → TurnFwAnimationOFF flow. The whole sequence runs under
+                // _writeLock so the 30 Hz lighting writer can't interleave.
+
+                // Step 1: enter firmware-animation mode. HYTE's
+                // TurnFwAnimationOn sends FF DC 02 preamble then FF DC 05 01.
+                var animPreamble = CnvsProtocol.BuildTurnAnimationOnPreamble();
+                port.Write(animPreamble, 0, animPreamble.Length);
+                var animOn = CnvsProtocol.BuildTurnAnimationOnMain();
+                port.Write(animOn, 0, animOn.Length);
+                Thread.Sleep(30);
+
+                // Step 2: settings write itself.
                 port.DiscardInBuffer();
+                var frame = CnvsProtocol.BuildSetSettings(suppressBootAnimation, keepLedsOnWhenPcOff);
                 port.Write(frame, 0, frame.Length);
                 Console.Error.WriteLine(
                     $"[cnvs] WriteSettings sent {frame.Length}B on {_portName} (serial={_serial}): boot={suppressBootAnimation} leds={keepLedsOnWhenPcOff}");
-                Thread.Sleep(20);
 
+                // Step 3: give the firmware a beat to commit before flipping
+                // back to streaming mode. 100 ms is generous; HYTE's UI uses
+                // ~50 ms between settings + next frame, doubled here to
+                // survive worst-case flash-write latency.
+                Thread.Sleep(100);
+
+                // Step 4: best-effort read-back. Logged but not load-bearing
+                // — some firmware revs don't echo FF DC 08.
                 var readBack = ReadSettingsLocked(port);
                 if (readBack is { } rb)
-                {
                     Console.Error.WriteLine($"[cnvs] WriteSettings read-back: {rb}");
-                    return rb.SuppressBootAnimation == suppressBootAnimation
-                        && rb.KeepLedsOnWhenPcOff == keepLedsOnWhenPcOff;
-                }
-                Console.Error.WriteLine("[cnvs] WriteSettings: read-back returned no data");
-                return true; // write went out; firmware just didn't echo
+                else
+                    Console.Error.WriteLine("[cnvs] WriteSettings: read-back returned no data");
+
+                // Step 5: back to streaming mode so the lighting writer's
+                // next frame paints correctly. Fire the drift event so the
+                // writer drops its cached "already silenced" flag and
+                // re-asserts FF DC 05 00 on its next tick — without that
+                // the writer trusts the stale flag and the firmware sits
+                // in animation mode overlaying our stream.
+                var animOff = CnvsProtocol.BuildTurnAnimationOff();
+                port.Write(animOff, 0, animOff.Length);
+                FirmwareAnimationStateMayHaveDrifted?.Invoke();
+                return true;
             }
             catch (Exception ex)
             {
@@ -146,6 +176,14 @@ public sealed class CnvsHub : IDisposable
             }
         }
     }
+
+    /// <summary>
+    /// Fires when <see cref="WriteSettings"/> has toggled the firmware-
+    /// animation state inside its bracket. The lighting frame writer
+    /// subscribes so it re-sends <c>FF DC 05 00</c> on its next tick
+    /// rather than trusting its cached "already silenced" flag.
+    /// </summary>
+    public event Action? FirmwareAnimationStateMayHaveDrifted;
 
     /// <summary>Read the EEPROM-persisted settings. Null on transport error / not connected.</summary>
     public CnvsProtocol.CnvsSettings? ReadSettings()

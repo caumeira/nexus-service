@@ -9,11 +9,12 @@ using Nexus.Service.Persistence;
 namespace Nexus.Service.Lighting;
 
 /// <summary>
-/// Surfaces the HYTE CNVS as a single drivable <see cref="LightingDevice"/>
-/// (one mat = one 50-LED linear zone) on the lighting page, and contributes
-/// a matching <see cref="DeviceFrame"/> to the engine each rebuild. Mirrors
-/// <see cref="MiniHubLightingDeviceProvider"/> for the single-zone case;
-/// no per-port split because CNVS only exposes one channel.
+/// Surfaces the HYTE CNVS as a single standalone <see cref="LightingDevice"/>
+/// card on the lighting page — NOT a parent-with-child layout like
+/// <see cref="Np50LightingDeviceProvider"/> uses for the multi-zone hubs.
+/// CNVS is one physical mat with one 50-LED strip, so it renders as a
+/// plain "HYTE CNVS" card alongside motherboard ARGB strips and GPU,
+/// no parentDeviceId and no zone-child indirection.
 ///
 /// Why this lives outside the OpenRGB stack: our service now owns COM7
 /// exclusively via <see cref="CnvsHub"/> (see CnvsConnectionWorker for
@@ -55,12 +56,16 @@ public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILight
     {
         var resp = new GetLightingDevicesResponse { IsInit = true };
         if (!_hub.IsConnected) return resp;
-        var id = $"{_hub.DeviceId}:mat";
+        // CNVS is a single physical mat with one 50-LED strip — render as
+        // a standalone card "HYTE CNVS", NOT a parent header with a child
+        // zone (which is the NP50 / MiniHub pattern because those have
+        // multiple distinct LED channels). Id matches DeviceId verbatim —
+        // no ":mat" suffix — since there's only one zone to address.
+        var id = _hub.DeviceId;
         var settings = _store.Load();
-        resp.Devices.Add(BuildZone(
-            id: id, name: $"HYTE CNVS - Mat",
+        resp.Devices.Add(BuildCard(
+            id: id, name: "HYTE CNVS",
             firmwareLedCount: CnvsHub.LedCount,
-            zoneIndex: 0, parentDeviceId: _hub.DeviceId,
             settings.Devices.DisabledLightingDevices,
             settings.Devices.LightingDevicePrefs,
             settings.Lighting.DeviceLayouts,
@@ -68,8 +73,8 @@ public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILight
         return resp;
     }
 
-    private static LightingDevice BuildZone(
-        string id, string name, int firmwareLedCount, int zoneIndex, string parentDeviceId,
+    private static LightingDevice BuildCard(
+        string id, string name, int firmwareLedCount,
         IReadOnlyList<string> disabled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         IReadOnlyDictionary<string, DeviceLayout> layouts,
@@ -84,24 +89,22 @@ public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILight
         {
             brightness = pref.Brightness; hue = pref.Hue; saturation = pref.Saturation;
         }
-        // LED count override: clamp to the firmware's fixed 50. CNVS LEDs
-        // are non-resizable in hardware but we still let the user shrink
-        // the logical strip (handy if part of the mat is occluded).
-        var effectiveLedCount = firmwareLedCount;
-        if (counts.TryGetValue(id, out var persisted))
-            effectiveLedCount = Math.Clamp(persisted, 0, firmwareLedCount);
-        var (defX, defY, defW, defH) = DefaultCnvsLayout(zoneIndex);
+        // LED count is fixed at the firmware's 50; the card carries that
+        // exact number (no user override). ZoneResizable=false on the
+        // wire so the lighting page hides the led-count editor for CNVS.
+        var (defX, defY, defW, defH) = DefaultCnvsLayout();
         layouts.TryGetValue(id, out var layout);
         return new LightingDevice
         {
             Id = id, Name = name, Type = "ledstrip", IconType = "mousemat",
             LedsOn = isOn, Brightness = brightness, Hue = hue, Saturation = saturation,
-            LedCount = effectiveLedCount,
+            LedCount = firmwareLedCount,
             CanvasX = layout?.X ?? defX, CanvasY = layout?.Y ?? defY,
             CanvasW = layout?.W ?? defW, CanvasH = layout?.H ?? defH,
             CanvasRotation = ((((layout?.Rotation ?? 0) % 360) + 360) % 360),
-            ParentDeviceId = parentDeviceId, ZoneIndex = zoneIndex,
-            ZoneType = "linear", ZoneResizable = true,
+            // No ParentDeviceId / ZoneIndex / counts override — CNVS is a
+            // top-level standalone card, not a child of a multi-zone hub.
+            ZoneType = "linear", ZoneResizable = false,
         };
     }
 
@@ -150,8 +153,10 @@ public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILight
 
     public void SetZoneLedCount(string id, int count)
     {
-        if (count < 0) return;
-        _store.Update(s => s.Devices.ZoneLedCounts[id] = Math.Clamp(count, 0, CnvsHub.LedCount));
+        // No-op: CNVS LED count is fixed at the firmware-reported 50;
+        // ZoneResizable=false hides the editor in the UI, but ignore any
+        // stale calls defensively.
+        _ = id; _ = count;
     }
 
     public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);
@@ -164,23 +169,19 @@ public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILight
     public IReadOnlyList<DeviceFrame> BuildFrames(int startingIndex)
     {
         if (!_hub.IsConnected) { _frame = null; return Array.Empty<DeviceFrame>(); }
-        var id = $"{_hub.DeviceId}:mat";
+        var id = _hub.DeviceId;
         var settings = _store.Load();
         var layouts = settings.Lighting.DeviceLayouts;
-        var counts = settings.Devices.ZoneLedCounts;
+        var ledCount = CnvsHub.LedCount;
 
-        var effectiveLedCount = CnvsHub.LedCount;
-        if (counts.TryGetValue(id, out var persisted))
-            effectiveLedCount = Math.Clamp(persisted, 0, CnvsHub.LedCount);
-
-        var (defX, defY, defW, defH) = DefaultCnvsLayout(0);
+        var (defX, defY, defW, defH) = DefaultCnvsLayout();
         layouts.TryGetValue(id, out var layout);
         var rot = ((((layout?.Rotation ?? 0) % 360) + 360) % 360);
 
         if (_frame is not null
             && _frame.Index == startingIndex
             && _frame.Id == id
-            && _frame.LedCount == effectiveLedCount)
+            && _frame.LedCount == ledCount)
         {
             _frame.X = layout?.X ?? defX;
             _frame.Y = layout?.Y ?? defY;
@@ -191,7 +192,7 @@ public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILight
         else
         {
             _frame = new DeviceFrame(
-                index: startingIndex, id: id, ledCount: effectiveLedCount,
+                index: startingIndex, id: id, ledCount: ledCount,
                 x: layout?.X ?? defX, y: layout?.Y ?? defY,
                 w: layout?.W ?? defW, h: layout?.H ?? defH, rotation: rot);
         }
@@ -201,7 +202,7 @@ public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILight
     /// <summary>Default canvas placement for the CNVS mat. Placed below the
     /// MiniHub row so the three HYTE-device families coexist on a typical
     /// canvas. User can drag and persist.</summary>
-    private static (float x, float y, float w, float h) DefaultCnvsLayout(int _slot)
+    private static (float x, float y, float w, float h) DefaultCnvsLayout()
     {
         return (40f, 640f, 360f, 70f);
     }

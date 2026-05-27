@@ -52,12 +52,21 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _cts = new CancellationTokenSource();
+        // CnvsHub fires this after WriteSettings has toggled firmware-anim
+        // state during its settings-write bracket. Drop our cached flag so
+        // the next Tick re-sends FF DC 05 00 instead of trusting the stale
+        // "already silenced" optimism — otherwise the firmware sits in
+        // animation mode after a settings change and overlays our stream.
+        _hub.FirmwareAnimationStateMayHaveDrifted += OnHubFwAnimDrift;
         _loop = Task.Run(() => RunAsync(_cts.Token));
         return Task.CompletedTask;
     }
 
+    private void OnHubFwAnimDrift() => _fwAnimSilenced = false;
+
     public async Task StopAsync(CancellationToken cancellationToken)
     {
+        _hub.FirmwareAnimationStateMayHaveDrifted -= OnHubFwAnimDrift;
         _cts?.Cancel();
         if (_loop is not null)
         {
@@ -123,8 +132,9 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
             return;
         }
 
-        var hubId = _hub.DeviceId;
-        var id = $"{hubId}:mat";
+        // CNVS is exposed by CnvsLightingDeviceProvider as a single
+        // standalone card with id = hub DeviceId (no ":mat" zone suffix).
+        var id = _hub.DeviceId;
         DeviceFrame? frame = null;
         for (var i = 0; i < devices.Length; i++)
         { if (devices[i].Id == id) { frame = devices[i]; break; } }
