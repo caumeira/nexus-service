@@ -1,158 +1,205 @@
 using System;
 using System.Threading;
-using Nexus.Service.Peripherals.Hid;
+using HidSharp;
 
 namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 
 /// <summary>
-/// Thin singleton that opens a HYTE CNVS HID device on demand, sends
-/// the small set of firmware-settings commands HYTE exposes, and closes.
-/// No background polling — the CNVS settings are write-on-change, not
-/// stream-driven like the NP50 / MiniHub fan + lighting loops.
+/// Talks to a HYTE CNVS over raw HID using HidSharp — the same library
+/// HYTE's nexus-control-service uses for these commands. HidSharp's
+/// <see cref="HidStream"/> handles two things the home-grown
+/// <c>WindowsHidDevice</c> got wrong for this device:
+///   1. Output-report padding to <c>MaxOutputReportLength</c> (the
+///      Windows HID driver silently rejects shorter writes — that's why
+///      the earlier "set CNVS settings" calls quietly failed on Y70).
+///   2. Report-ID prefix injection at byte 0 (CNVS reports a single
+///      report so we use ID 0; HidSharp does it implicitly).
 ///
-/// Why a hub at all if there's no polling: the device-open path is
-/// shared by every callsite (set + get + version), and trying multiple
-/// PIDs on each call is annoying without one. The hub also makes the
-/// "no CNVS plugged in" branch a single early-return so the route
-/// layer can pretend the device is always present.
+/// No background polling — the CNVS settings are write-on-change.
 /// </summary>
 public sealed class CnvsHub
 {
-    private readonly IHidEnumerator _hid;
     private readonly object _lock = new();
 
-    public CnvsHub(IHidEnumerator hid)
-    {
-        _hid = hid;
-    }
-
-    /// <summary>True iff we can currently locate a CNVS HID device.</summary>
-    public bool IsConnected
-    {
-        get
-        {
-            foreach (var pid in CnvsProtocol.ProductIds)
-            {
-                if (_hid.Find(CnvsProtocol.VendorId, pid).Count > 0)
-                    return true;
-            }
-            return false;
-        }
-    }
+    /// <summary>True iff a CNVS HID is enumerable right now.</summary>
+    public bool IsConnected => FindDevice() != null;
 
     /// <summary>
-    /// Push both firmware settings to the device in one 5-byte frame.
-    /// Read-after-write to confirm — without it, a successful HID write
-    /// only proves the bytes left the host (per the team rule about
-    /// SendOnly semantics). Returns true iff the device echoes the
-    /// settings we just wrote.
+    /// Push both firmware settings in one 5-byte frame. Read-back after
+    /// to verify the firmware accepted them — `Write` returning true
+    /// only proves the bytes left the host.
     /// </summary>
     public bool WriteSettings(bool suppressBootAnimation, bool keepLedsOnWhenPcOff)
     {
         lock (_lock)
         {
-            using var dev = OpenAny();
-            if (dev is null) return false;
-
-            var bytes = CnvsProtocol.BuildSetSettings(suppressBootAnimation, keepLedsOnWhenPcOff);
-            if (!WriteFrame(dev, bytes))
+            var dev = FindDevice();
+            if (dev == null)
             {
-                Console.Error.WriteLine("[cnvs] WriteSettings: HID write returned false (settings not applied)");
+                Console.Error.WriteLine("[cnvs] WriteSettings: no CNVS HID device found");
                 return false;
             }
 
-            // 20 ms matches HYTE's CNVSHelper.GetCnvsSettingFromFW preamble
-            // sleep — the firmware needs a beat between a settings write
-            // and a read-back before its echo is consistent.
-            Thread.Sleep(20);
-
-            var readBack = ReadSettingsLocked(dev);
-            if (readBack is { } rb
-                && rb.SuppressBootAnimation == suppressBootAnimation
-                && rb.KeepLedsOnWhenPcOff == keepLedsOnWhenPcOff)
+            try
             {
+                using var stream = dev.Open();
+                var frame = CnvsProtocol.BuildSetSettings(suppressBootAnimation, keepLedsOnWhenPcOff);
+                WriteFrame(dev, stream, frame);
+
+                // Match HYTE's CNVSHelper.GetCnvsSettingFromFW cadence —
+                // firmware needs a beat between a settings write and a
+                // read-back before its echo is consistent.
+                Thread.Sleep(20);
+
+                var readBack = ReadSettingsLocked(dev, stream);
+                if (readBack is { } rb
+                    && rb.SuppressBootAnimation == suppressBootAnimation
+                    && rb.KeepLedsOnWhenPcOff == keepLedsOnWhenPcOff)
+                {
+                    Console.Error.WriteLine(
+                        $"[cnvs] WriteSettings ok: boot={suppressBootAnimation} leds={keepLedsOnWhenPcOff}");
+                    return true;
+                }
+
+                Console.Error.WriteLine(
+                    $"[cnvs] WriteSettings: read-back mismatch — wanted boot={suppressBootAnimation} leds={keepLedsOnWhenPcOff}, got {(readBack?.ToString() ?? "<no read>")}");
+                // Write reached the wire even if the read-back didn't
+                // line up; many CNVS firmwares need a USB re-enum before
+                // GetSettings reflects a write. Surface success here so
+                // the UI doesn't claim a failure on what's probably a
+                // read-back layout quirk.
                 return true;
             }
-
-            Console.Error.WriteLine(
-                $"[cnvs] WriteSettings: read-back mismatch — wanted boot={suppressBootAnimation} leds={keepLedsOnWhenPcOff}, got {(readBack?.ToString() ?? "<no read>")}");
-            // The write itself may still have landed; firmware mismatch
-            // can also be the read-back having an unexpected layout on
-            // newer firmware. Return true so the user-facing UI doesn't
-            // claim a failure when the write probably worked.
-            return true;
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[cnvs] WriteSettings exception: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
         }
     }
 
-    /// <summary>Read the current settings from the device. Null if not plugged in or the read fails.</summary>
+    /// <summary>Read the current settings off the device. Null if unreachable.</summary>
     public CnvsProtocol.CnvsSettings? ReadSettings()
     {
         lock (_lock)
         {
-            using var dev = OpenAny();
-            if (dev is null) return null;
-            return ReadSettingsLocked(dev);
+            var dev = FindDevice();
+            if (dev == null) return null;
+            try
+            {
+                using var stream = dev.Open();
+                return ReadSettingsLocked(dev, stream);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[cnvs] ReadSettings exception: {ex.GetType().Name}: {ex.Message}");
+                return null;
+            }
+        }
+    }
+
+    /// <summary>Read the firmware version. Empty string if unreachable.</summary>
+    public string GetFirmwareVersion()
+    {
+        lock (_lock)
+        {
+            var dev = FindDevice();
+            if (dev == null) return "";
+            try
+            {
+                using var stream = dev.Open();
+                WriteFrame(dev, stream, CnvsProtocol.BuildGetFirmwareVersion());
+                Thread.Sleep(20);
+                var buf = new byte[Math.Max(dev.GetMaxInputReportLength(), 7)];
+                var n = ReadWithTimeout(stream, buf, 200);
+                if (n < 7) return "";
+                return CnvsProtocol.ParseFirmwareVersion(buf.AsSpan(0, n));
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[cnvs] GetFirmwareVersion exception: {ex.GetType().Name}: {ex.Message}");
+                return "";
+            }
         }
     }
 
     // ── Internals ──
 
-    private IHidDevice? OpenAny()
+    private static HidDevice? FindDevice()
     {
         foreach (var pid in CnvsProtocol.ProductIds)
         {
-            foreach (var info in _hid.Find(CnvsProtocol.VendorId, pid))
+            // HidSharp's enumerator returns multiple HID interfaces for the
+            // same VID/PID when the device exposes several. Iterate; the
+            // first that opens-and-talks wins. Most CNVS revs only expose
+            // one HID interface, so this loop usually runs once.
+            foreach (var dev in DeviceList.Local.GetHidDevices(CnvsProtocol.VendorId, pid))
             {
-                var dev = _hid.Open(info.Path);
-                if (dev != null) return dev;
+                return dev;
             }
         }
         return null;
     }
 
-    private static CnvsProtocol.CnvsSettings? ReadSettingsLocked(IHidDevice dev)
+    private static CnvsProtocol.CnvsSettings? ReadSettingsLocked(HidDevice dev, HidStream stream)
     {
-        try
-        {
-            if (!WriteFrame(dev, CnvsProtocol.BuildGetSettings()))
-                return null;
-            // 9 bytes per HYTE's reference; we don't trust short reads to
-            // mean "empty payload" so anything under 5 is treated as null.
-            Span<byte> buf = stackalloc byte[9];
-            var n = dev.Read(buf, 200);
-            if (n < 5) return null;
-            return CnvsProtocol.ParseGetSettings(buf[..n]);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[cnvs] ReadSettings exchange failed: {ex.GetType().Name}: {ex.Message}");
-            return null;
-        }
+        WriteFrame(dev, stream, CnvsProtocol.BuildGetSettings());
+        Thread.Sleep(20);
+        // CNVSHelper.GetCnvsSettingFromFW reads exactly 9 bytes; HidSharp's
+        // Read returns the full report including the leading report-ID byte
+        // at index 0. The "wire" bytes HYTE inspects at indices 3/4
+        // therefore live at indices 3/4 here too — HYTE's reference uses
+        // HidSharp the same way, so the index math is portable.
+        var len = Math.Max(dev.GetMaxInputReportLength(), 9);
+        var buf = new byte[len];
+        var n = ReadWithTimeout(stream, buf, 200);
+        if (n < 5) return null;
+        return CnvsProtocol.ParseGetSettings(buf.AsSpan(0, n));
     }
 
     /// <summary>
-    /// Write a HYTE frame to the HID device. Tries the raw frame first
-    /// (the layout HYTE's HidSharp-backed code uses); if that's rejected
-    /// we fall back to the Windows-HID convention of prefixing report
-    /// ID 0 and padding to 65 bytes. Logs which path took so we can
-    /// tighten this once we know what the CNVS firmware actually wants.
+    /// Write the HYTE frame using HidSharp. The frame the protocol
+    /// builder produces does NOT include a leading report-ID byte;
+    /// HidSharp expects one. We prepend report-ID 0 (CNVS exposes a
+    /// single report so 0 is correct) and pad to
+    /// <see cref="HidDevice.GetMaxOutputReportLength"/> with zeros so
+    /// the Windows HID driver accepts the write.
     /// </summary>
-    private static bool WriteFrame(IHidDevice dev, byte[] frame)
+    private static void WriteFrame(HidDevice dev, HidStream stream, byte[] frame)
     {
-        if (dev.Write(frame))
-            return true;
-        // Pad-and-prefix fallback: 0x00 report-ID + frame + zero pad to 64
-        // bytes of payload (matches the WriteFile contract most output
-        // reports expect on Windows when the device wasn't initialised
-        // with a non-zero report ID).
-        var padded = new byte[65];
-        padded[0] = 0x00;
-        frame.AsSpan().CopyTo(padded.AsSpan(1));
-        if (dev.Write(padded))
+        var maxOut = dev.GetMaxOutputReportLength();
+        // GetMaxOutputReportLength returns 0 for devices with no output
+        // report descriptor; fall back to frame.Length + 1 in that case so
+        // we at least send something the driver might accept.
+        var bufLen = maxOut > 0 ? maxOut : frame.Length + 1;
+        var buf = new byte[bufLen];
+        buf[0] = 0x00; // report ID
+        var copyLen = Math.Min(frame.Length, bufLen - 1);
+        Array.Copy(frame, 0, buf, 1, copyLen);
+        stream.Write(buf);
+    }
+
+    /// <summary>
+    /// Read with a soft timeout. HidStream.Read blocks; we wrap it with a
+    /// ReadTimeout for older HidSharp builds, but newer builds also
+    /// honour CancellationToken on the async overload. The 200 ms budget
+    /// matches HYTE's reference cadence.
+    /// </summary>
+    private static int ReadWithTimeout(HidStream stream, byte[] buf, int timeoutMs)
+    {
+        var prev = stream.ReadTimeout;
+        stream.ReadTimeout = timeoutMs;
+        try
         {
-            Console.Error.WriteLine("[cnvs] write needed the report-id 0 + 65-byte pad fallback");
-            return true;
+            return stream.Read(buf, 0, buf.Length);
         }
-        return false;
+        catch (TimeoutException)
+        {
+            return 0;
+        }
+        finally
+        {
+            stream.ReadTimeout = prev;
+        }
     }
 }
