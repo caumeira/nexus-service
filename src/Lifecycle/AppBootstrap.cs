@@ -56,8 +56,6 @@ internal static class AppBootstrap
         }
         BootTimer.Mark("InitializeProfiles: ProfileManager.Initialize done");
 
-        var fans = app.Services.GetRequiredService<IFanControlProvider>();
-        BootTimer.Mark("InitializeProfiles: IFanControlProvider resolved");
         var curveEngine = app.Services.GetRequiredService<CurveEngine>();
         BootTimer.Mark("InitializeProfiles: CurveEngine resolved");
         var lightingEngine = app.Services.GetRequiredService<LightingEngine>();
@@ -66,10 +64,32 @@ internal static class AppBootstrap
         BootTimer.Mark("InitializeProfiles: ILightingProvider resolved");
         var configStore = app.Services.GetRequiredService<IConfigStore>();
         BootTimer.Mark("InitializeProfiles: IConfigStore resolved");
+
+        // IFanControlProvider's first DI resolve transitively constructs
+        // LhmComputer, whose ctor blocks ~2.5s opening the LibreHardwareMonitor
+        // kernel driver and walking ACPI/SMBIOS/PCI/SuperIO. Kick that off on a
+        // worker thread so host startup (Kestrel bind + ApplicationStarted)
+        // isn't blocked on it. Consumers that resolve IFanControlProvider
+        // before the warmup finishes (e.g. an early /cooling/channels request)
+        // block on Microsoft DI's singleton lock - acceptable because the
+        // dashboard is fine showing "no fans" briefly while LHM enumerates.
+        // AutoRestoreOnStart (4s delay) and CurveEngine (3s delay) already
+        // wait long enough to consume the singleton after warmup completes.
+        var sp = app.Services;
+        _ = Task.Run(() =>
+        {
+            try { sp.GetRequiredService<IFanControlProvider>(); }
+            catch (Exception ex) { Console.Error.WriteLine($"[lhm-warmup] failed: {ex.Message}"); }
+        });
+
         profileManager.OnProfileSwitched += () =>
         {
             try
             {
+                // Resolve lazily so the callback works even if a profile switch
+                // somehow fires before the warmup Task.Run finishes — once warm
+                // this is just a dictionary lookup against the DI cache.
+                var fans = sp.GetRequiredService<IFanControlProvider>();
                 fans.ReleaseAll();
                 curveEngine.ResetSmoothing();
                 lightingEngine.Stop();

@@ -1,4 +1,6 @@
 using System;
+using System.Diagnostics;
+using System.Threading.Tasks;
 using LibreHardwareMonitor.Hardware;
 
 namespace Nexus.Service.Sensors;
@@ -11,25 +13,26 @@ namespace Nexus.Service.Sensors;
 /// Thread safety: the lock in Update() ensures only one caller updates at a
 /// time. Reads of sensor.Value after an Update() are safe without locking
 /// (they return the last-cached value).
+///
+/// Boot semantics: LHM's <see cref="Computer.Open"/> loads its kernel driver,
+/// walks ACPI / SMBIOS / PCI / SuperIO and costs ~50 MB working set plus 1–3 s
+/// (2.5 s on T1 with IT8696E + nvidia GPU). To keep host startup off that
+/// critical path, the ctor schedules Open() on the thread pool and returns
+/// immediately. <see cref="Update"/> no-ops until Open() finishes, so any
+/// /sensors or /cooling/* request issued in the warmup window returns empty
+/// data instead of blocking — the dashboard hydrates on its next poll. The
+/// background open also matches AutoRestoreOnStart's 4 s delay and
+/// CurveEngine's 3 s delay so they consume real channel sets when they fire.
 /// </summary>
 public sealed class LhmComputer : IDisposable
 {
     private readonly Computer _computer;
+    private readonly Task _openTask;
     private readonly object _updateLock = new();
     private long _lastUpdateTicks;
 
     public LhmComputer()
     {
-        // Open eagerly. LHM's Computer.Open() loads its kernel driver, walks
-        // the ACPI / SMBIOS / PCI trees, and costs ~50 MB of working set plus
-        // ~1 s of hardware enumeration. We previously deferred this to the
-        // first sensor read, but for a hardware-monitoring service the cost
-        // is best paid at boot: it's invisible (the service auto-starts at
-        // logon long before anyone opens the dashboard), and deferring just
-        // pushed the latency onto the first user interaction (Cooling tab
-        // would show "no fans" for ~1 s while LHM enumerated). The deferred
-        // open also raced PawnIO/SMU startup, leading to intermittent zero
-        // readings on Zen 5 CPU temperature.
         _computer = new Computer
         {
             IsCpuEnabled = true,
@@ -42,7 +45,19 @@ public sealed class LhmComputer : IDisposable
             IsBatteryEnabled = false,
             IsPsuEnabled = false,
         };
-        _computer.Open();
+        _openTask = Task.Run(() =>
+        {
+            var sw = Stopwatch.StartNew();
+            try
+            {
+                _computer.Open();
+                Console.WriteLine($"[lhm] background open complete in {sw.ElapsedMilliseconds}ms");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[lhm] background open failed after {sw.ElapsedMilliseconds}ms: {ex.Message}");
+            }
+        });
     }
 
     public Computer Instance => _computer;
@@ -53,9 +68,14 @@ public sealed class LhmComputer : IDisposable
     /// refresh was more recent than the interval. This collapses redundant updates
     /// from multiple callers (MonitoringBroadcaster, CurveEngine, HTTP handlers)
     /// into at most one hardware iteration per interval.
+    /// Returns immediately if the background <see cref="Computer.Open"/> hasn't
+    /// finished yet — callers see an empty <see cref="Computer.Hardware"/>
+    /// collection and degrade to "no sensors" until warmup completes.
     /// </summary>
     public void Update(TimeSpan? minInterval = null)
     {
+        if (!_openTask.IsCompletedSuccessfully) return;
+
         lock (_updateLock)
         {
             if (minInterval.HasValue)
@@ -75,5 +95,13 @@ public sealed class LhmComputer : IDisposable
         }
     }
 
-    public void Dispose() => _computer.Close();
+    public void Dispose()
+    {
+        // Wait for the background open to finish before Close(): LHM's
+        // Computer.Close() isn't documented thread-safe against an in-flight
+        // Open(), and Dispose() is only called at service shutdown so the
+        // wait is rare and not on any user-visible path.
+        try { _openTask.Wait(); } catch { /* shutdown best-effort */ }
+        _computer.Close();
+    }
 }
