@@ -37,7 +37,6 @@ public sealed class CnvsConnectionWorker : BackgroundService
     // accept FF DC 07 only when it's one of the first wire commands after
     // a USB connect (see CnvsHub.WriteSettings doc for the invariant).
     private readonly IConfigStore _store;
-    private string _lastAppliedSerial = "";
 
     public CnvsConnectionWorker(CnvsHub hub, IConfigStore store, CnvsLightingDeviceProvider? lighting = null)
     {
@@ -71,50 +70,63 @@ public sealed class CnvsConnectionWorker : BackgroundService
     private void Tick()
     {
         _hub.EnsureConnected();
-        if (!_hub.IsConnected)
+        if (!_hub.IsConnected) return;
+
+        // CNVS hardware serial is stable across USB power cycles, so we can't
+        // dedup on it — a replug returns the same serial. Use the hub's
+        // IsReadyForStreaming flag as the "haven't applied settings on this
+        // open port yet" signal: it's cleared in Disconnect() and flipped
+        // true inside WriteSettings(). This is exactly the state we want to
+        // key off, and it auto-rearms on every fresh port open.
+        if (_hub.IsReadyForStreaming) return;
+
+        // Brand-new connection. Sanity-probe the firmware first so we have
+        // a version logged regardless of whether the settings command
+        // actually works — useful for distinguishing "device is silent"
+        // from "device is responsive but doesn't implement FF DC 07/08".
+        try
         {
-            // Clear so the next successful (re)connect re-applies settings
-            // even if the device came back with the same serial.
-            _lastAppliedSerial = "";
-            return;
+            var fwVersion = _hub.GetFirmwareVersion();
+            Console.Error.WriteLine(
+                fwVersion is null
+                    ? $"[cnvs-conn] firmware version probe returned no data (serial={_hub.Serial})"
+                    : $"[cnvs-conn] firmware version {fwVersion} (serial={_hub.Serial})");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[cnvs-conn] firmware version probe threw {ex.GetType().Name}: {ex.Message}");
         }
 
-        var currentSerial = _hub.Serial;
-        if (currentSerial != _lastAppliedSerial)
+        // Apply the persisted firmware settings FIRST — before anything else
+        // touches FF DC 05 (the lighting writer is gated on
+        // hub.IsReadyForStreaming, which only flips true after WriteSettings
+        // completes). The firmware appears to drop FF DC 07 if any FF DC 05
+        // has been sent since USB connect, so we have to be the FIRST thing
+        // on the wire.
+        var s = _store.Load().Devices.Cnvs;
+        try
         {
-            // Brand-new connection. Apply the persisted firmware settings
-            // FIRST — before anything else touches FF DC 05 (the lighting
-            // writer is gated on hub.IsReadyForStreaming, which only flips
-            // true after WriteSettings completes). This is the entire
-            // reason this worker exists: the firmware drops FF DC 07 if
-            // any FF DC 05 has been sent since USB connect, so we have to
-            // be the FIRST thing on the wire.
-            var s = _store.Load().Devices.Cnvs;
-            try
+            if (_hub.WriteSettings(s.PlayAnimation, s.PlayWhenPCOff))
             {
-                if (_hub.WriteSettings(s.PlayAnimation, s.PlayWhenPCOff))
-                {
-                    Console.Error.WriteLine(
-                        $"[cnvs-conn] applied persisted settings on connect (serial={currentSerial}): boot={s.PlayAnimation} leds={s.PlayWhenPCOff}");
-                    _lastAppliedSerial = currentSerial;
-                }
-                else
-                {
-                    Console.Error.WriteLine($"[cnvs-conn] WriteSettings on connect returned false; will retry next tick");
-                }
+                Console.Error.WriteLine(
+                    $"[cnvs-conn] applied persisted settings on connect (serial={_hub.Serial}): boot={s.PlayAnimation} leds={s.PlayWhenPCOff}");
             }
-            catch (Exception ex)
+            else
             {
-                Console.Error.WriteLine($"[cnvs-conn] WriteSettings on connect threw {ex.GetType().Name}: {ex.Message}");
+                Console.Error.WriteLine($"[cnvs-conn] WriteSettings on connect returned false; will retry next tick");
             }
-
-            // Tell the lighting provider its DeviceFrame topology changed so
-            // RgbBridge rebuilds the engine's device list. Without this nudge
-            // the lighting page won't show a freshly-plugged CNVS until the
-            // next bridge tick (~3 s anyway, but the explicit signal makes
-            // hot-plug feel instant).
-            try { _lighting?.OnHubStateUpdated(); }
-            catch { /* subscriber failures shouldn't bubble */ }
         }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[cnvs-conn] WriteSettings on connect threw {ex.GetType().Name}: {ex.Message}");
+        }
+
+        // Tell the lighting provider its DeviceFrame topology changed so
+        // RgbBridge rebuilds the engine's device list. Without this nudge
+        // the lighting page won't show a freshly-plugged CNVS until the
+        // next bridge tick (~3 s anyway, but the explicit signal makes
+        // hot-plug feel instant).
+        try { _lighting?.OnHubStateUpdated(); }
+        catch { /* subscriber failures shouldn't bubble */ }
     }
 }

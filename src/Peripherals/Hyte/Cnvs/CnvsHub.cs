@@ -180,6 +180,47 @@ public sealed class CnvsHub : IDisposable
     /// </summary>
     public bool IsReadyForStreaming { get; private set; }
 
+    /// <summary>
+    /// Query the firmware version (FF DD 02 → 7-byte response).
+    /// Returns "Major.Minor.Build.Hw" on success, null on no-response / not
+    /// connected. Cheap to call — used by <see cref="CnvsConnectionWorker"/>
+    /// on first connect as a sanity probe: if this responds but FF DC 08
+    /// (settings read) doesn't, we know the firmware is talking, just not
+    /// implementing the settings command-pair on this revision.
+    /// </summary>
+    public string? GetFirmwareVersion()
+    {
+        if (!EnsureConnected()) return null;
+        lock (_writeLock)
+        {
+            var port = _port;
+            if (port is null) return null;
+            try
+            {
+                lock (_readLock)
+                {
+                    port.DiscardInBuffer();
+                    var req = CnvsProtocol.BuildGetFirmwareVersion();
+                    port.Write(req, 0, req.Length);
+                    // 20 ms write→read gap per HYTE CNVSHelper.cs:93 — firmware
+                    // takes that long to assemble the 7-byte version reply.
+                    Thread.Sleep(20);
+                    var buf = new byte[7];
+                    var n = ReadExact(port, buf, 200);
+                    if (n < 7) return null;
+                    var s = CnvsProtocol.ParseFirmwareVersion(buf);
+                    return string.IsNullOrEmpty(s) ? null : s;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[cnvs] GetFirmwareVersion exception: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return null;
+            }
+        }
+    }
+
     /// <summary>Read the EEPROM-persisted settings. Null on transport error / not connected.</summary>
     public CnvsProtocol.CnvsSettings? ReadSettings()
     {
