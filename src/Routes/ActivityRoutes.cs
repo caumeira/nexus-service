@@ -18,9 +18,6 @@ public static class ActivityRoutes
             var session = st.GetCurrentSession();
             return session is not null ? Results.Ok(session) : Results.Ok(new FocusSession());
         });
-        app.MapGet("/api/screentime/history", (IScreenTimeProvider st) =>
-            Results.Ok(st.GetTodayUsage()));
-
         // Persistent history browsing
         app.MapGet("/api/screentime/day/{date}", (string date, IScreenTimeStore store) =>
         {
@@ -95,10 +92,6 @@ public static class ActivityRoutes
             return new TrackingStatus { Enabled = body.Enabled };
         });
 
-        // App detection
-        app.MapPost("/api/appdetection/kill/{id}", (string id, IAppDetectionProvider ad) =>
-            new KillAppResponse { Success = ad.Kill(id) });
-
         // Media
         app.MapGet("/api/media", (IMediaProvider m) => Results.Ok(m.GetSessions())).AllowPanel();
         app.MapPost("/api/media/{source}/control", (string source, MediaControlBody body, IMediaProvider m) =>
@@ -137,8 +130,5 @@ public static class ActivityRoutes
         app.MapPost("/shortcuts/launch", (string? targetId, IShortcutsProvider s) =>
             s.Launch(targetId ?? "") ? ApiResponse.Ok() : ApiResponse.Fail("Not found")).AllowPanel();
 
-        // Network
-        app.MapGet("/api/network/top", (int? count, INetworkProvider n) =>
-            new List<NetworkProcessInfo>(n.GetSnapshot().Take(count ?? 20)));
     }
 }

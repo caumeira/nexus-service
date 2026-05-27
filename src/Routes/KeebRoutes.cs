@@ -21,11 +21,6 @@ public static class KeebRoutes
             k.SetRotarySensitivity(body.Sensitivity);
             return ApiResponse.Ok();
         });
-        app.MapPost("/keeb/key-reactive", (SetFirmwareLightingBody body, IKeebProvider k) =>
-        {
-            k.SetKeyReactive(body);
-            return ApiResponse.Ok();
-        });
         app.MapPost("/keeb/firmware/lighting", (SetFirmwareLightingBody body, IKeebProvider k) =>
         {
             k.SetFirmwareLighting(body);
@@ -40,10 +35,5 @@ public static class KeebRoutes
             new GetMacroResponse { Macro = k.GetMacro(index) });
         app.MapPost("/keeb/macro/{index}", (int index, SetMacroBody body, IKeebProvider k) =>
             new GetMacroResponse { Macro = k.SetMacro(index, body) });
-        app.MapPost("/inputter", (InputterBody body, IInputterProvider i) =>
-        {
-            i.Send(body);
-            return Results.Ok();
-        });
     }
 }

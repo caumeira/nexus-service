@@ -14,18 +14,6 @@ public static class LightingRoutes
     public static void MapLightingEndpoints(this WebApplication app)
     {
         app.MapPost("/lighting/stop", (ILightingProvider l, MultiplexHub hub) => { l.StopAll(); PanelTopics.BroadcastLighting(hub); return ApiResponse.Ok(); }).AllowPanel();
-        app.MapPost("/lighting/frame-rate", (SetFrameRateBody body, ILightingProvider l, MultiplexHub hub) =>
-        {
-            l.SetFrameRate(body.FrameRate);
-            PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
-        });
-        app.MapPost("/lighting/scale-ratio", (SetScaleRatioBody body, ILightingProvider l, MultiplexHub hub) =>
-        {
-            l.SetScaleRatio(body.Ratio);
-            PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
-        });
         app.MapGet("/lighting/current", (ILightingProvider l) => new CurrentSyncResponse { Sync = l.GetSync() }).AllowPanel();
         app.MapGet("/lighting/animate/settings", (Nexus.Service.Persistence.IConfigStore store) =>
             store.Load().Lighting.Animate).AllowPanel();
@@ -97,13 +85,6 @@ public static class LightingRoutes
                 GpuAvailable = gpu?.Available ?? false,
             };
         }).AllowPanel();
-        app.MapPost("/lighting/brightness", (BrightnessScale body, ILightingProvider l, MultiplexHub hub) =>
-        {
-            l.SetBrightness(body);
-            PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
-        });
-
         // Master brightness slider: multiplies every LED channel before it leaves
         // the RGB bridge. Read live by RgbBridge.OnFrame, so a POST takes effect
         // on the next frame push without restarting any effect.
@@ -121,13 +102,6 @@ public static class LightingRoutes
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
-        app.MapPost("/lighting/speed", (SpeedScale body, ILightingProvider l, MultiplexHub hub) =>
-        {
-            l.SetSpeed(body);
-            PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
-        });
-
         // Headless start endpoints
         app.MapPost("/lighting/static/headless-start", (StaticHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
         {
@@ -141,12 +115,6 @@ public static class LightingRoutes
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
-        app.MapPost("/lighting/music/headless-start", (MusicHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
-        {
-            l.StartMusic(body);
-            PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
-        });
         app.MapPost("/lighting/screen/headless-start", (ScreenHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
         {
             l.StartScreen(body);
@@ -159,13 +127,6 @@ public static class LightingRoutes
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
-        app.MapPost("/lighting/streaming/set-streaming", (SetHeadlessStreaming body, ILightingProvider l, MultiplexHub hub) =>
-        {
-            l.SetStreaming(body);
-            PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
-        });
-
         // Screen Mirror + Media post-process (hue / colorize / saturation / contrast).
         // Same shape for both modes so the right-pane Effect tab can drive either
         // with one slider set.

@@ -18,12 +18,6 @@ public static class LifecycleRoutes
             return new WillStartResponse { Enabled = enabled, Error = !ok || enabled != body.Enabled };
         });
 
-        app.MapPost("/shutdown", (IShutdownProvider s) =>
-        {
-            s.Shutdown();
-            return ApiResponse.Ok();
-        });
-
         app.MapGet("/pawnio", (IPawnIoProvider p) =>
             new Models.Lifecycle.PawnIoStatus { Installed = p.IsInstalled, Open = p.IsOpen });
     }

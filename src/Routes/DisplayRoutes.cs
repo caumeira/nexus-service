@@ -69,19 +69,5 @@ public static class DisplayRoutes
                 : Results.BadRequest(result);
         }).AllowPanel();
 
-        app.MapGet("/displays/{id}/vcp/{code:int}", (string id, int code, IDisplayBrightnessProvider d) =>
-        {
-            if (code is < 0 or > 255) return Results.BadRequest();
-            var dto = d.GetVcp(id, (byte)code);
-            return dto is not null ? Results.Ok(dto) : Results.NotFound();
-        });
-
-        app.MapPost("/displays/{id}/vcp/{code:int}", (string id, int code, DisplayVcpParams body, IDisplayBrightnessProvider d) =>
-        {
-            if (code is < 0 or > 255) return Results.BadRequest();
-            return d.SetVcp(id, (byte)code, body.Value)
-                ? Results.Ok(new DisplayVcpDto { Id = id, Code = (byte)code, Value = body.Value, MaxValue = 0 })
-                : Results.BadRequest();
-        });
     }
 }

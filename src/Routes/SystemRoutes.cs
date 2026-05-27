@@ -16,12 +16,6 @@ public static class SystemRoutes
 {
     public static void MapSystemEndpoints(this WebApplication app)
     {
-        app.MapGet("/system/os-version", (ISensorProvider s) =>
-            new ApiResponse { Msg = s.GetOsVersion() }).AllowPanel();
-
-        app.MapGet("/system/polling-rate", ([FromServices] MonitoringBroadcaster monitoring) =>
-            new GetPollingRateResponse { PollingRate = monitoring.GetInterval() }).AllowPanel();
-
         app.MapPost("/system/polling-rate", (SetPollingRateBody body, [FromServices] ProcessMonitor pm, [FromServices] INetworkProvider net, [FromServices] MonitoringBroadcaster monitoring) =>
         {
             pm.SetInterval(body.PollingRate);
@@ -61,39 +55,16 @@ public static class SystemRoutes
             };
         });
 
-        // CPU
-        app.MapGet("/system/cpu/sensors", (ISensorProvider s) => s.GetCpuSensors()).AllowPanel();
-        app.MapGet("/system/cpu/model", (ISensorProvider s) => new GetModelResponse { Model = s.GetCpuModel() }).AllowPanel();
-        app.MapGet("/system/cpu/health", (ISensorProvider s) =>
-        {
-            var (healthy, distance) = s.GetCpuHealth();
-            return new CpuHealthResponse { Healthy = healthy, DistanceToTJMax = distance };
-        }).AllowPanel();
-
-        // GPU
-        app.MapGet("/system/gpu/sensors", (ISensorProvider s) => s.GetGpuSensors()).AllowPanel();
-        app.MapGet("/system/gpu/model", (ISensorProvider s) =>
-            new GetGpuModelsResponse { Models = new List<string>(s.GetGpuModels()) }).AllowPanel();
-
-        // Memory
-        app.MapGet("/system/memory/sensors", (ISensorProvider s) => s.GetMemorySensors()).AllowPanel();
+        // Memory (only /system/memory/total is consumed by the New Nexus
+        // SPA — the per-domain /sensors and /model endpoints below were
+        // dropped after they spent over a year with zero callers, see
+        // the dead-endpoints sweep). Same story for /system/cpu/*,
+        // /system/gpu/*, /system/storage/*, /system/motherboard/*,
+        // /system/fps/sensors and /system/os-version — all hardware
+        // sensor / model data is delivered via the `/monitoring` topic
+        // over the multiplex WebSocket, not REST.
         app.MapGet("/system/memory/total", (ISensorProvider s) =>
             new ApiResponse { Msg = s.GetMemoryTotalFormatted() }).AllowPanel();
-
-        // Storage
-        app.MapGet("/system/storage/sensors", (ISensorProvider s) => s.GetStorageComponents()).AllowPanel();
-        app.MapGet("/system/storage/partitions", (ISensorProvider s) =>
-            new GetStoragePartitionsResponse { Partitions = new List<string>(s.GetStoragePartitions()) }).AllowPanel();
-        app.MapGet("/system/storage/info", (ISensorProvider s) =>
-            new GetDriveStorageResponse { Storage = new List<StorageDriveInfo>(s.GetStorageInfo()) }).AllowPanel();
-
-        // Motherboard
-        app.MapGet("/system/motherboard/sensors", (ISensorProvider s) => s.GetMotherboardSensors()).AllowPanel();
-        app.MapGet("/system/motherboard/model", (ISensorProvider s) =>
-            new GetModelResponse { Model = s.GetMotherboardModel() }).AllowPanel();
-
-        // FPS
-        app.MapGet("/system/fps/sensors", (IFpsProvider fps) => fps.GetComponent().Sensors).AllowPanel();
 
         // Compact, shareable rig identity for the Devices → System Specs tab.
         // Cached for the lifetime of the service (hardware specs don't change

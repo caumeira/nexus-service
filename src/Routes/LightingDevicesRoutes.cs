@@ -65,11 +65,6 @@ public static partial class DevicesRoutes
             return ApiResponse.Ok();
         });
 
-        app.MapPost("/devices/lighting-devices/disable", (SetDisabledLedsBody body, ILightingDeviceProvider ld) =>
-        {
-            ld.SetDisabled(body.Devices);
-            return ApiResponse.Ok();
-        });
         app.MapPost("/devices/lighting-devices/power", (SetLightingDevicePowerBody body, ILightingDeviceProvider ld) =>
         {
             ld.SetPower(body.Id, body.On);
@@ -78,16 +73,6 @@ public static partial class DevicesRoutes
         app.MapPost("/devices/lighting-devices/brightness", (SetLightingDeviceBrightness body, ILightingDeviceProvider ld) =>
         {
             ld.SetBrightness(body.Id, body.Brightness);
-            return ApiResponse.Ok();
-        });
-        app.MapPost("/devices/lighting-devices/hue", (SetLightingDeviceHue body, ILightingDeviceProvider ld) =>
-        {
-            ld.SetHue(body.Id, body.Hue);
-            return ApiResponse.Ok();
-        });
-        app.MapPost("/devices/lighting-devices/saturation", (SetLightingDeviceSaturation body, ILightingDeviceProvider ld) =>
-        {
-            ld.SetSaturation(body.Id, body.Saturation);
             return ApiResponse.Ok();
         });
 
