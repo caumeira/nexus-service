@@ -6,33 +6,31 @@ using Nexus.Service.Peripherals.Hyte.MiniHub;
 namespace Nexus.Service.Routes;
 
 /// <summary>
-/// HYTE MiniHub (iBUYPOWER rebrand) live-control endpoints. Mirrors the
-/// shape of <see cref="DevicesRoutes.MapNp50Endpoints"/> for the bits that
-/// the panel calls into. The MiniHub firmware exposes only two fan modes
-/// (Software and Motherboard) and has no EEPROM default-mode surface, so
-/// no firmware-defaults / firmware-animation routes here.
+/// iBUYPOWER MiniHub device-specific endpoints. The hub supports two
+/// cooling modes — Software (Nexus drives) and Motherboard (PWM passthrough).
+/// There is no firmware-side standalone setpoint, so no "Firmware Control"
+/// mode and no EEPROM-default surface (unlike NP50).
 /// </summary>
 public static partial class DevicesRoutes
 {
     private static void MapMiniHubEndpoints(WebApplication app)
     {
-        // Switch the active fan-control mode and PIN it. Pinning matters:
-        // MiniHubCoolingProvider's per-write guard reads back this pin to
-        // decide whether to issue PWM writes that would otherwise re-assert
-        // Software. Without the pin, the cooling page's per-fan BIOS pick
-        // would silently revert on the next curve tick.
+        // Switch the LIVE cooling mode. Body: { mode: 0 (Software) | 1 (Motherboard) }.
+        // The hub does not expose a "get current mode" command, so callers
+        // that need to know the active mode must cache what they last set —
+        // exactly what the cooling page does to render the per-fan dropdown.
         app.MapPut("/devices/minihub/cooling-mode", (MiniHubCoolingModeRequest body, MiniHubHub hub) =>
         {
             if (!hub.IsConnected)
                 return Results.Conflict(new { error = "MiniHub not connected" });
-            // 0 = Software (Nexus drives), 1 = Motherboard (PWM passthrough).
-            // Reject anything else so a stray client doesn't park the hub in
-            // an undocumented mode.
             if (body.Mode != MiniHubProtocol.FanModeSoftware
                 && body.Mode != MiniHubProtocol.FanModeMotherboard)
             {
                 return Results.BadRequest(new { error = "mode must be 0 (Software) or 1 (Motherboard)" });
             }
+            // SetDesiredFanControlMode both sends the write AND pins the
+            // mode so MiniHubCoolingProvider's per-tick guard refuses to
+            // flip the hub back to Software on the next curve write.
             hub.SetDesiredFanControlMode((byte)body.Mode);
             return Results.Ok(ApiResponse.Ok());
         });
@@ -42,6 +40,6 @@ public static partial class DevicesRoutes
 /// <summary>Body shape for PUT /devices/minihub/cooling-mode.</summary>
 public sealed class MiniHubCoolingModeRequest
 {
-    /// <summary>0=Software, 1=Motherboard (see <see cref="MiniHubProtocol"/>).</summary>
+    /// <summary>0=Software, 1=Motherboard. See <see cref="MiniHubProtocol"/>.</summary>
     public int Mode { get; set; }
 }
