@@ -2,216 +2,255 @@ using System;
 using System.Collections.Generic;
 using System.IO.Ports;
 using System.Threading;
-using Nexus.Service.Lighting.Rgb;
 
 namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 
 /// <summary>
-/// Talks to a HYTE CNVS over a USB-CDC virtual COM port.
+/// Owns the CNVS COM port for the lifetime of the service. Mirrors
+/// <see cref="Np50.Np50Hub"/>'s "open at startup, hold forever" model so
+/// OpenRGB-headless (which also tries to claim CNVS) finds the port busy
+/// and silently skips it. Whoever opens the COM port first wins under
+/// Windows serial semantics; running our open BEFORE OpenRGB launches —
+/// which <see cref="CnvsConnectionWorker"/> guarantees via an early
+/// background tick — makes us the de-facto owner.
 ///
-/// The CNVS family (Left/Gen1 PID 0x0B00, v1/Gen2 PID 0x0B01, White
-/// PID 0x0B02, CES PID 0x0BFF) enumerates as a serial port, NOT a
-/// HID device — Y70's CNVS Left is `USB Serial Device (COM7)` per
-/// PnP enumeration. HYTE's `CNVSLeftController` and `CNVSV1Controller`
-/// both open a <c>SerialStream</c> at 115200 8N1; this hub matches.
-///
-/// We open the port on demand and close it after each call. The
-/// CNVS firmware-settings surface is write-on-change with rare
-/// read-backs — no heartbeat, no streaming. Holding the port open
-/// would block other tools (HYTE Nexus 2.0 still being used
-/// side-by-side, OpenRGB-headless, etc.) for no benefit.
+/// Surfaces three wire commands:
+/// - <see cref="WriteSettings"/>: EEPROM-persisted firmware bits
+///   (`FF DC 07 suppressBoot ledsOnWhenOff`).
+/// - <see cref="ReadSettings"/>: queries `FF DC 08`, reads 9 bytes.
+/// - <see cref="WriteLighting"/>: the 157-byte LED stream frame
+///   (`FF EE 02 01 00 32 00 + 50×3 GRB bytes`) lifted from
+///   HYTE's HYTEMousematController.StreamingCommand in OpenRGB.
+/// - <see cref="SetFirmwareAnimationOff"/>: `FF DC 05 00` — every
+///   streaming frame must be preceded by this (HYTE's reference does
+///   the same in CNVSBaseController.SendToHardware) so the firmware
+///   stops overlaying its boot animation.
 /// </summary>
-public sealed class CnvsHub
+public sealed class CnvsHub : IDisposable
 {
-    private readonly ICnvsPortDiscovery _discovery;
-    private readonly OpenRgbProcessManager? _openRgb;
-    private readonly object _lock = new();
+    /// <summary>Number of physical LEDs on the CNVS (per HYTE's OpenRGB driver).</summary>
+    public const int LedCount = 50;
 
     /// <summary>
-    /// <paramref name="openRgb"/> is the lighting daemon manager. CNVS is
-    /// shared between this hub (settings writes) and OpenRGB-headless (LED
-    /// streaming). When OpenRGB is running it holds COM7 open and our open
-    /// call hits UnauthorizedAccessException. We bracket the settings
-    /// write by stopping OpenRGB, doing the write, then restarting it —
-    /// the user gets a ~2 s LED pause during a deliberate settings change.
-    /// May be null in test fixtures that don't exercise the wire path.
+    /// Per-channel brightness ceiling HYTE's reference driver applies.
+    /// Equivalent to `(72 * value) / 100` in HYTEMousematController.cpp;
+    /// keeps a fully-saturated LED at ~72% of its raw drive current so the
+    /// mat doesn't overheat or draw past the USB-port budget on long bursts.
+    /// Applied centrally in <see cref="WriteLighting"/> so callers pass raw
+    /// 0..255 colors and don't need to know about the cap.
     /// </summary>
-    public CnvsHub(ICnvsPortDiscovery discovery, OpenRgbProcessManager? openRgb = null)
+    public const int MaxChannelBrightness = 72;
+
+    private readonly ICnvsPortDiscovery _discovery;
+    private readonly object _writeLock = new();
+    private readonly object _readLock = new();
+    private SerialPort? _port;
+    private string _portName = "";
+    private string _serial = "";
+    private bool _disposed;
+
+    public CnvsHub(ICnvsPortDiscovery discovery)
     {
         _discovery = discovery;
-        _openRgb = openRgb;
     }
 
-    public bool IsConnected
+    /// <summary>True iff we currently hold an open CNVS port.</summary>
+    public bool IsConnected => !_disposed && _port?.IsOpen == true;
+
+    /// <summary>USB serial of the open device, or empty when never connected.</summary>
+    public string Serial => _serial;
+
+    /// <summary>"cnvs:&lt;serial&gt;" device id; empty until we open the port.</summary>
+    public string DeviceId => string.IsNullOrEmpty(_serial) ? "" : $"cnvs:{_serial}";
+
+    /// <summary>
+    /// Try to open a CNVS port if one is enumerable and we don't already
+    /// hold one. Idempotent; safe to call from a background worker. Returns
+    /// true iff the hub is connected after the call.
+    /// </summary>
+    public bool EnsureConnected()
     {
-        get
+        if (_disposed) return false;
+        if (IsConnected) return true;
+        lock (_writeLock)
         {
+            if (IsConnected) return true;
             var ports = _discovery.Discover();
-            return ports.Count > 0;
+            foreach (var info in ports)
+            {
+                try
+                {
+                    var port = OpenPort(info.PortName);
+                    _port = port;
+                    _portName = info.PortName;
+                    _serial = info.Serial ?? "";
+                    Console.Error.WriteLine($"[cnvs] connected on {info.PortName} (serial={_serial})");
+                    return true;
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[cnvs] open {info.PortName} failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+            return false;
+        }
+    }
+
+    /// <summary>Release the port. Used on shutdown and on transport errors.</summary>
+    public void Disconnect()
+    {
+        lock (_writeLock)
+        {
+            try { if (_port?.IsOpen == true) _port.Close(); } catch { }
+            try { _port?.Dispose(); } catch { }
+            _port = null;
         }
     }
 
     /// <summary>
-    /// Push both firmware settings in one 5-byte frame. Read-back to
-    /// verify the firmware accepted them — `SerialPort.Write` returning
-    /// only proves the OS accepted the bytes, not the device. Returns
-    /// true when the read-back matches OR when the write succeeded but
-    /// the device didn't echo (some CNVS firmwares only echo after a
-    /// USB renum); only returns false on hard transport errors.
+    /// Persist both firmware settings to EEPROM. Read-back after to verify
+    /// the firmware accepted them — returns true when the read-back matches,
+    /// false on transport error or device disagreement.
     /// </summary>
     public bool WriteSettings(bool suppressBootAnimation, bool keepLedsOnWhenPcOff)
     {
-        lock (_lock)
+        if (!EnsureConnected()) return false;
+        lock (_writeLock)
         {
-            var ports = _discovery.Discover();
-            if (ports.Count == 0)
-            {
-                Console.Error.WriteLine("[cnvs] WriteSettings: no CNVS serial port found");
-                return false;
-            }
-            var info = ports[0];
-
-            return WithPort(info, port =>
+            var port = _port;
+            if (port is null) return false;
+            try
             {
                 var frame = CnvsProtocol.BuildSetSettings(suppressBootAnimation, keepLedsOnWhenPcOff);
+                port.DiscardInBuffer();
                 port.Write(frame, 0, frame.Length);
                 Console.Error.WriteLine(
-                    $"[cnvs] WriteSettings sent {frame.Length}B to {info.PortName} (serial={info.Serial}): boot={suppressBootAnimation} leds={keepLedsOnWhenPcOff}");
-
+                    $"[cnvs] WriteSettings sent {frame.Length}B on {_portName} (serial={_serial}): boot={suppressBootAnimation} leds={keepLedsOnWhenPcOff}");
                 Thread.Sleep(20);
 
-                var readBack = TryReadSettings(port);
+                var readBack = ReadSettingsLocked(port);
                 if (readBack is { } rb)
                 {
-                    if (rb.SuppressBootAnimation == suppressBootAnimation
-                        && rb.KeepLedsOnWhenPcOff == keepLedsOnWhenPcOff)
-                    {
-                        Console.Error.WriteLine($"[cnvs] WriteSettings read-back matches: {rb}");
-                    }
-                    else
-                    {
-                        Console.Error.WriteLine(
-                            $"[cnvs] WriteSettings read-back disagrees — wanted boot={suppressBootAnimation} leds={keepLedsOnWhenPcOff}, got {rb}");
-                    }
+                    Console.Error.WriteLine($"[cnvs] WriteSettings read-back: {rb}");
+                    return rb.SuppressBootAnimation == suppressBootAnimation
+                        && rb.KeepLedsOnWhenPcOff == keepLedsOnWhenPcOff;
                 }
-                else
-                {
-                    Console.Error.WriteLine("[cnvs] WriteSettings: no read-back data");
-                }
-                return true;
-            });
+                Console.Error.WriteLine("[cnvs] WriteSettings: read-back returned no data");
+                return true; // write went out; firmware just didn't echo
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[cnvs] WriteSettings exception: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
         }
     }
 
+    /// <summary>Read the EEPROM-persisted settings. Null on transport error / not connected.</summary>
     public CnvsProtocol.CnvsSettings? ReadSettings()
     {
-        lock (_lock)
+        if (!EnsureConnected()) return null;
+        lock (_writeLock)
         {
-            var ports = _discovery.Discover();
-            if (ports.Count == 0) return null;
-            var info = ports[0];
-            CnvsProtocol.CnvsSettings? result = null;
-            WithPort(info, port =>
+            var port = _port;
+            if (port is null) return null;
+            try
             {
-                result = TryReadSettings(port);
-                return true;
-            });
-            return result;
+                return ReadSettingsLocked(port);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[cnvs] ReadSettings exception: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return null;
+            }
         }
     }
 
-    public string GetFirmwareVersion()
+    /// <summary>
+    /// Push one LED frame. <paramref name="leds"/> must be exactly
+    /// <see cref="LedCount"/> entries; shorter spans are zero-padded.
+    /// Bytes are GRB-ordered and pre-scaled by <see cref="MaxChannelBrightness"/>
+    /// / 100 (the same cap HYTE's OpenRGB driver applies). The firmware's
+    /// boot animation must be silenced first via
+    /// <see cref="SetFirmwareAnimationOff"/> or it overlays the stream.
+    /// </summary>
+    public bool WriteLighting(ReadOnlySpan<RgbColor> leds)
     {
-        lock (_lock)
+        if (!EnsureConnected()) return false;
+        // 157-byte fixed frame: 7-byte header + 50 LEDs × 3 bytes.
+        Span<byte> buf = stackalloc byte[157];
+        buf.Clear();
+        buf[0] = 0xFF; buf[1] = 0xEE; buf[2] = 0x02;
+        buf[3] = 0x01; buf[4] = 0x00;
+        buf[5] = (byte)LedCount; // 0x32
+        buf[6] = 0x00;
+        var count = Math.Min(leds.Length, LedCount);
+        for (var i = 0; i < count; i++)
         {
-            var ports = _discovery.Discover();
-            if (ports.Count == 0) return "";
-            var info = ports[0];
-            var version = "";
-            WithPort(info, port =>
-            {
-                port.DiscardInBuffer();
-                var frame = CnvsProtocol.BuildGetFirmwareVersion();
-                port.Write(frame, 0, frame.Length);
-                Thread.Sleep(20);
-                var buf = new byte[7];
-                var n = ReadExact(port, buf, 200);
-                if (n >= 7) version = CnvsProtocol.ParseFirmwareVersion(buf);
-                return true;
-            });
-            return version;
+            var off = 7 + (i * 3);
+            buf[off + 0] = (byte)((MaxChannelBrightness * leds[i].G) / 100);
+            buf[off + 1] = (byte)((MaxChannelBrightness * leds[i].R) / 100);
+            buf[off + 2] = (byte)((MaxChannelBrightness * leds[i].B) / 100);
         }
+        lock (_writeLock)
+        {
+            var port = _port;
+            if (port is null) return false;
+            try
+            {
+                var arr = buf.ToArray();
+                port.Write(arr, 0, arr.Length);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[cnvs] WriteLighting exception: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Disable the firmware's boot animation so it stops overlaying our
+    /// streamed colors. HYTE's CNVSBaseController.SendToHardware calls the
+    /// equivalent <c>TurnFwAnimationOFF</c> on every frame that flips out
+    /// of firmware-animation mode; the per-frame check is cheap because the
+    /// 4-byte write costs ~30 µs over the CDC link.
+    /// </summary>
+    public bool SetFirmwareAnimationOff()
+    {
+        if (!EnsureConnected()) return false;
+        lock (_writeLock)
+        {
+            var port = _port;
+            if (port is null) return false;
+            try
+            {
+                var frame = CnvsProtocol.BuildTurnAnimationOff();
+                port.Write(frame, 0, frame.Length);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[cnvs] SetFirmwareAnimationOff exception: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed) return;
+        _disposed = true;
+        Disconnect();
     }
 
     // ── Internals ──
 
-    /// <summary>
-    /// Open the CNVS port, run <paramref name="body"/>, close. Handles the
-    /// OpenRGB-headless contention path: if the first open fails with
-    /// UnauthorizedAccessException AND an OpenRGB process manager is wired
-    /// in, stop OpenRGB, wait briefly for COM7 to release, retry the open,
-    /// then start OpenRGB again on exit. LEDs go dark for ~2 s during a
-    /// settings change — acceptable for a deliberate user action.
-    /// </summary>
-    private bool WithPort(CnvsPortInfo info, Func<SerialPort, bool> body)
-    {
-        var openRgbWasStopped = false;
-        try
-        {
-            SerialPort? port = null;
-            try
-            {
-                port = OpenPort(info.PortName);
-            }
-            catch (UnauthorizedAccessException) when (_openRgb is not null)
-            {
-                Console.Error.WriteLine(
-                    $"[cnvs] {info.PortName} busy (likely OpenRGB-headless) — stopping OpenRGB and retrying");
-                _openRgb.Stop();
-                openRgbWasStopped = true;
-                // Give the OS a beat to release the COM handle after kill.
-                // 500 ms is generous; on Y70 it releases in <200 ms.
-                Thread.Sleep(500);
-                port = OpenPort(info.PortName);
-            }
-            try
-            {
-                return body(port);
-            }
-            finally
-            {
-                try { port.Close(); } catch { }
-                try { port.Dispose(); } catch { }
-            }
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[cnvs] WithPort {info.PortName} failed: {ex.GetType().Name}: {ex.Message}");
-            return false;
-        }
-        finally
-        {
-            if (openRgbWasStopped)
-            {
-                try
-                {
-                    _openRgb!.Start();
-                    Console.Error.WriteLine("[cnvs] OpenRGB restarted after CNVS port write");
-                }
-                catch (Exception ex)
-                {
-                    Console.Error.WriteLine($"[cnvs] OpenRGB restart failed: {ex.GetType().Name}: {ex.Message}");
-                }
-            }
-        }
-    }
-
-    /// <summary>
-    /// Open a CNVS serial port at 115200 8N1 with DTR/RTS asserted.
-    /// HYTE's CNVSLeftController and CNVSV1Controller both use 115200;
-    /// the DTR/RTS bits are required by some Windows CDC drivers to
-    /// actually deliver data even though the CNVS firmware ignores them.
-    /// </summary>
     private static SerialPort OpenPort(string portName)
     {
         var port = new SerialPort(portName, baudRate: 115200, Parity.None, dataBits: 8, StopBits.One)
@@ -229,19 +268,19 @@ public sealed class CnvsHub
         return port;
     }
 
-    private static CnvsProtocol.CnvsSettings? TryReadSettings(SerialPort port)
+    private CnvsProtocol.CnvsSettings? ReadSettingsLocked(SerialPort port)
     {
-        port.DiscardInBuffer();
-        var get = CnvsProtocol.BuildGetSettings();
-        port.Write(get, 0, get.Length);
-        Thread.Sleep(20);
-        // HYTE's CNVSHelper.GetCnvsSettingFromFW reads exactly 9 bytes.
-        // The two flags live at byte offsets 3 (TurnOffStartupAnimation)
-        // and 4 (PlayAnimationWhenPCOff) of the response.
-        var buf = new byte[9];
-        var n = ReadExact(port, buf, 200);
-        if (n < 5) return null;
-        return CnvsProtocol.ParseGetSettings(buf.AsSpan(0, n));
+        lock (_readLock)
+        {
+            port.DiscardInBuffer();
+            var get = CnvsProtocol.BuildGetSettings();
+            port.Write(get, 0, get.Length);
+            Thread.Sleep(20);
+            var buf = new byte[9];
+            var n = ReadExact(port, buf, 200);
+            if (n < 5) return null;
+            return CnvsProtocol.ParseGetSettings(buf.AsSpan(0, n));
+        }
     }
 
     private static int ReadExact(SerialPort port, byte[] buf, int timeoutMs)
@@ -258,10 +297,7 @@ public sealed class CnvsHub
             {
                 n = port.Read(buf, total, buf.Length - total);
             }
-            catch (TimeoutException)
-            {
-                break;
-            }
+            catch (TimeoutException) { break; }
             if (n <= 0) break;
             total += n;
         }
@@ -276,9 +312,16 @@ public sealed class CnvsPortInfo
     public string Serial { get; init; } = "";
 }
 
-/// <summary>OS-level discovery for CNVS USB-CDC ports. Windows uses SetupAPI;
+/// <summary>OS-level CNVS USB-CDC port discovery. Windows uses SetupAPI;
 /// non-Windows returns empty.</summary>
 public interface ICnvsPortDiscovery
 {
     IReadOnlyList<CnvsPortInfo> Discover();
 }
+
+/// <summary>
+/// 24-bit RGB color used by the CNVS lighting write. Mirrors the
+/// <see cref="Np50.RgbColor"/> shape so callers can share buffers across
+/// hubs without translation.
+/// </summary>
+public readonly record struct RgbColor(byte R, byte G, byte B);

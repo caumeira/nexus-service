@@ -148,11 +148,12 @@ public static class NexusServiceCollectionExtensions
 
     public static IServiceCollection AddQosDevices(this IServiceCollection services)
     {
-        // CNVS hub: serial-port discovery + hub singleton. Same shape as the
-        // NP50 + MiniHub blocks below; CNVS enumerates as USB-CDC (Y70's
-        // CNVS Left is `USB Serial Device (COM7)`) so this is plain
-        // SerialPort, not HID. Windows-only discovery; non-Windows gets a
-        // stub that never finds anything.
+        // CNVS hub: serial-port discovery + hub singleton + connection
+        // worker that grabs COM7 at startup before OpenRGB-headless can
+        // claim it (whoever opens the COM port first wins on Windows
+        // serial — same race-and-hold pattern that lets NP50 and MiniHub
+        // coexist with OpenRGB). Windows-only discovery; non-Windows gets
+        // a stub that never finds anything.
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.ICnvsPortDiscovery,
                               Nexus.Service.Peripherals.Hyte.Cnvs.WindowsCnvsPortDiscovery>();
@@ -161,6 +162,7 @@ public static class NexusServiceCollectionExtensions
                               Nexus.Service.Peripherals.Hyte.Cnvs.StubCnvsPortDiscovery>();
 #endif
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.CnvsHub>();
+        services.AddHostedService<Nexus.Service.Peripherals.Hyte.Cnvs.CnvsConnectionWorker>();
 
         services.AddSingleton<StubDeviceProvider>();
         services.AddSingleton<IDeviceProvider>(sp => sp.GetRequiredService<StubDeviceProvider>());
