@@ -104,6 +104,10 @@ public sealed class CnvsHub : IDisposable
             try { if (_port?.IsOpen == true) _port.Close(); } catch { }
             try { _port?.Dispose(); } catch { }
             _port = null;
+            // Force the next connect to re-apply settings before the
+            // lighting writer is allowed to stream — see WriteSettings
+            // doc for the firmware invariant.
+            IsReadyForStreaming = false;
         }
     }
 
@@ -111,6 +115,22 @@ public sealed class CnvsHub : IDisposable
     /// Persist both firmware settings to EEPROM. Read-back after to verify
     /// the firmware accepted them — returns true when the read-back matches,
     /// false on transport error or device disagreement.
+    /// </summary>
+    /// <summary>
+    /// Write the 5-byte SetSettings command exactly as HYTE's
+    /// <c>CNVSHelper.ChangeCnvsSetting</c> does — no bracket, no extra
+    /// preamble.
+    ///
+    /// Critical firmware invariant (empirically observed on Y70):
+    /// the device silently drops <c>FF DC 07</c> if any <c>FF DC 05</c>
+    /// (firmware-animation toggle) has been sent since the last USB
+    /// connect. The settings only persist if this write is one of the
+    /// very first wire commands after the port opens. That is why
+    /// <see cref="CnvsConnectionWorker"/> calls WriteSettings via
+    /// <see cref="ApplyPersistedSettingsOnConnect"/> as the FIRST
+    /// thing after EnsureConnected wins the port — and the lighting
+    /// frame writer waits on <see cref="IsReadyForStreaming"/> before
+    /// emitting any FF DC 05.
     /// </summary>
     public bool WriteSettings(bool suppressBootAnimation, bool keepLedsOnWhenPcOff)
     {
@@ -121,51 +141,24 @@ public sealed class CnvsHub : IDisposable
             if (port is null) return false;
             try
             {
-                // The firmware appears to silently drop FF DC 07 writes when
-                // the device is in streaming mode (i.e. after FF DC 05 00).
-                // Bracket the settings write with a transition into firmware
-                // mode and back — mirrors HYTE's SetToFirmwareMode → settings
-                // → TurnFwAnimationOFF flow. The whole sequence runs under
-                // _writeLock so the 30 Hz lighting writer can't interleave.
-
-                // Step 1: enter firmware-animation mode. HYTE's
-                // TurnFwAnimationOn sends FF DC 02 preamble then FF DC 05 01.
-                var animPreamble = CnvsProtocol.BuildTurnAnimationOnPreamble();
-                port.Write(animPreamble, 0, animPreamble.Length);
-                var animOn = CnvsProtocol.BuildTurnAnimationOnMain();
-                port.Write(animOn, 0, animOn.Length);
-                Thread.Sleep(30);
-
-                // Step 2: settings write itself.
                 port.DiscardInBuffer();
                 var frame = CnvsProtocol.BuildSetSettings(suppressBootAnimation, keepLedsOnWhenPcOff);
                 port.Write(frame, 0, frame.Length);
                 Console.Error.WriteLine(
                     $"[cnvs] WriteSettings sent {frame.Length}B on {_portName} (serial={_serial}): boot={suppressBootAnimation} leds={keepLedsOnWhenPcOff}");
+                Thread.Sleep(20);
 
-                // Step 3: give the firmware a beat to commit before flipping
-                // back to streaming mode. 100 ms is generous; HYTE's UI uses
-                // ~50 ms between settings + next frame, doubled here to
-                // survive worst-case flash-write latency.
-                Thread.Sleep(100);
-
-                // Step 4: best-effort read-back. Logged but not load-bearing
-                // — some firmware revs don't echo FF DC 08.
+                // Best-effort read-back; some firmware revs don't echo
+                // FF DC 08 at all. Logged but not load-bearing.
                 var readBack = ReadSettingsLocked(port);
                 if (readBack is { } rb)
                     Console.Error.WriteLine($"[cnvs] WriteSettings read-back: {rb}");
                 else
                     Console.Error.WriteLine("[cnvs] WriteSettings: read-back returned no data");
 
-                // Step 5: back to streaming mode so the lighting writer's
-                // next frame paints correctly. Fire the drift event so the
-                // writer drops its cached "already silenced" flag and
-                // re-asserts FF DC 05 00 on its next tick — without that
-                // the writer trusts the stale flag and the firmware sits
-                // in animation mode overlaying our stream.
-                var animOff = CnvsProtocol.BuildTurnAnimationOff();
-                port.Write(animOff, 0, animOff.Length);
-                FirmwareAnimationStateMayHaveDrifted?.Invoke();
+                // Settings are in (or as in as they'll get). Open the gate
+                // so the lighting writer can start streaming.
+                IsReadyForStreaming = true;
                 return true;
             }
             catch (Exception ex)
@@ -178,12 +171,14 @@ public sealed class CnvsHub : IDisposable
     }
 
     /// <summary>
-    /// Fires when <see cref="WriteSettings"/> has toggled the firmware-
-    /// animation state inside its bracket. The lighting frame writer
-    /// subscribes so it re-sends <c>FF DC 05 00</c> on its next tick
-    /// rather than trusting its cached "already silenced" flag.
+    /// True after <see cref="WriteSettings"/> has run on the current
+    /// connection. Cleared on <see cref="Disconnect"/>. The lighting
+    /// frame writer gates every tick on this so a fresh USB connect
+    /// gets the FF DC 07 settings write BEFORE any FF DC 05 streaming
+    /// command goes out — the firmware invariant that makes the
+    /// settings actually persist.
     /// </summary>
-    public event Action? FirmwareAnimationStateMayHaveDrifted;
+    public bool IsReadyForStreaming { get; private set; }
 
     /// <summary>Read the EEPROM-persisted settings. Null on transport error / not connected.</summary>
     public CnvsProtocol.CnvsSettings? ReadSettings()

@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Lighting;
+using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 
@@ -31,11 +32,17 @@ public sealed class CnvsConnectionWorker : BackgroundService
     // (re)connects. Injected so a hot-plug shows up on the lighting page
     // without a full service restart. Null in non-lighting test fixtures.
     private readonly CnvsLightingDeviceProvider? _lighting;
-    private bool _wasConnected;
+    // Source of truth for which firmware-settings bits the user has chosen.
+    // We re-apply them on every (re)connect because the firmware appears to
+    // accept FF DC 07 only when it's one of the first wire commands after
+    // a USB connect (see CnvsHub.WriteSettings doc for the invariant).
+    private readonly IConfigStore _store;
+    private string _lastAppliedSerial = "";
 
-    public CnvsConnectionWorker(CnvsHub hub, CnvsLightingDeviceProvider? lighting = null)
+    public CnvsConnectionWorker(CnvsHub hub, IConfigStore store, CnvsLightingDeviceProvider? lighting = null)
     {
         _hub = hub;
+        _store = store;
         _lighting = lighting;
     }
 
@@ -64,10 +71,43 @@ public sealed class CnvsConnectionWorker : BackgroundService
     private void Tick()
     {
         _hub.EnsureConnected();
-        var nowConnected = _hub.IsConnected;
-        if (nowConnected != _wasConnected)
+        if (!_hub.IsConnected)
         {
-            _wasConnected = nowConnected;
+            // Clear so the next successful (re)connect re-applies settings
+            // even if the device came back with the same serial.
+            _lastAppliedSerial = "";
+            return;
+        }
+
+        var currentSerial = _hub.Serial;
+        if (currentSerial != _lastAppliedSerial)
+        {
+            // Brand-new connection. Apply the persisted firmware settings
+            // FIRST — before anything else touches FF DC 05 (the lighting
+            // writer is gated on hub.IsReadyForStreaming, which only flips
+            // true after WriteSettings completes). This is the entire
+            // reason this worker exists: the firmware drops FF DC 07 if
+            // any FF DC 05 has been sent since USB connect, so we have to
+            // be the FIRST thing on the wire.
+            var s = _store.Load().Devices.Cnvs;
+            try
+            {
+                if (_hub.WriteSettings(s.PlayAnimation, s.PlayWhenPCOff))
+                {
+                    Console.Error.WriteLine(
+                        $"[cnvs-conn] applied persisted settings on connect (serial={currentSerial}): boot={s.PlayAnimation} leds={s.PlayWhenPCOff}");
+                    _lastAppliedSerial = currentSerial;
+                }
+                else
+                {
+                    Console.Error.WriteLine($"[cnvs-conn] WriteSettings on connect returned false; will retry next tick");
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[cnvs-conn] WriteSettings on connect threw {ex.GetType().Name}: {ex.Message}");
+            }
+
             // Tell the lighting provider its DeviceFrame topology changed so
             // RgbBridge rebuilds the engine's device list. Without this nudge
             // the lighting page won't show a freshly-plugged CNVS until the

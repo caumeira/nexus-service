@@ -52,21 +52,12 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _cts = new CancellationTokenSource();
-        // CnvsHub fires this after WriteSettings has toggled firmware-anim
-        // state during its settings-write bracket. Drop our cached flag so
-        // the next Tick re-sends FF DC 05 00 instead of trusting the stale
-        // "already silenced" optimism — otherwise the firmware sits in
-        // animation mode after a settings change and overlays our stream.
-        _hub.FirmwareAnimationStateMayHaveDrifted += OnHubFwAnimDrift;
         _loop = Task.Run(() => RunAsync(_cts.Token));
         return Task.CompletedTask;
     }
 
-    private void OnHubFwAnimDrift() => _fwAnimSilenced = false;
-
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _hub.FirmwareAnimationStateMayHaveDrifted -= OnHubFwAnimDrift;
         _cts?.Cancel();
         if (_loop is not null)
         {
@@ -101,6 +92,13 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
             _lastConnectedSerial = "";
             return;
         }
+
+        // Gate: the firmware drops FF DC 07 (SetSettings) once any FF DC 05
+        // has been sent since USB connect, so CnvsConnectionWorker has to be
+        // the very first thing on the wire after a connect. Skip our tick
+        // entirely until the worker has applied settings — IsReadyForStreaming
+        // is the explicit signal it flips when WriteSettings completes.
+        if (!_hub.IsReadyForStreaming) return;
 
         // Detect (re)connect: a new serial means the hub was reopened; we
         // need to re-send the firmware-anim-off handshake before our first
