@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO.Ports;
 using System.Threading;
+using Nexus.Service.Lighting.Rgb;
 
 namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 
@@ -23,11 +24,22 @@ namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 public sealed class CnvsHub
 {
     private readonly ICnvsPortDiscovery _discovery;
+    private readonly OpenRgbProcessManager? _openRgb;
     private readonly object _lock = new();
 
-    public CnvsHub(ICnvsPortDiscovery discovery)
+    /// <summary>
+    /// <paramref name="openRgb"/> is the lighting daemon manager. CNVS is
+    /// shared between this hub (settings writes) and OpenRGB-headless (LED
+    /// streaming). When OpenRGB is running it holds COM7 open and our open
+    /// call hits UnauthorizedAccessException. We bracket the settings
+    /// write by stopping OpenRGB, doing the write, then restarting it —
+    /// the user gets a ~2 s LED pause during a deliberate settings change.
+    /// May be null in test fixtures that don't exercise the wire path.
+    /// </summary>
+    public CnvsHub(ICnvsPortDiscovery discovery, OpenRgbProcessManager? openRgb = null)
     {
         _discovery = discovery;
+        _openRgb = openRgb;
     }
 
     public bool IsConnected
@@ -58,9 +70,9 @@ public sealed class CnvsHub
                 return false;
             }
             var info = ports[0];
-            try
+
+            return WithPort(info, port =>
             {
-                using var port = OpenPort(info.PortName);
                 var frame = CnvsProtocol.BuildSetSettings(suppressBootAnimation, keepLedsOnWhenPcOff);
                 port.Write(frame, 0, frame.Length);
                 Console.Error.WriteLine(
@@ -87,12 +99,7 @@ public sealed class CnvsHub
                     Console.Error.WriteLine("[cnvs] WriteSettings: no read-back data");
                 }
                 return true;
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[cnvs] WriteSettings exception on {info.PortName}: {ex.GetType().Name}: {ex.Message}");
-                return false;
-            }
+            });
         }
     }
 
@@ -103,16 +110,13 @@ public sealed class CnvsHub
             var ports = _discovery.Discover();
             if (ports.Count == 0) return null;
             var info = ports[0];
-            try
+            CnvsProtocol.CnvsSettings? result = null;
+            WithPort(info, port =>
             {
-                using var port = OpenPort(info.PortName);
-                return TryReadSettings(port);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[cnvs] ReadSettings exception on {info.PortName}: {ex.GetType().Name}: {ex.Message}");
-                return null;
-            }
+                result = TryReadSettings(port);
+                return true;
+            });
+            return result;
         }
     }
 
@@ -123,27 +127,84 @@ public sealed class CnvsHub
             var ports = _discovery.Discover();
             if (ports.Count == 0) return "";
             var info = ports[0];
-            try
+            var version = "";
+            WithPort(info, port =>
             {
-                using var port = OpenPort(info.PortName);
                 port.DiscardInBuffer();
                 var frame = CnvsProtocol.BuildGetFirmwareVersion();
                 port.Write(frame, 0, frame.Length);
                 Thread.Sleep(20);
                 var buf = new byte[7];
                 var n = ReadExact(port, buf, 200);
-                if (n < 7) return "";
-                return CnvsProtocol.ParseFirmwareVersion(buf);
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[cnvs] GetFirmwareVersion exception: {ex.GetType().Name}: {ex.Message}");
-                return "";
-            }
+                if (n >= 7) version = CnvsProtocol.ParseFirmwareVersion(buf);
+                return true;
+            });
+            return version;
         }
     }
 
     // ── Internals ──
+
+    /// <summary>
+    /// Open the CNVS port, run <paramref name="body"/>, close. Handles the
+    /// OpenRGB-headless contention path: if the first open fails with
+    /// UnauthorizedAccessException AND an OpenRGB process manager is wired
+    /// in, stop OpenRGB, wait briefly for COM7 to release, retry the open,
+    /// then start OpenRGB again on exit. LEDs go dark for ~2 s during a
+    /// settings change — acceptable for a deliberate user action.
+    /// </summary>
+    private bool WithPort(CnvsPortInfo info, Func<SerialPort, bool> body)
+    {
+        var openRgbWasStopped = false;
+        try
+        {
+            SerialPort? port = null;
+            try
+            {
+                port = OpenPort(info.PortName);
+            }
+            catch (UnauthorizedAccessException) when (_openRgb is not null)
+            {
+                Console.Error.WriteLine(
+                    $"[cnvs] {info.PortName} busy (likely OpenRGB-headless) — stopping OpenRGB and retrying");
+                _openRgb.Stop();
+                openRgbWasStopped = true;
+                // Give the OS a beat to release the COM handle after kill.
+                // 500 ms is generous; on Y70 it releases in <200 ms.
+                Thread.Sleep(500);
+                port = OpenPort(info.PortName);
+            }
+            try
+            {
+                return body(port);
+            }
+            finally
+            {
+                try { port.Close(); } catch { }
+                try { port.Dispose(); } catch { }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[cnvs] WithPort {info.PortName} failed: {ex.GetType().Name}: {ex.Message}");
+            return false;
+        }
+        finally
+        {
+            if (openRgbWasStopped)
+            {
+                try
+                {
+                    _openRgb!.Start();
+                    Console.Error.WriteLine("[cnvs] OpenRGB restarted after CNVS port write");
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[cnvs] OpenRGB restart failed: {ex.GetType().Name}: {ex.Message}");
+                }
+            }
+        }
+    }
 
     /// <summary>
     /// Open a CNVS serial port at 115200 8N1 with DTR/RTS asserted.
