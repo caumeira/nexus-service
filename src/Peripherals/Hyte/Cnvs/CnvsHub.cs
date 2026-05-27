@@ -47,6 +47,7 @@ public sealed class CnvsHub : IDisposable
     private SerialPort? _port;
     private string _portName = "";
     private string _serial = "";
+    private string _firmwareVersion = "";
     private bool _disposed;
 
     public CnvsHub(ICnvsPortDiscovery discovery)
@@ -62,6 +63,23 @@ public sealed class CnvsHub : IDisposable
 
     /// <summary>"cnvs:&lt;serial&gt;" device id; empty until we open the port.</summary>
     public string DeviceId => string.IsNullOrEmpty(_serial) ? "" : $"cnvs:{_serial}";
+
+    /// <summary>
+    /// Last firmware version reported by the device, formatted "Major.Minor.Build.Hw"
+    /// (e.g. "1.0.2.2"). Empty until <see cref="GetFirmwareVersion"/> succeeds;
+    /// cleared on <see cref="Disconnect"/>.
+    /// </summary>
+    public string FirmwareVersion => _firmwareVersion;
+
+    /// <summary>
+    /// True when the connected firmware honors the <c>FF DC 07</c> /
+    /// <c>FF DC 08</c> settings commands. Introduced in CNVS firmware
+    /// v1.0.2.1 per <c>hyte-refs/hyte-documents/firmware-protocol/CNVS/stm32-commands.md</c>
+    /// §3 — older firmware (e.g. 1.0.1.1 observed in the Y70 dev unit)
+    /// silently accepts and ignores the FF DC 07 frame.
+    /// </summary>
+    public bool SettingsSupported =>
+        CnvsFirmware.SupportsSettings(_firmwareVersion);
 
     /// <summary>
     /// Try to open a CNVS port if one is enumerable and we don't already
@@ -104,6 +122,7 @@ public sealed class CnvsHub : IDisposable
             try { if (_port?.IsOpen == true) _port.Close(); } catch { }
             try { _port?.Dispose(); } catch { }
             _port = null;
+            _firmwareVersion = "";
             // Force the next connect to re-apply settings before the
             // lighting writer is allowed to stream — see WriteSettings
             // doc for the firmware invariant.
@@ -212,7 +231,9 @@ public sealed class CnvsHub : IDisposable
                     var n = ReadExact(port, buf, 200);
                     if (n < 7) return null;
                     var s = CnvsProtocol.ParseFirmwareVersion(buf);
-                    return string.IsNullOrEmpty(s) ? null : s;
+                    if (string.IsNullOrEmpty(s)) return null;
+                    _firmwareVersion = s;
+                    return s;
                 }
             }
             catch (Exception ex)

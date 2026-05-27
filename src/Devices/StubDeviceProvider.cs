@@ -29,21 +29,37 @@ public sealed class StubDeviceProvider : IDeviceProvider, ILightingDeviceProvide
 
     public GetCnvsSettingsResponse GetCnvs()
     {
-        // Prefer the device's own state when it's plugged in — settings can
-        // be changed out-of-band (e.g. by HYTE Nexus 2.0 still installed
-        // side-by-side), and the persisted copy goes stale. Fall through to
-        // settings.json when the CNVS is offline.
-        var live = _cnvs?.ReadSettings();
-        if (live is { } l)
+        var fwVersion = _cnvs?.FirmwareVersion ?? "";
+        var supportsSettings = _cnvs?.SettingsSupported ?? false;
+
+        // Prefer the device's own state when it's plugged in AND firmware
+        // implements the read-back (FF DC 08, requires v1.0.2.1+). On
+        // older firmware ReadSettings always returns null, so fall through
+        // to settings.json. Settings can also be changed out-of-band (e.g.
+        // by HYTE Nexus 2.0 still installed side-by-side), so even on
+        // capable firmware we prefer the live read when available.
+        if (supportsSettings)
         {
-            return new()
+            var live = _cnvs?.ReadSettings();
+            if (live is { } l)
             {
-                PlayAnimation = l.SuppressBootAnimation,
-                PlayWhenPCOff = l.KeepLedsOnWhenPcOff,
-            };
+                return new()
+                {
+                    PlayAnimation = l.SuppressBootAnimation,
+                    PlayWhenPCOff = l.KeepLedsOnWhenPcOff,
+                    FirmwareVersion = fwVersion,
+                    SettingsSupported = true,
+                };
+            }
         }
         var s = _store.Load().Devices.Cnvs;
-        return new() { PlayAnimation = s.PlayAnimation, PlayWhenPCOff = s.PlayWhenPCOff };
+        return new()
+        {
+            PlayAnimation = s.PlayAnimation,
+            PlayWhenPCOff = s.PlayWhenPCOff,
+            FirmwareVersion = fwVersion,
+            SettingsSupported = supportsSettings,
+        };
     }
 
     public GetCnvsSettingsResponse SetCnvs(SetCnvsSettingsBody body)
@@ -63,7 +79,13 @@ public sealed class StubDeviceProvider : IDeviceProvider, ILightingDeviceProvide
             s.Devices.Cnvs.PlayAnimation = body.PlayAnimation;
             s.Devices.Cnvs.PlayWhenPCOff = body.PlayWhenPCOff;
         });
-        return new() { PlayAnimation = body.PlayAnimation, PlayWhenPCOff = body.PlayWhenPCOff };
+        return new()
+        {
+            PlayAnimation = body.PlayAnimation,
+            PlayWhenPCOff = body.PlayWhenPCOff,
+            FirmwareVersion = _cnvs?.FirmwareVersion ?? "",
+            SettingsSupported = _cnvs?.SettingsSupported ?? false,
+        };
     }
 
     public bool CheckForUpdate(string id) => false;

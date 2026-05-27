@@ -38,6 +38,17 @@ public class GetCnvsSettingsResponse : ApiResponse
 {
     public bool PlayAnimation { get; set; }
     public bool PlayWhenPCOff { get; set; }
+    /// <summary>Reported CNVS firmware version (e.g. "1.0.2.2"), or empty when not yet probed / device offline.</summary>
+    public string FirmwareVersion { get; set; } = "";
+    /// <summary>
+    /// True when the firmware honors the FF DC 07 / FF DC 08 settings
+    /// commands (introduced in CNVS firmware v1.0.2.1 — see
+    /// hyte-refs protocol doc CNVS/stm32-commands.md §3). The UI uses
+    /// this to gate the two toggles: when false (older firmware), the
+    /// toggles should be disabled with a "Requires CNVS firmware 1.0.2.1+"
+    /// hint, since the writes will silently no-op on the device.
+    /// </summary>
+    public bool SettingsSupported { get; set; }
 }
 
 public class SetCnvsSettingsBody
