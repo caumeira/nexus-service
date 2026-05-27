@@ -432,6 +432,33 @@ public class Np50ProtocolTests
         Assert.True(port.Devices[1].Touching);    // FP12 + 0x00 touch byte
     }
 
+    [Theory]
+    [InlineData(0x06, 40, "LN60")]   // LN60 noodle: 40 LEDs
+    [InlineData(0x07, 44, "LN70")]   // LN70 noodle: 44 LEDs
+    public void ParseChannelInfo_decodes_noodle(byte typeByte, int ledCount, string expectedModel)
+    {
+        // Noodles are daisy-chained on the same wire as fan modules; the
+        // firmware reports each via its device-type byte and the strip's LED count.
+        var resp = new byte[24];
+        resp[0] = 0xFF; resp[1] = 0xCC;
+        resp[2] = 0x01;            // device count 1
+        resp[3] = typeByte;
+        resp[4] = 0x10;            // hw version
+        resp[5] = (byte)ledCount;
+        // resp[6..7] left at 0 → DecodeFanTempC sentinel for "no probe".
+        // resp[15] (next slot's type byte) stays 0 → parser stops.
+
+        var port = new Np50Port { Index = 3 };
+        Np50Protocol.ParseChannelInfo(resp, port);
+
+        Assert.Single(port.Devices);
+        Assert.Equal(expectedModel, port.Devices[0].Model);
+        Assert.Equal(ledCount, port.Devices[0].LedCount);
+        Assert.Equal(0x10, port.Devices[0].HardwareVersion);
+        Assert.Null(port.Devices[0].TempC);     // noodles don't carry a temp probe
+        Assert.False(port.Devices[0].Touching); // touch byte only honored for FP12
+    }
+
     [Fact]
     public void ParseChannelInfo_clears_devices_before_repopulating()
     {

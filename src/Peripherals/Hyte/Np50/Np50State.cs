@@ -65,16 +65,16 @@ public sealed class Np50Port
     public List<Np50FanDevice> Devices { get; set; } = new();
 }
 
-/// <summary>A single fan module (LS10 / LS30 / FP12) reported under a port.</summary>
+/// <summary>A single module (LS10 / LS30 / FP12 fan or LN60 / LN70 noodle) reported under a port.</summary>
 public sealed class Np50FanDevice
 {
     /// <summary>1-based index within the port's daisy chain.</summary>
     public int Index { get; set; }
 
-    /// <summary>"LS10" | "LS30" | "FP12" | "Unknown".</summary>
+    /// <summary>"LS10" | "LS30" | "FP12" | "LN60" | "LN70" | "Unknown".</summary>
     public string Model { get; set; } = "Unknown";
 
-    /// <summary>LEDs reported by the fan (20 for LS10, 62 for LS30, varies otherwise).</summary>
+    /// <summary>LEDs reported by the firmware (20 for LS10, 62 for LS30, 40 for LN60, 44 for LN70, varies otherwise).</summary>
     public int LedCount { get; set; }
 
     /// <summary>Hardware revision byte the fan reports.</summary>

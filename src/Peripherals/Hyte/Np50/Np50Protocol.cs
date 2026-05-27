@@ -427,6 +427,8 @@ public static class Np50Protocol
                     0x01 => "LS10",
                     0x02 => "LS30",
                     0x03 => "FP12",
+                    0x06 => "LN60",
+                    0x07 => "LN70",
                     _ => "Unknown",
                 },
                 HardwareVersion = response[off + 4],
