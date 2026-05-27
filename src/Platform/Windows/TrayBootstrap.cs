@@ -1,3 +1,4 @@
+using System.Runtime.Versioning;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Nexus.Service.Panel;
@@ -14,6 +15,7 @@ namespace Nexus.Service.Platform.Windows;
 // the app-window auto-launch on startup. Each piece is gated by the calling
 // context (--service vs interactive) so the Session-0 daemon never tries
 // to materialise an interactive NotifyIcon.
+[SupportedOSPlatform("windows")]
 internal static class TrayBootstrap
 {
     // Interactive Windows session: hides console, shows tray with right-click menu.

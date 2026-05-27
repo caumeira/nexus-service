@@ -73,7 +73,9 @@ internal static class PathAuthMiddleware
         // browser's ESM loader fetch sibling files inside a worker.
         if (ctx.Request.Method == "GET"
             && path.StartsWith("/widgets-api/code/", StringComparison.OrdinalIgnoreCase))
+        {
             return true;
+        }
         return false;
     }
 

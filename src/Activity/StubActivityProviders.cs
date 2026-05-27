@@ -42,7 +42,7 @@ public sealed class StubNetworkProvider : INetworkProvider
 
 public sealed class StubBeatsProvider : IBeatsProvider
 {
-    public event Action<Models.Activity.MusicResult>? OnBeat;
+    public event Action<Models.Activity.MusicResult>? OnBeat { add { } remove { } }
     public void Start() { }
     public void Stop() { }
     public void Dispose() { }

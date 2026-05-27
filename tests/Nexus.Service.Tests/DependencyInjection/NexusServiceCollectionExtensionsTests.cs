@@ -36,7 +36,8 @@ public class NexusServiceCollectionExtensionsTests
             .AddQosNetwork()
             .AddQosLifecycle()
             .AddQosWeather()
-            .AddQosPanel(servicePort: 9400);
+            .AddQosPanel(servicePort: 9400)
+            .AddQosLinuxDBus();
         services.AddLogging();
         services.AddHttpClient();
         return services.BuildServiceProvider();

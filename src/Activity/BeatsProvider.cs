@@ -126,12 +126,7 @@ public sealed class BeatsProvider : IBeatsProvider
         psi.ArgumentList.Add(Channels.ToString());
         psi.ArgumentList.Add("-");
 
-        _proc = Process.Start(psi);
-        if (_proc is null)
-        {
-            throw new InvalidOperationException("ffmpeg Process.Start returned null");
-        }
-
+        _proc = Process.Start(psi) ?? throw new InvalidOperationException("ffmpeg Process.Start returned null");
         FfmpegTracker.Track(_proc.Id);
 
         // Drain stderr so the pipe doesn't stall.

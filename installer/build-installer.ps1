@@ -31,10 +31,18 @@ if ([string]::IsNullOrEmpty($PublishDir)) {
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $iss = Join-Path $scriptDir "Nexus.iss"
-$iscc = "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
+
+# Probe standard Inno Setup 6 install locations: per-user (winget default),
+# then both Program Files variants (machine-wide / Chocolatey on CI).
+$isccCandidates = @(
+    "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe",
+    "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
+    "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+)
+$iscc = $isccCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 if (-not (Test-Path $iss))  { throw "Missing Nexus.iss next to this script: $iss" }
-if (-not (Test-Path $iscc)) { throw "Inno Setup 6 not installed. Run: winget install JRSoftware.InnoSetup" }
+if (-not $iscc) { throw "Inno Setup 6 not installed. Run: winget install JRSoftware.InnoSetup (or 'choco install innosetup')" }
 if (-not (Test-Path (Join-Path $PublishDir "Nexus.exe"))) {
     throw "AOT publish not found at $PublishDir. Run dotnet publish first."
 }

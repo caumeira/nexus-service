@@ -19,9 +19,11 @@ public sealed class ScreenMirrorEffect : IEffect
     private byte[]? _latestFrame;
     private int _captureW, _captureH;
     private bool _started;
+#if WINDOWS
     private bool _hasFrame;
     private int _frameCount, _acquireHits;
     private long _lastLogTick;
+#endif
     private CancellationTokenSource? _cts;
     private Process? _proc;
     private Task? _readerTask;
@@ -170,12 +172,7 @@ public sealed class ScreenMirrorEffect : IEffect
         psi.ArgumentList.Add("-pix_fmt");
         psi.ArgumentList.Add("rgb24");
         psi.ArgumentList.Add("-");
-        _proc = Process.Start(psi);
-        if (_proc is null)
-        {
-            throw new InvalidOperationException("null");
-        }
-
+        _proc = Process.Start(psi) ?? throw new InvalidOperationException("null");
         FfmpegTracker.Track(_proc.Id);
         _ = Task.Run(async () => { try { while (!_cts!.IsCancellationRequested && !_proc.HasExited) { if (await _proc.StandardError.ReadLineAsync() is null) { break; } } } catch { } });
         _readerTask = Task.Run(() => ReaderLoopAsync(w, h, _cts.Token));
@@ -245,8 +242,10 @@ public sealed class ScreenMirrorEffect : IEffect
         _cts = null;
         _latestFrame = null;
         _started = false;
+#if WINDOWS
         _hasFrame = false;
         _frameCount = 0;
         _acquireHits = 0;
+#endif
     }
 }
