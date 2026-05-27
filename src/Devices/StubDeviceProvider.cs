@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Nexus.Service.Models.Devices;
+using Nexus.Service.Peripherals.Hyte.Cnvs;
 using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Devices;
@@ -8,8 +9,19 @@ namespace Nexus.Service.Devices;
 public sealed class StubDeviceProvider : IDeviceProvider, ILightingDeviceProvider
 {
     private readonly IConfigStore _store;
+    private readonly CnvsHub? _cnvs;
 
-    public StubDeviceProvider(IConfigStore store) { _store = store; }
+    /// <summary>
+    /// <paramref name="cnvs"/> may be null in unit-test fixtures that don't
+    /// exercise the CNVS path. In production the DI container injects the
+    /// real hub; null here just means SetCnvs degrades to settings.json-only
+    /// (same behaviour as before the wire layer landed).
+    /// </summary>
+    public StubDeviceProvider(IConfigStore store, CnvsHub? cnvs = null)
+    {
+        _store = store;
+        _cnvs = cnvs;
+    }
 
     // ----- IDeviceProvider -----
     public bool IsTypeConnected(string type) => false;
@@ -17,12 +29,35 @@ public sealed class StubDeviceProvider : IDeviceProvider, ILightingDeviceProvide
 
     public GetCnvsSettingsResponse GetCnvs()
     {
+        // Prefer the device's own state when it's plugged in — settings can
+        // be changed out-of-band (e.g. by HYTE Nexus 2.0 still installed
+        // side-by-side), and the persisted copy goes stale. Fall through to
+        // settings.json when the CNVS is offline.
+        var live = _cnvs?.ReadSettings();
+        if (live is { } l)
+        {
+            return new()
+            {
+                PlayAnimation = l.SuppressBootAnimation,
+                PlayWhenPCOff = l.KeepLedsOnWhenPcOff,
+            };
+        }
         var s = _store.Load().Devices.Cnvs;
         return new() { PlayAnimation = s.PlayAnimation, PlayWhenPCOff = s.PlayWhenPCOff };
     }
 
     public GetCnvsSettingsResponse SetCnvs(SetCnvsSettingsBody body)
     {
+        // Push to the firmware FIRST so we don't persist a UI state the
+        // device rejected. If the device is offline, persist anyway — the
+        // settings.json copy is what the next launch / hot-plug reconciler
+        // would re-apply.
+        var hwOk = _cnvs?.WriteSettings(
+            suppressBootAnimation: body.PlayAnimation,
+            keepLedsOnWhenPcOff:   body.PlayWhenPCOff) ?? false;
+        if (!hwOk)
+            Console.Error.WriteLine("[cnvs] SetCnvs: hardware write failed or device offline; persisting to settings.json only");
+
         _store.Update(s =>
         {
             s.Devices.Cnvs.PlayAnimation = body.PlayAnimation;

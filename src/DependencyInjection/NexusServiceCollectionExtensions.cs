@@ -148,6 +148,7 @@ public static class NexusServiceCollectionExtensions
 
     public static IServiceCollection AddQosDevices(this IServiceCollection services)
     {
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.CnvsHub>();
         services.AddSingleton<StubDeviceProvider>();
         services.AddSingleton<IDeviceProvider>(sp => sp.GetRequiredService<StubDeviceProvider>());
 
