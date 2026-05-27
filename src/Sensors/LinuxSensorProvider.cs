@@ -290,9 +290,12 @@ public sealed class LinuxSensorProvider : ISensorProvider
                 sensors.Add(MakeSensor($"gpu/{gpuIndex}/memory-util", "GPU Memory Util", "Load", utilMem, "%", name));
             if (memTotal > 0)
             {
-                sensors.Add(MakeSensor($"gpu/{gpuIndex}/memory-used", "GPU Memory Used", "SmallData", memUsed / 1024f, "GB", name));
-                sensors.Add(MakeSensor($"gpu/{gpuIndex}/memory-total", "GPU Memory", "SmallData", memTotal / 1024f, "GB", name));
-                sensors.Add(MakeSensor($"gpu/{gpuIndex}/memory-free", "GPU Memory Free", "SmallData", memFree / 1024f, "GB", name));
+                // TheoreticalMaximum = total VRAM (GB), so VRAM Used/Free can scale a
+                // proportional gauge without the client also reading memory-total.
+                float vramTotalGb = memTotal / 1024f;
+                sensors.Add(MakeSensor($"gpu/{gpuIndex}/memory-used", "GPU Memory Used", "SmallData", memUsed / 1024f, "GB", name, theoreticalMax: vramTotalGb));
+                sensors.Add(MakeSensor($"gpu/{gpuIndex}/memory-total", "GPU Memory", "SmallData", vramTotalGb, "GB", name));
+                sensors.Add(MakeSensor($"gpu/{gpuIndex}/memory-free", "GPU Memory Free", "SmallData", memFree / 1024f, "GB", name, theoreticalMax: vramTotalGb));
                 sensors.Add(MakeSensor($"gpu/{gpuIndex}/memory-load", "GPU Memory Load", "Load", memUsed * 100f / memTotal, "%", name));
             }
             if (power > 0)
@@ -350,9 +353,11 @@ public sealed class LinuxSensorProvider : ISensorProvider
             float cachedGb = cached / 1024f / 1024f;
             float usagePct = total > 0 ? (float)(used * 100.0 / total) : 0f;
 
-            sensors.Add(MakeSensor("mem/used", "Memory Used", "Data", usedGb, "GB", "Memory"));
-            sensors.Add(MakeSensor("mem/available", "Memory Available", "Data", freeGb, "GB", "Memory"));
-            sensors.Add(MakeSensor("mem/usage", "Memory Usage", "Load", usagePct, "%", "Memory"));
+            // TheoreticalMaximum = installed RAM (GB) so the client can scale a
+            // "X / Y GB" chart without a separate /system/memory/total fetch.
+            sensors.Add(MakeSensor("mem/used", "Memory Used", "Data", usedGb, "GB", "Memory", theoreticalMax: totalGb));
+            sensors.Add(MakeSensor("mem/available", "Memory Available", "Data", freeGb, "GB", "Memory", theoreticalMax: totalGb));
+            sensors.Add(MakeSensor("mem/usage", "Memory Usage", "Load", usagePct, "%", "Memory", theoreticalMax: 100f));
             if (buffersGb > 0)
                 sensors.Add(MakeSensor("mem/buffers", "Buffers", "Data", buffersGb, "GB", "Memory"));
             if (cachedGb > 0)
@@ -1047,7 +1052,7 @@ public sealed class LinuxSensorProvider : ISensorProvider
         return _gpuSmiCsv;
     }
 
-    private static HardwareSensor MakeSensor(string id, string name, string type, float value, string units, string parentName)
+    private static HardwareSensor MakeSensor(string id, string name, string type, float value, string units, string parentName, float theoreticalMax = 0f)
     {
         var formatted = type switch
         {
@@ -1071,6 +1076,7 @@ public sealed class LinuxSensorProvider : ISensorProvider
             Type = type,
             Value = value,
             Units = units,
+            TheoreticalMaximum = theoreticalMax,
             Formatted = formatted,
             FormattedMax = "",
             FormattedMin = "",

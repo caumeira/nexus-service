@@ -84,17 +84,68 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
     public IReadOnlyList<HardwareSensor> GetGpuSensors()
     {
         _lhm.Update(TimeSpan.FromMilliseconds(100));
-        return FindHardware(HardwareType.GpuNvidia, HardwareType.GpuAmd, HardwareType.GpuIntel)
-            .SelectMany(hw => MapSensors(hw))
-            .ToList();
+        var result = new List<HardwareSensor>();
+        foreach (var hw in FindHardware(HardwareType.GpuNvidia, HardwareType.GpuAmd, HardwareType.GpuIntel))
+        {
+            var mapped = MapSensors(hw);
+            // VRAM total comes from the GPU's "GPU Memory Total" sensor; reuse it
+            // as the ceiling for "GPU Memory Used" / "Free" so the client can
+            // draw a proportional gauge without juggling sibling lookups.
+            float vramTotalGb = hw.Sensors
+                .Where(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
+                .Select(s => s.Value ?? 0f)
+                .FirstOrDefault();
+            if (vramTotalGb > 0)
+            {
+                foreach (var sensor in mapped)
+                {
+                    if (sensor.Type == "SmallData" && (sensor.Name.Contains("Used", StringComparison.OrdinalIgnoreCase)
+                        || sensor.Name.Contains("Free", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        sensor.TheoreticalMaximum = vramTotalGb;
+                    }
+                }
+            }
+            result.AddRange(mapped);
+        }
+        return result;
     }
 
     public IReadOnlyList<HardwareSensor> GetMemorySensors()
     {
         _lhm.Update(TimeSpan.FromMilliseconds(100));
-        return FindHardware(HardwareType.Memory)
-            .SelectMany(hw => MapSensors(hw))
-            .ToList();
+        var result = new List<HardwareSensor>();
+        // Skip LHM's `/vram` (pagefile) hardware — it exposes "Memory Used"
+        // and "Memory Available" with the same Type/Name as the physical `/ram`,
+        // so flattening both would collide on the client's name-based find()
+        // and could display pagefile metrics with a pagefile ceiling.
+        foreach (var hw in FindHardware(HardwareType.Memory).Where(h => h.Identifier.ToString() == "/ram"))
+        {
+            var mapped = MapSensors(hw);
+            // RAM ceiling = Used + Available reported by this hardware instance.
+            // LHM splits physical and virtual memory into separate hardware (`/ram`
+            // and `/vram`); attaching the per-instance total keeps each set's
+            // sensors self-describing.
+            float used = hw.Sensors
+                .Where(s => s.SensorType == SensorType.Data && s.Name.Contains("Used", StringComparison.OrdinalIgnoreCase))
+                .Select(s => s.Value ?? 0f)
+                .FirstOrDefault();
+            float avail = hw.Sensors
+                .Where(s => s.SensorType == SensorType.Data && s.Name.Contains("Available", StringComparison.OrdinalIgnoreCase))
+                .Select(s => s.Value ?? 0f)
+                .FirstOrDefault();
+            float total = used + avail;
+            if (total > 0)
+            {
+                foreach (var sensor in mapped)
+                {
+                    if (sensor.Type == "Data") sensor.TheoreticalMaximum = total;
+                    else if (sensor.Type == "Load") sensor.TheoreticalMaximum = 100f;
+                }
+            }
+            result.AddRange(mapped);
+        }
+        return result;
     }
 
     public string GetMemoryTotalFormatted()

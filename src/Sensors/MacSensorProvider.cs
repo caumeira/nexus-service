@@ -220,9 +220,11 @@ public sealed class MacSensorProvider : ISensorProvider
             var freeGb = totalGb - usedGb;
             var usagePct = totalBytes > 0 ? (float)(used * 100.0 / totalBytes) : 0f;
 
-            sensors.Add(MakeSensor("mem/used", "Memory Used", "Data", (float)usedGb, "GB", "Memory"));
-            sensors.Add(MakeSensor("mem/available", "Memory Available", "Data", (float)freeGb, "GB", "Memory"));
-            sensors.Add(MakeSensor("mem/usage", "Memory Usage", "Load", usagePct, "%", "Memory"));
+            // TheoreticalMaximum = installed RAM (GB) so the client can scale a
+            // "X / Y GB" chart without a separate /system/memory/total fetch.
+            sensors.Add(MakeSensor("mem/used", "Memory Used", "Data", (float)usedGb, "GB", "Memory", theoreticalMax: (float)totalGb));
+            sensors.Add(MakeSensor("mem/available", "Memory Available", "Data", (float)freeGb, "GB", "Memory", theoreticalMax: (float)totalGb));
+            sensors.Add(MakeSensor("mem/usage", "Memory Usage", "Load", usagePct, "%", "Memory", theoreticalMax: 100f));
             sensors.Add(MakeSensor("mem/wired", "Wired", "Data", (float)(wired / (1024.0 * 1024.0 * 1024.0)), "GB", "Memory"));
             sensors.Add(MakeSensor("mem/compressed", "Compressed", "Data", (float)(compressed / (1024.0 * 1024.0 * 1024.0)), "GB", "Memory"));
             sensors.Add(MakeSensor("mem/active", "Active", "Data", (float)(active / (1024.0 * 1024.0 * 1024.0)), "GB", "Memory"));
@@ -457,7 +459,7 @@ public sealed class MacSensorProvider : ISensorProvider
     //  Helpers
     // ═══════════════════════════════════════════════════════════
 
-    private static HardwareSensor MakeSensor(string id, string name, string type, float value, string units, string parentName)
+    private static HardwareSensor MakeSensor(string id, string name, string type, float value, string units, string parentName, float theoreticalMax = 0f)
     {
         var formatted = type switch
         {
@@ -473,6 +475,7 @@ public sealed class MacSensorProvider : ISensorProvider
             Type = type,
             Value = value,
             Units = units,
+            TheoreticalMaximum = theoreticalMax,
             Formatted = formatted,
             FormattedMax = "",
             FormattedMin = "",

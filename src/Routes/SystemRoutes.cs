@@ -55,16 +55,9 @@ public static class SystemRoutes
             };
         });
 
-        // Memory (only /system/memory/total is consumed by the New Nexus
-        // SPA — the per-domain /sensors and /model endpoints below were
-        // dropped after they spent over a year with zero callers, see
-        // the dead-endpoints sweep). Same story for /system/cpu/*,
-        // /system/gpu/*, /system/storage/*, /system/motherboard/*,
-        // /system/fps/sensors and /system/os-version — all hardware
-        // sensor / model data is delivered via the `/monitoring` topic
-        // over the multiplex WebSocket, not REST.
-        app.MapGet("/system/memory/total", (ISensorProvider s) =>
-            new ApiResponse { Msg = s.GetMemoryTotalFormatted() }).AllowPanel();
+        // No REST sensor endpoints — all hardware sensor / model data is
+        // delivered via the `/monitoring` topic over the multiplex WebSocket.
+        // RAM capacity ships as `theoreticalMaximum` on the Memory Used sensor.
 
         // Compact, shareable rig identity for the Devices → System Specs tab.
         // Cached for the lifetime of the service (hardware specs don't change
