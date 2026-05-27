@@ -121,16 +121,19 @@ public sealed class CnvsHub : IDisposable
     /// <c>CNVSHelper.ChangeCnvsSetting</c> does — no bracket, no extra
     /// preamble.
     ///
-    /// Critical firmware invariant (empirically observed on Y70):
-    /// the device silently drops <c>FF DC 07</c> if any <c>FF DC 05</c>
-    /// (firmware-animation toggle) has been sent since the last USB
-    /// connect. The settings only persist if this write is one of the
-    /// very first wire commands after the port opens. That is why
-    /// <see cref="CnvsConnectionWorker"/> calls WriteSettings via
-    /// <see cref="ApplyPersistedSettingsOnConnect"/> as the FIRST
-    /// thing after EnsureConnected wins the port — and the lighting
-    /// frame writer waits on <see cref="IsReadyForStreaming"/> before
-    /// emitting any FF DC 05.
+    /// **Firmware version requirement.** Per
+    /// <c>hyte-refs/hyte-documents/firmware-protocol/CNVS/stm32-commands.md</c>
+    /// §3, the <c>FF DC 07</c> command (and its <c>FF DC 08</c> read-back
+    /// in <see cref="ReadSettings"/>) were introduced in CNVS firmware
+    /// <b>v1.0.2.1 / v1.0.2.2</b>. Units running older firmware
+    /// (Y70 dev hardware in the lab observed at 1.0.1.1) silently accept
+    /// the bytes — no error, no disconnect — and do nothing: the boot
+    /// animation still plays, the PC-off behavior is unchanged, and
+    /// the FF DC 08 read-back returns zero bytes. Returning true from
+    /// this method therefore means "bytes left the port", NOT "firmware
+    /// honored the setting." The UI side should gate the toggles on the
+    /// firmware version reported by <see cref="GetFirmwareVersion"/>;
+    /// see the matching TODO in nexus-web's CnvsDevicePage.tsx.
     /// </summary>
     public bool WriteSettings(bool suppressBootAnimation, bool keepLedsOnWhenPcOff)
     {
