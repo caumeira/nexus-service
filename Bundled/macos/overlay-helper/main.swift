@@ -535,7 +535,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // that doesn't close its child cleanly. Mirrors how /Users see
         // launchd reap a parent process.
         let stdin = FileHandle.standardInput
-        DispatchQueue.global(nexus: .background).async {
+        DispatchQueue.global(qos: .background).async {
             let _ = stdin.readDataToEndOfFile()
             DispatchQueue.main.async { NSApplication.shared.terminate(nil) }
         }
