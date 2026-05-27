@@ -23,12 +23,15 @@ using Nexus.Service.Security;
 using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
 
+Nexus.Service.Lifecycle.BootTimer.Mark("process entry");
+
 // Early-exit CLI flags (install/uninstall/tray/--open-app/protocol URLs,
 // or no-args double-click on Windows). Each handler short-circuits the
 // daemon startup. Runs before the single-instance mutex because
 // --install-pawnio is briefly a second instance during the elevated install.
 if (Nexus.Service.Lifecycle.CommandLineEntry.TryEarlyExit(args) is int earlyExit)
     return earlyExit;
+Nexus.Service.Lifecycle.BootTimer.Mark("after CommandLineEntry.TryEarlyExit");
 
 // Pull out the lifecycle flags that gate behaviour later (SCM service
 // mode, --no-window startup suppression, --relaunch-elevated self-elevation
@@ -40,9 +43,11 @@ args = cliArgs;
 // Capture stdout / stderr to a rotating service.log file before anything else
 // writes to the console. Doesn't change Console behaviour - just tees output.
 Nexus.Service.Platform.ServiceLog.Initialize();
+Nexus.Service.Lifecycle.BootTimer.Mark("after ServiceLog.Initialize");
 
 var url = ServiceLaunchIntent.ResolveServiceUrl(args);
 var servicePort = ServiceLaunchIntent.ResolveServicePort(url);
+Nexus.Service.Lifecycle.BootTimer.Mark("after URL resolve");
 
 // Single-instance guard — if another nexus-service is already running,
 // open or focus the dashboard window instead of spawning a second service.
@@ -69,6 +74,7 @@ if (!serviceMode)
     }
 }
 using var _singleInstance = singleInstance;
+Nexus.Service.Lifecycle.BootTimer.Mark("after single-instance mutex");
 
 // Cold-start self-elevation: when the user double-clicks the EXE while no
 // service is running and we're not yet elevated, prompt for UAC and let the
@@ -104,6 +110,7 @@ catch (Exception ex)
 {
     Console.Error.WriteLine($"[nexus-service] local HTTPS disabled: {ex.Message}");
 }
+Nexus.Service.Lifecycle.BootTimer.Mark("after LocalHttpsCertificate.LoadOrCreate");
 
 // Set content root to the exe's directory so wwwroot/ is found
 // regardless of which directory the user double-clicks from.
@@ -139,6 +146,7 @@ var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
     ContentRootPath = exeDir,
     WebRootPath = ResolveWebRoot(exeDir),
 });
+Nexus.Service.Lifecycle.BootTimer.Mark("after WebApplication.CreateSlimBuilder");
 // Kestrel + form upload body limits. Default Kestrel cap is 30 MB which drops
 // larger multipart uploads before /media/import sees them (the browser then
 // reports "could not reach the service"). Match MediaImporter.MaxFileSize so
@@ -194,39 +202,59 @@ builder.Services.AddCors(c => c.AddDefaultPolicy(p => p
 #endif
 
 builder.Services.AddHttpClient();
+Nexus.Service.Lifecycle.BootTimer.Mark("after Kestrel + JSON + CORS + AddHttpClient");
 
 // All DI registrations live in per-domain extension methods under
 // src/DependencyInjection/. Order matters only where there are cross-domain
 // dependencies (e.g. Lighting consumes the OpenRGB controller registered in
 // AddQosLighting before AddQosDevices uses it as ILightingDeviceProvider).
-builder.Services
-    .AddQosCore()
-    .AddQosSensors()
-    .AddQosCooling()
-    .AddQosBenchmarks()
-    .AddQosLighting()
-    .AddQosDevices()
-    .AddQosPeripherals()
-    .AddQosActivity()
-    .AddQosNetwork()
-    .AddQosLifecycle()
-    .AddQosWeather()
-    .AddQosWidgets()
-    .AddQosPanel(servicePort)
-    .AddQosLinuxDBus()
-    .AddQosHelper();
+builder.Services.AddQosCore();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosCore");
+builder.Services.AddQosSensors();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosSensors");
+builder.Services.AddQosCooling();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosCooling");
+builder.Services.AddQosBenchmarks();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosBenchmarks");
+builder.Services.AddQosLighting();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosLighting");
+builder.Services.AddQosDevices();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosDevices");
+builder.Services.AddQosPeripherals();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosPeripherals");
+builder.Services.AddQosActivity();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosActivity");
+builder.Services.AddQosNetwork();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosNetwork");
+builder.Services.AddQosLifecycle();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosLifecycle");
+builder.Services.AddQosWeather();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosWeather");
+builder.Services.AddQosWidgets();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosWidgets");
+builder.Services.AddQosPanel(servicePort);
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosPanel");
+builder.Services.AddQosLinuxDBus();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosLinuxDBus");
+builder.Services.AddQosHelper();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosHelper");
 
 // mDNS / Bonjour advertiser for the iOS companion app's Wi-Fi discovery.
 // Reads HttpsPort + SpkiFingerprint + MachineName off PanelPhonePairingService
 // after the Pairing config block below has populated them.
 builder.Services.AddHostedService<Nexus.Service.Discovery.MdnsAdvertiser>();
+Nexus.Service.Lifecycle.BootTimer.Mark("after MdnsAdvertiser register");
 
 // ── Build ──
 var app = builder.Build();
+Nexus.Service.Lifecycle.BootTimer.Mark("after builder.Build()");
 
 Nexus.Service.Lifecycle.AppBootstrap.EagerInitGpu(app);
+Nexus.Service.Lifecycle.BootTimer.Mark("after EagerInitGpu");
 Nexus.Service.Lifecycle.AppBootstrap.InitializeProfiles(app);
+Nexus.Service.Lifecycle.BootTimer.Mark("after InitializeProfiles");
 Nexus.Service.Lifecycle.AppBootstrap.WireBeatsAndPresence(app);
+Nexus.Service.Lifecycle.BootTimer.Mark("after WireBeatsAndPresence");
 
 // Middleware pipeline
 var wsOptions = new WebSocketOptions();
@@ -251,6 +279,7 @@ app.UseRouting();
 app.UseCors();
 
 app.UseQosPathAuth();
+Nexus.Service.Lifecycle.BootTimer.Mark("after middleware wire");
 
 // ── Map all routes ──
 app.MapPingEndpoints();
@@ -279,6 +308,7 @@ app.MapWeatherEndpoints();
 app.MapWidgetEndpoints();
 app.MapConflictEndpoints();
 app.MapWebSocketEndpoints();
+Nexus.Service.Lifecycle.BootTimer.Mark("after route mapping");
 
 {
     var pairing = app.Services.GetRequiredService<Nexus.Service.Panel.PanelPhonePairingService>();
@@ -288,32 +318,45 @@ app.MapWebSocketEndpoints();
         ? Nexus.Service.Security.LocalHttpsCertificate.ComputeSpkiBase64Url(localHttpsCertificate)
         : string.Empty;
 }
+Nexus.Service.Lifecycle.BootTimer.Mark("after pairing wire (resolves PanelPhonePairingService)");
 
 // SPA fallback
 app.MapFallbackToFile("index.html");
+Nexus.Service.Lifecycle.BootTimer.Mark("after MapFallbackToFile");
 
 // Kill orphan processes from previous crashed sessions.
 Nexus.Service.Platform.FfmpegTracker.CleanupOrphans();
+Nexus.Service.Lifecycle.BootTimer.Mark("after FfmpegTracker.CleanupOrphans");
 Nexus.Service.Panel.PanelOverlayHostLauncher.CleanupOrphans();
+Nexus.Service.Lifecycle.BootTimer.Mark("after PanelOverlayHostLauncher.CleanupOrphans");
 Nexus.Service.Lighting.Rgb.OpenRgbProcessManager.CleanupOrphans();
+Nexus.Service.Lifecycle.BootTimer.Mark("after OpenRgbProcessManager.CleanupOrphans");
 
 // Register nexus:// protocol handler (idempotent — safe on every launch)
 Nexus.Service.Platform.ProtocolHandler.Register();
+Nexus.Service.Lifecycle.BootTimer.Mark("after ProtocolHandler.Register");
 
 Console.WriteLine($"[nexus-service] listening on {url}");
 
+app.Lifetime.ApplicationStarted.Register(() =>
+    Nexus.Service.Lifecycle.BootTimer.Mark("ApplicationStarted (host start complete, Kestrel bound)"));
+
 if (OperatingSystem.IsWindows() && !serviceMode)
     Nexus.Service.Platform.Windows.TrayBootstrap.ConfigureTray(app);
+Nexus.Service.Lifecycle.BootTimer.Mark("after TrayBootstrap.ConfigureTray (if interactive)");
 
 #if WINDOWS
 if (serviceMode)
     Nexus.Service.Platform.Windows.TrayBootstrap.WireHelperPipe(app);
+Nexus.Service.Lifecycle.BootTimer.Mark("after TrayBootstrap.WireHelperPipe (if service)");
 #endif
 
 Nexus.Service.Panel.OverlayHostBootstrap.Wire(app);
+Nexus.Service.Lifecycle.BootTimer.Mark("after OverlayHostBootstrap.Wire");
 
 if (OperatingSystem.IsWindows())
     Nexus.Service.Platform.Windows.TrayBootstrap.WireAppWindowAndPawnIo(app, serviceMode, suppressStartupWindow);
+Nexus.Service.Lifecycle.BootTimer.Mark("after WireAppWindowAndPawnIo");
 
 if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
     return Nexus.Service.Platform.Mac.MacAppBootstrap.Run(app, servicePort);
@@ -321,6 +364,7 @@ if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
 #if WINDOWS
 if (serviceMode)
 {
+    Nexus.Service.Lifecycle.BootTimer.Mark("calling WindowsServiceHost.Run -> app.RunAsync");
     return Nexus.Service.Lifecycle.WindowsServiceHost.Run(args, async (_, ct) =>
     {
         await app.RunAsync(ct).ConfigureAwait(false);
@@ -329,6 +373,7 @@ if (serviceMode)
 }
 #endif
 
+Nexus.Service.Lifecycle.BootTimer.Mark("calling app.Run() (host start begins)");
 app.Run();
 return 0;
 

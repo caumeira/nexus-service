@@ -43,7 +43,9 @@ internal static class AppBootstrap
     // lighting engine so the incoming profile starts clean.
     public static void InitializeProfiles(WebApplication app)
     {
+        BootTimer.Mark("InitializeProfiles: resolve ProfileManager");
         var profileManager = app.Services.GetRequiredService<ProfileManager>();
+        BootTimer.Mark("InitializeProfiles: ProfileManager resolved");
         try
         {
             profileManager.Initialize();
@@ -52,12 +54,18 @@ internal static class AppBootstrap
         {
             Console.Error.WriteLine($"[profiles] initialization failed: {ex.Message}");
         }
+        BootTimer.Mark("InitializeProfiles: ProfileManager.Initialize done");
 
         var fans = app.Services.GetRequiredService<IFanControlProvider>();
+        BootTimer.Mark("InitializeProfiles: IFanControlProvider resolved");
         var curveEngine = app.Services.GetRequiredService<CurveEngine>();
+        BootTimer.Mark("InitializeProfiles: CurveEngine resolved");
         var lightingEngine = app.Services.GetRequiredService<LightingEngine>();
+        BootTimer.Mark("InitializeProfiles: LightingEngine resolved");
         var lightingProvider = app.Services.GetRequiredService<ILightingProvider>();
+        BootTimer.Mark("InitializeProfiles: ILightingProvider resolved");
         var configStore = app.Services.GetRequiredService<IConfigStore>();
+        BootTimer.Mark("InitializeProfiles: IConfigStore resolved");
         profileManager.OnProfileSwitched += () =>
         {
             try
@@ -84,8 +92,11 @@ internal static class AppBootstrap
     // is wired here too because it shares the same hub.
     public static void WireBeatsAndPresence(WebApplication app)
     {
+        BootTimer.Mark("WireBeatsAndPresence: resolve IBeatsProvider");
         var beatsProvider = app.Services.GetRequiredService<IBeatsProvider>();
+        BootTimer.Mark("WireBeatsAndPresence: IBeatsProvider resolved");
         var muxHub = app.Services.GetRequiredService<MultiplexHub>();
+        BootTimer.Mark("WireBeatsAndPresence: MultiplexHub resolved");
         beatsProvider.OnBeat += result =>
         {
             if (muxHub.TopicHasSubscribers("beats"))
@@ -128,9 +139,11 @@ internal static class AppBootstrap
 
         // Auto-resume Music Reactive capture if the user had it on before a restart.
         var store = app.Services.GetRequiredService<IConfigStore>();
+        BootTimer.Mark("WireBeatsAndPresence: IConfigStore resolved");
         if (store.Load().Lighting.MusicReactive)
         {
             beatsProvider.Start();
+            BootTimer.Mark("WireBeatsAndPresence: beatsProvider.Start (MusicReactive=true)");
         }
     }
 }
