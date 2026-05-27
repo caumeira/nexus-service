@@ -74,6 +74,12 @@ public static class NexusServiceCollectionExtensions
 #endif
         services.AddSingleton<ProcessMonitor>();
         services.AddHostedService(sp => sp.GetRequiredService<ProcessMonitor>());
+        services.AddSingleton<SystemSpecsCollector>();
+        // Pre-warms the specs cache in the background after host start so the
+        // first Devices → System Specs request doesn't pay a cold PowerShell
+        // spawn. Hard rule: this MUST stay off the startup critical path —
+        // see SystemSpecsPrewarmService.ExecuteAsync.
+        services.AddHostedService<SystemSpecsPrewarmService>();
         return services;
     }
 

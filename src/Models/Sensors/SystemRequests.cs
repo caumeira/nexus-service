@@ -50,3 +50,24 @@ public class GetDriveStorageResponse : ApiResponse
 {
     public List<StorageDriveInfo> Storage { get; set; } = new();
 }
+
+/// <summary>
+/// Compact, one-line-per-field snapshot of the PC's hardware/software identity
+/// for the Devices → System Specs tab. Each property is a fully-formed display
+/// string (no further formatting needed on the client); empty string means
+/// the platform couldn't resolve the value. Designed to be copy-pasted as a
+/// shareable rig summary.
+/// </summary>
+public class SystemSpecsResponse
+{
+    public string PcName { get; set; } = "";
+    public string OsBuild { get; set; } = "";
+    public string Processor { get; set; } = "";
+    public string Motherboard { get; set; } = "";
+    public string Memory { get; set; } = "";
+    public string Storage { get; set; } = "";
+    public string GraphicsCard { get; set; } = "";
+    public string Monitor { get; set; } = "";
+    public string SoundCard { get; set; } = "";
+    public string NetworkCard { get; set; } = "";
+}

@@ -95,6 +95,12 @@ public static class SystemRoutes
         // FPS
         app.MapGet("/system/fps/sensors", (IFpsProvider fps) => fps.GetComponent().Sensors).AllowPanel();
 
+        // Compact, shareable rig identity for the Devices → System Specs tab.
+        // Cached for the lifetime of the service (hardware specs don't change
+        // at runtime); `SystemSpecsPrewarmService` populates the cache off
+        // the boot critical path so the first request is in-memory.
+        app.MapGet("/system/specs", (SystemSpecsCollector collector) => collector.Get()).AllowPanel();
+
         // Volume (default render endpoint)
         app.MapGet("/system/volume", (IVolumeProvider v) => v.GetState()).AllowPanel();
         app.MapPost("/system/volume", (SetVolumeBody body, IVolumeProvider v) =>

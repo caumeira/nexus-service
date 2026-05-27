@@ -47,6 +47,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(ProcessElevationRelaunchResponse))]
 [JsonSerializable(typeof(GetStoragePartitionsResponse))]
 [JsonSerializable(typeof(GetDriveStorageResponse))]
+[JsonSerializable(typeof(SystemSpecsResponse))]
 [JsonSerializable(typeof(SetPollingRateBody))]
 [JsonSerializable(typeof(GetPollingRateResponse))]
 
