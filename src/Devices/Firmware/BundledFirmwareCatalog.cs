@@ -25,7 +25,13 @@ public sealed class BundledFirmwareCatalog
     private const string HexExtension = ".hex";
 
     // deviceId -> versions, newest first.
-    private readonly Dictionary<string, List<string>> _versions;
+    // deviceId -> versions (newest first).
+    private readonly Dictionary<string, List<string>> _versions = new(StringComparer.Ordinal);
+    // "deviceId/version" -> the ACTUAL manifest resource name. The build host's
+    // separator differs (macOS '/' vs Windows '\'), so we can't reconstruct the
+    // name with a fixed separator — store and reuse what the assembly reports.
+    private readonly Dictionary<string, string> _resourceNames = new(StringComparer.Ordinal);
+    private readonly Assembly _assembly;
 
     public BundledFirmwareCatalog() : this(typeof(BundledFirmwareCatalog).Assembly)
     {
@@ -34,7 +40,8 @@ public sealed class BundledFirmwareCatalog
     // Assembly-injectable for tests.
     public BundledFirmwareCatalog(Assembly assembly)
     {
-        _versions = Scan(assembly);
+        _assembly = assembly;
+        Scan(assembly);
     }
 
     /// <summary>All device ids that have at least one bundled firmware version.</summary>
@@ -66,8 +73,9 @@ public sealed class BundledFirmwareCatalog
     public Stream? OpenFirmware(string deviceId, string version)
     {
         if (string.IsNullOrEmpty(deviceId) || string.IsNullOrEmpty(version)) return null;
-        var asm = typeof(BundledFirmwareCatalog).Assembly;
-        return asm.GetManifestResourceStream($"{ResourcePrefix}{deviceId}/{version}{HexExtension}");
+        return _resourceNames.TryGetValue($"{deviceId}/{version}", out var actual)
+            ? _assembly.GetManifestResourceStream(actual)
+            : null;
     }
 
     /// <summary>
@@ -82,14 +90,13 @@ public sealed class BundledFirmwareCatalog
         return CompareVersions(available, current) > 0;
     }
 
-    private static Dictionary<string, List<string>> Scan(Assembly assembly)
+    private void Scan(Assembly assembly)
     {
-        var result = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-
         foreach (var name in assembly.GetManifestResourceNames())
         {
             // RecursiveDir can use either separator depending on the build host
-            // (macOS AOT build vs Windows installer build); normalize to '/'.
+            // (macOS AOT build vs Windows installer build); normalize to '/' for
+            // parsing, but keep the ORIGINAL name for opening the stream.
             var normalized = name.Replace('\\', '/');
             if (!normalized.StartsWith(ResourcePrefix, StringComparison.Ordinal)) continue;
             if (!normalized.EndsWith(HexExtension, StringComparison.OrdinalIgnoreCase)) continue;
@@ -102,18 +109,17 @@ public sealed class BundledFirmwareCatalog
             var version = rel.Substring(slash + 1, rel.Length - slash - 1 - HexExtension.Length);
             if (version.Length == 0) continue;
 
-            if (!result.TryGetValue(deviceId, out var list))
+            if (!_versions.TryGetValue(deviceId, out var list))
             {
                 list = new List<string>();
-                result[deviceId] = list;
+                _versions[deviceId] = list;
             }
             if (!list.Contains(version)) list.Add(version);
+            _resourceNames[$"{deviceId}/{version}"] = name;
         }
 
-        foreach (var list in result.Values)
+        foreach (var list in _versions.Values)
             list.Sort((a, b) => CompareVersions(b, a)); // newest first
-
-        return result;
     }
 
     /// <summary>
