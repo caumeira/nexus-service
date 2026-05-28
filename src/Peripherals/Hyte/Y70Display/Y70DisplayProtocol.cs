@@ -37,8 +37,13 @@ public static class Y70DisplayProtocol
     private const byte OpControl = 0xDD;
     private const byte SubGetFirmwareVersion = 0x02;
 
-    /// <summary>The Y70 controller answers the version query with a 13-byte frame.</summary>
-    public const int FirmwareVersionResponseLength = 13;
+    /// <summary>
+    /// The Y70 controller answers the version query with a 7-byte frame
+    /// (FF DD 02 maj min build hw) — bench-confirmed on a Y70 Touch Infinite
+    /// (2026-05-27). HYTE's legacy commander over-allocates a 13-byte read
+    /// buffer, but the device only sends 7; the version is in bytes [3..6].
+    /// </summary>
+    public const int FirmwareVersionResponseLength = 7;
 
     // ── Builders ──
 
