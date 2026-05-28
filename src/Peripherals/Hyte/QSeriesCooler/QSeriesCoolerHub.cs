@@ -1,6 +1,8 @@
 using System;
 using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Peripherals.Hyte.Np50;
+// Q-series shares the MiniHub RGB triple; alias to avoid the Np50.RgbColor clash.
+using RgbColor = Nexus.Service.Peripherals.Hyte.MiniHub.RgbColor;
 
 namespace Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 
@@ -20,6 +22,9 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     private readonly object _lock = new();
     private INp50Transport? _transport;
     private bool _disposed;
+    // Set once we've put the cooler into software RGB control; cleared on
+    // disconnect so the next connection re-asserts it before streaming.
+    private bool _rgbInSwControl;
 
     public QSeriesCoolerHub(IQSeriesCoolerPortDiscovery discovery, Func<Np50PortInfo, INp50Transport> transportFactory)
     {
@@ -34,6 +39,58 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     public string Variant => State.Variant;
 
     public string DeviceId => string.IsNullOrEmpty(State.Serial) ? "" : $"qseries:{State.Serial}";
+
+    /// <summary>
+    /// LEDs addressed per Q-series lighting card. One 90-byte port frame carries
+    /// <see cref="QSeriesCoolerProtocol.MaxLedsPerPort"/> (27) LEDs; v1 surfaces a single
+    /// linear zone of that size streamed to every port (see <see cref="WriteLighting"/>).
+    /// </summary>
+    public const int LedCount = QSeriesCoolerProtocol.MaxLedsPerPort;
+
+    /// <summary>
+    /// Q-series needs no settings-first handshake (unlike CNVS), so streaming is gated only on
+    /// the port being open. Software RGB control is asserted lazily in <see cref="WriteLighting"/>
+    /// on the first frame after each (re)connect.
+    /// </summary>
+    public bool IsReadyForStreaming => IsConnected;
+
+    /// <summary>
+    /// Stream one frame of LED colors to the cooler. Mirrors the legacy
+    /// PQSeriesDeviceBase.SendToHardware loop: assert software RGB control once per connection,
+    /// then write all <see cref="QSeriesCoolerProtocol.LedPortCount"/> port frames. The same colors
+    /// go to every port so the pump-head channel lights regardless of which physical port it
+    /// occupies; ports with no LEDs ignore the data. Colors are RGB here;
+    /// <see cref="QSeriesCoolerProtocol.BuildLightingStream"/> emits GRB on the wire.
+    /// </summary>
+    public void WriteLighting(ReadOnlySpan<RgbColor> leds)
+    {
+        // Serialize the whole write sequence under _lock (re-entrant): the 30 Hz
+        // frame writer and the 3 s heartbeat both touch the transport, and Disconnect
+        // disposes it under the same lock. Without this a heartbeat-triggered Disconnect
+        // could tear the port down mid-frame, and _rgbInSwControl could be read stale
+        // across a reconnect. Mirrors CnvsHub's _writeLock discipline.
+        lock (_lock)
+        {
+            if (!EnsureConnected()) return;
+            var t = _transport;
+            if (t is null) return;
+            try
+            {
+                if (!_rgbInSwControl)
+                {
+                    t.Write(QSeriesCoolerProtocol.BuildSetRgbControlMode(QSeriesCoolerProtocol.RgbModeSoftware));
+                    _rgbInSwControl = true;
+                }
+                for (var port = 1; port <= QSeriesCoolerProtocol.LedPortCount; port++)
+                    t.Write(QSeriesCoolerProtocol.BuildLightingStream(port, leds));
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[qseries-cooler] lighting write failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+            }
+        }
+    }
 
     // ── IDfuFlashTarget ──
     string IDfuFlashTarget.FirmwareType => IsConnected ? Variant : "";
@@ -90,29 +147,36 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
         {
             try { _transport?.Dispose(); } catch { /* best effort */ }
             _transport = null;
+            _rgbInSwControl = false;
         }
     }
 
     public bool PollFirmwareVersion()
     {
-        if (!EnsureConnected()) return false;
-        var transport = _transport!;
-        try
+        // Under _lock so the fw-version request/response can't interleave with the
+        // 30 Hz lighting stream now that WriteLighting runs on a separate thread.
+        lock (_lock)
         {
-            transport.DiscardInput();
-            transport.Write(QSeriesCoolerProtocol.BuildGetFirmwareVersion());
-            var buf = new byte[QSeriesCoolerProtocol.FirmwareVersionResponseLength];
-            var n = transport.Read(buf, 400);
-            if (n < QSeriesCoolerProtocol.FirmwareVersionResponseLength) { Disconnect(); return false; }
-            var v = QSeriesCoolerProtocol.ParseFirmwareVersion(buf.AsSpan(0, n));
-            if (!string.IsNullOrEmpty(v)) State.FirmwareVersion = v;
-            return true;
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[qseries-cooler] fw-version exchange failed: {ex.GetType().Name}: {ex.Message}");
-            Disconnect();
-            return false;
+            if (!EnsureConnected()) return false;
+            var transport = _transport;
+            if (transport is null) return false;
+            try
+            {
+                transport.DiscardInput();
+                transport.Write(QSeriesCoolerProtocol.BuildGetFirmwareVersion());
+                var buf = new byte[QSeriesCoolerProtocol.FirmwareVersionResponseLength];
+                var n = transport.Read(buf, 400);
+                if (n < QSeriesCoolerProtocol.FirmwareVersionResponseLength) { Disconnect(); return false; }
+                var v = QSeriesCoolerProtocol.ParseFirmwareVersion(buf.AsSpan(0, n));
+                if (!string.IsNullOrEmpty(v)) State.FirmwareVersion = v;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[qseries-cooler] fw-version exchange failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
         }
     }
 

@@ -21,6 +21,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     private readonly Np50LightingDeviceProvider _np50;
     private readonly MiniHubLightingDeviceProvider _miniHub;
     private readonly CnvsLightingDeviceProvider _cnvs;
+    private readonly QSeriesLightingDeviceProvider _qseries;
     private readonly IConfigStore _store;
     private readonly LightingEngine _engine;
 
@@ -29,6 +30,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         Np50LightingDeviceProvider np50,
         MiniHubLightingDeviceProvider miniHub,
         CnvsLightingDeviceProvider cnvs,
+        QSeriesLightingDeviceProvider qseries,
         IConfigStore store,
         LightingEngine engine)
     {
@@ -36,11 +38,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         _np50 = np50;
         _miniHub = miniHub;
         _cnvs = cnvs;
+        _qseries = qseries;
         _store = store;
         _engine = engine;
     }
 
-    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _cnvs.IsConnected;
+    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
     {
@@ -73,6 +76,14 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
                     d.Name.Contains("HYTE CNVS", StringComparison.OrdinalIgnoreCase) ||
                     d.Name.Contains("HYTE Mousemat", StringComparison.OrdinalIgnoreCase));
             }
+            if (_qseries.IsConnected)
+            {
+                // Strip any OpenRGB Q-series cooler entry so the page doesn't show
+                // two cards (zombie OpenRGB entry + our live one).
+                rgb.Devices.RemoveAll(d =>
+                    d.Name.Contains("HYTE Q60", StringComparison.OrdinalIgnoreCase) ||
+                    d.Name.Contains("HYTE Q80", StringComparison.OrdinalIgnoreCase));
+            }
         }
 
         var hub = _np50.GetAll();
@@ -92,6 +103,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         {
             rgb.IsInit = rgb.IsInit || cnvs.IsInit;
             rgb.Devices.AddRange(cnvs.Devices);
+        }
+        var qseries = _qseries.GetAll();
+        if (qseries.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || qseries.IsInit;
+            rgb.Devices.AddRange(qseries.Devices);
         }
 
         // Spread every device without a persisted layout across the grid. totalCount counts persisted devices too so the
@@ -131,17 +148,20 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         var np50Ids = new List<string>(ids.Count);
         var miniIds = new List<string>(ids.Count);
         var cnvsIds = new List<string>(ids.Count);
+        var qseriesIds = new List<string>(ids.Count);
         foreach (var id in ids)
         {
             if (IsNp50Id(id)) np50Ids.Add(id);
             else if (IsMiniHubId(id)) miniIds.Add(id);
             else if (IsCnvsId(id)) cnvsIds.Add(id);
+            else if (IsQSeriesId(id)) qseriesIds.Add(id);
             else rgbIds.Add(id);
         }
         if (rgbIds.Count > 0) _openRgb.SetDisabled(rgbIds);
         if (np50Ids.Count > 0) _np50.SetDisabled(np50Ids);
         if (miniIds.Count > 0) _miniHub.SetDisabled(miniIds);
         if (cnvsIds.Count > 0) _cnvs.SetDisabled(cnvsIds);
+        if (qseriesIds.Count > 0) _qseries.SetDisabled(qseriesIds);
     }
 
     public void SetPower(string id, bool on) { Pick(id).SetPower(id, on); }
@@ -155,6 +175,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         => IsNp50Id(id) ? _np50
         : IsMiniHubId(id) ? _miniHub
         : IsCnvsId(id) ? _cnvs
+        : IsQSeriesId(id) ? _qseries
         : _openRgb;
 
     private static bool IsNp50Id(string id) =>
@@ -165,4 +186,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
 
     private static bool IsCnvsId(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("cnvs:", StringComparison.Ordinal);
+
+    private static bool IsQSeriesId(string id) =>
+        !string.IsNullOrEmpty(id) && id.StartsWith("qseries:", StringComparison.Ordinal);
 }

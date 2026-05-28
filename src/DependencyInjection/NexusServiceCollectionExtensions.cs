@@ -216,6 +216,15 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.CnvsLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingFrameWriter>());
 
+        // Q-series cooler lighting: QSeriesCoolerHub owns the cooler's serial port
+        // (OpenRGB no longer drives 1st-party HYTE devices), so this provider surfaces
+        // the cooler LEDs and the writer pushes 30 Hz frames. Reuses Np50IdentifyTracker.
+        services.AddSingleton<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.QSeriesLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingFrameWriter>());
+
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
         {
             services.AddSingleton<Nexus.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>();
@@ -224,6 +233,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.Np50LightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         }
@@ -234,6 +244,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.Np50LightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         }

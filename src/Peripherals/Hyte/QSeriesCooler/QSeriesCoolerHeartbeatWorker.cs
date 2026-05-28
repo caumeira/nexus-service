@@ -9,14 +9,21 @@ namespace Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 /// Background poller for the Q-series cooler. Keeps trying to open the COM
 /// port until the cooler shows up, then reads the firmware version once on
 /// first connect so the Firmware Updates page can show current-vs-available.
-/// Mirrors <see cref="Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubHeartbeatWorker"/>
-/// minus the lighting/fan re-assertion (Q-series is read-only in v1).
+/// Mirrors <see cref="Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubHeartbeatWorker"/>.
+/// Also nudges the Q-series lighting provider on (re)connect so the RgbBridge
+/// rebuilds its frame map; the actual LED streaming is owned by
+/// <see cref="Nexus.Service.Lighting.QSeriesLightingFrameWriter"/>.
 /// </summary>
 public sealed class QSeriesCoolerHeartbeatWorker : BackgroundService
 {
     private readonly QSeriesCoolerHub _hub;
+    private readonly Nexus.Service.Lighting.QSeriesLightingDeviceProvider? _lighting;
 
-    public QSeriesCoolerHeartbeatWorker(QSeriesCoolerHub hub) { _hub = hub; }
+    public QSeriesCoolerHeartbeatWorker(QSeriesCoolerHub hub, Nexus.Service.Lighting.QSeriesLightingDeviceProvider? lighting = null)
+    {
+        _hub = hub;
+        _lighting = lighting;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
@@ -40,5 +47,8 @@ public sealed class QSeriesCoolerHeartbeatWorker : BackgroundService
         {
             _hub.PollFirmwareVersion();
         }
+        // Nudge the lighting provider so RgbBridge rebuilds its frame map on
+        // (re)connect. Debounced inside the provider via a signature compare.
+        _lighting?.OnHubStateUpdated();
     }
 }
