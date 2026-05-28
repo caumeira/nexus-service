@@ -91,6 +91,7 @@ internal sealed class StubSensorProvider : ISensorProvider
     public string GetRamBrandModel() => "";
     public string GetStorageBrandModel() => "";
     public void SetPollingRate(int pollingRate) { }
+    public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
 }
 
 internal sealed class StubPerformanceProvider : IPerformanceProvider

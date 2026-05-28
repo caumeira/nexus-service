@@ -63,7 +63,11 @@ public static class SystemRoutes
         // Cached for the lifetime of the service (hardware specs don't change
         // at runtime); `SystemSpecsPrewarmService` populates the cache off
         // the boot critical path so the first request is in-memory.
-        app.MapGet("/system/specs", (SystemSpecsCollector collector) => collector.Get()).AllowPanel();
+        // Async so the first post-boot request waits for LHM's background open
+        // to finish (~1-3 s) and returns fully-populated CPU/motherboard/GPU
+        // names. Subsequent calls hit the cache and return in microseconds.
+        app.MapGet("/system/specs", (SystemSpecsCollector collector, HttpContext ctx) =>
+            collector.GetAsync(ctx.RequestAborted)).AllowPanel();
 
         // Volume (default render endpoint)
         app.MapGet("/system/volume", (IVolumeProvider v) => v.GetState()).AllowPanel();

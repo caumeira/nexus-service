@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Platform;
 
@@ -21,6 +23,10 @@ public sealed class LinuxSensorProvider : ISensorProvider
 {
     private static readonly IReadOnlyList<HardwareSensor> EmptySensors = Array.Empty<HardwareSensor>();
     private static readonly IReadOnlyList<string> EmptyStrings = Array.Empty<string>();
+
+    // Linux hardware reads are shell / sysfs-driven and synchronous — Get*
+    // methods cache lazily on first call. No async warmup window to wait on.
+    public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
 
     private string? _cpuModel;
     private string? _moboModel;

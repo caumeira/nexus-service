@@ -33,6 +33,8 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
         _lhm = lhm;
     }
 
+    public Task ReadyAsync(CancellationToken ct = default) => _lhm.OpenTask.WaitAsync(ct);
+
     public string GetCpuModel()
     {
         _lhm.Update(TimeSpan.FromMilliseconds(100));

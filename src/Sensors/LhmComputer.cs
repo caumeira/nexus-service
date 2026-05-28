@@ -63,6 +63,15 @@ public sealed class LhmComputer : IDisposable
     public Computer Instance => _computer;
 
     /// <summary>
+    /// Completes when the background <see cref="Computer.Open"/> has finished
+    /// (or failed). Consumers that need fully-enumerated hardware before they
+    /// read sensor / hardware-name data should await this. Note this completes
+    /// even if Open() threw — callers should still handle empty Hardware
+    /// collections.
+    /// </summary>
+    public Task OpenTask => _openTask;
+
+    /// <summary>
     /// Update all hardware sensors. Thread-safe - concurrent callers are serialized.
     /// When <paramref name="minInterval"/> is provided, skips the update if the last
     /// refresh was more recent than the interval. This collapses redundant updates

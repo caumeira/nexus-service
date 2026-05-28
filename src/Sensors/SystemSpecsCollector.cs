@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
 using System.Text.Json.Nodes;
+using System.Threading;
+using System.Threading.Tasks;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Platform;
 
@@ -39,57 +41,28 @@ public sealed class SystemSpecsCollector
         _sensors = sensors;
     }
 
-    public SystemSpecsResponse Get(bool force = false)
+    /// <summary>
+    /// Async accessor that guarantees the LHM background open has finished
+    /// before reading hardware-name fields. Once cached, returns the snapshot
+    /// in microseconds. The very first call after boot pays the ~1-3 s LHM
+    /// open + ~400 ms Build (PowerShell enrichment on Windows).
+    /// </summary>
+    public async Task<SystemSpecsResponse> GetAsync(CancellationToken ct = default)
     {
-        // Double-checked init. The cached snapshot is immutable after first
-        // assignment, so steady-state reads bypass the lock entirely; only the
-        // single cold rebuild (typically the prewarm at boot) or an explicit
-        // `force` rebuild serializes on `_lock`.
-        if (!force)
-        {
-            var snapshot = _cached;
-            if (snapshot is not null) return snapshot;
-        }
+        var snapshot = _cached;
+        if (snapshot is not null) return snapshot;
+
+        // Wait outside the lock — `ReadyAsync` for the Windows provider is a
+        // background `Computer.Open` task that can take seconds; holding the
+        // lock would serialise unrelated concurrent callers behind it.
+        await _sensors.ReadyAsync(ct).ConfigureAwait(false);
+
         lock (_lock)
         {
-            if (!force && _cached is not null) return _cached;
-            var fresh = Build();
-            // Only cache when LHM-derived fields landed. If Build() runs during
-            // the LHM background-open window (~1-3 s after start, sometimes
-            // longer on boards with many SuperIO chips), Processor /
-            // Motherboard / GraphicsCard come back empty and would persist for
-            // the lifetime of the service — that was the "sporadic missing
-            // specs" bug. Returning the partial result but skipping the cache
-            // lets the next request rebuild once LHM is ready.
-            if (IsCacheable(fresh))
-            {
-                _cached = fresh;
-            }
-            return fresh;
+            if (_cached is not null) return _cached;
+            _cached = Build();
+            return _cached;
         }
-    }
-
-    /// <summary>
-    /// Returns true when every LHM-backed field is populated. On Windows the
-    /// three come from LHM hardware enumeration and land at slightly different
-    /// times during the background Computer.Open (CPU + motherboard within ~1 s,
-    /// GPU another 1-3 s later on NVIDIA). On Mac/Linux these are produced by
-    /// deterministic shell commands so this is effectively always true.
-    /// </summary>
-    public static bool IsCacheable(SystemSpecsResponse r) =>
-        !string.IsNullOrWhiteSpace(r.Processor)
-        && !string.IsNullOrWhiteSpace(r.Motherboard)
-        && !string.IsNullOrWhiteSpace(r.GraphicsCard);
-
-    /// <summary>
-    /// Force-commits the supplied snapshot to the cache regardless of
-    /// `IsCacheable`. Used by the prewarm at its deadline so edge-case
-    /// configurations (no LHM-visible GPU, headless boxes) don't re-run the
-    /// ~400 ms PowerShell enrichment on every subsequent request.
-    /// </summary>
-    internal void CommitPartial(SystemSpecsResponse snapshot)
-    {
-        lock (_lock) { _cached = snapshot; }
     }
 
     private SystemSpecsResponse Build()

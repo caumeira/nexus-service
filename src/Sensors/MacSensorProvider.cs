@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
+using System.Threading;
+using System.Threading.Tasks;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Platform;
 
@@ -40,6 +42,11 @@ public sealed class MacSensorProvider : ISensorProvider
     // Mach CPU tick delta tracking (macOS only).
     private Platform.Mac.MachStats.CpuLoadInfo _prevCpuTicks;
     private bool _hasPrevCpuTicks;
+
+    // Mac hardware enumeration is shell-driven (sysctl / system_profiler) and
+    // synchronous — Get* methods cache lazily on first call. No async warmup
+    // window to wait on.
+    public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
 
     // ── CPU ──────────────────────────────────────────────────────
 

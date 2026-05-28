@@ -1,4 +1,6 @@
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
 using Nexus.Service.Models.Sensors;
 
 namespace Nexus.Service.Sensors;
@@ -55,4 +57,15 @@ public interface ISensorProvider
 
     string GetOsVersion();
     void SetPollingRate(int pollingRate);
+
+    /// <summary>
+    /// Completes when the underlying hardware enumeration is finished and
+    /// follow-up reads (CPU / motherboard / GPU model names, sensor lists) are
+    /// expected to return populated data. Implementations whose hardware
+    /// inspection is synchronous (shell-based Mac/Linux providers) return a
+    /// completed task; the Windows LHM provider returns its background-open
+    /// task. Callers that need a guaranteed-populated snapshot should await
+    /// this before invoking the Get* methods.
+    /// </summary>
+    Task ReadyAsync(CancellationToken ct = default);
 }
