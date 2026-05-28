@@ -51,11 +51,52 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
     /// </summary>
     public byte? DesiredCoolingMode { get; private set; }
 
-    /// <summary>Set the persistent desired cooling mode. Heartbeat enforces it.</summary>
-    public void SetDesiredCoolingMode(byte? mode)
+    /// <summary>
+    /// Static-mode fan setpoint (%) sent with a <see cref="Np50Protocol.ModeStatic"/>
+    /// write. Mirrors the EEPROM "static fan %" the user configured on the
+    /// device page so FW Control runs the fans at that speed instead of a
+    /// fixed default. Null falls back to <see cref="DefaultStaticSpeedPercent"/>.
+    /// </summary>
+    public byte? DesiredStaticSpeedPercent { get; private set; }
+
+    private const byte DefaultStaticSpeedPercent = 50;
+
+    /// <summary>
+    /// Set the persistent desired cooling mode (and, for Static mode, the
+    /// fan setpoint to drive). Heartbeat enforces the mode on drift.
+    /// </summary>
+    public void SetDesiredCoolingMode(byte? mode, byte? staticSpeedPercent = null)
     {
         DesiredCoolingMode = mode;
+        if (staticSpeedPercent is byte sp)
+        {
+            DesiredStaticSpeedPercent = (byte)Math.Clamp((int)sp, 0, 100);
+        }
         if (mode is byte m) SetCoolingMode(m);
+    }
+
+    /// <summary>
+    /// Hand the fans to the firmware's standalone behaviour, mirroring the
+    /// EEPROM defaults configured on the device page: Static plays the stored
+    /// static-fan setpoint, Motherboard passes motherboard PWM through. This is
+    /// the cooling page's "FW Control" — a USB hub has no motherboard hand-off
+    /// of its own, so firmware control is the off / hand-back setting. Reads the
+    /// EEPROM defaults first so the live mode matches what the user configured.
+    /// Returns false when the hub is unreachable or the EEPROM read fails.
+    /// </summary>
+    public bool ApplyFirmwareStandaloneMode()
+    {
+        var defaults = GetFirmwareDefaults();
+        if (defaults is not { } d) return false;
+        if (d.DefaultMode == Np50Protocol.DefaultModeMotherboard)
+        {
+            SetDesiredCoolingMode(Np50Protocol.ModeMotherboard);
+        }
+        else
+        {
+            SetDesiredCoolingMode(Np50Protocol.ModeStatic, d.StaticFanPercent);
+        }
+        return true;
     }
 
     /// <summary>True iff the hub is currently open and reachable.</summary>
@@ -218,7 +259,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
         var hi = State.HubInfo;
         return SendOnly(Np50Protocol.BuildSetCoolingMode(
             mode,
-            staticSpeedPercent: 50,
+            staticSpeedPercent: DesiredStaticSpeedPercent ?? DefaultStaticSpeedPercent,
             turboOff: true,
             fwAnimation: hi.FirmwareAnimation,
             fwR: hi.FirmwareAnimR, fwG: hi.FirmwareAnimG, fwB: hi.FirmwareAnimB,

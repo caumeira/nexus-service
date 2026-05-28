@@ -319,7 +319,7 @@ public static class Np50Protocol
         ExpectHeader(response, OpControl, "GetInfo");
 
         target.CableTempC = TryDecodeTempC(response[7], response[8], FanOrPump.Pump);
-        target.LegacyFanRpm = DecodeRpm(response[9], response[10]);
+        target.LegacyFanRpm = DecodeLegacyRpm(response[9], response[10]);
         target.CoolingMode = response[12] switch
         {
             ModeSoftware => "Software",
@@ -440,7 +440,7 @@ public static class Np50Protocol
                 // bench produce 28.21°C and 20.7°C from raw 0x0B05 and
                 // 0x0816, which lines up with hub cable temp and ambient.
                 TempC = DecodeFanTempC(response[off + 6], response[off + 7]),
-                Rpm = DecodeRpm(response[off + 8], response[off + 9]),
+                Rpm = DecodeFanRpm(response[off + 8], response[off + 9]),
                 Orientation = response[off + 10] switch
                 {
                     0x00 => "Back",
@@ -488,17 +488,33 @@ public static class Np50Protocol
     // ────────────────────────────────────────────────────────────────────
 
     /// <summary>
-    /// Per-spec RPM formula: <c>RPM = 60_000 / ((H*100 + L/10) * 4)</c>.
+    /// Decode the legacy 4-pin / pump RPM from the Get-Info response (bytes
+    /// 9 &amp; 10). Per spec command #1 and HYTE's <c>SmartDeviceMethods.GetRPM</c>:
+    /// <c>RPM = 60_000 / ((H*100 + L) / 10 * 4)</c>. Note this is a DIFFERENT
+    /// scaling than the Nexus Link per-fan reading — see <see cref="DecodeFanRpm"/>.
     /// Returns 0 when both bytes are zero (the hub's "no fan attached" sentinel).
     /// </summary>
-    public static int DecodeRpm(byte rpmHigh, byte rpmLow)
+    public static int DecodeLegacyRpm(byte rpmHigh, byte rpmLow)
     {
         if (rpmHigh == 0 && rpmLow == 0) return 0;
-        // Match the firmware's exact arithmetic: keep the L/10 division in floating point so
-        // small low-byte values don't underflow to zero. The spec literally computes it this way.
-        var period = (rpmHigh * 100.0 + rpmLow / 10.0) * 4.0;
-        if (period <= 0) return 0;
-        return (int)(60_000.0 / period);
+        var rpm = (int)(60_000 / ((rpmHigh * 100 + (float)rpmLow) / 10 * 4));
+        return rpm < 0 ? 0 : rpm;
+    }
+
+    /// <summary>
+    /// Decode a Nexus Link fan's RPM from the Get-Channel-Info response (bytes
+    /// 8 &amp; 9 of each 12-byte slot). Per spec command #2 and the default
+    /// branch of HYTE's <c>SmartDeviceMethods.GetFanRPM</c> (FP12 = single FT12):
+    /// <c>RPM = (60_000 / (H + L/100)) / 4</c>. This yields ~10× the value the
+    /// legacy decode would for the same raw bytes, because the firmware reports
+    /// the Type-C fan period in a finer unit — applying the legacy formula here
+    /// was the "fake RPM" bug. Returns 0 for the (0,0) "no fan" sentinel.
+    /// </summary>
+    public static int DecodeFanRpm(byte rpmHigh, byte rpmLow)
+    {
+        if (rpmHigh == 0 && rpmLow == 0) return 0;
+        var rpm = (int)(60_000 / (rpmHigh + (float)rpmLow / 100)) / 4;
+        return rpm < 0 ? 0 : rpm;
     }
 
     /// <summary>

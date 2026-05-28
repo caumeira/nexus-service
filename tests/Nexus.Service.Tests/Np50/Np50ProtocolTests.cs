@@ -333,7 +333,7 @@ public class Np50ProtocolTests
     {
         // 20-byte response with:
         //   bytes 7..8  : pump temp ADC bytes (0x16, 0x0A → ~2.27V → ~50°C-ish, well inside the table)
-        //   bytes 9..10 : RPM bytes (0x08, 0x00 → ~187.5 RPM)
+        //   bytes 9..10 : RPM bytes (0x08, 0x00 → 187 RPM via the legacy formula)
         //   byte 12     : mode byte 0x02 = Motherboard
         //   byte 13     : warning summary 0x04
         //   bytes 15..19: FW animation block
@@ -356,8 +356,8 @@ public class Np50ProtocolTests
         Assert.Equal("Motherboard", info.CoolingMode);
         Assert.Equal(0x04, info.WarningSummary);
         Assert.NotNull(info.CableTempC);
-        // RPM formula: 60_000 / ((0x08 * 100 + 0/10) * 4) = 60_000 / 3200 = 18
-        Assert.Equal(18, info.LegacyFanRpm);
+        // Legacy formula: 60_000 / ((0x08*100 + 0)/10 * 4) = 60_000 / 320 = 187
+        Assert.Equal(187, info.LegacyFanRpm);
         Assert.Equal(0x03, info.FirmwareAnimation);
         Assert.Equal(0xAA, info.FirmwareAnimR);
         Assert.Equal(0xBB, info.FirmwareAnimG);
@@ -386,14 +386,14 @@ public class Np50ProtocolTests
 
         // Slot 0: LS30 fan, 62 LEDs.
         // Temp bytes 0x0B 0x05 → uint16 BE / 100 = 2821/100 = 28.21°C.
-        // RPM bytes 0x05 0x00 → 60_000 / ((5*100 + 0)*4) = 30 RPM.
+        // RPM bytes 0x05 0x00 → Nexus Link formula (60_000 / (5 + 0))/4 = 3000 RPM.
         resp[0] = 0xFF; resp[1] = 0xCC;
         resp[2] = 0x01;       // device count 1
         resp[3] = 0x02;       // LS30
         resp[4] = 0x10;       // hw version
         resp[5] = 62;         // led count
         resp[6] = 0x0B; resp[7] = 0x05; // temp 28.21°C
-        resp[8] = 0x05; resp[9] = 0x00; // rpm 30
+        resp[8] = 0x05; resp[9] = 0x00; // rpm 3000
         resp[10] = 0x02;      // orientation Up
         resp[11] = 0x01;      // touch byte ignored for LS30
 
@@ -423,7 +423,7 @@ public class Np50ProtocolTests
         Assert.Equal(62, port.Devices[0].LedCount);
         Assert.NotNull(port.Devices[0].TempC);
         Assert.Equal(28.21f, port.Devices[0].TempC!.Value, 2);
-        Assert.Equal(30, port.Devices[0].Rpm);
+        Assert.Equal(3000, port.Devices[0].Rpm);
         Assert.Equal("Up", port.Devices[0].Orientation);
         Assert.False(port.Devices[0].Touching);   // LS30 ignores touch byte
 
@@ -526,17 +526,28 @@ public class Np50ProtocolTests
     [Fact]
     public void DecodeRpm_returns_zero_for_both_zero_bytes()
     {
-        Assert.Equal(0, Np50Protocol.DecodeRpm(0, 0));
+        Assert.Equal(0, Np50Protocol.DecodeLegacyRpm(0, 0));
+        Assert.Equal(0, Np50Protocol.DecodeFanRpm(0, 0));
     }
 
     [Fact]
-    public void DecodeRpm_matches_spec_formula()
+    public void DecodeLegacyRpm_matches_spec_formula()
     {
-        // 60_000 / ((H*100 + L/10) * 4)
-        // H=0x05, L=0 → 60_000 / 2000 = 30
-        Assert.Equal(30, Np50Protocol.DecodeRpm(0x05, 0));
-        // H=0x01, L=0x32 → 60_000 / ((100+5)*4) = 60_000/420 ≈ 142
-        Assert.Equal(142, Np50Protocol.DecodeRpm(0x01, 0x32));
+        // Spec #1 / GetRPM: 60_000 / ((H*100 + L)/10 * 4)
+        // H=0x05, L=0 → 60_000 / ((500)/10*4) = 60_000/200 = 300
+        Assert.Equal(300, Np50Protocol.DecodeLegacyRpm(0x05, 0));
+        // H=0x01, L=0x32 → 60_000 / ((150)/10*4) = 60_000/60 = 1000
+        Assert.Equal(1000, Np50Protocol.DecodeLegacyRpm(0x01, 0x32));
+    }
+
+    [Fact]
+    public void DecodeFanRpm_matches_spec_formula()
+    {
+        // Spec #2 / GetFanRPM default: (60_000 / (H + L/100)) / 4
+        // H=0x05, L=0 → (60_000/5)/4 = 12000/4 = 3000
+        Assert.Equal(3000, Np50Protocol.DecodeFanRpm(0x05, 0));
+        // H=0x01, L=0x32 → (60_000/1.5)/4 = 40000/4 = 10000
+        Assert.Equal(10000, Np50Protocol.DecodeFanRpm(0x01, 0x32));
     }
 
     [Fact]

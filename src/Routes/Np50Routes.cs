@@ -148,6 +148,21 @@ public static partial class DevicesRoutes
             return Results.Ok(ApiResponse.Ok());
         });
 
+        // "FW Control" — hand the fans back to the firmware's standalone
+        // behaviour configured on the device page (Static @ stored % or
+        // Motherboard PWM). Replaces "BIOS control" for the NP50 in the
+        // cooling-page dropdown: a USB hub has no motherboard hand-off of its
+        // own, so firmware control IS the off / hand-back setting. Reads the
+        // EEPROM defaults to pick the matching live mode + setpoint.
+        app.MapPut("/devices/np50/firmware-control", (Np50Hub hub) =>
+        {
+            if (!hub.IsConnected)
+                return Results.Conflict(new { error = "NP50 not connected" });
+            if (!hub.ApplyFirmwareStandaloneMode())
+                return Results.Problem("Failed to apply firmware control mode to NP50.");
+            return Results.Ok(ApiResponse.Ok());
+        });
+
         // Push an LED frame at one of the three ports. Body shape is a flat list
     }
 }
