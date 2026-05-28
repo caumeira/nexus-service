@@ -378,7 +378,9 @@ $net = @(Get-NetAdapter -Physical | Select-Object InterfaceDescription,LinkSpeed
             var line = raw.TrimEnd();
             if (line.Length == 0) continue;
             if (raw.StartsWith("        ") && !raw.StartsWith("          ") && line.EndsWith(":"))
+            {
                 current = line.Trim().TrimEnd(':');
+            }
             else if (line.TrimStart().StartsWith("Resolution:") && current is not null)
             {
                 var res = line.Split("Resolution:", 2)[1].Trim();

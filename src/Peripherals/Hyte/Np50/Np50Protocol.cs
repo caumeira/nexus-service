@@ -573,8 +573,10 @@ public static class Np50Protocol
         if (response.Length < 2)
             throw new ArgumentException($"{context} response is empty", nameof(response));
         if (response[0] != Frame0 || response[1] != op)
+        {
             throw new InvalidOperationException(
                 $"{context}: unexpected header [0x{response[0]:X2} 0x{response[1]:X2}], wanted [0xFF 0x{op:X2}]");
+        }
     }
 
     // ────────────────────────────────────────────────────────────────────

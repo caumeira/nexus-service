@@ -367,7 +367,9 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
             && c.Animation == animation
             && c.R == r && c.G == g && c.B == b
             && c.Brightness == br)
+        {
             return true;
+        }
         return SendOnly(Np50Protocol.BuildWriteFirmwareAnimationToMcu(animation, r, g, b, br));
     }
 
