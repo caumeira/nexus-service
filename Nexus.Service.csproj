@@ -242,6 +242,18 @@
     </Content>
   </ItemGroup>
 
+  <!-- dfu-util (statically linked, ~1.8 MB) used by the firmware flasher to
+       write images to devices in DFU mode. Unlike openrgb/ffmpeg this binary
+       IS committed to the repo (Bundled/win-x64/dfu-util/). Copied to
+       {output}/dfu-util/ on `dotnet publish -r win-x64`. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\dfu-util')">
+    <Content Include="Bundled\win-x64\dfu-util\**\*.*">
+      <Link>dfu-util\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
   <!-- Bundle ffmpeg for each platform. Used by media import (uploaded images/
        gifs/videos -> raw frame sequence), screen mirror (gdigrab on Win,
        avfoundation on mac -> lighting strip), and audio beats capture.
