@@ -53,9 +53,43 @@ public sealed class SystemSpecsCollector
         lock (_lock)
         {
             if (!force && _cached is not null) return _cached;
-            _cached = Build();
-            return _cached;
+            var fresh = Build();
+            // Only cache when LHM-derived fields landed. If Build() runs during
+            // the LHM background-open window (~1-3 s after start, sometimes
+            // longer on boards with many SuperIO chips), Processor /
+            // Motherboard / GraphicsCard come back empty and would persist for
+            // the lifetime of the service — that was the "sporadic missing
+            // specs" bug. Returning the partial result but skipping the cache
+            // lets the next request rebuild once LHM is ready.
+            if (IsCacheable(fresh))
+            {
+                _cached = fresh;
+            }
+            return fresh;
         }
+    }
+
+    /// <summary>
+    /// Returns true when every LHM-backed field is populated. On Windows the
+    /// three come from LHM hardware enumeration and land at slightly different
+    /// times during the background Computer.Open (CPU + motherboard within ~1 s,
+    /// GPU another 1-3 s later on NVIDIA). On Mac/Linux these are produced by
+    /// deterministic shell commands so this is effectively always true.
+    /// </summary>
+    public static bool IsCacheable(SystemSpecsResponse r) =>
+        !string.IsNullOrWhiteSpace(r.Processor)
+        && !string.IsNullOrWhiteSpace(r.Motherboard)
+        && !string.IsNullOrWhiteSpace(r.GraphicsCard);
+
+    /// <summary>
+    /// Force-commits the supplied snapshot to the cache regardless of
+    /// `IsCacheable`. Used by the prewarm at its deadline so edge-case
+    /// configurations (no LHM-visible GPU, headless boxes) don't re-run the
+    /// ~400 ms PowerShell enrichment on every subsequent request.
+    /// </summary>
+    internal void CommitPartial(SystemSpecsResponse snapshot)
+    {
+        lock (_lock) { _cached = snapshot; }
     }
 
     private SystemSpecsResponse Build()
