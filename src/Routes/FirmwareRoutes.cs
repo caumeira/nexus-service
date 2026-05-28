@@ -23,7 +23,7 @@ public static partial class DevicesRoutes
         // image are returned — no blank rows for devices we can't offer an
         // update for. CurrentVersion may still be empty when the device hasn't
         // reported its version yet; UpdateAvailable stays false in that case.
-        app.MapGet("/devices/firmware/status", (DeviceManager dm, BundledFirmwareCatalog catalog) =>
+        app.MapGet("/devices/firmware/status", (DeviceManager dm, BundledFirmwareCatalog catalog, FirmwareFlasher flasher) =>
         {
             var result = new List<FirmwareStatusItem>();
             foreach (var d in dm.GetAll())
@@ -45,6 +45,7 @@ public static partial class DevicesRoutes
                     AvailableVersion = available,
                     UpdateAvailable = BundledFirmwareCatalog.IsNewer(available, d.FirmwareVersion),
                     AvailableVersions = catalog.GetAvailableVersions(d.FirmwareType).ToList(),
+                    DevImages = flasher.FlashableImages(d.FirmwareType).ToList(),
                 });
             }
             return result;

@@ -31,8 +31,22 @@ public sealed class FirmwareStatusItem
     public string AvailableVersion { get; set; } = "";
     /// <summary>True when the bundled version is strictly newer than the device's current version.</summary>
     public bool UpdateAvailable { get; set; }
-    /// <summary>All bundled versions for this device (newest first). Drives the dev-only version picker / downgrade.</summary>
+    /// <summary>All bundled versions for this device's connected variant (newest first).</summary>
     public List<string> AvailableVersions { get; set; } = new();
+    /// <summary>
+    /// Every image the connected device can be flashed with — including
+    /// sibling-variant images (e.g. a Gen1 CNVS can also take the Gen2 image).
+    /// Drives the dev-only picker so cross-branch testing is possible; the prod
+    /// Install path never uses these.
+    /// </summary>
+    public List<FlashableImage> DevImages { get; set; } = new();
+}
+
+public sealed class FlashableImage
+{
+    /// <summary>Firmware-catalog key for this image (pass to the flash endpoint).</summary>
+    public string FirmwareType { get; set; } = "";
+    public string Version { get; set; } = "";
 }
 
 // ----- /devices/firmware/flash — flash orchestration -----

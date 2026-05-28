@@ -319,6 +319,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<UsbDeviceDetail>))]
 [JsonSerializable(typeof(FirmwareStatusItem))]
 [JsonSerializable(typeof(List<FirmwareStatusItem>))]
+[JsonSerializable(typeof(FlashableImage))]
+[JsonSerializable(typeof(List<FlashableImage>))]
 [JsonSerializable(typeof(FlashRequest))]
 [JsonSerializable(typeof(FlashStatusDto))]
 [JsonSerializable(typeof(FlashStartResponse))]

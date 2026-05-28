@@ -42,6 +42,27 @@ public sealed class FirmwareFlasher
     public bool IsFlashing => _flashing;
 
     /// <summary>
+    /// Every image the connected device for <paramref name="connectedFirmwareType"/>
+    /// can be flashed with, including sibling-variant images (a Gen1 CNVS can also
+    /// take the Gen2 image). Powers the dev-only cross-branch picker. Empty if no
+    /// connected target handles that key.
+    /// </summary>
+    public IReadOnlyList<FlashableImage> FlashableImages(string connectedFirmwareType)
+    {
+        var result = new List<FlashableImage>();
+        if (string.IsNullOrEmpty(connectedFirmwareType)) return result;
+        var target = _targets.FirstOrDefault(t => t.IsConnected && t.FirmwareType == connectedFirmwareType);
+        if (target is null) return result;
+        foreach (var key in _catalog.DeviceIds)
+        {
+            if (!target.CanFlash(key)) continue;
+            foreach (var v in _catalog.GetAvailableVersions(key))
+                result.Add(new FlashableImage { FirmwareType = key, Version = v });
+        }
+        return result;
+    }
+
+    /// <summary>
     /// Begin a flash on a background task. Returns false (with a reason) if one
     /// is already running, the image isn't bundled, or no connected device can
     /// take it. Validates everything up front so the caller gets immediate feedback.
