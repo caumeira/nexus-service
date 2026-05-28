@@ -17,7 +17,7 @@ public sealed class FanHubHandler : IDeviceHandler
     }
 
     public string Id => "fan-hub";
-    public string Name => "Fan Hub";
+    public string Name => "iBUYPOWER MiniHub";
     public string Category => "hub";
 
     public IReadOnlyList<UsbId> Identifiers { get; } = new[]
