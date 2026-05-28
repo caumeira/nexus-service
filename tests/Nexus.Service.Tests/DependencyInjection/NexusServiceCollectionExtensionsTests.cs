@@ -25,19 +25,19 @@ public class NexusServiceCollectionExtensionsTests
     {
         var services = new ServiceCollection();
         services
-            .AddQosCore()
-            .AddQosSensors()
-            .AddQosCooling()
-            .AddQosBenchmarks()
-            .AddQosLighting()
-            .AddQosDevices()
-            .AddQosPeripherals()
-            .AddQosActivity()
-            .AddQosNetwork()
-            .AddQosLifecycle()
-            .AddQosWeather()
-            .AddQosPanel(servicePort: 9400)
-            .AddQosLinuxDBus();
+            .AddNexusCore()
+            .AddNexusSensors()
+            .AddNexusCooling()
+            .AddNexusBenchmarks()
+            .AddNexusLighting()
+            .AddNexusDevices()
+            .AddNexusPeripherals()
+            .AddNexusActivity()
+            .AddNexusNetwork()
+            .AddNexusLifecycle()
+            .AddNexusWeather()
+            .AddNexusPanel(servicePort: 9400)
+            .AddNexusLinuxDBus();
         services.AddLogging();
         services.AddHttpClient();
         return services.BuildServiceProvider();

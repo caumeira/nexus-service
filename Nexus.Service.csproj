@@ -509,7 +509,7 @@
   <PropertyGroup>
     <NexusWidgetsRoot Condition="'$(NexusWidgetsRoot)' == ''">$(MSBuildThisFileDirectory)..\nexus-widgets\widgets</NexusWidgetsRoot>
   </PropertyGroup>
-  <Target Name="CheckQosWidgetsSubmodule" BeforeTargets="BeforeBuild">
+  <Target Name="CheckNexusWidgetsSubmodule" BeforeTargets="BeforeBuild">
     <Error Condition="!Exists('$(NexusWidgetsRoot)')"
            Text="nexus-widgets submodule missing at $(NexusWidgetsRoot). Run: git submodule update --init nexus-widgets" />
   </Target>

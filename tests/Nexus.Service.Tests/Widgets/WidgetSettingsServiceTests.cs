@@ -93,7 +93,7 @@ public class WidgetSettingsServiceTests : IDisposable
           "id": "{{WidgetId}}",
           "name": "Test Widget",
           "version": "1.0.0",
-          "min_qos_version": "0.0.0",
+          "min_nexus_version": "0.0.0",
           "surfaces": ["dashboard"],
           "sizes": ["2x2"],
           "view": {"type":"text","text":"x"},

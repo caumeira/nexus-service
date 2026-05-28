@@ -207,37 +207,37 @@ Nexus.Service.Lifecycle.BootTimer.Mark("after Kestrel + JSON + CORS + AddHttpCli
 // All DI registrations live in per-domain extension methods under
 // src/DependencyInjection/. Order matters only where there are cross-domain
 // dependencies (e.g. Lighting consumes the OpenRGB controller registered in
-// AddQosLighting before AddQosDevices uses it as ILightingDeviceProvider).
-builder.Services.AddQosCore();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosCore");
-builder.Services.AddQosSensors();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosSensors");
-builder.Services.AddQosCooling();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosCooling");
-builder.Services.AddQosBenchmarks();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosBenchmarks");
-builder.Services.AddQosLighting();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosLighting");
-builder.Services.AddQosDevices();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosDevices");
-builder.Services.AddQosPeripherals();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosPeripherals");
-builder.Services.AddQosActivity();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosActivity");
-builder.Services.AddQosNetwork();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosNetwork");
-builder.Services.AddQosLifecycle();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosLifecycle");
-builder.Services.AddQosWeather();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosWeather");
-builder.Services.AddQosWidgets();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosWidgets");
-builder.Services.AddQosPanel(servicePort);
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosPanel");
-builder.Services.AddQosLinuxDBus();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosLinuxDBus");
-builder.Services.AddQosHelper();
-Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddQosHelper");
+// AddNexusLighting before AddNexusDevices uses it as ILightingDeviceProvider).
+builder.Services.AddNexusCore();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusCore");
+builder.Services.AddNexusSensors();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusSensors");
+builder.Services.AddNexusCooling();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusCooling");
+builder.Services.AddNexusBenchmarks();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusBenchmarks");
+builder.Services.AddNexusLighting();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusLighting");
+builder.Services.AddNexusDevices();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusDevices");
+builder.Services.AddNexusPeripherals();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusPeripherals");
+builder.Services.AddNexusActivity();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusActivity");
+builder.Services.AddNexusNetwork();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusNetwork");
+builder.Services.AddNexusLifecycle();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusLifecycle");
+builder.Services.AddNexusWeather();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusWeather");
+builder.Services.AddNexusWidgets();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusWidgets");
+builder.Services.AddNexusPanel(servicePort);
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusPanel");
+builder.Services.AddNexusLinuxDBus();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusLinuxDBus");
+builder.Services.AddNexusHelper();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusHelper");
 
 // mDNS / Bonjour advertiser for the iOS companion app's Wi-Fi discovery.
 // Reads HttpsPort + SpkiFingerprint + MachineName off PanelPhonePairingService
@@ -270,7 +270,7 @@ foreach (var origin in allowedOrigins)
 #endif
 app.UseWebSockets(wsOptions);
 
-app.UseQosSecurityHeaders();
+app.UseNexusSecurityHeaders();
 
 app.UseDefaultFiles();
 app.UseStaticFiles();
@@ -278,7 +278,7 @@ app.UseStaticFiles();
 app.UseRouting();
 app.UseCors();
 
-app.UseQosPathAuth();
+app.UseNexusPathAuth();
 Nexus.Service.Lifecycle.BootTimer.Mark("after middleware wire");
 
 // ── Map all routes ──

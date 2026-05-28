@@ -42,7 +42,7 @@ public class WidgetInstallerTests : IDisposable
             id,
             name,
             version = "1.0.0",
-            min_qos_version = "0.42.0",
+            min_nexus_version = "0.42.0",
             surfaces = new[] { "dashboard" },
             sizes = new[] { "2x2" },
             view = new { type = "text", text = "hi" },

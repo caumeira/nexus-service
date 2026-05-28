@@ -43,7 +43,7 @@ internal static class SecurityHeadersMiddleware
         "base-uri 'self'; " +
         "object-src 'none'";
 
-    public static IApplicationBuilder UseQosSecurityHeaders(this IApplicationBuilder app) =>
+    public static IApplicationBuilder UseNexusSecurityHeaders(this IApplicationBuilder app) =>
         app.Use(async (ctx, next) =>
         {
             ctx.Response.OnStarting(() =>

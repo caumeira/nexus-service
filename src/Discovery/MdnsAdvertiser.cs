@@ -18,7 +18,7 @@ namespace Nexus.Service.Discovery;
 /// <summary>
 /// Minimal DNS-SD over mDNS responder for the iOS companion app's
 /// Bonjour discovery. Advertises the local TLS pair endpoint as
-/// <c>&lt;instance&gt;._qos._tcp.local.</c> on port 9443 with TXT records
+/// <c>&lt;instance&gt;._nexus._tcp.local.</c> on port 9443 with TXT records
 /// <c>name=&lt;MachineName&gt;</c>, <c>fp=&lt;SPKI base64url, no pad&gt;</c>,
 /// <c>v=&lt;service version&gt;</c>.
 ///
@@ -27,7 +27,7 @@ namespace Nexus.Service.Discovery;
 /// </summary>
 public sealed class MdnsAdvertiser : IHostedService, IDisposable
 {
-    private const string ServiceType = "_qos._tcp.local.";
+    private const string ServiceType = "_nexus._tcp.local.";
     private const int MdnsPort = 5353;
     private static readonly IPAddress MdnsV4 = IPAddress.Parse("224.0.0.251");
 
@@ -142,7 +142,7 @@ public sealed class MdnsAdvertiser : IHostedService, IDisposable
             _cachedAnnouncement = BuildAnnouncement(IPv4Addresses());
             _runLoop = Task.Run(() => RunAsync(_runCts.Token));
             _broadcasting = true;
-            _log.LogInformation("mDNS advertiser online: {Instance}._qos._tcp.local on port {Port}", _instanceLabel, _httpsPort);
+            _log.LogInformation("mDNS advertiser online: {Instance}._nexus._tcp.local on port {Port}", _instanceLabel, _httpsPort);
         }
         catch (Exception ex)
         {

@@ -142,10 +142,10 @@ public sealed class DiscordProvider : IDiscordProvider
     private DiscordRuntimeConfig ReadConfig()
     {
         var settings = _store.Load().Discord;
-        var clientId = FirstNonEmpty(settings.ClientId, Environment.GetEnvironmentVariable("QOS_DISCORD_CLIENT_ID"));
+        var clientId = FirstNonEmpty(settings.ClientId, Environment.GetEnvironmentVariable("NEXUS_DISCORD_CLIENT_ID"));
         var clientSecret = FirstNonEmpty(
             SecretProtector.Unprotect(settings.ClientSecret),
-            Environment.GetEnvironmentVariable("QOS_DISCORD_CLIENT_SECRET"));
+            Environment.GetEnvironmentVariable("NEXUS_DISCORD_CLIENT_SECRET"));
         return new DiscordRuntimeConfig(clientId, clientSecret.Length > 0);
     }
 

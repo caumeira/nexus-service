@@ -62,7 +62,7 @@ public static class TrayIcon
 
     // Race guard for rapid tray clicks: between the moment we spawn an Edge
     // --app and the moment its window title becomes "Nexus*" (~1-2s), the
-    // FindExistingQosAppWindow probe can't detect the in-flight window. A
+    // FindExistingNexusAppWindow probe can't detect the in-flight window. A
     // second click during that gap used to spawn a second Edge. Time-only
     // guard - PID liveness is unreliable because Edge's launcher process
     // exits within ~30ms after forking the actual browser.
@@ -395,7 +395,7 @@ public static class TrayIcon
 
             // Fallback: legacy Edge --app spawn. Only reached when the
             // overlay binary is missing or refuses to start.
-            var existing = FindExistingQosAppWindow();
+            var existing = FindExistingNexusAppWindow();
             if (existing != IntPtr.Zero)
             {
                 FocusWindow(existing);
@@ -460,7 +460,7 @@ public static class TrayIcon
     /// <summary>
     /// Close any open standalone Nexus --app window (the Edge --app shell
     /// hosting the dashboard). Best-effort, fire-and-forget: posts WM_CLOSE
-    /// to the HWND found by <see cref="FindExistingQosAppWindow"/> and
+    /// to the HWND found by <see cref="FindExistingNexusAppWindow"/> and
     /// returns immediately - Edge processes the close on its own message
     /// loop ms later. No-op when no such window exists.
     ///
@@ -473,7 +473,7 @@ public static class TrayIcon
     {
         try
         {
-            var hwnd = FindExistingQosAppWindow();
+            var hwnd = FindExistingNexusAppWindow();
             if (hwnd != IntPtr.Zero)
             {
                 PostMessage(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
@@ -610,7 +610,7 @@ public static class TrayIcon
     /// trap of matching by title alone across ALL top-level windows (which
     /// could pick up File Explorer or stale handles).
     /// </summary>
-    private static IntPtr FindExistingQosAppWindow()
+    private static IntPtr FindExistingNexusAppWindow()
     {
         try
         {

@@ -65,7 +65,7 @@ public class WidgetRegistryTests : IDisposable
           "id": "com.nexusqos.fixture-basic",
           "name": "x",
           "version": "1.0.0",
-          "min_qos_version": "0.42.0",
+          "min_nexus_version": "0.42.0",
           "surfaces": ["dashboard"],
           "capabilities": {}
         }
@@ -85,7 +85,7 @@ public class WidgetRegistryTests : IDisposable
           "id": "com.nexusqos.fixture-basic",
           "name": "x",
           "version": "1.0.0",
-          "min_qos_version": "0.42.0",
+          "min_nexus_version": "0.42.0",
           "surfaces": ["dashboard"],
           "capabilities": { "code": "worker" },
           "view": { "type": "text", "text": "hi" }
@@ -116,7 +116,7 @@ public class WidgetRegistryTests : IDisposable
           "id": "com.nexusqos.fixture-basic",
           "name": "x",
           "version": "1.0.0",
-          "min_qos_version": "0.42.0",
+          "min_nexus_version": "0.42.0",
           "surfaces": ["dashboard"],
           "capabilities": {}
         }

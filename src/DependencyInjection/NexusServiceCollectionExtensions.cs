@@ -29,7 +29,7 @@ namespace Nexus.Service.DependencyInjection;
 /// </summary>
 public static class NexusServiceCollectionExtensions
 {
-    public static IServiceCollection AddQosCore(this IServiceCollection services)
+    public static IServiceCollection AddNexusCore(this IServiceCollection services)
     {
 #if WINDOWS
         services.AddSingleton<LhmComputer>();
@@ -62,7 +62,7 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddQosSensors(this IServiceCollection services)
+    public static IServiceCollection AddNexusSensors(this IServiceCollection services)
     {
 #if WINDOWS
         services.AddSingleton<ISensorProvider, LibreHardwareSensorProvider>();
@@ -91,7 +91,7 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddQosCooling(this IServiceCollection services)
+    public static IServiceCollection AddNexusCooling(this IServiceCollection services)
     {
         services.AddSingleton<StubCoolingProvider>();
         // Pick the motherboard-side provider per platform, registered under
@@ -133,7 +133,7 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddQosLighting(this IServiceCollection services)
+    public static IServiceCollection AddNexusLighting(this IServiceCollection services)
     {
         services.AddSingleton<LightingEngine>();
         services.AddSingleton(_ => new Nexus.Service.Lighting.Engine.Gpu.GpuContext(160, 90));
@@ -160,7 +160,7 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddQosDevices(this IServiceCollection services)
+    public static IServiceCollection AddNexusDevices(this IServiceCollection services)
     {
         // CNVS hub: serial-port discovery + hub singleton + connection
         // worker that grabs COM7 at startup before OpenRGB-headless can
@@ -381,7 +381,7 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddQosPeripherals(this IServiceCollection services)
+    public static IServiceCollection AddNexusPeripherals(this IServiceCollection services)
     {
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.WindowsHidEnumerator>();
@@ -440,7 +440,7 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddQosActivity(this IServiceCollection services)
+    public static IServiceCollection AddNexusActivity(this IServiceCollection services)
     {
         services.AddSingleton<Nexus.Service.Activity.Storage.IScreenTimeStore>(_ =>
         {
@@ -496,7 +496,7 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddQosNetwork(this IServiceCollection services)
+    public static IServiceCollection AddNexusNetwork(this IServiceCollection services)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
@@ -525,7 +525,7 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddQosLifecycle(this IServiceCollection services)
+    public static IServiceCollection AddNexusLifecycle(this IServiceCollection services)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             services.AddSingleton<IStartupProvider, MacStartupProvider>();
@@ -547,7 +547,7 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddQosBenchmarks(this IServiceCollection services)
+    public static IServiceCollection AddNexusBenchmarks(this IServiceCollection services)
     {
         services.AddSingleton<Nexus.Service.Benchmarks.IBenchmarkProvider, Nexus.Service.Benchmarks.Providers.DefaultBenchmarkProvider>();
         services.AddSingleton<Nexus.Service.Benchmarks.BenchmarkRunner>();
@@ -556,7 +556,7 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddQosWeather(this IServiceCollection services)
+    public static IServiceCollection AddNexusWeather(this IServiceCollection services)
     {
         services.AddSingleton<Nexus.Service.Platform.Weather.IWeatherProvider, Nexus.Service.Platform.Weather.OpenMeteoWeatherProvider>();
         return services;
@@ -567,7 +567,7 @@ public static class NexusServiceCollectionExtensions
     /// wired in <see cref="Nexus.Service.Routes.WidgetRoutes.MapWidgetEndpoints"/>
     /// in Program.cs.
     /// </summary>
-    public static IServiceCollection AddQosWidgets(this IServiceCollection services)
+    public static IServiceCollection AddNexusWidgets(this IServiceCollection services)
     {
         services.AddSingleton<Nexus.Service.Widgets.WidgetRegistry>();
         services.AddSingleton<Nexus.Service.Widgets.WidgetSettingsService>();
@@ -588,7 +588,7 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddQosPanel(this IServiceCollection services, int servicePort)
+    public static IServiceCollection AddNexusPanel(this IServiceCollection services, int servicePort)
     {
         // QSeriesPortWatcher keeps `adb reverse tcp:{servicePort}` alive
         // while a HYTE Q60 / Q80 USB display is attached. Without it,
@@ -628,7 +628,7 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddQosLinuxDBus(this IServiceCollection services)
+    public static IServiceCollection AddNexusLinuxDBus(this IServiceCollection services)
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
         {
@@ -643,7 +643,7 @@ public static class NexusServiceCollectionExtensions
     /// typed command client. Other platforms run their providers natively in
     /// the user-context daemon, so no helper subsystem is registered.
     /// </summary>
-    public static IServiceCollection AddQosHelper(this IServiceCollection services)
+    public static IServiceCollection AddNexusHelper(this IServiceCollection services)
     {
 #if WINDOWS
         if (OperatingSystem.IsWindows())

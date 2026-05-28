@@ -4,7 +4,7 @@
   "name": "Fixture Basic",
   "version": "1.0.0",
   "description": "Declarative-schema fixture used by the registry tests.",
-  "min_qos_version": "0.42.0",
+  "min_nexus_version": "0.42.0",
   "surfaces": ["dashboard"],
   "sizes": ["2x2", "4x2", "4x4"],
   "default_size": "2x2",

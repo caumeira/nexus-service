@@ -32,8 +32,8 @@ public sealed class WidgetManifest
     [JsonPropertyName("icon")]
     public string? Icon { get; set; }
 
-    [JsonPropertyName("min_qos_version")]
-    public string MinQosVersion { get; set; } = "";
+    [JsonPropertyName("min_nexus_version")]
+    public string MinNexusVersion { get; set; } = "";
 
     [JsonPropertyName("surfaces")]
     public List<string> Surfaces { get; set; } = new();

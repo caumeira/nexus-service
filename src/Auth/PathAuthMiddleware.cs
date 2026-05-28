@@ -86,7 +86,7 @@ internal static class PathAuthMiddleware
         return false;
     }
 
-    public static IApplicationBuilder UseQosPathAuth(this IApplicationBuilder app) =>
+    public static IApplicationBuilder UseNexusPathAuth(this IApplicationBuilder app) =>
         app.Use(async (ctx, next) =>
         {
             if (string.Equals(ctx.Request.Method, "OPTIONS", StringComparison.OrdinalIgnoreCase))
