@@ -45,8 +45,20 @@ internal static class ServiceControlRoutes
                       : Results.Problem("sc.exe config failed", statusCode: 500);
         }).LocalhostOnly();
 
-        app.MapPost("/service/stop", (IHostApplicationLifetime lifetime) =>
+        app.MapPost("/service/stop", (IHostApplicationLifetime lifetime,
+            Nexus.Service.Devices.Firmware.FirmwareFlasher flasher) =>
         {
+            // Never tear the service down mid-flash — that would strand the
+            // device in the DFU bootloader. Refuse the stop while a firmware
+            // update is running; the UI also blocks its quit affordance.
+            if (flasher.IsFlashing)
+            {
+                return Results.Json(
+                    new ApiResponse { Error = true, Msg = "A firmware update is in progress; cannot stop the service." },
+                    Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
+                    statusCode: 409);
+            }
+
             // Fire-and-forget so the response can flush before the host
             // tears down. Lifetime.StopApplication signals the web host's
             // ApplicationStopping token, which is what our SCM dispatcher

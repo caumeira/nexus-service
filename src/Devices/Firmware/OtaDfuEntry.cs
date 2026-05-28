@@ -23,6 +23,38 @@ public static class OtaDfuEntry
 {
     private static readonly byte[] DfuMagic = { 0xFF, 0xAA, 0x09, 0x08, 0x07, 0x06, 0x05 };
     private static readonly byte[] ReadKeyCmd = { 0xFF, 0xDC, 0x07 };
+
+    /// <summary>
+    /// The "switch to DFU bootloader now" magic bytes. Exposed for hubs that
+    /// own a raw serial port (e.g. CnvsHub) and write key+magic directly rather
+    /// than through <see cref="Enter"/>'s <see cref="INp50Transport"/> path.
+    /// </summary>
+    public static byte[] MagicBytes() => (byte[])DfuMagic.Clone();
+
+    /// <summary>
+    /// Whether a device's firmware supports the FF DC 07 product-key readback
+    /// (so DFU entry should verify before sending the magic). Mirrors HYTE's
+    /// FirmwareFunctionCheckManager: only recent Q60/Q80/NP50 do; everything
+    /// else (CNVS, Y70, MiniHub) writes key+magic without verifying.
+    /// </summary>
+    public static bool SupportsPidCheck(string firmwareType, string version) => firmwareType switch
+    {
+        "q60" => VersionAtLeast(version, 2, 0, 8, 1),
+        "q80" => VersionAtLeast(version, 1, 0, 8, 1),
+        "np50" => VersionAtLeast(version, 2, 0, 4, 1),
+        _ => false,
+    };
+
+    private static bool VersionAtLeast(string version, params int[] min)
+    {
+        var parts = version.Split('.');
+        for (var i = 0; i < min.Length; i++)
+        {
+            var p = i < parts.Length && int.TryParse(parts[i], out var n) ? n : 0;
+            if (p != min[i]) return p > min[i];
+        }
+        return true;
+    }
     private const int KeyVerifyAttempts = 5;
     private const int ReadTimeoutMs = 200;
 

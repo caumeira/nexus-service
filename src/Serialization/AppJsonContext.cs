@@ -319,6 +319,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<UsbDeviceDetail>))]
 [JsonSerializable(typeof(FirmwareStatusItem))]
 [JsonSerializable(typeof(List<FirmwareStatusItem>))]
+[JsonSerializable(typeof(FlashRequest))]
+[JsonSerializable(typeof(FlashStatusDto))]
+[JsonSerializable(typeof(FlashStartResponse))]
 
 // Peripherals (third-party mice/keyboards/headsets with protocol support)
 [JsonSerializable(typeof(PeripheralDto))]

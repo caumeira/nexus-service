@@ -249,6 +249,17 @@ public static class NexusServiceCollectionExtensions
         // the Firmware Updates page's "available version" column.
         services.AddSingleton<Nexus.Service.Devices.Firmware.BundledFirmwareCatalog>();
 
+        // Firmware flasher: dfu-util wrapper + WinUSB installer + orchestrator.
+        // CnvsHub doubles as a DFU flash target (it owns the CNVS serial port and
+        // can drop the device into the bootloader). Other hubs join IDfuFlashTarget
+        // as their EnterDfuMode lands.
+        services.AddSingleton<Nexus.Service.Devices.Firmware.DfuUtil>(_ =>
+            new Nexus.Service.Devices.Firmware.DfuUtil(Nexus.Service.Devices.Firmware.DfuUtil.ResolveDefaultPath()));
+        services.AddSingleton<Nexus.Service.Devices.Firmware.WinUsbDriverInstaller>();
+        services.AddSingleton<Nexus.Service.Devices.Firmware.IDfuFlashTarget>(sp =>
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Cnvs.CnvsHub>());
+        services.AddSingleton<Nexus.Service.Devices.Firmware.FirmwareFlasher>();
+
         // NP50 hub: serial port discovery + transport factory + singleton hub +
         // 2-second heartbeat poller. Discovery is Windows-only for now; non-
         // Windows builds get a stub that finds nothing (the hub silently stays

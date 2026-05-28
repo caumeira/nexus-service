@@ -31,6 +31,21 @@ public static class CnvsProtocol
         0x0B02, // CNVS White
     };
 
+    /// <summary>
+    /// Firmware-catalog variant key for a CNVS product id. CNVS firmware is
+    /// variant-specific — Left and v1 ship DIFFERENT images and flashing the
+    /// wrong one rewrites the device's USB identity (bench-confirmed) — so each
+    /// variant maps to its own bundled-.hex directory. 0BFF (CES) has no bundled
+    /// image, so it falls back to "cnvs" (no update offered).
+    /// </summary>
+    public static string VariantForProductId(int productId) => productId switch
+    {
+        0x0B00 => "cnvs-left",
+        0x0B01 => "cnvs-v1",
+        0x0B02 => "cnvs-white",
+        _ => "cnvs",
+    };
+
     // ── Wire frame constants ──
 
     private const byte Frame0 = 0xFF;

@@ -43,7 +43,8 @@ public sealed class WindowsCnvsPortDiscovery : ICnvsPortDiscovery
             {
                 var hardwareId = ReadStringProperty(devInfo, ref devData, Native.SPDRP_HARDWAREID);
                 if (string.IsNullOrEmpty(hardwareId)) continue;
-                if (!MatchesAnyCnvsPid(hardwareId)) continue;
+                var pid = MatchedCnvsPid(hardwareId);
+                if (pid < 0) continue;
 
                 var portName = ReadPortName(devInfo, ref devData);
                 if (string.IsNullOrEmpty(portName)) continue;
@@ -52,6 +53,7 @@ public sealed class WindowsCnvsPortDiscovery : ICnvsPortDiscovery
                 {
                     PortName = portName,
                     Serial = ReadInstanceId(devInfo, ref devData),
+                    ProductId = pid,
                 });
             }
         }
@@ -62,14 +64,15 @@ public sealed class WindowsCnvsPortDiscovery : ICnvsPortDiscovery
         return result;
     }
 
-    private static bool MatchesAnyCnvsPid(string hardwareId)
+    /// <summary>Return the CNVS PID this hardware id matches, or -1 if none.</summary>
+    private static int MatchedCnvsPid(string hardwareId)
     {
-        foreach (var frag in VidPidFragments)
+        for (var i = 0; i < VidPidFragments.Length; i++)
         {
-            if (hardwareId.IndexOf(frag, StringComparison.OrdinalIgnoreCase) >= 0)
-                return true;
+            if (hardwareId.IndexOf(VidPidFragments[i], StringComparison.OrdinalIgnoreCase) >= 0)
+                return CnvsProtocol.ProductIds[i];
         }
-        return false;
+        return -1;
     }
 
     private static ref Guid PortsClassGuidLocal()

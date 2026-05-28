@@ -12,7 +12,8 @@ public class BundledFirmwareCatalogTests
     public void Scans_the_embedded_firmware_for_every_bundled_device()
     {
         Assert.Contains("np50", _catalog.DeviceIds);
-        Assert.Contains("cnvs", _catalog.DeviceIds);
+        Assert.Contains("cnvs-left", _catalog.DeviceIds);
+        Assert.Contains("cnvs-v1", _catalog.DeviceIds);
         Assert.Contains("fan-hub", _catalog.DeviceIds);
         Assert.Contains("q60", _catalog.DeviceIds);
         Assert.Contains("q80", _catalog.DeviceIds);
@@ -23,7 +24,8 @@ public class BundledFirmwareCatalogTests
 
     [Theory]
     [InlineData("np50", "2.0.5.1")]
-    [InlineData("cnvs", "1.0.2.2")]
+    [InlineData("cnvs-left", "1.0.2.1")]
+    [InlineData("cnvs-v1", "1.0.2.2")]
     [InlineData("fan-hub", "1.0.1.1")]
     [InlineData("q60", "2.0.9.1")]
     [InlineData("q80", "1.0.9.1")]
@@ -42,6 +44,7 @@ public class BundledFirmwareCatalogTests
         // "variant not yet identified" sentinels.
         Assert.Equal("", _catalog.GetLatestVersion("y70"));
         Assert.Equal("", _catalog.GetLatestVersion("qseries"));
+        Assert.Equal("", _catalog.GetLatestVersion("cnvs"));
         Assert.Equal("", _catalog.GetLatestVersion(""));
     }
 

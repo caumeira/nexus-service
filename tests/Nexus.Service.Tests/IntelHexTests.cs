@@ -43,7 +43,7 @@ public class IntelHexTests
     }
 
     [Theory]
-    [InlineData("cnvs", "1.0.2.2")]
+    [InlineData("cnvs-v1", "1.0.2.2")]
     [InlineData("q60", "2.0.9.1")]
     [InlineData("np50", "2.0.5.1")]
     [InlineData("fan-hub", "1.0.1.1")]

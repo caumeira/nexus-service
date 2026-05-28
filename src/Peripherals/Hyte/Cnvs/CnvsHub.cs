@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO.Ports;
 using System.Threading;
+using Nexus.Service.Devices.Firmware;
 
 namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 
@@ -26,7 +27,7 @@ namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 ///   the same in CNVSBaseController.SendToHardware) so the firmware
 ///   stops overlaying its boot animation.
 /// </summary>
-public sealed class CnvsHub : IDisposable
+public sealed class CnvsHub : IDisposable, IDfuFlashTarget
 {
     /// <summary>Number of physical LEDs on the CNVS (per HYTE's OpenRGB driver).</summary>
     public const int LedCount = 50;
@@ -47,6 +48,7 @@ public sealed class CnvsHub : IDisposable
     private SerialPort? _port;
     private string _portName = "";
     private string _serial = "";
+    private int _productId;
     private string _firmwareVersion = "";
     private bool _disposed;
 
@@ -63,6 +65,54 @@ public sealed class CnvsHub : IDisposable
 
     /// <summary>"cnvs:&lt;serial&gt;" device id; empty until we open the port.</summary>
     public string DeviceId => string.IsNullOrEmpty(_serial) ? "" : $"cnvs:{_serial}";
+
+    /// <summary>Operating USB PID of the open device (0B00/0B01/0B02/0BFF), 0 until connected.</summary>
+    public int ProductId => _productId;
+
+    /// <summary>Firmware-catalog variant key for the connected unit (cnvs-left/cnvs-v1/cnvs-white).</summary>
+    public string Variant => CnvsProtocol.VariantForProductId(_productId);
+
+    // ── IDfuFlashTarget ──
+    string IDfuFlashTarget.FirmwareType => IsConnected ? Variant : "";
+    bool IDfuFlashTarget.CanFlash(string firmwareType) =>
+        !string.IsNullOrEmpty(firmwareType) && firmwareType.StartsWith("cnvs", StringComparison.Ordinal);
+
+    /// <summary>
+    /// Drop the CNVS into DFU mode: write the OTA product key + the DFU magic
+    /// over the serial port, then release the port so dfu-util can claim the
+    /// re-enumerated bootloader (3402:0a00). CNVS firmware doesn't support the
+    /// FF DC 07 key readback, so we don't verify (matches HYTE's OTAHelper for
+    /// non-PID-check devices). Bench-confirmed working 2026-05-28.
+    /// </summary>
+    public bool EnterDfuMode()
+    {
+        if (!EnsureConnected()) return false;
+        lock (_writeLock)
+        {
+            var port = _port;
+            if (port is null) return false;
+            try
+            {
+                var key = OtaProductKey.ForProductId(_productId);
+                port.DiscardInBuffer();
+                port.Write(key, 0, key.Length);
+                // 30 ms key-write→magic gap per HYTE OTAHelper.Update.
+                Thread.Sleep(30);
+                var magic = OtaDfuEntry.MagicBytes();
+                port.Write(magic, 0, magic.Length);
+                Thread.Sleep(50);
+            }
+            catch (Exception ex)
+            {
+                // The port commonly drops mid-write as the device reboots into
+                // DFU — that's the success signal, not a failure.
+                Console.Error.WriteLine($"[cnvs] EnterDfuMode (port dropping as device reboots): {ex.GetType().Name}");
+            }
+            // Release the COM port so dfu-util can open the DFU device.
+            Disconnect();
+            return true;
+        }
+    }
 
     /// <summary>
     /// Last firmware version reported by the device, formatted "Major.Minor.Build.Hw"
@@ -102,7 +152,8 @@ public sealed class CnvsHub : IDisposable
                     _port = port;
                     _portName = info.PortName;
                     _serial = info.Serial ?? "";
-                    Console.Error.WriteLine($"[cnvs] connected on {info.PortName} (serial={_serial})");
+                    _productId = info.ProductId;
+                    Console.Error.WriteLine($"[cnvs] connected on {info.PortName} (serial={_serial}, pid=0x{_productId:X4}, variant={Variant})");
                     return true;
                 }
                 catch (Exception ex)
@@ -408,6 +459,8 @@ public sealed class CnvsPortInfo
 {
     public required string PortName { get; init; }
     public string Serial { get; init; } = "";
+    /// <summary>Operating USB PID (0B00/0B01/0B02/0BFF) the port matched — selects the firmware variant.</summary>
+    public int ProductId { get; init; }
 }
 
 /// <summary>OS-level CNVS USB-CDC port discovery. Windows uses SetupAPI;

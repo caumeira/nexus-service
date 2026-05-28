@@ -35,4 +35,9 @@ public sealed class CnvsHandler : IDeviceHandler
         detectedDevices.Any(d => Identifiers.Any(id => id.VendorId == d.VendorId && id.ProductId == d.ProductId));
 
     public string GetFirmwareVersion() => _hub.FirmwareVersion;
+
+    // CNVS firmware is variant-specific (Left/v1/White ship different images),
+    // so the catalog key is the connected variant — never the bare "cnvs" id,
+    // which has no bundled image. Empty/"cnvs" when not connected.
+    public string FirmwareType => _hub.Variant;
 }

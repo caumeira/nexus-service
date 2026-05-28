@@ -254,6 +254,16 @@
     </Content>
   </ItemGroup>
 
+  <!-- WinUSB driver (signed .inf + .cat + coinstallers) bound to the DFU
+       bootloader (VID 3402/PID 0A00) via pnputil before flashing. Committed. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\dfu-driver')">
+    <Content Include="Bundled\win-x64\dfu-driver\**\*.*">
+      <Link>dfu-driver\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
   <!-- Bundle ffmpeg for each platform. Used by media import (uploaded images/
        gifs/videos -> raw frame sequence), screen mirror (gdigrab on Win,
        avfoundation on mac -> lighting strip), and audio beats capture.

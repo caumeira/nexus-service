@@ -19,8 +19,10 @@ public sealed class DeviceListItem
 
 public sealed class FirmwareStatusItem
 {
-    /// <summary>Device id matching IDeviceHandler.Id (e.g. "np50", "cnvs", "fan-hub").</summary>
+    /// <summary>Device id matching IDeviceHandler.Id (e.g. "np50", "cnvs", "fan-hub"). Identity + icon key.</summary>
     public string DeviceType { get; set; } = "";
+    /// <summary>Firmware-catalog key (connected variant, e.g. "cnvs-left", "q60"). Pass this to the flash endpoint.</summary>
+    public string FirmwareType { get; set; } = "";
     public string Name { get; set; } = "";
     public string Category { get; set; } = "";
     /// <summary>Version the connected device reports, or empty when not yet read.</summary>
@@ -29,6 +31,40 @@ public sealed class FirmwareStatusItem
     public string AvailableVersion { get; set; } = "";
     /// <summary>True when the bundled version is strictly newer than the device's current version.</summary>
     public bool UpdateAvailable { get; set; }
+    /// <summary>All bundled versions for this device (newest first). Drives the dev-only version picker / downgrade.</summary>
+    public List<string> AvailableVersions { get; set; } = new();
+}
+
+// ----- /devices/firmware/flash — flash orchestration -----
+
+public sealed class FlashRequest
+{
+    /// <summary>Firmware-catalog key to flash (the connected variant, e.g. "cnvs-left").</summary>
+    public string DeviceType { get; set; } = "";
+    /// <summary>Bundled version to flash. Any bundled version is allowed (dev downgrade).</summary>
+    public string Version { get; set; } = "";
+}
+
+/// <summary>
+/// Global flash progress. A single flash runs at a time; the UI polls this so
+/// progress survives tab navigation (it's server-side state, not component state).
+/// </summary>
+public sealed class FlashStatusDto
+{
+    public bool Active { get; set; }
+    public string DeviceType { get; set; } = "";
+    public string Version { get; set; } = "";
+    /// <summary>idle | preparing | entering-dfu | waiting-dfu | downloading | verifying | finalizing | done | failed</summary>
+    public string Phase { get; set; } = "idle";
+    public int Percent { get; set; }
+    public string Message { get; set; } = "";
+    public bool Success { get; set; }
+    public string Error { get; set; } = "";
+}
+
+public sealed class FlashStartResponse : ApiResponse
+{
+    public bool Started { get; set; }
 }
 
 // ----- /devices/usb/all — raw USB device list with full details -----

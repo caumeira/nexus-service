@@ -1,7 +1,10 @@
 using System.Collections.Generic;
+using System.Linq;
+using Microsoft.AspNetCore.Http;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Models.Devices;
+using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Routes;
 
@@ -35,14 +38,31 @@ public static partial class DevicesRoutes
                 result.Add(new FirmwareStatusItem
                 {
                     DeviceType = d.Id,
+                    FirmwareType = d.FirmwareType,
                     Name = d.Name,
                     Category = d.Category,
                     CurrentVersion = d.FirmwareVersion,
                     AvailableVersion = available,
                     UpdateAvailable = BundledFirmwareCatalog.IsNewer(available, d.FirmwareVersion),
+                    AvailableVersions = catalog.GetAvailableVersions(d.FirmwareType).ToList(),
                 });
             }
             return result;
         });
+
+        // Start a flash (async). Body: { deviceType: <catalog key>, version }.
+        // deviceType is the firmware-catalog key (the connected variant), i.e.
+        // FirmwareStatusItem.FirmwareType — NOT the display id.
+        app.MapPost("/devices/firmware/flash", (FlashRequest body, FirmwareFlasher flasher) =>
+        {
+            if (flasher.TryStart(body.DeviceType, body.Version, out var error))
+                return Results.Json(new FlashStartResponse { Started = true }, AppJsonContext.Default.FlashStartResponse);
+            return Results.Json(new FlashStartResponse { Error = true, Msg = error, Started = false },
+                AppJsonContext.Default.FlashStartResponse, statusCode: StatusCodes.Status409Conflict);
+        });
+
+        // Poll flash progress. Global server-side state, so it survives the UI
+        // navigating between tabs.
+        app.MapGet("/devices/firmware/flash/status", (FirmwareFlasher flasher) => flasher.Status);
     }
 }
