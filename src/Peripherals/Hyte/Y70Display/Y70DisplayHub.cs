@@ -1,4 +1,5 @@
 using System;
+using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Peripherals.Hyte.Np50;
 
 namespace Nexus.Service.Peripherals.Hyte.Y70Display;
@@ -12,7 +13,7 @@ namespace Nexus.Service.Peripherals.Hyte.Y70Display;
 /// v1 reads firmware version + variant only. The same channel will later carry
 /// the in-app "drop into DFU" handshake the flasher needs.
 /// </summary>
-public sealed class Y70DisplayHub : IDisposable
+public sealed class Y70DisplayHub : IDisposable, IDfuFlashTarget
 {
     private readonly IY70DisplayPortDiscovery _discovery;
     private readonly Func<Np50PortInfo, INp50Transport> _transportFactory;
@@ -33,6 +34,26 @@ public sealed class Y70DisplayHub : IDisposable
     public string Variant => State.Variant;
 
     public string DeviceId => string.IsNullOrEmpty(State.Serial) ? "" : $"y70:{State.Serial}";
+
+    // ── IDfuFlashTarget ──
+    string IDfuFlashTarget.FirmwareType => IsConnected ? Variant : "";
+    bool IDfuFlashTarget.CanFlash(string firmwareType) =>
+        !string.IsNullOrEmpty(firmwareType) && firmwareType.StartsWith("y70", StringComparison.Ordinal);
+
+    /// <summary>Drop the Y70 display into DFU: write the OTA key + magic over the serial port, then release it.</summary>
+    public bool EnterDfuMode()
+    {
+        if (!EnsureConnected()) return false;
+        var t = _transport;
+        var pid = Y70DisplayProtocol.ProductIdForVariant(Variant);
+        if (t is null || pid < 0) return false;
+        var verify = OtaDfuEntry.SupportsPidCheck(Variant, State.FirmwareVersion);
+        bool ok;
+        try { ok = OtaDfuEntry.Enter(t, OtaProductKey.ForProductId(pid), verify); }
+        catch { ok = true; }
+        Disconnect();
+        return ok;
+    }
 
     public bool EnsureConnected()
     {

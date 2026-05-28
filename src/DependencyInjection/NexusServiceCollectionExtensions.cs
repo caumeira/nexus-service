@@ -258,6 +258,14 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Devices.Firmware.WinUsbDriverInstaller>();
         services.AddSingleton<Nexus.Service.Devices.Firmware.IDfuFlashTarget>(sp =>
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Cnvs.CnvsHub>());
+        services.AddSingleton<Nexus.Service.Devices.Firmware.IDfuFlashTarget>(sp =>
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Np50.Np50Hub>());
+        services.AddSingleton<Nexus.Service.Devices.Firmware.IDfuFlashTarget>(sp =>
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubHub>());
+        services.AddSingleton<Nexus.Service.Devices.Firmware.IDfuFlashTarget>(sp =>
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHub>());
+        services.AddSingleton<Nexus.Service.Devices.Firmware.IDfuFlashTarget>(sp =>
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Y70Display.Y70DisplayHub>());
         services.AddSingleton<Nexus.Service.Devices.Firmware.FirmwareFlasher>();
 
         // NP50 hub: serial port discovery + transport factory + singleton hub +

@@ -71,4 +71,13 @@ public static class Y70DisplayProtocol
         Y70TrulyProductId => VariantTruly,
         _ => "",
     };
+
+    /// <summary>Operating USB PID for a variant key (for the OTA product key), or -1 if unknown.</summary>
+    public static int ProductIdForVariant(string variant) => variant switch
+    {
+        VariantTouch => Y70TouchProductId,
+        VariantInfinite => Y70InfiniteProductId,
+        VariantTruly => Y70TrulyProductId,
+        _ => -1,
+    };
 }

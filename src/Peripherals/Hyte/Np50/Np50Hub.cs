@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
+using Nexus.Service.Devices.Firmware;
 
 namespace Nexus.Service.Peripherals.Hyte.Np50;
 
@@ -16,7 +17,7 @@ namespace Nexus.Service.Peripherals.Hyte.Np50;
 /// re-runs port discovery, so plugging in or unplugging the hub just shows
 /// up on the next heartbeat tick.
 /// </summary>
-public sealed class Np50Hub : IDisposable
+public sealed class Np50Hub : IDisposable, IDfuFlashTarget
 {
     /// <summary>
     /// Single source of truth for this device's user-facing product label.
@@ -62,6 +63,29 @@ public sealed class Np50Hub : IDisposable
 
     /// <summary>"np50:&lt;serial&gt;" device id, or empty when never connected.</summary>
     public string DeviceId => string.IsNullOrEmpty(State.Serial) ? "" : $"np50:{State.Serial}";
+
+    // ── IDfuFlashTarget ──
+    string IDfuFlashTarget.FirmwareType => IsConnected ? "np50" : "";
+    bool IDfuFlashTarget.CanFlash(string firmwareType) => firmwareType == "np50";
+
+    /// <summary>
+    /// Drop the NP50 into DFU: write the OTA key + magic over the serial port,
+    /// then release it for dfu-util. NP50 ≥2.0.4.1 supports the FF DC 07 key
+    /// readback, so the handshake verifies before sending the magic (gated on
+    /// the current version, so a downgraded unit correctly skips verify).
+    /// </summary>
+    public bool EnterDfuMode()
+    {
+        if (!EnsureConnected()) return false;
+        var t = _transport;
+        if (t is null) return false;
+        var verify = OtaDfuEntry.SupportsPidCheck("np50", State.FirmwareVersion);
+        bool ok;
+        try { ok = OtaDfuEntry.Enter(t, OtaProductKey.ForProductId(Np50Protocol.ProductId), verify); }
+        catch { ok = true; /* port drops as the device reboots into DFU */ }
+        Disconnect();
+        return ok;
+    }
 
     /// <summary>
     /// Try to open the first NP50 port we can find. No-op if already connected.

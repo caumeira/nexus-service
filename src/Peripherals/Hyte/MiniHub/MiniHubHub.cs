@@ -1,5 +1,6 @@
 using System;
 using System.Threading;
+using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Peripherals.Hyte.Np50;
 
 namespace Nexus.Service.Peripherals.Hyte.MiniHub;
@@ -10,7 +11,7 @@ namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 /// snapshot, and lets capability classes push LED frames. v1 ships
 /// lighting-only — fan poll/control is a follow-up.
 /// </summary>
-public sealed class MiniHubHub : IDisposable
+public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
 {
     /// <summary>
     /// Single source of truth for this device's user-facing product label.
@@ -41,6 +42,24 @@ public sealed class MiniHubHub : IDisposable
     public MiniHubState State { get; } = new();
     public bool IsConnected => _transport is { IsOpen: true };
     public string DeviceId => string.IsNullOrEmpty(State.Serial) ? "" : $"minihub:{State.Serial}";
+
+    // ── IDfuFlashTarget ──
+    string IDfuFlashTarget.FirmwareType => IsConnected ? "fan-hub" : "";
+    bool IDfuFlashTarget.CanFlash(string firmwareType) => firmwareType == "fan-hub";
+
+    /// <summary>Drop the MiniHub into DFU: write the OTA key + magic over the serial port, then release it for dfu-util.</summary>
+    public bool EnterDfuMode()
+    {
+        if (!EnsureConnected()) return false;
+        var t = _transport;
+        if (t is null) return false;
+        var verify = OtaDfuEntry.SupportsPidCheck("fan-hub", State.FirmwareVersion);
+        bool ok;
+        try { ok = OtaDfuEntry.Enter(t, OtaProductKey.ForProductId(MiniHubProtocol.ProductId), verify); }
+        catch { ok = true; /* port drops as the device reboots into DFU */ }
+        Disconnect();
+        return ok;
+    }
 
     /// <summary>
     /// User-pinned fan-control mode. Null = unpinned (cooling provider

@@ -29,6 +29,14 @@ public static class QSeriesCoolerProtocol
     public const string VariantQ60 = "q60";
     public const string VariantQ80 = "q80";
 
+    /// <summary>Operating USB PID for a variant key (for the OTA product key), or -1 if unknown.</summary>
+    public static int ProductIdForVariant(string variant) => variant switch
+    {
+        VariantQ60 => Q60ProductId,
+        VariantQ80 => Q80ProductId,
+        _ => -1,
+    };
+
     // ── Wire constants ──
 
     private const byte Frame0 = 0xFF;

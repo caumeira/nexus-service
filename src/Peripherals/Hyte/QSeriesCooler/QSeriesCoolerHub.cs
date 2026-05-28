@@ -1,4 +1,5 @@
 using System;
+using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Peripherals.Hyte.Np50;
 
 namespace Nexus.Service.Peripherals.Hyte.QSeriesCooler;
@@ -12,7 +13,7 @@ namespace Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 /// v1 reads firmware version + variant only. The same channel will later carry
 /// the in-app "drop into DFU" handshake that the flasher needs.
 /// </summary>
-public sealed class QSeriesCoolerHub : IDisposable
+public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
 {
     private readonly IQSeriesCoolerPortDiscovery _discovery;
     private readonly Func<Np50PortInfo, INp50Transport> _transportFactory;
@@ -33,6 +34,26 @@ public sealed class QSeriesCoolerHub : IDisposable
     public string Variant => State.Variant;
 
     public string DeviceId => string.IsNullOrEmpty(State.Serial) ? "" : $"qseries:{State.Serial}";
+
+    // ── IDfuFlashTarget ──
+    string IDfuFlashTarget.FirmwareType => IsConnected ? Variant : "";
+    bool IDfuFlashTarget.CanFlash(string firmwareType) =>
+        firmwareType == QSeriesCoolerProtocol.VariantQ60 || firmwareType == QSeriesCoolerProtocol.VariantQ80;
+
+    /// <summary>Drop the Q-series cooler into DFU: write the OTA key + magic over the serial port, then release it.</summary>
+    public bool EnterDfuMode()
+    {
+        if (!EnsureConnected()) return false;
+        var t = _transport;
+        var pid = QSeriesCoolerProtocol.ProductIdForVariant(Variant);
+        if (t is null || pid < 0) return false;
+        var verify = OtaDfuEntry.SupportsPidCheck(Variant, State.FirmwareVersion);
+        bool ok;
+        try { ok = OtaDfuEntry.Enter(t, OtaProductKey.ForProductId(pid), verify); }
+        catch { ok = true; }
+        Disconnect();
+        return ok;
+    }
 
     public bool EnsureConnected()
     {
