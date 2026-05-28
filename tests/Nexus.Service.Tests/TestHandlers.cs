@@ -3,6 +3,7 @@ using Nexus.Service.Devices.Handlers;
 using Nexus.Service.Peripherals.Hyte.Cnvs;
 using Nexus.Service.Peripherals.Hyte.MiniHub;
 using Nexus.Service.Peripherals.Hyte.QSeriesCooler;
+using Nexus.Service.Peripherals.Hyte.Y70Display;
 
 namespace Nexus.Service.Tests;
 
@@ -23,4 +24,8 @@ internal static class TestHandlers
     public static QSeriesHandler QSeries() => new(new QSeriesCoolerHub(
         new StubQSeriesCoolerPortDiscovery(),
         _ => throw new InvalidOperationException("Q-series transport is not expected in detection tests")));
+
+    public static Y70Handler Y70() => new(new Y70DisplayHub(
+        new StubY70DisplayPortDiscovery(),
+        _ => throw new InvalidOperationException("Y70 transport is not expected in detection tests")));
 }

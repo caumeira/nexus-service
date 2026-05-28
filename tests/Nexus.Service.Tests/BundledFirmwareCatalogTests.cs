@@ -16,6 +16,9 @@ public class BundledFirmwareCatalogTests
         Assert.Contains("fan-hub", _catalog.DeviceIds);
         Assert.Contains("q60", _catalog.DeviceIds);
         Assert.Contains("q80", _catalog.DeviceIds);
+        Assert.Contains("y70-touch", _catalog.DeviceIds);
+        Assert.Contains("y70-infinite", _catalog.DeviceIds);
+        Assert.Contains("y70-truly", _catalog.DeviceIds);
     }
 
     [Theory]
@@ -24,6 +27,9 @@ public class BundledFirmwareCatalogTests
     [InlineData("fan-hub", "1.0.1.1")]
     [InlineData("q60", "2.0.9.1")]
     [InlineData("q80", "1.0.9.1")]
+    [InlineData("y70-touch", "1.0.3.1")]
+    [InlineData("y70-infinite", "1.0.3.1")]
+    [InlineData("y70-truly", "1.0.3.1")]
     public void GetLatestVersion_returns_the_bundled_version(string deviceId, string expected)
     {
         Assert.Equal(expected, _catalog.GetLatestVersion(deviceId));
@@ -32,6 +38,8 @@ public class BundledFirmwareCatalogTests
     [Fact]
     public void GetLatestVersion_is_empty_for_unbundled_devices()
     {
+        // The bare handler ids ("y70" / "qseries") have no bundle — they're the
+        // "variant not yet identified" sentinels.
         Assert.Equal("", _catalog.GetLatestVersion("y70"));
         Assert.Equal("", _catalog.GetLatestVersion("qseries"));
         Assert.Equal("", _catalog.GetLatestVersion(""));

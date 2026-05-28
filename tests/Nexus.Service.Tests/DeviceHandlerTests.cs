@@ -163,7 +163,7 @@ public class DeviceHandlerTests
     [Fact]
     public void Y70_and_QSeries_categories_are_displays()
     {
-        var y70 = new Y70Handler();
+        var y70 = TestHandlers.Y70();
         var qs = TestHandlers.QSeries();
         // Both are device-display peripherals; exact category strings are
         // implementation detail but should be non-empty.
@@ -175,7 +175,7 @@ public class DeviceHandlerTests
     {
         yield return new object[] { TestHandlers.Cnvs() };
         yield return new object[] { TestHandlers.QSeries() };
-        yield return new object[] { new Y70Handler() };
+        yield return new object[] { TestHandlers.Y70() };
         yield return new object[] { new KeebHandler() };
         yield return new object[] { TestHandlers.FanHub() };
     }

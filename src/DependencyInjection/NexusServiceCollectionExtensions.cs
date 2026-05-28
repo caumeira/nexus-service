@@ -309,6 +309,25 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp =>
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHeartbeatWorker>());
 
+        // Y70 Touch display controller (Touch / Infinite / Truly): serial-over-USB
+        // hub mirroring the Q-series stack. Reads firmware version + variant for the
+        // Firmware Updates page. Reuses Np50SerialTransport; discovery is Windows-only.
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Y70Display.Y70DisplayHub>(sp =>
+        {
+            Nexus.Service.Peripherals.Hyte.Y70Display.IY70DisplayPortDiscovery discovery;
+#if WINDOWS
+            discovery = new Nexus.Service.Peripherals.Hyte.Y70Display.WindowsY70DisplayPortDiscovery();
+#else
+            discovery = new Nexus.Service.Peripherals.Hyte.Y70Display.StubY70DisplayPortDiscovery();
+#endif
+            return new Nexus.Service.Peripherals.Hyte.Y70Display.Y70DisplayHub(
+                discovery,
+                port => new Nexus.Service.Peripherals.Hyte.Np50.Np50SerialTransport(port.PortName, port.Serial));
+        });
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Y70Display.Y70DisplayHeartbeatWorker>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Y70Display.Y70DisplayHeartbeatWorker>());
+
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Devices.Detection.WindowsUsbEnumerator>();
         services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>
