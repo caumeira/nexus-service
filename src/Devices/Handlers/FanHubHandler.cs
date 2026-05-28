@@ -26,8 +26,14 @@ public sealed class FanHubHandler : IDeviceHandler
         new UsbId(HyteVid, 0x0A04), // PWM Fan + ARGB Hub
     };
 
-    public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices) =>
-        detectedDevices.Any(d => Identifiers.Any(id => id.VendorId == d.VendorId && id.ProductId == d.ProductId));
+    public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices)
+    {
+        // Prefer the hub's live opinion (it has actually opened the serial
+        // port) over USB enumeration — the MiniHub talks over a serial bridge
+        // and doesn't always surface under its USB VID/PID. Mirrors Np50Handler.
+        if (_hub.IsConnected) return true;
+        return detectedDevices.Any(d => Identifiers.Any(id => id.VendorId == d.VendorId && id.ProductId == d.ProductId));
+    }
 
     public string GetFirmwareVersion() => _hub.State.FirmwareVersion;
 }
