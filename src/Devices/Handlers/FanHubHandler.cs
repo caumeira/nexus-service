@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Nexus.Service.Peripherals.Hyte.MiniHub;
 
 namespace Nexus.Service.Devices.Handlers;
 
@@ -7,6 +8,13 @@ namespace Nexus.Service.Devices.Handlers;
 public sealed class FanHubHandler : IDeviceHandler
 {
     private const int HyteVid = 0x3402;
+
+    private readonly MiniHubHub _hub;
+
+    public FanHubHandler(MiniHubHub hub)
+    {
+        _hub = hub;
+    }
 
     public string Id => "fan-hub";
     public string Name => "Fan Hub";
@@ -21,5 +29,5 @@ public sealed class FanHubHandler : IDeviceHandler
     public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices) =>
         detectedDevices.Any(d => Identifiers.Any(id => id.VendorId == d.VendorId && id.ProductId == d.ProductId));
 
-    public string GetFirmwareVersion() => "";
+    public string GetFirmwareVersion() => _hub.State.FirmwareVersion;
 }

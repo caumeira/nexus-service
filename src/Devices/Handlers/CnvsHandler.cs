@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Linq;
+using Nexus.Service.Peripherals.Hyte.Cnvs;
 
 namespace Nexus.Service.Devices.Handlers;
 
@@ -10,6 +11,13 @@ namespace Nexus.Service.Devices.Handlers;
 public sealed class CnvsHandler : IDeviceHandler
 {
     private const int HyteVid = 0x3402;
+
+    private readonly CnvsHub _hub;
+
+    public CnvsHandler(CnvsHub hub)
+    {
+        _hub = hub;
+    }
 
     public string Id => "cnvs";
     public string Name => "CNVS";
@@ -26,5 +34,5 @@ public sealed class CnvsHandler : IDeviceHandler
     public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices) =>
         detectedDevices.Any(d => Identifiers.Any(id => id.VendorId == d.VendorId && id.ProductId == d.ProductId));
 
-    public string GetFirmwareVersion() => ""; // TODO: read via HID serial protocol
+    public string GetFirmwareVersion() => _hub.FirmwareVersion;
 }

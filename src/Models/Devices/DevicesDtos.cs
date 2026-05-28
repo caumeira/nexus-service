@@ -13,6 +13,22 @@ public sealed class DeviceListItem
     public string FirmwareVersion { get; set; } = "";
 }
 
+// ----- /devices/firmware/status — current vs bundled-available firmware -----
+
+public sealed class FirmwareStatusItem
+{
+    /// <summary>Device id matching IDeviceHandler.Id (e.g. "np50", "cnvs", "fan-hub").</summary>
+    public string DeviceType { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Category { get; set; } = "";
+    /// <summary>Version the connected device reports, or empty when not yet read.</summary>
+    public string CurrentVersion { get; set; } = "";
+    /// <summary>Newest version bundled in this build for the device.</summary>
+    public string AvailableVersion { get; set; } = "";
+    /// <summary>True when the bundled version is strictly newer than the device's current version.</summary>
+    public bool UpdateAvailable { get; set; }
+}
+
 // ----- /devices/usb/all — raw USB device list with full details -----
 
 public sealed class UsbDeviceDetail

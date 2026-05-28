@@ -245,6 +245,10 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.FanHubHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Np50Handler>();
 
+        // Read-only catalog of firmware images embedded in this build. Backs
+        // the Firmware Updates page's "available version" column.
+        services.AddSingleton<Nexus.Service.Devices.Firmware.BundledFirmwareCatalog>();
+
         // NP50 hub: serial port discovery + transport factory + singleton hub +
         // 2-second heartbeat poller. Discovery is Windows-only for now; non-
         // Windows builds get a stub that finds nothing (the hub silently stays

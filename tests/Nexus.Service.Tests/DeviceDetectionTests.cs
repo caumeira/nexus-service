@@ -25,9 +25,9 @@ public class DeviceDetectionTests
 {
     private static readonly IDeviceHandler[] AllHandlers =
     {
-        new CnvsHandler(),
+        TestHandlers.Cnvs(),
         new QSeriesHandler(),
-        new FanHubHandler(),
+        TestHandlers.FanHub(),
     };
 
     // ---- DeviceManager.GetAll() returns all registered handlers as DeviceListItems ----
@@ -106,7 +106,7 @@ public class DeviceDetectionTests
     [InlineData(0x0B02)]
     public void CnvsHandler_RecognizesAllVariants(int productId)
     {
-        var handler = new CnvsHandler();
+        var handler = TestHandlers.Cnvs();
         var devices = new List<UsbDeviceEntry>
         {
             new() { VendorId = 0x3402, ProductId = productId, Name = "CNVS Variant" },
@@ -118,7 +118,7 @@ public class DeviceDetectionTests
     [Fact]
     public void CnvsHandler_DoesNotMatchUnknownPid()
     {
-        var handler = new CnvsHandler();
+        var handler = TestHandlers.Cnvs();
         var devices = new List<UsbDeviceEntry>
         {
             new() { VendorId = 0x3402, ProductId = 0x9999, Name = "Unknown" },
@@ -189,7 +189,7 @@ public class DeviceDetectionTests
     public void GetAll_WithSubsetOfHandlers_ReturnsCorrectCount()
     {
         var manager = new DeviceManager(
-            new IDeviceHandler[] { new CnvsHandler(), new FanHubHandler() },
+            new IDeviceHandler[] { TestHandlers.Cnvs(), TestHandlers.FanHub() },
             new StubUsbEnumerator()
         );
 

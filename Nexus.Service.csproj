@@ -173,6 +173,18 @@
     </EmbeddedResource>
   </ItemGroup>
 
+  <!-- Bundled device firmware images, one .hex per (device, version) under
+       data/firmware/<deviceId>/<version>.hex. Embedded so the firmware ships
+       inside the single AOT binary (no loose files, no OTA download path).
+       BundledFirmwareCatalog enumerates these manifest names to report the
+       "available" version on the Firmware Updates page. deviceId matches
+       IDeviceHandler.Id; fan-hub bundles the Mini Hub image. -->
+  <ItemGroup>
+    <EmbeddedResource Include="data\firmware\**\*.hex">
+      <LogicalName>firmware/%(RecursiveDir)%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+
   <!-- macOS status bar icons (template images that adapt to dark/light menu bar) -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('OSX')) OR $(RuntimeIdentifier.StartsWith('osx'))">
     <Content Include="Bundled\macos\status-icon.png">

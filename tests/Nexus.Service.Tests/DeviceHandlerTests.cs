@@ -20,7 +20,7 @@ public class DeviceHandlerTests
     [Fact]
     public void Cnvs_id_and_metadata()
     {
-        var h = new CnvsHandler();
+        var h = TestHandlers.Cnvs();
         Assert.Equal("cnvs", h.Id);
         Assert.Equal("CNVS", h.Name);
         Assert.Equal("controller", h.Category);
@@ -30,7 +30,7 @@ public class DeviceHandlerTests
     [Fact]
     public void Cnvs_detects_known_vid_pids()
     {
-        var h = new CnvsHandler();
+        var h = TestHandlers.Cnvs();
         foreach (var id in h.Identifiers)
         {
             var detected = new List<UsbDeviceEntry> { Entry(id.VendorId, id.ProductId) };
@@ -41,7 +41,7 @@ public class DeviceHandlerTests
     [Fact]
     public void Cnvs_does_not_falsely_match_random_vid()
     {
-        var h = new CnvsHandler();
+        var h = TestHandlers.Cnvs();
         var detected = new List<UsbDeviceEntry> { Entry(0x046d, 0xc52b) }; // Logitech mouse
         Assert.False(h.IsConnected(detected));
     }
@@ -49,7 +49,7 @@ public class DeviceHandlerTests
     [Fact]
     public void Cnvs_returns_empty_firmware_when_disconnected()
     {
-        var h = new CnvsHandler();
+        var h = TestHandlers.Cnvs();
         Assert.Equal(string.Empty, h.GetFirmwareVersion());
     }
 
@@ -173,10 +173,10 @@ public class DeviceHandlerTests
 
     public static IEnumerable<object[]> AllHandlers()
     {
-        yield return new object[] { new CnvsHandler() };
+        yield return new object[] { TestHandlers.Cnvs() };
         yield return new object[] { new QSeriesHandler() };
         yield return new object[] { new Y70Handler() };
         yield return new object[] { new KeebHandler() };
-        yield return new object[] { new FanHubHandler() };
+        yield return new object[] { TestHandlers.FanHub() };
     }
 }
