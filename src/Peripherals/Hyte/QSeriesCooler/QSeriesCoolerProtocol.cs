@@ -1,5 +1,6 @@
 using System;
 using System.Text;
+using Nexus.Service.Peripherals.Hyte.MiniHub; // RgbColor: shared HYTE serial RGB triple
 
 namespace Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 
@@ -49,6 +50,31 @@ public static class QSeriesCoolerProtocol
     public const int FirmwareVersionResponseLength = 7;
     public const int SerialResponseLength = 37;
 
+    // ── Lighting wire constants ──
+    //
+    // Mirrors the legacy PQSeriesDeviceBase.SendToHardware flow: enable software
+    // RGB control, then stream each of the 4 LED ports as a fixed 90-byte frame.
+    // Bytes after the 7-byte header are G,R,B triples (HYTE firmware expects GRB,
+    // same as MiniHub/NP50). The two LED-count header bytes are the hardcoded
+    // magic 0x01 0x68 the reference agent always emits regardless of real count.
+    private const byte OpLighting = 0xEE;          // LED streaming
+    private const byte SubStreaming = 0x01;        // Q-series stream sub-op (MiniHub uses 0x03)
+    private const byte SubSetRgbControlMode = 0x03;
+    private const byte LedCountMagicHigh = 0x01;
+    private const byte LedCountMagicLow = 0x68;
+
+    public const byte RgbModeSoftware = 0x00;      // nexus drives the LEDs
+    public const byte RgbModeMotherboard = 0x01;   // hand off to the mobo ARGB header (power-on default)
+
+    /// <summary>The Q-series cooler hub streams over 4 LED ports (pump head + fan/strip channels).</summary>
+    public const int LedPortCount = 4;
+
+    /// <summary>Every streamed port frame is exactly this many bytes: 7-byte header + zero-padded GRB data.</summary>
+    public const int StreamFrameLength = 90;
+
+    /// <summary>Max LEDs carried in one port frame = floor((90 - 7) / 3).</summary>
+    public const int MaxLedsPerPort = (StreamFrameLength - 7) / 3; // 27
+
     // ── Builders ──
 
     /// <summary>Build the "Get Firmware Version" request (3 bytes).</summary>
@@ -56,6 +82,49 @@ public static class QSeriesCoolerProtocol
 
     /// <summary>Build the "Get Serial Number" request (4 bytes).</summary>
     public static byte[] BuildGetSerial() => new byte[] { Frame0, OpSerialA, OpSerialB, SubGetSerial };
+
+    /// <summary>
+    /// Build the "Set RGB Control Mode" request (4 bytes). <see cref="RgbModeSoftware"/> gives
+    /// nexus full control of the LEDs; <see cref="RgbModeMotherboard"/> hands off to the
+    /// motherboard ARGB header (the default after a power cycle). Software mode must be set
+    /// before any <see cref="BuildLightingStream"/> write actually reaches the LEDs.
+    /// </summary>
+    public static byte[] BuildSetRgbControlMode(byte mode)
+    {
+        if (mode != RgbModeSoftware && mode != RgbModeMotherboard)
+            throw new ArgumentException($"Unknown RGB control mode 0x{mode:X2}", nameof(mode));
+        return new byte[] { Frame0, OpControl, SubSetRgbControlMode, mode };
+    }
+
+    /// <summary>
+    /// Build a fixed 90-byte LED streaming frame for one port (1..<see cref="LedPortCount"/>).
+    /// Header is <c>FF EE 01 &lt;port&gt; 01 68 00</c>; the remaining bytes are G,R,B triples,
+    /// zero-padded past the supplied LED count so trailing/disconnected LEDs go dark. LEDs past
+    /// <see cref="MaxLedsPerPort"/> are dropped to keep the frame exactly <see cref="StreamFrameLength"/>.
+    /// Matches legacy PQSeriesDeviceBase.SendToHardware (4 ports, PadListWithZeros(90), GRB order).
+    /// </summary>
+    public static byte[] BuildLightingStream(int port, ReadOnlySpan<RgbColor> leds)
+    {
+        if (port < 1 || port > LedPortCount)
+            throw new ArgumentOutOfRangeException(nameof(port), port, $"Port must be in 1..{LedPortCount}.");
+        var buf = new byte[StreamFrameLength];
+        buf[0] = Frame0;
+        buf[1] = OpLighting;
+        buf[2] = SubStreaming;
+        buf[3] = (byte)port;
+        buf[4] = LedCountMagicHigh;
+        buf[5] = LedCountMagicLow;
+        // buf[6] reserved (0)
+        var count = Math.Min(leds.Length, MaxLedsPerPort);
+        for (var i = 0; i < count; i++)
+        {
+            var off = 7 + i * 3;
+            buf[off + 0] = leds[i].G;
+            buf[off + 1] = leds[i].R;
+            buf[off + 2] = leds[i].B;
+        }
+        return buf;
+    }
 
     // ── Parsers ──
 
