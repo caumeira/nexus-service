@@ -35,6 +35,14 @@
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
   </PropertyGroup>
 
+  <!-- DEV_TOOLS: internal/test builds only. Publish with -p:DevTools=true to
+       include firmware downgrade / cross-branch flashing (status DevImages +
+       the TryStart allowance). Off by default so release publishes don't carry
+       the brick-capable paths. Mirrors the web __DEV_TOOLS__ build define. -->
+  <PropertyGroup Condition="'$(DevTools)' == 'true'">
+    <DefineConstants>$(DefineConstants);DEV_TOOLS</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))">
     <PackageReference Include="LibreHardwareMonitorLib" Version="0.9.6" />
     <PackageReference Include="Microsoft.Diagnostics.Tracing.TraceEvent" Version="3.1.13" />

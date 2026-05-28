@@ -79,6 +79,16 @@ public sealed class FirmwareFlasher
             var target = _targets.FirstOrDefault(t => t.IsConnected && t.CanFlash(deviceType));
             if (target is null) { error = $"No connected device can flash {deviceType}."; return false; }
 
+#if !DEV_TOOLS
+            // Release builds permit upgrades only: the connected variant's latest
+            // bundled image. Cross-variant and downgrade / re-flash are dev-tools-
+            // only (brick risk) and gated out of release — see the DEV_TOOLS define.
+            if (deviceType != target.FirmwareType)
+            { error = "Cross-variant flashing is not permitted in this build."; return false; }
+            if (version != _catalog.GetLatestVersion(deviceType))
+            { error = "Only the latest firmware version can be installed."; return false; }
+#endif
+
             _flashing = true;
             Status.Active = true;
             Status.DeviceType = deviceType;

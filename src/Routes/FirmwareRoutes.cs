@@ -45,7 +45,13 @@ public static partial class DevicesRoutes
                     AvailableVersion = available,
                     UpdateAvailable = BundledFirmwareCatalog.IsNewer(available, d.FirmwareVersion),
                     AvailableVersions = catalog.GetAvailableVersions(d.FirmwareType).ToList(),
+#if DEV_TOOLS
+                    // Cross-branch / downgrade images for the dev-only picker.
+                    // Absent from release builds so the UI can't offer them.
                     DevImages = flasher.FlashableImages(d.FirmwareType).ToList(),
+#else
+                    DevImages = new List<FlashableImage>(),
+#endif
                 });
             }
             return result;
