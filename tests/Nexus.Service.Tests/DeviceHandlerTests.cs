@@ -98,7 +98,7 @@ public class DeviceHandlerTests
     [Fact]
     public void QSeries_handler_detects_by_product_name()
     {
-        var qs = new QSeriesHandler();
+        var qs = TestHandlers.QSeries();
         // Bench-verified product strings from a real Q60 (and the
         // analogous Q80 ones). VID is one of the known Q-series vendors
         // (MediaTek 0x0E8D or HYTE 0x3402); PID can be anything.
@@ -119,7 +119,7 @@ public class DeviceHandlerTests
     [Fact]
     public void QSeries_handler_rejects_non_qseries_devices_under_known_vids()
     {
-        var qs = new QSeriesHandler();
+        var qs = TestHandlers.QSeries();
         // MediaTek and HYTE VIDs cover lots of other devices; the name
         // gate keeps the handler from claiming them all.
         Assert.False(qs.IsConnected(new List<UsbDeviceEntry>
@@ -135,7 +135,7 @@ public class DeviceHandlerTests
     [Fact]
     public void QSeries_handler_rejects_qseries_name_under_unknown_vid()
     {
-        var qs = new QSeriesHandler();
+        var qs = TestHandlers.QSeries();
         // A random "Q60" in the descriptor under a third-party VID
         // shouldn't trip the handler — keeps the name-match honest.
         Assert.False(qs.IsConnected(new List<UsbDeviceEntry>
@@ -147,7 +147,7 @@ public class DeviceHandlerTests
     [Fact]
     public void QSeries_handler_covers_Q60_and_Q80()
     {
-        var qs = new QSeriesHandler();
+        var qs = TestHandlers.QSeries();
         // Q-series handler reports both PIDs under both VIDs; the on-
         // device runtime and the nexus panel pipeline treat Q60 and Q80
         // identically. Bench firmware enumerates under MediaTek's VID
@@ -164,7 +164,7 @@ public class DeviceHandlerTests
     public void Y70_and_QSeries_categories_are_displays()
     {
         var y70 = new Y70Handler();
-        var qs = new QSeriesHandler();
+        var qs = TestHandlers.QSeries();
         // Both are device-display peripherals; exact category strings are
         // implementation detail but should be non-empty.
         Assert.False(string.IsNullOrEmpty(y70.Category));
@@ -174,7 +174,7 @@ public class DeviceHandlerTests
     public static IEnumerable<object[]> AllHandlers()
     {
         yield return new object[] { TestHandlers.Cnvs() };
-        yield return new object[] { new QSeriesHandler() };
+        yield return new object[] { TestHandlers.QSeries() };
         yield return new object[] { new Y70Handler() };
         yield return new object[] { new KeebHandler() };
         yield return new object[] { TestHandlers.FanHub() };

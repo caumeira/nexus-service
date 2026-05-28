@@ -14,12 +14,16 @@ public class BundledFirmwareCatalogTests
         Assert.Contains("np50", _catalog.DeviceIds);
         Assert.Contains("cnvs", _catalog.DeviceIds);
         Assert.Contains("fan-hub", _catalog.DeviceIds);
+        Assert.Contains("q60", _catalog.DeviceIds);
+        Assert.Contains("q80", _catalog.DeviceIds);
     }
 
     [Theory]
     [InlineData("np50", "2.0.5.1")]
     [InlineData("cnvs", "1.0.2.2")]
     [InlineData("fan-hub", "1.0.1.1")]
+    [InlineData("q60", "2.0.9.1")]
+    [InlineData("q80", "1.0.9.1")]
     public void GetLatestVersion_returns_the_bundled_version(string deviceId, string expected)
     {
         Assert.Equal(expected, _catalog.GetLatestVersion(deviceId));
@@ -29,6 +33,7 @@ public class BundledFirmwareCatalogTests
     public void GetLatestVersion_is_empty_for_unbundled_devices()
     {
         Assert.Equal("", _catalog.GetLatestVersion("y70"));
+        Assert.Equal("", _catalog.GetLatestVersion("qseries"));
         Assert.Equal("", _catalog.GetLatestVersion(""));
     }
 

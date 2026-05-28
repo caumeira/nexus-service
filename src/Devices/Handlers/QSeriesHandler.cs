@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 
 namespace Nexus.Service.Devices.Handlers;
 
@@ -44,8 +45,26 @@ public sealed class QSeriesHandler : IDeviceHandler
     /// </summary>
     private static readonly HashSet<int> KnownQseriesVids = new() { MediatekVid, HyteVid };
 
+    private readonly QSeriesCoolerHub _hub;
+
+    public QSeriesHandler(QSeriesCoolerHub hub)
+    {
+        _hub = hub;
+    }
+
     public string Id => "qseries";
-    public string Name => "Q-series";
+
+    // Variant-aware label: once the cooler controller reports which model is
+    // attached, show "Q60" / "Q80" (the frontend deliberately leaves qseries
+    // out of its short-name map so the service-reported name wins). Falls back
+    // to "Q-series" before the cooler hub has connected.
+    public string Name => _hub.Variant switch
+    {
+        QSeriesCoolerProtocol.VariantQ60 => "Q60",
+        QSeriesCoolerProtocol.VariantQ80 => "Q80",
+        _ => "Q-series",
+    };
+
     public string Category => "display";
 
     public IReadOnlyList<UsbId> Identifiers { get; } = new[]
@@ -61,8 +80,14 @@ public sealed class QSeriesHandler : IDeviceHandler
         new UsbId(HyteVid, 0x0603),     // legacy/expected
     };
 
-    public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices) =>
-        detectedDevices.Any(MatchesQseries);
+    public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices)
+    {
+        // Trust the cooler controller's live serial connection (it has actually
+        // opened the COM port) the same way Np50Handler / FanHubHandler do, then
+        // fall back to USB product-name matching for the LCD-panel side.
+        if (_hub.IsConnected) return true;
+        return detectedDevices.Any(MatchesQseries);
+    }
 
     private static bool MatchesQseries(UsbDeviceEntry d)
     {
@@ -76,5 +101,11 @@ public sealed class QSeriesHandler : IDeviceHandler
         return false;
     }
 
-    public string GetFirmwareVersion() => "";
+    public string GetFirmwareVersion() => _hub.State.FirmwareVersion;
+
+    // "q60" / "q80" once the cooler reports its variant, so the firmware
+    // catalog offers the matching image. Before that we return Id ("qseries"),
+    // which has no bundled firmware, so the device simply isn't offered an
+    // update until the variant is known.
+    public string FirmwareType => string.IsNullOrEmpty(_hub.Variant) ? Id : _hub.Variant;
 }

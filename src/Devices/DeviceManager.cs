@@ -33,6 +33,7 @@ public sealed class DeviceManager
             Category = h.Category,
             Connected = h.IsConnected(usbDevices),
             FirmwareVersion = h.GetFirmwareVersion(),
+            FirmwareType = h.FirmwareType,
         }).ToList();
     }
 

@@ -289,6 +289,26 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp =>
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubHeartbeatWorker>());
 
+        // Q-series cooler controller (Q60 / Q80): serial-over-USB hub mirroring
+        // the MiniHub stack. Reads firmware version + variant so the Firmware
+        // Updates page can show current-vs-available. Reuses the product-agnostic
+        // Np50SerialTransport; discovery is Windows-only (stub elsewhere).
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHub>(sp =>
+        {
+            Nexus.Service.Peripherals.Hyte.QSeriesCooler.IQSeriesCoolerPortDiscovery discovery;
+#if WINDOWS
+            discovery = new Nexus.Service.Peripherals.Hyte.QSeriesCooler.WindowsQSeriesCoolerPortDiscovery();
+#else
+            discovery = new Nexus.Service.Peripherals.Hyte.QSeriesCooler.StubQSeriesCoolerPortDiscovery();
+#endif
+            return new Nexus.Service.Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHub(
+                discovery,
+                port => new Nexus.Service.Peripherals.Hyte.Np50.Np50SerialTransport(port.PortName, port.Serial));
+        });
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHeartbeatWorker>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHeartbeatWorker>());
+
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Devices.Detection.WindowsUsbEnumerator>();
         services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>

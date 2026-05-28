@@ -27,7 +27,9 @@ public static partial class DevicesRoutes
             {
                 if (!d.Connected) continue;
 
-                var available = catalog.GetLatestVersion(d.Id);
+                // FirmwareType is the catalog key: Id for most devices, the
+                // connected variant ("q60"/"q80") for Q-series.
+                var available = catalog.GetLatestVersion(d.FirmwareType);
                 if (string.IsNullOrEmpty(available)) continue;
 
                 result.Add(new FirmwareStatusItem

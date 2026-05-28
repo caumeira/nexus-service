@@ -26,6 +26,16 @@ public interface IDeviceHandler
 
     /// <summary>Current firmware version, or empty string if unavailable.</summary>
     string GetFirmwareVersion();
+
+    /// <summary>
+    /// Firmware-catalog key — the bundled-.hex directory name used to look up
+    /// the available firmware version. Defaults to <see cref="Id"/>. Handlers
+    /// that cover several firmware variants under one id (Q-series → "q60" /
+    /// "q80") override this with the connected variant so the right image is
+    /// offered. Returns <see cref="Id"/> (no bundled firmware) when the variant
+    /// isn't yet known.
+    /// </summary>
+    string FirmwareType => Id;
 }
 
 /// <summary>USB Vendor ID + Product ID pair.</summary>

@@ -26,7 +26,7 @@ public class DeviceDetectionTests
     private static readonly IDeviceHandler[] AllHandlers =
     {
         TestHandlers.Cnvs(),
-        new QSeriesHandler(),
+        TestHandlers.QSeries(),
         TestHandlers.FanHub(),
     };
 
@@ -66,7 +66,7 @@ public class DeviceDetectionTests
     [Fact]
     public void IsConnected_ReturnsTrue_WhenMatchingDevicePresent()
     {
-        var handler = new QSeriesHandler();
+        var handler = TestHandlers.QSeries();
         var devices = new List<UsbDeviceEntry>
         {
             new() { VendorId = 0x3402, ProductId = 0x0600, Name = "Q60" },
@@ -80,7 +80,7 @@ public class DeviceDetectionTests
     [Fact]
     public void IsConnected_ReturnsFalse_WhenNoMatchingDevice()
     {
-        var handler = new QSeriesHandler();
+        var handler = TestHandlers.QSeries();
         var devices = new List<UsbDeviceEntry>
         {
             new() { VendorId = 0x1234, ProductId = 0x5678, Name = "Unrelated Device" },
@@ -92,7 +92,7 @@ public class DeviceDetectionTests
     [Fact]
     public void IsConnected_ReturnsFalse_WhenListIsEmpty()
     {
-        var handler = new QSeriesHandler();
+        var handler = TestHandlers.QSeries();
 
         Assert.False(handler.IsConnected(new List<UsbDeviceEntry>()));
     }
@@ -162,7 +162,7 @@ public class DeviceDetectionTests
     public void GetAll_WithSingleHandler_ReturnsOnlyThatDevice()
     {
         var manager = new DeviceManager(
-            new IDeviceHandler[] { new QSeriesHandler() },
+            new IDeviceHandler[] { TestHandlers.QSeries() },
             new StubUsbEnumerator()
         );
 

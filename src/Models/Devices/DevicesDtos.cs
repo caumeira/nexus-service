@@ -11,6 +11,8 @@ public sealed class DeviceListItem
     public string Category { get; set; } = "";
     public bool Connected { get; set; }
     public string FirmwareVersion { get; set; } = "";
+    /// <summary>Firmware-catalog key for available-version lookup. Equals Id for most devices; the connected variant ("q60"/"q80") for Q-series.</summary>
+    public string FirmwareType { get; set; } = "";
 }
 
 // ----- /devices/firmware/status — current vs bundled-available firmware -----
