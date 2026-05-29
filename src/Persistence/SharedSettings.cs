@@ -32,6 +32,11 @@ public sealed class PanelSettings
     /// nexus-overlay sidecar opens the kiosk window (and auto-relaunches when
     /// the Y70 reconnects). Surfaced as "Show Panel" in the UI.</summary>
     public bool AutoLaunch { get; set; }
+    /// <summary>When true, the overlay keeps the Y70 panel monitor exclusive to
+    /// the kiosk — foreign windows that land on it are relocated back to a
+    /// normal monitor. Default on. Surfaced as "Keep panel clear of other
+    /// windows" under Panel settings.</summary>
+    public bool ReserveMonitor { get; set; } = true;
     public bool ThemeSyncWithDesktop { get; set; } = true;
     public string ThemeMode { get; set; } = "system";
     public bool AccentSyncWithDesktop { get; set; } = true;
@@ -140,6 +145,7 @@ public sealed class ThemeSettingsPatch
 public sealed class PanelSettingsPatch
 {
     public bool? AutoLaunch { get; set; }
+    public bool? ReserveMonitor { get; set; }
     public bool? ThemeSyncWithDesktop { get; set; }
     public string? ThemeMode { get; set; }
     public bool? AccentSyncWithDesktop { get; set; }

@@ -341,6 +341,7 @@ public static class ProfileRoutes
                 if (body.Panel is { } panel)
                 {
                     if (panel.AutoLaunch.HasValue)               s.Panel.AutoLaunch            = panel.AutoLaunch.Value;
+                    if (panel.ReserveMonitor.HasValue)           s.Panel.ReserveMonitor        = panel.ReserveMonitor.Value;
                     if (panel.ThemeSyncWithDesktop.HasValue)     s.Panel.ThemeSyncWithDesktop  = panel.ThemeSyncWithDesktop.Value;
                     if (panel.ThemeMode is not null)             s.Panel.ThemeMode             = panel.ThemeMode;
                     if (panel.AccentSyncWithDesktop.HasValue)    s.Panel.AccentSyncWithDesktop = panel.AccentSyncWithDesktop.Value;
