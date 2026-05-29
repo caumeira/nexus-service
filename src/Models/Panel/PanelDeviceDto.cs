@@ -24,6 +24,7 @@ public sealed class PanelDeviceRecord
     public double? BackgroundOpacity { get; set; }
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }
+    public bool? WidgetBlur { get; set; }
     public bool? ThemeSyncWithDesktop { get; set; }
     public bool? AccentSyncWithDesktop { get; set; }
     public long FirstSeenAt { get; set; }
@@ -74,6 +75,7 @@ public sealed class PanelDevicePatch
     public double? BackgroundOpacity { get; set; }
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }
+    public bool? WidgetBlur { get; set; }
     public bool? ThemeSyncWithDesktop { get; set; }
     public bool? AccentSyncWithDesktop { get; set; }
     public PanelDeviceCapabilities? Capabilities { get; set; }
