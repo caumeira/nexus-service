@@ -22,6 +22,10 @@ public sealed class PanelDeviceRecord
     public string? BackgroundEffect { get; set; }
     public int? BackgroundTemplate { get; set; }
     public double? BackgroundOpacity { get; set; }
+    public double? WidgetOpacity { get; set; }
+    public bool? WidgetLabels { get; set; }
+    public bool? ThemeSyncWithDesktop { get; set; }
+    public bool? AccentSyncWithDesktop { get; set; }
     public long FirstSeenAt { get; set; }
     public long LastSeenAt { get; set; }
     public PanelDeviceCapabilities? Capabilities { get; set; }
@@ -68,6 +72,10 @@ public sealed class PanelDevicePatch
     public string? BackgroundEffect { get; set; }
     public int? BackgroundTemplate { get; set; }
     public double? BackgroundOpacity { get; set; }
+    public double? WidgetOpacity { get; set; }
+    public bool? WidgetLabels { get; set; }
+    public bool? ThemeSyncWithDesktop { get; set; }
+    public bool? AccentSyncWithDesktop { get; set; }
     public PanelDeviceCapabilities? Capabilities { get; set; }
 }
 

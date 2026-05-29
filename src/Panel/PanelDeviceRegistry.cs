@@ -121,6 +121,14 @@ public sealed class PanelDeviceRegistry
                 record.BackgroundTemplate = patch.BackgroundTemplate.Value;
             if (patch.BackgroundOpacity.HasValue)
                 record.BackgroundOpacity = patch.BackgroundOpacity.Value;
+            if (patch.WidgetOpacity.HasValue)
+                record.WidgetOpacity = patch.WidgetOpacity.Value;
+            if (patch.WidgetLabels.HasValue)
+                record.WidgetLabels = patch.WidgetLabels.Value;
+            if (patch.ThemeSyncWithDesktop.HasValue)
+                record.ThemeSyncWithDesktop = patch.ThemeSyncWithDesktop.Value;
+            if (patch.AccentSyncWithDesktop.HasValue)
+                record.AccentSyncWithDesktop = patch.AccentSyncWithDesktop.Value;
             if (patch.Capabilities is not null)
                 record.Capabilities = patch.Capabilities;
 
@@ -185,6 +193,10 @@ public sealed class PanelDeviceRegistry
             BackgroundEffect = r.BackgroundEffect,
             BackgroundTemplate = r.BackgroundTemplate,
             BackgroundOpacity = r.BackgroundOpacity,
+            WidgetOpacity = r.WidgetOpacity,
+            WidgetLabels = r.WidgetLabels,
+            ThemeSyncWithDesktop = r.ThemeSyncWithDesktop,
+            AccentSyncWithDesktop = r.AccentSyncWithDesktop,
             FirstSeenAt = r.FirstSeenAt,
             LastSeenAt = r.LastSeenAt,
             Capabilities = r.Capabilities,
