@@ -88,9 +88,11 @@ public sealed class Y70Provider : IY70Provider
     /// </summary>
     private void ApplyToHardware(bool screenOn, int pct)
     {
-        // Firmware floors a screen-on brightness; mirror it so the panel and the
-        // stored value don't drift below the clamp.
-        var effective = screenOn ? Math.Max(pct, Y70DisplayProtocol.MinBrightnessOnPercent) : pct;
+        // The firmware acts on the percentage (backlight) byte, so screen-off
+        // must send 0 — a nonzero percentage keeps the panel lit even with the
+        // off flag set. Screen-on floors to the firmware's minimum. Matches
+        // legacy Y70TouchInfiniteController: off => SetCurrentBrightness(false, 0).
+        var effective = screenOn ? Math.Max(pct, Y70DisplayProtocol.MinBrightnessOnPercent) : 0;
 
         if (_hub.IsConnected)
         {
