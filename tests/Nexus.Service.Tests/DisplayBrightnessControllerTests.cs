@@ -79,5 +79,6 @@ public class DisplayBrightnessControllerTests
 
         public DisplayVcpDto? GetVcp(string id, byte code) => null;
         public bool SetVcp(string id, byte code, int value) => false;
+        public string? FindDisplayIdByHardwareName(System.Collections.Generic.IReadOnlyList<string> nameFragments) => null;
     }
 }
