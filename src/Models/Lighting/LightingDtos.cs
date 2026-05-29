@@ -20,7 +20,7 @@ public sealed class ShaderSourceResponse
 
 public class CurrentSyncResponse : ApiResponse
 {
-    /// <summary>One of: none, static, animate, music, screen, gif.</summary>
+    /// <summary>One of: none, animate, music, screen, gif.</summary>
     public string Sync { get; set; } = "none";
 }
 
@@ -46,8 +46,6 @@ public class SpeedScale
     public Dictionary<string, int> Scale { get; set; } = new();
     public bool Enabled { get; set; }
 }
-
-public class StaticHeadlessStart { public RGBA Color { get; set; } }
 
 /// <summary>
 /// Toggle for the Music Reactive mode. When true, BeatsProvider is started

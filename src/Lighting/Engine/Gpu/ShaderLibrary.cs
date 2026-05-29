@@ -40,7 +40,10 @@ internal static class ShaderLibrary
     {
         return Cache.GetOrAdd(effectName, key =>
         {
-            var body = LoadRaw(ResourcePrefix + key + ".frag");
+            // Every "simple*" colour key shares the one solid-fill shader; the
+            // colour lives entirely in the per-key template tint, not the GLSL.
+            var file = key.StartsWith("simple", System.StringComparison.Ordinal) ? "simple" : key;
+            var body = LoadRaw(ResourcePrefix + file + ".frag");
             return Prelude + "\n" + body;
         });
     }
@@ -87,9 +90,13 @@ internal static class ShaderLibrary
     public static string CrystalTunnel => Get("crystaltunnel");
     public static string RibbonFlow => Get("ribbonflow");
 
-    /// <summary>Every registered effect key (matches the .frag filename without extension).</summary>
+    /// <summary>Every registered effect key. Most match a .frag filename; the
+    /// "simple*" keys all alias the shared simple.frag (see Get above).</summary>
     public static IReadOnlyList<string> AllEffectKeys { get; } = new[]
     {
+        // Simple solid-colour fills (replace the old static mode).
+        "simplered", "simpleorange", "simpleyellow", "simplegreen", "simplecyan",
+        "simpleblue", "simpleviolet", "simplepink", "simplewhite",
         "rainbow", "plasma", "fire", "spiral", "matrix", "meteor",
         "ripple", "wave", "gradientwave", "ball", "radar", "pulse",
         "watercolor", "jellyfish", "aurora", "lavalamp", "starfield",

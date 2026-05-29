@@ -23,8 +23,6 @@ public static class LightingRoutes
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
-        app.MapGet("/lighting/static/settings", (Nexus.Service.Persistence.IConfigStore store) =>
-            store.Load().Lighting.StaticColor).AllowPanel();
         app.MapGet("/lighting/effects/{key}/thumbnail.bmp", (string key, ILightingProvider l, HttpRequest req, HttpResponse res) =>
         {
             var fresh = req.Query.ContainsKey("fresh");
@@ -103,12 +101,6 @@ public static class LightingRoutes
             return ApiResponse.Ok();
         }).AllowPanel();
         // Headless start endpoints
-        app.MapPost("/lighting/static/headless-start", (StaticHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
-        {
-            l.StartStatic(body);
-            PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
-        }).AllowPanel();
         app.MapPost("/lighting/animate/headless-start", (AnimateHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
         {
             l.StartAnimate(body);

@@ -108,14 +108,6 @@ internal sealed class AutoRestoreOnStart : BackgroundService
 
         switch (sync.ToLowerInvariant())
         {
-            case "static":
-                _lighting.StartStatic(new StaticHeadlessStart
-                {
-                    Color = new RGBA { R = s.StaticColor.R, G = s.StaticColor.G, B = s.StaticColor.B },
-                });
-                Console.WriteLine("[auto-restore] lighting: static");
-                return true;
-
             case "music":
                 _lighting.StartMusic(new MusicHeadlessStart());
                 Console.WriteLine("[auto-restore] lighting: music");

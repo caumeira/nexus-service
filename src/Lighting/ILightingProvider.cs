@@ -21,7 +21,6 @@ public interface ILightingProvider
     AudioSyncOptions GetAudioSyncOptions();
     ScreenSyncOptions GetScreenSyncOptions();
 
-    void StartStatic(StaticHeadlessStart body);
     void StartAnimate(AnimateHeadlessStart body);
     void StartMusic(MusicHeadlessStart body);
     void StartScreen(ScreenHeadlessStart body);

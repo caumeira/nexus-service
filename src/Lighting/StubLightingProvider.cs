@@ -52,7 +52,6 @@ public sealed class StubLightingProvider : ILightingProvider
         Monitors = new System.Collections.Generic.List<ScreenSyncMonitor>(),
     };
 
-    public void StartStatic(StaticHeadlessStart body) => SetSync("static");
     public void StartAnimate(AnimateHeadlessStart body) => SetSync("animate");
     public void StartMusic(MusicHeadlessStart body) => SetSync("music");
     public void StartScreen(ScreenHeadlessStart body) => SetSync("screen");

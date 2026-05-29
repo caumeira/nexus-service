@@ -56,12 +56,6 @@ public static class LiveEngineSync
 
             switch (sync)
             {
-                case "static":
-                    lighting.StartStatic(new StaticHeadlessStart
-                    {
-                        Color = new RGBA { R = s.StaticColor.R, G = s.StaticColor.G, B = s.StaticColor.B },
-                    });
-                    break;
                 case "music":
                     lighting.StartMusic(new MusicHeadlessStart());
                     break;

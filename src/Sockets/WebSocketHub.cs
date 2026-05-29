@@ -34,7 +34,7 @@ public class WebSocketHub
     /// <summary>
     /// Take ownership of a newly-upgraded WebSocket and pump it until the client
     /// disconnects. Optional onMessage callback receives any text frames the client
-    /// sends (used for command WS like /lighting/static where the client invokes methods).
+    /// sends (used for command WS where the client invokes methods).
     /// </summary>
     public async Task HandleClientAsync(
         WebSocket socket,
