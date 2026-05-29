@@ -612,7 +612,8 @@ public static class NexusServiceCollectionExtensions
         if (OperatingSystem.IsWindows())
         {
             services.AddSingleton<Nexus.Service.QSeries.QSeriesPortWatcher>(
-                _ => new Nexus.Service.QSeries.QSeriesPortWatcher(servicePort));
+                sp => new Nexus.Service.QSeries.QSeriesPortWatcher(
+                    servicePort, sp.GetRequiredService<Nexus.Service.Panel.PanelDeviceRegistry>()));
             services.AddHostedService(sp =>
                 sp.GetRequiredService<Nexus.Service.QSeries.QSeriesPortWatcher>());
         }
