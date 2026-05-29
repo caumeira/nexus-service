@@ -302,6 +302,13 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             _reverseAppliedBySerial.Remove(key);
         }
+        // Clear the forced-reload flag for any serial that left the adb list so
+        // a physical re-attach gets a fresh cold reload (the device may have come
+        // back showing the OEM launcher or a stale splash).
+        foreach (var key in _qshellReloadedThisRun.Where(k => !seenSerials.Contains(k)).ToList())
+        {
+            _qshellReloadedThisRun.Remove(key);
+        }
     }
 
     /// <summary>
@@ -773,6 +780,17 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _lastQshellStartBySerial = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Serials for which we've forced a qshell cold-reload since THIS service
+    /// instance started. After a service (re)start the qshell that's still
+    /// running is bound to the now-dead old instance and sits on its disconnect
+    /// splash; a plain foreground check sees it "foreground" and leaves it there.
+    /// We force one reload on first sighting this run so it re-navigates to the
+    /// panel against the fresh service. Cleared when the device leaves the adb
+    /// list so a physical re-attach also gets a fresh forced reload.
+    /// </summary>
+    private readonly HashSet<string> _qshellReloadedThisRun = new(StringComparer.Ordinal);
+
     private static readonly TimeSpan QshellRestartThrottle = TimeSpan.FromSeconds(15);
 
     /// <summary>
@@ -791,6 +809,34 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private async Task EnsureQshellForegroundAsync(DeviceData device, CancellationToken ct)
     {
+        // One forced cold reload per service run. EnsureReverseAsync ran just
+        // before this in the tick, so the reverse is up. If qshell is still
+        // foreground from before a service (re)start it's bound to the dead old
+        // instance and shows its disconnect splash — the foreground check below
+        // would treat that as "fine" and never reload it. Force-stop + am start
+        // re-navigates it to the panel against the fresh service. Gated per
+        // serial (and cleared on detach) so it fires once per run.
+        if (!_qshellReloadedThisRun.Contains(device.Serial))
+        {
+            _qshellReloadedThisRun.Add(device.Serial);
+            _lastQshellStartBySerial[device.Serial] = DateTimeOffset.UtcNow;
+            var reloadReceiver = new ConsoleOutputReceiver();
+            try
+            {
+                // QshellFocusMarker is the bare package name (com.nexusqos.panel.qshell).
+                await _client.ExecuteShellCommandAsync(device, $"am force-stop {QshellFocusMarker}", reloadReceiver, ct);
+                await _client.ExecuteShellCommandAsync(device, $"am start -n {QshellComponent}", reloadReceiver, ct);
+                Console.Error.WriteLine(
+                    $"[qseries-port-watcher] {device.Serial}: forced qshell reload on first sighting this run (reconnect to fresh service)");
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                Console.Error.WriteLine(
+                    $"[qseries-port-watcher] {device.Serial}: forced qshell reload failed: {ex.GetType().Name}: {ex.Message}");
+            }
+            return;
+        }
+
         // Foreground check. `dumpsys window` is verbose, so let the
         // device-side grep narrow it down — Q-series firmware has busybox
         // grep available (verified bench: HYTE_Q60_Display Android 11).
