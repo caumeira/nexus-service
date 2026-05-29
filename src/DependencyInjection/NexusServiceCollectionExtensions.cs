@@ -409,7 +409,10 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IInputterProvider>(sp => sp.GetRequiredService<StubKeebProvider>());
 #endif
 
-        services.AddSingleton<IY70Provider, StubY70Provider>();
+        // Real Y70 control (serial brightness/power + DDC/CI fallback). Degrades
+        // to persist-only when no panel is attached (hub disconnected + no DDC
+        // match), so it composes cleanly cross-platform without the old stub.
+        services.AddSingleton<IY70Provider, Y70Provider>();
         services.AddSingleton<IQSeriesProvider, StubQSeriesProvider>();
 
 #if WINDOWS

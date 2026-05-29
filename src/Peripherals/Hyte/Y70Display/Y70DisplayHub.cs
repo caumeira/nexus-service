@@ -95,24 +95,87 @@ public sealed class Y70DisplayHub : IDisposable, IDfuFlashTarget
 
     public bool PollFirmwareVersion()
     {
-        if (!EnsureConnected()) return false;
-        var transport = _transport!;
-        try
+        // Hold _lock across the whole exchange: the heartbeat worker and the
+        // brightness/power calls below share this one serial port, and two
+        // interleaved request/response pairs would parse each other's bytes.
+        lock (_lock)
         {
-            transport.DiscardInput();
-            transport.Write(Y70DisplayProtocol.BuildGetFirmwareVersion());
-            var buf = new byte[Y70DisplayProtocol.FirmwareVersionResponseLength];
-            var n = transport.Read(buf, 400);
-            if (n < Y70DisplayProtocol.FirmwareVersionResponseLength) { Disconnect(); return false; }
-            var v = Y70DisplayProtocol.ParseFirmwareVersion(buf.AsSpan(0, n));
-            if (!string.IsNullOrEmpty(v)) State.FirmwareVersion = v;
-            return true;
+            if (!EnsureConnected()) return false;
+            var transport = _transport!;
+            try
+            {
+                transport.DiscardInput();
+                transport.Write(Y70DisplayProtocol.BuildGetFirmwareVersion());
+                var buf = new byte[Y70DisplayProtocol.FirmwareVersionResponseLength];
+                var n = transport.Read(buf, 400);
+                if (n < Y70DisplayProtocol.FirmwareVersionResponseLength) { Disconnect(); return false; }
+                var v = Y70DisplayProtocol.ParseFirmwareVersion(buf.AsSpan(0, n));
+                if (!string.IsNullOrEmpty(v)) State.FirmwareVersion = v;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[y70-display] fw-version exchange failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
         }
-        catch (Exception ex)
+    }
+
+    /// <summary>
+    /// Set brightness (0-100 percent) and screen power in one FF CC 01 frame on
+    /// the serial models (Touch / Infinite). Returns false if the port can't be
+    /// opened or the write throws. The command has no reply, so a true result
+    /// means the bytes left the port — not that the firmware applied them.
+    /// </summary>
+    public bool SetBrightnessPower(bool screenOn, int percent)
+    {
+        lock (_lock)
         {
-            Console.Error.WriteLine($"[y70-display] fw-version exchange failed: {ex.GetType().Name}: {ex.Message}");
-            Disconnect();
-            return false;
+            if (!EnsureConnected()) return false;
+            var transport = _transport!;
+            try
+            {
+                transport.DiscardInput();
+                transport.Write(Y70DisplayProtocol.BuildSetBrightnessPower(screenOn, percent));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[y70-display] set brightness/power failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
+        }
+    }
+
+    /// <summary>Read the controller's current screen-on flag + brightness (FF CC 02).</summary>
+    public bool TryReadScreenInfo(out bool screenOn, out int brightness)
+    {
+        screenOn = false;
+        brightness = 0;
+        lock (_lock)
+        {
+            if (!EnsureConnected()) return false;
+            var transport = _transport!;
+            try
+            {
+                transport.DiscardInput();
+                transport.Write(Y70DisplayProtocol.BuildGetScreenInfo());
+                var buf = new byte[13];
+                var n = transport.Read(buf, 400);
+                var info = Y70DisplayProtocol.ParseScreenInfo(buf.AsSpan(0, n));
+                if (info is null) return false;
+                screenOn = info.Value.ScreenOn;
+                brightness = info.Value.Brightness;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[y70-display] read screen info failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
         }
     }
 

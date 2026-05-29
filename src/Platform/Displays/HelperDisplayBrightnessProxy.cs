@@ -1,4 +1,5 @@
 #if WINDOWS
+using System;
 using System.Collections.Generic;
 using System.Runtime.Versioning;
 using Nexus.Service.Helper;
@@ -47,5 +48,26 @@ public sealed class HelperDisplayBrightnessProxy : IDisplayBrightnessProvider
 
     public bool SetVcp(string id, byte code, int value)
         => BrightnessCommands.SetVcpAsync(_registry, id, code, value).GetAwaiter().GetResult();
+
+    // No dedicated RPC: reuse the helper's display enumeration. The Windows
+    // stable display id embeds the EDID/PnP controller name (e.g. "RTK0004"),
+    // so matching against the id (or friendly name) finds the panel without a
+    // new helper command.
+    public string? FindDisplayIdByHardwareName(IReadOnlyList<string> nameFragments)
+    {
+        if (nameFragments is null || nameFragments.Count == 0) return null;
+        foreach (var dto in Enumerate())
+        {
+            foreach (var fragment in nameFragments)
+            {
+                if ((dto.Id?.IndexOf(fragment, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0
+                    || (dto.Name?.IndexOf(fragment, StringComparison.OrdinalIgnoreCase) ?? -1) >= 0)
+                {
+                    return dto.Id;
+                }
+            }
+        }
+        return null;
+    }
 }
 #endif

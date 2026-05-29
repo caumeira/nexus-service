@@ -30,4 +30,12 @@ public interface IDisplayBrightnessProvider
 
     /// <summary>Write a raw DDC/CI VCP code value.</summary>
     bool SetVcp(string id, byte code, int value);
+
+    /// <summary>
+    /// Find the id of the first attached display whose PnP/EDID hardware id
+    /// contains any of <paramref name="nameFragments"/> (case-insensitive), or
+    /// null if none match. Used to drive a specific panel (e.g. a DDC-only Y70)
+    /// by its controller name rather than a user-facing display id.
+    /// </summary>
+    string? FindDisplayIdByHardwareName(IReadOnlyList<string> nameFragments);
 }

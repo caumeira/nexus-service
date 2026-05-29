@@ -170,6 +170,11 @@ public sealed unsafe class MacDisplayBrightnessProvider : IDisplayBrightnessProv
         return TrySetDdcVcp(display, code, write);
     }
 
+    // PnP/EDID controller-name matching is a Windows concept (the fragments are
+    // Windows monitor hardware ids). The Y70 DDC-only models aren't a macOS
+    // target, so there's nothing to match here.
+    public string? FindDisplayIdByHardwareName(IReadOnlyList<string> nameFragments) => null;
+
     private static int? ReadBrightness(MacDisplayHandle display)
     {
         if (TryReadNativeBrightness(display, out var native))

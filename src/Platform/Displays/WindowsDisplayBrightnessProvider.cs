@@ -204,6 +204,47 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
         finally { DestroyPhysicalMonitor(phys); }
     }
 
+    public string? FindDisplayIdByHardwareName(IReadOnlyList<string> nameFragments)
+    {
+        if (nameFragments is null || nameFragments.Count == 0) return null;
+        try
+        {
+            foreach (var entry in EnumerateHMonitors())
+            {
+                var rawDeviceId = ReadMonitorDeviceId(entry.AdapterDevice);
+                if (string.IsNullOrEmpty(rawDeviceId)) continue;
+                foreach (var fragment in nameFragments)
+                {
+                    if (rawDeviceId.IndexOf(fragment, StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        // Return the same stable id SetVcp/GetBrightness key off.
+                        var (id, _, _, _, _) = ResolveIdentity(entry.AdapterDevice);
+                        return id;
+                    }
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[displays-win] find by hardware name failed: {ex.Message}");
+        }
+        return null;
+    }
+
+    // Raw monitor PnP DeviceID (e.g. \\?\DISPLAY#RTK0004#...) for the first
+    // child monitor of an adapter — used to match a controller name before we
+    // collapse it to the sanitized stable id.
+    private static string ReadMonitorDeviceId(string adapterDeviceName)
+    {
+        var monitor = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
+        if (!EnumDisplayDevicesW(adapterDeviceName, 0, ref monitor, EDD_GET_DEVICE_INTERFACE_NAME))
+        {
+            monitor = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
+            if (!EnumDisplayDevicesW(adapterDeviceName, 0, ref monitor, 0)) return "";
+        }
+        return monitor.DeviceID ?? "";
+    }
+
     // Resolve an id back to a freshly-opened physical monitor handle. Caller
     // owns the handle via DestroyPhysicalMonitor. Lazy approach: re-enumerate
     // and match by id, since dxva2 handles aren't safe to cache.

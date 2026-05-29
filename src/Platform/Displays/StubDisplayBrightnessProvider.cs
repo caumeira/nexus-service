@@ -21,6 +21,7 @@ public sealed class StubDisplayBrightnessProvider : IDisplayBrightnessProvider
     public DisplayBrightnessWritePolicy GetBrightnessWritePolicy(string id) => new();
     public DisplayVcpDto? GetVcp(string id, byte code) => null;
     public bool SetVcp(string id, byte code, int value) => false;
+    public string? FindDisplayIdByHardwareName(IReadOnlyList<string> nameFragments) => null;
 
     private static int ClampPercent(int value) => value < 0 ? 0 : value > 100 ? 100 : value;
 }
