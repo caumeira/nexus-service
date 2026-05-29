@@ -371,12 +371,12 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     /// </summary>
     private static System.Collections.Generic.Dictionary<string, float>? DefaultParamsFor(string name) => name switch
     {
-        // Simple solid-colour fills expose the vertical-gradient tweaks
-        // (boldness + rotation). These defaults must match SIMPLE_PARAMS in
-        // the frontend so the thumbnail shows the same gradient the picker does.
+        // Simple solid-colour fills expose the gradient tweaks (boldness +
+        // rotation) plus a noise amount. These defaults must match SIMPLE_PARAMS
+        // in the frontend so the thumbnail shows the same look the picker does.
         "simplered" or "simpleorange" or "simpleyellow" or "simplegreen"
             or "simplecyan" or "simpleblue" or "simpleviolet"
-            or "simplepink" => new() { ["u_gradient"] = 0.6f, ["u_rotation"] = 0f },
+            or "simplepink" => new() { ["u_gradient"] = 0.6f, ["u_noise"] = 0.55f, ["u_rotation"] = 0f },
         "rainbow" => new() { ["u_density"] = 1f, ["u_rotation"] = 0f },
         "fire" => new() { ["u_turbulence"] = 1.6f },
         "plasma" => new() { ["u_warp"] = 1f, ["u_zoom"] = 1f },
