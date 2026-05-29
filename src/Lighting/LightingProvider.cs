@@ -282,17 +282,17 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     private static Signature SignatureFor(string name) => name switch
     {
         // Simple solid-colour fills. Slot 0 of simpleColorFeels in
-        // lightingTemplates.ts: colorize 1, slow speed, saturation 1.10.
-        // White is saturation 0 (pure white). These drive the thumbnail.
-        "simplered"    => new(0.00f, 1.00f, 28f, 1.10f, 1.00f, 1f),
-        "simpleorange" => new(0.05f, 1.00f, 28f, 1.10f, 1.00f, 1f),
-        "simpleyellow" => new(0.14f, 1.00f, 28f, 1.10f, 1.00f, 1f),
-        "simplegreen"  => new(0.33f, 1.00f, 28f, 1.10f, 1.00f, 1f),
-        "simplecyan"   => new(0.50f, 1.00f, 28f, 1.10f, 1.00f, 1f),
-        "simpleblue"   => new(0.62f, 1.00f, 28f, 1.10f, 1.00f, 1f),
-        "simpleviolet" => new(0.75f, 1.00f, 28f, 1.10f, 1.00f, 1f),
-        "simplepink"   => new(0.92f, 1.00f, 28f, 1.10f, 1.00f, 1f),
-        "simplewhite"  => new(0.00f, 1.00f, 28f, 0.00f, 1.00f, 1f),
+        // lightingTemplates.ts: colorize 1, speed 30, saturation 1.10. The
+        // noise in simple.frag is what makes these read as moving in the
+        // thumbnail (rendered at this signature speed).
+        "simplered"    => new(0.00f, 1.00f, 30f, 1.10f, 1.00f, 1f),
+        "simpleorange" => new(0.05f, 1.00f, 30f, 1.10f, 1.00f, 1f),
+        "simpleyellow" => new(0.14f, 1.00f, 30f, 1.10f, 1.00f, 1f),
+        "simplegreen"  => new(0.33f, 1.00f, 30f, 1.10f, 1.00f, 1f),
+        "simplecyan"   => new(0.50f, 1.00f, 30f, 1.10f, 1.00f, 1f),
+        "simpleblue"   => new(0.62f, 1.00f, 30f, 1.10f, 1.00f, 1f),
+        "simpleviolet" => new(0.75f, 1.00f, 30f, 1.10f, 1.00f, 1f),
+        "simplepink"   => new(0.92f, 1.00f, 30f, 1.10f, 1.00f, 1f),
         "rainbow" => new(0.00f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "fire" => new(0.03f, 0.80f, 70f, 1.10f, 1.05f, 1f),
         "plasma" => new(0.85f, 0.30f, 60f, 1.00f, 1.00f, 1f),
@@ -375,8 +375,8 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // empty (non-null) dict so they still count as animate effects and
         // get a thumbnail rendered.
         "simplered" or "simpleorange" or "simpleyellow" or "simplegreen"
-            or "simplecyan" or "simpleblue" or "simpleviolet" or "simplepink"
-            or "simplewhite" => new(),
+            or "simplecyan" or "simpleblue" or "simpleviolet"
+            or "simplepink" => new(),
         "rainbow" => new() { ["u_density"] = 1f, ["u_rotation"] = 0f },
         "fire" => new() { ["u_turbulence"] = 1.6f },
         "plasma" => new() { ["u_warp"] = 1f, ["u_zoom"] = 1f },
