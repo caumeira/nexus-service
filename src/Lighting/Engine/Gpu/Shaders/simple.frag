@@ -21,8 +21,8 @@ void main() {
     // `axis` whose phase drifts with time, so soft bright/dark bands flow up
     // the gradient. Low amplitude keeps it a subtle swell, not a ripple.
     float t = u_time * u_speed * 0.25;
-    float wave = sin(axis * 11.0 - t * 1.2);
-    float flow = clamp(u_wave, 0.0, 1.0) * 0.18 * wave;
+    float wave = sin(axis * 11.0 - t * 2.0);
+    float flow = clamp(u_wave, 0.0, 1.0) * 0.25 * wave;
 
     float luma = clamp(0.62 + grad + flow, 0.0, 1.3);
     fragColor = vec4(finalize(vec3(luma)), 1.0);
