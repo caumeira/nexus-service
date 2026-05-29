@@ -25,6 +25,9 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     // Set once we've put the cooler into software RGB control; cleared on
     // disconnect so the next connection re-asserts it before streaming.
     private bool _rgbInSwControl;
+    // The COM port currently held (empty when disconnected). Lets the composite
+    // strip OpenRGB's zombie entry for the same port without fragile name matching.
+    private string _portName = "";
 
     public QSeriesCoolerHub(IQSeriesCoolerPortDiscovery discovery, Func<Np50PortInfo, INp50Transport> transportFactory)
     {
@@ -39,6 +42,9 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     public string Variant => State.Variant;
 
     public string DeviceId => string.IsNullOrEmpty(State.Serial) ? "" : $"qseries:{State.Serial}";
+
+    /// <summary>COM port currently held (e.g. "COM4"), empty when disconnected.</summary>
+    public string PortName => _portName;
 
     /// <summary>
     /// LEDs addressed per Q-series lighting card. One 90-byte port frame carries
@@ -129,6 +135,7 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                     _transport = t;
                     State.Serial = port.Serial;
                     State.Variant = port.Variant;
+                    _portName = port.PortName;
                     Console.Error.WriteLine($"[qseries-cooler] connected to {port.PortName} (variant={port.Variant} serial={port.Serial})");
                     return true;
                 }
@@ -148,6 +155,7 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
             try { _transport?.Dispose(); } catch { /* best effort */ }
             _transport = null;
             _rgbInSwControl = false;
+            _portName = "";
         }
     }
 

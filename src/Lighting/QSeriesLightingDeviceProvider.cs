@@ -35,6 +35,17 @@ public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILi
 
     public bool IsConnected => _hub.IsConnected;
 
+    /// <summary>
+    /// The id OpenRGB assigns to the same cooler when it enumerates the COM port we hold
+    /// (RgbDevice.StableId = "openrgb-l-{location}", and location is the COM port for these
+    /// serial devices, e.g. "openrgb-l-COM4"). The composite strips this inert OpenRGB zombie
+    /// by id — robust against OpenRGB's device name ("HYTE THICC Q60"), which silently broke a
+    /// substring match. Null when disconnected. COM port names are alphanumeric, so no
+    /// RgbDevice.Sanitize transform is needed to reconstruct the id.
+    /// </summary>
+    public string? OwnedOpenRgbDeviceId =>
+        _hub.IsConnected && !string.IsNullOrEmpty(_hub.PortName) ? $"openrgb-l-{_hub.PortName}" : null;
+
     public event Action? DevicesChanged;
 
     /// <summary>

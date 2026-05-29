@@ -16,6 +16,13 @@ namespace Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 /// </summary>
 public sealed class QSeriesCoolerHeartbeatWorker : BackgroundService
 {
+    // Small head-start so we open + hold the cooler's COM port before OpenRGB
+    // launches (OpenRgbProcessManager starts it a few seconds into the hosted-
+    // service pipeline). Mirrors CnvsConnectionWorker's race-and-hold: once we
+    // hold the port, OpenRGB's open fails and it can't drive the Q-series; the
+    // composite then strips OpenRGB's inert zombie entry by COM port.
+    private const int InitialDelayMs = 100;
+
     private readonly QSeriesCoolerHub _hub;
     private readonly Nexus.Service.Lighting.QSeriesLightingDeviceProvider? _lighting;
 
@@ -28,6 +35,9 @@ public sealed class QSeriesCoolerHeartbeatWorker : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         Console.Error.WriteLine("[qseries-cooler-heartbeat] ExecuteAsync started");
+        // Head-start: claim the COM port before OpenRGB launches (race-and-hold).
+        try { await Task.Delay(InitialDelayMs, stoppingToken).ConfigureAwait(false); }
+        catch (OperationCanceledException) { return; }
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
         while (!stoppingToken.IsCancellationRequested)
         {
