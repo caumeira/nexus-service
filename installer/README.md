@@ -25,18 +25,41 @@ Inno Setup 6 lands at `%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe`.
 
 ## Building
 
-After a successful `dotnet publish` into a sibling `aot\` dir (the default
-script lookup is `..\..\aot` relative to this folder):
+The installer wraps an existing AOT publish output. Under the current
+deploy flow the service publishes **directly into `C:\Program Files\Nexus\`**
+(see the `build-pc` runbook), so point the script there explicitly — the
+script's legacy `..\..\aot` default no longer exists:
 
 ```powershell
-powershell -File installer\build-installer.ps1
+powershell -File installer\build-installer.ps1 -PublishDir "$env:ProgramFiles\Nexus"
 ```
 
-Output: `installer\output\Nexus-Setup.exe` (~17 MB compressed).
+Output: `installer\output\Nexus-Setup.exe` (~19 MB compressed), with a copy
+dropped at `%USERPROFILE%\nexus\Nexus-Setup.exe`. Releases are published as a
+monotonic `vNN` tag on `hello-nexus/nexus-releases` via `gh release create`.
 
 Optional flags:
-- `-PublishDir <path>`  override the AOT publish dir
+- `-PublishDir <path>`  the AOT publish dir to wrap (pass `$env:ProgramFiles\Nexus`)
 - `-OpenOutput`         open Explorer at the resulting file
+
+### Keep it lean
+
+The installer wraps the publish tree **verbatim**, so anything stray in
+`C:\Program Files\Nexus\` ships inside it. The installer is lzma2/max
+compressed, so an unexpected multi-MB size jump vs the previous release is a
+signal worth checking — diff against the last `Nexus-Setup.exe`. A jump can be
+intended (a new bundled feature) or junk; verify which.
+
+- **Intended payload:** the firmware flasher binaries (`dfu-util\`,
+  `dfu-driver\`, ~4.4 MB) ship in release — end users flash firmware upgrades
+  through them (this is what grew v69 = 24 MB vs v68 = 18.7 MB; the firmware
+  flasher feature landed between those tags). They are *not* junk. `DevTools`
+  only unlocks the brick-risky cross-variant / downgrade paths in
+  `FirmwareFlasher.cs`, not flashing itself, so don't gate the binaries on it.
+- **Actual junk to strip:** delete any `test-results\` (a `dotnet test` runner
+  artifact the Web SDK content glob pulls into publish) and confirm
+  `wwwroot\assets\` holds only the current build's hashed bundles (a skipped
+  wwwroot wipe accumulates every prior build's dead `*.js`).
 
 ## Files
 

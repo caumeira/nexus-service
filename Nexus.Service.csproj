@@ -253,7 +253,9 @@
   <!-- dfu-util (statically linked, ~1.8 MB) used by the firmware flasher to
        write images to devices in DFU mode. Unlike openrgb/ffmpeg this binary
        IS committed to the repo (Bundled/win-x64/dfu-util/). Copied to
-       {output}/dfu-util/ on `dotnet publish -r win-x64`. -->
+       {output}/dfu-util/ on `dotnet publish -r win-x64`. Ships in release:
+       end users flash firmware upgrades through it (DEV_TOOLS only unlocks the
+       brick-risky cross-variant / downgrade paths, not flashing itself). -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\dfu-util')">
     <Content Include="Bundled\win-x64\dfu-util\**\*.*">
       <Link>dfu-util\%(RecursiveDir)%(Filename)%(Extension)</Link>
@@ -263,7 +265,10 @@
   </ItemGroup>
 
   <!-- WinUSB driver (signed .inf + .cat + coinstallers) bound to the DFU
-       bootloader (VID 3402/PID 0A00) via pnputil before flashing. Committed. -->
+       bootloader (VID 3402/PID 0A00) via pnputil before flashing. Committed.
+       Ships in release alongside dfu-util — the WinUSB install is part of the
+       end-user flash flow (FirmwareFlasher.RunAsync stages it before dfu-util
+       opens the device). -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\dfu-driver')">
     <Content Include="Bundled\win-x64\dfu-driver\**\*.*">
       <Link>dfu-driver\%(RecursiveDir)%(Filename)%(Extension)</Link>
