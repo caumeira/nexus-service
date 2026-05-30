@@ -26,9 +26,9 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
     private const byte EdidAddress = 0x50;
     private const byte VcpBrightness = 0x10;
 
-    // VESA DDC/CI mandates a minimum inter-message delay: ~40ms before reading a
-    // reply, ~50ms after a write before the next command. These are protocol
-    // timing requirements, not arbitrary waits.
+    // VESA DDC/CI mandates a minimum ~40ms inter-message delay; we use 50ms for
+    // margin (before reading a reply, and after a write before the next command).
+    // These are protocol timing requirements, not arbitrary waits.
     private static readonly TimeSpan DdcReadDelay = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan DdcWriteSettle = TimeSpan.FromMilliseconds(50);
 
@@ -338,12 +338,14 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
                 return ("", "");
 
             var id = (edid[8] << 8) | edid[9];
-            var mfg = new string(new[]
-            {
-                (char)('A' + ((id >> 10) & 0x1F) - 1),
-                (char)('A' + ((id >> 5) & 0x1F) - 1),
-                (char)('A' + (id & 0x1F) - 1),
-            });
+            char Letter(int v) => (char)('A' + v - 1);
+            var c1 = Letter((id >> 10) & 0x1F);
+            var c2 = Letter((id >> 5) & 0x1F);
+            var c3 = Letter(id & 0x1F);
+            // Invalid/blank PNP IDs decode to non-letters — don't ship garbage.
+            var mfg = c1 is >= 'A' and <= 'Z' && c2 is >= 'A' and <= 'Z' && c3 is >= 'A' and <= 'Z'
+                ? new string(new[] { c1, c2, c3 })
+                : "";
 
             var model = "";
             for (var d = 54; d <= 108; d += 18)
@@ -364,7 +366,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
 
     private static int OpenI2c(int bus)
     {
-        try { return open($"/dev/i2c-{bus}", O_RDWR); }
+        try { return open($"/dev/i2c-{bus}", O_RDWR | O_CLOEXEC); }
         catch { return -1; }
     }
 
@@ -402,6 +404,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
     }
 
     private const int O_RDWR = 2;
+    private const int O_CLOEXEC = 0x80000;
     private const nuint I2C_SLAVE = 0x0703;
 
     [LibraryImport("libc", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]

@@ -44,25 +44,29 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
             return Array.Empty<FanChannel>();
 
         var discovered = EnumerateControllableFans().ToList();
-        var channels = new List<FanChannel>(discovered.Count);
+        // Record the path map under the lock, but do the (potentially slow) sysfs
+        // reads OUTSIDE it — a stuck hwmon read must not serialize every fan op.
         lock (_lock)
         {
             _fanPaths.Clear();
-            foreach (var (id, name, paths) in discovered)
-            {
+            foreach (var (id, _, paths) in discovered)
                 _fanPaths[id] = paths;
-                var pwm = ReadInt(paths.PwmPath) ?? 0;
-                var rpm = paths.FanInputPath is not null ? ReadInt(paths.FanInputPath) ?? 0 : 0;
-                var enabled = ReadInt(paths.EnablePath);
-                channels.Add(new FanChannel
-                {
-                    Id = id,
-                    Name = name,
-                    DutyPercent = (int)Math.Round(Math.Clamp(pwm, 0, 255) * 100.0 / 255.0),
-                    Rpm = rpm,
-                    Mode = enabled == 1 ? FanModes.Manual : FanModes.Auto,
-                });
-            }
+        }
+
+        var channels = new List<FanChannel>(discovered.Count);
+        foreach (var (id, name, paths) in discovered)
+        {
+            var pwm = ReadInt(paths.PwmPath) ?? 0;
+            var rpm = paths.FanInputPath is not null ? ReadInt(paths.FanInputPath) ?? 0 : 0;
+            var enabled = ReadInt(paths.EnablePath);
+            channels.Add(new FanChannel
+            {
+                Id = id,
+                Name = name,
+                DutyPercent = (int)Math.Round(Math.Clamp(pwm, 0, 255) * 100.0 / 255.0),
+                Rpm = rpm,
+                Mode = enabled == 1 ? FanModes.Manual : FanModes.Auto,
+            });
         }
         return channels;
     }
@@ -120,12 +124,16 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
     public void ReleaseFan(string channelId)
     {
         var paths = ResolveFan(channelId);
-        if (paths is null)
-            return;
+        if (paths is not null)
+            ReleasePaths(paths.Value);
+    }
+
+    private static void ReleasePaths(FanPaths paths)
+    {
         // Most SuperIO chips: 2 = automatic. A few only accept 0 (= no
         // software control / full speed) — fall back to that if 2 is rejected.
-        if (!TryWrite(paths.Value.EnablePath, "2"))
-            TryWrite(paths.Value.EnablePath, "0");
+        if (!TryWrite(paths.EnablePath, "2"))
+            TryWrite(paths.EnablePath, "0");
     }
 
     public void ReleaseAll()
@@ -148,17 +156,20 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         if (!OperatingSystem.IsLinux())
             return Array.Empty<FanCalibration>();
 
-        GetFanChannels(); // populate
-        List<string> targets;
+        GetFanChannels(); // populate _fanPaths
+        List<(string Id, FanPaths Paths)> targets;
         lock (_lock)
         {
-            targets = (fanIds is null || fanIds.Count == 0)
-                ? _fanPaths.Keys.ToList()
-                : fanIds.Where(_fanPaths.ContainsKey).ToList();
+            var ids = (fanIds is null || fanIds.Count == 0)
+                ? (IEnumerable<string>)_fanPaths.Keys
+                : fanIds.Where(_fanPaths.ContainsKey);
+            // Resolve every target's paths up front so a concurrent GetFanChannels /
+            // ReleaseAll that clears _fanPaths can't make a fan unresolvable mid-ramp.
+            targets = ids.Select(id => (id, _fanPaths[id])).ToList();
         }
 
         // Calibrate fans in parallel — each ramps its own pwm independently.
-        var tasks = targets.Select(id => CalibrateOneAsync(id, progress, ct));
+        var tasks = targets.Select(t => CalibrateOneAsync(t.Id, t.Paths, progress, ct));
         var results = await Task.WhenAll(tasks).ConfigureAwait(false);
         return results.Where(r => r is not null).Select(r => r!).ToList();
     }
@@ -188,23 +199,19 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         };
     }
 
-    private async Task<FanCalibration?> CalibrateOneAsync(string id, IProgress<FanCalibrationProgress> progress, CancellationToken ct)
+    private async Task<FanCalibration?> CalibrateOneAsync(string id, FanPaths paths, IProgress<FanCalibrationProgress> progress, CancellationToken ct)
     {
-        var paths = ResolveFan(id);
-        if (paths is null)
-            return null;
-
         var points = new List<FanCalibrationPoint>();
         try
         {
-            TryWrite(paths.Value.EnablePath, "1");
+            TryWrite(paths.EnablePath, "1");
             for (var step = 0; step < CalibrationDuties.Length; step++)
             {
                 ct.ThrowIfCancellationRequested();
                 var duty = CalibrationDuties[step];
-                TryWrite(paths.Value.PwmPath, DutyToRaw(duty).ToString(CultureInfo.InvariantCulture));
+                TryWrite(paths.PwmPath, DutyToRaw(duty).ToString(CultureInfo.InvariantCulture));
                 await Task.Delay(StepSettle, ct).ConfigureAwait(false);
-                var rpm = paths.Value.FanInputPath is not null ? ReadInt(paths.Value.FanInputPath) ?? 0 : 0;
+                var rpm = paths.FanInputPath is not null ? ReadInt(paths.FanInputPath) ?? 0 : 0;
                 points.Add(new FanCalibrationPoint { Duty = duty, Rpm = rpm });
                 progress?.Report(new FanCalibrationProgress
                 {
@@ -219,7 +226,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         }
         finally
         {
-            ReleaseFan(id);
+            ReleasePaths(paths);
         }
 
         var spinning = points.Where(p => p.Rpm > 0).ToList();

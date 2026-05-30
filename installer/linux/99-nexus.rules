@@ -2,8 +2,9 @@
 # Installed to /etc/udev/rules.d/99-nexus.rules by install.sh.
 # /etc is writable on immutable distros (Bazzite/rpm-ostree); /usr is not.
 
-# DDC/CI display brightness over i2c-dev (external monitors).
-KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660"
+# DDC/CI display brightness over i2c-dev (external monitors). uaccess grants the
+# active-session user ACL access even where no 'i2c' group exists (e.g. Fedora/Bazzite).
+KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660", TAG+="uaccess"
 
 # RGB device access — OpenRGB talks to controllers over hidraw.
 KERNEL=="hidraw*", MODE="0660", TAG+="uaccess"
@@ -13,7 +14,8 @@ KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660", OPTIONS+="stati
 
 # HYTE USB-serial hubs (VID 3402): the CDC-ACM tty + the raw USB device
 # (the latter so OpenRGB / DFU flashing can claim it).
-SUBSYSTEM=="tty", ATTRS{idVendor}=="3402", GROUP="dialout", MODE="0660"
+# uaccess covers distros that use 'uucp' instead of 'dialout' for tty (Arch/openSUSE).
+SUBSYSTEM=="tty", ATTRS{idVendor}=="3402", GROUP="dialout", MODE="0660", TAG+="uaccess"
 SUBSYSTEM=="usb", ATTRS{idVendor}=="3402", MODE="0660", TAG+="uaccess"
 
 # Best-effort motherboard fan PWM write access (driver-dependent — some hwmon

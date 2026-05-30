@@ -89,7 +89,9 @@ internal static class LinuxSerialDiscovery
         try
         {
             var target = Directory.ResolveLinkTarget(deviceSymlink, returnFinalTarget: true);
-            dir = target?.FullName ?? deviceSymlink;
+            if (target is null)
+                return null; // not a symlink / unresolvable — don't walk the literal path
+            dir = target.FullName;
         }
         catch
         {

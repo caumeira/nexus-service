@@ -46,10 +46,10 @@ public sealed class LinuxVolumeProvider : IVolumeProvider
         switch (ResolveBackend())
         {
             case Backend.Wpctl:
-                ShellExecutor.Run("wpctl", "set-volume", WpctlSink, v.ToString("0.###", CultureInfo.InvariantCulture));
+                RunC("wpctl", "set-volume", WpctlSink, v.ToString("0.###", CultureInfo.InvariantCulture));
                 break;
             case Backend.Pactl:
-                ShellExecutor.Run("pactl", "set-sink-volume", PactlSink, $"{(int)Math.Round(v * 100)}%");
+                RunC("pactl", "set-sink-volume", PactlSink, $"{(int)Math.Round(v * 100)}%");
                 break;
         }
     }
@@ -62,10 +62,10 @@ public sealed class LinuxVolumeProvider : IVolumeProvider
         switch (ResolveBackend())
         {
             case Backend.Wpctl:
-                ShellExecutor.Run("wpctl", "set-mute", WpctlSink, flag);
+                RunC("wpctl", "set-mute", WpctlSink, flag);
                 break;
             case Backend.Pactl:
-                ShellExecutor.Run("pactl", "set-sink-mute", PactlSink, flag);
+                RunC("pactl", "set-sink-mute", PactlSink, flag);
                 break;
         }
     }
@@ -76,20 +76,31 @@ public sealed class LinuxVolumeProvider : IVolumeProvider
         {
             if (_backend != Backend.Unknown)
                 return _backend;
-            if (!string.IsNullOrWhiteSpace(ShellExecutor.Run("wpctl", "get-volume", WpctlSink)))
+            if (!string.IsNullOrWhiteSpace(RunC("wpctl", "get-volume", WpctlSink)))
                 _backend = Backend.Wpctl;
-            else if (!string.IsNullOrWhiteSpace(ShellExecutor.Run("pactl", "get-sink-volume", PactlSink)))
+            else if (!string.IsNullOrWhiteSpace(RunC("pactl", "get-sink-volume", PactlSink)))
                 _backend = Backend.Pactl;
             else
-                _backend = Backend.None;
+                return Backend.None; // don't cache — the audio stack may come up after us
             return _backend;
         }
+    }
+
+    // Spawn the audio CLI under LC_ALL=C so output (volume scalar, "[MUTED]",
+    // "Mute: yes/no") is locale-stable and parseable. `env` is universally present.
+    private static string RunC(string tool, params string[] args)
+    {
+        var argv = new string[args.Length + 2];
+        argv[0] = "LC_ALL=C";
+        argv[1] = tool;
+        Array.Copy(args, 0, argv, 2, args.Length);
+        return ShellExecutor.Run("env", argv);
     }
 
     // wpctl get-volume prints: "Volume: 0.65" or "Volume: 0.65 [MUTED]".
     private static VolumeState WpctlState()
     {
-        var output = ShellExecutor.Run("wpctl", "get-volume", WpctlSink);
+        var output = RunC("wpctl", "get-volume", WpctlSink);
         var idx = output.IndexOf("Volume:", StringComparison.OrdinalIgnoreCase);
         if (idx < 0)
             return Unsupported();
@@ -109,11 +120,11 @@ public sealed class LinuxVolumeProvider : IVolumeProvider
     // get-sink-mute prints "Mute: yes" / "Mute: no".
     private static VolumeState PactlState()
     {
-        var volOut = ShellExecutor.Run("pactl", "get-sink-volume", PactlSink);
+        var volOut = RunC("pactl", "get-sink-volume", PactlSink);
         var pct = ParseFirstPercent(volOut);
         if (pct is null)
             return Unsupported();
-        var muteOut = ShellExecutor.Run("pactl", "get-sink-mute", PactlSink);
+        var muteOut = RunC("pactl", "get-sink-mute", PactlSink);
         return new VolumeState
         {
             Supported = true,

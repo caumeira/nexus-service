@@ -22,6 +22,7 @@ public sealed partial class LinuxInputter : IInputterProvider, IDisposable
     private readonly object _lock = new();
     private int _fd = -1;
     private bool _failed;
+    private bool _emitWarned;
 
     public void Send(InputterBody body)
     {
@@ -66,7 +67,7 @@ public sealed partial class LinuxInputter : IInputterProvider, IDisposable
         if (_fd >= 0) return true;
         if (_failed) return false;
 
-        var fd = open("/dev/uinput", O_WRONLY);
+        var fd = open("/dev/uinput", O_WRONLY | O_CLOEXEC);
         if (fd < 0)
         {
             _failed = true;
@@ -121,7 +122,11 @@ public sealed partial class LinuxInputter : IInputterProvider, IDisposable
     private void Emit(ushort type, ushort code, int value)
     {
         var ev = new input_event { type = type, code = code, value = value };
-        _ = write(_fd, in ev, (nuint)Marshal.SizeOf<input_event>());
+        if (write(_fd, in ev, (nuint)Marshal.SizeOf<input_event>()) < 0 && !_emitWarned)
+        {
+            _emitWarned = true;
+            Console.Error.WriteLine("[keeb] uinput write failed (device unbound?) — macro events dropped.");
+        }
     }
 
     private static IEnumerable<int> AllKeyCodes()
@@ -239,6 +244,7 @@ public sealed partial class LinuxInputter : IInputterProvider, IDisposable
 
     // ── uinput / input-event-codes constants (x86-64) ──
     private const int O_WRONLY = 1;
+    private const int O_CLOEXEC = 0x80000;
     private const ushort EV_SYN = 0x00;
     private const ushort EV_KEY = 0x01;
     private const ushort SYN_REPORT = 0x00;
