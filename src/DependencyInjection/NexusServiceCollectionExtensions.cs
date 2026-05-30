@@ -115,6 +115,15 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<MiniHubCoolingProvider>()));
             services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
         }
+        else if (OperatingSystem.IsLinux())
+        {
+            services.AddSingleton<LinuxFanControlProvider>();
+            services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
+                sp.GetRequiredService<LinuxFanControlProvider>(),
+                sp.GetRequiredService<Np50CoolingProvider>(),
+                sp.GetRequiredService<MiniHubCoolingProvider>()));
+            services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
+        }
         else
         {
             services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
@@ -428,7 +437,14 @@ public static class NexusServiceCollectionExtensions
 #if WINDOWS
         services.AddSingleton<IInputterProvider, WindowsInputter>();
 #else
-        services.AddSingleton<IInputterProvider>(sp => sp.GetRequiredService<StubKeebProvider>());
+        if (OperatingSystem.IsLinux())
+        {
+            services.AddSingleton<IInputterProvider, LinuxInputter>();
+        }
+        else
+        {
+            services.AddSingleton<IInputterProvider>(sp => sp.GetRequiredService<StubKeebProvider>());
+        }
 #endif
 
         // Real Y70 control (serial brightness/power + DDC/CI fallback). Degrades
