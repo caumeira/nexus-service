@@ -93,6 +93,23 @@ internal static class TrayBootstrap
             catch (Exception ex) { Console.Error.WriteLine($"[helper-sync] initial state failed: {ex.Message}"); }
         };
 
+        // Re-assert the Y70 panel's display orientation on every fresh helper
+        // connect. Windows defaults a freshly attached portrait panel to
+        // landscape; this drives it to the stored orientation (PortraitFlipped
+        // by default) so the panel never comes up sideways — replacing the
+        // legacy onboarding "Rotate" step. The Win32 ChangeDisplaySettingsEx
+        // call runs in the helper (user session, where it can see the
+        // monitors); a no-op when Windows is already in the target orientation.
+        helperRegistry.Connected += conn =>
+        {
+            try
+            {
+                var orientation = trayStore.Load().Y70.Orientation;
+                _ = OrientationCommands.SetAsync(helperRegistry, orientation);
+            }
+            catch (Exception ex) { Console.Error.WriteLine($"[y70-sync] initial orientation failed: {ex.Message}"); }
+        };
+
         trayStore.OnChanged += () =>
         {
             try

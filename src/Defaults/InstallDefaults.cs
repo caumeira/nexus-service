@@ -144,7 +144,12 @@ public sealed class LightingDevicePreferenceDefaults
 
 public sealed class Y70Defaults
 {
-    public string Orientation { get; set; } = "Landscape";
+    // The Y70/Y70ti is physically a portrait panel; PortraitFlipped (270°) is
+    // the orientation the legacy onboarding and control-service both applied.
+    // A fresh install with no stored value gets driven to this on first helper
+    // connect (see TrayBootstrap.WireHelperPipe), so the panel never comes up
+    // sideways without any onboarding UI.
+    public string Orientation { get; set; } = "PortraitFlipped";
     public int Brightness { get; set; } = 80;
     public bool ScreenOff { get; set; }
 }
