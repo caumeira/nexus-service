@@ -21,7 +21,7 @@
 #define MyAppName "Nexus"
 #define MyAppVersion "0.1.0"
 #define MyAppPublisher "Nexus Nexus"
-#define MyAppURL "https://nexusqos.com"
+#define MyAppURL "https://hellonexus.com"
 #define MyAppExeName "Nexus.exe"
 #ifndef PublishDir
   #define PublishDir "..\..\aot"

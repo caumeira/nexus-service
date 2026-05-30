@@ -68,7 +68,7 @@ public sealed class PanelPhonePairingService
     /// the same payload. The web fallback at /r/pair handles "no app installed"
     /// by redirecting to the LAN URL or linking to the App Store.
     /// </summary>
-    public string PublicLinkHost { get; set; } = "nexusqos.com";
+    public string PublicLinkHost { get; set; } = "hellonexus.com";
 
     /// <summary>
     /// Resolves the user-visible host PC name. Reads

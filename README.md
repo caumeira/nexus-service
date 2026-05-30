@@ -2,7 +2,7 @@
 
 The local Nexus hardware service. One Native-AOT binary that runs on the user's PC (Windows) or Mac, talks to the hardware, and exposes a REST + WebSocket API that the [`nexus-web`](https://github.com/nexusqos/nexus-web) dashboard, the on-device panels, and [`nexus-overlay`](https://github.com/nexusqos/nexus-overlay) all consume.
 
-This is the engine of [Nexus](https://nexusqos.com). The other repos are clients of this one.
+This is the engine of [Nexus](https://hellonexus.com). The other repos are clients of this one.
 
 ## What it does
 
@@ -93,7 +93,7 @@ All tests are AOT-safe (no reflection-heavy frameworks). Network/parsing/state-m
 
 ## Releases
 
-Installer artifacts are published to [`nexusqos/nexus-releases`](https://github.com/nexusqos/nexus-releases) as `Nexus-Setup.exe` and `Nexus.dmg` under monotonic `vNN` tags. The download links on nexusqos.com point at `/releases/latest/download/<asset>`.
+Installer artifacts are published to [`nexusqos/nexus-releases`](https://github.com/nexusqos/nexus-releases) as `Nexus-Setup.exe` and `Nexus.dmg` under monotonic `vNN` tags. The download links on hellonexus.com point at `/releases/latest/download/<asset>`.
 
 ## Third-party
 

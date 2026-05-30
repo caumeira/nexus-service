@@ -176,7 +176,7 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 });
 
 // CORS - loopback for the bundled SPA, plus the public web app at
-// nexusqos.com (HTTPS only). The hosted SPA fetches /pair to obtain a token,
+// hellonexus.com (HTTPS only). The hosted SPA fetches /pair to obtain a token,
 // then talks to the local service on http://localhost:9400 from the browser.
 // Token-based auth still gates every state-changing endpoint, so widening the
 // origin list does not weaken the CSRF posture - the attacker would still need
@@ -383,8 +383,8 @@ static string[] BuildAllowedOrigins(int httpPort, int httpsPort)
     {
         $"http://localhost:{httpPort}",
         $"http://127.0.0.1:{httpPort}",
-        "https://nexusqos.com",
-        "https://www.nexusqos.com",
+        "https://hellonexus.com",
+        "https://www.hellonexus.com",
     };
 
     if (httpsPort > 0)

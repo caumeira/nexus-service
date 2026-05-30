@@ -64,7 +64,7 @@ counts and audit hotspots in the same change that changes the traffic.
   machine name after an app update without requiring a reset or re-pair.
 - The pair QR encodes both an HTTPS port (for the native iOS app, which pins
   SPKI) and a plain-HTTP port (`httpPort`, default `9400`) for the browser
-  fallback at `https://nexusqos.com/r/pair`. Browsers can't pin the
+  fallback at `https://hellonexus.com/r/pair`. Browsers can't pin the
   service's self-signed LAN cert, so the "Continue in browser" button on the
   Universal Link landing page navigates to `http://<lan-ip>:<httpPort>/panel/phone?pair=...`
   instead of HTTPS. The panel page renders a yellow `PanelInsecureBanner`

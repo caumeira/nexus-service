@@ -42,7 +42,7 @@ public sealed class WidgetProxyService
     /// suspicious UAs from server IPs. Identifying as the Nexus widget proxy
     /// is also more honest than impersonating a browser.
     /// </summary>
-    public const string DefaultUserAgent = "Nexus-Widget-Proxy/1.0 (+https://nexusqos.com)";
+    public const string DefaultUserAgent = "Nexus-Widget-Proxy/1.0 (+https://hellonexus.com)";
 
     private static readonly HashSet<string> AllowedMethods = new(StringComparer.OrdinalIgnoreCase)
     {

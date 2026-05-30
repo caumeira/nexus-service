@@ -32,7 +32,7 @@ public class PanelPhonePairingServiceTests
             ServicePort = 9400,
             HttpsPort = 9443,
             SpkiFingerprint = "fp-stub",
-            PublicLinkHost = "nexusqos.com",
+            PublicLinkHost = "hellonexus.com",
         };
 
         var qr = service.CreatePairQr();
@@ -52,7 +52,7 @@ public class PanelPhonePairingServiceTests
             ServicePort = 9500,
             HttpsPort = 9443,
             SpkiFingerprint = "fp-stub",
-            PublicLinkHost = "nexusqos.com",
+            PublicLinkHost = "hellonexus.com",
         };
 
         var qr = service.CreatePairQr();
@@ -67,7 +67,7 @@ public class PanelPhonePairingServiceTests
     {
         var service = new PanelPhonePairingService(new InMemoryConfigStore(), new Nexus.Service.Sockets.MultiplexHub())
         {
-            PublicLinkHost = "nexusqos.com",
+            PublicLinkHost = "hellonexus.com",
         };
         service.SetHostDisplayName("Desk PC");
 
