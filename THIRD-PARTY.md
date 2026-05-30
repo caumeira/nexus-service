@@ -7,7 +7,7 @@ licenses. Their respective license texts ship alongside the bundled binaries.
 
 - **Project**: OpenRGB
 - **Upstream**: https://gitlab.com/CalcProgrammer1/OpenRGB
-- **Headless fork (source code, GPLv2 §3 compliance)**: https://github.com/nexusqos/openrgb-headless
+- **Headless fork (source code, GPLv2 §3 compliance)**: https://github.com/hello-nexus/openrgb-headless
 - **License**: GNU General Public License version 2 or later (GPL-2.0-or-later)
 - **License text**: shipped with the bundled binary at
   `openrgb/LICENSE-OpenRGB.txt` in the publish output
