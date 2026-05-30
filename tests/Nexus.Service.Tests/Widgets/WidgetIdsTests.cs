@@ -5,10 +5,10 @@ namespace Nexus.Service.Tests.Widgets;
 public class WidgetIdsTests
 {
     [Theory]
-    [InlineData("com.nexusqos.cpu-temp")]
+    [InlineData("com.hellonexus.cpu-temp")]
     [InlineData("com.author.widget-id")]
     [InlineData("a.b")]
-    [InlineData("com.nexusqos.fixture-basic")]
+    [InlineData("com.hellonexus.fixture-basic")]
     public void Accepts_reverse_dns_lowercase_ids(string id)
     {
         Assert.True(WidgetIds.IsValid(id));
@@ -25,9 +25,9 @@ public class WidgetIdsTests
     [InlineData("com nexus.spaces")]
     [InlineData("com/nexus/slash")]
     [InlineData("../escape.attempt")]
-    [InlineData("com.nexusqos..traversal")]
-    [InlineData("com.nexusqos.trailing-")]
-    [InlineData("com.nexusqos.-leadingdashinsegment")]
+    [InlineData("com.hellonexus..traversal")]
+    [InlineData("com.hellonexus.trailing-")]
+    [InlineData("com.hellonexus.-leadingdashinsegment")]
     public void Rejects_invalid_or_dangerous_ids(string? id)
     {
         Assert.False(WidgetIds.IsValid(id));

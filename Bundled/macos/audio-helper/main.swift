@@ -156,7 +156,7 @@ func run() async {
         config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
 
         let stream = SCStream(filter: filter, configuration: config, delegate: handler)
-        try stream.addStreamOutput(handler, type: .audio, sampleHandlerQueue: DispatchQueue(label: "com.nexusqos.panel.audio-helper"))
+        try stream.addStreamOutput(handler, type: .audio, sampleHandlerQueue: DispatchQueue(label: "com.hellonexus.panel.audio-helper"))
         try await stream.startCapture()
         handler.log("[audio-helper] capture started")
     } catch {

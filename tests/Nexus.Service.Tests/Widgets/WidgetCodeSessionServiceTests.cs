@@ -15,18 +15,18 @@ public class WidgetCodeSessionServiceTests
     public void Create_returns_token_that_resolves_to_widget_id()
     {
         var svc = new WidgetCodeSessionService();
-        var token = svc.Create("com.nexusqos.test");
+        var token = svc.Create("com.hellonexus.test");
         Assert.NotNull(token);
         Assert.NotEmpty(token);
-        Assert.Equal("com.nexusqos.test", svc.Resolve(token));
+        Assert.Equal("com.hellonexus.test", svc.Resolve(token));
     }
 
     [Fact]
     public void Tokens_are_unique_across_calls()
     {
         var svc = new WidgetCodeSessionService();
-        var a = svc.Create("com.nexusqos.test");
-        var b = svc.Create("com.nexusqos.test");
+        var a = svc.Create("com.hellonexus.test");
+        var b = svc.Create("com.hellonexus.test");
         Assert.NotEqual(a, b);
     }
 
@@ -34,7 +34,7 @@ public class WidgetCodeSessionServiceTests
     public void Token_is_base64url_with_no_padding_or_unsafe_chars()
     {
         var svc = new WidgetCodeSessionService();
-        var token = svc.Create("com.nexusqos.test");
+        var token = svc.Create("com.hellonexus.test");
         // Base64URL alphabet only: A-Z a-z 0-9 - _
         foreach (var c in token)
         {
@@ -57,7 +57,7 @@ public class WidgetCodeSessionServiceTests
     public void Expired_session_resolves_to_null_and_is_purged()
     {
         var svc = new WidgetCodeSessionService();
-        var token = svc.Create("com.nexusqos.test", TimeSpan.FromMilliseconds(1));
+        var token = svc.Create("com.hellonexus.test", TimeSpan.FromMilliseconds(1));
         Thread.Sleep(20);
         Assert.Null(svc.Resolve(token));
         // A second Resolve also returns null (the entry should already be gone
@@ -69,7 +69,7 @@ public class WidgetCodeSessionServiceTests
     public void Revoke_invalidates_a_live_token()
     {
         var svc = new WidgetCodeSessionService();
-        var token = svc.Create("com.nexusqos.test");
+        var token = svc.Create("com.hellonexus.test");
         Assert.NotNull(svc.Resolve(token));
         svc.Revoke(token);
         Assert.Null(svc.Resolve(token));

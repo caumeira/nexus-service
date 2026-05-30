@@ -1,6 +1,6 @@
 {
   "schema": "nexus.widget/2",
-  "id": "com.nexusqos.fixture-basic",
+  "id": "com.hellonexus.fixture-basic",
   "name": "Fixture Basic",
   "version": "1.0.0",
   "description": "Declarative-schema fixture used by the registry tests.",

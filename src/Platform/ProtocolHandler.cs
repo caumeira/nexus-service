@@ -118,7 +118,7 @@ public static class ProtocolHandler
 <plist version=""1.0"">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.nexusqos.panel.launcher</string>
+    <string>com.hellonexus.panel.launcher</string>
     <key>CFBundleName</key>
     <string>Nexus</string>
     <key>CFBundleExecutable</key>

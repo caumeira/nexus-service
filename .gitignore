@@ -46,3 +46,6 @@ build/
 
 # AOT publish output (regenerated; metadata leaks personal paths)
 builds/
+
+# VS/dotnet test result artifacts (regenerated; metadata leaks personal paths)
+**/TestResults/

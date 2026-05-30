@@ -33,7 +33,7 @@ public class WidgetRegistryTests : IDisposable
     public void Discovers_fixture_widget()
     {
         var registry = NewRegistry();
-        Assert.True(registry.TryGet("com.nexusqos.fixture-basic", out var entry));
+        Assert.True(registry.TryGet("com.hellonexus.fixture-basic", out var entry));
         Assert.Equal("1.0.0", entry.Manifest.Version);
         Assert.Equal("nexus.widget/2", entry.Manifest.Schema);
         Assert.Single(entry.Manifest.Surfaces, "dashboard");
@@ -46,23 +46,23 @@ public class WidgetRegistryTests : IDisposable
     public void Skips_bundle_when_folder_name_does_not_match_id()
     {
         // Rename the folder so manifest.id no longer matches the directory.
-        var src = Path.Combine(_root, "com.nexusqos.fixture-basic");
+        var src = Path.Combine(_root, "com.hellonexus.fixture-basic");
         var dst = Path.Combine(_root, "imposter.bundle");
         Directory.Move(src, dst);
 
         var registry = NewRegistry();
-        Assert.False(registry.TryGet("com.nexusqos.fixture-basic", out _));
+        Assert.False(registry.TryGet("com.hellonexus.fixture-basic", out _));
         Assert.False(registry.TryGet("imposter.bundle", out _));
     }
 
     [Fact]
     public void Skips_bundle_when_view_block_is_missing()
     {
-        var manifest = Path.Combine(_root, "com.nexusqos.fixture-basic", "manifest.json");
+        var manifest = Path.Combine(_root, "com.hellonexus.fixture-basic", "manifest.json");
         File.WriteAllText(manifest, """
         {
           "schema": "nexus.widget/2",
-          "id": "com.nexusqos.fixture-basic",
+          "id": "com.hellonexus.fixture-basic",
           "name": "x",
           "version": "1.0.0",
           "min_nexus_version": "0.42.0",
@@ -72,17 +72,17 @@ public class WidgetRegistryTests : IDisposable
         """);
 
         var registry = NewRegistry();
-        Assert.False(registry.TryGet("com.nexusqos.fixture-basic", out _));
+        Assert.False(registry.TryGet("com.hellonexus.fixture-basic", out _));
     }
 
     [Fact]
     public void Skips_worker_bundle_when_worker_js_is_missing()
     {
-        var manifest = Path.Combine(_root, "com.nexusqos.fixture-basic", "manifest.json");
+        var manifest = Path.Combine(_root, "com.hellonexus.fixture-basic", "manifest.json");
         File.WriteAllText(manifest, """
         {
           "schema": "nexus.widget/2",
-          "id": "com.nexusqos.fixture-basic",
+          "id": "com.hellonexus.fixture-basic",
           "name": "x",
           "version": "1.0.0",
           "min_nexus_version": "0.42.0",
@@ -93,27 +93,27 @@ public class WidgetRegistryTests : IDisposable
         """);
 
         var registry = NewRegistry();
-        Assert.False(registry.TryGet("com.nexusqos.fixture-basic", out _));
+        Assert.False(registry.TryGet("com.hellonexus.fixture-basic", out _));
     }
 
     [Fact]
     public void Skips_bundle_when_manifest_is_malformed()
     {
-        var manifest = Path.Combine(_root, "com.nexusqos.fixture-basic", "manifest.json");
+        var manifest = Path.Combine(_root, "com.hellonexus.fixture-basic", "manifest.json");
         File.WriteAllText(manifest, "{ not valid json");
 
         var registry = NewRegistry();
-        Assert.False(registry.TryGet("com.nexusqos.fixture-basic", out _));
+        Assert.False(registry.TryGet("com.hellonexus.fixture-basic", out _));
     }
 
     [Fact]
     public void Skips_bundle_with_unknown_schema()
     {
-        var manifest = Path.Combine(_root, "com.nexusqos.fixture-basic", "manifest.json");
+        var manifest = Path.Combine(_root, "com.hellonexus.fixture-basic", "manifest.json");
         File.WriteAllText(manifest, """
         {
           "schema": "nexus.widget/9999",
-          "id": "com.nexusqos.fixture-basic",
+          "id": "com.hellonexus.fixture-basic",
           "name": "x",
           "version": "1.0.0",
           "min_nexus_version": "0.42.0",
@@ -123,14 +123,14 @@ public class WidgetRegistryTests : IDisposable
         """);
 
         var registry = NewRegistry();
-        Assert.False(registry.TryGet("com.nexusqos.fixture-basic", out _));
+        Assert.False(registry.TryGet("com.hellonexus.fixture-basic", out _));
     }
 
     [Fact]
     public void Records_install_source()
     {
         var registry = NewRegistry(WidgetInstallPaths.Source.Bundled);
-        Assert.True(registry.TryGet("com.nexusqos.fixture-basic", out var entry));
+        Assert.True(registry.TryGet("com.hellonexus.fixture-basic", out var entry));
         Assert.Equal(WidgetInstallPaths.Source.Bundled, entry.Source);
     }
 
@@ -149,7 +149,7 @@ public class WidgetRegistryTests : IDisposable
                 new(secondRoot, WidgetInstallPaths.Source.User),
             });
 
-            Assert.True(registry.TryGet("com.nexusqos.fixture-basic", out var entry));
+            Assert.True(registry.TryGet("com.hellonexus.fixture-basic", out var entry));
             Assert.Equal(WidgetInstallPaths.Source.Dev, entry.Source);
         }
         finally

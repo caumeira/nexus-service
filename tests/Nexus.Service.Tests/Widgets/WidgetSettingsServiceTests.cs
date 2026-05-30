@@ -19,7 +19,7 @@ namespace Nexus.Service.Tests.Widgets;
 /// </summary>
 public class WidgetSettingsServiceTests : IDisposable
 {
-    private const string WidgetId = "com.nexusqos.test";
+    private const string WidgetId = "com.hellonexus.test";
     private const string InstanceId = "test-instance";
     private const string MarketplaceType = "marketplace:" + WidgetId;
 

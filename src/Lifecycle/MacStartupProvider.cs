@@ -12,7 +12,7 @@ namespace Nexus.Service.Lifecycle;
 /// </summary>
 public sealed class MacStartupProvider : IStartupProvider
 {
-    private const string PlistLabel = "com.nexusqos.panel.service";
+    private const string PlistLabel = "com.hellonexus.panel.service";
 
     private static string PlistPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),

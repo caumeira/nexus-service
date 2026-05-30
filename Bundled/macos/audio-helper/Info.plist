@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.nexusqos.panel.service.audio-helper</string>
+    <string>com.hellonexus.panel.service.audio-helper</string>
     <key>CFBundleName</key>
     <string>nexus-audio-helper</string>
     <key>CFBundleDisplayName</key>

@@ -3,7 +3,7 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleIdentifier</key>
-    <string>com.nexusqos.panel.service.overlay-helper</string>
+    <string>com.hellonexus.panel.service.overlay-helper</string>
     <key>CFBundleName</key>
     <string>nexus-overlay-helper</string>
     <key>CFBundleDisplayName</key>

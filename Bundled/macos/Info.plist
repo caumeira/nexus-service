@@ -7,7 +7,7 @@
     <key>CFBundleDisplayName</key>
     <string>Nexus</string>
     <key>CFBundleIdentifier</key>
-    <string>com.nexusqos.panel.service</string>
+    <string>com.hellonexus.panel.service</string>
     <key>CFBundleVersion</key>
     <string>1.0</string>
     <key>CFBundleShortVersionString</key>

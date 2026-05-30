@@ -23,7 +23,7 @@ public class WidgetInstallerTests : IDisposable
         Directory.CreateDirectory(_bundledRoot);
         Directory.CreateDirectory(_userRoot);
 
-        WriteFixtureWidget(_bundledRoot, "com.nexusqos.demo", "Demo");
+        WriteFixtureWidget(_bundledRoot, "com.hellonexus.demo", "Demo");
     }
 
     public void Dispose()
@@ -70,8 +70,8 @@ public class WidgetInstallerTests : IDisposable
     {
         var (_, installer) = NewInstaller();
         var cat = installer.Catalogue();
-        Assert.Contains(cat.Entries, e => e.Id == "com.nexusqos.demo");
-        var entry = cat.Entries.Find(e => e.Id == "com.nexusqos.demo")!;
+        Assert.Contains(cat.Entries, e => e.Id == "com.hellonexus.demo");
+        var entry = cat.Entries.Find(e => e.Id == "com.hellonexus.demo")!;
         Assert.Equal("bundled", entry.Source);
         Assert.False(entry.Installed);
     }
@@ -81,14 +81,14 @@ public class WidgetInstallerTests : IDisposable
     {
         // Drop a copy of the bundled widget into the user root and rebuild
         // the registry: the catalogue should now report Installed=true.
-        var src = Path.Combine(_bundledRoot, "com.nexusqos.demo");
-        var dst = Path.Combine(_userRoot, "com.nexusqos.demo");
+        var src = Path.Combine(_bundledRoot, "com.hellonexus.demo");
+        var dst = Path.Combine(_userRoot, "com.hellonexus.demo");
         Directory.CreateDirectory(dst);
         File.Copy(Path.Combine(src, "manifest.json"), Path.Combine(dst, "manifest.json"));
 
         var (_, installer) = NewInstaller();
         var cat = installer.Catalogue();
-        var entry = cat.Entries.Find(e => e.Id == "com.nexusqos.demo")!;
+        var entry = cat.Entries.Find(e => e.Id == "com.hellonexus.demo")!;
         Assert.True(entry.Installed);
         Assert.Equal("user", entry.Source);
     }
