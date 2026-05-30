@@ -419,4 +419,137 @@ public sealed class DBusReader
         var sig = ReadSignature();
         SkipSimple(sig);
     }
+
+    /// <summary>Read an array of strings (signature <c>as</c>) at the current position.</summary>
+    public System.Collections.Generic.List<string> ReadStringArray()
+    {
+        var result = new System.Collections.Generic.List<string>();
+        AlignTo(4);
+        var len = (int)ReadUInt32();
+        var end = _pos + len;
+        while (_pos < end)
+            result.Add(ReadString());
+        return result;
+    }
+
+    /// <summary>
+    /// Read a string-keyed variant dictionary (signature <c>a{sv}</c>) at the
+    /// current position into a map of string -&gt; boxed value. Used for the
+    /// MPRIS <c>Properties.GetAll</c> reply and the nested <c>Metadata</c> dict.
+    /// Values are boxed as: string, long (all integer types), double, bool,
+    /// <see cref="System.Collections.Generic.List{Object}"/> (arrays) or a nested
+    /// dictionary; unknown types resolve to null.
+    /// </summary>
+    public System.Collections.Generic.Dictionary<string, object?> ReadStringVariantDict()
+    {
+        var dict = new System.Collections.Generic.Dictionary<string, object?>(StringComparer.Ordinal);
+        AlignTo(4);
+        var len = (int)ReadUInt32();
+        AlignTo(8); // array of dict-entry (struct) aligns to 8
+        var end = _pos + len;
+        while (_pos < end)
+        {
+            AlignTo(8);
+            var key = ReadString();
+            var sig = ReadSignature(); // variant signature
+            var si = 0;
+            dict[key] = ReadOne(sig, ref si);
+        }
+        return dict;
+    }
+
+    /// <summary>Read one complete value of the type at <paramref name="sig"/>[<paramref name="si"/>], advancing si past it.</summary>
+    private object? ReadOne(string sig, ref int si)
+    {
+        var t = sig[si++];
+        switch (t)
+        {
+            case 'y': return (long)ReadByte();
+            case 'b': return ReadBool();
+            case 'n': AlignTo(2); { var v = BitConverter.ToInt16(_data, _pos); _pos += 2; return (long)v; }
+            case 'q': AlignTo(2); { var v = BitConverter.ToUInt16(_data, _pos); _pos += 2; return (long)v; }
+            case 'i': return (long)ReadInt32();
+            case 'u': return (long)ReadUInt32();
+            case 'x': AlignTo(8); { var v = BitConverter.ToInt64(_data, _pos); _pos += 8; return v; }
+            case 't': AlignTo(8); { var v = BitConverter.ToUInt64(_data, _pos); _pos += 8; return (long)v; }
+            case 'd': AlignTo(8); { var v = BitConverter.ToDouble(_data, _pos); _pos += 8; return v; }
+            case 's': return ReadString();
+            case 'o': return ReadString();
+            case 'g': return ReadSignature();
+            case 'v':
+            {
+                var vsig = ReadSignature();
+                var vi = 0;
+                return ReadOne(vsig, ref vi);
+            }
+            case 'a':
+            {
+                var elemStart = si;
+                AlignTo(4);
+                var len = (int)ReadUInt32();
+                AlignTo(AlignmentOf(sig[si]));
+                var end = _pos + len;
+                if (sig[si] == '{')
+                {
+                    var dict = new System.Collections.Generic.Dictionary<string, object?>(StringComparer.Ordinal);
+                    while (_pos < end)
+                    {
+                        AlignTo(8);
+                        var ki = si + 1; // skip '{'
+                        var key = ReadOne(sig, ref ki);
+                        var val = ReadOne(sig, ref ki); // ki now at '}'
+                        dict[Convert.ToString(key, System.Globalization.CultureInfo.InvariantCulture) ?? ""] = val;
+                    }
+                    si = SkipType(sig, si);
+                    return dict;
+                }
+                var list = new System.Collections.Generic.List<object?>();
+                while (_pos < end)
+                {
+                    var ei = elemStart;
+                    list.Add(ReadOne(sig, ref ei));
+                }
+                si = SkipType(sig, elemStart);
+                return list;
+            }
+            case '(':
+            {
+                AlignTo(8);
+                var items = new System.Collections.Generic.List<object?>();
+                while (sig[si] != ')')
+                    items.Add(ReadOne(sig, ref si));
+                si++; // skip ')'
+                return items;
+            }
+            default:
+                _pos = _data.Length; // unknown — bail safely
+                return null;
+        }
+    }
+
+    private static int SkipType(string sig, int i)
+    {
+        var c = sig[i++];
+        if (c == 'a') return SkipType(sig, i);
+        if (c == '(')
+        {
+            while (sig[i] != ')') i = SkipType(sig, i);
+            return i + 1;
+        }
+        if (c == '{')
+        {
+            i = SkipType(sig, i);
+            i = SkipType(sig, i);
+            return i + 1; // skip '}'
+        }
+        return i;
+    }
+
+    private static int AlignmentOf(char t) => t switch
+    {
+        'n' or 'q' => 2,
+        'b' or 'i' or 'u' or 's' or 'o' or 'a' => 4,
+        'x' or 't' or 'd' or '(' or '{' => 8,
+        _ => 1,
+    };
 }

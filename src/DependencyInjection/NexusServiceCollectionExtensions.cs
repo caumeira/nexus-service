@@ -478,6 +478,11 @@ public static class NexusServiceCollectionExtensions
             services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
                 Nexus.Service.Platform.Displays.MacDisplayBrightnessProvider>();
         }
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+        {
+            services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
+                Nexus.Service.Platform.Displays.LinuxDisplayBrightnessProvider>();
+        }
         else
         {
             services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
@@ -531,8 +536,8 @@ public static class NexusServiceCollectionExtensions
             services.AddSingleton<IScreenTimeProvider>(sp => sp.GetRequiredService<Nexus.Service.Activity.LinuxScreenTimeProvider>());
             services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
             services.AddSingleton<IShortcutsProvider, LinuxShortcutsProvider>();
-            services.AddSingleton<IMediaProvider, StubMediaProvider>();
-            services.AddSingleton<IVolumeProvider, StubVolumeProvider>();
+            services.AddSingleton<IMediaProvider, LinuxMediaProvider>();
+            services.AddSingleton<IVolumeProvider, LinuxVolumeProvider>();
             services.AddSingleton<IBeatsProvider, BeatsProvider>();
         }
         else
