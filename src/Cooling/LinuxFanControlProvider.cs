@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Cooling;
+using Nexus.Service.Platform.Linux;
 
 namespace Nexus.Service.Cooling;
 
@@ -16,20 +17,20 @@ namespace Nexus.Service.Cooling;
 /// "controllable" when its chip exposes both <c>pwmN</c> and <c>pwmN_enable</c>;
 /// duty is the 0-255 pwm value scaled to 0-100, RPM comes from the paired
 /// <c>fanN_input</c>. Writes set <c>pwmN_enable=1</c> (manual) then <c>pwmN</c>;
-/// release restores <c>pwmN_enable=2</c> (automatic). Pure sysfs file IO —
-/// AOT-safe, no P/Invoke. Writing pwm requires the running user to have write
-/// access to the hwmon attributes (see the bundled udev rule); failures are
-/// swallowed (logged once) so a locked-down box degrades to read-only.
+/// release restores <c>pwmN_enable=2</c> (automatic). Pure sysfs file IO via
+/// <see cref="LinuxSysfs"/> — AOT-safe, no P/Invoke. Only DI-wired on Linux; on
+/// any other OS the hwmon root is absent so enumeration simply yields nothing.
+/// Writing pwm needs access to the hwmon attributes (see the bundled udev rule);
+/// failures are swallowed (logged once) so a locked-down box degrades to read-only.
 /// </summary>
 public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvider
 {
-    private const string HwmonRoot = "/sys/class/hwmon";
-
-    // Fans take a couple of seconds to reach a steady RPM after a pwm change;
-    // calibration must dwell at each step before sampling or the readings lag
-    // the setpoint. Matches the Windows calibration dwell.
-    private static readonly TimeSpan StepSettle = TimeSpan.FromMilliseconds(2500);
     private static readonly int[] CalibrationDuties = { 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0 };
+
+    private readonly string _hwmonRoot;
+    // Fans take a couple of seconds to reach a steady RPM after a pwm change;
+    // calibration dwells at each step before sampling. Injectable for tests.
+    private readonly TimeSpan _stepSettle;
 
     private readonly object _lock = new();
     private readonly Dictionary<string, FanPaths> _fanPaths = new();
@@ -38,11 +39,16 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
 
     private readonly record struct FanPaths(string PwmPath, string EnablePath, string? FanInputPath);
 
+    public LinuxFanControlProvider() : this("/sys/class/hwmon", TimeSpan.FromMilliseconds(2500)) { }
+
+    internal LinuxFanControlProvider(string hwmonRoot, TimeSpan stepSettle)
+    {
+        _hwmonRoot = hwmonRoot;
+        _stepSettle = stepSettle;
+    }
+
     public IReadOnlyList<FanChannel> GetFanChannels()
     {
-        if (!OperatingSystem.IsLinux())
-            return Array.Empty<FanChannel>();
-
         var discovered = EnumerateControllableFans().ToList();
         // Record the path map under the lock, but do the (potentially slow) sysfs
         // reads OUTSIDE it — a stuck hwmon read must not serialize every fan op.
@@ -56,9 +62,9 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         var channels = new List<FanChannel>(discovered.Count);
         foreach (var (id, name, paths) in discovered)
         {
-            var pwm = ReadInt(paths.PwmPath) ?? 0;
-            var rpm = paths.FanInputPath is not null ? ReadInt(paths.FanInputPath) ?? 0 : 0;
-            var enabled = ReadInt(paths.EnablePath);
+            var pwm = LinuxSysfs.ReadInt(paths.PwmPath) ?? 0;
+            var rpm = paths.FanInputPath is not null ? LinuxSysfs.ReadInt(paths.FanInputPath) ?? 0 : 0;
+            var enabled = LinuxSysfs.ReadInt(paths.EnablePath);
             channels.Add(new FanChannel
             {
                 Id = id,
@@ -73,9 +79,6 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
 
     public IReadOnlyList<TemperatureSource> GetTemperatureSources()
     {
-        if (!OperatingSystem.IsLinux())
-            return Array.Empty<TemperatureSource>();
-
         var discovered = EnumerateTemps().ToList();
         var sources = new List<TemperatureSource>(discovered.Count);
         lock (_lock)
@@ -107,7 +110,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
                     return null;
             }
         }
-        var milli = ReadInt(path);
+        var milli = LinuxSysfs.ReadInt(path);
         return milli is null ? null : milli.Value / 1000f;
     }
 
@@ -132,8 +135,8 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
     {
         // Most SuperIO chips: 2 = automatic. A few only accept 0 (= no
         // software control / full speed) — fall back to that if 2 is rejected.
-        if (!TryWrite(paths.EnablePath, "2"))
-            TryWrite(paths.EnablePath, "0");
+        if (!LinuxSysfs.WriteText(paths.EnablePath, "2"))
+            LinuxSysfs.WriteText(paths.EnablePath, "0");
     }
 
     public void ReleaseAll()
@@ -153,9 +156,6 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         IProgress<FanCalibrationProgress> progress,
         CancellationToken ct)
     {
-        if (!OperatingSystem.IsLinux())
-            return Array.Empty<FanCalibration>();
-
         GetFanChannels(); // populate _fanPaths
         List<(string Id, FanPaths Paths)> targets;
         lock (_lock)
@@ -204,14 +204,14 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         var points = new List<FanCalibrationPoint>();
         try
         {
-            TryWrite(paths.EnablePath, "1");
+            LinuxSysfs.WriteText(paths.EnablePath, "1");
             for (var step = 0; step < CalibrationDuties.Length; step++)
             {
                 ct.ThrowIfCancellationRequested();
                 var duty = CalibrationDuties[step];
-                TryWrite(paths.PwmPath, DutyToRaw(duty).ToString(CultureInfo.InvariantCulture));
-                await Task.Delay(StepSettle, ct).ConfigureAwait(false);
-                var rpm = paths.FanInputPath is not null ? ReadInt(paths.FanInputPath) ?? 0 : 0;
+                LinuxSysfs.WriteText(paths.PwmPath, DutyToRaw(duty).ToString(CultureInfo.InvariantCulture));
+                await Task.Delay(_stepSettle, ct).ConfigureAwait(false);
+                var rpm = paths.FanInputPath is not null ? LinuxSysfs.ReadInt(paths.FanInputPath) ?? 0 : 0;
                 points.Add(new FanCalibrationPoint { Duty = duty, Rpm = rpm });
                 progress?.Report(new FanCalibrationProgress
                 {
@@ -246,7 +246,8 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         var paths = ResolveFan(channelId);
         if (paths is null)
             return;
-        if (!TryWrite(paths.Value.EnablePath, "1") || !TryWrite(paths.Value.PwmPath, DutyToRaw(dutyPercent).ToString(CultureInfo.InvariantCulture)))
+        if (!LinuxSysfs.WriteText(paths.Value.EnablePath, "1") ||
+            !LinuxSysfs.WriteText(paths.Value.PwmPath, DutyToRaw(dutyPercent).ToString(CultureInfo.InvariantCulture)))
             WarnOnce(channelId);
     }
 
@@ -264,15 +265,15 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         }
     }
 
-    private static IEnumerable<(string Id, string Name, FanPaths Paths)> EnumerateControllableFans()
+    private IEnumerable<(string Id, string Name, FanPaths Paths)> EnumerateControllableFans()
     {
         string[] dirs;
-        try { dirs = Directory.GetDirectories(HwmonRoot); }
+        try { dirs = Directory.GetDirectories(_hwmonRoot); }
         catch { yield break; }
 
         foreach (var dir in dirs)
         {
-            var hwmonName = TryRead(Path.Combine(dir, "name"));
+            var hwmonName = LinuxSysfs.ReadText(Path.Combine(dir, "name"));
             if (string.IsNullOrEmpty(hwmonName))
                 continue;
 
@@ -290,7 +291,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
                     continue; // not software-controllable without an enable knob
 
                 var fanInput = Path.Combine(dir, $"fan{n}_input");
-                var label = TryRead(Path.Combine(dir, $"fan{n}_label"));
+                var label = LinuxSysfs.ReadText(Path.Combine(dir, $"fan{n}_label"));
                 var name = !string.IsNullOrEmpty(label) ? $"{hwmonName} {label}" : $"{hwmonName} fan{n}";
                 yield return (
                     $"linux/fan/{Sanitize(hwmonName)}/{n}",
@@ -300,15 +301,15 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         }
     }
 
-    private static IEnumerable<(string Id, string Name, string Category, float Value, string InputPath)> EnumerateTemps()
+    private IEnumerable<(string Id, string Name, string Category, float Value, string InputPath)> EnumerateTemps()
     {
         string[] dirs;
-        try { dirs = Directory.GetDirectories(HwmonRoot); }
+        try { dirs = Directory.GetDirectories(_hwmonRoot); }
         catch { yield break; }
 
         foreach (var dir in dirs)
         {
-            var hwmonName = TryRead(Path.Combine(dir, "name"));
+            var hwmonName = LinuxSysfs.ReadText(Path.Combine(dir, "name"));
             if (string.IsNullOrEmpty(hwmonName))
                 continue;
             var category = CategoryFor(hwmonName);
@@ -321,10 +322,10 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
             {
                 var file = Path.GetFileName(input);
                 var index = file.Replace("temp", "").Replace("_input", "");
-                var milli = ReadInt(input);
+                var milli = LinuxSysfs.ReadInt(input);
                 if (milli is null)
                     continue;
-                var label = TryRead(Path.Combine(dir, $"temp{index}_label"));
+                var label = LinuxSysfs.ReadText(Path.Combine(dir, $"temp{index}_label"));
                 var name = !string.IsNullOrEmpty(label) ? $"{hwmonName} {label}" : $"{hwmonName} temp{index}";
                 yield return ($"linux/temp/{Sanitize(hwmonName)}/{index}", name, category, milli.Value / 1000f, input);
             }
@@ -357,24 +358,6 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
                 return;
         }
         Console.Error.WriteLine($"[cooling] fan write failed for {channelId} — check hwmon pwm permissions (udev rule / group). Reporting read-only.");
-    }
-
-    private static bool TryWrite(string path, string value)
-    {
-        try { File.WriteAllText(path, value); return true; }
-        catch { return false; }
-    }
-
-    private static int? ReadInt(string path)
-    {
-        var text = TryRead(path);
-        return text is not null && int.TryParse(text, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
-    }
-
-    private static string? TryRead(string path)
-    {
-        try { return File.Exists(path) ? File.ReadAllText(path).Trim() : null; }
-        catch { return null; }
     }
 
     private static string Sanitize(string raw)

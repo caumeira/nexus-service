@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Globalization;
 using System.IO;
+using Nexus.Service.Platform.Linux;
 
 namespace Nexus.Service.Peripherals.Hyte;
 
@@ -29,29 +29,37 @@ internal static class LinuxSerialDiscovery
     /// stays happy on macOS) and on any IO error.
     /// </summary>
     internal static IReadOnlyList<Match> Find(int vendorId, params int[] productIds)
-    {
-        if (!OperatingSystem.IsLinux())
-            return Array.Empty<Match>();
+        => OperatingSystem.IsLinux()
+            ? FindIn("/dev", "/sys/class/tty", vendorId, productIds)
+            : Array.Empty<Match>();
 
+    /// <summary>
+    /// Core discovery against explicit <paramref name="devRoot"/> and
+    /// <paramref name="sysTtyRoot"/> trees, with no platform gate — so tests can
+    /// drive it against a fake sysfs tree on any OS.
+    /// </summary>
+    internal static IReadOnlyList<Match> FindIn(string devRoot, string sysTtyRoot, int vendorId, params int[] productIds)
+    {
         var matches = new List<Match>();
-        foreach (var devPath in EnumerateSerialNodes())
+        foreach (var devPath in EnumerateSerialNodes(devRoot))
         {
             try
             {
                 var name = Path.GetFileName(devPath); // e.g. "ttyACM0"
-                var usbDir = ResolveUsbDeviceDir($"/sys/class/tty/{name}/device");
+                var usbDir = ResolveUsbDeviceDir(Path.Combine(sysTtyRoot, name, "device"));
                 if (usbDir is null)
                     continue;
 
-                if (!TryReadHex(Path.Combine(usbDir, "idVendor"), out var vid) || vid != vendorId)
+                if (LinuxSysfs.ReadHex(Path.Combine(usbDir, "idVendor")) != vendorId)
                     continue;
-                if (!TryReadHex(Path.Combine(usbDir, "idProduct"), out var pid))
+                var pid = LinuxSysfs.ReadHex(Path.Combine(usbDir, "idProduct"));
+                if (pid is null)
                     continue;
-                if (productIds.Length > 0 && Array.IndexOf(productIds, pid) < 0)
+                if (productIds.Length > 0 && Array.IndexOf(productIds, pid.Value) < 0)
                     continue;
 
-                var serial = TryReadText(Path.Combine(usbDir, "serial")) ?? "";
-                matches.Add(new Match(devPath, serial, pid));
+                var serial = LinuxSysfs.ReadText(Path.Combine(usbDir, "serial")) ?? "";
+                matches.Add(new Match(devPath, serial, pid.Value));
             }
             catch
             {
@@ -61,15 +69,15 @@ internal static class LinuxSerialDiscovery
         return matches;
     }
 
-    private static IEnumerable<string> EnumerateSerialNodes()
+    private static IEnumerable<string> EnumerateSerialNodes(string devRoot)
     {
-        if (!Directory.Exists("/dev"))
+        if (!Directory.Exists(devRoot))
             yield break;
 
         foreach (var pattern in new[] { "ttyACM*", "ttyUSB*" })
         {
             string[] entries;
-            try { entries = Directory.GetFiles("/dev", pattern); }
+            try { entries = Directory.GetFiles(devRoot, pattern); }
             catch { entries = Array.Empty<string>(); }
             foreach (var e in entries)
                 yield return e;
@@ -105,18 +113,5 @@ internal static class LinuxSerialDiscovery
             dir = Directory.GetParent(dir)?.FullName;
         }
         return null;
-    }
-
-    private static bool TryReadHex(string path, out int value)
-    {
-        value = 0;
-        var text = TryReadText(path);
-        return text is not null && int.TryParse(text, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out value);
-    }
-
-    private static string? TryReadText(string path)
-    {
-        try { return File.Exists(path) ? File.ReadAllText(path).Trim() : null; }
-        catch { return null; }
     }
 }
