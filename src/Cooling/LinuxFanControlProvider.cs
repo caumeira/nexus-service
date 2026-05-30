@@ -296,7 +296,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
                 var label = LinuxSysfs.ReadText(Path.Combine(dir, $"fan{n}_label"));
                 var name = !string.IsNullOrEmpty(label) ? $"{hwmonName} {label}" : $"{hwmonName} fan{n}";
                 yield return (
-                    $"linux/fan/{Sanitize(hwmonName)}/{n}",
+                    $"linux-fan-{Sanitize(hwmonName)}-{n}",
                     name,
                     new FanPaths(pwmPath, enablePath, File.Exists(fanInput) ? fanInput : null));
             }
@@ -329,7 +329,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
                     continue;
                 var label = LinuxSysfs.ReadText(Path.Combine(dir, $"temp{index}_label"));
                 var name = !string.IsNullOrEmpty(label) ? $"{hwmonName} {label}" : $"{hwmonName} temp{index}";
-                yield return ($"linux/temp/{Sanitize(hwmonName)}/{index}", name, category, milli.Value / 1000f, input);
+                yield return ($"linux-temp-{Sanitize(hwmonName)}-{index}", name, category, milli.Value / 1000f, input);
             }
         }
     }

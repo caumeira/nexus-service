@@ -32,6 +32,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
     // These are protocol timing requirements, not arbitrary waits.
     private static readonly TimeSpan DdcReadDelay = TimeSpan.FromMilliseconds(50);
     private static readonly TimeSpan DdcWriteSettle = TimeSpan.FromMilliseconds(50);
+    private const int DdcReadAttempts = 3;
 
     private readonly object _gate = new();
     private readonly Dictionary<string, Target> _targets = new();
@@ -175,7 +176,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
             var pct = ReadBacklightPercent(dir);
             var dto = new DisplayDto
             {
-                Id = $"linux/backlight/{name}",
+                Id = $"linux-backlight-{name}",
                 Name = "Internal Display",
                 Manufacturer = "",
                 Model = name,
@@ -232,7 +233,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
             var (mfg, model) = ReadEdidIdentity(bus);
             var dto = new DisplayDto
             {
-                Id = $"linux/ddc/i2c-{bus}",
+                Id = $"linux-ddc-i2c-{bus}",
                 Name = string.IsNullOrEmpty(model) ? $"External Display (i2c-{bus})" : model,
                 Manufacturer = mfg,
                 Model = model,
@@ -278,22 +279,30 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
             // Get VCP feature request: [0x51, 0x82, 0x01, code, checksum]
             Span<byte> req = stackalloc byte[] { 0x51, 0x82, 0x01, code, 0 };
             req[4] = (byte)(0x6E ^ req[0] ^ req[1] ^ req[2] ^ req[3]);
-            if (!I2cWrite(fd, req))
-                return null;
-
-            Thread.Sleep(DdcReadDelay);
-
             Span<byte> reply = stackalloc byte[11];
-            if (!I2cRead(fd, reply))
-                return null;
-            // reply: [0x6E, 0x88, 0x02, result, code, type, maxHi, maxLo, curHi, curLo, csum]
-            if (reply[2] != 0x02 || reply[3] != 0x00)
-                return null;
-            var max = (reply[6] << 8) | reply[7];
-            var cur = (reply[8] << 8) | reply[9];
-            if (max <= 0)
-                return null;
-            return (Math.Clamp(cur, 0, max), max); // raw VCP current + max
+
+            // DDC/CI over i2c is noisy: a busy bus or back-to-back exchanges can
+            // return a short/garbled reply (confirmed on a Dell U2415 — rapid
+            // reads intermittently NAK). Retry the request a few times, spaced.
+            for (var attempt = 0; attempt < DdcReadAttempts; attempt++)
+            {
+                if (attempt > 0)
+                    Thread.Sleep(DdcReadDelay);
+                if (!I2cWrite(fd, req))
+                    continue;
+                Thread.Sleep(DdcReadDelay);
+                if (!I2cRead(fd, reply))
+                    continue;
+                // reply: [0x6E, 0x88, 0x02, result, code, type, maxHi, maxLo, curHi, curLo, csum]
+                if (reply[2] != 0x02 || reply[3] != 0x00)
+                    continue;
+                var max = (reply[6] << 8) | reply[7];
+                var cur = (reply[8] << 8) | reply[9];
+                if (max <= 0)
+                    continue;
+                return (Math.Clamp(cur, 0, max), max); // raw VCP current + max
+            }
+            return null;
         }
         catch { return null; }
         finally { close(fd); }

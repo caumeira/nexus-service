@@ -31,7 +31,7 @@ public class LinuxFanControlProviderTests
         using var t = new TempDir();
         var p = WithControllableFan(t, pwm: 128, enable: 1, rpm: 900);
         var ch = Assert.Single(p.GetFanChannels());
-        Assert.Equal("linux/fan/nct6779/2", ch.Id);
+        Assert.Equal("linux-fan-nct6779-2", ch.Id);
         Assert.Equal("nct6779 CPU Fan", ch.Name);
         Assert.Equal(50, ch.DutyPercent); // 128/255 ≈ 50%
         Assert.Equal(900, ch.Rpm);
@@ -53,7 +53,7 @@ public class LinuxFanControlProviderTests
     {
         using var t = new TempDir();
         var p = WithControllableFan(t, pwm: 0, enable: 2, rpm: 0);
-        Assert.Equal(75, p.SetFanSpeed("linux/fan/nct6779/2", 75));
+        Assert.Equal(75, p.SetFanSpeed("linux-fan-nct6779-2", 75));
         Assert.Equal("1", File.ReadAllText(t.At("hwmon/hwmon0/pwm2_enable")));
         Assert.Equal("191", File.ReadAllText(t.At("hwmon/hwmon0/pwm2"))); // 75% of 255
     }
@@ -64,7 +64,7 @@ public class LinuxFanControlProviderTests
         using var t = new TempDir();
         var p = WithControllableFan(t, pwm: 191, enable: 1, rpm: 0);
         p.GetFanChannels();
-        p.ReleaseFan("linux/fan/nct6779/2");
+        p.ReleaseFan("linux-fan-nct6779-2");
         Assert.Equal("2", File.ReadAllText(t.At("hwmon/hwmon0/pwm2_enable")));
     }
 
