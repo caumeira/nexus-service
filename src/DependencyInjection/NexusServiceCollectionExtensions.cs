@@ -588,6 +588,8 @@ public static class NexusServiceCollectionExtensions
             services.AddSingleton<IStartupProvider, MacStartupProvider>();
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             services.AddSingleton<IStartupProvider, WindowsStartupProvider>();
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            services.AddSingleton<IStartupProvider, LinuxStartupProvider>();
         else
             services.AddSingleton<IStartupProvider, StubStartupProvider>();
 

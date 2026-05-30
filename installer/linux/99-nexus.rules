@@ -1,0 +1,22 @@
+# Nexus device access for the desktop user.
+# Installed to /etc/udev/rules.d/99-nexus.rules by install.sh.
+# /etc is writable on immutable distros (Bazzite/rpm-ostree); /usr is not.
+
+# DDC/CI display brightness over i2c-dev (external monitors).
+KERNEL=="i2c-[0-9]*", GROUP="i2c", MODE="0660"
+
+# RGB device access — OpenRGB talks to controllers over hidraw.
+KERNEL=="hidraw*", MODE="0660", TAG+="uaccess"
+
+# Virtual keyboard injection for macros (/dev/uinput).
+KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660", OPTIONS+="static_node=uinput"
+
+# HYTE USB-serial hubs (VID 3402): the CDC-ACM tty + the raw USB device
+# (the latter so OpenRGB / DFU flashing can claim it).
+SUBSYSTEM=="tty", ATTRS{idVendor}=="3402", GROUP="dialout", MODE="0660"
+SUBSYSTEM=="usb", ATTRS{idVendor}=="3402", MODE="0660", TAG+="uaccess"
+
+# Best-effort motherboard fan PWM write access (driver-dependent — some hwmon
+# drivers re-assert root-only perms). Lets users in the 'input' group write
+# pwmN. If your board's fans stay read-only, the curve engine still reads RPM.
+SUBSYSTEM=="hwmon", ACTION=="add", RUN+="/bin/sh -c 'chgrp input /sys/class/hwmon/%k/pwm[0-9]* 2>/dev/null; chmod g+w /sys/class/hwmon/%k/pwm[0-9]* 2>/dev/null || true'"

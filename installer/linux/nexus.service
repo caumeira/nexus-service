@@ -1,0 +1,16 @@
+[Unit]
+Description=Nexus hardware monitoring and control service
+# Start once the user's graphical session (and its D-Bus session bus) is up so
+# the tray + MPRIS media work; the HTTP service itself runs regardless.
+After=graphical-session.target
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+# %h = the user's home dir; install.sh drops the binary under ~/.local/share/nexus.
+ExecStart=%h/.local/share/nexus/Nexus
+Restart=on-failure
+RestartSec=2
+
+[Install]
+WantedBy=default.target
