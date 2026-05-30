@@ -4,9 +4,6 @@
 // Override with the first command-line arg:
 //     nexus-service http://localhost:9400
 
-using System.Net;
-using System.Net.NetworkInformation;
-using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json.Serialization;
@@ -181,24 +178,16 @@ builder.Services.ConfigureHttpJsonOptions(o =>
 // Token-based auth still gates every state-changing endpoint, so widening the
 // origin list does not weaken the CSRF posture - the attacker would still need
 // the per-installation token, which only loopback callers can request.
-var allowedOrigins = BuildAllowedOrigins(servicePort, localHttpsCertificate is not null ? httpsPort : 0);
+var allowedOrigins = CorsConfig.BuildAllowedOrigins(servicePort, localHttpsCertificate is not null ? httpsPort : 0);
 #if DEBUG
 // Debug build: accept any http://localhost:* or http://127.0.0.1:* so the
 // Vite dev server on a random port (5173-5180 etc.) can reach the service
 // during frontend iteration. Loopback-only, no public surface exposed.
-builder.Services.AddCors(c => c.AddDefaultPolicy(p => p
-    .SetIsOriginAllowed(origin =>
-        origin.StartsWith("http://localhost:", StringComparison.OrdinalIgnoreCase) ||
-        origin.StartsWith("http://127.0.0.1:", StringComparison.OrdinalIgnoreCase))
-    .AllowAnyMethod()
-    .AllowAnyHeader()));
+builder.Services.AddNexusCors(allowedOrigins, debugLoopbackWildcard: true);
 #else
-// Release/AOT build: strict whitelist so production only accepts the SPA
-// served from the service itself.
-builder.Services.AddCors(c => c.AddDefaultPolicy(p => p
-    .WithOrigins(allowedOrigins)
-    .AllowAnyMethod()
-    .AllowAnyHeader()));
+// Release/AOT build: strict exact-match allowlist (see CorsConfig) so
+// production only accepts the bundled SPA on loopback plus hellonexus.com.
+builder.Services.AddNexusCors(allowedOrigins, debugLoopbackWildcard: false);
 #endif
 
 builder.Services.AddHttpClient();
@@ -376,57 +365,6 @@ if (serviceMode)
 Nexus.Service.Lifecycle.BootTimer.Mark("calling app.Run() (host start begins)");
 app.Run();
 return 0;
-
-static string[] BuildAllowedOrigins(int httpPort, int httpsPort)
-{
-    var origins = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
-    {
-        $"http://localhost:{httpPort}",
-        $"http://127.0.0.1:{httpPort}",
-        "https://hellonexus.com",
-        "https://www.hellonexus.com",
-    };
-
-    if (httpsPort > 0)
-    {
-        origins.Add($"https://localhost:{httpsPort}");
-        origins.Add($"https://127.0.0.1:{httpsPort}");
-    }
-
-    if (!string.IsNullOrWhiteSpace(Environment.MachineName))
-    {
-        origins.Add($"http://{Environment.MachineName}:{httpPort}");
-        if (httpsPort > 0)
-            origins.Add($"https://{Environment.MachineName}:{httpsPort}");
-    }
-
-    try
-    {
-        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
-        {
-            if (nic.OperationalStatus != OperationalStatus.Up)
-                continue;
-            if (nic.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel)
-                continue;
-
-            foreach (var address in nic.GetIPProperties().UnicastAddresses)
-            {
-                var ip = address.Address;
-                if (ip.AddressFamily == AddressFamily.InterNetwork &&
-                    !IPAddress.IsLoopback(ip) &&
-                    !ip.ToString().StartsWith("169.254.", StringComparison.Ordinal))
-                {
-                    origins.Add($"http://{ip}:{httpPort}");
-                    if (httpsPort > 0)
-                        origins.Add($"https://{ip}:{httpsPort}");
-                }
-            }
-        }
-    }
-    catch { }
-
-    return origins.ToArray();
-}
 
 // ── Local functions ─────────────────────────────────────────────────────────
 
