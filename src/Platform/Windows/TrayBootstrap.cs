@@ -64,6 +64,22 @@ internal static class TrayBootstrap
             try { TrayIcon.SetVisible(store.Load().Monitoring.ShowWindowsTrayIcon); }
             catch { /* best-effort */ }
         };
+
+        // Surface a tray balloon when a phone pair request arrives with no
+        // dashboard open. Interactive mode hosts the tray in-process, so the
+        // notification calls TrayIcon directly (service mode routes the same
+        // events down the helper pipe — see WireHelperPipe).
+        var pairing = app.Services.GetRequiredService<PanelPhonePairingService>();
+        pairing.PairRequestNeedsAttention += notice =>
+        {
+            try { TrayIcon.ShowPairBalloon(notice.DeviceLabel); }
+            catch { /* best-effort */ }
+        };
+        pairing.PairRequestResolved += () =>
+        {
+            try { TrayIcon.ClearPairBalloon(); }
+            catch { /* best-effort */ }
+        };
     }
 
 #if WINDOWS
@@ -80,6 +96,24 @@ internal static class TrayBootstrap
         var trayStore = app.Services.GetRequiredService<IConfigStore>();
         var helperRegistry = app.Services.GetRequiredService<HelperRegistry>();
         var lastVisible = trayStore.Load().Monitoring.ShowWindowsTrayIcon;
+
+        // Surface a native tray balloon when a phone pair request arrives and
+        // no dashboard is open to show the Allow/Deny modal. The service runs
+        // in Session 0 and can't draw UI, so the notification is pushed down
+        // the pipe to the user-session helper, which owns the tray icon.
+        // Clicking the balloon opens the dashboard; the snapshot provider then
+        // replays the pending request so the modal pops.
+        var pairing = app.Services.GetRequiredService<PanelPhonePairingService>();
+        pairing.PairRequestNeedsAttention += notice =>
+        {
+            try { _ = TrayCommands.PairNoticeAsync(helperRegistry, true, notice.DeviceLabel); }
+            catch (Exception ex) { Console.Error.WriteLine($"[pair-notify] show failed: {ex.Message}"); }
+        };
+        pairing.PairRequestResolved += () =>
+        {
+            try { _ = TrayCommands.PairNoticeAsync(helperRegistry, false, ""); }
+            catch (Exception ex) { Console.Error.WriteLine($"[pair-notify] dismiss failed: {ex.Message}"); }
+        };
 
         // Push current state on every fresh helper connect: first bootstrap,
         // service restart, helper crash-and-respawn.

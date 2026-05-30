@@ -79,9 +79,19 @@ public static class PanelTopics
     {
         if (!hub.TopicHasSubscribers(PairCodeRequest))
             return;
-        var env = WsEnvelope.Build(PairCodeRequest, frame, AppJsonContext.Default.PanelPhonePairCodeRequestFrame);
-        _ = hub.BroadcastTopicAsync(PairCodeRequest, env);
+        _ = hub.BroadcastTopicAsync(PairCodeRequest, BuildPairCodeRequestEnvelope(frame));
     }
+
+    /// <summary>
+    /// Build the wire envelope for a pair-code/request frame. Shared by the
+    /// live broadcast above and the snapshot provider in
+    /// <see cref="Nexus.Service.Panel.PanelPhonePairingService"/>, which
+    /// replays the currently-pending request to a dashboard that connects
+    /// mid-handshake (e.g. one opened from the tray pairing notification
+    /// after the one-shot live broadcast already fired).
+    /// </summary>
+    public static ReadOnlyMemory<byte> BuildPairCodeRequestEnvelope(PanelPhonePairCodeRequestFrame frame)
+        => WsEnvelope.Build(PairCodeRequest, frame, AppJsonContext.Default.PanelPhonePairCodeRequestFrame);
 
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 }

@@ -549,6 +549,94 @@ public class PanelPhonePairingServiceTests
         Assert.Equal("unknown", followUp.Status);
     }
 
+    [Fact]
+    public void PendingRequest_RetainedAsSnapshot_OnlyWhileAwaitingHostDecision()
+    {
+        // A dashboard opened from the tray pairing notification connects
+        // AFTER the one-shot live broadcast. The snapshot provider is what
+        // lets that late subscriber still receive the pending request and pop
+        // the Allow/Deny modal — but only while it's genuinely pending.
+        var hub = new Nexus.Service.Sockets.MultiplexHub();
+        var service = NewServiceWithHub(hub);
+        var start = service.StartPairCode();
+
+        // Code started, but no phone has submitted yet -> nothing to replay.
+        Assert.False(hub.TryGetTopicSnapshot(Nexus.Service.Sockets.PanelTopics.PairCodeRequest, out _));
+
+        var submit = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.True(submit.Accepted);
+
+        // Pending host decision -> retained.
+        Assert.True(hub.TryGetTopicSnapshot(Nexus.Service.Sockets.PanelTopics.PairCodeRequest, out _));
+
+        // Host allows -> no longer pending -> cleared, so a reconnecting
+        // dashboard never resurrects a decided prompt.
+        service.HostDecisionPairCode(submit.RequestId, approved: true);
+        Assert.False(hub.TryGetTopicSnapshot(Nexus.Service.Sockets.PanelTopics.PairCodeRequest, out _));
+    }
+
+    [Fact]
+    public void PendingRequest_SnapshotCleared_OnHostDeny()
+    {
+        var hub = new Nexus.Service.Sockets.MultiplexHub();
+        var service = NewServiceWithHub(hub);
+        var start = service.StartPairCode();
+        var submit = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.True(hub.TryGetTopicSnapshot(Nexus.Service.Sockets.PanelTopics.PairCodeRequest, out _));
+
+        service.HostDecisionPairCode(submit.RequestId, approved: false);
+        Assert.False(hub.TryGetTopicSnapshot(Nexus.Service.Sockets.PanelTopics.PairCodeRequest, out _));
+    }
+
+    [Fact]
+    public void PairRequest_RaisesAttention_WhenNoDashboardSubscribed_AndResolvesOnDecision()
+    {
+        var hub = new Nexus.Service.Sockets.MultiplexHub();
+        var service = NewServiceWithHub(hub);
+        var attentions = 0;
+        var resolves = 0;
+        service.PairRequestNeedsAttention += _ => attentions++;
+        service.PairRequestResolved += () => resolves++;
+
+        var start = service.StartPairCode();
+        var submit = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+
+        // No dashboard subscribed -> the desktop must be told to surface a
+        // notification.
+        Assert.Equal(1, attentions);
+        Assert.Equal(0, resolves);
+
+        // Any terminal transition dismisses it.
+        service.HostDecisionPairCode(submit.RequestId, approved: false);
+        Assert.Equal(1, resolves);
+    }
+
+    [Fact]
+    public void PairRequest_DoesNotRaiseAttention_WhenDashboardSubscribed()
+    {
+        // A connected dashboard renders the modal itself; a notification
+        // would be redundant.
+        var hub = new Nexus.Service.Sockets.MultiplexHub();
+        using var sub = hub.AddTestSubscription(Nexus.Service.Sockets.PanelTopics.PairCodeRequest);
+        var service = NewServiceWithHub(hub);
+        var attentions = 0;
+        service.PairRequestNeedsAttention += _ => attentions++;
+
+        var start = service.StartPairCode();
+        service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+
+        Assert.Equal(0, attentions);
+    }
+
+    private static PanelPhonePairingService NewServiceWithHub(Nexus.Service.Sockets.MultiplexHub hub)
+    {
+        return new PanelPhonePairingService(new InMemoryConfigStore(), hub)
+        {
+            PublicLinkHost = "",
+            SpkiFingerprint = "fp-stub",
+        };
+    }
+
     private static PanelPhonePairingService NewService(InMemoryConfigStore store)
     {
         return new PanelPhonePairingService(store, new Nexus.Service.Sockets.MultiplexHub())

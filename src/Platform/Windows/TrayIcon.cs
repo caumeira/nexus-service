@@ -14,12 +14,21 @@ namespace Nexus.Service.Platform.Windows;
 public static class TrayIcon
 {
     private const int NIM_ADD = 0x00;
+    private const int NIM_MODIFY = 0x01;
     private const int NIM_DELETE = 0x02;
     private const int NIF_MESSAGE = 0x01;
     private const int NIF_ICON = 0x02;
     private const int NIF_TIP = 0x04;
+    private const int NIF_INFO = 0x10;   // szInfo/szInfoTitle carry a balloon
+    private const int NIIF_INFO = 0x01;  // info (i) glyph on the balloon
     private const int WM_USER = 0x0400;
     private const int WM_TRAYICON = WM_USER + 88;
+    // Shell balloon notifications arrive through the same WM_TRAYICON
+    // callback, with the notification code in the lParam low word (the
+    // version-0 NOTIFYICONDATA encoding this tray already relies on for
+    // mouse events). NIN_BALLOONUSERCLICK fires when the user clicks the
+    // balloon (or its Action Center entry).
+    private const int NIN_BALLOONUSERCLICK = WM_USER + 5;
     private const int WM_COMMAND = 0x0111;
     private const int WM_LBUTTONUP = 0x0202;
     private const int WM_LBUTTONDBLCLK = 0x0203;
@@ -213,6 +222,9 @@ public static class TrayIcon
 
             nid.hIcon = hIcon;
             nid.szTip = "Nexus";
+            // ByValTStr fields must be non-null before marshaling.
+            nid.szInfo = string.Empty;
+            nid.szInfoTitle = string.Empty;
 
             lock (_sync)
             {
@@ -312,6 +324,14 @@ public static class TrayIcon
                     // Single OR double left-click opens the window. Matches
                     // the standard modern tray UX - users don't have to
                     // remember whether to single- or double-click.
+                    OpenLocalWindow();
+                }
+                else if (ev == NIN_BALLOONUSERCLICK)
+                {
+                    // The pairing notification was clicked. Open the
+                    // dashboard; the service's snapshot provider replays the
+                    // pending pair request so the Allow/Deny modal pops as
+                    // soon as the window's WebSocket subscribes.
                     OpenLocalWindow();
                 }
             }
@@ -491,6 +511,48 @@ public static class TrayIcon
             }
         }
         catch { /* best-effort */ }
+    }
+
+    /// <summary>
+    /// Show a native tray balloon for an incoming phone pair request. Runs
+    /// in the user session (the helper process in service mode, or the
+    /// interactive host) — the only place a notification can surface.
+    /// Clicking the balloon routes through NIN_BALLOONUSERCLICK to
+    /// <see cref="OpenLocalWindow"/>. Best-effort: a no-op when the tray icon
+    /// isn't currently shown, since the balloon needs the icon to anchor to
+    /// (the service's snapshot provider still surfaces the request the next
+    /// time the dashboard is opened).
+    /// </summary>
+    public static void ShowPairBalloon(string deviceLabel)
+    {
+        var text = string.IsNullOrWhiteSpace(deviceLabel)
+            ? "A phone wants to connect. Click to review."
+            : $"{deviceLabel} wants to connect. Click to review.";
+        ModifyBalloon("Nexus pairing request", text);
+    }
+
+    /// <summary>Dismiss the pairing balloon once the request is resolved.</summary>
+    public static void ClearPairBalloon() => ModifyBalloon(string.Empty, string.Empty);
+
+    private static void ModifyBalloon(string title, string text)
+    {
+        lock (_sync)
+        {
+            if (!_iconDataReady || !_visible)
+            {
+                return;
+            }
+            try
+            {
+                var nid = _nid;
+                nid.uFlags = NIF_INFO;
+                nid.szInfo = text ?? string.Empty;
+                nid.szInfoTitle = title ?? string.Empty;
+                nid.dwInfoFlags = NIIF_INFO;
+                Shell_NotifyIcon(NIM_MODIFY, ref nid);
+            }
+            catch { /* tray is non-critical */ }
+        }
     }
 
     private const string OverlayMarshalerClassName = "Nexus.Overlay.Marshaler";
@@ -785,6 +847,10 @@ public static class TrayIcon
         public IntPtr hIconSm;
     }
 
+    // Full modern NOTIFYICONDATAW. The balloon fields (szInfo/szInfoTitle/
+    // dwInfoFlags) only marshal correctly when the struct — and the cbSize
+    // derived from it via Marshal.SizeOf — covers them. The extra fields are
+    // inert for the existing NIM_ADD/DELETE/icon-only paths.
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct NOTIFYICONDATA
     {
@@ -793,6 +859,14 @@ public static class TrayIcon
         public int uID, uFlags, uCallbackMessage;
         public IntPtr hIcon;
         [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 128)] public string szTip;
+        public int dwState;
+        public int dwStateMask;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 256)] public string szInfo;
+        public int uTimeoutOrVersion;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = 64)] public string szInfoTitle;
+        public int dwInfoFlags;
+        public Guid guidItem;
+        public IntPtr hBalloonIcon;
     }
 
     [StructLayout(LayoutKind.Sequential)]

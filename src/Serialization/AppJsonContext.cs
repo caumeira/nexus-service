@@ -477,6 +477,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ServiceRequestStopPayload))]
 // Tray
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TraySetVisiblePayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.TrayPairNoticePayload))]
 // Screen-time
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenTimeSessionPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenTimeFocusPayload))]

@@ -82,6 +82,100 @@ public sealed class PanelPhonePairingService
     {
         _store = store;
         _hub = hub;
+
+        // Retain the currently-pending pair request so a dashboard that
+        // connects mid-handshake (e.g. one opened from the tray pairing
+        // notification, after the one-shot live broadcast already fired)
+        // immediately receives it on subscribe and pops the Allow/Deny
+        // modal. Returns null once the request is decided / denied /
+        // expired so a late or reconnecting dashboard never resurrects a
+        // dead prompt.
+        _hub.RegisterSnapshotProvider(PanelTopics.PairCodeRequest, BuildPendingRequestSnapshot);
+    }
+
+    /// <summary>
+    /// Fired when a phone submits a pair request but no dashboard is
+    /// currently subscribed to surface the Allow/Deny modal — i.e. the
+    /// Nexus window isn't open. The Windows tray host turns this into a
+    /// native notification; clicking it opens the dashboard, which then
+    /// receives the retained request via the snapshot provider. No-op on
+    /// platforms / modes without a tray host subscribed.
+    /// </summary>
+    public event Action<PairAttentionNotice>? PairRequestNeedsAttention;
+
+    /// <summary>
+    /// Fired when the pending request reaches a terminal state (allowed,
+    /// denied, cancelled, or expired) so the tray host can dismiss any
+    /// notification it raised for it.
+    /// </summary>
+    public event Action? PairRequestResolved;
+
+    /// <summary>Minimal payload for <see cref="PairRequestNeedsAttention"/>.</summary>
+    public sealed record PairAttentionNotice(string DeviceLabel);
+
+    /// <summary>
+    /// Single chokepoint for every pair-code "request" and "cancelled"
+    /// frame. Fans the frame out to live dashboard subscribers, and — for a
+    /// fresh "request" with no subscriber listening — raises
+    /// <see cref="PairRequestNeedsAttention"/> so the desktop surfaces a
+    /// notification. "cancelled" frames resolve any raised notification.
+    /// </summary>
+    private void PublishPairCodeFrame(PanelPhonePairCodeRequestFrame frame)
+    {
+        PanelTopics.BroadcastPairCodeRequest(_hub, frame);
+
+        if (string.Equals(frame.Kind, "request", StringComparison.Ordinal))
+        {
+            // Gate on live subscribers: if a dashboard is connected it
+            // shows the modal itself, so a notification would be redundant.
+            if (!_hub.TopicHasSubscribers(PanelTopics.PairCodeRequest))
+            {
+                try { PairRequestNeedsAttention?.Invoke(new PairAttentionNotice(frame.DeviceLabel)); }
+                catch { /* notification is best-effort */ }
+            }
+        }
+        else if (string.Equals(frame.Kind, "cancelled", StringComparison.Ordinal))
+        {
+            ResolvePairAttention();
+        }
+    }
+
+    private void ResolvePairAttention()
+    {
+        try { PairRequestResolved?.Invoke(); }
+        catch { /* best-effort */ }
+    }
+
+    /// <summary>
+    /// Snapshot provider for <c>panel/phone/pair-code/request</c>. Returns
+    /// the live request envelope only while it is genuinely awaiting the
+    /// host's Allow/Deny — a phone has submitted (RequestId set), the host
+    /// hasn't decided, and the TTL hasn't lapsed. Any other state returns
+    /// null so a connecting dashboard sees nothing stale.
+    /// </summary>
+    private ReadOnlyMemory<byte>? BuildPendingRequestSnapshot()
+    {
+        PanelPhonePairCodeRequestFrame frame;
+        lock (_pairCodeLock)
+        {
+            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            if (_pairCode is not { } state) return null;
+            if (string.IsNullOrEmpty(state.RequestId)) return null; // no phone has submitted yet
+            if (state.HostApproved || state.HostDenied) return null; // host already decided
+            if (state.ExpiresAt <= nowMs) return null;               // expired
+
+            frame = new PanelPhonePairCodeRequestFrame
+            {
+                Kind = "request",
+                RequestId = state.RequestId,
+                Sas = state.Sas,
+                DeviceLabel = DescribeDevice(state.PhoneUserAgent),
+                RemoteAddress = state.PhoneRemoteAddress,
+                UserAgent = state.PhoneUserAgent,
+                ExpiresAt = state.ExpiresAt,
+            };
+        }
+        return PanelTopics.BuildPairCodeRequestEnvelope(frame);
     }
 
     private string ResolveMachineName()
@@ -846,7 +940,7 @@ public sealed class PanelPhonePairingService
 
         if (supersededRequestId is not null)
         {
-            PanelTopics.BroadcastPairCodeRequest(_hub, new PanelPhonePairCodeRequestFrame
+            PublishPairCodeFrame(new PanelPhonePairCodeRequestFrame
             {
                 Kind = "cancelled",
                 RequestId = supersededRequestId,
@@ -905,7 +999,7 @@ public sealed class PanelPhonePairingService
             {
                 if (_pairCode is { RequestId: { Length: > 0 } prior })
                 {
-                    PanelTopics.BroadcastPairCodeRequest(_hub, new PanelPhonePairCodeRequestFrame
+                    PublishPairCodeFrame(new PanelPhonePairCodeRequestFrame
                     {
                         Kind = "cancelled",
                         RequestId = prior,
@@ -961,7 +1055,7 @@ public sealed class PanelPhonePairingService
             state.HostApproved = false;
             state.PhoneApproved = false;
 
-            PanelTopics.BroadcastPairCodeRequest(_hub, new PanelPhonePairCodeRequestFrame
+            PublishPairCodeFrame(new PanelPhonePairCodeRequestFrame
             {
                 Kind = "request",
                 RequestId = requestId,
@@ -1066,7 +1160,7 @@ public sealed class PanelPhonePairingService
                 ClaimedOverHttps = context.Request.IsHttps,
             };
 
-            PanelTopics.BroadcastPairCodeRequest(_hub, new PanelPhonePairCodeRequestFrame
+            PublishPairCodeFrame(new PanelPhonePairCodeRequestFrame
             {
                 Kind = "request",
                 RequestId = requestId,
@@ -1121,7 +1215,7 @@ public sealed class PanelPhonePairingService
             if (state.ExpiresAt <= nowMs)
             {
                 _pairCode = null;
-                PanelTopics.BroadcastPairCodeRequest(_hub, new PanelPhonePairCodeRequestFrame
+                PublishPairCodeFrame(new PanelPhonePairCodeRequestFrame
                 {
                     Kind = "cancelled",
                     RequestId = requestId,
@@ -1143,7 +1237,7 @@ public sealed class PanelPhonePairingService
             if (!approved)
             {
                 _pairCode = null;
-                PanelTopics.BroadcastPairCodeRequest(_hub, new PanelPhonePairCodeRequestFrame
+                PublishPairCodeFrame(new PanelPhonePairCodeRequestFrame
                 {
                     Kind = "cancelled",
                     RequestId = requestId,
@@ -1193,7 +1287,7 @@ public sealed class PanelPhonePairingService
             if (state.ExpiresAt <= nowMs)
             {
                 _pairCode = null;
-                PanelTopics.BroadcastPairCodeRequest(_hub, new PanelPhonePairCodeRequestFrame
+                PublishPairCodeFrame(new PanelPhonePairCodeRequestFrame
                 {
                     Kind = "cancelled",
                     RequestId = requestId,
@@ -1209,7 +1303,7 @@ public sealed class PanelPhonePairingService
                 // reaps it; ConfirmPairCode also clears it on the phone-side
                 // touch.
                 state.HostDenied = true;
-                PanelTopics.BroadcastPairCodeRequest(_hub, new PanelPhonePairCodeRequestFrame
+                PublishPairCodeFrame(new PanelPhonePairCodeRequestFrame
                 {
                     Kind = "cancelled",
                     RequestId = requestId,

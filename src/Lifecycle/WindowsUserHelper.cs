@@ -102,7 +102,10 @@ internal static class WindowsUserHelper
         // registry. Adding a new domain = create the handler class in
         // Helper/Domains/ and call .Register(handlerRegistry) here.
         var handlerRegistry = new HelperHandlerRegistry();
-        new TrayHandler(Platform.Windows.TrayIcon.SetVisible).Register(handlerRegistry);
+        new TrayHandler(
+            Platform.Windows.TrayIcon.SetVisible,
+            Platform.Windows.TrayIcon.ShowPairBalloon,
+            Platform.Windows.TrayIcon.ClearPairBalloon).Register(handlerRegistry);
         new LifecycleHandler(
             onShutdown: () =>
             {
