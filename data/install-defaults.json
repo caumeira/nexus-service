@@ -23,7 +23,7 @@
     "backgroundTemplate": 0,
     "backgroundOpacity": 0.4,
     "widgetOpacity": 1,
-    "widgetLabels": true,
+    "widgetLabels": false,
     "widgetBlur": true,
     "layouts": {
       "desktop": {
