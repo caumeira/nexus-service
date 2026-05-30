@@ -65,7 +65,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
         var t = Resolve(id);
         if (t is null)
             return null;
-        return t.Internal ? ReadBacklightPercent(t.BacklightDir!) : ReadDdcVcp(t.I2cBus, VcpBrightness)?.Current;
+        return t.Internal ? ReadBacklightPercent(t.BacklightDir!) : DdcBrightnessPct(t.I2cBus);
     }
 
     public DisplayBrightnessDto SetBrightness(string id, int percent)
@@ -79,7 +79,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
         if (!ok)
             return Failed(id, percent, "Write failed (check i2c/backlight permissions).");
 
-        var applied = (t.Internal ? ReadBacklightPercent(t.BacklightDir!) : ReadDdcVcp(t.I2cBus, VcpBrightness)?.Current) ?? percent;
+        var applied = (t.Internal ? ReadBacklightPercent(t.BacklightDir!) : DdcBrightnessPct(t.I2cBus)) ?? percent;
         return new DisplayBrightnessDto
         {
             Id = id,
@@ -242,7 +242,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
                 BrightnessControl = new DisplayBrightnessControlDto
                 {
                     Supported = true,
-                    Current = ReadDdcVcp(bus, VcpBrightness)?.Current,
+                    Current = DdcBrightnessPct(bus),
                     ControlPath = DisplayBrightnessControlPaths.DdcCi,
                     WriteMode = DisplayBrightnessWriteModes.Coalesced,
                     WriteCooldownMs = 50,
@@ -250,6 +250,16 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
             };
             yield return new Target(false, null, bus, dto);
         }
+    }
+
+    /// <summary>Brightness (VCP 0x10) as 0..100, scaling the raw current by the monitor's reported max.</summary>
+    private static int? DdcBrightnessPct(int bus)
+    {
+        var r = ReadDdcVcp(bus, VcpBrightness);
+        if (r is null)
+            return null;
+        var max = Math.Max(1, r.Value.Max);
+        return (int)Math.Round(Math.Clamp(r.Value.Current, 0, max) * 100.0 / max);
     }
 
     private static bool WriteDdcVcp(int bus, byte code, int percent)
@@ -283,7 +293,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
             var cur = (reply[8] << 8) | reply[9];
             if (max <= 0)
                 return null;
-            return ((int)Math.Round(Math.Clamp(cur, 0, max) * 100.0 / max), 100); // surface as 0..100
+            return (Math.Clamp(cur, 0, max), max); // raw VCP current + max
         }
         catch { return null; }
         finally { close(fd); }
