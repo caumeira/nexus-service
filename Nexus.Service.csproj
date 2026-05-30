@@ -224,6 +224,8 @@
   <Target Name="EnsureOpenRgbBundle" BeforeTargets="Publish">
     <Error Condition="$(RuntimeIdentifier.StartsWith('osx')) AND !Exists('Bundled/osx-arm64/openrgb/OpenRGB-headless')"
            Text="OpenRGB macOS bundle missing at Bundled/osx-arm64/openrgb/. Build it: cd ../nexus-rgb/openrgb-headless &amp;&amp; qmake OpenRGB.pro CONFIG+=release CONFIG+=sdk_no_version_check &amp;&amp; make -j ; then cd .. &amp;&amp; ./bundle-macos.sh" />
+    <Error Condition="$(RuntimeIdentifier.StartsWith('linux')) AND !Exists('Bundled/linux-x64/openrgb/openrgb-headless')"
+           Text="OpenRGB Linux bundle missing at Bundled/linux-x64/openrgb/. Build it: cd ../nexus-rgb/openrgb-headless &amp;&amp; qmake OpenRGB.pro CONFIG+=release &amp;&amp; make -j$(nproc) ; then copy the produced 'OpenRGB' binary to Bundled/linux-x64/openrgb/openrgb-headless (lowercase) + LICENSE. Needs libusb-1.0 + hidapi dev packages." />
     <Error Condition="$(RuntimeIdentifier.StartsWith('win')) AND !Exists('Bundled\win-x64\openrgb\OpenRGB-headless.exe')"
            Text="OpenRGB Windows bundle missing at Bundled\win-x64\openrgb\. Build it: cd ..\nexus-rgb\openrgb-headless\scripts &amp;&amp; build-windows.bat ; then copy OpenRGB-headless.exe + hidapi.dll + libusb-1.0.dll + LICENSE into Bundled\win-x64\openrgb\. (PawnIOLib.dll + Smbus*.bin / LpcIO.bin are wired in separately from Bundled\win-x64\pawnio\.)" />
     <Error Condition="$(RuntimeIdentifier.StartsWith('win')) AND !Exists('Bundled\win-x64\pawnio\modules\SmbusI801.bin')"
@@ -234,6 +236,18 @@
   <ItemGroup Condition="($([MSBuild]::IsOSPlatform('OSX')) OR $(RuntimeIdentifier.StartsWith('osx'))) AND Exists('Bundled/osx-arm64/openrgb')">
     <Content Include="Bundled\osx-arm64\openrgb\**\*.*">
       <Link>openrgb\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Bundle openrgb-headless for Linux (binary + license). The CI nexus-linux
+       job builds it from nexus-rgb/openrgb-headless (qmake/make) and stages the
+       lowercase `openrgb-headless` binary here. Linux OpenRGB drives SMBus/i2c
+       (RGB DRAM) and hidraw/libusb devices natively — no PawnIO needed. -->
+  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('Linux')) OR $(RuntimeIdentifier.StartsWith('linux'))) AND Exists('Bundled/linux-x64/openrgb')">
+    <Content Include="Bundled/linux-x64/openrgb/**/*.*">
+      <Link>openrgb/%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>

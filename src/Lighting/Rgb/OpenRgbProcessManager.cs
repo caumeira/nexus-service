@@ -37,7 +37,7 @@ public sealed class OpenRgbProcessManager : IDisposable
         _exePath = overrideExePath ?? ResolveDefaultPath();
     }
 
-    public bool IsAvailable => (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS()) && File.Exists(_exePath);
+    public bool IsAvailable => (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux()) && File.Exists(_exePath);
 
     /// <summary>
     /// Kill any OpenRGB-headless processes left behind by a crashed or force-killed
@@ -77,25 +77,47 @@ public sealed class OpenRgbProcessManager : IDisposable
     public string ExePath => _exePath;
 
     /// <summary>
-    /// Resolved path: <c>{AppContext.BaseDirectory}/openrgb/OpenRGB-headless.exe</c>.
+    /// Resolved path: <c>{AppContext.BaseDirectory}/openrgb/&lt;binary&gt;</c>. The
+    /// bundled binary name differs per platform — Windows ships
+    /// <c>OpenRGB-headless.exe</c>, macOS <c>OpenRGB-headless</c>, and Linux the
+    /// lowercase <c>openrgb-headless</c> (which is also what <see cref="CleanupOrphans"/>
+    /// greps for off-Windows).
     /// </summary>
     public static string ResolveDefaultPath()
     {
-        var name = OperatingSystem.IsWindows() ? "OpenRGB-headless.exe" : "OpenRGB-headless";
+        var name = OperatingSystem.IsWindows() ? "OpenRGB-headless.exe"
+                 : OperatingSystem.IsLinux() ? "openrgb-headless"
+                 : "OpenRGB-headless";
         return Path.Combine(AppContext.BaseDirectory, "openrgb", name);
     }
 
     /// <summary>
-    /// Service-owned OpenRGB config directory. Defaults to
-    /// <c>%ProgramData%\Nexus\openrgb-config</c> on Windows so we
-    /// don't collide with any user-installed OpenRGB.
+    /// Service-owned OpenRGB config directory, kept separate from any
+    /// user-installed OpenRGB. <c>%ProgramData%\Nexus\openrgb-config</c> on
+    /// Windows. On Linux <see cref="Environment.SpecialFolder.CommonApplicationData"/>
+    /// resolves to <c>/usr/share</c>, which is root-owned (and read-only on
+    /// immutable distros like Bazzite), so headless OpenRGB couldn't write its
+    /// config there — use the per-user XDG config dir instead.
     /// </summary>
     public static string ResolveConfigDir()
     {
-        var baseDir = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-        if (string.IsNullOrEmpty(baseDir))
+        string baseDir;
+        if (OperatingSystem.IsLinux())
         {
-            baseDir = Path.GetTempPath();
+            baseDir = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME") ?? "";
+            if (string.IsNullOrEmpty(baseDir))
+            {
+                var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+                baseDir = string.IsNullOrEmpty(home) ? Path.GetTempPath() : Path.Combine(home, ".config");
+            }
+        }
+        else
+        {
+            baseDir = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            if (string.IsNullOrEmpty(baseDir))
+            {
+                baseDir = Path.GetTempPath();
+            }
         }
 
         return Path.Combine(baseDir, "Nexus", "openrgb-config");

@@ -142,7 +142,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<ISteamProvider, SteamProvider>();
         services.AddSingleton<IDiscordProvider, DiscordProvider>();
 
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
         {
             services.AddSingleton<Nexus.Service.Lighting.Rgb.OpenRgbProcessManager>();
             services.AddSingleton<Nexus.Service.Lighting.Rgb.IRgbController>(_ =>
@@ -172,8 +172,16 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.ICnvsPortDiscovery,
                               Nexus.Service.Peripherals.Hyte.Cnvs.WindowsCnvsPortDiscovery>();
 #else
-        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.ICnvsPortDiscovery,
-                              Nexus.Service.Peripherals.Hyte.Cnvs.StubCnvsPortDiscovery>();
+        if (OperatingSystem.IsLinux())
+        {
+            services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.ICnvsPortDiscovery,
+                                  Nexus.Service.Peripherals.Hyte.Cnvs.LinuxCnvsPortDiscovery>();
+        }
+        else
+        {
+            services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.ICnvsPortDiscovery,
+                                  Nexus.Service.Peripherals.Hyte.Cnvs.StubCnvsPortDiscovery>();
+        }
 #endif
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.CnvsHub>();
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Cnvs.CnvsConnectionWorker>();
@@ -225,7 +233,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.QSeriesLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingFrameWriter>());
 
-        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
+        if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
         {
             services.AddSingleton<Nexus.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>();
             services.AddSingleton<ILightingDeviceProvider>(sp => new Nexus.Service.Lighting.CompositeLightingDeviceProvider(
@@ -287,8 +295,16 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery,
                               Nexus.Service.Peripherals.Hyte.Np50.WindowsNp50PortDiscovery>();
 #else
-        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery,
-                              Nexus.Service.Peripherals.Hyte.Np50.StubNp50PortDiscovery>();
+        if (OperatingSystem.IsLinux())
+        {
+            services.AddSingleton<Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery,
+                                  Nexus.Service.Peripherals.Hyte.Np50.LinuxNp50PortDiscovery>();
+        }
+        else
+        {
+            services.AddSingleton<Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery,
+                                  Nexus.Service.Peripherals.Hyte.Np50.StubNp50PortDiscovery>();
+        }
 #endif
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Np50.Np50Hub>(sp =>
             new Nexus.Service.Peripherals.Hyte.Np50.Np50Hub(
@@ -309,7 +325,9 @@ public static class NexusServiceCollectionExtensions
 #if WINDOWS
             discovery = new Nexus.Service.Peripherals.Hyte.MiniHub.WindowsMiniHubPortDiscovery();
 #else
-            discovery = new Nexus.Service.Peripherals.Hyte.MiniHub.StubMiniHubPortDiscovery();
+            discovery = OperatingSystem.IsLinux()
+                ? new Nexus.Service.Peripherals.Hyte.MiniHub.LinuxMiniHubPortDiscovery()
+                : new Nexus.Service.Peripherals.Hyte.MiniHub.StubMiniHubPortDiscovery();
 #endif
             return new Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubHub(
                 discovery,
@@ -329,7 +347,9 @@ public static class NexusServiceCollectionExtensions
 #if WINDOWS
             discovery = new Nexus.Service.Peripherals.Hyte.QSeriesCooler.WindowsQSeriesCoolerPortDiscovery();
 #else
-            discovery = new Nexus.Service.Peripherals.Hyte.QSeriesCooler.StubQSeriesCoolerPortDiscovery();
+            discovery = OperatingSystem.IsLinux()
+                ? new Nexus.Service.Peripherals.Hyte.QSeriesCooler.LinuxQSeriesCoolerPortDiscovery()
+                : new Nexus.Service.Peripherals.Hyte.QSeriesCooler.StubQSeriesCoolerPortDiscovery();
 #endif
             return new Nexus.Service.Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHub(
                 discovery,
@@ -348,7 +368,9 @@ public static class NexusServiceCollectionExtensions
 #if WINDOWS
             discovery = new Nexus.Service.Peripherals.Hyte.Y70Display.WindowsY70DisplayPortDiscovery();
 #else
-            discovery = new Nexus.Service.Peripherals.Hyte.Y70Display.StubY70DisplayPortDiscovery();
+            discovery = OperatingSystem.IsLinux()
+                ? new Nexus.Service.Peripherals.Hyte.Y70Display.LinuxY70DisplayPortDiscovery()
+                : new Nexus.Service.Peripherals.Hyte.Y70Display.StubY70DisplayPortDiscovery();
 #endif
             return new Nexus.Service.Peripherals.Hyte.Y70Display.Y70DisplayHub(
                 discovery,
