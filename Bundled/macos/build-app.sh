@@ -48,9 +48,31 @@ for dylib in "$STAGING"/*.dylib; do
 done
 shopt -u nullglob
 
-# Copy Info.plist + .icns
+# Copy Info.plist + .icns (legacy fallback for macOS < 11)
 cp "$SCRIPT_DIR/Info.plist" "$APP/Contents/"
 [ -f "$SCRIPT_DIR/AppIcon.icns" ] && cp "$SCRIPT_DIR/AppIcon.icns" "$APP/Contents/Resources/"
+
+# Compile Assets.xcassets -> Assets.car (modern icon: edge-to-edge artwork
+# + appearance variants for Sequoia tinted Dock). actool also emits a
+# partial Info.plist with the icon keys it expects (CFBundleIconName etc).
+# Keep the hand-built AppIcon.icns above as the fallback path - actool can
+# generate one too, but ours preserves more detail at small sizes.
+if [ -d "$SCRIPT_DIR/Assets.xcassets" ] && command -v actool >/dev/null; then
+    ACTOOL_TMP="$(mktemp -d)"
+    trap 'rm -rf "$ACTOOL_TMP"' EXIT
+    actool "$SCRIPT_DIR/Assets.xcassets" \
+        --compile "$ACTOOL_TMP" \
+        --platform macosx \
+        --minimum-deployment-target 12.0 \
+        --app-icon AppIcon \
+        --output-partial-info-plist "$ACTOOL_TMP/partial.plist" \
+        > /dev/null
+    if [ ! -f "$ACTOOL_TMP/Assets.car" ]; then
+        echo "actool produced no Assets.car - check --app-icon name matches the .appiconset" >&2
+        exit 1
+    fi
+    cp "$ACTOOL_TMP/Assets.car" "$APP/Contents/Resources/"
+fi
 
 # Ensure the binary is executable
 chmod +x "$APP/Contents/MacOS/Nexus"
