@@ -248,7 +248,9 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
             return;
         if (!LinuxSysfs.WriteText(paths.Value.EnablePath, "1") ||
             !LinuxSysfs.WriteText(paths.Value.PwmPath, DutyToRaw(dutyPercent).ToString(CultureInfo.InvariantCulture)))
+        {
             WarnOnce(channelId);
+        }
     }
 
     private FanPaths? ResolveFan(string id)

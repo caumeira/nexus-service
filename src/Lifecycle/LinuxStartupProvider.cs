@@ -15,22 +15,18 @@ namespace Nexus.Service.Lifecycle;
 public sealed class LinuxStartupProvider : IStartupProvider
 {
     private const string DesktopFileName = "nexus.desktop";
+    private readonly string _configHome;
 
-    private static string AutostartPath =>
-        Path.Combine(ConfigHome(), "autostart", DesktopFileName);
+    public LinuxStartupProvider() : this(ConfigHome()) { }
 
-    public bool IsEnabled()
-    {
-        if (!OperatingSystem.IsLinux())
-            return false;
-        return File.Exists(AutostartPath);
-    }
+    internal LinuxStartupProvider(string configHome) => _configHome = configHome;
+
+    private string AutostartPath => Path.Combine(_configHome, "autostart", DesktopFileName);
+
+    public bool IsEnabled() => File.Exists(AutostartPath);
 
     public bool SetEnabled(bool enabled, string path, string arguments)
     {
-        if (!OperatingSystem.IsLinux())
-            return false;
-
         try
         {
             if (!enabled)

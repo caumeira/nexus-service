@@ -6,6 +6,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Nexus.Service.Models.Displays;
+using Nexus.Service.Platform.Linux;
 
 namespace Nexus.Service.Platform.Displays;
 
@@ -167,7 +168,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
 
         foreach (var dir in dirs)
         {
-            var max = ReadIntFile(Path.Combine(dir, "max_brightness"));
+            var max = LinuxSysfs.ReadInt(Path.Combine(dir, "max_brightness"));
             if (max is null or 0)
                 continue;
             var name = Path.GetFileName(dir);
@@ -193,23 +194,22 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
         }
     }
 
-    private static int? ReadBacklightPercent(string dir)
+    internal static int? ReadBacklightPercent(string dir)
     {
-        var max = ReadIntFile(Path.Combine(dir, "max_brightness"));
-        var cur = ReadIntFile(Path.Combine(dir, "actual_brightness")) ?? ReadIntFile(Path.Combine(dir, "brightness"));
+        var max = LinuxSysfs.ReadInt(Path.Combine(dir, "max_brightness"));
+        var cur = LinuxSysfs.ReadInt(Path.Combine(dir, "actual_brightness")) ?? LinuxSysfs.ReadInt(Path.Combine(dir, "brightness"));
         if (max is null or 0 || cur is null)
             return null;
         return (int)Math.Round(Math.Clamp(cur.Value, 0, max.Value) * 100.0 / max.Value);
     }
 
-    private static bool WriteBacklightPercent(string dir, int percent)
+    internal static bool WriteBacklightPercent(string dir, int percent)
     {
-        var max = ReadIntFile(Path.Combine(dir, "max_brightness"));
+        var max = LinuxSysfs.ReadInt(Path.Combine(dir, "max_brightness"));
         if (max is null or 0)
             return false;
         var raw = (int)Math.Round(Math.Clamp(percent, 0, 100) * max.Value / 100.0);
-        try { File.WriteAllText(Path.Combine(dir, "brightness"), raw.ToString(CultureInfo.InvariantCulture)); return true; }
-        catch { return false; }
+        return LinuxSysfs.WriteText(Path.Combine(dir, "brightness"), raw.ToString(CultureInfo.InvariantCulture));
     }
 
     // ── External monitors (DDC/CI over i2c-dev) ──
@@ -334,34 +334,42 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
             if (!I2cWrite(fd, off))
                 return ("", "");
             Span<byte> edid = stackalloc byte[128];
-            if (!I2cRead(fd, edid) || edid[0] != 0x00 || edid[1] != 0xFF)
+            if (!I2cRead(fd, edid))
                 return ("", "");
-
-            var id = (edid[8] << 8) | edid[9];
-            char Letter(int v) => (char)('A' + v - 1);
-            var c1 = Letter((id >> 10) & 0x1F);
-            var c2 = Letter((id >> 5) & 0x1F);
-            var c3 = Letter(id & 0x1F);
-            // Invalid/blank PNP IDs decode to non-letters — don't ship garbage.
-            var mfg = c1 is >= 'A' and <= 'Z' && c2 is >= 'A' and <= 'Z' && c3 is >= 'A' and <= 'Z'
-                ? new string(new[] { c1, c2, c3 })
-                : "";
-
-            var model = "";
-            for (var d = 54; d <= 108; d += 18)
-            {
-                if (edid[d] == 0 && edid[d + 1] == 0 && edid[d + 3] == 0xFC)
-                {
-                    var raw = edid.Slice(d + 5, 13);
-                    var end = raw.IndexOf((byte)0x0A);
-                    model = System.Text.Encoding.ASCII.GetString(end >= 0 ? raw[..end] : raw).Trim();
-                    break;
-                }
-            }
-            return (mfg, model);
+            return DecodeEdid(edid);
         }
         catch { return ("", ""); }
         finally { close(fd); }
+    }
+
+    /// <summary>Decode manufacturer (PNP ID) + model name (descriptor 0xFC) from a 128-byte EDID block.</summary>
+    internal static (string Mfg, string Model) DecodeEdid(ReadOnlySpan<byte> edid)
+    {
+        if (edid.Length < 128 || edid[0] != 0x00 || edid[1] != 0xFF)
+            return ("", "");
+
+        var id = (edid[8] << 8) | edid[9];
+        char Letter(int v) => (char)('A' + v - 1);
+        var c1 = Letter((id >> 10) & 0x1F);
+        var c2 = Letter((id >> 5) & 0x1F);
+        var c3 = Letter(id & 0x1F);
+        // Invalid/blank PNP IDs decode to non-letters — don't ship garbage.
+        var mfg = c1 is >= 'A' and <= 'Z' && c2 is >= 'A' and <= 'Z' && c3 is >= 'A' and <= 'Z'
+            ? new string(new[] { c1, c2, c3 })
+            : "";
+
+        var model = "";
+        for (var d = 54; d <= 108; d += 18)
+        {
+            if (edid[d] == 0 && edid[d + 1] == 0 && edid[d + 3] == 0xFC)
+            {
+                var raw = edid.Slice(d + 5, 13);
+                var end = raw.IndexOf((byte)0x0A);
+                model = System.Text.Encoding.ASCII.GetString(end >= 0 ? raw[..end] : raw).Trim();
+                break;
+            }
+        }
+        return (mfg, model);
     }
 
     private static int OpenI2c(int bus)
@@ -391,17 +399,6 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
         Status = DisplayBrightnessWriteStatuses.Failed,
         Error = error,
     };
-
-    private static int? ReadIntFile(string path)
-    {
-        try
-        {
-            if (!File.Exists(path))
-                return null;
-            return int.TryParse(File.ReadAllText(path).Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
-        }
-        catch { return null; }
-    }
 
     private const int O_RDWR = 2;
     private const int O_CLOEXEC = 0x80000;

@@ -97,10 +97,14 @@ public sealed class LinuxVolumeProvider : IVolumeProvider
         return ShellExecutor.Run("env", argv);
     }
 
+    private static VolumeState WpctlState() => ParseWpctl(RunC("wpctl", "get-volume", WpctlSink));
+
+    private static VolumeState PactlState()
+        => ParsePactl(RunC("pactl", "get-sink-volume", PactlSink), RunC("pactl", "get-sink-mute", PactlSink));
+
     // wpctl get-volume prints: "Volume: 0.65" or "Volume: 0.65 [MUTED]".
-    private static VolumeState WpctlState()
+    internal static VolumeState ParseWpctl(string output)
     {
-        var output = RunC("wpctl", "get-volume", WpctlSink);
         var idx = output.IndexOf("Volume:", StringComparison.OrdinalIgnoreCase);
         if (idx < 0)
             return Unsupported();
@@ -118,13 +122,11 @@ public sealed class LinuxVolumeProvider : IVolumeProvider
 
     // pactl get-sink-volume prints "Volume: front-left: 42598 / 65% / ...";
     // get-sink-mute prints "Mute: yes" / "Mute: no".
-    private static VolumeState PactlState()
+    internal static VolumeState ParsePactl(string volOut, string muteOut)
     {
-        var volOut = RunC("pactl", "get-sink-volume", PactlSink);
         var pct = ParseFirstPercent(volOut);
         if (pct is null)
             return Unsupported();
-        var muteOut = RunC("pactl", "get-sink-mute", PactlSink);
         return new VolumeState
         {
             Supported = true,

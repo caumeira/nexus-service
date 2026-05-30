@@ -141,7 +141,7 @@ public sealed class LinuxMediaProvider : IMediaProvider
         return r.ReadStringVariantDict();
     }
 
-    private static MediaSession BuildSession(string busName, Dictionary<string, object?> props, bool canFocus)
+    internal static MediaSession BuildSession(string busName, Dictionary<string, object?> props, bool canFocus)
     {
         var status = Str(props, "PlaybackStatus");
         var playing = status.Equals("Playing", StringComparison.OrdinalIgnoreCase);

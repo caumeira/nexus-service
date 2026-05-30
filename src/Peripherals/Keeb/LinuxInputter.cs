@@ -141,7 +141,7 @@ public sealed partial class LinuxInputter : IInputterProvider, IDisposable
         yield return KEY_LEFTMETA;
     }
 
-    private static int ParseKey(string key)
+    internal static int ParseKey(string key)
     {
         if (string.IsNullOrEmpty(key)) return 0;
 
