@@ -37,16 +37,18 @@ var (cliArgs, serviceMode, suppressStartupWindow, isRelaunchElevated) =
     Nexus.Service.Lifecycle.CommandLineEntry.StripLifecycleFlags(args);
 args = cliArgs;
 
+// Root system daemon (full hardware access) adopts the active user's session
+// env — D-Bus, runtime dir, config home, display — so the tray, MPRIS media,
+// volume, and dashboard launcher keep working. No-op for a --user install.
+// Done FIRST so HOME/XDG_* are correct before anything (e.g. the service log)
+// resolves a path from them.
+if (OperatingSystem.IsLinux())
+    Nexus.Service.Platform.Linux.LinuxSession.AdoptActiveSessionEnv();
+
 // Capture stdout / stderr to a rotating service.log file before anything else
 // writes to the console. Doesn't change Console behaviour - just tees output.
 Nexus.Service.Platform.ServiceLog.Initialize();
 Nexus.Service.Lifecycle.BootTimer.Mark("after ServiceLog.Initialize");
-
-// Root system daemon (full hardware access) adopts the active user's session
-// env — D-Bus, runtime dir, config home, display — so the tray, MPRIS media,
-// volume, and dashboard launcher keep working. No-op for a --user install.
-if (OperatingSystem.IsLinux())
-    Nexus.Service.Platform.Linux.LinuxSession.AdoptActiveSessionEnv();
 
 var url = ServiceLaunchIntent.ResolveServiceUrl(args);
 var servicePort = ServiceLaunchIntent.ResolveServicePort(url);
@@ -243,6 +245,18 @@ Nexus.Service.Lifecycle.BootTimer.Mark("after MdnsAdvertiser register");
 // ── Build ──
 var app = builder.Build();
 Nexus.Service.Lifecycle.BootTimer.Mark("after builder.Build()");
+
+// Connect the session D-Bus once here — single-threaded, BEFORE hosted services
+// (curve engine etc.) start. A root daemon drops euid for this socket connect
+// (LinuxSession.ConnectAsSessionUser); doing it now keeps that process-wide euid
+// window from racing a concurrent root pwm write. Idempotent + best-effort.
+if (OperatingSystem.IsLinux()
+    && app.Services.GetService(typeof(Nexus.Service.Platform.Linux.DBus.DBusConnection))
+        is Nexus.Service.Platform.Linux.DBus.DBusConnection dbus)
+{
+    try { dbus.StartAsync().GetAwaiter().GetResult(); }
+    catch (Exception ex) { Console.Error.WriteLine($"[dbus] startup connect skipped: {ex.Message}"); }
+}
 
 Nexus.Service.Lifecycle.AppBootstrap.EagerInitGpu(app);
 Nexus.Service.Lifecycle.BootTimer.Mark("after EagerInitGpu");

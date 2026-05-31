@@ -106,8 +106,15 @@ public static partial class LinuxSession
                 continue; // skip ttys / non-graphical sessions
             if (!uint.TryParse(props.GetValueOrDefault("User"), out var uid))
                 continue;
-            var display = props.GetValueOrDefault("Display");
+            // Skip the display-manager greeter and other system users — adopting
+            // gdm/sddm's session (uid < 1000) would point us at a bus the real
+            // user can't use.
+            if (uid < 1000)
+                continue;
             var (gid, home) = PasswdForUid(uid);
+            if (string.IsNullOrEmpty(home))
+                continue; // no passwd entry — can't safely adopt this session
+            var display = props.GetValueOrDefault("Display");
             return new SessionInfo(uid, gid, home, string.IsNullOrEmpty(display) ? null : display, WaylandSocket(uid));
         }
         return null;
@@ -195,7 +202,14 @@ public static partial class LinuxSession
                 return;
             }
             try { connect(); }
-            finally { seteuid(0); }
+            finally
+            {
+                // A root daemon (ruid=suid=0) can always restore euid 0; if it
+                // somehow can't, every later hardware write would fail forever —
+                // crash instead so systemd restarts us clean.
+                if (seteuid(0) != 0)
+                    Environment.FailFast("[session] could not restore root euid after a session-bus connect");
+            }
         }
     }
 
