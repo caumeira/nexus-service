@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using Nexus.Service.Models.Common;
 using Nexus.Service.Models.Peripherals.Keeb;
@@ -95,13 +96,38 @@ public sealed class RealKeebProvider : IKeebProvider
 
     public void SetFirmwareLighting(SetFirmwareLightingBody body)
     {
+        var brightness = Math.Clamp(body.Brightness, 0, 100);
         _store.Update(s =>
         {
             s.Keeb.FirmwareLighting.AnimationMode = body.AnimationMode;
             s.Keeb.FirmwareLighting.Speed = body.Speed;
             s.Keeb.FirmwareLighting.Direction = body.Direction;
-            s.Keeb.FirmwareLighting.Brightness = body.Brightness;
+            s.Keeb.FirmwareLighting.Brightness = brightness;
             s.Keeb.FirmwareLighting.KeyIndicator = body.KeyIndicator;
+
+            // The Settings "Brightness" must dim the keyboard whether the
+            // firmware animation OR a software effect is showing. The firmware
+            // byte (written by the applier below) only scales the firmware
+            // animation — so a software effect would ignore it. Mirror the
+            // value onto the keeb zones' software-stream brightness too, so the
+            // frame writer dims the streamed output to match.
+            var hubId = _hub.DeviceId;
+            if (!string.IsNullOrEmpty(hubId))
+            {
+                foreach (var id in new[]
+                {
+                    hubId + Nexus.Service.Lighting.KeebLightingDeviceProvider.KeysSuffix,
+                    hubId + Nexus.Service.Lighting.KeebLightingDeviceProvider.UnderglowSuffix,
+                })
+                {
+                    if (!s.Devices.LightingDevicePrefs.TryGetValue(id, out var pref))
+                    {
+                        pref = new LightingDevicePreference();
+                        s.Devices.LightingDevicePrefs[id] = pref;
+                    }
+                    pref.Brightness = brightness;
+                }
+            }
         });
         _applier.Apply();
     }
