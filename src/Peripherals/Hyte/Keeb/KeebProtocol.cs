@@ -73,6 +73,9 @@ public static class KeebProtocol
     /// <summary>Feature report that arms an underglow-zone (surround) RGB stream: <c>00 04 F1 …</c>.</summary>
     public static readonly byte[] SurroundStreamFeature = Feature(Write, OpLedSurround);
 
+    /// <summary>Feature report that arms a settings (0x06) write: <c>00 04 06 …</c>.</summary>
+    public static readonly byte[] SettingsWriteFeature = Feature(Write, OpSettings);
+
     /// <summary>
     /// Serialise a wire buffer into <paramref name="pageCount"/> contiguous
     /// 65-byte pages (page byte 0 = report id 0x00, then R,G,B for each slot,

@@ -256,6 +256,7 @@ public static class NexusServiceCollectionExtensions
         // RGB frames directly over HID. Reuses Np50IdentifyTracker for the
         // shared identify-flash state.
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Keeb.KeebHub>();
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Keeb.KeebSettingsApplier>();
         services.AddSingleton<Nexus.Service.Lighting.KeebLightingDeviceProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>());
@@ -263,6 +264,7 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingFrameWriter>());
         services.AddHostedService(sp => new Nexus.Service.Peripherals.Hyte.Keeb.KeebConnectionWorker(
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Keeb.KeebHub>(),
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Keeb.KeebSettingsApplier>(),
             sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
 
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
@@ -457,8 +459,11 @@ public static class NexusServiceCollectionExtensions
 #endif
         services.AddSingleton<Nexus.Service.Peripherals.PeripheralRegistry>();
 
+        // Real HID-backed keeb provider. StubKeebProvider stays registered only
+        // as the IInputterProvider fallback on platforms without a native inputter.
         services.AddSingleton<StubKeebProvider>();
-        services.AddSingleton<IKeebProvider>(sp => sp.GetRequiredService<StubKeebProvider>());
+        services.AddSingleton<RealKeebProvider>();
+        services.AddSingleton<IKeebProvider>(sp => sp.GetRequiredService<RealKeebProvider>());
 #if WINDOWS
         services.AddSingleton<IInputterProvider, WindowsInputter>();
 #else

@@ -381,6 +381,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SetRotaryWheelsBody))]
 [JsonSerializable(typeof(SetRotarySensitivityBody))]
 [JsonSerializable(typeof(SetFirmwareLightingBody))]
+[JsonSerializable(typeof(SetPassiveLightingBody))]
 [JsonSerializable(typeof(SetGameModeBody))]
 [JsonSerializable(typeof(GetMacroResponse))]
 [JsonSerializable(typeof(SetMacroBody))]

@@ -25,18 +25,21 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
     private readonly KeebHub _hub;
     private readonly IConfigStore _store;
     private readonly Np50IdentifyTracker _identify;
+    private readonly KeebSettingsApplier _applier;
     private CancellationTokenSource? _cts;
     private Task? _loop;
+    private bool _wasStreaming;
 
     private RgbColor[] _keyBuf = new RgbColor[KeebLayout.KeyLedCount];
     private RgbColor[] _surroundBuf = new RgbColor[KeebLayout.SurroundLedCount];
 
-    public KeebLightingFrameWriter(LightingEngine engine, KeebHub hub, IConfigStore store, Np50IdentifyTracker identify)
+    public KeebLightingFrameWriter(LightingEngine engine, KeebHub hub, IConfigStore store, Np50IdentifyTracker identify, KeebSettingsApplier applier)
     {
         _engine = engine;
         _hub = hub;
         _store = store;
         _identify = identify;
+        _applier = applier;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -79,6 +82,23 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
     private void Tick()
     {
         if (!_hub.IsConnected) return;
+
+        // Firmware/software arbitration: stream only while a software effect is
+        // active. When it stops, re-assert the persisted firmware settings once
+        // so the onboard animation (which streaming suppressed) comes back —
+        // matching the panel's "firmware lighting applies when nexus isn't
+        // actively driving the LEDs".
+        if (_engine.CurrentEffectName == "none")
+        {
+            if (_wasStreaming)
+            {
+                _wasStreaming = false;
+                _applier.Apply();
+            }
+            return;
+        }
+        _wasStreaming = true;
+
         var devices = _engine.Devices;
         if (devices.Length == 0) return;
 

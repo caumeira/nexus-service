@@ -19,12 +19,14 @@ public sealed class KeebConnectionWorker : BackgroundService
     private const int PollMs = 2000;
 
     private readonly KeebHub _hub;
+    private readonly KeebSettingsApplier _applier;
     private readonly KeebLightingDeviceProvider? _lighting;
     private bool _lastConnected;
 
-    public KeebConnectionWorker(KeebHub hub, KeebLightingDeviceProvider? lighting = null)
+    public KeebConnectionWorker(KeebHub hub, KeebSettingsApplier applier, KeebLightingDeviceProvider? lighting = null)
     {
         _hub = hub;
+        _applier = applier;
         _lighting = lighting;
     }
 
@@ -51,6 +53,10 @@ public sealed class KeebConnectionWorker : BackgroundService
         var connected = _hub.IsConnected;
         if (connected == _lastConnected) return;
         _lastConnected = connected;
+        // On (re)connect, push the saved firmware settings so game mode / rotary /
+        // animation take effect immediately. The frame writer will stream over the
+        // animation while a software effect is active.
+        if (connected) _applier.Apply();
         _lighting?.OnConnectionChanged();
     }
 }
