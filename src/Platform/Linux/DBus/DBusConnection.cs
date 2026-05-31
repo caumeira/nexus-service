@@ -28,6 +28,7 @@ public sealed class DBusConnection : IDisposable
     private readonly object _sendLock = new();
     private readonly Dictionary<uint, TaskCompletionSource<DBusMessage>> _pending = new();
     private readonly Dictionary<string, Func<DBusMessage, DBusMessage?>> _handlers = new();
+    private readonly Dictionary<string, TaskCompletionSource<DBusMessage>> _signalWaiters = new();
     private Task? _readerTask;
     private bool _started;
 
@@ -118,6 +119,39 @@ public sealed class DBusConnection : IDisposable
                 w.WriteUInt32(flags);
             });
         return new DBusReader(reply.Body).ReadUInt32();
+    }
+
+    /// <summary>Subscribe to a class of signals on the bus (org.freedesktop.DBus.AddMatch).</summary>
+    public Task AddMatchAsync(string rule)
+        => CallAsync("org.freedesktop.DBus", "/org/freedesktop/DBus",
+            "org.freedesktop.DBus", "AddMatch", "s", w => w.WriteString(rule));
+
+    /// <summary>
+    /// Await a single signal with <paramref name="member"/> on object
+    /// <paramref name="path"/>. Register this BEFORE issuing the call that
+    /// triggers it (e.g. an xdg-desktop-portal request) so a fast reply can't
+    /// race ahead of the waiter. Times out so a dropped signal can't hang the
+    /// caller forever. Requires a matching <see cref="AddMatchAsync"/> first.
+    /// </summary>
+    public Task<DBusMessage> WaitForSignalAsync(string path, string member, int timeoutMs = 90000)
+    {
+        var key = $"{path}|{member}";
+        var tcs = new TaskCompletionSource<DBusMessage>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_signalWaiters)
+        {
+            _signalWaiters[key] = tcs;
+        }
+        var cts = new CancellationTokenSource(timeoutMs);
+        cts.Token.Register(() =>
+        {
+            lock (_signalWaiters)
+            {
+                _signalWaiters.Remove(key);
+            }
+            tcs.TrySetException(new TimeoutException($"signal {member} on {path} timed out"));
+        });
+        _ = tcs.Task.ContinueWith(_ => cts.Dispose(), TaskScheduler.Default);
+        return tcs.Task;
     }
 
     /// <summary>Register a handler for incoming method calls on a given object path.</summary>
@@ -309,6 +343,19 @@ public sealed class DBusConnection : IDisposable
                     tcs.TrySetResult(msg);
                 }
             }
+            return;
+        }
+
+        if (msg.Type == DBusMessageType.Signal)
+        {
+            TaskCompletionSource<DBusMessage>? waiter = null;
+            var key = $"{msg.Path}|{msg.Member}";
+            lock (_signalWaiters)
+            {
+                if (_signalWaiters.TryGetValue(key, out waiter))
+                    _signalWaiters.Remove(key);
+            }
+            waiter?.TrySetResult(msg);
             return;
         }
 

@@ -20,6 +20,15 @@ using Nexus.Service.Security;
 using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
 
+// Linux screen-mirror capture helper: the root daemon re-invokes itself as the
+// session user (setpriv) for this, because the xdg-desktop-portal ScreenCast
+// portal rejects a root caller (can't read its /proc). Must be the very first
+// thing — its stdout (fd 1) carries the raw RGB frame stream, so nothing else
+// (not even a boot-timer line) may write to stdout before it takes over.
+if (OperatingSystem.IsLinux() && args.Length > 0
+    && args[0] == Nexus.Service.Lighting.Capture.LinuxScreenCastHelper.Verb)
+    return Nexus.Service.Lighting.Capture.LinuxScreenCastHelper.Run(args);
+
 Nexus.Service.Lifecycle.BootTimer.Mark("process entry");
 
 // Early-exit CLI flags (install/uninstall/tray/--open-app/protocol URLs,
