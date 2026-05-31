@@ -250,6 +250,21 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.QSeriesLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingFrameWriter>());
 
+        // Keeb TKL lighting: KeebHub owns the keyboard's vendor HID interface
+        // (OpenRGB's "HYTE Keeb TKL" detector is disabled), this provider
+        // surfaces the keys + underglow zones, and the writer streams 30 Hz
+        // RGB frames directly over HID. Reuses Np50IdentifyTracker for the
+        // shared identify-flash state.
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Keeb.KeebHub>();
+        services.AddSingleton<Nexus.Service.Lighting.KeebLightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.KeebLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingFrameWriter>());
+        services.AddHostedService(sp => new Nexus.Service.Peripherals.Hyte.Keeb.KeebConnectionWorker(
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Keeb.KeebHub>(),
+            sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
+
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
         {
             services.AddSingleton<Nexus.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>();
@@ -259,6 +274,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         }
@@ -270,6 +286,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         }

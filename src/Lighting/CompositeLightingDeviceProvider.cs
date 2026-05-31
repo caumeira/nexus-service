@@ -22,6 +22,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     private readonly MiniHubLightingDeviceProvider _miniHub;
     private readonly CnvsLightingDeviceProvider _cnvs;
     private readonly QSeriesLightingDeviceProvider _qseries;
+    private readonly KeebLightingDeviceProvider _keeb;
     private readonly IConfigStore _store;
     private readonly LightingEngine _engine;
 
@@ -31,6 +32,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         MiniHubLightingDeviceProvider miniHub,
         CnvsLightingDeviceProvider cnvs,
         QSeriesLightingDeviceProvider qseries,
+        KeebLightingDeviceProvider keeb,
         IConfigStore store,
         LightingEngine engine)
     {
@@ -39,11 +41,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         _miniHub = miniHub;
         _cnvs = cnvs;
         _qseries = qseries;
+        _keeb = keeb;
         _store = store;
         _engine = engine;
     }
 
-    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected;
+    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
     {
@@ -86,6 +89,15 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
             {
                 rgb.Devices.RemoveAll(d => string.Equals(d.Id, qseriesZombieId, StringComparison.OrdinalIgnoreCase));
             }
+            if (_keeb.IsConnected)
+            {
+                // We disable the "HYTE Keeb TKL" detector in openrgb-headless so
+                // OpenRGB never claims the board, but strip by name too so a stale
+                // entry can never shadow our direct card.
+                rgb.Devices.RemoveAll(d =>
+                    d.Name.Contains("HYTE Keeb", StringComparison.OrdinalIgnoreCase) ||
+                    d.Name.Contains("Keeb TKL", StringComparison.OrdinalIgnoreCase));
+            }
         }
 
         var hub = _np50.GetAll();
@@ -111,6 +123,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         {
             rgb.IsInit = rgb.IsInit || qseries.IsInit;
             rgb.Devices.AddRange(qseries.Devices);
+        }
+        var keeb = _keeb.GetAll();
+        if (keeb.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || keeb.IsInit;
+            rgb.Devices.AddRange(keeb.Devices);
         }
 
         // Spread every device without a persisted layout across the grid. totalCount counts persisted devices too so the
@@ -151,12 +169,14 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         var miniIds = new List<string>(ids.Count);
         var cnvsIds = new List<string>(ids.Count);
         var qseriesIds = new List<string>(ids.Count);
+        var keebIds = new List<string>(ids.Count);
         foreach (var id in ids)
         {
             if (IsNp50Id(id)) np50Ids.Add(id);
             else if (IsMiniHubId(id)) miniIds.Add(id);
             else if (IsCnvsId(id)) cnvsIds.Add(id);
             else if (IsQSeriesId(id)) qseriesIds.Add(id);
+            else if (IsKeebId(id)) keebIds.Add(id);
             else rgbIds.Add(id);
         }
         if (rgbIds.Count > 0) _openRgb.SetDisabled(rgbIds);
@@ -164,6 +184,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         if (miniIds.Count > 0) _miniHub.SetDisabled(miniIds);
         if (cnvsIds.Count > 0) _cnvs.SetDisabled(cnvsIds);
         if (qseriesIds.Count > 0) _qseries.SetDisabled(qseriesIds);
+        if (keebIds.Count > 0) _keeb.SetDisabled(keebIds);
     }
 
     public void SetPower(string id, bool on) { Pick(id).SetPower(id, on); }
@@ -178,6 +199,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         : IsMiniHubId(id) ? _miniHub
         : IsCnvsId(id) ? _cnvs
         : IsQSeriesId(id) ? _qseries
+        : IsKeebId(id) ? _keeb
         : _openRgb;
 
     private static bool IsNp50Id(string id) =>
@@ -191,4 +213,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
 
     private static bool IsQSeriesId(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("qseries:", StringComparison.Ordinal);
+
+    private static bool IsKeebId(string id) =>
+        !string.IsNullOrEmpty(id) && id.StartsWith("keeb:", StringComparison.Ordinal);
 }
