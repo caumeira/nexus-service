@@ -141,6 +141,7 @@ public sealed class RealKeebProvider : IKeebProvider
 
     public KeebMacro SetMacro(int index, SetMacroBody body)
     {
+        KeebMacroDocument? saved = null;
         _store.Update(s =>
         {
             var doc = new KeebMacroDocument { Index = index };
@@ -159,7 +160,12 @@ public sealed class RealKeebProvider : IKeebProvider
                 });
             }
             s.Keeb.Macros[index] = doc;
+            saved = doc;
         });
+        // Push the macro to the keyboard's onboard storage (0xF3). Best-effort:
+        // returns false when disconnected, leaving the persisted copy to be
+        // applied later — but when connected this is a real device write.
+        if (saved is not null) _hub.WriteMacro(index, KeebMacroCodec.BuildMacroPages(saved));
         return GetMacro(index);
     }
 

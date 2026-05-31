@@ -53,10 +53,15 @@ public sealed class KeebConnectionWorker : BackgroundService
         var connected = _hub.IsConnected;
         if (connected == _lastConnected) return;
         _lastConnected = connected;
-        // On (re)connect, push the saved firmware settings so game mode / rotary /
-        // animation take effect immediately. The frame writer will stream over the
-        // animation while a software effect is active.
-        if (connected) _applier.Apply();
+        // On (re)connect, read device info (firmware version + layout), then push
+        // the saved firmware settings so game mode / rotary / animation take effect
+        // immediately. The frame writer streams over the animation while a software
+        // effect is active.
+        if (connected)
+        {
+            _hub.ReadDeviceInfo();
+            _applier.Apply();
+        }
         _lighting?.OnConnectionChanged();
     }
 }

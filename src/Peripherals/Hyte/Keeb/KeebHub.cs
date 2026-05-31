@@ -162,6 +162,101 @@ public sealed class KeebHub : IDisposable
         }
     }
 
+    /// <summary>Write a macro's 4 pages (0xF3) for <paramref name="index"/> (0..31).</summary>
+    public bool WriteMacro(int index, byte[] pages)
+    {
+        lock (_io)
+        {
+            if (!EnsureConnectedLocked()) return false;
+            return WritePagesLocked(KeebProtocol.MacroFeature(KeebProtocol.Write, index), pages, KeebMacroCodec.PageCount);
+        }
+    }
+
+    /// <summary>Write a layer's 8 key-assignment pages (0xF2) for (profile, layer).</summary>
+    public bool WriteLayer(int profile, int layer, byte[] pages)
+    {
+        lock (_io)
+        {
+            if (!EnsureConnectedLocked()) return false;
+            return WritePagesLocked(KeebProtocol.LayerFeature(KeebProtocol.Write, profile, layer), pages, KeebProtocol.LayerPageCount);
+        }
+    }
+
+    /// <summary>Select the active firmware profile (0 or 1) via 0x02.</summary>
+    public bool SetProfile(int profile)
+    {
+        lock (_io)
+        {
+            if (!EnsureConnectedLocked()) return false;
+            var dev = _device!;
+            try
+            {
+                if (!dev.SetFeature(KeebProtocol.ProfileSetFeature(profile))) return RecordWriteFailureLocked("profile");
+                State.Profile = profile;
+                _consecutiveWriteFailures = 0;
+                return true;
+            }
+            catch (ObjectDisposedException) { return false; }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[keeb] profile write failed: {ex.GetType().Name}: {ex.Message}");
+                return RecordWriteFailureLocked(ex.GetType().Name);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Best-effort read of the device-info block (0x05) to populate firmware
+    /// version + layout. Non-fatal: the keeb's input-report read path is
+    /// firmware-dependent, so a failed read just leaves the defaults.
+    /// </summary>
+    public bool ReadDeviceInfo()
+    {
+        lock (_io)
+        {
+            if (!EnsureConnectedLocked()) return false;
+            var dev = _device!;
+            try
+            {
+                if (!dev.SetFeature(KeebProtocol.DeviceInfoRequest)) return false;
+                var buf = new byte[KeebLayout.PageSize];
+                var n = dev.Read(buf, 200);
+                if (n <= 0) return false;
+                if (KeebProtocol.ParseDeviceInfo(buf.AsSpan(0, n)) is { } di)
+                {
+                    State.FirmwareVersion = di.FirmwareVersion;
+                    State.Layout = di.Layout;
+                    return true;
+                }
+                return false;
+            }
+            catch { return false; }
+        }
+    }
+
+    // Arm a feature then push each 65-byte page as one output report. Caller holds _io.
+    private bool WritePagesLocked(byte[] feature, byte[] pages, int pageCount)
+    {
+        var dev = _device!;
+        try
+        {
+            if (!dev.SetFeature(feature)) return RecordWriteFailureLocked("feature");
+            for (var p = 0; p < pageCount; p++)
+            {
+                if (!dev.Write(pages.AsSpan(p * KeebLayout.PageSize, KeebLayout.PageSize)))
+                    return RecordWriteFailureLocked("page");
+            }
+            _consecutiveWriteFailures = 0;
+            return true;
+        }
+        catch (ObjectDisposedException) { return false; }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[keeb] page write failed: {ex.GetType().Name}: {ex.Message}");
+            return RecordWriteFailureLocked(ex.GetType().Name);
+        }
+    }
+
     // Caller must hold _io.
     private bool StreamZoneLocked(byte[] feature, RgbColor[] wire, int pageCount)
     {

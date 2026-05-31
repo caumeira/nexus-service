@@ -34,6 +34,9 @@ public static class KeebProtocol
     public const int PageSize = KeebLayout.PageSize;       // 65
     public const int PageDataSize = KeebLayout.PageDataSize; // 64
 
+    /// <summary>Output-report pages in a layer key-assignment write (0xF2): 8 × 64 = 512 = 126 keys × 4.</summary>
+    public const int LayerPageCount = 8;
+
     // ── Command direction bytes (feature report byte 1) ──
 
     public const byte Write = 0x04;
@@ -63,6 +66,85 @@ public static class KeebProtocol
         buf[1] = rw;
         buf[2] = opcode;
         return buf;
+    }
+
+    /// <summary>Layer key-assignment feature: <c>00 rw F2 &lt;profile&gt; &lt;layer&gt; …</c>.</summary>
+    public static byte[] LayerFeature(byte rw, int profile, int layer)
+    {
+        var buf = new byte[FeatureReportSize];
+        buf[1] = rw;
+        buf[2] = OpLayerKeys;
+        buf[3] = (byte)profile;
+        buf[4] = (byte)layer;
+        return buf;
+    }
+
+    /// <summary>Macro feature: <c>00 rw F3 00 &lt;macroIndex&gt; …</c>.</summary>
+    public static byte[] MacroFeature(byte rw, int macroIndex)
+    {
+        var buf = new byte[FeatureReportSize];
+        buf[1] = rw;
+        buf[2] = OpMacro;
+        buf[3] = 0x00;
+        buf[4] = (byte)macroIndex;
+        return buf;
+    }
+
+    /// <summary>Set-profile feature: <c>00 04 02 &lt;profile&gt; …</c>.</summary>
+    public static byte[] ProfileSetFeature(int profile)
+    {
+        var buf = new byte[FeatureReportSize];
+        buf[1] = Write;
+        buf[2] = OpProfile;
+        buf[3] = (byte)profile;
+        return buf;
+    }
+
+    // ── Input callbacks (EP2 in, 8-byte reports; 9-callback.md / 10 / 11) ──
+
+    public enum KeebInputKind { None, ScrollUp, ScrollDown, ScrollMiddle, KeyMatrix, SoftwareKey, Profile }
+
+    public enum KeebEncoder { None, Left, Right }
+
+    /// <summary>One decoded interrupt-IN callback. Fields are populated per kind.</summary>
+    public readonly record struct KeebInputEvent(
+        KeebInputKind Kind,
+        KeebEncoder Encoder = KeebEncoder.None,
+        int Row = 0,
+        int Column = 0,
+        int ApCode = 0,
+        bool Pressed = false,
+        int Profile = 0);
+
+    /// <summary>
+    /// Parse an 8-byte EP2 callback. The report may carry a leading report-id
+    /// byte on some read paths; we accept both. Returns Kind=None for anything
+    /// unrecognised (e.g. an all-zero idle read).
+    /// </summary>
+    public static KeebInputEvent ParseInputEvent(ReadOnlySpan<byte> r)
+    {
+        // Align so r[0]=0x05 marker, r[1]=command.
+        if (r.Length >= 9 && r[0] == 0x00 && r[1] == 0x05) r = r.Slice(1);
+        if (r.Length < 4 || r[0] != 0x05) return default;
+        switch (r[1])
+        {
+            case CbScrollWheel:
+                // r[2] = right encoder (0x20 up / 0x40 down); r[3] = left (0x20/0x40) + middle 0x10.
+                if ((r[2] & 0x20) != 0) return new(KeebInputKind.ScrollUp, KeebEncoder.Right);
+                if ((r[2] & 0x40) != 0) return new(KeebInputKind.ScrollDown, KeebEncoder.Right);
+                if ((r[3] & 0x20) != 0) return new(KeebInputKind.ScrollUp, KeebEncoder.Left);
+                if ((r[3] & 0x40) != 0) return new(KeebInputKind.ScrollDown, KeebEncoder.Left);
+                if ((r[3] & 0x10) != 0) return new(KeebInputKind.ScrollMiddle);
+                return default;
+            case CbKeyPress:
+                return new(KeebInputKind.KeyMatrix, Row: r[2], Column: r[3]);
+            case CbSoftwareKey:
+                return new(KeebInputKind.SoftwareKey, ApCode: r[2], Pressed: r[3] == 0x01);
+            case CbProfile:
+                return new(KeebInputKind.Profile, Profile: r[2]);
+            default:
+                return default;
+        }
     }
 
     // ── RGB streaming ──
