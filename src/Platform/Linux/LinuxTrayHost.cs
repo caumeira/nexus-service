@@ -376,29 +376,33 @@ public sealed class LinuxTrayHost : IDisposable
                 continue;
             try
             {
-                var psi = new ProcessStartInfo
-                {
-                    FileName = l.Path,
-                    UseShellExecute = false,
-                    CreateNoWindow = true,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                };
-                foreach (var a in l.PreArgs)
-                    psi.ArgumentList.Add(a);
+                var args = new List<string>(l.PreArgs);
                 if (l.AppMode)
                 {
                     // Force Wayland in a Wayland session: Chromium otherwise
                     // defaults to X11/XWayland and fails on a pure-Wayland login
                     // (missing/invalid XAUTHORITY -> "Missing X server or $DISPLAY").
                     if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")))
-                        psi.ArgumentList.Add("--ozone-platform=wayland");
-                    psi.ArgumentList.Add($"--app={url}");
+                        args.Add("--ozone-platform=wayland");
+                    args.Add($"--app={url}");
                 }
                 else
                 {
-                    psi.ArgumentList.Add(url);
+                    args.Add(url);
                 }
+                // A root daemon must launch the browser as the session user —
+                // Chromium refuses to run as root. Pass-through as a --user run.
+                var (spawnFile, spawnArgs) = LinuxSession.WrapSpawnAsSessionUser(l.Path, args);
+                var psi = new ProcessStartInfo
+                {
+                    FileName = spawnFile,
+                    UseShellExecute = false,
+                    CreateNoWindow = true,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                };
+                foreach (var a in spawnArgs)
+                    psi.ArgumentList.Add(a);
                 if (Process.Start(psi) is not null)
                 {
                     Console.Error.WriteLine($"[tray] opened {url} via {l.Path}{(l.AppMode ? " (app mode)" : "")}");

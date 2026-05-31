@@ -32,6 +32,9 @@ public static partial class LinuxSession
     /// </summary>
     public static uint? SessionUid { get; private set; }
 
+    /// <summary>The session user's primary gid; pairs with <see cref="SessionUid"/>.</summary>
+    public static uint? SessionGid { get; private set; }
+
     public static void AdoptActiveSessionEnv()
     {
         if (!OperatingSystem.IsLinux())
@@ -49,20 +52,24 @@ public static partial class LinuxSession
         }
 
         SessionUid = s.Uid;
+        SessionGid = s.Gid;
+        // Override unconditionally: this only runs as a root daemon with no
+        // session env, where HOME/XDG_CONFIG_HOME are pre-set to root's by
+        // sudo/systemd — set-if-unset would leave them pointing at /root.
         var run = $"/run/user/{s.Uid}";
-        SetIfUnset("XDG_RUNTIME_DIR", run);
-        SetIfUnset("DBUS_SESSION_BUS_ADDRESS", $"unix:path={run}/bus");
+        Environment.SetEnvironmentVariable("XDG_RUNTIME_DIR", run);
+        Environment.SetEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS", $"unix:path={run}/bus");
         if (!string.IsNullOrEmpty(s.Home))
         {
             // Adopt the user's home so config (settings.json, openrgb-config,
-            // curves, profiles) resolves to their existing ~/.config, not /root.
-            SetIfUnset("HOME", s.Home);
-            SetIfUnset("XDG_CONFIG_HOME", Path.Combine(s.Home, ".config"));
-            SetIfUnset("XAUTHORITY", Path.Combine(s.Home, ".Xauthority"));
+            // curves, profiles) and ~/.local browsers resolve to the user, not /root.
+            Environment.SetEnvironmentVariable("HOME", s.Home);
+            Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", Path.Combine(s.Home, ".config"));
+            Environment.SetEnvironmentVariable("XAUTHORITY", Path.Combine(s.Home, ".Xauthority"));
         }
-        SetIfUnset("WAYLAND_DISPLAY", s.Wayland ?? "wayland-0");
+        Environment.SetEnvironmentVariable("WAYLAND_DISPLAY", s.Wayland ?? "wayland-0");
         if (!string.IsNullOrEmpty(s.Display))
-            SetIfUnset("DISPLAY", s.Display);
+            Environment.SetEnvironmentVariable("DISPLAY", s.Display);
 
         Console.Error.WriteLine($"[session] root daemon adopted session of uid {s.Uid} (home {s.Home}, display {s.Display ?? s.Wayland})");
     }
@@ -79,7 +86,7 @@ public static partial class LinuxSession
         => !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS"))
         || !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR"));
 
-    private sealed record SessionInfo(uint Uid, string? Home, string? Display, string? Wayland);
+    private sealed record SessionInfo(uint Uid, uint Gid, string? Home, string? Display, string? Wayland);
 
     private static SessionInfo? Detect()
     {
@@ -100,7 +107,8 @@ public static partial class LinuxSession
             if (!uint.TryParse(props.GetValueOrDefault("User"), out var uid))
                 continue;
             var display = props.GetValueOrDefault("Display");
-            return new SessionInfo(uid, HomeForUid(uid), string.IsNullOrEmpty(display) ? null : display, WaylandSocket(uid));
+            var (gid, home) = PasswdForUid(uid);
+            return new SessionInfo(uid, gid, home, string.IsNullOrEmpty(display) ? null : display, WaylandSocket(uid));
         }
         return null;
     }
@@ -118,12 +126,35 @@ public static partial class LinuxSession
         return d;
     }
 
-    private static string? HomeForUid(uint uid)
+    private static (uint Gid, string? Home) PasswdForUid(uint uid)
     {
         // getent passwd: name:x:uid:gid:gecos:home:shell
-        var pw = ShellExecutor.Run("getent", "passwd", uid.ToString());
-        var fields = pw.Trim().Split(':');
-        return fields.Length >= 6 && fields[5].Length > 0 ? fields[5] : null;
+        var fields = ShellExecutor.Run("getent", "passwd", uid.ToString()).Trim().Split(':');
+        var gid = fields.Length >= 4 && uint.TryParse(fields[3], out var g) ? g : uid;
+        var home = fields.Length >= 6 && fields[5].Length > 0 ? fields[5] : null;
+        return (gid, home);
+    }
+
+    /// <summary>
+    /// Wrap a command so a root daemon spawns it as the session user (e.g. the
+    /// dashboard browser): <c>setpriv</c> drops uid/gid + supplementary groups
+    /// WITHOUT resetting env, so the child inherits our adopted
+    /// XDG_RUNTIME_DIR/WAYLAND_DISPLAY and runs inside the user's compositor.
+    /// Chromium refuses to run as root, and a root GUI client in a user's
+    /// session is wrong anyway. Pass-through when not a root daemon.
+    /// </summary>
+    public static (string File, List<string> Args) WrapSpawnAsSessionUser(string file, List<string> args)
+    {
+        if (SessionUid is null || SessionGid is null)
+            return (file, args);
+        var wrapped = new List<string>
+        {
+            "--reuid", SessionUid.Value.ToString(),
+            "--regid", SessionGid.Value.ToString(),
+            "--init-groups", "--", file,
+        };
+        wrapped.AddRange(args);
+        return ("setpriv", wrapped);
     }
 
     private static string? WaylandSocket(uint uid)
@@ -135,12 +166,6 @@ public static partial class LinuxSession
             return sock is null ? null : Path.GetFileName(sock);
         }
         catch { return null; }
-    }
-
-    private static void SetIfUnset(string name, string value)
-    {
-        if (string.IsNullOrEmpty(Environment.GetEnvironmentVariable(name)))
-            Environment.SetEnvironmentVariable(name, value);
     }
 
     private static readonly object EuidGate = new();
