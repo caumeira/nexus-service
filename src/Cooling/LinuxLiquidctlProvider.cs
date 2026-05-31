@@ -30,12 +30,14 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
     public const string IdPrefix = "liquidctl:";
 
     private readonly Func<string> _statusJson;
-    private readonly Action<string, string, int> _setSpeed; // (address, channel, duty)
+    private readonly Func<string, string, int, bool> _setSpeed; // (address, channel, duty) -> applied?
     private readonly bool _forceAvailable;
 
     private readonly object _lock = new();
-    private readonly Dictionary<string, (string Address, string Channel)> _control = new();
-    private readonly Dictionary<string, string> _tempAddr = new();
+    // Rebuilt wholesale and published atomically (assigned, never mutated in
+    // place) so a concurrent Drive() never observes a half-cleared map.
+    private Dictionary<string, (string Address, string Channel)> _control = new();
+    private readonly HashSet<string> _warned = new();
     private bool? _present;
 
     // `liquidctl --json status` enumerates USB and costs ~1-2s; one curve tick
@@ -47,13 +49,18 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
     public LinuxLiquidctlProvider()
     {
         _statusJson = () => ShellExecutor.Run("liquidctl", 8000, "--json", "status");
-        _setSpeed = (addr, chan, duty) => ShellExecutor.Run("liquidctl", 8000,
-            "--address", addr, "set", chan, "speed", duty.ToString(CultureInfo.InvariantCulture));
+        // Verify the write landed (exit 0) instead of assuming it — a rejected
+        // `set` (permissions, wrong channel) must not be reported as applied.
+        // NOTE: a few liquidctl devices need `liquidctl initialize` once per
+        // boot before `set` is accepted; omitted here because it mutates device
+        // state and can't be verified on this bench — revisit with hardware.
+        _setSpeed = (addr, chan, duty) => ShellExecutor.RunExit("liquidctl", 8000,
+            "--address", addr, "set", chan, "speed", duty.ToString(CultureInfo.InvariantCulture)) == 0;
         _forceAvailable = false;
     }
 
     // Injected command seams for tests (no real liquidctl needed).
-    internal LinuxLiquidctlProvider(Func<string> statusJson, Action<string, string, int> setSpeed)
+    internal LinuxLiquidctlProvider(Func<string> statusJson, Func<string, string, int, bool> setSpeed)
     {
         _statusJson = statusJson;
         _setSpeed = setSpeed;
@@ -78,14 +85,14 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
     {
         var devices = Snapshot();
         var channels = new List<FanChannel>();
-        lock (_lock) _control.Clear();
+        var control = new Dictionary<string, (string Address, string Channel)>();
         foreach (var dev in devices)
         {
             var deviceId = IdPrefix + Sanitize(dev.Address);
             foreach (var ch in dev.Channels)
             {
                 var id = $"{deviceId}:{ch.Name}";
-                lock (_lock) _control[id] = (dev.Address, ch.Name);
+                control[id] = (dev.Address, ch.Name);
                 channels.Add(new FanChannel
                 {
                     Id = id,
@@ -99,6 +106,7 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
                 });
             }
         }
+        lock (_lock) _control = control; // atomic publish — no half-built map
         return channels;
     }
 
@@ -106,18 +114,17 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
     {
         var devices = Snapshot();
         var sources = new List<TemperatureSource>();
-        lock (_lock) _tempAddr.Clear();
         foreach (var dev in devices)
         {
             var deviceId = IdPrefix + Sanitize(dev.Address);
-            for (var i = 0; i < dev.Temps.Count; i++)
+            foreach (var t in dev.Temps)
             {
-                var t = dev.Temps[i];
-                var id = $"{deviceId}:temp{i}";
-                lock (_lock) _tempAddr[id] = dev.Address;
                 sources.Add(new TemperatureSource
                 {
-                    Id = id,
+                    // Keyed by sanitized label, not enumeration index, so a saved
+                    // curve binding doesn't silently retarget if the driver
+                    // reorders/adds a temp row.
+                    Id = TempId(deviceId, t.Label),
                     Name = $"{dev.Description} {t.Label}",
                     Category = "Hub",
                     Value = t.Celsius,
@@ -130,18 +137,21 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
 
     public float? ReadTemperature(string sensorId)
     {
-        // Re-snapshot and find the matching label index. Cheap enough; AIO temps
+        // Re-snapshot and match by the label-derived id. Cheap enough; AIO temps
         // are read on the curve-engine tick which is already throttled.
-        var devices = Snapshot();
-        foreach (var dev in devices)
+        foreach (var dev in Snapshot())
         {
             var deviceId = IdPrefix + Sanitize(dev.Address);
-            for (var i = 0; i < dev.Temps.Count; i++)
-                if (sensorId == $"{deviceId}:temp{i}")
-                    return dev.Temps[i].Celsius;
+            foreach (var t in dev.Temps)
+            {
+                if (sensorId == TempId(deviceId, t.Label))
+                    return t.Celsius;
+            }
         }
         return null;
     }
+
+    private static string TempId(string deviceId, string label) => $"{deviceId}:t:{Sanitize(label)}";
 
     public int SetFanSpeed(string channelId, int dutyPercent) => Drive(channelId, dutyPercent);
 
@@ -150,19 +160,31 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
     private int Drive(string channelId, int dutyPercent)
     {
         dutyPercent = Math.Clamp(dutyPercent, 0, 100);
-        (string Address, string Channel) target;
+        Dictionary<string, (string Address, string Channel)> control;
+        lock (_lock) control = _control;
+        if (!control.TryGetValue(channelId, out var target))
+        {
+            // Cold cache (process restart): rebuild the (atomically published) map.
+            GetFanChannels();
+            lock (_lock) control = _control;
+            if (!control.TryGetValue(channelId, out target))
+                return dutyPercent;
+        }
+        if (!_setSpeed(target.Address, target.Channel, dutyPercent))
+            WarnOnce(channelId);
+        return dutyPercent;
+    }
+
+    private void WarnOnce(string channelId)
+    {
         lock (_lock)
         {
-            if (!_control.TryGetValue(channelId, out target))
-            {
-                // Cold cache (process restart): rebuild the map then retry.
-                GetFanChannels();
-                if (!_control.TryGetValue(channelId, out target))
-                    return dutyPercent;
-            }
+            if (!_warned.Add(channelId))
+                return;
         }
-        _setSpeed(target.Address, target.Channel, dutyPercent);
-        return dutyPercent;
+        Console.Error.WriteLine(
+            $"[cooling] liquidctl set failed for {channelId} — the cooler rejected the write " +
+            "(check udev access to its hidraw node; some devices need `liquidctl initialize`).");
     }
 
     // USB AIOs have no BIOS/automatic mode to hand control back to — leave the
@@ -331,7 +353,7 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
 
     private static string Sanitize(string raw)
     {
-        var chars = raw.Trim().Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray();
+        var chars = raw.Trim().ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray();
         return new string(chars).Trim('-');
     }
 }

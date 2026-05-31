@@ -118,8 +118,10 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
         combined.AddRange(_np50.GetAll());
         combined.AddRange(_miniHub.GetAll());
         foreach (var e in _extras)
+        {
             if (e.Provider is ICoolingProvider c)
                 combined.AddRange(c.GetAll());
+        }
         return combined;
     }
 

@@ -103,7 +103,9 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
             return null;
         if (!int.TryParse(sensorId.Substring(TempPrefix.Length), NumberStyles.Integer,
                 CultureInfo.InvariantCulture, out var idx))
+        {
             return null;
+        }
         return Snapshot().FirstOrDefault(g => g.Index == idx)?.Temp;
     }
 
@@ -127,8 +129,10 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
     public void ReleaseAll()
     {
         foreach (var g in Snapshot())
+        {
             foreach (var f in g.Fans)
                 _control(g.Index, f.Fan, null);
+        }
     }
 
     public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(

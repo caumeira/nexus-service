@@ -88,7 +88,7 @@ public class LinuxLiquidctlProviderTests
     [Fact]
     public void GetFanChannels_BuildsRouteSafeIdsAndDeviceGrouping()
     {
-        var p = new LinuxLiquidctlProvider(() => KrakenJson, (_, _, _) => { });
+        var p = new LinuxLiquidctlProvider(() => KrakenJson, (_, _, _) => true);
         var ch = Assert.Single(p.GetFanChannels());
         Assert.Equal("liquidctl:dev-hidraw3:pump", ch.Id);
         Assert.DoesNotContain('/', ch.Id); // route-safe
@@ -102,7 +102,7 @@ public class LinuxLiquidctlProviderTests
     public void SetFanSpeed_SendsAddressChannelDutyToCli()
     {
         var calls = new List<(string addr, string chan, int duty)>();
-        var p = new LinuxLiquidctlProvider(() => CommanderJson, (a, c, d) => calls.Add((a, c, d)));
+        var p = new LinuxLiquidctlProvider(() => CommanderJson, (a, c, d) => { calls.Add((a, c, d)); return true; });
         p.GetFanChannels(); // populate the control map
 
         p.SetFanSpeed("liquidctl:dev-hidraw5:fan1", 75);
@@ -118,20 +118,30 @@ public class LinuxLiquidctlProviderTests
     {
         var calls = new List<(string addr, string chan, int duty)>();
         // No GetFanChannels() first — Drive must lazily rebuild the control map.
-        var p = new LinuxLiquidctlProvider(() => KrakenJson, (a, c, d) => calls.Add((a, c, d)));
+        var p = new LinuxLiquidctlProvider(() => KrakenJson, (a, c, d) => { calls.Add((a, c, d)); return true; });
         p.SetFanSpeed("liquidctl:dev-hidraw3:pump", 250); // clamp to 100
         Assert.Equal(("/dev/hidraw3", "pump", 100), Assert.Single(calls));
     }
 
     [Fact]
+    public void SetFanSpeed_RejectedWrite_DoesNotThrow()
+    {
+        // liquidctl returns non-zero -> seam returns false. Drive must warn-once
+        // and not blow up (it still returns the requested duty per the interface).
+        var p = new LinuxLiquidctlProvider(() => KrakenJson, (_, _, _) => false);
+        Assert.Equal(50, p.SetFanSpeed("liquidctl:dev-hidraw3:pump", 50));
+    }
+
+    [Fact]
     public void TemperatureSources_AndReadByIdRoundTrip()
     {
-        var p = new LinuxLiquidctlProvider(() => KrakenJson, (_, _, _) => { });
+        var p = new LinuxLiquidctlProvider(() => KrakenJson, (_, _, _) => true);
         var src = Assert.Single(p.GetTemperatureSources());
-        Assert.Equal("liquidctl:dev-hidraw3:temp0", src.Id);
+        // id keyed by sanitized label, not ordinal — stable across reorders
+        Assert.Equal("liquidctl:dev-hidraw3:t:liquid-temperature", src.Id);
         Assert.Equal("Hub", src.Category);
         Assert.Equal(29.9f, p.ReadTemperature(src.Id) ?? -1, 1);
-        Assert.Null(p.ReadTemperature("liquidctl:dev-hidraw3:temp9"));
+        Assert.Null(p.ReadTemperature("liquidctl:dev-hidraw3:t:nonexistent"));
     }
 
     [Fact]

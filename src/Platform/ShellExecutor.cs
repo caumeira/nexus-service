@@ -46,6 +46,38 @@ public static class ShellExecutor
     }
 
     /// <summary>
+    /// Run a command for its exit status (not its output) — for fire-and-verify
+    /// writes where success must be confirmed, not assumed. Returns the process
+    /// exit code, or a negative value if it couldn't start / timed out. Drains
+    /// stdout+stderr so the child never blocks on a full pipe.
+    /// </summary>
+    public static int RunExit(string fileName, int timeoutMs, params string[] args)
+    {
+        try
+        {
+            var psi = BuildPsi(fileName, args);
+            psi.RedirectStandardError = true;
+            using var proc = Process.Start(psi);
+            if (proc is null)
+                return -1;
+            var outTask = proc.StandardOutput.ReadToEndAsync();
+            var errTask = proc.StandardError.ReadToEndAsync();
+            if (!proc.WaitForExit(timeoutMs))
+            {
+                Console.Error.WriteLine($"[shell] timeout ({timeoutMs}ms) waiting for {fileName} {string.Join(' ', args)}");
+                try { proc.Kill(entireProcessTree: true); } catch { }
+                return -2;
+            }
+            try { _ = outTask.GetAwaiter().GetResult(); _ = errTask.GetAwaiter().GetResult(); } catch { }
+            return proc.ExitCode;
+        }
+        catch
+        {
+            return -1;
+        }
+    }
+
+    /// <summary>
     /// Run capturing both stdout and stderr; returns combined output. Useful
     /// for tools that print structured data on stderr (ffmpeg).
     /// </summary>

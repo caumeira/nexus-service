@@ -35,6 +35,9 @@ internal static unsafe partial class Nvml
         }
     }
 
+    // Initialised once and never paired with nvmlShutdown: this is a long-lived
+    // daemon, the driver refcounts, and the OS reclaims on exit — tearing NVML
+    // down while a concurrent Read() is mid-call would be worse. Intentional.
     private static bool TryInit()
     {
         try { return nvmlInit_v2() == Success; }
@@ -56,9 +59,13 @@ internal static unsafe partial class Nvml
                     continue;
                 var fans = new List<GpuFan>();
                 if (nvmlDeviceGetNumFans(dev, out var nfans) == Success)
+                {
                     for (uint f = 0; f < nfans; f++)
+                    {
                         if (nvmlDeviceGetFanSpeed_v2(dev, f, out var speed) == Success)
                             fans.Add(new GpuFan((int)f, (int)speed));
+                    }
+                }
                 float? temp = nvmlDeviceGetTemperature(dev, TemperatureGpu, out var t) == Success ? t : null;
                 list.Add(new GpuInfo((int)i, ReadName(dev), temp, fans));
             }
@@ -93,7 +100,7 @@ internal static unsafe partial class Nvml
                 return "NVIDIA GPU";
         }
         var end = buf.IndexOf((byte)0);
-        return Encoding.ASCII.GetString(buf[..(end < 0 ? NameBuf : end)]).Trim();
+        return Encoding.UTF8.GetString(buf[..(end < 0 ? NameBuf : end)]).Trim();
     }
 
     [LibraryImport(Lib)] private static partial int nvmlInit_v2();

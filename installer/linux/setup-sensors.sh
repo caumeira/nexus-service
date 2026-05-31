@@ -83,20 +83,22 @@ trap 'rm -rf "$work"' EXIT
 if ! git clone --depth 1 "$IT87_FORK" "$work/it87" >/dev/null 2>&1; then
   log "could not fetch it87 fork (offline?) — skipping"; exit 0
 fi
-ver="nexus-it87-$(date +%Y%m%d 2>/dev/null || echo 1)"
-src="/usr/src/$ver"
+# Fixed package name+version (NOT date-stamped) so re-running upgrades in place
+# instead of orphaning a prior DKMS module. Remove any earlier copy first.
+PKG=nexus-it87; VER=1.0; src="/usr/src/$PKG-$VER"
+dkms remove "$PKG/$VER" --all >/dev/null 2>&1 || true
 rm -rf "$src"; cp -a "$work/it87" "$src"
 # Minimal dkms.conf if the fork ships none.
 [ -f "$src/dkms.conf" ] || cat > "$src/dkms.conf" <<DKMS
-PACKAGE_NAME="${ver%-*}"
-PACKAGE_VERSION="${ver##*-}"
+PACKAGE_NAME="$PKG"
+PACKAGE_VERSION="$VER"
 BUILT_MODULE_NAME[0]="it87"
 DEST_MODULE_LOCATION[0]="/extra"
 AUTOINSTALL="yes"
 DKMS
 
-if dkms add -m "${ver%-*}" -v "${ver##*-}" >/dev/null 2>&1 \
-   && dkms install -m "${ver%-*}" -v "${ver##*-}" >/dev/null 2>&1; then
+if dkms add -m "$PKG" -v "$VER" >/dev/null 2>&1 \
+   && dkms install -m "$PKG" -v "$VER" >/dev/null 2>&1; then
   log "it87 fork installed via DKMS (survives kernel updates)"
 else
   log "DKMS build failed — see 'dkms status'. Skipping fan-driver setup."
