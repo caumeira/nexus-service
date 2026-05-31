@@ -119,7 +119,7 @@ public sealed class LinuxTrayHost : IDisposable
         WriteDictEntry(w, "Id", "s", ww => ww.WriteString("nexus-service"));
         WriteDictEntry(w, "Title", "s", ww => ww.WriteString("Nexus"));
         WriteDictEntry(w, "Status", "s", ww => ww.WriteString("Active"));
-        WriteDictEntry(w, "IconName", "s", ww => ww.WriteString("applications-system"));
+        WriteDictEntry(w, "IconName", "s", ww => ww.WriteString("nexus"));
         WriteDictEntry(w, "ItemIsMenu", "b", ww => ww.WriteBool(false));
         WriteDictEntry(w, "Menu", "o", ww => ww.WriteObjectPath("/MenuBar"));
         WriteDictEntry(w, "IconThemePath", "s", ww => ww.WriteString(""));
@@ -144,7 +144,7 @@ public sealed class LinuxTrayHost : IDisposable
                 w.WriteVariant("s", ww => ww.WriteString("Active"));
                 return;
             case "IconName":
-                w.WriteVariant("s", ww => ww.WriteString("applications-system"));
+                w.WriteVariant("s", ww => ww.WriteString("nexus"));
                 return;
             case "ItemIsMenu":
                 w.WriteVariant("b", ww => ww.WriteBool(false));
@@ -326,51 +326,88 @@ public sealed class LinuxTrayHost : IDisposable
         w.WriteVariant(valueSignature, writeValue);
     }
 
-    private static readonly string[][] BrowserCandidates =
+    /// <summary>
+    /// A browser launcher: the binary, any args before the URL, and whether to
+    /// pass the URL as a Chromium <c>--app=&lt;url&gt;</c> flag (a clean chromeless
+    /// app window — no tabs/URL bar, just native window controls) versus a normal
+    /// positional URL argument.
+    /// </summary>
+    private readonly record struct Launcher(string Path, string[] PreArgs, bool AppMode);
+
+    // Both flatpak export roots — user (~/.local/share/flatpak) is checked before
+    // system (/var/lib/flatpak) since a CLI install without root lands in user.
+    private static readonly string UserFlatpakBin = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+        ".local", "share", "flatpak", "exports", "bin");
+    private const string SysFlatpakBin = "/var/lib/flatpak/exports/bin";
+
+    private static readonly Launcher[] Launchers =
     {
-        new[] { "/var/lib/flatpak/exports/bin/org.mozilla.firefox", "--new-window" },
-        new[] { "/var/lib/flatpak/exports/bin/com.brave.Browser", "--new-window" },
-        new[] { "/var/lib/flatpak/exports/bin/org.chromium.Chromium", "--new-window" },
-        new[] { "/var/lib/flatpak/exports/bin/com.google.Chrome", "--new-window" },
-        new[] { "/usr/bin/firefox", "--new-window" },
-        new[] { "/usr/bin/chromium-browser", "--new-window" },
-        new[] { "/usr/bin/google-chrome", "--new-window" },
-        new[] { "/usr/bin/kde-open", "" },
-        new[] { "/usr/bin/gio", "open" },
-        new[] { "/usr/bin/xdg-open", "" },
+        // Chromium-family in --app mode FIRST: opens the dashboard as a clean,
+        // chromeless window — the closest Linux equivalent to the Windows/macOS
+        // embedded panel (no native WebView host exists on Linux yet).
+        new(Path.Combine(UserFlatpakBin, "org.chromium.Chromium"), Array.Empty<string>(), true),
+        new(SysFlatpakBin + "/org.chromium.Chromium", Array.Empty<string>(), true),
+        new(Path.Combine(UserFlatpakBin, "com.google.Chrome"), Array.Empty<string>(), true),
+        new(SysFlatpakBin + "/com.google.Chrome", Array.Empty<string>(), true),
+        new(Path.Combine(UserFlatpakBin, "com.brave.Browser"), Array.Empty<string>(), true),
+        new(SysFlatpakBin + "/com.brave.Browser", Array.Empty<string>(), true),
+        new(SysFlatpakBin + "/com.microsoft.Edge", Array.Empty<string>(), true),
+        new("/usr/bin/chromium", Array.Empty<string>(), true),
+        new("/usr/bin/chromium-browser", Array.Empty<string>(), true),
+        new("/usr/bin/google-chrome", Array.Empty<string>(), true),
+        new("/usr/bin/brave-browser", Array.Empty<string>(), true),
+        // Fallbacks: desktop-portal openers launch the default browser in the
+        // user's session context (avoids the flatpak sandbox EPERM), normal window.
+        new("/usr/bin/xdg-open", Array.Empty<string>(), false),
+        new("/usr/bin/kde-open", Array.Empty<string>(), false),
+        new("/usr/bin/gio", new[] { "open" }, false),
+        // Last resort: Firefox (no --app mode) in a normal window.
+        new(UserFlatpakBin + "/org.mozilla.firefox", new[] { "--new-window" }, false),
+        new(SysFlatpakBin + "/org.mozilla.firefox", new[] { "--new-window" }, false),
+        new("/usr/bin/firefox", new[] { "--new-window" }, false),
     };
 
     private static void OpenUrl(string url)
     {
-        foreach (var cmd in BrowserCandidates)
+        foreach (var l in Launchers)
         {
-            if (!File.Exists(cmd[0]))
+            if (!File.Exists(l.Path))
                 continue;
             try
             {
                 var psi = new ProcessStartInfo
                 {
-                    FileName = cmd[0],
+                    FileName = l.Path,
                     UseShellExecute = false,
                     CreateNoWindow = true,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
                 };
-                for (int i = 1; i < cmd.Length; i++)
+                foreach (var a in l.PreArgs)
+                    psi.ArgumentList.Add(a);
+                if (l.AppMode)
                 {
-                    if (!string.IsNullOrEmpty(cmd[i]))
-                        psi.ArgumentList.Add(cmd[i]);
+                    // Force Wayland in a Wayland session: Chromium otherwise
+                    // defaults to X11/XWayland and fails on a pure-Wayland login
+                    // (missing/invalid XAUTHORITY -> "Missing X server or $DISPLAY").
+                    if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WAYLAND_DISPLAY")))
+                        psi.ArgumentList.Add("--ozone-platform=wayland");
+                    psi.ArgumentList.Add($"--app={url}");
                 }
-                psi.ArgumentList.Add(url);
+                else
+                {
+                    psi.ArgumentList.Add(url);
+                }
                 if (Process.Start(psi) is not null)
                 {
-                    Console.Error.WriteLine($"[tray] opened {url} via {cmd[0]}");
+                    Console.Error.WriteLine($"[tray] opened {url} via {l.Path}{(l.AppMode ? " (app mode)" : "")}");
                     return;
                 }
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[tray] {cmd[0]} failed: {ex.Message}");
+                Console.Error.WriteLine($"[tray] {l.Path} failed: {ex.Message}");
             }
         }
         Console.Error.WriteLine($"[tray] no browser launcher found for {url}");
