@@ -123,6 +123,21 @@ public sealed class OpenRgbProcessManager : IDisposable
         return Path.Combine(baseDir, "Nexus", "openrgb-config");
     }
 
+    // Restore the executable bit on the bundled binary (Content copy / archive
+    // round-trips drop it on Unix). No-op on Windows / if the file is missing.
+    private static void EnsureExecutable(string path)
+    {
+        if (OperatingSystem.IsWindows() || !File.Exists(path))
+            return;
+        try
+        {
+            var mode = File.GetUnixFileMode(path);
+            File.SetUnixFileMode(path, mode | UnixFileMode.UserExecute
+                | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute);
+        }
+        catch { /* best effort — launch will surface the real error */ }
+    }
+
     /// <summary>
     /// Start the subprocess if it isn't already running. Idempotent. Safe to
     /// call from any thread.
@@ -155,6 +170,11 @@ public sealed class OpenRgbProcessManager : IDisposable
             try
             { Directory.CreateDirectory(configDir); }
             catch { /* will fail loudly when OpenRGB itself tries */ }
+
+            // The MSBuild Content copy (and tar/zip round-trips) drop the
+            // executable bit on Linux/macOS — restore it or Process.Start fails
+            // with EACCES and RGB silently never comes up.
+            EnsureExecutable(_exePath);
 
             var psi = new ProcessStartInfo
             {
