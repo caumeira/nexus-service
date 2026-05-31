@@ -23,10 +23,12 @@ public sealed class GpuContext : IDisposable
     private readonly object _lock = new();
     private readonly int _width;
     private readonly int _height;
-    // Windows/Linux path: GLFW hidden window owns the context.
+    // Windows path: GLFW hidden window owns the context.
     private IWindow? _window;
     // macOS path: CGL context pointer, no window.
     private IntPtr _cglCtx;
+    // Linux path: headless EGL device context, no window (works under the root daemon).
+    private bool _eglUsed;
     private GL? _gl;
     private uint _fbo;
     private uint _fboTex;
@@ -169,9 +171,20 @@ public sealed class GpuContext : IDisposable
             _cglCtx = MacGlContext.CreateAndMakeCurrent();
             _gl = GL.GetApi(new CglNativeContext());
         }
+        else if (OperatingSystem.IsLinux())
+        {
+            // Linux: headless EGL on the GPU device platform — no X/Wayland, no
+            // window. GLFW needs a display and crashes creating an nvidia GL
+            // context as root on the user's XWayland, so the root daemon can't
+            // use it; EGL device-platform is windowless like macOS's CGL.
+            Log("[gpu] Linux: EGL device-platform headless context");
+            LinuxEglContext.CreateAndMakeCurrent();
+            _eglUsed = true;
+            _gl = GL.GetApi(new EglNativeContext());
+        }
         else
         {
-            // Windows / Linux: hidden GLFW window owns the context.
+            // Windows: hidden GLFW window owns the context.
             Log("[gpu] Register GLFW platform");
             // Silk.NET normally registers the GLFW backend via module initializer,
             // but AOT strips that path - we have to register it explicitly or
@@ -269,14 +282,24 @@ public sealed class GpuContext : IDisposable
         try
         { _workQueue.CompleteAdding(); }
         catch { }
-        _glThread?.Join(TimeSpan.FromSeconds(2));
+        // If the GL thread didn't actually exit it may still be mid-GL-call with
+        // the context current; destroying the native context underneath it
+        // (eglTerminate / CGLDestroyContext) is undefined and can segfault. Only
+        // tear it down once the thread has joined — a leaked context at process
+        // exit is harmless, a crash on shutdown is not.
+        var joined = _glThread?.Join(TimeSpan.FromSeconds(2)) ?? true;
         try
         { _window?.Dispose(); }
         catch { }
-        if (_cglCtx != IntPtr.Zero)
+        if (joined && _cglCtx != IntPtr.Zero)
         {
             MacGlContext.Destroy(_cglCtx);
             _cglCtx = IntPtr.Zero;
+        }
+        if (joined && _eglUsed)
+        {
+            LinuxEglContext.Destroy();
+            _eglUsed = false;
         }
         // Dispose the per-thread MREs we created along the way.
         if (_invokeDone.Values is { } values)

@@ -67,12 +67,12 @@ public static partial class LinuxSession
             Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", Path.Combine(s.Home, ".config"));
         }
         Environment.SetEnvironmentVariable("WAYLAND_DISPLAY", s.Wayland ?? "wayland-0");
-        // Deliberately do NOT export DISPLAY/XAUTHORITY. The GPU lighting GL
-        // context (GLFW + GLX) creating an OpenGL context as root on the user's
-        // XWayland segfaults the process (uncatchable native fault). Without
-        // DISPLAY, GLFW fails gracefully (gpuAvailable=false) and the daemon is
-        // stable; shader effects need a headless EGL surfaceless context to run
-        // as root (TODO). Direct device control (identify, static) is unaffected.
+        // Deliberately do NOT export DISPLAY/XAUTHORITY. The GPU lighting shader
+        // context renders fully headless via EGL on the GPU device platform (see
+        // LinuxEglContext) — no display required. Exporting DISPLAY would only
+        // tempt a GLFW/GLX path that segfaults creating an nvidia GL context as
+        // root on the user's XWayland (uncatchable native fault); EGL needs none
+        // of it. Direct device control (identify, static) is unaffected either way.
 
         Console.Error.WriteLine($"[session] root daemon adopted session of uid {s.Uid} (home {s.Home}, wayland {s.Wayland})");
     }
