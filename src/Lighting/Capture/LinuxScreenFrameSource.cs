@@ -10,43 +10,54 @@ namespace Nexus.Service.Lighting.Capture;
 
 /// <summary>
 /// Linux screen-mirror frame source. Spawns the <see cref="LinuxScreenCastHelper"/>
-/// (the same Nexus binary, re-invoked as the session user via setpriv) which does
+/// (the same Nexus binary re-invoked as the session user via setpriv) which does
 /// the xdg-desktop-portal ScreenCast handshake and runs a gst-launch pipewiresrc
 /// consumer; the helper writes raw RGB24 frames to its stdout, which we read into
 /// a double-buffered latest-frame the effect samples.
 ///
-/// The portal must be driven by a user-owned process (it can't read a root
-/// caller's /proc), so the daemon can't call it directly — hence the helper.
-/// gstreamer does the PipeWire/GPU lifting (DMA-BUF); the daemon only copies a
-/// ~14&#160;KB downscaled frame per tick.
+/// The capture is kept as a single stable session: the engine re-applies the
+/// lighting effect on every RGB re-sync, which would otherwise tear down and
+/// respawn a fresh portal session each time. <see cref="Start"/> reuses a healthy
+/// helper of the same size, and <see cref="Stop"/> defers the kill briefly so a
+/// Stop()-then-Start() churn keeps the same capture. <see cref="Reselect"/> drops
+/// the saved permission token and the current helper so the next start re-opens
+/// the system screen picker (the only way to change the mirrored screen on Wayland).
 ///
 /// Compiles on every platform; only constructed/bound on Linux.
 /// </summary>
 public sealed class LinuxScreenFrameSource : IScreenFrameSource
 {
-    private readonly object _frameLock = new();
+    private readonly object _frameLock = new();   // guards the frame buffer (hot path)
+    private readonly object _lifeLock = new();     // guards the helper lifecycle
     private byte[]? _latest;
-    private int _w, _h;
-    private CancellationTokenSource? _cts;
+    private int _w, _h;            // latest frame dimensions (frameLock)
+    private int _reqW, _reqH;      // requested capture size (lifeLock)
     private Process? _proc;
+    private CancellationTokenSource? _cts;
+    private int _stopGen; // bumped to cancel a pending deferred Stop
 
     public void Start(string monitorId, int width, int height)
     {
-        lock (_frameLock)
+        lock (_lifeLock)
         {
-            if (_proc is not null)
-                return;
-            _w = width;
-            _h = height;
+            _stopGen++; // a (re-)apply: cancel any pending deferred stop
+            if (_proc is not null && !_proc.HasExited && _reqW == width && _reqH == height)
+                return; // healthy capture at this size already running — reuse it
+            KillLocked();
+            _reqW = width;
+            _reqH = height;
+            SpawnLocked(width, height);
         }
+    }
 
+    private void SpawnLocked(int width, int height)
+    {
         var exe = Environment.ProcessPath;
         if (string.IsNullOrEmpty(exe))
         {
             Console.Error.WriteLine("[screen-mirror] cannot resolve own executable path for capture helper");
             return;
         }
-
         // Re-invoke ourselves as the session user; the helper does the portal +
         // gst and streams frames to its stdout (which becomes our read pipe).
         var (file, args) = LinuxSession.WrapSpawnAsSessionUser(
@@ -75,11 +86,8 @@ public sealed class LinuxScreenFrameSource : IScreenFrameSource
         }
 
         var cts = new CancellationTokenSource();
-        lock (_frameLock)
-        {
-            _proc = proc;
-            _cts = cts;
-        }
+        _proc = proc;
+        _cts = cts;
         _ = Task.Run(async () =>
         {
             try
@@ -145,16 +153,58 @@ public sealed class LinuxScreenFrameSource : IScreenFrameSource
 
     public void Stop()
     {
-        Process? proc;
-        CancellationTokenSource? cts;
+        int gen;
+        lock (_lifeLock)
+        {
+            if (_proc is null)
+                return;
+            gen = ++_stopGen; // any later Start()/Stop() supersedes this one
+        }
+        // Defer the kill: a Stop() immediately followed by Start() (the effect
+        // re-created on an RGB re-sync) should keep the same capture, not thrash
+        // a new portal session. A genuine mode switch leaves no Start() to cancel
+        // it, so the deferred kill fires.
+        _ = Task.Delay(2500).ContinueWith(_ =>
+        {
+            lock (_lifeLock)
+            {
+                if (gen != _stopGen)
+                    return;
+                KillLocked();
+            }
+            lock (_frameLock)
+            {
+                _latest = null;
+            }
+        }, TaskScheduler.Default);
+    }
+
+    /// <summary>
+    /// Forget the saved screen choice and drop the current capture so the next
+    /// start re-opens the system screen picker — the only way to change which
+    /// screen is mirrored on Wayland.
+    /// </summary>
+    public void Reselect()
+    {
+        LinuxScreenCastHelper.DeleteRestoreToken();
+        lock (_lifeLock)
+        {
+            _stopGen++;
+            KillLocked();
+        }
         lock (_frameLock)
         {
-            proc = _proc;
-            cts = _cts;
-            _proc = null;
-            _cts = null;
             _latest = null;
         }
+    }
+
+    // Kill the current helper (and its gst child) immediately. Hold _lifeLock.
+    private void KillLocked()
+    {
+        var proc = _proc;
+        var cts = _cts;
+        _proc = null;
+        _cts = null;
         try { cts?.Cancel(); } catch { }
         try
         {

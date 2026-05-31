@@ -113,6 +113,13 @@ public static class LightingRoutes
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
+        // Re-open the OS screen picker to change the mirrored screen (Wayland).
+        app.MapPost("/lighting/screen/reselect", (ILightingProvider l, MultiplexHub hub) =>
+        {
+            l.ReselectScreen();
+            PanelTopics.BroadcastLighting(hub);
+            return ApiResponse.Ok();
+        }).AllowPanel();
         app.MapPost("/lighting/gif/headless-start", (GifHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
         {
             l.StartGif(body);

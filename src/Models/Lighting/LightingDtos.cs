@@ -188,4 +188,12 @@ public class ScreenSyncOptions
 {
     public string[] Effects { get; set; } = System.Array.Empty<string>();
     public List<ScreenSyncMonitor> Monitors { get; set; } = new();
+
+    /// <summary>
+    /// How the user chooses which screen to mirror. "app" — the client picks a
+    /// monitor from <see cref="Monitors"/> (Windows/macOS, DXGI/AVFoundation).
+    /// "system" — the OS screen picker chooses (Linux/Wayland portal); the client
+    /// shows a "Change screen" action that re-opens that picker instead of a list.
+    /// </summary>
+    public string SelectionMode { get; set; } = "app";
 }

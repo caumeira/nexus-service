@@ -164,4 +164,16 @@ public static partial class LinuxScreenCastHelper
         }
         catch (Exception ex) { Console.Error.WriteLine($"[screencast-helper] could not save restore token: {ex.Message}"); }
     }
+
+    /// <summary>Forget the saved grant so the next handshake re-opens the picker.</summary>
+    internal static void DeleteRestoreToken()
+    {
+        try
+        {
+            var p = TokenPath();
+            if (File.Exists(p))
+                File.Delete(p);
+        }
+        catch { }
+    }
 }
