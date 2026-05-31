@@ -119,6 +119,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     {
         Effects = new[] { "average" },
         Monitors = _monitors.Enumerate(),
+        // On Linux the Wayland portal owns screen selection (the app can't pick a
+        // monitor for the user), so the client offers a "Change screen" action
+        // that re-opens the system picker rather than a monitor dropdown.
+        SelectionMode = OperatingSystem.IsLinux() ? "system" : "app",
     };
 
     public void StartAnimate(AnimateHeadlessStart body)
@@ -541,6 +545,18 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // the user's saved look back to identity on every mode swap.
         _engine.SetEffect(new ScreenMirrorEffect(body.Monitor, _screenPP, _frameSource));
         _store.Update(s => s.Lighting.Sync = "screen");
+    }
+
+    /// <summary>
+    /// Re-open the OS screen picker to change which screen is mirrored (Linux/
+    /// Wayland). Drops the saved grant + current capture via the frame source,
+    /// then re-applies screen mode so the next frame spawns a fresh handshake and
+    /// the picker appears. No-op where the frame source picks directly.
+    /// </summary>
+    public void ReselectScreen()
+    {
+        _frameSource?.Reselect();
+        StartScreen(new ScreenHeadlessStart());
     }
 
     /// <summary>

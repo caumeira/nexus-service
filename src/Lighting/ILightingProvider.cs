@@ -24,6 +24,7 @@ public interface ILightingProvider
     void StartAnimate(AnimateHeadlessStart body);
     void StartMusic(MusicHeadlessStart body);
     void StartScreen(ScreenHeadlessStart body);
+    void ReselectScreen();
     void StartGif(GifHeadlessStart body);
     bool StartMedia(string mediaId);
     void SetStreaming(SetHeadlessStreaming body);

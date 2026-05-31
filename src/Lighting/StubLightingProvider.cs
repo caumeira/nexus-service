@@ -55,6 +55,7 @@ public sealed class StubLightingProvider : ILightingProvider
     public void StartAnimate(AnimateHeadlessStart body) => SetSync("animate");
     public void StartMusic(MusicHeadlessStart body) => SetSync("music");
     public void StartScreen(ScreenHeadlessStart body) => SetSync("screen");
+    public void ReselectScreen() { }
     public void StartGif(GifHeadlessStart body) => SetSync("gif");
     public bool StartMedia(string mediaId)
     {
