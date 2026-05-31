@@ -63,7 +63,7 @@ internal static unsafe partial class Nvml
                     for (uint f = 0; f < nfans; f++)
                     {
                         if (nvmlDeviceGetFanSpeed_v2(dev, f, out var speed) == Success)
-                            fans.Add(new GpuFan((int)f, (int)speed));
+                            fans.Add(new GpuFan((int)f, (int)speed, FanRpm(dev, f)));
                     }
                 }
                 float? temp = nvmlDeviceGetTemperature(dev, TemperatureGpu, out var t) == Success ? t : null;
@@ -103,6 +103,28 @@ internal static unsafe partial class Nvml
         return Encoding.UTF8.GetString(buf[..(end < 0 ? NameBuf : end)]).Trim();
     }
 
+    // Tach RPM via the versioned-struct API (driver R520+). Returns 0 when the
+    // driver lacks the symbol (EntryPointNotFound) or the call fails — the duty
+    // % is still reported. NVML_STRUCT_VERSION = sizeof | (version << 24).
+    private static int FanRpm(IntPtr dev, uint fan)
+    {
+        try
+        {
+            var info = new FanSpeedInfo { Version = (uint)(sizeof(FanSpeedInfo) | (1 << 24)), Fan = fan };
+            return nvmlDeviceGetFanSpeedRPM(dev, ref info) == Success ? (int)info.Speed : 0;
+        }
+        catch { return 0; }
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FanSpeedInfo
+    {
+        public uint Version;
+        public uint Fan;   // in
+        public uint Speed; // out (RPM)
+    }
+
+    [LibraryImport(Lib)] private static partial int nvmlDeviceGetFanSpeedRPM(IntPtr device, ref FanSpeedInfo fanSpeed);
     [LibraryImport(Lib)] private static partial int nvmlInit_v2();
     [LibraryImport(Lib)] private static partial int nvmlDeviceGetCount_v2(out uint count);
     [LibraryImport(Lib)] private static partial int nvmlDeviceGetHandleByIndex_v2(uint index, out IntPtr device);

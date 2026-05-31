@@ -15,7 +15,7 @@ public class LinuxNvidiaFanProviderTests
     private static List<GpuInfo> DualFan() => new()
     {
         new GpuInfo(0, "NVIDIA GeForce RTX 5080", 42f,
-            new List<GpuFan> { new(0, 30), new(1, 35) }),
+            new List<GpuFan> { new(0, 30, 1000), new(1, 35, 1200) }),
     };
 
     [Fact]
@@ -27,9 +27,11 @@ public class LinuxNvidiaFanProviderTests
         Assert.Equal("nvidia:0:0", chans[0].Id);
         Assert.Equal("NVIDIA GeForce RTX 5080 fan 1", chans[0].Name);
         Assert.Equal(30, chans[0].DutyPercent);
+        Assert.Equal(1000, chans[0].Rpm); // tach RPM, not duty
         Assert.Equal("nvidia:0:1", chans[1].Id);
         Assert.Equal("NVIDIA GeForce RTX 5080 fan 2", chans[1].Name);
         Assert.Equal(35, chans[1].DutyPercent);
+        Assert.Equal(1200, chans[1].Rpm);
         // both group under the one GPU device
         Assert.Equal("nvidia:0", chans[0].DeviceId);
         Assert.Equal("nvidia:0", chans[1].DeviceId);
@@ -38,7 +40,7 @@ public class LinuxNvidiaFanProviderTests
     [Fact]
     public void GetFanChannels_SingleFan_OmitsTheNumberSuffix()
     {
-        var single = new List<GpuInfo> { new(0, "RTX 4060", 50f, new List<GpuFan> { new(0, 20) }) };
+        var single = new List<GpuInfo> { new(0, "RTX 4060", 50f, new List<GpuFan> { new(0, 20, 800) }) };
         var ch = Assert.Single(new LinuxNvidiaFanProvider(() => single, (_, _, _) => true).GetFanChannels());
         Assert.Equal("nvidia:0:0", ch.Id);
         Assert.Equal("RTX 4060 fan", ch.Name);

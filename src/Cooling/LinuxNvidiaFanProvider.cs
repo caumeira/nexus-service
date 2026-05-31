@@ -76,7 +76,7 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
                     Id = id,
                     Name = g.Fans.Count > 1 ? $"{g.Name} fan {f.Fan + 1}" : $"{g.Name} fan",
                     DutyPercent = f.Duty,
-                    Rpm = 0, // NVML consumer API exposes duty %, not tach RPM
+                    Rpm = f.Rpm, // tach RPM via nvmlDeviceGetFanSpeedRPM (0 if unsupported)
                     Mode = manual ? FanModes.Manual : FanModes.Auto,
                     DeviceId = deviceId,
                     DeviceName = g.Name,
@@ -173,6 +173,7 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
                 Name = g.Fans.Count > 1 ? $"{g.Name} fan {f.Fan + 1}" : $"{g.Name} fan",
                 Type = "Fan",
                 Speed = f.Duty,
+                Rpm = f.Rpm,
                 Pwm = f.Duty,
                 Temperature = g.Temp,
             }).ToList(),
@@ -224,4 +225,4 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
 
 /// <summary>One GPU's fan/thermal snapshot. Duty is the NVML fan speed %.</summary>
 internal sealed record GpuInfo(int Index, string Name, float? Temp, List<GpuFan> Fans);
-internal readonly record struct GpuFan(int Fan, int Duty);
+internal readonly record struct GpuFan(int Fan, int Duty, int Rpm);
