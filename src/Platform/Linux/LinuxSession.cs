@@ -65,13 +65,16 @@ public static partial class LinuxSession
             // curves, profiles) and ~/.local browsers resolve to the user, not /root.
             Environment.SetEnvironmentVariable("HOME", s.Home);
             Environment.SetEnvironmentVariable("XDG_CONFIG_HOME", Path.Combine(s.Home, ".config"));
-            Environment.SetEnvironmentVariable("XAUTHORITY", Path.Combine(s.Home, ".Xauthority"));
         }
         Environment.SetEnvironmentVariable("WAYLAND_DISPLAY", s.Wayland ?? "wayland-0");
-        if (!string.IsNullOrEmpty(s.Display))
-            Environment.SetEnvironmentVariable("DISPLAY", s.Display);
+        // Deliberately do NOT export DISPLAY/XAUTHORITY. The GPU lighting GL
+        // context (GLFW + GLX) creating an OpenGL context as root on the user's
+        // XWayland segfaults the process (uncatchable native fault). Without
+        // DISPLAY, GLFW fails gracefully (gpuAvailable=false) and the daemon is
+        // stable; shader effects need a headless EGL surfaceless context to run
+        // as root (TODO). Direct device control (identify, static) is unaffected.
 
-        Console.Error.WriteLine($"[session] root daemon adopted session of uid {s.Uid} (home {s.Home}, display {s.Display ?? s.Wayland})");
+        Console.Error.WriteLine($"[session] root daemon adopted session of uid {s.Uid} (home {s.Home}, wayland {s.Wayland})");
     }
 
     private static bool IsRoot()
