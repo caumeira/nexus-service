@@ -20,6 +20,15 @@ using Nexus.Service.Security;
 using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
 
+// Linux screen-mirror capture helper: the root daemon re-invokes itself as the
+// session user (setpriv) for this, because the xdg-desktop-portal ScreenCast
+// portal rejects a root caller (can't read its /proc). Must be the very first
+// thing — its stdout (fd 1) carries the raw RGB frame stream, so nothing else
+// (not even a boot-timer line) may write to stdout before it takes over.
+if (OperatingSystem.IsLinux() && args.Length > 0
+    && args[0] == Nexus.Service.Lighting.Capture.LinuxScreenCastHelper.Verb)
+    return Nexus.Service.Lighting.Capture.LinuxScreenCastHelper.Run(args);
+
 Nexus.Service.Lifecycle.BootTimer.Mark("process entry");
 
 // Early-exit CLI flags (install/uninstall/tray/--open-app/protocol URLs,
@@ -36,6 +45,14 @@ Nexus.Service.Lifecycle.BootTimer.Mark("after CommandLineEntry.TryEarlyExit");
 var (cliArgs, serviceMode, suppressStartupWindow, isRelaunchElevated) =
     Nexus.Service.Lifecycle.CommandLineEntry.StripLifecycleFlags(args);
 args = cliArgs;
+
+// Root system daemon (full hardware access) adopts the active user's session
+// env — D-Bus, runtime dir, config home, display — so the tray, MPRIS media,
+// volume, and dashboard launcher keep working. No-op for a --user install.
+// Done FIRST so HOME/XDG_* are correct before anything (e.g. the service log)
+// resolves a path from them.
+if (OperatingSystem.IsLinux())
+    Nexus.Service.Platform.Linux.LinuxSession.AdoptActiveSessionEnv();
 
 // Capture stdout / stderr to a rotating service.log file before anything else
 // writes to the console. Doesn't change Console behaviour - just tees output.
@@ -237,6 +254,18 @@ Nexus.Service.Lifecycle.BootTimer.Mark("after MdnsAdvertiser register");
 // ── Build ──
 var app = builder.Build();
 Nexus.Service.Lifecycle.BootTimer.Mark("after builder.Build()");
+
+// Connect the session D-Bus once here — single-threaded, BEFORE hosted services
+// (curve engine etc.) start. A root daemon drops euid for this socket connect
+// (LinuxSession.ConnectAsSessionUser); doing it now keeps that process-wide euid
+// window from racing a concurrent root pwm write. Idempotent + best-effort.
+if (OperatingSystem.IsLinux()
+    && app.Services.GetService(typeof(Nexus.Service.Platform.Linux.DBus.DBusConnection))
+        is Nexus.Service.Platform.Linux.DBus.DBusConnection dbus)
+{
+    try { dbus.StartAsync().GetAwaiter().GetResult(); }
+    catch (Exception ex) { Console.Error.WriteLine($"[dbus] startup connect skipped: {ex.Message}"); }
+}
 
 Nexus.Service.Lifecycle.AppBootstrap.EagerInitGpu(app);
 Nexus.Service.Lifecycle.BootTimer.Mark("after EagerInitGpu");

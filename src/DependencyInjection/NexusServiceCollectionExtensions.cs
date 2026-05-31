@@ -512,6 +512,13 @@ public static class NexusServiceCollectionExtensions
         {
             services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
                 Nexus.Service.Platform.Displays.LinuxDisplayBrightnessProvider>();
+            // Screen-mirror frames come from the xdg-desktop-portal ScreenCast
+            // portal (PipeWire), consumed by a gst-launch reader. The portal
+            // handshake rides the session D-Bus connection (AddNexusLinuxDBus);
+            // without this binding the effect's IScreenFrameSource stays null and
+            // screen-mirror renders nothing on Linux.
+            services.AddSingleton<Nexus.Service.Lighting.Capture.IScreenFrameSource,
+                Nexus.Service.Lighting.Capture.LinuxScreenFrameSource>();
         }
         else
         {

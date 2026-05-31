@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Nexus.Service.Models.Lighting;
@@ -20,7 +22,59 @@ public static class MonitorEnumerator
 #endif
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
             return ListAvFoundation();
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            return ListDrm();
         return new List<ScreenSyncMonitor>();
+    }
+
+    /// <summary>
+    /// Enumerate connected displays from the DRM connector sysfs tree. Works for
+    /// a root daemon with no graphical session attached — no X/Wayland, no DXGI —
+    /// and covers every GPU/compositor. <c>/sys/class/drm/cardN-CONN/status</c> is
+    /// "connected" for live outputs; the preferred mode (first line of <c>modes</c>)
+    /// gives a resolution label. The connector name (e.g. <c>DP-1</c>) is the id.
+    ///
+    /// On Wayland this id is informational: the actual capture source is chosen in
+    /// the desktop's screen-share picker (the PipeWire portal), which is the
+    /// source of truth for which monitor gets mirrored.
+    /// </summary>
+    private static List<ScreenSyncMonitor> ListDrm()
+    {
+        var monitors = new List<ScreenSyncMonitor>();
+        try
+        {
+            foreach (var dir in Directory.GetDirectories("/sys/class/drm", "card*-*"))
+            {
+                var statusFile = Path.Combine(dir, "status");
+                if (!File.Exists(statusFile) ||
+                    !string.Equals(File.ReadAllText(statusFile).Trim(), "connected", StringComparison.Ordinal))
+                {
+                    continue;
+                }
+                // Strip the leading "cardN-" to get the connector name, e.g.
+                // "card1-DP-1" -> "DP-1", "card0-HDMI-A-1" -> "HDMI-A-1".
+                var baseName = Path.GetFileName(dir);
+                var dash = baseName.IndexOf('-');
+                var connector = dash >= 0 ? baseName[(dash + 1)..] : baseName;
+
+                string? mode = null;
+                var modesFile = Path.Combine(dir, "modes");
+                if (File.Exists(modesFile))
+                {
+                    var first = File.ReadLines(modesFile).FirstOrDefault();
+                    if (!string.IsNullOrWhiteSpace(first))
+                        mode = first.Trim();
+                }
+                monitors.Add(new ScreenSyncMonitor
+                {
+                    Id = connector,
+                    Name = mode is null ? connector : $"{connector} ({mode})",
+                });
+            }
+            monitors.Sort((a, b) => string.CompareOrdinal(a.Id, b.Id));
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"[monitor-enum] drm failed: {ex.Message}"); }
+        return monitors;
     }
 
 #if WINDOWS
