@@ -455,7 +455,14 @@ public static class NexusServiceCollectionExtensions
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.WindowsHidEnumerator>();
 #else
-        services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.StubHidEnumerator>();
+        if (OperatingSystem.IsLinux())
+        {
+            services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.LinuxHidEnumerator>();
+        }
+        else
+        {
+            services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.StubHidEnumerator>();
+        }
 #endif
         services.AddSingleton<Nexus.Service.Peripherals.PeripheralRegistry>();
 
