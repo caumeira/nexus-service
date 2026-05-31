@@ -86,7 +86,10 @@ public sealed partial class LinuxHidEnumerator : IHidEnumerator
             var (usagePage, usage) = (0, 0);
             var descPath = System.IO.Path.Combine(deviceDir, "report_descriptor");
             if (File.Exists(descPath))
-                (usagePage, usage) = ParseTopUsage(File.ReadAllBytes(descPath));
+            {
+                var desc = ReadSysfsBytes(descPath);
+                if (desc.Length > 0) (usagePage, usage) = ParseTopUsage(desc);
+            }
 
             return new HidDeviceInfo
             {
@@ -150,6 +153,26 @@ public sealed partial class LinuxHidEnumerator : IHidEnumerator
             i += 1 + dataLen;
         }
         return (usagePage, usage);
+    }
+
+    /// <summary>
+    /// Read a sysfs binary attribute. sysfs files report a size of 0, so the
+    /// length-based <see cref="File.ReadAllBytes"/> throws EndOfStreamException;
+    /// stream to EOF instead. Returns an empty array on any failure.
+    /// </summary>
+    private static byte[] ReadSysfsBytes(string path)
+    {
+        try
+        {
+            using var fs = File.OpenRead(path);
+            using var ms = new MemoryStream();
+            fs.CopyTo(ms);
+            return ms.ToArray();
+        }
+        catch
+        {
+            return Array.Empty<byte>();
+        }
     }
 
     [LibraryImport("libc", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
