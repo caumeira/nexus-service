@@ -129,7 +129,9 @@ public sealed class RealKeebProvider : IKeebProvider
                 }
             }
         });
-        _applier.Apply();
+        // Re-init so the brightness/palette change takes effect on a running
+        // firmware animation (the firmware only re-reads them on a mode change).
+        _applier.ApplyAndReinit();
     }
 
     public void SetPassiveLighting(SetPassiveLightingBody body)

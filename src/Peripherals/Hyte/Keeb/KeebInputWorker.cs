@@ -24,12 +24,14 @@ public sealed class KeebInputWorker : BackgroundService
 
     private readonly IHidEnumerator _hid;
     private readonly KeebHub _hub;
+    private readonly KeebSettingsApplier _applier;
     private IHidDevice? _reader;
 
-    public KeebInputWorker(IHidEnumerator hid, KeebHub hub)
+    public KeebInputWorker(IHidEnumerator hid, KeebHub hub, KeebSettingsApplier applier)
     {
         _hid = hid;
         _hub = hub;
+        _applier = applier;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -87,7 +89,11 @@ public sealed class KeebInputWorker : BackgroundService
                 Console.Error.WriteLine($"[keeb-input] {ev.Encoder} encoder {ev.Kind}");
                 break;
             case KeebProtocol.KeebInputKind.ScrollMiddle:
+                // The middle button cycles the firmware effect on the device.
+                // Re-read the effect immediately so the panel's Effect selector
+                // follows without waiting on a poll.
                 Console.Error.WriteLine("[keeb-input] rotary middle click");
+                _applier.SyncEffectFromDevice();
                 break;
             case KeebProtocol.KeebInputKind.SoftwareKey:
                 Console.Error.WriteLine($"[keeb-input] software key ap={ev.ApCode} pressed={ev.Pressed}");

@@ -36,6 +36,13 @@ public static class KeebSettingsCodec
     public static readonly string[] RotaryFunctions =
         { "VolumeAdjustment", "BrightnessAdjustment", "Scale", "AltTab", "CtrlTab", "ScrollX", "ScrollY" };
 
+    /// <summary>Default firmware palette (legacy KeebFwAnimationSetting): a rainbow.</summary>
+    private static readonly (byte R, byte G, byte B)[] DefaultPalette =
+    {
+        (255, 0, 0), (255, 125, 0), (125, 255, 0), (0, 255, 0),
+        (0, 255, 125), (0, 125, 255), (0, 0, 255), (125, 0, 255),
+    };
+
     /// <summary>Firmware animation byte. Web FW_EFFECTS order maps to 0x01..0x06.</summary>
     public static byte AnimationModeByte(string? mode) => Norm(mode) switch
     {
@@ -46,6 +53,18 @@ public static class KeebSettingsCodec
         "flow" => 0x05,
         "pingpong" => 0x06,
         _ => 0x01,
+    };
+
+    /// <summary>Reverse of <see cref="AnimationModeByte"/>: device anim byte → web effect name (null if unknown).</summary>
+    public static string? AnimationModeName(byte b) => b switch
+    {
+        0x01 => "Static",
+        0x02 => "Breathe",
+        0x03 => "Rainbow",
+        0x04 => "Wave",
+        0x05 => "Flow",
+        0x06 => "PingPong",
+        _ => null,
     };
 
     /// <summary>Speed byte: 1 = fastest, 5 = slowest. Web FW_SPEEDS = Slow..Rapid.</summary>
@@ -114,19 +133,28 @@ public static class KeebSettingsCodec
 
         var anim = AnimationModeByte(s.FirmwareLighting.AnimationMode);
         page[3] = anim;
-        page[4] = (byte)Math.Clamp((int)Math.Round(s.FirmwareLighting.Brightness / 100.0 * 255.0), 0, 255);
+        // Brightness: the firmware STORES the LED-brightness byte but does not
+        // re-apply it to an already-running animation (verified on hardware — only
+        // a mode change or the rotary knob's master re-applies it; the original
+        // nexus used the same byte and likely never dimmed the standalone firmware
+        // animation either — it normally software-streamed the board). So carry the
+        // brightness in the PALETTE colours, which DO take effect live: the
+        // animation colours are scaled by brightness. The brightness byte stays
+        // full so a later mode change doesn't double-dim.
+        var scale = Math.Clamp(s.FirmwareLighting.Brightness, 0, 100) / 100.0;
+        page[4] = 0xFF;
         page[5] = SpeedByte(s.FirmwareLighting.Speed);
-        // Color index: Static shows one palette color (index 0); animated modes
-        // use index 8 (multi / preset rainbow). The panel exposes no firmware
-        // palette, so the 8 slots are seeded white below.
+        // Color index: Static shows one palette colour (index 0); animated modes
+        // use index 8 (the 8-colour palette as a gradient).
         page[6] = anim == 0x01 ? (byte)0 : (byte)8;
         page[7] = DirectionByte(s.FirmwareLighting.Direction);
 
         for (var i = 0; i < 8; i++)
         {
-            page[12 + i * 3] = 0xFF;
-            page[13 + i * 3] = 0xFF;
-            page[14 + i * 3] = 0xFF;
+            var c = DefaultPalette[i];
+            page[12 + i * 3] = (byte)Math.Round(c.R * scale);
+            page[13 + i * 3] = (byte)Math.Round(c.G * scale);
+            page[14 + i * 3] = (byte)Math.Round(c.B * scale);
         }
 
         // Rotary: firmware mode handles volume/brightness/etc. natively. Right

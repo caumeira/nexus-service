@@ -40,6 +40,9 @@ public sealed class KeebHub : IDisposable
     private int _consecutiveWriteFailures;
     private const int ConsecutiveWriteFailureThreshold = 5;
 
+    /// <summary>Per-side settle around a 0x06 settings write (HYTE reference: "fw will crash otherwise").</summary>
+    private const int SettingsWriteSettleMs = 20;
+
     public KeebHub(IHidEnumerator hid)
     {
         _hid = hid;
@@ -158,8 +161,17 @@ public sealed class KeebHub : IDisposable
             var dev = _device!;
             try
             {
+                // The firmware needs a settle between arming the settings write and
+                // sending the page, and again after — HYTE's reference driver
+                // (KeebTKLCommand.SetSettings) waits ~20 ms each side with the note
+                // "Need delay otherwise fw will crash". Without it the page is
+                // stored but the running animation doesn't re-apply it (e.g. a
+                // brightness-only change doesn't dim). Settings writes are rare
+                // (user actions), so the ~40 ms hold off the 30 Hz path is fine.
                 if (!dev.SetFeature(KeebProtocol.SettingsWriteFeature)) return RecordWriteFailureLocked("settings-feature");
+                System.Threading.Thread.Sleep(SettingsWriteSettleMs);
                 if (!dev.Write(page)) return RecordWriteFailureLocked("settings-page");
+                System.Threading.Thread.Sleep(SettingsWriteSettleMs);
                 _consecutiveWriteFailures = 0;
                 return true;
             }
@@ -168,6 +180,34 @@ public sealed class KeebHub : IDisposable
             {
                 Console.Error.WriteLine($"[keeb] settings write failed: {ex.GetType().Name}: {ex.Message}");
                 return RecordWriteFailureLocked(ex.GetType().Name);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Read the 0x06 settings page back from the device (SetFeature 0x84 0x06,
+    /// then read the input report). Returns the raw response, or null. Used to
+    /// inspect what the firmware actually stores (e.g. whether the rotary knob
+    /// moves the brightness byte) and to sync the panel to live device state.
+    /// </summary>
+    public byte[]? ReadSettings()
+    {
+        lock (_io)
+        {
+            if (!EnsureConnectedLocked()) return null;
+            var dev = _device!;
+            try
+            {
+                if (!dev.SetFeature(KeebProtocol.SettingsReadFeature)) return null;
+                var buf = new byte[KeebLayout.PageSize];
+                var n = dev.Read(buf, 250);
+                return n > 0 ? buf.AsSpan(0, n).ToArray() : null;
+            }
+            catch (ObjectDisposedException) { return null; }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[keeb] settings read failed: {ex.GetType().Name}: {ex.Message}");
+                return null;
             }
         }
     }

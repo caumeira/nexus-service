@@ -75,17 +75,14 @@ public class KeebSettingsCodecTests
         // Game mode: win(bit0)=1, altf4(bit2)=1, LED(bit4)=1 => 0b0001_0101 = 0x15
         Assert.Equal(0x15, page[2]);
         Assert.Equal(0x02, page[3]);                 // Breathe
-        Assert.Equal(204, page[4]);                  // 80% of 255
+        Assert.Equal(0xFF, page[4]);                 // LED-brightness byte full; brightness is in the palette
         Assert.Equal(0x03, page[5]);                 // Standard speed
         Assert.Equal(0x08, page[6]);                 // animated => multi-color index 8
         Assert.Equal(0x02, page[7]);                 // TopToBottom
-        // 8-color palette = white
-        for (var i = 0; i < 8; i++)
-        {
-            Assert.Equal(0xFF, page[12 + i * 3]);
-            Assert.Equal(0xFF, page[13 + i * 3]);
-            Assert.Equal(0xFF, page[14 + i * 3]);
-        }
+        // Palette is the rainbow scaled by brightness (80%). Slot 0 = red*0.8,
+        // slot 1 = (255,125,0)*0.8.
+        Assert.Equal(new byte[] { 204, 0, 0 }, page[12..15]);
+        Assert.Equal(new byte[] { 204, 100, 0 }, page[15..18]);
         Assert.Equal(0x10, page[36]);                // rotary firmware mode
         // Right encoder (Volume) at 37..40
         Assert.Equal(new byte[] { 0x00, 0x00, 0x00, 0xFA }, page[37..41]);
