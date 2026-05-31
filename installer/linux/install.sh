@@ -17,7 +17,7 @@ mkdir -p "$APP_DIR" "$UNIT_DIR" "$APPS_DIR" "$ICON_DIR"
 for entry in "$HERE"/* "$HERE"/.[!.]*; do
   [ -e "$entry" ] || continue
   case "$(basename "$entry")" in
-    install.sh|uninstall.sh|README.md|nexus.service|99-nexus.rules) continue ;;
+    install.sh|uninstall.sh|README.md|nexus.service|99-nexus.rules|setup-sensors.sh) continue ;;
   esac
   cp -a "$entry" "$APP_DIR/"
 done
@@ -52,6 +52,10 @@ if sudo cp "$HERE/99-nexus.rules" /etc/udev/rules.d/99-nexus.rules; then
 else
   echo "   (skipped udev rules — device access for i2c/uinput/serial may be limited)"
 fi
+
+# Motherboard fan driver: load the right hwmon Super-I/O module (needs root).
+# Best-effort — Nexus runs fine without it, fans just stay BIOS-controlled.
+sudo bash "$HERE/setup-sensors.sh" || echo "   (sensor driver setup skipped)"
 
 echo "==> Enabling systemd --user service"
 systemctl --user daemon-reload

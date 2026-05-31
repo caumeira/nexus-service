@@ -117,11 +117,19 @@ public static class NexusServiceCollectionExtensions
         }
         else if (OperatingSystem.IsLinux())
         {
+            // hwmon (motherboard + AMD GPU via amdgpu) + liquidctl USB coolers
+            // + NVIDIA GPU fans, layered onto the same composite the routes see.
             services.AddSingleton<LinuxFanControlProvider>();
+            services.AddSingleton<LinuxLiquidctlProvider>();
+            services.AddSingleton<LinuxNvidiaFanProvider>();
             services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
                 sp.GetRequiredService<LinuxFanControlProvider>(),
                 sp.GetRequiredService<Np50CoolingProvider>(),
-                sp.GetRequiredService<MiniHubCoolingProvider>()));
+                sp.GetRequiredService<MiniHubCoolingProvider>(),
+                new CompositeFanControlProvider.FanSource(
+                    LinuxLiquidctlProvider.IsLiquidctlId, sp.GetRequiredService<LinuxLiquidctlProvider>()),
+                new CompositeFanControlProvider.FanSource(
+                    LinuxNvidiaFanProvider.IsNvidiaId, sp.GetRequiredService<LinuxNvidiaFanProvider>())));
             services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
         }
         else

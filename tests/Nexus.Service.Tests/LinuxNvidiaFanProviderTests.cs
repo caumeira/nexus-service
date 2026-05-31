@@ -1,0 +1,102 @@
+using System.Collections.Generic;
+using System.Linq;
+using Nexus.Service.Cooling;
+using Xunit;
+
+namespace Nexus.Service.Tests;
+
+/// <summary>
+/// Covers the NVML-backed NVIDIA provider's channel building, per-fan control
+/// routing, and temperature sources — using injected GPU snapshots, no real
+/// NVML / GPU. (The libnvidia-ml interop itself is verified live on hardware.)
+/// </summary>
+public class LinuxNvidiaFanProviderTests
+{
+    private static List<GpuInfo> DualFan() => new()
+    {
+        new GpuInfo(0, "NVIDIA GeForce RTX 5080", 42f,
+            new List<GpuFan> { new(0, 30), new(1, 35) }),
+    };
+
+    [Fact]
+    public void GetFanChannels_DualFanGpu_YieldsTwoNumberedChannels()
+    {
+        var p = new LinuxNvidiaFanProvider(DualFan, (_, _, _) => true);
+        var chans = p.GetFanChannels();
+        Assert.Equal(2, chans.Count);
+        Assert.Equal("nvidia:0:0", chans[0].Id);
+        Assert.Equal("NVIDIA GeForce RTX 5080 fan 1", chans[0].Name);
+        Assert.Equal(30, chans[0].DutyPercent);
+        Assert.Equal("nvidia:0:1", chans[1].Id);
+        Assert.Equal("NVIDIA GeForce RTX 5080 fan 2", chans[1].Name);
+        Assert.Equal(35, chans[1].DutyPercent);
+        // both group under the one GPU device
+        Assert.Equal("nvidia:0", chans[0].DeviceId);
+        Assert.Equal("nvidia:0", chans[1].DeviceId);
+    }
+
+    [Fact]
+    public void GetFanChannels_SingleFan_OmitsTheNumberSuffix()
+    {
+        var single = new List<GpuInfo> { new(0, "RTX 4060", 50f, new List<GpuFan> { new(0, 20) }) };
+        var ch = Assert.Single(new LinuxNvidiaFanProvider(() => single, (_, _, _) => true).GetFanChannels());
+        Assert.Equal("nvidia:0:0", ch.Id);
+        Assert.Equal("RTX 4060 fan", ch.Name);
+    }
+
+    [Fact]
+    public void SetFanSpeed_RoutesToTheRightGpuAndFan()
+    {
+        var calls = new List<(int gpu, int fan, int? duty)>();
+        var p = new LinuxNvidiaFanProvider(DualFan, (g, f, d) => { calls.Add((g, f, d)); return true; });
+        p.SetFanSpeed("nvidia:0:1", 80);
+        Assert.Equal((0, 1, 80), Assert.Single(calls));
+    }
+
+    [Fact]
+    public void ReleaseFan_PassesNullDutyForAuto()
+    {
+        var calls = new List<(int gpu, int fan, int? duty)>();
+        var p = new LinuxNvidiaFanProvider(DualFan, (g, f, d) => { calls.Add((g, f, d)); return true; });
+        p.ReleaseFan("nvidia:0:0");
+        Assert.Equal((0, 0, (int?)null), Assert.Single(calls));
+    }
+
+    [Fact]
+    public void Control_IgnoresTemperatureIds()
+    {
+        var calls = new List<(int, int, int?)>();
+        var p = new LinuxNvidiaFanProvider(DualFan, (g, f, d) => { calls.Add((g, f, d)); return true; });
+        p.SetFanSpeed("nvidia:temp:0", 50); // not a fan id — must not drive anything
+        Assert.Empty(calls);
+    }
+
+    [Fact]
+    public void TemperatureSource_HasGpuCategoryAndRoundTrips()
+    {
+        var p = new LinuxNvidiaFanProvider(DualFan, (_, _, _) => true);
+        var src = Assert.Single(p.GetTemperatureSources());
+        Assert.Equal("nvidia:temp:0", src.Id);
+        Assert.Equal("GPU", src.Category);
+        Assert.Equal(42f, src.Value);
+        Assert.Equal(42f, p.ReadTemperature("nvidia:temp:0"));
+        Assert.Null(p.ReadTemperature("nvidia:temp:9"));
+    }
+
+    [Fact]
+    public void NoGpus_YieldsNothing()
+    {
+        var p = new LinuxNvidiaFanProvider(() => new List<GpuInfo>(), (_, _, _) => true);
+        Assert.Empty(p.GetFanChannels());
+        Assert.Empty(p.GetTemperatureSources());
+    }
+
+    [Fact]
+    public void IsNvidiaId_OnlyMatchesPrefix()
+    {
+        Assert.True(LinuxNvidiaFanProvider.IsNvidiaId("nvidia:0:1"));
+        Assert.True(LinuxNvidiaFanProvider.IsNvidiaId("nvidia:temp:0"));
+        Assert.False(LinuxNvidiaFanProvider.IsNvidiaId("liquidctl:x"));
+        Assert.False(LinuxNvidiaFanProvider.IsNvidiaId(""));
+    }
+}

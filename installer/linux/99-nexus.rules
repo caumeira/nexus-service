@@ -18,7 +18,9 @@ KERNEL=="uinput", SUBSYSTEM=="misc", GROUP="input", MODE="0660", OPTIONS+="stati
 SUBSYSTEM=="tty", ATTRS{idVendor}=="3402", GROUP="dialout", MODE="0660", TAG+="uaccess"
 SUBSYSTEM=="usb", ATTRS{idVendor}=="3402", MODE="0660", TAG+="uaccess"
 
-# Best-effort motherboard fan PWM write access (driver-dependent — some hwmon
-# drivers re-assert root-only perms). Lets users in the 'input' group write
-# pwmN. If your board's fans stay read-only, the curve engine still reads RPM.
-SUBSYSTEM=="hwmon", ACTION=="add", RUN+="/bin/sh -c 'chgrp input /sys/class/hwmon/%k/pwm[0-9]* 2>/dev/null; chmod g+w /sys/class/hwmon/%k/pwm[0-9]* 2>/dev/null || true'"
+# Motherboard fan PWM write access for the non-root desktop service. sysfs
+# attributes can't take GROUP=/MODE= directly, so RUN+= chgrp+chmod them when
+# the hwmon device appears (incl. on module reload). Group 'input' (the user is
+# added to it by install.sh). The glob covers pwmN and pwmN_enable. If no fan
+# driver is loaded the curve engine still reads whatever RPM the BIOS exposes.
+SUBSYSTEM=="hwmon", ACTION=="add|change", RUN+="/bin/sh -c 'chgrp input /sys/class/hwmon/%k/pwm[0-9]* 2>/dev/null; chmod g+w /sys/class/hwmon/%k/pwm[0-9]* 2>/dev/null || true'"
