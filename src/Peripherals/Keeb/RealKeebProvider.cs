@@ -36,11 +36,15 @@ public sealed class RealKeebProvider : IKeebProvider
         _applier = applier;
     }
 
-    public KeyboardState GetState() => new()
+    public KeyboardState GetState(int layer) => new()
     {
         IsConnected = _hub.IsConnected,
         Profile = _hub.State.Profile,
+        Layer = layer,
         Layout = string.IsNullOrEmpty(_hub.State.Layout) ? "ANSI" : _hub.State.Layout,
+        // Per-key assignment overlay is empty until layer remapping lands (the
+        // web renders default legends from its own layout); connection + layout
+        // are live so the modal + the other tabs reflect real device state.
         Keys = new List<List<KeebKey>>(),
     };
 

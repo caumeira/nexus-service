@@ -7,7 +7,8 @@ public class KeyboardState
 {
     public bool IsConnected { get; set; }
     public int Profile { get; set; }
-    public string Layout { get; set; } = "TKL";
+    public int Layer { get; set; }
+    public string Layout { get; set; } = "ANSI";
     public List<List<KeebKey>> Keys { get; set; } = new();
 }
 

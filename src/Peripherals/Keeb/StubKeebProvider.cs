@@ -11,11 +11,12 @@ public sealed class StubKeebProvider : IKeebProvider, IInputterProvider
 
     public StubKeebProvider(IConfigStore store) { _store = store; }
 
-    public KeyboardState GetState() => new()
+    public KeyboardState GetState(int layer) => new()
     {
         IsConnected = false,
         Profile = 0,
-        Layout = "TKL",
+        Layer = layer,
+        Layout = "ANSI",
         Keys = new List<List<KeebKey>>(),
     };
 

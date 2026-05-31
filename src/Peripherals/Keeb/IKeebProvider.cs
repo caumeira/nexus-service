@@ -4,7 +4,7 @@ namespace Nexus.Service.Peripherals.Keeb;
 
 public interface IKeebProvider
 {
-    KeyboardState GetState();
+    KeyboardState GetState(int layer);
     GetKeebSettingsResponse GetSettings();
     string[] GetRotaryFunctions();
     void SetRotary(SetRotaryWheelsBody body);
