@@ -1,67 +1,59 @@
 #!/usr/bin/env bash
-# Install Nexus for the current user: app under ~/.local, a systemd --user
-# service, a menu entry, and udev rules (via sudo) for device access.
-# Works on immutable distros (Bazzite/rpm-ostree) — nothing is written to /usr.
+# Install Nexus as a ROOT system daemon (like coolercontrol's coolercontrold)
+# for full hardware access — motherboard pwm, NVML GPU fans, kernel modules,
+# raw i2c/hidraw — with no udev rules or group membership to juggle. The daemon
+# adopts the active user's login session at startup so the tray, MPRIS media,
+# volume, and dashboard still work. Needs sudo.
+# Immutable-distro friendly (Bazzite/rpm-ostree): /opt and /etc are writable.
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
-APP_DIR="$HOME/.local/share/nexus"
-UNIT_DIR="$HOME/.config/systemd/user"
+APP_DIR=/opt/nexus
+UNIT=/etc/systemd/system/nexus.service
 APPS_DIR="$HOME/.local/share/applications"
 ICON_DIR="$HOME/.local/share/icons/hicolor/512x512/apps"
 
-echo "==> Installing Nexus to $APP_DIR"
-mkdir -p "$APP_DIR" "$UNIT_DIR" "$APPS_DIR" "$ICON_DIR"
-
-# Copy the app payload, excluding this tooling.
+echo "==> Installing Nexus (root daemon) to $APP_DIR (sudo)"
+sudo mkdir -p "$APP_DIR"
 for entry in "$HERE"/* "$HERE"/.[!.]*; do
   [ -e "$entry" ] || continue
   case "$(basename "$entry")" in
     install.sh|uninstall.sh|README.md|nexus.service|99-nexus.rules|setup-sensors.sh) continue ;;
   esac
-  cp -a "$entry" "$APP_DIR/"
+  sudo cp -a "$entry" "$APP_DIR/"
 done
-chmod +x "$APP_DIR/Nexus"
+sudo chmod +x "$APP_DIR/Nexus"
+[ -f "$APP_DIR/openrgb/openrgb-headless" ] && sudo chmod +x "$APP_DIR/openrgb/openrgb-headless" || true
+# SELinux: a system service can't exec from a user home (user_home_t); /opt gets
+# bin_t. restorecon stamps the default context so systemd can launch it.
+sudo restorecon -R "$APP_DIR" 2>/dev/null || true
 
-# Menu entry + icon.
-[ -f "$APP_DIR/nexus.png" ] && cp "$APP_DIR/nexus.png" "$ICON_DIR/nexus.png" || true
+# Desktop menu entry just opens the dashboard — the binary is the service now,
+# not a user-launched app. (The tray's "Open Dashboard" gives the --app window.)
+mkdir -p "$APPS_DIR" "$ICON_DIR"
+[ -f "$APP_DIR/nexus.png" ] && cp "$APP_DIR/nexus.png" "$ICON_DIR/nexus.png" 2>/dev/null || true
 cat > "$APPS_DIR/nexus.desktop" <<EOF
 [Desktop Entry]
 Type=Application
 Name=Nexus
 Comment=Nexus hardware monitoring and control
-Exec=$APP_DIR/Nexus
+Exec=xdg-open http://localhost:9400
 Icon=nexus
 Terminal=false
 Categories=Utility;System;
 EOF
 
-# systemd --user service (ExecStart uses %h, no templating needed).
-cp "$HERE/nexus.service" "$UNIT_DIR/nexus.service"
-
-# udev rules + group membership (needs root).
-echo "==> Installing udev rules to /etc/udev/rules.d (sudo)"
-if sudo cp "$HERE/99-nexus.rules" /etc/udev/rules.d/99-nexus.rules; then
-  sudo udevadm control --reload-rules
-  sudo udevadm trigger
-  for grp in i2c input dialout; do
-    if getent group "$grp" >/dev/null 2>&1; then
-      sudo usermod -aG "$grp" "$USER" || true
-    fi
-  done
-else
-  echo "   (skipped udev rules — device access for i2c/uinput/serial may be limited)"
-fi
-
-# Motherboard fan driver: load the right hwmon Super-I/O module (needs root).
-# Best-effort — Nexus runs fine without it, fans just stay BIOS-controlled.
+# Load the motherboard Super-I/O fan driver (it87 etc.). Root daemon reads/writes
+# hwmon directly; this only ensures the kernel module is present.
 sudo bash "$HERE/setup-sensors.sh" || echo "   (sensor driver setup skipped)"
 
-echo "==> Enabling systemd --user service"
-systemctl --user daemon-reload
-systemctl --user enable --now nexus.service
+echo "==> Installing + enabling the system service (sudo)"
+sudo cp "$HERE/nexus.service" "$UNIT"
+sudo restorecon "$UNIT" 2>/dev/null || true
+sudo systemctl daemon-reload
+sudo systemctl enable --now nexus.service
 
 echo
-echo "Nexus installed. Dashboard: http://localhost:9400"
-echo "If this was a first install, log out and back in so the new group"
-echo "memberships (i2c/input/dialout) take effect for full device access."
+echo "Nexus installed as a root daemon. Dashboard: http://localhost:9400"
+echo "Tray + media attach to your login session at startup — if you installed"
+echo "before logging in, run:  sudo systemctl restart nexus"

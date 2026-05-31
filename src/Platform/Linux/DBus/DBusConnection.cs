@@ -50,7 +50,12 @@ public sealed class DBusConnection : IDisposable
                 throw new InvalidOperationException($"D-Bus session bus socket not found at {socketPath}");
             }
             _socket = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-            await _socket.ConnectAsync(new UnixDomainSocketEndPoint(socketPath));
+            // The session bus authenticates by the peer's effective uid at
+            // connect time and rejects root, so a root daemon must connect as
+            // the session user. Synchronous connect (no await) keeps the
+            // process-wide euid drop tight around just this call. No-op as --user.
+            LinuxSession.ConnectAsSessionUser(
+                () => _socket.Connect(new UnixDomainSocketEndPoint(socketPath)));
             _stream = new NetworkStream(_socket, ownsSocket: false);
 
             await AuthAsync();
@@ -197,7 +202,11 @@ public sealed class DBusConnection : IDisposable
     private async Task AuthAsync()
     {
         _stream!.WriteByte(0);
-        var uidHex = ToHex(GetUid().ToString());
+        // EXTERNAL auth must claim the uid the bus saw via SO_PEERCRED at
+        // connect. A root daemon connected as the session user (euid drop), so
+        // it must authenticate as that uid, not its real uid (0).
+        var uid = LinuxSession.SessionUid ?? (uint)GetUid();
+        var uidHex = ToHex(uid.ToString());
         await WriteLineAsync($"AUTH EXTERNAL {uidHex}");
         var line = await ReadLineAsync();
         if (!line.StartsWith("OK ", StringComparison.Ordinal))

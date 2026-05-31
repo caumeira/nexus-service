@@ -92,6 +92,27 @@ public class LinuxNvidiaFanProviderTests
     }
 
     [Fact]
+    public void Mode_TracksManualOnSuccessfulWrite_AndAutoOnRelease()
+    {
+        var p = new LinuxNvidiaFanProvider(DualFan, (_, _, _) => true);
+        string Mode() => p.GetFanChannels().Single(c => c.Id == "nvidia:0:0").Mode;
+        Assert.Equal("Auto", Mode());
+        p.SetFanSpeed("nvidia:0:0", 60);
+        Assert.Equal("Manual", Mode());   // sticks instead of snapping back to Auto/Bios
+        p.ReleaseFan("nvidia:0:0");
+        Assert.Equal("Auto", Mode());
+    }
+
+    [Fact]
+    public void Mode_StaysAutoWhenWriteFails()
+    {
+        // No root -> NVML rejects -> control returns false -> truthfully Auto.
+        var p = new LinuxNvidiaFanProvider(DualFan, (_, _, _) => false);
+        p.SetFanSpeed("nvidia:0:0", 60);
+        Assert.Equal("Auto", p.GetFanChannels().Single(c => c.Id == "nvidia:0:0").Mode);
+    }
+
+    [Fact]
     public void IsNvidiaId_OnlyMatchesPrefix()
     {
         Assert.True(LinuxNvidiaFanProvider.IsNvidiaId("nvidia:0:1"));

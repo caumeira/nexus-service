@@ -35,6 +35,10 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
 
     private readonly object _lock = new();
     private readonly HashSet<string> _warned = new();
+    // Channels we've successfully driven to a manual duty (NVML has no cheap
+    // per-fan "is manual" read), so the UI reflects Manual instead of snapping
+    // back to Auto. Only populated when the write actually lands (root).
+    private readonly HashSet<string> _manual = new();
     // NVML enumeration costs a few ms; one curve tick reads fans + temps. Cache.
     private const long SnapshotTtlMs = 800;
     private List<GpuInfo>? _snapshot;
@@ -64,13 +68,16 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
             var deviceId = IdPrefix + g.Index.ToString(CultureInfo.InvariantCulture);
             foreach (var f in g.Fans)
             {
+                var id = $"{deviceId}:{f.Fan.ToString(CultureInfo.InvariantCulture)}";
+                bool manual;
+                lock (_lock) manual = _manual.Contains(id);
                 channels.Add(new FanChannel
                 {
-                    Id = $"{deviceId}:{f.Fan.ToString(CultureInfo.InvariantCulture)}",
+                    Id = id,
                     Name = g.Fans.Count > 1 ? $"{g.Name} fan {f.Fan + 1}" : $"{g.Name} fan",
                     DutyPercent = f.Duty,
                     Rpm = 0, // NVML consumer API exposes duty %, not tach RPM
-                    Mode = FanModes.Auto,
+                    Mode = manual ? FanModes.Manual : FanModes.Auto,
                     DeviceId = deviceId,
                     DeviceName = g.Name,
                 });
@@ -115,15 +122,25 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
     private int Drive(string channelId, int dutyPercent)
     {
         dutyPercent = Math.Clamp(dutyPercent, 0, 100);
-        if (TryParseFan(channelId, out var gpu, out var fan) && !_control(gpu, fan, dutyPercent))
-            WarnOnce(channelId);
+        if (!TryParseFan(channelId, out var gpu, out var fan))
+            return dutyPercent;
+        if (_control(gpu, fan, dutyPercent))
+        {
+            lock (_lock) _manual.Add(channelId);
+        }
+        else
+        {
+            WarnOnce(channelId); // write didn't land (needs root) — stays Auto
+        }
         return dutyPercent;
     }
 
     public void ReleaseFan(string channelId)
     {
-        if (TryParseFan(channelId, out var gpu, out var fan))
-            _control(gpu, fan, null);
+        if (!TryParseFan(channelId, out var gpu, out var fan))
+            return;
+        _control(gpu, fan, null);
+        lock (_lock) _manual.Remove(channelId);
     }
 
     public void ReleaseAll()
@@ -133,6 +150,7 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
             foreach (var f in g.Fans)
                 _control(g.Index, f.Fan, null);
         }
+        lock (_lock) _manual.Clear();
     }
 
     public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(

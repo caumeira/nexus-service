@@ -42,6 +42,12 @@ args = cliArgs;
 Nexus.Service.Platform.ServiceLog.Initialize();
 Nexus.Service.Lifecycle.BootTimer.Mark("after ServiceLog.Initialize");
 
+// Root system daemon (full hardware access) adopts the active user's session
+// env — D-Bus, runtime dir, config home, display — so the tray, MPRIS media,
+// volume, and dashboard launcher keep working. No-op for a --user install.
+if (OperatingSystem.IsLinux())
+    Nexus.Service.Platform.Linux.LinuxSession.AdoptActiveSessionEnv();
+
 var url = ServiceLaunchIntent.ResolveServiceUrl(args);
 var servicePort = ServiceLaunchIntent.ResolveServicePort(url);
 Nexus.Service.Lifecycle.BootTimer.Mark("after URL resolve");
