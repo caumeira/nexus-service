@@ -66,22 +66,7 @@ public sealed class KeebHub : IDisposable
         if (_disposed) return false;
         if (_device is not null) return true;
 
-        HidDeviceInfo? chosen = null;
-        foreach (var info in _hid.Find(KeebProtocol.VendorId, KeebProtocol.ProductId))
-        {
-            if (info.UsagePage == KeebProtocol.VendorUsagePage && info.Usage == KeebProtocol.VendorUsage)
-            {
-                chosen = info;
-                break;
-            }
-            // Fallback: a collection that can carry the protocol's reports.
-            if (chosen is null
-                && info.FeatureReportByteLength >= KeebProtocol.FeatureReportSize
-                && info.OutputReportByteLength >= KeebLayout.PageSize)
-            {
-                chosen = info;
-            }
-        }
+        var chosen = FindVendorInterface(_hid);
         if (chosen is null) return false;
 
         var dev = _hid.Open(chosen.Path);
@@ -106,6 +91,31 @@ public sealed class KeebHub : IDisposable
             try { _device?.Dispose(); } catch { /* best effort */ }
             _device = null;
         }
+    }
+
+    /// <summary>
+    /// Pick the keeb's vendor protocol collection (usage page 0xFF11 / usage
+    /// 0xF0) from the enumerator, falling back to a collection that can carry
+    /// the protocol's reports. Shared by the write hub and the input reader so
+    /// both target the same HID interface. Returns null when not found.
+    /// </summary>
+    internal static HidDeviceInfo? FindVendorInterface(IHidEnumerator hid)
+    {
+        HidDeviceInfo? chosen = null;
+        foreach (var info in hid.Find(KeebProtocol.VendorId, KeebProtocol.ProductId))
+        {
+            if (info.UsagePage == KeebProtocol.VendorUsagePage && info.Usage == KeebProtocol.VendorUsage)
+            {
+                return info;
+            }
+            if (chosen is null
+                && info.FeatureReportByteLength >= KeebProtocol.FeatureReportSize
+                && info.OutputReportByteLength >= KeebLayout.PageSize)
+            {
+                chosen = info;
+            }
+        }
+        return chosen;
     }
 
     // ── RGB writes ──
