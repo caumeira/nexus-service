@@ -93,4 +93,28 @@ public class LinuxFanControlProviderTests
         Assert.Equal(1200, cal.MaxRpm);
         Assert.Equal("2", File.ReadAllText(t.At("hwmon/hwmon0/pwm2_enable"))); // restored
     }
+
+    [Fact]
+    public async Task Calibrate_UnconnectedHeader_ClassifiedUnresponsiveAndMerged()
+    {
+        using var t = new TempDir();
+        // A header with pwm but a fan that never spins (0 RPM at every duty) =
+        // nothing plugged in. Calibration must mark it so the UI can hide it.
+        t.Write("hwmon/hwmon0/name", "it8696\n");
+        t.Write("hwmon/hwmon0/pwm3", "60\n");
+        t.Write("hwmon/hwmon0/pwm3_enable", "2\n");
+        t.Write("hwmon/hwmon0/fan3_input", "0\n");
+        var store = new InMemoryConfigStore();
+        var p = new LinuxFanControlProvider(t.At("hwmon"), TimeSpan.FromMilliseconds(1), store);
+
+        await p.CalibrateAsync(Array.Empty<string>(), null!, CancellationToken.None);
+
+        // persisted with the shared classification
+        var cal = store.Load().Cooling.FanCalibrations["linux-fan-it8696-3"];
+        Assert.Equal("Unresponsive", cal.Classification);
+        Assert.Equal(0, cal.MaxRpm);
+        // and merged back into the live channel so the UI sees it
+        var ch = Assert.Single(p.GetFanChannels());
+        Assert.Equal("Unresponsive", ch.Classification);
+    }
 }

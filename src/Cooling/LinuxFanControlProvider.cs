@@ -6,6 +6,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Cooling;
+using Nexus.Service.Persistence;
 using Nexus.Service.Platform.Linux;
 
 namespace Nexus.Service.Cooling;
@@ -31,6 +32,10 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
     // Fans take a couple of seconds to reach a steady RPM after a pwm change;
     // calibration dwells at each step before sampling. Injectable for tests.
     private readonly TimeSpan _stepSettle;
+    // Calibration results (MinRpm/MaxRpm/Classification) are persisted here and
+    // merged back into channels, mirroring WindowsFanControlProvider — so an
+    // unconnected header calibrates to "Unresponsive" and the UI can mark it.
+    private readonly IConfigStore? _config;
 
     private readonly object _lock = new();
     private readonly Dictionary<string, FanPaths> _fanPaths = new();
@@ -39,12 +44,14 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
 
     private readonly record struct FanPaths(string PwmPath, string EnablePath, string? FanInputPath);
 
-    public LinuxFanControlProvider() : this("/sys/class/hwmon", TimeSpan.FromMilliseconds(2500)) { }
+    public LinuxFanControlProvider(IConfigStore config)
+        : this("/sys/class/hwmon", TimeSpan.FromMilliseconds(2500), config) { }
 
-    internal LinuxFanControlProvider(string hwmonRoot, TimeSpan stepSettle)
+    internal LinuxFanControlProvider(string hwmonRoot, TimeSpan stepSettle, IConfigStore? config = null)
     {
         _hwmonRoot = hwmonRoot;
         _stepSettle = stepSettle;
+        _config = config;
     }
 
     public IReadOnlyList<FanChannel> GetFanChannels()
@@ -59,20 +66,31 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
                 _fanPaths[id] = paths;
         }
 
+        var calibrations = _config?.Load().Cooling.FanCalibrations;
         var channels = new List<FanChannel>(discovered.Count);
         foreach (var (id, name, paths) in discovered)
         {
             var pwm = LinuxSysfs.ReadInt(paths.PwmPath) ?? 0;
             var rpm = paths.FanInputPath is not null ? LinuxSysfs.ReadInt(paths.FanInputPath) ?? 0 : 0;
             var enabled = LinuxSysfs.ReadInt(paths.EnablePath);
-            channels.Add(new FanChannel
+            var ch = new FanChannel
             {
                 Id = id,
                 Name = name,
                 DutyPercent = (int)Math.Round(Math.Clamp(pwm, 0, 255) * 100.0 / 255.0),
                 Rpm = rpm,
                 Mode = enabled == 1 ? FanModes.Manual : FanModes.Auto,
-            });
+            };
+            // Merge persisted calibration so a never-spinning header surfaces as
+            // "Unresponsive" (and a stable one as "Fixed"), same as on Windows.
+            if (calibrations is not null && calibrations.TryGetValue(id, out var cal))
+            {
+                ch.MinRpm = cal.MinRpm;
+                ch.MaxRpm = cal.MaxRpm;
+                ch.MinDuty = cal.MinDuty;
+                ch.Classification = cal.Classification;
+            }
+            channels.Add(ch);
         }
         return channels;
     }
@@ -170,8 +188,15 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
 
         // Calibrate fans in parallel — each ramps its own pwm independently.
         var tasks = targets.Select(t => CalibrateOneAsync(t.Id, t.Paths, progress, ct));
-        var results = await Task.WhenAll(tasks).ConfigureAwait(false);
-        return results.Where(r => r is not null).Select(r => r!).ToList();
+        var results = (await Task.WhenAll(tasks).ConfigureAwait(false))
+            .Where(r => r is not null).Select(r => r!).ToList();
+        // Persist so GetFanChannels can surface the classification, same as Windows.
+        _config?.Update(s =>
+        {
+            foreach (var r in results)
+                s.Cooling.FanCalibrations[r.FanId] = r;
+        });
+        return results;
     }
 
     public IReadOnlyList<CoolingComponent> GetAll()
@@ -229,16 +254,9 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
             ReleasePaths(paths);
         }
 
-        var spinning = points.Where(p => p.Rpm > 0).ToList();
-        return new FanCalibration
-        {
-            FanId = id,
-            Curve = points,
-            MaxRpm = points.Count > 0 ? points.Max(p => p.Rpm) : 0,
-            MinRpm = spinning.Count > 0 ? spinning.Min(p => p.Rpm) : 0,
-            MinDuty = spinning.Count > 0 ? spinning.Min(p => p.Duty) : 0,
-            CalibratedAtUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-        };
+        // Shared classifier: maxRpm<=100 -> "Unresponsive", small spread ->
+        // "Fixed", drops to 0 mid-range -> "Stalling", else "Controllable".
+        return FanCalibrationLogic.Classify(id, points);
     }
 
     private void ApplyDuty(string channelId, int dutyPercent)
