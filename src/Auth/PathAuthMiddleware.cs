@@ -81,6 +81,15 @@ internal static class PathAuthMiddleware
         {
             return true;
         }
+        // RFC 8615 well-known URIs (apple-app-site-association, assetlinks.json,
+        // etc.) are public discovery documents by definition. They ship in the
+        // SPA bundle's wwwroot and must be fetchable without a token so iOS /
+        // Android Universal-Link verification can read them un-authenticated.
+        if (ctx.Request.Method == "GET"
+            && path.StartsWith("/.well-known/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
         return false;
     }
 

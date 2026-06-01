@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Metadata;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Nexus.Service.Tests;
 
@@ -158,6 +159,41 @@ public class AuthRequestPolicyTests
         // a state-changing HTTP request we err on the side of rejecting.
         var ctx = NewContext("POST", "/cooling/profile/Balanced", isHttps: false);
         Assert.True(AuthRequestPolicy.RejectsInsecureCsrf(ctx));
+    }
+
+    [Fact]
+    public async Task WellKnownPath_ServesWithoutToken()
+    {
+        // RFC 8615 discovery docs (apple-app-site-association) must be reachable
+        // un-authenticated so Universal-Link verification can fetch them. The
+        // public-path short-circuit runs before any DI resolution, so an empty
+        // provider is enough to drive the real UseNexusPathAuth pipeline.
+        var (reached, ctx) = await RunPathAuth("GET", "/.well-known/apple-app-site-association");
+
+        Assert.True(reached);
+        Assert.Equal(200, ctx.Response.StatusCode);
+    }
+
+    private static async Task<(bool reached, DefaultHttpContext ctx)> RunPathAuth(string method, string path)
+    {
+        var services = new ServiceCollection().BuildServiceProvider();
+        var builder = new ApplicationBuilder(services);
+        builder.UseNexusPathAuth();
+        var reached = false;
+        builder.Run(c =>
+        {
+            reached = true;
+            c.Response.StatusCode = 200;
+            return Task.CompletedTask;
+        });
+        var pipeline = builder.Build();
+
+        var ctx = new DefaultHttpContext { RequestServices = services };
+        ctx.Request.Method = method;
+        ctx.Request.Path = path;
+        ctx.Request.Scheme = "http";
+        await pipeline(ctx);
+        return (reached, ctx);
     }
 
     private static DefaultHttpContext NewContext(string method, string path, bool allowPanel = false, bool isHttps = false)
