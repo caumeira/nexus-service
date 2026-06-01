@@ -12,10 +12,9 @@ namespace Nexus.Service.Helper.Domains
 {
     /// <summary>
     /// Combined request payload for the <c>displayBrightness.*</c> commands.
-    /// Method-specific fields are tolerant of being unset; the helper
-    /// handler only reads the ones it needs per type. Kept as one shared
-    /// god-DTO because the existing wire format is in use and changing it
-    /// would require a coordinated helper roll.
+    /// Method-specific fields may be unset; the helper handler reads only the
+    /// ones it needs per type. One shared DTO: splitting it would require a
+    /// coordinated service/helper wire-format roll.
     /// </summary>
     public sealed class DisplayBrightnessRequest
     {

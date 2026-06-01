@@ -10,10 +10,9 @@ namespace Nexus.Service.Sensors;
 /// warm cache (~5 ms) instead of paying for a cold PowerShell spawn (~400 ms
 /// even with the consolidated single-call script).
 ///
-/// Critically, this MUST NOT delay host startup. <see cref="Task.Yield"/>
-/// hands control back to <c>BackgroundService.StartAsync</c> immediately so
-/// the host completes its boot and <c>/ping</c> responds while the prewarm
-/// continues on a thread-pool thread.
+/// Must not delay host startup. <see cref="Task.Yield"/> hands control back to
+/// <c>BackgroundService.StartAsync</c> immediately so the host completes boot
+/// and <c>/ping</c> responds while the prewarm runs on a thread-pool thread.
 /// </summary>
 public sealed class SystemSpecsPrewarmService : BackgroundService
 {
@@ -46,7 +45,7 @@ public sealed class SystemSpecsPrewarmService : BackgroundService
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested)
         {
-            // Service shutting down — fine.
+            // Service shutting down.
         }
         catch (Exception ex)
         {

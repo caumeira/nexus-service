@@ -149,8 +149,8 @@ internal static unsafe class LinuxEglContext
     private static IntPtr _libgl;
 
     /// <summary>GL symbol loader for Silk.NET. On a GLVND stack eglGetProcAddress
-    /// returns core GL functions too; dlsym(libGL) is a belt-and-suspenders
-    /// fallback for any the driver won't hand back.</summary>
+    /// returns core GL functions too; dlsym(libGL) is a fallback for any symbol
+    /// the driver won't hand back.</summary>
     public static IntPtr LoadGlSymbol(string name)
     {
         var p = eglGetProcAddress(name);

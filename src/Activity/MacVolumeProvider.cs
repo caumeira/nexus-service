@@ -8,7 +8,7 @@ namespace Nexus.Service.Activity;
 /// <summary>
 /// macOS default-output volume via CoreAudio. Some output devices expose a
 /// main-element volume, while others only expose per-channel controls; both
-/// paths are probed so fixed-volume outputs can report unsupported cleanly.
+/// paths are probed so fixed-volume outputs report unsupported.
 /// </summary>
 public sealed class MacVolumeProvider : IVolumeProvider
 {

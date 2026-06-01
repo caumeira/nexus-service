@@ -44,7 +44,6 @@ public sealed class TokenService
             return;
         }
 
-        // Generate a fresh token.
         var bytes = RandomNumberGenerator.GetBytes(32);
         _cached = Convert.ToBase64String(bytes)
             .Replace("+", "-")

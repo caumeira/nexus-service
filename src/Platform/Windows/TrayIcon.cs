@@ -69,12 +69,12 @@ public static class TrayIcon
     private static bool _iconDataReady;
     private static NOTIFYICONDATA _nid;
 
-    // Race guard for rapid tray clicks: between the moment we spawn an Edge
-    // --app and the moment its window title becomes "Nexus*" (~1-2s), the
-    // FindExistingNexusAppWindow probe can't detect the in-flight window. A
-    // second click during that gap used to spawn a second Edge. Time-only
-    // guard - PID liveness is unreliable because Edge's launcher process
-    // exits within ~30ms after forking the actual browser.
+    // Race guard for rapid tray clicks: between spawning an Edge --app and
+    // its window title becoming "Nexus*" (~1-2s), FindExistingNexusAppWindow
+    // can't detect the in-flight window, so a second click during that gap
+    // spawns a second Edge. Time-only guard: PID liveness is unreliable
+    // because Edge's launcher process exits within ~30ms of forking the
+    // actual browser.
     private static readonly object _spawnLock = new();
     private static DateTime _lastSpawnUtc = DateTime.MinValue;
     private static readonly TimeSpan SpawnSettleWindow = TimeSpan.FromSeconds(4);
@@ -321,9 +321,7 @@ public static class TrayIcon
                 }
                 else if (ev == WM_LBUTTONUP || ev == WM_LBUTTONDBLCLK)
                 {
-                    // Single OR double left-click opens the window. Matches
-                    // the standard modern tray UX - users don't have to
-                    // remember whether to single- or double-click.
+                    // Single OR double left-click opens the window.
                     OpenLocalWindow();
                 }
                 else if (ev == NIN_BALLOONUSERCLICK)
@@ -776,9 +774,8 @@ public static class TrayIcon
     {
         // Build gate: the int-taking SetPreferredAppMode only exists on
         // 1903+. Calling on 1809 binds to the older BOOL-taking
-        // AllowDarkModeForApp and would coerce APPMODE_ALLOW_DARK (1) to
-        // TRUE - which happens to do the right thing, but relying on that
-        // coincidence is fragile, so just skip on older builds.
+        // AllowDarkModeForApp and coerces APPMODE_ALLOW_DARK (1) to TRUE; that
+        // coercion is coincidental, not guaranteed, so skip on older builds.
         if (Environment.OSVersion.Version.Build < SetPreferredAppModeMinBuild)
         {
             return;

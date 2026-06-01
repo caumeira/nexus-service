@@ -7,15 +7,14 @@ namespace Nexus.Service.Lighting.Engine;
 /// as a uniform. Producer: <see cref="Nexus.Service.Activity.BeatsProvider"/>.
 /// Consumers: <see cref="Gpu.ShaderEffect"/>.
 ///
-/// Kept deliberately tiny and allocation-free on both paths: the audio thread
-/// writes individual floats, the GL thread reads them. Torn reads are
-/// acceptable - these values are inherently noisy and are smoothed again in
-/// the shader via the per-effect audioBoost scaling.
+/// Tiny and allocation-free on both paths: the audio thread writes individual
+/// floats, the GL thread reads them. Torn reads are acceptable - these values
+/// are noisy and are smoothed again in the shader via per-effect audioBoost
+/// scaling.
 ///
 /// When <see cref="Reset"/> is called (music-reactive toggled off, capture
-/// stopped, or no device available), every field drops to zero. Every shader
-/// sees zero uniforms and its idle animation runs unmodified. Nothing else
-/// changes - it's one pipe in, uniforms only, no parallel render path.
+/// stopped, or no device available), every field drops to zero, so every shader
+/// sees zero uniforms and its idle animation runs unmodified.
 /// </summary>
 public static class AudioState
 {

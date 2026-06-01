@@ -13,8 +13,7 @@ namespace Nexus.Service.Defaults;
 /// instead of hardcoding literal initializers.
 ///
 /// The nexus-web debug-tools export menu serializes the running config in this
-/// exact shape so the user can paste the output back to the AI; the AI then
-/// rewrites install-defaults.json and ships. One file, one source of truth.
+/// exact shape, which is then written back to install-defaults.json.
 ///
 /// To add a default: extend the matching POCO below + add the field to the
 /// JSON file + reference it from the consuming subsystem.

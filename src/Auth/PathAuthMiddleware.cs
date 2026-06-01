@@ -2,6 +2,7 @@ using System.Net;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Nexus.Service.Relay;
 using Nexus.Service.Routes;
 
 namespace Nexus.Service.Auth;
@@ -42,6 +43,10 @@ internal static class PathAuthMiddleware
             // a single boolean and learning "host has disabled remotes" is
             // exactly the info a locked-out client needs.
             "/panel/phone/remote-control",
+            // Cloud-relay opt-in state. Public read for the same reason as the
+            // killswitch: a single boolean the panel / relay client may read
+            // without a token. Write is desktop-token only.
+            "/panel/phone/relay",
             "/panel/phone",
             // Wi-Fi broadcast preference. Public read so the iOS app can
             // tell the user "this PC isn't broadcasting" without already
@@ -74,6 +79,39 @@ internal static class PathAuthMiddleware
         if (ctx.Request.Method == "GET"
             && path.StartsWith("/widgets-api/code/", StringComparison.OrdinalIgnoreCase))
         {
+            return true;
+        }
+        // RFC 8615 well-known URIs (apple-app-site-association, assetlinks.json,
+        // etc.) are public discovery documents by definition. They ship in the
+        // SPA bundle's wwwroot and must be fetchable without a token so iOS /
+        // Android Universal-Link verification can read them un-authenticated.
+        if (ctx.Request.Method == "GET"
+            && path.StartsWith("/.well-known/", StringComparison.OrdinalIgnoreCase))
+        {
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// True only for a request injected in-process by <see cref="RelayHttpDispatcher"/>:
+    /// the trusted-dispatch items key must hold the dispatcher's private sentinel
+    /// (reference identity, not just any value) AND a non-empty phone-session id.
+    /// Both items live in server-side per-request state a network caller can't
+    /// populate, and the sentinel is unreachable outside the relay assembly, so
+    /// this can never be satisfied by an external request.
+    /// </summary>
+    private static bool IsTrustedRelayDispatch(HttpContext ctx, out string sessionId)
+    {
+        sessionId = string.Empty;
+        if (!ctx.Items.TryGetValue(RelayHttpDispatcher.TrustedRelayDispatchKey, out var marker)
+            || !ReferenceEquals(marker, RelayHttpDispatcher.TrustedMarker))
+        {
+            return false;
+        }
+        if (ctx.Items.TryGetValue("PhoneSessionId", out var raw) && raw is string id && !string.IsNullOrEmpty(id))
+        {
+            sessionId = id;
             return true;
         }
         return false;
@@ -126,8 +164,31 @@ internal static class PathAuthMiddleware
                 }
             }
 
-            var tokens = ctx.RequestServices.GetRequiredService<TokenService>();
             var panelPairing = ctx.RequestServices.GetRequiredService<Nexus.Service.Panel.PanelPhonePairingService>();
+
+            // Trusted in-process relay dispatch. A REST-over-relay tunnel request
+            // (RelayHttpDispatcher) arrives already authenticated end-to-end: only
+            // a holder of the session token can derive rid_http + the AEAD key, so
+            // it is authorized AS its phone session WITHOUT re-presenting a bearer.
+            // The decision rides on HttpContext.Items, which the server creates
+            // fresh per request and never fills from headers/body/query, so a
+            // network caller can't set it; the value is identity-checked against a
+            // private sentinel unreachable outside the relay assembly. The
+            // remote-control killswitch still applies (OFF means OFF, even over
+            // the relay). The dispatcher already enforced the path allowlist.
+            if (IsTrustedRelayDispatch(ctx, out var relaySessionId))
+            {
+                if (!panelPairing.GetRemoteControlEnabled())
+                {
+                    await AuthErrorResponse.WriteAsync(ctx, 403, "RemoteDisabled", "Remote control is currently disabled.");
+                    return;
+                }
+                ctx.Items["PhoneSessionId"] = relaySessionId;
+                await next(ctx);
+                return;
+            }
+
+            var tokens = ctx.RequestServices.GetRequiredService<TokenService>();
             var requestToken = AuthRequestPolicy.ExtractBearerOrQueryToken(ctx);
             if (tokens.Validate(requestToken))
             {

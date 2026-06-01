@@ -54,7 +54,7 @@ public sealed class PanelKioskLauncher
         Platform.Windows.TrayIcon.TryPostToOverlayMarshaler(HidePanelKioskMessageName);
     }
 
-    /// <summary>No-op; legacy msedge orphans no longer exist.</summary>
+    /// <summary>No-op; there are no msedge orphans to clean up.</summary>
     public static void CleanupOrphans() { }
 
     [DllImport("user32.dll", EntryPoint = "FindWindowW", CharSet = CharSet.Unicode)]

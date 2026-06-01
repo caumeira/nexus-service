@@ -62,11 +62,11 @@ public sealed class ProfileManager : IDisposable
                 SaveManifest();
             }
 
-            // PrimaryProfileId defaults to the (current) active profile so the
+            // PrimaryProfileId defaults to the active profile so the
             // hardware-bound shared categories (the field-initializer default
             // on NexusSettings.SharedCategories: keeb/y70/devices) resolve
-            // to a valid source on day one. Repaired on every boot in case a
-            // previously-set Primary was deleted while the service was off.
+            // to a valid source on day one. Repaired on every boot in case the
+            // Primary was deleted while the service was off.
             _store.Update(s =>
             {
                 if (string.IsNullOrEmpty(s.PrimaryProfileId) ||
@@ -75,10 +75,9 @@ public sealed class ProfileManager : IDisposable
                     s.PrimaryProfileId = _manifest.ActiveProfileId;
                 }
                 s.SharedCategories ??= new List<string>();
-                // Drop any category ids that are no longer recognised. Older
-                // settings.json files persisted "keeb"/"y70"/"devices" while
-                // those were profile-scoped; the refactor moved them to
-                // workstation root, so they're now invalid in this list.
+                // Drop unrecognised category ids. Old settings.json files may
+                // carry "keeb"/"y70"/"devices", which are workstation-root and
+                // invalid in this list.
                 s.SharedCategories = s.SharedCategories
                     .Select(c => ProfileSharing.Normalize(c))
                     .Where(c => c != null)

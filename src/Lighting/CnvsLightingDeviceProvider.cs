@@ -16,10 +16,10 @@ namespace Nexus.Service.Lighting;
 /// plain "HYTE CNVS" card alongside motherboard ARGB strips and GPU,
 /// no parentDeviceId and no zone-child indirection.
 ///
-/// Why this lives outside the OpenRGB stack: our service now owns COM7
-/// exclusively via <see cref="CnvsHub"/> (see CnvsConnectionWorker for
-/// the grab-at-startup race), so OpenRGB can no longer drive CNVS. This
-/// provider is what makes the engine→writer pipeline see CNVS again.
+/// Lives outside the OpenRGB stack because the service owns COM7 exclusively
+/// via <see cref="CnvsHub"/> (see CnvsConnectionWorker for the grab-at-startup
+/// race), so OpenRGB can't drive CNVS. This provider exposes CNVS to the
+/// engine→writer pipeline.
 /// </summary>
 public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor
 {

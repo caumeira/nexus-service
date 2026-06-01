@@ -29,7 +29,7 @@ public static class PanelRoutes
 
         app.MapPost("/panel/phone/claim", (HttpContext ctx, PanelPhoneClaimBody body, PanelPhonePairingService pairing) =>
         {
-            var result = pairing.Claim(body.PairToken, ctx);
+            var result = pairing.Claim(body.PairToken, body.DeviceId, ctx);
             if (result.Paired && !string.IsNullOrWhiteSpace(result.Token))
             {
                 ctx.Response.Cookies.Append(
@@ -135,6 +135,30 @@ public static class PanelRoutes
             return Results.Json(
                 new RemoteControlStateResponse { Enabled = pairing.GetRemoteControlEnabled() },
                 AppJsonContext.Default.RemoteControlStateResponse);
+        });
+
+        // Cloud-relay transport opt-in. GET is public (same rationale as the
+        // killswitch GET: a relay client / panel can read the state without a
+        // token). POST is desktop-token only — only a user at the PC may turn
+        // the relay on/off, matching the remote-control toggle. Persisting the
+        // change fires IConfigStore.OnChanged, which RelayConnectionService
+        // listens on to open / tear down its host sockets (no poll loop).
+        app.MapGet("/panel/phone/relay", (PanelPhonePairingService pairing) =>
+        {
+            return Results.Json(
+                new RelayStateResponse { Enabled = pairing.GetRelayEnabled() },
+                AppJsonContext.Default.RelayStateResponse);
+        });
+
+        app.MapPost("/panel/phone/relay", (RelayToggleRequest body, HttpContext ctx, PanelPhonePairingService pairing, TokenService tokens) =>
+        {
+            if (!HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+
+            pairing.SetRelayEnabled(body.Enabled);
+            return Results.Json(
+                new RelayStateResponse { Enabled = pairing.GetRelayEnabled() },
+                AppJsonContext.Default.RelayStateResponse);
         });
 
         // Wi-Fi (mDNS) discoverability preference. Public read; desktop-token write.

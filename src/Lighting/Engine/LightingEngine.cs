@@ -129,8 +129,7 @@ public sealed class LightingEngine : IDisposable
             // Keyboards and other matrix devices provide per-LED UVs so each key samples
             // from its real 2D position inside the rectangle instead of being stretched
             // along a single axis. Rotation is applied to the UV coordinates around the
-            // rectangle centre so the user can reorient the board without the mapping
-            // becoming nonsensical.
+            // rectangle centre so reorienting the board keeps the mapping right.
             var devLedU = dev.LedU;
             var devLedV = dev.LedV;
             var devLedDisabled = dev.LedDisabled;

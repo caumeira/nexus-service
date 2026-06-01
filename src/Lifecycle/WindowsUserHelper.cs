@@ -19,9 +19,9 @@ namespace Nexus.Service.Lifecycle;
 /// pipe.
 ///
 /// Single-instance per logon session via <c>Local\NexusHelper</c>. Lifetime
-/// is decoupled from <c>ShowWindowsTrayIcon</c> - that preference now
-/// only controls icon visibility; the process keeps running so providers
-/// it hosts stay alive.
+/// is decoupled from <c>ShowWindowsTrayIcon</c> (which controls icon
+/// visibility only); the process keeps running so the providers it hosts
+/// stay alive.
 /// </summary>
 [SupportedOSPlatform("windows10.0.19041.0")]
 internal static class WindowsUserHelper

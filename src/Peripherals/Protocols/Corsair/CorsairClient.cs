@@ -5,10 +5,10 @@ using Nexus.Service.Peripherals.Hid;
 namespace Nexus.Service.Peripherals.Protocols.Corsair;
 
 /// <summary>
-/// Corsair mouse/keyboard vendor-protocol transport. Currently unused — no
-/// model in <see cref="CorsairPeripheralFactory.Models"/> sets
-/// <c>HasProtocol = true</c>, so this client is never constructed. Retained
-/// for future "Bragi"-generation mice that use HID feature reports.
+/// Corsair mouse/keyboard vendor-protocol transport. Unused: no model in
+/// <see cref="CorsairPeripheralFactory.Models"/> sets <c>HasProtocol = true</c>,
+/// so this client is never constructed. Targets "Bragi"-generation mice that
+/// use HID feature reports.
 ///
 /// Uses 65-byte HID feature reports (report ID prefix + 64 byte payload) on
 /// the control interface (usually MI_01). Protocol structure derived from

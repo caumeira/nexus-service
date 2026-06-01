@@ -62,8 +62,8 @@ public sealed class Np50HeartbeatWorker : BackgroundService
             try { await timer.WaitForNextTickAsync(stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
-        // On shutdown release the port cleanly so a service restart can
-        // reopen without "port already in use".
+        // On shutdown release the port so a service restart can reopen
+        // without "port already in use".
         _hub.Disconnect();
     }
 
@@ -87,16 +87,13 @@ public sealed class Np50HeartbeatWorker : BackgroundService
             _hub.PollFirmwareVersion();
         }
 
-        // Enforce desired cooling mode. We used to re-send on EVERY drift
-        // detection, which can fire mid-frame and surface as a one-frame
-        // RGB glitch on connected strips (the 15-byte SetCoolingMode
-        // command parses on the same UART thread the LED stream rides).
-        // Match HYTE's shipping nexus-control-service: assert mode only
-        // when there's a genuine state change to push — first time we see
-        // the hub this session (no FW version yet), and at most once per
-        // 30 s of sustained drift. That keeps the rare firmware-2.0.3.1
-        // "needs the command twice" path covered without injecting a
-        // command burst into the 30 Hz lighting stream.
+        // Enforce desired cooling mode. Assert only on a real state change:
+        // first time the hub is seen this session (no FW version yet), and at
+        // most once per 30 s of sustained drift. Re-sending on every drift
+        // detection fires mid-frame and surfaces as a one-frame RGB glitch (the
+        // 15-byte SetCoolingMode command parses on the same UART thread the LED
+        // stream rides). This still covers the firmware-2.0.3.1 "needs the
+        // command twice" path. Matches HYTE's shipping nexus-control-service.
         if (_hub.DesiredCoolingMode is byte desired)
         {
             var current = _hub.State.HubInfo.CoolingMode switch
@@ -122,13 +119,13 @@ public sealed class Np50HeartbeatWorker : BackgroundService
             {
                 // Reset the cooldown so the next drift event can re-assert
                 // immediately. Without this a quick mode-change → drift →
-                // reconverge cycle would silently swallow the next real one.
+                // reconverge cycle would swallow the next real one.
                 _lastModeAssertMs = 0;
             }
         }
 
-        // Pull per-port info every tick. Even with no fans attached the hub
-        // returns a valid empty response cheaply.
+        // Pull per-port info every tick. With no fans attached the hub returns
+        // a valid empty response.
         for (var port = 1; port <= Np50Protocol.PortCount; port++)
         {
             _hub.PollPort(port);
@@ -136,12 +133,10 @@ public sealed class Np50HeartbeatWorker : BackgroundService
 
         // Tell the lighting contributor that the lit-device topology may
         // have changed (a strip hot-plugged onto a port, hub reconnected,
-        // etc.). The contributor debounces internally; calling this every
-        // tick is cheap.
+        // etc.). The contributor debounces internally.
         _lighting?.OnHubStateUpdated();
 
-        // Detailed warning bytes only when the summary is non-zero. Saves a
-        // pointless command on the happy path.
+        // Detailed warning bytes only when the summary is non-zero.
         if (_hub.State.HubInfo.WarningSummary != 0)
         {
             _hub.PollWarningDetail();

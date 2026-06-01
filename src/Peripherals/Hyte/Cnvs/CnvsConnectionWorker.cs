@@ -16,11 +16,9 @@ namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 /// then loses the race and returns <c>UnauthorizedAccessException</c>.
 ///
 /// The worker ticks every 5 s. On hot-plug (CNVS unplugged + replugged
-/// during a session) the timer eventually re-grabs the port; we don't
-/// need to be fast about it because the user-visible action that follows
-/// (settings change, lighting tick) is rare enough that a 5 s window is
-/// acceptable. If OpenRGB sneaks in first on a replug the user will see
-/// LEDs go dark for one cycle until we win it back.
+/// during a session) the timer re-grabs the port on the next tick. If OpenRGB
+/// claims it first on a replug, LEDs go dark for one cycle until the worker
+/// wins it back.
 /// </summary>
 public sealed class CnvsConnectionWorker : BackgroundService
 {
@@ -73,11 +71,10 @@ public sealed class CnvsConnectionWorker : BackgroundService
         if (!_hub.IsConnected) return;
 
         // CNVS hardware serial is stable across USB power cycles, so we can't
-        // dedup on it — a replug returns the same serial. Use the hub's
+        // dedup on it: a replug returns the same serial. Use the hub's
         // IsReadyForStreaming flag as the "haven't applied settings on this
-        // open port yet" signal: it's cleared in Disconnect() and flipped
-        // true inside WriteSettings(). This is exactly the state we want to
-        // key off, and it auto-rearms on every fresh port open.
+        // open port yet" signal: cleared in Disconnect(), flipped true inside
+        // WriteSettings(), so it auto-rearms on every fresh port open.
         if (_hub.IsReadyForStreaming) return;
 
         // Brand-new connection. Sanity-probe the firmware first so we have
@@ -122,10 +119,9 @@ public sealed class CnvsConnectionWorker : BackgroundService
         }
 
         // Tell the lighting provider its DeviceFrame topology changed so
-        // RgbBridge rebuilds the engine's device list. Without this nudge
-        // the lighting page won't show a freshly-plugged CNVS until the
-        // next bridge tick (~3 s anyway, but the explicit signal makes
-        // hot-plug feel instant).
+        // RgbBridge rebuilds the engine's device list. Without this nudge the
+        // lighting page won't show a freshly-plugged CNVS until the next bridge
+        // tick (~3 s).
         try { _lighting?.OnHubStateUpdated(); }
         catch { /* subscriber failures shouldn't bubble */ }
     }

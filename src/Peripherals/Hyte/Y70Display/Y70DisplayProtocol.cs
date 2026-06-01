@@ -61,7 +61,7 @@ public static class Y70DisplayProtocol
     /// EDID/PnP hardware-id fragments for Y70 panels that are driven over DDC/CI
     /// rather than the serial controller (Truly / GW and Realtek-controller
     /// variants). Matched against a monitor's PnP DeviceID to pick the display
-    /// for VCP writes. Centralized here so the panel list lives in one place.
+    /// for VCP writes.
     /// </summary>
     public static readonly string[] DdcPanelHardwareNames =
         { "RTK0004", "RTD1100", "RTK1234", "RTK2234", "BOE2143", "RTK409A" };

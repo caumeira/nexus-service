@@ -17,18 +17,17 @@ namespace Nexus.Service.QSeries;
 /// <param name="IpAddress">
 /// Device's LAN IPv4 address discovered during promotion. The watcher's
 /// connect retries this address verbatim; if the device has moved to a
-/// new DHCP lease the connect will fail and the record gets evicted on
-/// the next USB re-promotion.
+/// new DHCP lease the connect fails and the record is evicted on the next
+/// USB re-promotion.
 /// </param>
 /// <param name="Port">
 /// Listening port on the device's adbd after <c>adb tcpip &lt;port&gt;</c>.
-/// Always 5555 for now — kept as a field so a future "use a non-default
-/// port to avoid colliding with another adb-over-WiFi host" knob doesn't
-/// invalidate the on-disk format.
+/// Always 5555 — kept as a field so a non-default port doesn't invalidate
+/// the on-disk format.
 /// </param>
 /// <param name="PromotedAt">
-/// When the promotion ran. Lets us age out very old records on startup
-/// if we ever need to (not done today; kept as observability metadata).
+/// When the promotion ran. Observability metadata; not used to age out
+/// records.
 /// </param>
 public sealed record QSeriesTransportRecord(
     string Model,
@@ -110,7 +109,7 @@ public static class QSeriesTransport
         // 192.168.0.0/16
         if (bytes[0] == 192 && bytes[1] == 168) return true;
         // 100.64.0.0/10 — CGNAT (some ISPs use this for residential WAN,
-        // but it can also legitimately appear on internal LANs).
+        // but it can also appear on internal LANs).
         if (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127) return true;
         return false;
     }

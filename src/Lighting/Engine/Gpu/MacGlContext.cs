@@ -10,10 +10,8 @@ namespace Nexus.Service.Lighting.Engine.Gpu;
 /// resulting context can be made current on the dedicated GL worker thread
 /// the rest of GpuContext already owns.
 ///
-/// Apple formally deprecated OpenGL on macOS (Mojave onwards) but every
-/// supported macOS version still ships it. When it finally gets removed we
-/// swap this file for a Metal backend; the shaders (via SPIRV-Cross) and
-/// the rest of GpuContext stay the same.
+/// Apple deprecated OpenGL on macOS (Mojave onwards) but every supported
+/// macOS version still ships it.
 /// </summary>
 internal static class MacGlContext
 {
@@ -128,7 +126,7 @@ internal static class MacGlContext
         int err = CGLChoosePixelFormat(attribs, out IntPtr pix, out int _);
         if (err != 0 || pix == IntPtr.Zero)
         {
-            // Retry without hardware accel in case we're in a weird env.
+            // Retry without hardware accel (no accelerated renderer available).
             int[] anyRenderer =
             {
                 kCGLPFAAllRenderers,

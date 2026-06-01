@@ -243,14 +243,10 @@ public sealed class MiniHubLightingDeviceProvider : ILightingDeviceProvider, ILi
         return frame;
     }
 
-    /// <summary>Default canvas slots for MiniHub zones. The earlier
-    /// single-row layout at y=560 actually overflowed the 600-unit canvas
-    /// (cardH=60 → bottom edge at 620) and wrapped horizontally off-screen
-    /// past slot 3, hiding any 4th+ port. Now lifted to y=463 with a 4-col,
-    /// 2-row wrap so all four ports fit on-canvas even when full. The Y was
-    /// further pulled in from 470 to 463 so the second row lands at y=528,
-    /// matching the canvas drag clamp (y + h ≤ CH - PAD = 588) and avoiding
-    /// a one-frame snap-upward on the user's first interaction.</summary>
+    /// <summary>Default canvas slots for MiniHub zones: y=463 with a 4-col,
+    /// 2-row wrap so all four ports fit on the 600-unit canvas. The second row
+    /// lands at y=528, within the canvas drag clamp (y + h ≤ CH - PAD = 588),
+    /// so the card doesn't snap upward on the first interaction.</summary>
     internal static (float x, float y, float w, float h) DefaultMiniHubLayout(int slot)
     {
         const float Y = 463f;

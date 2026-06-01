@@ -59,9 +59,9 @@ public sealed class RazerReport
             CommandClass = commandClass,
             CommandId = commandId,
         };
-        // Silently truncate if caller supplies more than 80 argument bytes so the
-        // behavior matches the TS buildFrame on the WebHID side — both are driven
-        // by the same shared JSON spec and tests cross-verify bytes.
+        // Truncate if caller supplies more than 80 argument bytes; matches the
+        // TS buildFrame on the WebHID side (same shared JSON spec; tests
+        // cross-check the bytes).
         var toCopy = args.Length > r.Arguments.Length ? r.Arguments.Length : args.Length;
         args.Slice(0, toCopy).CopyTo(r.Arguments);
         return r;

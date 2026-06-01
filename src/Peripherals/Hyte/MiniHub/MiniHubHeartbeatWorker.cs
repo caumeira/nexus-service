@@ -6,11 +6,10 @@ using Microsoft.Extensions.Hosting;
 namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 
 /// <summary>
-/// Background poller for the MiniHub. Much simpler than NP50's heartbeat
-/// because the MiniHub doesn't have a 5s revert-to-firmware timer. The
-/// worker's jobs are: (a) keep trying to open the port until the device
+/// Background poller for the MiniHub. The MiniHub has no 5s revert-to-firmware
+/// timer (unlike NP50). Jobs: (a) keep trying to open the port until the device
 /// shows up, (b) read the firmware version once on first connect,
-/// (c) re-assert software RGB + fan control modes after a reconnect so our
+/// (c) re-assert software RGB + fan control modes after a reconnect so the
 /// LED frames and fan writes take effect, (d) poll the per-port tach
 /// readings so the cooling page can show live RPM.
 /// </summary>
@@ -43,8 +42,8 @@ public sealed class MiniHubHeartbeatWorker : BackgroundService
         var connectedBefore = _hub.IsConnected;
         if (!_hub.EnsureConnected()) { _rgbModeAsserted = false; _fanModeAsserted = false; return; }
         // First connect ⇒ read FW version + assert software control modes so
-        // our lighting writes and fan-speed writes take effect. Cheap to
-        // re-assert on each reconnect; no-op for steady-state.
+        // lighting writes and fan-speed writes take effect. Re-asserted on each
+        // reconnect; no-op in steady-state.
         if (!connectedBefore || string.IsNullOrEmpty(_hub.State.FirmwareVersion))
         {
             _hub.PollFirmwareVersion();
@@ -56,17 +55,15 @@ public sealed class MiniHubHeartbeatWorker : BackgroundService
         }
         if (!_fanModeAsserted)
         {
-            // Respect a user-pinned mode: if the user picked Motherboard
-            // (BIOS) via PUT /devices/minihub/cooling-mode, re-asserting
-            // Software here would silently undo their choice on every
-            // reconnect. Default unpinned state remains Software so curve
-            // writes work out of the box.
+            // Respect a user-pinned mode: if the user picked Motherboard (BIOS)
+            // via PUT /devices/minihub/cooling-mode, re-asserting Software here
+            // would undo it on every reconnect. Unpinned default is Software.
             var modeToAssert = _hub.DesiredFanControlMode ?? MiniHubProtocol.FanModeSoftware;
             if (_hub.SetFanControlMode(modeToAssert))
                 _fanModeAsserted = true;
         }
-        // Poll tachs every tick so the cooling page shows live RPM. Cheap —
-        // one 3-byte write + 9-byte read at 0.5 Hz.
+        // Poll tachs every tick so the cooling page shows live RPM: one 3-byte
+        // write + 9-byte read at 0.5 Hz.
         var pollOk = _hub.PollFanSpeeds();
         if (++_tickCount % TraceEveryNTicks == 1)
         {

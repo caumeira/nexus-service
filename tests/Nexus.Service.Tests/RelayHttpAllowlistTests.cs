@@ -1,0 +1,54 @@
+using Nexus.Service.Relay;
+
+namespace Nexus.Service.Tests;
+
+/// <summary>
+/// Unit coverage for the REST-over-relay path gate. Deny wins over allow; only
+/// the panel / control REST surface is tunnelable; the socket / high-bandwidth
+/// endpoints are rejected even though they sit under an allowed prefix.
+/// </summary>
+public class RelayHttpAllowlistTests
+{
+    [Theory]
+    [InlineData("GET", "/panel/status")]
+    [InlineData("GET", "/panel/phone/sessions")]
+    [InlineData("POST", "/panel/host-name")]
+    [InlineData("GET", "/cooling/status")]
+    [InlineData("GET", "/devices/all")]
+    [InlineData("GET", "/lighting/current")]
+    [InlineData("POST", "/lighting/global-brightness")]
+    [InlineData("GET", "/profiles")]
+    [InlineData("GET", "/widgets-api/installed")]
+    [InlineData("GET", "/api/steam/status")]
+    [InlineData("GET", "/ping")]
+    [InlineData("GET", "/panel/status?foo=bar")] // query is ignored for matching
+    public void Allows_PanelAndControlSurface(string method, string path)
+        => Assert.True(RelayHttpAllowlist.IsAllowed(method, path));
+
+    [Theory]
+    [InlineData("GET", "/ws")]                       // multiplex socket upgrade
+    [InlineData("GET", "/lighting/output")]          // 60fps binary stream
+    [InlineData("GET", "/lighting/screen/monitors")] // screen-mirror sub-path
+    [InlineData("POST", "/lighting/screen/effect")]  // screen-mirror sub-path
+    [InlineData("GET", "/service/stop")]             // off-allowlist (localhost-only control)
+    [InlineData("GET", "/pawnio")]                   // off-allowlist
+    [InlineData("GET", "/")]                          // SPA shell
+    [InlineData("GET", "/panelX")]                   // not a /panel segment boundary
+    public void Rejects_SocketHighBandwidthAndOffAllowlist(string method, string path)
+        => Assert.False(RelayHttpAllowlist.IsAllowed(method, path));
+
+    [Theory]
+    [InlineData("CONNECT", "/panel/status")]
+    [InlineData("TRACE", "/panel/status")]
+    [InlineData("HEAD", "/panel/status")]
+    public void Rejects_DisallowedMethods(string method, string path)
+        => Assert.False(RelayHttpAllowlist.IsAllowed(method, path));
+
+    [Fact]
+    public void Rejects_EmptyOrRelativePath()
+    {
+        Assert.False(RelayHttpAllowlist.IsAllowed("GET", ""));
+        Assert.False(RelayHttpAllowlist.IsAllowed("GET", "panel/status"));
+        Assert.False(RelayHttpAllowlist.IsAllowed("GET", null));
+    }
+}

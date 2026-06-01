@@ -25,9 +25,9 @@ namespace Nexus.Service.Benchmarks.Providers;
 /// sequentially, then does 4K random reads. Temp file is removed after.
 ///
 /// GPU: SIMD (System.Numerics.Vector&lt;float&gt;) matmul-style workload in
-/// parallel across every logical core. This is a compute proxy, not a real
-/// GPU test; the score slot + contract match a future OpenGL/OpenCL impl so
-/// it can be swapped without breaking the public API.
+/// parallel across every logical core. A compute proxy, not a real GPU test;
+/// the score slot + contract match an OpenGL/OpenCL impl so it can be swapped
+/// without breaking the public API.
 /// </summary>
 public sealed class DefaultBenchmarkProvider : IBenchmarkProvider
 {
@@ -88,8 +88,8 @@ public sealed class DefaultBenchmarkProvider : IBenchmarkProvider
             for (int i = 0; i < threads; i++)
                 multiHashesPerSec += perThread[i];
 
-            // Combined raw metric: geometric mean of single + multi. Keeps the
-            // test fair between a fast-but-few-core chip and a slower many-core.
+            // Combined raw metric: geometric mean of single + multi, so a
+            // fast-but-few-core and a slow many-core chip score comparably.
             double combined = Math.Sqrt(singleHashesPerSec * (multiHashesPerSec / Math.Max(1, threads))) * Math.Sqrt(threads);
             double score = Scoring.Normalize(combined, Scoring.RefCpuHashesPerSec);
 

@@ -238,12 +238,11 @@ public static class ProfileRoutes
         {
             try
             {
-                // Halt the live lighting engine when the reset will actually
-                // clear in-memory lighting state: the named profile is the
-                // active one (we now reset ALL categories on active), or the
-                // named profile is the Primary and lighting is shared (we
-                // also clear the active profile's in-memory shared lighting
-                // so it reflects the Primary's reset).
+                // Halt the live lighting engine when the reset clears in-memory
+                // lighting state: the named profile is the active one (reset
+                // touches ALL categories on active), or the named profile is
+                // the Primary and lighting is shared (the active profile's
+                // in-memory shared lighting also clears to reflect the reset).
                 var settings = store.Load();
                 var isActive = id == pm.GetManifest().ActiveProfileId;
                 var isPrimary = settings.PrimaryProfileId == id;
@@ -256,8 +255,8 @@ public static class ProfileRoutes
                 }
                 pm.ResetProfile(id);
                 // Re-engage engines from the freshly-defaulted settings so the
-                // "on by default" cooling preset + lighting sync mode actually
-                // run instead of leaving the engines idle.
+                // "on by default" cooling preset + lighting sync mode run
+                // instead of leaving the engines idle.
                 if (isActive)
                 {
                     LiveEngineSync.Apply(store, fans, lp);
@@ -285,19 +284,17 @@ public static class ProfileRoutes
                 var settings = store.Load();
                 var isActive = id == pm.GetManifest().ActiveProfileId;
                 // Capture the shared flag for the reset category BEFORE the
-                // reset runs — ResetCategory doesn't mutate SharedCategories
-                // today, but the post-reset re-engage decision should read
-                // the value that was in force at request time.
+                // reset runs, so the post-reset re-engage decision reads the
+                // value that was in force at request time.
                 var categoryIsShared = normalized != null
                     && settings.SharedCategories.Contains(normalized);
                 if (normalized == ProfileSharing.Lighting)
                 {
-                    // StopAll only when the reset will actually flip the live
-                    // engine: shared category writes through to in-memory
-                    // active state (always changes), or per-profile reset on
-                    // the active profile. Per-profile reset on a different
-                    // profile only touches a stored JSON, so leave the live
-                    // engine alone.
+                    // StopAll only when the reset flips the live engine: shared
+                    // category writes through to in-memory active state (always
+                    // changes), or per-profile reset on the active profile.
+                    // Per-profile reset on a different profile only touches a
+                    // stored JSON, so leave the live engine alone.
                     if (categoryIsShared || isActive)
                     {
                         try
@@ -307,8 +304,8 @@ public static class ProfileRoutes
                 }
                 pm.ResetCategory(id, category);
                 // Re-engage engines from the freshly-defaulted settings when
-                // the live state actually changed (active profile, or shared
-                // category that writes through to active).
+                // the live state changed (active profile, or shared category
+                // that writes through to active).
                 if (isActive || categoryIsShared)
                 {
                     LiveEngineSync.Apply(store, fans, lp);

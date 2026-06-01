@@ -12,8 +12,7 @@ namespace Nexus.Service.Sensors;
 /// <summary>
 /// Windows sensor provider backed by LibreHardwareMonitorLib. Reads CPU, GPU,
 /// Memory, Storage, Motherboard sensors including temperatures, fan speeds,
-/// voltages, clock speeds, and load — full parity with what the original
-/// control service provided.
+/// voltages, clock speeds, and load.
 ///
 /// Uses the shared LhmComputer singleton for hardware access so the Computer
 /// instance is shared with WindowsFanControlProvider. Updates are cheap
@@ -248,8 +247,8 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
         if (_ramBrandModel is not null) return _ramBrandModel;
         // PowerShell CIM is faster + AOT-safer than System.Management WMI. Pull
         // Manufacturer + PartNumber for the first physical DIMM. Multi-DIMM rigs
-        // almost always mix kits from the same SKU so a single module is enough
-        // for catalog matching; we can expand to a list if that turns out wrong.
+        // almost always mix kits from the same SKU, so one module is enough for
+        // catalog matching.
         var csv = ShellOut("powershell.exe", 5000,
             "-NoProfile", "-Command",
             "Get-CimInstance -ClassName Win32_PhysicalMemory | Select-Object -First 1 Manufacturer,PartNumber | ConvertTo-Csv -NoTypeInformation");
@@ -279,7 +278,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
     }
 
     /// <summary>
-    /// ConvertTo-Csv output on a 2-column (Manufacturer, Model) select gives us
+    /// ConvertTo-Csv output on a 2-column (Manufacturer, Model) select produces
     /// two quoted-or-bare lines: header row, then the values row. Strip quotes,
     /// drop sentinel values like "Standard disk drives" / "Not Specified", join
     /// manufacturer + model into a single matcher string. Returns "" if neither

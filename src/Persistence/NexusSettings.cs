@@ -261,7 +261,7 @@ public sealed class CoolingSettings
     public Dictionary<string, Nexus.Service.Models.Cooling.FanCalibration> FanCalibrations { get; set; } = new();
     /// <summary>Manually-set fan duty percentages keyed by channel ID. Persisted so they survive restarts and profile switches.</summary>
     public Dictionary<string, int> ManualSpeeds { get; set; } = new();
-    /// <summary>Active cooling preset: "off" | "silent" | "balanced" | "turbo" | "custom". "custom" lets existing installs upgrade cleanly.</summary>
+    /// <summary>Active cooling preset: "off" | "silent" | "balanced" | "turbo" | "custom".</summary>
     public string ActivePreset { get; set; } = InstallDefaults.Cooling.ActivePreset;
     /// <summary>Last-known custom mapping of fan channel id -> curve id. Empty entries mean the fan was on BIOS Control. Used to restore custom assignments when leaving Silent/Balanced/Performance/Off.</summary>
     public Dictionary<string, string> CustomFanCurveAssignments { get; set; } = new();
@@ -416,6 +416,18 @@ public sealed class AuthSettings
     public bool RemoteControlEnabled { get; set; } = InstallDefaults.Auth.RemoteControlEnabled;
 
     /// <summary>
+    /// Opt-in cloud-relay transport. When true AND
+    /// <see cref="RemoteControlEnabled"/> is also true, the service holds one
+    /// outbound relay socket per paired phone session so the panel can connect
+    /// when both ends have internet but cannot reach each other on the LAN
+    /// (hotel / client-isolated Wi-Fi). Default OFF for cost + privacy: the
+    /// relay forwards opaque end-to-end-encrypted frames and never parses
+    /// payloads, but holding the socket still costs bandwidth, so the user
+    /// turns it on deliberately in the Pair Remote modal. Workstation-level.
+    /// </summary>
+    public bool RelayEnabled { get; set; }
+
+    /// <summary>
     /// Controls whether the iOS companion app can find this host via
     /// Bonjour / mDNS over Wi-Fi. AirDrop-style three-state preference:
     /// <c>"never"</c>, <c>"always"</c> (default), or <c>"until"</c> with
@@ -447,6 +459,16 @@ public sealed class PanelPhoneSessionToken
     public string UserAgent { get; set; } = "";
     public string RemoteAddress { get; set; } = "";
     public string DeviceFingerprint { get; set; } = "";
+
+    /// <summary>
+    /// Client-provided stable device id (a UUID the phone/app persists across
+    /// re-pairings). Used to dedup authorized sessions on the relay path, where
+    /// there is no usable client IP/UA and so <see cref="DeviceFingerprint"/> is
+    /// empty: re-pairing the same device replaces its prior session instead of
+    /// accumulating duplicates. Empty for legacy sessions and for clients that
+    /// do not send one — those fall back to fingerprint-only dedup.
+    /// </summary>
+    public string DeviceId { get; set; } = "";
     public long CreatedAt { get; set; }
     public long LastSeenAt { get; set; }
     /// <summary>
@@ -457,6 +479,19 @@ public sealed class PanelPhoneSessionToken
     /// transport-level pinning already covers the threat.
     /// </summary>
     public bool ClaimedOverHttps { get; set; } = true;
+
+    /// <summary>
+    /// Base64 (standard, padded) of the relay root key for this session,
+    /// derived at claim time from the transient plaintext session token via
+    /// HKDF (<c>nexus-relay-root-v1</c>). The token itself is never stored
+    /// (only its <see cref="Hash"/>), so this is the one place the relay
+    /// client can recover the per-session E2E key without the token. The
+    /// browser client re-derives the same root from the token it holds, so the
+    /// relay (a dumb byte-forwarder) never sees either. Empty for sessions
+    /// claimed before the relay feature shipped — those simply can't relay
+    /// until they re-pair, which is the correct fail-closed behavior.
+    /// </summary>
+    public string RelayKey { get; set; } = "";
 }
 
 /// <summary>RGBA color used in firmware lighting + animations. Bytes for RGB, double for A (0..1).</summary>

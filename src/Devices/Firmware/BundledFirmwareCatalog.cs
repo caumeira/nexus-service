@@ -81,8 +81,7 @@ public sealed class BundledFirmwareCatalog
     /// <summary>
     /// True when <paramref name="available"/> is strictly newer than
     /// <paramref name="current"/>. Returns false if either is empty or
-    /// unparseable — we don't claim an update when we can't compare cleanly
-    /// (e.g. the device hasn't reported its version yet).
+    /// unparseable (e.g. the device hasn't reported its version yet).
     /// </summary>
     public static bool IsNewer(string available, string current)
     {

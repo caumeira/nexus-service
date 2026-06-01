@@ -19,11 +19,9 @@ namespace Nexus.Service.Helper;
 ///   <c>screenTime.session</c> - the prior focus session ended; the service
 ///                               persists it to SQLite.
 ///
-/// This is the user-session counterpart that replaces the in-process
-/// foreground polling that was running (but blind) on the LocalSystem
-/// service. The shape mirrors the original WindowsScreenTimeProvider
-/// (3-minute idle clip, lock-free apply path), just with the sink swapped
-/// from IScreenTimeStore.RecordSession to HelperOutbound.SendAsync.
+/// Runs in the user session: the LocalSystem service in Session 0 cannot see
+/// the foreground window. 3-minute idle clip, lock-free apply path; the sink
+/// is HelperOutbound.SendAsync.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class ScreenTimePoller : IDisposable

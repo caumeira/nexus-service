@@ -34,8 +34,8 @@ public sealed class HelperRegistry
         => _bySession.TryGetValue(sessionId, out var c) ? c : null;
 
     /// <summary>
-    /// Returns whichever connection exists. Phase 1 ships single-session-
-    /// only; this picks the only active helper without addressing multi-user.
+    /// Returns whichever connection exists. Single-session only: picks the
+    /// only active helper, does not address multi-user.
     /// </summary>
     public HelperConnection? GetAny()
     {

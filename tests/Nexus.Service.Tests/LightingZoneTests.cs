@@ -69,7 +69,8 @@ public class LightingZoneTests : IDisposable
     {
         var provider = new StubDeviceProvider(_store);
         provider.Identify("openrgb-0-0", 2000);
-        // Stub has no side effect we can assert - just verifies no throw.
+        // Stub has no observable side effect; asserts only that it doesn't
+        // throw.
     }
 
     [Fact]

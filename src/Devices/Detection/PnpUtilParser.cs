@@ -5,22 +5,18 @@ using System.Globalization;
 namespace Nexus.Service.Devices.Detection;
 
 /// <summary>
-/// Pure parser for `pnputil /enum-devices /connected /properties` output. We use
-/// `/properties` so we can pull the bus-reported device description
-/// (<c>DEVPKEY_Device_BusReportedDeviceDesc</c>) - this is the USB iProduct
-/// string reported by the device's own descriptor, e.g. "Corsair Gaming M65 Pro
-/// RGB Mouse" - which is far more useful than the driver's generic Device
-/// Description (often just "USB Input Device").
+/// Pure parser for `pnputil /enum-devices /connected /properties` output.
+/// `/properties` pulls the bus-reported device description
+/// (<c>DEVPKEY_Device_BusReportedDeviceDesc</c>) - the USB iProduct string
+/// from the device's own descriptor, e.g. "Corsair Gaming M65 Pro RGB Mouse"
+/// - rather than the driver's generic Device Description (often "USB Input
+/// Device").
 ///
-/// pnputil reports only currently-attached devices; the registry's Enum\USB
-/// subtree is historical and was the source of stale rows in an earlier impl.
+/// pnputil reports only currently-attached devices.
 ///
-/// Allocation note: Windows pnputil output is ~500 KB - 2 MB of text with
-/// 10k-25k lines. The previous implementation called <c>Split('\n')</c> which
-/// materialised a string[] of all of those as fresh allocations; we now walk
-/// the text by index and only materialise strings for the handful of values
-/// we store. Each enumeration used to cost ~5-10 MB of GC pressure; this is
-/// ~O(device count) strings allocated instead.
+/// Output is ~500 KB - 2 MB of text with 10k-25k lines. Walks the text by
+/// index and materialises strings only for the values stored
+/// (~O(device count)), avoiding the GC pressure of a full <c>Split('\n')</c>.
 /// </summary>
 internal static class PnpUtilParser
 {
@@ -191,8 +187,8 @@ internal static class PnpUtilParser
         }
 
         // Prefer the USB descriptor's own product string; fall back to the driver's
-        // generic Device Description. For composite devices all interface nodes
-        // share the parent's BusReportedDeviceDesc, so dedupe collapses them cleanly.
+        // generic Device Description. Composite-device interface nodes share the
+        // parent's BusReportedDeviceDesc, so the dedupe below collapses them.
         var name = busReported.Length > 0 ? busReported : deviceDescription;
 
         // Dedupe by (VID, PID, Name) - collapses composite interface nodes that

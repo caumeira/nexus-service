@@ -5,9 +5,8 @@ namespace Nexus.Service.Peripherals.Protocols.Razer;
 
 /// <summary>
 /// Factory for Razer peripherals. Looks up the VID/PID in the profile tables and
-/// spawns a generic <see cref="RazerMousePeripheral"/> (or keyboard, later) with
-/// the matching profile. New devices go in <see cref="RazerMouseProfiles"/> — no
-/// per-device C# files required.
+/// spawns a generic <see cref="RazerMousePeripheral"/> with the matching profile.
+/// New devices go in <see cref="RazerMouseProfiles"/>; no per-device C# files.
 /// </summary>
 public sealed class RazerPeripheralFactory
 {

@@ -44,7 +44,7 @@ public static class MacroActions
                 return Task.FromResult<JsonElement?>(ErrorJson("invalid url"));
             }
             // Cooldown by URL — refuses repeat dispatches within the
-            // window. Pure rate limit; a legitimate user tap two seconds
+            // window. Pure rate limit; a real user tap two seconds
             // later goes through.
             if (!TryClaimCooldown($"openUrl:{parsed.AbsoluteUri}", OpenUrlCooldownMs))
             {
@@ -114,8 +114,7 @@ public static class MacroActions
     }
 
     // AOT-safe ack helpers. Anonymous-type serialisation fails under the
-    // trimmer; using the typed DTO + AppJsonContext lets the source-gen
-    // contract carry the response through cleanly.
+    // trimmer; the typed DTO + AppJsonContext use the source-gen contract.
     private static JsonElement OkJson(string message)
     {
         var dto = new WidgetActionAckDto { Ok = true, Message = message };

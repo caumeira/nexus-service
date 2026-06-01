@@ -1,7 +1,7 @@
 namespace Nexus.Service.Lighting.Capture;
 
 /// <summary>
-/// Source of canvas-resolution screen-mirror frames. Two impls today:
+/// Source of canvas-resolution screen-mirror frames. Two impls:
 /// the cross-platform fallback (uses ffmpeg gdigrab on Windows / avfoundation
 /// on macOS) lives inline in <see cref="Effects.ScreenMirrorEffect"/>; the
 /// helper-backed impl <see cref="HelperScreenFrameSource"/> is used when the

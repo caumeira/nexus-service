@@ -110,8 +110,7 @@ public sealed class WidgetRegistry
             catch (Exception ex) when (ex is IOException or JsonException or UnauthorizedAccessException)
             {
                 // Malformed or unreadable manifests are skipped rather than
-                // failing service startup. Phase 1 will surface these to the
-                // dashboard so users can see why a bundle didn't appear.
+                // failing service startup.
                 Console.Error.WriteLine($"[widgets] skipping {dir}: {ex.GetType().Name}: {ex.Message}");
             }
         }

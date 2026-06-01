@@ -17,8 +17,7 @@ public static partial class DevicesRoutes
     {
         // Switch the LIVE cooling mode. Body: { mode: 0 (Software) | 1 (Motherboard) }.
         // The hub does not expose a "get current mode" command, so callers
-        // that need to know the active mode must cache what they last set —
-        // exactly what the cooling page does to render the per-fan dropdown.
+        // that need to know the active mode must cache what they last set.
         app.MapPut("/devices/minihub/cooling-mode", (MiniHubCoolingModeRequest body, MiniHubHub hub) =>
         {
             if (!hub.IsConnected)

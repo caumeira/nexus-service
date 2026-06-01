@@ -5,11 +5,9 @@ using Nexus.Service.Peripherals.Capabilities;
 namespace Nexus.Service.Peripherals.Protocols.Corsair;
 
 /// <summary>
-/// Corsair mouse detection shell. Corsair's vendor HID protocol (iCUE) isn't
-/// reverse-engineered to the level Razer / HID++ are in the open-source world,
-/// so for v1 we recognize the device identity and surface it in the UI but
-/// don't expose live capability controls yet. Configuration is "planned" —
-/// the user sees that Nexus knows about their Corsair peripheral.
+/// Corsair mouse detection shell. Recognizes the device identity and surfaces
+/// it in the UI; exposes no capability controls (Corsair's iCUE vendor protocol
+/// isn't reverse-engineered to the level Razer / HID++ are).
 /// </summary>
 public sealed class CorsairPeripheral : IPeripheral
 {

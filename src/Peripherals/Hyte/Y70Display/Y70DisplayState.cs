@@ -1,10 +1,10 @@
 namespace Nexus.Service.Peripherals.Hyte.Y70Display;
 
 /// <summary>
-/// Snapshot of the connected HYTE Y70 Touch display controller. v1 carries only
-/// what the Firmware Updates page needs: which variant is attached and the
-/// firmware version it reports. Brightness / screen control stays with the
-/// existing display-settings path.
+/// Snapshot of the connected HYTE Y70 Touch display controller. Carries what
+/// the Firmware Updates page needs: which variant is attached and the firmware
+/// version it reports. Brightness / screen control stays with the existing
+/// display-settings path.
 /// </summary>
 public sealed class Y70DisplayState
 {

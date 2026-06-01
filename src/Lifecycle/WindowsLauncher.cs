@@ -95,8 +95,7 @@ internal static class WindowsLauncher
 
     private static ServiceState QueryServiceState()
     {
-        // Use sc.exe rather than P/Invoke for AOT simplicity; one process
-        // spawn per launcher run is fine.
+        // sc.exe rather than P/Invoke: AOT-safe, one spawn per launcher run.
         var psi = new ProcessStartInfo("sc.exe")
         {
             RedirectStandardOutput = true,

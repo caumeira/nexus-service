@@ -281,17 +281,13 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
             return;
         }
 
-        // Bug fix: when the user has explicitly pinned the hub to a
-        // non-Software cooling mode (BIOS = Motherboard, FW Control = Static)
-        // via PUT /devices/np50/cooling-mode, swallow this write entirely.
-        // Without this guard the curve engine's next DriveFanSpeed call
-        // would flip the hub right back into Software mode via the
-        // SetDesiredCoolingMode call below, undoing the user's choice
-        // about 1 s after they made it. SetFanSpeed and DriveFanSpeed
-        // both funnel through here, so the guard covers the user-intent
-        // path too — picking BIOS on the panel implies "stop driving
-        // PWM from software," so dropping the duty write is exactly
-        // what we want.
+        // When the user has pinned the hub to a non-Software cooling mode
+        // (BIOS = Motherboard, FW Control = Static) via PUT
+        // /devices/np50/cooling-mode, swallow this write: otherwise the curve
+        // engine's next DriveFanSpeed would flip the hub back into Software mode
+        // via SetDesiredCoolingMode below, undoing the choice ~1s later. Both
+        // SetFanSpeed and DriveFanSpeed funnel through here; picking BIOS means
+        // "stop driving PWM from software," so dropping the duty write is right.
         var pinned = _hub.DesiredCoolingMode;
         if (pinned is byte mode && mode != Np50Protocol.ModeSoftware)
         {

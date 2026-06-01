@@ -24,7 +24,7 @@ namespace Nexus.Service.Routes;
 ///   2. The standard token-auth middleware that already covers every
 ///      non-SPA-fallback route. Loopback callers without a valid dashboard
 ///      token still get 401. This neutralizes DNS-rebind attacks too: a
-///      malicious cross-origin page can't read the legit dashboard's
+///      malicious cross-origin page can't read the real dashboard's
 ///      token, so its request hits 401 even after rebinding to 127.0.0.1.
 /// None of these routes call <c>.AllowPanel()</c>, so panel-session
 /// tokens (phones, Y70 displays) can't reach them either.

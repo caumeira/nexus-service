@@ -25,8 +25,8 @@ internal static class LinuxSerialDiscovery
     /// <summary>
     /// Enumerate attached serial ports whose USB parent reports
     /// <paramref name="vendorId"/> and one of <paramref name="productIds"/>.
-    /// Returns an empty list off-Linux (so the shared non-Windows compile unit
-    /// stays happy on macOS) and on any IO error.
+    /// Returns an empty list off-Linux (the shared non-Windows compile unit
+    /// also builds on macOS) and on any IO error.
     /// </summary>
     internal static IReadOnlyList<Match> Find(int vendorId, params int[] productIds)
         => OperatingSystem.IsLinux()

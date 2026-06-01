@@ -11,10 +11,9 @@ namespace Nexus.Service.Helper;
 /// <summary>
 /// Length-prefix framing over a byte-mode pipe. Each frame is a 4-byte
 /// little-endian unsigned length followed by exactly that many UTF-8 JSON
-/// bytes. Choosing this over message-mode pipes avoids the kernel-buffer
-/// foot-gun (message-mode pipes silently truncate or block when the
-/// payload exceeds the negotiated buffer size) and lets the receiver cap
-/// memory before reading attacker-controlled bytes.
+/// bytes. Used instead of message-mode pipes, which silently truncate or
+/// block when the payload exceeds the negotiated buffer size; this also lets
+/// the receiver cap memory before reading attacker-controlled bytes.
 /// </summary>
 internal static class Framing
 {

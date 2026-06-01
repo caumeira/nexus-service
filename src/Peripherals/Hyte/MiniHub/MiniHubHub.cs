@@ -8,8 +8,7 @@ namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 /// <summary>
 /// Singleton coordinator for a HYTE IBP MiniHub. Mirrors <see cref="Np50Hub"/>
 /// for the MiniHub product: opens the COM port lazily, exposes a state
-/// snapshot, and lets capability classes push LED frames. v1 ships
-/// lighting-only — fan poll/control is a follow-up.
+/// snapshot, and lets capability classes push LED frames + fan writes.
 /// </summary>
 public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
 {
@@ -89,10 +88,9 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
         {
             if (IsConnected) return true;
             var ports = _discovery.Discover();
-            // One-line trace so we can tell "no device" apart from "device
-            // found but port open failed" — both manifest as the hub
-            // silently staying disconnected. Logged at most every heartbeat
-            // tick which is fine.
+            // Trace to tell "no device" apart from "device found but port open
+            // failed"; both manifest as the hub staying disconnected. Logged at
+            // most once per heartbeat tick.
             Console.Error.WriteLine($"[minihub] discovery returned {ports.Count} port(s)");
             foreach (var port in ports)
             {
@@ -223,11 +221,10 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
         }
         catch (Exception ex)
         {
-            // See Np50Hub.SendOnly for the rationale: a single transient
-            // write hiccup at 30 Hz used to tear down the shared transport
-            // (which also affects the other hub on the same USB bus) and
-            // surface as visible flicker. Soften to "log and retry" until
-            // a sustained burst makes it clear the port is actually dead.
+            // See Np50Hub.SendOnly. Log and retry on a single write hiccup;
+            // only drop the transport after a sustained burst. Tearing it down
+            // on one hiccup at 30 Hz also kills the other hub on the same USB
+            // bus and surfaces as visible flicker.
             var n = Interlocked.Increment(ref _consecutiveWriteFailures);
             Console.Error.WriteLine($"[minihub] write failed (#{n}): {ex.GetType().Name}: {ex.Message}");
             if (n >= ConsecutiveWriteFailureThreshold)

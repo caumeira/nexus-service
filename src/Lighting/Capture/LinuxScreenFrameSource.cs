@@ -161,9 +161,9 @@ public sealed class LinuxScreenFrameSource : IScreenFrameSource
             gen = ++_stopGen; // any later Start()/Stop() supersedes this one
         }
         // Defer the kill: a Stop() immediately followed by Start() (the effect
-        // re-created on an RGB re-sync) should keep the same capture, not thrash
-        // a new portal session. A genuine mode switch leaves no Start() to cancel
-        // it, so the deferred kill fires.
+        // re-created on an RGB re-sync) keeps the same capture, not a new portal
+        // session. An actual mode switch leaves no Start() to cancel it, so the
+        // deferred kill fires.
         _ = Task.Delay(2500).ContinueWith(_ =>
         {
             lock (_lifeLock)

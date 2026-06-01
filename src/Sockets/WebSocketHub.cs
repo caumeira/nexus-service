@@ -8,19 +8,17 @@ using System.Threading.Tasks;
 namespace Nexus.Service.Sockets;
 
 /// <summary>
-/// Minimal WebSocket fan-out helper. Each WS endpoint gets its own WebSocketHub
-/// instance (registered as a singleton), holds the set of currently-connected
-/// clients, and exposes BroadcastBinary helpers. JSON broadcasts go through
-/// WsEnvelope.Build with an explicit AppJsonContext.Default.&lt;T&gt; - never serialize
-/// inside the hub.
+/// WebSocket fan-out helper. Each WS endpoint gets its own singleton instance
+/// holding the connected-client set and BroadcastBinary helpers. JSON
+/// broadcasts go through WsEnvelope.Build with an explicit
+/// AppJsonContext.Default.&lt;T&gt;; never serialize inside the hub.
 ///
-/// Lifecycle hooks (OnFirstClient / OnAllClientsGone) let the controller start
-/// and stop expensive subscriptions on demand - same pattern as the
-/// base WebSocket controller pattern but flatter.
+/// OnFirstClient / OnAllClientsGone let the controller start and stop expensive
+/// subscriptions on demand.
 ///
-/// Thread-safety: ConcurrentDictionary keeps the client set safe; each client
-/// has its own SemaphoreSlim guarding writes (WebSocket disallows concurrent
-/// SendAsync on the same socket).
+/// ConcurrentDictionary keeps the client set safe; each client has its own
+/// SemaphoreSlim guarding writes (WebSocket disallows concurrent SendAsync on
+/// the same socket).
 /// </summary>
 public class WebSocketHub
 {

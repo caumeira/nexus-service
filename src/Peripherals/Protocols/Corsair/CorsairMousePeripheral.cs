@@ -4,15 +4,15 @@ using Nexus.Service.Peripherals.Capabilities;
 namespace Nexus.Service.Peripherals.Protocols.Corsair;
 
 /// <summary>
-/// Corsair mouse with DPI + polling configuration. First pass uses the
-/// property-based protocol common to the M65 Pro generation; actual property
-/// IDs are probed at runtime since the exact IDs vary across models.
+/// Corsair mouse with DPI + polling configuration. Uses the property-based
+/// protocol common to the M65 Pro generation; property IDs are probed at
+/// runtime since the exact IDs vary across models.
 /// </summary>
 public sealed class CorsairMousePeripheral : IPeripheral, IDpiCapability, IPollingRateCapability
 {
-    // Property IDs observed across Corsair mouse generations. We'll try 0x21 first
-    // (M65 Pro / Sabre era) and fall back to others if needed. Stored as `int` so
-    // we can update at runtime without recomposing the instance.
+    // Property IDs observed across Corsair mouse generations. Tries 0x21 first
+    // (M65 Pro / Sabre era), falls back to others. Stored as `int` so they can
+    // be updated at runtime without recomposing the instance.
     private const byte PropDpi = 0x21;
     private const byte PropPollingRate = 0x0A;
 

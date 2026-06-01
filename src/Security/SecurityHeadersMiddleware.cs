@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Http;
 namespace Nexus.Service.Security;
 
 // Per-response cache-control + CSP headers for the SPA shell and any HTML
-// payload. Kept in one place so the policy is greppable.
+// payload.
 internal static class SecurityHeadersMiddleware
 {
     private static readonly HashSet<string> NoCacheShellPaths =

@@ -12,11 +12,11 @@ namespace Nexus.Service.Widgets;
 /// <c>{ widgetId, action, args }</c>; this registry maps action names
 /// to handlers that pull from the host's service collection.
 ///
-/// Two reasons this is a registry rather than just routes:
+/// A registry rather than plain routes because:
 ///  1. Per-widget capability allowlists (the manifest declares which
 ///     actions it wants — host validates before invoking).
-///  2. Decouples host endpoint paths from the SDK contract — when we
-///     rename <c>/displays</c> later, widgets aren't broken.
+///  2. Decouples host endpoint paths from the SDK contract, so renaming
+///     a host path (e.g. <c>/displays</c>) doesn't break widgets.
 /// </summary>
 public sealed class WidgetActionRegistry
 {

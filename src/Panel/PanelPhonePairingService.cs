@@ -28,6 +28,13 @@ public sealed class PanelPhonePairingService
     public static readonly TimeSpan HttpSessionIdle = TimeSpan.FromHours(24);
     private const int PairTtlSeconds = 60;
     private const int MaxSessions = 12;
+    /// <summary>
+    /// Upper bound on an accepted client-provided <c>deviceId</c>. A UUID is 36
+    /// chars; this leaves slack for a vendor-prefixed form while rejecting absurd
+    /// values that a misbehaving / hostile client could use to bloat settings.json.
+    /// An over-length id is treated as "no dedup id" (empty) rather than truncated.
+    /// </summary>
+    private const int MaxDeviceIdLength = 128;
     private const long LastSeenRefreshMs = 60_000;
     private const long RecentSessionWindowMs = LastSeenRefreshMs * 2 + 15_000;
     private static readonly long SessionIdleMs = (long)SessionIdle.TotalMilliseconds;
@@ -114,6 +121,58 @@ public sealed class PanelPhonePairingService
     public sealed record PairAttentionNotice(string DeviceLabel);
 
     /// <summary>
+    /// Fired whenever the set of outstanding (unconsumed, unexpired) QR pair
+    /// tokens changes — a token is minted in <see cref="CreatePairQr"/>, consumed
+    /// in <see cref="ClaimCore"/>, or reaped on expiry. <c>RelayConnectionService</c>
+    /// listens on this to reconcile its per-token pair rendezvous links the same
+    /// way it reconciles session links off <see cref="IConfigStore.OnChanged"/>:
+    /// it desires one host link per outstanding pair token (keyed by rid_pair)
+    /// when relay + remote control are on, and drops a link as soon as its token
+    /// leaves the set. No poll loop; this is the push signal.
+    /// </summary>
+    public event Action? OutstandingPairTokensChanged;
+
+    /// <summary>
+    /// An outstanding QR pair token plus its derived <see cref="PairRoot"/>. The
+    /// relay client uses <see cref="PairRoot"/> to derive the pair rendezvous id
+    /// (rid_pair) and the per-connection claim AEAD key; the plaintext
+    /// <see cref="Token"/> is what <see cref="ClaimCore"/> consumes once a phone
+    /// proves possession by completing the sealed handshake.
+    /// </summary>
+    public readonly record struct OutstandingPairToken(string Token, byte[] PairRoot);
+
+    /// <summary>
+    /// Snapshot the live (unconsumed, unexpired) pair tokens, each with its
+    /// derived pairRoot, for the relay client to register a pair rendezvous per
+    /// token. Prunes expired tokens first so the relay never desires a link for a
+    /// token that can no longer be claimed.
+    /// </summary>
+    public IReadOnlyList<OutstandingPairToken> GetOutstandingPairTokens()
+    {
+        List<string> tokens;
+        int reaped;
+        lock (_lock)
+        {
+            reaped = PruneExpiredPairsLocked();
+            tokens = _pairTokens.Keys.ToList();
+        }
+        // If expiry shrank the set, push the change so any reconcile that raced
+        // this read converges (and stale pair links get dropped) — no poll loop.
+        if (reaped > 0)
+            RaisePairTokensChanged();
+        var result = new List<OutstandingPairToken>(tokens.Count);
+        foreach (var token in tokens)
+            result.Add(new OutstandingPairToken(token, Nexus.Service.Relay.RelayCrypto.DerivePairRoot(token)));
+        return result;
+    }
+
+    private void RaisePairTokensChanged()
+    {
+        try { OutstandingPairTokensChanged?.Invoke(); }
+        catch { /* listener is best-effort; never let it break a claim/mint */ }
+    }
+
+    /// <summary>
     /// Single chokepoint for every pair-code "request" and "cancelled"
     /// frame. Fans the frame out to live dashboard subscribers, and — for a
     /// fresh "request" with no subscriber listening — raises
@@ -148,7 +207,7 @@ public sealed class PanelPhonePairingService
 
     /// <summary>
     /// Snapshot provider for <c>panel/phone/pair-code/request</c>. Returns
-    /// the live request envelope only while it is genuinely awaiting the
+    /// the live request envelope only while it is still awaiting the
     /// host's Allow/Deny — a phone has submitted (RequestId set), the host
     /// hasn't decided, and the TTL hasn't lapsed. Any other state returns
     /// null so a connecting dashboard sees nothing stale.
@@ -217,13 +276,15 @@ public sealed class PanelPhonePairingService
 
     public PanelPhonePairQrResponse CreatePairQr()
     {
-        PruneExpiredPairs();
         var token = CreateToken(24);
         var expires = DateTime.UtcNow.AddSeconds(PairTtlSeconds);
         lock (_lock)
         {
+            PruneExpiredPairsLocked();
             _pairTokens[token] = expires;
         }
+        // A fresh outstanding token: the relay registers its pair rendezvous.
+        RaisePairTokensChanged();
 
         var lanHost = LocalNetwork.GetLocalIp();
         var lanPort = HttpsPort > 0 ? HttpsPort : ServicePort;
@@ -268,36 +329,126 @@ public sealed class PanelPhonePairingService
     }
 
     public PanelPhoneClaimResponse Claim(string pairToken, HttpContext context)
+        => Claim(pairToken, deviceId: "", context);
+
+    public PanelPhoneClaimResponse Claim(string pairToken, string? deviceId, HttpContext context)
+    {
+        var userAgent = context.Request.Headers["User-Agent"].ToString();
+        var remoteAddress = context.Connection.RemoteIpAddress?.ToString() ?? "";
+        // A deviceId on the POST body wins; fall back to the ?deviceId= query
+        // param. Both claim paths funnel the same stable id into ClaimCore.
+        var effectiveDeviceId = string.IsNullOrWhiteSpace(deviceId)
+            ? context.Request.Query["deviceId"].ToString()
+            : deviceId;
+        var result = ClaimCore(
+            pairToken,
+            deviceName: DescribeDevice(userAgent),
+            userAgent: userAgent,
+            remoteAddress: remoteAddress,
+            deviceId: effectiveDeviceId,
+            overRelay: false,
+            claimedOverHttps: context.Request.IsHttps);
+
+        if (!result.Ok)
+            return new PanelPhoneClaimResponse { Paired = false, Error = result.Error };
+
+        return new PanelPhoneClaimResponse
+        {
+            Paired = true,
+            Token = result.SessionToken,
+            MachineName = result.MachineName,
+        };
+    }
+
+    /// <summary>
+    /// Outcome of <see cref="ClaimCore"/>. On success <see cref="SessionToken"/>
+    /// is the plaintext token the caller hands back to the phone (it is gone from
+    /// the PC afterward, hash-only), and <see cref="Spki"/> is the leaf SPKI
+    /// fingerprint. On failure <see cref="Error"/> mirrors the HTTP claim's
+    /// error sentinels.
+    /// </summary>
+    public readonly record struct ClaimResult(
+        bool Ok, string SessionToken, string MachineName, string Spki, string Error)
+    {
+        public static ClaimResult Fail(string error) => new(false, "", "", "", error);
+    }
+
+    /// <summary>
+    /// Single chokepoint for minting + storing a paired-phone session, shared by
+    /// the LAN HTTP <see cref="Claim"/> and the claim-over-relay path. Validates
+    /// the pair token (exists, not expired), CONSUMES it single-use (firing the
+    /// outstanding-token-changed event so the relay drops its pair rendezvous and
+    /// picks up the new session's runtime rendezvous), then mints a session token,
+    /// derives + stores its RelayKey, and returns the plaintext token once.
+    ///
+    /// <paramref name="overRelay"/> records the provenance; a relay-claimed
+    /// session is end-to-end authenticated (the AEAD decrypt of the claim request
+    /// already proves token possession), so it is stored
+    /// <see cref="PanelPhoneSessionToken.ClaimedOverHttps"/>=true to get the long
+    /// 30-day idle window, exactly like an SPKI-pinned HTTPS claim. There is no
+    /// remote IP / per-request UA bind on a relayed session — the relay obscures
+    /// the client address and a hard bind would 401 the app on every reconnect —
+    /// so it follows the same skip the HTTPS path uses.
+    /// </summary>
+    public ClaimResult ClaimCore(
+        string pairToken,
+        string deviceName,
+        string userAgent,
+        string remoteAddress,
+        string deviceId,
+        bool overRelay,
+        bool claimedOverHttps)
     {
         if (!GetRemoteControlEnabled())
-            return new PanelPhoneClaimResponse { Paired = false, Error = "remote-disabled" };
+            return ClaimResult.Fail("remote-disabled");
 
         if (string.IsNullOrWhiteSpace(pairToken))
-            return new PanelPhoneClaimResponse { Paired = false, Error = "missing pairing token" };
+            return ClaimResult.Fail("missing pairing token");
 
+        bool consumed;
         lock (_lock)
         {
             PruneExpiredPairsLocked();
             if (!_pairTokens.TryGetValue(pairToken, out var expires) || expires <= DateTime.UtcNow)
             {
                 _pairTokens.Remove(pairToken);
-                return new PanelPhoneClaimResponse { Paired = false, Error = "pairing token expired" };
+                return ClaimResult.Fail("pairing token expired");
             }
             _pairTokens.Remove(pairToken);
+            consumed = true;
         }
+
+        // The token is gone from the outstanding set: tell the relay so it tears
+        // down the pair rendezvous (and, once the session below is persisted,
+        // brings up that session's runtime rendezvous on the next reconcile).
+        if (consumed)
+            RaisePairTokensChanged();
 
         var sessionToken = CreateToken(32);
         var hash = HashToken(sessionToken);
+        var relayKey = ComputeRelayKey(sessionToken);
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var userAgent = context.Request.Headers["User-Agent"].ToString();
-        var remoteAddress = context.Connection.RemoteIpAddress?.ToString() ?? "";
-        var deviceFingerprint = BuildDeviceFingerprint(userAgent, remoteAddress);
-        var claimedOverHttps = context.Request.IsHttps;
+        var normalizedName = NormalizeSessionDisplayName(deviceName, userAgent);
+        // A relayed claim is E2E-authenticated and carries no usable client IP,
+        // so it skips the IP+UA bind — same treatment as an HTTPS-pinned claim.
+        var effectiveHttps = overRelay || claimedOverHttps;
+        var deviceFingerprint = overRelay ? "" : BuildDeviceFingerprint(userAgent, remoteAddress);
+        var normalizedDeviceId = NormalizeDeviceId(deviceId);
 
         _store.Update(s =>
         {
             s.Auth ??= new AuthSettings();
             s.Auth.PanelPhoneSessions ??= new List<PanelPhoneSessionToken>();
+            // Dedup = by deviceId OR by fingerprint. The client-provided
+            // deviceId covers the relay path (no usable IP/UA ⇒ empty
+            // fingerprint), while the fingerprint still covers LAN where IP/UA
+            // are available. Either match drops the prior session for this
+            // device so re-pairing replaces rather than accumulates.
+            if (!string.IsNullOrEmpty(normalizedDeviceId))
+            {
+                s.Auth.PanelPhoneSessions.RemoveAll(session =>
+                    string.Equals(session.DeviceId, normalizedDeviceId, StringComparison.Ordinal));
+            }
             if (!string.IsNullOrEmpty(deviceFingerprint))
             {
                 s.Auth.PanelPhoneSessions.RemoveAll(session =>
@@ -307,23 +458,39 @@ public sealed class PanelPhonePairingService
             {
                 Id = CreateToken(9),
                 Hash = hash,
-                Name = DescribeDevice(userAgent),
+                RelayKey = relayKey,
+                Name = normalizedName,
                 UserAgent = userAgent,
                 RemoteAddress = remoteAddress,
                 DeviceFingerprint = deviceFingerprint,
+                DeviceId = normalizedDeviceId,
                 CreatedAt = now,
                 LastSeenAt = now,
-                ClaimedOverHttps = claimedOverHttps,
+                ClaimedOverHttps = effectiveHttps,
             });
             NormalizeSessionList(s.Auth.PanelPhoneSessions, now);
         });
 
-        return new PanelPhoneClaimResponse
-        {
-            Paired = true,
-            Token = sessionToken,
-            MachineName = NormalizeMachineName(MachineName),
-        };
+        return new ClaimResult(
+            Ok: true,
+            SessionToken: sessionToken,
+            MachineName: NormalizeMachineName(MachineName),
+            Spki: SpkiFingerprint,
+            Error: "");
+    }
+
+    /// <summary>
+    /// Pick a stored session display name: a non-blank explicit device name wins
+    /// (the relay claim carries the phone's own label), otherwise fall back to
+    /// the UA-derived descriptor the HTTP claim has always used. Trimmed + capped
+    /// to match the QR/claim normalisation.
+    /// </summary>
+    private static string NormalizeSessionDisplayName(string? deviceName, string? userAgent)
+    {
+        var candidate = string.IsNullOrWhiteSpace(deviceName) ? DescribeDevice(userAgent ?? "") : deviceName.Trim();
+        if (string.IsNullOrWhiteSpace(candidate))
+            candidate = DescribeDevice(userAgent ?? "");
+        return candidate.Length <= 64 ? candidate : candidate[..64];
     }
 
     public PanelPhoneServiceInfoResponse GetServiceInfo()
@@ -354,6 +521,10 @@ public sealed class PanelPhonePairingService
                     LastSeenAt = lastSeen,
                     ExpiresAt = lastSeen > 0 ? lastSeen + SessionIdleMs : 0,
                     RecentlyActive = lastSeen > 0 && now - lastSeen <= RecentSessionWindowMs,
+                    // Live transport for this session: "relay" if a relay-bridged
+                    // hub client is up, "lan" for a direct /ws client, null if not
+                    // currently connected.
+                    ConnectedVia = _hub.GetConnectedTransport(s.Id ?? ""),
                 };
             })
             .ToList();
@@ -366,6 +537,41 @@ public sealed class PanelPhonePairingService
             Now = now,
             Sessions = items,
         };
+    }
+
+    /// <summary>
+    /// A paired phone session with the bytes the relay client needs to bring
+    /// up an end-to-end-encrypted host socket: the opaque <paramref name="Id"/>
+    /// (passed into the hub so the killswitch can close the relayed session)
+    /// and the decoded <paramref name="RelayRoot"/> (used to derive the rid and
+    /// per-connection AEAD key).
+    /// </summary>
+    public readonly record struct ActiveRelaySession(string Id, byte[] RelayRoot);
+
+    /// <summary>
+    /// Enumerate live sessions that can be relayed: every non-expired session
+    /// that carries a <see cref="PanelPhoneSessionToken.RelayKey"/> (sessions
+    /// paired before the relay feature shipped have none and are skipped — they
+    /// must re-pair). Returns each session's id plus the decoded relay root.
+    /// The plaintext token is never involved; the relay never sees the root.
+    /// </summary>
+    public IReadOnlyList<ActiveRelaySession> GetActiveRelaySessions()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var sessions = GetNormalizedSessionSnapshot(now);
+        var result = new List<ActiveRelaySession>(sessions.Count);
+        foreach (var session in sessions)
+        {
+            if (string.IsNullOrEmpty(session.Id) || string.IsNullOrEmpty(session.RelayKey))
+                continue;
+            byte[] relayRoot;
+            try { relayRoot = Convert.FromBase64String(session.RelayKey); }
+            catch (FormatException) { continue; }
+            if (relayRoot.Length != Nexus.Service.Relay.RelayCrypto.RelayRootLength)
+                continue;
+            result.Add(new ActiveRelaySession(session.Id, relayRoot));
+        }
+        return result;
     }
 
     public async Task<bool> RevokeSessionAsync(string id)
@@ -382,8 +588,16 @@ public sealed class PanelPhonePairingService
             removed = sessions.RemoveAll(session =>
                 string.Equals(session.Id, id, StringComparison.Ordinal)) > 0;
         });
+        // The session is already gone from the store; kicking the live client is
+        // best-effort cleanup. Never let a close failure (e.g. a relay-bridged
+        // client whose transport already faulted) turn a successful revoke into
+        // an HTTP 500 — the device list would show it removed yet the request
+        // would report failure.
         if (removed)
-            await _hub.KickPhoneSessionsAsync(new[] { id });
+        {
+            try { await _hub.KickPhoneSessionsAsync(new[] { id }).ConfigureAwait(false); }
+            catch { /* removal succeeded; kick is best-effort */ }
+        }
         return removed;
     }
 
@@ -429,7 +643,10 @@ public sealed class PanelPhonePairingService
             sessions.Clear();
         });
         if (removed > 0)
-            await _hub.KickAllPhoneAsync();
+        {
+            try { await _hub.KickAllPhoneAsync().ConfigureAwait(false); }
+            catch { /* removal succeeded; kick is best-effort */ }
+        }
         return removed;
     }
 
@@ -463,6 +680,35 @@ public sealed class PanelPhonePairingService
         });
         if (changed && !enabled)
             await _hub.KickAllPhoneAsync();
+    }
+
+    /// <summary>
+    /// Returns whether the opt-in cloud-relay transport is enabled. The relay
+    /// connection is only held when this AND <see cref="GetRemoteControlEnabled"/>
+    /// are both true. Default false.
+    /// </summary>
+    public bool GetRelayEnabled()
+    {
+        return _store.Load().Auth?.RelayEnabled ?? false;
+    }
+
+    /// <summary>
+    /// Persists the relay opt-in. The write goes through
+    /// <see cref="IConfigStore.Update"/>, which fires
+    /// <see cref="IConfigStore.OnChanged"/>; <c>RelayConnectionService</c>
+    /// listens on that signal and opens / tears down its host sockets — no
+    /// poll loop. Turning the relay off therefore closes every relayed session
+    /// as a side effect of the service reconciling to the new state.
+    /// </summary>
+    public void SetRelayEnabled(bool enabled)
+    {
+        _store.Update(s =>
+        {
+            s.Auth ??= new AuthSettings();
+            if (s.Auth.RelayEnabled == enabled)
+                return;
+            s.Auth.RelayEnabled = enabled;
+        });
     }
 
     /// <summary>
@@ -580,19 +826,16 @@ public sealed class PanelPhonePairingService
         return false;
     }
 
-    private void PruneExpiredPairs()
-    {
-        lock (_lock)
-        {
-            PruneExpiredPairsLocked();
-        }
-    }
-
-    private void PruneExpiredPairsLocked()
+    /// <summary>Drop every lapsed pair token. Returns how many were removed so
+    /// the caller can fire <see cref="OutstandingPairTokensChanged"/> after
+    /// releasing <see cref="_lock"/> when the outstanding set actually shrank.</summary>
+    private int PruneExpiredPairsLocked()
     {
         var now = DateTime.UtcNow;
-        foreach (var token in _pairTokens.Where(kvp => kvp.Value <= now).Select(kvp => kvp.Key).ToList())
+        var expired = _pairTokens.Where(kvp => kvp.Value <= now).Select(kvp => kvp.Key).ToList();
+        foreach (var token in expired)
             _pairTokens.Remove(token);
+        return expired.Count;
     }
 
     private void TouchSession(string hash, long now)
@@ -737,10 +980,12 @@ public sealed class PanelPhonePairingService
         {
             Id = session.Id,
             Hash = session.Hash,
+            RelayKey = session.RelayKey,
             Name = session.Name,
             UserAgent = session.UserAgent,
             RemoteAddress = session.RemoteAddress,
             DeviceFingerprint = session.DeviceFingerprint,
+            DeviceId = session.DeviceId,
             CreatedAt = session.CreatedAt,
             LastSeenAt = session.LastSeenAt,
             ClaimedOverHttps = session.ClaimedOverHttps,
@@ -807,6 +1052,22 @@ public sealed class PanelPhonePairingService
         return string.Join(
             " ",
             (value ?? "").Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    /// <summary>
+    /// Validate + normalize a client-provided device id for dedup. Trims
+    /// surrounding whitespace; treats empty / whitespace-only as "no dedup id"
+    /// (returns ""), and rejects (also returns "") absurdly long values rather
+    /// than truncating — a truncated id could collide with a different device's
+    /// id. Kept case-sensitive: the contract is an opaque persisted UUID, and
+    /// the dedup compare is Ordinal.
+    /// </summary>
+    private static string NormalizeDeviceId(string? value)
+    {
+        var trimmed = (value ?? "").Trim();
+        if (trimmed.Length == 0 || trimmed.Length > MaxDeviceIdLength)
+            return "";
+        return trimmed;
     }
 
     private static string NormalizeMachineName(string? value)
@@ -896,6 +1157,20 @@ public sealed class PanelPhonePairingService
         return HashValue(token);
     }
 
+    /// <summary>
+    /// Derive the per-session relay root from the transient plaintext token and
+    /// encode it as standard (padded) base64 for storage in
+    /// <see cref="PanelPhoneSessionToken.RelayKey"/>. Called only at claim time,
+    /// while the plaintext token is still in hand; afterward the token is gone
+    /// (hash-only) and this value is the sole way the relay client recovers the
+    /// E2E key for the session.
+    /// </summary>
+    private static string ComputeRelayKey(string sessionToken)
+    {
+        var relayRoot = Nexus.Service.Relay.RelayCrypto.DeriveRelayRoot(sessionToken);
+        return Convert.ToBase64String(relayRoot);
+    }
+
     private static string HashValue(string value)
     {
         var hash = SHA256.HashData(Encoding.UTF8.GetBytes(value));
@@ -911,9 +1186,8 @@ public sealed class PanelPhonePairingService
     /// Dashboard-side: mint a fresh 6-digit code, supersede any prior
     /// in-flight code (publishes a "cancelled" frame so an open dashboard
     /// shows the old code as expired). Returns a "remote-disabled" sentinel
-    /// when the killswitch is off - the dashboard already shows the kill
-    /// state, but we don't want to mint a code that the phone will then be
-    /// told "remote-disabled" for on submit.
+    /// when the killswitch is off, so a code that would be rejected on
+    /// submit is never minted.
     /// </summary>
     public PanelPhonePairCodeStartResponse StartPairCode()
     {
@@ -1326,6 +1600,7 @@ public sealed class PanelPhonePairingService
     {
         var sessionToken = CreateToken(32);
         var hash = HashToken(sessionToken);
+        var relayKey = ComputeRelayKey(sessionToken);
         var userAgent = state.PhoneUserAgent;
         var remoteAddress = state.PhoneRemoteAddress;
         var deviceFingerprint = BuildDeviceFingerprint(userAgent, remoteAddress);
@@ -1344,6 +1619,7 @@ public sealed class PanelPhonePairingService
             {
                 Id = CreateToken(9),
                 Hash = hash,
+                RelayKey = relayKey,
                 Name = DescribeDevice(userAgent),
                 UserAgent = userAgent,
                 RemoteAddress = remoteAddress,

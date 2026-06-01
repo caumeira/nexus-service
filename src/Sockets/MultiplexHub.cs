@@ -34,6 +34,18 @@ public sealed class MultiplexHub
     public event TopicEvent? OnTopicLastUnsubscriber;
 
     /// <summary>
+    /// Wire by which a phone-session client reached the hub: a direct LAN
+    /// WebSocket (<see cref="Lan"/>) or a frame bridged through the cloud relay
+    /// (<see cref="Relay"/>). Carried per-client so the sessions list can report
+    /// how each currently-connected paired phone is talking to the PC.
+    /// </summary>
+    public enum ClientTransport
+    {
+        Lan,
+        Relay,
+    }
+
+    /// <summary>
     /// Register a snapshot provider for a topic whose broadcast cadence is slow
     /// or event-driven. When a client subscribes, the hub immediately sends the
     /// provider's current envelope (if any) to that one client, so late
@@ -113,19 +125,24 @@ public sealed class MultiplexHub
     public int ClientCount => _clients.Count;
 
     public Task HandleClientAsync(WebSocket socket, CancellationToken cancellationToken = default)
-        => HandleClientAsync(socket, phoneSessionId: null, cancellationToken);
+        => HandleClientAsync(socket, phoneSessionId: null, ClientTransport.Lan, cancellationToken);
+
+    public Task HandleClientAsync(WebSocket socket, string? phoneSessionId, CancellationToken cancellationToken = default)
+        => HandleClientAsync(socket, phoneSessionId, ClientTransport.Lan, cancellationToken);
 
     /// <summary>
     /// Accept a multiplexed WebSocket. When <paramref name="phoneSessionId"/>
     /// is non-null, this client is treated as a Pair Remote session and can
     /// be force-closed by <see cref="KickPhoneSessionsAsync"/> /
     /// <see cref="KickAllPhoneAsync"/>. Local desktop / panel-kiosk callers
-    /// pass null and stay unkickable.
+    /// pass null and stay unkickable. <paramref name="transport"/> records the
+    /// wire the client reached us on (LAN /ws vs the relay bridge) so the
+    /// sessions list can report it; defaults to LAN.
     /// </summary>
-    public async Task HandleClientAsync(WebSocket socket, string? phoneSessionId, CancellationToken cancellationToken = default)
+    public async Task HandleClientAsync(WebSocket socket, string? phoneSessionId, ClientTransport transport, CancellationToken cancellationToken = default)
     {
         var id = Guid.NewGuid();
-        var client = new SubscribedClient(socket, phoneSessionId);
+        var client = new SubscribedClient(socket, phoneSessionId, transport);
         _clients[id] = client;
 
         try
@@ -202,8 +219,7 @@ public sealed class MultiplexHub
     /// loop in <see cref="HandleClientAsync"/>, and the finalizer there
     /// removes the entry from <see cref="_clients"/>. Local desktop / panel
     /// clients (phoneSessionId == null) are never touched. Kicks fan out
-    /// in parallel so a single slow socket can't delay the rest - "OFF
-    /// means OFF" must not stall on one stuck client.
+    /// in parallel so a single slow socket can't delay the rest.
     /// </summary>
     public Task KickPhoneSessionsAsync(IReadOnlyCollection<string> sessionIds)
     {
@@ -215,7 +231,7 @@ public sealed class MultiplexHub
         foreach (var (_, client) in _clients)
         {
             if (client.PhoneSessionId is { } sid && ids.Contains(sid))
-                tasks.Add(client.CloseRevokedAsync());
+                tasks.Add(CloseClientSafeAsync(client));
         }
         return tasks.Count == 0 ? Task.CompletedTask : Task.WhenAll(tasks);
     }
@@ -231,9 +247,49 @@ public sealed class MultiplexHub
         foreach (var (_, client) in _clients)
         {
             if (client.PhoneSessionId is not null)
-                tasks.Add(client.CloseRevokedAsync());
+                tasks.Add(CloseClientSafeAsync(client));
         }
         return tasks.Count == 0 ? Task.CompletedTask : Task.WhenAll(tasks);
+    }
+
+    /// <summary>
+    /// Close one kicked client, isolating any failure so a single client's close
+    /// error can never fault the whole revoke (which would surface as an HTTP 500
+    /// on the revoke endpoint). <see cref="SubscribedClient.CloseRevokedAsync"/>
+    /// already swallows internally; this is a second belt so the killswitch
+    /// semantics — "kick still closes every client, just can't throw" — hold even
+    /// if a future close path regresses.
+    /// </summary>
+    private static async Task CloseClientSafeAsync(SubscribedClient client)
+    {
+        try { await client.CloseRevokedAsync().ConfigureAwait(false); }
+        catch { /* one client's close must not fail the revoke */ }
+    }
+
+    /// <summary>
+    /// Report how the given phone session is currently connected to the hub:
+    /// <c>"relay"</c> if any live client for that session id is bridged through
+    /// the cloud relay, <c>"lan"</c> if connected only via a direct LAN
+    /// WebSocket, or <c>null</c> if no client for that session is connected.
+    /// Relay wins over LAN when a session somehow has both (a relay bridge
+    /// being torn down while a LAN socket is up), since the relay is the
+    /// transport the user toggled and most wants surfaced.
+    /// </summary>
+    public string? GetConnectedTransport(string phoneSessionId)
+    {
+        if (string.IsNullOrEmpty(phoneSessionId))
+            return null;
+
+        var sawLan = false;
+        foreach (var (_, client) in _clients)
+        {
+            if (!string.Equals(client.PhoneSessionId, phoneSessionId, StringComparison.Ordinal))
+                continue;
+            if (client.Transport == ClientTransport.Relay)
+                return "relay";
+            sawLan = true;
+        }
+        return sawLan ? "lan" : null;
     }
 
     /// <summary>
@@ -376,26 +432,53 @@ public sealed class MultiplexHub
         /// </summary>
         public string? PhoneSessionId { get; }
 
-        public SubscribedClient(WebSocket socket, string? phoneSessionId = null)
+        /// <summary>Wire this client reached the hub on (LAN /ws vs relay bridge).</summary>
+        public ClientTransport Transport { get; }
+
+        public SubscribedClient(WebSocket socket, string? phoneSessionId = null, ClientTransport transport = ClientTransport.Lan)
         {
             _socket = socket;
             PhoneSessionId = phoneSessionId;
+            Transport = transport;
         }
 
         public async Task CloseRevokedAsync()
         {
-            await _writeLock.WaitAsync();
+            // Kicking a client must never throw out of the revoke path (a thrown
+            // close would fault Task.WhenAll in the hub and 500 the revoke
+            // endpoint). The await is inside the try because _writeLock can be
+            // disposed underneath us: the receive loop in HandleClientAsync
+            // disposes this client the instant its socket reports Close, and a
+            // relay-bridged client closes that fast — RelayWebSocket.CloseAsync
+            // aborts the relay transport, which immediately unblocks that loop.
+            // So WaitAsync (or the finally Release) can race an ObjectDisposed.
+            bool acquired = false;
             try
             {
+                await _writeLock.WaitAsync().ConfigureAwait(false);
+                acquired = true;
                 if (_socket.State == WebSocketState.Open)
                 {
-                    await _socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "revoked", CancellationToken.None);
+                    await _socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "revoked", CancellationToken.None)
+                        .ConfigureAwait(false);
                 }
             }
-            catch { }
+            catch
+            {
+                // Socket already closing / disposed, transport faulted, or the
+                // write lock was disposed by a concurrent teardown. The session
+                // is being removed regardless; swallow so the kick still
+                // completes for every other client. Force a transport abort so
+                // a relay-bridged client still gets torn down (and the phone
+                // still sees the revoked close) even if the orderly close threw.
+                try { _socket.Abort(); } catch { /* best effort */ }
+            }
             finally
             {
-                _writeLock.Release();
+                if (acquired)
+                {
+                    try { _writeLock.Release(); } catch { /* lock disposed under us */ }
+                }
             }
         }
 

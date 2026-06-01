@@ -65,10 +65,6 @@ public sealed class MacSensorProvider : ISensorProvider
 
     public IReadOnlyList<HardwareSensor> GetCpuSensors()
     {
-        // Only macOS uses this provider at runtime. Windows goes to
-        // LibreHardwareSensorProvider (real CPU telemetry via LHM); Linux
-        // goes to LinuxSensorProvider (/proc + /sys). Both are registered
-        // ahead of MacSensorProvider in DI.
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
             return EmptySensors;

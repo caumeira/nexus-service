@@ -9,11 +9,9 @@ namespace Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 /// <summary>
 /// Singleton coordinator for a HYTE Q-series (Q60 / Q80) cooler controller.
 /// Mirrors <see cref="Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubHub"/>:
-/// opens the COM port lazily, polls the firmware version, and exposes a state
-/// snapshot. Reuses the product-agnostic <see cref="Np50SerialTransport"/>.
-///
-/// v1 reads firmware version + variant only. The same channel will later carry
-/// the in-app "drop into DFU" handshake that the flasher needs.
+/// opens the COM port lazily, polls the firmware version, exposes a state
+/// snapshot, streams LED frames, and carries the "drop into DFU" handshake.
+/// Reuses the product-agnostic <see cref="Np50SerialTransport"/>.
 /// </summary>
 public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
 {
@@ -48,7 +46,7 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
 
     /// <summary>
     /// LEDs addressed per Q-series lighting card. One 90-byte port frame carries
-    /// <see cref="QSeriesCoolerProtocol.MaxLedsPerPort"/> (27) LEDs; v1 surfaces a single
+    /// <see cref="QSeriesCoolerProtocol.MaxLedsPerPort"/> (27) LEDs; surfaces a single
     /// linear zone of that size streamed to every port (see <see cref="WriteLighting"/>).
     /// </summary>
     public const int LedCount = QSeriesCoolerProtocol.MaxLedsPerPort;
@@ -70,7 +68,7 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     /// </summary>
     public void WriteLighting(ReadOnlySpan<RgbColor> leds)
     {
-        // Serialize the whole write sequence under _lock (re-entrant): the 30 Hz
+        // Serialize the write sequence under _lock (re-entrant): the 30 Hz
         // frame writer and the 3 s heartbeat both touch the transport, and Disconnect
         // disposes it under the same lock. Without this a heartbeat-triggered Disconnect
         // could tear the port down mid-frame, and _rgbInSwControl could be read stale

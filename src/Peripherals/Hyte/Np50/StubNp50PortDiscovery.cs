@@ -3,10 +3,10 @@ using System.Collections.Generic;
 namespace Nexus.Service.Peripherals.Hyte.Np50;
 
 /// <summary>
-/// Non-Windows discovery stub. Returns an empty list so the rest of the
-/// service composes cleanly on macOS/Linux dev builds. A real Linux
-/// implementation would scan <c>/sys/class/tty/&lt;name&gt;/device/</c> and
-/// match <c>idVendor</c>/<c>idProduct</c>; that's a v2 follow-up.
+/// Discovery stub for platforms with no real implementation (macOS dev
+/// builds). Returns an empty list. Windows uses
+/// <see cref="WindowsNp50PortDiscovery"/> and Linux uses
+/// <see cref="LinuxNp50PortDiscovery"/>.
 /// </summary>
 public sealed class StubNp50PortDiscovery : INp50PortDiscovery
 {

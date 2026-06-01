@@ -18,6 +18,14 @@ public sealed class PanelPhonePairQrResponse
 public sealed class PanelPhoneClaimBody
 {
     public string PairToken { get; set; } = "";
+
+    /// <summary>
+    /// Stable client-persisted device id (a UUID). Used to dedup authorized
+    /// sessions so re-pairing the same device replaces its prior session. May
+    /// also be supplied as a <c>?deviceId=</c> query param; the body value wins.
+    /// Empty / missing falls back to fingerprint-based dedup (legacy behavior).
+    /// </summary>
+    public string DeviceId { get; set; } = "";
 }
 
 public sealed class PanelPhoneClaimResponse
@@ -69,6 +77,13 @@ public sealed class PanelPhoneSessionDto
     public long LastSeenAt { get; set; }
     public long ExpiresAt { get; set; }
     public bool RecentlyActive { get; set; }
+    /// <summary>
+    /// How this session is connected to the PC right now: <c>"relay"</c> when a
+    /// live hub client for it is bridged through the cloud relay, <c>"lan"</c>
+    /// when connected via a direct LAN WebSocket, or <c>null</c> when the session
+    /// is authorized but not currently connected.
+    /// </summary>
+    public string? ConnectedVia { get; set; }
 }
 
 public sealed class PanelStatusResponse
@@ -87,6 +102,122 @@ public sealed class RemoteControlStateResponse
 public sealed class RemoteControlToggleRequest
 {
     public bool Enabled { get; set; }
+}
+
+/// <summary>Cloud-relay transport opt-in state (GET /panel/phone/relay).</summary>
+public sealed class RelayStateResponse
+{
+    public bool Enabled { get; set; }
+}
+
+/// <summary>Cloud-relay transport opt-in toggle (POST /panel/phone/relay).</summary>
+public sealed class RelayToggleRequest
+{
+    public bool Enabled { get; set; }
+}
+
+/// <summary>
+/// First message the host sends on a relay socket:
+/// <c>{"v":1,"role":"host","rid":"&lt;rid&gt;"}</c>. The relay maps the rid to a
+/// rendezvous slot and forwards opaque binary frames to whichever client
+/// presents the same rid. The relay never sees the key the rid is derived from.
+/// </summary>
+public sealed class RelayHostHello
+{
+    public int V { get; set; } = 1;
+    public string Role { get; set; } = "host";
+    public string Rid { get; set; } = "";
+}
+
+/// <summary>
+/// Wire message-type discriminators for the claim-over-relay handshake. A
+/// brand-new phone with no LAN reachability connects to the pair rendezvous
+/// (rid_pair), then exchanges exactly these two sealed BINARY frames with the
+/// PC. Kept as named constants so neither end sprinkles the raw literal.
+/// </summary>
+public static class RelayClaimMessageTypes
+{
+    /// <summary>phone→PC sealed request: <c>{"type":"claim","deviceName":"…","deviceId":"…"}</c>.</summary>
+    public const string Claim = "claim";
+    /// <summary>PC→phone sealed success: carries the freshly-minted session token.</summary>
+    public const string ClaimOk = "claim-ok";
+    /// <summary>PC→phone sealed failure: <c>{"type":"claim-err","error":"…"}</c>.</summary>
+    public const string ClaimErr = "claim-err";
+}
+
+/// <summary>
+/// phone→PC sealed claim request, sent over the pair rendezvous (rid_pair) once
+/// the AEAD channel is up. Possession of the QR pair token is proven by the
+/// successful AEAD decrypt — the rid_pair already pins which token the PC is
+/// claiming, so the token itself is never put on the wire.
+/// </summary>
+public sealed class RelayClaimRequest
+{
+    public string Type { get; set; } = RelayClaimMessageTypes.Claim;
+    public string DeviceName { get; set; } = "";
+
+    /// <summary>
+    /// Stable client-persisted device id (a UUID). When present, the PC dedups
+    /// authorized sessions on it so re-pairing the same phone over the relay
+    /// replaces its prior session instead of accumulating duplicates — the relay
+    /// obscures the client IP/UA, so fingerprint-based dedup can't see it. Empty
+    /// / missing falls back to no relay-side dedup (legacy behavior).
+    /// </summary>
+    public string DeviceId { get; set; } = "";
+}
+
+/// <summary>
+/// PC→phone sealed claim reply. On success <see cref="Type"/> is
+/// <c>claim-ok</c> with the new <see cref="SessionToken"/> (the phone then
+/// derives the SESSION relayRoot/rid from it and opens a runtime relay channel),
+/// <see cref="MachineName"/>, and the PC's leaf <see cref="Spki"/> fingerprint.
+/// On failure <see cref="Type"/> is <c>claim-err</c> and <see cref="Error"/>
+/// carries the reason (mirrors the HTTP claim's error sentinels).
+/// </summary>
+public sealed class RelayClaimResponse
+{
+    public string Type { get; set; } = RelayClaimMessageTypes.ClaimOk;
+    public string SessionToken { get; set; } = "";
+    public string MachineName { get; set; } = "";
+    public string Spki { get; set; } = "";
+    public string Error { get; set; } = "";
+}
+
+/// <summary>
+/// One REST-over-relay tunnel request, sent client→PC (dir=2) as a sealed BINARY
+/// frame on the session's <c>rid_http</c> rendezvous. The off-LAN panel's normal
+/// fetch() calls (device list, layout, controls) are serialized into these so
+/// they reach the PC's own HTTP handlers through the relay. <see cref="Id"/>
+/// multiplexes concurrent in-flight requests on the one channel; the PC echoes
+/// it back on the matching <see cref="RelayHttpResponse"/>.
+/// </summary>
+public sealed class RelayHttpRequest
+{
+    /// <summary>Caller-assigned correlation id; echoed on the response.</summary>
+    public int Id { get; set; }
+    /// <summary>HTTP method (GET/POST/PUT/DELETE/PATCH).</summary>
+    public string Method { get; set; } = "GET";
+    /// <summary>Request path + optional query (e.g. <c>/panel/status</c>); must clear the allowlist.</summary>
+    public string Path { get; set; } = "";
+    /// <summary>UTF-8 request body, or null for bodyless methods.</summary>
+    public string? Body { get; set; }
+    /// <summary>Content-Type for <see cref="Body"/>, or null.</summary>
+    public string? ContentType { get; set; }
+}
+
+/// <summary>
+/// The PC's sealed reply to a <see cref="RelayHttpRequest"/>, sent PC→client
+/// (dir=1). <see cref="Id"/> matches the request so the panel resolves the right
+/// pending fetch. <see cref="Status"/> is the real HTTP status the in-process
+/// dispatch produced (or 403 for an off-allowlist path / 413 for an oversized
+/// body); <see cref="Body"/> is the captured UTF-8 response body.
+/// </summary>
+public sealed class RelayHttpResponse
+{
+    public int Id { get; set; }
+    public int Status { get; set; }
+    public string Body { get; set; } = "";
+    public string? ContentType { get; set; }
 }
 
 /// <summary>Wi-Fi discoverability (mDNS) preference; AirDrop-style three-state.</summary>

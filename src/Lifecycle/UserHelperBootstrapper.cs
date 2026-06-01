@@ -15,9 +15,9 @@ namespace Nexus.Service.Lifecycle;
 /// foreground window, can't query SMTC media, etc. The helper lives in the
 /// user session and does all of that on the service's behalf.
 ///
-/// Unconditional: no <c>ShowWindowsTrayIcon</c> gate. That preference now
-/// only controls tray-icon visibility, not whether the helper exists. The
-/// helper hosts more than the tray.
+/// Unconditional: no <c>ShowWindowsTrayIcon</c> gate. That preference controls
+/// tray-icon visibility only; the helper hosts more than the tray, so it runs
+/// regardless.
 ///
 /// Cross-session launch uses schtasks (Task Scheduler service handles the
 /// session/profile setup that direct CreateProcessAsUser fails on).

@@ -158,9 +158,9 @@ public sealed class SteamProvider : ISteamProvider
         return achievements;
     }
 
-    // The next five endpoints are intentionally pass-through with no caching.
-    // The expanded Steam page hits Steam directly each call so "live" panels
-    // (concurrent players, news, recent unlocks) reflect actual server state.
+    // The next five endpoints are pass-through, no caching: the expanded Steam
+    // page hits Steam each call so "live" panels (concurrent players, news,
+    // recent unlocks) reflect actual server state.
     public async Task<SteamCurrentPlayers> GetCurrentPlayersAsync(int appId, CancellationToken cancellationToken)
     {
         return await CreateAnonymousClient().GetCurrentPlayersAsync(appId, cancellationToken).ConfigureAwait(false);

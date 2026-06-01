@@ -10,9 +10,9 @@ using Nexus.Service.Peripherals.Protocols.Razer;
 namespace Nexus.Service.Peripherals;
 
 /// <summary>
-/// Owns the live set of third-party peripherals detected on the system. Polls the
-/// existing USB enumerator on demand; for each matching VID/PID it delegates to the
-/// appropriate vendor factory (Razer + Corsair today; Logitech HID++ to follow).
+/// Owns the live set of third-party peripherals detected on the system. Polls
+/// the USB enumerator on demand; for each matching VID/PID it delegates to the
+/// vendor factory (Razer, Corsair).
 ///
 /// Instances are cached by (VID, PID, Serial) to keep HID handles open across requests.
 /// Unplugged devices are closed and removed on the next snapshot that omits them.
@@ -86,7 +86,7 @@ public sealed class PeripheralRegistry : IDisposable
             {
                 peripheral = _corsair.TryCreate(_hid, usb.ProductId, usb.Serial ?? "");
             }
-            // TODO: Logitech HID++ factory, etc.
+            // TODO: Logitech HID++ factory.
 
             if (peripheral is not null)
             {

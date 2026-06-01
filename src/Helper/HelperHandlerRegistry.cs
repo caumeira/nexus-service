@@ -12,10 +12,9 @@ namespace Nexus.Service.Helper;
 /// envelope <c>Type</c> string; the read loop calls
 /// <see cref="DispatchAsync"/> for every inbound envelope.
 ///
-/// This replaces the previous god-switch in <c>HelperClientCommands</c>:
-/// each domain now owns its handler under <c>Helper/Domains/</c> and calls
-/// <see cref="Register"/> at helper startup. Adding a domain no longer
-/// edits this file.
+/// Each domain owns its handler under <c>Helper/Domains/</c> and calls
+/// <see cref="Register"/> at helper startup; adding a domain does not edit
+/// this file.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class HelperHandlerRegistry
@@ -25,8 +24,7 @@ public sealed class HelperHandlerRegistry
     private readonly Dictionary<string, Handler> _handlers = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Bind a handler for one envelope type. Last registration wins, which
-    /// keeps the helper bootstrap (one-shot at startup) trivial.
+    /// Bind a handler for one envelope type. Last registration wins.
     /// </summary>
     public void Register(string type, Handler handler) => _handlers[type] = handler;
 

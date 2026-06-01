@@ -5,8 +5,8 @@ namespace Nexus.Service.Peripherals.Hyte.Y70Display;
 /// <summary>
 /// Discovers attached Y70 Touch display controllers at the OS layer. Windows
 /// uses SetupAPI to find COM ports with hardware id <c>USB\VID_3402&amp;PID_0C00</c>
-/// (Touch), <c>…0C01</c> (Infinite) or <c>…0C02</c> (Truly); non-Windows returns
-/// empty for v1.
+/// (Touch), <c>…0C01</c> (Infinite) or <c>…0C02</c> (Truly); Linux walks sysfs;
+/// macOS returns empty.
 /// </summary>
 public interface IY70DisplayPortDiscovery
 {

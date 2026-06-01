@@ -136,7 +136,7 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
         if (_control(gpu, fan, dutyPercent))
         {
             lock (_lock) _manual.Add(channelId);
-            // Persist a genuine user override (not the curve engine's per-tick
+            // Persist an explicit user override (not the curve engine's per-tick
             // writes) so the manual duty survives a restart, mirroring
             // WindowsFanControlProvider + restored by RestoreManualOnce.
             if (persist)

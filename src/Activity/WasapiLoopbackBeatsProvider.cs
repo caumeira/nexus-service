@@ -11,16 +11,14 @@ namespace Nexus.Service.Activity;
 /// Windows-only audio-loopback provider that captures the default render
 /// endpoint (i.e. whatever's playing through the speakers) via WASAPI.
 ///
-/// Why this exists alongside <see cref="BeatsProvider"/>: BeatsProvider is
-/// the Linux fallback (ffmpeg + PulseAudio). On Windows we use WASAPI
-/// loopback directly because it's built into Windows (Vista+), requires no
-/// extra binary, and captures the active output without any driver support
-/// or user setup.
+/// Windows path; <see cref="BeatsProvider"/> is the Linux ffmpeg fallback.
+/// WASAPI loopback is built into Windows (Vista+), needs no extra binary,
+/// and captures the active output with no driver support or user setup.
 ///
-/// Implementation notes: we call WASAPI COM interfaces via direct vtable
-/// dispatch using function pointers. This avoids ComImport's reflection-based
-/// marshalling (which Native AOT does not support) and keeps every call
-/// blittable. Samples arrive in the device's native mix format (typically
+/// WASAPI COM interfaces are called via direct vtable dispatch using function
+/// pointers. This avoids ComImport's reflection-based marshalling (which
+/// Native AOT does not support) and keeps every call blittable. Samples
+/// arrive in the device's native mix format (typically
 /// 48 kHz float32 stereo) and are downmixed to mono as they're read, then
 /// fed to the shared beat-detection / FFT pipeline that backs AudioState.
 /// </summary>
@@ -52,7 +50,7 @@ public sealed class WasapiLoopbackBeatsProvider : IBeatsProvider
             // Dedicated thread so the WASAPI COM objects are accessed from a
             // single, deterministic thread the whole time (Task.Run would
             // thread-hop on every await and the COM pointers are apartment-
-            // affine). Background so the CLR can shut down cleanly.
+            // affine). Background so it doesn't block CLR shutdown.
             _captureThread = new Thread(() => CaptureLoop(_cts.Token))
             {
                 IsBackground = true,
@@ -120,10 +118,9 @@ public sealed class WasapiLoopbackBeatsProvider : IBeatsProvider
             long totalAnalyses = 0;
             long lastLogTick = Environment.TickCount64;
             long lastPacketTick = Environment.TickCount64;
-            // WASAPI loopback stops emitting packets entirely when no sound
-            // is coming out of the endpoint. We synthesise silence windows
-            // after this timeout so the smoothed AudioState decays to zero
-            // and shaders cleanly fall back to their idle animation.
+            // WASAPI loopback stops emitting packets entirely when the endpoint
+            // is silent. After this timeout we synthesise silence windows so
+            // smoothed AudioState decays to zero and shaders fall back to idle.
             const int silenceTimeoutMs = 250;
             var silenceWindow = new float[AudioAnalyser.WindowSize];
 
@@ -141,12 +138,10 @@ public sealed class WasapiLoopbackBeatsProvider : IBeatsProvider
                 }
                 if (frames == 0)
                 {
-                    // No packets - if we've been dry for a while, run analysis
-                    // on a synthetic silence window so smoothed audio state
-                    // drains toward zero and shaders idle out. Peak meter
-                    // still works during loopback silence, so we forward it
-                    // (lets shaders react to system volume changes even with
-                    // nothing playing).
+                    // No packets: after the timeout, analyse a synthetic
+                    // silence window so audio state drains to zero. The peak
+                    // meter still works during loopback silence, so forward it
+                    // (shaders track volume changes with nothing playing).
                     if (now - lastPacketTick > silenceTimeoutMs)
                     {
                         var result = _analyser.Analyse(silenceWindow, cap.GetPeak());
@@ -293,10 +288,8 @@ internal sealed unsafe class WasapiCapturer : IDisposable
                 Nexus.Service.Lighting.Engine.Gpu.GpuContext.Log($"[wasapi] non-float format detected (bits={bitsPerSample}); will read raw");
             }
 
-            // Allocate a ~200ms loopback buffer. We don't need a large buffer:
-            // the capture loop sleeps 10ms between drained packets, well
-            // below the 200ms overflow window, and loopback capture already
-            // lags real-time by its own minimum.
+            // ~200ms loopback buffer. The capture loop sleeps 10ms between
+            // drained packets, well below the 200ms overflow window.
             long hnsBuffer = 200 * ReftimesPerMs;
             // IAudioClient.Initialize (slot 3).
             var initialize = (delegate* unmanaged[Stdcall]<IntPtr, int, uint, long, long, IntPtr, IntPtr, int>)acVtbl[3];

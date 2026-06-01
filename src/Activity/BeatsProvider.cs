@@ -83,8 +83,7 @@ public sealed class BeatsProvider : IBeatsProvider
         catch { }
         _cts = null;
 
-        // Zero the shared audio uniforms so every shader returns to its
-        // idle animation the moment capture stops.
+        // Zero shared audio uniforms so shaders fall back to idle on stop.
         _analyser.Reset();
     }
 
@@ -107,9 +106,8 @@ public sealed class BeatsProvider : IBeatsProvider
         psi.ArgumentList.Add("-loglevel");
         psi.ArgumentList.Add("error");
 
-        // PulseAudio default monitor - captures whatever the default sink is
-        // playing. PipeWire boxes ship with a pulseaudio shim so this works
-        // on every modern Linux desktop without extra config.
+        // PulseAudio default monitor: captures the default sink. PipeWire
+        // boxes ship a pulseaudio shim, so this works there too.
         psi.ArgumentList.Add("-f");
         psi.ArgumentList.Add("pulse");
         psi.ArgumentList.Add("-i");
@@ -141,7 +139,7 @@ public sealed class BeatsProvider : IBeatsProvider
                     {
                         break;
                     }
-                    // Log first error so the user knows why beats aren't working.
+                    // Surface ffmpeg errors to the service log.
                     if (line.Length > 0)
                     {
                         Console.Error.WriteLine($"[beats] ffmpeg: {line}");
@@ -180,10 +178,8 @@ public sealed class BeatsProvider : IBeatsProvider
                     read += n;
                 }
 
-                // Convert bytes → float32 samples.
                 Buffer.BlockCopy(buffer, 0, samples, 0, WindowBytes);
 
-                // Analyse and emit.
                 var result = _analyser.Analyse(samples);
                 try
                 { OnBeat?.Invoke(result); }

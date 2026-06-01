@@ -14,10 +14,10 @@ using Nexus.Service.Sockets;
 namespace Nexus.Service.Lighting;
 
 /// <summary>
-/// Real lighting provider — wraps the cross-platform LightingEngine and bridges
+/// Real lighting provider. Wraps the cross-platform LightingEngine and bridges
 /// engine frames to the LightingOutputHub WebSocket so connected SPAs see live
 /// colors. State is mirrored to disk via IConfigStore so the SPA can reload and
-/// know what was running, even if engine restart-on-restart isn't wired yet.
+/// know what was running.
 ///
 /// Each /lighting/{name}/headless-start route maps to one IEffect implementation.
 /// New effect modes plug in by adding an interface method, a route, and a Start*
@@ -82,8 +82,8 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     public void SetFrameRate(int frameRate)
     {
         _store.Update(s => s.Lighting.FrameRate = frameRate);
-        // Engine frame interval can be re-tuned live. Cap at 120fps so a typo
-        // doesn't murder the CPU.
+        // Engine frame interval can be re-tuned live. Cap at 120fps so a
+        // typo can't peg the CPU.
         var safe = Math.Clamp(frameRate, 1, 120);
         _engine.FrameIntervalMs = 1000 / safe;
     }
@@ -136,7 +136,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         var hue = body.Hue;
         var colorize = body.Colorize;
         // Do NOT coerce 0 to 1 - saturation=0 (grayscale) and contrast=0
-        // (flat mid-gray) are legitimate user-selected states. The DTO
+        // (flat mid-gray) are valid user-selected states. The DTO
         // already defaults to 1 when the field is absent from the payload,
         // so trust the value straight through and let the shader clamp.
         var saturation = body.Saturation;

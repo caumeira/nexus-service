@@ -6,9 +6,9 @@ namespace Nexus.Service.Peripherals.Hyte.Np50;
 
 /// <summary>
 /// <see cref="INp50Transport"/> backed by <see cref="SerialPort"/>. NP50 / MiniHub
-/// enumerate as USB CDC virtual COM ports, so the baud rate is nominal — the
-/// USB stack frames the packets. We pick conservative defaults (115200 8N1)
-/// that match common CDC firmware expectations.
+/// enumerate as USB CDC virtual COM ports, so the baud rate is nominal: the
+/// USB stack frames the packets. Defaults are 115200 8N1, matching common CDC
+/// firmware expectations.
 ///
 /// Concurrency model: <b>writes and reads use independent locks</b> so a
 /// long heartbeat read (the 240-byte port-info poll has a 400 ms timeout
@@ -33,8 +33,7 @@ public sealed class Np50SerialTransport : INp50Transport
     private readonly object _writeLock = new();
     // Reads + DiscardInput take this lock. Held for the full per-poll
     // timeout (up to a few hundred ms), so it MUST NOT be the same lock
-    // writes take. Only the heartbeat worker reads, so this lock sees
-    // single-threaded use in practice.
+    // writes take. Only the heartbeat worker reads.
     private readonly object _readLock = new();
     private bool _disposed;
 
@@ -44,7 +43,7 @@ public sealed class Np50SerialTransport : INp50Transport
         Serial = serial ?? "";
         _port = new SerialPort(portName, baudRate: 115200, Parity.None, dataBits: 8, StopBits.One)
         {
-            // Plenty of headroom for the 240-byte channel-info read.
+            // Headroom for the 240-byte channel-info read.
             ReadBufferSize = 4096,
             WriteBufferSize = 4096,
             // Defaults; per-call timeouts are applied at Read time.

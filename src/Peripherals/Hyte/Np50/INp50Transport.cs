@@ -39,8 +39,8 @@ public interface INp50Transport : IDisposable
 
 /// <summary>
 /// Discovers attached NP50 hubs at the OS layer. Windows uses SetupAPI to
-/// find COM ports with hardware id <c>USB\VID_3402&amp;PID_0901</c>; non-Windows
-/// returns empty for v1.
+/// find COM ports with hardware id <c>USB\VID_3402&amp;PID_0901</c>; Linux walks
+/// sysfs; macOS returns empty.
 /// </summary>
 public interface INp50PortDiscovery
 {

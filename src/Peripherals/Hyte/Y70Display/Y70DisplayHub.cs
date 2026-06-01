@@ -8,10 +8,8 @@ namespace Nexus.Service.Peripherals.Hyte.Y70Display;
 /// Singleton coordinator for a HYTE Y70 Touch display controller. Mirrors
 /// <see cref="Nexus.Service.Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHub"/>:
 /// opens the COM port lazily, polls the firmware version, exposes a state
-/// snapshot. Reuses the product-agnostic <see cref="Np50SerialTransport"/>.
-///
-/// v1 reads firmware version + variant only. The same channel will later carry
-/// the in-app "drop into DFU" handshake the flasher needs.
+/// snapshot, and carries the "drop into DFU" handshake. Reuses the
+/// product-agnostic <see cref="Np50SerialTransport"/>.
 /// </summary>
 public sealed class Y70DisplayHub : IDisposable, IDfuFlashTarget
 {

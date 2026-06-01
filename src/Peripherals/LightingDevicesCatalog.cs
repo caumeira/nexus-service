@@ -11,9 +11,9 @@ namespace Nexus.Service.Peripherals;
 /// <summary>
 /// The full catalog of RGB-capable devices OpenRGB can drive, extracted at build
 /// time from openrgb-headless/Controllers/**/*Detect*.cpp and embedded as a JSON
-/// resource. Replaces the old hand-curated 70-entry list.
+/// resource.
 ///
-/// The data is read once on first access and cached for the process lifetime.
+/// Read once on first access and cached for the process lifetime.
 /// </summary>
 public static class LightingDevicesCatalog
 {

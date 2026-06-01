@@ -11,17 +11,11 @@ namespace Nexus.Service.Lighting.Engine.Gpu;
 /// .frag file under Lighting/Engine/Gpu/Shaders/ and prefixed at load time
 /// with the shared _prelude.frag.
 ///
-/// Why not inline strings: isolated files give us syntax highlighting,
-/// glslangValidator coverage, and one-line diffs when a shader changes.
-/// Why embedded: AOT + single-file publish doesn't know how to find
-/// loose files next to the exe, so bundling them into the assembly's
-/// manifest is the portable, zero-config path.
+/// Embedded rather than loose files because AOT + single-file publish can't
+/// find files next to the exe; the assembly manifest is the portable path.
 ///
-/// Cross-platform story: today these are GLSL 330 core, consumed by the
-/// desktop-GL backend on Windows (and Linux when we add it). macOS needs
-/// Metal or translated GLSL-via-SPIR-V-Cross — see the Gpu/ README for the
-/// Phase 2 plan. The file-based layout makes that switch viable without
-/// re-authoring every effect.
+/// GLSL 330 core, consumed by the desktop-GL backend on Windows and Linux.
+/// macOS needs Metal or GLSL-via-SPIR-V-Cross; see the Gpu/ README.
 /// </summary>
 internal static class ShaderLibrary
 {
@@ -94,7 +88,7 @@ internal static class ShaderLibrary
     /// "simple*" keys all alias the shared simple.frag (see Get above).</summary>
     public static IReadOnlyList<string> AllEffectKeys { get; } = new[]
     {
-        // Simple solid-colour fills (replace the old static mode).
+        // Simple solid-colour fills.
         "simplered", "simpleorange", "simpleyellow", "simplegreen", "simplecyan",
         "simpleblue", "simpleviolet", "simplepink",
         "rainbow", "plasma", "fire", "spiral", "matrix", "meteor",

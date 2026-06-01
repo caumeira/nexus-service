@@ -206,10 +206,10 @@ public sealed class BenchmarkRunner
     {
         try
         {
-            // RamModel carries the brand + part number (e.g., "Corsair CMK16GX4M2B3000C15"),
-            // not the capacity. The System Builder's fuzzy matcher keys off this string
-            // to locate the exact DIMM in the parts catalogue. Capacity continues to live
-            // in RamBytes / the matching /system/memory endpoint.
+            // RamModel carries brand + part number (e.g. "Corsair
+            // CMK16GX4M2B3000C15"), not capacity; the System Builder's fuzzy
+            // matcher keys off it to locate the DIMM in the parts catalogue.
+            // Capacity lives in RamBytes / /system/memory.
             var ramBrand = _sensors.GetRamBrandModel() ?? "";
             var storageBrand = _sensors.GetStorageBrandModel() ?? "";
             var ramBytes = ParseRamBytes(_sensors.GetMemoryTotalFormatted());

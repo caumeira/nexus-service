@@ -9,10 +9,9 @@ namespace Nexus.Service.Panel;
 
 /// <summary>
 /// Starter layout for a freshly registered panel device. Per-surface
-/// definitions live in data/install-defaults.json under panel.layouts;
-/// the runtime shows them until the user saves their first edit, at
-/// which point the edit is persisted on the device record and the
-/// default is no longer consulted.
+/// definitions live in data/install-defaults.json under panel.layouts.
+/// Shown until the user's first edit, which is persisted on the device
+/// record and used in place of this default thereafter.
 /// </summary>
 public static class PanelLayoutDefaults
 {

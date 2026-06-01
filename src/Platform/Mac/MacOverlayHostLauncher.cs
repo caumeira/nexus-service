@@ -114,7 +114,7 @@ public sealed class MacOverlayHostLauncher : IOverlayHost
             if (!proc.HasExited)
             {
                 // Closing stdin signals EOF to the helper, which terminates
-                // gracefully. Fall back to Kill if it doesn't exit promptly.
+                // on its own. Fall back to Kill if it doesn't exit promptly.
                 try { proc.StandardInput.Close(); } catch { }
                 if (!proc.WaitForExit(1500))
                 {

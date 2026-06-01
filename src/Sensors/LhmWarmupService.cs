@@ -9,20 +9,17 @@ namespace Nexus.Service.Sensors;
 /// <summary>
 /// Forces construction of the <see cref="IFanControlProvider"/> DI singleton
 /// on a thread-pool thread after host start. Resolving it transitively triggers
-/// the <see cref="LhmComputer"/> ctor, whose <see cref="LibreHardwareMonitor.Hardware.Computer.Open"/>
-/// call is now itself non-blocking (a background <c>Task.Run</c>), but the
-/// resolve still needs to happen *somewhere* before the first HTTP request
-/// touches <c>IFanControlProvider</c> — otherwise that request pays for the
-/// graph construction inline.
+/// the <see cref="LhmComputer"/> ctor (whose <see cref="LibreHardwareMonitor.Hardware.Computer.Open"/>
+/// is itself a background <c>Task.Run</c>); the resolve must happen before the
+/// first HTTP request touches <c>IFanControlProvider</c>, else that request
+/// pays for the graph construction inline.
 ///
-/// Injecting <c>IFanControlProvider</c> directly would defeat the point —
-/// DI would resolve it at this service's construction time, which runs as
-/// part of host startup. Taking an <see cref="IServiceProvider"/> and
-/// resolving inside <see cref="ExecuteAsync"/> after <see cref="Task.Yield"/>
-/// keeps the construction off the critical path.
+/// Injecting <c>IFanControlProvider</c> directly would resolve it at this
+/// service's construction time, during host startup. Taking an
+/// <see cref="IServiceProvider"/> and resolving inside <see cref="ExecuteAsync"/>
+/// after <see cref="Task.Yield"/> keeps the construction off the critical path.
 ///
-/// Matches the <see cref="SystemSpecsPrewarmService"/> pattern: warmups
-/// belong in a post-StartAsync BackgroundService, never on the startup
+/// Warmups belong in a post-StartAsync BackgroundService, not on the startup
 /// critical path.
 /// </summary>
 public sealed class LhmWarmupService : BackgroundService

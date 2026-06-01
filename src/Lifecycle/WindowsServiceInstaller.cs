@@ -73,9 +73,8 @@ internal static class WindowsServiceInstaller
                 StringComparison.OrdinalIgnoreCase);
 
             // Sanity check the payload before we touch the running service.
-            // The single most common foot-gun is `dotnet publish` running
-            // without a fresh nexus-web/dist copied to aot/wwwroot/ - the
-            // install would succeed but the dashboard would be empty.
+            // `dotnet publish` without a fresh nexus-web/dist copied to
+            // aot/wwwroot/ installs OK but leaves the dashboard empty.
             var sourceWwwroot = Path.Combine(sourceDir, "wwwroot");
             if (!Directory.Exists(sourceWwwroot) ||
                 !File.Exists(Path.Combine(sourceWwwroot, "index.html")))
@@ -401,8 +400,8 @@ internal static class WindowsServiceInstaller
 
     private static void CreateStartMenuShortcut(string targetExe)
     {
-        // Drop a .url shortcut to the dashboard (more useful than the exe itself
-        // for end users). We avoid the COM ShellLink approach for AOT safety.
+        // Drop a .url shortcut to the dashboard. Avoids the COM ShellLink
+        // approach for AOT safety.
         var startMenu = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu);
         var dir = Path.Combine(startMenu, "Programs", "Nexus");
         Directory.CreateDirectory(dir);

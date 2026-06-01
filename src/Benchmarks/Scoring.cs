@@ -10,11 +10,10 @@ internal static class Scoring
     public const double WeightRam = 0.15;
     public const double WeightStorage = 0.20;
 
-    // Reference raw numbers that normalise to ~1000 points. These came from a
-    // spot-sample on a mid-range 2023/2024 build (Ryzen 7600 / RTX 4060-class /
-    // DDR5-6000 CL30 / PCIe 4.0 NVMe). The raw values are intentionally stable
-    // so scores stay comparable across app versions — if the reference needs
-    // to change, bump a schema version so the leaderboard knows to partition.
+    // Reference raw numbers that normalise to ~1000 points, spot-sampled on a
+    // mid-range 2023/2024 build (Ryzen 7600 / RTX 4060-class / DDR5-6000 CL30 /
+    // PCIe 4.0 NVMe). Must stay stable so scores compare across app versions;
+    // if changed, bump a schema version so the leaderboard partitions.
     public const double RefCpuHashesPerSec = 2_500_000_000d;
     public const double RefGpuGflops = 400d;
     public const double RefRamGbPerSec = 35d;

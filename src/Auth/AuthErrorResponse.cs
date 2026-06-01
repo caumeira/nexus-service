@@ -7,10 +7,9 @@ namespace Nexus.Service.Auth;
 
 /// <summary>
 /// Writes 401/403 responses in a content-negotiated form: HTML for browser
-/// navigations (Accept: text/html), JSON for everything else. Without this,
-/// any iframe or direct browser nav into a gated route used to render the
-/// raw <c>{"error":true,"msg":"Unauthorized"}</c> JSON inside the panel
-/// surface, which looked broken.
+/// navigations (Accept: text/html), JSON for everything else. HTML keeps an
+/// iframe or direct browser nav into a gated route from rendering raw
+/// <c>{"error":true,"msg":"Unauthorized"}</c> JSON inside the panel surface.
 /// </summary>
 public static class AuthErrorResponse
 {

@@ -44,9 +44,8 @@ public static class WidgetRoutes
     };
 
     // Tier 2 widget worker source files. Restricted to JS modules and JSON
-    // sidecar data; CSS/HTML/anything-else isn't useful inside a worker
-    // and would just widen the exfil surface if a widget bundle were ever
-    // crafted to ship typo'd files.
+    // sidecar data; CSS/HTML/anything-else isn't useful inside a worker and
+    // would widen the exfil surface.
     private static readonly HashSet<string> AllowedCodeExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
         ".js", ".mjs", ".json",

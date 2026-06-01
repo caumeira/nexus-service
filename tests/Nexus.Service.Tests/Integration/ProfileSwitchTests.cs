@@ -94,7 +94,7 @@ public class ProfileSwitchTests : IDisposable
     [Fact]
     public void SwitchProfile_ReplacesCurvesInStore_AndNextTickWritesNewDuty()
     {
-        // Arrange: active profile "Default" with a 30% flat curve.
+        // Active profile "Default" with a 30% flat curve.
         var activeId = _profiles.GetActiveEntry()!.Id;
         _store.Update(s => s.Cooling.Curves = MakeCurve("fan-1", "cpu-0", 30));
         _store.FlushNow();
@@ -109,7 +109,7 @@ public class ProfileSwitchTests : IDisposable
         // Back to Default (CreateProfile left us on Performance).
         _profiles.SwitchProfile(activeId);
 
-        // Act: first tick under the Default profile should write 30.
+        // First tick under the Default profile should write 30.
         var fans = new RecordingFanProvider();
         var engine = new CurveEngine(fans, _store, new MultiplexHub());
         // Production wires ProfileManager.OnProfileSwitched →
@@ -124,9 +124,8 @@ public class ProfileSwitchTests : IDisposable
         Assert.Equal("fan-1", firstWrite.ChannelId);
         Assert.Equal(30, firstWrite.DutyPercent);
 
-        // Switch to Performance. The store must now reflect the new curves on
-        // the next CurveEngine.Tick(). Previously we'd capture 30 again if the
-        // switch didn't actually swap settings in memory.
+        // Switch to Performance. The next Tick() must reflect the new curves;
+        // a switch that doesn't swap in-memory settings would write 30 again.
         _profiles.SwitchProfile(perfEntry.Id);
         engine.Tick();
 

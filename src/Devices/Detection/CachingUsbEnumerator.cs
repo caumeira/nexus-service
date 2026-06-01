@@ -37,9 +37,8 @@ internal sealed class CachingUsbEnumerator : IUsbEnumerator
         }
 
         // Run outside the lock so a slow pnputil doesn't block concurrent
-        // readers. If two callers race through the gate they each do an
-        // enumeration, but both results are valid and the second one simply
-        // overwrites the cache entry.
+        // readers. If two callers race through the gate they each enumerate;
+        // both results are valid and the second overwrites the cache entry.
         var fresh = _inner.Enumerate();
 
         lock (_lock)

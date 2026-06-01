@@ -56,9 +56,8 @@ public sealed class WindowsHidDevice : IHidDevice
     public int Read(Span<byte> buffer, int timeoutMs)
     {
         if (_handle == IntPtr.Zero) return 0;
-        // Simple blocking read — OK for short interactions. A full async impl would use
-        // overlapped I/O. Most vendor protocols we care about are feature-report driven,
-        // so this path is rarely exercised.
+        // Blocking read (non-overlapped). Vendor protocols here are
+        // feature-report driven, so this path is rarely hit.
         var buf = new byte[buffer.Length];
         if (!WindowsHidEnumerator.Native.ReadFile(_handle, buf, (uint)buf.Length, out var read, IntPtr.Zero))
         {

@@ -20,11 +20,10 @@ namespace Nexus.Service.Devices.Handlers;
 /// Q80 firmware reports the analogous <c>"HYTE Q80 Display"</c> /
 /// <c>"HYTE THICC Q80"</c> strings.
 ///
-/// The Identifiers list is kept for the legacy bench-observed VID/PID
-/// pairs but no longer authoritative — <see cref="IsConnected"/> will
-/// also report true on any USB device whose name matches a Q-series
-/// product string, regardless of the (VID, PID) it currently enumerates
-/// under.
+/// The Identifiers list holds bench-observed VID/PID pairs but is not
+/// authoritative: <see cref="IsConnected"/> reports true on any USB device
+/// whose name matches a Q-series product string, regardless of the
+/// (VID, PID) it enumerates under.
 /// </summary>
 public sealed class QSeriesHandler : IDeviceHandler
 {
@@ -39,9 +38,9 @@ public sealed class QSeriesHandler : IDeviceHandler
     private static readonly string[] NameMarkers = new[] { "Q60", "Q80" };
 
     /// <summary>
-    /// Vendor IDs that have been seen claiming Q-series products in the
-    /// wild. Used to disambiguate generic substrings like "Q60" — we
-    /// only trust the name match when the VID is one of these.
+    /// Vendor IDs observed claiming Q-series products. Disambiguates generic
+    /// substrings like "Q60": the name match is trusted only when the VID is
+    /// one of these.
     /// </summary>
     private static readonly HashSet<int> KnownQseriesVids = new() { MediatekVid, HyteVid };
 
@@ -105,7 +104,7 @@ public sealed class QSeriesHandler : IDeviceHandler
 
     // "q60" / "q80" once the cooler reports its variant, so the firmware
     // catalog offers the matching image. Before that we return Id ("qseries"),
-    // which has no bundled firmware, so the device simply isn't offered an
-    // update until the variant is known.
+    // which has no bundled firmware, so no update is offered until the
+    // variant is known.
     public string FirmwareType => string.IsNullOrEmpty(_hub.Variant) ? Id : _hub.Variant;
 }

@@ -73,7 +73,7 @@ public sealed class ScreenCapturePusher : IDisposable
         {
             // ~30 fps push rate. The service's render loop runs at the engine
             // tick (16ms = 60 fps), so half of those ticks reuse the cached
-            // latest frame - same pattern the existing ffmpeg path uses.
+            // latest frame.
             var period = TimeSpan.FromMilliseconds(33);
             while (!ct.IsCancellationRequested)
             {

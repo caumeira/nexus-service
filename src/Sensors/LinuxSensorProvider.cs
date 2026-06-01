@@ -532,8 +532,8 @@ public sealed class LinuxSensorProvider : ISensorProvider
         // desktops do; laptops sometimes don't. Fall back to dmidecode when
         // available (root-only typically), then to an empty string.
         var mfg = TryRead("/sys/class/dmi/id/product_vendor");
-        // Unfortunately there's no reliable sysfs path for per-DIMM info; try
-        // the memory subsystem sysfs used by some distros, then dmidecode.
+        // No reliable sysfs path for per-DIMM info; try the memory subsystem
+        // sysfs used by some distros, then dmidecode.
         var parts = new List<string>();
         var vendor = TryDmi("memory-module-manufacturer");
         var partNum = TryDmi("memory-module-part-number");
@@ -587,11 +587,9 @@ public sealed class LinuxSensorProvider : ISensorProvider
 
     public SensorExtras GetSensorExtras()
     {
-        // Best-effort Linux extras. We surface battery state from
-        // /sys/class/power_supply/BAT* (laptop main battery / UPS) since that's
-        // the most commonly requested family. PSU / Cooler / NIC / NVMe / EC
-        // are TODO; LHM is Windows-only and the equivalent sysfs reads need
-        // their own walkers.
+        // Surfaces battery state from /sys/class/power_supply/BAT* (laptop main
+        // battery / UPS). TODO: PSU / Cooler / NIC / NVMe / EC; LHM is
+        // Windows-only and the equivalent sysfs reads need their own walkers.
         var extras = new SensorExtras();
         extras.Batteries.AddRange(BuildLinuxBatteries());
         return extras;

@@ -14,12 +14,11 @@ namespace Nexus.Service.Lighting;
 /// itself surfaces as a parent device; each attached module surfaces as a
 /// child with <see cref="LightingDevice.ParentDeviceId"/> pointing at the
 /// hub, so the existing DevicePanel grouping logic (built for motherboard
-/// zones) renders them as a collapsible group "for free".
+/// zones) renders them as a collapsible group.
 ///
-/// v1 is read-only — the GetAll snapshot lets the UI render the tree, but
-/// the per-zone Set* operations (power, brightness, hue, saturation) are
-/// no-ops. Phase-3.5 will wire them into <see cref="Np50Hub.WriteLighting"/>
-/// once the per-zone color picker shape settles.
+/// Per-zone Set* operations (power, brightness, hue, saturation) persist to
+/// the shared settings store; the engine→writer pipeline
+/// (<see cref="Np50LightingFrameWriter"/>) applies them on the next frame.
 /// </summary>
 public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor
 {
@@ -157,11 +156,9 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
         {
             effectiveLedCount = Math.Clamp(persisted, 0, firmwareLedCount);
         }
-        // Position: persisted layout wins. Defaults place NP50 zones in
-        // their own visible band on the canvas (below OpenRGB strips at
-        // y≈380, well within the engine's 600-px canvas height — the old
-        // "+64 slot" math put them at y=2620, off-canvas, which read as
-        // "no boundary visible / can't drag" in the panel.
+        // Position: persisted layout wins. Defaults place NP50 zones in their
+        // own visible band on the canvas (below OpenRGB strips at y≈380), in
+        // the 600-px canvas height so they stay on-canvas and draggable.
         var (defX, defY, defW, defH) = DefaultNp50Layout(zoneIndex);
         layouts.TryGetValue(id, out var layout);
         return new LightingDevice
@@ -376,11 +373,10 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
     /// the lower band in a 4-wide row. The user can drag them anywhere
     /// afterward and the layout persists to settings.Lighting.DeviceLayouts.
     /// Row count is capped so the second row stays inside the drag-legal
-    /// region (the canvas drag clamp is y + h ≤ CH - PAD = 588), beyond that
-    /// we wrap to slot 0 so newly-attached noodles never disappear past the
-    /// bottom edge. Note Y is pulled in from the old 490 to 478 — the canvas
-    /// drag clamp uses a 12-unit PAD, so y=540 would silently snap upward
-    /// on the user's first interaction.
+    /// region (the canvas drag clamp is y + h ≤ CH - PAD = 588); beyond that
+    /// it wraps to slot 0 so newly-attached noodles never disappear past the
+    /// bottom edge. Y accounts for the 12-unit drag-clamp PAD so the card
+    /// doesn't snap upward on first interaction.
     /// </summary>
     internal static (float x, float y, float w, float h) DefaultNp50Layout(int slot)
     {
