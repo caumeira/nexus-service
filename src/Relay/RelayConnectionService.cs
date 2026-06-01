@@ -446,8 +446,10 @@ public sealed class RelayConnectionService : BackgroundService
                     transport, aeadKey, RelayCrypto.DirHostToClient, RelayCrypto.DirClientToHost);
 
                 // Drive the hub on this relayed socket, tagged with the phone
-                // session id so the killswitch can close it.
-                var task = _owner._hub.HandleClientAsync(relayWs, SessionTag, ct);
+                // session id so the killswitch can close it and marked as a
+                // relay bridge so the sessions list reports connectedVia="relay".
+                var task = _owner._hub.HandleClientAsync(
+                    relayWs, SessionTag, MultiplexHub.ClientTransport.Relay, ct);
                 return (relayWs, task);
             }
 

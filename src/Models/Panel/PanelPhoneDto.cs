@@ -69,6 +69,13 @@ public sealed class PanelPhoneSessionDto
     public long LastSeenAt { get; set; }
     public long ExpiresAt { get; set; }
     public bool RecentlyActive { get; set; }
+    /// <summary>
+    /// How this session is connected to the PC right now: <c>"relay"</c> when a
+    /// live hub client for it is bridged through the cloud relay, <c>"lan"</c>
+    /// when connected via a direct LAN WebSocket, or <c>null</c> when the session
+    /// is authorized but not currently connected.
+    /// </summary>
+    public string? ConnectedVia { get; set; }
 }
 
 public sealed class PanelStatusResponse

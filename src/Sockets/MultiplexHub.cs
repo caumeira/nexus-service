@@ -34,6 +34,18 @@ public sealed class MultiplexHub
     public event TopicEvent? OnTopicLastUnsubscriber;
 
     /// <summary>
+    /// Wire by which a phone-session client reached the hub: a direct LAN
+    /// WebSocket (<see cref="Lan"/>) or a frame bridged through the cloud relay
+    /// (<see cref="Relay"/>). Carried per-client so the sessions list can report
+    /// how each currently-connected paired phone is talking to the PC.
+    /// </summary>
+    public enum ClientTransport
+    {
+        Lan,
+        Relay,
+    }
+
+    /// <summary>
     /// Register a snapshot provider for a topic whose broadcast cadence is slow
     /// or event-driven. When a client subscribes, the hub immediately sends the
     /// provider's current envelope (if any) to that one client, so late
@@ -113,19 +125,24 @@ public sealed class MultiplexHub
     public int ClientCount => _clients.Count;
 
     public Task HandleClientAsync(WebSocket socket, CancellationToken cancellationToken = default)
-        => HandleClientAsync(socket, phoneSessionId: null, cancellationToken);
+        => HandleClientAsync(socket, phoneSessionId: null, ClientTransport.Lan, cancellationToken);
+
+    public Task HandleClientAsync(WebSocket socket, string? phoneSessionId, CancellationToken cancellationToken = default)
+        => HandleClientAsync(socket, phoneSessionId, ClientTransport.Lan, cancellationToken);
 
     /// <summary>
     /// Accept a multiplexed WebSocket. When <paramref name="phoneSessionId"/>
     /// is non-null, this client is treated as a Pair Remote session and can
     /// be force-closed by <see cref="KickPhoneSessionsAsync"/> /
     /// <see cref="KickAllPhoneAsync"/>. Local desktop / panel-kiosk callers
-    /// pass null and stay unkickable.
+    /// pass null and stay unkickable. <paramref name="transport"/> records the
+    /// wire the client reached us on (LAN /ws vs the relay bridge) so the
+    /// sessions list can report it; defaults to LAN.
     /// </summary>
-    public async Task HandleClientAsync(WebSocket socket, string? phoneSessionId, CancellationToken cancellationToken = default)
+    public async Task HandleClientAsync(WebSocket socket, string? phoneSessionId, ClientTransport transport, CancellationToken cancellationToken = default)
     {
         var id = Guid.NewGuid();
-        var client = new SubscribedClient(socket, phoneSessionId);
+        var client = new SubscribedClient(socket, phoneSessionId, transport);
         _clients[id] = client;
 
         try
@@ -234,6 +251,32 @@ public sealed class MultiplexHub
                 tasks.Add(client.CloseRevokedAsync());
         }
         return tasks.Count == 0 ? Task.CompletedTask : Task.WhenAll(tasks);
+    }
+
+    /// <summary>
+    /// Report how the given phone session is currently connected to the hub:
+    /// <c>"relay"</c> if any live client for that session id is bridged through
+    /// the cloud relay, <c>"lan"</c> if connected only via a direct LAN
+    /// WebSocket, or <c>null</c> if no client for that session is connected.
+    /// Relay wins over LAN when a session somehow has both (a relay bridge
+    /// being torn down while a LAN socket is up), since the relay is the
+    /// transport the user toggled and most wants surfaced.
+    /// </summary>
+    public string? GetConnectedTransport(string phoneSessionId)
+    {
+        if (string.IsNullOrEmpty(phoneSessionId))
+            return null;
+
+        var sawLan = false;
+        foreach (var (_, client) in _clients)
+        {
+            if (!string.Equals(client.PhoneSessionId, phoneSessionId, StringComparison.Ordinal))
+                continue;
+            if (client.Transport == ClientTransport.Relay)
+                return "relay";
+            sawLan = true;
+        }
+        return sawLan ? "lan" : null;
     }
 
     /// <summary>
@@ -376,10 +419,14 @@ public sealed class MultiplexHub
         /// </summary>
         public string? PhoneSessionId { get; }
 
-        public SubscribedClient(WebSocket socket, string? phoneSessionId = null)
+        /// <summary>Wire this client reached the hub on (LAN /ws vs relay bridge).</summary>
+        public ClientTransport Transport { get; }
+
+        public SubscribedClient(WebSocket socket, string? phoneSessionId = null, ClientTransport transport = ClientTransport.Lan)
         {
             _socket = socket;
             PhoneSessionId = phoneSessionId;
+            Transport = transport;
         }
 
         public async Task CloseRevokedAsync()

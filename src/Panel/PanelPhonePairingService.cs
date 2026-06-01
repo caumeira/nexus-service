@@ -492,6 +492,10 @@ public sealed class PanelPhonePairingService
                     LastSeenAt = lastSeen,
                     ExpiresAt = lastSeen > 0 ? lastSeen + SessionIdleMs : 0,
                     RecentlyActive = lastSeen > 0 && now - lastSeen <= RecentSessionWindowMs,
+                    // Live transport for this session: "relay" if a relay-bridged
+                    // hub client is up, "lan" for a direct /ws client, null if not
+                    // currently connected.
+                    ConnectedVia = _hub.GetConnectedTransport(s.Id ?? ""),
                 };
             })
             .ToList();
