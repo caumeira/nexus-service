@@ -232,7 +232,7 @@ public sealed class MultiplexHub
         foreach (var (_, client) in _clients)
         {
             if (client.PhoneSessionId is { } sid && ids.Contains(sid))
-                tasks.Add(client.CloseRevokedAsync());
+                tasks.Add(CloseClientSafeAsync(client));
         }
         return tasks.Count == 0 ? Task.CompletedTask : Task.WhenAll(tasks);
     }
@@ -248,9 +248,23 @@ public sealed class MultiplexHub
         foreach (var (_, client) in _clients)
         {
             if (client.PhoneSessionId is not null)
-                tasks.Add(client.CloseRevokedAsync());
+                tasks.Add(CloseClientSafeAsync(client));
         }
         return tasks.Count == 0 ? Task.CompletedTask : Task.WhenAll(tasks);
+    }
+
+    /// <summary>
+    /// Close one kicked client, isolating any failure so a single client's close
+    /// error can never fault the whole revoke (which would surface as an HTTP 500
+    /// on the revoke endpoint). <see cref="SubscribedClient.CloseRevokedAsync"/>
+    /// already swallows internally; this is a second belt so the killswitch
+    /// semantics — "kick still closes every client, just can't throw" — hold even
+    /// if a future close path regresses.
+    /// </summary>
+    private static async Task CloseClientSafeAsync(SubscribedClient client)
+    {
+        try { await client.CloseRevokedAsync().ConfigureAwait(false); }
+        catch { /* one client's close must not fail the revoke */ }
     }
 
     /// <summary>
@@ -431,18 +445,41 @@ public sealed class MultiplexHub
 
         public async Task CloseRevokedAsync()
         {
-            await _writeLock.WaitAsync();
+            // Kicking a client must never throw out of the revoke path (a thrown
+            // close would fault Task.WhenAll in the hub and 500 the revoke
+            // endpoint). The await is inside the try because _writeLock can be
+            // disposed underneath us: the receive loop in HandleClientAsync
+            // disposes this client the instant its socket reports Close, and a
+            // relay-bridged client closes that fast — RelayWebSocket.CloseAsync
+            // aborts the relay transport, which immediately unblocks that loop.
+            // So WaitAsync (or the finally Release) can race an ObjectDisposed.
+            bool acquired = false;
             try
             {
+                await _writeLock.WaitAsync().ConfigureAwait(false);
+                acquired = true;
                 if (_socket.State == WebSocketState.Open)
                 {
-                    await _socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "revoked", CancellationToken.None);
+                    await _socket.CloseAsync(WebSocketCloseStatus.PolicyViolation, "revoked", CancellationToken.None)
+                        .ConfigureAwait(false);
                 }
             }
-            catch { }
+            catch
+            {
+                // Socket already closing / disposed, transport faulted, or the
+                // write lock was disposed by a concurrent teardown. The session
+                // is being removed regardless; swallow so the kick still
+                // completes for every other client. Force a transport abort so
+                // a relay-bridged client still gets torn down (and the phone
+                // still sees the revoked close) even if the orderly close threw.
+                try { _socket.Abort(); } catch { /* best effort */ }
+            }
             finally
             {
-                _writeLock.Release();
+                if (acquired)
+                {
+                    try { _writeLock.Release(); } catch { /* lock disposed under us */ }
+                }
             }
         }
 

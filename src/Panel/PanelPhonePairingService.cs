@@ -559,8 +559,16 @@ public sealed class PanelPhonePairingService
             removed = sessions.RemoveAll(session =>
                 string.Equals(session.Id, id, StringComparison.Ordinal)) > 0;
         });
+        // The session is already gone from the store; kicking the live client is
+        // best-effort cleanup. Never let a close failure (e.g. a relay-bridged
+        // client whose transport already faulted) turn a successful revoke into
+        // an HTTP 500 — the device list would show it removed yet the request
+        // would report failure.
         if (removed)
-            await _hub.KickPhoneSessionsAsync(new[] { id });
+        {
+            try { await _hub.KickPhoneSessionsAsync(new[] { id }).ConfigureAwait(false); }
+            catch { /* removal succeeded; kick is best-effort */ }
+        }
         return removed;
     }
 
@@ -606,7 +614,10 @@ public sealed class PanelPhonePairingService
             sessions.Clear();
         });
         if (removed > 0)
-            await _hub.KickAllPhoneAsync();
+        {
+            try { await _hub.KickAllPhoneAsync().ConfigureAwait(false); }
+            catch { /* removal succeeded; kick is best-effort */ }
+        }
         return removed;
     }
 
