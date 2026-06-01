@@ -29,7 +29,7 @@ public class LinuxSerialDiscoveryTests
         t.Symlink($"sys/class/tty/{node}/device", iface);
     }
 
-    [Fact]
+    [NonWindowsFact]
     public void FindIn_MatchesVidPid_AndParsesSerialFromUsbParent()
     {
         using var t = new TempDir();
@@ -42,7 +42,7 @@ public class LinuxSerialDiscoveryTests
         Assert.Equal(0x0901, m.ProductId);
     }
 
-    [Fact]
+    [NonWindowsFact]
     public void FindIn_FiltersByProductId()
     {
         using var t = new TempDir();
@@ -55,7 +55,7 @@ public class LinuxSerialDiscoveryTests
         Assert.Equal(2, both.Count);
     }
 
-    [Fact]
+    [NonWindowsFact]
     public void FindIn_NoVendorMatch_ReturnsEmpty()
     {
         using var t = new TempDir();
@@ -63,7 +63,7 @@ public class LinuxSerialDiscoveryTests
         Assert.Empty(LinuxSerialDiscovery.FindIn(Dev(t), SysTty(t), 0x9999, 0x0901));
     }
 
-    [Fact]
+    [NonWindowsFact]
     public void FindIn_MissingSerial_StillMatchesWithEmptySerial()
     {
         using var t = new TempDir();
@@ -71,7 +71,7 @@ public class LinuxSerialDiscoveryTests
         Assert.Equal("", Assert.Single(LinuxSerialDiscovery.FindIn(Dev(t), SysTty(t), 0x3402, 0x0901)).Serial);
     }
 
-    [Fact]
+    [NonWindowsFact]
     public void FindIn_EmptyDevRoot_ReturnsEmpty()
     {
         using var t = new TempDir();

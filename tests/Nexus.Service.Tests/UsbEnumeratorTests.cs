@@ -197,7 +197,7 @@ public class UsbEnumeratorTests
 
     // ---- Linux sysfs reader ----
 
-    [Fact]
+    [NonWindowsFact]
     public void Linux_Reads_Full_Device_Tree()
     {
         var tempRoot = Path.Combine(Path.GetTempPath(), $"nexus-usb-test-{Path.GetRandomFileName()}");

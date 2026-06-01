@@ -37,7 +37,11 @@ public class NexusServiceCollectionExtensionsTests
             .AddNexusLifecycle()
             .AddNexusWeather()
             .AddNexusPanel(servicePort: 9400)
-            .AddNexusLinuxDBus();
+            .AddNexusLinuxDBus()
+            // Registers HelperRegistry, which the Windows providers
+            // (WindowsScreenTimeProvider, HelperMonitorEnumeratorProxy) depend on.
+            // Program.cs registers it too; without it the graph is incomplete on Windows.
+            .AddNexusHelper();
         services.AddLogging();
         services.AddHttpClient();
         return services.BuildServiceProvider();

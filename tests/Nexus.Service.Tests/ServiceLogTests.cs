@@ -22,7 +22,7 @@ public class ServiceLogTests
         Assert.NotNull(ServiceLog.LogFilePath);
     }
 
-    [Fact]
+    [NonWindowsFact]
     public void Console_write_after_init_appears_in_log_file()
     {
         ServiceLog.Initialize();
