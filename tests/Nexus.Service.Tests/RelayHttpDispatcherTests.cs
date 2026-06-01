@@ -149,7 +149,7 @@ public sealed class RelayHttpDispatcherTests
     {
         // Drive the SAME protected route through the real pipeline as a plain
         // request (no trusted marker, no token). It must 401 — proving the route
-        // is genuinely protected and the success above is solely the marker.
+        // is actually protected and the success above is solely the marker.
         var store = StoreWithSession();
         var hub = new MultiplexHub();
         await using var app = await BuildAppAsync(store, hub);
