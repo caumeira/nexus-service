@@ -8,6 +8,8 @@ public static class KeebRoutes
 {
     public static void MapKeebEndpoints(this WebApplication app)
     {
+        app.MapGet("/keeb/state", (int? layer, IKeebProvider k) => k.GetState(layer ?? 0));
+        app.MapGet("/keeb/layer/{layer}", (int layer, IKeebProvider k) => k.GetState(layer));
         app.MapGet("/keeb/settings", (IKeebProvider k) => k.GetSettings());
         app.MapGet("/keeb/rotary/functions", (IKeebProvider k) =>
             new GetRotaryFunctionsResponse { Functions = k.GetRotaryFunctions() });
@@ -24,6 +26,11 @@ public static class KeebRoutes
         app.MapPost("/keeb/firmware/lighting", (SetFirmwareLightingBody body, IKeebProvider k) =>
         {
             k.SetFirmwareLighting(body);
+            return ApiResponse.Ok();
+        });
+        app.MapPost("/keeb/passive-lighting", (SetPassiveLightingBody body, IKeebProvider k) =>
+        {
+            k.SetPassiveLighting(body);
             return ApiResponse.Ok();
         });
         app.MapPost("/keeb/game-mode", (SetGameModeBody body, IKeebProvider k) =>

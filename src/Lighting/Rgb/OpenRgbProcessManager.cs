@@ -123,6 +123,75 @@ public sealed class OpenRgbProcessManager : IDisposable
         return Path.Combine(baseDir, "Nexus", "openrgb-config");
     }
 
+    /// <summary>
+    /// OpenRGB detectors nexus-service keeps disabled because it drives those
+    /// devices directly over their own transport. The keeb rides raw HID, where
+    /// the COM-port "first open wins" guard the serial hubs rely on does NOT
+    /// apply — two stacks could hold the HID handle and fight over the LEDs — so
+    /// the detector MUST be disabled here. Names match the
+    /// <c>REGISTER_*_DETECTOR</c> strings in nexus-rgb/openrgb-headless verbatim
+    /// (HYTEKeyboardControllerDetect.cpp → "HYTE Keeb TKL").
+    /// </summary>
+    private static readonly string[] DisabledDetectors = { "HYTE Keeb TKL" };
+
+    /// <summary>
+    /// Merge our detector denylist into the OpenRGB config's
+    /// <c>Detectors.detectors</c> map, preserving anything OpenRGB itself wrote.
+    /// OpenRGB reads this on startup (ResourceManager.cpp) and skips disabled
+    /// detectors. Best-effort: a failure here just means OpenRGB might surface a
+    /// zombie keeb entry, which CompositeLightingDeviceProvider also strips.
+    /// </summary>
+    private static void EnsureDetectorOverrides(string configDir)
+    {
+        try
+        {
+            var path = Path.Combine(configDir, "OpenRGB.json");
+            System.Text.Json.Nodes.JsonObject root;
+            if (File.Exists(path))
+            {
+                root = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(path)) as System.Text.Json.Nodes.JsonObject
+                       ?? new System.Text.Json.Nodes.JsonObject();
+            }
+            else
+            {
+                root = new System.Text.Json.Nodes.JsonObject();
+            }
+
+            if (root["Detectors"] is not System.Text.Json.Nodes.JsonObject detectors)
+            {
+                detectors = new System.Text.Json.Nodes.JsonObject();
+                root["Detectors"] = detectors;
+            }
+            if (detectors["detectors"] is not System.Text.Json.Nodes.JsonObject map)
+            {
+                map = new System.Text.Json.Nodes.JsonObject();
+                detectors["detectors"] = map;
+            }
+
+            var changed = false;
+            foreach (var name in DisabledDetectors)
+            {
+                var alreadyDisabled = map[name] is System.Text.Json.Nodes.JsonValue v
+                    && v.TryGetValue<bool>(out var b) && b == false;
+                if (!alreadyDisabled)
+                {
+                    map[name] = false;
+                    changed = true;
+                }
+            }
+
+            if (changed)
+            {
+                File.WriteAllText(path, root.ToJsonString());
+                Console.Error.WriteLine($"[openrgb-proc] disabled detectors {string.Join(", ", DisabledDetectors)} in {path}");
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[openrgb-proc] detector-override write failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
     // Restore the executable bit on the bundled binary (Content copy / archive
     // round-trips drop it on Unix). No-op on Windows / if the file is missing.
     private static void EnsureExecutable(string path)
@@ -170,6 +239,11 @@ public sealed class OpenRgbProcessManager : IDisposable
             try
             { Directory.CreateDirectory(configDir); }
             catch { /* will fail loudly when OpenRGB itself tries */ }
+
+            // Keep OpenRGB from claiming devices nexus-service drives directly.
+            // Re-asserted on every (re)launch so a supervisor restart can't run
+            // an instance that re-grabs the keeb.
+            EnsureDetectorOverrides(configDir);
 
             // The MSBuild Content copy (and tar/zip round-trips) drop the
             // executable bit on Linux/macOS — restore it or Process.Start fails

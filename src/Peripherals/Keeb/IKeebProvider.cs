@@ -4,13 +4,14 @@ namespace Nexus.Service.Peripherals.Keeb;
 
 public interface IKeebProvider
 {
-    KeyboardState GetState();
+    KeyboardState GetState(int layer);
     GetKeebSettingsResponse GetSettings();
     string[] GetRotaryFunctions();
     void SetRotary(SetRotaryWheelsBody body);
     void SetRotarySensitivity(string sensitivity);
     void SetKeyReactive(SetFirmwareLightingBody body);
     void SetFirmwareLighting(SetFirmwareLightingBody body);
+    void SetPassiveLighting(SetPassiveLightingBody body);
     void SetGameMode(SetGameModeBody body);
     KeebMacro GetMacro(int index);
     KeebMacro SetMacro(int index, SetMacroBody body);

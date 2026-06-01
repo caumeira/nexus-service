@@ -250,6 +250,24 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.QSeriesLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingFrameWriter>());
 
+        // Keeb TKL lighting: KeebHub owns the keyboard's vendor HID interface
+        // (OpenRGB's "HYTE Keeb TKL" detector is disabled), this provider
+        // surfaces the keys + underglow zones, and the writer streams 30 Hz
+        // RGB frames directly over HID. Reuses Np50IdentifyTracker for the
+        // shared identify-flash state.
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Keeb.KeebHub>();
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Keeb.KeebSettingsApplier>();
+        services.AddSingleton<Nexus.Service.Lighting.KeebLightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.KeebLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingFrameWriter>());
+        services.AddHostedService(sp => new Nexus.Service.Peripherals.Hyte.Keeb.KeebConnectionWorker(
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Keeb.KeebHub>(),
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Keeb.KeebSettingsApplier>(),
+            sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
+        services.AddHostedService<Nexus.Service.Peripherals.Hyte.Keeb.KeebInputWorker>();
+
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
         {
             services.AddSingleton<Nexus.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>();
@@ -259,6 +277,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         }
@@ -270,6 +289,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         }
@@ -436,12 +456,22 @@ public static class NexusServiceCollectionExtensions
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.WindowsHidEnumerator>();
 #else
-        services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.StubHidEnumerator>();
+        if (OperatingSystem.IsLinux())
+        {
+            services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.LinuxHidEnumerator>();
+        }
+        else
+        {
+            services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.StubHidEnumerator>();
+        }
 #endif
         services.AddSingleton<Nexus.Service.Peripherals.PeripheralRegistry>();
 
+        // Real HID-backed keeb provider. StubKeebProvider stays registered only
+        // as the IInputterProvider fallback on platforms without a native inputter.
         services.AddSingleton<StubKeebProvider>();
-        services.AddSingleton<IKeebProvider>(sp => sp.GetRequiredService<StubKeebProvider>());
+        services.AddSingleton<RealKeebProvider>();
+        services.AddSingleton<IKeebProvider>(sp => sp.GetRequiredService<RealKeebProvider>());
 #if WINDOWS
         services.AddSingleton<IInputterProvider, WindowsInputter>();
 #else

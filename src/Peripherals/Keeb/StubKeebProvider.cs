@@ -11,11 +11,12 @@ public sealed class StubKeebProvider : IKeebProvider, IInputterProvider
 
     public StubKeebProvider(IConfigStore store) { _store = store; }
 
-    public KeyboardState GetState() => new()
+    public KeyboardState GetState(int layer) => new()
     {
         IsConnected = false,
         Profile = 0,
-        Layout = "TKL",
+        Layer = layer,
+        Layout = "ANSI",
         Keys = new List<List<KeebKey>>(),
     };
 
@@ -74,6 +75,20 @@ public sealed class StubKeebProvider : IKeebProvider, IInputterProvider
             A = body.KeyReactiveColor.A,
         };
         s.Keeb.FirmwareLighting.KeyIndicator = body.KeyIndicator;
+    });
+
+    public void SetPassiveLighting(SetPassiveLightingBody body) => _store.Update(s =>
+    {
+        s.Keeb.FirmwareLighting.KeyReactive = body.KeyReactive;
+        s.Keeb.FirmwareLighting.KeyReactiveMask = body.KeyReactiveMask;
+        s.Keeb.FirmwareLighting.KeyReactiveMode = body.KeyReactiveMode;
+        s.Keeb.FirmwareLighting.KeyReactiveColor = new RgbaColor
+        {
+            R = body.KeyReactiveColor.R,
+            G = body.KeyReactiveColor.G,
+            B = body.KeyReactiveColor.B,
+            A = body.KeyReactiveColor.A,
+        };
     });
 
     public void SetGameMode(SetGameModeBody body) => _store.Update(s =>
