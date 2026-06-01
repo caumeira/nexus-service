@@ -375,12 +375,17 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
         foreach (var sensor in hw.Sensors)
         {
             if (sensor.SensorType != SensorType.Temperature) continue;
+            var value = sensor.Value ?? 0f;
+            // Skip disconnected/disabled channels (e.g. unpopulated DIMM SPD
+            // temps read 0 / ~0.25°C) so they never become curve inputs —
+            // same gate every platform's provider applies. See TemperatureSourceFilter.
+            if (!TemperatureSourceFilter.IsPlausible(value)) continue;
             list.Add(new TemperatureSource
             {
                 Id = sensor.Identifier.ToString(),
                 Name = sensor.Name,
                 Category = category,
-                Value = sensor.Value ?? 0f,
+                Value = value,
             });
         }
     }

@@ -396,13 +396,10 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
                 var milli = LinuxSysfs.ReadInt(input);
                 if (milli is null)
                     continue;
-                // Drop implausible readings. An unconnected SuperIO temp header
-                // (e.g. it8696 temp6) reports a sentinel like -55000 m°C; a
-                // disabled channel reads 0. Surfacing those as curve sources
-                // means a new/preset curve can default to a fake -55°C input.
-                // LinuxSensorProvider already applies the same milli<=0 cut, so
-                // this keeps the cooling source list and the sensor page in sync.
-                if (milli.Value <= 0)
+                // Drop disconnected/disabled channels (an unconnected SuperIO
+                // header reads a -55°C sentinel; a disabled one reads 0) so they
+                // never become curve inputs — same gate every platform applies.
+                if (!TemperatureSourceFilter.IsPlausible(milli.Value / 1000f))
                     continue;
                 var label = LinuxSysfs.ReadText(Path.Combine(dir, $"temp{index}_label"));
                 var name = !string.IsNullOrEmpty(label) ? $"{hwmonName} {label}" : $"{hwmonName} temp{index}";

@@ -70,10 +70,15 @@ public sealed class MacFanControlProvider : IFanControlProvider, ICoolingProvide
     public IReadOnlyList<TemperatureSource> GetTemperatureSources()
     {
         var sources = new List<TemperatureSource>();
+        // Same disconnected-channel gate as the Linux/Windows providers — an SMC
+        // die key that reads 0 (sensor absent on this Mac) shouldn't become a
+        // curve input. See TemperatureSourceFilter.
         var cpu = Average(CpuTempKeys);
-        if (cpu.HasValue) sources.Add(new TemperatureSource { Id = "mac/cpu/die", Name = "CPU Die", Category = "CPU", Value = cpu.Value });
+        if (cpu.HasValue && TemperatureSourceFilter.IsPlausible(cpu.Value))
+            sources.Add(new TemperatureSource { Id = "mac/cpu/die", Name = "CPU Die", Category = "CPU", Value = cpu.Value });
         var gpu = Average(GpuTempKeys);
-        if (gpu.HasValue) sources.Add(new TemperatureSource { Id = "mac/gpu/die", Name = "GPU Die", Category = "GPU", Value = gpu.Value });
+        if (gpu.HasValue && TemperatureSourceFilter.IsPlausible(gpu.Value))
+            sources.Add(new TemperatureSource { Id = "mac/gpu/die", Name = "GPU Die", Category = "GPU", Value = gpu.Value });
         return sources;
     }
 

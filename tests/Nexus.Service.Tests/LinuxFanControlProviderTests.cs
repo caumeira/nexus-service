@@ -88,12 +88,14 @@ public class LinuxFanControlProviderTests
     {
         using var t = new TempDir();
         // it8696 temp6 on an unconnected header reports -55000 m°C; temp7 a
-        // disabled channel reads 0. Neither must surface as a curve source —
-        // otherwise a new/preset curve defaults to a fake -55°C input.
+        // disabled channel reads 0; an unpopulated SPD-style channel reads
+        // ~250 m°C (0.25°C). None must surface as a curve source — otherwise a
+        // new/preset curve defaults to a fake input.
         t.Write("hwmon/hwmon0/name", "it8696\n");
         t.Write("hwmon/hwmon0/temp1_input", "43000\n");
         t.Write("hwmon/hwmon0/temp6_input", "-55000\n");
         t.Write("hwmon/hwmon0/temp7_input", "0\n");
+        t.Write("hwmon/hwmon0/temp8_input", "250\n");
         var p = new LinuxFanControlProvider(t.At("hwmon"), TimeSpan.FromMilliseconds(1));
         var src = Assert.Single(p.GetTemperatureSources()); // only the real 43°C survives
         Assert.Equal(43f, src.Value);
