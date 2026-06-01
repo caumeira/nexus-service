@@ -129,9 +129,10 @@ public sealed class RealKeebProvider : IKeebProvider
                 }
             }
         });
-        // Re-init so the brightness/palette change takes effect on a running
-        // firmware animation (the firmware only re-reads them on a mode change).
-        _applier.ApplyAndReinit();
+        // A single 0x06 settings write applies effect/speed/direction/brightness
+        // live — the firmware dims the running animation from the brightness byte
+        // with no mode re-init (verified on the bench).
+        _applier.Apply();
     }
 
     public void SetPassiveLighting(SetPassiveLightingBody body)

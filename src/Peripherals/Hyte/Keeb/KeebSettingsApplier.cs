@@ -43,34 +43,6 @@ public sealed class KeebSettingsApplier
     }
 
     /// <summary>
-    /// Apply settings AND force the running firmware animation to re-initialise,
-    /// so a brightness/palette change actually takes effect. The firmware only
-    /// re-reads brightness/colour when the animation MODE changes (verified on
-    /// hardware — a same-mode write is stored but ignored live), so we briefly
-    /// write a different mode and then the real one. Used for the firmware-lighting
-    /// path; game-mode / rotary use <see cref="Apply"/> (no re-init needed).
-    /// </summary>
-    public bool ApplyAndReinit()
-    {
-        if (!_hub.IsConnected) return false;
-        try
-        {
-            var realPage = KeebSettingsCodec.BuildSettingsPage(_store.Load().Keeb);
-            // page[3] is the animation-mode byte (page[0]=report id, [1]=debounce,
-            // [2]=game mode, [3]=anim). Toggle Static<->Breathe for the transient.
-            var transientPage = (byte[])realPage.Clone();
-            transientPage[3] = realPage[3] == 0x01 ? (byte)0x02 : (byte)0x01;
-            _hub.WriteSettings(transientPage);
-            return _hub.WriteSettings(realPage);
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[keeb] apply+reinit failed: {ex.GetType().Name}: {ex.Message}");
-            return false;
-        }
-    }
-
-    /// <summary>
     /// Read the device's current firmware effect and mirror a device-initiated
     /// change (e.g. the rotary middle button cycling the effect) into persisted
     /// state, so the panel reflects it. Our own writes keep device + persisted in
@@ -81,10 +53,13 @@ public sealed class KeebSettingsApplier
     {
         if (!_hub.IsConnected) return false;
         var raw = _hub.ReadSettings();
-        if (raw is null || raw.Length < 3) return false;
-        // Linux hidraw read has no report-id prefix: [0]=debounce [1]=gameMode [2]=anim.
-        var animByte = raw.Length >= 9 && raw[0] == 0x00 ? raw[3] : raw[2];
-        var effect = KeebSettingsCodec.AnimationModeName(animByte);
+        if (raw is null) return false;
+        // Read layout (verified on the bench): Linux hidraw returns the 64-byte
+        // page with NO report-id prefix (raw[0]=debounce, raw[2]=animation);
+        // Windows HID prepends the report id (raw[0]=0x00, raw[3]=animation).
+        var animIndex = OperatingSystem.IsWindows() ? 3 : 2;
+        if (raw.Length <= animIndex) return false;
+        var effect = KeebSettingsCodec.AnimationModeName(raw[animIndex]);
         if (effect is null) return false;
         if (string.Equals(_store.Load().Keeb.FirmwareLighting.AnimationMode, effect, StringComparison.OrdinalIgnoreCase))
             return false;

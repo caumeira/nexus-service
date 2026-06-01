@@ -133,28 +133,25 @@ public static class KeebSettingsCodec
 
         var anim = AnimationModeByte(s.FirmwareLighting.AnimationMode);
         page[3] = anim;
-        // Brightness: the firmware STORES the LED-brightness byte but does not
-        // re-apply it to an already-running animation (verified on hardware — only
-        // a mode change or the rotary knob's master re-applies it; the original
-        // nexus used the same byte and likely never dimmed the standalone firmware
-        // animation either — it normally software-streamed the board). So carry the
-        // brightness in the PALETTE colours, which DO take effect live: the
-        // animation colours are scaled by brightness. The brightness byte stays
-        // full so a later mode change doesn't double-dim.
-        var scale = Math.Clamp(s.FirmwareLighting.Brightness, 0, 100) / 100.0;
-        page[4] = 0xFF;
+        // Brightness (page[4] = doc byte 3, range 0-255). The firmware applies this
+        // to the running animation LIVE — verified on the bench: the rotary knob's
+        // brightness function moves exactly this byte, and a plain host write of it
+        // dims the animation immediately (no mode re-init, no palette trick needed).
+        // Map the 0-100% slider linearly to 0-255, as the legacy KeebSettings did.
+        page[4] = (byte)Math.Round(Math.Clamp(s.FirmwareLighting.Brightness, 0, 100) / 100.0 * 255);
         page[5] = SpeedByte(s.FirmwareLighting.Speed);
         // Color index: Static shows one palette colour (index 0); animated modes
         // use index 8 (the 8-colour palette as a gradient).
         page[6] = anim == 0x01 ? (byte)0 : (byte)8;
         page[7] = DirectionByte(s.FirmwareLighting.Direction);
 
+        // Firmware colour palette (full-intensity rainbow; byte 4 handles dimming).
         for (var i = 0; i < 8; i++)
         {
             var c = DefaultPalette[i];
-            page[12 + i * 3] = (byte)Math.Round(c.R * scale);
-            page[13 + i * 3] = (byte)Math.Round(c.G * scale);
-            page[14 + i * 3] = (byte)Math.Round(c.B * scale);
+            page[12 + i * 3] = c.R;
+            page[13 + i * 3] = c.G;
+            page[14 + i * 3] = c.B;
         }
 
         // Rotary: firmware mode handles volume/brightness/etc. natively. Right
