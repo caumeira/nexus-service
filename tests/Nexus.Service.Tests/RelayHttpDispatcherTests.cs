@@ -52,6 +52,9 @@ public sealed class RelayHttpDispatcherTests
         builder.Services.AddSingleton(new TokenService(store));
         builder.Services.AddSingleton(new Nexus.Service.Panel.PanelPhonePairingService(store, hub) { PublicLinkHost = "" });
         builder.Services.AddSingleton<RelayHttpDispatcher>();
+        // Mirror Program.cs: source-generated JSON resolver for minimal-API binding.
+        builder.Services.ConfigureHttpJsonOptions(o =>
+            o.SerializerOptions.TypeInfoResolverChain.Insert(0, Nexus.Service.Serialization.AppJsonContext.Default));
 
         var app = builder.Build();
 
@@ -71,6 +74,11 @@ public sealed class RelayHttpDispatcherTests
 
         // A protected panel route (.AllowPanel) that requires a phone-session.
         app.MapGet(ProtectedRoute, () => Results.Text(ProtectedBody)).AllowPanel();
+        // A protected POST that BINDS a JSON body — mirrors /lighting/animate/
+        // headless-start, /system/volume, etc. (the real control commands).
+        // Echoes the bound field so the test can prove the body survived the
+        // tunnel's synthetic HttpContext and reached minimal-API model binding.
+        app.MapPost("/panel/echo", (Nexus.Service.Models.Panel.PanelHostNameBody b) => Results.Text("echo:" + b.Name)).AllowPanel();
         // A protected route returning raw binary (like an effect-thumbnail BMP) to
         // prove the tunnel carries non-UTF-8 bytes intact.
         app.MapGet(BinaryRoute, () => Results.Bytes(BinaryProbe, "image/bmp")).AllowPanel();
@@ -201,6 +209,27 @@ public sealed class RelayHttpDispatcherTests
         await ((IApplicationBuilder)app).Build()(ctx);
 
         Assert.Equal(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Tunneled_PostWithJsonBody_BindsBody_AndRunsHandler()
+    {
+        // A relayed POST whose handler binds a JSON body (lighting effect, volume,
+        // ...). The synthetic HttpContext must report it can have a body or minimal-
+        // API binding skips the body and 400s the required parameter as missing —
+        // the regression that silently broke every body-bound control over relay.
+        var store = StoreWithSession();
+        var hub = new MultiplexHub();
+        await using var app = await BuildAppAsync(store, hub);
+        var dispatcher = app.Services.GetRequiredService<RelayHttpDispatcher>();
+
+        var resp = await dispatcher.DispatchAsync(
+            new RelayHttpRequest { Id = 71, Method = "POST", Path = "/panel/echo", Body = "{\"name\":\"hi\"}", ContentType = "application/json" },
+            SessionId, CancellationToken.None);
+
+        Assert.Equal(71, resp.Id);
+        Assert.Equal(StatusCodes.Status200OK, resp.Status);
+        Assert.Equal("echo:hi", DecodeText(resp));
     }
 
     [Fact]

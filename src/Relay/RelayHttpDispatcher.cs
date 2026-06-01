@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Http.Features;
 using Microsoft.Extensions.DependencyInjection;
 using Nexus.Service.Models.Panel;
 
@@ -155,6 +156,15 @@ public sealed class RelayHttpDispatcher
             req.Body = new MemoryStream(bytes);
             req.ContentLength = bytes.Length;
             req.ContentType = string.IsNullOrEmpty(request.ContentType) ? ContentTypeJson : request.ContentType;
+            // Minimal-API model binding only reads the request body when the
+            // request reports it can have one via IHttpRequestBodyDetectionFeature.
+            // A bare DefaultHttpContext has no such feature, so the binder treats
+            // every body-bound POST over the tunnel as "no body" and 400s (the
+            // bound parameter resolves null → required-body-missing) — which is
+            // why relayed lighting effects, volume, etc. silently did nothing
+            // while bodyless/route-param POSTs (cooling presets) worked. Declare
+            // the body so binding reads it.
+            ctx.Features.Set<IHttpRequestBodyDetectionFeature>(CanHaveBodyFeature.Instance);
         }
 
         // The authorization decision: act as this phone session, trusted because
@@ -238,5 +248,16 @@ public sealed class RelayHttpDispatcher
     {
         var q = raw.IndexOf('?');
         return q < 0 ? (raw, string.Empty) : (raw[..q], raw[q..]);
+    }
+
+    /// <summary>
+    /// Tells minimal-API model binding the synthetic relay request carries a body.
+    /// Without it, <c>RequestDelegateFactory</c> never reads the body off a bare
+    /// <see cref="DefaultHttpContext"/> and 400s every body-bound POST.
+    /// </summary>
+    private sealed class CanHaveBodyFeature : IHttpRequestBodyDetectionFeature
+    {
+        public static readonly CanHaveBodyFeature Instance = new();
+        public bool CanHaveBody => true;
     }
 }
