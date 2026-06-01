@@ -7,6 +7,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Platform;
+using Nexus.Service.Platform.Linux;
 
 namespace Nexus.Service.Sensors;
 
@@ -117,9 +118,9 @@ public sealed class LinuxSensorProvider : ISensorProvider
             sensors.Add(MakeSensor("cpu/clock", "Max Clock", "Clock", maxMhz, "MHz", model));
         }
 
-        foreach (var (name, tempC) in EnumerateHwmonTemps(preferredNames: new[] { "k10temp", "coretemp", "zenpower" }))
+        foreach (var (name, idFrag, tempC) in EnumerateHwmonTemps(preferredNames: new[] { "k10temp", "coretemp", "zenpower" }))
         {
-            sensors.Add(MakeSensor($"cpu/temp/{Sanitize(name)}", name, "Temperature", tempC, "°C", model));
+            sensors.Add(MakeSensor($"cpu/temp/{idFrag}", name, "Temperature", tempC, "°C", model));
         }
 
         // Per-core load
@@ -461,20 +462,20 @@ public sealed class LinuxSensorProvider : ISensorProvider
             sensors.Add(MakeSensor("mobo/model", "Model Identifier", "Factor", 0, "", model));
         }
 
-        foreach (var (name, rpm) in EnumerateHwmonFans())
+        foreach (var (name, idFrag, rpm) in EnumerateHwmonFans())
         {
-            sensors.Add(MakeSensor($"mobo/fan/{Sanitize(name)}", name, "Fan", rpm, "RPM", model));
+            sensors.Add(MakeSensor($"mobo/fan/{idFrag}", name, "Fan", rpm, "RPM", model));
         }
 
-        foreach (var (name, millivolts) in EnumerateHwmonVoltages())
+        foreach (var (name, idFrag, millivolts) in EnumerateHwmonVoltages())
         {
-            sensors.Add(MakeSensor($"mobo/voltage/{Sanitize(name)}", name, "Voltage", millivolts / 1000f, "V", model));
+            sensors.Add(MakeSensor($"mobo/voltage/{idFrag}", name, "Voltage", millivolts / 1000f, "V", model));
         }
 
         // Non-CPU/non-GPU temps from hwmon (e.g. nct6687 VRM temps, chipset temps).
-        foreach (var (name, tempC) in EnumerateHwmonTemps(excludedNames: new[] { "k10temp", "coretemp", "zenpower", "nvme", "amdgpu" }))
+        foreach (var (name, idFrag, tempC) in EnumerateHwmonTemps(excludedNames: new[] { "k10temp", "coretemp", "zenpower", "nvme", "amdgpu" }))
         {
-            sensors.Add(MakeSensor($"mobo/temp/{Sanitize(name)}", name, "Temperature", tempC, "°C", model));
+            sensors.Add(MakeSensor($"mobo/temp/{idFrag}", name, "Temperature", tempC, "°C", model));
         }
 
         // Per-NIC rx/tx rates (B/s) — only emit for interfaces with activity.
@@ -830,7 +831,7 @@ public sealed class LinuxSensorProvider : ISensorProvider
         return _memTotalBytes;
     }
 
-    private static IEnumerable<(string Name, float TempC)> EnumerateHwmonTemps(
+    private static IEnumerable<(string Name, string IdFrag, float TempC)> EnumerateHwmonTemps(
         string[]? preferredNames = null,
         string[]? excludedNames = null)
     {
@@ -897,12 +898,14 @@ public sealed class LinuxSensorProvider : ISensorProvider
                     ? $"{hwmonName} {label}"
                     : $"{hwmonName} temp{index}";
 
-                yield return (displayName, milli / 1000f);
+                // IdFrag = stable chip key + index so two chips sharing a `name`
+                // (e.g. dual nct6798) don't collapse to the same sensor id.
+                yield return (displayName, $"{LinuxSysfs.ChipKey(dir, hwmonName)}-temp{index}", milli / 1000f);
             }
         }
     }
 
-    private static IEnumerable<(string Name, float Rpm)> EnumerateHwmonFans()
+    private static IEnumerable<(string Name, string IdFrag, float Rpm)> EnumerateHwmonFans()
     {
         IEnumerable<string> dirs;
         try
@@ -948,12 +951,12 @@ public sealed class LinuxSensorProvider : ISensorProvider
                 var displayName = label.Length > 0
                     ? $"{hwmonName} {label}"
                     : $"{hwmonName} fan{index}";
-                yield return (displayName, rpm);
+                yield return (displayName, $"{LinuxSysfs.ChipKey(dir, hwmonName)}-fan{index}", rpm);
             }
         }
     }
 
-    private static IEnumerable<(string Name, float MilliVolts)> EnumerateHwmonVoltages()
+    private static IEnumerable<(string Name, string IdFrag, float MilliVolts)> EnumerateHwmonVoltages()
     {
         IEnumerable<string> dirs;
         try
@@ -999,7 +1002,7 @@ public sealed class LinuxSensorProvider : ISensorProvider
                 var displayName = label.Length > 0
                     ? $"{hwmonName} {label}"
                     : $"{hwmonName} in{index}";
-                yield return (displayName, mv);
+                yield return (displayName, $"{LinuxSysfs.ChipKey(dir, hwmonName)}-in{index}", mv);
             }
         }
     }

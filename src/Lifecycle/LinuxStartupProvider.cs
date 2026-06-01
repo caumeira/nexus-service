@@ -1,69 +1,62 @@
 using System;
-using System.IO;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Lifecycle;
 
 /// <summary>
-/// Real Linux autostart via the XDG autostart spec: writes/removes
-/// <c>$XDG_CONFIG_HOME/autostart/nexus.desktop</c> (default
-/// <c>~/.config/autostart/</c>), which every desktop session launches at login.
-/// This backs the in-app "start at login" toggle. The tarball installer also
-/// installs a <c>systemd --user</c> unit as the primary mechanism; the two
-/// coexist (systemd starts it; this toggle is the fallback / user-visible
-/// switch). Pure file IO — AOT-safe.
+/// Linux "start at login" toggle. Nexus runs as a <b>root systemd system
+/// unit</b> (<c>nexus.service</c>, installed by <c>installer/linux/install.sh</c>),
+/// so the truthful boot toggle is enabling/disabling that unit — NOT an XDG
+/// autostart <c>.desktop</c>. The old implementation wrote
+/// <c>~/.config/autostart/nexus.desktop</c> with <c>Exec=/opt/nexus/Nexus</c>,
+/// which at next login launched a <em>second, non-root copy of the whole
+/// service</em> in the user session (port-bind clash / config written to the
+/// wrong owner). The daemon already runs as root, so it can toggle its own unit
+/// via <c>systemctl</c> with no sudo. The <c>path</c>/<c>arguments</c> args are
+/// ignored: the unit file already encodes <c>ExecStart</c>.
+///
+/// In a dev <c>--user</c> run there is no installed system unit, so
+/// <c>systemctl</c> fails and the toggle reports false (best-effort, logged).
+/// AOT-safe (Process.Start via <see cref="ShellExecutor"/>).
 /// </summary>
 public sealed class LinuxStartupProvider : IStartupProvider
 {
-    private const string DesktopFileName = "nexus.desktop";
-    private readonly string _configHome;
+    internal const string UnitName = "nexus.service";
 
-    public LinuxStartupProvider() : this(ConfigHome()) { }
+    // Seams so tests don't shell out to a real systemd. Default impls call
+    // systemctl: _run for enable/disable (exit code), _query for is-enabled.
+    private readonly Func<string[], int> _run;
+    private readonly Func<string[], string> _query;
 
-    internal LinuxStartupProvider(string configHome) => _configHome = configHome;
+    public LinuxStartupProvider() : this(
+        args => ShellExecutor.RunExit("systemctl", ShellExecutor.DefaultTimeoutMs, args),
+        args => ShellExecutor.Run("systemctl", args))
+    { }
 
-    private string AutostartPath => Path.Combine(_configHome, "autostart", DesktopFileName);
+    internal LinuxStartupProvider(Func<string[], int> run, Func<string[], string> query)
+    {
+        _run = run;
+        _query = query;
+    }
 
-    public bool IsEnabled() => File.Exists(AutostartPath);
+    public bool IsEnabled()
+    {
+        // `systemctl is-enabled nexus.service` prints "enabled" when it starts at
+        // boot; "disabled"/"masked"/"static"/... or empty (no unit) otherwise.
+        var status = _query(new[] { "is-enabled", UnitName }).Trim();
+        return status is "enabled" or "enabled-runtime";
+    }
 
     public bool SetEnabled(bool enabled, string path, string arguments)
     {
-        try
+        var verb = enabled ? "enable" : "disable";
+        var exit = _run(new[] { verb, UnitName });
+        if (exit != 0)
         {
-            if (!enabled)
-            {
-                if (File.Exists(AutostartPath))
-                    File.Delete(AutostartPath);
-                return true;
-            }
-
-            Directory.CreateDirectory(Path.GetDirectoryName(AutostartPath)!);
-            var exec = string.IsNullOrWhiteSpace(arguments) ? Quote(path) : $"{Quote(path)} {arguments}";
-            var content =
-                "[Desktop Entry]\n" +
-                "Type=Application\n" +
-                "Name=Nexus\n" +
-                "Comment=Nexus hardware monitoring and control service\n" +
-                $"Exec={exec}\n" +
-                "Icon=nexus\n" +
-                "Terminal=false\n" +
-                "X-GNOME-Autostart-enabled=true\n";
-            File.WriteAllText(AutostartPath, content);
-            return true;
+            Console.Error.WriteLine(
+                $"[linux-startup] systemctl {verb} {UnitName} failed (exit {exit}) — " +
+                "not root, or the system unit isn't installed (dev --user run?).");
         }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[linux-startup] failed: {ex.Message}");
-            return false;
-        }
+        return exit == 0;
     }
-
-    private static string ConfigHome()
-    {
-        var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
-        if (!string.IsNullOrEmpty(xdg))
-            return xdg;
-        return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
-    }
-
-    private static string Quote(string p) => p.Contains(' ') ? $"\"{p}\"" : p;
 }

@@ -68,9 +68,32 @@ public sealed class GpuContext : IDisposable
     public GL Gl => _gl ?? throw new InvalidOperationException("GpuContext not initialized");
     public bool Available => _initTried && !_failed && !_disposed;
 
-    private static readonly string LogPath = System.IO.Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "Nexus", "gpu.log");
+    private static readonly string LogPath = System.IO.Path.Combine(LogDir(), "gpu.log");
+
+    // CommonApplicationData resolves to /usr/share on Linux, which is read-only
+    // on immutable distros (Bazzite/rpm-ostree) and unwritable by a user-session
+    // process — so gpu.log silently vanished there (the exact diagnostics you
+    // need when EGL/GL init fails). On Linux prefer the session user's XDG state
+    // dir (LinuxSession adopts XDG_STATE_HOME/HOME into the daemon's env), then
+    // ~/.local/state, then /tmp as a guaranteed-writable last resort.
+    private static string LogDir()
+    {
+        if (OperatingSystem.IsLinux())
+        {
+            var state = Environment.GetEnvironmentVariable("XDG_STATE_HOME");
+            if (string.IsNullOrEmpty(state))
+            {
+                var home = Environment.GetEnvironmentVariable("HOME");
+                if (!string.IsNullOrEmpty(home))
+                    state = System.IO.Path.Combine(home, ".local", "state");
+            }
+            return string.IsNullOrEmpty(state)
+                ? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "nexus")
+                : System.IO.Path.Combine(state, "nexus");
+        }
+        return System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Nexus");
+    }
 
     public static void Log(string line)
     {

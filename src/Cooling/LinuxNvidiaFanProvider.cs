@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Cooling;
+using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Cooling;
 
@@ -32,6 +33,8 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
     private readonly Func<List<GpuInfo>> _read;
     private readonly Func<int, int, int?, bool> _control; // (gpu, fan, duty | null=auto) -> applied
     private readonly bool _forceAvailable;
+    private readonly IConfigStore? _config;
+    private bool _manualRestored;
 
     private readonly object _lock = new();
     private readonly HashSet<string> _warned = new();
@@ -44,24 +47,28 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
     private List<GpuInfo>? _snapshot;
     private long _snapshotAtMs = long.MinValue;
 
-    public LinuxNvidiaFanProvider()
+    public LinuxNvidiaFanProvider(IConfigStore config)
     {
         _read = Nvml.Read;
         _control = Nvml.SetFan;
         _forceAvailable = false;
+        _config = config;
     }
 
-    internal LinuxNvidiaFanProvider(Func<List<GpuInfo>> read, Func<int, int, int?, bool> control)
+    internal LinuxNvidiaFanProvider(Func<List<GpuInfo>> read, Func<int, int, int?, bool> control, IConfigStore? config = null)
     {
         _read = read;
         _control = control;
         _forceAvailable = true;
+        _config = config;
     }
 
     private bool Available() => _forceAvailable || (OperatingSystem.IsLinux() && Nvml.Available);
 
     public IReadOnlyList<FanChannel> GetFanChannels()
     {
+        RestoreManualOnce();
+        var curveBound = CurveModes.BoundFanIds(_config);
         var channels = new List<FanChannel>();
         foreach (var g in Snapshot())
         {
@@ -77,7 +84,9 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
                     Name = g.Fans.Count > 1 ? $"{g.Name} fan {f.Fan + 1}" : $"{g.Name} fan",
                     DutyPercent = f.Duty,
                     Rpm = f.Rpm, // tach RPM via nvmlDeviceGetFanSpeedRPM (0 if unsupported)
-                    Mode = manual ? FanModes.Manual : FanModes.Auto,
+                    Mode = curveBound.Contains(id)
+                        ? FanModes.Curve
+                        : (manual ? FanModes.Manual : FanModes.Auto),
                     DeviceId = deviceId,
                     DeviceName = g.Name,
                 });
@@ -116,10 +125,10 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
         return Snapshot().FirstOrDefault(g => g.Index == idx)?.Temp;
     }
 
-    public int SetFanSpeed(string channelId, int dutyPercent) => Drive(channelId, dutyPercent);
-    public void DriveFanSpeed(string channelId, int dutyPercent) => Drive(channelId, dutyPercent);
+    public int SetFanSpeed(string channelId, int dutyPercent) => Drive(channelId, dutyPercent, persist: true);
+    public void DriveFanSpeed(string channelId, int dutyPercent) => Drive(channelId, dutyPercent, persist: false);
 
-    private int Drive(string channelId, int dutyPercent)
+    private int Drive(string channelId, int dutyPercent, bool persist)
     {
         dutyPercent = Math.Clamp(dutyPercent, 0, 100);
         if (!TryParseFan(channelId, out var gpu, out var fan))
@@ -127,6 +136,11 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
         if (_control(gpu, fan, dutyPercent))
         {
             lock (_lock) _manual.Add(channelId);
+            // Persist a genuine user override (not the curve engine's per-tick
+            // writes) so the manual duty survives a restart, mirroring
+            // WindowsFanControlProvider + restored by RestoreManualOnce.
+            if (persist)
+                _config?.Update(s => s.Cooling.ManualSpeeds[channelId] = dutyPercent);
         }
         else
         {
@@ -141,6 +155,7 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
             return;
         _control(gpu, fan, null);
         lock (_lock) _manual.Remove(channelId);
+        _config?.Update(s => s.Cooling.ManualSpeeds.Remove(channelId));
     }
 
     public void ReleaseAll()
@@ -151,6 +166,44 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
                 _control(g.Index, f.Fan, null);
         }
         lock (_lock) _manual.Clear();
+        // Only drop our own ids — ManualSpeeds is shared with the hwmon/liquidctl
+        // providers in the composite, so a blanket Clear() would wipe theirs.
+        _config?.Update(s =>
+        {
+            foreach (var k in s.Cooling.ManualSpeeds.Keys.Where(IsNvidiaId).ToList())
+                s.Cooling.ManualSpeeds.Remove(k);
+        });
+    }
+
+    /// <summary>
+    /// Re-apply the user's saved manual GPU duties once, lazily, on first
+    /// enumeration — so the reported mode matches reality after a service
+    /// restart or reboot (NVML resets fans to auto on reboot). Mirrors
+    /// <see cref="WindowsFanControlProvider"/>'s RestoreSavedManualSpeeds.
+    /// </summary>
+    private void RestoreManualOnce()
+    {
+        if (_manualRestored || _config is null)
+            return;
+        lock (_lock)
+        {
+            if (_manualRestored)
+                return;
+            _manualRestored = true;
+        }
+        var restored = 0;
+        foreach (var (id, duty) in _config.Load().Cooling.ManualSpeeds)
+        {
+            if (!TryParseFan(id, out var gpu, out var fan))
+                continue;
+            if (_control(gpu, fan, Math.Clamp(duty, 0, 100)))
+            {
+                lock (_lock) _manual.Add(id);
+                restored++;
+            }
+        }
+        if (restored > 0)
+            Console.Error.WriteLine($"[cooling] restored {restored} manual NVIDIA fan duty(ies) from config");
     }
 
     public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(

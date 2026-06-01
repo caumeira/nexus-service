@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Cooling;
+using Nexus.Service.Models.Cooling;
 using Xunit;
 
 namespace Nexus.Service.Tests;
@@ -150,5 +151,41 @@ public class LinuxLiquidctlProviderTests
         Assert.True(LinuxLiquidctlProvider.IsLiquidctlId("liquidctl:x:fan"));
         Assert.False(LinuxLiquidctlProvider.IsLiquidctlId("nvidia:0"));
         Assert.False(LinuxLiquidctlProvider.IsLiquidctlId(""));
+    }
+
+    [Fact]
+    public void SetFanSpeed_PersistsManualOverride_DriveDoesNot()
+    {
+        var store = new InMemoryConfigStore();
+        var p = new LinuxLiquidctlProvider(() => KrakenJson, (_, _, _) => true, store);
+
+        p.SetFanSpeed("liquidctl:dev-hidraw3:pump", 70);
+        Assert.Equal(70, store.Load().Cooling.ManualSpeeds["liquidctl:dev-hidraw3:pump"]);
+
+        // Curve-engine path must not pollute the user-override dict.
+        p.DriveFanSpeed("liquidctl:dev-hidraw3:pump", 33);
+        Assert.Equal(70, store.Load().Cooling.ManualSpeeds["liquidctl:dev-hidraw3:pump"]);
+    }
+
+    [Fact]
+    public void SetFanSpeed_RejectedWrite_DoesNotPersist()
+    {
+        var store = new InMemoryConfigStore();
+        var p = new LinuxLiquidctlProvider(() => KrakenJson, (_, _, _) => false, store);
+        p.SetFanSpeed("liquidctl:dev-hidraw3:pump", 70);
+        Assert.Empty(store.Load().Cooling.ManualSpeeds);
+    }
+
+    [Fact]
+    public void GetFanChannels_CurveBoundFan_ReportsCurveMode()
+    {
+        var store = new InMemoryConfigStore();
+        store.Update(s => s.Cooling.Curves.Add(new Nexus.Service.Persistence.CurveDocument
+        {
+            Id = "c1",
+            Outputs = { new Nexus.Service.Persistence.CurveOutputDocument { Id = "liquidctl:dev-hidraw3:pump" } },
+        }));
+        var p = new LinuxLiquidctlProvider(() => KrakenJson, (_, _, _) => true, store);
+        Assert.Equal(FanModes.Curve, Assert.Single(p.GetFanChannels()).Mode);
     }
 }

@@ -34,6 +34,7 @@ internal static unsafe class LinuxEglContext
     private const int EGL_CONTEXT_OPENGL_PROFILE_MASK = 0x30FD;
     private const int EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT = 0x0001;
     private const uint EGL_PLATFORM_DEVICE_EXT = 0x313F;
+    private const uint EGL_PLATFORM_SURFACELESS_MESA = 0x31DD;
 
     [DllImport(Egl)] private static extern IntPtr eglGetProcAddress(string name);
     [DllImport(Egl)] private static extern int eglInitialize(IntPtr dpy, int* major, int* minor);
@@ -55,47 +56,78 @@ internal static unsafe class LinuxEglContext
         // Device-platform entrypoints are extensions, fetched at runtime.
         var queryDevices = (delegate* unmanaged<int, IntPtr*, int*, int>)eglGetProcAddress("eglQueryDevicesEXT");
         var getPlatformDisplay = (delegate* unmanaged<uint, IntPtr, int*, IntPtr>)eglGetProcAddress("eglGetPlatformDisplayEXT");
-        if (queryDevices == null || getPlatformDisplay == null)
-            throw new InvalidOperationException("EGL device platform unavailable (no EGL_EXT_device_base / EGL_EXT_platform_device)");
+        if (getPlatformDisplay == null)
+            throw new InvalidOperationException("EGL platform display unavailable (no eglGetPlatformDisplayEXT)");
 
-        IntPtr* devices = stackalloc IntPtr[16];
-        int num = 0;
-        if (queryDevices(16, devices, &num) == 0 || num == 0)
-            throw new InvalidOperationException("EGL: no render devices");
-
-        for (var i = 0; i < num; i++)
+        // 1. Hardware path: try each GPU EGLDevice until one yields a context.
+        if (queryDevices != null)
         {
-            var dpy = getPlatformDisplay(EGL_PLATFORM_DEVICE_EXT, devices[i], null);
-            if (dpy == IntPtr.Zero || eglInitialize(dpy, null, null) == 0)
-                continue;
-            eglBindAPI(EGL_OPENGL_API); // desktop GL, not GLES
-
-            int* cfgAttr = stackalloc int[]
+            IntPtr* devices = stackalloc IntPtr[16];
+            int num = 0;
+            if (queryDevices(16, devices, &num) != 0 && num > 0)
             {
-                EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
-                EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_NONE,
-            };
-            IntPtr config; int n = 0;
-            if (eglChooseConfig(dpy, cfgAttr, &config, 1, &n) == 0 || n < 1)
-            { eglTerminate(dpy); continue; }
+                for (var i = 0; i < num; i++)
+                {
+                    if (TryInitDisplay(getPlatformDisplay(EGL_PLATFORM_DEVICE_EXT, devices[i], null)))
+                        return;
+                }
+            }
+        }
 
-            int* ctxAttr = stackalloc int[]
-            {
-                EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, 3,
-                EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT, EGL_NONE,
-            };
-            var ctx = eglCreateContext(dpy, config, IntPtr.Zero, ctxAttr);
-            if (ctx == IntPtr.Zero) { eglTerminate(dpy); continue; }
-
-            // Surfaceless current — render goes to an FBO, no EGL surface.
-            if (eglMakeCurrent(dpy, IntPtr.Zero, IntPtr.Zero, ctx) == 0)
-            { eglDestroyContext(dpy, ctx); eglTerminate(dpy); continue; }
-
-            _display = dpy;
-            _context = ctx;
+        // 2. Software fallback: no GPU EGLDevice worked (headless server, VM, or
+        //    an Intel-only Mesa stack without EGL_EXT_platform_device). Use Mesa's
+        //    surfaceless platform (llvmpipe) so the RGB shaders still render —
+        //    slowly — instead of going black. A pure proprietary-NVIDIA libEGL
+        //    lacks this platform, so the display comes back null and we surface
+        //    the failure to the caller (which logs + disables GPU lighting).
+        if (TryInitDisplay(getPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, IntPtr.Zero, null)))
+        {
+            Console.Error.WriteLine("[gpu] EGL: no GPU device; using Mesa surfaceless software rendering (llvmpipe).");
             return;
         }
-        throw new InvalidOperationException($"EGL: no device produced a current GL context (last error 0x{eglGetError():X})");
+
+        throw new InvalidOperationException(
+            $"EGL: no device or software display produced a current GL context (last error 0x{eglGetError():X})");
+    }
+
+    /// <summary>
+    /// Bring one EGL display up to a current GL 3.3 core context. On success
+    /// records <see cref="_display"/>/<see cref="_context"/> and returns true;
+    /// on any failure tears its own display back down and returns false so the
+    /// next candidate starts clean. Surfaceless make-current (render into an FBO,
+    /// no EGL surface) works on both the GPU device platform and Mesa's
+    /// surfaceless platform.
+    /// </summary>
+    private static bool TryInitDisplay(IntPtr dpy)
+    {
+        if (dpy == IntPtr.Zero || eglInitialize(dpy, null, null) == 0)
+            return false;
+        eglBindAPI(EGL_OPENGL_API); // desktop GL, not GLES
+
+        int* cfgAttr = stackalloc int[]
+        {
+            EGL_SURFACE_TYPE, EGL_PBUFFER_BIT, EGL_RENDERABLE_TYPE, EGL_OPENGL_BIT,
+            EGL_RED_SIZE, 8, EGL_GREEN_SIZE, 8, EGL_BLUE_SIZE, 8, EGL_NONE,
+        };
+        IntPtr config; int n = 0;
+        if (eglChooseConfig(dpy, cfgAttr, &config, 1, &n) == 0 || n < 1)
+        { eglTerminate(dpy); return false; }
+
+        int* ctxAttr = stackalloc int[]
+        {
+            EGL_CONTEXT_MAJOR_VERSION, 3, EGL_CONTEXT_MINOR_VERSION, 3,
+            EGL_CONTEXT_OPENGL_PROFILE_MASK, EGL_CONTEXT_OPENGL_CORE_PROFILE_BIT, EGL_NONE,
+        };
+        var ctx = eglCreateContext(dpy, config, IntPtr.Zero, ctxAttr);
+        if (ctx == IntPtr.Zero) { eglTerminate(dpy); return false; }
+
+        // Surfaceless current — render goes to an FBO, no EGL surface.
+        if (eglMakeCurrent(dpy, IntPtr.Zero, IntPtr.Zero, ctx) == 0)
+        { eglDestroyContext(dpy, ctx); eglTerminate(dpy); return false; }
+
+        _display = dpy;
+        _context = ctx;
+        return true;
     }
 
     public static void Destroy()

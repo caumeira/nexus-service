@@ -27,6 +27,8 @@ namespace Nexus.Service.Cooling;
 public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvider
 {
     private static readonly int[] CalibrationDuties = { 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0 };
+    // pwm read-back tolerance (0..255 scale) — absorbs 0..100 → 0..255 rounding.
+    private const int PwmVerifyTolerance = 4;
 
     private readonly string _hwmonRoot;
     // Fans take a couple of seconds to reach a steady RPM after a pwm change;
@@ -67,6 +69,9 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         }
 
         var calibrations = _config?.Load().Cooling.FanCalibrations;
+        // Curve-bound fans report FanModes.Curve (not Manual/Auto) so the UI can
+        // tell curve-driven fans apart, matching WindowsFanControlProvider.
+        var curveBound = CurveModes.BoundFanIds(_config);
         var channels = new List<FanChannel>(discovered.Count);
         foreach (var (id, name, paths) in discovered)
         {
@@ -79,7 +84,9 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
                 Name = name,
                 DutyPercent = (int)Math.Round(Math.Clamp(pwm, 0, 255) * 100.0 / 255.0),
                 Rpm = rpm,
-                Mode = enabled == 1 ? FanModes.Manual : FanModes.Auto,
+                Mode = curveBound.Contains(id)
+                    ? FanModes.Curve
+                    : (enabled == 1 ? FanModes.Manual : FanModes.Auto),
             };
             // Merge persisted calibration so a never-spinning header surfaces as
             // "Unresponsive" (and a stable one as "Fixed"), same as on Windows.
@@ -157,6 +164,23 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
             LinuxSysfs.WriteText(paths.EnablePath, "0");
     }
 
+    // Put a fan back the way calibration found it: if it was under manual
+    // control (enable==1) restore that duty; otherwise hand control back to the
+    // firmware (auto), same as ReleasePaths.
+    private static void RestoreState(FanPaths paths, string? priorEnable, string? priorPwm)
+    {
+        if (priorEnable?.Trim() == "1")
+        {
+            LinuxSysfs.WriteText(paths.EnablePath, "1");
+            if (!string.IsNullOrEmpty(priorPwm))
+                LinuxSysfs.WriteText(paths.PwmPath, priorPwm.Trim());
+        }
+        else
+        {
+            ReleasePaths(paths);
+        }
+    }
+
     public void ReleaseAll()
     {
         GetFanChannels(); // ensure _fanPaths is populated
@@ -227,6 +251,12 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
     private async Task<FanCalibration?> CalibrateOneAsync(string id, FanPaths paths, IProgress<FanCalibrationProgress> progress, CancellationToken ct)
     {
         var points = new List<FanCalibrationPoint>();
+        // Snapshot the fan's pre-calibration state so we restore exactly what
+        // the user had (a manual duty, or firmware/auto) instead of blindly
+        // forcing auto. The finally guarantees restoration even if the run is
+        // cancelled mid-ramp, so a header is never left stopped at 0%.
+        var priorEnable = LinuxSysfs.ReadText(paths.EnablePath);
+        var priorPwm = LinuxSysfs.ReadText(paths.PwmPath);
         try
         {
             LinuxSysfs.WriteText(paths.EnablePath, "1");
@@ -251,7 +281,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         }
         finally
         {
-            ReleasePaths(paths);
+            RestoreState(paths, priorEnable, priorPwm);
         }
 
         // Shared classifier: maxRpm<=100 -> "Unresponsive", small spread ->
@@ -264,11 +294,32 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         var paths = ResolveFan(channelId);
         if (paths is null)
             return;
+        var raw = DutyToRaw(dutyPercent);
         if (!LinuxSysfs.WriteText(paths.Value.EnablePath, "1") ||
-            !LinuxSysfs.WriteText(paths.Value.PwmPath, DutyToRaw(dutyPercent).ToString(CultureInfo.InvariantCulture)))
+            !LinuxSysfs.WriteText(paths.Value.PwmPath, raw.ToString(CultureInfo.InvariantCulture)))
         {
-            WarnOnce(channelId);
+            WarnOnce(channelId, $"fan write failed for {channelId} — check hwmon pwm permissions (udev rule / group). Reporting read-only.");
+            return;
         }
+        VerifyDuty(channelId, paths.Value, raw);
+    }
+
+    /// <summary>
+    /// Confirm a pwm write actually landed. <see cref="LinuxSysfs.WriteText"/>
+    /// returning true only means the bytes left the handle — many SuperIO
+    /// drivers clamp the value or revert pwmN_enable to a BIOS curve, so a
+    /// successful write is not an accepted duty. Read both back (synchronously;
+    /// the kernel stores the value on write, so no sleep) and warn once if the
+    /// duty didn't stick or manual mode was rejected.
+    /// </summary>
+    private void VerifyDuty(string channelId, FanPaths paths, int expectedRaw)
+    {
+        var actual = LinuxSysfs.ReadInt(paths.PwmPath);
+        if (actual is not null && Math.Abs(actual.Value - expectedRaw) > PwmVerifyTolerance)
+            WarnOnce($"{channelId}:pwm", $"fan {channelId}: pwm did not stick (wrote {expectedRaw}, read {actual}); a BIOS curve or the driver is overriding it.");
+        var enable = LinuxSysfs.ReadInt(paths.EnablePath);
+        if (enable is not null && enable.Value != 1)
+            WarnOnce($"{channelId}:enable", $"fan {channelId}: pwm_enable reverted to {enable} (expected 1=manual); the chip rejected manual control.");
     }
 
     private FanPaths? ResolveFan(string id)
@@ -314,7 +365,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
                 var label = LinuxSysfs.ReadText(Path.Combine(dir, $"fan{n}_label"));
                 var name = !string.IsNullOrEmpty(label) ? $"{hwmonName} {label}" : $"{hwmonName} fan{n}";
                 yield return (
-                    $"linux-fan-{Sanitize(hwmonName)}-{n}",
+                    $"linux-fan-{LinuxSysfs.ChipKey(dir, hwmonName)}-{n}",
                     name,
                     new FanPaths(pwmPath, enablePath, File.Exists(fanInput) ? fanInput : null));
             }
@@ -347,7 +398,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
                     continue;
                 var label = LinuxSysfs.ReadText(Path.Combine(dir, $"temp{index}_label"));
                 var name = !string.IsNullOrEmpty(label) ? $"{hwmonName} {label}" : $"{hwmonName} temp{index}";
-                yield return ($"linux-temp-{Sanitize(hwmonName)}-{index}", name, category, milli.Value / 1000f, input);
+                yield return ($"linux-temp-{LinuxSysfs.ChipKey(dir, hwmonName)}-{index}", name, category, milli.Value / 1000f, input);
             }
         }
     }
@@ -370,19 +421,14 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         return int.TryParse(rest, NumberStyles.None, CultureInfo.InvariantCulture, out var n) ? n : null;
     }
 
-    private void WarnOnce(string channelId)
+    private void WarnOnce(string key, string message)
     {
         lock (_lock)
         {
-            if (!_warned.Add(channelId))
+            if (!_warned.Add(key))
                 return;
         }
-        Console.Error.WriteLine($"[cooling] fan write failed for {channelId} — check hwmon pwm permissions (udev rule / group). Reporting read-only.");
+        Console.Error.WriteLine($"[cooling] {message}");
     }
 
-    private static string Sanitize(string raw)
-    {
-        var chars = raw.Trim().ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray();
-        return new string(chars).Trim('-');
-    }
 }

@@ -221,6 +221,16 @@
            Text="macOS publish requires PublishAot=true. Non-AOT macOS builds are not shipped. Drop any -p:PublishAot=false override and re-run." />
   </Target>
 
+  <!-- Same discipline for the shipped linux-x64 build: the CI nexus-linux job
+       publishes -r linux-x64 with the project-default PublishAot=true. A JIT /
+       framework-dependent Linux build drags in the .NET runtime and behaves
+       differently than what ships, so fail a non-AOT linux-* publish loudly.
+       RID-scoped, so a plain `dotnet build`/`dotnet test` (no RID) never trips it. -->
+  <Target Name="EnsureLinuxAot" BeforeTargets="Publish" Condition="$(RuntimeIdentifier.StartsWith('linux'))">
+    <Error Condition="'$(PublishAot)' != 'true'"
+           Text="linux publish requires PublishAot=true. Non-AOT Linux builds are not shipped. Drop any -p:PublishAot=false override and re-run." />
+  </Target>
+
   <Target Name="EnsureOpenRgbBundle" BeforeTargets="Publish">
     <Error Condition="$(RuntimeIdentifier.StartsWith('osx')) AND !Exists('Bundled/osx-arm64/openrgb/OpenRGB-headless')"
            Text="OpenRGB macOS bundle missing at Bundled/osx-arm64/openrgb/. Build it: cd ../nexus-rgb/openrgb-headless &amp;&amp; qmake OpenRGB.pro CONFIG+=release CONFIG+=sdk_no_version_check &amp;&amp; make -j ; then cd .. &amp;&amp; ./bundle-macos.sh" />

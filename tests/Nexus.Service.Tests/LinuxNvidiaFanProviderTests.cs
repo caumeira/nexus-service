@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Cooling;
+using Nexus.Service.Models.Cooling;
 using Xunit;
 
 namespace Nexus.Service.Tests;
@@ -121,5 +122,52 @@ public class LinuxNvidiaFanProviderTests
         Assert.True(LinuxNvidiaFanProvider.IsNvidiaId("nvidia:temp:0"));
         Assert.False(LinuxNvidiaFanProvider.IsNvidiaId("liquidctl:x"));
         Assert.False(LinuxNvidiaFanProvider.IsNvidiaId(""));
+    }
+
+    [Fact]
+    public void SetFanSpeed_PersistsManualDuty_AndRestoresAcrossRestart()
+    {
+        var store = new InMemoryConfigStore();
+        new LinuxNvidiaFanProvider(DualFan, (_, _, _) => true, store).SetFanSpeed("nvidia:0:0", 70);
+        Assert.Equal(70, store.Load().Cooling.ManualSpeeds["nvidia:0:0"]);
+
+        // A fresh instance (process restart) re-applies the saved duty on first
+        // enumeration and reports Manual — NVML resets fans to auto on reboot.
+        var applied = new List<(int gpu, int fan, int? duty)>();
+        var p2 = new LinuxNvidiaFanProvider(DualFan, (g, f, d) => { applied.Add((g, f, d)); return true; }, store);
+        Assert.Equal("Manual", p2.GetFanChannels().Single(c => c.Id == "nvidia:0:0").Mode);
+        Assert.Contains((0, 0, (int?)70), applied);
+    }
+
+    [Fact]
+    public void ReleaseFan_RemovesPersistedOverride()
+    {
+        var store = new InMemoryConfigStore();
+        var p = new LinuxNvidiaFanProvider(DualFan, (_, _, _) => true, store);
+        p.SetFanSpeed("nvidia:0:0", 70);
+        p.ReleaseFan("nvidia:0:0");
+        Assert.False(store.Load().Cooling.ManualSpeeds.ContainsKey("nvidia:0:0"));
+    }
+
+    [Fact]
+    public void DriveFanSpeed_DoesNotPersist()
+    {
+        var store = new InMemoryConfigStore();
+        var p = new LinuxNvidiaFanProvider(DualFan, (_, _, _) => true, store);
+        p.DriveFanSpeed("nvidia:0:0", 70);
+        Assert.Empty(store.Load().Cooling.ManualSpeeds);
+    }
+
+    [Fact]
+    public void GetFanChannels_CurveBoundFan_ReportsCurveMode()
+    {
+        var store = new InMemoryConfigStore();
+        store.Update(s => s.Cooling.Curves.Add(new Nexus.Service.Persistence.CurveDocument
+        {
+            Id = "c1",
+            Outputs = { new Nexus.Service.Persistence.CurveOutputDocument { Id = "nvidia:0:0" } },
+        }));
+        var p = new LinuxNvidiaFanProvider(DualFan, (_, _, _) => true, store);
+        Assert.Equal(FanModes.Curve, p.GetFanChannels().Single(c => c.Id == "nvidia:0:0").Mode);
     }
 }

@@ -6,6 +6,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Cooling;
+using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 
 namespace Nexus.Service.Cooling;
@@ -32,6 +33,7 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
     private readonly Func<string> _statusJson;
     private readonly Func<string, string, int, bool> _setSpeed; // (address, channel, duty) -> applied?
     private readonly bool _forceAvailable;
+    private readonly IConfigStore? _config;
 
     private readonly object _lock = new();
     // Rebuilt wholesale and published atomically (assigned, never mutated in
@@ -46,8 +48,9 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
     private List<LiquidDevice>? _snapshot;
     private long _snapshotAtMs = long.MinValue;
 
-    public LinuxLiquidctlProvider()
+    public LinuxLiquidctlProvider(IConfigStore config)
     {
+        _config = config;
         _statusJson = () => ShellExecutor.Run("liquidctl", 8000, "--json", "status");
         // Verify the write landed (exit 0) instead of assuming it — a rejected
         // `set` (permissions, wrong channel) must not be reported as applied.
@@ -60,11 +63,12 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
     }
 
     // Injected command seams for tests (no real liquidctl needed).
-    internal LinuxLiquidctlProvider(Func<string> statusJson, Func<string, string, int, bool> setSpeed)
+    internal LinuxLiquidctlProvider(Func<string> statusJson, Func<string, string, int, bool> setSpeed, IConfigStore? config = null)
     {
         _statusJson = statusJson;
         _setSpeed = setSpeed;
         _forceAvailable = true;
+        _config = config;
     }
 
     private bool Available()
@@ -86,6 +90,7 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
         var devices = Snapshot();
         var channels = new List<FanChannel>();
         var control = new Dictionary<string, (string Address, string Channel)>();
+        var curveBound = CurveModes.BoundFanIds(_config);
         foreach (var dev in devices)
         {
             var deviceId = IdPrefix + Sanitize(dev.Address);
@@ -99,7 +104,9 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
                     Name = $"{dev.Description} {ch.Name}",
                     DutyPercent = ch.Duty ?? 0,
                     Rpm = ch.Rpm ?? 0,
-                    Mode = ch.Duty is not null ? FanModes.Manual : FanModes.Auto,
+                    Mode = curveBound.Contains(id)
+                        ? FanModes.Curve
+                        : (ch.Duty is not null ? FanModes.Manual : FanModes.Auto),
                     DeviceId = deviceId,
                     DeviceName = dev.Description,
                     PortLabel = ch.Name,
@@ -153,11 +160,11 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
 
     private static string TempId(string deviceId, string label) => $"{deviceId}:t:{Sanitize(label)}";
 
-    public int SetFanSpeed(string channelId, int dutyPercent) => Drive(channelId, dutyPercent);
+    public int SetFanSpeed(string channelId, int dutyPercent) => Drive(channelId, dutyPercent, persist: true);
 
-    public void DriveFanSpeed(string channelId, int dutyPercent) => Drive(channelId, dutyPercent);
+    public void DriveFanSpeed(string channelId, int dutyPercent) => Drive(channelId, dutyPercent, persist: false);
 
-    private int Drive(string channelId, int dutyPercent)
+    private int Drive(string channelId, int dutyPercent, bool persist)
     {
         dutyPercent = Math.Clamp(dutyPercent, 0, 100);
         Dictionary<string, (string Address, string Channel)> control;
@@ -170,8 +177,19 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
             if (!control.TryGetValue(channelId, out target))
                 return dutyPercent;
         }
-        if (!_setSpeed(target.Address, target.Channel, dutyPercent))
+        if (_setSpeed(target.Address, target.Channel, dutyPercent))
+        {
+            // Record a genuine user override so it survives a restart and feeds
+            // preset-derivation, mirroring WindowsFanControlProvider. The curve
+            // engine's per-tick DriveFanSpeed passes persist:false so it doesn't
+            // pollute the override dict.
+            if (persist)
+                _config?.Update(s => s.Cooling.ManualSpeeds[channelId] = dutyPercent);
+        }
+        else
+        {
             WarnOnce(channelId);
+        }
         return dutyPercent;
     }
 

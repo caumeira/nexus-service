@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.IO;
+using System.Linq;
 
 namespace Nexus.Service.Platform.Linux;
 
@@ -32,5 +33,41 @@ internal static class LinuxSysfs
     {
         try { File.WriteAllText(path, value); return true; }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// Resolve a sysfs symlink (e.g. <c>hwmonN/device</c>) to its target's leaf
+    /// name — a reboot-stable, unique identifier such as <c>nct6775.656</c> or a
+    /// PCI BDF, unlike the volatile <c>hwmonN</c> index. Returns null if it isn't
+    /// a link or can't be read.
+    /// </summary>
+    internal static string? ReadLinkLeaf(string path)
+    {
+        try
+        {
+            var target = Directory.ResolveLinkTarget(path, returnFinalTarget: true);
+            return target is null ? null : Path.GetFileName(target.FullName.TrimEnd('/', '\\'));
+        }
+        catch { return null; }
+    }
+
+    /// <summary>
+    /// Stable, collision-free hwmon chip id fragment: the sanitized chip name,
+    /// plus the <c>device</c> symlink leaf when present, so two chips sharing a
+    /// <c>name</c> (e.g. dual nct6798) don't collide and one fan silently drive
+    /// the other. Shared by the fan + sensor providers so both derive the same
+    /// key. Falls back to name-only when there's no device link.
+    /// </summary>
+    internal static string ChipKey(string dir, string name)
+    {
+        var leaf = ReadLinkLeaf(Path.Combine(dir, "device"));
+        return string.IsNullOrEmpty(leaf) ? Sanitize(name) : $"{Sanitize(name)}-{Sanitize(leaf)}";
+    }
+
+    /// <summary>Lowercase + non-alphanumerics → '-', for single-segment route-safe ids.</summary>
+    internal static string Sanitize(string raw)
+    {
+        var chars = raw.Trim().ToLowerInvariant().Select(c => char.IsLetterOrDigit(c) ? c : '-').ToArray();
+        return new string(chars).Trim('-');
     }
 }

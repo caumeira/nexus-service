@@ -31,15 +31,28 @@ public sealed class DBusConnection : IDisposable
     private readonly Dictionary<string, TaskCompletionSource<DBusMessage>> _signalWaiters = new();
     private Task? _readerTask;
     private bool _started;
+    private bool _hasConnectedBefore;
+    private readonly object _connLock = new();
 
     public string UniqueName { get; private set; } = "";
     public bool Connected { get; private set; }
+
+    /// <summary>
+    /// Raised after the connection is re-established following a drop (logout,
+    /// bus restart) — not on the first connect. Subsystems holding bus-side
+    /// registrations (tray StatusNotifierItem, signal matches) re-establish
+    /// them here. Consumers that only issue calls don't need this: every call
+    /// is preceded by <see cref="StartAsync"/>, which now transparently
+    /// reconnects.
+    /// </summary>
+    public event Action? Reconnected;
 
     /// <summary>Connect + authenticate + Hello. Idempotent; safe to call from multiple subsystems.</summary>
     public async Task StartAsync()
     {
         if (_started)
             return;
+        var reconnected = false;
         await _startLock.WaitAsync();
         try
         {
@@ -64,11 +77,20 @@ public sealed class DBusConnection : IDisposable
             UniqueName = await HelloAsync();
             Connected = true;
             _started = true;
-            Console.Error.WriteLine($"[dbus] connection started, unique={UniqueName} instance#{_instanceId}");
+            reconnected = _hasConnectedBefore;
+            _hasConnectedBefore = true;
+            Console.Error.WriteLine($"[dbus] connection {(reconnected ? "re-" : "")}started, unique={UniqueName} instance#{_instanceId}");
         }
         finally
         {
             _startLock.Release();
+        }
+        // Fire outside the lock so a handler that re-registers (and may call
+        // back into the connection) can't deadlock on _startLock.
+        if (reconnected)
+        {
+            try { Reconnected?.Invoke(); }
+            catch (Exception ex) { Console.Error.WriteLine($"[dbus] reconnect handler failed: {ex.Message}"); }
         }
     }
 
@@ -174,9 +196,10 @@ public sealed class DBusConnection : IDisposable
     internal void SendMessage(DBusMessage msg)
     {
         var bytes = msg.Encode();
+        var stream = _stream ?? throw new IOException("D-Bus not connected");
         lock (_sendLock)
         {
-            _stream!.Write(bytes, 0, bytes.Length);
+            stream.Write(bytes, 0, bytes.Length);
         }
     }
 
@@ -302,8 +325,8 @@ public sealed class DBusConnection : IDisposable
                 var msg = await DBusMessage.ReadAsync(_stream!, _cts.Token);
                 if (msg is null)
                 {
-                    Console.Error.WriteLine("[dbus] bus connection closed (EOF)");
-                    Connected = false;
+                    if (!_cts.IsCancellationRequested)
+                        HandleDisconnect("bus connection closed (EOF)");
                     break;
                 }
                 HandleIncoming(msg);
@@ -312,11 +335,48 @@ public sealed class DBusConnection : IDisposable
         catch (Exception ex)
         {
             if (!_cts.IsCancellationRequested)
-            {
-                Console.Error.WriteLine($"[dbus] reader loop exited: {ex.Message}");
-                Connected = false;
-            }
+                HandleDisconnect($"reader loop error: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Tear down a dropped connection so the next <see cref="StartAsync"/>
+    /// rebuilds it. Previously <c>_started</c> stayed true after the bus went
+    /// away (logout, bus restart) and every later call wrote to a dead socket
+    /// forever. Faults in-flight calls/waiters so callers fail fast and retry
+    /// on their next poll instead of hanging until their per-call timeout.
+    /// </summary>
+    private void HandleDisconnect(string reason)
+    {
+        Socket? socket;
+        NetworkStream? stream;
+        bool wasStarted;
+        lock (_connLock)
+        {
+            wasStarted = _started;
+            _started = false;
+            Connected = false;
+            socket = _socket;
+            stream = _stream;
+            _socket = null;
+            _stream = null;
+        }
+        try { stream?.Dispose(); } catch { }
+        try { socket?.Dispose(); } catch { }
+
+        var ex = new IOException($"D-Bus connection lost: {reason}");
+        lock (_pending)
+        {
+            foreach (var tcs in _pending.Values) tcs.TrySetException(ex);
+            _pending.Clear();
+        }
+        lock (_signalWaiters)
+        {
+            foreach (var tcs in _signalWaiters.Values) tcs.TrySetException(ex);
+            _signalWaiters.Clear();
+        }
+        if (wasStarted)
+            Console.Error.WriteLine($"[dbus] {reason}; will reconnect on next use (instance#{_instanceId})");
     }
 
     private void HandleIncoming(DBusMessage msg)
