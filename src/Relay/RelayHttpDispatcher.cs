@@ -168,26 +168,54 @@ public sealed class RelayHttpDispatcher
 
     private static RelayHttpResponse BuildResponse(int id, HttpContext ctx, MemoryStream responseBody)
     {
-        responseBody.Position = 0;
-        string body;
         if (responseBody.Length > MaxBodyBytes)
         {
             // Refuse to seal an oversized response (cost / memory guard); the
             // panel sees a definite 413 instead of a truncated payload.
             return Reject(id, StatusCodes.Status413PayloadTooLarge, "response body exceeds relay cap");
         }
-        using (var reader = new StreamReader(responseBody, Encoding.UTF8, detectEncodingFromByteOrderMarks: false))
+
+        var contentType = ctx.Response.ContentType;
+        var bytes = responseBody.ToArray();
+
+        // Text (JSON/HTML/...) rides as a plain UTF-8 string — the original wire
+        // shape, so a panel that predates the Base64 flag still parses it. Only
+        // binary (thumbnails, icons), which a UTF-8 round-trip through the JSON
+        // frame would corrupt, is base64'd + flagged; updated panels decode it.
+        // This keeps the encoding backward-compatible: an old client never sees
+        // a base64 body where it expects text.
+        if (IsTextContentType(contentType))
         {
-            body = reader.ReadToEnd();
+            return new RelayHttpResponse
+            {
+                Id = id,
+                Status = ctx.Response.StatusCode,
+                Body = Encoding.UTF8.GetString(bytes),
+                ContentType = contentType,
+            };
         }
 
         return new RelayHttpResponse
         {
             Id = id,
             Status = ctx.Response.StatusCode,
-            Body = body,
-            ContentType = ctx.Response.ContentType,
+            Body = Convert.ToBase64String(bytes),
+            ContentType = contentType,
+            Base64 = true,
         };
+    }
+
+    // Text rides as a plain UTF-8 string (backward-compatible); anything else is
+    // treated as binary and base64'd. Null/empty ⇒ text — the panel's binary
+    // routes always set an image/* content type.
+    private static bool IsTextContentType(string? contentType)
+    {
+        if (string.IsNullOrEmpty(contentType)) return true;
+        return contentType.StartsWith("text/", StringComparison.OrdinalIgnoreCase)
+            || contentType.Contains("json", StringComparison.OrdinalIgnoreCase)
+            || contentType.Contains("xml", StringComparison.OrdinalIgnoreCase)
+            || contentType.Contains("javascript", StringComparison.OrdinalIgnoreCase)
+            || contentType.Contains("svg", StringComparison.OrdinalIgnoreCase);
     }
 
     private static RelayHttpResponse Reject(int id, int status, string message)
