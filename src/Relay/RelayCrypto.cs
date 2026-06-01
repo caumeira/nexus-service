@@ -43,6 +43,7 @@ public static class RelayCrypto
     private static readonly byte[] InfoRoot = Encoding.UTF8.GetBytes("nexus-relay-root-v1");
     private static readonly byte[] InfoRendezvous = Encoding.UTF8.GetBytes("nexus-relay-rendezvous-v1");
     private static readonly byte[] InfoAead = Encoding.UTF8.GetBytes("nexus-relay-aead-v1");
+    private static readonly byte[] InfoPairRoot = Encoding.UTF8.GetBytes("nexus-relay-pairroot-v1");
 
     /// <summary>
     /// relayRoot = HKDF-SHA256(IKM=utf8(token), salt=∅, info="nexus-relay-root-v1", L=32).
@@ -54,6 +55,25 @@ public static class RelayCrypto
         var ikm = Encoding.UTF8.GetBytes(sessionToken);
         var output = new byte[RelayRootLength];
         HKDF.DeriveKey(HashAlgorithmName.SHA256, ikm, output, salt: ReadOnlySpan<byte>.Empty, info: InfoRoot);
+        return output;
+    }
+
+    /// <summary>
+    /// pairRoot = HKDF-SHA256(IKM=utf8(pairToken), salt=∅, info="nexus-relay-pairroot-v1", L=32).
+    /// The pre-pair analogue of <see cref="DeriveRelayRoot"/>, keyed off the
+    /// short-lived QR <c>pair</c> token. <c>rid_pair = DeriveRid(pairRoot)</c> and
+    /// <c>claimKey = DeriveAeadKey(pairRoot, connSalt)</c> reuse the runtime
+    /// derivations unchanged; the distinct <c>info</c> (and a pair token never
+    /// being a session token) guarantees a pair rid can never collide with a
+    /// session rid. The PC derives this from each outstanding pair token to
+    /// register the pair rendezvous; the relay only ever sees the rid.
+    /// </summary>
+    public static byte[] DerivePairRoot(string pairToken)
+    {
+        ArgumentNullException.ThrowIfNull(pairToken);
+        var ikm = Encoding.UTF8.GetBytes(pairToken);
+        var output = new byte[RelayRootLength];
+        HKDF.DeriveKey(HashAlgorithmName.SHA256, ikm, output, salt: ReadOnlySpan<byte>.Empty, info: InfoPairRoot);
         return output;
     }
 

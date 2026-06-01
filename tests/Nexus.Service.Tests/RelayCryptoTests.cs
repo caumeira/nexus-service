@@ -149,6 +149,60 @@ public class RelayCryptoTests
         Assert.Equal(Rid, RelayCrypto.DeriveRid(root));
     }
 
+    // ── Phase-1 pre-pair vectors (claim-over-relay) ──────────────────────────
+    // pairRoot = HKDF(utf8(pairToken), ∅, "nexus-relay-pairroot-v1", 32);
+    // rid_pair = DeriveRid(pairRoot); claimKey = DeriveAeadKey(pairRoot, connSalt).
+    private const string PairToken = "PAIRTOK-abcdef0123456789";
+    private const string PairRootHex = "c0927b2211eef59afdcaf397ac8e97a9e966a1cfcd23c201d882724dd83361ad";
+    private const string RidPair = "0BwEM0g8zmt-2llFkxrdrw";
+    private const string ClaimKeyHex = "0a195060337f3a6dbd4ade2d600cefb7decae749d5596d78a6d2b777261f1cbf";
+
+    [Fact]
+    public void DerivePairRoot_MatchesVector()
+    {
+        var pairRoot = RelayCrypto.DerivePairRoot(PairToken);
+        Assert.Equal(PairRootHex, Hex(pairRoot));
+    }
+
+    [Fact]
+    public void RidPair_MatchesVector()
+    {
+        // rid_pair reuses DeriveRid off the pairRoot; distinct IKM from any
+        // session rid, so the two rendezvous namespaces never collide.
+        var pairRoot = FromHex(PairRootHex);
+        Assert.Equal(RidPair, RelayCrypto.DeriveRid(pairRoot));
+    }
+
+    [Fact]
+    public void ClaimKey_MatchesVector()
+    {
+        // claimKey reuses DeriveAeadKey(pairRoot, connSalt) with the shared
+        // connSalt vector (00 01 … 0f).
+        var pairRoot = FromHex(PairRootHex);
+        var claimKey = RelayCrypto.DeriveAeadKey(pairRoot, FromHex(ConnSaltHex));
+        Assert.Equal(ClaimKeyHex, Hex(claimKey));
+    }
+
+    [Fact]
+    public void PairDerivations_EndToEnd_FromToken()
+    {
+        // pairToken → pairRoot → rid_pair + claimKey, all the way through.
+        var pairRoot = RelayCrypto.DerivePairRoot(PairToken);
+        Assert.Equal(PairRootHex, Hex(pairRoot));
+        Assert.Equal(RidPair, RelayCrypto.DeriveRid(pairRoot));
+        Assert.Equal(ClaimKeyHex, Hex(RelayCrypto.DeriveAeadKey(pairRoot, FromHex(ConnSaltHex))));
+    }
+
+    [Fact]
+    public void PairRid_NeverCollidesWithSessionRid_ForSameTokenString()
+    {
+        // The same string fed as a session token vs a pair token yields disjoint
+        // rids (distinct HKDF info), so a pair rendezvous can't shadow a session.
+        var asSession = RelayCrypto.DeriveRid(RelayCrypto.DeriveRelayRoot(PairToken));
+        var asPair = RelayCrypto.DeriveRid(RelayCrypto.DerivePairRoot(PairToken));
+        Assert.NotEqual(asSession, asPair);
+    }
+
     // ── helpers ─────────────────────────────────────────────────────────────
     private static string Hex(ReadOnlySpan<byte> bytes) => Convert.ToHexStringLower(bytes);
 

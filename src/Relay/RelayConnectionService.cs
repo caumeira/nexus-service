@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -49,6 +50,12 @@ public sealed class RelayConnectionService : BackgroundService
     private const string PeerUp = "peer-up";
     private const string PeerDown = "peer-down";
 
+    // Link-key prefixes keep the two desired-link namespaces disjoint inside the
+    // single _links map: a runtime session link (keyed by phone session id) can
+    // never collide with a pre-pair rendezvous link (keyed by rid_pair).
+    private const string SessionLinkPrefix = "sess:";
+    private const string PairLinkPrefix = "pair:";
+
     private readonly ILogger<RelayConnectionService> _log;
     private readonly PanelPhonePairingService _pairing;
     private readonly IConfigStore _store;
@@ -88,12 +95,17 @@ public sealed class RelayConnectionService : BackgroundService
         _serviceCt = stoppingToken;
         _started = true;
         _store.OnChanged += OnSettingsChanged;
+        // The pair-token set changes outside the config store (mint on QR
+        // create, consume on a successful claim, reap on expiry); listen on its
+        // own push so pair rendezvous links reconcile without a poll loop.
+        _pairing.OutstandingPairTokensChanged += OnSettingsChanged;
         Reconcile();
 
         // Tear everything down when the host stops.
         stoppingToken.Register(() =>
         {
             _store.OnChanged -= OnSettingsChanged;
+            _pairing.OutstandingPairTokensChanged -= OnSettingsChanged;
             CloseAllLinks();
         });
         return Task.CompletedTask;
@@ -125,10 +137,14 @@ public sealed class RelayConnectionService : BackgroundService
     }
 
     /// <summary>
-    /// Bring the live set of host links into agreement with the desired set:
-    /// one link per active relay session when (remote-control AND relay) are on,
-    /// none otherwise. Adds links for new sessions, stops links for sessions
-    /// that vanished or when the feature was turned off.
+    /// Bring the live set of host links into agreement with the desired set,
+    /// when (remote-control AND relay) are on:
+    ///   • one RUNTIME link per active relay session (keyed by session id), and
+    ///   • one PAIR link per outstanding QR pair token (keyed by rid_pair).
+    /// None when the feature is off (so turning either switch off tears every
+    /// link down). Adds links newly desired, stops links that vanished. When a
+    /// pair token is consumed by a claim, its pair link disappears here and the
+    /// brand-new session's runtime link appears on the same pass.
     /// </summary>
     private void Reconcile()
     {
@@ -137,13 +153,17 @@ public sealed class RelayConnectionService : BackgroundService
 
         var enabled = _pairing.GetRemoteControlEnabled() && _pairing.GetRelayEnabled();
 
-        // Desired set: one host link per active relay session when enabled,
-        // none otherwise (so turning either switch off tears every link down).
-        var desired = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var desired = new Dictionary<string, DesiredLink>(StringComparer.Ordinal);
         if (enabled)
         {
             foreach (var s in _pairing.GetActiveRelaySessions())
-                desired[s.Id] = s.RelayRoot;
+                desired[SessionLinkPrefix + s.Id] = DesiredLink.Session(s.Id, s.RelayRoot);
+
+            foreach (var p in _pairing.GetOutstandingPairTokens())
+            {
+                var ridPair = RelayCrypto.DeriveRid(p.PairRoot);
+                desired[PairLinkPrefix + ridPair] = DesiredLink.Pair(p.Token, p.PairRoot);
+            }
         }
 
         List<HostLink> toStop = new();
@@ -154,21 +174,21 @@ public sealed class RelayConnectionService : BackgroundService
                 return;
 
             // Stop links no longer desired.
-            foreach (var (id, link) in _links)
+            foreach (var (key, link) in _links)
             {
-                if (!desired.ContainsKey(id))
+                if (!desired.ContainsKey(key))
                     toStop.Add(link);
             }
             foreach (var link in toStop)
-                _links.Remove(link.SessionId);
+                _links.Remove(link.LinkKey);
 
             // Start links newly desired.
-            foreach (var (id, relayRoot) in desired)
+            foreach (var (key, d) in desired)
             {
-                if (_links.ContainsKey(id))
+                if (_links.ContainsKey(key))
                     continue;
-                var link = new HostLink(this, id, relayRoot);
-                _links[id] = link;
+                var link = new HostLink(this, key, d);
+                _links[key] = link;
                 toStart.Add(link);
             }
         }
@@ -177,6 +197,22 @@ public sealed class RelayConnectionService : BackgroundService
             link.Stop();
         foreach (var link in toStart)
             link.Start(_serviceCt);
+    }
+
+    /// <summary>
+    /// One desired host leg. A RUNTIME link bridges a paired session into the hub
+    /// for the life of the relay socket; a PAIR link is a one-shot pre-pair
+    /// rendezvous that completes a single claim handshake and ends.
+    /// </summary>
+    private readonly record struct DesiredLink(bool IsPair, string Tag, string? PairToken, byte[] Root)
+    {
+        /// <summary>Runtime link: <paramref name="sessionId"/> tags the hub session; root is the session relayRoot.</summary>
+        public static DesiredLink Session(string sessionId, byte[] relayRoot)
+            => new(IsPair: false, Tag: sessionId, PairToken: null, Root: relayRoot);
+
+        /// <summary>Pair link: root is the pairRoot; <paramref name="pairToken"/> is what ClaimCore consumes.</summary>
+        public static DesiredLink Pair(string pairToken, byte[] pairRoot)
+            => new(IsPair: true, Tag: "", PairToken: pairToken, Root: pairRoot);
     }
 
     private void CloseAllLinks()
@@ -198,19 +234,29 @@ public sealed class RelayConnectionService : BackgroundService
     private sealed class HostLink
     {
         private readonly RelayConnectionService _owner;
-        private readonly byte[] _relayRoot;
+        private readonly DesiredLink _desired;
+        private readonly byte[] _root;
         private readonly string _rid;
         private CancellationTokenSource? _cts;
         private Task? _loop;
+        // Pair links are one-shot: once a claim handshake completes, the token is
+        // consumed and this link is obsolete (Reconcile removes it). Set so the
+        // reconnect loop stops instead of re-registering a dead pair rendezvous.
+        private volatile bool _pairClaimDone;
 
-        public string SessionId { get; }
+        /// <summary>The reconcile key this link satisfies (sess:&lt;id&gt; or pair:&lt;rid&gt;).</summary>
+        public string LinkKey { get; }
 
-        public HostLink(RelayConnectionService owner, string sessionId, byte[] relayRoot)
+        /// <summary>Phone session id for a runtime link (empty for a pair link); the hub session tag.</summary>
+        private string SessionTag => _desired.Tag;
+
+        public HostLink(RelayConnectionService owner, string linkKey, DesiredLink desired)
         {
             _owner = owner;
-            SessionId = sessionId;
-            _relayRoot = relayRoot;
-            _rid = RelayCrypto.DeriveRid(relayRoot);
+            LinkKey = linkKey;
+            _desired = desired;
+            _root = desired.Root;
+            _rid = RelayCrypto.DeriveRid(desired.Root);
         }
 
         public void Start(CancellationToken serviceCt)
@@ -244,10 +290,15 @@ public sealed class RelayConnectionService : BackgroundService
                 }
                 catch (Exception ex)
                 {
-                    _owner._log.LogDebug(ex, "relay host link for session {SessionId} dropped; reconnecting", SessionId);
+                    _owner._log.LogDebug(ex, "relay host link {LinkKey} dropped; reconnecting", LinkKey);
                 }
 
                 if (ct.IsCancellationRequested)
+                    break;
+
+                // A completed pair claim consumed the token; don't reconnect a
+                // dead pair rendezvous while Reconcile is removing this link.
+                if (_pairClaimDone)
                     break;
 
                 try { await Task.Delay(delayMs, ct).ConfigureAwait(false); }
@@ -256,7 +307,10 @@ public sealed class RelayConnectionService : BackgroundService
             }
         }
 
-        private async Task RunOnceAsync(CancellationToken ct)
+        private Task RunOnceAsync(CancellationToken ct)
+            => _desired.IsPair ? RunPairOnceAsync(ct) : RunRuntimeOnceAsync(ct);
+
+        private async Task RunRuntimeOnceAsync(CancellationToken ct)
         {
             WebSocket transport = await _owner.TransportFactory(_owner.Endpoint, ct).ConfigureAwait(false);
             await using var _ = new WebSocketDisposer(transport);
@@ -343,14 +397,14 @@ public sealed class RelayConnectionService : BackgroundService
                 if (connSalt.Length != RelayCrypto.ConnSaltLength)
                     return (session, sessionTask);
 
-                var aeadKey = RelayCrypto.DeriveAeadKey(_relayRoot, connSalt);
+                var aeadKey = RelayCrypto.DeriveAeadKey(_root, connSalt);
                 // Host endpoint: send dir=1 (host→client), expect dir=2 (client→host).
                 var relayWs = new RelayWebSocket(
                     transport, aeadKey, RelayCrypto.DirHostToClient, RelayCrypto.DirClientToHost);
 
                 // Drive the hub on this relayed socket, tagged with the phone
                 // session id so the killswitch can close it.
-                var task = _owner._hub.HandleClientAsync(relayWs, SessionId, ct);
+                var task = _owner._hub.HandleClientAsync(relayWs, SessionTag, ct);
                 return (relayWs, task);
             }
 
@@ -363,6 +417,191 @@ public sealed class RelayConnectionService : BackgroundService
             }
 
             return (session, sessionTask);
+        }
+
+        /// <summary>
+        /// Pre-pair rendezvous leg for a brand-new phone with no LAN reach. Same
+        /// host hello / relay framing as the runtime leg, but a peered-up client
+        /// is the phone proving possession of the QR pair token: on peer-up we
+        /// derive the claim AEAD key, read exactly ONE sealed BINARY frame (the
+        /// claim request), call ClaimCore, and reply with ONE sealed frame
+        /// (claim-ok / claim-err). Consuming the token fires the token-changed
+        /// event, so Reconcile drops this link and brings up the new session's
+        /// runtime link; the link then ends cleanly. A peer-down before the
+        /// claim frame just resets and waits for the next peer on the same rid.
+        /// Never bridges into the hub.
+        /// </summary>
+        private async Task RunPairOnceAsync(CancellationToken ct)
+        {
+            WebSocket transport = await _owner.TransportFactory(_owner.Endpoint, ct).ConfigureAwait(false);
+            await using var _ = new WebSocketDisposer(transport);
+
+            await SendHelloAsync(transport, ct).ConfigureAwait(false);
+
+            byte[]? claimKey = null; // non-null once a client has peered up
+            var buffer = new byte[ReceiveBufferSize];
+            using var message = new System.IO.MemoryStream();
+
+            while (!ct.IsCancellationRequested && transport.State == WebSocketState.Open)
+            {
+                message.SetLength(0);
+                WebSocketReceiveResult result;
+                do
+                {
+                    result = await transport.ReceiveAsync(new ArraySegment<byte>(buffer), ct).ConfigureAwait(false);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                        return; // relay closed the host socket → outer loop reconnects
+                    if (message.Length + result.Count > MaxFrameBytes)
+                        throw new InvalidOperationException("relay frame exceeds 256 KB cap");
+                    message.Write(buffer, 0, result.Count);
+                }
+                while (!result.EndOfMessage);
+
+                if (result.MessageType == WebSocketMessageType.Text)
+                {
+                    claimKey = HandlePairControl(message.ToArray());
+                }
+                else if (result.MessageType == WebSocketMessageType.Binary)
+                {
+                    if (claimKey is null)
+                        continue; // a forwarded frame with no peer-up; ignore
+                    // The one sealed claim request. Process it, reply, end the link.
+                    var consumed = await ProcessClaimFrameAsync(transport, claimKey, message.ToArray())
+                        .ConfigureAwait(false);
+                    if (consumed)
+                        _pairClaimDone = true;
+                    return;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Handle a TEXT control frame on the pair leg. peer-up (with connSalt)
+        /// derives the claim AEAD key for the inbound claim frame; peer-down
+        /// clears it so a stale key can't be reused for a different peer. Returns
+        /// the derived key (or null) for the caller's "awaiting claim" state.
+        /// </summary>
+        private byte[]? HandlePairControl(byte[] textBytes)
+        {
+            string? evt;
+            string? saltB64;
+            try
+            {
+                using var doc = JsonDocument.Parse(textBytes);
+                var root = doc.RootElement;
+                evt = root.TryGetProperty(EventKey, out var e) ? e.GetString() : null;
+                saltB64 = root.TryGetProperty(SaltKey, out var s) ? s.GetString() : null;
+            }
+            catch
+            {
+                return null;
+            }
+
+            if (string.Equals(evt, PeerUp, StringComparison.Ordinal))
+            {
+                if (string.IsNullOrEmpty(saltB64))
+                    return null;
+                byte[] connSalt;
+                try { connSalt = RelayCrypto.FromBase64UrlNoPad(saltB64); }
+                catch { return null; }
+                if (connSalt.Length != RelayCrypto.ConnSaltLength)
+                    return null;
+                // claimKey = DeriveAeadKey(pairRoot, connSalt) — identical to the
+                // runtime AEAD derivation, just keyed off the pairRoot.
+                return RelayCrypto.DeriveAeadKey(_root, connSalt);
+            }
+
+            // peer-down (or anything else): drop any pending claim key.
+            return null;
+        }
+
+        /// <summary>
+        /// Open the single sealed claim request (dir=2, counter 0), run ClaimCore
+        /// for this link's pair token, and send back exactly one sealed reply
+        /// (dir=1, counter 0): claim-ok with the new session token on success,
+        /// claim-err otherwise. A decrypt failure ends the link with no reply (the
+        /// peer doesn't hold the token; possession is what the AEAD decrypt proves)
+        /// — neither consumes the token. Returns true when ClaimCore ran (the token
+        /// is now spent / decided, so the link is one-shot done); false on a
+        /// decrypt / wrong-direction / malformed-request path where the token is
+        /// still outstanding and the phone may retry on a fresh peer-up.
+        /// </summary>
+        private async Task<bool> ProcessClaimFrameAsync(
+            WebSocket transport, byte[] claimKey, byte[] frame)
+        {
+            RelayClaimRequest? request;
+            try
+            {
+                var (dir, _, plaintext) = RelayCrypto.Open(claimKey, frame);
+                if (dir != RelayCrypto.DirClientToHost)
+                    return false; // wrong direction ⇒ not a client→host claim; drop.
+                request = JsonSerializer.Deserialize(plaintext, AppJsonContext.Default.RelayClaimRequest);
+            }
+            catch (CryptographicException)
+            {
+                // Tag-verify failed: the peer doesn't hold the pair token. Drop.
+                return false;
+            }
+            catch (JsonException)
+            {
+                // Decryptable (so the peer holds the token) but malformed JSON.
+                await SendSealedAsync(transport, claimKey, ClaimError("bad-request")).ConfigureAwait(false);
+                return false;
+            }
+
+            if (request is null ||
+                !string.Equals(request.Type, RelayClaimMessageTypes.Claim, StringComparison.Ordinal))
+            {
+                await SendSealedAsync(transport, claimKey, ClaimError("bad-request")).ConfigureAwait(false);
+                return false;
+            }
+
+            // Possession proven by the successful decrypt; rid_pair already pins
+            // which token. Consume it + mint the session (E2E ⇒ long-idle).
+            var pairToken = _desired.PairToken ?? "";
+            var claim = _owner._pairing.ClaimCore(
+                pairToken,
+                deviceName: request.DeviceName ?? "",
+                userAgent: "",
+                remoteAddress: "",
+                overRelay: true,
+                claimedOverHttps: false);
+
+            RelayClaimResponse reply = claim.Ok
+                ? new RelayClaimResponse
+                {
+                    Type = RelayClaimMessageTypes.ClaimOk,
+                    SessionToken = claim.SessionToken,
+                    MachineName = claim.MachineName,
+                    Spki = claim.Spki,
+                }
+                : ClaimError(claim.Error);
+
+            await SendSealedAsync(transport, claimKey, reply).ConfigureAwait(false);
+            // ClaimCore ran ⇒ the token is spent or otherwise decided; one-shot done.
+            return true;
+        }
+
+        private static RelayClaimResponse ClaimError(string error)
+            => new() { Type = RelayClaimMessageTypes.ClaimErr, Error = error };
+
+        /// <summary>
+        /// Seal one host→client reply (counter 0) and write it as a single BINARY
+        /// relay frame. Sent on <see cref="CancellationToken.None"/> on purpose: a
+        /// successful claim consumes the pair token, which fires the
+        /// token-changed reconcile that CANCELS this link's token — but the phone
+        /// is still waiting for its claim-ok, so the terminal reply must complete
+        /// regardless. The link ends immediately after either way.
+        /// </summary>
+        private static async Task SendSealedAsync(
+            WebSocket transport, byte[] claimKey, RelayClaimResponse reply)
+        {
+            var ct = CancellationToken.None;
+            var json = JsonSerializer.SerializeToUtf8Bytes(reply, AppJsonContext.Default.RelayClaimResponse);
+            var sealed_ = RelayCrypto.Seal(claimKey, RelayCrypto.DirHostToClient, counter: 0, json);
+            await transport
+                .SendAsync(sealed_, WebSocketMessageType.Binary, endOfMessage: true, ct)
+                .ConfigureAwait(false);
         }
 
         private async Task SendHelloAsync(WebSocket transport, CancellationToken ct)

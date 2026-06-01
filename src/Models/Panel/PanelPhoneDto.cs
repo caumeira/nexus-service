@@ -114,6 +114,51 @@ public sealed class RelayHostHello
     public string Rid { get; set; } = "";
 }
 
+/// <summary>
+/// Wire message-type discriminators for the claim-over-relay handshake. A
+/// brand-new phone with no LAN reachability connects to the pair rendezvous
+/// (rid_pair), then exchanges exactly these two sealed BINARY frames with the
+/// PC. Kept as named constants so neither end sprinkles the raw literal.
+/// </summary>
+public static class RelayClaimMessageTypes
+{
+    /// <summary>phone→PC sealed request: <c>{"type":"claim","deviceName":"…"}</c>.</summary>
+    public const string Claim = "claim";
+    /// <summary>PC→phone sealed success: carries the freshly-minted session token.</summary>
+    public const string ClaimOk = "claim-ok";
+    /// <summary>PC→phone sealed failure: <c>{"type":"claim-err","error":"…"}</c>.</summary>
+    public const string ClaimErr = "claim-err";
+}
+
+/// <summary>
+/// phone→PC sealed claim request, sent over the pair rendezvous (rid_pair) once
+/// the AEAD channel is up. Possession of the QR pair token is proven by the
+/// successful AEAD decrypt — the rid_pair already pins which token the PC is
+/// claiming, so the token itself is never put on the wire.
+/// </summary>
+public sealed class RelayClaimRequest
+{
+    public string Type { get; set; } = RelayClaimMessageTypes.Claim;
+    public string DeviceName { get; set; } = "";
+}
+
+/// <summary>
+/// PC→phone sealed claim reply. On success <see cref="Type"/> is
+/// <c>claim-ok</c> with the new <see cref="SessionToken"/> (the phone then
+/// derives the SESSION relayRoot/rid from it and opens a runtime relay channel),
+/// <see cref="MachineName"/>, and the PC's leaf <see cref="Spki"/> fingerprint.
+/// On failure <see cref="Type"/> is <c>claim-err</c> and <see cref="Error"/>
+/// carries the reason (mirrors the HTTP claim's error sentinels).
+/// </summary>
+public sealed class RelayClaimResponse
+{
+    public string Type { get; set; } = RelayClaimMessageTypes.ClaimOk;
+    public string SessionToken { get; set; } = "";
+    public string MachineName { get; set; } = "";
+    public string Spki { get; set; } = "";
+    public string Error { get; set; } = "";
+}
+
 /// <summary>Wi-Fi discoverability (mDNS) preference; AirDrop-style three-state.</summary>
 public sealed class PairBroadcastStateResponse
 {
