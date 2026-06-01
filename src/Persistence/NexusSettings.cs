@@ -20,7 +20,7 @@ public sealed class NexusSettings
     /// </summary>
     public const int CurrentSchemaVersion = 5;
 
-    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag — every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. <see cref="JsonConfigStore"/> migrates v1/v2/v3/v4 (or missing) records on load.</summary>
+    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag — every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. The v1–v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     public ThemeSettings Theme { get; set; } = new();

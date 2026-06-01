@@ -1,0 +1,77 @@
+using System.Net;
+using System.Text;
+using System.Text.Json;
+using Microsoft.Extensions.DependencyInjection;
+using Nexus.Service.Auth;
+
+namespace Nexus.Service.Tests.Integration;
+
+/// <summary>
+/// Round-trips a setting through the real route → source-gen JSON →
+/// JsonConfigStore (temp-isolated) → route path. Replaces the unit suite's
+/// TestableConfigStore fake with a test of the actual persistence wiring.
+/// </summary>
+[Collection("NexusHost")]
+public sealed class ConfigRoundTripIntegrationTests : IClassFixture<NexusAppFactory>
+{
+    private readonly NexusAppFactory _factory;
+
+    public ConfigRoundTripIntegrationTests(NexusAppFactory factory) => _factory = factory;
+
+    private HttpClient AuthedClient()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue(
+                "Bearer", _factory.Services.GetRequiredService<TokenService>().Token);
+        return client;
+    }
+
+    private static StringContent Json(string body) =>
+        new(body, Encoding.UTF8, "application/json");
+
+    private static async Task<double> ReadValue(HttpResponseMessage res)
+    {
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        foreach (var p in doc.RootElement.EnumerateObject())
+            if (p.NameEquals("value") || p.NameEquals("Value"))
+                return p.Value.GetDouble();
+        throw new InvalidOperationException("no value property: " + doc.RootElement);
+    }
+
+    [Fact]
+    public async Task Setting_persists_across_post_then_get()
+    {
+        var client = AuthedClient();
+
+        var post = await client.PostAsync("/lighting/global-brightness", Json("{\"value\":0.42}"));
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+
+        var get = await client.GetAsync("/lighting/global-brightness");
+        Assert.Equal(0.42, await ReadValue(get), 2);
+    }
+
+    [Fact]
+    public async Task Out_of_range_setting_is_clamped_on_write()
+    {
+        var client = AuthedClient();
+
+        await client.PostAsync("/lighting/global-brightness", Json("{\"value\":5.0}"));
+
+        var get = await client.GetAsync("/lighting/global-brightness");
+        Assert.Equal(1.0, await ReadValue(get), 2);
+    }
+
+    [Fact]
+    public async Task Write_is_flushed_to_the_isolated_settings_file()
+    {
+        var client = AuthedClient();
+
+        await client.PostAsync("/lighting/global-brightness", Json("{\"value\":0.13}"));
+        // Force the debounced store to flush, then read the raw file on disk.
+        _factory.Services.GetRequiredService<Nexus.Service.Persistence.IConfigStore>().FlushNow();
+
+        var onDisk = await File.ReadAllTextAsync(_factory.SettingsPath);
+        Assert.Contains("0.13", onDisk);
+    }
+}

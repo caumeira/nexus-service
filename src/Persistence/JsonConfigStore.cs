@@ -70,6 +70,16 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"[nexus-service] settings.json corrupted, starting fresh: {ex.Message}");
+                // Preserve the unreadable file before overwriting it with
+                // defaults, so a single bad byte doesn't silently destroy the
+                // user's config with no recovery copy.
+                try
+                {
+                    var backup = SettingsPath + ".corrupt";
+                    File.Copy(SettingsPath, backup, overwrite: true);
+                    Console.Error.WriteLine($"[nexus-service] preserved corrupt settings at {backup}");
+                }
+                catch { /* best-effort backup; never block startup on it */ }
                 _cached = new NexusSettings();
             }
 

@@ -136,9 +136,10 @@ public sealed class FirmwareFlasher
 
             // 4. Wait for the bootloader to enumerate as 3402:0a00.
             Set("waiting-dfu", 25, "Waiting for bootloader…");
-            if (!await WaitForDfuAsync(TimeSpan.FromSeconds(20)))
+            var dfuError = await WaitForDfuAsync(TimeSpan.FromSeconds(20));
+            if (dfuError is not null)
             {
-                Fail("Device did not appear in update mode (DFU).");
+                Fail(dfuError);
                 return;
             }
 
@@ -182,16 +183,23 @@ public sealed class FirmwareFlasher
         }
     }
 
-    private async Task<bool> WaitForDfuAsync(TimeSpan timeout)
+    // Returns null once exactly one device is in DFU, else an error message.
+    private async Task<string?> WaitForDfuAsync(TimeSpan timeout)
     {
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
             var r = await _dfu.ListAsync(CancellationToken.None);
-            if (DfuUtil.CountDfuDevices(r.Output) > 0) return true;
+            var count = DfuUtil.CountDfuDevices(r.Output);
+            if (count == 1) return null;
+            // Refuse an ambiguous bus: with more than one device in DFU we
+            // can't tell which board dfu-util will target, and flashing the
+            // wrong one bricks it. Fail loudly rather than gamble.
+            if (count > 1)
+                return $"{count} devices are in DFU mode; refusing to flash an ambiguous target. Disconnect all but one and retry.";
             await Task.Delay(1000);
         }
-        return false;
+        return "Device did not appear in update mode (DFU).";
     }
 
     private void Set(string phase, int percent, string message)

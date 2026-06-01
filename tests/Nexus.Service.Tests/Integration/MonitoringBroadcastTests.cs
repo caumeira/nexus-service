@@ -181,7 +181,7 @@ internal sealed class ManualTimeProvider : TimeProvider
 /// hook and OnBroadcastForTest event. That keeps the test to <50 ms while still
 /// exercising the real class graph the broadcaster uses in production.
 /// </summary>
-public class StartupLifecycleTests
+public class MonitoringBroadcastTests
 {
     private static MonitoringBroadcaster BuildBroadcaster(
         MultiplexHub hub,

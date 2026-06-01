@@ -46,6 +46,15 @@ var (cliArgs, serviceMode, suppressStartupWindow, isRelaunchElevated) =
     Nexus.Service.Lifecycle.CommandLineEntry.StripLifecycleFlags(args);
 args = cliArgs;
 
+// Integration-test host marker. The WebApplicationFactory fixture
+// (tests/.../Integration/NexusAppFactory) sets NEXUS_TEST_HOST=1 before the
+// entry point runs so the in-process test host skips machine-mutating boot
+// side effects — single-instance mutex, HTTPS cert provisioning, GPU/profile
+// init, orphan-process cleanup, OS protocol-handler registration — and the
+// platform GUI/service host, falling through to a plain app.Run() that the
+// factory intercepts. Production (env unset) takes the original path unchanged.
+var testHost = Environment.GetEnvironmentVariable("NEXUS_TEST_HOST") == "1";
+
 // Root system daemon (full hardware access) adopts the active user's session
 // env — D-Bus, runtime dir, config home, display — so the tray, MPRIS media,
 // volume, and dashboard launcher keep working. No-op for a --user install.
@@ -68,7 +77,7 @@ Nexus.Service.Lifecycle.BootTimer.Mark("after URL resolve");
 // When relaunching elevated, retry for up to 10s while the parent shuts down.
 // Skipped under SCM: the service controller already enforces single-instance.
 System.Threading.Mutex? singleInstance = null;
-if (!serviceMode)
+if (!serviceMode && !testHost)
 {
     bool isFirst;
     var deadline = DateTime.UtcNow.AddSeconds(isRelaunchElevated ? 10 : 0);
@@ -99,6 +108,7 @@ Nexus.Service.Lifecycle.BootTimer.Mark("after single-instance mutex");
 // don't ambush the user with UAC at sign-in. --service skips because SCM
 // already runs us as LocalSystem.
 if (OperatingSystem.IsWindows()
+    && !testHost
     && !isRelaunchElevated
     && !suppressStartupWindow
     && !serviceMode
@@ -116,13 +126,16 @@ if (OperatingSystem.IsWindows()
 // phone pairing surface without internet.
 var httpsPort = servicePort == 9400 ? 9443 : servicePort + 443;
 X509Certificate2? localHttpsCertificate = null;
-try
+if (!testHost)
 {
-    localHttpsCertificate = LocalHttpsCertificate.LoadOrCreate();
-}
-catch (Exception ex)
-{
-    Console.Error.WriteLine($"[nexus-service] local HTTPS disabled: {ex.Message}");
+    try
+    {
+        localHttpsCertificate = LocalHttpsCertificate.LoadOrCreate();
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"[nexus-service] local HTTPS disabled: {ex.Message}");
+    }
 }
 Nexus.Service.Lifecycle.BootTimer.Mark("after LocalHttpsCertificate.LoadOrCreate");
 
@@ -267,12 +280,15 @@ if (OperatingSystem.IsLinux()
     catch (Exception ex) { Console.Error.WriteLine($"[dbus] startup connect skipped: {ex.Message}"); }
 }
 
-Nexus.Service.Lifecycle.AppBootstrap.EagerInitGpu(app);
-Nexus.Service.Lifecycle.BootTimer.Mark("after EagerInitGpu");
-Nexus.Service.Lifecycle.AppBootstrap.InitializeProfiles(app);
-Nexus.Service.Lifecycle.BootTimer.Mark("after InitializeProfiles");
-Nexus.Service.Lifecycle.AppBootstrap.WireBeatsAndPresence(app);
-Nexus.Service.Lifecycle.BootTimer.Mark("after WireBeatsAndPresence");
+if (!testHost)
+{
+    Nexus.Service.Lifecycle.AppBootstrap.EagerInitGpu(app);
+    Nexus.Service.Lifecycle.BootTimer.Mark("after EagerInitGpu");
+    Nexus.Service.Lifecycle.AppBootstrap.InitializeProfiles(app);
+    Nexus.Service.Lifecycle.BootTimer.Mark("after InitializeProfiles");
+    Nexus.Service.Lifecycle.AppBootstrap.WireBeatsAndPresence(app);
+    Nexus.Service.Lifecycle.BootTimer.Mark("after WireBeatsAndPresence");
+}
 
 // Middleware pipeline
 var wsOptions = new WebSocketOptions();
@@ -342,23 +358,31 @@ Nexus.Service.Lifecycle.BootTimer.Mark("after pairing wire (resolves PanelPhoneP
 app.MapFallbackToFile("index.html");
 Nexus.Service.Lifecycle.BootTimer.Mark("after MapFallbackToFile");
 
-// Kill orphan processes from previous crashed sessions.
-Nexus.Service.Platform.FfmpegTracker.CleanupOrphans();
-Nexus.Service.Lifecycle.BootTimer.Mark("after FfmpegTracker.CleanupOrphans");
-Nexus.Service.Panel.PanelOverlayHostLauncher.CleanupOrphans();
-Nexus.Service.Lifecycle.BootTimer.Mark("after PanelOverlayHostLauncher.CleanupOrphans");
-Nexus.Service.Lighting.Rgb.OpenRgbProcessManager.CleanupOrphans();
-Nexus.Service.Lifecycle.BootTimer.Mark("after OpenRgbProcessManager.CleanupOrphans");
+if (!testHost)
+{
+    // Kill orphan processes from previous crashed sessions.
+    Nexus.Service.Platform.FfmpegTracker.CleanupOrphans();
+    Nexus.Service.Lifecycle.BootTimer.Mark("after FfmpegTracker.CleanupOrphans");
+    Nexus.Service.Panel.PanelOverlayHostLauncher.CleanupOrphans();
+    Nexus.Service.Lifecycle.BootTimer.Mark("after PanelOverlayHostLauncher.CleanupOrphans");
+    Nexus.Service.Lighting.Rgb.OpenRgbProcessManager.CleanupOrphans();
+    Nexus.Service.Lifecycle.BootTimer.Mark("after OpenRgbProcessManager.CleanupOrphans");
 
-// Register nexus:// protocol handler (idempotent — safe on every launch)
-Nexus.Service.Platform.ProtocolHandler.Register();
-Nexus.Service.Lifecycle.BootTimer.Mark("after ProtocolHandler.Register");
+    // Register nexus:// protocol handler (idempotent — safe on every launch)
+    Nexus.Service.Platform.ProtocolHandler.Register();
+    Nexus.Service.Lifecycle.BootTimer.Mark("after ProtocolHandler.Register");
+}
 
 Console.WriteLine($"[nexus-service] listening on {url}");
 
 app.Lifetime.ApplicationStarted.Register(() =>
     Nexus.Service.Lifecycle.BootTimer.Mark("ApplicationStarted (host start complete, Kestrel bound)"));
 
+// GUI/tray/overlay wiring and the platform service host. The integration-test
+// host skips all of it and falls through to the plain app.Run() below, which
+// WebApplicationFactory intercepts at HostBuilt before Kestrel binds.
+if (!testHost)
+{
 if (OperatingSystem.IsWindows() && !serviceMode)
     Nexus.Service.Platform.Windows.TrayBootstrap.ConfigureTray(app);
 Nexus.Service.Lifecycle.BootTimer.Mark("after TrayBootstrap.ConfigureTray (if interactive)");
@@ -390,6 +414,7 @@ if (serviceMode)
     });
 }
 #endif
+}
 
 Nexus.Service.Lifecycle.BootTimer.Mark("calling app.Run() (host start begins)");
 app.Run();
@@ -466,3 +491,8 @@ static void OpenInAppMode(string url)
         Console.Error.WriteLine($"[mac-status-bar] open {url} failed: {ex.Message}");
     }
 }
+
+// Exposes the implicit top-level Program type to the test assembly so
+// WebApplicationFactory<Program> can host the app in-process. No members — the
+// entry point is the top-level statements above. See Integration/NexusAppFactory.
+public partial class Program { }

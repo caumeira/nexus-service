@@ -1,0 +1,177 @@
+using System.Net;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.DependencyInjection;
+using Nexus.Service.Auth;
+
+namespace Nexus.Service.Tests.Integration;
+
+/// <summary>
+/// Exercises the composed auth/CORS/security pipeline end-to-end through the
+/// real Program.cs middleware chain (UseRouting → UseCors → UseNexusPathAuth)
+/// — the wiring the per-helper unit tests (AuthRequestPolicyTests,
+/// CorsConfigTests) could not cover. Uses <see cref="TestServer.SendAsync"/>
+/// to set RemoteIpAddress for the loopback-gated paths.
+/// </summary>
+[Collection("NexusHost")]
+public sealed class AuthMiddlewareIntegrationTests : IClassFixture<NexusAppFactory>
+{
+    private readonly NexusAppFactory _factory;
+
+    public AuthMiddlewareIntegrationTests(NexusAppFactory factory) => _factory = factory;
+
+    private string Token => _factory.Services.GetRequiredService<TokenService>().Token;
+
+    // ── Token gate on a mapped API endpoint ──────────────────────────────────
+
+    [Fact]
+    public async Task Protected_endpoint_without_token_returns_401()
+    {
+        var client = _factory.CreateClient();
+
+        var res = await client.GetAsync("/system/elevation");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Protected_endpoint_with_desktop_token_returns_200()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Token);
+
+        var res = await client.GetAsync("/system/elevation");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+    }
+
+    [Fact]
+    public async Task Protected_endpoint_with_wrong_token_returns_401()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.Authorization =
+            new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "not-the-token");
+
+        var res = await client.GetAsync("/system/elevation");
+
+        Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
+    }
+
+    // ── /pair is loopback-only ───────────────────────────────────────────────
+
+    [Fact]
+    public async Task Pair_from_lan_is_forbidden()
+    {
+        var ctx = await _factory.Server.SendAsync(c =>
+        {
+            c.Request.Method = "GET";
+            c.Request.Path = "/pair";
+            c.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.50");
+        });
+
+        Assert.Equal(StatusCodes.Status403Forbidden, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Pair_from_loopback_returns_ok()
+    {
+        var ctx = await _factory.Server.SendAsync(c =>
+        {
+            c.Request.Method = "GET";
+            c.Request.Path = "/pair";
+            c.Connection.RemoteIpAddress = IPAddress.Loopback;
+        });
+
+        Assert.Equal(StatusCodes.Status200OK, ctx.Response.StatusCode);
+    }
+
+    // ── LocalhostOnly route: 404 from LAN, token still required on loopback ───
+
+    [Fact]
+    public async Task LocalhostOnly_route_404s_from_lan()
+    {
+        var ctx = await _factory.Server.SendAsync(c =>
+        {
+            c.Request.Method = "GET";
+            c.Request.Path = "/service/startup-mode";
+            c.Request.Headers.Authorization = "Bearer " + Token; // valid token, wrong network
+            c.Connection.RemoteIpAddress = IPAddress.Parse("192.168.1.50");
+        });
+
+        // 404 (not 401/403): the route's existence is never leaked to the LAN.
+        Assert.Equal(StatusCodes.Status404NotFound, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task LocalhostOnly_route_401s_from_loopback_without_token()
+    {
+        // Neutralizes DNS-rebind: a rebound page reaches 127.0.0.1 but has no token.
+        var ctx = await _factory.Server.SendAsync(c =>
+        {
+            c.Request.Method = "GET";
+            c.Request.Path = "/service/startup-mode";
+            c.Connection.RemoteIpAddress = IPAddress.Loopback;
+        });
+
+        Assert.Equal(StatusCodes.Status401Unauthorized, ctx.Response.StatusCode);
+    }
+
+    [Fact]
+    public async Task LocalhostOnly_route_allows_loopback_with_token()
+    {
+        var ctx = await _factory.Server.SendAsync(c =>
+        {
+            c.Request.Method = "GET";
+            c.Request.Path = "/service/startup-mode";
+            c.Request.Headers.Authorization = "Bearer " + Token;
+            c.Connection.RemoteIpAddress = IPAddress.Loopback;
+        });
+
+        Assert.Equal(StatusCodes.Status200OK, ctx.Response.StatusCode);
+    }
+
+    // ── CORS ─────────────────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Cors_rejects_foreign_origin()
+    {
+        var client = _factory.CreateClient();
+        var req = new HttpRequestMessage(HttpMethod.Get, "/ping");
+        req.Headers.Add("Origin", "https://evil.com");
+
+        var res = await client.SendAsync(req);
+
+        var acao = res.Headers.TryGetValues("Access-Control-Allow-Origin", out var v)
+            ? string.Join(",", v) : null;
+        Assert.DoesNotContain("evil.com", acao ?? string.Empty);
+    }
+
+    [Fact]
+    public async Task Cors_allows_service_own_origin()
+    {
+        var client = _factory.CreateClient();
+        var req = new HttpRequestMessage(HttpMethod.Get, "/ping");
+        req.Headers.Add("Origin", "http://localhost:9400");
+
+        var res = await client.SendAsync(req);
+
+        Assert.True(res.Headers.Contains("Access-Control-Allow-Origin"),
+            "expected an Access-Control-Allow-Origin header for the service's own loopback origin");
+    }
+
+    // ── Security headers ─────────────────────────────────────────────────────
+
+    [Fact]
+    public async Task Security_headers_present_on_panel_shell()
+    {
+        var client = _factory.CreateClient();
+
+        var res = await client.GetAsync("/panel/phone");
+
+        Assert.True(res.Headers.Contains("Content-Security-Policy"),
+            "panel shell must carry a CSP header");
+        Assert.True(res.Headers.Contains("X-Content-Type-Options"),
+            "panel shell must carry X-Content-Type-Options: nosniff");
+    }
+}

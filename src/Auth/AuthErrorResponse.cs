@@ -15,10 +15,10 @@ namespace Nexus.Service.Auth;
 public static class AuthErrorResponse
 {
     /// <summary>
-    /// Writes the response. <paramref name="code"/> must be a short ASCII
-    /// token (e.g. "Unauthorized", "Forbidden", "CSRF"); it's interpolated
-    /// into the JSON body without escaping so any value containing quotes,
-    /// backslashes, or control characters would break the JSON. The HTML
+    /// Writes the response. <paramref name="code"/> is a short token (e.g.
+    /// "Unauthorized", "Forbidden", "CSRF"). It is JSON-escaped before being
+    /// written, so a value containing quotes, backslashes, or control
+    /// characters can no longer break or inject into the JSON body. The HTML
     /// path encodes both <paramref name="code"/> and <paramref name="detail"/>
     /// safely.
     /// </summary>
@@ -35,7 +35,11 @@ public static class AuthErrorResponse
         }
 
         ctx.Response.ContentType = "application/json";
-        await ctx.Response.WriteAsync($"{{\"error\":true,\"msg\":\"{code}\"}}");
+        // JsonEncodedText escapes quotes/backslashes/control chars so the body
+        // stays well-formed regardless of what `code` contains (defense in depth
+        // — today every caller passes a hardcoded literal).
+        var safeCode = System.Text.Json.JsonEncodedText.Encode(code);
+        await ctx.Response.WriteAsync($"{{\"error\":true,\"msg\":\"{safeCode}\"}}");
     }
 
     private static bool PrefersHtml(HttpContext ctx)

@@ -36,6 +36,15 @@ public sealed class RazerReport
     public byte CommandId;
     public readonly byte[] Arguments = new byte[80];
 
+    /// <summary>
+    /// True when a parsed reply's stored CRC (byte 89) matched the XOR checksum
+    /// recomputed over its payload — i.e. the reply was not corrupted in
+    /// transit. Always true for reports built locally via <see cref="Command"/>.
+    /// Callers reading device telemetry (DPI, battery) should check this before
+    /// trusting <see cref="Arguments"/>.
+    /// </summary>
+    public bool CrcValid = true;
+
     public static RazerReport Command(byte commandClass, byte commandId, byte dataSize, ReadOnlySpan<byte> args)
     {
         var r = new RazerReport
@@ -94,6 +103,11 @@ public sealed class RazerReport
             CommandId = hidBuf[8],
         };
         hidBuf.Slice(9, 80).CopyTo(r.Arguments);
+        // Verify the reply's CRC (byte 89) so a bit-flipped feature report is
+        // flagged rather than silently trusted. Non-fatal: the report is still
+        // returned so callers decide whether to reject (a hard reject is
+        // deferred until we can confirm every device populates the reply CRC).
+        r.CrcValid = hidBuf[89] == ComputeCrc(hidBuf);
         return r;
     }
 
