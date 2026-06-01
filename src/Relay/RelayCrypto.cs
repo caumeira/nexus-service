@@ -42,6 +42,7 @@ public static class RelayCrypto
 
     private static readonly byte[] InfoRoot = Encoding.UTF8.GetBytes("nexus-relay-root-v1");
     private static readonly byte[] InfoRendezvous = Encoding.UTF8.GetBytes("nexus-relay-rendezvous-v1");
+    private static readonly byte[] InfoHttpRendezvous = Encoding.UTF8.GetBytes("nexus-relay-http-rendezvous-v1");
     private static readonly byte[] InfoAead = Encoding.UTF8.GetBytes("nexus-relay-aead-v1");
     private static readonly byte[] InfoPairRoot = Encoding.UTF8.GetBytes("nexus-relay-pairroot-v1");
 
@@ -86,6 +87,22 @@ public static class RelayCrypto
         ArgumentNullException.ThrowIfNull(relayRoot);
         Span<byte> raw = stackalloc byte[RidLength];
         HKDF.DeriveKey(HashAlgorithmName.SHA256, relayRoot, raw, salt: ReadOnlySpan<byte>.Empty, info: InfoRendezvous);
+        return Base64UrlNoPad(raw);
+    }
+
+    /// <summary>
+    /// rid_http = base64url-nopad( HKDF-SHA256(IKM=relayRoot, salt=∅, info="nexus-relay-http-rendezvous-v1", L=16) ).
+    /// A SECOND rendezvous id per session, distinct from the runtime <see cref="DeriveRid"/>
+    /// (different HKDF info ⇒ the two can never collide), so the REST-over-relay
+    /// HTTP tunnel rides its own host link without touching the proven <c>/ws</c>
+    /// runtime channel. The per-connection AEAD key reuses
+    /// <see cref="DeriveAeadKey"/> off the same relayRoot.
+    /// </summary>
+    public static string DeriveHttpRid(byte[] relayRoot)
+    {
+        ArgumentNullException.ThrowIfNull(relayRoot);
+        Span<byte> raw = stackalloc byte[RidLength];
+        HKDF.DeriveKey(HashAlgorithmName.SHA256, relayRoot, raw, salt: ReadOnlySpan<byte>.Empty, info: InfoHttpRendezvous);
         return Base64UrlNoPad(raw);
     }
 

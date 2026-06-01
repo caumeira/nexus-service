@@ -40,6 +40,35 @@ public class RelayCryptoTests
         Assert.Equal(Rid, RelayCrypto.DeriveRid(root));
     }
 
+    // ── Phase-2 REST-over-relay rid_http vector ──────────────────────────────
+    // rid_http = base64url-nopad(HKDF(relayRoot, ∅, "nexus-relay-http-rendezvous-v1", 16)).
+    private const string RidHttp = "0jI7tzgoE89ewOpZng6rlA";
+
+    [Fact]
+    public void DeriveHttpRid_MatchesVector()
+    {
+        var root = FromHex(RelayRootHex);
+        Assert.Equal(RidHttp, RelayCrypto.DeriveHttpRid(root));
+    }
+
+    [Fact]
+    public void DeriveHttpRid_FromToken_EndToEnd()
+    {
+        // Token → relayRoot → rid_http, all the way through.
+        var root = RelayCrypto.DeriveRelayRoot(Token);
+        Assert.Equal(RidHttp, RelayCrypto.DeriveHttpRid(root));
+    }
+
+    [Fact]
+    public void HttpRid_DiffersFromRuntimeRid_SameRoot()
+    {
+        // The HTTP tunnel rides a SECOND rendezvous off the same relayRoot; the
+        // distinct HKDF info guarantees it never collides with the runtime rid,
+        // so the proven /ws channel is untouched.
+        var root = FromHex(RelayRootHex);
+        Assert.NotEqual(RelayCrypto.DeriveRid(root), RelayCrypto.DeriveHttpRid(root));
+    }
+
     [Fact]
     public void DeriveAeadKey_MatchesVector()
     {

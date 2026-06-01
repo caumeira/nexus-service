@@ -38,6 +38,7 @@ public sealed class RelayConnectionServiceTests
 
         var relayRoot = RelayCrypto.DeriveRelayRoot(Token);
         var expectedRid = RelayCrypto.DeriveRid(relayRoot);
+        relay.RuntimeRid = expectedRid;
 
         var store = new InMemoryConfigStore();
         store.Update(s =>
@@ -66,7 +67,8 @@ public sealed class RelayConnectionServiceTests
         var pairing = new Nexus.Service.Panel.PanelPhonePairingService(store, hub) { PublicLinkHost = "" };
 
         using var service = new RelayConnectionService(
-            NullLogger<RelayConnectionService>.Instance, pairing, store, hub)
+            NullLogger<RelayConnectionService>.Instance, pairing, store, hub,
+            RelayTestHelpers.InertHttpDispatcher())
         {
             Endpoint = relay.Uri,
         };
@@ -127,6 +129,7 @@ public sealed class RelayConnectionServiceTests
         await relay.StartAsync();
 
         var relayRoot = RelayCrypto.DeriveRelayRoot(Token);
+        relay.RuntimeRid = RelayCrypto.DeriveRid(relayRoot);
         var store = new InMemoryConfigStore();
         store.Update(s =>
         {
@@ -149,7 +152,8 @@ public sealed class RelayConnectionServiceTests
         var hub = new MultiplexHub();
         var pairing = new Nexus.Service.Panel.PanelPhonePairingService(store, hub) { PublicLinkHost = "" };
         using var service = new RelayConnectionService(
-            NullLogger<RelayConnectionService>.Instance, pairing, store, hub)
+            NullLogger<RelayConnectionService>.Instance, pairing, store, hub,
+            RelayTestHelpers.InertHttpDispatcher())
         {
             Endpoint = relay.Uri,
         };
@@ -180,21 +184,30 @@ public sealed class RelayConnectionServiceTests
     }
 
     /// <summary>
-    /// Minimal single-rid relay over a loopback HttpListener. Acts as both the
-    /// relay AND the simulated client for one host connection.
+    /// Loopback fake relay over an HttpListener. The service now opens TWO host
+    /// links per session (runtime rid + rid_http), so the relay accepts MULTIPLE
+    /// connections and routes by the hello's rid. The test binds peer-up /
+    /// forward / host-frame capture to a chosen <see cref="RuntimeRid"/> (the rid
+    /// derived from the session's relayRoot), so the rid_http leg simply
+    /// connects + sits idle and never perturbs the runtime assertions.
     /// </summary>
     private sealed class FakeRelay : IDisposable
     {
         private readonly HttpListener _listener = new();
-        private WebSocket? _hostSocket;
-        private readonly TaskCompletionSource<System.Text.Json.JsonElement> _hello =
-            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private CancellationTokenSource? _cts;
+
+        private readonly object _gate = new();
+        private readonly Dictionary<string, WebSocket> _hostsByRid = new(StringComparer.Ordinal);
+        private readonly Dictionary<string, TaskCompletionSource<System.Text.Json.JsonElement>> _helloByRid =
+            new(StringComparer.Ordinal);
         private readonly TaskCompletionSource<bool> _connected =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
-        private CancellationTokenSource? _cts;
 
         public Uri Uri { get; }
         public Action<byte[]>? OnHostFrame { get; set; }
+
+        /// <summary>The rid the test peers a client up against (the runtime rid).</summary>
+        public string RuntimeRid { get; set; } = "";
 
         public FakeRelay()
         {
@@ -213,24 +226,21 @@ public sealed class RelayConnectionServiceTests
 
         private async Task AcceptLoopAsync(CancellationToken ct)
         {
-            try
+            while (!ct.IsCancellationRequested)
             {
-                var ctx = await _listener.GetContextAsync().ConfigureAwait(false);
+                HttpListenerContext ctx;
+                try { ctx = await _listener.GetContextAsync().ConfigureAwait(false); }
+                catch { return; }
+
                 if (!ctx.Request.IsWebSocketRequest)
                 {
                     ctx.Response.StatusCode = 400;
                     ctx.Response.Close();
-                    return;
+                    continue;
                 }
                 var wsCtx = await ctx.AcceptWebSocketAsync(subProtocol: null).ConfigureAwait(false);
-                _hostSocket = wsCtx.WebSocket;
                 _connected.TrySetResult(true);
-                await HostReadLoopAsync(_hostSocket, ct).ConfigureAwait(false);
-            }
-            catch (Exception ex)
-            {
-                _hello.TrySetException(ex);
-                _connected.TrySetResult(false);
+                _ = Task.Run(() => HostReadLoopAsync(wsCtx.WebSocket, ct));
             }
         }
 
@@ -238,6 +248,7 @@ public sealed class RelayConnectionServiceTests
         {
             var buffer = new byte[8192];
             using var message = new System.IO.MemoryStream();
+            string? rid = null;
             while (socket.State == WebSocketState.Open && !ct.IsCancellationRequested)
             {
                 message.SetLength(0);
@@ -261,20 +272,47 @@ public sealed class RelayConnectionServiceTests
                 if (result.MessageType == WebSocketMessageType.Text)
                 {
                     using var doc = System.Text.Json.JsonDocument.Parse(message.ToArray());
-                    _hello.TrySetResult(doc.RootElement.Clone());
+                    rid = doc.RootElement.GetProperty("rid").GetString();
+                    if (!string.IsNullOrEmpty(rid))
+                        RegisterHost(rid, socket, doc.RootElement.Clone());
                 }
-                else if (result.MessageType == WebSocketMessageType.Binary)
+                else if (result.MessageType == WebSocketMessageType.Binary
+                    && string.Equals(rid, RuntimeRid, StringComparison.Ordinal))
                 {
                     OnHostFrame?.Invoke(message.ToArray());
                 }
             }
         }
 
+        private void RegisterHost(string rid, WebSocket socket, System.Text.Json.JsonElement hello)
+        {
+            lock (_gate)
+            {
+                _hostsByRid[rid] = socket;
+                HelloWaiter(rid).TrySetResult(hello);
+            }
+        }
+
+        private TaskCompletionSource<System.Text.Json.JsonElement> HelloWaiter(string rid)
+        {
+            if (!_helloByRid.TryGetValue(rid, out var tcs))
+            {
+                tcs = new TaskCompletionSource<System.Text.Json.JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+                _helloByRid[rid] = tcs;
+            }
+            return tcs;
+        }
+
         public Task<System.Text.Json.JsonElement> WaitForHelloAsync()
             => WaitForHelloAsync(TimeSpan.FromSeconds(5));
 
         public Task<System.Text.Json.JsonElement> WaitForHelloAsync(TimeSpan timeout)
-            => _hello.Task.WaitAsync(timeout);
+        {
+            Task<System.Text.Json.JsonElement> task;
+            lock (_gate)
+                task = HelloWaiter(RuntimeRid).Task;
+            return task.WaitAsync(timeout);
+        }
 
         public async Task<bool> WaitForConnectionAsync(TimeSpan timeout)
         {
@@ -286,12 +324,22 @@ public sealed class RelayConnectionServiceTests
         {
             var saltB64 = RelayCrypto.Base64UrlNoPad(connSalt);
             var json = Encoding.UTF8.GetBytes($"{{\"e\":\"peer-up\",\"salt\":\"{saltB64}\"}}");
-            await _hostSocket!.SendAsync(json, WebSocketMessageType.Text, true, CancellationToken.None);
+            await HostFor(RuntimeRid).SendAsync(json, WebSocketMessageType.Text, true, CancellationToken.None);
         }
 
         public async Task ForwardToHostAsync(byte[] frame)
         {
-            await _hostSocket!.SendAsync(frame, WebSocketMessageType.Binary, true, CancellationToken.None);
+            await HostFor(RuntimeRid).SendAsync(frame, WebSocketMessageType.Binary, true, CancellationToken.None);
+        }
+
+        private WebSocket HostFor(string rid)
+        {
+            lock (_gate)
+            {
+                if (!_hostsByRid.TryGetValue(rid, out var socket))
+                    throw new InvalidOperationException($"no host registered for rid {rid}");
+                return socket;
+            }
         }
 
         private static int GetFreePort()
@@ -306,8 +354,14 @@ public sealed class RelayConnectionServiceTests
         public void Dispose()
         {
             try { _cts?.Cancel(); } catch { }
-            try { _hostSocket?.Abort(); } catch { }
-            try { _hostSocket?.Dispose(); } catch { }
+            lock (_gate)
+            {
+                foreach (var s in _hostsByRid.Values)
+                {
+                    try { s.Abort(); } catch { }
+                    try { s.Dispose(); } catch { }
+                }
+            }
             try { _listener.Stop(); } catch { }
             try { _listener.Close(); } catch { }
         }

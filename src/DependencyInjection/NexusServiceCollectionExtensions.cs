@@ -777,6 +777,10 @@ public static class NexusServiceCollectionExtensions
         // bridges relayed, end-to-end-encrypted frames into the same
         // MultiplexHub the LAN /ws path uses, so the killswitch already applies.
         // Event-driven off IConfigStore.OnChanged; no poll loop.
+        // REST-over-relay tunnel dispatcher: runs a tunneled request through the
+        // service's OWN endpoint pipeline, authorized as the relay session. The
+        // pipeline is captured + primed in Program.cs after the app is built.
+        services.AddSingleton<Nexus.Service.Relay.RelayHttpDispatcher>();
         services.AddSingleton<Nexus.Service.Relay.RelayConnectionService>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Relay.RelayConnectionService>());
         return services;

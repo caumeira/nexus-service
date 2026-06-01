@@ -159,6 +159,43 @@ public sealed class RelayClaimResponse
     public string Error { get; set; } = "";
 }
 
+/// <summary>
+/// One REST-over-relay tunnel request, sent client→PC (dir=2) as a sealed BINARY
+/// frame on the session's <c>rid_http</c> rendezvous. The off-LAN panel's normal
+/// fetch() calls (device list, layout, controls) are serialized into these so
+/// they reach the PC's own HTTP handlers through the relay. <see cref="Id"/>
+/// multiplexes concurrent in-flight requests on the one channel; the PC echoes
+/// it back on the matching <see cref="RelayHttpResponse"/>.
+/// </summary>
+public sealed class RelayHttpRequest
+{
+    /// <summary>Caller-assigned correlation id; echoed on the response.</summary>
+    public int Id { get; set; }
+    /// <summary>HTTP method (GET/POST/PUT/DELETE/PATCH).</summary>
+    public string Method { get; set; } = "GET";
+    /// <summary>Request path + optional query (e.g. <c>/panel/status</c>); must clear the allowlist.</summary>
+    public string Path { get; set; } = "";
+    /// <summary>UTF-8 request body, or null for bodyless methods.</summary>
+    public string? Body { get; set; }
+    /// <summary>Content-Type for <see cref="Body"/>, or null.</summary>
+    public string? ContentType { get; set; }
+}
+
+/// <summary>
+/// The PC's sealed reply to a <see cref="RelayHttpRequest"/>, sent PC→client
+/// (dir=1). <see cref="Id"/> matches the request so the panel resolves the right
+/// pending fetch. <see cref="Status"/> is the real HTTP status the in-process
+/// dispatch produced (or 403 for an off-allowlist path / 413 for an oversized
+/// body); <see cref="Body"/> is the captured UTF-8 response body.
+/// </summary>
+public sealed class RelayHttpResponse
+{
+    public int Id { get; set; }
+    public int Status { get; set; }
+    public string Body { get; set; } = "";
+    public string? ContentType { get; set; }
+}
+
 /// <summary>Wi-Fi discoverability (mDNS) preference; AirDrop-style three-state.</summary>
 public sealed class PairBroadcastStateResponse
 {

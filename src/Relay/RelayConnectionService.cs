@@ -6,6 +6,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Nexus.Service.Models.Panel;
@@ -50,16 +51,23 @@ public sealed class RelayConnectionService : BackgroundService
     private const string PeerUp = "peer-up";
     private const string PeerDown = "peer-down";
 
-    // Link-key prefixes keep the two desired-link namespaces disjoint inside the
-    // single _links map: a runtime session link (keyed by phone session id) can
-    // never collide with a pre-pair rendezvous link (keyed by rid_pair).
+    // Link-key prefixes keep the desired-link namespaces disjoint inside the
+    // single _links map: a runtime session link (keyed by phone session id), a
+    // REST-over-relay HTTP-tunnel link (also keyed by session id), and a pre-pair
+    // rendezvous link (keyed by rid_pair) can never collide.
     private const string SessionLinkPrefix = "sess:";
+    private const string HttpLinkPrefix = "http:";
     private const string PairLinkPrefix = "pair:";
+
+    // Concurrency cap on in-flight tunneled requests per HTTP link, so a hostile
+    // peer can't fan out unbounded dispatch tasks on one channel.
+    private const int MaxConcurrentHttpRequests = 32;
 
     private readonly ILogger<RelayConnectionService> _log;
     private readonly PanelPhonePairingService _pairing;
     private readonly IConfigStore _store;
     private readonly MultiplexHub _hub;
+    private readonly RelayHttpDispatcher _httpDispatcher;
 
     private readonly object _gate = new();
     private readonly Dictionary<string, HostLink> _links = new(StringComparer.Ordinal);
@@ -82,12 +90,14 @@ public sealed class RelayConnectionService : BackgroundService
         ILogger<RelayConnectionService> log,
         PanelPhonePairingService pairing,
         IConfigStore store,
-        MultiplexHub hub)
+        MultiplexHub hub,
+        RelayHttpDispatcher httpDispatcher)
     {
         _log = log;
         _pairing = pairing;
         _store = store;
         _hub = hub;
+        _httpDispatcher = httpDispatcher;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -157,7 +167,13 @@ public sealed class RelayConnectionService : BackgroundService
         if (enabled)
         {
             foreach (var s in _pairing.GetActiveRelaySessions())
+            {
+                // RUNTIME link (rid) bridges /ws telemetry; HTTP link (rid_http)
+                // tunnels the panel's REST calls. Both die with the session on
+                // kick / relay-off / remote-off because both fall out of `desired`.
                 desired[SessionLinkPrefix + s.Id] = DesiredLink.Session(s.Id, s.RelayRoot);
+                desired[HttpLinkPrefix + s.Id] = DesiredLink.Http(s.Id, s.RelayRoot);
+            }
 
             foreach (var p in _pairing.GetOutstandingPairTokens())
             {
@@ -199,20 +215,38 @@ public sealed class RelayConnectionService : BackgroundService
             link.Start(_serviceCt);
     }
 
+    /// <summary>Which leg a <see cref="DesiredLink"/> satisfies.</summary>
+    private enum LinkKind
+    {
+        /// <summary>rid: bridges a paired session's /ws telemetry into the hub.</summary>
+        Runtime,
+        /// <summary>rid_http: tunnels the paired session's REST calls into the endpoint pipeline.</summary>
+        Http,
+        /// <summary>rid_pair: one-shot pre-pair claim rendezvous.</summary>
+        Pair,
+    }
+
     /// <summary>
     /// One desired host leg. A RUNTIME link bridges a paired session into the hub
-    /// for the life of the relay socket; a PAIR link is a one-shot pre-pair
+    /// for the life of the relay socket; an HTTP link tunnels that session's REST
+    /// calls through the endpoint pipeline; a PAIR link is a one-shot pre-pair
     /// rendezvous that completes a single claim handshake and ends.
     /// </summary>
-    private readonly record struct DesiredLink(bool IsPair, string Tag, string? PairToken, byte[] Root)
+    private readonly record struct DesiredLink(LinkKind Kind, string Tag, string? PairToken, byte[] Root)
     {
+        public bool IsPair => Kind == LinkKind.Pair;
+
         /// <summary>Runtime link: <paramref name="sessionId"/> tags the hub session; root is the session relayRoot.</summary>
         public static DesiredLink Session(string sessionId, byte[] relayRoot)
-            => new(IsPair: false, Tag: sessionId, PairToken: null, Root: relayRoot);
+            => new(LinkKind.Runtime, Tag: sessionId, PairToken: null, Root: relayRoot);
+
+        /// <summary>HTTP-tunnel link: same session id + relayRoot, but registers on rid_http.</summary>
+        public static DesiredLink Http(string sessionId, byte[] relayRoot)
+            => new(LinkKind.Http, Tag: sessionId, PairToken: null, Root: relayRoot);
 
         /// <summary>Pair link: root is the pairRoot; <paramref name="pairToken"/> is what ClaimCore consumes.</summary>
         public static DesiredLink Pair(string pairToken, byte[] pairRoot)
-            => new(IsPair: true, Tag: "", PairToken: pairToken, Root: pairRoot);
+            => new(LinkKind.Pair, Tag: "", PairToken: pairToken, Root: pairRoot);
     }
 
     private void CloseAllLinks()
@@ -256,7 +290,11 @@ public sealed class RelayConnectionService : BackgroundService
             LinkKey = linkKey;
             _desired = desired;
             _root = desired.Root;
-            _rid = RelayCrypto.DeriveRid(desired.Root);
+            // The HTTP-tunnel leg registers on rid_http (a distinct rendezvous off
+            // the SAME relayRoot); runtime + pair legs register on rid.
+            _rid = desired.Kind == LinkKind.Http
+                ? RelayCrypto.DeriveHttpRid(desired.Root)
+                : RelayCrypto.DeriveRid(desired.Root);
         }
 
         public void Start(CancellationToken serviceCt)
@@ -308,7 +346,12 @@ public sealed class RelayConnectionService : BackgroundService
         }
 
         private Task RunOnceAsync(CancellationToken ct)
-            => _desired.IsPair ? RunPairOnceAsync(ct) : RunRuntimeOnceAsync(ct);
+            => _desired.Kind switch
+            {
+                LinkKind.Pair => RunPairOnceAsync(ct),
+                LinkKind.Http => RunHttpOnceAsync(ct),
+                _ => RunRuntimeOnceAsync(ct),
+            };
 
         private async Task RunRuntimeOnceAsync(CancellationToken ct)
         {
@@ -604,6 +647,110 @@ public sealed class RelayConnectionService : BackgroundService
                 .ConfigureAwait(false);
         }
 
+        /// <summary>
+        /// REST-over-relay tunnel leg for a paired session. Same host hello /
+        /// relay framing as the runtime leg, registered on rid_http. On peer-up we
+        /// derive the per-connection AEAD key and then loop reading sealed BINARY
+        /// request frames (dir=2). Each decrypts to a <see cref="RelayHttpRequest"/>
+        /// that we DISPATCH through the service's own endpoint pipeline, authorized
+        /// as this session's phone-session id (no phone bearer needed — the relay
+        /// session is already authenticated). The sealed <see cref="RelayHttpResponse"/>
+        /// (dir=1) echoes the request id so the panel can multiplex concurrent
+        /// fetches. A peer-down ends the channel; the host socket stays open for
+        /// the next client. The link dies with the session (kick / relay-off /
+        /// remote-off) exactly like the runtime leg, because both fall out of the
+        /// reconcile `desired` set together. Never touches the hub.
+        /// </summary>
+        private async Task RunHttpOnceAsync(CancellationToken ct)
+        {
+            WebSocket transport = await _owner.TransportFactory(_owner.Endpoint, ct).ConfigureAwait(false);
+            await using var _ = new WebSocketDisposer(transport);
+
+            await SendHelloAsync(transport, ct).ConfigureAwait(false);
+
+            HttpChannel? channel = null; // non-null once a client has peered up
+            var buffer = new byte[ReceiveBufferSize];
+            using var message = new System.IO.MemoryStream();
+
+            try
+            {
+                while (!ct.IsCancellationRequested && transport.State == WebSocketState.Open)
+                {
+                    message.SetLength(0);
+                    WebSocketReceiveResult result;
+                    do
+                    {
+                        result = await transport.ReceiveAsync(new ArraySegment<byte>(buffer), ct).ConfigureAwait(false);
+                        if (result.MessageType == WebSocketMessageType.Close)
+                            return; // relay closed the host socket → outer loop reconnects
+                        if (message.Length + result.Count > MaxFrameBytes)
+                            throw new InvalidOperationException("relay frame exceeds 256 KB cap");
+                        message.Write(buffer, 0, result.Count);
+                    }
+                    while (!result.EndOfMessage);
+
+                    if (result.MessageType == WebSocketMessageType.Text)
+                    {
+                        channel = HandleHttpControl(message.ToArray(), transport, channel, ct);
+                    }
+                    else if (result.MessageType == WebSocketMessageType.Binary)
+                    {
+                        if (channel is null)
+                            continue; // a forwarded frame with no peer-up; ignore
+                        channel.OnRequestFrame(message.ToArray());
+                    }
+                }
+            }
+            finally
+            {
+                channel?.Dispose();
+            }
+        }
+
+        /// <summary>
+        /// TEXT control on the HTTP leg. peer-up (with connSalt) opens a fresh
+        /// <see cref="HttpChannel"/> (per-connection AEAD key, counter reset to 0);
+        /// peer-down (or anything else) tears the current channel down so an
+        /// in-flight dispatch's reply isn't sealed under a stale key/counter for a
+        /// different peer.
+        /// </summary>
+        private HttpChannel? HandleHttpControl(
+            byte[] textBytes, WebSocket transport, HttpChannel? current, CancellationToken ct)
+        {
+            string? evt;
+            string? saltB64;
+            try
+            {
+                using var doc = JsonDocument.Parse(textBytes);
+                var root = doc.RootElement;
+                evt = root.TryGetProperty(EventKey, out var e) ? e.GetString() : null;
+                saltB64 = root.TryGetProperty(SaltKey, out var s) ? s.GetString() : null;
+            }
+            catch
+            {
+                return current;
+            }
+
+            if (string.Equals(evt, PeerUp, StringComparison.Ordinal))
+            {
+                if (string.IsNullOrEmpty(saltB64))
+                    return current;
+                byte[] connSalt;
+                try { connSalt = RelayCrypto.FromBase64UrlNoPad(saltB64); }
+                catch { return current; }
+                if (connSalt.Length != RelayCrypto.ConnSaltLength)
+                    return current;
+
+                current?.Dispose(); // defensive: relay should have sent peer-down first
+                var aeadKey = RelayCrypto.DeriveAeadKey(_root, connSalt);
+                return new HttpChannel(_owner, transport, aeadKey, SessionTag, ct);
+            }
+
+            // peer-down / unknown: end the current channel; keep the host socket open.
+            current?.Dispose();
+            return null;
+        }
+
         private async Task SendHelloAsync(WebSocket transport, CancellationToken ct)
         {
             var hello = new RelayHostHello { V = 1, Role = "host", Rid = _rid };
@@ -611,6 +758,142 @@ public sealed class RelayConnectionService : BackgroundService
             await transport
                 .SendAsync(json, WebSocketMessageType.Text, endOfMessage: true, ct)
                 .ConfigureAwait(false);
+        }
+    }
+
+    /// <summary>
+    /// One peered-up REST-over-relay session on an HTTP leg. Owns the
+    /// per-connection AEAD key, the outbound send lock + monotonic counter (so
+    /// concurrent replies never reuse a nonce), the inbound replay guard, and a
+    /// concurrency limiter. Each inbound sealed request is decrypted, then
+    /// dispatched on its own task so a slow handler can't head-of-line block
+    /// other ids; the reply is sealed under the send lock and written back. The
+    /// request id multiplexes the responses on the single channel.
+    /// </summary>
+    private sealed class HttpChannel : IDisposable
+    {
+        private readonly RelayConnectionService _owner;
+        private readonly WebSocket _transport;
+        private readonly byte[] _aeadKey;
+        private readonly string _sessionId;
+        private readonly CancellationToken _ct;
+        private readonly SemaphoreSlim _sendLock = new(1, 1);
+        private readonly SemaphoreSlim _inFlight = new(MaxConcurrentHttpRequests, MaxConcurrentHttpRequests);
+        private ulong _sendCounter;
+        private long _lastRecvCounter = -1;
+        private volatile bool _disposed;
+
+        public HttpChannel(
+            RelayConnectionService owner, WebSocket transport, byte[] aeadKey,
+            string sessionId, CancellationToken ct)
+        {
+            _owner = owner;
+            _transport = transport;
+            _aeadKey = aeadKey;
+            _sessionId = sessionId;
+            _ct = ct;
+        }
+
+        /// <summary>
+        /// Decrypt one inbound sealed request frame (dir=2, non-replayed counter)
+        /// and dispatch it on a background task. A bad direction / replayed
+        /// counter / tamper is dropped silently (the channel keeps serving valid
+        /// frames). Invoked serially from the leg's single receive loop, so the
+        /// counter check needs no extra lock.
+        /// </summary>
+        public void OnRequestFrame(byte[] frame)
+        {
+            if (_disposed)
+                return;
+
+            RelayHttpRequest? request;
+            try
+            {
+                var (dir, counter, plaintext) = RelayCrypto.Open(_aeadKey, frame);
+                if (dir != RelayCrypto.DirClientToHost || (long)counter <= _lastRecvCounter)
+                    return; // wrong direction or replay/reorder ⇒ drop.
+                _lastRecvCounter = (long)counter;
+                request = JsonSerializer.Deserialize(plaintext, AppJsonContext.Default.RelayHttpRequest);
+            }
+            catch (CryptographicException)
+            {
+                return; // tag-verify failed: not our peer's frame; drop.
+            }
+            catch (JsonException)
+            {
+                return; // decryptable but malformed; nothing to correlate a reply to.
+            }
+
+            if (request is null)
+                return;
+
+            // Bound concurrent dispatch; if we're at the cap, reply 503 rather
+            // than queue unboundedly. WaitAsync(0) never blocks the receive loop.
+            if (!_inFlight.Wait(0))
+            {
+                _ = SendBusyAsync(request.Id);
+                return;
+            }
+
+            _ = DispatchAndReplyAsync(request);
+        }
+
+        private async Task DispatchAndReplyAsync(RelayHttpRequest request)
+        {
+            try
+            {
+                var response = await _owner._httpDispatcher
+                    .DispatchAsync(request, _sessionId, _ct).ConfigureAwait(false);
+                await SendSealedAsync(response).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                _owner._log.LogDebug(ex, "relay http dispatch failed for id {Id}", request.Id);
+            }
+            finally
+            {
+                _inFlight.Release();
+            }
+        }
+
+        private async Task SendBusyAsync(int id)
+        {
+            var response = new RelayHttpResponse
+            {
+                Id = id,
+                Status = StatusCodes.Status503ServiceUnavailable,
+                Body = "{\"error\":true,\"msg\":\"too many concurrent relay requests\"}",
+                ContentType = "application/json",
+            };
+            try { await SendSealedAsync(response).ConfigureAwait(false); }
+            catch (Exception ex) { _owner._log.LogDebug(ex, "relay http busy reply failed"); }
+        }
+
+        private async Task SendSealedAsync(RelayHttpResponse response)
+        {
+            var json = JsonSerializer.SerializeToUtf8Bytes(response, AppJsonContext.Default.RelayHttpResponse);
+            await _sendLock.WaitAsync(_ct).ConfigureAwait(false);
+            try
+            {
+                if (_disposed || _transport.State != WebSocketState.Open)
+                    return;
+                var counter = _sendCounter++;
+                var frame = RelayCrypto.Seal(_aeadKey, RelayCrypto.DirHostToClient, counter, json);
+                await _transport
+                    .SendAsync(frame, WebSocketMessageType.Binary, endOfMessage: true, _ct)
+                    .ConfigureAwait(false);
+            }
+            finally
+            {
+                _sendLock.Release();
+            }
+        }
+
+        public void Dispose()
+        {
+            _disposed = true;
+            _sendLock.Dispose();
+            _inFlight.Dispose();
         }
     }
 

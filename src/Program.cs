@@ -275,6 +275,26 @@ Nexus.Service.Lifecycle.AppBootstrap.WireBeatsAndPresence(app);
 Nexus.Service.Lifecycle.BootTimer.Mark("after WireBeatsAndPresence");
 
 // Middleware pipeline
+//
+// REST-over-relay capture middleware — MUST be first. The off-LAN panel tunnels
+// its REST calls over the relay (rid_http); RelayHttpDispatcher re-enters this
+// exact pipeline in-process to serve them. As the very first middleware, the
+// `next` we close over is the complete downstream chain (security headers,
+// static files, routing, CORS, auth, endpoints), so a tunneled request runs
+// through identical handling to a LAN request. Captured once on the priming
+// pass below; the closure is a no-op on every subsequent request.
+{
+    var relayHttpDispatcher = app.Services.GetRequiredService<Nexus.Service.Relay.RelayHttpDispatcher>();
+    app.Use(async (ctx, next) =>
+    {
+        if (!relayHttpDispatcher.IsReady)
+        {
+            relayHttpDispatcher.SetPipeline(c => next(c));
+        }
+        await next(ctx);
+    });
+}
+
 var wsOptions = new WebSocketOptions();
 #if !DEBUG
 // Release/AOT: pin WS to the service's own origins.
@@ -341,6 +361,25 @@ Nexus.Service.Lifecycle.BootTimer.Mark("after pairing wire (resolves PanelPhoneP
 // SPA fallback
 app.MapFallbackToFile("index.html");
 Nexus.Service.Lifecycle.BootTimer.Mark("after MapFallbackToFile");
+
+// Prime the REST-over-relay pipeline capture once the host has started. Driving
+// a synthetic in-process request through the chain head makes the first
+// (capture) middleware record the full downstream pipeline; this MUST run after
+// ApplicationStarted, because the endpoint-execution terminal WebApplication
+// appends is only present in the built pipeline once the host has started. No
+// network call, no boot delay (it's on the post-start callback, off the
+// critical path), and no race: the relay tunnel only dispatches once a phone
+// peers up, well after this. The prime path matches no route → 404, harmless.
+app.Lifetime.ApplicationStarted.Register(() =>
+{
+    var relayHttpDispatcher = app.Services.GetRequiredService<Nexus.Service.Relay.RelayHttpDispatcher>();
+    var primeCtx = new Microsoft.AspNetCore.Http.DefaultHttpContext { RequestServices = app.Services };
+    primeCtx.Request.Method = "GET";
+    primeCtx.Request.Path = Nexus.Service.Relay.RelayHttpDispatcher.PrimePath;
+    primeCtx.Response.Body = System.IO.Stream.Null;
+    try { ((IApplicationBuilder)app).Build()(primeCtx).GetAwaiter().GetResult(); }
+    catch (Exception ex) { Console.Error.WriteLine($"[nexus-service] relay http pipeline prime skipped: {ex.Message}"); }
+});
 
 // Kill orphan processes from previous crashed sessions.
 Nexus.Service.Platform.FfmpegTracker.CleanupOrphans();
