@@ -16,7 +16,7 @@ namespace Nexus.Service.Peripherals.Hyte.Keeb;
 /// </summary>
 public sealed class KeebConnectionWorker : BackgroundService
 {
-    private const int PollMs = 2000;
+    private const int PollMs = 1000;
 
     private readonly KeebHub _hub;
     private readonly KeebSettingsApplier _applier;
@@ -51,17 +51,26 @@ public sealed class KeebConnectionWorker : BackgroundService
     {
         _hub.EnsureConnected();
         var connected = _hub.IsConnected;
-        if (connected == _lastConnected) return;
-        _lastConnected = connected;
-        // On (re)connect, read device info (firmware version + layout), sync the
-        // device's current firmware effect into persisted state, then push the
-        // saved settings so game mode / rotary / animation take effect immediately.
-        if (connected)
+        if (connected != _lastConnected)
         {
-            _hub.ReadDeviceInfo();
-            _applier.SyncEffectFromDevice();
-            _applier.Apply();
+            _lastConnected = connected;
+            // On (re)connect, read device info (firmware version + layout), sync the
+            // device's current firmware effect into persisted state, then push the
+            // saved settings so game mode / rotary / animation take effect immediately.
+            if (connected)
+            {
+                _hub.ReadDeviceInfo();
+                _applier.SyncEffectFromDevice();
+                _applier.Apply();
+            }
+            _lighting?.OnConnectionChanged();
+            return;
         }
-        _lighting?.OnConnectionChanged();
+        // While connected, poll the device's firmware effect each tick so the panel
+        // follows a hardware-side change. The rotary middle button cycles the effect
+        // in FIRMWARE mode but sends NO host callback — the EP2 roller callbacks
+        // (hyte-refs Keeb/9-callback.md) only fire in SOFTWARE rotary mode — so a
+        // periodic settings read is the only way to observe it.
+        if (connected) _applier.SyncEffectFromDevice();
     }
 }
