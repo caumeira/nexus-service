@@ -222,15 +222,14 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
                 Thread.Sleep(20);
 
                 // Best-effort read-back; some firmware revs don't echo
-                // FF DC 08 at all. Logged but not load-bearing.
+                // FF DC 08 at all. Logged only.
                 var readBack = ReadSettingsLocked(port);
                 if (readBack is { } rb)
                     Console.Error.WriteLine($"[cnvs] WriteSettings read-back: {rb}");
                 else
                     Console.Error.WriteLine("[cnvs] WriteSettings: read-back returned no data");
 
-                // Settings are in (or as in as they'll get). Open the gate
-                // so the lighting writer can start streaming.
+                // Open the gate so the lighting writer can start streaming.
                 IsReadyForStreaming = true;
                 return true;
             }
@@ -256,10 +255,10 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
     /// <summary>
     /// Query the firmware version (FF DD 02 → 7-byte response).
     /// Returns "Major.Minor.Build.Hw" on success, null on no-response / not
-    /// connected. Cheap to call — used by <see cref="CnvsConnectionWorker"/>
-    /// on first connect as a sanity probe: if this responds but FF DC 08
-    /// (settings read) doesn't, we know the firmware is talking, just not
-    /// implementing the settings command-pair on this revision.
+    /// connected. Used by <see cref="CnvsConnectionWorker"/> on first connect as
+    /// a sanity probe: if this responds but FF DC 08 (settings read) doesn't,
+    /// the firmware is talking but doesn't implement the settings command-pair
+    /// on this revision.
     /// </summary>
     public string? GetFirmwareVersion()
     {
@@ -363,11 +362,11 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
     }
 
     /// <summary>
-    /// Disable the firmware's boot animation so it stops overlaying our
+    /// Disable the firmware's boot animation so it stops overlaying the
     /// streamed colors. HYTE's CNVSBaseController.SendToHardware calls the
-    /// equivalent <c>TurnFwAnimationOFF</c> on every frame that flips out
-    /// of firmware-animation mode; the per-frame check is cheap because the
-    /// 4-byte write costs ~30 µs over the CDC link.
+    /// equivalent <c>TurnFwAnimationOFF</c> on every frame that flips out of
+    /// firmware-animation mode; the 4-byte write costs ~30 µs over the CDC
+    /// link.
     /// </summary>
     public bool SetFirmwareAnimationOff()
     {

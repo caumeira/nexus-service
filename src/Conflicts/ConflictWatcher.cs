@@ -20,11 +20,10 @@ namespace Nexus.Service.Conflicts;
 /// current snapshot on the multiplex topic <c>conflicts</c> whenever the
 /// detected set changes.
 ///
-/// Scanning is intentionally lightweight: it walks process names only and
-/// never queries CPU% / memory / handles, so it can run regardless of
-/// subscriber count without measurable load. The watcher also registers a
-/// snapshot provider so that newly-subscribing clients receive the current
-/// state immediately rather than waiting for the next change tick.
+/// Scanning walks process names only and never queries CPU% / memory /
+/// handles, so it runs regardless of subscriber count. Registers a snapshot
+/// provider so newly-subscribing clients receive the current state without
+/// waiting for the next change tick.
 /// </summary>
 public sealed class ConflictWatcher : BackgroundService
 {

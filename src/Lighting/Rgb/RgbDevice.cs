@@ -22,8 +22,8 @@ public sealed class RgbDevice
     /// <summary>
     /// Pick the best "per-LED control" mode using OpenRGB's own priority order:
     /// Direct &gt; Custom &gt; Static, with color_mode = PER_LED (1) or MODE_SPECIFIC (2).
-    /// This is what we want to apply via UPDATE_MODE so the controller's hardware
-    /// mode register is actually flipped (SET_CUSTOM_MODE only updates the server's
+    /// Applied via UPDATE_MODE so the controller's hardware mode register is
+    /// flipped (SET_CUSTOM_MODE only updates the server's
     /// in-memory active_mode and never calls DeviceUpdateMode, leaving controllers
     /// with hardware mode registers — ENE DRAM is the canonical example — silently
     /// rejecting subsequent UPDATE_LEDS pushes).

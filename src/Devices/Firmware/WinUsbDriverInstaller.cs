@@ -59,8 +59,8 @@ public sealed class WinUsbDriverInstaller
             await proc.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
 
             // pnputil exit codes: 0 = added, 259 (ERROR_NO_MORE_ITEMS) / 3010
-            // (reboot) are also fine for our purposes. Treat anything non-fatal
-            // as success since a previously-staged driver still binds.
+            // (reboot) are also treated as success — a previously-staged driver
+            // still binds.
             Console.Error.WriteLine($"[winusb] pnputil exit={proc.ExitCode}: {stdout.Trim()} {stderr.Trim()}");
             _installedThisSession = proc.ExitCode is 0 or 259 or 3010
                 || stdout.Contains("already", StringComparison.OrdinalIgnoreCase);

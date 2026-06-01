@@ -22,8 +22,8 @@ namespace Nexus.Service.Discovery;
 /// <c>name=&lt;MachineName&gt;</c>, <c>fp=&lt;SPKI base64url, no pad&gt;</c>,
 /// <c>v=&lt;service version&gt;</c>.
 ///
-/// Hand-rolled rather than pulling Makaretu.Dns / Tmds.MDns so the macOS
-/// AOT publish stays trim-clean (no reflection, no managed deps).
+/// Hand-rolled rather than pulling Makaretu.Dns / Tmds.MDns: those use
+/// reflection / managed deps the macOS AOT publish can't trim.
 /// </summary>
 public sealed class MdnsAdvertiser : IHostedService, IDisposable
 {
@@ -264,9 +264,9 @@ public sealed class MdnsAdvertiser : IHostedService, IDisposable
 
     private async Task RunAsync(CancellationToken ct)
     {
-        // Phase 1: rapid unsolicited announcements (4x at 1s interval), then
-        // settle into a 60s refresh cadence. Spec-style. Each socket also
-        // listens for incoming queries and answers PTR/SRV/TXT/A.
+        // Rapid unsolicited announcements (4x at 1s interval), then settle
+        // into a 60s refresh cadence. Each socket also listens for incoming
+        // queries and answers PTR/SRV/TXT/A.
         _ = Task.Run(() => AnnounceLoopAsync(ct));
 
         var listenTasks = new List<Task>();
@@ -430,8 +430,7 @@ public sealed class MdnsAdvertiser : IHostedService, IDisposable
         uint ttl = 120)
     {
         // Build a response packet with our PTR / SRV / TXT / A records.
-        // Single-pass writer; never compresses names (slight wire-size cost
-        // but trivial to read and AOT-friendly).
+        // Single-pass writer; never compresses names.
         using var ms = new System.IO.MemoryStream();
 
         // Header

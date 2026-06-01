@@ -102,7 +102,7 @@ public class FanProfilesTests : IDisposable
     [Fact]
     public void CustomToSilent_SnapshotsCustomMapping()
     {
-        // Arrange a custom mapping: fan1 -> user-curve, fan2 -> BIOS (no curve).
+        // Custom mapping: fan1 -> user-curve, fan2 -> BIOS (no curve).
         _store.Update(s =>
         {
             s.Cooling.ActivePreset = "custom";
@@ -304,10 +304,8 @@ public class FanProfilesTests : IDisposable
             },
             temps: new List<TemperatureSource> { new() { Id = "cpu", Category = "CPU" } });
         FanProfiles.Apply("silent", fans, _store);
-        // Apply attaches every channel (including the unresponsive one) to
-        // the preset curve, which is fine - the harmless extra attachment is
-        // a no-op at the hardware layer. The preset chip just needs to stay
-        // selected, which is what we assert here.
+        // Apply attaches every channel, including the unresponsive one (a
+        // hardware no-op); the preset must still derive as selected.
         Assert.Equal("silent", FanProfiles.DerivePresetFromCurves(_store, fans));
     }
 

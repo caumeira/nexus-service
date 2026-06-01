@@ -137,9 +137,8 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
         // Always emit the full 4-port cycle (HYTE's CoolingHubBaseController.SendToHardware
         // iterates devicePort 0..3 regardless of which channels are populated).
         // Empty ports get a 7-byte header padded to 90 bytes by BuildLightingStream.
-        // Skipping empty ports appears to leave firmware 2.0.5.1's lighting latch
-        // un-committed, which matches the "strips dark even with non-zero wire data"
-        // symptom we'd otherwise be unable to explain.
+        // Skipping empty ports leaves firmware 2.0.5.1's lighting latch
+        // un-committed (strips dark even with non-zero wire data).
         for (var p = 1; p <= Np50Protocol.LightingCyclePortCount; p++)
         {
             int total = 0;

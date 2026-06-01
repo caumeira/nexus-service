@@ -9,13 +9,10 @@ namespace Nexus.Service.Conflicts;
 /// The ConflictWatcher scans running processes and surfaces any match in
 /// the sidebar warning.
 ///
-/// New entries can be added freely — the watcher dedupes by Id. ProcessNames
-/// use the OS-level <see cref="System.Diagnostics.Process.ProcessName"/>
-/// convention: no .exe suffix on Windows, just the executable basename.
-/// Comparisons are case-insensitive.
-///
-/// Layout mirrors the HYTE Nexus RgbAppRegistry (the user's reference list)
-/// with Nexus categories grafted on for the sidebar UI.
+/// The watcher dedupes by Id. ProcessNames use the OS-level
+/// <see cref="System.Diagnostics.Process.ProcessName"/> convention: no .exe
+/// suffix on Windows, just the executable basename. Comparisons are
+/// case-insensitive.
 /// </summary>
 public sealed class ConflictAppDefinition
 {
@@ -35,9 +32,8 @@ public sealed class ConflictAppDefinition
 public static class ConflictAppCatalog
 {
     /// <summary>
-    /// Curated list of apps that visibly fight Nexus when run alongside it.
-    /// Mirrors HYTE Nexus's RgbAppRegistry so existing Nexus users see the
-    /// same coverage in Nexus. ProcessNames are the Windows
+    /// Apps that contend with Nexus for hardware control when run alongside it.
+    /// ProcessNames are the Windows
     /// <see cref="System.Diagnostics.Process.ProcessName"/> form (basename
     /// without the .exe extension).
     /// </summary>

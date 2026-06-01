@@ -72,10 +72,9 @@ public sealed class GpuContext : IDisposable
 
     // CommonApplicationData resolves to /usr/share on Linux, which is read-only
     // on immutable distros (Bazzite/rpm-ostree) and unwritable by a user-session
-    // process — so gpu.log silently vanished there (the exact diagnostics you
-    // need when EGL/GL init fails). On Linux prefer the session user's XDG state
-    // dir (LinuxSession adopts XDG_STATE_HOME/HOME into the daemon's env), then
-    // ~/.local/state, then /tmp as a guaranteed-writable last resort.
+    // process, so gpu.log vanishes there. On Linux prefer the session user's XDG
+    // state dir (LinuxSession adopts XDG_STATE_HOME/HOME into the daemon's env),
+    // then ~/.local/state, then /tmp as a guaranteed-writable last resort.
     private static string LogDir()
     {
         if (OperatingSystem.IsLinux())
@@ -252,7 +251,7 @@ public sealed class GpuContext : IDisposable
         _gl.FramebufferTexture2D(FramebufferTarget.Framebuffer, FramebufferAttachment.ColorAttachment0,
             TextureTarget.Texture2D, _fboTex, 0);
         // Deterministic flat-shading across drivers (some Mesa/Intel paths
-        // defaulted to FirstVertexConvention historically).
+        // default to FirstVertexConvention).
         try
         { _gl.ProvokingVertex(VertexProvokingMode.LastVertexConvention); }
         catch { }
@@ -308,8 +307,8 @@ public sealed class GpuContext : IDisposable
         // If the GL thread didn't actually exit it may still be mid-GL-call with
         // the context current; destroying the native context underneath it
         // (eglTerminate / CGLDestroyContext) is undefined and can segfault. Only
-        // tear it down once the thread has joined — a leaked context at process
-        // exit is harmless, a crash on shutdown is not.
+        // tear it down once the thread has joined; a leaked context at process
+        // exit is harmless.
         var joined = _glThread?.Join(TimeSpan.FromSeconds(2)) ?? true;
         try
         { _window?.Dispose(); }

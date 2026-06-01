@@ -642,10 +642,9 @@ public class PanelPhonePairingServiceTests
     [Fact]
     public void HostDeny_PhoneSeesDeniedOnNextPoll()
     {
-        // Previously: state was nulled on host-deny, so the phone's next
-        // poll got "unknown" - indistinguishable from a stale requestId.
-        // Now state is kept (HostDenied=true) and the phone learns the
-        // canonical "denied".
+        // On host-deny, state is kept (HostDenied=true) so the phone's next
+        // poll reads "denied"; nulling it would return "unknown", which is
+        // indistinguishable from a stale requestId.
         var service = NewService(new InMemoryConfigStore());
         var start = service.StartPairCode();
         var submit = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
@@ -689,7 +688,7 @@ public class PanelPhonePairingServiceTests
         // A dashboard opened from the tray pairing notification connects
         // AFTER the one-shot live broadcast. The snapshot provider is what
         // lets that late subscriber still receive the pending request and pop
-        // the Allow/Deny modal — but only while it's genuinely pending.
+        // the Allow/Deny modal — but only while it's still pending.
         var hub = new Nexus.Service.Sockets.MultiplexHub();
         var service = NewServiceWithHub(hub);
         var start = service.StartPairCode();

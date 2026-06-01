@@ -5,19 +5,17 @@ namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 /// <summary>
 /// Pure builders + parsers for the HYTE IBP MiniHub serial-over-USB
 /// protocol. Wire spec lives in
-/// hyte-refs/hyte-documents/firmware-protocol/MiniHub/main.md, but
-/// where the spec disagrees with HYTE's shipping nexus-control-service
-/// the shipping code wins (it is what works against the actual firmware).
+/// hyte-refs/hyte-documents/firmware-protocol/MiniHub/main.md; where the spec
+/// disagrees with HYTE's shipping nexus-control-service, the code wins.
 ///
 /// The MiniHub uses a different command alphabet than NP50:
 /// every control/query command uses the <c>0xFF 0xDD</c> prefix (versus
 /// NP50's split of <c>0xFF 0xCC</c>/<c>0xFF 0xDD</c>/<c>0xFF 0xEE</c>).
-/// LED streaming uses <c>0xFF 0xEE 0x03</c> in <b>G R B</b> byte order
-/// (same as NP50 — the spec doc says R G B, but
-/// <c>IBPMiniHubController.SendToHardware</c> in HYTE's reference
-/// implementation writes <c>color.G, color.R, color.B</c> via
-/// <c>MiniHubLedStrip.ProcessColor</c>, so GRB is what the firmware
-/// actually expects).
+/// LED streaming uses <c>0xFF 0xEE 0x03</c> in <b>G R B</b> byte order (same as
+/// NP50). The spec doc says R G B, but
+/// <c>IBPMiniHubController.SendToHardware</c> writes <c>color.G, color.R,
+/// color.B</c> via <c>MiniHubLedStrip.ProcessColor</c>, so GRB is what the
+/// firmware expects.
 /// </summary>
 public static class MiniHubProtocol
 {
@@ -30,10 +28,10 @@ public static class MiniHubProtocol
     public const int LedPortCount = 4;
 
     // Fixed padded streaming buffer sizes per the reference IBPMiniHubController.
-    // Header is 7 bytes; remaining bytes hold N×3 RGB triples. The firmware
-    // seems to expect these exact lengths regardless of declared LED count
-    // — sending shorter frames leaves unaddressed LEDs holding their last
-    // colors, which manifests as random LEDs staying lit after "off".
+    // Header is 7 bytes; remaining bytes hold N×3 RGB triples. Firmware needs
+    // these exact lengths regardless of declared LED count: shorter frames
+    // leave unaddressed LEDs holding their last colors (random LEDs lit after
+    // "off").
     public const int Port4MaxLedCount = 100;            // Port 4 = "big" output (100 LEDs)
     public const int OtherPortMaxLedCount = 50;         // Ports 1, 2, 3 (50 LEDs each)
     private const int Port4PaddedLength = 7 + Port4MaxLedCount * 3;     // 307
@@ -98,16 +96,14 @@ public static class MiniHubProtocol
     }
 
     /// <summary>
-    /// Build the "Set Fan Speed" request. The MiniHub spec doc shows an
-    /// 11-byte frame (channels 3 + 4 forced to 0), but HYTE's shipping
-    /// reference (<c>IBPMiniHubController.SetFanSpeed</c>) writes only the
-    /// first 7 bytes — <c>FF DD 04 00 &lt;port1%&gt; 00 &lt;port2%&gt;</c>.
-    /// Same bug-for-bug rationale as <see cref="BuildLightingStream"/>: the
-    /// shipping firmware is what works against real hardware, so we follow
-    /// the reference rather than the spec table.
-    /// Inputs outside <c>[FanMinDutyPercent, FanMaxDutyPercent]</c> are
-    /// clamped to that range (matches HYTE), so a curve engine emitting 0%
-    /// still pins to 10% — there is no firmware-accepted "stop" duty.
+    /// Build the "Set Fan Speed" request. The spec doc shows an 11-byte frame
+    /// (channels 3 + 4 forced to 0), but HYTE's shipping reference
+    /// (<c>IBPMiniHubController.SetFanSpeed</c>) writes only the first 7 bytes:
+    /// <c>FF DD 04 00 &lt;port1%&gt; 00 &lt;port2%&gt;</c>. Follow the reference,
+    /// not the spec table.
+    /// Inputs outside <c>[FanMinDutyPercent, FanMaxDutyPercent]</c> are clamped
+    /// to that range, so a curve engine emitting 0% pins to 10%; there is no
+    /// firmware-accepted "stop" duty.
     /// </summary>
     public static byte[] BuildSetFanSpeed(int port1Percent, int port2Percent)
     {
@@ -149,11 +145,9 @@ public static class MiniHubProtocol
 
     // Per HYTE's reference (IBPMiniHubController.cs:200), the two LED-count
     // header bytes are hardcoded to 0x01 0x68 (= 360) for every frame
-    // regardless of the actual LED count. The MiniHub spec doc says these
-    // should be the real count (LedCount_H / LedCount_L), but the shipping
-    // firmware ignores that and the official agent always emits the magic
-    // value — staying bug-for-bug compatible avoids any unknown-firmware-
-    // quirk surprises.
+    // regardless of the actual LED count. The spec doc says these should be the
+    // real count (LedCount_H / LedCount_L), but the shipping firmware ignores
+    // that and the official agent always emits the magic value.
     private const byte LedCountMagicHigh = 0x01;
     private const byte LedCountMagicLow = 0x68;
 
@@ -166,10 +160,8 @@ public static class MiniHubProtocol
     /// previous colors and surfaces as "flicker on off". LEDs past the
     /// user-supplied count are zero-padded so they go dark.
     ///
-    /// Bytes after the 7-byte header are <b>G, R, B</b> triples per LED.
-    /// HYTE's shipping <c>MiniHubLedStrip.ProcessColor</c> emits exactly
-    /// that order — the spec doc's "R G B" is wrong; the firmware really
-    /// expects GRB.
+    /// Bytes after the 7-byte header are <b>G, R, B</b> triples per LED, matching
+    /// HYTE's <c>MiniHubLedStrip.ProcessColor</c>. The spec doc's "R G B" is wrong.
     /// </summary>
     public static byte[] BuildLightingStream(int channel, ReadOnlySpan<RgbColor> leds)
     {
@@ -191,9 +183,8 @@ public static class MiniHubProtocol
             buf[off + 1] = leds[i].R;
             buf[off + 2] = leds[i].B;
         }
-        // Bytes from 7 + declaredCount*3 .. padded-1 stay zero — the new-byte[]
-        // default. Acts as a deterministic "blank past N" so the firmware
-        // can't keep stale colors.
+        // Bytes from 7 + declaredCount*3 .. padded-1 stay zero (new-byte[]
+        // default) to blank LEDs past N so firmware can't keep stale colors.
         return buf;
     }
 

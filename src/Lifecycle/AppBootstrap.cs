@@ -17,9 +17,9 @@ namespace Nexus.Service.Lifecycle;
 internal static class AppBootstrap
 {
     // macOS AppKit throws 'NSWindow should only be instantiated on the main
-    // thread' if GLFW tries to create its hidden window from a thread-pool
-    // thread later. Windows / Linux don't care, but paying the ~50ms init
-    // cost here on startup is cheap.
+    // thread' if GLFW creates its hidden window from a thread-pool thread
+    // later, so init it here on the main thread (~50ms). Windows / Linux
+    // don't care.
     public static void EagerInitGpu(WebApplication app)
     {
         Console.WriteLine("[gpu] pre-init on main thread…");

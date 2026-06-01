@@ -116,7 +116,7 @@ public sealed class ProcessMonitor : BackgroundService
             });
         }
 
-        // Prune stale PID entries without allocating a LINQ Where+ToList.
+        // Prune stale PID entries.
         if (_macPrev.Count > seen.Count)
         {
             var toRemove = new List<int>(_macPrev.Count - seen.Count);
@@ -133,9 +133,7 @@ public sealed class ProcessMonitor : BackgroundService
             }
         }
 
-        // Group by process name in place: the first instance per name becomes
-        // the accumulator so we don't double-allocate a ProcessInfo for every
-        // unique name like the previous LINQ chain did.
+        // Group by name: the first instance per name accumulates the rest.
         var grouped = new Dictionary<string, ProcessInfo>(result.Count);
         foreach (var p in result)
         {
@@ -217,7 +215,7 @@ public sealed class ProcessMonitor : BackgroundService
             finally { proc.Dispose(); }
         }
 
-        // Clean stale PID entries without a LINQ Where+ToList roundtrip.
+        // Prune stale PID entries.
         if (_winPrev.Count > seen.Count)
         {
             var toRemove = new List<int>(_winPrev.Count - seen.Count);

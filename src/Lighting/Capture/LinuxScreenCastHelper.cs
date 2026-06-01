@@ -18,8 +18,8 @@ namespace Nexus.Service.Lighting.Capture;
 /// <c>gst-launch pipewiresrc</c> consumer whose stdout is inherited from us —
 /// raw RGB frames flow straight to the daemon's read pipe. We hold the portal
 /// session (our D-Bus connection) open for the stream's lifetime and only ever
-/// write logs to stderr, so the frame stream on fd&#160;1 stays clean. The daemon's
-/// process-tree kill tears us (and gst, and the session) down.
+/// write logs to stderr, so the frame stream on fd&#160;1 stays uncorrupted. The
+/// daemon's process-tree kill tears us (and gst, and the session) down.
 ///
 /// Invoked as: <c>Nexus screencast-helper &lt;width&gt; &lt;height&gt;</c>
 /// </summary>

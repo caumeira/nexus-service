@@ -21,9 +21,8 @@ public static class PerformanceProviderFactory
         {
             return new LinuxPerformanceProvider();
         }
-        // Fallback: return the Linux impl (harmless no-op on non-Linux since
-        // the /proc reads just fail silently and return null). Never hit in
-        // practice -- Windows path takes the DI branch in Program.cs.
+        // Fallback: the Linux impl (no-op on non-Linux; the /proc reads fail
+        // silently and return null). Windows takes the DI branch in Program.cs.
         return new LinuxPerformanceProvider();
     }
 }

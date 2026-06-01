@@ -19,16 +19,14 @@ namespace Nexus.Service.Sensors;
 /// (CPU / GPU model, motherboard, memory total) and runs a single PowerShell
 /// session on Windows that emits one JSON blob with all the extras LHM
 /// doesn't surface: hostname, OS build, RAM stick layout, monitor model +
-/// resolution, sound card, network adapters. One process spawn — not seven —
-/// keeps the cold first call under ~500 ms.
+/// resolution, sound card, network adapters. One process spawn keeps the cold
+/// first call under ~500 ms.
 ///
-/// Cached for the lifetime of the service. Hardware specs (CPU, motherboard,
-/// monitor model, NIC) don't change while the process is alive, so there's no
-/// upside to a TTL — a TTL would just guarantee a slow first request after
-/// every quiet minute. <see cref="SystemSpecsPrewarmService"/> fills the
-/// cache once after host start; every subsequent <see cref="Get(bool)"/> call
-/// returns the same object in microseconds. Explicit `force:true` rebuilds
-/// (e.g. for a future "I just installed a new GPU" admin action).
+/// Cached for the lifetime of the service; no TTL since hardware specs (CPU,
+/// motherboard, monitor model, NIC) don't change while the process is alive.
+/// <see cref="SystemSpecsPrewarmService"/> fills the cache once after host
+/// start; every subsequent <see cref="Get(bool)"/> returns the same object in
+/// microseconds. Explicit `force:true` rebuilds.
 /// </summary>
 public sealed class SystemSpecsCollector
 {
@@ -137,8 +135,7 @@ $net = @(Get-NetAdapter -Physical | Select-Object InterfaceDescription,LinkSpeed
         // a service-context Process.Start. -Command "-" (stdin) silently
         // returns nothing under LocalSystem on PS 5.1; the ArgumentList
         // escape rules also choke on the script's curly braces. EncodedCommand
-        // sidesteps both. 10 s timeout is comfortably above the observed
-        // ~400 ms warm path.
+        // sidesteps both. 10 s timeout is above the observed ~400 ms warm path.
         var encoded = Convert.ToBase64String(System.Text.Encoding.Unicode.GetBytes(WindowsSpecsScript));
         var json = ShellExecutor.Run(
             "powershell.exe", 10_000,
@@ -166,8 +163,7 @@ $net = @(Get-NetAdapter -Physical | Select-Object InterfaceDescription,LinkSpeed
         var os = node?.AsObject();
         if (os is null) return;
         // Caption is "Microsoft Windows 11 Pro"; Version is "10.0.22631"
-        // (already includes the build). Drop the "Microsoft " prefix that
-        // nobody types when they describe their rig.
+        // (already includes the build). Drop the "Microsoft " prefix.
         var caption = JsonString(os["Caption"]).Replace("Microsoft ", "", StringComparison.OrdinalIgnoreCase);
         var version = JsonString(os["Version"]);
         if (!string.IsNullOrWhiteSpace(caption))

@@ -133,8 +133,8 @@ public sealed class AudioAnalyser
             _highBeatCount++;
 
         // Calibrated peak, then perceptual curve so quiet content still moves
-        // shaders and loud content doesn't pin at 1.0. Multiplier slightly
-        // above 1 lets the saturation hit cleanly when peak == 1.
+        // shaders and loud content doesn't pin at 1.0. The 1.003 multiplier
+        // makes the curve saturate to 1 when peak == 1.
         float peak = externalPeak ?? internalPeak;
         if (peak < 0f) peak = 0f;
         else if (peak > 1f) peak = 1f;
@@ -193,10 +193,9 @@ public sealed class AudioAnalyser
                 sum += MathF.Sqrt(re * re + im * im);
             }
             float avg = sum / (end - start);
-            // log1p compression hits its knee around avg=5 which matches the
-            // FFT-magnitude range we see for normal-volume music playback.
-            // Without the extra gain, individual bands never reach the 0.3+
-            // range that makes the spectrum shaders visibly dance.
+            // log1p compression knees around avg=5, matching the FFT-magnitude
+            // range of normal-volume music. The x3 gain lifts bands into the
+            // 0.3+ range the spectrum shaders respond to.
             float norm = MathF.Log10(1f + avg * 3f);
             raw[b] = MathF.Min(norm, 1f);
         }

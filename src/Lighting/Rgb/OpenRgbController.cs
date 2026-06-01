@@ -120,7 +120,7 @@ public sealed class OpenRgbController : IRgbController
                 return false;
             }
 
-            // Surface a "list refreshed" tick to subscribers — they were probably waiting for it.
+            // Surface a "list refreshed" tick to subscribers.
             try
             { DeviceListChanged?.Invoke(); }
             catch { }

@@ -6,8 +6,8 @@ namespace Nexus.Service.Peripherals.Protocols.Razer;
 
 /// <summary>
 /// Protocol transport for Razer HID devices. Exchanges <see cref="RazerReport"/>s over
-/// HID feature reports. Thread-safe via a lock so multiple capability calls don't
-/// collide — Razer devices only reliably accept one outstanding request at a time.
+/// HID feature reports. Thread-safe via a lock: Razer devices only reliably
+/// accept one outstanding request at a time.
 /// </summary>
 public sealed class RazerClient : IDisposable
 {

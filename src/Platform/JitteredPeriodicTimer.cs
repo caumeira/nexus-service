@@ -66,8 +66,7 @@ public sealed class JitteredPeriodicTimer : IDisposable
     {
         if (initial)
         {
-            // Fire near-immediately on first dispatch (matches the previous
-            // `new Timer(_, null, 0, period)` semantics) but stagger across
+            // Fire near-immediately on first dispatch, but stagger across
             // providers by up to one jitter window so simultaneous startups
             // don't all wake the thread pool on the same tick.
             return _jitterMs == 0 ? 0 : Random.Shared.Next(0, _jitterMs + 1);

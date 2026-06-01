@@ -4,16 +4,14 @@ using Nexus.Service.Platform;
 namespace Nexus.Service.Lifecycle;
 
 /// <summary>
-/// Linux "start at login" toggle. Nexus runs as a <b>root systemd system
-/// unit</b> (<c>nexus.service</c>, installed by <c>installer/linux/install.sh</c>),
-/// so the truthful boot toggle is enabling/disabling that unit — NOT an XDG
-/// autostart <c>.desktop</c>. The old implementation wrote
-/// <c>~/.config/autostart/nexus.desktop</c> with <c>Exec=/opt/nexus/Nexus</c>,
-/// which at next login launched a <em>second, non-root copy of the whole
-/// service</em> in the user session (port-bind clash / config written to the
-/// wrong owner). The daemon already runs as root, so it can toggle its own unit
-/// via <c>systemctl</c> with no sudo. The <c>path</c>/<c>arguments</c> args are
-/// ignored: the unit file already encodes <c>ExecStart</c>.
+/// Linux "start at login" toggle. Nexus runs as a root systemd system unit
+/// (<c>nexus.service</c>, installed by <c>installer/linux/install.sh</c>), so
+/// the boot toggle enables/disables that unit. Do NOT use an XDG autostart
+/// <c>.desktop</c>: it launches a second, non-root copy of the whole service
+/// in the user session (port-bind clash, config written to the wrong owner).
+/// The daemon runs as root, so it toggles its own unit via <c>systemctl</c>
+/// with no sudo. The <c>path</c>/<c>arguments</c> args are ignored: the unit
+/// file already encodes <c>ExecStart</c>.
 ///
 /// In a dev <c>--user</c> run there is no installed system unit, so
 /// <c>systemctl</c> fails and the toggle reports false (best-effort, logged).

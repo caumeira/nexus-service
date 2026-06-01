@@ -302,7 +302,7 @@ public sealed class OpenRgbProcessManager : IDisposable
     }
 
     /// <summary>
-    /// Stop the subprocess. Idempotent. Sends a kill (no clean shutdown signal —
+    /// Stop the subprocess. Idempotent. Sends a kill (no graceful shutdown signal;
     /// the headless server holds no on-disk state, so kill is safe).
     /// </summary>
     public void Stop()
@@ -420,7 +420,7 @@ public sealed class OpenRgbProcessManager : IDisposable
 
     /// <summary>
     /// Suppress upstream OpenRGB log lines that are expected on every run and
-    /// don't indicate a real problem. This keeps our service stderr useful.
+    /// don't indicate a real problem.
     /// </summary>
     private static bool IsKnownNoise(string line)
     {

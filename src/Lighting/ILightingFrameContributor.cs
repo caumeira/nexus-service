@@ -5,7 +5,7 @@ using Nexus.Service.Lighting.Engine;
 namespace Nexus.Service.Lighting;
 
 /// <summary>
-/// Hook for non-OpenRGB lighting subsystems (NP50 today, future hubs)
+/// Hook for non-OpenRGB lighting subsystems (NP50 and other hubs)
 /// to inject their per-zone <see cref="DeviceFrame"/>s into the engine's
 /// device array. <see cref="Rgb.RgbBridge"/> queries every registered
 /// contributor at the end of each refresh and appends their frames after

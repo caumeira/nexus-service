@@ -7,24 +7,23 @@ namespace Nexus.Service.Peripherals.Y70;
 
 /// <summary>
 /// Real <see cref="IY70Provider"/>: drives Y70 brightness + screen power on the
-/// actual panel, replacing the persist-only stub. Two transports, picked per
-/// model:
+/// panel. Two transports, picked per model:
 ///   • Serial (Touch / Infinite): the STM32 controller's <c>FF CC 01</c> frame
-///     over the CDC COM port already managed by <see cref="Y70DisplayHub"/>.
+///     over the CDC COM port managed by <see cref="Y70DisplayHub"/>.
 ///   • DDC/CI (Truly / GW): VCP 0x10 (brightness) + 0xD6 (power) via the
 ///     platform display-brightness provider.
-/// Orientation continues to go through <see cref="IDisplayOrientationProvider"/>
-/// (real Windows rotation), unchanged from the previous stub.
+/// Orientation goes through <see cref="IDisplayOrientationProvider"/> (Windows
+/// rotation).
 ///
-/// The config store stays the source of truth the UI reads; every setter writes
+/// The config store is the source of truth the UI reads; every setter writes
 /// the hardware first (best-effort) and then persists, so GET reflects the last
 /// requested value even when the panel is briefly detached.
 ///
-/// ⚠️ UNVERIFIED: the DDC/CI branch (Truly / GW) has NOT been tested on real
-/// hardware — only the serial path (Infinite, RTK0004) was on the bench. The
-/// VCP codes/power values come from the legacy HYTE controllers; confirm
-/// brightness (0x10) and power (0xD6: 0x01 on / 0x05 off) on a Truly or GW
-/// panel before trusting this path.
+/// UNVERIFIED: the DDC/CI branch (Truly / GW) has NOT been tested on hardware;
+/// only the serial path (Infinite, RTK0004) was on the bench. The VCP
+/// codes/power values come from the legacy HYTE controllers; confirm brightness
+/// (0x10) and power (0xD6: 0x01 on / 0x05 off) on a Truly or GW panel before
+/// trusting this path.
 /// </summary>
 public sealed class Y70Provider : IY70Provider
 {
@@ -82,16 +81,15 @@ public sealed class Y70Provider : IY70Provider
 
     /// <summary>
     /// Push the desired brightness/power to the panel. Serial controller first
-    /// (the only bench-verified path); falls back to DDC/CI for the DDC-only
-    /// models. A failure here is logged but never throws — the store write still
-    /// happens so the UI stays consistent and a reconnect can re-apply.
+    /// (the bench-verified path); falls back to DDC/CI for the DDC-only models.
+    /// A failure here is logged but never throws.
     /// </summary>
     private void ApplyToHardware(bool screenOn, int pct)
     {
-        // The firmware acts on the percentage (backlight) byte, so screen-off
-        // must send 0 — a nonzero percentage keeps the panel lit even with the
-        // off flag set. Screen-on floors to the firmware's minimum. Matches
-        // legacy Y70TouchInfiniteController: off => SetCurrentBrightness(false, 0).
+        // Firmware acts on the percentage (backlight) byte: screen-off must
+        // send 0; a nonzero percentage keeps the panel lit even with the off
+        // flag set. Screen-on floors to the firmware's minimum. Matches legacy
+        // Y70TouchInfiniteController: off => SetCurrentBrightness(false, 0).
         var effective = screenOn ? Math.Max(pct, Y70DisplayProtocol.MinBrightnessOnPercent) : 0;
 
         if (_hub.IsConnected)
@@ -102,7 +100,7 @@ public sealed class Y70Provider : IY70Provider
 
         // DDC/CI path (Truly / GW). UNVERIFIED — see class remarks.
         var id = DdcDisplayId();
-        if (id is null) return; // no panel reachable; store-only, like a detached device
+        if (id is null) return; // no panel reachable; store-only
         _ddc.SetVcp(id, Y70DisplayProtocol.VcpPower, screenOn ? Y70DisplayProtocol.VcpPowerOn : Y70DisplayProtocol.VcpPowerOff);
         if (screenOn) _ddc.SetVcp(id, Y70DisplayProtocol.VcpBrightness, effective);
     }

@@ -183,10 +183,10 @@ public static class FanProfiles
             .Where(id => fanIds.Contains(id) && !attachment.ContainsKey(id))
             .ToHashSet();
 
-        // All fans BIOS = no attachment AND no genuine manual override.
+        // All fans BIOS = no attachment AND no manual override.
         if (attachment.Count == 0 && manualUnattached.Count == 0) return "off";
 
-        // All fans on the same preset curve, with no genuine manual overrides.
+        // All fans on the same preset curve, with no manual overrides.
         if (manualUnattached.Count == 0)
         {
             foreach (var presetName in new[] { "silent", "balanced", "turbo" })

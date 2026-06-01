@@ -37,7 +37,7 @@ public static class PeripheralRoutes
             new GetSupportedDevicesResponse { Items = LightingDevicesCatalog.All.ToList() });
 
         // Capability writes — all exceptions are caught so a device protocol glitch
-        // returns a clean 500 with a readable body instead of an unhandled server error.
+        // returns a 500 with a readable body instead of an unhandled server error.
         app.MapPut("/peripherals/{id}/dpi", (string id, SetDpiBody body, PeripheralRegistry reg) =>
         {
             try

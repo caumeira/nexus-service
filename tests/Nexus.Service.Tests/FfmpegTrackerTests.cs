@@ -7,7 +7,6 @@ public class FfmpegTrackerTests
     [Fact]
     public void CleanupOrphans_DoesNotThrow_WhenNoPidFile()
     {
-        // Should be a no-op when no PID file exists
         FfmpegTracker.CleanupOrphans();
     }
 

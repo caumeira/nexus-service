@@ -210,13 +210,12 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
             return;
         }
 
-        // Bug fix: respect a user-pinned non-Software fan mode. When the user
-        // picked BIOS on a MiniHub fan via PUT /devices/minihub/cooling-mode,
-        // the curve engine's next DriveFanSpeed would call
-        // SetFanControlMode(Software) below and silently flip the hub back —
-        // the user would hear the fan slow as the firmware drops to BIOS PWM,
-        // then immediately speed back up as the next curve tick re-asserts
-        // Software. Drop the write entirely when pinned to Motherboard.
+        // Respect a user-pinned non-Software fan mode. When the user picked
+        // BIOS on a MiniHub fan via PUT /devices/minihub/cooling-mode, the curve
+        // engine's next DriveFanSpeed would call SetFanControlMode(Software)
+        // below and silently flip the hub back — the user hears the fan drop to
+        // BIOS PWM then speed back up as the next tick re-asserts Software. Drop
+        // the write entirely when pinned to Motherboard.
         var pinned = _hub.DesiredFanControlMode;
         if (pinned is byte mode && mode != MiniHubProtocol.FanModeSoftware)
         {

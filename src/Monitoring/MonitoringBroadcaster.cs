@@ -42,7 +42,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
     // Cached envelope bytes for slow / event-driven topics. Read by the hub on
     // a new subscriber's receive thread; written by Tick on the broadcaster
     // thread. Reference assignment of byte[] is atomic on every supported
-    // runtime; volatile gives the publication semantics we need.
+    // runtime; volatile gives publication ordering.
     private volatile byte[]? _screenTimeSnapshotBytes;
     private volatile byte[]? _volumeSnapshotBytes;
 
@@ -185,9 +185,8 @@ public sealed class MonitoringBroadcaster : BackgroundService
         if (!needLhm && !needProcesses && !needNetwork && !needScreenTime && !needFps && !needExtras)
             return;
 
-        // Gather data. Process/network/screentime reads are volatile snapshots
-        // (<1ms each), so no need for Task.Run parallelism — the overhead of
-        // closures and thread pool scheduling exceeds the read cost.
+        // Process/network/screentime reads are volatile snapshots (<1ms each),
+        // gathered sequentially since scheduling them exceeds the read cost.
         ProcessFrame? processFrame = needProcesses ? BuildProcessFrame(ct) : null;
         NetworkFrame? networkFrame = needNetwork ? BuildNetworkFrame() : null;
         ScreenTimeFrame? screenTimeFrame = needScreenTime ? BuildScreenTimeFrame() : null;
@@ -213,7 +212,6 @@ public sealed class MonitoringBroadcaster : BackgroundService
         string memoryTotal = needMemory ? _sensors.GetMemoryTotalFormatted() : "";
         string motherboardModel = motherboardComponent?.Name ?? "";
 
-        // Broadcast composite monitoring frame.
         if (composite)
         {
             var frame = new MonitoringFrame
@@ -236,8 +234,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
             await _hub.BroadcastTopicAsync("monitoring", envelope);
         }
 
-        // Broadcast individual sensor topics (for detailed tab or any client
-        // subscribed to per-domain topics alongside the composite).
+        // Per-domain sensor topics for clients subscribed beside the composite.
         if (needLhm)
         {
             if (cpuComponent is not null && _hub.TopicHasSubscribers("cpu"))
@@ -268,7 +265,6 @@ public sealed class MonitoringBroadcaster : BackgroundService
             }
         }
 
-        // Broadcast individual activity topics.
         if (needProcesses && processFrame != null && _hub.TopicHasSubscribers("processes"))
         {
             var env = WsEnvelope.Build("processes", processFrame, AppJsonContext.Default.ProcessFrame);
@@ -291,9 +287,8 @@ public sealed class MonitoringBroadcaster : BackgroundService
             var env = WsEnvelope.Build("fps", fpsComponent, AppJsonContext.Default.HardwareComponent);
             await _hub.BroadcastTopicAsync("fps", env);
         }
-        // Detailed-tab extras: only broadcast when subscribed. Composite frame
-        // intentionally leaves these out so other pages aren't flooded with
-        // sensor data they don't render.
+        // Detailed-tab extras: broadcast only when subscribed; the composite
+        // frame omits them so other pages don't get data they don't render.
         if (needExtras && extras is not null)
         {
             var env = WsEnvelope.Build("extras", extras, AppJsonContext.Default.SensorExtras);
@@ -357,11 +352,9 @@ public sealed class MonitoringBroadcaster : BackgroundService
         Sensors = new List<HardwareSensor>(_sensors.GetMotherboardSensors()),
     };
 
-    // Push the system volume on the "volume" topic only when it has actually
-    // changed since the last broadcast. Lets the panel slider track desktop
-    // volume changes near-instantly (within one broadcaster tick) without
-    // flooding the wire on idle. Subscribers also receive a fresh snapshot
-    // on connect via the on-connect snapshot path in the multiplex hub.
+    // Push the system volume on the "volume" topic only when it changed since
+    // the last broadcast (tracks within one tick, no wire traffic on idle).
+    // Subscribers get a fresh snapshot on connect via the multiplex hub.
     private async Task BroadcastVolumeIfChangedAsync()
     {
         VolumeState state;

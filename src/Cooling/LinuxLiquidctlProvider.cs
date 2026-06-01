@@ -179,7 +179,7 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
         }
         if (_setSpeed(target.Address, target.Channel, dutyPercent))
         {
-            // Record a genuine user override so it survives a restart and feeds
+            // Record an explicit user override so it survives a restart and feeds
             // preset-derivation, mirroring WindowsFanControlProvider. The curve
             // engine's per-tick DriveFanSpeed passes persist:false so it doesn't
             // pollute the override dict.

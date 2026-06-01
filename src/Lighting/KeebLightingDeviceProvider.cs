@@ -14,7 +14,7 @@ namespace Nexus.Service.Lighting;
 /// per-frame <see cref="DeviceFrame"/>s to the engine so canvas effects,
 /// brightness, and identify apply uniformly. Mirrors
 /// <see cref="Np50LightingDeviceProvider"/>; the keeb owns its vendor HID
-/// interface, so OpenRGB no longer drives it.
+/// interface, so OpenRGB doesn't drive it.
 /// </summary>
 public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor
 {

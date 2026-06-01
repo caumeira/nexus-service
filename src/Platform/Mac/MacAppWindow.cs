@@ -6,10 +6,8 @@ using System.Threading;
 namespace Nexus.Service.Platform.Mac;
 
 /// <summary>
-/// NSWindow + WKWebView host - the macOS native shell. Replaces the
-/// previous `Chrome / Edge --app=URL` launch path so the .app bundle is
-/// self-sufficient: WKWebView is part of macOS, so we never have to ask the
-/// user to install Chrome.
+/// NSWindow + WKWebView host - the macOS native shell. WKWebView ships with
+/// macOS, so the .app bundle is self-sufficient and never needs Chrome/Edge.
 ///
 /// Uses the standard macOS titled window so the system draws its native
 /// title bar with the "Nexus" caption, traffic-light controls

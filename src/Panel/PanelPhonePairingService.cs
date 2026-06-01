@@ -207,7 +207,7 @@ public sealed class PanelPhonePairingService
 
     /// <summary>
     /// Snapshot provider for <c>panel/phone/pair-code/request</c>. Returns
-    /// the live request envelope only while it is genuinely awaiting the
+    /// the live request envelope only while it is still awaiting the
     /// host's Allow/Deny — a phone has submitted (RequestId set), the host
     /// hasn't decided, and the TTL hasn't lapsed. Any other state returns
     /// null so a connecting dashboard sees nothing stale.
@@ -1186,9 +1186,8 @@ public sealed class PanelPhonePairingService
     /// Dashboard-side: mint a fresh 6-digit code, supersede any prior
     /// in-flight code (publishes a "cancelled" frame so an open dashboard
     /// shows the old code as expired). Returns a "remote-disabled" sentinel
-    /// when the killswitch is off - the dashboard already shows the kill
-    /// state, but we don't want to mint a code that the phone will then be
-    /// told "remote-disabled" for on submit.
+    /// when the killswitch is off, so a code that would be rejected on
+    /// submit is never minted.
     /// </summary>
     public PanelPhonePairCodeStartResponse StartPairCode()
     {

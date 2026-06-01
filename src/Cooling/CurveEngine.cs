@@ -104,14 +104,12 @@ public sealed class CurveEngine : BackgroundService
 
         foreach (var curveDoc in curves)
         {
-            // Read input temperature
             var temp = _fans.ReadTemperature(curveDoc.Input.Id);
             if (temp is null)
             {
                 continue;
             }
 
-            // Evaluate curve
             double? rawSpeed = curveDoc.Type switch
             {
                 "Flat" => EvaluateFlat(curveDoc.Flat),
@@ -124,10 +122,8 @@ public sealed class CurveEngine : BackgroundService
                 continue;
             }
 
-            // Apply global speed modifier
             var modifiedSpeed = Math.Clamp(rawSpeed.Value * globalMod, 0, 100);
 
-            // Apply ResponseTime smoothing
             var responseTime = GetResponseTime(curveDoc);
             var smoothedSpeed = ApplySmoothing(curveDoc.Id, modifiedSpeed, responseTime);
 

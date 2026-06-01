@@ -9,13 +9,11 @@ namespace Nexus.Service.Peripherals.Hyte.Keeb;
 /// <summary>
 /// Reads the keeb's interrupt-IN callbacks (key-matrix presses, rotary scroll,
 /// software keys, profile changes) and surfaces them. Opens its OWN read handle
-/// to the vendor interface — independent of <see cref="KeebHub"/>'s write
-/// handle — so the blocking read loop never contends with the 30 Hz RGB stream.
+/// to the vendor interface, independent of <see cref="KeebHub"/>'s write handle,
+/// so the blocking read loop never contends with the 30 Hz RGB stream.
 ///
-/// Today it logs decoded events (so the device-key → physical (row,col) mapping
-/// can be observed on the bench to reconcile the key-assignment grid). The
-/// Tester tab's live feed + passive key-reactive lighting consume the same
-/// parsed events once their topic/render lands.
+/// Logs decoded events: the device-key → physical (row,col) mapping can be
+/// observed on the bench to reconcile the key-assignment grid.
 /// </summary>
 public sealed class KeebInputWorker : BackgroundService
 {
@@ -76,9 +74,8 @@ public sealed class KeebInputWorker : BackgroundService
 
     private void HandleEvent(KeebProtocol.KeebInputEvent ev)
     {
-        // Bench-reconciliation aid: key-matrix callbacks carry the firmware
-        // (row,col) for the physically-pressed key, which is exactly what we
-        // need to map the web grid cells onto firmware key indices.
+        // Key-matrix callbacks carry the firmware (row,col) for the pressed
+        // key, used to map web grid cells onto firmware key indices.
         switch (ev.Kind)
         {
             case KeebProtocol.KeebInputKind.KeyMatrix:

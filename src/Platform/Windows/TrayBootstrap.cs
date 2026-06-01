@@ -20,7 +20,7 @@ internal static class TrayBootstrap
 {
     // Interactive Windows session: hides console, shows tray with right-click menu.
     // Skipped under --service: Session 0 cannot show UI, so the tray must be a
-    // separate user-session process (Phase 4: Nexus.exe --tray). Leaving the
+    // separate user-session process (Nexus.exe --helper). Leaving the
     // tray init in here would create a stale NotifyIcon in Session 0.
     public static void ConfigureTray(WebApplication app)
     {
@@ -84,7 +84,7 @@ internal static class TrayBootstrap
 
 #if WINDOWS
     // Service mode: the helper is a separate long-lived user-session process
-    // connected over a named pipe. ShowWindowsTrayIcon no longer controls the
+    // connected over a named pipe. ShowWindowsTrayIcon does not control the
     // helper's existence (it always runs so providers like screen-time stay
     // alive); we push the visibility flip down the pipe and let the helper
     // hide/show its NotifyIcon in place. Also wires the "Shut down" item back
@@ -130,10 +130,10 @@ internal static class TrayBootstrap
         // Re-assert the Y70 panel's display orientation on every fresh helper
         // connect. Windows defaults a freshly attached portrait panel to
         // landscape; this drives it to the stored orientation (PortraitFlipped
-        // by default) so the panel never comes up sideways — replacing the
-        // legacy onboarding "Rotate" step. The Win32 ChangeDisplaySettingsEx
-        // call runs in the helper (user session, where it can see the
-        // monitors); a no-op when Windows is already in the target orientation.
+        // by default) so the panel never comes up sideways. The Win32
+        // ChangeDisplaySettingsEx call runs in the helper (user session, where
+        // it can see the monitors); a no-op when Windows is already in the
+        // target orientation.
         helperRegistry.Connected += conn =>
         {
             try

@@ -43,9 +43,8 @@ public class QSeriesTransportStoreTests : IDisposable
     [Fact]
     public void Load_returns_empty_when_file_corrupt()
     {
-        // Corrupt JSON should not crash the watcher on startup — the
-        // failure mode is just "lose the promotion map and re-bootstrap
-        // on the next USB attach", which is acceptable.
+        // Corrupt JSON must not crash the watcher on startup; the failure mode
+        // is losing the promotion map and re-bootstrapping on the next attach.
         File.WriteAllText(_path, "{not valid json");
         var store = new QSeriesTransportStore(_path);
         var result = store.Load();

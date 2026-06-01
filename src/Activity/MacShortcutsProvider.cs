@@ -72,7 +72,6 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
 
     public byte[] GetIcon(string targetId)
     {
-        // Check cache first
         lock (_iconLock)
         {
             if (_iconCache.TryGetValue(targetId, out var cached) && cached.Expiry > DateTime.UtcNow)
@@ -89,7 +88,6 @@ public sealed class MacShortcutsProvider : IShortcutsProvider
 
         try
         {
-            // Find the .icns in the bundle
             var resourcesDir = Path.Combine(shortcut.Path, "Contents", "Resources");
             if (!Directory.Exists(resourcesDir))
             {

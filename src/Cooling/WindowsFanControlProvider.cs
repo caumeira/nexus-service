@@ -351,7 +351,6 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
         var count = Math.Min(fans.Count, controls.Count);
         for (int i = 0; i < count; i++)
         {
-            // Only include channels that have a Control interface
             if (controls[i].Control is null) continue;
 
             var name = fans[i].Name;

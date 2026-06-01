@@ -249,10 +249,10 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.SmartHubLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.SmartHubLightingFrameWriter>());
 
-        // CNVS lighting: our CnvsHub owns COM7, so OpenRGB no longer drives
-        // the mat. This provider surfaces the 50-LED zone to the lighting
-        // engine and the writer pushes 30 Hz LED frames to the hub. Reuses
-        // the Np50IdentifyTracker (it's the shared flash-on-identify state).
+        // CNVS lighting: CnvsHub owns COM7 (not OpenRGB). This provider
+        // surfaces the 50-LED zone to the lighting engine and the writer pushes
+        // 30 Hz LED frames to the hub. Reuses Np50IdentifyTracker (shared
+        // identify-flash state).
         services.AddSingleton<Nexus.Service.Lighting.CnvsLightingDeviceProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>());
@@ -260,8 +260,9 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingFrameWriter>());
 
         // Q-series cooler lighting: QSeriesCoolerHub owns the cooler's serial port
-        // (OpenRGB no longer drives 1st-party HYTE devices), so this provider surfaces
-        // the cooler LEDs and the writer pushes 30 Hz frames. Reuses Np50IdentifyTracker.
+        // (OpenRGB does not drive 1st-party HYTE devices), so this provider
+        // surfaces the cooler LEDs and the writer pushes 30 Hz frames. Reuses
+        // Np50IdentifyTracker.
         services.AddSingleton<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>());
@@ -327,8 +328,7 @@ public static class NexusServiceCollectionExtensions
 
         // Firmware flasher: dfu-util wrapper + WinUSB installer + orchestrator.
         // CnvsHub doubles as a DFU flash target (it owns the CNVS serial port and
-        // can drop the device into the bootloader). Other hubs join IDfuFlashTarget
-        // as their EnterDfuMode lands.
+        // can drop the device into the bootloader).
         services.AddSingleton<Nexus.Service.Devices.Firmware.DfuUtil>(_ =>
             new Nexus.Service.Devices.Firmware.DfuUtil(Nexus.Service.Devices.Firmware.DfuUtil.ResolveDefaultPath()));
         services.AddSingleton<Nexus.Service.Devices.Firmware.WinUsbDriverInstaller>();
@@ -345,9 +345,9 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Devices.Firmware.FirmwareFlasher>();
 
         // NP50 hub: serial port discovery + transport factory + singleton hub +
-        // 2-second heartbeat poller. Discovery is Windows-only for now; non-
-        // Windows builds get a stub that finds nothing (the hub silently stays
-        // disconnected, which keeps the rest of the service composing cleanly).
+        // 2-second heartbeat poller. Windows and Linux have real port discovery;
+        // other platforms get a stub that finds nothing (the hub stays
+        // disconnected).
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery,
                               Nexus.Service.Peripherals.Hyte.Np50.WindowsNp50PortDiscovery>();
@@ -529,7 +529,7 @@ public static class NexusServiceCollectionExtensions
 
         // Real Y70 control (serial brightness/power + DDC/CI fallback). Degrades
         // to persist-only when no panel is attached (hub disconnected + no DDC
-        // match), so it composes cleanly cross-platform without the old stub.
+        // match), so it works cross-platform.
         services.AddSingleton<IY70Provider, Y70Provider>();
         services.AddSingleton<IQSeriesProvider, StubQSeriesProvider>();
 
@@ -709,8 +709,8 @@ public static class NexusServiceCollectionExtensions
     }
 
     /// <summary>
-    /// Widget runtime. Phase 0 only registers discovery; serving routes are
-    /// wired in <see cref="Nexus.Service.Routes.WidgetRoutes.MapWidgetEndpoints"/>
+    /// Widget runtime services. Serving routes are wired in
+    /// <see cref="Nexus.Service.Routes.WidgetRoutes.MapWidgetEndpoints"/>
     /// in Program.cs.
     /// </summary>
     public static IServiceCollection AddNexusWidgets(this IServiceCollection services)

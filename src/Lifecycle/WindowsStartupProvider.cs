@@ -17,10 +17,6 @@ namespace Nexus.Service.Lifecycle;
 /// Backed by <c>HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Nexus</c>.
 /// HKCU is per-user and writable without elevation, so the dashboard can
 /// flip the toggle on/off without UAC.
-///
-/// Legacy: prior versions registered a logon-triggered scheduled task
-/// (<c>NexusService</c>) under the user's identity to autostart the daemon.
-/// That task is no longer needed and is cleaned up here on first run.
 /// </summary>
 public sealed class WindowsStartupProvider : IStartupProvider
 {

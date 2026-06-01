@@ -161,13 +161,13 @@ public sealed class KeebHub : IDisposable
             var dev = _device!;
             try
             {
-                // The firmware needs a settle between arming the settings write and
-                // sending the page, and again after — HYTE's reference driver
-                // (KeebTKLCommand.SetSettings) waits ~20 ms each side with the note
-                // "Need delay otherwise fw will crash". Without it the page is
-                // stored but the running animation doesn't re-apply it (e.g. a
-                // brightness-only change doesn't dim). Settings writes are rare
-                // (user actions), so the ~40 ms hold off the 30 Hz path is fine.
+                // Settle between arming the settings write and sending the
+                // page, and again after. HYTE's reference driver
+                // (KeebTKLCommand.SetSettings) waits ~20 ms each side with the
+                // note "Need delay otherwise fw will crash". Without it the
+                // page is stored but the running animation doesn't re-apply it
+                // (e.g. a brightness-only change doesn't dim). Settings writes
+                // are rare (user actions).
                 if (!dev.SetFeature(KeebProtocol.SettingsWriteFeature)) return RecordWriteFailureLocked("settings-feature");
                 System.Threading.Thread.Sleep(SettingsWriteSettleMs);
                 if (!dev.Write(page)) return RecordWriteFailureLocked("settings-page");

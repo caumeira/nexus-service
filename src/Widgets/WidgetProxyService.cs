@@ -323,7 +323,7 @@ public sealed class WidgetProxyService
         catch
         {
             // Resolve failure: refuse. A widget that can't reach a public
-            // host has nothing legitimate to do here.
+            // host has no valid reason to act here.
             return true;
         }
     }

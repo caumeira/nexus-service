@@ -12,12 +12,12 @@ namespace Nexus.Service.Lighting;
 /// Surfaces the HYTE Q-series cooler (Q60 / Q80) as a single standalone
 /// <see cref="LightingDevice"/> card, mirroring <see cref="CnvsLightingDeviceProvider"/>.
 ///
-/// Why this exists: OpenRGB no longer drives 1st-party HYTE devices, so
-/// <see cref="QSeriesCoolerHub"/> owns the cooler's serial port and this provider
-/// re-exposes its LEDs to the engine → <see cref="QSeriesLightingFrameWriter"/>
-/// pipeline. v1 renders one linear zone of <see cref="QSeriesCoolerHub.LedCount"/>
-/// LEDs (the pump-head channel); see the hub's WriteLighting for the multi-port
-/// streaming + the on-device LED-topology caveat.
+/// OpenRGB doesn't drive 1st-party HYTE devices, so <see cref="QSeriesCoolerHub"/>
+/// owns the cooler's serial port and this provider exposes its LEDs to the
+/// engine → <see cref="QSeriesLightingFrameWriter"/> pipeline. Renders one
+/// linear zone of <see cref="QSeriesCoolerHub.LedCount"/> LEDs (the pump-head
+/// channel); see the hub's WriteLighting for the multi-port streaming + the
+/// on-device LED-topology caveat.
 /// </summary>
 public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor
 {
@@ -39,7 +39,7 @@ public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILi
     /// The id OpenRGB assigns to the same cooler when it enumerates the COM port we hold
     /// (RgbDevice.StableId = "openrgb-l-{location}", and location is the COM port for these
     /// serial devices, e.g. "openrgb-l-COM4"). The composite strips this inert OpenRGB zombie
-    /// by id — robust against OpenRGB's device name ("HYTE THICC Q60"), which silently broke a
+    /// by id — unaffected by OpenRGB's device name ("HYTE THICC Q60"), which silently broke a
     /// substring match. Null when disconnected. COM port names are alphanumeric, so no
     /// RgbDevice.Sanitize transform is needed to reconstruct the id.
     /// </summary>

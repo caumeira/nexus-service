@@ -10,19 +10,15 @@ namespace Nexus.Service.Peripherals.Keeb;
 /// <summary>
 /// HID-backed <see cref="IKeebProvider"/>. Every setter persists the desired
 /// state to settings.json (the single source of truth) and then pushes the
-/// COMPLETE state to the keyboard via <see cref="KeebSettingsApplier"/> — one
-/// 0x06 settings write covering game mode + firmware animation + rotary — so a
-/// partial change never clobbers another field. Replaces
-/// <see cref="StubKeebProvider"/>'s persist-only behaviour.
+/// COMPLETE state to the keyboard via <see cref="KeebSettingsApplier"/>: one
+/// 0x06 settings write covering game mode + firmware animation + rotary, so a
+/// partial change never clobbers another field.
 ///
-/// Reads return the persisted desired-state (which equals what we last pushed),
+/// Reads return the persisted desired-state (equals what was last pushed),
 /// plus live connection status from <see cref="KeebHub"/>. The firmware
-/// animation only shows when no software effect is streaming — the lighting
-/// frame writer arbitrates that (re-asserting these settings when streaming
-/// stops), matching the panel's "applies when nexus isn't driving the LEDs".
-///
-/// Macros / per-key layer assignment persist here today; their device writes
-/// (0xF3 / 0xF2) land in the macro + layer phases on this branch.
+/// animation only shows when no software effect is streaming; the lighting
+/// frame writer arbitrates that, re-asserting these settings when streaming
+/// stops.
 /// </summary>
 public sealed class RealKeebProvider : IKeebProvider
 {
@@ -43,9 +39,8 @@ public sealed class RealKeebProvider : IKeebProvider
         Profile = _hub.State.Profile,
         Layer = layer,
         Layout = string.IsNullOrEmpty(_hub.State.Layout) ? "ANSI" : _hub.State.Layout,
-        // Per-key assignment overlay is empty until layer remapping lands (the
-        // web renders default legends from its own layout); connection + layout
-        // are live so the modal + the other tabs reflect real device state.
+        // Per-key assignment overlay is empty; the web renders default legends
+        // from its own layout. Connection + layout are live.
         Keys = new List<List<KeebKey>>(),
     };
 
@@ -105,12 +100,10 @@ public sealed class RealKeebProvider : IKeebProvider
             s.Keeb.FirmwareLighting.Brightness = brightness;
             s.Keeb.FirmwareLighting.KeyIndicator = body.KeyIndicator;
 
-            // The Settings "Brightness" must dim the keyboard whether the
-            // firmware animation OR a software effect is showing. The firmware
-            // byte (written by the applier below) only scales the firmware
-            // animation — so a software effect would ignore it. Mirror the
-            // value onto the keeb zones' software-stream brightness too, so the
-            // frame writer dims the streamed output to match.
+            // Settings "Brightness" must dim the keyboard for both the firmware
+            // animation and a software effect. The firmware byte (written by
+            // the applier below) only scales the firmware animation, so mirror
+            // the value onto the keeb zones' software-stream brightness too.
             var hubId = _hub.DeviceId;
             if (!string.IsNullOrEmpty(hubId))
             {
@@ -196,8 +189,8 @@ public sealed class RealKeebProvider : IKeebProvider
             saved = doc;
         });
         // Push the macro to the keyboard's onboard storage (0xF3). Best-effort:
-        // returns false when disconnected, leaving the persisted copy to be
-        // applied later — but when connected this is a real device write.
+        // returns false when disconnected, leaving the persisted copy to apply
+        // later.
         if (saved is not null) _hub.WriteMacro(index, KeebMacroCodec.BuildMacroPages(saved));
         return GetMacro(index);
     }

@@ -11,8 +11,7 @@ namespace Nexus.Service.Security;
 /// <c>dpapi:</c> sentinel so the persistence layer can round-trip plain and
 /// protected entries side-by-side without a schema bump. Decryption is bound to
 /// the service identity (CurrentUser scope) — copying settings.json to another
-/// machine or another account renders the value unreadable, which is the
-/// behaviour we want.
+/// machine or another account renders the value unreadable.
 ///
 /// macOS / Linux: pass-through. The dev workstation does not have DPAPI; values
 /// stay plain in the local config and get encrypted on first save once they

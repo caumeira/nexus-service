@@ -5,8 +5,8 @@ namespace Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 /// <summary>
 /// Discovers attached Q-series cooler controllers at the OS layer. Windows
 /// uses SetupAPI to find COM ports with hardware id
-/// <c>USB\VID_3402&amp;PID_0400</c> (Q60) or <c>…PID_0403</c> (Q80);
-/// non-Windows returns empty for v1.
+/// <c>USB\VID_3402&amp;PID_0400</c> (Q60) or <c>…PID_0403</c> (Q80); Linux walks
+/// sysfs; macOS returns empty.
 /// </summary>
 public interface IQSeriesCoolerPortDiscovery
 {

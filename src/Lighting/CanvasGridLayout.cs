@@ -5,8 +5,7 @@ namespace Nexus.Service.Lighting;
 /// <summary>
 /// Default device-frame positions on the 1000x600 lighting canvas. The grid
 /// scales with the total device count so every card lands in a distinct,
-/// guaranteed-on-canvas cell — replaces the per-provider Default*Layout
-/// modulo-wrap that used to stack overflow cards on top of existing slots.
+/// guaranteed-on-canvas cell.
 /// </summary>
 internal static class CanvasGridLayout
 {

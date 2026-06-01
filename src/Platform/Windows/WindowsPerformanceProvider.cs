@@ -10,7 +10,7 @@ namespace Nexus.Service.Platform.Windows;
 /// the CPU / Memory sub-tabs show. No duplicate reading path, no extra
 /// hardware polling -- just pulls the already-cached sensor values.
 ///
-/// - CPU: CPU hardware's "CPU Total" Load sensor (LHM's aggregated utilisation).
+/// - CPU: CPU hardware's "CPU Total" Load sensor (LHM's aggregated usage).
 /// - Memory: Memory hardware's Load sensor (used-percent).
 /// </summary>
 public sealed class WindowsPerformanceProvider : IPerformanceProvider
@@ -43,7 +43,7 @@ public sealed class WindowsPerformanceProvider : IPerformanceProvider
         foreach (var hw in _lhm.Instance.Hardware)
         {
             if (hw.HardwareType != HardwareType.Cpu) continue;
-            // LHM exposes the aggregated utilisation as "CPU Total" (Load).
+            // LHM exposes the aggregated usage as "CPU Total" (Load).
             // Per-core Load sensors share the same SensorType so we filter by
             // name to avoid picking up a single core's value.
             foreach (var s in hw.Sensors)

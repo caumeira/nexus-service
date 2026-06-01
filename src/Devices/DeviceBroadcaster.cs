@@ -13,11 +13,10 @@ namespace Nexus.Service.Devices;
 
 /// <summary>
 /// Subscription-aware push for the curated device list (/devices/all) and the
-/// raw USB enumeration (/devices/usb/all). The Devices view, USB tab and
-/// peripherals hook used to poll those endpoints every 5s. Now they subscribe
-/// to the <c>devices</c> topic; this background service owns the single
-/// poll, diffs the snapshot, and only fires a frame when the list actually
-/// changed (or the first subscriber arrives).
+/// raw USB enumeration (/devices/usb/all). Clients subscribe to the
+/// <c>devices</c> topic; this background service owns the single poll, diffs
+/// the snapshot, and only fires a frame when the list actually changed (or the
+/// first subscriber arrives).
 /// </summary>
 public sealed class DeviceBroadcaster : BackgroundService
 {

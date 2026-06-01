@@ -1,9 +1,8 @@
 namespace Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 
 /// <summary>
-/// Snapshot of the connected HYTE Q-series cooler controller. v1 carries only
-/// what the Firmware Updates page needs: which variant is attached and the
-/// firmware version it reports. Pump/RGB/fan control is a follow-up.
+/// Snapshot of the connected HYTE Q-series cooler controller: which variant is
+/// attached and the firmware version it reports.
 /// </summary>
 public sealed class QSeriesCoolerState
 {

@@ -219,8 +219,7 @@ public sealed class MultiplexHub
     /// loop in <see cref="HandleClientAsync"/>, and the finalizer there
     /// removes the entry from <see cref="_clients"/>. Local desktop / panel
     /// clients (phoneSessionId == null) are never touched. Kicks fan out
-    /// in parallel so a single slow socket can't delay the rest - "OFF
-    /// means OFF" must not stall on one stuck client.
+    /// in parallel so a single slow socket can't delay the rest.
     /// </summary>
     public Task KickPhoneSessionsAsync(IReadOnlyCollection<string> sessionIds)
     {

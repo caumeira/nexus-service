@@ -57,7 +57,7 @@ public class RazerMouseProfilesTests
     [Fact]
     public void ByPid_HasReasonableCount()
     {
-        // Not a precise count — just verifies we actually loaded the table from JSON.
+        // Sanity floor, not an exact count: confirms the JSON table loaded.
         Assert.True(RazerMouseProfiles.ByPid.Count > 40, $"Expected >40 profiles, got {RazerMouseProfiles.ByPid.Count}");
     }
 

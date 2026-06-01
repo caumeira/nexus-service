@@ -100,10 +100,10 @@ public static class KeebKeyCodes
                         return (byte[])None.Clone();
                 }
 
-            // TODO: RGB keys (mode "RGBKey") and Software keys (mode "SoftwareKey")
-            // are not in the firmware keycode doc — they are handled software-side
-            // and have no firmware remap, so we return {0,0,0,0} (the caller still
-            // gets a non-null array to persist/handle).
+            // RGB keys (mode "RGBKey") and Software keys (mode "SoftwareKey")
+            // are not in the firmware keycode doc: handled software-side, no
+            // firmware remap, so return {0,0,0,0} (a non-null array for the
+            // caller).
             case "RGBKey":
             case "SoftwareKey":
                 return (byte[])None.Clone();

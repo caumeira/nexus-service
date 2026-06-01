@@ -2,7 +2,7 @@ namespace Nexus.Service.Lighting.Rgb;
 
 /// <summary>
 /// Single RGB triplet — packed 3 bytes, no padding. The wire format adds a
-/// fourth padding byte per LED but we keep the in-memory representation lean.
+/// fourth padding byte per LED; the in-memory representation omits it.
 /// </summary>
 public readonly struct RgbColor
 {

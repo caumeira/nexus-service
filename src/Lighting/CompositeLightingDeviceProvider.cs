@@ -88,11 +88,11 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
                     d.Name.Contains("HYTE CNVS", StringComparison.OrdinalIgnoreCase) ||
                     d.Name.Contains("HYTE Mousemat", StringComparison.OrdinalIgnoreCase));
             }
-            // Strip OpenRGB's inert Q-series zombie by the COM PORT our hub holds, not by
+            // Strip OpenRGB's inert Q-series zombie by the COM PORT the hub holds, not by
             // device name. OpenRGB reaches the HYTE coolers over serial and reports the port
-            // as its location (StableId "openrgb-l-COM4"); matching that id is robust against
-            // OpenRGB renaming the device (a name substring match — "HYTE Q60" vs the actual
-            // "HYTE THICC Q60" — silently broke once already).
+            // as its location (StableId "openrgb-l-COM4"); matching that id survives OpenRGB
+            // renaming the device, where a name substring match ("HYTE Q60" vs the actual
+            // "HYTE THICC Q60") breaks.
             var qseriesZombieId = _qseries.OwnedOpenRgbDeviceId;
             if (qseriesZombieId is not null)
             {

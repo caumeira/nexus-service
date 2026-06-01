@@ -44,8 +44,8 @@ public sealed class RgbBridge : IDisposable
     /// the socket, so events are only dispatched during an actual request/reply
     /// (e.g. GetDevicesAsync). The periodic GetDevices doubles as a drain: any
     /// queued DEVICE_LIST_UPDATED packets are processed inside ReadExpectedLocked
-    /// and trigger <see cref="OnDeviceListChanged"/>. With diff-based refresh,
-    /// stable devices no longer flash, so this poll is effectively free.
+    /// and trigger <see cref="OnDeviceListChanged"/>. Diff-based refresh leaves
+    /// stable devices unchanged, so this poll is low-cost.
     /// </summary>
     private static readonly TimeSpan DeviceRefreshInterval = TimeSpan.FromSeconds(3);
     /// <summary>Debounce bursts of DeviceListChanged events into a single refresh.</summary>
@@ -64,16 +64,15 @@ public sealed class RgbBridge : IDisposable
     /// grace, we never shrink the visible device list - partial detection results
     /// from the restarting OpenRGB daemon are absorbed without dropping devices
     /// the user was already seeing. If detection is slower than this, fallback to
-    /// normal refresh semantics so a genuinely-disconnected device still eventually
-    /// disappears.
+    /// normal refresh semantics so an actually-disconnected device still
+    /// eventually disappears.
     /// </summary>
     private static readonly TimeSpan RescanGracePeriod = TimeSpan.FromSeconds(15);
     /// <summary>
     /// Minimum time the "scanning" flag stays true on initial boot (baseline 0).
     /// OpenRGB trickles devices in over a few seconds - Razer HID is first and
-    /// almost instant, then Corsair/Gigabyte/NVIDIA take 2-6s more. Holding the
-    /// spinner for this window covers the user's "is it done detecting yet?"
-    /// period instead of clearing the moment the first device lands.
+    /// almost instant, then Corsair/Gigabyte/NVIDIA take 2-6s more. Holds the
+    /// spinner for this window rather than clearing when the first device lands.
     /// </summary>
     private static readonly TimeSpan InitialRescanMinHold = TimeSpan.FromSeconds(5);
 
@@ -697,7 +696,7 @@ public sealed class RgbBridge : IDisposable
             }
 
             // Append device frames contributed by non-OpenRGB lighting
-            // subsystems (NP50 today). They start at the next logical ordinal
+            // subsystems (NP50 and other hubs). They start at the next ordinal
             // so SerializeAndBroadcast's per-device Index space stays packed
             // and SampleDevicesFromCanvas processes them in one pass.
             foreach (var contributor in _frameContributors)
@@ -817,9 +816,8 @@ public sealed class RgbBridge : IDisposable
     /// Drain queued zone resize requests, apply persisted ZoneLedCounts, and apply
     /// the default LED count (60) to any resizable linear motherboard zone that
     /// OpenRGB reports as 0 AND the user has never configured. ARGB is one-way so
-    /// OpenRGB's reported 0 is really "unset" - picking a sensible default is
-    /// friendlier than forcing the user to configure every strip before anything
-    /// lights up.
+    /// OpenRGB's reported 0 is really "unset"; the default lights the strip
+    /// without the user configuring it first.
     /// Returns true if any resize opcode was actually sent (caller should re-fetch).
     /// </summary>
     private async Task<bool> ApplyZoneResizesAsync(IReadOnlyList<RgbDevice> devices)
@@ -870,7 +868,7 @@ public sealed class RgbBridge : IDisposable
         // OpenRGB reports "nothing configured" state (<= 1 LED). The 1-LED
         // case covers boards that report a placeholder LED on unconfigured
         // digital headers (AORUS B850I etc.) - a handful of boards do ship
-        // genuine onboard 1-LED indicators, but those live on non-header
+        // real onboard 1-LED indicators, but those live on non-header
         // zones that don't pass the d.Zones.Count < 2 filter, and the user
         // can always override the seeded 60 via the LED-count editor.
         var toDefault = new List<(int physIdx, int zoneIdx, string id)>();
@@ -921,8 +919,8 @@ public sealed class RgbBridge : IDisposable
     /// Periodic refresh. Does double duty: the GetDevicesAsync call inside
     /// RefreshDevicesAsync drains any unsolicited DEVICE_LIST_UPDATED packets
     /// OpenRGB pushed since last poll (they fire the DeviceListChanged event
-    /// which in turn schedules a debounced second refresh). With diff-based
-    /// reuse, stable devices cost effectively nothing per poll.
+    /// which in turn schedules a debounced second refresh). Diff-based reuse
+    /// leaves stable devices unchanged, so each poll is low-cost.
     /// </summary>
     private async Task DeviceRefreshLoopAsync(CancellationToken ct)
     {

@@ -261,7 +261,7 @@ public sealed class CoolingSettings
     public Dictionary<string, Nexus.Service.Models.Cooling.FanCalibration> FanCalibrations { get; set; } = new();
     /// <summary>Manually-set fan duty percentages keyed by channel ID. Persisted so they survive restarts and profile switches.</summary>
     public Dictionary<string, int> ManualSpeeds { get; set; } = new();
-    /// <summary>Active cooling preset: "off" | "silent" | "balanced" | "turbo" | "custom". "custom" lets existing installs upgrade cleanly.</summary>
+    /// <summary>Active cooling preset: "off" | "silent" | "balanced" | "turbo" | "custom".</summary>
     public string ActivePreset { get; set; } = InstallDefaults.Cooling.ActivePreset;
     /// <summary>Last-known custom mapping of fan channel id -> curve id. Empty entries mean the fan was on BIOS Control. Used to restore custom assignments when leaving Silent/Balanced/Performance/Off.</summary>
     public Dictionary<string, string> CustomFanCurveAssignments { get; set; } = new();

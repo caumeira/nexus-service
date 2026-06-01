@@ -10,8 +10,8 @@ namespace Nexus.Service.Platform.Displays;
 /// Windows display brightness via the in-box DDC/CI APIs in dxva2.dll
 /// (GetMonitorBrightness / SetMonitorBrightness / Get/SetVCPFeature). Works for
 /// external monitors that expose DDC over the video cable. Internal laptop
-/// panels need a different code path (WmiMonitorBrightnessMethods or
-/// IOCTL_VIDEO_*) - tracked as a follow-up phase.
+/// panels are not handled here; they need WmiMonitorBrightnessMethods or
+/// IOCTL_VIDEO_*.
 /// </summary>
 public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvider
 {
@@ -367,10 +367,9 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
             friendly = $"{manufacturer} {model}";
         }
 
-        // Heuristic: laptop internal panels usually show up under display-config
-        // as "Built-in" / specific PnP IDs starting with LEN/AAP/etc and having
-        // an output technology of "internal". We'll classify pragmatically by
-        // the absence of HDMI/DP signal in the friendly name. Refine later.
+        // Heuristic: classify a panel as internal by the absence of HDMI/DP
+        // signal in the friendly name (laptop internal panels show as
+        // "Built-in" / PnP IDs like LEN/AAP / output technology "internal").
         var isInternal = friendly.IndexOf("internal", StringComparison.OrdinalIgnoreCase) >= 0
                       || friendly.IndexOf("built-in", StringComparison.OrdinalIgnoreCase) >= 0;
 

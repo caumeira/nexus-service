@@ -4,8 +4,8 @@ using Nexus.Service.Peripherals.Capabilities;
 namespace Nexus.Service.Peripherals.Protocols.Razer;
 
 /// <summary>
-/// Generic Razer mouse handler driven by <see cref="RazerMouseProfile"/>. Replaces
-/// per-device classes; adding a new mouse is one row in <see cref="RazerMouseProfiles"/>.
+/// Generic Razer mouse handler driven by <see cref="RazerMouseProfile"/>. Adding
+/// a new mouse is one row in <see cref="RazerMouseProfiles"/>.
 ///
 /// Protocol references:
 ///   - Framing / CRC: <c>driver/razercommon.c</c>

@@ -196,9 +196,8 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
             timeoutMs: 400,
             response =>
             {
-                // Temporary diagnostic: dump the raw response so we can verify
-                // the on-wire byte layout against the spec. Remove once the
-                // parser is known correct against real hardware.
+                // Debug dump of the raw response to verify the on-wire byte
+                // layout against the spec (gated by DumpNextPortResponse).
                 if (_logRawPort && port == _logRawPort_PortIndex)
                 {
                     _logRawPort = false;
@@ -482,13 +481,12 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
         }
         catch (Exception ex)
         {
-            // A single transient write hiccup (USB scheduling jitter, brief
-            // buffer pressure) used to call Disconnect() — which then
-            // dropped the entire transport for ~2 s until the next heartbeat
-            // rediscovered, surfacing as a visible RGB stutter on every
-            // strip. HYTE's reference (SmartHubCommandBase.Write) just logs
-            // and lets the next frame retry; only escalate to a real
-            // Disconnect after a sustained burst of failures.
+            // Log and retry on a single transient write hiccup (USB scheduling
+            // jitter, brief buffer pressure); only escalate to Disconnect after
+            // a sustained burst. Disconnecting on one hiccup drops the
+            // transport for ~2 s until the next heartbeat rediscovers,
+            // surfacing as a visible RGB stutter. Matches HYTE's
+            // SmartHubCommandBase.Write.
             var n = Interlocked.Increment(ref _consecutiveWriteFailures);
             Console.Error.WriteLine($"[np50] write failed (#{n}): {ex.GetType().Name}: {ex.Message}");
             if (n >= ConsecutiveWriteFailureThreshold)

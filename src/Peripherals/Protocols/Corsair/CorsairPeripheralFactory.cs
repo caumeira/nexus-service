@@ -6,21 +6,20 @@ namespace Nexus.Service.Peripherals.Protocols.Corsair;
 
 /// <summary>
 /// Maps Corsair VID/PID pairs to device metadata. Every entry in
-/// <see cref="Models"/> currently has <c>HasProtocol = false</c>, so
+/// <see cref="Models"/> has <c>HasProtocol = false</c>, so
 /// <see cref="TryCreate"/> always returns a detection-only
-/// <see cref="CorsairPeripheral"/>. The protocol branch is kept for
-/// future "Bragi"-generation mice that use HID feature reports.
+/// <see cref="CorsairPeripheral"/>. The protocol branch handles "Bragi"-
+/// generation mice that use HID feature reports.
 /// </summary>
 public sealed class CorsairPeripheralFactory
 {
     public const int CorsairVendorId = 0x1B1C;
 
-    // NOTE: Corsair M65 Pro and friends use USB vendor control transfers (bRequestType=0x40),
-    // not HID feature reports. Configuring them would require replacing the Windows HID
-    // driver with a WinUSB filter (Zadig-style), which breaks the mouse's normal operation.
-    // That's an unacceptable UX tradeoff for Nexus, so we do detection-only.
-    // Newer Corsair mice on the "Bragi" protocol (e.g. Scimitar Elite Bragi) reportedly
-    // DO use HID reports — those could be supported in a future pass.
+    // Corsair M65 Pro and friends use USB vendor control transfers
+    // (bRequestType=0x40), not HID feature reports. Configuring them needs the
+    // Windows HID driver replaced with a WinUSB filter (Zadig-style), which
+    // breaks the mouse's normal operation; hence detection-only. "Bragi"-
+    // protocol mice (e.g. Scimitar Elite Bragi) do use HID reports.
     private static readonly Dictionary<int, (string Name, string Category, bool HasProtocol)> Models = new()
     {
         // Mice — all detection-only on Windows without Zadig-style driver replacement
@@ -32,7 +31,7 @@ public sealed class CorsairPeripheralFactory
         [0x1B6E] = ("Harpoon RGB Wireless", "mouse", false),
         [0x1B94] = ("Ironclaw RGB Wireless", "mouse", false),
 
-        // Keyboards (detection-only for now)
+        // Keyboards (detection-only)
         [0x1B6D] = ("K70 RGB Pro", "keyboard", false),
         [0x1B49] = ("K70 RGB MK.2", "keyboard", false),
         [0x1B2D] = ("K95 RGB Platinum", "keyboard", false),

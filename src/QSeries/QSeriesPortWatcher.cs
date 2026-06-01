@@ -662,7 +662,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// <summary>
     /// Synchronous adb.exe shell-out used for <c>tcpip</c>. Uses the same
     /// resolution path as <see cref="TryStartAdbServer"/>. Captures stderr
-    /// for the caller's log line. Returns true if adb exited cleanly.
+    /// for the caller's log line. Returns true if adb exited with code 0.
     /// </summary>
     private static bool RunAdb(string adbPath, string arguments, out string errorOutput)
     {

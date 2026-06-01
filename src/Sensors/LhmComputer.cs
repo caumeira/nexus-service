@@ -65,9 +65,8 @@ public sealed class LhmComputer : IDisposable
     /// <summary>
     /// Completes when the background <see cref="Computer.Open"/> has finished
     /// (or failed). Consumers that need fully-enumerated hardware before they
-    /// read sensor / hardware-name data should await this. Note this completes
-    /// even if Open() threw — callers should still handle empty Hardware
-    /// collections.
+    /// read sensor / hardware-name data should await this. Completes even if
+    /// Open() threw — callers should still handle empty Hardware collections.
     /// </summary>
     public Task OpenTask => _openTask;
 
