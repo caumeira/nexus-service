@@ -210,7 +210,10 @@ public sealed class RelayHttpRequest
 /// (dir=1). <see cref="Id"/> matches the request so the panel resolves the right
 /// pending fetch. <see cref="Status"/> is the real HTTP status the in-process
 /// dispatch produced (or 403 for an off-allowlist path / 413 for an oversized
-/// body); <see cref="Body"/> is the captured UTF-8 response body.
+/// body). <see cref="Body"/> carries the response bytes base64-encoded when
+/// <see cref="Base64"/> is true (binary-safe — thumbnails, icons), else the raw
+/// UTF-8 text (error frames). The tunnel is a UTF-8 JSON string channel, so
+/// binary MUST be base64 or its bytes corrupt on the round-trip.
 /// </summary>
 public sealed class RelayHttpResponse
 {
@@ -218,6 +221,8 @@ public sealed class RelayHttpResponse
     public int Status { get; set; }
     public string Body { get; set; } = "";
     public string? ContentType { get; set; }
+    /// <summary>True when <see cref="Body"/> is base64-encoded bytes (vs raw UTF-8 text).</summary>
+    public bool Base64 { get; set; }
 }
 
 /// <summary>Wi-Fi discoverability (mDNS) preference; AirDrop-style three-state.</summary>

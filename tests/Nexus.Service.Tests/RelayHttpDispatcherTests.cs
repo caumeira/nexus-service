@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -32,6 +33,14 @@ public sealed class RelayHttpDispatcherTests
     private const string SessionId = "sess-http-tunnel";
     private const string ProtectedRoute = "/panel/probe";
     private const string ProtectedBody = "panel-probe-ok";
+    private const string BinaryRoute = "/panel/blob";
+    // Includes 0xC3 0x28 — an invalid UTF-8 sequence a string round-trip would
+    // mangle into U+FFFD; the byte-for-byte assert proves binary survives.
+    private static readonly byte[] BinaryProbe = { 0x00, 0xFF, 0xC3, 0x28, 0x80, 0x01, 0xFE, 0x7F };
+
+    /// <summary>Decode a tunneled response body back to text (base64 when flagged).</summary>
+    private static string DecodeText(RelayHttpResponse r)
+        => r.Base64 ? Encoding.UTF8.GetString(Convert.FromBase64String(r.Body)) : r.Body;
 
     private static async Task<WebApplication> BuildAppAsync(IConfigStore store, MultiplexHub hub)
     {
@@ -62,6 +71,9 @@ public sealed class RelayHttpDispatcherTests
 
         // A protected panel route (.AllowPanel) that requires a phone-session.
         app.MapGet(ProtectedRoute, () => Results.Text(ProtectedBody)).AllowPanel();
+        // A protected route returning raw binary (like an effect-thumbnail BMP) to
+        // prove the tunnel carries non-UTF-8 bytes intact.
+        app.MapGet(BinaryRoute, () => Results.Bytes(BinaryProbe, "image/bmp")).AllowPanel();
         // A public route (no auth) to prove a tunneled GET to a real route works.
         app.MapGet("/ping", () => Results.Text("pong"));
 
@@ -120,7 +132,30 @@ public sealed class RelayHttpDispatcherTests
 
         Assert.Equal(7, resp.Id);
         Assert.Equal(StatusCodes.Status200OK, resp.Status);
-        Assert.Equal("pong", resp.Body);
+        // Text rides as a plain string (NOT base64) so a panel predating the
+        // Base64 flag still parses it — the backward-compat contract.
+        Assert.False(resp.Base64, "text response must ride as a plain UTF-8 string");
+        Assert.Equal("pong", DecodeText(resp));
+    }
+
+    [Fact]
+    public async Task Tunneled_BinaryResponse_SurvivesIntact_Base64()
+    {
+        // A binary response (effect thumbnail / icon) must arrive byte-for-byte.
+        // The body is base64 on the wire so the bytes can't be corrupted by the
+        // tunnel's UTF-8 JSON string channel.
+        var store = StoreWithSession();
+        var hub = new MultiplexHub();
+        await using var app = await BuildAppAsync(store, hub);
+        var dispatcher = app.Services.GetRequiredService<RelayHttpDispatcher>();
+
+        var resp = await dispatcher.DispatchAsync(
+            new RelayHttpRequest { Id = 21, Method = "GET", Path = BinaryRoute },
+            SessionId, CancellationToken.None);
+
+        Assert.Equal(StatusCodes.Status200OK, resp.Status);
+        Assert.True(resp.Base64, "binary response must be base64-flagged");
+        Assert.Equal(BinaryProbe, Convert.FromBase64String(resp.Body));
     }
 
     [Fact]
@@ -141,7 +176,7 @@ public sealed class RelayHttpDispatcherTests
 
         Assert.Equal(11, resp.Id);
         Assert.Equal(StatusCodes.Status200OK, resp.Status);
-        Assert.Equal(ProtectedBody, resp.Body);
+        Assert.Equal(ProtectedBody, DecodeText(resp));
     }
 
     [Fact]
@@ -294,7 +329,7 @@ public sealed class RelayHttpDispatcherTests
         Assert.NotNull(reply);
         Assert.Equal(42, reply!.Id);
         Assert.Equal(StatusCodes.Status200OK, reply.Status);
-        Assert.Equal(ProtectedBody, reply.Body);
+        Assert.Equal(ProtectedBody, DecodeText(reply));
 
         // Off-allowlist over the same wire ⇒ sealed 403.
         var badReq = new RelayHttpRequest { Id = 43, Method = "GET", Path = "/ws" };
