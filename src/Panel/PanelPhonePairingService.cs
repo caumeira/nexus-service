@@ -288,6 +288,7 @@ public sealed class PanelPhonePairingService
 
         var sessionToken = CreateToken(32);
         var hash = HashToken(sessionToken);
+        var relayKey = ComputeRelayKey(sessionToken);
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var userAgent = context.Request.Headers["User-Agent"].ToString();
         var remoteAddress = context.Connection.RemoteIpAddress?.ToString() ?? "";
@@ -307,6 +308,7 @@ public sealed class PanelPhonePairingService
             {
                 Id = CreateToken(9),
                 Hash = hash,
+                RelayKey = relayKey,
                 Name = DescribeDevice(userAgent),
                 UserAgent = userAgent,
                 RemoteAddress = remoteAddress,
@@ -366,6 +368,41 @@ public sealed class PanelPhonePairingService
             Now = now,
             Sessions = items,
         };
+    }
+
+    /// <summary>
+    /// A paired phone session with the bytes the relay client needs to bring
+    /// up an end-to-end-encrypted host socket: the opaque <paramref name="Id"/>
+    /// (passed into the hub so the killswitch can close the relayed session)
+    /// and the decoded <paramref name="RelayRoot"/> (used to derive the rid and
+    /// per-connection AEAD key).
+    /// </summary>
+    public readonly record struct ActiveRelaySession(string Id, byte[] RelayRoot);
+
+    /// <summary>
+    /// Enumerate live sessions that can be relayed: every non-expired session
+    /// that carries a <see cref="PanelPhoneSessionToken.RelayKey"/> (sessions
+    /// paired before the relay feature shipped have none and are skipped — they
+    /// must re-pair). Returns each session's id plus the decoded relay root.
+    /// The plaintext token is never involved; the relay never sees the root.
+    /// </summary>
+    public IReadOnlyList<ActiveRelaySession> GetActiveRelaySessions()
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var sessions = GetNormalizedSessionSnapshot(now);
+        var result = new List<ActiveRelaySession>(sessions.Count);
+        foreach (var session in sessions)
+        {
+            if (string.IsNullOrEmpty(session.Id) || string.IsNullOrEmpty(session.RelayKey))
+                continue;
+            byte[] relayRoot;
+            try { relayRoot = Convert.FromBase64String(session.RelayKey); }
+            catch (FormatException) { continue; }
+            if (relayRoot.Length != Nexus.Service.Relay.RelayCrypto.RelayRootLength)
+                continue;
+            result.Add(new ActiveRelaySession(session.Id, relayRoot));
+        }
+        return result;
     }
 
     public async Task<bool> RevokeSessionAsync(string id)
@@ -463,6 +500,35 @@ public sealed class PanelPhonePairingService
         });
         if (changed && !enabled)
             await _hub.KickAllPhoneAsync();
+    }
+
+    /// <summary>
+    /// Returns whether the opt-in cloud-relay transport is enabled. The relay
+    /// connection is only held when this AND <see cref="GetRemoteControlEnabled"/>
+    /// are both true. Default false.
+    /// </summary>
+    public bool GetRelayEnabled()
+    {
+        return _store.Load().Auth?.RelayEnabled ?? false;
+    }
+
+    /// <summary>
+    /// Persists the relay opt-in. The write goes through
+    /// <see cref="IConfigStore.Update"/>, which fires
+    /// <see cref="IConfigStore.OnChanged"/>; <c>RelayConnectionService</c>
+    /// listens on that signal and opens / tears down its host sockets — no
+    /// poll loop. Turning the relay off therefore closes every relayed session
+    /// as a side effect of the service reconciling to the new state.
+    /// </summary>
+    public void SetRelayEnabled(bool enabled)
+    {
+        _store.Update(s =>
+        {
+            s.Auth ??= new AuthSettings();
+            if (s.Auth.RelayEnabled == enabled)
+                return;
+            s.Auth.RelayEnabled = enabled;
+        });
     }
 
     /// <summary>
@@ -737,6 +803,7 @@ public sealed class PanelPhonePairingService
         {
             Id = session.Id,
             Hash = session.Hash,
+            RelayKey = session.RelayKey,
             Name = session.Name,
             UserAgent = session.UserAgent,
             RemoteAddress = session.RemoteAddress,
@@ -894,6 +961,20 @@ public sealed class PanelPhonePairingService
     private static string HashToken(string token)
     {
         return HashValue(token);
+    }
+
+    /// <summary>
+    /// Derive the per-session relay root from the transient plaintext token and
+    /// encode it as standard (padded) base64 for storage in
+    /// <see cref="PanelPhoneSessionToken.RelayKey"/>. Called only at claim time,
+    /// while the plaintext token is still in hand; afterward the token is gone
+    /// (hash-only) and this value is the sole way the relay client recovers the
+    /// E2E key for the session.
+    /// </summary>
+    private static string ComputeRelayKey(string sessionToken)
+    {
+        var relayRoot = Nexus.Service.Relay.RelayCrypto.DeriveRelayRoot(sessionToken);
+        return Convert.ToBase64String(relayRoot);
     }
 
     private static string HashValue(string value)
@@ -1326,6 +1407,7 @@ public sealed class PanelPhonePairingService
     {
         var sessionToken = CreateToken(32);
         var hash = HashToken(sessionToken);
+        var relayKey = ComputeRelayKey(sessionToken);
         var userAgent = state.PhoneUserAgent;
         var remoteAddress = state.PhoneRemoteAddress;
         var deviceFingerprint = BuildDeviceFingerprint(userAgent, remoteAddress);
@@ -1344,6 +1426,7 @@ public sealed class PanelPhonePairingService
             {
                 Id = CreateToken(9),
                 Hash = hash,
+                RelayKey = relayKey,
                 Name = DescribeDevice(userAgent),
                 UserAgent = userAgent,
                 RemoteAddress = remoteAddress,

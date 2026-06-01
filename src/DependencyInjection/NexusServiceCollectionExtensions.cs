@@ -771,6 +771,14 @@ public static class NexusServiceCollectionExtensions
         }
         services.AddSingleton<Nexus.Service.Panel.PanelPhonePairingService>();
         services.AddSingleton<Nexus.Service.Panel.PanelDeviceRegistry>();
+
+        // Cloud-relay transport: holds one outbound relay socket per paired
+        // phone session when the user has opted in (RemoteControl + Relay). It
+        // bridges relayed, end-to-end-encrypted frames into the same
+        // MultiplexHub the LAN /ws path uses, so the killswitch already applies.
+        // Event-driven off IConfigStore.OnChanged; no poll loop.
+        services.AddSingleton<Nexus.Service.Relay.RelayConnectionService>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Relay.RelayConnectionService>());
         return services;
     }
 

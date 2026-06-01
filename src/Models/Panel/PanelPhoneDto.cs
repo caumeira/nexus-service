@@ -89,6 +89,31 @@ public sealed class RemoteControlToggleRequest
     public bool Enabled { get; set; }
 }
 
+/// <summary>Cloud-relay transport opt-in state (GET /panel/phone/relay).</summary>
+public sealed class RelayStateResponse
+{
+    public bool Enabled { get; set; }
+}
+
+/// <summary>Cloud-relay transport opt-in toggle (POST /panel/phone/relay).</summary>
+public sealed class RelayToggleRequest
+{
+    public bool Enabled { get; set; }
+}
+
+/// <summary>
+/// First message the host sends on a relay socket:
+/// <c>{"v":1,"role":"host","rid":"&lt;rid&gt;"}</c>. The relay maps the rid to a
+/// rendezvous slot and forwards opaque binary frames to whichever client
+/// presents the same rid. The relay never sees the key the rid is derived from.
+/// </summary>
+public sealed class RelayHostHello
+{
+    public int V { get; set; } = 1;
+    public string Role { get; set; } = "host";
+    public string Rid { get; set; } = "";
+}
+
 /// <summary>Wi-Fi discoverability (mDNS) preference; AirDrop-style three-state.</summary>
 public sealed class PairBroadcastStateResponse
 {

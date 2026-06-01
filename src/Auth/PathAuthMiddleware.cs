@@ -42,6 +42,10 @@ internal static class PathAuthMiddleware
             // a single boolean and learning "host has disabled remotes" is
             // exactly the info a locked-out client needs.
             "/panel/phone/remote-control",
+            // Cloud-relay opt-in state. Public read for the same reason as the
+            // killswitch: a single boolean the panel / relay client may read
+            // without a token. Write is desktop-token only.
+            "/panel/phone/relay",
             "/panel/phone",
             // Wi-Fi broadcast preference. Public read so the iOS app can
             // tell the user "this PC isn't broadcasting" without already
