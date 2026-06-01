@@ -103,7 +103,9 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
             sp.GetRequiredService<WindowsFanControlProvider>(),
             sp.GetRequiredService<Np50CoolingProvider>(),
-            sp.GetRequiredService<MiniHubCoolingProvider>()));
+            sp.GetRequiredService<MiniHubCoolingProvider>(),
+            new CompositeFanControlProvider.FanSource(
+                SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #else
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
@@ -112,7 +114,9 @@ public static class NexusServiceCollectionExtensions
             services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
                 sp.GetRequiredService<MacFanControlProvider>(),
                 sp.GetRequiredService<Np50CoolingProvider>(),
-                sp.GetRequiredService<MiniHubCoolingProvider>()));
+                sp.GetRequiredService<MiniHubCoolingProvider>(),
+                new CompositeFanControlProvider.FanSource(
+                    SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
             services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
         }
         else if (OperatingSystem.IsLinux())
@@ -127,6 +131,8 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Np50CoolingProvider>(),
                 sp.GetRequiredService<MiniHubCoolingProvider>(),
                 new CompositeFanControlProvider.FanSource(
+                    SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
+                new CompositeFanControlProvider.FanSource(
                     LinuxLiquidctlProvider.IsLiquidctlId, sp.GetRequiredService<LinuxLiquidctlProvider>()),
                 new CompositeFanControlProvider.FanSource(
                     LinuxNvidiaFanProvider.IsNvidiaId, sp.GetRequiredService<LinuxNvidiaFanProvider>())));
@@ -137,12 +143,15 @@ public static class NexusServiceCollectionExtensions
             services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
                 sp.GetRequiredService<StubCoolingProvider>(),
                 sp.GetRequiredService<Np50CoolingProvider>(),
-                sp.GetRequiredService<MiniHubCoolingProvider>()));
+                sp.GetRequiredService<MiniHubCoolingProvider>(),
+                new CompositeFanControlProvider.FanSource(
+                    SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
             services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
         }
 #endif
         services.AddSingleton<Np50CoolingProvider>();
         services.AddSingleton<MiniHubCoolingProvider>();
+        services.AddSingleton<SmartHubCoolingProvider>();
         services.AddSingleton<ICurveProvider>(sp => sp.GetRequiredService<StubCoolingProvider>());
         services.AddSingleton<CurveEngine>();
         services.AddHostedService(sp => sp.GetRequiredService<CurveEngine>());
@@ -231,6 +240,15 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.MiniHubLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingFrameWriter>());
 
+        // Smart Hub: ARGB + PWM-fan hub, same engine→writer pipeline as the
+        // MiniHub. Surfaces four resizable ARGB ports; the writer streams them
+        // at 30 Hz. Cooling side lives in SmartHubCoolingProvider.
+        services.AddSingleton<Nexus.Service.Lighting.SmartHubLightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.SmartHubLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.SmartHubLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.SmartHubLightingFrameWriter>());
+
         // CNVS lighting: our CnvsHub owns COM7, so OpenRGB no longer drives
         // the mat. This provider surfaces the 50-LED zone to the lighting
         // engine and the writer pushes 30 Hz LED frames to the hub. Reuses
@@ -275,6 +293,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Np50LightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.SmartHubLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
@@ -287,6 +306,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<StubDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Np50LightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.MiniHubLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.SmartHubLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
@@ -373,6 +393,28 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubHeartbeatWorker>();
         services.AddHostedService(sp =>
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubHeartbeatWorker>());
+
+        // Smart Hub: ARGB + PWM-fan hub. Own port-discovery instance (the
+        // INp50PortDiscovery binding is already taken by NP50), constructed
+        // inline; reuses the product-agnostic Np50SerialTransport. Same
+        // heartbeat shape as the MiniHub.
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.SmartHub.SmartHubHub>(sp =>
+        {
+            Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery discovery;
+#if WINDOWS
+            discovery = new Nexus.Service.Peripherals.Hyte.SmartHub.WindowsSmartHubPortDiscovery();
+#else
+            discovery = OperatingSystem.IsLinux()
+                ? new Nexus.Service.Peripherals.Hyte.SmartHub.LinuxSmartHubPortDiscovery()
+                : new Nexus.Service.Peripherals.Hyte.SmartHub.StubSmartHubPortDiscovery();
+#endif
+            return new Nexus.Service.Peripherals.Hyte.SmartHub.SmartHubHub(
+                discovery,
+                port => new Nexus.Service.Peripherals.Hyte.Np50.Np50SerialTransport(port.PortName, port.Serial));
+        });
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.SmartHub.SmartHubHeartbeatWorker>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.SmartHub.SmartHubHeartbeatWorker>());
 
         // Q-series cooler controller (Q60 / Q80): serial-over-USB hub mirroring
         // the MiniHub stack. Reads firmware version + variant so the Firmware

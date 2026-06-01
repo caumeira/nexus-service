@@ -20,6 +20,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     private readonly ILightingDeviceProvider _openRgb;
     private readonly Np50LightingDeviceProvider _np50;
     private readonly MiniHubLightingDeviceProvider _miniHub;
+    private readonly SmartHubLightingDeviceProvider _smartHub;
     private readonly CnvsLightingDeviceProvider _cnvs;
     private readonly QSeriesLightingDeviceProvider _qseries;
     private readonly KeebLightingDeviceProvider _keeb;
@@ -30,6 +31,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         ILightingDeviceProvider openRgb,
         Np50LightingDeviceProvider np50,
         MiniHubLightingDeviceProvider miniHub,
+        SmartHubLightingDeviceProvider smartHub,
         CnvsLightingDeviceProvider cnvs,
         QSeriesLightingDeviceProvider qseries,
         KeebLightingDeviceProvider keeb,
@@ -39,6 +41,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         _openRgb = openRgb;
         _np50 = np50;
         _miniHub = miniHub;
+        _smartHub = smartHub;
         _cnvs = cnvs;
         _qseries = qseries;
         _keeb = keeb;
@@ -46,7 +49,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         _engine = engine;
     }
 
-    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected;
+    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
     {
@@ -69,6 +72,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
                 rgb.Devices.RemoveAll(d =>
                     d.Name.Contains("MiniHub", StringComparison.OrdinalIgnoreCase) ||
                     d.Name.Contains("HYTE Mini", StringComparison.OrdinalIgnoreCase));
+            }
+            if (_smartHub.IsConnected)
+            {
+                rgb.Devices.RemoveAll(d =>
+                    d.Name.Contains("Smart Hub", StringComparison.OrdinalIgnoreCase) ||
+                    d.Name.Contains("SmartHub", StringComparison.OrdinalIgnoreCase));
             }
             if (_cnvs.IsConnected)
             {
@@ -111,6 +120,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         {
             rgb.IsInit = rgb.IsInit || mini.IsInit;
             rgb.Devices.AddRange(mini.Devices);
+        }
+        var smart = _smartHub.GetAll();
+        if (smart.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || smart.IsInit;
+            rgb.Devices.AddRange(smart.Devices);
         }
         var cnvs = _cnvs.GetAll();
         if (cnvs.Devices.Count > 0)
@@ -167,6 +182,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         var rgbIds = new List<string>(ids.Count);
         var np50Ids = new List<string>(ids.Count);
         var miniIds = new List<string>(ids.Count);
+        var smartIds = new List<string>(ids.Count);
         var cnvsIds = new List<string>(ids.Count);
         var qseriesIds = new List<string>(ids.Count);
         var keebIds = new List<string>(ids.Count);
@@ -174,6 +190,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         {
             if (IsNp50Id(id)) np50Ids.Add(id);
             else if (IsMiniHubId(id)) miniIds.Add(id);
+            else if (IsSmartHubId(id)) smartIds.Add(id);
             else if (IsCnvsId(id)) cnvsIds.Add(id);
             else if (IsQSeriesId(id)) qseriesIds.Add(id);
             else if (IsKeebId(id)) keebIds.Add(id);
@@ -182,6 +199,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         if (rgbIds.Count > 0) _openRgb.SetDisabled(rgbIds);
         if (np50Ids.Count > 0) _np50.SetDisabled(np50Ids);
         if (miniIds.Count > 0) _miniHub.SetDisabled(miniIds);
+        if (smartIds.Count > 0) _smartHub.SetDisabled(smartIds);
         if (cnvsIds.Count > 0) _cnvs.SetDisabled(cnvsIds);
         if (qseriesIds.Count > 0) _qseries.SetDisabled(qseriesIds);
         if (keebIds.Count > 0) _keeb.SetDisabled(keebIds);
@@ -197,6 +215,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     private ILightingDeviceProvider Pick(string id)
         => IsNp50Id(id) ? _np50
         : IsMiniHubId(id) ? _miniHub
+        : IsSmartHubId(id) ? _smartHub
         : IsCnvsId(id) ? _cnvs
         : IsQSeriesId(id) ? _qseries
         : IsKeebId(id) ? _keeb
@@ -207,6 +226,9 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
 
     private static bool IsMiniHubId(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("minihub:", StringComparison.Ordinal);
+
+    private static bool IsSmartHubId(string id) =>
+        !string.IsNullOrEmpty(id) && id.StartsWith("smarthub:", StringComparison.Ordinal);
 
     private static bool IsCnvsId(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("cnvs:", StringComparison.Ordinal);
