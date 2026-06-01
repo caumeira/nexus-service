@@ -107,7 +107,7 @@ public sealed class RelayPairingIntegrationTests
         // 5) Single-use: claiming the same pair token again fails (it is consumed).
         var second = pairing.ClaimCore(
             pairToken, deviceName: "second", userAgent: "", remoteAddress: "",
-            overRelay: true, claimedOverHttps: false);
+            deviceId: "", overRelay: true, claimedOverHttps: false);
         Assert.False(second.Ok);
         Assert.Equal("pairing token expired", second.Error);
 

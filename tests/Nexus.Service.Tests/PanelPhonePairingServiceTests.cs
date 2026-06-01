@@ -120,6 +120,140 @@ public class PanelPhonePairingServiceTests
     }
 
     [Fact]
+    public void ClaimOverRelay_SameDeviceId_ReplacesPriorSession()
+    {
+        // Relay path: no client IP/UA ⇒ empty fingerprint ⇒ fingerprint dedup
+        // is skipped. The stable deviceId is what collapses re-pairings of the
+        // same phone into a single session.
+        var store = new InMemoryConfigStore();
+        var service = NewService(store);
+
+        var first = ClaimOverRelay(service, "Nicola's iPhone", "device-uuid-A");
+        var second = ClaimOverRelay(service, "Nicola's iPhone", "device-uuid-A");
+
+        var sessions = service.GetSessions(0);
+
+        Assert.True(first.Ok);
+        Assert.True(second.Ok);
+        Assert.Equal(1, sessions.AuthorizedCount);
+        Assert.Single(sessions.Sessions);
+        Assert.True(service.ValidateSessionToken(second.SessionToken));
+        Assert.False(service.ValidateSessionToken(first.SessionToken));
+    }
+
+    [Fact]
+    public void ClaimOverRelay_DifferentDeviceIds_KeepBothSessions()
+    {
+        var store = new InMemoryConfigStore();
+        var service = NewService(store);
+
+        var first = ClaimOverRelay(service, "iPhone A", "device-uuid-A");
+        var second = ClaimOverRelay(service, "iPhone B", "device-uuid-B");
+
+        var sessions = service.GetSessions(0);
+
+        Assert.True(first.Ok);
+        Assert.True(second.Ok);
+        Assert.Equal(2, sessions.AuthorizedCount);
+        Assert.True(service.ValidateSessionToken(first.SessionToken));
+        Assert.True(service.ValidateSessionToken(second.SessionToken));
+    }
+
+    [Fact]
+    public void ClaimOverRelay_EmptyDeviceId_DoesNotDedup()
+    {
+        // Empty deviceId + relay (empty fingerprint) ⇒ no dedup key at all, so
+        // each claim is a distinct session — the pre-deviceId behavior. This is
+        // the duplicate-accumulation the deviceId is designed to fix, asserted
+        // here as the explicit "no regression / no false dedup" baseline.
+        var store = new InMemoryConfigStore();
+        var service = NewService(store);
+
+        var first = ClaimOverRelay(service, "iPhone", deviceId: "");
+        var second = ClaimOverRelay(service, "iPhone", deviceId: "");
+
+        var sessions = service.GetSessions(0);
+
+        Assert.True(first.Ok);
+        Assert.True(second.Ok);
+        Assert.Equal(2, sessions.AuthorizedCount);
+    }
+
+    [Fact]
+    public void Claim_HttpWithDeviceId_OverridesIpFingerprintDedup()
+    {
+        // Same deviceId from two different LAN IPs (DHCP renewal / Wi-Fi roam):
+        // the deviceId collapses them even though the fingerprints differ.
+        var store = new InMemoryConfigStore();
+        var service = NewService(store);
+
+        var first = service.Claim(PairTokenFrom(service.CreatePairQr()), "device-uuid-A", NewContext(UserAgent, "192.168.1.50"));
+        var second = service.Claim(PairTokenFrom(service.CreatePairQr()), "device-uuid-A", NewContext(UserAgent, "192.168.1.51"));
+
+        var sessions = service.GetSessions(0);
+
+        Assert.True(first.Paired);
+        Assert.True(second.Paired);
+        Assert.Equal(1, sessions.AuthorizedCount);
+        Assert.False(service.ValidateSessionToken(first.Token));
+        Assert.True(service.ValidateSessionToken(second.Token));
+    }
+
+    [Fact]
+    public void Claim_HttpDeviceIdFromQuery_DedupsWhenBodyEmpty()
+    {
+        var store = new InMemoryConfigStore();
+        var service = NewService(store);
+
+        var firstCtx = NewContext(UserAgent, "192.168.1.50");
+        firstCtx.Request.QueryString = new QueryString("?deviceId=device-uuid-Q");
+        var secondCtx = NewContext(UserAgent, "192.168.1.51");
+        secondCtx.Request.QueryString = new QueryString("?deviceId=device-uuid-Q");
+
+        var first = service.Claim(PairTokenFrom(service.CreatePairQr()), deviceId: "", firstCtx);
+        var second = service.Claim(PairTokenFrom(service.CreatePairQr()), deviceId: "", secondCtx);
+
+        var sessions = service.GetSessions(0);
+
+        Assert.True(first.Paired);
+        Assert.True(second.Paired);
+        Assert.Equal(1, sessions.AuthorizedCount);
+    }
+
+    [Fact]
+    public void ClaimOverRelay_AbsurdlyLongDeviceId_TreatedAsNoDedupId()
+    {
+        // An over-length deviceId is rejected (treated as empty) rather than
+        // truncated — truncation could collide with a different device.
+        var store = new InMemoryConfigStore();
+        var service = NewService(store);
+        var huge = new string('x', 5000);
+
+        var first = ClaimOverRelay(service, "iPhone", huge);
+        var second = ClaimOverRelay(service, "iPhone", huge);
+
+        var sessions = service.GetSessions(0);
+
+        Assert.True(first.Ok);
+        Assert.True(second.Ok);
+        Assert.Equal(2, sessions.AuthorizedCount);
+        Assert.All(store.Load().Auth!.PanelPhoneSessions, s => Assert.Equal("", s.DeviceId));
+    }
+
+    private static PanelPhonePairingService.ClaimResult ClaimOverRelay(
+        PanelPhonePairingService service, string deviceName, string deviceId)
+    {
+        return service.ClaimCore(
+            PairTokenFrom(service.CreatePairQr()),
+            deviceName: deviceName,
+            userAgent: "",
+            remoteAddress: "",
+            deviceId: deviceId,
+            overRelay: true,
+            claimedOverHttps: false);
+    }
+
+    [Fact]
     public void GetSessions_ReportsDeviceTypeFromUserAgent()
     {
         var service = NewService(new InMemoryConfigStore());

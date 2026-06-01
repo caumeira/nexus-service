@@ -18,6 +18,14 @@ public sealed class PanelPhonePairQrResponse
 public sealed class PanelPhoneClaimBody
 {
     public string PairToken { get; set; } = "";
+
+    /// <summary>
+    /// Stable client-persisted device id (a UUID). Used to dedup authorized
+    /// sessions so re-pairing the same device replaces its prior session. May
+    /// also be supplied as a <c>?deviceId=</c> query param; the body value wins.
+    /// Empty / missing falls back to fingerprint-based dedup (legacy behavior).
+    /// </summary>
+    public string DeviceId { get; set; } = "";
 }
 
 public sealed class PanelPhoneClaimResponse
@@ -129,7 +137,7 @@ public sealed class RelayHostHello
 /// </summary>
 public static class RelayClaimMessageTypes
 {
-    /// <summary>phone→PC sealed request: <c>{"type":"claim","deviceName":"…"}</c>.</summary>
+    /// <summary>phone→PC sealed request: <c>{"type":"claim","deviceName":"…","deviceId":"…"}</c>.</summary>
     public const string Claim = "claim";
     /// <summary>PC→phone sealed success: carries the freshly-minted session token.</summary>
     public const string ClaimOk = "claim-ok";
@@ -147,6 +155,15 @@ public sealed class RelayClaimRequest
 {
     public string Type { get; set; } = RelayClaimMessageTypes.Claim;
     public string DeviceName { get; set; } = "";
+
+    /// <summary>
+    /// Stable client-persisted device id (a UUID). When present, the PC dedups
+    /// authorized sessions on it so re-pairing the same phone over the relay
+    /// replaces its prior session instead of accumulating duplicates — the relay
+    /// obscures the client IP/UA, so fingerprint-based dedup can't see it. Empty
+    /// / missing falls back to no relay-side dedup (legacy behavior).
+    /// </summary>
+    public string DeviceId { get; set; } = "";
 }
 
 /// <summary>

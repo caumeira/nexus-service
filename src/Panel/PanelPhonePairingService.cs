@@ -28,6 +28,13 @@ public sealed class PanelPhonePairingService
     public static readonly TimeSpan HttpSessionIdle = TimeSpan.FromHours(24);
     private const int PairTtlSeconds = 60;
     private const int MaxSessions = 12;
+    /// <summary>
+    /// Upper bound on an accepted client-provided <c>deviceId</c>. A UUID is 36
+    /// chars; this leaves slack for a vendor-prefixed form while rejecting absurd
+    /// values that a misbehaving / hostile client could use to bloat settings.json.
+    /// An over-length id is treated as "no dedup id" (empty) rather than truncated.
+    /// </summary>
+    private const int MaxDeviceIdLength = 128;
     private const long LastSeenRefreshMs = 60_000;
     private const long RecentSessionWindowMs = LastSeenRefreshMs * 2 + 15_000;
     private static readonly long SessionIdleMs = (long)SessionIdle.TotalMilliseconds;
@@ -322,14 +329,23 @@ public sealed class PanelPhonePairingService
     }
 
     public PanelPhoneClaimResponse Claim(string pairToken, HttpContext context)
+        => Claim(pairToken, deviceId: "", context);
+
+    public PanelPhoneClaimResponse Claim(string pairToken, string? deviceId, HttpContext context)
     {
         var userAgent = context.Request.Headers["User-Agent"].ToString();
         var remoteAddress = context.Connection.RemoteIpAddress?.ToString() ?? "";
+        // A deviceId on the POST body wins; fall back to the ?deviceId= query
+        // param. Both claim paths funnel the same stable id into ClaimCore.
+        var effectiveDeviceId = string.IsNullOrWhiteSpace(deviceId)
+            ? context.Request.Query["deviceId"].ToString()
+            : deviceId;
         var result = ClaimCore(
             pairToken,
             deviceName: DescribeDevice(userAgent),
             userAgent: userAgent,
             remoteAddress: remoteAddress,
+            deviceId: effectiveDeviceId,
             overRelay: false,
             claimedOverHttps: context.Request.IsHttps);
 
@@ -379,6 +395,7 @@ public sealed class PanelPhonePairingService
         string deviceName,
         string userAgent,
         string remoteAddress,
+        string deviceId,
         bool overRelay,
         bool claimedOverHttps)
     {
@@ -416,11 +433,22 @@ public sealed class PanelPhonePairingService
         // so it skips the IP+UA bind — same treatment as an HTTPS-pinned claim.
         var effectiveHttps = overRelay || claimedOverHttps;
         var deviceFingerprint = overRelay ? "" : BuildDeviceFingerprint(userAgent, remoteAddress);
+        var normalizedDeviceId = NormalizeDeviceId(deviceId);
 
         _store.Update(s =>
         {
             s.Auth ??= new AuthSettings();
             s.Auth.PanelPhoneSessions ??= new List<PanelPhoneSessionToken>();
+            // Dedup = by deviceId OR by fingerprint. The client-provided
+            // deviceId covers the relay path (no usable IP/UA ⇒ empty
+            // fingerprint), while the fingerprint still covers LAN where IP/UA
+            // are available. Either match drops the prior session for this
+            // device so re-pairing replaces rather than accumulates.
+            if (!string.IsNullOrEmpty(normalizedDeviceId))
+            {
+                s.Auth.PanelPhoneSessions.RemoveAll(session =>
+                    string.Equals(session.DeviceId, normalizedDeviceId, StringComparison.Ordinal));
+            }
             if (!string.IsNullOrEmpty(deviceFingerprint))
             {
                 s.Auth.PanelPhoneSessions.RemoveAll(session =>
@@ -435,6 +463,7 @@ public sealed class PanelPhonePairingService
                 UserAgent = userAgent,
                 RemoteAddress = remoteAddress,
                 DeviceFingerprint = deviceFingerprint,
+                DeviceId = normalizedDeviceId,
                 CreatedAt = now,
                 LastSeenAt = now,
                 ClaimedOverHttps = effectiveHttps,
@@ -956,6 +985,7 @@ public sealed class PanelPhonePairingService
             UserAgent = session.UserAgent,
             RemoteAddress = session.RemoteAddress,
             DeviceFingerprint = session.DeviceFingerprint,
+            DeviceId = session.DeviceId,
             CreatedAt = session.CreatedAt,
             LastSeenAt = session.LastSeenAt,
             ClaimedOverHttps = session.ClaimedOverHttps,
@@ -1022,6 +1052,22 @@ public sealed class PanelPhonePairingService
         return string.Join(
             " ",
             (value ?? "").Trim().ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+    }
+
+    /// <summary>
+    /// Validate + normalize a client-provided device id for dedup. Trims
+    /// surrounding whitespace; treats empty / whitespace-only as "no dedup id"
+    /// (returns ""), and rejects (also returns "") absurdly long values rather
+    /// than truncating — a truncated id could collide with a different device's
+    /// id. Kept case-sensitive: the contract is an opaque persisted UUID, and
+    /// the dedup compare is Ordinal.
+    /// </summary>
+    private static string NormalizeDeviceId(string? value)
+    {
+        var trimmed = (value ?? "").Trim();
+        if (trimmed.Length == 0 || trimmed.Length > MaxDeviceIdLength)
+            return "";
+        return trimmed;
     }
 
     private static string NormalizeMachineName(string? value)

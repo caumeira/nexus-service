@@ -459,6 +459,16 @@ public sealed class PanelPhoneSessionToken
     public string UserAgent { get; set; } = "";
     public string RemoteAddress { get; set; } = "";
     public string DeviceFingerprint { get; set; } = "";
+
+    /// <summary>
+    /// Client-provided stable device id (a UUID the phone/app persists across
+    /// re-pairings). Used to dedup authorized sessions on the relay path, where
+    /// there is no usable client IP/UA and so <see cref="DeviceFingerprint"/> is
+    /// empty: re-pairing the same device replaces its prior session instead of
+    /// accumulating duplicates. Empty for legacy sessions and for clients that
+    /// do not send one — those fall back to fingerprint-only dedup.
+    /// </summary>
+    public string DeviceId { get; set; } = "";
     public long CreatedAt { get; set; }
     public long LastSeenAt { get; set; }
     /// <summary>

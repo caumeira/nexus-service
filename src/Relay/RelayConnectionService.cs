@@ -609,6 +609,7 @@ public sealed class RelayConnectionService : BackgroundService
                 deviceName: request.DeviceName ?? "",
                 userAgent: "",
                 remoteAddress: "",
+                deviceId: request.DeviceId ?? "",
                 overRelay: true,
                 claimedOverHttps: false);
 
