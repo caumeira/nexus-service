@@ -127,6 +127,14 @@ public sealed class RelayHostHello
     public int V { get; set; } = 1;
     public string Role { get; set; } = "host";
     public string Rid { get; set; } = "";
+
+    // Optional device self-report for operator observability. Null ⇒ omitted
+    // (WhenWritingNull), so the wire is unchanged for anything that leaves these
+    // unset; an old relay ignores them, a new relay sanitizes them.
+    public string? Os { get; set; }
+    public string? OsVer { get; set; }
+    public string? App { get; set; }
+    public string? Dev { get; set; }
 }
 
 /// <summary>
