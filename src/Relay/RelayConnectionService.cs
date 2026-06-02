@@ -171,7 +171,11 @@ public sealed class RelayConnectionService : BackgroundService
             if (dir is not null
                 && !string.IsNullOrEmpty(dir.Nearest)
                 && dir.Regions.TryGetValue(dir.Nearest, out var url)
-                && Uri.TryCreate(url, UriKind.Absolute, out var uri))
+                && Uri.TryCreate(url, UriKind.Absolute, out var uri)
+                // Refuse anything but wss:// — a compromised directory must not be
+                // able to downgrade the relay transport to plaintext ws:// (the
+                // payloads stay E2E-sealed, but rid/traffic metadata would leak).
+                && string.Equals(uri.Scheme, Uri.UriSchemeWss, StringComparison.Ordinal))
             {
                 Endpoint = uri;
                 _pairing.RelayRegionTag = dir.Nearest;
