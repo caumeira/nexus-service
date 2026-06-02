@@ -80,6 +80,9 @@ public static class NexusServiceCollectionExtensions
         // spawn. Hard rule: this MUST stay off the startup critical path —
         // see SystemSpecsPrewarmService.ExecuteAsync.
         services.AddHostedService<SystemSpecsPrewarmService>();
+        // Anonymous fleet heartbeat — post-boot, off the critical path, gated by
+        // the collect-anonymous-data setting (default on).
+        services.AddHostedService<Nexus.Service.Telemetry.HeartbeatService>();
 #if WINDOWS
         // Triggers the IFanControlProvider singleton ctor (which transitively
         // constructs LhmComputer + kicks off its background Open()) right

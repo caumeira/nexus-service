@@ -565,6 +565,9 @@ namespace Nexus.Service.Serialization;
 // transitively by the source generator.
 [JsonSerializable(typeof(Nexus.Service.Defaults.InstallDefaultsDocument))]
 
+// Fleet telemetry heartbeat payload (anonymous).
+[JsonSerializable(typeof(Nexus.Service.Telemetry.HeartbeatPayload))]
+
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

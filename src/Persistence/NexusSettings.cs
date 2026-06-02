@@ -38,6 +38,7 @@ public sealed class NexusSettings
     public ObsSettings Obs { get; set; } = new();
     public SteamSettings Steam { get; set; } = new();
     public DiscordSettings Discord { get; set; } = new();
+    public TelemetrySettings Telemetry { get; set; } = new();
     /// <summary>Registered panel devices keyed by opaque deviceId. Each record carries the per-device layout + theme overrides + capabilities. NOT profile-scoped: device identity is hardware-level and survives profile switches.</summary>
     public Dictionary<string, Nexus.Service.Models.Panel.PanelDeviceRecord> PanelDevices { get; set; } = new();
 
@@ -50,6 +51,17 @@ public sealed class NexusSettings
     /// <summary>Category ids currently set to Shared. Allowed values: "lighting", "cooling", "theme", "dashboard". Categories not in this list are per-profile (the default). NOT profile-scoped: workstation-level. Hardware-bound state (Keeb, Y70, Devices, panel defaults) always lives at workstation root and is never per-profile, so it never appears here.</summary>
     public List<string> SharedCategories { get; set; } = new();
 
+}
+
+public sealed class TelemetrySettings
+{
+    /// <summary>Anonymous usage telemetry (fleet heartbeat). Default on. When
+    /// false, no heartbeat is sent and no install id is generated.</summary>
+    public bool CollectAnonymousData { get; set; } = true;
+
+    /// <summary>Random per-install id (no PII). Generated on the first beat and
+    /// persisted; reset to empty if the user opts out.</summary>
+    public string InstallId { get; set; } = "";
 }
 
 public sealed class ScreenTimeSettings
