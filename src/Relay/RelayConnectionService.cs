@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Net.Http;
 using System.Net.WebSockets;
 using System.Security.Cryptography;
 using System.Text;
@@ -36,8 +37,15 @@ namespace Nexus.Service.Relay;
 /// </summary>
 public sealed class RelayConnectionService : BackgroundService
 {
-    /// <summary>The production relay gateway. Configless; the rid is the only routing key.</summary>
+    /// <summary>
+    /// Legacy default relay gateway. Used until <see cref="SelectRelayAsync"/>
+    /// upgrades <see cref="Endpoint"/> to the latency-nearest regional relay, and
+    /// the fallback if that directory lookup fails. The rid is the only routing key.
+    /// </summary>
     public const string RelayUrl = "wss://api.hellonexus.com/relay";
+
+    /// <summary>Control-plane directory: the region map + the caller's nearest tag.</summary>
+    private const string DirectoryUrl = "https://api.hellonexus.com/relays";
 
     private const int ReceiveBufferSize = 8192;
     private const int InitialReconnectDelayMs = 1_000;
@@ -68,6 +76,9 @@ public sealed class RelayConnectionService : BackgroundService
     private readonly IConfigStore _store;
     private readonly MultiplexHub _hub;
     private readonly RelayHttpDispatcher _httpDispatcher;
+    // Null in tests / a minimal host: relay selection is skipped and Endpoint
+    // keeps whatever it was set to (the legacy default, or a test's fake relay).
+    private readonly IHttpClientFactory? _httpFactory;
 
     private readonly object _gate = new();
     private readonly Dictionary<string, HostLink> _links = new(StringComparer.Ordinal);
@@ -75,8 +86,11 @@ public sealed class RelayConnectionService : BackgroundService
     private bool _started;
 
     /// <summary>
-    /// Relay endpoint. Defaults to <see cref="RelayUrl"/>; tests point it at a
-    /// local fake relay. Settable only before the service starts.
+    /// Relay endpoint every host link connects to. Starts at the legacy
+    /// <see cref="RelayUrl"/>; <see cref="SelectRelayAsync"/> upgrades it to the
+    /// latency-nearest regional relay once, before the first <see cref="Reconcile"/>
+    /// brings links up. Tests point it at a local fake relay (and inject no
+    /// <see cref="IHttpClientFactory"/>, so selection is skipped and the fake stands).
     /// </summary>
     public Uri Endpoint { get; set; } = new Uri(RelayUrl);
 
@@ -91,25 +105,21 @@ public sealed class RelayConnectionService : BackgroundService
         PanelPhonePairingService pairing,
         IConfigStore store,
         MultiplexHub hub,
-        RelayHttpDispatcher httpDispatcher)
+        RelayHttpDispatcher httpDispatcher,
+        IHttpClientFactory? httpFactory = null)
     {
         _log = log;
         _pairing = pairing;
         _store = store;
         _hub = hub;
         _httpDispatcher = httpDispatcher;
+        _httpFactory = httpFactory;
     }
 
-    protected override Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         _serviceCt = stoppingToken;
         _started = true;
-        _store.OnChanged += OnSettingsChanged;
-        // The pair-token set changes outside the config store (mint on QR
-        // create, consume on a successful claim, reap on expiry); listen on its
-        // own push so pair rendezvous links reconcile without a poll loop.
-        _pairing.OutstandingPairTokensChanged += OnSettingsChanged;
-        Reconcile();
 
         // Tear everything down when the host stops.
         stoppingToken.Register(() =>
@@ -118,7 +128,64 @@ public sealed class RelayConnectionService : BackgroundService
             _pairing.OutstandingPairTokensChanged -= OnSettingsChanged;
             CloseAllLinks();
         });
-        return Task.CompletedTask;
+
+        // Pick the latency-nearest regional relay (and publish its tag for the QR)
+        // BEFORE subscribing to change signals and bringing links up, so the first
+        // reconcile already targets the resolved Endpoint — no Reconcile can race
+        // on the pre-selection (legacy) Endpoint and strand links there. Best-
+        // effort: any failure leaves the legacy default. Runs after StartAsync
+        // (BackgroundService), so this directory call never delays boot.
+        // (A pair QR minted inside the brief selection window carries no r= and
+        // would target the default relay; the token expires + regenerates, so it
+        // self-heals — not worth per-token dual-homing for a sub-second window
+        // that only opens right after a service restart.)
+        await SelectRelayAsync(stoppingToken).ConfigureAwait(false);
+
+        _store.OnChanged += OnSettingsChanged;
+        // The pair-token set changes outside the config store (mint on QR create,
+        // consume on a successful claim, reap on expiry); listen on its own push
+        // so pair rendezvous links reconcile without a poll loop.
+        _pairing.OutstandingPairTokensChanged += OnSettingsChanged;
+
+        Reconcile();
+    }
+
+    /// <summary>
+    /// Resolve the latency-nearest regional relay from the <see cref="DirectoryUrl"/>
+    /// control plane (which reads the caller's edge geo) and point
+    /// <see cref="Endpoint"/> at it, publishing the region tag for the pairing QR
+    /// so the phone follows to the same relay. Best-effort and one-shot: skipped
+    /// when no <see cref="IHttpClientFactory"/> is available (tests), and any
+    /// failure leaves the legacy default in place.
+    /// </summary>
+    private async Task SelectRelayAsync(CancellationToken ct)
+    {
+        if (_httpFactory is null)
+            return;
+        try
+        {
+            using var client = _httpFactory.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(5);
+            var json = await client.GetStringAsync(DirectoryUrl, ct).ConfigureAwait(false);
+            var dir = JsonSerializer.Deserialize(json, AppJsonContext.Default.RelayDirectoryResponse);
+            if (dir is not null
+                && !string.IsNullOrEmpty(dir.Nearest)
+                && dir.Regions.TryGetValue(dir.Nearest, out var url)
+                && Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                Endpoint = uri;
+                _pairing.RelayRegionTag = dir.Nearest;
+                _log.LogInformation("relay: nearest region {Tag} -> {Url}", dir.Nearest, url);
+            }
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            // host stopping; nothing to do.
+        }
+        catch (Exception ex)
+        {
+            _log.LogDebug(ex, "relay directory fetch failed; using legacy default {Url}", Endpoint);
+        }
     }
 
     private static Task<WebSocket> DefaultTransportFactory(Uri uri, CancellationToken ct)
@@ -933,4 +1000,16 @@ public sealed class RelayConnectionService : BackgroundService
             return ValueTask.CompletedTask;
         }
     }
+}
+
+/// <summary>
+/// `GET /relays` directory response: the legacy default WSS URL, the region tag
+/// → URL map, and the caller's latency-nearest region tag (computed server-side
+/// from the Cloudflare edge geo). Deserialized via <see cref="AppJsonContext"/>.
+/// </summary>
+public sealed class RelayDirectoryResponse
+{
+    public string Default { get; set; } = "";
+    public Dictionary<string, string> Regions { get; set; } = new();
+    public string Nearest { get; set; } = "";
 }

@@ -69,6 +69,14 @@ public sealed class PanelPhonePairingService
     public string SpkiFingerprint { get; set; } = string.Empty;
 
     /// <summary>
+    /// Latency-nearest relay region tag (e.g. "ap"), stamped into the pair QR as
+    /// the `r` query param so the phone connects to the SAME regional relay this
+    /// host registered on. Empty ⇒ no tag ⇒ the phone uses the legacy default.
+    /// Set by <c>RelayConnectionService</c> once the /relays directory resolves.
+    /// </summary>
+    public string RelayRegionTag { get; set; } = string.Empty;
+
+    /// <summary>
     /// Public Universal Link host. The QR encodes
     /// `https://&lt;PublicLinkHost&gt;/r/pair?host=&lt;lan&gt;&port=&lt;p&gt;&pair=&lt;t&gt;&fp=&lt;spki&gt;`
     /// so iOS Camera + Universal Links + the app's in-app scanner all decode
@@ -321,6 +329,13 @@ public sealed class PanelPhonePairingService
         if (!string.IsNullOrEmpty(SpkiFingerprint))
         {
             qs.Append("&fp=").Append(Uri.EscapeDataString(SpkiFingerprint));
+        }
+        // Regional relay tag: the phone resolves `r` to the same relay this host
+        // registered on (absent ⇒ legacy default). Optional + ignored by the LAN
+        // path, so old clients are unaffected.
+        if (!string.IsNullOrEmpty(RelayRegionTag))
+        {
+            qs.Append("&r=").Append(Uri.EscapeDataString(RelayRegionTag));
         }
         // Plain-HTTP port for the browser fallback at /r/pair (Continue in
         // browser). Native iOS uses `port` (HTTPS) + SPKI pinning instead.

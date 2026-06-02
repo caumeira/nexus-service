@@ -186,6 +186,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.RelayClaimResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.RelayHttpRequest))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.RelayHttpResponse))]
+[JsonSerializable(typeof(Nexus.Service.Relay.RelayDirectoryResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PairBroadcastStateResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PairBroadcastSetRequest))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PairWifiInitiateRequest))]
