@@ -756,7 +756,19 @@ public sealed class RelayConnectionService : BackgroundService
 
         private async Task SendHelloAsync(WebSocket transport, CancellationToken ct)
         {
-            var hello = new RelayHostHello { V = 1, Role = "host", Rid = _rid };
+            var hello = new RelayHostHello
+            {
+                V = 1,
+                Role = "host",
+                Rid = _rid,
+                Os = OperatingSystem.IsWindows() ? "win"
+                    : OperatingSystem.IsMacOS() ? "mac"
+                    : OperatingSystem.IsLinux() ? "linux"
+                    : "other",
+                OsVer = System.Runtime.InteropServices.RuntimeInformation.OSDescription,
+                App = BuildInfo.Version,
+                Dev = "desktop",
+            };
             var json = JsonSerializer.SerializeToUtf8Bytes(hello, AppJsonContext.Default.RelayHostHello);
             await transport
                 .SendAsync(json, WebSocketMessageType.Text, endOfMessage: true, ct)
