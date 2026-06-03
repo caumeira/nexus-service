@@ -334,6 +334,29 @@ app.UseDefaultFiles();
 app.UseStaticFiles();
 
 app.UseRouting();
+
+// Private Network Access: Chrome gates a request from a public page
+// (https://hellonexus.com) to a loopback address (http://localhost:9400) behind
+// a preflight that must be answered with Access-Control-Allow-Private-Network.
+// ASP.NET's CORS middleware doesn't emit it, so echo it for our allowlisted
+// origins — this is what lets the hosted web app detect and drive a local Nexus
+// from the desktop browser. Only set for an allowed Origin on a PNA preflight.
+var pnaAllowedOrigins = new HashSet<string>(allowedOrigins, StringComparer.OrdinalIgnoreCase);
+app.Use(async (ctx, next) =>
+{
+    if (ctx.Request.Method == "OPTIONS"
+        && ctx.Request.Headers["Access-Control-Request-Private-Network"].ToString() == "true"
+        && pnaAllowedOrigins.Contains(ctx.Request.Headers["Origin"].ToString()))
+    {
+        ctx.Response.OnStarting(() =>
+        {
+            ctx.Response.Headers["Access-Control-Allow-Private-Network"] = "true";
+            return Task.CompletedTask;
+        });
+    }
+    await next(ctx);
+});
+
 app.UseCors();
 
 app.UseNexusPathAuth();
