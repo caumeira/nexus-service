@@ -22,9 +22,32 @@ internal static class MacAppWindow
 {
     public static bool IsSupported => RuntimeInformation.IsOSPlatform(OSPlatform.OSX);
 
+    private const string DragViewClassName = "NexusTitlebarDragView";
+
+    // Height of the transparent top drag strip, in points. Spans the band the
+    // traffic lights sit in; the sidebar brand is inset below it (see
+    // --mac-titlebar-inset in nexus-web's App.module.scss) so nothing clickable
+    // there falls under the strip.
+    private const double TitlebarDragStripHeight = 24;
+
+    // Right-edge gap the drag strip leaves undragged so the top-right nav arrows
+    // stay clickable - they render flush against the window's right edge on
+    // macOS. Keep wide enough to clear the back button's reach (.topRightNavBack
+    // in nexus-web's App.module.scss).
+    private const double TitlebarDragStripRightInset = 96;
+
+    // Extra inset for the system traffic lights, pushing them in from the top-
+    // left corner past the macOS default so they're not cramped against the edge.
+    private const double TrafficLightPadLeft = 8;
+    private const double TrafficLightPadTop = 8;
+
     private static IntPtr _window;
     private static IntPtr _webView;
     private static IntPtr _targetObj;
+    // Default origins of the three traffic-light buttons, captured once so the
+    // padding is applied as an absolute offset (never compounding on re-apply).
+    private static bool _trafficLightDefaultsCaptured;
+    private static readonly double[] _trafficLightBaseOrigin = new double[6];
     private static bool _classRegistered;
     private static string _pendingUrl = "about:blank";
     private static bool _pendingNavigate = true;
@@ -98,7 +121,26 @@ internal static class MacAppWindow
             {
                 AddMethod(targetClass, "openOrFocus:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&OpenOrFocusImpl, "v@:@");
                 AddMethod(targetClass, "windowWillClose:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&WindowWillCloseImpl, "v@:@");
+                AddMethod(targetClass, "windowDidResize:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&WindowDidResizeImpl, "v@:@");
                 objc_registerClassPair(targetClass);
+            }
+
+            // Transparent NSView subclass for the top drag strip. The window has
+            // no title bar, and the full-size WKWebView swallows mouse events in
+            // the title-bar region, so the system drag handle is gone. The
+            // subclass overrides -mouseDown: to forward the event to the window's
+            // native drag loop (see DragViewMouseDownImpl), reinstating window
+            // dragging over the custom chrome.
+            IntPtr nsView = ClassGet("NSView");
+            IntPtr dragClass = objc_allocateClassPair(nsView, DragViewClassName, IntPtr.Zero);
+            if (dragClass != IntPtr.Zero)
+            {
+                AddMethod(dragClass, "mouseDown:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&DragViewMouseDownImpl, "v@:@");
+                objc_registerClassPair(dragClass);
+            }
+            else
+            {
+                Console.Error.WriteLine($"[mac-app-window] failed to register {DragViewClassName} - window dragging disabled");
             }
 
             IntPtr selAlloc = SelRegister("alloc");
@@ -157,6 +199,59 @@ internal static class MacAppWindow
         catch { }
     }
 
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static void WindowDidResizeImpl(IntPtr self, IntPtr cmd, IntPtr notification)
+    {
+        // AppKit re-lays-out the traffic lights across some transitions (e.g.
+        // exiting full screen); re-apply the padding so it sticks.
+        try { ApplyTrafficLightPadding(); } catch { }
+    }
+
+    // Push the three system traffic-light buttons in from the top-left corner by
+    // a fixed pad. Positions are set absolutely from the captured defaults so
+    // repeated calls (resize/full-screen) never compound the offset.
+    private static void ApplyTrafficLightPadding()
+    {
+        if (_window == IntPtr.Zero) return;
+        IntPtr selButton = SelRegister("standardWindowButton:");
+        IntPtr selFrame = SelRegister("frame");
+        IntPtr selSetFrame = SelRegister("setFrame:");
+        for (long i = 0; i <= 2; i++)
+        {
+            IntPtr button = MsgSend(_window, selButton, (IntPtr)i);
+            if (button == IntPtr.Zero) continue;
+            NSRect f = MsgSend_GetRect(button, selFrame);
+            if (!_trafficLightDefaultsCaptured)
+            {
+                _trafficLightBaseOrigin[i * 2] = f.x;
+                _trafficLightBaseOrigin[i * 2 + 1] = f.y;
+            }
+            // x grows rightward; y grows upward, so subtract to move down (the
+            // titlebar sits at the top of the window).
+            f.x = _trafficLightBaseOrigin[i * 2] + TrafficLightPadLeft;
+            f.y = _trafficLightBaseOrigin[i * 2 + 1] - TrafficLightPadTop;
+            MsgSend_SetRect(button, selSetFrame, f);
+        }
+        _trafficLightDefaultsCaptured = true;
+    }
+
+    // -mouseDown: for NexusTitlebarDragView: hand the event straight to the
+    // window's native drag loop. performWindowDragWithEvent: is the canonical
+    // API for a custom drag region - deterministic and independent of focus or
+    // isMovableByWindowBackground (unlike mouseDownCanMoveWindow, which also
+    // suppresses the mouseDown the view needs to receive).
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static void DragViewMouseDownImpl(IntPtr self, IntPtr cmd, IntPtr ev)
+    {
+        try
+        {
+            IntPtr window = MsgSend(self, SelRegisterPInvoke("window"));
+            if (window != IntPtr.Zero)
+                MsgSend(window, SelRegisterPInvoke("performWindowDragWithEvent:"), ev);
+        }
+        catch { }
+    }
+
     private static void CreateWindowOnMain()
     {
         IntPtr classNSWindow = ClassGet("NSWindow");
@@ -172,15 +267,22 @@ internal static class MacAppWindow
         IntPtr selInit = SelRegister("init");
 
         // ── NSWindow ────────────────────────────────────────────────────────
-        // Standard titled window. The system draws the title bar (caption
-        // "Nexus", traffic-light controls at top-left); the WKWebView
-        // sits in the content area below.
+        // Titled window with a full-size content view: the WKWebView fills the
+        // whole window (flush to the top edge) and the title bar is made
+        // transparent with no caption text below, so the page + sidebar
+        // backgrounds paint up behind the system traffic-light controls
+        // (close / minimize / zoom) that stay at the top-left. This is the
+        // macOS-native equivalent of the Windows shell's borderless top strip:
+        // the title bar region remains a system drag handle for free, no custom
+        // drag strip required.
         const ulong NSWindowStyleMaskTitled = 1UL << 0;
         const ulong NSWindowStyleMaskClosable = 1UL << 1;
         const ulong NSWindowStyleMaskMiniaturizable = 1UL << 2;
         const ulong NSWindowStyleMaskResizable = 1UL << 3;
+        const ulong NSWindowStyleMaskFullSizeContentView = 1UL << 15;
         const ulong styleMask = NSWindowStyleMaskTitled | NSWindowStyleMaskClosable
-            | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable;
+            | NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
+            | NSWindowStyleMaskFullSizeContentView;
         const ulong NSBackingStoreBuffered = 2;
 
         var contentRect = new NSRect { x = 200, y = 200, width = 1280, height = 820 };
@@ -192,6 +294,12 @@ internal static class MacAppWindow
             contentRect, styleMask, NSBackingStoreBuffered, false);
 
         MsgSend(win, SelRegister("setTitle:"), NsString("Nexus"));
+        // Hide the caption text and let the content show through the title bar
+        // so there's no visible bar - only the traffic lights remain. Keep the
+        // title set above (used by Mission Control / the Window menu).
+        const long NSWindowTitleHidden = 1;
+        MsgSendVoidBool(win, SelRegister("setTitlebarAppearsTransparent:"), true);
+        MsgSendVoidLong(win, SelRegister("setTitleVisibility:"), NSWindowTitleHidden);
         // Default setReleasedWhenClosed:YES is what we want - when the user
         // closes the window via the red traffic light, AppKit deallocates
         // the NSWindow (and its content view chain, including the
@@ -202,6 +310,12 @@ internal static class MacAppWindow
 
         // ── WKWebView ───────────────────────────────────────────────────────
         IntPtr config = MsgSend(MsgSend(classWKConfig, selAlloc), selInit);
+
+        // Tag the page so nexus-web's isMacAppShell() applies the titlebar-inset
+        // layout (sidebar brand + top chrome pushed below the traffic lights,
+        // backgrounds flush to the top). Mirrors the Windows shell injecting
+        // window.nexusShellPlatform = 'windows-app'.
+        InjectMacShellMarker(config);
 
         // Initial frame matches the window content area; autoresizing keeps
         // it filling on resize.
@@ -215,18 +329,51 @@ internal static class MacAppWindow
         // NSViewWidthSizable (2) | NSViewHeightSizable (16) = 18
         MsgSendVoidLong(webView, SelRegister("setAutoresizingMask:"), 18);
 
-        // setContentView:webView - WKWebView fills the content area below
-        // the standard title bar.
-        MsgSend(win, SelRegister("setContentView:"), webView);
+        // ── Container + drag strip ──────────────────────────────────────────
+        // The window's content view is a plain NSView holding the WKWebView
+        // plus a transparent drag strip pinned to the top. The strip restores
+        // window dragging that the full-size WKWebView would otherwise swallow.
+        // Traffic lights live in the title-bar layer above this view, so they
+        // stay clickable over the strip.
+        IntPtr classNSView = ClassGet("NSView");
+        var containerFrame = new NSRect { x = 0, y = 0, width = contentRect.width, height = contentRect.height };
+        IntPtr container = MsgSend(classNSView, selAlloc);
+        container = MsgSend_InitFrame(container, SelRegister("initWithFrame:"), containerFrame);
+        MsgSend(container, SelRegister("addSubview:"), webView);
 
-        // Drop our +1 retains from alloc/init. NSWindow's contentView
-        // property has retained the WKWebView, and the WKWebView holds
-        // its WKWebViewConfiguration; without these releases the refcount
-        // never reaches zero on close, leaking ~3 Cocoa objects per
-        // open/close cycle (WKWebView's WebContent process is the heavy
-        // one, ~150 MB).
+        // Drag strip: spans the top edge from the left up to the reserved right
+        // gutter (so the top-right nav arrows stay clickable). Non-flipped
+        // coords, so y = height - stripHeight. NSViewWidthSizable (2) |
+        // NSViewMinYMargin (8) = 10 keeps the height + the fixed right gutter and
+        // pins it to the top on resize (only the width flexes).
+        var stripFrame = new NSRect
+        {
+            x = 0,
+            y = contentRect.height - TitlebarDragStripHeight,
+            width = contentRect.width - TitlebarDragStripRightInset,
+            height = TitlebarDragStripHeight,
+        };
+        IntPtr dragView = MsgSend(ClassGet(DragViewClassName), selAlloc);
+        dragView = MsgSend_InitFrame(dragView, SelRegister("initWithFrame:"), stripFrame);
+        MsgSendVoidLong(dragView, SelRegister("setAutoresizingMask:"), 10);
+        // Layer-back the strip so it composites and hit-tests above the
+        // layer-backed WKWebView sibling (mixing layer-backed and non-layer-
+        // backed siblings otherwise lets the web view win the top pixels).
+        MsgSendVoidBool(dragView, SelRegister("setWantsLayer:"), true);
+        MsgSend(container, SelRegister("addSubview:"), dragView);
+
+        MsgSend(win, SelRegister("setContentView:"), container);
+
+        // Drop our +1 retains from alloc/init. The container is retained by the
+        // window's contentView property; the WKWebView + drag strip are retained
+        // by the container's subviews array; the WKWebView holds its
+        // configuration. Without these releases the refcount never reaches zero
+        // on close, leaking Cocoa objects per open/close cycle (WKWebView's
+        // WebContent process is the heavy one, ~150 MB).
         IntPtr selRelease = SelRegister("release");
         MsgSend(webView, selRelease);
+        MsgSend(dragView, selRelease);
+        MsgSend(container, selRelease);
         MsgSend(config, selRelease);
 
         // Center on screen.
@@ -234,6 +381,9 @@ internal static class MacAppWindow
 
         _window = win;
         _webView = webView;
+
+        // Inset the traffic lights now that the window (and its buttons) exist.
+        ApplyTrafficLightPadding();
     }
 
     private static void NavigateToOnMain(string url)
@@ -292,6 +442,28 @@ internal static class MacAppWindow
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
+
+    // Add a document-start user script that defines window.nexusShellPlatform
+    // before any page script runs, so nexus-web can branch its layout the same
+    // way it does for the Windows WebView2 shell.
+    private static void InjectMacShellMarker(IntPtr config)
+    {
+        IntPtr classWKUserScript = ClassGet("WKUserScript");
+        if (classWKUserScript == IntPtr.Zero) return;
+        IntPtr userContentController = MsgSend(config, SelRegister("userContentController"));
+        if (userContentController == IntPtr.Zero) return;
+
+        IntPtr source = NsString(
+            "Object.defineProperty(window,'nexusShellPlatform',{value:'mac-app',writable:false,configurable:false});");
+        const long WKUserScriptInjectionTimeAtDocumentStart = 0;
+        IntPtr script = MsgSend(classWKUserScript, SelRegister("alloc"));
+        script = MsgSend_InitUserScript(
+            script,
+            SelRegister("initWithSource:injectionTime:forMainFrameOnly:"),
+            source, WKUserScriptInjectionTimeAtDocumentStart, true);
+        MsgSend(userContentController, SelRegister("addUserScript:"), script);
+        MsgSend(script, SelRegister("release"));
+    }
 
     private static IntPtr NsString(string s)
     {
@@ -372,6 +544,22 @@ internal static class MacAppWindow
     // initWithFrame:configuration: -> (NSRect, id)
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern IntPtr MsgSend_InitWebView(IntPtr receiver, IntPtr sel, NSRect frame, IntPtr config);
+
+    // initWithFrame: -> (NSRect)
+    [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
+    private static extern IntPtr MsgSend_InitFrame(IntPtr receiver, IntPtr sel, NSRect frame);
+
+    // -frame -> NSRect (returned in d0-d3 as a 4-double HFA on arm64).
+    [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
+    private static extern NSRect MsgSend_GetRect(IntPtr receiver, IntPtr sel);
+
+    // -setFrame: -> (NSRect)
+    [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
+    private static extern void MsgSend_SetRect(IntPtr receiver, IntPtr sel, NSRect frame);
+
+    // initWithSource:injectionTime:forMainFrameOnly: -> (id, NSInteger, BOOL)
+    [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
+    private static extern IntPtr MsgSend_InitUserScript(IntPtr receiver, IntPtr sel, IntPtr source, long injectionTime, [MarshalAs(UnmanagedType.I1)] bool forMainFrameOnly);
 
     // performSelectorOnMainThread:withObject:waitUntilDone:
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
