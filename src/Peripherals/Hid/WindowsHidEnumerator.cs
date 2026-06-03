@@ -3,6 +3,7 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 
 namespace Nexus.Service.Peripherals.Hid;
 
@@ -118,11 +119,14 @@ public sealed class WindowsHidEnumerator : IHidEnumerator
         return result;
     }
 
-    public IHidDevice? Open(string path)
+    public IHidDevice? Open(string path, bool forInput = false)
     {
         // Try progressively less restrictive access if another process (e.g. vendor
         // apps like Razer Synapse, G HUB) holds exclusive access. We log the mode
         // we ended up with because reduced access silently breaks SetFeature later.
+        // forInput opens for overlapped I/O so WindowsHidDevice.Read can honor its
+        // timeout; the feature-report write path stays synchronous.
+        var flags = forInput ? Native.FILE_FLAG_OVERLAPPED : 0u;
         IntPtr handle = (IntPtr)(-1);
         (uint access, string label)[] accessModes =
         {
@@ -139,7 +143,7 @@ public sealed class WindowsHidEnumerator : IHidEnumerator
                 Native.FILE_SHARE_READ | Native.FILE_SHARE_WRITE,
                 IntPtr.Zero,
                 Native.OPEN_EXISTING,
-                0,
+                flags,
                 IntPtr.Zero);
             if (handle != (IntPtr)(-1))
             {
@@ -163,9 +167,9 @@ public sealed class WindowsHidEnumerator : IHidEnumerator
         }
 
         var serial = TryGetSerial(handle);
-        var (usagePage, usage, _, _, _) = TryGetCaps(handle);
+        var (usagePage, usage, inLen, _, _) = TryGetCaps(handle);
 
-        return new WindowsHidDevice(handle, path, attrs.VendorID, attrs.ProductID, serial, usagePage, usage);
+        return new WindowsHidDevice(handle, path, attrs.VendorID, attrs.ProductID, serial, usagePage, usage, inLen, forInput);
     }
 
     private static string? TryGetSerial(IntPtr handle)
@@ -312,6 +316,31 @@ public sealed class WindowsHidEnumerator : IHidEnumerator
         [DllImport("kernel32.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool ReadFile(IntPtr handle, byte[] buffer, uint toRead, out uint read, IntPtr overlapped);
+
+        // Overlapped ReadFile: buffer must stay pinned and the OVERLAPPED valid until
+        // the operation completes (GetOverlappedResult), so this variant takes raw
+        // pointers rather than marshalling a managed array per call.
+        [DllImport("kernel32.dll", SetLastError = true, EntryPoint = "ReadFile")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern unsafe bool ReadFileOverlapped(IntPtr handle, byte* buffer, uint toRead, IntPtr read, NativeOverlapped* overlapped);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "CreateEventW")]
+        public static extern IntPtr CreateEventW(IntPtr attributes, [MarshalAs(UnmanagedType.Bool)] bool manualReset, [MarshalAs(UnmanagedType.Bool)] bool initialState, string? name);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        public static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool ResetEvent(IntPtr handle);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool CancelIo(IntPtr handle);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern unsafe bool GetOverlappedResult(IntPtr handle, NativeOverlapped* overlapped, out uint transferred, [MarshalAs(UnmanagedType.Bool)] bool wait);
     }
 }
 #endif

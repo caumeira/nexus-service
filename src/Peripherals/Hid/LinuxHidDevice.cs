@@ -81,10 +81,15 @@ public sealed partial class LinuxHidDevice : IHidDevice
 
     public int Read(Span<byte> buffer, int timeoutMs)
     {
-        if (_fd < 0 || buffer.Length == 0) return 0;
+        if (_fd < 0 || buffer.Length == 0) return -1;
         var pfd = new PollFd { fd = _fd, events = POLLIN, revents = 0 };
         var pr = poll(ref pfd, 1, timeoutMs);
-        if (pr <= 0 || (pfd.revents & POLLIN) == 0) return 0; // timeout / error
+        if (pr < 0) return -1;  // poll failed → treat as gone so the caller tears down
+        if (pr == 0) return 0;  // timeout / idle
+        // A removed hidraw node reports HUP/ERR/NVAL with no POLLIN; signal "gone"
+        // so the read loop closes the fd instead of spinning on the dead poll.
+        if ((pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) != 0) return -1;
+        if ((pfd.revents & POLLIN) == 0) return 0;
         var buf = new byte[buffer.Length];
         long n;
         unsafe
@@ -92,7 +97,8 @@ public sealed partial class LinuxHidDevice : IHidDevice
             fixed (byte* p = buf)
                 n = (long)read(_fd, (nint)p, (nuint)buf.Length);
         }
-        if (n <= 0) return 0;
+        if (n < 0) return -1;  // read error → gone
+        if (n == 0) return 0;
         buf.AsSpan(0, (int)n).CopyTo(buffer);
         return (int)n;
     }
@@ -116,6 +122,9 @@ public sealed partial class LinuxHidDevice : IHidDevice
         => (nuint)(0xC0000000u | (((uint)len & 0x3FFF) << 16) | (0x48u << 8) | (uint)nr);
 
     private const short POLLIN = 0x0001;
+    private const short POLLERR = 0x0008;
+    private const short POLLHUP = 0x0010;
+    private const short POLLNVAL = 0x0020;
 
     [StructLayout(LayoutKind.Sequential)]
     private struct PollFd

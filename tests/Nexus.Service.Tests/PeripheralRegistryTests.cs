@@ -11,7 +11,7 @@ namespace Nexus.Service.Tests;
 internal sealed class StubHidEnumeratorNoDevices : IHidEnumerator
 {
     public IReadOnlyList<HidDeviceInfo> Find(int vendorId, int productId) => System.Array.Empty<HidDeviceInfo>();
-    public IHidDevice? Open(string path) => null;
+    public IHidDevice? Open(string path, bool forInput = false) => null;
 }
 
 internal sealed class FakeUsbEnumerator : IUsbEnumerator

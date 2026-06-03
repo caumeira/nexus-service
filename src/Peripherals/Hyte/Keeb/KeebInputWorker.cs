@@ -55,7 +55,17 @@ public sealed class KeebInputWorker : BackgroundService
                 }
 
                 var n = _reader!.Read(buf, ReadTimeoutMs);
-                if (n <= 0) continue; // idle/timeout
+                if (n == 0) continue; // idle: the read blocked up to ReadTimeoutMs, nothing arrived
+                if (n < 0)
+                {
+                    // Device went away (unplug): the handle now fails reads
+                    // instantly. Tear it down and back off so we don't spin a
+                    // core; OpenReader re-acquires when the keeb returns.
+                    CloseReader();
+                    try { await Task.Delay(RetryDelayMs, ct).ConfigureAwait(false); }
+                    catch (OperationCanceledException) { break; }
+                    continue;
+                }
 
                 var ev = KeebProtocol.ParseInputEvent(buf.AsSpan(0, n));
                 if (ev.Kind != KeebProtocol.KeebInputKind.None) HandleEvent(ev);
@@ -105,7 +115,7 @@ public sealed class KeebInputWorker : BackgroundService
     {
         var info = KeebHub.FindVendorInterface(_hid);
         if (info is null) return false;
-        _reader = _hid.Open(info.Path);
+        _reader = _hid.Open(info.Path, forInput: true);
         if (_reader is null) return false;
         Console.Error.WriteLine($"[keeb-input] reader opened on {info.Path}");
         return true;

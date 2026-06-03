@@ -35,8 +35,10 @@ public sealed partial class LinuxHidEnumerator : IHidEnumerator
         return result;
     }
 
-    public IHidDevice? Open(string path)
+    public IHidDevice? Open(string path, bool forInput = false)
     {
+        // forInput is a no-op here: LinuxHidDevice.Read already bounds the read
+        // with poll(timeoutMs), so a blocking fd is correct for input too.
         var fd = open(path, O_RDWR | O_CLOEXEC);
         if (fd < 0) return null;
 

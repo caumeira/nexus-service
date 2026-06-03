@@ -11,8 +11,13 @@ public interface IHidEnumerator
     /// <summary>Returns metadata for all HID interfaces matching (vendorId, productId). Does not open.</summary>
     IReadOnlyList<HidDeviceInfo> Find(int vendorId, int productId);
 
-    /// <summary>Opens the device at the given path. Returns null if open fails.</summary>
-    IHidDevice? Open(string path);
+    /// <summary>
+    /// Opens the device at the given path. Returns null if open fails. Set
+    /// <paramref name="forInput"/> for a handle used with <see cref="IHidDevice.Read"/>:
+    /// on Windows this opens for overlapped I/O so the read honors its timeout instead
+    /// of busy-spinning. No-op on Linux (poll() already bounds the read).
+    /// </summary>
+    IHidDevice? Open(string path, bool forInput = false);
 }
 
 public sealed class HidDeviceInfo
