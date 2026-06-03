@@ -19,7 +19,7 @@ namespace Nexus.Service.QSeries;
 /// Q60 / Q80 panel alive — and, after the first successful contact, gets
 /// us off USB-FFS adb entirely.
 ///
-/// The Q-series Android shell (`com.hellonexus.panel.qshell`) loads the
+/// The Q-series Android shell (`com.hellonexus.qshell`) loads the
 /// Nexus panel SPA from <c>http://localhost:9400</c>. On the panel side
 /// that localhost only reaches nexus-service because the host has
 /// <c>adb reverse tcp:9400 tcp:9400</c> applied to the attached Q-series
@@ -792,14 +792,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// Matches the package + activity names in
     /// <c>hyte-qseries-android/android/app/src/main/AndroidManifest.xml</c>.
     /// </summary>
-    private const string QshellComponent = "com.hellonexus.panel.qshell/.MainActivity";
+    private const string QshellComponent = "com.hellonexus.qshell/.MainActivity";
 
     /// <summary>
     /// String the device's foreground-window dump prints when qshell owns
     /// focus. We only need a substring match — the surrounding line will
-    /// look like <c>mCurrentFocus=Window{... com.hellonexus.panel.qshell/...}</c>.
+    /// look like <c>mCurrentFocus=Window{... com.hellonexus.qshell/...}</c>.
     /// </summary>
-    private const string QshellFocusMarker = "com.hellonexus.panel.qshell";
+    private const string QshellFocusMarker = "com.hellonexus.qshell";
 
     /// <summary>
     /// Last time we ran <c>am start</c> on a given serial. Throttles the
@@ -846,7 +846,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private readonly Dictionary<string, DateTimeOffset> _lastQshellRebootBySerial = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Make sure qshell (<c>com.hellonexus.panel.qshell</c>) is the foreground
+    /// Make sure qshell (<c>com.hellonexus.qshell</c>) is the foreground
     /// activity on a connected Q-series device. We dump the foreground
     /// window via <c>dumpsys window mCurrentFocus</c>; if anything other
     /// than qshell holds focus we run <c>am start</c> to bring it back.
@@ -856,7 +856,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
     ///     launcher is foreground),
     ///   - after a USB reset (qshell got killed when its WebView lost
     ///     transport; the OEM launcher reclaimed foreground),
-    ///   - user-triggered <c>am force-stop com.hellonexus.panel.qshell</c>,
+    ///   - user-triggered <c>am force-stop com.hellonexus.qshell</c>,
     ///   - device reboot.
     /// </summary>
     private async Task EnsureQshellForegroundAsync(DeviceData device, CancellationToken ct)
@@ -875,7 +875,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             var reloadReceiver = new ConsoleOutputReceiver();
             try
             {
-                // QshellFocusMarker is the bare package name (com.hellonexus.panel.qshell).
+                // QshellFocusMarker is the bare package name (com.hellonexus.qshell).
                 await _client.ExecuteShellCommandAsync(device, $"am force-stop {QshellFocusMarker}", reloadReceiver, ct);
                 await _client.ExecuteShellCommandAsync(device, $"am start -n {QshellComponent}", reloadReceiver, ct);
                 Console.Error.WriteLine(
