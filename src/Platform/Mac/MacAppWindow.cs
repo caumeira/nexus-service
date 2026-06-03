@@ -352,6 +352,11 @@ internal static class MacAppWindow
         double arrowsR = pillLeft - TopBarPillGap;
         if (x >= arrowsR - TopBarArrowsGroup - m && x <= arrowsR + m) return true;
 
+        // Search pill: centered, and now interactive (a click opens search). It
+        // must fall through to the WKWebView rather than start a window drag, so
+        // carve its full width out of the strip.
+        if (x >= pillLeft - m && x <= pillLeft + TopBarSearchPillWidth + m) return true;
+
         // Right cluster: against the right edge.
         if (x >= w - TopBarRightCluster - TopBarRightPad - m && x <= w - TopBarRightPad + m) return true;
 
