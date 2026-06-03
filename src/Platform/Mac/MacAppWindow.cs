@@ -24,22 +24,37 @@ internal static class MacAppWindow
 
     private const string DragViewClassName = "NexusTitlebarDragView";
 
-    // Height of the transparent top drag strip, in points. Spans the band the
-    // traffic lights sit in; the sidebar brand is inset below it (see
-    // --mac-titlebar-inset in nexus-web's App.module.scss) so nothing clickable
-    // there falls under the strip.
-    private const double TitlebarDragStripHeight = 24;
+    // Height of the drag strip, in points. Spans the full top bar height (keep
+    // in lockstep with --topbar-height in nexus-web's App.module.scss). The
+    // strip runs the full window width; its -hitTest: passes clicks through
+    // over the button columns (computed in IsTopBarButtonColumn) so the whole
+    // bar drags EXCEPT where a control sits - matching the Windows app-region
+    // behaviour.
+    private const double TitlebarDragStripHeight = 52;
 
-    // Right-edge gap the drag strip leaves undragged so the top-right nav arrows
-    // stay clickable - they render flush against the window's right edge on
-    // macOS. Keep wide enough to clear the back button's reach (.topRightNavBack
-    // in nexus-web's App.module.scss).
-    private const double TitlebarDragStripRightInset = 96;
+    // Layout constants mirrored from nexus-web's TopBar.module.scss, used by
+    // IsTopBarButtonColumn to carve the control columns out of the drag strip.
+    // Keep in lockstep with the CSS.
+    private const double TopBarSearchPillWidth = 460;   // --search-w
+    private const double TopBarLeftPad = 8;             // .topBar padding-left (0.5rem)
+    private const double TopBarRightPad = 8;            // .topBar padding-right (0.5rem)
+    private const double TopBarIconButton = 32;         // .iconButton width
+    private const double TopBarArrowsGroup = 64;        // two history arrows
+    private const double TopBarPillGap = 7;             // arrows -> pill gap (0.4rem)
+    private const double TopBarRightCluster = 80;       // "..." menu + profile avatar
+    private const double TrafficLightInsetMac = 96;     // --mac-traffic-light-inset
+    private const double RailWidthMac = 86;             // --rail-width (collapsed sidebar)
 
-    // Extra inset for the system traffic lights, pushing them in from the top-
-    // left corner past the macOS default so they're not cramped against the edge.
-    private const double TrafficLightPadLeft = 8;
-    private const double TrafficLightPadTop = 8;
+    // Uniform scale applied to the three traffic-light buttons so they read a
+    // touch smaller than the macOS default (a 20% reduction). They're then
+    // centered in the collapsed rail (horizontally) at runtime in
+    // ApplyTrafficLightPadding.
+    private const double TrafficLightScale = 0.8;
+
+    // Downward nudge (points) from the default light position. Kept small so the
+    // lights stay within the native title-bar clip region (they can't reach the
+    // center of the taller top bar).
+    private const double TrafficLightDrop = 8;
 
     private static IntPtr _window;
     private static IntPtr _webView;
@@ -136,6 +151,10 @@ internal static class MacAppWindow
             if (dragClass != IntPtr.Zero)
             {
                 AddMethod(dragClass, "mouseDown:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&DragViewMouseDownImpl, "v@:@");
+                // -hitTest: returns nil over a control column (click falls through
+                // to the WKWebView button) and self elsewhere (drag). Encoding:
+                // id return, self, _cmd, CGPoint by value.
+                AddMethod(dragClass, "hitTest:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, NSPoint, IntPtr>)&DragViewHitTestImpl, "@@:{CGPoint=dd}");
                 objc_registerClassPair(dragClass);
             }
             else
@@ -216,23 +235,59 @@ internal static class MacAppWindow
         IntPtr selButton = SelRegister("standardWindowButton:");
         IntPtr selFrame = SelRegister("frame");
         IntPtr selSetFrame = SelRegister("setFrame:");
+
+        // Read all three button frames up front (and capture defaults once) so we
+        // can center the close..zoom group as a unit.
+        var frames = new NSRect[3];
+        for (long i = 0; i <= 2; i++)
+        {
+            IntPtr b = MsgSend(_window, selButton, (IntPtr)i);
+            if (b == IntPtr.Zero) return;
+            frames[i] = MsgSend_GetRect(b, selFrame);
+            if (!_trafficLightDefaultsCaptured)
+            {
+                _trafficLightBaseOrigin[i * 2] = frames[i].x;
+                _trafficLightBaseOrigin[i * 2 + 1] = frames[i].y;
+            }
+        }
+        _trafficLightDefaultsCaptured = true;
+
+        // Horizontal: shift the whole group so the close-left..zoom-right span is
+        // centered within the collapsed sidebar rail.
+        double groupLeft = _trafficLightBaseOrigin[0];
+        double groupRight = _trafficLightBaseOrigin[4] + frames[2].width;
+        double shiftX = RailWidthMac / 2.0 - (groupLeft + groupRight) / 2.0;
+
+        // Scale each button down via KVC on its backing layer
+        // (layer.transform.scale). KVC takes an NSNumber + key-path string, so it
+        // sidesteps marshaling a CATransform3D / CGAffineTransform struct by
+        // value. transform.scale is absolute, so re-applying on every show is
+        // idempotent (never compounds); it scales about the layer anchorPoint
+        // (center), so the buttons shrink in place.
+        IntPtr scaleNum = MsgSendDouble(ClassGet("NSNumber"), SelRegister("numberWithDouble:"), TrafficLightScale);
+        IntPtr scaleKeyPath = NsString("transform.scale");
+        IntPtr selSetWantsLayer = SelRegister("setWantsLayer:");
+        IntPtr selLayer = SelRegister("layer");
+        IntPtr selSetValueForKeyPath = SelRegister("setValue:forKeyPath:");
+
         for (long i = 0; i <= 2; i++)
         {
             IntPtr button = MsgSend(_window, selButton, (IntPtr)i);
             if (button == IntPtr.Zero) continue;
-            NSRect f = MsgSend_GetRect(button, selFrame);
-            if (!_trafficLightDefaultsCaptured)
-            {
-                _trafficLightBaseOrigin[i * 2] = f.x;
-                _trafficLightBaseOrigin[i * 2 + 1] = f.y;
-            }
-            // x grows rightward; y grows upward, so subtract to move down (the
-            // titlebar sits at the top of the window).
-            f.x = _trafficLightBaseOrigin[i * 2] + TrafficLightPadLeft;
-            f.y = _trafficLightBaseOrigin[i * 2 + 1] - TrafficLightPadTop;
+            NSRect f = frames[i];
+            f.x = _trafficLightBaseOrigin[i * 2] + shiftX;
+            // y grows upward; nudge down a touch from the default. The lights are
+            // clipped to the ~28pt native title bar, so they can't reach the
+            // center of the taller (52pt) top bar - this is the lowest they sit
+            // while staying fully visible.
+            f.y = _trafficLightBaseOrigin[i * 2 + 1] - TrafficLightDrop;
             MsgSend_SetRect(button, selSetFrame, f);
+
+            MsgSendVoidBool(button, selSetWantsLayer, true);
+            IntPtr layer = MsgSend(button, selLayer);
+            if (layer != IntPtr.Zero)
+                MsgSend(layer, selSetValueForKeyPath, scaleNum, scaleKeyPath);
         }
-        _trafficLightDefaultsCaptured = true;
     }
 
     // -mouseDown: for NexusTitlebarDragView: hand the event straight to the
@@ -250,6 +305,57 @@ internal static class MacAppWindow
                 MsgSend(window, SelRegisterPInvoke("performWindowDragWithEvent:"), ev);
         }
         catch { }
+    }
+
+    // -hitTest: for NexusTitlebarDragView. The strip spans the full bar width;
+    // returning nil over a control column lets the click fall through to the
+    // sibling WKWebView (so the button works), while returning self everywhere
+    // else makes that pixel start a window drag. `point` arrives in the strip's
+    // SUPERVIEW (container) coordinates; the strip is at x=0, so point.x is the
+    // x within the bar. Traffic-light clicks never reach here - they live in the
+    // title-bar layer above the content view.
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static IntPtr DragViewHitTestImpl(IntPtr self, IntPtr cmd, NSPoint point)
+    {
+        try
+        {
+            NSRect frame = MsgSend_GetRect(self, SelRegisterPInvoke("frame"));
+            bool inside = point.x >= frame.x && point.x <= frame.x + frame.width
+                       && point.y >= frame.y && point.y <= frame.y + frame.height;
+            if (!inside) return IntPtr.Zero;
+            if (IsTopBarButtonColumn(point.x - frame.x, frame.width))
+                return IntPtr.Zero; // fall through to the WKWebView button
+            return self;            // drag
+        }
+        // On any fault, fall through (nil) rather than capturing the click for a
+        // drag: a non-draggable strip is far less broken than dead top-bar
+        // buttons, since hitTest fires on every event in this band.
+        catch { return IntPtr.Zero; }
+    }
+
+    // True when x (points from the bar's left edge, bar width w) falls in a
+    // control column that must stay clickable: the collapse toggle (left), the
+    // history arrows just left of the centered search pill, or the "..." menu +
+    // profile cluster (right). Mirrors the layout in TopBar.module.scss; a small
+    // margin pads each column so the whole hit-target clears the drag region.
+    private static bool IsTopBarButtonColumn(double x, double w)
+    {
+        const double m = 4; // safety margin around each column
+        double center = w / 2.0;
+
+        // Collapse toggle: bar left pad + macOS traffic-light inset, one button wide.
+        double collapseL = TopBarLeftPad + TrafficLightInsetMac;
+        if (x >= collapseL - m && x <= collapseL + TopBarIconButton + m) return true;
+
+        // History arrows: TopBarArrowsGroup wide, a gap left of the pill's left edge.
+        double pillLeft = center - TopBarSearchPillWidth / 2.0;
+        double arrowsR = pillLeft - TopBarPillGap;
+        if (x >= arrowsR - TopBarArrowsGroup - m && x <= arrowsR + m) return true;
+
+        // Right cluster: against the right edge.
+        if (x >= w - TopBarRightCluster - TopBarRightPad - m && x <= w - TopBarRightPad + m) return true;
+
+        return false;
     }
 
     private static void CreateWindowOnMain()
@@ -341,16 +447,16 @@ internal static class MacAppWindow
         container = MsgSend_InitFrame(container, SelRegister("initWithFrame:"), containerFrame);
         MsgSend(container, SelRegister("addSubview:"), webView);
 
-        // Drag strip: spans the top edge from the left up to the reserved right
-        // gutter (so the top-right nav arrows stay clickable). Non-flipped
-        // coords, so y = height - stripHeight. NSViewWidthSizable (2) |
-        // NSViewMinYMargin (8) = 10 keeps the height + the fixed right gutter and
-        // pins it to the top on resize (only the width flexes).
+        // Drag strip: spans the full window width along the top, full top-bar
+        // height. Its -hitTest: passes clicks through over the control columns
+        // so the whole bar drags except where a button sits. Non-flipped coords,
+        // so y = height - stripHeight. NSViewWidthSizable (2) | NSViewMinYMargin
+        // (8) = 10 keeps it full-width and pinned to the top on resize.
         var stripFrame = new NSRect
         {
             x = 0,
             y = contentRect.height - TitlebarDragStripHeight,
-            width = contentRect.width - TitlebarDragStripRightInset,
+            width = contentRect.width,
             height = TitlebarDragStripHeight,
         };
         IntPtr dragView = MsgSend(ClassGet(DragViewClassName), selAlloc);
@@ -407,9 +513,80 @@ internal static class MacAppWindow
         MsgSend(_webView, SelRegister("loadRequest:"), nsRequest);
     }
 
+    private static bool _mainMenuSet;
+
+    // Build a standard application menu bar (App + Edit) and install it. Console-
+    // style apps ship without a MainMenu.nib, so without this the menu bar is
+    // empty (no About, and no working Cmd+C/V in WKWebView text fields). The app
+    // menu's title is taken from CFBundleName ("Nexus") by AppKit; the item
+    // titles we set explicitly. Built once per process.
+    private static void SetupMainMenuOnMain()
+    {
+        if (_mainMenuSet) return;
+        try
+        {
+            IntPtr nsApp = MsgSend(ClassGet("NSApplication"), SelRegister("sharedApplication"));
+            if (nsApp == IntPtr.Zero) return;
+            IntPtr menuClass = ClassGet("NSMenu");
+            IntPtr itemClass = ClassGet("NSMenuItem");
+            IntPtr alloc = SelRegister("alloc");
+            IntPtr init = SelRegister("init");
+            IntPtr addItem = SelRegister("addItem:");
+            IntPtr setSubmenu = SelRegister("setSubmenu:");
+            IntPtr initItem = SelRegister("initWithTitle:action:keyEquivalent:");
+            IntPtr separator = MsgSend(itemClass, SelRegister("separatorItem"));
+
+            IntPtr initMenuTitle = SelRegister("initWithTitle:");
+
+            IntPtr Item(string title, string sel, string key)
+            {
+                IntPtr it = MsgSend(itemClass, alloc);
+                return MsgSend(it, initItem, NsString(title),
+                    sel == null ? IntPtr.Zero : SelRegister(sel), NsString(key));
+            }
+            // Adds a top-level menu: the bar shows the holder item's title (AppKit
+            // overrides the FIRST one with the bundle name "Nexus").
+            void Submenu(IntPtr parent, string title, IntPtr[] items)
+            {
+                IntPtr holder = Item(title, null, "");
+                MsgSend(parent, addItem, holder);
+                IntPtr sub = MsgSend(MsgSend(menuClass, alloc), initMenuTitle, NsString(title));
+                foreach (var it in items) MsgSend(sub, addItem, it);
+                MsgSend(holder, setSubmenu, sub);
+            }
+
+            IntPtr mainMenu = MsgSend(MsgSend(menuClass, alloc), init);
+
+            // App menu (shown as "Nexus"): About + Quit.
+            Submenu(mainMenu, "Nexus", new[]
+            {
+                Item("About Nexus", "orderFrontStandardAboutPanel:", ""),
+                separator,
+                Item("Quit Nexus", "terminate:", "q"),
+            });
+
+            // Edit menu so standard editing shortcuts work in the web UI.
+            Submenu(mainMenu, "Edit", new[]
+            {
+                Item("Undo", "undo:", "z"),
+                Item("Redo", "redo:", "Z"),
+                MsgSend(itemClass, SelRegister("separatorItem")),
+                Item("Cut", "cut:", "x"),
+                Item("Copy", "copy:", "c"),
+                Item("Paste", "paste:", "v"),
+                Item("Select All", "selectAll:", "a"),
+            });
+
+            MsgSend(nsApp, SelRegister("setMainMenu:"), mainMenu);
+            _mainMenuSet = true;
+        }
+        catch { }
+    }
+
     private static void BringToFrontOnMain()
     {
         if (_window == IntPtr.Zero) return;
+        SetupMainMenuOnMain();
 
         IntPtr classNSApp = ClassGet("NSApplication");
         IntPtr nsApp = MsgSend(classNSApp, SelRegister("sharedApplication"));
@@ -500,6 +677,9 @@ internal static class MacAppWindow
     [StructLayout(LayoutKind.Sequential)]
     private struct NSRect { public double x, y, width, height; }
 
+    [StructLayout(LayoutKind.Sequential)]
+    private struct NSPoint { public double x, y; }
+
     [DllImport(Libobjc, EntryPoint = "sel_registerName")]
     private static extern IntPtr SelRegisterPInvoke([MarshalAs(UnmanagedType.LPStr)] string name);
 
@@ -526,6 +706,16 @@ internal static class MacAppWindow
 
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern IntPtr MsgSend(IntPtr receiver, IntPtr sel, IntPtr arg1);
+
+    [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
+    private static extern IntPtr MsgSend(IntPtr receiver, IntPtr sel, IntPtr arg1, IntPtr arg2);
+
+    [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
+    private static extern IntPtr MsgSend(IntPtr receiver, IntPtr sel, IntPtr arg1, IntPtr arg2, IntPtr arg3);
+
+    // +numberWithDouble: -> takes a double (passed in d0 on arm64).
+    [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
+    private static extern IntPtr MsgSendDouble(IntPtr receiver, IntPtr sel, double arg1);
 
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern void MsgSendVoidBool(IntPtr receiver, IntPtr sel, [MarshalAs(UnmanagedType.I1)] bool arg1);
