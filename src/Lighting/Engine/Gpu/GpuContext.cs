@@ -25,10 +25,13 @@ public sealed class GpuContext : IDisposable
     private readonly int _height;
     // Windows path: GLFW hidden window owns the context.
     private IWindow? _window;
+#if MACOS
     // macOS path: CGL context pointer, no window.
     private IntPtr _cglCtx;
+#elif LINUX
     // Linux path: headless EGL device context, no window (works under the root daemon).
     private bool _eglUsed;
+#endif
     private GL? _gl;
     private uint _fbo;
     private uint _fboTex;
@@ -185,53 +188,48 @@ public sealed class GpuContext : IDisposable
 
     private void InitInternal()
     {
-        if (OperatingSystem.IsMacOS())
+#if MACOS
+        // macOS: skip GLFW / NSWindow entirely and create a headless GL 4.1
+        // core context via CGL. Works from any thread, no AppKit needed.
+        Log("[gpu] macOS: CGL create core context");
+        _cglCtx = MacGlContext.CreateAndMakeCurrent();
+        _gl = GL.GetApi(new CglNativeContext());
+#elif LINUX
+        // Linux: headless EGL on the GPU device platform — no X/Wayland, no
+        // window. GLFW needs a display and crashes creating an nvidia GL
+        // context as root on the user's XWayland, so the root daemon can't
+        // use it; EGL device-platform is windowless like macOS's CGL.
+        Log("[gpu] Linux: EGL device-platform headless context");
+        LinuxEglContext.CreateAndMakeCurrent();
+        _eglUsed = true;
+        _gl = GL.GetApi(new EglNativeContext());
+#else
+        // Windows: hidden GLFW window owns the context.
+        Log("[gpu] Register GLFW platform");
+        // Silk.NET normally registers the GLFW backend via module initializer,
+        // but AOT strips that path - we have to register it explicitly or
+        // Window.Create fails with "no suitable window platform".
+        Silk.NET.Windowing.Glfw.GlfwWindowing.Use();
+        var opts = WindowOptions.Default with
         {
-            // macOS: skip GLFW / NSWindow entirely and create a headless GL 4.1
-            // core context via CGL. Works from any thread, no AppKit needed.
-            Log("[gpu] macOS: CGL create core context");
-            _cglCtx = MacGlContext.CreateAndMakeCurrent();
-            _gl = GL.GetApi(new CglNativeContext());
-        }
-        else if (OperatingSystem.IsLinux())
-        {
-            // Linux: headless EGL on the GPU device platform — no X/Wayland, no
-            // window. GLFW needs a display and crashes creating an nvidia GL
-            // context as root on the user's XWayland, so the root daemon can't
-            // use it; EGL device-platform is windowless like macOS's CGL.
-            Log("[gpu] Linux: EGL device-platform headless context");
-            LinuxEglContext.CreateAndMakeCurrent();
-            _eglUsed = true;
-            _gl = GL.GetApi(new EglNativeContext());
-        }
-        else
-        {
-            // Windows: hidden GLFW window owns the context.
-            Log("[gpu] Register GLFW platform");
-            // Silk.NET normally registers the GLFW backend via module initializer,
-            // but AOT strips that path - we have to register it explicitly or
-            // Window.Create fails with "no suitable window platform".
-            Silk.NET.Windowing.Glfw.GlfwWindowing.Use();
-            var opts = WindowOptions.Default with
-            {
-                IsVisible = false,
-                ShouldSwapAutomatically = false,
-                VSync = false,
-                Size = new Vector2D<int>(_width, _height),
-                Title = "nexus-gpu",
-                API = new GraphicsAPI(
-                    ContextAPI.OpenGL,
-                    ContextProfile.Core,
-                    ContextFlags.Default,
-                    new APIVersion(3, 3)),
-            };
-            Log("[gpu] Window.Create");
-            _window = Window.Create(opts);
-            Log("[gpu] window.Initialize");
-            _window.Initialize();
-            Log("[gpu] CreateOpenGL");
-            _gl = _window.CreateOpenGL();
-        }
+            IsVisible = false,
+            ShouldSwapAutomatically = false,
+            VSync = false,
+            Size = new Vector2D<int>(_width, _height),
+            Title = "nexus-gpu",
+            API = new GraphicsAPI(
+                ContextAPI.OpenGL,
+                ContextProfile.Core,
+                ContextFlags.Default,
+                new APIVersion(3, 3)),
+        };
+        Log("[gpu] Window.Create");
+        _window = Window.Create(opts);
+        Log("[gpu] window.Initialize");
+        _window.Initialize();
+        Log("[gpu] CreateOpenGL");
+        _gl = _window.CreateOpenGL();
+#endif
         Log("[gpu] GL ready");
 
         _fboTex = _gl.GenTexture();
@@ -313,16 +311,19 @@ public sealed class GpuContext : IDisposable
         try
         { _window?.Dispose(); }
         catch { }
+#if MACOS
         if (joined && _cglCtx != IntPtr.Zero)
         {
             MacGlContext.Destroy(_cglCtx);
             _cglCtx = IntPtr.Zero;
         }
+#elif LINUX
         if (joined && _eglUsed)
         {
             LinuxEglContext.Destroy();
             _eglUsed = false;
         }
+#endif
         // Dispose the per-thread MREs we created along the way.
         if (_invokeDone.Values is { } values)
         {

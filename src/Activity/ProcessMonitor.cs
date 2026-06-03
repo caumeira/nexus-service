@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Sockets;
@@ -46,10 +45,11 @@ public sealed class ProcessMonitor : BackgroundService
             {
                 if (HasSubscribers)
                 {
-                    if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-                        SampleMacOs();
-                    else
-                        SampleWindows();
+#if MACOS
+                    SampleMacOs();
+#else
+                    SampleWindows();
+#endif
                 }
             }
             catch (Exception ex)
@@ -63,6 +63,7 @@ public sealed class ProcessMonitor : BackgroundService
         }
     }
 
+#if MACOS
     /// <summary>
     /// macOS: proc_pidinfo gives per-process CPU time and RSS via direct
     /// kernel syscalls — no subprocess spawn. Delta-based CPU% normalized
@@ -160,6 +161,7 @@ public sealed class ProcessMonitor : BackgroundService
         });
         _latest = sorted;
     }
+#endif
 
     /// <summary>
     /// Windows: Process.TotalProcessorTime works reliably via perf counters.

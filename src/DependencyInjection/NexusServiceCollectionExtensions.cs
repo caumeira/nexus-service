@@ -1,4 +1,3 @@
-using System.Runtime.InteropServices;
 using Nexus.Service.Activity;
 using Nexus.Service.Auth;
 using Nexus.Service.Cooling;
@@ -66,11 +65,12 @@ public static class NexusServiceCollectionExtensions
     {
 #if WINDOWS
         services.AddSingleton<ISensorProvider, LibreHardwareSensorProvider>();
+#elif MACOS
+        services.AddSingleton<ISensorProvider, MacSensorProvider>();
+#elif LINUX
+        services.AddSingleton<ISensorProvider, LinuxSensorProvider>();
 #else
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            services.AddSingleton<ISensorProvider, LinuxSensorProvider>();
-        else
-            services.AddSingleton<ISensorProvider, MacSensorProvider>();
+#error No ISensorProvider for this target — wire one when adding a platform.
 #endif
         services.AddSingleton<ProcessMonitor>();
         services.AddHostedService(sp => sp.GetRequiredService<ProcessMonitor>());
@@ -110,47 +110,40 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
+#elif MACOS
+        services.AddSingleton<MacFanControlProvider>();
+        services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
+            sp.GetRequiredService<MacFanControlProvider>(),
+            sp.GetRequiredService<Np50CoolingProvider>(),
+            sp.GetRequiredService<MiniHubCoolingProvider>(),
+            new CompositeFanControlProvider.FanSource(
+                SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
+        services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
+#elif LINUX
+        // hwmon (motherboard + AMD GPU via amdgpu) + liquidctl USB coolers
+        // + NVIDIA GPU fans, layered onto the same composite the routes see.
+        services.AddSingleton<LinuxFanControlProvider>();
+        services.AddSingleton<LinuxLiquidctlProvider>();
+        services.AddSingleton<LinuxNvidiaFanProvider>();
+        services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
+            sp.GetRequiredService<LinuxFanControlProvider>(),
+            sp.GetRequiredService<Np50CoolingProvider>(),
+            sp.GetRequiredService<MiniHubCoolingProvider>(),
+            new CompositeFanControlProvider.FanSource(
+                SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                LinuxLiquidctlProvider.IsLiquidctlId, sp.GetRequiredService<LinuxLiquidctlProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                LinuxNvidiaFanProvider.IsNvidiaId, sp.GetRequiredService<LinuxNvidiaFanProvider>())));
+        services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #else
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            services.AddSingleton<MacFanControlProvider>();
-            services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
-                sp.GetRequiredService<MacFanControlProvider>(),
-                sp.GetRequiredService<Np50CoolingProvider>(),
-                sp.GetRequiredService<MiniHubCoolingProvider>(),
-                new CompositeFanControlProvider.FanSource(
-                    SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
-            services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
-        }
-        else if (OperatingSystem.IsLinux())
-        {
-            // hwmon (motherboard + AMD GPU via amdgpu) + liquidctl USB coolers
-            // + NVIDIA GPU fans, layered onto the same composite the routes see.
-            services.AddSingleton<LinuxFanControlProvider>();
-            services.AddSingleton<LinuxLiquidctlProvider>();
-            services.AddSingleton<LinuxNvidiaFanProvider>();
-            services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
-                sp.GetRequiredService<LinuxFanControlProvider>(),
-                sp.GetRequiredService<Np50CoolingProvider>(),
-                sp.GetRequiredService<MiniHubCoolingProvider>(),
-                new CompositeFanControlProvider.FanSource(
-                    SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
-                new CompositeFanControlProvider.FanSource(
-                    LinuxLiquidctlProvider.IsLiquidctlId, sp.GetRequiredService<LinuxLiquidctlProvider>()),
-                new CompositeFanControlProvider.FanSource(
-                    LinuxNvidiaFanProvider.IsNvidiaId, sp.GetRequiredService<LinuxNvidiaFanProvider>())));
-            services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
-        }
-        else
-        {
-            services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
-                sp.GetRequiredService<StubCoolingProvider>(),
-                sp.GetRequiredService<Np50CoolingProvider>(),
-                sp.GetRequiredService<MiniHubCoolingProvider>(),
-                new CompositeFanControlProvider.FanSource(
-                    SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
-            services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
-        }
+        services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
+            sp.GetRequiredService<StubCoolingProvider>(),
+            sp.GetRequiredService<Np50CoolingProvider>(),
+            sp.GetRequiredService<MiniHubCoolingProvider>(),
+            new CompositeFanControlProvider.FanSource(
+                SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
+        services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #endif
         services.AddSingleton<Np50CoolingProvider>();
         services.AddSingleton<MiniHubCoolingProvider>();
@@ -200,17 +193,12 @@ public static class NexusServiceCollectionExtensions
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.ICnvsPortDiscovery,
                               Nexus.Service.Peripherals.Hyte.Cnvs.WindowsCnvsPortDiscovery>();
+#elif LINUX
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.ICnvsPortDiscovery,
+                              Nexus.Service.Peripherals.Hyte.Cnvs.LinuxCnvsPortDiscovery>();
 #else
-        if (OperatingSystem.IsLinux())
-        {
-            services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.ICnvsPortDiscovery,
-                                  Nexus.Service.Peripherals.Hyte.Cnvs.LinuxCnvsPortDiscovery>();
-        }
-        else
-        {
-            services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.ICnvsPortDiscovery,
-                                  Nexus.Service.Peripherals.Hyte.Cnvs.StubCnvsPortDiscovery>();
-        }
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.ICnvsPortDiscovery,
+                              Nexus.Service.Peripherals.Hyte.Cnvs.StubCnvsPortDiscovery>();
 #endif
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Cnvs.CnvsHub>();
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Cnvs.CnvsConnectionWorker>();
@@ -354,17 +342,12 @@ public static class NexusServiceCollectionExtensions
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery,
                               Nexus.Service.Peripherals.Hyte.Np50.WindowsNp50PortDiscovery>();
+#elif LINUX
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery,
+                              Nexus.Service.Peripherals.Hyte.Np50.LinuxNp50PortDiscovery>();
 #else
-        if (OperatingSystem.IsLinux())
-        {
-            services.AddSingleton<Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery,
-                                  Nexus.Service.Peripherals.Hyte.Np50.LinuxNp50PortDiscovery>();
-        }
-        else
-        {
-            services.AddSingleton<Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery,
-                                  Nexus.Service.Peripherals.Hyte.Np50.StubNp50PortDiscovery>();
-        }
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery,
+                              Nexus.Service.Peripherals.Hyte.Np50.StubNp50PortDiscovery>();
 #endif
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Np50.Np50Hub>(sp =>
             new Nexus.Service.Peripherals.Hyte.Np50.Np50Hub(
@@ -384,10 +367,10 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery discovery;
 #if WINDOWS
             discovery = new Nexus.Service.Peripherals.Hyte.MiniHub.WindowsMiniHubPortDiscovery();
+#elif LINUX
+            discovery = new Nexus.Service.Peripherals.Hyte.MiniHub.LinuxMiniHubPortDiscovery();
 #else
-            discovery = OperatingSystem.IsLinux()
-                ? new Nexus.Service.Peripherals.Hyte.MiniHub.LinuxMiniHubPortDiscovery()
-                : new Nexus.Service.Peripherals.Hyte.MiniHub.StubMiniHubPortDiscovery();
+            discovery = new Nexus.Service.Peripherals.Hyte.MiniHub.StubMiniHubPortDiscovery();
 #endif
             return new Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubHub(
                 discovery,
@@ -406,10 +389,10 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Peripherals.Hyte.Np50.INp50PortDiscovery discovery;
 #if WINDOWS
             discovery = new Nexus.Service.Peripherals.Hyte.SmartHub.WindowsSmartHubPortDiscovery();
+#elif LINUX
+            discovery = new Nexus.Service.Peripherals.Hyte.SmartHub.LinuxSmartHubPortDiscovery();
 #else
-            discovery = OperatingSystem.IsLinux()
-                ? new Nexus.Service.Peripherals.Hyte.SmartHub.LinuxSmartHubPortDiscovery()
-                : new Nexus.Service.Peripherals.Hyte.SmartHub.StubSmartHubPortDiscovery();
+            discovery = new Nexus.Service.Peripherals.Hyte.SmartHub.StubSmartHubPortDiscovery();
 #endif
             return new Nexus.Service.Peripherals.Hyte.SmartHub.SmartHubHub(
                 discovery,
@@ -428,10 +411,10 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Peripherals.Hyte.QSeriesCooler.IQSeriesCoolerPortDiscovery discovery;
 #if WINDOWS
             discovery = new Nexus.Service.Peripherals.Hyte.QSeriesCooler.WindowsQSeriesCoolerPortDiscovery();
+#elif LINUX
+            discovery = new Nexus.Service.Peripherals.Hyte.QSeriesCooler.LinuxQSeriesCoolerPortDiscovery();
 #else
-            discovery = OperatingSystem.IsLinux()
-                ? new Nexus.Service.Peripherals.Hyte.QSeriesCooler.LinuxQSeriesCoolerPortDiscovery()
-                : new Nexus.Service.Peripherals.Hyte.QSeriesCooler.StubQSeriesCoolerPortDiscovery();
+            discovery = new Nexus.Service.Peripherals.Hyte.QSeriesCooler.StubQSeriesCoolerPortDiscovery();
 #endif
             return new Nexus.Service.Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHub(
                 discovery,
@@ -449,10 +432,10 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Peripherals.Hyte.Y70Display.IY70DisplayPortDiscovery discovery;
 #if WINDOWS
             discovery = new Nexus.Service.Peripherals.Hyte.Y70Display.WindowsY70DisplayPortDiscovery();
+#elif LINUX
+            discovery = new Nexus.Service.Peripherals.Hyte.Y70Display.LinuxY70DisplayPortDiscovery();
 #else
-            discovery = OperatingSystem.IsLinux()
-                ? new Nexus.Service.Peripherals.Hyte.Y70Display.LinuxY70DisplayPortDiscovery()
-                : new Nexus.Service.Peripherals.Hyte.Y70Display.StubY70DisplayPortDiscovery();
+            discovery = new Nexus.Service.Peripherals.Hyte.Y70Display.StubY70DisplayPortDiscovery();
 #endif
             return new Nexus.Service.Peripherals.Hyte.Y70Display.Y70DisplayHub(
                 discovery,
@@ -467,28 +450,21 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>
             new Nexus.Service.Devices.Detection.CachingUsbEnumerator(
                 sp.GetRequiredService<Nexus.Service.Devices.Detection.WindowsUsbEnumerator>()));
+#elif MACOS
+        services.AddSingleton<Nexus.Service.Devices.Detection.MacUsbEnumerator>();
+        services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>
+            new Nexus.Service.Devices.Detection.CachingUsbEnumerator(
+                sp.GetRequiredService<Nexus.Service.Devices.Detection.MacUsbEnumerator>()));
+#elif LINUX
+        services.AddSingleton<Nexus.Service.Devices.Detection.LinuxUsbEnumerator>();
+        services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>
+            new Nexus.Service.Devices.Detection.CachingUsbEnumerator(
+                sp.GetRequiredService<Nexus.Service.Devices.Detection.LinuxUsbEnumerator>()));
 #else
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            services.AddSingleton<Nexus.Service.Devices.Detection.MacUsbEnumerator>();
-            services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>
-                new Nexus.Service.Devices.Detection.CachingUsbEnumerator(
-                    sp.GetRequiredService<Nexus.Service.Devices.Detection.MacUsbEnumerator>()));
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            services.AddSingleton<Nexus.Service.Devices.Detection.LinuxUsbEnumerator>();
-            services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>
-                new Nexus.Service.Devices.Detection.CachingUsbEnumerator(
-                    sp.GetRequiredService<Nexus.Service.Devices.Detection.LinuxUsbEnumerator>()));
-        }
-        else
-        {
-            services.AddSingleton<Nexus.Service.Devices.Detection.StubUsbEnumerator>();
-            services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>
-                new Nexus.Service.Devices.Detection.CachingUsbEnumerator(
-                    sp.GetRequiredService<Nexus.Service.Devices.Detection.StubUsbEnumerator>()));
-        }
+        services.AddSingleton<Nexus.Service.Devices.Detection.StubUsbEnumerator>();
+        services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>
+            new Nexus.Service.Devices.Detection.CachingUsbEnumerator(
+                sp.GetRequiredService<Nexus.Service.Devices.Detection.StubUsbEnumerator>()));
 #endif
         services.AddSingleton<DeviceManager>();
         services.AddSingleton<Nexus.Service.Devices.DeviceBroadcaster>();
@@ -500,15 +476,10 @@ public static class NexusServiceCollectionExtensions
     {
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.WindowsHidEnumerator>();
+#elif LINUX
+        services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.LinuxHidEnumerator>();
 #else
-        if (OperatingSystem.IsLinux())
-        {
-            services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.LinuxHidEnumerator>();
-        }
-        else
-        {
-            services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.StubHidEnumerator>();
-        }
+        services.AddSingleton<Nexus.Service.Peripherals.Hid.IHidEnumerator, Nexus.Service.Peripherals.Hid.StubHidEnumerator>();
 #endif
         services.AddSingleton<Nexus.Service.Peripherals.PeripheralRegistry>();
 
@@ -519,15 +490,10 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IKeebProvider>(sp => sp.GetRequiredService<RealKeebProvider>());
 #if WINDOWS
         services.AddSingleton<IInputterProvider, WindowsInputter>();
+#elif LINUX
+        services.AddSingleton<IInputterProvider, LinuxInputter>();
 #else
-        if (OperatingSystem.IsLinux())
-        {
-            services.AddSingleton<IInputterProvider, LinuxInputter>();
-        }
-        else
-        {
-            services.AddSingleton<IInputterProvider>(sp => sp.GetRequiredService<StubKeebProvider>());
-        }
+        services.AddSingleton<IInputterProvider>(sp => sp.GetRequiredService<StubKeebProvider>());
 #endif
 
         // Real Y70 control (serial brightness/power + DDC/CI fallback). Degrades
@@ -555,29 +521,25 @@ public static class NexusServiceCollectionExtensions
         // and pushes canvas-resolution RGB24 over the pipe.
         services.AddSingleton<Nexus.Service.Lighting.Capture.IScreenFrameSource,
             Nexus.Service.Lighting.Capture.HelperScreenFrameSource>();
+#elif MACOS
+        services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
+            Nexus.Service.Platform.Displays.MacDisplayBrightnessProvider>();
+#elif LINUX
+        services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
+            Nexus.Service.Platform.Displays.LinuxDisplayBrightnessProvider>();
+        // Screen-mirror frames come from the xdg-desktop-portal ScreenCast
+        // portal (PipeWire), consumed by a gst-launch reader. The portal
+        // handshake rides the session D-Bus connection (AddNexusLinuxDBus);
+        // without this binding the effect's IScreenFrameSource stays null and
+        // screen-mirror renders nothing on Linux.
+        services.AddSingleton<Nexus.Service.Lighting.Capture.IScreenFrameSource,
+            Nexus.Service.Lighting.Capture.LinuxScreenFrameSource>();
 #else
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
-                Nexus.Service.Platform.Displays.MacDisplayBrightnessProvider>();
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
-                Nexus.Service.Platform.Displays.LinuxDisplayBrightnessProvider>();
-            // Screen-mirror frames come from the xdg-desktop-portal ScreenCast
-            // portal (PipeWire), consumed by a gst-launch reader. The portal
-            // handshake rides the session D-Bus connection (AddNexusLinuxDBus);
-            // without this binding the effect's IScreenFrameSource stays null and
-            // screen-mirror renders nothing on Linux.
-            services.AddSingleton<Nexus.Service.Lighting.Capture.IScreenFrameSource,
-                Nexus.Service.Lighting.Capture.LinuxScreenFrameSource>();
-        }
-        else
-        {
-            services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
-                Nexus.Service.Platform.Displays.StubDisplayBrightnessProvider>();
-        }
+        services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
+            Nexus.Service.Platform.Displays.StubDisplayBrightnessProvider>();
+#endif
+#if !WINDOWS
+        // Non-Windows monitor enumeration + display orientation are platform-agnostic.
         services.AddSingleton<Nexus.Service.Platform.IMonitorEnumerator,
             Nexus.Service.Platform.DefaultMonitorEnumerator>();
         services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayOrientationProvider,
@@ -609,79 +571,64 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IMediaProvider, WindowsMediaProvider>();
         services.AddSingleton<IVolumeProvider, WindowsVolumeProvider>();
         services.AddSingleton<IBeatsProvider, WasapiLoopbackBeatsProvider>();
+#elif MACOS
+        services.AddSingleton<IScreenTimeProvider, MacScreenTimeProvider>();
+        services.AddSingleton<IAppDetectionProvider, MacAppDetectionProvider>();
+        services.AddSingleton<IShortcutsProvider, MacShortcutsProvider>();
+        services.AddSingleton<IMediaProvider, MacMediaProvider>();
+        services.AddSingleton<IVolumeProvider, MacVolumeProvider>();
+        services.AddSingleton<IBeatsProvider, MacAudioBeatsProvider>();
+#elif LINUX
+        services.AddSingleton<Nexus.Service.Activity.LinuxScreenTimeProvider>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Activity.LinuxScreenTimeProvider>());
+        services.AddSingleton<IScreenTimeProvider>(sp => sp.GetRequiredService<Nexus.Service.Activity.LinuxScreenTimeProvider>());
+        services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
+        services.AddSingleton<IShortcutsProvider, LinuxShortcutsProvider>();
+        services.AddSingleton<IMediaProvider, LinuxMediaProvider>();
+        services.AddSingleton<IVolumeProvider, LinuxVolumeProvider>();
+        services.AddSingleton<IBeatsProvider, BeatsProvider>();
 #else
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            services.AddSingleton<IScreenTimeProvider, MacScreenTimeProvider>();
-            services.AddSingleton<IAppDetectionProvider, MacAppDetectionProvider>();
-            services.AddSingleton<IShortcutsProvider, MacShortcutsProvider>();
-            services.AddSingleton<IMediaProvider, MacMediaProvider>();
-            services.AddSingleton<IVolumeProvider, MacVolumeProvider>();
-            services.AddSingleton<IBeatsProvider, MacAudioBeatsProvider>();
-        }
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            services.AddSingleton<Nexus.Service.Activity.LinuxScreenTimeProvider>();
-            services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Activity.LinuxScreenTimeProvider>());
-            services.AddSingleton<IScreenTimeProvider>(sp => sp.GetRequiredService<Nexus.Service.Activity.LinuxScreenTimeProvider>());
-            services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
-            services.AddSingleton<IShortcutsProvider, LinuxShortcutsProvider>();
-            services.AddSingleton<IMediaProvider, LinuxMediaProvider>();
-            services.AddSingleton<IVolumeProvider, LinuxVolumeProvider>();
-            services.AddSingleton<IBeatsProvider, BeatsProvider>();
-        }
-        else
-        {
-            services.AddSingleton<IScreenTimeProvider, StubScreenTimeProvider>();
-            services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
-            services.AddSingleton<IShortcutsProvider, StubShortcutsProvider>();
-            services.AddSingleton<IMediaProvider, StubMediaProvider>();
-            services.AddSingleton<IVolumeProvider, StubVolumeProvider>();
-            services.AddSingleton<IBeatsProvider, StubBeatsProvider>();
-        }
+        services.AddSingleton<IScreenTimeProvider, StubScreenTimeProvider>();
+        services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
+        services.AddSingleton<IShortcutsProvider, StubShortcutsProvider>();
+        services.AddSingleton<IMediaProvider, StubMediaProvider>();
+        services.AddSingleton<IVolumeProvider, StubVolumeProvider>();
+        services.AddSingleton<IBeatsProvider, StubBeatsProvider>();
 #endif
         return services;
     }
 
     public static IServiceCollection AddNexusNetwork(this IServiceCollection services)
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            services.AddSingleton<MacNetworkProvider>();
-            services.AddHostedService(sp => sp.GetRequiredService<MacNetworkProvider>());
-            services.AddSingleton<INetworkProvider>(sp => sp.GetRequiredService<MacNetworkProvider>());
-        }
 #if WINDOWS
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            services.AddSingleton<WindowsNetworkProvider>();
-            services.AddHostedService(sp => sp.GetRequiredService<WindowsNetworkProvider>());
-            services.AddSingleton<INetworkProvider>(sp => sp.GetRequiredService<WindowsNetworkProvider>());
-        }
+        services.AddSingleton<WindowsNetworkProvider>();
+        services.AddHostedService(sp => sp.GetRequiredService<WindowsNetworkProvider>());
+        services.AddSingleton<INetworkProvider>(sp => sp.GetRequiredService<WindowsNetworkProvider>());
+#elif MACOS
+        services.AddSingleton<MacNetworkProvider>();
+        services.AddHostedService(sp => sp.GetRequiredService<MacNetworkProvider>());
+        services.AddSingleton<INetworkProvider>(sp => sp.GetRequiredService<MacNetworkProvider>());
+#elif LINUX
+        services.AddSingleton<LinuxNetworkProvider>();
+        services.AddHostedService(sp => sp.GetRequiredService<LinuxNetworkProvider>());
+        services.AddSingleton<INetworkProvider>(sp => sp.GetRequiredService<LinuxNetworkProvider>());
+#else
+        services.AddSingleton<INetworkProvider, StubNetworkProvider>();
 #endif
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            services.AddSingleton<LinuxNetworkProvider>();
-            services.AddHostedService(sp => sp.GetRequiredService<LinuxNetworkProvider>());
-            services.AddSingleton<INetworkProvider>(sp => sp.GetRequiredService<LinuxNetworkProvider>());
-        }
-        else
-        {
-            services.AddSingleton<INetworkProvider, StubNetworkProvider>();
-        }
         return services;
     }
 
     public static IServiceCollection AddNexusLifecycle(this IServiceCollection services)
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            services.AddSingleton<IStartupProvider, MacStartupProvider>();
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            services.AddSingleton<IStartupProvider, WindowsStartupProvider>();
-        else if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            services.AddSingleton<IStartupProvider, LinuxStartupProvider>();
-        else
-            services.AddSingleton<IStartupProvider, StubStartupProvider>();
+#if WINDOWS
+        services.AddSingleton<IStartupProvider, WindowsStartupProvider>();
+#elif MACOS
+        services.AddSingleton<IStartupProvider, MacStartupProvider>();
+#elif LINUX
+        services.AddSingleton<IStartupProvider, LinuxStartupProvider>();
+#else
+        services.AddSingleton<IStartupProvider, StubStartupProvider>();
+#endif
 
         services.AddSingleton<IShutdownProvider, StubShutdownProvider>();
 #if WINDOWS
@@ -758,20 +705,15 @@ public static class NexusServiceCollectionExtensions
         // sidecar nexus-overlay-helper (transparent NSWindow + WKWebView
         // per NSScreen). Windows spawns nexus-overlay.exe (WinForms +
         // WebView2). Linux is a no-op until an X11/Wayland surface is added.
-        if (OperatingSystem.IsMacOS())
-        {
-            Nexus.Service.Platform.Mac.MacOverlayHostLauncher.Configure(servicePort);
-            services.AddSingleton<Nexus.Service.Panel.IOverlayHost, Nexus.Service.Platform.Mac.MacOverlayHostLauncher>();
-        }
-        else if (OperatingSystem.IsWindows())
-        {
-            services.AddSingleton<Nexus.Service.Panel.IOverlayHost>(sp =>
-                sp.GetRequiredService<Nexus.Service.Panel.PanelOverlayHostLauncher>());
-        }
-        else
-        {
-            services.AddSingleton<Nexus.Service.Panel.IOverlayHost, Nexus.Service.Panel.NoopOverlayHost>();
-        }
+#if MACOS
+        Nexus.Service.Platform.Mac.MacOverlayHostLauncher.Configure(servicePort);
+        services.AddSingleton<Nexus.Service.Panel.IOverlayHost, Nexus.Service.Platform.Mac.MacOverlayHostLauncher>();
+#elif WINDOWS
+        services.AddSingleton<Nexus.Service.Panel.IOverlayHost>(sp =>
+            sp.GetRequiredService<Nexus.Service.Panel.PanelOverlayHostLauncher>());
+#else
+        services.AddSingleton<Nexus.Service.Panel.IOverlayHost, Nexus.Service.Panel.NoopOverlayHost>();
+#endif
         services.AddSingleton<Nexus.Service.Panel.PanelPhonePairingService>();
         services.AddSingleton<Nexus.Service.Panel.PanelDeviceRegistry>();
 
@@ -791,11 +733,10 @@ public static class NexusServiceCollectionExtensions
 
     public static IServiceCollection AddNexusLinuxDBus(this IServiceCollection services)
     {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            services.AddSingleton<Nexus.Service.Platform.Linux.DBus.DBusConnection>();
-            services.AddHostedService<Nexus.Service.Platform.Linux.LinuxTrayService>();
-        }
+#if LINUX
+        services.AddSingleton<Nexus.Service.Platform.Linux.DBus.DBusConnection>();
+        services.AddHostedService<Nexus.Service.Platform.Linux.LinuxTrayService>();
+#endif
         return services;
     }
 

@@ -1,28 +1,21 @@
-using System.Runtime.InteropServices;
-using Nexus.Service.Platform.Linux;
-using Nexus.Service.Platform.Mac;
-
 namespace Nexus.Service.Platform;
 
 /// <summary>
 /// Non-Windows IPerformanceProvider factory. Windows is registered via DI
 /// directly in Program.cs because its impl needs the shared LhmComputer;
 /// macOS and Linux are dependency-free so a plain static factory is fine.
+/// The target OS is fixed per published RID, so the impl is a compile-time
+/// pick — the other platform's provider file isn't compiled into the binary.
 /// </summary>
 public static class PerformanceProviderFactory
 {
-    public static IPerformanceProvider Create()
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            return new MacPerformanceProvider();
-        }
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-        {
-            return new LinuxPerformanceProvider();
-        }
-        // Fallback: the Linux impl (no-op on non-Linux; the /proc reads fail
-        // silently and return null). Windows takes the DI branch in Program.cs.
-        return new LinuxPerformanceProvider();
-    }
+    public static IPerformanceProvider Create() =>
+#if MACOS
+        new Mac.MacPerformanceProvider();
+#elif LINUX
+        new Linux.LinuxPerformanceProvider();
+#else
+        throw new System.PlatformNotSupportedException(
+            "PerformanceProviderFactory is macOS/Linux only; Windows uses DI.");
+#endif
 }

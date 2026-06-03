@@ -81,11 +81,8 @@ internal static class ServiceControlRoutes
             // active console session (same schtasks hop the helper bootstrap
             // uses).
             Nexus.Service.Lifecycle.UserHelperBootstrapper.LaunchOpenApp();
-#else
-            if (OperatingSystem.IsMacOS())
-            {
-                Nexus.Service.Platform.Mac.MacAppWindow.OpenOrFocus(Nexus.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
-            }
+#elif MACOS
+            Nexus.Service.Platform.Mac.MacAppWindow.OpenOrFocus(Nexus.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
 #endif
             return Results.Ok(ApiResponse.Ok());
         }).LocalhostOnly();

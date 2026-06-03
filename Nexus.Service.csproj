@@ -33,6 +33,31 @@
        Supports both native builds (IsOSPlatform) and cross-compilation (RID starts with 'win'). -->
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))">
     <DefineConstants>$(DefineConstants);WINDOWS</DefineConstants>
+    <!-- The Web SDK auto-includes the entire Bundled/ tree as Content, which
+         dragged macOS/Linux artifacts (Bundled/macos, Bundled/osx-arm64, …)
+         into the Windows publish output and from there into Nexus-Setup.exe.
+         Exclude Bundled from the default item globs on Windows; the explicit
+         per-RID <Content Include="Bundled\win-x64\…"> items below still ship
+         exactly the win-x64 set (openrgb, dfu-util, dfu-driver, ffmpeg,
+         pawnio), relocated via their <Link>. macOS/Linux builds are
+         unaffected. -->
+    <DefaultItemExcludes>$(DefaultItemExcludes);Bundled\**</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <!-- macOS / Linux: define MACOS / LINUX so platform provider selection is a
+       compile-time choice, not a runtime if(). Each platform build then only
+       references its own concrete providers, which lets the per-platform
+       <Compile Remove> groups below drop the other platforms' files entirely
+       (otherwise the cross-platform binary carries dead Linux+Mac native code).
+       RID-keyed first so cross-compiling from any host picks the right set. -->
+  <!-- RID wins when set (so cross-compiling win-x64 from a Mac host does NOT
+       also define MACOS); host OS is only the fallback for a RID-less dev/test
+       build. Exactly one of WINDOWS/MACOS/LINUX is ever defined. -->
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('osx')) OR ('$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('OSX')))">
+    <DefineConstants>$(DefineConstants);MACOS</DefineConstants>
+  </PropertyGroup>
+  <PropertyGroup Condition="$(RuntimeIdentifier.StartsWith('linux')) OR ('$(RuntimeIdentifier)' == '' AND $([MSBuild]::IsOSPlatform('Linux')))">
+    <DefineConstants>$(DefineConstants);LINUX</DefineConstants>
   </PropertyGroup>
 
   <!-- DEV_TOOLS: internal/test builds only. Publish with -p:DevTools=true to
@@ -431,6 +456,77 @@
     <Compile Remove="src/Platform/Displays/WindowsDisplayBrightnessProvider.cs" />
     <Compile Remove="src/Activity/WasapiLoopbackBeatsProvider.cs" />
     <Compile Remove="src/Activity/WindowsShortcutsProvider.cs" />
+  </ItemGroup>
+
+  <!-- Foreign-platform providers are dropped from a published single-RID binary
+       so the AOT exe doesn't carry the other OSes' provider code (the LINUX set
+       alone is ~7k lines). Gated on a concrete RID being set, NOT on the host
+       OS: a plain `dotnet build` / `dotnet test` (no RID) keeps every platform's
+       files compiled so the hardware-free cross-platform unit tests, which
+       reference these types directly, still build on any host. `dotnet publish`
+       always sets -r, so release binaries are pruned. The DI / selector sites
+       are #if WINDOWS / MACOS / LINUX so the surviving arm references only the
+       target platform's types. -->
+  <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND !$(RuntimeIdentifier.StartsWith('osx'))">
+    <Compile Remove="src/Activity/MacAppDetectionProvider.cs" />
+    <Compile Remove="src/Activity/MacAudioBeatsProvider.cs" />
+    <Compile Remove="src/Activity/MacMediaProvider.cs" />
+    <Compile Remove="src/Activity/MacNetworkProvider.cs" />
+    <Compile Remove="src/Activity/MacScreenTimeProvider.cs" />
+    <Compile Remove="src/Activity/MacShortcutsProvider.cs" />
+    <Compile Remove="src/Activity/MacVolumeProvider.cs" />
+    <Compile Remove="src/Cooling/MacFanControlProvider.cs" />
+    <Compile Remove="src/Devices/Detection/MacUsbEnumerator.cs" />
+    <Compile Remove="src/Lifecycle/MacStartupProvider.cs" />
+    <Compile Remove="src/Lighting/Engine/Gpu/MacGlContext.cs" />
+    <Compile Remove="src/Platform/Displays/MacDisplayBrightnessProvider.cs" />
+    <Compile Remove="src/Platform/Mac/MacAppBootstrap.cs" />
+    <Compile Remove="src/Platform/Mac/MacAppWindow.cs" />
+    <Compile Remove="src/Platform/Mac/MachStats.cs" />
+    <Compile Remove="src/Platform/Mac/MacOverlayHostLauncher.cs" />
+    <Compile Remove="src/Platform/Mac/MacPerformanceProvider.cs" />
+    <Compile Remove="src/Platform/Mac/MacProcInfo.cs" />
+    <Compile Remove="src/Platform/Mac/MacSmc.cs" />
+    <Compile Remove="src/Platform/Mac/MacStatusBar.cs" />
+    <Compile Remove="src/Sensors/MacSensorProvider.cs" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(RuntimeIdentifier)' != '' AND !$(RuntimeIdentifier.StartsWith('linux'))">
+    <Compile Remove="src/Activity/LinuxMediaProvider.cs" />
+    <Compile Remove="src/Activity/LinuxNetworkProvider.cs" />
+    <Compile Remove="src/Activity/LinuxScreenTimeProvider.cs" />
+    <Compile Remove="src/Activity/LinuxShortcutsProvider.cs" />
+    <Compile Remove="src/Activity/LinuxVolumeProvider.cs" />
+    <Compile Remove="src/Cooling/LinuxFanControlProvider.cs" />
+    <Compile Remove="src/Cooling/LinuxLiquidctlProvider.cs" />
+    <Compile Remove="src/Cooling/LinuxNvidiaFanProvider.cs" />
+    <Compile Remove="src/Cooling/Nvml.cs" />
+    <Compile Remove="src/Devices/Detection/LinuxUsbEnumerator.cs" />
+    <Compile Remove="src/Lifecycle/LinuxStartupProvider.cs" />
+    <Compile Remove="src/Lighting/Capture/LinuxScreenCastHelper.cs" />
+    <Compile Remove="src/Lighting/Capture/LinuxScreenCastPortal.cs" />
+    <Compile Remove="src/Lighting/Capture/LinuxScreenFrameSource.cs" />
+    <Compile Remove="src/Lighting/Engine/Gpu/LinuxEglContext.cs" />
+    <Compile Remove="src/Peripherals/Hid/LinuxHidDevice.cs" />
+    <Compile Remove="src/Peripherals/Hid/LinuxHidEnumerator.cs" />
+    <Compile Remove="src/Peripherals/Hyte/Cnvs/LinuxCnvsPortDiscovery.cs" />
+    <Compile Remove="src/Peripherals/Hyte/LinuxSerialDiscovery.cs" />
+    <Compile Remove="src/Peripherals/Hyte/MiniHub/LinuxMiniHubPortDiscovery.cs" />
+    <Compile Remove="src/Peripherals/Hyte/Np50/LinuxNp50PortDiscovery.cs" />
+    <Compile Remove="src/Peripherals/Hyte/QSeriesCooler/LinuxQSeriesCoolerPortDiscovery.cs" />
+    <Compile Remove="src/Peripherals/Hyte/SmartHub/LinuxSmartHubPortDiscovery.cs" />
+    <Compile Remove="src/Peripherals/Hyte/Y70Display/LinuxY70DisplayPortDiscovery.cs" />
+    <Compile Remove="src/Peripherals/Keeb/LinuxInputter.cs" />
+    <Compile Remove="src/Platform/Displays/LinuxDisplayBrightnessProvider.cs" />
+    <Compile Remove="src/Platform/Linux/DBus/DBusConnection.cs" />
+    <Compile Remove="src/Platform/Linux/DBus/DBusTypes.cs" />
+    <Compile Remove="src/Platform/Linux/LinuxNotify.cs" />
+    <Compile Remove="src/Platform/Linux/LinuxPerformanceProvider.cs" />
+    <Compile Remove="src/Platform/Linux/LinuxSession.cs" />
+    <Compile Remove="src/Platform/Linux/LinuxSysfs.cs" />
+    <Compile Remove="src/Platform/Linux/LinuxTrayHost.cs" />
+    <Compile Remove="src/Platform/Linux/LinuxTrayService.cs" />
+    <Compile Remove="src/Sensors/LinuxSensorProvider.cs" />
   </ItemGroup>
   <!-- Build nexus-web for service and copy to wwwroot/.
        Skip with: dotnet build -p:BuildWeb=false -->

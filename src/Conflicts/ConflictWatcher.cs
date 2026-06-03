@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Lighting.Rgb;
@@ -195,29 +194,27 @@ public sealed class ConflictWatcher : BackgroundService
     {
         var index = new Dictionary<string, List<(int Pid, string? Path)>>(StringComparer.OrdinalIgnoreCase);
 
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            var pids = Platform.Mac.MacProcInfo.ListPids();
-            if (pids.Length == 0)
-                return index;
-            var pathBuf = new byte[4096];
-            foreach (var pid in pids)
-            {
-                if (pid <= 0)
-                    continue;
-                var name = Platform.Mac.MacProcInfo.GetProcessName(pid, pathBuf);
-                if (string.IsNullOrEmpty(name))
-                    continue;
-                if (!index.TryGetValue(name, out var bucket))
-                {
-                    bucket = new List<(int, string?)>(1);
-                    index[name] = bucket;
-                }
-                bucket.Add((pid, null));
-            }
+#if MACOS
+        var pids = Platform.Mac.MacProcInfo.ListPids();
+        if (pids.Length == 0)
             return index;
+        var pathBuf = new byte[4096];
+        foreach (var pid in pids)
+        {
+            if (pid <= 0)
+                continue;
+            var name = Platform.Mac.MacProcInfo.GetProcessName(pid, pathBuf);
+            if (string.IsNullOrEmpty(name))
+                continue;
+            if (!index.TryGetValue(name, out var bucket))
+            {
+                bucket = new List<(int, string?)>(1);
+                index[name] = bucket;
+            }
+            bucket.Add((pid, null));
         }
-
+        return index;
+#else
         // Windows + everything else: Process.GetProcesses() is the most
         // portable cross-platform path. Dispose every Process handle the
         // moment we have what we need so we don't accumulate kernel objects.
@@ -248,6 +245,7 @@ public sealed class ConflictWatcher : BackgroundService
             finally { proc.Dispose(); }
         }
         return index;
+#endif
     }
 
     /// <summary>

@@ -25,9 +25,11 @@ using Nexus.Service.Sockets;
 // portal rejects a root caller (can't read its /proc). Must be the very first
 // thing — its stdout (fd 1) carries the raw RGB frame stream, so nothing else
 // (not even a boot-timer line) may write to stdout before it takes over.
-if (OperatingSystem.IsLinux() && args.Length > 0
+#if LINUX
+if (args.Length > 0
     && args[0] == Nexus.Service.Lighting.Capture.LinuxScreenCastHelper.Verb)
     return Nexus.Service.Lighting.Capture.LinuxScreenCastHelper.Run(args);
+#endif
 
 Nexus.Service.Lifecycle.BootTimer.Mark("process entry");
 
@@ -60,8 +62,9 @@ var testHost = Environment.GetEnvironmentVariable("NEXUS_TEST_HOST") == "1";
 // volume, and dashboard launcher keep working. No-op for a --user install.
 // Done FIRST so HOME/XDG_* are correct before anything (e.g. the service log)
 // resolves a path from them.
-if (OperatingSystem.IsLinux())
-    Nexus.Service.Platform.Linux.LinuxSession.AdoptActiveSessionEnv();
+#if LINUX
+Nexus.Service.Platform.Linux.LinuxSession.AdoptActiveSessionEnv();
+#endif
 
 // Capture stdout / stderr to a rotating service.log file before anything else
 // writes to the console. Doesn't change Console behaviour - just tees output.
@@ -272,13 +275,14 @@ Nexus.Service.Lifecycle.BootTimer.Mark("after builder.Build()");
 // (curve engine etc.) start. A root daemon drops euid for this socket connect
 // (LinuxSession.ConnectAsSessionUser); doing it now keeps that process-wide euid
 // window from racing a concurrent root pwm write. Idempotent + best-effort.
-if (OperatingSystem.IsLinux()
-    && app.Services.GetService(typeof(Nexus.Service.Platform.Linux.DBus.DBusConnection))
+#if LINUX
+if (app.Services.GetService(typeof(Nexus.Service.Platform.Linux.DBus.DBusConnection))
         is Nexus.Service.Platform.Linux.DBus.DBusConnection dbus)
 {
     try { dbus.StartAsync().GetAwaiter().GetResult(); }
     catch (Exception ex) { Console.Error.WriteLine($"[dbus] startup connect skipped: {ex.Message}"); }
 }
+#endif
 
 if (!testHost)
 {
@@ -439,8 +443,9 @@ if (OperatingSystem.IsWindows())
     Nexus.Service.Platform.Windows.TrayBootstrap.WireAppWindowAndPawnIo(app, serviceMode, suppressStartupWindow);
 Nexus.Service.Lifecycle.BootTimer.Mark("after WireAppWindowAndPawnIo");
 
-if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-    return Nexus.Service.Platform.Mac.MacAppBootstrap.Run(app, servicePort);
+#if MACOS
+return Nexus.Service.Platform.Mac.MacAppBootstrap.Run(app, servicePort);
+#endif
 
 #if WINDOWS
 if (serviceMode)
