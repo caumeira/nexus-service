@@ -12,9 +12,10 @@ namespace Nexus.Service.Lifecycle;
 /// </summary>
 public sealed class MacStartupProvider : IStartupProvider
 {
-    private const string PlistLabel = "com.hellonexus.panel.service";
+    // internal so FactoryReset can drive the same launchd agent on restart.
+    internal const string PlistLabel = "com.hellonexus.panel.service";
 
-    private static string PlistPath => Path.Combine(
+    internal static string PlistPath => Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
         "Library", "LaunchAgents", $"{PlistLabel}.plist");
 

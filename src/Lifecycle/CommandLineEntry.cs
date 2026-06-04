@@ -32,6 +32,13 @@ internal static class CommandLineEntry
         if (args.Length > 0 && args[0] == "--install-pawnio")
             return PawnIoInstaller.RunElevatedInstall();
 
+        // Detached finalizer spawned by POST /service/factory-reset: waits for
+        // the live service to exit, wipes every Nexus data dir, then restarts.
+        // A second instance by design, so — like --install-pawnio — it must run
+        // before the single-instance mutex.
+        if (args.Length > 0 && args[0] == FactoryReset.FinalizeFlag)
+            return FactoryReset.Finalize(args);
+
 #if WINDOWS
         if (args.Length > 0 && WindowsHandlers.TryGetValue(args[0], out var handler))
             return handler(args);
