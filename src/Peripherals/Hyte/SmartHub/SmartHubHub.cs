@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using Nexus.Service.Peripherals.Hyte.Np50;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.SmartHub;
 
@@ -30,6 +31,9 @@ public sealed class SmartHubHub : IDisposable
     private readonly object _lock = new();
     private INp50Transport? _transport;
     private bool _disposed;
+    // Starts at 0 (the silent default) so a device absent from boot never logs
+    // "discovery returned 0"; only a real change (0->N found, or N->0 disconnect) logs.
+    private int _lastDiscoveredPortCount;
 
     private int _consecutiveWriteFailures;
     private const int ConsecutiveWriteFailureThreshold = 5;
@@ -52,19 +56,23 @@ public sealed class SmartHubHub : IDisposable
         {
             if (IsConnected) return true;
             var ports = _discovery.Discover();
-            Console.Error.WriteLine($"[smarthub] discovery returned {ports.Count} port(s)");
+            if (ports.Count != _lastDiscoveredPortCount)
+            {
+                _lastDiscoveredPortCount = ports.Count;
+                ServiceLog.Info($"[smarthub] discovery returned {ports.Count} port(s)");
+            }
             foreach (var port in ports)
             {
                 try
                 {
                     _transport = _transportFactory(port);
                     State.Serial = port.Serial;
-                    Console.Error.WriteLine($"[smarthub] connected to {port.PortName} (serial={port.Serial})");
+                    ServiceLog.Info($"[smarthub] connected to {port.PortName} (serial={port.Serial})");
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"[smarthub] open {port.PortName} failed: {ex.GetType().Name}: {ex.Message}");
+                    ServiceLog.Error($"[smarthub] open {port.PortName} failed: {ex.GetType().Name}: {ex.Message}");
                 }
             }
             return false;

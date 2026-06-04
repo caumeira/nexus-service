@@ -56,11 +56,16 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
         try
         {
             // Awaits the sensor provider's readiness, so the snapshot runs once
-            // hardware enumeration has settled rather than mid-probe.
-            specs = await _specs.GetAsync(stoppingToken);
+            // hardware enumeration has settled rather than mid-probe. Bounded: a
+            // stalled provider must not suppress the whole snapshot — emit the rest
+            // with a note rather than silently never logging anything.
+            using var specsCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+            specsCts.CancelAfter(TimeSpan.FromSeconds(30));
+            specs = await _specs.GetAsync(specsCts.Token);
         }
         catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { return; }
-        catch (Exception ex) { Console.Error.WriteLine($"{Tag} specs read failed: {ex.Message}"); }
+        catch (OperationCanceledException) { Emit("system specs unavailable: sensor provider not ready within 30s"); }
+        catch (Exception ex) { Emit($"system specs read failed: {ex.Message}"); }
 
         Emit("===== Nexus startup snapshot =====");
 
@@ -120,5 +125,5 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
         Emit("===== end snapshot =====");
     }
 
-    private static void Emit(string line) => Console.Out.WriteLine($"{Tag} {line}");
+    private static void Emit(string line) => ServiceLog.Info($"{Tag} {line}");
 }

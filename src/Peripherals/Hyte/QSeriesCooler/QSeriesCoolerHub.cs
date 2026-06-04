@@ -1,6 +1,7 @@
 using System;
 using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Peripherals.Hyte.Np50;
+using Nexus.Service.Platform;
 // Q-series shares the MiniHub RGB triple; alias to avoid the Np50.RgbColor clash.
 using RgbColor = Nexus.Service.Peripherals.Hyte.MiniHub.RgbColor;
 
@@ -26,6 +27,9 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     // The COM port currently held (empty when disconnected). Lets the composite
     // strip OpenRGB's zombie entry for the same port without fragile name matching.
     private string _portName = "";
+    // Starts at 0 (the silent default) so a device absent from boot never logs
+    // "discovery returned 0"; only a real change (0->N found, or N->0 disconnect) logs.
+    private int _lastDiscoveredPortCount;
 
     public QSeriesCoolerHub(IQSeriesCoolerPortDiscovery discovery, Func<Np50PortInfo, INp50Transport> transportFactory)
     {
@@ -124,7 +128,11 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
         {
             if (IsConnected) return true;
             var ports = _discovery.Discover();
-            Console.Error.WriteLine($"[qseries-cooler] discovery returned {ports.Count} port(s)");
+            if (ports.Count != _lastDiscoveredPortCount)
+            {
+                _lastDiscoveredPortCount = ports.Count;
+                ServiceLog.Info($"[qseries-cooler] discovery returned {ports.Count} port(s)");
+            }
             foreach (var port in ports)
             {
                 try
@@ -134,12 +142,12 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                     State.Serial = port.Serial;
                     State.Variant = port.Variant;
                     _portName = port.PortName;
-                    Console.Error.WriteLine($"[qseries-cooler] connected to {port.PortName} (variant={port.Variant} serial={port.Serial})");
+                    ServiceLog.Info($"[qseries-cooler] connected to {port.PortName} (variant={port.Variant} serial={port.Serial})");
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"[qseries-cooler] open {port.PortName} failed: {ex.GetType().Name}: {ex.Message}");
+                    ServiceLog.Error($"[qseries-cooler] open {port.PortName} failed: {ex.GetType().Name}: {ex.Message}");
                 }
             }
             return false;

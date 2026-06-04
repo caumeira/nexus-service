@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices.Detection;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 
@@ -16,16 +18,20 @@ namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 public sealed class MiniHubHeartbeatWorker : BackgroundService
 {
     private readonly MiniHubHub _hub;
+    private readonly HardwarePresence _presence;
     private bool _rgbModeAsserted;
     private bool _fanModeAsserted;
     private int _tickCount;
     private const int TraceEveryNTicks = 15; // every ~30 s with the 2 s timer
 
-    public MiniHubHeartbeatWorker(MiniHubHub hub) { _hub = hub; }
+    public MiniHubHeartbeatWorker(MiniHubHub hub, HardwarePresence presence)
+    {
+        _hub = hub;
+        _presence = presence;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Console.Error.WriteLine("[minihub-heartbeat] ExecuteAsync started");
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -39,6 +45,12 @@ public sealed class MiniHubHeartbeatWorker : BackgroundService
 
     public void Tick()
     {
+        // Skip silently when the hub isn't connected and no MiniHub is on the bus:
+        // no discovery, no log, until one actually appears. Stay live while
+        // connected so an unplug is still noticed and handled below.
+        if (!_hub.IsConnected && !_presence.UsbPresent(MiniHubProtocol.VendorId, MiniHubProtocol.ProductId))
+            return;
+
         var connectedBefore = _hub.IsConnected;
         if (!_hub.EnsureConnected()) { _rgbModeAsserted = false; _fanModeAsserted = false; return; }
         // First connect ⇒ read FW version + assert software control modes so
@@ -68,7 +80,7 @@ public sealed class MiniHubHeartbeatWorker : BackgroundService
         if (++_tickCount % TraceEveryNTicks == 1)
         {
             var s = _hub.State;
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[minihub-cooling] poll#{_tickCount} ok={pollOk} serial={s.Serial} " +
                 $"port1Fans={s.Port1Fans} port1Rpm={s.Port1Rpm} port1Duty={s.Port1Duty} " +
                 $"port2Fans={s.Port2Fans} port2Rpm={s.Port2Rpm} port2Duty={s.Port2Duty}");

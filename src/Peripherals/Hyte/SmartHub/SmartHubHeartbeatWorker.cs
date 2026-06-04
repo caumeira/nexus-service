@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices.Detection;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.SmartHub;
 
@@ -17,15 +19,19 @@ namespace Nexus.Service.Peripherals.Hyte.SmartHub;
 public sealed class SmartHubHeartbeatWorker : BackgroundService
 {
     private readonly SmartHubHub _hub;
+    private readonly HardwarePresence _presence;
     private bool _animationOffAsserted;
     private int _tickCount;
     private const int TraceEveryNTicks = 15; // every ~30 s with the 2 s timer
 
-    public SmartHubHeartbeatWorker(SmartHubHub hub) { _hub = hub; }
+    public SmartHubHeartbeatWorker(SmartHubHub hub, HardwarePresence presence)
+    {
+        _hub = hub;
+        _presence = presence;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Console.Error.WriteLine("[smarthub-heartbeat] ExecuteAsync started");
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(2));
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -39,6 +45,11 @@ public sealed class SmartHubHeartbeatWorker : BackgroundService
 
     public void Tick()
     {
+        // Skip silently when disconnected and no SmartHub is on the bus; stay live
+        // while connected so an unplug is still handled.
+        if (!_hub.IsConnected && !_presence.UsbPresent(SmartHubProtocol.VendorId, SmartHubProtocol.ProductId))
+            return;
+
         var connectedBefore = _hub.IsConnected;
         if (!_hub.EnsureConnected()) { _animationOffAsserted = false; return; }
 
@@ -60,7 +71,7 @@ public sealed class SmartHubHeartbeatWorker : BackgroundService
         if (++_tickCount % TraceEveryNTicks == 1)
         {
             var s = _hub.State;
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[smarthub-cooling] poll#{_tickCount} ok={pollOk} serial={s.Serial} " +
                 $"fans=[{string.Join(",", FanSummaries(s))}]");
         }

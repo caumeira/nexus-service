@@ -1,6 +1,7 @@
 using System;
 using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Peripherals.Hyte.Np50;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.Y70Display;
 
@@ -18,6 +19,9 @@ public sealed class Y70DisplayHub : IDisposable, IDfuFlashTarget
     private readonly object _lock = new();
     private INp50Transport? _transport;
     private bool _disposed;
+    // Starts at 0 (the silent default) so a device absent from boot never logs
+    // "discovery returned 0"; only a real change (0->N found, or N->0 disconnect) logs.
+    private int _lastDiscoveredPortCount;
 
     public Y70DisplayHub(IY70DisplayPortDiscovery discovery, Func<Np50PortInfo, INp50Transport> transportFactory)
     {
@@ -61,7 +65,11 @@ public sealed class Y70DisplayHub : IDisposable, IDfuFlashTarget
         {
             if (IsConnected) return true;
             var ports = _discovery.Discover();
-            Console.Error.WriteLine($"[y70-display] discovery returned {ports.Count} port(s)");
+            if (ports.Count != _lastDiscoveredPortCount)
+            {
+                _lastDiscoveredPortCount = ports.Count;
+                ServiceLog.Info($"[y70-display] discovery returned {ports.Count} port(s)");
+            }
             foreach (var port in ports)
             {
                 try
@@ -70,12 +78,12 @@ public sealed class Y70DisplayHub : IDisposable, IDfuFlashTarget
                     _transport = t;
                     State.Serial = port.Serial;
                     State.Variant = port.Variant;
-                    Console.Error.WriteLine($"[y70-display] connected to {port.PortName} (variant={port.Variant} serial={port.Serial})");
+                    ServiceLog.Info($"[y70-display] connected to {port.PortName} (variant={port.Variant} serial={port.Serial})");
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"[y70-display] open {port.PortName} failed: {ex.GetType().Name}: {ex.Message}");
+                    ServiceLog.Error($"[y70-display] open {port.PortName} failed: {ex.GetType().Name}: {ex.Message}");
                 }
             }
             return false;

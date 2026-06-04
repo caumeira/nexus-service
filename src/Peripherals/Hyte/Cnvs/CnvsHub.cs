@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO.Ports;
 using System.Threading;
 using Nexus.Service.Devices.Firmware;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 
@@ -153,7 +154,7 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
                     _portName = info.PortName;
                     _serial = info.Serial ?? "";
                     _productId = info.ProductId;
-                    Console.Error.WriteLine($"[cnvs] connected on {info.PortName} (serial={_serial}, pid=0x{_productId:X4}, variant={Variant})");
+                    ServiceLog.Info($"[cnvs] connected on {info.PortName} (serial={_serial}, pid=0x{_productId:X4}, variant={Variant})");
                     return true;
                 }
                 catch (Exception ex)
@@ -217,7 +218,7 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
                 port.DiscardInBuffer();
                 var frame = CnvsProtocol.BuildSetSettings(suppressBootAnimation, keepLedsOnWhenPcOff);
                 port.Write(frame, 0, frame.Length);
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[cnvs] WriteSettings sent {frame.Length}B on {_portName} (serial={_serial}): boot={suppressBootAnimation} leds={keepLedsOnWhenPcOff}");
                 Thread.Sleep(20);
 
@@ -225,9 +226,9 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
                 // FF DC 08 at all. Logged only.
                 var readBack = ReadSettingsLocked(port);
                 if (readBack is { } rb)
-                    Console.Error.WriteLine($"[cnvs] WriteSettings read-back: {rb}");
+                    ServiceLog.Info($"[cnvs] WriteSettings read-back: {rb}");
                 else
-                    Console.Error.WriteLine("[cnvs] WriteSettings: read-back returned no data");
+                    ServiceLog.Warn("[cnvs] WriteSettings: read-back returned no data");
 
                 // Open the gate so the lighting writer can start streaming.
                 IsReadyForStreaming = true;
@@ -235,7 +236,7 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[cnvs] WriteSettings exception: {ex.GetType().Name}: {ex.Message}");
+                ServiceLog.Error($"[cnvs] WriteSettings exception: {ex.GetType().Name}: {ex.Message}");
                 Disconnect();
                 return false;
             }

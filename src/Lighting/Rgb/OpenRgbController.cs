@@ -7,6 +7,7 @@ using System.Net;
 using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Lighting.Rgb;
 
@@ -249,7 +250,7 @@ public sealed class OpenRgbController : IRgbController
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[openrgb] push frame to device {deviceIndex} failed: {ex.Message}");
+                ServiceLog.Warn($"[openrgb] push frame to device {deviceIndex} failed: {ex.Message}");
                 CleanupSocketLocked();
             }
         }

@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Cooling;
 using Nexus.Service.Peripherals.Hyte.MiniHub;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Cooling;
 
@@ -206,7 +207,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
         if (!IsMiniHubId(channelId)) return;
         if (!_hub.IsConnected)
         {
-            Console.Error.WriteLine($"[minihub-cooling] write to {channelId} dropped: hub not connected");
+            ServiceLog.Warn($"[minihub-cooling] write to {channelId} dropped: hub not connected");
             return;
         }
 
@@ -241,9 +242,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
         if (port2Target < MiniHubProtocol.FanMinDutyPercent) port2Target = MiniHubProtocol.FanMinDutyPercent;
 
         _hub.SetFanControlMode(MiniHubProtocol.FanModeSoftware);
-        var writeOk = _hub.WriteFanSpeed(port1Target, port2Target);
-        Console.Error.WriteLine(
-            $"[minihub-cooling] {channelId} -> p1={port1Target}% p2={port2Target}% (writeOk={writeOk})");
+        _hub.WriteFanSpeed(port1Target, port2Target);
     }
 
     private static string Port1Id(string serial) => $"minihub:{serial}:port1";
@@ -254,7 +253,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
         var now = DateTime.UtcNow;
         if (now < _nextTraceUtc) return;
         _nextTraceUtc = now.AddSeconds(60);
-        Console.Error.WriteLine(
+        ServiceLog.Info(
             $"[minihub-cooling] GetFanChannels connected={connected} serial={serial} " +
             $"port1Fans={state.Port1Fans} port2Fans={state.Port2Fans} " +
             $"port1Rpm={state.Port1Rpm} port2Rpm={state.Port2Rpm}");

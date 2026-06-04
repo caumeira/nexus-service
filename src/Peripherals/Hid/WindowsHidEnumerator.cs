@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hid;
 
@@ -157,7 +158,7 @@ public sealed class WindowsHidEnumerator : IHidEnumerator
             return null;
         }
 
-        Console.Error.WriteLine($"[hid] opened {path.Substring(System.Math.Max(0, path.Length - 60))} with access={modeUsed}");
+        ServiceLog.Info($"[hid] opened {path.Substring(System.Math.Max(0, path.Length - 60))} with access={modeUsed}");
 
         var attrs = new Native.HIDD_ATTRIBUTES { Size = Marshal.SizeOf<Native.HIDD_ATTRIBUTES>() };
         if (!Native.HidD_GetAttributes(handle, ref attrs))

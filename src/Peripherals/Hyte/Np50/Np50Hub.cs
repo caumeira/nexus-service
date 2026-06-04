@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using Nexus.Service.Devices.Firmware;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.Np50;
 
@@ -146,7 +147,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
                     var t = _transportFactory(port);
                     _transport = t;
                     State.Serial = port.Serial;
-                    Console.Error.WriteLine($"[np50] connected to {port.PortName} (serial={port.Serial})");
+                    ServiceLog.Info($"[np50] connected to {port.PortName} (serial={port.Serial})");
                     return true;
                 }
                 catch (Exception ex)

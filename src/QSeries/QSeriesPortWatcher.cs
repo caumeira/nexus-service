@@ -11,6 +11,9 @@ using AdvancedSharpAdbClient.DeviceCommands;
 using AdvancedSharpAdbClient.Models;
 using AdvancedSharpAdbClient.Receivers;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices.Detection;
+using Nexus.Service.Peripherals.Hyte.QSeriesCooler;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.QSeries;
 
@@ -53,6 +56,13 @@ public sealed class QSeriesPortWatcher : BackgroundService
     };
 
     /// <summary>
+    /// MediaTek USB vendor id — the Q60/Q80 panel's SoC, seen when the Android
+    /// panel is in adb mode. Generic to MediaTek, so it's a presence hint used
+    /// alongside the Q-series cooler's own VID/PID, never an identity proof.
+    /// </summary>
+    private const int MediaTekAdbVendorId = 0x0E8D;
+
+    /// <summary>
     /// How long a Q-series serial must stay adb-<c>offline</c> before a USB reset.
     /// Longer than the natural ~5–15 s offline blip while adb-server re-handshakes,
     /// so a recovery already underway isn't churned.
@@ -70,6 +80,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private readonly string _remoteSpec;
     private readonly AdbClient _client;
     private readonly QSeriesTransportStore _transportStore;
+    private readonly HardwarePresence _presence;
 
     /// <summary>Serials with an applied reverse, so the steady-state path stays quiet.</summary>
     private readonly Dictionary<string, bool> _reverseAppliedBySerial = new(StringComparer.Ordinal);
@@ -82,6 +93,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// on detach.
     /// </summary>
     private readonly HashSet<string> _reverseRefreshedThisRun = new(StringComparer.Ordinal);
+
+    /// <summary>Serials we've already logged "no LAN IP" for, so a USB-only unit
+    /// doesn't repeat that line every tick. Cleared on adb-server death.</summary>
+    private readonly HashSet<string> _lanIpUnavailableLogged = new(StringComparer.Ordinal);
 
     /// <summary>
     /// In-memory mirror of the on-disk transport store (USB serial → promoted TCP
@@ -107,13 +122,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _lastRecoveryByInstanceId = new(StringComparer.Ordinal);
 
-    public QSeriesPortWatcher(int servicePort)
-        : this(servicePort, new QSeriesTransportStore()) { }
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence)
+        : this(servicePort, presence, new QSeriesTransportStore()) { }
 
     /// <summary>Test seam: inject a store pointing at a tmp path.</summary>
-    public QSeriesPortWatcher(int servicePort, QSeriesTransportStore transportStore)
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, QSeriesTransportStore transportStore)
     {
         _servicePort = servicePort;
+        _presence = presence;
         _localSpec = $"tcp:{servicePort}";
         _remoteSpec = $"tcp:{servicePort}";
         _client = new AdbClient();
@@ -137,10 +153,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
-                // SocketException "connection refused 127.0.0.1:5037" = adb-server
-                // not running (no Q-series attached, or not booted yet) — the normal
-                // idle state. Log and retry next tick.
-                Console.Error.WriteLine($"[qseries-port-watcher] tick failed: {ex.GetType().Name}: {ex.Message}");
+                // The clean-host idle case (no Q-series ⇒ no adb-server) is gated out
+                // in TickAsync before any adb call, so reaching here means a Q-series
+                // is present but its adb path genuinely failed — a real error.
+                ServiceLog.Error($"[qseries-port-watcher] tick failed: {ex.GetType().Name}: {ex.Message}");
             }
 
             try { await Task.Delay(PollInterval, stoppingToken); }
@@ -150,6 +166,18 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     private async Task TickAsync(CancellationToken ct)
     {
+        // Don't probe adb unless a Q-series unit is plausibly attached: its cooler
+        // (VID_3402&PID_0400/0403) or the panel's MediaTek adb interface (VID_0E8D)
+        // on USB, or a TCP-promoted device we still maintain. Otherwise
+        // GetDevicesAsync spawns and polls a dead adb-server every tick on every
+        // host that has no Q-series at all.
+        if (_promoted.Count == 0
+            && !_presence.UsbPresent(QSeriesCoolerProtocol.VendorId, QSeriesCoolerProtocol.Q60ProductId, QSeriesCoolerProtocol.Q80ProductId)
+            && !_presence.UsbPresent(MediaTekAdbVendorId))
+        {
+            return;
+        }
+
         IEnumerable<DeviceData> devices;
         try
         {
@@ -162,6 +190,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             // once (a still-failing start is picked up next tick).
             _reverseAppliedBySerial.Clear();
             _reverseRefreshedThisRun.Clear();
+            _lanIpUnavailableLogged.Clear();
             if (TryStartAdbServer())
             {
                 try
@@ -183,6 +212,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             _reverseAppliedBySerial.Clear();
             _reverseRefreshedThisRun.Clear();
+            _lanIpUnavailableLogged.Clear();
             throw;
         }
 
@@ -297,12 +327,12 @@ public sealed class QSeriesPortWatcher : BackgroundService
             try
             {
                 var result = await _client.ConnectAsync(record.IpAddress, record.Port, ct);
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[qseries-port-watcher] reconnect {tcpSerial} ({record.Model}): {result?.Trim() ?? "ok"}");
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[qseries-port-watcher] reconnect {tcpSerial} failed: {ex.GetType().Name}: {ex.Message}");
             }
         }
@@ -347,7 +377,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             var instanceId = TryFindUsbInstanceId(device.Serial);
             if (instanceId is null)
             {
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[qseries-port-watcher] {device.Serial}: offline for {offlineFor.TotalSeconds:F0}s but no matching USB instance id found");
                 // Defer; the device may re-enumerate under a different name.
                 continue;
@@ -359,19 +389,19 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 continue;
             }
 
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: offline for {offlineFor.TotalSeconds:F0}s, running pnputil /restart-device {instanceId}");
             _lastRecoveryByInstanceId[instanceId] = now;
             if (RunPnputilRestartDevice(instanceId, out var pnputilOut))
             {
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[qseries-port-watcher] {device.Serial}: pnputil restart succeeded; awaiting re-enumeration ({pnputilOut})");
                 // Fresh 30 s window if it fails to recover after the restart.
                 _offlineSince.Remove(device.Serial);
             }
             else
             {
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[qseries-port-watcher] {device.Serial}: pnputil restart failed: {pnputilOut}");
             }
 
@@ -476,15 +506,20 @@ public sealed class QSeriesPortWatcher : BackgroundService
         var ip = await DiscoverDeviceIpAsync(device, ct);
         if (ip is null)
         {
-            Console.Error.WriteLine(
-                $"[qseries-port-watcher] {device.Serial}: cannot discover LAN IP; skipping TCP promote (will retry next tick)");
+            // A USB-only Q-series has no LAN IP and never will, so this fires every
+            // tick — log it once per serial instead of flooding.
+            if (_lanIpUnavailableLogged.Add(device.Serial))
+            {
+                ServiceLog.Info(
+                    $"[qseries-port-watcher] {device.Serial}: no LAN IP; staying on USB (suppressing repeat)");
+            }
             return;
         }
 
         var adbPath = ResolveAdbPath();
         if (adbPath is null)
         {
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: adb.exe not found; cannot run tcpip promote");
             return;
         }
@@ -492,7 +527,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         // Restarts adbd in TCP mode; the USB transport drops from the list briefly.
         if (!RunAdb(adbPath, $"-s {device.Serial} tcpip {QSeriesTransport.DefaultAdbTcpPort}", out var tcpipErr))
         {
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: tcpip {QSeriesTransport.DefaultAdbTcpPort} failed: {tcpipErr}");
             return;
         }
@@ -504,12 +539,12 @@ public sealed class QSeriesPortWatcher : BackgroundService
         try
         {
             var result = await _client.ConnectAsync(ip.ToString(), QSeriesTransport.DefaultAdbTcpPort, ct);
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] promoted {device.Serial} ({device.Model}) -> tcp:{ip}:{QSeriesTransport.DefaultAdbTcpPort}: {result?.Trim() ?? "ok"}");
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] connect {ip}:{QSeriesTransport.DefaultAdbTcpPort} failed: {ex.GetType().Name}: {ex.Message}");
             return;
         }
@@ -546,7 +581,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[qseries-port-watcher] {device.Serial}: shell `{cmd}` failed: {ex.GetType().Name}");
                 continue;
             }
@@ -610,7 +645,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         var adbPath = ResolveAdbPath();
         if (adbPath is null)
         {
-            Console.Error.WriteLine("[qseries-port-watcher] adb.exe not found in PATH or common locations; cannot start adb-server");
+            ServiceLog.Info("[qseries-port-watcher] adb.exe not found in PATH or common locations; cannot start adb-server");
             return false;
         }
         try
@@ -628,20 +663,20 @@ public sealed class QSeriesPortWatcher : BackgroundService
             if (!p.WaitForExit(8_000))
             {
                 try { p.Kill(true); } catch { }
-                Console.Error.WriteLine("[qseries-port-watcher] adb start-server timed out after 8s");
+                ServiceLog.Info("[qseries-port-watcher] adb start-server timed out after 8s");
                 return false;
             }
             if (p.ExitCode != 0)
             {
-                Console.Error.WriteLine($"[qseries-port-watcher] adb start-server exit {p.ExitCode}: {p.StandardError.ReadToEnd().Trim()}");
+                ServiceLog.Info($"[qseries-port-watcher] adb start-server exit {p.ExitCode}: {p.StandardError.ReadToEnd().Trim()}");
                 return false;
             }
-            Console.Error.WriteLine("[qseries-port-watcher] adb-server (re)started");
+            ServiceLog.Info("[qseries-port-watcher] adb-server (re)started");
             return true;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[qseries-port-watcher] adb start-server threw: {ex.GetType().Name}: {ex.Message}");
+            ServiceLog.Info($"[qseries-port-watcher] adb start-server threw: {ex.GetType().Name}: {ex.Message}");
             return false;
         }
     }
@@ -754,12 +789,12 @@ public sealed class QSeriesPortWatcher : BackgroundService
             {
                 await _client.ExecuteShellCommandAsync(device, $"am force-stop {QshellFocusMarker}", reloadReceiver, ct);
                 await _client.ExecuteShellCommandAsync(device, $"am start -n {QshellComponent}", reloadReceiver, ct);
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[qseries-port-watcher] {device.Serial}: forced qshell reload on first sighting this run (reconnect to fresh service)");
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[qseries-port-watcher] {device.Serial}: forced qshell reload failed: {ex.GetType().Name}: {ex.Message}");
             }
             return;
@@ -774,7 +809,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: foreground check failed: {ex.GetType().Name}");
             return;
         }
@@ -796,12 +831,12 @@ public sealed class QSeriesPortWatcher : BackgroundService
         try
         {
             await _client.ExecuteShellCommandAsync(device, $"am start -n {QshellComponent}", startReceiver, ct);
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: qshell not in foreground, ran am start ({startReceiver.ToString().Trim()})");
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: am start qshell failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
@@ -821,7 +856,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             // Within cooldown: re-arm a cold reload instead of rebooting again.
             _qshellReloadedThisRun.Remove(device.Serial);
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: transport id {lastTransportId} -> {transportId} (reseat) but a reboot is within cooldown; re-arming cold reload instead");
             return false;
         }
@@ -829,14 +864,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
         _lastQshellRebootBySerial[device.Serial] = now;
         try
         {
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: transport id {lastTransportId} -> {transportId} (USB re-enumeration / reseat); rebooting device to reset USB-FFS");
             await _client.RebootAsync(device, ct);
             return true;
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: reseat reboot failed: {ex.GetType().Name}: {ex.Message}; re-arming cold reload");
             _qshellReloadedThisRun.Remove(device.Serial);
             return false;
@@ -881,7 +916,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
         try
         {
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: {sinceReload.TotalSeconds:F0}s after cold reload; rebooting once to clear any USB-FFS wedge from the host restart");
             await _client.RebootAsync(device, ct);
             // Record the reboot only after it's issued; if RebootAsync throws (stale
@@ -892,7 +927,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: escalation reboot failed: {ex.GetType().Name}: {ex.Message}; will retry next tick");
         }
     }
@@ -910,13 +945,13 @@ public sealed class QSeriesPortWatcher : BackgroundService
             try
             {
                 await _client.RemoveReverseForwardAsync(device, _remoteSpec, ct);
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[qseries-port-watcher] {device.Serial}: force-refreshed reverse on first sighting this run (removed {_remoteSpec})");
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
                 // No prior reverse (fresh boot) throws here — harmless; the create installs it.
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[qseries-port-watcher] {device.Serial}: reverse pre-refresh remove no-op: {ex.GetType().Name}");
             }
         }
@@ -929,7 +964,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             await _client.CreateReverseForwardAsync(device, _localSpec, _remoteSpec, true, ct);
             if (!_reverseAppliedBySerial.TryGetValue(device.Serial, out _))
             {
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[qseries-port-watcher] reverse applied: {device.Serial} ({device.Model}) {_localSpec} -> {_remoteSpec}");
                 _reverseAppliedBySerial[device.Serial] = true;
             }
@@ -938,7 +973,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             // Re-apply runs next tick; forget the applied flag so the recovery re-logs.
             _reverseAppliedBySerial.Remove(device.Serial);
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 $"[qseries-port-watcher] reverse apply failed for {device.Serial}: {ex.GetType().Name}: {ex.Message}");
         }
     }

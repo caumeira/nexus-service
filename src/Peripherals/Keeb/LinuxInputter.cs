@@ -4,6 +4,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using Nexus.Service.Models.Peripherals.Keeb;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Keeb;
 
@@ -71,7 +72,7 @@ public sealed partial class LinuxInputter : IInputterProvider, IDisposable
         if (fd < 0)
         {
             _failed = true;
-            Console.Error.WriteLine("[keeb] /dev/uinput open failed — keyboard macros unavailable (check udev rule / 'input' group membership).");
+            ServiceLog.Warn("[keeb] /dev/uinput open failed — keyboard macros unavailable (check udev rule / 'input' group membership).");
             return false;
         }
 
@@ -93,7 +94,7 @@ public sealed partial class LinuxInputter : IInputterProvider, IDisposable
             {
                 close(fd);
                 _failed = true;
-                Console.Error.WriteLine("[keeb] uinput device setup failed — keyboard macros unavailable.");
+                ServiceLog.Warn("[keeb] uinput device setup failed — keyboard macros unavailable.");
                 return false;
             }
 
@@ -108,7 +109,7 @@ public sealed partial class LinuxInputter : IInputterProvider, IDisposable
         {
             try { close(fd); } catch { }
             _failed = true;
-            Console.Error.WriteLine($"[keeb] uinput init error: {ex.Message}");
+            ServiceLog.Error($"[keeb] uinput init error: {ex.Message}");
             return false;
         }
     }
@@ -125,7 +126,7 @@ public sealed partial class LinuxInputter : IInputterProvider, IDisposable
         if (write(_fd, in ev, (nuint)Marshal.SizeOf<input_event>()) < 0 && !_emitWarned)
         {
             _emitWarned = true;
-            Console.Error.WriteLine("[keeb] uinput write failed (device unbound?) — macro events dropped.");
+            ServiceLog.Warn("[keeb] uinput write failed (device unbound?) — macro events dropped.");
         }
     }
 

@@ -5,6 +5,7 @@ using Microsoft.Extensions.Hosting;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Peripherals.Hyte.Cnvs;
 using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 using CnvsColor = Nexus.Service.Peripherals.Hyte.Cnvs.RgbColor;
 
 namespace Nexus.Service.Lighting;
@@ -78,7 +79,7 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
         {
             try { Tick(); }
             catch (Exception ex)
-            { Console.Error.WriteLine($"[cnvs-lighting-writer] tick exception: {ex.GetType().Name}: {ex.Message}"); }
+            { ServiceLog.Error($"[cnvs-lighting-writer] tick exception: {ex.GetType().Name}: {ex.Message}"); }
             try { if (!await timer.WaitForNextTickAsync(ct).ConfigureAwait(false)) break; }
             catch (OperationCanceledException) { break; }
         }
@@ -115,7 +116,7 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
             if (_hub.SetFirmwareAnimationOff())
             {
                 _fwAnimSilenced = true;
-                Console.Error.WriteLine($"[cnvs-lighting-writer] firmware animation silenced on {currentSerial}");
+                ServiceLog.Info($"[cnvs-lighting-writer] firmware animation silenced on {currentSerial}");
             }
         }
 

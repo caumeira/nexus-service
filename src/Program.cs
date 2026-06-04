@@ -7,6 +7,7 @@
 using System.Runtime.InteropServices;
 using System.Security.Cryptography.X509Certificates;
 using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 using Nexus.Service.Activity;
 using Nexus.Service.Auth;
 using Nexus.Service.Cooling;
@@ -177,6 +178,15 @@ var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
     WebRootPath = ResolveWebRoot(exeDir),
 });
 Nexus.Service.Lifecycle.BootTimer.Mark("after WebApplication.CreateSlimBuilder");
+// Logging policy: the service's own diagnostics go through Console/ServiceLog, so
+// the only ILogger output is framework noise. Drop it to Warning — in particular
+// Microsoft.AspNetCore.Hosting.Diagnostics' per-request "Request starting/finished"
+// Information lines, which otherwise flood service.log on every internal API call.
+// Keep Microsoft.Hosting.Lifetime at Information for the useful "Now listening" /
+// "Application started/stopping" boot markers.
+builder.Logging.AddFilter("Microsoft", LogLevel.Warning);
+builder.Logging.AddFilter("System", LogLevel.Warning);
+builder.Logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Information);
 // Kestrel + form upload body limits. Default Kestrel cap is 30 MB which drops
 // larger multipart uploads before /media/import sees them (the browser then
 // reports "could not reach the service"). Match MediaImporter.MaxFileSize so

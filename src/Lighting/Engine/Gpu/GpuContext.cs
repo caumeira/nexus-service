@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Threading;
+using Nexus.Service.Platform;
 using Silk.NET.Maths;
 using Silk.NET.OpenGL;
 using Silk.NET.Windowing;
@@ -105,7 +106,9 @@ public sealed class GpuContext : IDisposable
             System.IO.File.AppendAllText(LogPath, $"{DateTime.UtcNow:HH:mm:ss.fff} {line}\n");
         }
         catch { }
-        Console.Error.WriteLine(line);
+        // These are GL init/shader traces, not failures — INF, not ERR. Full
+        // detail still lands in the dedicated gpu.log above.
+        ServiceLog.Info(line);
     }
 
     /// <summary>

@@ -78,8 +78,6 @@ public sealed class ShaderEffect : IEffect
         _setUniforms = setUniforms;
     }
 
-    private int _frameCount;
-
     public void RenderFrame(CanvasBuffer canvas, double tickMs)
     {
         if (_failed)
@@ -272,12 +270,6 @@ public sealed class ShaderEffect : IEffect
             // Canvas resized outside what we rendered: drop this frame silently.
 
             gl.BindFramebuffer(FramebufferTarget.Framebuffer, 0);
-
-            _frameCount++;
-            if (_frameCount == 1 || _frameCount == 5 || _frameCount == 30 || _frameCount == 100 || _frameCount % 300 == 0)
-            {
-                GpuContext.Log($"[gpu/{Name}] frame #{_frameCount} rendered");
-            }
         }
     }
 

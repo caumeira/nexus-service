@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices.Detection;
 using Nexus.Service.Lighting;
 using Nexus.Service.Sockets;
 
@@ -29,6 +30,7 @@ public sealed class Np50HeartbeatWorker : BackgroundService
     private const long ModeAssertCooldownMs = 30_000;
 
     private readonly Np50Hub _hub;
+    private readonly HardwarePresence _presence;
     private readonly MultiplexHub _wsHub;
     private readonly Np50LightingDeviceProvider? _lighting;
     private string _lastBroadcastFwVersion = "";
@@ -36,9 +38,10 @@ public sealed class Np50HeartbeatWorker : BackgroundService
     private byte _lastWarningSummary;
     private long _lastModeAssertMs;
 
-    public Np50HeartbeatWorker(Np50Hub hub, MultiplexHub wsHub, Np50LightingDeviceProvider? lighting = null)
+    public Np50HeartbeatWorker(Np50Hub hub, HardwarePresence presence, MultiplexHub wsHub, Np50LightingDeviceProvider? lighting = null)
     {
         _hub = hub;
+        _presence = presence;
         _wsHub = wsHub;
         _lighting = lighting;
     }
@@ -70,6 +73,12 @@ public sealed class Np50HeartbeatWorker : BackgroundService
     /// <summary>One poll cycle. Public so tests / debug routes can step manually.</summary>
     public void Tick()
     {
+        // Skip silently when disconnected and no NP50 is on the bus; stay live
+        // while connected so the heartbeat keeps software control and an unplug
+        // is still broadcast.
+        if (!_hub.IsConnected && !_presence.UsbPresent(Np50Protocol.VendorId, Np50Protocol.ProductId))
+            return;
+
         var connectedBefore = _hub.IsConnected;
 
         // The Get-Info call IS the heartbeat: it has to happen every tick

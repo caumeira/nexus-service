@@ -291,6 +291,7 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp => new Nexus.Service.Peripherals.Hyte.Keeb.KeebConnectionWorker(
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Keeb.KeebHub>(),
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Keeb.KeebSettingsApplier>(),
+            sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
             sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Keeb.KeebInputWorker>();
 
@@ -482,6 +483,10 @@ public static class NexusServiceCollectionExtensions
             new Nexus.Service.Devices.Detection.CachingUsbEnumerator(
                 sp.GetRequiredService<Nexus.Service.Devices.Detection.StubUsbEnumerator>()));
 #endif
+        // Shared "is this device on the bus" check over the cached USB enumerator,
+        // used to gate per-device heartbeat workers so they stay silent on hosts
+        // where their hardware isn't attached.
+        services.AddSingleton<Nexus.Service.Devices.Detection.HardwarePresence>();
         services.AddSingleton<DeviceManager>();
         services.AddSingleton<Nexus.Service.Devices.DeviceBroadcaster>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Devices.DeviceBroadcaster>());
@@ -710,7 +715,9 @@ public static class NexusServiceCollectionExtensions
         if (OperatingSystem.IsWindows())
         {
             services.AddSingleton<Nexus.Service.QSeries.QSeriesPortWatcher>(
-                _ => new Nexus.Service.QSeries.QSeriesPortWatcher(servicePort));
+                sp => new Nexus.Service.QSeries.QSeriesPortWatcher(
+                    servicePort,
+                    sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>()));
             services.AddHostedService(sp =>
                 sp.GetRequiredService<Nexus.Service.QSeries.QSeriesPortWatcher>());
         }

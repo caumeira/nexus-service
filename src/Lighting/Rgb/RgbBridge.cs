@@ -6,6 +6,7 @@ using System.Threading.Tasks;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Lighting.Rgb;
 
@@ -985,7 +986,7 @@ public sealed class RgbBridge : IDisposable
             return;
         }
         Interlocked.Exchange(ref _lastBounceTicks, now);
-        Console.Error.WriteLine($"[rgb-bridge] usb topology changed ({previousCount} -> {currentCount}), bouncing subprocess for re-detect");
+        ServiceLog.Info($"[rgb-bridge] usb topology changed ({previousCount} -> {currentCount}), bouncing subprocess for re-detect");
         BounceSubprocess();
     }
 

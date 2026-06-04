@@ -1,5 +1,6 @@
 using System;
 using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.Keeb;
 
@@ -37,7 +38,7 @@ public sealed class KeebSettingsApplier
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[keeb] apply settings failed: {ex.GetType().Name}: {ex.Message}");
+            ServiceLog.Error($"[keeb] apply settings failed: {ex.GetType().Name}: {ex.Message}");
             return false;
         }
     }
@@ -64,7 +65,7 @@ public sealed class KeebSettingsApplier
         if (string.Equals(_store.Load().Keeb.FirmwareLighting.AnimationMode, effect, StringComparison.OrdinalIgnoreCase))
             return false;
         _store.Update(s => s.Keeb.FirmwareLighting.AnimationMode = effect);
-        Console.Error.WriteLine($"[keeb] device effect -> {effect} (synced to UI)");
+        ServiceLog.Info($"[keeb] device effect -> {effect} (synced to UI)");
         return true;
     }
 }

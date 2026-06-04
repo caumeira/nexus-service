@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices.Detection;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.Y70Display;
 
@@ -14,17 +16,21 @@ namespace Nexus.Service.Peripherals.Hyte.Y70Display;
 public sealed class Y70DisplayHeartbeatWorker : BackgroundService
 {
     private readonly Y70DisplayHub _hub;
+    private readonly HardwarePresence _presence;
 
-    public Y70DisplayHeartbeatWorker(Y70DisplayHub hub) { _hub = hub; }
+    public Y70DisplayHeartbeatWorker(Y70DisplayHub hub, HardwarePresence presence)
+    {
+        _hub = hub;
+        _presence = presence;
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Console.Error.WriteLine("[y70-display-heartbeat] ExecuteAsync started");
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(3));
         while (!stoppingToken.IsCancellationRequested)
         {
             try { Tick(); }
-            catch (Exception ex) { Console.Error.WriteLine($"[y70-display-heartbeat] tick exception: {ex.GetType().Name}: {ex.Message}"); }
+            catch (Exception ex) { ServiceLog.Error($"[y70-display-heartbeat] tick exception: {ex.GetType().Name}: {ex.Message}"); }
             try { if (!await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false)) break; }
             catch (OperationCanceledException) { break; }
         }
@@ -33,6 +39,18 @@ public sealed class Y70DisplayHeartbeatWorker : BackgroundService
 
     public void Tick()
     {
+        // Skip silently when disconnected and no Y70 display controller is on the
+        // bus. The monitor channel can't identify a Y70 (no EDID vendor), so the
+        // serial controller's VID/PID is the gate; stay live while connected.
+        if (!_hub.IsConnected && !_presence.UsbPresent(
+                Y70DisplayProtocol.VendorId,
+                Y70DisplayProtocol.Y70TouchProductId,
+                Y70DisplayProtocol.Y70InfiniteProductId,
+                Y70DisplayProtocol.Y70TrulyProductId))
+        {
+            return;
+        }
+
         var connectedBefore = _hub.IsConnected;
         if (!_hub.EnsureConnected()) return;
         if (!connectedBefore || string.IsNullOrEmpty(_hub.State.FirmwareVersion))

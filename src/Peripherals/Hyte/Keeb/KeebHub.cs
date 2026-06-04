@@ -1,6 +1,7 @@
 using System;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Peripherals.Hyte.Np50;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.Keeb;
 
@@ -75,7 +76,7 @@ public sealed class KeebHub : IDisposable
         var dev = _hid.Open(chosen.Path);
         if (dev is null)
         {
-            Console.Error.WriteLine($"[keeb] open failed for {chosen.Path}");
+            ServiceLog.Error($"[keeb] open failed for {chosen.Path}");
             return false;
         }
         _device = dev;
@@ -83,7 +84,7 @@ public sealed class KeebHub : IDisposable
             ? chosen.Serial!
             : StableIdFromPath(chosen.Path);
         _consecutiveWriteFailures = 0;
-        Console.Error.WriteLine($"[keeb] connected (serial={State.Serial}, usage={chosen.UsagePage:X4}/{chosen.Usage:X2})");
+        ServiceLog.Info($"[keeb] connected (serial={State.Serial}, usage={chosen.UsagePage:X4}/{chosen.Usage:X2})");
         return true;
     }
 
@@ -178,7 +179,7 @@ public sealed class KeebHub : IDisposable
             catch (ObjectDisposedException) { return false; }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[keeb] settings write failed: {ex.GetType().Name}: {ex.Message}");
+                ServiceLog.Error($"[keeb] settings write failed: {ex.GetType().Name}: {ex.Message}");
                 return RecordWriteFailureLocked(ex.GetType().Name);
             }
         }
@@ -206,7 +207,7 @@ public sealed class KeebHub : IDisposable
             catch (ObjectDisposedException) { return null; }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[keeb] settings read failed: {ex.GetType().Name}: {ex.Message}");
+                ServiceLog.Error($"[keeb] settings read failed: {ex.GetType().Name}: {ex.Message}");
                 return null;
             }
         }
@@ -249,7 +250,7 @@ public sealed class KeebHub : IDisposable
             catch (ObjectDisposedException) { return false; }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[keeb] profile write failed: {ex.GetType().Name}: {ex.Message}");
+                ServiceLog.Error($"[keeb] profile write failed: {ex.GetType().Name}: {ex.Message}");
                 return RecordWriteFailureLocked(ex.GetType().Name);
             }
         }
@@ -302,7 +303,7 @@ public sealed class KeebHub : IDisposable
         catch (ObjectDisposedException) { return false; }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[keeb] page write failed: {ex.GetType().Name}: {ex.Message}");
+            ServiceLog.Error($"[keeb] page write failed: {ex.GetType().Name}: {ex.Message}");
             return RecordWriteFailureLocked(ex.GetType().Name);
         }
     }
@@ -332,7 +333,7 @@ public sealed class KeebHub : IDisposable
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[keeb] stream failed: {ex.GetType().Name}: {ex.Message}");
+            ServiceLog.Error($"[keeb] stream failed: {ex.GetType().Name}: {ex.Message}");
             return RecordWriteFailureLocked(ex.GetType().Name);
         }
     }
@@ -346,7 +347,7 @@ public sealed class KeebHub : IDisposable
         var n = ++_consecutiveWriteFailures;
         if (n >= ConsecutiveWriteFailureThreshold)
         {
-            Console.Error.WriteLine($"[keeb] {n} consecutive write failures ({where}) — dropping interface");
+            ServiceLog.Error($"[keeb] {n} consecutive write failures ({where}) — dropping interface");
             _consecutiveWriteFailures = 0;
             try { _device?.Dispose(); } catch { /* best effort */ }
             _device = null;

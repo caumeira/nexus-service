@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Cooling;
 using Nexus.Service.Peripherals.Hyte.Np50;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Cooling;
 
@@ -277,7 +278,7 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
         if (!channelId.StartsWith("np50:", StringComparison.Ordinal)) return;
         if (!_hub.IsConnected)
         {
-            System.Console.Error.WriteLine($"[np50-cooling] write to {channelId} dropped: hub not connected");
+            ServiceLog.Warn($"[np50-cooling] write to {channelId} dropped: hub not connected");
             return;
         }
 
@@ -311,14 +312,11 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
         // sends the first attempt immediately, so the next duty write often
         // lands while the hub is already in Software mode.
         _hub.SetDesiredCoolingMode(Np50Protocol.ModeSoftware);
-        var modeOk = true;
 
         if (channelId.EndsWith(":legacy", StringComparison.Ordinal))
         {
             _pendingLegacyDuty = dutyPercent;
-            var writeOk = _hub.SetLegacyFanSpeed(dutyPercent);
-            System.Console.Error.WriteLine(
-                $"[np50-cooling] legacy 4-pin -> {dutyPercent}% (modeOk={modeOk} writeOk={writeOk} hubMode={_hub.State.HubInfo.CoolingMode})");
+            _hub.SetLegacyFanSpeed(dutyPercent);
             return;
         }
 

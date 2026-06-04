@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Peripherals.Hyte.Np50;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 
@@ -31,6 +32,9 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
     private readonly object _lock = new();
     private INp50Transport? _transport;
     private bool _disposed;
+    // Starts at 0 (the silent default) so a device absent from boot never logs
+    // "discovery returned 0"; only a real change (0->N found, or N->0 disconnect) logs.
+    private int _lastDiscoveredPortCount;
 
     public MiniHubHub(INp50PortDiscovery discovery, Func<Np50PortInfo, INp50Transport> transportFactory)
     {
@@ -89,9 +93,13 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
             if (IsConnected) return true;
             var ports = _discovery.Discover();
             // Trace to tell "no device" apart from "device found but port open
-            // failed"; both manifest as the hub staying disconnected. Logged at
-            // most once per heartbeat tick.
-            Console.Error.WriteLine($"[minihub] discovery returned {ports.Count} port(s)");
+            // failed"; both manifest as the hub staying disconnected. Logged only
+            // when the count changes so a present-but-unopenable port can't flood.
+            if (ports.Count != _lastDiscoveredPortCount)
+            {
+                _lastDiscoveredPortCount = ports.Count;
+                ServiceLog.Info($"[minihub] discovery returned {ports.Count} port(s)");
+            }
             foreach (var port in ports)
             {
                 try
@@ -99,12 +107,12 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
                     var t = _transportFactory(port);
                     _transport = t;
                     State.Serial = port.Serial;
-                    Console.Error.WriteLine($"[minihub] connected to {port.PortName} (serial={port.Serial})");
+                    ServiceLog.Info($"[minihub] connected to {port.PortName} (serial={port.Serial})");
                     return true;
                 }
                 catch (Exception ex)
                 {
-                    Console.Error.WriteLine($"[minihub] open {port.PortName} failed: {ex.GetType().Name}: {ex.Message}");
+                    ServiceLog.Error($"[minihub] open {port.PortName} failed: {ex.GetType().Name}: {ex.Message}");
                 }
             }
             return false;

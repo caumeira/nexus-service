@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices.Detection;
 using Nexus.Service.Lighting;
 
 namespace Nexus.Service.Peripherals.Hyte.Keeb;
@@ -20,13 +21,15 @@ public sealed class KeebConnectionWorker : BackgroundService
 
     private readonly KeebHub _hub;
     private readonly KeebSettingsApplier _applier;
+    private readonly HardwarePresence _presence;
     private readonly KeebLightingDeviceProvider? _lighting;
     private bool _lastConnected;
 
-    public KeebConnectionWorker(KeebHub hub, KeebSettingsApplier applier, KeebLightingDeviceProvider? lighting = null)
+    public KeebConnectionWorker(KeebHub hub, KeebSettingsApplier applier, HardwarePresence presence, KeebLightingDeviceProvider? lighting = null)
     {
         _hub = hub;
         _applier = applier;
+        _presence = presence;
         _lighting = lighting;
     }
 
@@ -49,6 +52,11 @@ public sealed class KeebConnectionWorker : BackgroundService
     /// <summary>One connect/notify cycle. Public so debug routes can step it.</summary>
     public void Tick()
     {
+        // Skip silently when disconnected and no keeb is on the bus; stay live
+        // while connected so an unplug is still noticed and broadcast below.
+        if (!_hub.IsConnected && !_presence.UsbPresent(KeebProtocol.VendorId, KeebProtocol.ProductId))
+            return;
+
         _hub.EnsureConnected();
         var connected = _hub.IsConnected;
         if (connected != _lastConnected)

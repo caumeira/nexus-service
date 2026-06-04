@@ -2,8 +2,10 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices.Detection;
 using Nexus.Service.Lighting;
 using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 
@@ -35,11 +37,14 @@ public sealed class CnvsConnectionWorker : BackgroundService
     // accept FF DC 07 only when it's one of the first wire commands after
     // a USB connect (see CnvsHub.WriteSettings doc for the invariant).
     private readonly IConfigStore _store;
+    private readonly HardwarePresence _presence;
+    private bool _firstTick = true;
 
-    public CnvsConnectionWorker(CnvsHub hub, IConfigStore store, CnvsLightingDeviceProvider? lighting = null)
+    public CnvsConnectionWorker(CnvsHub hub, IConfigStore store, HardwarePresence presence, CnvsLightingDeviceProvider? lighting = null)
     {
         _hub = hub;
         _store = store;
+        _presence = presence;
         _lighting = lighting;
     }
 
@@ -56,7 +61,7 @@ public sealed class CnvsConnectionWorker : BackgroundService
             do
             {
                 try { Tick(); }
-                catch (Exception ex) { Console.Error.WriteLine($"[cnvs-conn] tick failed: {ex.GetType().Name}: {ex.Message}"); }
+                catch (Exception ex) { ServiceLog.Error($"[cnvs-conn] tick failed: {ex.GetType().Name}: {ex.Message}"); }
             }
             while (await timer.WaitForNextTickAsync(stoppingToken));
         }
@@ -67,6 +72,13 @@ public sealed class CnvsConnectionWorker : BackgroundService
 
     private void Tick()
     {
+        // First tick stays ungated so the race-and-hold isn't delayed by a cold
+        // USB-enumeration scan. After that, skip silently when disconnected and no
+        // CNVS is on the bus.
+        if (!_firstTick && !_hub.IsConnected && !_presence.UsbPresent(CnvsProtocol.VendorId, CnvsProtocol.ProductIds))
+            return;
+        _firstTick = false;
+
         _hub.EnsureConnected();
         if (!_hub.IsConnected) return;
 
@@ -84,14 +96,14 @@ public sealed class CnvsConnectionWorker : BackgroundService
         try
         {
             var fwVersion = _hub.GetFirmwareVersion();
-            Console.Error.WriteLine(
+            ServiceLog.Info(
                 fwVersion is null
                     ? $"[cnvs-conn] firmware version probe returned no data (serial={_hub.Serial})"
                     : $"[cnvs-conn] firmware version {fwVersion} (serial={_hub.Serial})");
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[cnvs-conn] firmware version probe threw {ex.GetType().Name}: {ex.Message}");
+            ServiceLog.Error($"[cnvs-conn] firmware version probe threw {ex.GetType().Name}: {ex.Message}");
         }
 
         // Apply the persisted firmware settings FIRST — before anything else
@@ -105,7 +117,7 @@ public sealed class CnvsConnectionWorker : BackgroundService
         {
             if (_hub.WriteSettings(s.PlayAnimation, s.PlayWhenPCOff))
             {
-                Console.Error.WriteLine(
+                ServiceLog.Info(
                     $"[cnvs-conn] applied persisted settings on connect (serial={_hub.Serial}): boot={s.PlayAnimation} leds={s.PlayWhenPCOff}");
             }
             else

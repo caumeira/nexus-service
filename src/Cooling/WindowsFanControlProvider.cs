@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Cooling;
 using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 using LibreHardwareMonitor.Hardware;
 
@@ -276,7 +277,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
             _softwareControlled.Add(channelId);
         }
         if (saved.Count > 0)
-            Console.Error.WriteLine($"[fan-control] restored {saved.Count} manual fan speed(s) from config");
+            ServiceLog.Info($"[fan-control] restored {saved.Count} manual fan speed(s) from config");
     }
 
     private List<ChannelMapping> DiscoverChannels()
@@ -327,9 +328,9 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
         var currentIds = new HashSet<string>(result.Select(c => $"{c.Id}|{c.Name}"), StringComparer.Ordinal);
         if (!currentIds.SetEquals(_lastLoggedChannelIds))
         {
-            Console.Error.WriteLine($"[fan-control] discovered {result.Count} controllable fan channel(s)");
+            ServiceLog.Info($"[fan-control] discovered {result.Count} controllable fan channel(s)");
             foreach (var ch in result)
-                Console.Error.WriteLine($"[fan-control]   {ch.Name} ({ch.Id})");
+                ServiceLog.Info($"[fan-control]   {ch.Name} ({ch.Id})");
             _lastLoggedChannelIds = currentIds;
         }
 

@@ -9,6 +9,7 @@ using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Lifecycle.Native;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Lifecycle;
 
@@ -64,14 +65,14 @@ public static class PawnIoInstaller
         var infPath = Path.Combine(AppContext.BaseDirectory, "pawnio", "PawnIO.inf");
         if (!File.Exists(infPath))
         {
-            Console.Error.WriteLine($"[pawnio] bundled INF not found at {infPath}");
+            ServiceLog.Error($"[pawnio] bundled INF not found at {infPath}");
             return PawnIoInstallResult.Failed;
         }
 
         var exePath = Process.GetCurrentProcess().MainModule?.FileName;
         if (string.IsNullOrEmpty(exePath))
         {
-            Console.Error.WriteLine("[pawnio] cannot determine own exe path");
+            ServiceLog.Error("[pawnio] cannot determine own exe path");
             return PawnIoInstallResult.Failed;
         }
 
@@ -97,7 +98,7 @@ public static class PawnIoInstaller
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[pawnio] failed to spawn elevated installer: {ex.Message}");
+            ServiceLog.Error($"[pawnio] failed to spawn elevated installer: {ex.Message}");
             return PawnIoInstallResult.Failed;
         }
 
@@ -112,7 +113,7 @@ public static class PawnIoInstaller
 
         if (proc.ExitCode != 0)
         {
-            Console.Error.WriteLine($"[pawnio] elevated installer exited with code {proc.ExitCode}");
+            ServiceLog.Error($"[pawnio] elevated installer exited with code {proc.ExitCode}");
             return PawnIoInstallResult.Failed;
         }
 

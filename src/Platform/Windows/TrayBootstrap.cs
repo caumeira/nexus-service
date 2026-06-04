@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Nexus.Service.Panel;
 using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 using Nexus.Service.Sockets;
 #if WINDOWS
 using Nexus.Service.Helper;
@@ -228,11 +229,11 @@ internal static class TrayBootstrap
             try
             {
                 var result = await Nexus.Service.Lifecycle.PawnIoInstaller.EnsureInstalledAsync();
-                Console.Error.WriteLine($"[pawnio] driver state: {result}");
+                ServiceLog.Info($"[pawnio] driver state: {result}");
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[pawnio] install check failed: {ex.Message}");
+                ServiceLog.Error($"[pawnio] install check failed: {ex.Message}");
             }
         });
     }

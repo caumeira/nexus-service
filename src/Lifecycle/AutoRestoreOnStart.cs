@@ -8,6 +8,7 @@ using Nexus.Service.Lighting;
 using Nexus.Service.Models.Common;
 using Nexus.Service.Models.Lighting;
 using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 using Nexus.Service.Sockets;
 
 namespace Nexus.Service.Lifecycle;
@@ -62,10 +63,10 @@ internal sealed class AutoRestoreOnStart : BackgroundService
         // the engine had the persisted state in memory, so they're showing a
         // stale "none" / "off" view. The topic ping forces them to refetch.
         try { if (RestoreCooling()) PanelTopics.BroadcastCooling(_hub); }
-        catch (Exception ex) { Console.Error.WriteLine($"[auto-restore] cooling failed: {ex.Message}"); }
+        catch (Exception ex) { ServiceLog.Error($"[auto-restore] cooling failed: {ex.Message}"); }
 
         try { if (RestoreLighting()) PanelTopics.BroadcastLighting(_hub); }
-        catch (Exception ex) { Console.Error.WriteLine($"[auto-restore] lighting failed: {ex.Message}"); }
+        catch (Exception ex) { ServiceLog.Error($"[auto-restore] lighting failed: {ex.Message}"); }
     }
 
     private bool RestoreCooling()

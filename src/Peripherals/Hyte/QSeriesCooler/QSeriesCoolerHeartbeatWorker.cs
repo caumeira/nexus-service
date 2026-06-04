@@ -2,6 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices.Detection;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 
@@ -24,17 +26,19 @@ public sealed class QSeriesCoolerHeartbeatWorker : BackgroundService
     private const int InitialDelayMs = 100;
 
     private readonly QSeriesCoolerHub _hub;
+    private readonly HardwarePresence _presence;
     private readonly Nexus.Service.Lighting.QSeriesLightingDeviceProvider? _lighting;
+    private bool _firstTick = true;
 
-    public QSeriesCoolerHeartbeatWorker(QSeriesCoolerHub hub, Nexus.Service.Lighting.QSeriesLightingDeviceProvider? lighting = null)
+    public QSeriesCoolerHeartbeatWorker(QSeriesCoolerHub hub, HardwarePresence presence, Nexus.Service.Lighting.QSeriesLightingDeviceProvider? lighting = null)
     {
         _hub = hub;
+        _presence = presence;
         _lighting = lighting;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        Console.Error.WriteLine("[qseries-cooler-heartbeat] ExecuteAsync started");
         // Head-start: claim the COM port before OpenRGB launches (race-and-hold).
         try { await Task.Delay(InitialDelayMs, stoppingToken).ConfigureAwait(false); }
         catch (OperationCanceledException) { return; }
@@ -42,7 +46,7 @@ public sealed class QSeriesCoolerHeartbeatWorker : BackgroundService
         while (!stoppingToken.IsCancellationRequested)
         {
             try { Tick(); }
-            catch (Exception ex) { Console.Error.WriteLine($"[qseries-cooler-heartbeat] tick exception: {ex.GetType().Name}: {ex.Message}"); }
+            catch (Exception ex) { ServiceLog.Error($"[qseries-cooler-heartbeat] tick exception: {ex.GetType().Name}: {ex.Message}"); }
             try { if (!await timer.WaitForNextTickAsync(stoppingToken).ConfigureAwait(false)) break; }
             catch (OperationCanceledException) { break; }
         }
@@ -51,6 +55,16 @@ public sealed class QSeriesCoolerHeartbeatWorker : BackgroundService
 
     public void Tick()
     {
+        // First tick stays ungated so the race-and-hold above isn't delayed by a
+        // cold USB-enumeration scan. After that, skip silently when disconnected
+        // and no Q-series cooler is on the bus.
+        if (!_firstTick && !_hub.IsConnected
+            && !_presence.UsbPresent(QSeriesCoolerProtocol.VendorId, QSeriesCoolerProtocol.Q60ProductId, QSeriesCoolerProtocol.Q80ProductId))
+        {
+            return;
+        }
+        _firstTick = false;
+
         var connectedBefore = _hub.IsConnected;
         if (!_hub.EnsureConnected()) return;
         if (!connectedBefore || string.IsNullOrEmpty(_hub.State.FirmwareVersion))

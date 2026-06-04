@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Lighting.Rgb;
 
@@ -54,7 +55,7 @@ public sealed class OpenRgbProcessManager : IDisposable
                 {
                     proc.Kill(entireProcessTree: true);
                     proc.WaitForExit(1000);
-                    Console.Error.WriteLine($"[openrgb-proc] killed orphan PID {proc.Id}");
+                    ServiceLog.Info($"[openrgb-proc] killed orphan PID {proc.Id}");
                 }
                 catch { }
                 finally { proc.Dispose(); }
@@ -183,12 +184,12 @@ public sealed class OpenRgbProcessManager : IDisposable
             if (changed)
             {
                 File.WriteAllText(path, root.ToJsonString());
-                Console.Error.WriteLine($"[openrgb-proc] disabled detectors {string.Join(", ", DisabledDetectors)} in {path}");
+                ServiceLog.Info($"[openrgb-proc] disabled detectors {string.Join(", ", DisabledDetectors)} in {path}");
             }
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[openrgb-proc] detector-override write failed: {ex.GetType().Name}: {ex.Message}");
+            ServiceLog.Error($"[openrgb-proc] detector-override write failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -296,7 +297,7 @@ public sealed class OpenRgbProcessManager : IDisposable
             }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[openrgb-proc] failed to launch {_exePath}: {ex.Message}");
+                ServiceLog.Error($"[openrgb-proc] failed to launch {_exePath}: {ex.Message}");
             }
         }
     }
@@ -357,7 +358,7 @@ public sealed class OpenRgbProcessManager : IDisposable
         }
 
         var uptime = DateTime.UtcNow - _startedUtc;
-        Console.Error.WriteLine($"[openrgb-proc] subprocess exited code={proc.ExitCode} after {uptime.TotalSeconds:F0}s");
+        ServiceLog.Warn($"[openrgb-proc] subprocess exited code={proc.ExitCode} after {uptime.TotalSeconds:F0}s");
 
         // Reset backoff if it lived long enough to be considered "stable"
         TimeSpan backoff;
@@ -412,7 +413,12 @@ public sealed class OpenRgbProcessManager : IDisposable
                     continue;
                 }
 
-                Console.Error.WriteLine($"[openrgb-proc/{label}] {line}");
+                // Relay the child's own output: its stdout is informational, its
+                // stderr a warning. Neither is a Nexus failure.
+                if (label == "stderr")
+                    ServiceLog.Warn($"[openrgb-proc/{label}] {line}");
+                else
+                    ServiceLog.Info($"[openrgb-proc/{label}] {line}");
             }
         }
         catch { /* pipe closed on shutdown */ }

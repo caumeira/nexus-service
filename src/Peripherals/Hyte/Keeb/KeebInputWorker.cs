@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Peripherals.Hid;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.Keeb;
 
@@ -73,7 +74,7 @@ public sealed class KeebInputWorker : BackgroundService
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[keeb-input] read loop error: {ex.GetType().Name}: {ex.Message}");
+                ServiceLog.Error($"[keeb-input] read loop error: {ex.GetType().Name}: {ex.Message}");
                 CloseReader();
                 try { await Task.Delay(RetryDelayMs, ct).ConfigureAwait(false); }
                 catch (OperationCanceledException) { break; }
@@ -89,24 +90,24 @@ public sealed class KeebInputWorker : BackgroundService
         switch (ev.Kind)
         {
             case KeebProtocol.KeebInputKind.KeyMatrix:
-                Console.Error.WriteLine($"[keeb-input] key matrix row={ev.Row} col={ev.Column}");
+                ServiceLog.Info($"[keeb-input] key matrix row={ev.Row} col={ev.Column}");
                 break;
             case KeebProtocol.KeebInputKind.ScrollUp:
             case KeebProtocol.KeebInputKind.ScrollDown:
-                Console.Error.WriteLine($"[keeb-input] {ev.Encoder} encoder {ev.Kind}");
+                ServiceLog.Info($"[keeb-input] {ev.Encoder} encoder {ev.Kind}");
                 break;
             case KeebProtocol.KeebInputKind.ScrollMiddle:
                 // The middle button cycles the firmware effect on the device.
                 // Re-read the effect immediately so the panel's Effect selector
                 // follows without waiting on a poll.
-                Console.Error.WriteLine("[keeb-input] rotary middle click");
+                ServiceLog.Info("[keeb-input] rotary middle click");
                 _applier.SyncEffectFromDevice();
                 break;
             case KeebProtocol.KeebInputKind.SoftwareKey:
-                Console.Error.WriteLine($"[keeb-input] software key ap={ev.ApCode} pressed={ev.Pressed}");
+                ServiceLog.Info($"[keeb-input] software key ap={ev.ApCode} pressed={ev.Pressed}");
                 break;
             case KeebProtocol.KeebInputKind.Profile:
-                Console.Error.WriteLine($"[keeb-input] profile -> {ev.Profile}");
+                ServiceLog.Info($"[keeb-input] profile -> {ev.Profile}");
                 break;
         }
     }
@@ -117,7 +118,7 @@ public sealed class KeebInputWorker : BackgroundService
         if (info is null) return false;
         _reader = _hid.Open(info.Path, forInput: true);
         if (_reader is null) return false;
-        Console.Error.WriteLine($"[keeb-input] reader opened on {info.Path}");
+        ServiceLog.Info($"[keeb-input] reader opened on {info.Path}");
         return true;
     }
 
