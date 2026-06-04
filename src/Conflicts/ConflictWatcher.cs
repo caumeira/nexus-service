@@ -188,31 +188,19 @@ public sealed class ConflictWatcher : BackgroundService
     /// Walk every running process exactly once and group by ProcessName so
     /// matching against the catalog is O(catalog × hits) instead of
     /// O(catalog × procs). OrdinalIgnoreCase matches how .NET casefolds
-    /// Windows executable names.
+    /// Windows executable names. macOS returns an empty index — the catalog is
+    /// Windows-only (see the #if MACOS arm).
     /// </summary>
     private static Dictionary<string, List<(int Pid, string? Path)>> BuildProcessNameIndex()
     {
         var index = new Dictionary<string, List<(int Pid, string? Path)>>(StringComparer.OrdinalIgnoreCase);
 
 #if MACOS
-        var pids = Platform.Mac.MacProcInfo.ListPids();
-        if (pids.Length == 0)
-            return index;
-        var pathBuf = new byte[4096];
-        foreach (var pid in pids)
-        {
-            if (pid <= 0)
-                continue;
-            var name = Platform.Mac.MacProcInfo.GetProcessName(pid, pathBuf);
-            if (string.IsNullOrEmpty(name))
-                continue;
-            if (!index.TryGetValue(name, out var bucket))
-            {
-                bucket = new List<(int, string?)>(1);
-                index[name] = bucket;
-            }
-            bucket.Add((pid, null));
-        }
+        // Every catalog entry is Windows hardware-control software, and a bare
+        // process-name match collides with macOS's own always-running
+        // "ControlCenter" system process — surfacing a phantom "MSI Control
+        // Center" conflict. No catalog entry applies on macOS, so never scan:
+        // the empty index makes DetectRunningConflicts report nothing.
         return index;
 #else
         // Windows + everything else: Process.GetProcesses() is the most
