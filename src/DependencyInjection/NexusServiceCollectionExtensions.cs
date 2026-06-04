@@ -83,6 +83,18 @@ public static class NexusServiceCollectionExtensions
         // Anonymous fleet heartbeat — post-boot, off the critical path, gated by
         // the collect-anonymous-data setting (default on).
         services.AddHostedService<Nexus.Service.Telemetry.HeartbeatService>();
+        // Product telemetry — anonymous events to PostHog, same opt-out + install
+        // id as the heartbeat. Inject ITelemetry and call Capture(...). The flush
+        // worker stays dormant until a PostHog key is configured (PostHogOptions).
+        services.AddSingleton<Nexus.Service.Telemetry.TelemetryClient>();
+        services.AddSingleton<Nexus.Service.Telemetry.ITelemetry>(
+            sp => sp.GetRequiredService<Nexus.Service.Telemetry.TelemetryClient>());
+        services.AddSingleton<Nexus.Service.Telemetry.PostHogOptions>();
+        services.AddSingleton<Nexus.Service.Telemetry.ITelemetrySink, Nexus.Service.Telemetry.PostHogSink>();
+        services.AddHostedService<Nexus.Service.Telemetry.TelemetryFlushService>();
+        // Attaches the hardware/system profile (specs + recognized connected
+        // devices) to the anonymous person via $set. Post-boot, refreshed.
+        services.AddHostedService<Nexus.Service.Telemetry.SystemProfileService>();
 #if WINDOWS
         // Triggers the IFanControlProvider singleton ctor (which transitively
         // constructs LhmComputer + kicks off its background Open()) right

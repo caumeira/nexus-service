@@ -65,30 +65,18 @@ public sealed class HeartbeatService : BackgroundService
 
     private async Task BeatAsync(CancellationToken ct)
     {
-        var settings = _store.Load();
-        if (!settings.Telemetry.CollectAnonymousData)
-        {
-            // Opted out: forget the id so re-enabling looks like a fresh install.
-            if (!string.IsNullOrEmpty(settings.Telemetry.InstallId))
-            {
-                _store.Update(s => s.Telemetry.InstallId = "");
-            }
+        // Shared with product telemetry: resolves the anonymous id and honors
+        // the single opt-out (forgets the id when disabled). See InstallIdentity.
+        var installId = InstallIdentity.Resolve(_store);
+        if (installId is null)
             return;
-        }
-
-        var installId = settings.Telemetry.InstallId;
-        if (string.IsNullOrEmpty(installId))
-        {
-            installId = Guid.NewGuid().ToString("N");
-            _store.Update(s => s.Telemetry.InstallId = installId);
-        }
 
         var payload = new HeartbeatPayload
         {
             InstallId = installId,
             DeviceType = "desktop",
             Version = BuildInfo.Version,
-            Os = OsTag(),
+            Os = TelemetryPlatform.OsTag(),
             OsVersion = RuntimeInformation.OSDescription,
             Arch = RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(),
         };
@@ -104,14 +92,6 @@ public sealed class HeartbeatService : BackgroundService
         {
             Console.Error.WriteLine($"[heartbeat] {(int)res.StatusCode} from {Endpoint}");
         }
-    }
-
-    private static string OsTag()
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return "win";
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return "mac";
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return "linux";
-        return "other";
     }
 }
 

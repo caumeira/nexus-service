@@ -90,7 +90,7 @@ public static class CoolingRoutes
         app.MapGet("/cooling/sources", (IFanControlProvider f) =>
             new GetTemperatureSourcesResponse { Sources = new(f.GetTemperatureSources()) }).AllowPanel();
 
-        app.MapPost("/cooling/fan/{id}/speed", (string id, SetFanSpeedBody body, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/cooling/fan/{id}/speed", (string id, SetFanSpeedBody body, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub, Nexus.Service.Telemetry.ITelemetry telemetry) =>
         {
             id = Uri.UnescapeDataString(id);
             // Detach from any curve first. Otherwise CurveEngine would
@@ -103,6 +103,7 @@ public static class CoolingRoutes
             var derivedAfterSpeed = FanProfiles.DerivePresetFromCurves(store, f);
             store.Update(s => s.Cooling.ActivePreset = derivedAfterSpeed);
             PanelTopics.BroadcastCooling(hub);
+            telemetry.Capture(Nexus.Service.Telemetry.TelemetryEvents.FanSpeedSet, ("speed", actual));
             return new SetFanSpeedResponse { ChannelId = id, Speed = actual, Mode = Nexus.Service.Models.Cooling.FanModes.Manual };
         });
 
@@ -153,7 +154,7 @@ public static class CoolingRoutes
                 Active = store.Load().Cooling.ActivePreset,
             }).AllowPanel();
 
-        app.MapPost("/cooling/profile/{name}", (string name, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/cooling/profile/{name}", (string name, IFanControlProvider f, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub, Nexus.Service.Telemetry.ITelemetry telemetry) =>
         {
             var profile = FanProfiles.GetBuiltInProfiles()
                 .Find(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
@@ -166,6 +167,7 @@ public static class CoolingRoutes
             var requested = isAutoSynonym ? "off" : profile!.Name;
             var applied = FanProfiles.Apply(requested, f, store);
             PanelTopics.BroadcastCooling(hub);
+            telemetry.Capture(Nexus.Service.Telemetry.TelemetryEvents.FanCurveApplied, ("preset", requested));
             return Results.Ok(new ApplyProfileResponse { Applied = applied });
         }).AllowPanel();
 

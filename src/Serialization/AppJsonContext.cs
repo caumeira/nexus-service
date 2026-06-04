@@ -102,6 +102,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(ApplyProfileResponse))]
 [JsonSerializable(typeof(StartupModeBody))]
 [JsonSerializable(typeof(StartupModeDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TelemetryConsentBody))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TelemetryConsentDto))]
 [JsonSerializable(typeof(FanCalibration))]
 [JsonSerializable(typeof(List<FanCalibration>))]
 [JsonSerializable(typeof(FanCalibrationPoint))]
