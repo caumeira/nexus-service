@@ -146,7 +146,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelLayoutDto))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPageDto))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelWidgetDto))]
-[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelDockDto))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Panel.PanelPageDto>))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Panel.PanelWidgetDto>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelDeviceRecord))]

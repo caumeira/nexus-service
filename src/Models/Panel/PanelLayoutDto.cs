@@ -22,18 +22,6 @@ public sealed class PanelLayoutDto
     public List<PanelPageDto> Pages { get; set; } = new();
 
     public string? ActivePageId { get; set; }
-
-    /// <summary>iOS-style persistent dock; null = "no dock state on this layout"
-    /// (renders as disabled). Added in AMP-90.</summary>
-    public PanelDockDto? Dock { get; set; }
-}
-
-public sealed class PanelDockDto
-{
-    public bool Enabled { get; set; }
-
-    /// <summary>Each entry must be size "1x1". The runtime filters non-1x1 entries.</summary>
-    public List<PanelWidgetDto> Widgets { get; set; } = new();
 }
 
 public sealed class PanelPageDto

@@ -134,13 +134,6 @@ public sealed class WidgetSettingsService
                 if (w.Id == instanceId) return w;
             }
         }
-        if (layout.Dock is { } dock)
-        {
-            foreach (var w in dock.Widgets)
-            {
-                if (w.Id == instanceId) return w;
-            }
-        }
         return null;
     }
 

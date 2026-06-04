@@ -45,7 +45,6 @@ public sealed class PanelDeviceCapabilities
     public string? Surface { get; set; }
     public string? Grid { get; set; }
     public bool? Touch { get; set; }
-    public bool? Dock { get; set; }
     public string? Orientation { get; set; }
     // Viewport hints reported by the kiosk SPA itself - the kiosk knows its
     // own CSS viewport and devicePixelRatio (== Windows display scaling on
