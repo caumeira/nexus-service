@@ -292,6 +292,8 @@ if (!testHost)
     Nexus.Service.Lifecycle.BootTimer.Mark("after InitializeProfiles");
     Nexus.Service.Lifecycle.AppBootstrap.WireBeatsAndPresence(app);
     Nexus.Service.Lifecycle.BootTimer.Mark("after WireBeatsAndPresence");
+    app.Services.GetRequiredService<Nexus.Service.Telemetry.ITelemetry>()
+        .Capture(Nexus.Service.Telemetry.TelemetryEvents.AppStarted);
 }
 
 // Middleware pipeline
@@ -368,6 +370,7 @@ app.MapDefaultsEndpoints();
 app.MapAuthEndpoints();
 app.MapSystemEndpoints();
 app.MapServiceControlEndpoints();
+app.MapTelemetryEndpoints();
 app.MapCoolingEndpoints();
 app.MapBenchmarkEndpoints();
 app.MapLightingEndpoints();
