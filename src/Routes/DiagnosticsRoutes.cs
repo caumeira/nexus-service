@@ -1,11 +1,11 @@
 using System;
-using System.Diagnostics;
-using System.IO;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+#if WINDOWS
+using Microsoft.Extensions.DependencyInjection;
+#endif
 using Nexus.Service.Auth;
 using Nexus.Service.Models;
-using Nexus.Service.Platform;
 
 namespace Nexus.Service.Routes;
 
@@ -20,20 +20,22 @@ internal static class DiagnosticsRoutes
 {
     public static void MapDiagnosticsEndpoints(this WebApplication app)
     {
-        app.MapPost("/diagnostics/open-logs", () =>
+        app.MapPost("/diagnostics/open-logs", (IServiceProvider sp) =>
         {
             try
             {
-                var dir = ServiceLog.LogsDirectory;
-                Directory.CreateDirectory(dir);
-                var psi = new ProcessStartInfo { UseShellExecute = true };
-                if (OperatingSystem.IsWindows())
-                { psi.FileName = "explorer.exe"; psi.Arguments = $"\"{dir}\""; }
-                else if (OperatingSystem.IsMacOS())
-                { psi.FileName = "open"; psi.Arguments = $"\"{dir}\""; psi.UseShellExecute = false; }
-                else
-                { psi.FileName = "xdg-open"; psi.Arguments = $"\"{dir}\""; psi.UseShellExecute = false; }
-                Process.Start(psi);
+#if WINDOWS
+                // The service is LocalSystem in Session 0; an explorer.exe it
+                // spawns lands in the non-interactive session and never shows.
+                // Hand off to the user-session helper over the pipe — it opens
+                // the folder on the user's desktop.
+                var registry = sp.GetRequiredService<Nexus.Service.Helper.HelperRegistry>();
+                _ = Nexus.Service.Helper.Domains.DiagnosticsCommands.OpenLogsAsync(registry);
+#else
+                // macOS (LaunchAgent) / Linux run in the user session already,
+                // so opening directly reaches the user's file manager.
+                Nexus.Service.Diagnostics.LogsFolder.Open();
+#endif
                 return Results.Ok(ApiResponse.Ok());
             }
             catch (Exception ex)

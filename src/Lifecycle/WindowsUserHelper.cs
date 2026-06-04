@@ -141,6 +141,7 @@ internal static class WindowsUserHelper
         new MonitorsHandler().Register(handlerRegistry);
         new OrientationHandler(new Platform.Displays.WindowsDisplayOrientationProvider()).Register(handlerRegistry);
         new ScreenMirrorHandler(screenCapture.Start, screenCapture.Stop).Register(handlerRegistry);
+        new DiagnosticsHandler(Nexus.Service.Diagnostics.LogsFolder.Open).Register(handlerRegistry);
 
         var client = new HelperClientLoop(handlerRegistry, outbound);
         var pipeTask = Task.Run(() => client.RunAsync(s_exit.Token));

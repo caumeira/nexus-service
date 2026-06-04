@@ -486,6 +486,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.HelperShutdownPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OverlayPrefsChangedPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ServiceRequestStopPayload))]
+// Diagnostics
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenLogsPayload))]
 // Tray
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TraySetVisiblePayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TrayPairNoticePayload))]
