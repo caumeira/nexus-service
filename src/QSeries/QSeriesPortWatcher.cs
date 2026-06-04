@@ -15,73 +15,35 @@ using Microsoft.Extensions.Hosting;
 namespace Nexus.Service.QSeries;
 
 /// <summary>
-/// Keeps the loopback bridge between nexus-service and a connected HYTE
-/// Q60 / Q80 panel alive — and, after the first successful contact, gets
-/// us off USB-FFS adb entirely.
+/// Keeps <c>adb reverse tcp:{port} tcp:{port}</c> alive on an attached HYTE
+/// Q60 / Q80 panel so its Android shell (<c>com.hellonexus.qshell</c>) can load
+/// the Nexus panel SPA from <c>http://localhost:{port}</c>. The reverse is owned
+/// by the host adb-server; if that server dies the reverse evaporates and the
+/// panel WebSocket goes silent.
 ///
-/// The Q-series Android shell (`com.hellonexus.qshell`) loads the
-/// Nexus panel SPA from <c>http://localhost:9400</c>. On the panel side
-/// that localhost only reaches nexus-service because the host has
-/// <c>adb reverse tcp:9400 tcp:9400</c> applied to the attached Q-series
-/// display. The reverse is owned by the host's adb-server process — when
-/// the daemon exits (because another shell ran an <c>adb</c> command
-/// that started its own server, or the user kill-server'd it mid-deploy),
-/// the reverse evaporates and the panel WebSocket goes silent.
-/// Bench symptom: panel renders, sparklines tick for a few seconds, then
-/// values freeze.
+/// USB-FFS adbd is fragile: cycling the host adb-server mid-stream can wedge the
+/// device daemon into <c>offline</c>, which can't be cleared from the host without
+/// root. Recovery: per-tick <c>pnputil /restart-device</c> for a device stuck
+/// offline (a USB-level reset that restarts device-side adbd), plus an optional
+/// promote to adb-over-TCP when the panel has a LAN IP (dormant on stock touch-less
+/// units that can't enter WiFi creds), persisted to
+/// <c>%ProgramData%\Nexus\qseries-transports.json</c>.
 ///
-/// USB-FFS adbd is also fragile: cycling the host adb-server mid-stream
-/// can wedge the device-side daemon into <c>offline</c> state, requiring
-/// a power-cycle to recover (we can't restart adbd without root). The
-/// watcher has two complementary recovery paths for this:
-///
-/// 1. <b>Per-tick USB reset for wedged-offline devices</b>. When a serial
-///    we've previously identified as Q-series has been in <c>offline</c>
-///    state for &gt;30 s, the watcher resolves the device's USB composite
-///    parent (<c>USB\VID_xxxx&amp;PID_yyyy\&lt;adb-serial&gt;</c>) and runs
-///    <c>pnputil /restart-device</c>. That forces a real USB reset on the
-///    device side, which restarts adbd inside the firmware and clears the
-///    handshake wedge. Two-minute cooldown per instance keeps a truly
-///    unplugged device from getting hammered.
-///
-/// 2. <b>Bootstrap to adb-over-TCP (WiFi).</b> If the device happens to
-///    be on a LAN (HYTE Q60/Q80 firmware can boot WiFi but the touch-less
-///    panel can't enter SSID credentials, so this path is dormant on
-///    stock units), the watcher reads the device's IP and promotes the
-///    transport from USB-FFS to TCP via <c>adb tcpip 5555</c>. After
-///    promotion, panel transport runs over WiFi; USB cycling becomes
-///    irrelevant. The watcher persists <c>(serial, ip)</c> to
-///    <c>%ProgramData%\Nexus\qseries-transports.json</c> so subsequent
-///    service starts can reconnect without a USB round-trip.
-///
-/// The 10 s reverse-port refresh (matches nexus's <c>ADBInterface.startPing</c>
-/// from HYTE-ProductTeam/nexus
-/// <c>src/main/services/android/ADBInterface.ts</c>) still runs on whatever
-/// transport is currently up.
-///
-/// Idempotent and tolerant: an already-installed reverse is left alone,
-/// a missing one is re-applied, an already-promoted device is left alone,
-/// and adb-server-not-running / daemon restart / device-detached cases all
-/// just turn the next tick into a no-op and recover automatically on the
-/// tick after that.
+/// Every pass is idempotent: an already-applied reverse / already-promoted device
+/// is left alone, and adb-server-down / device-detached turn into no-ops that
+/// recover on a later tick.
 /// </summary>
 public sealed class QSeriesPortWatcher : BackgroundService
 {
     /// <summary>
-    /// Cadence of the keep-alive ping. Matches nexus's
-    /// <c>ADBInterface.startPing</c> 10 s interval, which is short
-    /// enough that the panel's <c>useMultiplexSocket</c> exponential
-    /// backoff (caps at 30 s on the SPA side) reliably reconnects
-    /// before the next user-visible stall.
+    /// Keep-alive cadence. 10 s is shorter than the panel's reconnect backoff cap
+    /// (30 s) so a dropped reverse is re-applied before a user-visible stall.
     /// </summary>
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// Device-model strings reported by <c>getprop ro.product.model</c>
-    /// over adb. HYTE_Q60_Display and HYTE_Q80_Display are bench-
-    /// verified; THICC_Q_Series is the older internal model name some
-    /// pre-release units shipped with (covered defensively so a
-    /// firmware downgrade doesn't accidentally fall off the watcher).
+    /// <c>ro.product.model</c> values that mark a Q-series panel. THICC_Q_Series is
+    /// a legacy pre-release model name, kept so a firmware downgrade still matches.
     /// </summary>
     private static readonly HashSet<string> QSeriesModels = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -91,21 +53,15 @@ public sealed class QSeriesPortWatcher : BackgroundService
     };
 
     /// <summary>
-    /// How long a Q-series device must stay in adb <c>offline</c> state
-    /// before the watcher attempts a USB reset to recover it. Picked to be
-    /// longer than the natural USB hiccup window (a deploy that touches
-    /// adb-server may leave the device in offline for ~5–15 s while
-    /// adb-server re-handshakes) so we don't churn the device when a
-    /// natural recovery is already underway.
+    /// How long a Q-series serial must stay adb-<c>offline</c> before a USB reset.
+    /// Longer than the natural ~5–15 s offline blip while adb-server re-handshakes,
+    /// so a recovery already underway isn't churned.
     /// </summary>
     private static readonly TimeSpan OfflineRecoveryThreshold = TimeSpan.FromSeconds(30);
 
     /// <summary>
-    /// Minimum time between consecutive recovery attempts for the same
-    /// device. Without a cooldown, a USB device that's stuck offline
-    /// (e.g. yanked physically, dead cable) would get hammered with
-    /// pnputil restarts every tick. Two minutes is long enough that a
-    /// natural recovery from one restart has time to complete.
+    /// Minimum gap between USB resets for one instance — stops a physically-dead
+    /// device from being reset every tick. 2 min lets one reset's recovery complete.
     /// </summary>
     private static readonly TimeSpan RecoveryCooldown = TimeSpan.FromMinutes(2);
 
@@ -115,48 +71,46 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private readonly AdbClient _client;
     private readonly QSeriesTransportStore _transportStore;
 
-    /// <summary>Last serial we logged "applied reverse on" so the steady-state path stays quiet.</summary>
+    /// <summary>Serials with an applied reverse, so the steady-state path stays quiet.</summary>
     private readonly Dictionary<string, bool> _reverseAppliedBySerial = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// In-memory mirror of the on-disk transport store. Maps USB serial to
-    /// the TCP transport we promoted that device to. Kept on the watcher
-    /// so the hot path can check membership without re-reading the file.
-    /// Mutated in place — we never replace the reference, so it's readonly.
+    /// Serials whose reverse was force-refreshed (remove + re-add) this run. The
+    /// first tick after a (re)start tears the reverse down and re-adds it to clear a
+    /// soft wedge — an entry <c>adb reverse --list</c> still shows but that passes no
+    /// traffic; later ticks keep the quiet rebind. Cleared on adb-server death and
+    /// on detach.
+    /// </summary>
+    private readonly HashSet<string> _reverseRefreshedThisRun = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// In-memory mirror of the on-disk transport store (USB serial → promoted TCP
+    /// transport). Mutated in place, never reassigned, so readonly.
     /// </summary>
     private readonly Dictionary<string, QSeriesTransportRecord> _promoted;
 
     /// <summary>
-    /// Serials we've ever seen reported by adb with a Q-series model
-    /// string. When a serial later shows up as <c>offline</c>, the model
-    /// field on the offline-device entry is unreliable, so we can't
-    /// re-identify it as Q-series — but we *can* check membership here.
-    /// Cleared only when the device is unplugged entirely (not when it
-    /// goes offline).
+    /// Serials ever seen as Q-series. An <c>offline</c> entry's model field is
+    /// unreliable, so re-identify by membership here. Cleared only on unplug.
     /// </summary>
     private readonly HashSet<string> _knownQSeriesSerials = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// First time we saw a given serial in <c>offline</c> state on a
-    /// continuous run. Reset to (none) when the device returns to
-    /// <c>online</c>, or when the device disappears from adb's list.
+    /// First time a serial was seen <c>offline</c> this run. Cleared when it returns
+    /// online or leaves the adb list.
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _offlineSince = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Last time we ran <c>pnputil /restart-device</c> for a given USB
-    /// instance ID. Cooldown is per-instance because that's the granularity
-    /// pnputil acts on; if the user unplugs and replugs a different Q-series
-    /// device the new instance ID gets its own fresh cooldown.
+    /// Last <c>pnputil /restart-device</c> time per USB instance id (the granularity
+    /// pnputil acts on). A different replugged device gets its own cooldown.
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _lastRecoveryByInstanceId = new(StringComparer.Ordinal);
 
     public QSeriesPortWatcher(int servicePort)
         : this(servicePort, new QSeriesTransportStore()) { }
 
-    /// <summary>
-    /// Test seam: lets tests inject a store that points at a tmp path.
-    /// </summary>
+    /// <summary>Test seam: inject a store pointing at a tmp path.</summary>
     public QSeriesPortWatcher(int servicePort, QSeriesTransportStore transportStore)
     {
         _servicePort = servicePort;
@@ -169,10 +123,8 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Initial delay matches the other BackgroundServices in nexus-service
-        // — gives the rest of the stack a moment to finish boot before we
-        // start poking the adb-server (which the nexus host may itself be
-        // booting alongside us via the bundled adb.exe).
+        // Let the rest of the stack finish boot before poking the adb-server (the
+        // host may be booting the bundled adb.exe alongside us).
         try { await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken); }
         catch (TaskCanceledException) { return; }
 
@@ -185,12 +137,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
             catch (OperationCanceledException) { break; }
             catch (Exception ex)
             {
-                // Most common failure here is `SocketException: Connection
-                // refused 127.0.0.1:5037` when the adb-server isn't running
-                // (e.g. the Q-series isn't attached, or the user hasn't
-                // booted the bundled adb daemon yet). That's the normal
-                // idle state — log once at info level via Console.Error,
-                // then sleep and try again next tick.
+                // SocketException "connection refused 127.0.0.1:5037" = adb-server
+                // not running (no Q-series attached, or not booted yet) — the normal
+                // idle state. Log and retry next tick.
                 Console.Error.WriteLine($"[qseries-port-watcher] tick failed: {ex.GetType().Name}: {ex.Message}");
             }
 
@@ -208,14 +157,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
         }
         catch (SocketException) when (!ct.IsCancellationRequested)
         {
-            // adb-server is dead. AdvancedSharpAdbClient talks to an
-            // already-running server via TCP — it does NOT auto-spawn
-            // one. Boot one ourselves by shelling out to `adb.exe
-            // start-server`, then retry once. We don't loop because if
-            // start-server itself fails the next tick will pick up
-            // anyway (10 s later) — the goal here is recovery within a
-            // single tick, not exhausting retries on a wedged host.
+            // adb-server is dead. AdvancedSharpAdbClient talks to an existing server
+            // over TCP and won't spawn one; shell out to `adb start-server` and retry
+            // once (a still-failing start is picked up next tick).
             _reverseAppliedBySerial.Clear();
+            _reverseRefreshedThisRun.Clear();
             if (TryStartAdbServer())
             {
                 try
@@ -224,8 +170,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 }
                 catch
                 {
-                    // start-server reported success but the socket still
-                    // refused — let it ride until next tick.
+                    // start-server returned but the socket still refused — retry next tick.
                     throw;
                 }
             }
@@ -237,23 +182,18 @@ public sealed class QSeriesPortWatcher : BackgroundService
         catch
         {
             _reverseAppliedBySerial.Clear();
+            _reverseRefreshedThisRun.Clear();
             throw;
         }
 
         var deviceList = devices.ToList();
 
-        // Recovery pass: if any previously-seen Q-series serial is in
-        // `offline` state long enough, kick the USB stack on its instance
-        // ID to force a real bus reset. That's what unwedges device-side
-        // adbd without a power-cycle. Runs first so a successful restart's
-        // re-enumeration is visible by the time the reverse-port pass runs.
+        // Recovery pass first so a successful USB-reset's re-enumeration is visible
+        // to the reverse-port pass below.
         await TryRecoverOfflineQSeriesDevicesAsync(deviceList, ct);
 
-        // For every persisted (USB → TCP) promotion: if that device's TCP
-        // transport isn't already in adb's device list, fire a one-shot
-        // `adb connect`. Cheap (a few bytes to the local adb-server, no-op
-        // when the transport is already up) and runs every tick so a
-        // transient TCP drop self-heals without waiting for USB attach.
+        // One-shot `adb connect` per persisted promotion not already in the device
+        // list. Cheap, and self-heals a transient TCP drop without a USB attach.
         if (_promoted.Count > 0)
         {
             await ReconnectMissingTransportsAsync(deviceList, ct);
@@ -262,28 +202,23 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
         var seenSerials = new HashSet<string>(StringComparer.Ordinal);
 
-        // Promotion pass first: any Q-series device we see as Online over
-        // USB and haven't yet promoted gets bootstrapped to TCP mode. We
-        // do this before applying reverse so devices coming in over USB
-        // for the first time arrive at the TCP transport (where the
-        // reverse will stick across USB hiccups) before we install it.
+        // Promote any not-yet-promoted online USB Q-series to TCP before applying the
+        // reverse, so it lands on the transport that survives USB hiccups.
         foreach (var device in deviceList)
         {
             if (string.IsNullOrEmpty(device.Serial)) continue;
             if (device.State != DeviceState.Online) continue;
             if (!IsQSeries(device)) continue;
-            // Once we've seen a serial come online as Q-series, remember
-            // it so a future offline-pass can correctly identify it even
-            // when adb can't query the model anymore.
+            // Remember the serial so a later offline pass can identify it without the
+            // (then-unreliable) model field.
             _knownQSeriesSerials.Add(device.Serial);
             if (QSeriesTransport.IsTcpSerial(device.Serial)) continue;
             if (_promoted.ContainsKey(device.Serial)) continue;
             await TryPromoteToTcpAsync(device, ct);
         }
 
-        // The TCP transport from a just-promoted device shows up in
-        // adb's device list on its own — we'll catch it on the next tick
-        // and install the reverse-port there. No need to re-fetch here.
+        // A just-promoted device's TCP transport appears on the next tick; no
+        // re-fetch here.
 
         foreach (var device in deviceList)
         {
@@ -293,14 +228,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
             seenSerials.Add(device.Serial);
 
-            // A reseat re-enumerates the device with the SAME serial but a NEW
-            // adb transport id. The 10 s poll frequently misses the brief
-            // offline/absent window, so the serial never leaves seenSerials and
-            // the "first sighting" reload flag below is never cleared — leaving
-            // qshell stranded on its disconnect splash. Comparing transport ids
-            // catches the re-enumeration regardless of poll timing: when it
-            // changes, drop the reload flag so EnsureQshellForegroundAsync forces
-            // a fresh cold reload against the just-re-applied reverse.
+            // A reseat re-enumerates with the same serial but a new transport id. The
+            // 10 s poll often misses the brief offline window, so a transport-id change
+            // is the reliable reseat signal: on change, reboot to reset the degraded
+            // USB-FFS link (a cold reload alone doesn't clear it).
             var transportId = device.TransportId;
             if (!string.IsNullOrEmpty(transportId))
             {
@@ -313,28 +244,36 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
             await EnsureReverseAsync(device, ct);
             await EnsureQshellForegroundAsync(device, ct);
+            await TryEscalateRebootAsync(device, ct);
         }
 
-        // Forget any serials that disappeared so a re-attach gets a fresh
-        // "applied" log line.
+        // Per-serial state for serials that left the adb list. A re-attach re-logs
+        // the applied reverse and force-refreshes it again.
         foreach (var key in _reverseAppliedBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
         {
             _reverseAppliedBySerial.Remove(key);
         }
-        // Clear the forced-reload flag for any serial that left the adb list so
-        // a physical re-attach gets a fresh cold reload (the device may have come
-        // back showing the OEM launcher or a stale splash).
+        foreach (var key in _reverseRefreshedThisRun.Where(k => !seenSerials.Contains(k)).ToList())
+        {
+            _reverseRefreshedThisRun.Remove(key);
+        }
+        // A re-attach gets a fresh cold reload (it may return on the OEM launcher or a
+        // stale splash).
         foreach (var key in _qshellReloadedThisRun.Where(k => !seenSerials.Contains(k)).ToList())
         {
             _qshellReloadedThisRun.Remove(key);
         }
-        // Drop transport-id memory for serials that left the adb list so a
-        // re-attach is treated as a first sighting (which forces a cold reload)
-        // rather than a transport-id change against a stale value. (This is also
-        // what stops our own reboot's re-enumeration from looking like a fresh
-        // reseat — the device left the list during the reboot.) NOTE:
-        // _lastQshellRebootBySerial is deliberately NOT cleared here, so the
-        // reboot cooldown survives that re-enumeration and can't reboot-loop.
+        // Re-arm the cold-reload grace anchor on detach. _escalationRebootedThisRun is
+        // deliberately NOT cleared here — like _lastQshellRebootBySerial it must
+        // survive our reboot's re-enumeration so a still-stranded panel isn't rebooted
+        // twice.
+        foreach (var key in _coldReloadAtBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
+        {
+            _coldReloadAtBySerial.Remove(key);
+        }
+        // Drop transport-id memory on detach so a re-attach is a fresh first sighting,
+        // not a transport-id change against a stale value (this also stops our reboot's
+        // re-enumeration from looking like a reseat).
         foreach (var key in _transportIdBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
         {
             _transportIdBySerial.Remove(key);
@@ -342,13 +281,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// For each persisted promotion record whose <c>ip:port</c> isn't
-    /// already represented in <paramref name="currentDevices"/>, send a
-    /// single <c>adb connect</c>. We don't evict failed records here —
-    /// the device may be temporarily offline (sleep, network blip) and
-    /// a stale-IP record costs nothing on the bench; if the USB transport
-    /// reappears later we re-promote with whatever IP the device has now,
-    /// which overwrites the entry.
+    /// <c>adb connect</c> each persisted promotion not already present. Failed
+    /// records aren't evicted — the device may be briefly offline, and a stale IP is
+    /// overwritten when the USB transport re-promotes.
     /// </summary>
     private async Task ReconnectMissingTransportsAsync(IReadOnlyCollection<DeviceData> currentDevices, CancellationToken ct)
     {
@@ -374,27 +309,16 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// Walk the current adb device list; for any serial that we've
-    /// previously identified as Q-series and is now stuck in
-    /// <c>offline</c> state past <see cref="OfflineRecoveryThreshold"/>,
-    /// resolve its USB composite parent and run <c>pnputil /restart-device</c>.
-    /// That triggers a real USB bus reset, which restarts adbd inside
-    /// the device firmware and clears the half-broken handshake state
-    /// the daemon ends up in after a mid-stream adb-server cycle.
+    /// For any known-Q-series serial stuck <c>offline</c> past
+    /// <see cref="OfflineRecoveryThreshold"/>, resolve its USB composite parent and
+    /// run <c>pnputil /restart-device</c> — a USB-level reset that restarts adbd in
+    /// firmware and clears the handshake wedge. Host-side <c>adb</c> can't: the wedge
+    /// is device-side and adbd can't be restarted without root.
     /// </summary>
-    /// <remarks>
-    /// Why pnputil and not <c>adb usb</c>/<c>adb kill-server</c>: those
-    /// only touch host-side state. The wedge is on the device side —
-    /// adbd has acknowledged the USB-FFS endpoint but won't complete the
-    /// handshake. Without root we can't restart adbd from inside, so we
-    /// fall back to making the device side observe a USB-level reset.
-    /// </remarks>
     private async Task TryRecoverOfflineQSeriesDevicesAsync(IReadOnlyCollection<DeviceData> deviceList, CancellationToken ct)
     {
-        // Windows-only: pnputil ships with Windows since Vista, and the
-        // wedge symptom (offline adb device after a server cycle) is the
-        // one we're actually seeing on the Y70 build PC. Linux/Mac dev
-        // hosts would need their own USB-reset path (e.g. usbreset(1)).
+        // Windows-only: pnputil is the available USB-reset path, and the wedge is the
+        // one seen on the Y70 host. Other hosts would need usbreset(1) etc.
         if (!OperatingSystem.IsWindows()) return;
 
         var now = DateTimeOffset.UtcNow;
@@ -425,8 +349,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             {
                 Console.Error.WriteLine(
                     $"[qseries-port-watcher] {device.Serial}: offline for {offlineFor.TotalSeconds:F0}s but no matching USB instance id found");
-                // Defer: don't reset _offlineSince — maybe the device
-                // re-enumerates with a different name on its own.
+                // Defer; the device may re-enumerate under a different name.
                 continue;
             }
 
@@ -443,8 +366,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             {
                 Console.Error.WriteLine(
                     $"[qseries-port-watcher] {device.Serial}: pnputil restart succeeded; awaiting re-enumeration ({pnputilOut})");
-                // Reset offline tracking so we get a fresh 30 s window
-                // if the device fails to recover after the restart.
+                // Fresh 30 s window if it fails to recover after the restart.
                 _offlineSince.Remove(device.Serial);
             }
             else
@@ -453,14 +375,12 @@ public sealed class QSeriesPortWatcher : BackgroundService
                     $"[qseries-port-watcher] {device.Serial}: pnputil restart failed: {pnputilOut}");
             }
 
-            // Tiny pause so the next steps of the tick (reverse-port
-            // apply, etc.) see at least a partially-reconnected world.
+            // Brief pause so the rest of the tick sees a partially-reconnected world.
             try { await Task.Delay(TimeSpan.FromSeconds(2), ct); }
             catch (TaskCanceledException) { return; }
         }
 
-        // Forget serials that have disappeared from adb entirely (cable
-        // unplug). A re-attach gets a fresh offline-since timer.
+        // A re-attach gets a fresh offline-since timer.
         foreach (var key in _offlineSince.Keys.Where(k => !present.Contains(k)).ToList())
         {
             _offlineSince.Remove(key);
@@ -468,18 +388,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// Look up the USB composite-device InstanceId whose tail matches an
-    /// adb device serial. HYTE Q60/Q80 composite InstanceIds always end
-    /// with the adb serial (<c>USB\VID_xxxx&amp;PID_yyyy\&lt;serial&gt;</c>),
-    /// so the match is straightforward. Uses PowerShell + Get-PnpDevice
-    /// to avoid hand-rolled SetupAPI P/Invokes.
+    /// USB composite InstanceId whose tail is the adb serial
+    /// (<c>USB\VID_xxxx&amp;PID_yyyy\&lt;serial&gt;</c>), via Get-PnpDevice.
     /// </summary>
     private static string? TryFindUsbInstanceId(string adbSerial)
     {
         if (!OperatingSystem.IsWindows()) return null;
         if (string.IsNullOrEmpty(adbSerial)) return null;
-        // Pattern: any USB InstanceId whose tail is "\<serial>". Single
-        // quote the literal serial so PowerShell doesn't interpolate.
+        // Single-quote the serial so PowerShell doesn't interpolate it.
         var psScript =
             "Get-PnpDevice -Class USB " +
             "| Where-Object { $_.InstanceId -like '*\\" + adbSerial + "' } " +
@@ -511,11 +427,8 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// Shell out to <c>pnputil /restart-device "&lt;instanceId&gt;"</c>.
-    /// Returns true on exit 0 (or 3010, which pnputil emits for "reboot
-    /// recommended" and we don't care about). Captures the output for
-    /// the caller's log line. NexusService runs as LocalSystem so it has
-    /// the rights pnputil needs without a UAC prompt.
+    /// <c>pnputil /restart-device</c>. True on exit 0 or 3010. NexusService runs as
+    /// LocalSystem, so no UAC prompt.
     /// </summary>
     private static bool RunPnputilRestartDevice(string instanceId, out string output)
     {
@@ -542,8 +455,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             var stdout = p.StandardOutput.ReadToEnd().Trim();
             var stderr = p.StandardError.ReadToEnd().Trim();
             output = string.IsNullOrEmpty(stderr) ? stdout : $"{stdout} | err: {stderr}";
-            // 0 = success; 3010 = success + reboot recommended (not for
-            // /restart-device, but defensive).
+            // 3010 = success + reboot-recommended (defensive; not emitted by /restart-device).
             return p.ExitCode == 0 || p.ExitCode == 3010;
         }
         catch (Exception ex)
@@ -554,18 +466,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// First-contact bootstrap: read the device's WiFi IP, send it
-    /// <c>tcpip 5555</c>, then have adb-server connect to it over TCP.
-    /// Records the (serial, ip) tuple to disk so the next service start
-    /// can skip the USB round-trip.
+    /// First-contact bootstrap: read the device WiFi IP, <c>adb tcpip 5555</c>, then
+    /// <c>adb connect</c> over TCP; persist (serial, ip) so the next start skips the
+    /// USB round-trip. <c>tcpip</c> must go through the host adb-server (the shell
+    /// user can't trigger it), so it's shelled out like start-server.
     /// </summary>
-    /// <remarks>
-    /// adb shell commands here run as the <c>shell</c> user (uid 2000),
-    /// which has read access to <c>ip route</c> and the <c>dhcp.*</c>
-    /// system properties but cannot itself trigger <c>tcpip</c> — that
-    /// has to go through the host adb-server. We shell out to adb.exe
-    /// for <c>tcpip</c> the same way we do for <c>start-server</c>.
-    /// </remarks>
     private async Task TryPromoteToTcpAsync(DeviceData device, CancellationToken ct)
     {
         var ip = await DiscoverDeviceIpAsync(device, ct);
@@ -584,9 +489,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             return;
         }
 
-        // Send `adb -s <serial> tcpip 5555`. This restarts adbd on the
-        // device in TCP mode; the existing USB transport disappears from
-        // adb-server's device list for a couple of seconds.
+        // Restarts adbd in TCP mode; the USB transport drops from the list briefly.
         if (!RunAdb(adbPath, $"-s {device.Serial} tcpip {QSeriesTransport.DefaultAdbTcpPort}", out var tcpipErr))
         {
             Console.Error.WriteLine(
@@ -594,8 +497,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             return;
         }
 
-        // adbd-restart takes a beat. Two seconds is the canonical wait
-        // (matches `adb connect`'s own retry behavior).
+        // adbd restart settles in ~2 s (matches adb connect's own retry).
         try { await Task.Delay(TimeSpan.FromSeconds(2), ct); }
         catch (TaskCanceledException) { return; }
 
@@ -622,18 +524,13 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// Run <c>adb shell</c> against a device and parse the first LAN IPv4
-    /// out of the response. Tries multiple discovery commands — the first
-    /// that yields a routable address wins. Returns null if every
-    /// strategy fails (device offline mid-promote, no WiFi, link-local
-    /// only, …) so the caller can defer until the next tick.
+    /// First routable LAN IPv4 from a series of <c>adb shell</c> probes; null if none
+    /// (offline mid-promote, no WiFi, link-local only).
     /// </summary>
     private async Task<System.Net.IPAddress?> DiscoverDeviceIpAsync(DeviceData device, CancellationToken ct)
     {
-        // Each entry is one adb shell command. We try them in order; the
-        // first that produces a parseable IPv4 wins. `ip route get 1.1.1.1`
-        // is preferred because it explicitly picks the interface used for
-        // outbound traffic, which for the Q60 is wlan0.
+        // First command yielding a parseable IPv4 wins; `ip route get` picks the
+        // outbound interface (wlan0 on the Q60).
         string[] commands =
         {
             "ip route get 1.1.1.1",
@@ -659,11 +556,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         return null;
     }
 
-    /// <summary>
-    /// Synchronous adb.exe shell-out used for <c>tcpip</c>. Uses the same
-    /// resolution path as <see cref="TryStartAdbServer"/>. Captures stderr
-    /// for the caller's log line. Returns true if adb exited with code 0.
-    /// </summary>
+    /// <summary>Synchronous adb.exe shell-out (used for <c>tcpip</c>). True on exit 0.</summary>
     private static bool RunAdb(string adbPath, string arguments, out string errorOutput)
     {
         errorOutput = string.Empty;
@@ -701,21 +594,16 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     private static bool IsQSeries(DeviceData device)
     {
-        // adb's device-line `model:` field is the most reliable identifier
-        // here. State + Serial alone don't disambiguate a Q60 from any
-        // other adb-attached device the host happens to have.
+        // The adb device-line `model:` field is the only reliable Q-series
+        // discriminator; state + serial don't disambiguate.
         var model = device.Model ?? string.Empty;
         return QSeriesModels.Contains(model.Replace(" ", "_"));
     }
 
     /// <summary>
-    /// Best-effort spawn of `adb start-server`. AdvancedSharpAdbClient
-    /// itself talks to an already-running server on tcp:5037 — when
-    /// the server is dead (kill-server, fresh boot, crash) we bring it
-    /// back by shelling out to the standard adb CLI. We resolve adb.exe
-    /// from PATH first, then from common install locations Windows users
-    /// typically have (the Android SDK platform-tools dir under
-    /// LocalAppData, and Microsoft's bundled OneDrive Android SDK).
+    /// Shell out to <c>adb start-server</c> when the server is down (kill-server,
+    /// fresh boot, crash) — AdvancedSharpAdbClient won't spawn it. adb.exe resolved
+    /// from PATH, then the Android SDK platform-tools dir.
     /// </summary>
     private static bool TryStartAdbServer()
     {
@@ -760,8 +648,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     private static string? ResolveAdbPath()
     {
-        // 1) PATH lookup (covers the build-pc skill convention and any
-        //    user-installed platform-tools).
+        // PATH first (build-pc convention + user platform-tools).
         var pathVar = Environment.GetEnvironmentVariable("PATH");
         if (!string.IsNullOrEmpty(pathVar))
         {
@@ -773,8 +660,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 if (File.Exists(candidate)) return candidate;
             }
         }
-        // 2) %LOCALAPPDATA%\Android\Sdk\platform-tools\adb.exe — Android
-        //    Studio's default install path on Windows.
+        // Then %LOCALAPPDATA%\Android\Sdk\platform-tools (Android Studio default).
         if (OperatingSystem.IsWindows())
         {
             var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
@@ -787,95 +673,85 @@ public sealed class QSeriesPortWatcher : BackgroundService
         return null;
     }
 
-    /// <summary>
-    /// Activity component to bring to foreground when no panel is visible.
-    /// Matches the package + activity names in
-    /// <c>hyte-qseries-android/android/app/src/main/AndroidManifest.xml</c>.
-    /// </summary>
+    /// <summary>qshell package/activity; matches its AndroidManifest.xml.</summary>
     private const string QshellComponent = "com.hellonexus.qshell/.MainActivity";
 
-    /// <summary>
-    /// String the device's foreground-window dump prints when qshell owns
-    /// focus. We only need a substring match — the surrounding line will
-    /// look like <c>mCurrentFocus=Window{... com.hellonexus.qshell/...}</c>.
-    /// </summary>
+    /// <summary>Substring of <c>dumpsys window mCurrentFocus</c> when qshell owns focus.</summary>
     private const string QshellFocusMarker = "com.hellonexus.qshell";
 
     /// <summary>
-    /// Last time we ran <c>am start</c> on a given serial. Throttles the
-    /// re-launch path: if we've just restarted qshell, give Android a
-    /// couple of ticks to finish bringing it up before we try again. The
-    /// foreground check itself is cheap (~30 ms) so we still run it every
-    /// tick — only the actual <c>am start</c> is throttled.
+    /// Last <c>am start</c> time per serial. Throttles re-launch; the foreground
+    /// check itself is cheap and runs every tick.
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _lastQshellStartBySerial = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Serials for which we've forced a qshell cold-reload since THIS service
-    /// instance started. After a service (re)start the qshell that's still
-    /// running is bound to the now-dead old instance and sits on its disconnect
-    /// splash; a plain foreground check sees it "foreground" and leaves it there.
-    /// We force one reload on first sighting this run so it re-navigates to the
-    /// panel against the fresh service. Cleared when the device leaves the adb
-    /// list so a physical re-attach also gets a fresh forced reload.
+    /// Serials force-reloaded this run. A qshell left running across a service
+    /// (re)start is bound to the dead instance and shows its splash, which the
+    /// foreground check reads as "fine"; force-stop + am start re-navigates it to the
+    /// panel. Cleared on detach.
     /// </summary>
     private readonly HashSet<string> _qshellReloadedThisRun = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Last adb transport id seen for a given Q-series serial. A USB reseat
-    /// re-enumerates the device with the same serial but a new transport id;
-    /// because the 10 s poll often misses the brief offline window, this is the
-    /// only reliable signal that the device was re-plugged. When it changes we
-    /// re-arm <see cref="_qshellReloadedThisRun"/> so qshell gets a fresh cold
-    /// reload and re-opens the panel instead of sitting on its disconnect splash.
+    /// Last adb transport id per serial. A change (same serial) is the reliable reseat
+    /// signal the 10 s poll otherwise misses; see TickAsync.
     /// </summary>
     private readonly Dictionary<string, string> _transportIdBySerial = new(StringComparer.Ordinal);
 
     private static readonly TimeSpan QshellRestartThrottle = TimeSpan.FromSeconds(15);
 
     /// <summary>
-    /// Minimum time between reboot-on-reseat actions for the same serial. A
-    /// reboot itself re-enumerates the device (new transport id), so without this
-    /// a flapping connector — or the reboot's own re-attach — could reboot-loop
-    /// it. 2 min comfortably spans a reboot + qshell bootstrap.
+    /// Minimum gap between reboots per serial. A reboot re-enumerates the device (new
+    /// transport id), so without this a flapping connector — or the reboot's own
+    /// re-attach — could reboot-loop. 2 min spans reboot + qshell bootstrap.
     /// </summary>
     private static readonly TimeSpan QshellRebootCooldown = TimeSpan.FromMinutes(2);
 
-    /// <summary>Serial -&gt; last reboot-on-reseat time (anti-loop cooldown). NOT
-    /// cleared on detach, so the cooldown survives the reboot's own re-enumeration.</summary>
+    /// <summary>
+    /// Wait after the first-sighting cold reload before the one-shot escalation reboot
+    /// — enough for qshell to relaunch and reconnect (~3 ticks).
+    /// </summary>
+    private static readonly TimeSpan EscalationGrace = TimeSpan.FromSeconds(30);
+
+    /// <summary>Serial → last reboot time (anti-loop cooldown). NOT cleared on detach,
+    /// so it survives the reboot's own re-enumeration.</summary>
     private readonly Dictionary<string, DateTimeOffset> _lastQshellRebootBySerial = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Make sure qshell (<c>com.hellonexus.qshell</c>) is the foreground
-    /// activity on a connected Q-series device. We dump the foreground
-    /// window via <c>dumpsys window mCurrentFocus</c>; if anything other
-    /// than qshell holds focus we run <c>am start</c> to bring it back.
-    ///
-    /// This is the recovery seam for:
-    ///   - first-attach (qshell hasn't been launched yet; the OEM HOME
-    ///     launcher is foreground),
-    ///   - after a USB reset (qshell got killed when its WebView lost
-    ///     transport; the OEM launcher reclaimed foreground),
-    ///   - user-triggered <c>am force-stop com.hellonexus.qshell</c>,
-    ///   - device reboot.
+    /// Time of this run's first-sighting cold reload; anchors <see cref="EscalationGrace"/>.
+    /// Cleared on detach (a re-attach re-arms it).
+    /// </summary>
+    private readonly Dictionary<string, DateTimeOffset> _coldReloadAtBySerial = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Serials escalation-rebooted this run — bounds it to one reboot per run so a
+    /// dead panel can't loop. NOT cleared on detach (survives the reboot's
+    /// re-enumeration); a fresh service start re-allows.
+    /// </summary>
+    private readonly HashSet<string> _escalationRebootedThisRun = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Keep qshell foreground: dump <c>mCurrentFocus</c>; if something else holds
+    /// focus, <c>am start</c> it. Covers first-attach (OEM launcher), post-USB-reset
+    /// kill, user force-stop, and reboot.
     /// </summary>
     private async Task EnsureQshellForegroundAsync(DeviceData device, CancellationToken ct)
     {
-        // One forced cold reload per service run. EnsureReverseAsync ran just
-        // before this in the tick, so the reverse is up. If qshell is still
-        // foreground from before a service (re)start it's bound to the dead old
-        // instance and shows its disconnect splash — the foreground check below
-        // would treat that as "fine" and never reload it. Force-stop + am start
-        // re-navigates it to the panel against the fresh service. Gated per
-        // serial (and cleared on detach) so it fires once per run.
+        // One forced cold reload per run: a qshell still foreground from before a
+        // service (re)start is bound to the dead instance and shows its splash; the
+        // foreground check below reads that as "fine". force-stop + am start
+        // re-navigates it to the fresh service.
         if (!_qshellReloadedThisRun.Contains(device.Serial))
         {
             _qshellReloadedThisRun.Add(device.Serial);
-            _lastQshellStartBySerial[device.Serial] = DateTimeOffset.UtcNow;
+            var reloadNow = DateTimeOffset.UtcNow;
+            _lastQshellStartBySerial[device.Serial] = reloadNow;
+            // Anchor the escalation grace window from this cold reload.
+            _coldReloadAtBySerial[device.Serial] = reloadNow;
             var reloadReceiver = new ConsoleOutputReceiver();
             try
             {
-                // QshellFocusMarker is the bare package name (com.hellonexus.qshell).
                 await _client.ExecuteShellCommandAsync(device, $"am force-stop {QshellFocusMarker}", reloadReceiver, ct);
                 await _client.ExecuteShellCommandAsync(device, $"am start -n {QshellComponent}", reloadReceiver, ct);
                 Console.Error.WriteLine(
@@ -889,9 +765,8 @@ public sealed class QSeriesPortWatcher : BackgroundService
             return;
         }
 
-        // Foreground check. `dumpsys window` is verbose, so let the
-        // device-side grep narrow it down — Q-series firmware has busybox
-        // grep available (verified bench: HYTE_Q60_Display Android 11).
+        // Device-side grep narrows the verbose dumpsys (busybox grep present on
+        // Q-series Android 11).
         var focusReceiver = new ConsoleOutputReceiver();
         try
         {
@@ -905,11 +780,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
         }
         if (focusReceiver.ToString().Contains(QshellFocusMarker, StringComparison.Ordinal))
         {
-            // qshell already owns focus — nothing to do.
             return;
         }
 
-        // Throttle: if we just kicked am start, give it time to take.
+        // Throttle: give a just-issued am start time to take.
         var now = DateTimeOffset.UtcNow;
         if (_lastQshellStartBySerial.TryGetValue(device.Serial, out var last)
             && now - last < QshellRestartThrottle)
@@ -933,17 +807,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// A reseat re-enumerated the device (same serial, new adb transport id). A
-    /// cold reload (app relaunch) is NOT a strong enough reset for the degraded
-    /// USB-FFS link a quick reseat leaves behind — bench-proven: qshell relaunches
-    /// into the flaky link and its bootstrap never completes, so it sits on the
-    /// splash. Only a device reboot reliably clears the device-side adbd/FFS
-    /// gadget. So reboot directly, throttled per serial so a flapping connector
-    /// (or the reboot's own re-attach) can't reboot-loop it. After the reboot the
-    /// device re-attaches and the first-sighting cold reload in
-    /// <see cref="EnsureQshellForegroundAsync"/> reconnects qshell on the fresh
-    /// link. Returns true if a reboot was issued — the caller then skips this
-    /// tick's reverse/qshell passes for the now-rebooting device.
+    /// A reseat (same serial, new transport id) leaves a degraded USB-FFS link a cold
+    /// reload can't fix — qshell relaunches into it and never completes its bootstrap.
+    /// Reboot to reset device-side adbd/FFS; the post-reboot first-sighting cold reload
+    /// reconnects qshell. Throttled per serial. Returns true when a reboot was issued
+    /// (caller then skips this tick's reverse/qshell passes).
     /// </summary>
     private async Task<bool> TryRebootOnReseatAsync(DeviceData device, string lastTransportId, string transportId, CancellationToken ct)
     {
@@ -951,8 +819,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         if (_lastQshellRebootBySerial.TryGetValue(device.Serial, out var lastReboot)
             && now - lastReboot < QshellRebootCooldown)
         {
-            // Within cooldown: don't reboot again. Fall back to a cold-reload
-            // re-arm so qshell at least retries against the re-applied reverse.
+            // Within cooldown: re-arm a cold reload instead of rebooting again.
             _qshellReloadedThisRun.Remove(device.Serial);
             Console.Error.WriteLine(
                 $"[qseries-port-watcher] {device.Serial}: transport id {lastTransportId} -> {transportId} (reseat) but a reboot is within cooldown; re-arming cold reload instead");
@@ -976,15 +843,87 @@ public sealed class QSeriesPortWatcher : BackgroundService
         }
     }
 
+    /// <summary>
+    /// Backstop the reseat path misses: a host *service* restart cold-reloads qshell,
+    /// but if the abrupt kill wedged the USB-FFS tunnel qshell re-pings a dead tunnel
+    /// and latches to its splash with no reseat to trigger
+    /// <see cref="TryRebootOnReseatAsync"/>. A device reboot is the only reliable clear.
+    ///
+    /// No liveness probe first: both available signals are unusable. The loopback
+    /// socket reads ESTABLISHED on the splash too (adbd accepts qshell's
+    /// <c>localhost:{port}</c> dial locally regardless of whether the forward works),
+    /// and reading the framebuffer to check the screen is destructive — the ~3.6 MB
+    /// pull over the shared USB-FFS gadget stalls the reverse tunnel and freezes a
+    /// healthy panel. So after the grace window we reboot once, unconditionally:
+    /// needed in the stranded case, a single ~40 s reboot in the rarer
+    /// already-recovered case.
+    ///
+    /// One reboot per run (<see cref="_escalationRebootedThisRun"/>); shares
+    /// <see cref="_lastQshellRebootBySerial"/> with the reseat path so they can't
+    /// double-reboot across the re-enumeration.
+    /// </summary>
+    private async Task TryEscalateRebootAsync(DeviceData device, CancellationToken ct)
+    {
+        // No anchor → the cold reload hasn't run this run; nothing to escalate.
+        if (!_coldReloadAtBySerial.TryGetValue(device.Serial, out var reloadedAt)) return;
+        if (_escalationRebootedThisRun.Contains(device.Serial)) return;
+
+        var now = DateTimeOffset.UtcNow;
+        var sinceReload = now - reloadedAt;
+        if (sinceReload < EscalationGrace) return;
+
+        if (_lastQshellRebootBySerial.TryGetValue(device.Serial, out var lastReboot)
+            && now - lastReboot < QshellRebootCooldown)
+        {
+            // A reseat reboot just fired — let it play out.
+            return;
+        }
+
+        try
+        {
+            Console.Error.WriteLine(
+                $"[qseries-port-watcher] {device.Serial}: {sinceReload.TotalSeconds:F0}s after cold reload; rebooting once to clear any USB-FFS wedge from the host restart");
+            await _client.RebootAsync(device, ct);
+            // Record the reboot only after it's issued; if RebootAsync throws (stale
+            // transport id mid-re-enumeration) leave the flags unset so the next tick
+            // retries instead of latching the run as already-rebooted.
+            _lastQshellRebootBySerial[device.Serial] = now;
+            _escalationRebootedThisRun.Add(device.Serial);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            Console.Error.WriteLine(
+                $"[qseries-port-watcher] {device.Serial}: escalation reboot failed: {ex.GetType().Name}: {ex.Message}; will retry next tick");
+        }
+    }
+
     private async Task EnsureReverseAsync(DeviceData device, CancellationToken ct)
     {
-        // CreateReverseForwardAsync(allowRebind: true) is the idempotent
-        // form: if the reverse already exists it gets silently re-bound;
-        // if it's missing it gets created. With `false` the adb-server
-        // returns "cannot rebind existing socket" on the second-and-later
-        // ticks because the previous tick already installed it. Our
-        // mapping is always tcp:{servicePort} -> tcp:{servicePort}, so a
-        // rebind onto the same target is a no-op for any other consumer.
+        // First sighting this run: remove + re-add the reverse to clear a soft wedge
+        // (a tcp:{port} entry still listed but passing no traffic) at the moment a
+        // (re)start creates it. Steady-state ticks keep the quiet rebind below; a hard
+        // wedge this can't clear is TryEscalateRebootAsync's job.
+        if (!_reverseRefreshedThisRun.Contains(device.Serial))
+        {
+            _reverseRefreshedThisRun.Add(device.Serial);
+            _reverseAppliedBySerial.Remove(device.Serial); // re-log the apply below
+            try
+            {
+                await _client.RemoveReverseForwardAsync(device, _remoteSpec, ct);
+                Console.Error.WriteLine(
+                    $"[qseries-port-watcher] {device.Serial}: force-refreshed reverse on first sighting this run (removed {_remoteSpec})");
+            }
+            catch (Exception ex) when (!ct.IsCancellationRequested)
+            {
+                // No prior reverse (fresh boot) throws here — harmless; the create installs it.
+                Console.Error.WriteLine(
+                    $"[qseries-port-watcher] {device.Serial}: reverse pre-refresh remove no-op: {ex.GetType().Name}");
+            }
+        }
+
+        // allowRebind: true is idempotent — re-binds an existing reverse instead of
+        // failing "cannot rebind existing socket" on later ticks. The mapping is always
+        // tcp:{port} -> tcp:{port}, so a rebind is a no-op for other consumers.
         try
         {
             await _client.CreateReverseForwardAsync(device, _localSpec, _remoteSpec, true, ct);
@@ -997,9 +936,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         }
         catch (Exception ex)
         {
-            // Lost reverse on next tick → re-apply path will run again.
-            // Forget the "applied" flag so we log when the reverse comes
-            // back, not silently swallow another miss.
+            // Re-apply runs next tick; forget the applied flag so the recovery re-logs.
             _reverseAppliedBySerial.Remove(device.Serial);
             Console.Error.WriteLine(
                 $"[qseries-port-watcher] reverse apply failed for {device.Serial}: {ex.GetType().Name}: {ex.Message}");
