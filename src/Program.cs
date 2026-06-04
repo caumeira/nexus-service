@@ -383,6 +383,7 @@ app.MapKeebEndpoints();
 app.MapDisplayEndpoints();
 app.MapActivityEndpoints();
 app.MapLifecycleEndpoints();
+app.MapDiagnosticsEndpoints();
 app.MapMediaLibraryEndpoints();
 app.MapProfileEndpoints();
 app.MapPanelEndpoints();

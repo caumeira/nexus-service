@@ -80,6 +80,10 @@ public static class NexusServiceCollectionExtensions
         // spawn. Hard rule: this MUST stay off the startup critical path —
         // see SystemSpecsPrewarmService.ExecuteAsync.
         services.AddHostedService<SystemSpecsPrewarmService>();
+        // One-time hardware/specs snapshot to service.log after discovery
+        // settles, so a tester's log opens with the full detected picture.
+        // Off the critical path; see StartupDiagnosticsDumpService.ExecuteAsync.
+        services.AddHostedService<Nexus.Service.Diagnostics.StartupDiagnosticsDumpService>();
         // Anonymous fleet heartbeat — post-boot, off the critical path, gated by
         // the collect-anonymous-data setting (default on).
         services.AddHostedService<Nexus.Service.Telemetry.HeartbeatService>();

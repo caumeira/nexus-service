@@ -25,6 +25,14 @@ public static class ServiceLog
 
     public static string? LogFilePath => _path;
 
+    /// <summary>
+    /// Directory holding service.log (and desktop-host.log on Windows). Resolves
+    /// even before <see cref="Initialize"/> runs, so the open-logs endpoint works
+    /// regardless of init order.
+    /// </summary>
+    public static string LogsDirectory =>
+        _path is not null ? Path.GetDirectoryName(_path)! : ResolveLogsDir();
+
     public static void Initialize()
     {
         try

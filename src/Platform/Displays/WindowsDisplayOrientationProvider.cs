@@ -3,23 +3,20 @@ using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using Nexus.Service.Peripherals.Hyte.Y70Display;
 
 namespace Nexus.Service.Platform.Displays;
 
 /// <summary>
 /// Rotates the HYTE Y70 panel via <c>ChangeDisplaySettingsEx</c>. Runs inside
 /// the user-session helper so the change takes effect on the user's desktop.
-/// Identifies the Y70 by the same hardware DeviceID prefix nexus-overlay uses
-/// (<c>MONITOR\RTK0004</c>, the Realtek panel controller).
+/// Identifies the Y70 by the same set of panel-controller hardware names
+/// nexus-overlay uses (<see cref="Y70DisplayProtocol.DdcPanelHardwareNames"/>),
+/// matched as a substring of the monitor's PnP DeviceID.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvider
 {
-    // Same set as nexus-overlay/src/PanelDisplay.cs - keep in sync.
-    private static readonly string[] KnownDeviceIdPrefixes =
-    {
-        @"MONITOR\RTK0004", // HYTE Y70ti / Y70 Touch (Realtek panel controller)
-    };
 
     public (bool Ok, string Error) SetY70Orientation(string orientation)
     {
@@ -96,9 +93,9 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
             var dd = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
             if (!EnumDisplayDevicesW(adapterName, 0, ref dd, 0)) continue;
             var deviceId = dd.DeviceID ?? "";
-            foreach (var prefix in KnownDeviceIdPrefixes)
+            foreach (var name in Y70DisplayProtocol.DdcPanelHardwareNames)
             {
-                if (deviceId.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                if (deviceId.IndexOf(name, StringComparison.OrdinalIgnoreCase) >= 0)
                 {
                     return adapterName;
                 }
