@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -84,12 +85,15 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
 
         try
         {
-            var devices = _devices.GetAll();
-            Emit($"devices ({devices.Count}):");
+            // Only the actually-attached devices — a registered handler reporting
+            // connected=False is just "Nexus supports this, none plugged in", which
+            // is noise on a machine that will never have that device.
+            var devices = _devices.GetAll().Where(d => d.Connected).ToList();
+            Emit($"devices ({devices.Count} connected):");
             foreach (var d in devices)
             {
                 var fw = string.IsNullOrEmpty(d.FirmwareVersion) ? "-" : d.FirmwareVersion;
-                Emit($"  - [{d.Category}] {d.Name} connected={d.Connected} fw={fw} type={d.FirmwareType} id={d.Id}");
+                Emit($"  - [{d.Category}] {d.Name} fw={fw} type={d.FirmwareType} id={d.Id}");
             }
         }
         catch (Exception ex) { Emit($"devices read failed: {ex.Message}"); }
