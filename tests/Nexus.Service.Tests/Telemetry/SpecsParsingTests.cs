@@ -32,6 +32,11 @@ public class SpecsParsingTests
         // "WDS200T1X0E" has no TB/GB unit after the digits, so they don't count.
         => Assert.Equal(500, SystemProfileService.ParseStorageGb("500 GB WDS200T1X0E"));
 
+    [Fact]
+    public void ParseStorageGb_ignores_capacity_embedded_in_a_model_name()
+        // Only the leading per-drive capacity counts, not a size baked into the model.
+        => Assert.Equal(931, SystemProfileService.ParseStorageGb("931 GB WD Blue SN570 1TB"));
+
     [Theory]
     [InlineData("")]
     [InlineData("SomeDrive NVMe")]

@@ -88,6 +88,9 @@ internal sealed class SystemProfileService : BackgroundService
             .Where(n => !string.IsNullOrWhiteSpace(n))
             .Select(n => n.Trim())
             .Distinct(StringComparer.OrdinalIgnoreCase)
+            // Stable order so a reordered enumeration doesn't look like a change
+            // (otherwise the dedupe re-sends $identify every refresh).
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
             .Take(MaxDevices)
             .ToArray();
 
@@ -123,7 +126,9 @@ internal sealed class SystemProfileService : BackgroundService
     private static string Stringify(object? value) => value switch
     {
         null => "",
-        string[] a => string.Join(",", a),
+        // Unit-separator delimiter so a device name containing the delimiter
+        // can't collide two entries into one (a missed change).
+        string[] a => string.Join('\u001f', a),
         _ => value.ToString() ?? "",
     };
 
@@ -142,16 +147,18 @@ internal sealed class SystemProfileService : BackgroundService
             : null;
     }
 
-    // Sum every "N TB" / "N GB" figure across drives (e.g. "1.82 TB … + 931 GB …"),
-    // reported in GiB to match the storage string. Model numbers aren't followed by
-    // a TB/GB unit, so they don't match.
+    // Sum the capacity of each drive in "1.82 TB Model + 931 GB Model" (reported
+    // in GiB to match the storage string). Each drive segment leads with its
+    // capacity, so take only the FIRST figure per segment — a model name that
+    // embeds a size (e.g. "WD Blue SN570 1TB") must not be double-counted.
     internal static int? ParseStorageGb(string storage)
     {
         double total = 0;
         var any = false;
-        foreach (Match m in Regex.Matches(storage, @"(\d+(?:\.\d+)?)\s*(TB|GB)", RegexOptions.IgnoreCase))
+        foreach (var drive in storage.Split('+', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
         {
-            if (double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
+            var m = Regex.Match(drive, @"(\d+(?:\.\d+)?)\s*(TB|GB)", RegexOptions.IgnoreCase);
+            if (m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v))
             {
                 total += m.Groups[2].Value.Equals("TB", StringComparison.OrdinalIgnoreCase) ? v * 1024 : v;
                 any = true;

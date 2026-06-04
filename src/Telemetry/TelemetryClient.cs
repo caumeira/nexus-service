@@ -67,7 +67,10 @@ internal sealed class TelemetryClient : ITelemetry, IDisposable
     /// <summary>Drain up to <paramref name="max"/> events for one batch.</summary>
     public List<TelemetryEvent> DrainBatch(int max)
     {
-        var batch = new List<TelemetryEvent>(Math.Min(max, Volatile.Read(ref _count)));
+        // Clamp: Capture enqueues then increments as two steps, so a concurrent
+        // drain/clear can drive _count transiently negative — never seed a List
+        // with a negative capacity.
+        var batch = new List<TelemetryEvent>(Math.Clamp(Volatile.Read(ref _count), 0, max));
         while (batch.Count < max && _queue.TryDequeue(out var e))
         {
             Interlocked.Decrement(ref _count);

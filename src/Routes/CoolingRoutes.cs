@@ -167,7 +167,7 @@ public static class CoolingRoutes
             var requested = isAutoSynonym ? "off" : profile!.Name;
             var applied = FanProfiles.Apply(requested, f, store);
             PanelTopics.BroadcastCooling(hub);
-            telemetry.Capture(Nexus.Service.Telemetry.TelemetryEvents.FanCurveApplied, ("preset", name));
+            telemetry.Capture(Nexus.Service.Telemetry.TelemetryEvents.FanCurveApplied, ("preset", requested));
             return Results.Ok(new ApplyProfileResponse { Applied = applied });
         }).AllowPanel();
 
