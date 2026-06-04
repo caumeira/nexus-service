@@ -76,7 +76,7 @@ public sealed class HeartbeatService : BackgroundService
             InstallId = installId,
             DeviceType = "desktop",
             Version = BuildInfo.Version,
-            Os = OsTag(),
+            Os = TelemetryPlatform.OsTag(),
             OsVersion = RuntimeInformation.OSDescription,
             Arch = RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(),
         };
@@ -92,14 +92,6 @@ public sealed class HeartbeatService : BackgroundService
         {
             Console.Error.WriteLine($"[heartbeat] {(int)res.StatusCode} from {Endpoint}");
         }
-    }
-
-    private static string OsTag()
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return "win";
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return "mac";
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return "linux";
-        return "other";
     }
 }
 

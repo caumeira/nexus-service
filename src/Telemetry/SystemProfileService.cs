@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
-using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
@@ -99,7 +98,7 @@ internal sealed class SystemProfileService : BackgroundService
         if (string.IsNullOrWhiteSpace(specs.Processor) && devices.Length == 0)
             return false;
 
-        var props = new List<(string, object?)> { ("version", BuildInfo.Version), ("os", OsTag()) };
+        var props = new List<(string, object?)> { ("version", BuildInfo.Version), ("os", TelemetryPlatform.OsTag()) };
         Add(props, "os_build", specs.OsBuild);
         Add(props, "cpu", specs.Processor);
         Add(props, "gpu", specs.GraphicsCard);
@@ -165,13 +164,5 @@ internal sealed class SystemProfileService : BackgroundService
             }
         }
         return any ? (int)Math.Round(total) : null;
-    }
-
-    private static string OsTag()
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return "win";
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return "mac";
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux)) return "linux";
-        return "other";
     }
 }

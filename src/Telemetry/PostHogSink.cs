@@ -4,7 +4,6 @@ using System.Collections.Generic;
 using System.Globalization;
 using System.Net.Http;
 using System.Net.Http.Headers;
-using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -21,11 +20,7 @@ internal sealed class PostHogSink : ITelemetrySink
 {
     private const string LibName = "nexus-service";
 
-    private static readonly string Os =
-        RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? "win"
-        : RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? "mac"
-        : RuntimeInformation.IsOSPlatform(OSPlatform.Linux) ? "linux"
-        : "other";
+    private static readonly string Os = TelemetryPlatform.OsTag();
 
     private readonly IHttpClientFactory _http;
     private readonly PostHogOptions _options;
