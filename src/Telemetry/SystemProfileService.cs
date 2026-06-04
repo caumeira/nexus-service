@@ -134,7 +134,7 @@ internal sealed class SystemProfileService : BackgroundService
     }
 
     // "32 GB DDR5-6000 (...)" -> 32. The first GB figure is the total.
-    private static int? ParseRamGb(string memory)
+    internal static int? ParseRamGb(string memory)
     {
         var m = Regex.Match(memory, @"(\d+(?:\.\d+)?)\s*GB", RegexOptions.IgnoreCase);
         return m.Success && double.TryParse(m.Groups[1].Value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v)
@@ -145,7 +145,7 @@ internal sealed class SystemProfileService : BackgroundService
     // Sum every "N TB" / "N GB" figure across drives (e.g. "1.82 TB … + 931 GB …"),
     // reported in GiB to match the storage string. Model numbers aren't followed by
     // a TB/GB unit, so they don't match.
-    private static int? ParseStorageGb(string storage)
+    internal static int? ParseStorageGb(string storage)
     {
         double total = 0;
         var any = false;

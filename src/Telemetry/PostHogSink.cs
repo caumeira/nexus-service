@@ -44,7 +44,7 @@ internal sealed class PostHogSink : ITelemetrySink
             return;
 
         var buffer = new ArrayBufferWriter<byte>();
-        WriteBody(buffer, distinctId, batch);
+        WriteBody(buffer, _options.ProjectApiKey, distinctId, batch);
 
         using var client = _http.CreateClient();
         client.Timeout = TimeSpan.FromSeconds(10);
@@ -58,11 +58,12 @@ internal sealed class PostHogSink : ITelemetrySink
             Console.Error.WriteLine($"[telemetry] {(int)res.StatusCode} from PostHog");
     }
 
-    private void WriteBody(IBufferWriter<byte> buffer, string distinctId, IReadOnlyList<TelemetryEvent> batch)
+    // internal + static for testability: deterministic body from inputs alone.
+    internal static void WriteBody(IBufferWriter<byte> buffer, string apiKey, string distinctId, IReadOnlyList<TelemetryEvent> batch)
     {
         using var w = new Utf8JsonWriter(buffer);
         w.WriteStartObject();
-        w.WriteString("api_key", _options.ProjectApiKey);
+        w.WriteString("api_key", apiKey);
         w.WriteStartArray("batch");
         foreach (var e in batch)
         {
