@@ -24,6 +24,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     private readonly CnvsLightingDeviceProvider _cnvs;
     private readonly QSeriesLightingDeviceProvider _qseries;
     private readonly KeebLightingDeviceProvider _keeb;
+    private readonly Nexus.Service.Lighting.Smart.SmartLightProvider _smart;
     private readonly IConfigStore _store;
     private readonly LightingEngine _engine;
 
@@ -35,6 +36,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         CnvsLightingDeviceProvider cnvs,
         QSeriesLightingDeviceProvider qseries,
         KeebLightingDeviceProvider keeb,
+        Nexus.Service.Lighting.Smart.SmartLightProvider smart,
         IConfigStore store,
         LightingEngine engine)
     {
@@ -45,11 +47,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         _cnvs = cnvs;
         _qseries = qseries;
         _keeb = keeb;
+        _smart = smart;
         _store = store;
         _engine = engine;
     }
 
-    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected;
+    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected || _smart.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
     {
@@ -145,6 +148,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
             rgb.IsInit = rgb.IsInit || keeb.IsInit;
             rgb.Devices.AddRange(keeb.Devices);
         }
+        var smartLights = _smart.GetAll();
+        if (smartLights.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || smartLights.IsInit;
+            rgb.Devices.AddRange(smartLights.Devices);
+        }
 
         // Spread every device without a persisted layout across the grid. totalCount counts persisted devices too so the
         // slot for any one device is stable across calls (resetting one card doesn't shuffle the others). Must run
@@ -186,6 +195,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         var cnvsIds = new List<string>(ids.Count);
         var qseriesIds = new List<string>(ids.Count);
         var keebIds = new List<string>(ids.Count);
+        var smartLightIds = new List<string>(ids.Count);
         foreach (var id in ids)
         {
             if (IsNp50Id(id)) np50Ids.Add(id);
@@ -194,6 +204,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
             else if (IsCnvsId(id)) cnvsIds.Add(id);
             else if (IsQSeriesId(id)) qseriesIds.Add(id);
             else if (IsKeebId(id)) keebIds.Add(id);
+            else if (_smart.Owns(id)) smartLightIds.Add(id);
             else rgbIds.Add(id);
         }
         if (rgbIds.Count > 0) _openRgb.SetDisabled(rgbIds);
@@ -203,6 +214,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         if (cnvsIds.Count > 0) _cnvs.SetDisabled(cnvsIds);
         if (qseriesIds.Count > 0) _qseries.SetDisabled(qseriesIds);
         if (keebIds.Count > 0) _keeb.SetDisabled(keebIds);
+        if (smartLightIds.Count > 0) _smart.SetDisabled(smartLightIds);
     }
 
     public void SetPower(string id, bool on) { Pick(id).SetPower(id, on); }
@@ -219,6 +231,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         : IsCnvsId(id) ? _cnvs
         : IsQSeriesId(id) ? _qseries
         : IsKeebId(id) ? _keeb
+        : _smart.Owns(id) ? _smart
         : _openRgb;
 
     private static bool IsNp50Id(string id) =>

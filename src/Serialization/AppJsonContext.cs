@@ -383,6 +383,18 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(LedHighlightBody))]
 [JsonSerializable(typeof(LedTestPatternBody))]
 
+// Smart (network) lights
+[JsonSerializable(typeof(Nexus.Service.Models.SmartLights.SmartLightDto))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.SmartLights.SmartLightDto>))]
+[JsonSerializable(typeof(Nexus.Service.Models.SmartLights.GetSmartLightsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.SmartLights.DiscoverSmartLightsBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.SmartLights.DiscoveredSmartLightDto))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.SmartLights.DiscoveredSmartLightDto>))]
+[JsonSerializable(typeof(Nexus.Service.Models.SmartLights.DiscoverSmartLightsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.SmartLights.PairSmartLightBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.SmartLights.PairSmartLightResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.SmartLights.RemoveSmartLightBody))]
+
 // Keeb
 [JsonSerializable(typeof(KeyboardState))]
 [JsonSerializable(typeof(GetKeebSettingsResponse))]
