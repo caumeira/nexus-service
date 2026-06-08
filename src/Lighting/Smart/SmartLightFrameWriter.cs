@@ -79,6 +79,7 @@ public sealed class SmartLightFrameWriter : IHostedService, IDisposable
         {
             if (_wasStreaming)
             {
+                _provider.StopStreamingSessions();
                 _provider.RestoreStatic();
                 _wasStreaming = false;
             }
@@ -104,10 +105,12 @@ public sealed class SmartLightFrameWriter : IHostedService, IDisposable
             var (r, g, b) = AverageRgb(frame.LedBytes, frame.LedCount);
             var devBrightness = prefs.TryGetValue(frame.Id, out var pref) ? pref.Brightness : 100;
             var b01 = global * Math.Clamp(devBrightness, 0, 100) / 100f;
-            _provider.SubmitFrame(frame.Id, new LightFrame(On: true, r, g, b, b01));
+            _provider.AccumulateOrSubmit(frame.Id, new LightFrame(On: true, r, g, b, b01));
             streamed = true;
         }
 
+        // Send this tick's batch to any session streamers (Hue Entertainment).
+        _provider.FlushStreaming();
         if (streamed) _wasStreaming = true;
     }
 

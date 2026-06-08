@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Lighting.Smart.Discovery;
 using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 using Nexus.Service.Security;
 
 namespace Nexus.Service.Lighting.Smart.Drivers.Hue;
@@ -16,13 +17,24 @@ namespace Nexus.Service.Lighting.Smart.Drivers.Hue;
 /// throttles REST, so we cap sends at ~10/s (Entertainment streaming is out of
 /// scope — see plans/smart-lights-integration.md).
 /// </summary>
-public sealed class HueDriver : ILightDriver
+public sealed class HueDriver : ILightDriver, ISessionStreamer
 {
     private const int MinSendIntervalMs = 100; // ~10 Hz — bridge REST ceiling.
     private const string MdnsService = "_hue._tcp";
 
     private readonly HueBridgeClient _client;
     private readonly LanDiscovery _lan;
+
+    // Entertainment streaming state, keyed by bridge host.
+    private readonly object _sessLock = new();
+    private readonly Dictionary<string, HueEntertainmentSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _starting = new(StringComparer.OrdinalIgnoreCase);
+    // Hosts whose session start failed this effect run (no clientkey / no
+    // Entertainment Area / handshake failure). Skipped until the next effect so
+    // a failed start isn't retried every tick. Cleared by StopAll().
+    private readonly HashSet<string> _failed = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<string, (byte r, byte g, byte b)>> _buffers = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, (string appKey, string clientKey)> _creds = new(StringComparer.OrdinalIgnoreCase);
 
     public HueDriver(HueBridgeClient client, LanDiscovery lan)
     {
@@ -179,6 +191,85 @@ public sealed class HueDriver : ILightDriver
         var (rid, _) = ParseExtra(dev.Extra);
         if (string.IsNullOrEmpty(appKey) || string.IsNullOrEmpty(rid)) return;
         await _client.IdentifyAsync(dev.Host, appKey, rid, ct).ConfigureAwait(false);
+    }
+
+    // ── ISessionStreamer (Hue Entertainment) ──────────────────────────────────
+
+    public void Accumulate(SmartLight dev, byte r, byte g, byte b)
+    {
+        var (rid, ck) = ParseExtra(dev.Extra);
+        if (rid.Length == 0) return;
+        var appKey = SecretProtector.Unprotect(dev.Token);
+        lock (_sessLock)
+        {
+            _creds[dev.Host] = (appKey, ck);
+            if (!_buffers.TryGetValue(dev.Host, out var buf))
+            { buf = new Dictionary<string, (byte, byte, byte)>(StringComparer.Ordinal); _buffers[dev.Host] = buf; }
+            buf[rid] = (r, g, b);
+        }
+    }
+
+    public void Flush()
+    {
+        var toPush = new List<(HueEntertainmentSession sess, Dictionary<string, (byte r, byte g, byte b)> buf)>();
+        var toStart = new List<string>();
+        lock (_sessLock)
+        {
+            foreach (var (host, buf) in _buffers)
+            {
+                if (buf.Count == 0) continue;
+                if (_sessions.TryGetValue(host, out var s) && s.Active)
+                    toPush.Add((s, new Dictionary<string, (byte r, byte g, byte b)>(buf, StringComparer.Ordinal)));
+                else if (!_starting.Contains(host) && !_failed.Contains(host))
+                    toStart.Add(host);
+            }
+        }
+        foreach (var (sess, buf) in toPush) sess.Push(buf);
+        foreach (var host in toStart) StartSessionBackground(host);
+    }
+
+    // Session start (config fetch + DTLS handshake) is slow, so run it off the
+    // frame tick; until it's up we just skip pushes for that host.
+    private void StartSessionBackground(string host)
+    {
+        string appKey, clientKey;
+        lock (_sessLock)
+        {
+            if (_starting.Contains(host) || _sessions.ContainsKey(host)) return;
+            if (!_creds.TryGetValue(host, out var c)) return;
+            (appKey, clientKey) = c;
+            _starting.Add(host);
+        }
+        _ = Task.Run(async () =>
+        {
+            var sess = new HueEntertainmentSession(_client, host, appKey, clientKey);
+            try
+            {
+                await sess.StartAsync(CancellationToken.None).ConfigureAwait(false);
+                lock (_sessLock) { _sessions[host] = sess; _starting.Remove(host); }
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Warn($"[hue-entertainment] session start failed for {host}: {ex.Message}");
+                try { await sess.StopAsync(CancellationToken.None).ConfigureAwait(false); } catch { }
+                sess.Dispose();
+                lock (_sessLock) { _starting.Remove(host); _failed.Add(host); }
+            }
+        });
+    }
+
+    public void StopAll()
+    {
+        List<HueEntertainmentSession> sessions;
+        lock (_sessLock)
+        {
+            sessions = new List<HueEntertainmentSession>(_sessions.Values);
+            _sessions.Clear();
+            _buffers.Clear();
+            _starting.Clear();
+            _failed.Clear();
+        }
+        foreach (var s in sessions) _ = s.StopAsync(CancellationToken.None);
     }
 
     // Extra encodes the v2 light rid + the bridge clientkey (DTLS PSK). New

@@ -48,3 +48,24 @@ public interface ILightDriver
     /// (which flip false under streaming load and never recover).</summary>
     Task<bool> PingAsync(SmartLight dev, CancellationToken ct);
 }
+
+/// <summary>
+/// Optional capability for drivers that stream effect frames over a dedicated
+/// low-latency session (all of a controller's lights in one batch/packet) rather
+/// than per-light commands — e.g. Hue Entertainment (DTLS UDP). The frame writer
+/// accumulates a color per device each tick, flushes once, and ends the session
+/// when the effect stops.
+/// </summary>
+public interface ISessionStreamer
+{
+    /// <summary>Buffer this device's color for the current frame (already
+    /// brightness-applied; off = black).</summary>
+    void Accumulate(SmartLight dev, byte r, byte g, byte b);
+
+    /// <summary>Send the buffered frame to every active session; lazily open
+    /// sessions (async, in the background) for controllers seen this tick.</summary>
+    void Flush();
+
+    /// <summary>Tear down all sessions (effect stopped / shutdown).</summary>
+    void StopAll();
+}

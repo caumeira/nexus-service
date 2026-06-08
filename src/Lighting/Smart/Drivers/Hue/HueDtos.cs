@@ -59,11 +59,60 @@ public sealed class HueLight
 {
     [JsonPropertyName("id")] public string Id { get; set; } = "";
     [JsonPropertyName("id_v1")] public string IdV1 { get; set; } = "";
+    [JsonPropertyName("owner")] public HueResourceRef? Owner { get; set; }
     [JsonPropertyName("metadata")] public HueMetadata? Metadata { get; set; }
     [JsonPropertyName("on")] public HueOn? On { get; set; }
     [JsonPropertyName("dimming")] public HueDimming? Dimming { get; set; }
     [JsonPropertyName("color")] public HueColor? Color { get; set; }
     [JsonPropertyName("type")] public string Type { get; set; } = "";
+}
+
+public sealed class HueResourceRef
+{
+    [JsonPropertyName("rid")] public string Rid { get; set; } = "";
+    [JsonPropertyName("rtype")] public string Rtype { get; set; } = "";
+}
+
+// --- Entertainment (CLIP v2) ---
+public sealed class HueEntConfigResponse
+{
+    [JsonPropertyName("data")] public List<HueEntConfig> Data { get; set; } = new();
+}
+
+public sealed class HueEntConfig
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("status")] public string Status { get; set; } = "";
+    [JsonPropertyName("metadata")] public HueMetadata? Metadata { get; set; }
+    [JsonPropertyName("channels")] public List<HueEntChannel> Channels { get; set; } = new();
+}
+
+public sealed class HueEntChannel
+{
+    [JsonPropertyName("channel_id")] public int ChannelId { get; set; }
+    [JsonPropertyName("members")] public List<HueEntMember> Members { get; set; } = new();
+}
+
+public sealed class HueEntMember
+{
+    [JsonPropertyName("service")] public HueResourceRef? Service { get; set; }
+}
+
+public sealed class HueEntServiceResponse
+{
+    [JsonPropertyName("data")] public List<HueEntService> Data { get; set; } = new();
+}
+
+public sealed class HueEntService
+{
+    [JsonPropertyName("id")] public string Id { get; set; } = "";
+    [JsonPropertyName("owner")] public HueResourceRef? Owner { get; set; }
+}
+
+// PUT body to start/stop streaming on an entertainment configuration.
+public sealed class HueEntAction
+{
+    [JsonPropertyName("action")] public string Action { get; set; } = "start";
 }
 
 public sealed class HueMetadata

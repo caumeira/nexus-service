@@ -108,4 +108,42 @@ public sealed class HueBridgeClient
         using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
         // Identify failures are non-fatal; don't throw.
     }
+
+    // ── Entertainment (CLIP v2) ───────────────────────────────────────────────
+
+    public async Task<List<HueEntConfig>> GetEntertainmentConfigsAsync(string host, string appKey, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"https://{host}/clip/v2/resource/entertainment_configuration");
+        req.Headers.Add("hue-application-key", appKey);
+        using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+        resp.EnsureSuccessStatusCode();
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        var parsed = await JsonSerializer.DeserializeAsync(stream, HueJsonContext.Default.HueEntConfigResponse, ct).ConfigureAwait(false);
+        return parsed?.Data ?? new List<HueEntConfig>();
+    }
+
+    public async Task<List<HueEntService>> GetEntertainmentServicesAsync(string host, string appKey, CancellationToken ct)
+    {
+        using var req = new HttpRequestMessage(HttpMethod.Get, $"https://{host}/clip/v2/resource/entertainment");
+        req.Headers.Add("hue-application-key", appKey);
+        using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+        resp.EnsureSuccessStatusCode();
+        await using var stream = await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
+        var parsed = await JsonSerializer.DeserializeAsync(stream, HueJsonContext.Default.HueEntServiceResponse, ct).ConfigureAwait(false);
+        return parsed?.Data ?? new List<HueEntService>();
+    }
+
+    /// <summary>Start or stop streaming on an entertainment configuration
+    /// (action = "start" | "stop").</summary>
+    public async Task SetEntertainmentActionAsync(string host, string appKey, string configId, string action, CancellationToken ct)
+    {
+        var json = JsonSerializer.Serialize(new HueEntAction { Action = action }, HueJsonContext.Default.HueEntAction);
+        using var req = new HttpRequestMessage(HttpMethod.Put, $"https://{host}/clip/v2/resource/entertainment_configuration/{configId}")
+        {
+            Content = new StringContent(json, Encoding.UTF8, "application/json"),
+        };
+        req.Headers.Add("hue-application-key", appKey);
+        using var resp = await Http.SendAsync(req, ct).ConfigureAwait(false);
+        resp.EnsureSuccessStatusCode();
+    }
 }

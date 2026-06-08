@@ -293,6 +293,41 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         }, hostKey: driver.RateLimitKey(dev), hostIntervalMs: minInterval);
     }
 
+    /// <summary>Route an effect frame: session-streaming drivers (Hue
+    /// Entertainment) accumulate into a per-controller batch; others go through
+    /// the per-light throttle/REST path. Brightness is pre-applied for the
+    /// session path (its packet carries raw RGB); off = black.</summary>
+    public void AccumulateOrSubmit(string id, LightFrame frame)
+    {
+        var driver = DriverForId(id);
+        if (driver is ISessionStreamer ss && _cache.TryGetValue(id, out var dev))
+        {
+            byte r = 0, g = 0, b = 0;
+            if (frame.On)
+            {
+                var k = Math.Clamp(frame.Brightness01, 0f, 1f);
+                r = (byte)(frame.R * k); g = (byte)(frame.G * k); b = (byte)(frame.B * k);
+            }
+            ss.Accumulate(dev, r, g, b);
+        }
+        else
+        {
+            SubmitFrame(id, frame);
+        }
+    }
+
+    /// <summary>Flush this tick's batched frames to any active session streamers.</summary>
+    public void FlushStreaming()
+    {
+        foreach (var d in _drivers.Values) if (d is ISessionStreamer ss) ss.Flush();
+    }
+
+    /// <summary>End all streaming sessions (effect stopped).</summary>
+    public void StopStreamingSessions()
+    {
+        foreach (var d in _drivers.Values) if (d is ISessionStreamer ss) ss.StopAll();
+    }
+
     /// <summary>Push each device's static (manual) color — used when an effect
     /// stops so lamps return to their configured color rather than freezing on
     /// the last effect frame.</summary>
