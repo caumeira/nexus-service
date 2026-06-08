@@ -56,25 +56,55 @@ public sealed unsafe class WindowsAudioDeviceProvider : IAudioDeviceProvider, ID
         return list;
     }, fallback: new AudioDeviceList(), op: "list");
 
-    public bool SetDefaultOutput(string deviceId) => SetDefault(deviceId);
-    public bool SetDefaultInput(string deviceId) => SetDefault(deviceId);
+    // The default audio endpoint is a per-user setting; IPolicyConfig can't
+    // change it from the Session-0 LocalSystem service (same constraint as
+    // LockWorkStation). Route the switch to a one-shot Nexus.exe in the active
+    // console session, which runs the COM directly (SetDefaultDirect).
+    public bool SetDefaultOutput(string deviceId) => RouteToUserSession(deviceId);
+    public bool SetDefaultInput(string deviceId) => RouteToUserSession(deviceId);
+
+    private static bool RouteToUserSession(string deviceId)
+    {
+        if (string.IsNullOrEmpty(deviceId)) return false;
+#if WINDOWS
+        var exe = System.IO.Path.Combine(AppContext.BaseDirectory, "Nexus.exe");
+        return Nexus.Service.Lifecycle.UserHelperBootstrapper.RunInUserSession(
+            $"\"{exe}\" --set-audio-default {deviceId}", "audio-default", "NexusAudioDefault");
+#else
+        return false;
+#endif
+    }
+
+    /// <summary>Runs the IPolicyConfig switch in-process. Invoked by the
+    /// <c>--set-audio-default</c> CLI one-shot inside the user session.</summary>
+    public bool SetDefaultDirect(string deviceId) => SetDefault(deviceId);
 
     private bool SetDefault(string deviceId) => RunOnComThread(() =>
     {
         if (string.IsNullOrEmpty(deviceId)) return false;
         var clsid = PolicyConfigClsid;
         var iid = IID_IPolicyConfig;
-        if (CoCreateInstance(ref clsid, IntPtr.Zero, ClsCtxInprocServer, ref iid, out var pc) < 0 || pc == IntPtr.Zero)
+        var cc = CoCreateInstance(ref clsid, IntPtr.Zero, ClsCtxAll, ref iid, out var pc);
+        if (cc < 0 || pc == IntPtr.Zero)
+        {
+            Console.Error.WriteLine($"[audio-win] PolicyConfig CoCreateInstance failed hr=0x{cc:X8}");
             return false;
+        }
         var idPtr = Marshal.StringToHGlobalUni(deviceId);
         try
         {
-            // Set as default for all three roles so both multimedia + comms follow.
+            // Set as default across roles; succeed if any role takes (some
+            // endpoints reject eCommunications). IPolicyConfig is undocumented,
+            // so log the HR per role to diagnose failures on real hardware.
             var fn = (delegate* unmanaged[Stdcall]<IntPtr, IntPtr, int, int>)GetVTableSlot(pc, 13);
-            var ok = true;
+            var any = false;
             foreach (var role in new[] { ERole.eConsole, ERole.eMultimedia, ERole.eCommunications })
-                ok &= fn(pc, idPtr, (int)role) >= 0;
-            return ok;
+            {
+                var hr = fn(pc, idPtr, (int)role);
+                if (hr >= 0) any = true;
+                else Console.Error.WriteLine($"[audio-win] SetDefaultEndpoint role={role} hr=0x{hr:X8}");
+            }
+            return any;
         }
         finally { Marshal.FreeHGlobal(idPtr); Release(pc); }
     }, fallback: false, op: "set-default");
@@ -220,6 +250,7 @@ public sealed unsafe class WindowsAudioDeviceProvider : IAudioDeviceProvider, ID
         pid = 14,
     };
     private const int ClsCtxInprocServer = 0x1;
+    private const int ClsCtxAll = 0x17;
     private const int STGM_READ = 0x0;
     private const int DEVICE_STATE_ACTIVE = 0x1;
 
