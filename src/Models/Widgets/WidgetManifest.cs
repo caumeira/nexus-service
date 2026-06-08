@@ -39,6 +39,16 @@ public sealed class WidgetManifest
     public List<string> Surfaces { get; set; } = new();
 
     /// <summary>
+    /// Render runtime. Omitted / <c>"declarative"</c> = the meter-palette view
+    /// tree (default). <c>"sdk"</c> = a sandboxed remote-component widget: the
+    /// panel loads the built <c>widget.mjs</c> into a worker and reconciles its
+    /// tree into host components. Passed through to the dashboard listing so the
+    /// panel can pick the renderer.
+    /// </summary>
+    [JsonPropertyName("runtime")]
+    public string? Runtime { get; set; }
+
+    /// <summary>
     /// Allowed grid sizes. Same alphabet as the panel engine:
     /// <c>1x1</c>, <c>2x2</c>, <c>4x2</c>, <c>4x4</c>. The first entry is
     /// the default if <see cref="DefaultSize"/> is unset. Anything outside

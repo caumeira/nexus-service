@@ -16,6 +16,7 @@ public sealed class WidgetInstalledListing
     public string? Description { get; set; }
     public string? IconUrl { get; set; }
     public List<string> Surfaces { get; set; } = new();
+    public string? Runtime { get; set; } // null/"declarative" | "sdk"
     public WidgetManifestCapabilities Capabilities { get; set; } = new();
     public WidgetManifestViewport? Viewport { get; set; }
     public List<WidgetManifestSettingEntry> Settings { get; set; } = new();
