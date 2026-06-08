@@ -33,5 +33,14 @@ public static partial class DevicesRoutes
             Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         });
+
+        // Enable/disable a paired light without unpairing — it stays listed but
+        // leaves the lighting canvas/effects when disabled.
+        app.MapPost("/smart-lights/enable", (EnableSmartLightBody body, SmartLightProvider p, Nexus.Service.Sockets.MultiplexHub hub) =>
+        {
+            p.SetEnabled(body.Id, body.Enabled);
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            return ApiResponse.Ok();
+        });
     }
 }

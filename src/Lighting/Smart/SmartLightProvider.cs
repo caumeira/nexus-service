@@ -497,6 +497,20 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         FireChanged();
     }
 
+    /// <summary>Enable/disable a paired light WITHOUT unpairing it. Disabled
+    /// lights stay listed on the Smart Lights page but drop off the lighting
+    /// canvas/effects (GetAll + BuildFrames skip <c>!Enabled</c>).</summary>
+    public void SetEnabled(string id, bool enabled)
+    {
+        _store.Update(s =>
+        {
+            foreach (var cfg in s.SmartLights.Devices)
+                if (cfg.Id == id) { cfg.Enabled = enabled; break; }
+        });
+        if (!enabled) _throttle.Remove(id); // stop any in-flight sends
+        FireChanged();
+    }
+
     // ── Helpers ──────────────────────────────────────────────────────────────
 
     private SmartLight? Resolve(string id)

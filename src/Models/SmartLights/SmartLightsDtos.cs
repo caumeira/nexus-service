@@ -62,3 +62,9 @@ public class RemoveSmartLightBody
 {
     public string Id { get; set; } = "";
 }
+
+public class EnableSmartLightBody
+{
+    public string Id { get; set; } = "";
+    public bool Enabled { get; set; }
+}
