@@ -37,6 +37,12 @@ public interface ILightDriver
     /// <summary>Minimum spacing between sends for this device (rate ceiling).</summary>
     int MinIntervalMs(SmartLight dev);
 
+    /// <summary>Key identifying the shared controller this device's sends are
+    /// rate-limited against. Devices returning the same key share one rate
+    /// budget — e.g. all bulbs on a Hue bridge return the bridge host so they
+    /// can't collectively flood it. Per-device controllers return their own id.</summary>
+    string RateLimitKey(SmartLight dev);
+
     /// <summary>Cheap reachability probe — is the controller answering right now?
     /// Drives accurate online status, instead of inferring it from send failures
     /// (which flip false under streaming load and never recover).</summary>

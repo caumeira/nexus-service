@@ -23,6 +23,7 @@ namespace Nexus.Service.Lighting.Smart.Drivers.Hue;
 [JsonSerializable(typeof(HueColor))]
 [JsonSerializable(typeof(HueXy))]
 [JsonSerializable(typeof(HueLightUpdate))]
+[JsonSerializable(typeof(HueDynamics))]
 [JsonSerializable(typeof(HueIdentifyUpdate))]
 [JsonSerializable(typeof(HueIdentifyAction))]
 [JsonSourceGenerationOptions(DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

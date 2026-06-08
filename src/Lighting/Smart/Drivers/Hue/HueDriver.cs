@@ -35,6 +35,10 @@ public sealed class HueDriver : ILightDriver
 
     public int MinIntervalMs(SmartLight dev) => MinSendIntervalMs;
 
+    // All bulbs on a bridge share one rate budget — keyed by bridge host — so a
+    // many-light effect can't flood the bridge (it handles ~10 cmds/s total).
+    public string RateLimitKey(SmartLight dev) => "hue:" + dev.Host;
+
     public async Task<IReadOnlyList<DiscoveredLight>> DiscoverAsync(CancellationToken ct)
     {
         // Dedup by HOST (IP): cloud discovery and mDNS both surface the same
@@ -156,6 +160,9 @@ public sealed class HueDriver : ILightDriver
                 On = new HueOn { On = true },
                 Dimming = new HueDimming { Brightness = Math.Max(1.0, bri) },
                 Color = (x > 0 || y > 0) ? new HueColor { Xy = new HueXy { X = x, Y = y } } : null,
+                // Snap instantly — without this the lamp applies its default
+                // ~400ms fade, smearing every streamed frame.
+                Dynamics = new HueDynamics { Duration = 0 },
             };
         }
         await _client.UpdateLightAsync(dev.Host, appKey, dev.Extra, update, ct).ConfigureAwait(false);

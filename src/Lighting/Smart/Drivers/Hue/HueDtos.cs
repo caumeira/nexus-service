@@ -99,6 +99,14 @@ public sealed class HueLightUpdate
     [JsonPropertyName("on")] public HueOn? On { get; set; }
     [JsonPropertyName("dimming")] public HueDimming? Dimming { get; set; }
     [JsonPropertyName("color")] public HueColor? Color { get; set; }
+    [JsonPropertyName("dynamics")] public HueDynamics? Dynamics { get; set; }
+}
+
+// Transition control. duration=0 snaps instantly; omitting it lets the lamp
+// apply its default ~400ms fade, which smears fast effect updates.
+public sealed class HueDynamics
+{
+    [JsonPropertyName("duration")] public int Duration { get; set; }
 }
 
 public sealed class HueIdentifyUpdate

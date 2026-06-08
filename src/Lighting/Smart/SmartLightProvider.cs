@@ -290,7 +290,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         {
             try { await driver.SendAsync(dev, f, c).ConfigureAwait(false); _online[id] = true; }
             catch { _online[id] = false; throw; }
-        });
+        }, hostKey: driver.RateLimitKey(dev), hostIntervalMs: minInterval);
     }
 
     /// <summary>Push each device's static (manual) color — used when an effect
