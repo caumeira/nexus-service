@@ -594,7 +594,9 @@ public static class NexusServiceCollectionExtensions
 #if WINDOWS
         services.AddSingleton<IScreenTimeProvider, WindowsScreenTimeProvider>();
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
-        services.AddSingleton<IShortcutsProvider, WindowsShortcutsProvider>();
+        // Enumeration (Get-StartApps) is per-user and empty from Session 0, so
+        // route it through the user-session helper. Launch stays direct (explorer).
+        services.AddSingleton<IShortcutsProvider, HelperShortcutsProxy>();
         services.AddSingleton<IMediaProvider, WindowsMediaProvider>();
         services.AddSingleton<IVolumeProvider, WindowsVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, WindowsAudioDeviceProvider>();

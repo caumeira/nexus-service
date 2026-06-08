@@ -138,6 +138,7 @@ internal static class WindowsUserHelper
             }).Register(handlerRegistry);
         new MediaHandler(media.Control, media.GetAlbumArt).Register(handlerRegistry);
         new BrightnessHandler(brightness).Register(handlerRegistry);
+        new ShortcutsHandler(new Nexus.Service.Activity.WindowsShortcutsProvider()).Register(handlerRegistry);
         new MonitorsHandler().Register(handlerRegistry);
         new OrientationHandler(new Platform.Displays.WindowsDisplayOrientationProvider()).Register(handlerRegistry);
         new ScreenMirrorHandler(screenCapture.Start, screenCapture.Stop).Register(handlerRegistry);

@@ -524,6 +524,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorStartPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorStopPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorFramePayload))]
+// Shortcuts (Start-menu app enumeration runs in the user-session helper)
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutsRequest))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutListResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutOneResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutIconResult))]
 #endif
 
 // Widgets - declarative runtime (nexus.widget/2 schema)
