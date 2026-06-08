@@ -18,6 +18,7 @@ public static partial class DevicesRoutes
         MapDeviceListingEndpoints(app);
         MapDeviceSettingsEndpoints(app);
         MapLightingDevicesEndpoints(app);
+        MapSmartLightsEndpoints(app);
         MapNp50Endpoints(app);
         MapMiniHubEndpoints(app);
         MapFirmwareEndpoints(app);

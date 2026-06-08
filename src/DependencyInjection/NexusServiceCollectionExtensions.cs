@@ -295,6 +295,25 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Keeb.KeebInputWorker>();
 
+        // Smart (network) lights — Philips Hue today; Nanoleaf / WLED / LIFX /
+        // Twinkly / WiZ / Yeelight / Elgato next. One brand-neutral provider +
+        // frame writer + send throttle; per-brand behavior is an ILightDriver.
+        // Joins the composite by id prefix ("hue:", …). Cross-platform (pure
+        // sockets), so it runs on macOS/Linux too. See
+        // plans/smart-lights-integration.md.
+        services.AddSingleton<Nexus.Service.Lighting.Smart.Discovery.MdnsQuery>();
+        services.AddSingleton<Nexus.Service.Lighting.Smart.Discovery.LanDiscovery>();
+        services.AddSingleton<Nexus.Service.Lighting.Smart.NetworkSendThrottle>();
+        services.AddSingleton<Nexus.Service.Lighting.Smart.Drivers.Hue.HueBridgeClient>();
+        services.AddSingleton<Nexus.Service.Lighting.Smart.Drivers.Hue.HueDriver>();
+        services.AddSingleton<Nexus.Service.Lighting.Smart.ILightDriver>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.Drivers.Hue.HueDriver>());
+        services.AddSingleton<Nexus.Service.Lighting.Smart.SmartLightProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Smart.SmartLightFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightFrameWriter>());
+
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
         {
             services.AddSingleton<Nexus.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>();
@@ -306,6 +325,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         }
@@ -319,6 +339,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         }
