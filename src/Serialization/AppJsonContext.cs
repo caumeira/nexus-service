@@ -543,6 +543,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(WidgetClockSource))]
 [JsonSerializable(typeof(WidgetHostSource))]
 [JsonSerializable(typeof(WidgetActionAckDto))]
+[JsonSerializable(typeof(WidgetCoolingStateDto))]
 [JsonSerializable(typeof(ScreentimeHistoryEntryDto))]
 [JsonSerializable(typeof(ScreentimeFocusDto))]
 [JsonSerializable(typeof(ScreentimeTodayDto))]

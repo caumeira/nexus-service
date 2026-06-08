@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using Nexus.Service.Models.Cooling;
 
 namespace Nexus.Service.Models.Widgets;
 
@@ -14,6 +15,14 @@ public sealed class WidgetActionAckDto
     [JsonPropertyName("ok")] public bool Ok { get; set; }
     [JsonPropertyName("message")] public string? Message { get; set; }
     [JsonPropertyName("error")] public string? Error { get; set; }
+    [JsonPropertyName("applied")] public string? Applied { get; set; }
+}
+
+/// <summary>Combined cooling read for a widget: fan channels + temperature sources.</summary>
+public sealed class WidgetCoolingStateDto
+{
+    [JsonPropertyName("channels")] public List<FanChannel> Channels { get; set; } = new();
+    [JsonPropertyName("sources")] public List<TemperatureSource> Sources { get; set; } = new();
 }
 
 /// <summary>One row in the screentime payload's <c>history</c> array.</summary>

@@ -720,8 +720,12 @@ public static class NexusServiceCollectionExtensions
             // gates per-widget access.
             Nexus.Service.Widgets.WidgetActions.DisplayActions.RegisterAll(registry);
             Nexus.Service.Widgets.WidgetActions.ScreentimeActions.RegisterAll(registry);
+            Nexus.Service.Widgets.WidgetActions.MediaActions.RegisterAll(registry);
+            Nexus.Service.Widgets.WidgetActions.CoolingActions.RegisterAll(registry);
+            Nexus.Service.Widgets.WidgetActions.LightingActions.RegisterAll(registry);
             return registry;
         });
+        services.AddSingleton<Nexus.Service.Widgets.WidgetDispatchRateLimiter>();
         return services;
     }
 

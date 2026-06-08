@@ -114,8 +114,8 @@ public static class WidgetRoutes
         // the handler's result (action-specific JsonElement shape).
         app.MapPost("/widgets-api/dispatch",
             async (WidgetDispatchRequest body, WidgetRegistry registry,
-                   WidgetActionRegistry actions, IServiceProvider services,
-                   HttpContext ctx) =>
+                   WidgetActionRegistry actions, WidgetDispatchRateLimiter limiter,
+                   IServiceProvider services, HttpContext ctx) =>
         {
             if (!WidgetIds.IsValid(body.WidgetId))
             {
@@ -136,6 +136,13 @@ public static class WidgetRoutes
             {
                 return Results.Json(new WidgetDispatchResponse { Ok = false, Error = $"action '{body.Action}' is not registered" },
                     AppJsonContext.Default.WidgetDispatchResponse, statusCode: 404);
+            }
+            // Cap dispatch rate per widget — control actions drive real hardware,
+            // so a runaway worker loop must not hammer them.
+            if (!limiter.TryAcquire(body.WidgetId))
+            {
+                return Results.Json(new WidgetDispatchResponse { Ok = false, Error = "rate limit exceeded" },
+                    AppJsonContext.Default.WidgetDispatchResponse, statusCode: 429);
             }
 
             try
