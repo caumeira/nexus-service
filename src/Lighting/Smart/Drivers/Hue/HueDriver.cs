@@ -37,14 +37,18 @@ public sealed class HueDriver : ILightDriver
 
     public async Task<IReadOnlyList<DiscoveredLight>> DiscoverAsync(CancellationToken ct)
     {
-        var byKey = new Dictionary<string, DiscoveredLight>(StringComparer.OrdinalIgnoreCase);
+        // Dedup by HOST (IP): cloud discovery and mDNS both surface the same
+        // bridge, and the same IP is always the same bridge — so keying on host
+        // is duplicate-proof even when the config probe (which yields the
+        // bridge id) races or fails.
+        var byHost = new Dictionary<string, DiscoveredLight>(StringComparer.OrdinalIgnoreCase);
 
         try
         {
             foreach (var e in await _client.CloudDiscoverAsync(ct).ConfigureAwait(false))
             {
                 if (!string.IsNullOrWhiteSpace(e.InternalIpAddress))
-                    await AddHostAsync(byKey, e.InternalIpAddress, e.Id, ct).ConfigureAwait(false);
+                    await AddHostAsync(byHost, e.InternalIpAddress, e.Id, ct).ConfigureAwait(false);
             }
         }
         catch { /* cloud unreachable — fall through to mDNS */ }
@@ -53,26 +57,38 @@ public sealed class HueDriver : ILightDriver
         {
             foreach (var host in await _lan.MdnsHostsAsync(MdnsService, 2000, ct).ConfigureAwait(false))
             {
-                await AddHostAsync(byKey, host, "", ct).ConfigureAwait(false);
+                await AddHostAsync(byHost, host, "", ct).ConfigureAwait(false);
             }
         }
         catch { /* mDNS best-effort */ }
 
-        return new List<DiscoveredLight>(byKey.Values);
+        return new List<DiscoveredLight>(byHost.Values);
     }
 
     private async Task AddHostAsync(Dictionary<string, DiscoveredLight> sink, string host, string idHint, CancellationToken ct)
     {
+        // Already found this IP (e.g. cloud then mDNS) — skip the redundant probe.
+        if (sink.ContainsKey(host)) return;
+
         HueBridgeConfig? cfg = null;
         try { cfg = await _client.GetBridgeConfigAsync(host, ct).ConfigureAwait(false); }
-        catch { /* unreachable host — skip below */ }
+        catch { /* unreachable host — still record under its IP below */ }
 
         var bridgeId = !string.IsNullOrEmpty(cfg?.BridgeId) ? cfg!.BridgeId
             : !string.IsNullOrEmpty(idHint) ? idHint
             : host;
         var name = !string.IsNullOrWhiteSpace(cfg?.Name) ? cfg!.Name : "Philips Hue Bridge";
-        if (!sink.ContainsKey(bridgeId))
-            sink[bridgeId] = new DiscoveredLight(Brand, host, name, bridgeId);
+        sink[host] = new DiscoveredLight(Brand, host, name, bridgeId);
+    }
+
+    public async Task<bool> PingAsync(SmartLight dev, CancellationToken ct)
+    {
+        try
+        {
+            var cfg = await _client.GetBridgeConfigAsync(dev.Host, ct).ConfigureAwait(false);
+            return cfg is not null && !string.IsNullOrEmpty(cfg.BridgeId);
+        }
+        catch { return false; }
     }
 
     public async Task<PairResult> PairAsync(DiscoveredLight target, CancellationToken ct)

@@ -332,18 +332,42 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
 
     // ── Routes surface (discover / pair / list / remove) ─────────────────────
 
-    public GetSmartLightsResponse GetSmartLightDtos()
+    public async Task<GetSmartLightsResponse> GetSmartLightDtosAsync(CancellationToken ct)
     {
         var resp = new GetSmartLightsResponse();
-        foreach (var cfg in _store.Load().SmartLights.Devices)
+        var devices = _store.Load().SmartLights.Devices;
+        if (devices.Count == 0) return resp;
+
+        // Reachability is probed ONCE per (brand, host), not inferred from past
+        // send failures — so a transient streaming 429 doesn't strand a whole
+        // bridge's lights as "offline". Every light on a reachable bridge is
+        // reported online.
+        var hostOnline = new Dictionary<(string brand, string host), bool>();
+        foreach (var cfg in devices)
         {
+            var key = (cfg.Brand, cfg.Host);
+            if (hostOnline.ContainsKey(key)) continue;
+            var driver = DriverForId(cfg.Id);
+            var online = false;
+            if (driver is not null)
+            {
+                try { online = await driver.PingAsync(ToSmartLight(cfg), ct).ConfigureAwait(false); }
+                catch { online = false; }
+            }
+            hostOnline[key] = online;
+        }
+
+        foreach (var cfg in devices)
+        {
+            var online = hostOnline.TryGetValue((cfg.Brand, cfg.Host), out var on) && on;
+            _online[cfg.Id] = online; // keep the internal hint in sync with the probe
             resp.Devices.Add(new SmartLightDto
             {
                 Id = cfg.Id,
                 Brand = cfg.Brand,
                 Name = cfg.Name,
                 Host = cfg.Host,
-                Online = !_online.TryGetValue(cfg.Id, out var on) || on,
+                Online = online,
                 Enabled = cfg.Enabled,
                 LedCount = 1,
             });

@@ -127,5 +127,6 @@ public class SmartLightProviderTests : IDisposable
         public Task SendAsync(SmartLight dev, LightFrame frame, CancellationToken ct) => Task.CompletedTask;
         public Task IdentifyAsync(SmartLight dev, CancellationToken ct) => Task.CompletedTask;
         public int MinIntervalMs(SmartLight dev) => 10;
+        public Task<bool> PingAsync(SmartLight dev, CancellationToken ct) => Task.FromResult(true);
     }
 }

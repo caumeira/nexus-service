@@ -36,4 +36,9 @@ public interface ILightDriver
 
     /// <summary>Minimum spacing between sends for this device (rate ceiling).</summary>
     int MinIntervalMs(SmartLight dev);
+
+    /// <summary>Cheap reachability probe — is the controller answering right now?
+    /// Drives accurate online status, instead of inferring it from send failures
+    /// (which flip false under streaming load and never recover).</summary>
+    Task<bool> PingAsync(SmartLight dev, CancellationToken ct);
 }

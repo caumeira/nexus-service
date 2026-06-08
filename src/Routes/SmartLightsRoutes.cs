@@ -15,7 +15,7 @@ public static partial class DevicesRoutes
     /// </summary>
     private static void MapSmartLightsEndpoints(WebApplication app)
     {
-        app.MapGet("/smart-lights/all", (SmartLightProvider p) => p.GetSmartLightDtos());
+        app.MapGet("/smart-lights/all", async (SmartLightProvider p, CancellationToken ct) => await p.GetSmartLightDtosAsync(ct));
 
         app.MapPost("/smart-lights/discover", async (DiscoverSmartLightsBody body, SmartLightProvider p, CancellationToken ct)
             => await p.DiscoverAsync(body.Brand, ct));
