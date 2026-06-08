@@ -25,7 +25,7 @@ cp "$STAGING/Nexus" "$APP/Contents/MacOS/"
 # csproj Content include). The WidgetRegistry scans <BaseDirectory>/widgets/, which
 # for the .app is Contents/MacOS/widgets/ — without this copy the app ships zero
 # marketplace widgets even though the publish tree has them.
-[ -d "$STAGING/widgets" ] && cp -R "$STAGING/widgets" "$APP/Contents/MacOS/"
+[ -d "$STAGING/widgets" ] && { rm -rf "$APP/Contents/MacOS/widgets"; cp -R "$STAGING/widgets" "$APP/Contents/MacOS/"; }
 [ -d "$STAGING/openrgb" ] && cp -R "$STAGING/openrgb" "$APP/Contents/MacOS/"
 [ -d "$STAGING/ffmpeg" ] && cp -R "$STAGING/ffmpeg" "$APP/Contents/MacOS/"
 [ -f "$STAGING/status-icon.png" ] && cp "$STAGING/status-icon.png" "$APP/Contents/MacOS/"
