@@ -15,12 +15,13 @@ namespace Nexus.Service.Helper.Domains
     public sealed class ShortcutListResult { public List<Shortcut> Shortcuts { get; set; } = new(); }
     public sealed class ShortcutOneResult { public Shortcut? Shortcut { get; set; } }
     public sealed class ShortcutIconResult { public byte[] Bytes { get; set; } = Array.Empty<byte>(); }
+    public sealed class ShortcutBoolResult { public bool Ok { get; set; } }
 
     /// <summary>
     /// Service-side outbound facade for installed-app (Start menu) enumeration.
     /// Get-StartApps is per-user and returns nothing for the Session-0 LocalSystem
-    /// service, so enumeration + icons run in the user-session helper. Launch stays
-    /// direct (explorer.exe delegates to the user's shell from Session 0).
+    /// service, so enumeration, icons, and launch all run in the user-session
+    /// helper — a direct Session-0 launch can't even resolve the target id.
     /// </summary>
     [SupportedOSPlatform("windows")]
     public static class ShortcutsCommands
@@ -35,6 +36,9 @@ namespace Nexus.Service.Helper.Domains
         public static async Task<byte[]> GetIconAsync(HelperRegistry r, string id, CancellationToken ct = default)
             => Read(await InvokeAsync(r, "shortcuts.icon", new ShortcutsRequest { TargetId = id }, ct), AppJsonContext.Default.ShortcutIconResult)?.Bytes
                ?? Array.Empty<byte>();
+
+        public static async Task<bool> LaunchAsync(HelperRegistry r, string id, CancellationToken ct = default)
+            => Read(await InvokeAsync(r, "shortcuts.launch", new ShortcutsRequest { TargetId = id }, ct), AppJsonContext.Default.ShortcutBoolResult)?.Ok ?? false;
 
         private static async Task<HelperResult?> InvokeAsync(HelperRegistry r, string type, ShortcutsRequest payload, CancellationToken ct)
         {
@@ -65,6 +69,8 @@ namespace Nexus.Service.Helper.Domains
                 new ShortcutOneResult { Shortcut = _provider.GetById(ReadReq(env).TargetId) }, AppJsonContext.Default.ShortcutOneResult));
             registry.Register("shortcuts.icon", (env, _) => Reply(env,
                 new ShortcutIconResult { Bytes = _provider.GetIcon(ReadReq(env).TargetId) }, AppJsonContext.Default.ShortcutIconResult));
+            registry.Register("shortcuts.launch", (env, _) => Reply(env,
+                new ShortcutBoolResult { Ok = _provider.Launch(ReadReq(env).TargetId) }, AppJsonContext.Default.ShortcutBoolResult));
         }
 
         private static ShortcutsRequest ReadReq(HelperEnvelope env)

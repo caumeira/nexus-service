@@ -542,6 +542,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutListResult))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutOneResult))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutIconResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutBoolResult))]
 #endif
 
 // Widgets - declarative runtime (nexus.widget/2 schema)
