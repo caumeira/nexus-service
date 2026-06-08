@@ -343,7 +343,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
                 Brand = cfg.Brand,
                 Name = cfg.Name,
                 Host = cfg.Host,
-                Online = _online.TryGetValue(cfg.Id, out var on) ? on : true,
+                Online = !_online.TryGetValue(cfg.Id, out var on) || on,
                 Enabled = cfg.Enabled,
                 LedCount = 1,
             });
@@ -457,7 +457,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         Token = cfg.Token,
         Extra = cfg.Extra,
         Enabled = cfg.Enabled,
-        Online = _online.TryGetValue(cfg.Id, out var on) ? on : true,
+        Online = !_online.TryGetValue(cfg.Id, out var on) || on,
     };
 
     private void FireChanged()

@@ -42,15 +42,19 @@ public sealed class HueDriver : ILightDriver
         try
         {
             foreach (var e in await _client.CloudDiscoverAsync(ct).ConfigureAwait(false))
+            {
                 if (!string.IsNullOrWhiteSpace(e.InternalIpAddress))
                     await AddHostAsync(byKey, e.InternalIpAddress, e.Id, ct).ConfigureAwait(false);
+            }
         }
         catch { /* cloud unreachable — fall through to mDNS */ }
 
         try
         {
             foreach (var host in await _lan.MdnsHostsAsync(MdnsService, 2000, ct).ConfigureAwait(false))
+            {
                 await AddHostAsync(byKey, host, "", ct).ConfigureAwait(false);
+            }
         }
         catch { /* mDNS best-effort */ }
 
