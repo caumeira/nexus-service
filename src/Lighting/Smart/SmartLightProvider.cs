@@ -462,22 +462,26 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         var added = 0;
         _store.Update(s =>
         {
-            var existing = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var c in s.SmartLights.Devices) existing.Add(c.Id);
-            foreach (var dev in result.Devices)
+            // Rebuild the list (replace reference, never structurally mutate the
+            // live list a reader on the writer thread may be enumerating). Re-pair
+            // replaces existing entries in place of order; new lights append.
+            var repl = new Dictionary<string, SmartLightConfig>(StringComparer.Ordinal);
+            foreach (var dev in result.Devices) repl[dev.Id] = dev;
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            var next = new List<SmartLightConfig>(s.SmartLights.Devices.Count + result.Devices.Count);
+            foreach (var c in s.SmartLights.Devices)
             {
-                if (existing.Contains(dev.Id))
-                {
-                    // Re-pair: refresh host/token/name in place.
-                    for (var i = 0; i < s.SmartLights.Devices.Count; i++)
-                    {
-                        if (s.SmartLights.Devices[i].Id == dev.Id)
-                        { s.SmartLights.Devices[i] = dev; break; }
-                    }
-                }
-                else { s.SmartLights.Devices.Add(dev); added++; }
+                if (repl.TryGetValue(c.Id, out var updated)) { next.Add(updated); seen.Add(c.Id); }
+                else next.Add(c);
             }
+            foreach (var dev in result.Devices)
+                if (seen.Add(dev.Id)) { next.Add(dev); added++; }
+            s.SmartLights.Devices = next;
         });
+
+        // Drop throttle loops for these ids so the next send rebuilds with the
+        // refreshed host/token/clientkey (a re-pair can change them).
+        foreach (var dev in result.Devices) _throttle.Remove(dev.Id);
 
         ServiceLog.Info($"[smart-lights] paired {body.Brand}: {result.Devices.Count} light(s), {added} new");
         FireChanged();
@@ -488,8 +492,11 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     {
         _store.Update(s =>
         {
-            for (var i = s.SmartLights.Devices.Count - 1; i >= 0; i--)
-                if (s.SmartLights.Devices[i].Id == id) s.SmartLights.Devices.RemoveAt(i);
+            // Replace the list reference (not RemoveAt) so a reader enumerating
+            // the old reference on the writer thread isn't structurally mutated.
+            var next = new List<SmartLightConfig>(s.SmartLights.Devices.Count);
+            foreach (var c in s.SmartLights.Devices) if (c.Id != id) next.Add(c);
+            s.SmartLights.Devices = next;
         });
         _throttle.Remove(id);
         _online.TryRemove(id, out _);

@@ -20,6 +20,11 @@ namespace Nexus.Service.Lighting.Smart.Drivers.Hue;
 ///
 /// Scope: client side only, no renegotiation, best-effort retransmission for a
 /// LAN bridge. Intended for the Hue Entertainment stream (UDP 2100).
+///
+/// SINGLE-USE: each instance generates a fresh client random and derives fresh
+/// keys, so the (key, GCM nonce) pair is never reused. Never reconnect or reuse
+/// an instance — always create a new one per session (the record sequence only
+/// guarantees nonce uniqueness within one instance's epoch).
 /// </summary>
 public sealed class DtlsPskClient : IDisposable
 {

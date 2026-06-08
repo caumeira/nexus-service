@@ -29,10 +29,12 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
     private readonly object _sessLock = new();
     private readonly Dictionary<string, HueEntertainmentSession> _sessions = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _starting = new(StringComparer.OrdinalIgnoreCase);
-    // Hosts whose session start failed this effect run (no clientkey / no
-    // Entertainment Area / handshake failure). Skipped until the next effect so
-    // a failed start isn't retried every tick. Cleared by StopAll().
-    private readonly HashSet<string> _failed = new(StringComparer.OrdinalIgnoreCase);
+    // host → earliest TickCount64 to retry a failed session start. A failure
+    // (transient handshake loss, or a "needs re-pair / no Entertainment Area"
+    // config error) backs off briefly rather than latching for the whole effect,
+    // so it recovers on its own once the user fixes it. Cleared by StopAll().
+    private readonly Dictionary<string, long> _failedUntil = new(StringComparer.OrdinalIgnoreCase);
+    private const long FailBackoffMs = 10_000;
     private readonly Dictionary<string, Dictionary<string, (byte r, byte g, byte b)>> _buffers = new(StringComparer.OrdinalIgnoreCase);
     private readonly Dictionary<string, (string appKey, string clientKey)> _creds = new(StringComparer.OrdinalIgnoreCase);
 
@@ -220,7 +222,8 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
                 if (buf.Count == 0) continue;
                 if (_sessions.TryGetValue(host, out var s) && s.Active)
                     toPush.Add((s, new Dictionary<string, (byte r, byte g, byte b)>(buf, StringComparer.Ordinal)));
-                else if (!_starting.Contains(host) && !_failed.Contains(host))
+                else if (!_starting.Contains(host)
+                    && (!_failedUntil.TryGetValue(host, out var until) || Environment.TickCount64 >= until))
                     toStart.Add(host);
             }
         }
@@ -246,14 +249,14 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
             try
             {
                 await sess.StartAsync(CancellationToken.None).ConfigureAwait(false);
-                lock (_sessLock) { _sessions[host] = sess; _starting.Remove(host); }
+                lock (_sessLock) { _sessions[host] = sess; _starting.Remove(host); _failedUntil.Remove(host); }
             }
             catch (Exception ex)
             {
                 ServiceLog.Warn($"[hue-entertainment] session start failed for {host}: {ex.Message}");
                 try { await sess.StopAsync(CancellationToken.None).ConfigureAwait(false); } catch { }
                 sess.Dispose();
-                lock (_sessLock) { _starting.Remove(host); _failed.Add(host); }
+                lock (_sessLock) { _starting.Remove(host); _failedUntil[host] = Environment.TickCount64 + FailBackoffMs; }
             }
         });
     }
@@ -267,7 +270,7 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
             _sessions.Clear();
             _buffers.Clear();
             _starting.Clear();
-            _failed.Clear();
+            _failedUntil.Clear();
         }
         foreach (var s in sessions) _ = s.StopAsync(CancellationToken.None);
     }
