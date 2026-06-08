@@ -49,6 +49,14 @@ public sealed class WidgetManifest
     public string? Runtime { get; set; }
 
     /// <summary>
+    /// True when the widget ships an expanded "page" surface (a second render
+    /// of the bundle via <c>mount({ cell, page })</c>). The dashboard makes such
+    /// a widget click-through into a full section view. Default false.
+    /// </summary>
+    [JsonPropertyName("page")]
+    public bool Page { get; set; }
+
+    /// <summary>
     /// Allowed grid sizes. Same alphabet as the panel engine:
     /// <c>1x1</c>, <c>2x2</c>, <c>4x2</c>, <c>4x4</c>. The first entry is
     /// the default if <see cref="DefaultSize"/> is unset. Anything outside

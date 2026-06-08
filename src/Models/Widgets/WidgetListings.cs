@@ -17,6 +17,7 @@ public sealed class WidgetInstalledListing
     public string? IconUrl { get; set; }
     public List<string> Surfaces { get; set; } = new();
     public string? Runtime { get; set; } // null/"declarative" | "sdk"
+    public bool Page { get; set; }       // SDK widget declares an expanded page surface
     public WidgetManifestCapabilities Capabilities { get; set; } = new();
     public WidgetManifestViewport? Viewport { get; set; }
     public List<WidgetManifestSettingEntry> Settings { get; set; } = new();

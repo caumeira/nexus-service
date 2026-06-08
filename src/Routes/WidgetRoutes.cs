@@ -346,6 +346,7 @@ public static class WidgetRoutes
             IconUrl = iconUrl,
             Surfaces = new List<string>(entry.Manifest.Surfaces),
             Runtime = entry.Manifest.Runtime,
+            Page = entry.Manifest.Page,
             Capabilities = entry.Manifest.Capabilities,
             Viewport = entry.Manifest.Viewport,
             Settings = new List<WidgetManifestSettingEntry>(entry.Manifest.Settings),
