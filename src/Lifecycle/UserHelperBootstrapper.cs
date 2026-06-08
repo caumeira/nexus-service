@@ -58,6 +58,30 @@ internal static class UserHelperBootstrapper
         }
     }
 
+    /// <summary>
+    /// Run an arbitrary command in the active console user's session via a
+    /// one-shot scheduled task. Used for actions that no-op from Session 0
+    /// (e.g. LockWorkStation). Returns true if the task ran.
+    /// </summary>
+    public static bool RunInUserSession(string command, string logTag, string taskPrefix)
+    {
+        var username = ResolveActiveConsoleUsername();
+        if (string.IsNullOrEmpty(username))
+        {
+            Console.WriteLine($"[{logTag}] no active console user; skipping");
+            return false;
+        }
+
+        var taskName = $"{taskPrefix}_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
+        if (!Schtasks("/Create", "/TN", taskName, "/TR", command,
+                      "/SC", "ONCE", "/ST", "23:59", "/RU", username, "/IT", "/F"))
+        {
+            return false;
+        }
+        try { return Schtasks("/Run", "/TN", taskName); }
+        finally { Schtasks("/Delete", "/TN", taskName, "/F"); }
+    }
+
     private static void SpawnInUserSession(string nexusArg, string logTag, string taskPrefix)
     {
         var username = ResolveActiveConsoleUsername();

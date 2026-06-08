@@ -21,6 +21,14 @@ internal static class CommandLineEntry
                 Nexus.Service.Platform.Windows.TrayIcon.OpenLocalWindow();
                 return 0;
             },
+            // One-shot invoked by the service via schtasks to switch the default
+            // audio endpoint in the user session (per-user setting; IPolicyConfig
+            // can't change it from Session 0).
+            ["--set-audio-default"] = static a =>
+            {
+                if (a.Length < 2 || string.IsNullOrEmpty(a[1])) return 1;
+                return new Nexus.Service.Activity.WindowsAudioDeviceProvider().SetDefaultDirect(a[1]) ? 0 : 1;
+            },
         };
 #endif
 

@@ -397,7 +397,6 @@ app.MapDiagnosticsEndpoints();
 app.MapMediaLibraryEndpoints();
 app.MapProfileEndpoints();
 app.MapPanelEndpoints();
-app.MapPanelMacroRoutes();
 app.MapOverlayEndpoints();
 app.MapWeatherEndpoints();
 app.MapWidgetEndpoints();

@@ -111,6 +111,11 @@ public sealed class CoolingChangedFrame
     public long Revision { get; set; }
 }
 
+public sealed class VolumeChangedFrame
+{
+    public long Revision { get; set; }
+}
+
 /// <summary>
 /// Multiplex frame: cooling-device warning state changed (e.g. NP50 AmpScale
 /// current overload, LED count exceeded). Subscribers refetch

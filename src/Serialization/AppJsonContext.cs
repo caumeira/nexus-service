@@ -164,6 +164,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<Nexus.Service.Models.Panel.OverlayWidgetDto>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.LightingChangedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.CoolingChangedFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.VolumeChangedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.CoolingWarningsChangedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.DevicesChangedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelDeviceChangedFrame))]
@@ -444,6 +445,14 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(VolumeState))]
 [JsonSerializable(typeof(SetVolumeBody))]
 [JsonSerializable(typeof(SetMutedBody))]
+[JsonSerializable(typeof(SendKeysBody))]
+[JsonSerializable(typeof(SendTextBody))]
+[JsonSerializable(typeof(OpenPathBody))]
+[JsonSerializable(typeof(InputStatusResponse))]
+[JsonSerializable(typeof(AudioDevice))]
+[JsonSerializable(typeof(List<AudioDevice>))]
+[JsonSerializable(typeof(AudioDeviceList))]
+[JsonSerializable(typeof(SetAudioDefaultBody))]
 [JsonSerializable(typeof(GetAllShortcutsResponse))]
 [JsonSerializable(typeof(GetShortcutResponse))]
 [JsonSerializable(typeof(MusicResult))]
@@ -527,6 +536,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorStartPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorStopPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorFramePayload))]
+// Shortcuts (Start-menu app enumeration runs in the user-session helper)
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutsRequest))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutListResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutOneResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutIconResult))]
 #endif
 
 // Widgets - declarative runtime (nexus.widget/2 schema)
@@ -557,7 +571,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(WidgetInstallResponse))]
 [JsonSerializable(typeof(WidgetCodeSessionResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.OpenUrlRequest))]
-[JsonSerializable(typeof(Nexus.Service.Models.Panel.ShortcutRequest))]
 // Widgets - settings
 [JsonSerializable(typeof(WidgetSettingsDocument))]
 [JsonSerializable(typeof(WidgetSettingsPatch))]
