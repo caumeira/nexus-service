@@ -31,7 +31,7 @@ namespace Nexus.Service.Widgets;
 ///         so the widget can't reuse the user's host-session credentials.</item>
 /// </list>
 /// </summary>
-public sealed class WidgetProxyService
+public sealed class AppProxyService
 {
     public const int MaxBodyBytes = 1 * 1024 * 1024; // 1 MiB
     public const int MaxRequestsPerMinute = 30;
@@ -66,24 +66,24 @@ public sealed class WidgetProxyService
     };
 
     private readonly IHttpClientFactory _httpFactory;
-    private readonly WidgetRegistry _registry;
+    private readonly AppRegistry _registry;
     private readonly ConcurrentDictionary<string, RateBucket> _rateBuckets = new(StringComparer.Ordinal);
 
-    public WidgetProxyService(IHttpClientFactory httpFactory, WidgetRegistry registry)
+    public AppProxyService(IHttpClientFactory httpFactory, AppRegistry registry)
     {
         _httpFactory = httpFactory;
         _registry = registry;
     }
 
-    public async Task<WidgetProxyResponse> ExecuteAsync(WidgetProxyRequest req, CancellationToken ct = default)
+    public async Task<AppProxyResponse> ExecuteAsync(AppProxyRequest req, CancellationToken ct = default)
     {
-        var resp = new WidgetProxyResponse();
-        if (!WidgetIds.IsValid(req.WidgetId))
+        var resp = new AppProxyResponse();
+        if (!AppIds.IsValid(req.AppId))
         {
             resp.Error = "invalid widget id";
             return resp;
         }
-        if (!_registry.TryGet(req.WidgetId, out var entry))
+        if (!_registry.TryGet(req.AppId, out var entry))
         {
             resp.Error = "widget not installed";
             return resp;
@@ -121,7 +121,7 @@ public sealed class WidgetProxyService
             return resp;
         }
 
-        if (!CheckRate(req.WidgetId))
+        if (!CheckRate(req.AppId))
         {
             resp.Error = "rate limit exceeded";
             return resp;

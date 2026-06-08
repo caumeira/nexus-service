@@ -18,7 +18,7 @@ public class RelayHttpAllowlistTests
     [InlineData("GET", "/lighting/current")]
     [InlineData("POST", "/lighting/global-brightness")]
     [InlineData("GET", "/profiles")]
-    [InlineData("GET", "/widgets-api/installed")]
+    [InlineData("GET", "/apps-api/installed")]
     [InlineData("GET", "/api/steam/status")]
     [InlineData("GET", "/ping")]
     [InlineData("GET", "/panel/status?foo=bar")] // query is ignored for matching

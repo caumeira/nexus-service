@@ -11,22 +11,22 @@ using Nexus.Service.Widgets;
 namespace Nexus.Service.Tests.Integration;
 
 /// <summary>
-/// One host whose WidgetRegistry is backed by a temp fixture bundle whose
+/// One host whose AppRegistry is backed by a temp fixture bundle whose
 /// manifest <c>net.fetch</c> allowlist deliberately permits private / reserved
 /// hosts — the "malicious signed manifest" SSRF threat. Drives the real
-/// <c>POST /widgets-api/proxy</c>; the proxy must refuse, proving the
+/// <c>POST /apps-api/proxy</c>; the proxy must refuse, proving the
 /// IsPrivateOrReservedAddress guard overrides the manifest allowlist.
 /// </summary>
 public sealed class SsrfAppFactory : NexusAppFactory
 {
-    public const string WidgetId = "com.test.ssrf";
+    public const string AppId = "com.test.ssrf";
 
     private readonly string _fixtureRoot;
 
     public SsrfAppFactory()
     {
         _fixtureRoot = Path.Combine(Path.GetTempPath(), "nexus-ssrf-fixture-" + Guid.NewGuid().ToString("N"));
-        var bundle = Path.Combine(_fixtureRoot, WidgetId);
+        var bundle = Path.Combine(_fixtureRoot, AppId);
         Directory.CreateDirectory(bundle);
 
         // Derive the allowlist from each probe URL's Uri.Host so the allowlist
@@ -41,8 +41,8 @@ public sealed class SsrfAppFactory : NexusAppFactory
 
         File.WriteAllText(Path.Combine(bundle, "manifest.json"), $$"""
         {
-          "schema": "nexus.widget/2",
-          "id": "{{WidgetId}}",
+          "schema": "nexus.app/1",
+          "id": "{{AppId}}",
           "name": "SSRF Fixture",
           "version": "1.0.0",
           "surfaces": ["dashboard"],
@@ -59,10 +59,10 @@ public sealed class SsrfAppFactory : NexusAppFactory
         base.ConfigureWebHost(builder);
         builder.ConfigureTestServices(services =>
         {
-            services.RemoveAll<WidgetRegistry>();
-            services.AddSingleton(new WidgetRegistry(() => new List<WidgetInstallPaths.Root>
+            services.RemoveAll<AppRegistry>();
+            services.AddSingleton(new AppRegistry(() => new List<AppInstallPaths.Root>
             {
-                new(_fixtureRoot, WidgetInstallPaths.Source.User),
+                new(_fixtureRoot, AppInstallPaths.Source.User),
             }));
         });
     }
@@ -78,11 +78,11 @@ public sealed class SsrfAppFactory : NexusAppFactory
 }
 
 [Collection("NexusHost")]
-public sealed class WidgetProxySsrfIntegrationTests : IClassFixture<SsrfAppFactory>
+public sealed class AppProxySsrfIntegrationTests : IClassFixture<SsrfAppFactory>
 {
     private readonly SsrfAppFactory _factory;
 
-    public WidgetProxySsrfIntegrationTests(SsrfAppFactory factory) => _factory = factory;
+    public AppProxySsrfIntegrationTests(SsrfAppFactory factory) => _factory = factory;
 
     private async Task<string> ProxyError(string widgetId, string url, string method = "GET")
     {
@@ -90,7 +90,7 @@ public sealed class WidgetProxySsrfIntegrationTests : IClassFixture<SsrfAppFacto
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", _factory.Services.GetRequiredService<TokenService>().Token);
         var body = $"{{\"widgetId\":\"{widgetId}\",\"url\":\"{url}\",\"method\":\"{method}\"}}";
-        var res = await client.PostAsync("/widgets-api/proxy",
+        var res = await client.PostAsync("/apps-api/proxy",
             new StringContent(body, Encoding.UTF8, "application/json"));
         return await res.Content.ReadAsStringAsync();
     }
@@ -104,7 +104,7 @@ public sealed class WidgetProxySsrfIntegrationTests : IClassFixture<SsrfAppFacto
     [InlineData("https://[::1]/")]
     public async Task Proxy_refuses_reserved_host_even_when_manifest_allows_it(string url)
     {
-        var json = await ProxyError(SsrfAppFactory.WidgetId, url);
+        var json = await ProxyError(SsrfAppFactory.AppId, url);
 
         Assert.Contains("non-routable", json);
     }
@@ -112,7 +112,7 @@ public sealed class WidgetProxySsrfIntegrationTests : IClassFixture<SsrfAppFacto
     [Fact]
     public async Task Proxy_rejects_cleartext_http_scheme()
     {
-        var json = await ProxyError(SsrfAppFactory.WidgetId, "http://127.0.0.1/");
+        var json = await ProxyError(SsrfAppFactory.AppId, "http://127.0.0.1/");
 
         Assert.Contains("https", json); // "url must be absolute https://"
     }
@@ -121,7 +121,7 @@ public sealed class WidgetProxySsrfIntegrationTests : IClassFixture<SsrfAppFacto
     public async Task Proxy_rejects_host_outside_manifest_allowlist()
     {
         // Public host that is NOT allowlisted — rejected before the SSRF check.
-        var json = await ProxyError(SsrfAppFactory.WidgetId, "https://example.org/");
+        var json = await ProxyError(SsrfAppFactory.AppId, "https://example.org/");
 
         Assert.Contains("allowlist", json);
     }

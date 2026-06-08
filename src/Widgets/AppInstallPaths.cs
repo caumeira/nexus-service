@@ -5,16 +5,16 @@ using System.IO;
 namespace Nexus.Service.Widgets;
 
 /// <summary>
-/// Per-OS install roots scanned by <see cref="WidgetRegistry"/>. Precedence
+/// Per-OS install roots scanned by <see cref="AppRegistry"/>. Precedence
 /// matches <c>plans/widget-sdk.md</c>: user installs (signed) shadow bundled
 /// (signed); dev installs (unsigned) shadow both but render a dev banner.
 /// </summary>
 /// <remarks>
 /// Discovery + serving live here; install / uninstall writes are handled by
-/// <see cref="WidgetInstaller"/>. Signing verification and dev-banner
+/// <see cref="AppInstaller"/>. Signing verification and dev-banner
 /// rendering are still pending.
 /// </remarks>
-public static class WidgetInstallPaths
+public static class AppInstallPaths
 {
     public enum Source
     {

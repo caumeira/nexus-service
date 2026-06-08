@@ -4,14 +4,14 @@ using System.Collections.Concurrent;
 namespace Nexus.Service.Widgets;
 
 /// <summary>
-/// Per-widget sliding-window rate limit on <c>/widgets-api/dispatch</c>.
+/// Per-widget sliding-window rate limit on <c>/apps-api/dispatch</c>.
 /// Control actions drive real hardware (DDC brightness, fan duty, media
 /// transport); a runaway worker loop could hammer them. Each widget is capped
 /// to a small number of dispatches per second — generous for interactive use,
 /// but a hard ceiling on a flood. The single safety net now that the SDK is the
 /// only widget path (the declarative tier is gone).
 /// </summary>
-public sealed class WidgetDispatchRateLimiter
+public sealed class AppDispatchRateLimiter
 {
     private const int MaxPerWindow = 20;
     private static readonly TimeSpan Window = TimeSpan.FromSeconds(1);

@@ -5,16 +5,16 @@ using Microsoft.Extensions.DependencyInjection;
 using Nexus.Service.Activity;
 using Nexus.Service.Models.Activity;
 using Nexus.Service.Serialization;
-using static Nexus.Service.Widgets.WidgetActions.WidgetActionHelpers;
+using static Nexus.Service.Widgets.AppActions.AppActionHelpers;
 
-namespace Nexus.Service.Widgets.WidgetActions;
+namespace Nexus.Service.Widgets.AppActions;
 
 /// <summary>Host actions for media: read the focused now-playing session,
 /// drive transport, set system volume. Gated through the manifest's
 /// capabilities.dispatch allowlist by the dispatch route.</summary>
 public static class MediaActions
 {
-    public static void RegisterAll(WidgetActionRegistry registry)
+    public static void RegisterAll(AppActionRegistry registry)
     {
         registry.Register("media.nowPlaying", (services, _, _) =>
         {

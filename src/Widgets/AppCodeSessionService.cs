@@ -6,7 +6,7 @@ namespace Nexus.Service.Widgets;
 
 /// <summary>
 /// Short-lived URL-path tokens that authorise a single Tier 2 widget worker
-/// to fetch its own bundled .js/.mjs files over <c>/widgets-api/code/{token}/{path}</c>.
+/// to fetch its own bundled .js/.mjs files over <c>/apps-api/code/{token}/{path}</c>.
 ///
 /// <para>
 /// Why this exists: module workers (<c>new Worker(url, { type: "module" })</c>)
@@ -19,10 +19,10 @@ namespace Nexus.Service.Widgets;
 /// <para>
 /// The token is a 24-byte cryptographically-random base64url string. Each
 /// session is bound to a single widget id; the file-serving route only resolves
-/// paths under that widget's <c>RootPath</c> via <see cref="WidgetRoutes.ResolveBundleFile"/>.
+/// paths under that widget's <c>RootPath</c> via <see cref="AppRoutes.ResolveBundleFile"/>.
 /// </para>
 /// </summary>
-public sealed class WidgetCodeSessionService
+public sealed class AppCodeSessionService
 {
     public static readonly TimeSpan DefaultLifetime = TimeSpan.FromHours(1);
     private readonly ConcurrentDictionary<string, Session> _sessions = new(StringComparer.Ordinal);
@@ -35,7 +35,7 @@ public sealed class WidgetCodeSessionService
             .Replace('+', '-').Replace('/', '_').TrimEnd('=');
         var session = new Session
         {
-            WidgetId = widgetId,
+            AppId = widgetId,
             ExpiresAt = DateTimeOffset.UtcNow + (lifetime ?? DefaultLifetime),
         };
         _sessions[token] = session;
@@ -57,7 +57,7 @@ public sealed class WidgetCodeSessionService
             _sessions.TryRemove(token, out _);
             return null;
         }
-        return session.WidgetId;
+        return session.AppId;
     }
 
     public void Revoke(string token)
@@ -79,7 +79,7 @@ public sealed class WidgetCodeSessionService
 
     private sealed class Session
     {
-        public string WidgetId { get; init; } = "";
+        public string AppId { get; init; } = "";
         public DateTimeOffset ExpiresAt { get; init; }
     }
 }

@@ -8,7 +8,7 @@ namespace Nexus.Service.Widgets;
 /// allow-set must be tight enough that a hostile manifest cannot escape the
 /// per-widget directory or smuggle path separators.
 /// </summary>
-public static class WidgetIds
+public static class AppIds
 {
     public const int MaxLength = 128;
 

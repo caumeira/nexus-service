@@ -3,16 +3,16 @@ using System.Text.Json;
 using Nexus.Service.Models.Widgets;
 using Nexus.Service.Serialization;
 
-namespace Nexus.Service.Widgets.WidgetActions;
+namespace Nexus.Service.Widgets.AppActions;
 
 /// <summary>Shared helpers for host-action handlers: an AOT-safe ack payload
 /// and typed argument extraction.</summary>
-internal static class WidgetActionHelpers
+internal static class AppActionHelpers
 {
     public static JsonElement Ack(bool ok, string? message = null, string? applied = null)
     {
-        var dto = new WidgetActionAckDto { Ok = ok, Message = message, Applied = applied };
-        var json = JsonSerializer.Serialize(dto, AppJsonContext.Default.WidgetActionAckDto);
+        var dto = new AppActionAckDto { Ok = ok, Message = message, Applied = applied };
+        var json = JsonSerializer.Serialize(dto, AppJsonContext.Default.AppActionAckDto);
         using var doc = JsonDocument.Parse(json);
         return doc.RootElement.Clone();
     }

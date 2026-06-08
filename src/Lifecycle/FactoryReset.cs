@@ -47,7 +47,7 @@ internal static class FactoryReset
     }
 
     /// Every directory tree Nexus writes user data into, per OS. Mirrors the
-    /// path resolvers in JsonConfigStore / MediaLibrary / WidgetInstallPaths /
+    /// path resolvers in JsonConfigStore / MediaLibrary / AppInstallPaths /
     /// ServiceLog / FirmwareStore / SqliteScreenTimeStore / LocalHttpsCertificate.
     private static List<Root> Roots()
     {

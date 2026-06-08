@@ -11,12 +11,12 @@ namespace Nexus.Service.Tests.Widgets;
 /// bundled-only root + a fake user root so the test never touches the real
 /// %APPDATA% / ~/Library/Application Support/Nexus directory.
 /// </summary>
-public class WidgetInstallerTests : IDisposable
+public class AppInstallerTests : IDisposable
 {
     private readonly string _bundledRoot;
     private readonly string _userRoot;
 
-    public WidgetInstallerTests()
+    public AppInstallerTests()
     {
         _bundledRoot = Path.Combine(Path.GetTempPath(), "nexus-installer-bundled-" + Guid.NewGuid().ToString("N")[..8]);
         _userRoot = Path.Combine(Path.GetTempPath(), "nexus-installer-user-" + Guid.NewGuid().ToString("N")[..8]);
@@ -38,7 +38,7 @@ public class WidgetInstallerTests : IDisposable
         Directory.CreateDirectory(dir);
         var manifest = new
         {
-            schema = "nexus.widget/2",
+            schema = "nexus.app/1",
             id,
             name,
             version = "1.0.0",
@@ -50,19 +50,19 @@ public class WidgetInstallerTests : IDisposable
         File.WriteAllText(Path.Combine(dir, "manifest.json"), JsonSerializer.Serialize(manifest));
     }
 
-    private (WidgetRegistry registry, WidgetInstaller installer) NewInstaller()
+    private (AppRegistry registry, AppInstaller installer) NewInstaller()
     {
-        var registry = new WidgetRegistry(() => new List<WidgetInstallPaths.Root>
+        var registry = new AppRegistry(() => new List<AppInstallPaths.Root>
         {
-            new(_userRoot, WidgetInstallPaths.Source.User),
-            new(_bundledRoot, WidgetInstallPaths.Source.Bundled),
+            new(_userRoot, AppInstallPaths.Source.User),
+            new(_bundledRoot, AppInstallPaths.Source.Bundled),
         });
-        // The installer reads the user root from `WidgetInstallPaths.Enumerate`
+        // The installer reads the user root from `AppInstallPaths.Enumerate`
         // (real %APPDATA% paths); to keep this test hermetic, the *production*
         // implementation falls back to the OS path. We exercise the Install
         // /Uninstall logic directly against a hand-built setup below for the
         // catalogue + manifest-copy semantics.
-        return (registry, new WidgetInstaller(registry));
+        return (registry, new AppInstaller(registry));
     }
 
     [Fact]

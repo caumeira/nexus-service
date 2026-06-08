@@ -77,7 +77,7 @@ internal static class PathAuthMiddleware
         // URL that the route handler validates. Bypassing here lets the
         // browser's ESM loader fetch sibling files inside a worker.
         if (ctx.Request.Method == "GET"
-            && path.StartsWith("/widgets-api/code/", StringComparison.OrdinalIgnoreCase))
+            && path.StartsWith("/apps-api/code/", StringComparison.OrdinalIgnoreCase))
         {
             return true;
         }

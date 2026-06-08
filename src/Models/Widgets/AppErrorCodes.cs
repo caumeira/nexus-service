@@ -5,7 +5,7 @@ namespace Nexus.Service.Models.Widgets;
 /// Standard codes (-32600..-32603) follow the spec; Nexus-specific codes
 /// live in the application-error range (-32000..-32099).
 /// </summary>
-public static class WidgetErrorCodes
+public static class AppErrorCodes
 {
     public const int MethodNotFound = -32601;
     public const int InvalidParams = -32602;

@@ -723,30 +723,30 @@ public static class NexusServiceCollectionExtensions
 
     /// <summary>
     /// Widget runtime services. Serving routes are wired in
-    /// <see cref="Nexus.Service.Routes.WidgetRoutes.MapWidgetEndpoints"/>
+    /// <see cref="Nexus.Service.Routes.AppRoutes.MapWidgetEndpoints"/>
     /// in Program.cs.
     /// </summary>
     public static IServiceCollection AddNexusWidgets(this IServiceCollection services)
     {
-        services.AddSingleton<Nexus.Service.Widgets.WidgetRegistry>();
+        services.AddSingleton<Nexus.Service.Widgets.AppRegistry>();
         services.AddSingleton<Nexus.Service.Widgets.WidgetSettingsService>();
-        services.AddSingleton<Nexus.Service.Widgets.WidgetProxyService>();
-        services.AddSingleton<Nexus.Service.Widgets.WidgetInstaller>();
-        services.AddSingleton<Nexus.Service.Widgets.WidgetCodeSessionService>();
-        services.AddSingleton<Nexus.Service.Widgets.WidgetActionRegistry>(sp =>
+        services.AddSingleton<Nexus.Service.Widgets.AppProxyService>();
+        services.AddSingleton<Nexus.Service.Widgets.AppInstaller>();
+        services.AddSingleton<Nexus.Service.Widgets.AppCodeSessionService>();
+        services.AddSingleton<Nexus.Service.Widgets.AppActionRegistry>(sp =>
         {
-            var registry = new Nexus.Service.Widgets.WidgetActionRegistry();
+            var registry = new Nexus.Service.Widgets.AppActionRegistry();
             // First-party action modules. Each registers its own actions
             // by name; the manifest's capabilities.dispatch allowlist
             // gates per-widget access.
-            Nexus.Service.Widgets.WidgetActions.DisplayActions.RegisterAll(registry);
-            Nexus.Service.Widgets.WidgetActions.ScreentimeActions.RegisterAll(registry);
-            Nexus.Service.Widgets.WidgetActions.MediaActions.RegisterAll(registry);
-            Nexus.Service.Widgets.WidgetActions.CoolingActions.RegisterAll(registry);
-            Nexus.Service.Widgets.WidgetActions.LightingActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.DisplayActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.ScreentimeActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.MediaActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.CoolingActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.LightingActions.RegisterAll(registry);
             return registry;
         });
-        services.AddSingleton<Nexus.Service.Widgets.WidgetDispatchRateLimiter>();
+        services.AddSingleton<Nexus.Service.Widgets.AppDispatchRateLimiter>();
         return services;
     }
 

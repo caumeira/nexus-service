@@ -10,7 +10,7 @@ namespace Nexus.Service.Models.Widgets;
 /// <c>new { ok, message }</c> idiom which silently fails under the
 /// source-gen JSON context.
 /// </summary>
-public sealed class WidgetActionAckDto
+public sealed class AppActionAckDto
 {
     [JsonPropertyName("ok")] public bool Ok { get; set; }
     [JsonPropertyName("message")] public string? Message { get; set; }
@@ -19,7 +19,7 @@ public sealed class WidgetActionAckDto
 }
 
 /// <summary>Combined cooling read for a widget: fan channels + temperature sources.</summary>
-public sealed class WidgetCoolingStateDto
+public sealed class AppCoolingStateDto
 {
     [JsonPropertyName("channels")] public List<FanChannel> Channels { get; set; } = new();
     [JsonPropertyName("sources")] public List<TemperatureSource> Sources { get; set; } = new();

@@ -5,16 +5,16 @@ using Microsoft.Extensions.DependencyInjection;
 using Nexus.Service.Lighting;
 using Nexus.Service.Models.Lighting;
 using Nexus.Service.Serialization;
-using static Nexus.Service.Widgets.WidgetActions.WidgetActionHelpers;
+using static Nexus.Service.Widgets.AppActions.AppActionHelpers;
 
-namespace Nexus.Service.Widgets.WidgetActions;
+namespace Nexus.Service.Widgets.AppActions;
 
 /// <summary>Host actions for lighting: read the current sync mode, set it
 /// (none/animate/music/screen/gif). Gated through the manifest's
 /// capabilities.dispatch allowlist.</summary>
 public static class LightingActions
 {
-    public static void RegisterAll(WidgetActionRegistry registry)
+    public static void RegisterAll(AppActionRegistry registry)
     {
         registry.Register("lighting.state", (services, _, _) =>
         {

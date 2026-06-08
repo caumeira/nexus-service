@@ -5,11 +5,11 @@ using Nexus.Service.Widgets;
 
 namespace Nexus.Service.Tests.Widgets;
 
-public class WidgetRegistryTests : IDisposable
+public class AppRegistryTests : IDisposable
 {
     private readonly string _root;
 
-    public WidgetRegistryTests()
+    public AppRegistryTests()
     {
         _root = Path.Combine(Path.GetTempPath(), "nexus-widgets-tests-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_root);
@@ -21,9 +21,9 @@ public class WidgetRegistryTests : IDisposable
         try { Directory.Delete(_root, recursive: true); } catch { /* best effort */ }
     }
 
-    private WidgetRegistry NewRegistry(WidgetInstallPaths.Source source = WidgetInstallPaths.Source.User)
+    private AppRegistry NewRegistry(AppInstallPaths.Source source = AppInstallPaths.Source.User)
     {
-        return new WidgetRegistry(() => new List<WidgetInstallPaths.Root>
+        return new AppRegistry(() => new List<AppInstallPaths.Root>
         {
             new(_root, source),
         });
@@ -35,7 +35,7 @@ public class WidgetRegistryTests : IDisposable
         var registry = NewRegistry();
         Assert.True(registry.TryGet("com.hellonexus.fixture-basic", out var entry));
         Assert.Equal("1.0.0", entry.Manifest.Version);
-        Assert.Equal("nexus.widget/2", entry.Manifest.Schema);
+        Assert.Equal("nexus.app/1", entry.Manifest.Schema);
         Assert.Single(entry.Manifest.Surfaces, "dashboard");
         Assert.Equal(new List<string> { "cpu.*" }, entry.Manifest.Capabilities.SensorsRead);
         Assert.Equal("2x2", entry.Manifest.DefaultSize);
@@ -61,7 +61,7 @@ public class WidgetRegistryTests : IDisposable
         var manifest = Path.Combine(_root, "com.hellonexus.fixture-basic", "manifest.json");
         File.WriteAllText(manifest, """
         {
-          "schema": "nexus.widget/2",
+          "schema": "nexus.app/1",
           "id": "com.hellonexus.fixture-basic",
           "name": "x",
           "version": "1.0.0",
@@ -81,7 +81,7 @@ public class WidgetRegistryTests : IDisposable
         var manifest = Path.Combine(_root, "com.hellonexus.fixture-basic", "manifest.json");
         File.WriteAllText(manifest, """
         {
-          "schema": "nexus.widget/2",
+          "schema": "nexus.app/1",
           "id": "com.hellonexus.fixture-basic",
           "name": "x",
           "version": "1.0.0",
@@ -129,9 +129,9 @@ public class WidgetRegistryTests : IDisposable
     [Fact]
     public void Records_install_source()
     {
-        var registry = NewRegistry(WidgetInstallPaths.Source.Bundled);
+        var registry = NewRegistry(AppInstallPaths.Source.Bundled);
         Assert.True(registry.TryGet("com.hellonexus.fixture-basic", out var entry));
-        Assert.Equal(WidgetInstallPaths.Source.Bundled, entry.Source);
+        Assert.Equal(AppInstallPaths.Source.Bundled, entry.Source);
     }
 
     [Fact]
@@ -143,14 +143,14 @@ public class WidgetRegistryTests : IDisposable
         CopyFixture(Path.Combine(AppContext.BaseDirectory, "Widgets", "Fixtures", "widgets-basic"), secondRoot);
         try
         {
-            var registry = new WidgetRegistry(() => new List<WidgetInstallPaths.Root>
+            var registry = new AppRegistry(() => new List<AppInstallPaths.Root>
             {
-                new(_root, WidgetInstallPaths.Source.Dev),
-                new(secondRoot, WidgetInstallPaths.Source.User),
+                new(_root, AppInstallPaths.Source.Dev),
+                new(secondRoot, AppInstallPaths.Source.User),
             });
 
             Assert.True(registry.TryGet("com.hellonexus.fixture-basic", out var entry));
-            Assert.Equal(WidgetInstallPaths.Source.Dev, entry.Source);
+            Assert.Equal(AppInstallPaths.Source.Dev, entry.Source);
         }
         finally
         {

@@ -2,7 +2,7 @@ using Nexus.Service.Widgets;
 
 namespace Nexus.Service.Tests.Widgets;
 
-public class WidgetIdsTests
+public class AppIdsTests
 {
     [Theory]
     [InlineData("com.hellonexus.cpu-temp")]
@@ -11,7 +11,7 @@ public class WidgetIdsTests
     [InlineData("com.hellonexus.fixture-basic")]
     public void Accepts_reverse_dns_lowercase_ids(string id)
     {
-        Assert.True(WidgetIds.IsValid(id));
+        Assert.True(AppIds.IsValid(id));
     }
 
     [Theory]
@@ -30,13 +30,13 @@ public class WidgetIdsTests
     [InlineData("com.hellonexus.-leadingdashinsegment")]
     public void Rejects_invalid_or_dangerous_ids(string? id)
     {
-        Assert.False(WidgetIds.IsValid(id));
+        Assert.False(AppIds.IsValid(id));
     }
 
     [Fact]
     public void Rejects_overlong_ids()
     {
-        var s = new string('a', WidgetIds.MaxLength + 1);
-        Assert.False(WidgetIds.IsValid(s + ".x"));
+        var s = new string('a', AppIds.MaxLength + 1);
+        Assert.False(AppIds.IsValid(s + ".x"));
     }
 }

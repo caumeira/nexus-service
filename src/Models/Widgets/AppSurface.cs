@@ -4,7 +4,7 @@ namespace Nexus.Service.Models.Widgets;
 /// Canonical surface names accepted in a widget manifest's <c>surfaces</c>
 /// array.
 /// </summary>
-public static class WidgetSurface
+public static class AppSurface
 {
     public const string Dashboard = "dashboard";
     public const string Panel = "panel";

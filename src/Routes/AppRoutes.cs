@@ -18,13 +18,13 @@ namespace Nexus.Service.Routes;
 /// What this exposes:
 ///
 /// <list type="bullet">
-/// <item><c>GET /widgets-api/installed</c> - everything the registry sees.</item>
-/// <item><c>GET /widgets-api/installed/{id}</c> - one widget, including manifest view tree.</item>
-/// <item><c>GET /widgets-api/installed/{id}/asset/{**path}</c> - static assets
+/// <item><c>GET /apps-api/installed</c> - everything the registry sees.</item>
+/// <item><c>GET /apps-api/installed/{id}</c> - one widget, including manifest view tree.</item>
+/// <item><c>GET /apps-api/installed/{id}/asset/{**path}</c> - static assets
 ///   (icons, SVGs) under the widget bundle. Restricted to image extensions
 ///   (PNG/JPG/WEBP/GIF/ICO/SVG); no manifest-tree binding enforced.</item>
-/// <item><c>GET / PATCH /widgets-api/installed/{id}/settings</c> - per-widget user settings.</item>
-/// <item><c>GET /widgets-api/code/{sessionId}/worker.js</c> + sibling module
+/// <item><c>GET / PATCH /apps-api/installed/{id}/settings</c> - per-widget user settings.</item>
+/// <item><c>GET /apps-api/code/{sessionId}/worker.js</c> + sibling module
 ///   files - the Tier 2 worker source, served behind a per-spawn session
 ///   token rather than a Bearer-authed installed-route. Only widgets that
 ///   declared <c>code: worker</c> can mint a session.</item>
@@ -33,9 +33,9 @@ namespace Nexus.Service.Routes;
 /// Install, uninstall, available list, and fetch-proxy endpoints are
 /// registered below alongside the asset / settings routes.
 /// </summary>
-public static class WidgetRoutes
+public static class AppRoutes
 {
-    public const string ApiPrefix = "/widgets-api/";
+    public const string ApiPrefix = "/apps-api/";
 
     private static readonly HashSet<string> AllowedAssetExtensions = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -53,24 +53,24 @@ public static class WidgetRoutes
 
     public static void MapWidgetEndpoints(this WebApplication app)
     {
-        app.MapGet("/widgets-api/installed", (WidgetRegistry registry) =>
+        app.MapGet("/apps-api/installed", (AppRegistry registry) =>
         {
-            var response = new WidgetInstalledListingResponse();
+            var response = new AppInstalledListingResponse();
             foreach (var entry in registry.All())
             {
                 response.Widgets.Add(BuildListing(entry));
             }
-            return Results.Json(response, AppJsonContext.Default.WidgetInstalledListingResponse);
+            return Results.Json(response, AppJsonContext.Default.AppInstalledListingResponse);
         }).AllowPanel();
 
-        app.MapGet("/widgets-api/installed/{id}", (string id, WidgetRegistry registry) =>
+        app.MapGet("/apps-api/installed/{id}", (string id, AppRegistry registry) =>
         {
-            if (!WidgetIds.IsValid(id)) return Results.NotFound();
+            if (!AppIds.IsValid(id)) return Results.NotFound();
             if (!registry.TryGet(id, out var entry)) return Results.NotFound();
-            return Results.Json(BuildListing(entry), AppJsonContext.Default.WidgetInstalledListing);
+            return Results.Json(BuildListing(entry), AppJsonContext.Default.AppInstalledListing);
         }).AllowPanel();
 
-        app.MapGet("/widgets-api/instance/{instanceId}/settings",
+        app.MapGet("/apps-api/instance/{instanceId}/settings",
             (string instanceId, WidgetSettingsService settings) =>
         {
             // Instance ids are GUIDs assigned at widget-placement time, so we
@@ -80,94 +80,94 @@ public static class WidgetRoutes
             return Results.Json(settings.Get(instanceId), AppJsonContext.Default.WidgetSettingsDocument);
         }).AllowPanel();
 
-        app.MapPatch("/widgets-api/instance/{instanceId}/settings",
+        app.MapPatch("/apps-api/instance/{instanceId}/settings",
             (string instanceId, WidgetSettingsPatch body, WidgetSettingsService settings) =>
         {
             var updated = settings.Apply(instanceId, body);
             return Results.Json(updated, AppJsonContext.Default.WidgetSettingsDocument);
         }).AllowPanel();
 
-        app.MapGet("/widgets-api/installed/{id}/asset/{**path}",
-            (string id, string? path, HttpContext ctx, WidgetRegistry registry) =>
+        app.MapGet("/apps-api/installed/{id}/asset/{**path}",
+            (string id, string? path, HttpContext ctx, AppRegistry registry) =>
             ServeAsset(id, path, ctx, registry, requireImage: true)).AllowPanel();
 
-        app.MapGet("/widgets-api/available", (WidgetInstaller installer) =>
+        app.MapGet("/apps-api/available", (AppInstaller installer) =>
         {
-            return Results.Json(installer.Catalogue(), AppJsonContext.Default.WidgetCatalogResponse);
+            return Results.Json(installer.Catalogue(), AppJsonContext.Default.AppCatalogResponse);
         }).AllowPanel();
 
-        app.MapPost("/widgets-api/install", (WidgetInstallRequest body, WidgetInstaller installer) =>
+        app.MapPost("/apps-api/install", (AppInstallRequest body, AppInstaller installer) =>
         {
             var result = installer.Install(body.Id ?? "");
-            return Results.Json(result, AppJsonContext.Default.WidgetInstallResponse);
+            return Results.Json(result, AppJsonContext.Default.AppInstallResponse);
         }).AllowPanel();
 
-        app.MapPost("/widgets-api/uninstall", (WidgetInstallRequest body, WidgetInstaller installer) =>
+        app.MapPost("/apps-api/uninstall", (AppInstallRequest body, AppInstaller installer) =>
         {
             var result = installer.Uninstall(body.Id ?? "");
-            return Results.Json(result, AppJsonContext.Default.WidgetInstallResponse);
+            return Results.Json(result, AppJsonContext.Default.AppInstallResponse);
         }).AllowPanel();
 
         // Host-action dispatch. Widgets POST { widgetId, action, args };
         // the action is validated against the manifest's capabilities.dispatch
         // allowlist and then routed to the registered handler. Returns
         // the handler's result (action-specific JsonElement shape).
-        app.MapPost("/widgets-api/dispatch",
-            async (WidgetDispatchRequest body, WidgetRegistry registry,
-                   WidgetActionRegistry actions, WidgetDispatchRateLimiter limiter,
+        app.MapPost("/apps-api/dispatch",
+            async (AppDispatchRequest body, AppRegistry registry,
+                   AppActionRegistry actions, AppDispatchRateLimiter limiter,
                    IServiceProvider services, HttpContext ctx) =>
         {
-            if (!WidgetIds.IsValid(body.WidgetId))
+            if (!AppIds.IsValid(body.AppId))
             {
-                return Results.Json(new WidgetDispatchResponse { Ok = false, Error = "invalid widget id" },
-                    AppJsonContext.Default.WidgetDispatchResponse, statusCode: 400);
+                return Results.Json(new AppDispatchResponse { Ok = false, Error = "invalid widget id" },
+                    AppJsonContext.Default.AppDispatchResponse, statusCode: 400);
             }
-            if (!registry.TryGet(body.WidgetId, out var entry))
+            if (!registry.TryGet(body.AppId, out var entry))
             {
-                return Results.Json(new WidgetDispatchResponse { Ok = false, Error = "widget not installed" },
-                    AppJsonContext.Default.WidgetDispatchResponse, statusCode: 404);
+                return Results.Json(new AppDispatchResponse { Ok = false, Error = "widget not installed" },
+                    AppJsonContext.Default.AppDispatchResponse, statusCode: 404);
             }
             if (!entry.Manifest.Capabilities.Dispatch.Contains(body.Action))
             {
-                return Results.Json(new WidgetDispatchResponse { Ok = false, Error = $"action '{body.Action}' not in manifest allowlist" },
-                    AppJsonContext.Default.WidgetDispatchResponse, statusCode: 403);
+                return Results.Json(new AppDispatchResponse { Ok = false, Error = $"action '{body.Action}' not in manifest allowlist" },
+                    AppJsonContext.Default.AppDispatchResponse, statusCode: 403);
             }
             if (!actions.TryGet(body.Action, out var handler))
             {
-                return Results.Json(new WidgetDispatchResponse { Ok = false, Error = $"action '{body.Action}' is not registered" },
-                    AppJsonContext.Default.WidgetDispatchResponse, statusCode: 404);
+                return Results.Json(new AppDispatchResponse { Ok = false, Error = $"action '{body.Action}' is not registered" },
+                    AppJsonContext.Default.AppDispatchResponse, statusCode: 404);
             }
             // Cap dispatch rate per widget — control actions drive real hardware,
             // so a runaway worker loop must not hammer them.
-            if (!limiter.TryAcquire(body.WidgetId))
+            if (!limiter.TryAcquire(body.AppId))
             {
-                return Results.Json(new WidgetDispatchResponse { Ok = false, Error = "rate limit exceeded" },
-                    AppJsonContext.Default.WidgetDispatchResponse, statusCode: 429);
+                return Results.Json(new AppDispatchResponse { Ok = false, Error = "rate limit exceeded" },
+                    AppJsonContext.Default.AppDispatchResponse, statusCode: 429);
             }
 
             try
             {
                 var result = await handler(services, body.Args, ctx.RequestAborted);
-                return Results.Json(new WidgetDispatchResponse { Ok = true, Result = result },
-                    AppJsonContext.Default.WidgetDispatchResponse);
+                return Results.Json(new AppDispatchResponse { Ok = true, Result = result },
+                    AppJsonContext.Default.AppDispatchResponse);
             }
             catch (Exception ex)
             {
-                return Results.Json(new WidgetDispatchResponse { Ok = false, Error = ex.Message },
-                    AppJsonContext.Default.WidgetDispatchResponse, statusCode: 500);
+                return Results.Json(new AppDispatchResponse { Ok = false, Error = ex.Message },
+                    AppJsonContext.Default.AppDispatchResponse, statusCode: 500);
             }
         }).AllowPanel();
 
-        app.MapPost("/widgets-api/proxy",
-            async (WidgetProxyRequest body, WidgetProxyService proxy, HttpContext ctx) =>
+        app.MapPost("/apps-api/proxy",
+            async (AppProxyRequest body, AppProxyService proxy, HttpContext ctx) =>
         {
             var result = await proxy.ExecuteAsync(body, ctx.RequestAborted);
-            return Results.Json(result, AppJsonContext.Default.WidgetProxyResponse);
+            return Results.Json(result, AppJsonContext.Default.AppProxyResponse);
         }).AllowPanel();
 
-        // (The legacy GET /widgets-api/installed/{id}/worker.js route was
+        // (The legacy GET /apps-api/installed/{id}/worker.js route was
         // removed — Tier 2 workers always boot through a per-spawn code
-        // session URL `/widgets-api/code/{sessionId}/worker.js`, so the
+        // session URL `/apps-api/code/{sessionId}/worker.js`, so the
         // installed-route variant served only to widen the attack surface.)
 
         // Module-worker code session. The web side POSTs here to mint a
@@ -176,31 +176,31 @@ public static class WidgetRoutes
         // (relative imports use the worker's base URL). The token is the
         // *only* auth the code-serving GET below requires - the Bearer
         // header can't ride along on module imports.
-        app.MapPost("/widgets-api/installed/{id}/code-session",
-            (string id, HttpContext ctx, WidgetRegistry registry, WidgetCodeSessionService sessions) =>
+        app.MapPost("/apps-api/installed/{id}/code-session",
+            (string id, HttpContext ctx, AppRegistry registry, AppCodeSessionService sessions) =>
         {
-            if (!WidgetIds.IsValid(id))
+            if (!AppIds.IsValid(id))
             {
-                return Results.Json(new WidgetCodeSessionResponse { Error = "invalid widget id" },
-                    AppJsonContext.Default.WidgetCodeSessionResponse, statusCode: 400);
+                return Results.Json(new AppCodeSessionResponse { Error = "invalid widget id" },
+                    AppJsonContext.Default.AppCodeSessionResponse, statusCode: 400);
             }
             if (!registry.TryGet(id, out var entry))
             {
-                return Results.Json(new WidgetCodeSessionResponse { Error = "widget not installed" },
-                    AppJsonContext.Default.WidgetCodeSessionResponse, statusCode: 404);
+                return Results.Json(new AppCodeSessionResponse { Error = "widget not installed" },
+                    AppJsonContext.Default.AppCodeSessionResponse, statusCode: 404);
             }
             if (!entry.Manifest.Capabilities.WorkerCode)
             {
-                return Results.Json(new WidgetCodeSessionResponse { Error = "widget has no worker code capability" },
-                    AppJsonContext.Default.WidgetCodeSessionResponse, statusCode: 400);
+                return Results.Json(new AppCodeSessionResponse { Error = "widget has no worker code capability" },
+                    AppJsonContext.Default.AppCodeSessionResponse, statusCode: 400);
             }
             var token = sessions.Create(id);
-            return Results.Json(new WidgetCodeSessionResponse
+            return Results.Json(new AppCodeSessionResponse
             {
                 SessionId = token,
-                BaseUrl = "/widgets-api/code/" + token,
-                ExpiresInSeconds = (int)WidgetCodeSessionService.DefaultLifetime.TotalSeconds,
-            }, AppJsonContext.Default.WidgetCodeSessionResponse);
+                BaseUrl = "/apps-api/code/" + token,
+                ExpiresInSeconds = (int)AppCodeSessionService.DefaultLifetime.TotalSeconds,
+            }, AppJsonContext.Default.AppCodeSessionResponse);
         }).AllowPanel();
 
         // Code-serving endpoint. NOT .AllowPanel() - authenticates via the
@@ -210,9 +210,9 @@ public static class WidgetRoutes
         // installed, path must resolve under the widget root, extension
         // must be in AllowedCodeExtensions. The path-prefix bypass for this
         // route lives in Program.cs auth middleware.
-        app.MapGet("/widgets-api/code/{sessionId}/{**path}",
+        app.MapGet("/apps-api/code/{sessionId}/{**path}",
             (string sessionId, string? path, HttpContext ctx,
-             WidgetCodeSessionService sessions, WidgetRegistry registry) =>
+             AppCodeSessionService sessions, AppRegistry registry) =>
             ServeCodeFile(sessionId, path, ctx, sessions, registry));
     }
 
@@ -220,8 +220,8 @@ public static class WidgetRoutes
         string sessionId,
         string? path,
         HttpContext ctx,
-        WidgetCodeSessionService sessions,
-        WidgetRegistry registry)
+        AppCodeSessionService sessions,
+        AppRegistry registry)
     {
         if (string.IsNullOrEmpty(path)) return Results.NotFound();
         var widgetId = sessions.Resolve(sessionId);
@@ -253,10 +253,10 @@ public static class WidgetRoutes
         string id,
         string? path,
         HttpContext ctx,
-        WidgetRegistry registry,
+        AppRegistry registry,
         bool requireImage)
     {
-        if (!WidgetIds.IsValid(id)) return Results.NotFound();
+        if (!AppIds.IsValid(id)) return Results.NotFound();
         if (!registry.TryGet(id, out var entry)) return Results.NotFound();
         if (string.IsNullOrEmpty(path)) return Results.NotFound();
 
@@ -327,24 +327,24 @@ public static class WidgetRoutes
         return true;
     }
 
-    private static WidgetInstalledListing BuildListing(WidgetEntry entry)
+    private static AppInstalledListing BuildListing(AppEntry entry)
     {
-        // Icons / SVG assets are now served from `/widgets-api/installed/{id}/asset/...`,
+        // Icons / SVG assets are now served from `/apps-api/installed/{id}/asset/...`,
         // not the (removed) per-widget origin. Building the URL here keeps the
         // dashboard from having to know the route shape.
         var iconUrl = IsBundleRelativeAssetPath(entry.Manifest.Icon)
-            ? $"/widgets-api/installed/{entry.Id}/asset/{entry.Manifest.Icon}"
+            ? $"/apps-api/installed/{entry.Id}/asset/{entry.Manifest.Icon}"
             : null;
 
         var source = entry.Source switch
         {
-            WidgetInstallPaths.Source.Dev => "dev",
-            WidgetInstallPaths.Source.User => "user",
-            WidgetInstallPaths.Source.Bundled => "bundled",
+            AppInstallPaths.Source.Dev => "dev",
+            AppInstallPaths.Source.User => "user",
+            AppInstallPaths.Source.Bundled => "bundled",
             _ => "unknown",
         };
 
-        return new WidgetInstalledListing
+        return new AppInstalledListing
         {
             Id = entry.Id,
             Name = entry.Manifest.Name,
@@ -356,7 +356,7 @@ public static class WidgetRoutes
             Page = entry.Manifest.Page,
             Capabilities = entry.Manifest.Capabilities,
             Viewport = entry.Manifest.Viewport,
-            Settings = new List<WidgetManifestSettingEntry>(entry.Manifest.Settings),
+            Settings = new List<AppManifestSettingEntry>(entry.Manifest.Settings),
             Sizes = new List<string>(entry.Manifest.Sizes),
             DefaultSize = entry.Manifest.DefaultSize,
             // A viewless (SDK) manifest leaves View as an Undefined JsonElement,
@@ -369,7 +369,7 @@ public static class WidgetRoutes
             Fonts = entry.Manifest.Fonts,
             Local = entry.Manifest.Local,
             Source = source,
-            Trusted = entry.Source != WidgetInstallPaths.Source.Dev,
+            Trusted = entry.Source != AppInstallPaths.Source.Dev,
         };
     }
 }

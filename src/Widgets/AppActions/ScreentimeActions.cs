@@ -7,18 +7,18 @@ using Nexus.Service.Activity;
 using Nexus.Service.Models.Widgets;
 using Nexus.Service.Serialization;
 
-namespace Nexus.Service.Widgets.WidgetActions;
+namespace Nexus.Service.Widgets.AppActions;
 
 /// <summary>
 /// Host actions surfacing screen-time data to declarative widgets.
 /// Wraps <see cref="IScreenTimeProvider"/> so widgets read a flat
-/// payload via /widgets-api/dispatch. Time strings are pre-formatted
+/// payload via /apps-api/dispatch. Time strings are pre-formatted
 /// ("Xh Ym") so widget manifests bind ready-to-render values without
 /// needing a time-formatting function in the renderer.
 /// </summary>
 public static class ScreentimeActions
 {
-    public static void RegisterAll(WidgetActionRegistry registry)
+    public static void RegisterAll(AppActionRegistry registry)
     {
         registry.Register("screentime.today", (services, _, _) =>
         {

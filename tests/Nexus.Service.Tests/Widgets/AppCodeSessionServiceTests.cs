@@ -9,12 +9,12 @@ namespace Nexus.Service.Tests.Widgets;
 /// Tier 2 widget's ESM worker fetch sibling .js files without needing a
 /// Bearer header on every import.
 /// </summary>
-public class WidgetCodeSessionServiceTests
+public class AppCodeSessionServiceTests
 {
     [Fact]
     public void Create_returns_token_that_resolves_to_widget_id()
     {
-        var svc = new WidgetCodeSessionService();
+        var svc = new AppCodeSessionService();
         var token = svc.Create("com.hellonexus.test");
         Assert.NotNull(token);
         Assert.NotEmpty(token);
@@ -24,7 +24,7 @@ public class WidgetCodeSessionServiceTests
     [Fact]
     public void Tokens_are_unique_across_calls()
     {
-        var svc = new WidgetCodeSessionService();
+        var svc = new AppCodeSessionService();
         var a = svc.Create("com.hellonexus.test");
         var b = svc.Create("com.hellonexus.test");
         Assert.NotEqual(a, b);
@@ -33,7 +33,7 @@ public class WidgetCodeSessionServiceTests
     [Fact]
     public void Token_is_base64url_with_no_padding_or_unsafe_chars()
     {
-        var svc = new WidgetCodeSessionService();
+        var svc = new AppCodeSessionService();
         var token = svc.Create("com.hellonexus.test");
         // Base64URL alphabet only: A-Z a-z 0-9 - _
         foreach (var c in token)
@@ -49,14 +49,14 @@ public class WidgetCodeSessionServiceTests
     [Fact]
     public void Resolve_returns_null_for_unknown_token()
     {
-        var svc = new WidgetCodeSessionService();
+        var svc = new AppCodeSessionService();
         Assert.Null(svc.Resolve("not-a-real-token"));
     }
 
     [Fact]
     public void Expired_session_resolves_to_null_and_is_purged()
     {
-        var svc = new WidgetCodeSessionService();
+        var svc = new AppCodeSessionService();
         var token = svc.Create("com.hellonexus.test", TimeSpan.FromMilliseconds(1));
         Thread.Sleep(20);
         Assert.Null(svc.Resolve(token));
@@ -68,7 +68,7 @@ public class WidgetCodeSessionServiceTests
     [Fact]
     public void Revoke_invalidates_a_live_token()
     {
-        var svc = new WidgetCodeSessionService();
+        var svc = new AppCodeSessionService();
         var token = svc.Create("com.hellonexus.test");
         Assert.NotNull(svc.Resolve(token));
         svc.Revoke(token);
@@ -78,7 +78,7 @@ public class WidgetCodeSessionServiceTests
     [Fact]
     public void Empty_or_null_inputs_are_rejected()
     {
-        var svc = new WidgetCodeSessionService();
+        var svc = new AppCodeSessionService();
         Assert.Null(svc.Resolve(""));
         Assert.Null(svc.Resolve("   "));
     }

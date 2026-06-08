@@ -6,10 +6,10 @@ namespace Nexus.Service.Models.Widgets;
 
 /// <summary>
 /// Parsed <c>manifest.json</c> for an installed widget under the declarative
-/// schema <c>nexus.widget/2</c>. Field names match the on-disk JSON. See
+/// schema <c>nexus.app/1</c>. Field names match the on-disk JSON. See
 /// <c>plans/widget-sdk.md</c> for the authoritative contract.
 /// </summary>
-public sealed class WidgetManifest
+public sealed class AppManifest
 {
     [JsonPropertyName("schema")]
     public string Schema { get; set; } = "";
@@ -27,7 +27,7 @@ public sealed class WidgetManifest
     public string? Description { get; set; }
 
     [JsonPropertyName("author")]
-    public WidgetManifestAuthor? Author { get; set; }
+    public AppManifestAuthor? Author { get; set; }
 
     [JsonPropertyName("icon")]
     public string? Icon { get; set; }
@@ -69,13 +69,13 @@ public sealed class WidgetManifest
     public string? DefaultSize { get; set; }
 
     [JsonPropertyName("viewport")]
-    public WidgetManifestViewport? Viewport { get; set; }
+    public AppManifestViewport? Viewport { get; set; }
 
     [JsonPropertyName("capabilities")]
-    public WidgetManifestCapabilities Capabilities { get; set; } = new();
+    public AppManifestCapabilities Capabilities { get; set; } = new();
 
     [JsonPropertyName("settings")]
-    public List<WidgetManifestSettingEntry> Settings { get; set; } = new();
+    public List<AppManifestSettingEntry> Settings { get; set; } = new();
 
     /// <summary>
     /// Data sources the view tree binds to. Keyed by binding name. Each
@@ -83,7 +83,7 @@ public sealed class WidgetManifest
     /// extraction, or a passthrough from the optional Tier 2 worker.
     /// </summary>
     [JsonPropertyName("data")]
-    public Dictionary<string, WidgetManifestDataSource> Data { get; set; } = new();
+    public Dictionary<string, AppManifestDataSource> Data { get; set; } = new();
 
     /// <summary>
     /// View tree. Either a single view (rendered at every supported size)
@@ -102,7 +102,7 @@ public sealed class WidgetManifest
     /// view tree via the meter's <c>font</c> prop.
     /// </summary>
     [JsonPropertyName("fonts")]
-    public List<WidgetManifestFont> Fonts { get; set; } = new();
+    public List<AppManifestFont> Fonts { get; set; } = new();
 
     /// <summary>
     /// Default values for the widget's per-instance local state bag.
@@ -118,7 +118,7 @@ public sealed class WidgetManifest
     public JsonElement? Local { get; set; }
 }
 
-public sealed class WidgetManifestFont
+public sealed class AppManifestFont
 {
     [JsonPropertyName("name")] public string Name { get; set; } = "";
     [JsonPropertyName("src")] public string Src { get; set; } = "";
@@ -126,14 +126,14 @@ public sealed class WidgetManifestFont
     [JsonPropertyName("style")] public string? Style { get; set; }
 }
 
-public sealed class WidgetManifestAuthor
+public sealed class AppManifestAuthor
 {
     [JsonPropertyName("name")] public string? Name { get; set; }
     [JsonPropertyName("url")] public string? Url { get; set; }
     [JsonPropertyName("email")] public string? Email { get; set; }
 }
 
-public sealed class WidgetManifestViewport
+public sealed class AppManifestViewport
 {
     [JsonPropertyName("min")] public List<int>? Min { get; set; }
     [JsonPropertyName("preferred")] public List<int>? Preferred { get; set; }
@@ -141,7 +141,7 @@ public sealed class WidgetManifestViewport
     [JsonPropertyName("aspect")] public string? Aspect { get; set; }
 }
 
-public sealed class WidgetManifestCapabilities
+public sealed class AppManifestCapabilities
 {
     [JsonPropertyName("sensors.read")]
     public List<string> SensorsRead { get; set; } = new();
@@ -153,13 +153,13 @@ public sealed class WidgetManifestCapabilities
     public bool RgbWrite { get; set; }
 
     /// <summary>HTTPS hosts the widget may fetch from. Phase 2 uses the
-    /// host-mediated proxy (`/widgets-api/proxy`) for both Tier 1 declarative
+    /// host-mediated proxy (`/apps-api/proxy`) for both Tier 1 declarative
     /// fetch sources and Tier 2 worker `nexus.net.fetch` calls.</summary>
     [JsonPropertyName("net.fetch")]
     public List<string> NetFetch { get; set; } = new();
 
     /// <summary>
-    /// Host-action allowlist. Widgets may POST to /widgets-api/dispatch
+    /// Host-action allowlist. Widgets may POST to /apps-api/dispatch
     /// only with action names that appear in this list. Names are
     /// dotted (e.g. "displays.list", "displays.setBrightness"); the
     /// server-side registry knows which controller each routes to.
@@ -184,7 +184,7 @@ public sealed class WidgetManifestCapabilities
     public bool WorkerCode => string.Equals(Code, "worker", System.StringComparison.Ordinal);
 }
 
-public sealed class WidgetManifestSettingEntry
+public sealed class AppManifestSettingEntry
 {
     [JsonPropertyName("key")] public string Key { get; set; } = "";
     [JsonPropertyName("type")] public string Type { get; set; } = "";
@@ -207,7 +207,7 @@ public sealed class WidgetManifestSettingEntry
 /// <see cref="Worker"/>, <see cref="Clock"/>, or <see cref="Host"/> should be set.
 /// The renderer picks based on which is present.
 /// </summary>
-public sealed class WidgetManifestDataSource
+public sealed class AppManifestDataSource
 {
     [JsonPropertyName("sensor")]
     public string? Sensor { get; set; }
@@ -233,27 +233,27 @@ public sealed class WidgetManifestDataSource
     public string? Worker { get; set; }
 
     /// <summary>
-    /// Host-ticking clock. The renderer polls <see cref="WidgetClockSource.TickEvery"/>
+    /// Host-ticking clock. The renderer polls <see cref="AppClockSource.TickEvery"/>
     /// (default 1s) and surfaces formatted time parts under this binding's name.
     /// Used by the clock widget and by stateful widgets (stopwatch/timer) that
     /// need a re-render heartbeat.
     /// </summary>
     [JsonPropertyName("clock")]
-    public WidgetClockSource? Clock { get; set; }
+    public AppClockSource? Clock { get; set; }
 
     /// <summary>
-    /// Host-action source. The renderer POSTs to /widgets-api/dispatch with
-    /// the named action on a schedule (<see cref="WidgetHostSource.Refresh"/>,
+    /// Host-action source. The renderer POSTs to /apps-api/dispatch with
+    /// the named action on a schedule (<see cref="AppHostSource.Refresh"/>,
     /// default 5s) and surfaces the result under this binding's name. The
     /// action must appear in the manifest's <c>capabilities.dispatch</c>
     /// allowlist.
     /// </summary>
     [JsonPropertyName("host")]
-    public WidgetHostSource? Host { get; set; }
+    public AppHostSource? Host { get; set; }
 }
 
 /// <summary>Configuration for a <c>clock</c> data source.</summary>
-public sealed class WidgetClockSource
+public sealed class AppClockSource
 {
     /// <summary>Tick cadence, e.g. <c>"1s"</c>, <c>"500ms"</c>, <c>"100ms"</c>,
     /// <c>"1m"</c>. The renderer enforces a 100 ms floor.</summary>
@@ -270,7 +270,7 @@ public sealed class WidgetClockSource
 }
 
 /// <summary>Configuration for a <c>host</c> data source.</summary>
-public sealed class WidgetHostSource
+public sealed class AppHostSource
 {
     /// <summary>Dotted action name routed through the dispatch registry
     /// (e.g. <c>"screentime.today"</c>).</summary>
@@ -284,7 +284,7 @@ public sealed class WidgetHostSource
 
     /// <summary>Open-shape args passed to the action handler. Pass-through
     /// JsonElement so authors can put anything JSON-serialisable in there.
-    /// Nullable for the same reason as <c>WidgetManifest.Local</c>.</summary>
+    /// Nullable for the same reason as <c>AppManifest.Local</c>.</summary>
     [JsonPropertyName("args")]
     public JsonElement? Args { get; set; }
 }

@@ -4,13 +4,13 @@ using System.Text.Json;
 namespace Nexus.Service.Models.Widgets;
 
 /// <summary>
-/// Body of <c>POST /widgets-api/proxy</c>. The host runs the actual fetch
+/// Body of <c>POST /apps-api/proxy</c>. The host runs the actual fetch
 /// after validating the URL against the widget's <c>capabilities.net.fetch</c>
-/// allowlist; the response is size-capped + decoded into <see cref="WidgetProxyResponse"/>.
+/// allowlist; the response is size-capped + decoded into <see cref="AppProxyResponse"/>.
 /// </summary>
-public sealed class WidgetProxyRequest
+public sealed class AppProxyRequest
 {
-    public string WidgetId { get; set; } = "";
+    public string AppId { get; set; } = "";
     public string Url { get; set; } = "";
     public string? Method { get; set; }
     public Dictionary<string, string>? Headers { get; set; }
@@ -23,7 +23,7 @@ public sealed class WidgetProxyRequest
     public List<string>? AllowedHosts { get; set; }
 }
 
-public sealed class WidgetProxyResponse
+public sealed class AppProxyResponse
 {
     public bool Ok { get; set; }
     public int Status { get; set; }
@@ -33,7 +33,7 @@ public sealed class WidgetProxyResponse
     /// JSON-decoded body when the upstream response declared
     /// <c>application/json</c>. Null otherwise (the raw text body
     /// lives in <see cref="BodyText"/>). Truncated to
-    /// <see cref="WidgetProxyService.MaxBodyBytes"/>.
+    /// <see cref="AppProxyService.MaxBodyBytes"/>.
     /// </summary>
     /// <remarks>
     /// Nullable so the source-generated serializer never has to emit a

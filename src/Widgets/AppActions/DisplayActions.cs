@@ -5,7 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Nexus.Service.Platform.Displays;
 using Nexus.Service.Serialization;
 
-namespace Nexus.Service.Widgets.WidgetActions;
+namespace Nexus.Service.Widgets.AppActions;
 
 /// <summary>
 /// Host actions exposed to declarative widgets for display brightness
@@ -15,7 +15,7 @@ namespace Nexus.Service.Widgets.WidgetActions;
 /// </summary>
 public static class DisplayActions
 {
-    public static void RegisterAll(WidgetActionRegistry registry)
+    public static void RegisterAll(AppActionRegistry registry)
     {
         registry.Register("displays.list", async (services, _, _) =>
         {

@@ -7,26 +7,26 @@ using Nexus.Service.Models.Cooling;
 using Nexus.Service.Models.Widgets;
 using Nexus.Service.Persistence;
 using Nexus.Service.Serialization;
-using static Nexus.Service.Widgets.WidgetActions.WidgetActionHelpers;
+using static Nexus.Service.Widgets.AppActions.AppActionHelpers;
 
-namespace Nexus.Service.Widgets.WidgetActions;
+namespace Nexus.Service.Widgets.AppActions;
 
 /// <summary>Host actions for cooling: read fan channels + temperature
 /// sources, set a manual fan duty, apply a built-in profile. Gated through
 /// the manifest's capabilities.dispatch allowlist.</summary>
 public static class CoolingActions
 {
-    public static void RegisterAll(WidgetActionRegistry registry)
+    public static void RegisterAll(AppActionRegistry registry)
     {
         registry.Register("cooling.state", (services, _, _) =>
         {
             var f = services.GetRequiredService<IFanControlProvider>();
-            var dto = new WidgetCoolingStateDto
+            var dto = new AppCoolingStateDto
             {
                 Channels = new List<FanChannel>(f.GetFanChannels()),
                 Sources = new List<TemperatureSource>(f.GetTemperatureSources()),
             };
-            var json = JsonSerializer.Serialize(dto, AppJsonContext.Default.WidgetCoolingStateDto);
+            var json = JsonSerializer.Serialize(dto, AppJsonContext.Default.AppCoolingStateDto);
             using var doc = JsonDocument.Parse(json);
             return Task.FromResult<JsonElement?>(doc.RootElement.Clone());
         });

@@ -12,20 +12,20 @@ using Nexus.Service.Widgets;
 
 namespace Nexus.Service.Tests.Widgets;
 
-public class WidgetProxyServiceTests : IDisposable
+public class AppProxyServiceTests : IDisposable
 {
     private readonly string _root;
-    private readonly WidgetRegistry _registry;
+    private readonly AppRegistry _registry;
 
-    public WidgetProxyServiceTests()
+    public AppProxyServiceTests()
     {
         _root = Path.Combine(Path.GetTempPath(), "nexus-proxy-tests-" + Guid.NewGuid().ToString("N")[..8]);
         Directory.CreateDirectory(_root);
         WriteWidget("com.hellonexus.allowed", new[] { "api.weather.gov", "*.example.com" });
         WriteWidget("com.hellonexus.empty",   Array.Empty<string>());
-        _registry = new WidgetRegistry(() => new List<WidgetInstallPaths.Root>
+        _registry = new AppRegistry(() => new List<AppInstallPaths.Root>
         {
-            new(_root, WidgetInstallPaths.Source.Bundled),
+            new(_root, AppInstallPaths.Source.Bundled),
         });
     }
 
@@ -40,7 +40,7 @@ public class WidgetProxyServiceTests : IDisposable
         Directory.CreateDirectory(dir);
         var manifest = new
         {
-            schema = "nexus.widget/2",
+            schema = "nexus.app/1",
             id,
             name = id,
             version = "1.0.0",
@@ -60,17 +60,17 @@ public class WidgetProxyServiceTests : IDisposable
         File.WriteAllText(Path.Combine(dir, "manifest.json"), JsonSerializer.Serialize(manifest));
     }
 
-    private WidgetProxyService MakeService(HttpMessageHandler handler)
+    private AppProxyService MakeService(HttpMessageHandler handler)
     {
         var factory = new StubHttpFactory(new HttpClient(handler));
-        return new WidgetProxyService(factory, _registry);
+        return new AppProxyService(factory, _registry);
     }
 
     [Fact]
     public async Task Rejects_unknown_widget()
     {
         var svc = MakeService(new ThrowingHandler());
-        var resp = await svc.ExecuteAsync(new WidgetProxyRequest { WidgetId = "com.hellonexus.unknown", Url = "https://api.weather.gov" });
+        var resp = await svc.ExecuteAsync(new AppProxyRequest { AppId = "com.hellonexus.unknown", Url = "https://api.weather.gov" });
         Assert.False(resp.Ok);
         Assert.Contains("not installed", resp.Error);
     }
@@ -79,7 +79,7 @@ public class WidgetProxyServiceTests : IDisposable
     public async Task Rejects_non_https_url()
     {
         var svc = MakeService(new ThrowingHandler());
-        var resp = await svc.ExecuteAsync(new WidgetProxyRequest { WidgetId = "com.hellonexus.allowed", Url = "http://api.weather.gov" });
+        var resp = await svc.ExecuteAsync(new AppProxyRequest { AppId = "com.hellonexus.allowed", Url = "http://api.weather.gov" });
         Assert.False(resp.Ok);
         Assert.Contains("https", resp.Error);
     }
@@ -88,7 +88,7 @@ public class WidgetProxyServiceTests : IDisposable
     public async Task Rejects_host_outside_manifest_allowlist()
     {
         var svc = MakeService(new ThrowingHandler());
-        var resp = await svc.ExecuteAsync(new WidgetProxyRequest { WidgetId = "com.hellonexus.allowed", Url = "https://evil.test/data" });
+        var resp = await svc.ExecuteAsync(new AppProxyRequest { AppId = "com.hellonexus.allowed", Url = "https://evil.test/data" });
         Assert.False(resp.Ok);
         Assert.Contains("allowlist", resp.Error);
     }
@@ -97,7 +97,7 @@ public class WidgetProxyServiceTests : IDisposable
     public async Task Accepts_wildcard_subdomain_match()
     {
         var svc = MakeService(new StubHandler("application/json", "{\"x\":1}"));
-        var resp = await svc.ExecuteAsync(new WidgetProxyRequest { WidgetId = "com.hellonexus.allowed", Url = "https://www.example.com/data" });
+        var resp = await svc.ExecuteAsync(new AppProxyRequest { AppId = "com.hellonexus.allowed", Url = "https://www.example.com/data" });
         Assert.True(resp.Ok);
         Assert.NotNull(resp.Body);
         Assert.Equal(1, resp.Body!.Value.GetProperty("x").GetInt32());
@@ -108,18 +108,18 @@ public class WidgetProxyServiceTests : IDisposable
     {
         var big = new string('a', 1024 * 1024 + 200);
         var svc = MakeService(new StubHandler("text/plain", big));
-        var resp = await svc.ExecuteAsync(new WidgetProxyRequest { WidgetId = "com.hellonexus.allowed", Url = "https://api.weather.gov/big" });
+        var resp = await svc.ExecuteAsync(new AppProxyRequest { AppId = "com.hellonexus.allowed", Url = "https://api.weather.gov/big" });
         Assert.NotNull(resp.Error);
         Assert.Contains("truncated", resp.Error);
         Assert.NotNull(resp.BodyText);
-        Assert.True(resp.BodyText!.Length <= WidgetProxyService.MaxBodyBytes);
+        Assert.True(resp.BodyText!.Length <= AppProxyService.MaxBodyBytes);
     }
 
     [Fact]
     public async Task Json_body_is_decoded_into_Body()
     {
         var svc = MakeService(new StubHandler("application/json", "{\"a\": [1, 2], \"b\": \"hi\"}"));
-        var resp = await svc.ExecuteAsync(new WidgetProxyRequest { WidgetId = "com.hellonexus.allowed", Url = "https://api.weather.gov/json" });
+        var resp = await svc.ExecuteAsync(new AppProxyRequest { AppId = "com.hellonexus.allowed", Url = "https://api.weather.gov/json" });
         Assert.True(resp.Ok);
         Assert.NotNull(resp.Body);
         var b = resp.Body!.Value.GetProperty("b").GetString();
@@ -137,9 +137,9 @@ public class WidgetProxyServiceTests : IDisposable
             ["Cookie"] = "session=evil",
             ["X-Custom"] = "ok",
         };
-        await svc.ExecuteAsync(new WidgetProxyRequest
+        await svc.ExecuteAsync(new AppProxyRequest
         {
-            WidgetId = "com.hellonexus.allowed",
+            AppId = "com.hellonexus.allowed",
             Url = "https://api.weather.gov/x",
             Headers = headers,
         });
@@ -153,7 +153,7 @@ public class WidgetProxyServiceTests : IDisposable
     public async Task Refuses_when_manifest_allowlist_is_empty()
     {
         var svc = MakeService(new ThrowingHandler());
-        var resp = await svc.ExecuteAsync(new WidgetProxyRequest { WidgetId = "com.hellonexus.empty", Url = "https://api.weather.gov" });
+        var resp = await svc.ExecuteAsync(new AppProxyRequest { AppId = "com.hellonexus.empty", Url = "https://api.weather.gov" });
         Assert.False(resp.Ok);
         Assert.Contains("allowlist", resp.Error);
     }
@@ -163,9 +163,9 @@ public class WidgetProxyServiceTests : IDisposable
     {
         var capture = new CapturingHandler();
         var svc = MakeService(capture);
-        await svc.ExecuteAsync(new WidgetProxyRequest
+        await svc.ExecuteAsync(new AppProxyRequest
         {
-            WidgetId = "com.hellonexus.allowed",
+            AppId = "com.hellonexus.allowed",
             Url = "https://api.weather.gov/x",
         });
         Assert.NotNull(capture.LastRequest);
@@ -179,9 +179,9 @@ public class WidgetProxyServiceTests : IDisposable
     {
         var capture = new CapturingHandler();
         var svc = MakeService(capture);
-        await svc.ExecuteAsync(new WidgetProxyRequest
+        await svc.ExecuteAsync(new AppProxyRequest
         {
-            WidgetId = "com.hellonexus.allowed",
+            AppId = "com.hellonexus.allowed",
             Url = "https://api.weather.gov/x",
             Headers = new Dictionary<string, string> { ["User-Agent"] = "MyCoolWidget/2.0" },
         });
