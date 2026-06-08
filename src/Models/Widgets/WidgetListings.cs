@@ -22,7 +22,7 @@ public sealed class WidgetInstalledListing
     public List<WidgetManifestSettingEntry> Settings { get; set; } = new();
     public List<string> Sizes { get; set; } = new();
     public string? DefaultSize { get; set; }
-    public JsonElement View { get; set; }
+    public JsonElement? View { get; set; } // absent for SDK widgets (no view tree)
     public Dictionary<string, WidgetManifestDataSource> Data { get; set; } = new();
     public List<WidgetManifestFont> Fonts { get; set; } = new();
     public JsonElement? Local { get; set; }

@@ -351,7 +351,12 @@ public static class WidgetRoutes
             Settings = new List<WidgetManifestSettingEntry>(entry.Manifest.Settings),
             Sizes = new List<string>(entry.Manifest.Sizes),
             DefaultSize = entry.Manifest.DefaultSize,
-            View = entry.Manifest.View,
+            // A viewless (SDK) manifest leaves View as an Undefined JsonElement,
+            // which the serializer would throw on — emit null instead so one
+            // viewless bundle can't 500 the whole listing.
+            View = entry.Manifest.View.ValueKind == System.Text.Json.JsonValueKind.Undefined
+                ? null
+                : entry.Manifest.View,
             Data = entry.Manifest.Data,
             Fonts = entry.Manifest.Fonts,
             Local = entry.Manifest.Local,
