@@ -195,6 +195,11 @@ public sealed class WidgetManifestSettingEntry
     [JsonPropertyName("step")] public double? Step { get; set; }
     [JsonPropertyName("filter")] public string? Filter { get; set; }
     [JsonPropertyName("options")] public List<string>? Options { get; set; }
+    // Parallel to Options, for the icon-select control: a display label and an
+    // icon name (mapped host-side to a lucide glyph) per option. Lets an SDK
+    // widget declare a visual switcher (e.g. the clock's design picker).
+    [JsonPropertyName("optionLabels")] public List<string>? OptionLabels { get; set; }
+    [JsonPropertyName("optionIcons")] public List<string>? OptionIcons { get; set; }
 }
 
 /// <summary>
