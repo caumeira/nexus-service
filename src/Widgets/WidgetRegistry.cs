@@ -85,10 +85,17 @@ public sealed class WidgetRegistry
                 var folderName = Path.GetFileName(dir);
                 if (!string.Equals(folderName, manifest.Id, StringComparison.Ordinal)) continue;
                 if (!string.Equals(manifest.Schema, "nexus.widget/2", StringComparison.Ordinal)) continue;
-                // View tree must be present (object or per-size map).
-                if (manifest.View.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
-                // Tier 2 worker bundles must ship the worker file they reference.
-                if (manifest.Capabilities.WorkerCode && !File.Exists(Path.Combine(dir, "worker.js"))) continue;
+                var isSdk = string.Equals(manifest.Runtime, "sdk", StringComparison.Ordinal);
+                // Declarative widgets need a view tree; SDK widgets render from
+                // widget.mjs in the sandboxed host and have none.
+                if (!isSdk && manifest.View.ValueKind != System.Text.Json.JsonValueKind.Object) continue;
+                // Worker-code bundles must ship the file they reference: worker.js
+                // for declarative Tier 2, widget.mjs for the SDK runtime.
+                if (isSdk)
+                {
+                    if (!File.Exists(Path.Combine(dir, "widget.mjs"))) continue;
+                }
+                else if (manifest.Capabilities.WorkerCode && !File.Exists(Path.Combine(dir, "worker.js"))) continue;
                 // Apply default size if author omitted it.
                 if (string.IsNullOrEmpty(manifest.DefaultSize) && manifest.Sizes.Count > 0)
                 {
