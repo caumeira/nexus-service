@@ -56,4 +56,40 @@ public class HueLiveTests
         Assert.False(result.Ok);
         Assert.Equal("link-button", result.Error);
     }
+
+    /// <summary>
+    /// Full end-to-end against real lamps: discover → pair → enumerate → control.
+    /// PRESS THE BRIDGE BUTTON, then within a few seconds run:
+    ///   NEXUS_HUE_LIVE=&lt;ip&gt; NEXUS_HUE_PAIR=1 dotnet test \
+    ///     --settings nexus-benchmarks.runsettings --filter "FullyQualifiedName~PairAndControl"
+    /// The first paired light cycles red → green → blue → white. Opt-in only
+    /// (NEXUS_HUE_PAIR=1) because it mutates real lights.
+    /// </summary>
+    [Fact]
+    public async Task PairAndControl_blinksTheFirstLight()
+    {
+        var host = Bridge;
+        if (string.IsNullOrEmpty(host)) return;
+        if (Environment.GetEnvironmentVariable("NEXUS_HUE_PAIR") != "1") return;
+
+        var driver = new HueDriver(new HueBridgeClient(), new LanDiscovery(new MdnsQuery()));
+        var pair = await driver.PairAsync(new DiscoveredLight("hue", host, "Bridge", ""), CancellationToken.None);
+        Assert.True(pair.Ok, $"pair failed ({pair.Error}); press the bridge button just before running");
+        Assert.NotEmpty(pair.Devices);
+
+        var cfg = pair.Devices[0];
+        var dev = new SmartLight
+        {
+            Id = cfg.Id, Brand = cfg.Brand, Name = cfg.Name, Host = cfg.Host,
+            StableKey = cfg.StableKey, Token = cfg.Token, Extra = cfg.Extra,
+        };
+
+        await driver.SendAsync(dev, new LightFrame(true, 255, 0, 0, 1f), CancellationToken.None);
+        await Task.Delay(800);
+        await driver.SendAsync(dev, new LightFrame(true, 0, 255, 0, 1f), CancellationToken.None);
+        await Task.Delay(800);
+        await driver.SendAsync(dev, new LightFrame(true, 0, 0, 255, 1f), CancellationToken.None);
+        await Task.Delay(800);
+        await driver.SendAsync(dev, new LightFrame(true, 255, 255, 255, 1f), CancellationToken.None);
+    }
 }
