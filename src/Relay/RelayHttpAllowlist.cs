@@ -36,7 +36,7 @@ public static class RelayHttpAllowlist
         "/benchmark",
         "/system",
         "/overlay",
-        "/widgets-api",
+        "/apps-api",
         "/shortcuts",
         "/media",
         "/y70",

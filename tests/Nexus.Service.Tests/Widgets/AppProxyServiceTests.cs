@@ -55,9 +55,10 @@ public class AppProxyServiceTests : IDisposable
                 ["net.fetch"] = netFetch,
                 ["config"] = true,
             },
-            view = new { type = "text", text = "hi" },
+            runtime = "sdk",
         };
         File.WriteAllText(Path.Combine(dir, "manifest.json"), JsonSerializer.Serialize(manifest));
+        File.WriteAllText(Path.Combine(dir, "widget.mjs"), "export const mount = () => {};");
     }
 
     private AppProxyService MakeService(HttpMessageHandler handler)

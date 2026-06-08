@@ -723,7 +723,7 @@ public static class NexusServiceCollectionExtensions
 
     /// <summary>
     /// Widget runtime services. Serving routes are wired in
-    /// <see cref="Nexus.Service.Routes.AppRoutes.MapWidgetEndpoints"/>
+    /// <see cref="Nexus.Service.Routes.AppRoutes.MapAppEndpoints"/>
     /// in Program.cs.
     /// </summary>
     public static IServiceCollection AddNexusWidgets(this IServiceCollection services)

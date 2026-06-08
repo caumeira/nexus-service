@@ -544,25 +544,19 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutIconResult))]
 #endif
 
-// Widgets - declarative runtime (nexus.app/1 schema)
+// Apps - manifest + listings (nexus.app/1 schema, sandboxed widget.mjs runtime)
 [JsonSerializable(typeof(AppManifest))]
 [JsonSerializable(typeof(AppManifestAuthor))]
 [JsonSerializable(typeof(AppManifestViewport))]
 [JsonSerializable(typeof(AppManifestCapabilities))]
 [JsonSerializable(typeof(AppManifestSettingEntry))]
 [JsonSerializable(typeof(List<AppManifestSettingEntry>))]
-[JsonSerializable(typeof(AppManifestDataSource))]
-[JsonSerializable(typeof(Dictionary<string, AppManifestDataSource>))]
-[JsonSerializable(typeof(AppClockSource))]
-[JsonSerializable(typeof(AppHostSource))]
 [JsonSerializable(typeof(AppActionAckDto))]
 [JsonSerializable(typeof(AppCoolingStateDto))]
 [JsonSerializable(typeof(ScreentimeHistoryEntryDto))]
 [JsonSerializable(typeof(ScreentimeFocusDto))]
 [JsonSerializable(typeof(ScreentimeTodayDto))]
 [JsonSerializable(typeof(List<ScreentimeHistoryEntryDto>))]
-[JsonSerializable(typeof(AppManifestFont))]
-[JsonSerializable(typeof(List<AppManifestFont>))]
 [JsonSerializable(typeof(AppInstalledListing))]
 [JsonSerializable(typeof(AppInstalledListingResponse))]
 [JsonSerializable(typeof(List<AppInstalledListing>))]

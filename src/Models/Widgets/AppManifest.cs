@@ -5,9 +5,10 @@ using System.Text.Json.Serialization;
 namespace Nexus.Service.Models.Widgets;
 
 /// <summary>
-/// Parsed <c>manifest.json</c> for an installed widget under the declarative
-/// schema <c>nexus.app/1</c>. Field names match the on-disk JSON. See
-/// <c>plans/widget-sdk.md</c> for the authoritative contract.
+/// Parsed <c>manifest.json</c> for an installed app under the <c>nexus.app/1</c>
+/// schema. Field names match the on-disk JSON. An app's widget facet is a
+/// sandboxed remote-component bundle (<c>widget.mjs</c>); there is no declarative
+/// view tree. See <c>plans/third-party-app-sdk.md</c> for the contract.
 /// </summary>
 public sealed class AppManifest
 {
@@ -39,11 +40,9 @@ public sealed class AppManifest
     public List<string> Surfaces { get; set; } = new();
 
     /// <summary>
-    /// Render runtime. Omitted / <c>"declarative"</c> = the meter-palette view
-    /// tree (default). <c>"sdk"</c> = a sandboxed remote-component widget: the
-    /// panel loads the built <c>widget.mjs</c> into a worker and reconciles its
-    /// tree into host components. Passed through to the dashboard listing so the
-    /// panel can pick the renderer.
+    /// Render runtime. Must be <c>"sdk"</c>: the panel loads the built
+    /// <c>widget.mjs</c> into a sandboxed worker and reconciles its remote
+    /// component tree into host components. Carried through to the listing.
     /// </summary>
     [JsonPropertyName("runtime")]
     public string? Runtime { get; set; }
@@ -76,54 +75,6 @@ public sealed class AppManifest
 
     [JsonPropertyName("settings")]
     public List<AppManifestSettingEntry> Settings { get; set; } = new();
-
-    /// <summary>
-    /// Data sources the view tree binds to. Keyed by binding name. Each
-    /// source is either a sensor reference, a REST fetch with JSONPath
-    /// extraction, or a passthrough from the optional Tier 2 worker.
-    /// </summary>
-    [JsonPropertyName("data")]
-    public Dictionary<string, AppManifestDataSource> Data { get; set; } = new();
-
-    /// <summary>
-    /// View tree. Either a single view (rendered at every supported size)
-    /// or a per-size map (<c>{ "2x2": ..., "4x2": ..., "4x4": ... }</c>).
-    /// Stored as a <see cref="JsonElement"/> so the AOT source generator
-    /// can carry it through without committing to a closed schema; the
-    /// renderer interprets it at runtime against the meter palette.
-    /// </summary>
-    [JsonPropertyName("view")]
-    public JsonElement View { get; set; }
-
-    /// <summary>
-    /// Author-bundled font faces. The host loads them via the FontFace
-    /// API and scopes the family name to the widget id, so two widgets
-    /// shipping fonts named "led" don't collide. Referenced from the
-    /// view tree via the meter's <c>font</c> prop.
-    /// </summary>
-    [JsonPropertyName("fonts")]
-    public List<AppManifestFont> Fonts { get; set; } = new();
-
-    /// <summary>
-    /// Default values for the widget's per-instance local state bag.
-    /// Bindings read via <c>{local.*}</c>; <c>button.onClick.localUpdate</c>
-    /// mutates. Persisted to localStorage keyed by widgetId + instanceId.
-    /// Pass-through JsonElement (open-shape) so authors can put anything
-    /// JSON-serialisable in there. Nullable because <c>JsonElement</c>
-    /// defaults to <c>ValueKind.Undefined</c> which is not valid JSON;
-    /// widgets without a <c>local</c> block surface as <c>null</c> on the
-    /// wire rather than throwing during response serialisation.
-    /// </summary>
-    [JsonPropertyName("local")]
-    public JsonElement? Local { get; set; }
-}
-
-public sealed class AppManifestFont
-{
-    [JsonPropertyName("name")] public string Name { get; set; } = "";
-    [JsonPropertyName("src")] public string Src { get; set; } = "";
-    [JsonPropertyName("weight")] public string? Weight { get; set; }
-    [JsonPropertyName("style")] public string? Style { get; set; }
 }
 
 public sealed class AppManifestAuthor
@@ -200,91 +151,4 @@ public sealed class AppManifestSettingEntry
     // widget declare a visual switcher (e.g. the clock's design picker).
     [JsonPropertyName("optionLabels")] public List<string>? OptionLabels { get; set; }
     [JsonPropertyName("optionIcons")] public List<string>? OptionIcons { get; set; }
-}
-
-/// <summary>
-/// A single binding source. Exactly one of <see cref="Sensor"/>, <see cref="Fetch"/>,
-/// <see cref="Worker"/>, <see cref="Clock"/>, or <see cref="Host"/> should be set.
-/// The renderer picks based on which is present.
-/// </summary>
-public sealed class AppManifestDataSource
-{
-    [JsonPropertyName("sensor")]
-    public string? Sensor { get; set; }
-
-    [JsonPropertyName("fetch")]
-    public string? Fetch { get; set; }
-
-    [JsonPropertyName("refresh")]
-    public string? Refresh { get; set; }
-
-    [JsonPropertyName("headers")]
-    public Dictionary<string, string>? Headers { get; set; }
-
-    [JsonPropertyName("extract")]
-    public Dictionary<string, string>? Extract { get; set; }
-
-    /// <summary>
-    /// When set, this binding receives values published by the bundle's
-    /// worker.js via <c>nexus.publish</c>. The string value is the
-    /// publish-payload key. Mutually exclusive with sensor/fetch.
-    /// </summary>
-    [JsonPropertyName("worker")]
-    public string? Worker { get; set; }
-
-    /// <summary>
-    /// Host-ticking clock. The renderer polls <see cref="AppClockSource.TickEvery"/>
-    /// (default 1s) and surfaces formatted time parts under this binding's name.
-    /// Used by the clock widget and by stateful widgets (stopwatch/timer) that
-    /// need a re-render heartbeat.
-    /// </summary>
-    [JsonPropertyName("clock")]
-    public AppClockSource? Clock { get; set; }
-
-    /// <summary>
-    /// Host-action source. The renderer POSTs to /apps-api/dispatch with
-    /// the named action on a schedule (<see cref="AppHostSource.Refresh"/>,
-    /// default 5s) and surfaces the result under this binding's name. The
-    /// action must appear in the manifest's <c>capabilities.dispatch</c>
-    /// allowlist.
-    /// </summary>
-    [JsonPropertyName("host")]
-    public AppHostSource? Host { get; set; }
-}
-
-/// <summary>Configuration for a <c>clock</c> data source.</summary>
-public sealed class AppClockSource
-{
-    /// <summary>Tick cadence, e.g. <c>"1s"</c>, <c>"500ms"</c>, <c>"100ms"</c>,
-    /// <c>"1m"</c>. The renderer enforces a 100 ms floor.</summary>
-    [JsonPropertyName("tickEvery")]
-    public string? TickEvery { get; set; }
-
-    /// <summary>IANA timezone (e.g. <c>"America/New_York"</c>). Empty / null
-    /// means the system zone. May itself be a <c>{settings.x}</c> binding.</summary>
-    [JsonPropertyName("timezone")]
-    public string? Timezone { get; set; }
-
-    [JsonPropertyName("hour12")]
-    public bool? Hour12 { get; set; }
-}
-
-/// <summary>Configuration for a <c>host</c> data source.</summary>
-public sealed class AppHostSource
-{
-    /// <summary>Dotted action name routed through the dispatch registry
-    /// (e.g. <c>"screentime.today"</c>).</summary>
-    [JsonPropertyName("action")]
-    public string Action { get; set; } = "";
-
-    /// <summary>Refresh cadence, e.g. <c>"5s"</c>, <c>"30s"</c>, <c>"1m"</c>.
-    /// Defaults to 5 s in the renderer.</summary>
-    [JsonPropertyName("refresh")]
-    public string? Refresh { get; set; }
-
-    /// <summary>Open-shape args passed to the action handler. Pass-through
-    /// JsonElement so authors can put anything JSON-serialisable in there.
-    /// Nullable for the same reason as <c>AppManifest.Local</c>.</summary>
-    [JsonPropertyName("args")]
-    public JsonElement? Args { get; set; }
 }

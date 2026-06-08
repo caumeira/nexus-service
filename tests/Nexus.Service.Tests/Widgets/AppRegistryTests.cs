@@ -39,7 +39,7 @@ public class AppRegistryTests : IDisposable
         Assert.Single(entry.Manifest.Surfaces, "dashboard");
         Assert.Equal(new List<string> { "cpu.*" }, entry.Manifest.Capabilities.SensorsRead);
         Assert.Equal("2x2", entry.Manifest.DefaultSize);
-        Assert.True(entry.Manifest.View.ValueKind == System.Text.Json.JsonValueKind.Object);
+        Assert.Equal("sdk", entry.Manifest.Runtime);
     }
 
     [Fact]
@@ -56,7 +56,7 @@ public class AppRegistryTests : IDisposable
     }
 
     [Fact]
-    public void Skips_bundle_when_view_block_is_missing()
+    public void Skips_bundle_when_runtime_is_not_sdk()
     {
         var manifest = Path.Combine(_root, "com.hellonexus.fixture-basic", "manifest.json");
         File.WriteAllText(manifest, """
@@ -76,21 +76,10 @@ public class AppRegistryTests : IDisposable
     }
 
     [Fact]
-    public void Skips_worker_bundle_when_worker_js_is_missing()
+    public void Skips_sdk_bundle_when_widget_mjs_is_missing()
     {
-        var manifest = Path.Combine(_root, "com.hellonexus.fixture-basic", "manifest.json");
-        File.WriteAllText(manifest, """
-        {
-          "schema": "nexus.app/1",
-          "id": "com.hellonexus.fixture-basic",
-          "name": "x",
-          "version": "1.0.0",
-          "min_nexus_version": "0.42.0",
-          "surfaces": ["dashboard"],
-          "capabilities": { "code": "worker" },
-          "view": { "type": "text", "text": "hi" }
-        }
-        """);
+        // Manifest declares the SDK runtime but the bundle ships no widget.mjs.
+        File.Delete(Path.Combine(_root, "com.hellonexus.fixture-basic", "widget.mjs"));
 
         var registry = NewRegistry();
         Assert.False(registry.TryGet("com.hellonexus.fixture-basic", out _));

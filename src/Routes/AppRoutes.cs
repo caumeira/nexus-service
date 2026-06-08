@@ -51,14 +51,14 @@ public static class AppRoutes
         ".js", ".mjs", ".json",
     };
 
-    public static void MapWidgetEndpoints(this WebApplication app)
+    public static void MapAppEndpoints(this WebApplication app)
     {
         app.MapGet("/apps-api/installed", (AppRegistry registry) =>
         {
             var response = new AppInstalledListingResponse();
             foreach (var entry in registry.All())
             {
-                response.Widgets.Add(BuildListing(entry));
+                response.Apps.Add(BuildListing(entry));
             }
             return Results.Json(response, AppJsonContext.Default.AppInstalledListingResponse);
         }).AllowPanel();
@@ -359,15 +359,6 @@ public static class AppRoutes
             Settings = new List<AppManifestSettingEntry>(entry.Manifest.Settings),
             Sizes = new List<string>(entry.Manifest.Sizes),
             DefaultSize = entry.Manifest.DefaultSize,
-            // A viewless (SDK) manifest leaves View as an Undefined JsonElement,
-            // which the serializer would throw on — emit null instead so one
-            // viewless bundle can't 500 the whole listing.
-            View = entry.Manifest.View.ValueKind == System.Text.Json.JsonValueKind.Undefined
-                ? null
-                : entry.Manifest.View,
-            Data = entry.Manifest.Data,
-            Fonts = entry.Manifest.Fonts,
-            Local = entry.Manifest.Local,
             Source = source,
             Trusted = entry.Source != AppInstallPaths.Source.Dev,
         };

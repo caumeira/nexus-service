@@ -56,6 +56,7 @@ public class WidgetSettingsServiceTests : IDisposable
         var widgetDir = Path.Combine(_tempDir, "widgets-root", AppId);
         Directory.CreateDirectory(widgetDir);
         File.WriteAllText(Path.Combine(widgetDir, "manifest.json"), BuildManifestJson(settings));
+        File.WriteAllText(Path.Combine(widgetDir, "widget.mjs"), "export const mount = () => {};");
 
         _store.Update(s =>
         {
@@ -96,7 +97,7 @@ public class WidgetSettingsServiceTests : IDisposable
           "min_nexus_version": "0.0.0",
           "surfaces": ["dashboard"],
           "sizes": ["2x2"],
-          "view": {"type":"text","text":"x"},
+          "runtime": "sdk",
           "settings": [{{settingsJson}}]
         }
         """;

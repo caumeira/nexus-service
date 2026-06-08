@@ -45,9 +45,10 @@ public class AppInstallerTests : IDisposable
             min_nexus_version = "0.42.0",
             surfaces = new[] { "dashboard" },
             sizes = new[] { "2x2" },
-            view = new { type = "text", text = "hi" },
+            runtime = "sdk",
         };
         File.WriteAllText(Path.Combine(dir, "manifest.json"), JsonSerializer.Serialize(manifest));
+        File.WriteAllText(Path.Combine(dir, "widget.mjs"), "export const mount = () => {};");
     }
 
     private (AppRegistry registry, AppInstaller installer) NewInstaller()
@@ -85,6 +86,7 @@ public class AppInstallerTests : IDisposable
         var dst = Path.Combine(_userRoot, "com.hellonexus.demo");
         Directory.CreateDirectory(dst);
         File.Copy(Path.Combine(src, "manifest.json"), Path.Combine(dst, "manifest.json"));
+        File.Copy(Path.Combine(src, "widget.mjs"), Path.Combine(dst, "widget.mjs"));
 
         var (_, installer) = NewInstaller();
         var cat = installer.Catalogue();

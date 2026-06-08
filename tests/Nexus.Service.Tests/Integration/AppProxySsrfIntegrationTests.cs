@@ -45,13 +45,14 @@ public sealed class SsrfAppFactory : NexusAppFactory
           "id": "{{AppId}}",
           "name": "SSRF Fixture",
           "version": "1.0.0",
+          "runtime": "sdk",
           "surfaces": ["dashboard"],
           "sizes": ["2x2"],
           "default_size": "2x2",
-          "capabilities": { "net.fetch": [{{allow}}] },
-          "view": { "type": "value", "text": "x" }
+          "capabilities": { "net.fetch": [{{allow}}] }
         }
         """);
+        File.WriteAllText(Path.Combine(bundle, "widget.mjs"), "export const mount = () => {};");
     }
 
     protected override void ConfigureWebHost(IWebHostBuilder builder)
@@ -84,12 +85,12 @@ public sealed class AppProxySsrfIntegrationTests : IClassFixture<SsrfAppFactory>
 
     public AppProxySsrfIntegrationTests(SsrfAppFactory factory) => _factory = factory;
 
-    private async Task<string> ProxyError(string widgetId, string url, string method = "GET")
+    private async Task<string> ProxyError(string appId, string url, string method = "GET")
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue(
             "Bearer", _factory.Services.GetRequiredService<TokenService>().Token);
-        var body = $"{{\"widgetId\":\"{widgetId}\",\"url\":\"{url}\",\"method\":\"{method}\"}}";
+        var body = $"{{\"appId\":\"{appId}\",\"url\":\"{url}\",\"method\":\"{method}\"}}";
         var res = await client.PostAsync("/apps-api/proxy",
             new StringContent(body, Encoding.UTF8, "application/json"));
         return await res.Content.ReadAsStringAsync();

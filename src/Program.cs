@@ -399,7 +399,7 @@ app.MapProfileEndpoints();
 app.MapPanelEndpoints();
 app.MapOverlayEndpoints();
 app.MapWeatherEndpoints();
-app.MapWidgetEndpoints();
+app.MapAppEndpoints();
 app.MapConflictEndpoints();
 app.MapWebSocketEndpoints();
 Nexus.Service.Lifecycle.BootTimer.Mark("after route mapping");

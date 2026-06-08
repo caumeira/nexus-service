@@ -1,12 +1,11 @@
 using System.Collections.Generic;
-using System.Text.Json;
 
 namespace Nexus.Service.Models.Widgets;
 
 /// <summary>
-/// Listing payload returned by <c>GET /apps-api/installed</c>. Carries
-/// the manifest view tree + data sources so the dashboard can render the
-/// widget without a second fetch.
+/// Listing payload returned by <c>GET /apps-api/installed</c>. Describes an
+/// installed app: its capabilities, settings schema, and sizes. The widget
+/// facet renders from the bundle's <c>widget.mjs</c>; there is no view tree.
 /// </summary>
 public sealed class AppInstalledListing
 {
@@ -16,28 +15,24 @@ public sealed class AppInstalledListing
     public string? Description { get; set; }
     public string? IconUrl { get; set; }
     public List<string> Surfaces { get; set; } = new();
-    public string? Runtime { get; set; } // null/"declarative" | "sdk"
-    public bool Page { get; set; }       // SDK widget declares an expanded page surface
+    public string? Runtime { get; set; } // "sdk"
+    public bool Page { get; set; }       // app declares an expanded page surface
     public AppManifestCapabilities Capabilities { get; set; } = new();
     public AppManifestViewport? Viewport { get; set; }
     public List<AppManifestSettingEntry> Settings { get; set; } = new();
     public List<string> Sizes { get; set; } = new();
     public string? DefaultSize { get; set; }
-    public JsonElement? View { get; set; } // absent for SDK widgets (no view tree)
-    public Dictionary<string, AppManifestDataSource> Data { get; set; } = new();
-    public List<AppManifestFont> Fonts { get; set; } = new();
-    public JsonElement? Local { get; set; }
     public string Source { get; set; } = ""; // "dev" | "user" | "bundled"
     public bool Trusted { get; set; }        // true when source != "dev"
 }
 
 public sealed class AppInstalledListingResponse
 {
-    public List<AppInstalledListing> Widgets { get; set; } = new();
+    public List<AppInstalledListing> Apps { get; set; } = new();
 }
 
-/// <summary>Marketplace catalogue entry: a widget that could be installed
-/// (or already is) into the user widgets dir.</summary>
+/// <summary>Marketplace catalogue entry: an app that could be installed
+/// (or already is) into the user apps dir.</summary>
 public sealed class AppCatalogEntry
 {
     public string Id { get; set; } = "";
