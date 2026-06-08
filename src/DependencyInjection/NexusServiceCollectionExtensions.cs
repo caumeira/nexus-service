@@ -511,10 +511,16 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IKeebProvider>(sp => sp.GetRequiredService<RealKeebProvider>());
 #if WINDOWS
         services.AddSingleton<IInputterProvider, WindowsInputter>();
+        services.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider, Nexus.Service.Platform.Clipboard.WindowsClipboardProvider>();
+#elif MACOS
+        services.AddSingleton<IInputterProvider, MacInputter>();
+        services.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider, Nexus.Service.Platform.Clipboard.MacClipboardProvider>();
 #elif LINUX
         services.AddSingleton<IInputterProvider, LinuxInputter>();
+        services.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider, Nexus.Service.Platform.Clipboard.LinuxClipboardProvider>();
 #else
         services.AddSingleton<IInputterProvider>(sp => sp.GetRequiredService<StubKeebProvider>());
+        services.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider, Nexus.Service.Platform.Clipboard.StubClipboardProvider>();
 #endif
 
         // Real Y70 control (serial brightness/power + DDC/CI fallback). Degrades
@@ -588,9 +594,12 @@ public static class NexusServiceCollectionExtensions
 #if WINDOWS
         services.AddSingleton<IScreenTimeProvider, WindowsScreenTimeProvider>();
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
-        services.AddSingleton<IShortcutsProvider, WindowsShortcutsProvider>();
+        // Enumeration (Get-StartApps) is per-user and empty from Session 0, so
+        // route it through the user-session helper. Launch stays direct (explorer).
+        services.AddSingleton<IShortcutsProvider, HelperShortcutsProxy>();
         services.AddSingleton<IMediaProvider, WindowsMediaProvider>();
         services.AddSingleton<IVolumeProvider, WindowsVolumeProvider>();
+        services.AddSingleton<IAudioDeviceProvider, WindowsAudioDeviceProvider>();
         services.AddSingleton<IBeatsProvider, WasapiLoopbackBeatsProvider>();
 #elif MACOS
         services.AddSingleton<IScreenTimeProvider, MacScreenTimeProvider>();
@@ -598,6 +607,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IShortcutsProvider, MacShortcutsProvider>();
         services.AddSingleton<IMediaProvider, MacMediaProvider>();
         services.AddSingleton<IVolumeProvider, MacVolumeProvider>();
+        services.AddSingleton<IAudioDeviceProvider, MacAudioDeviceProvider>();
         services.AddSingleton<IBeatsProvider, MacAudioBeatsProvider>();
 #elif LINUX
         services.AddSingleton<Nexus.Service.Activity.LinuxScreenTimeProvider>();
@@ -607,6 +617,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IShortcutsProvider, LinuxShortcutsProvider>();
         services.AddSingleton<IMediaProvider, LinuxMediaProvider>();
         services.AddSingleton<IVolumeProvider, LinuxVolumeProvider>();
+        services.AddSingleton<IAudioDeviceProvider, LinuxAudioDeviceProvider>();
         services.AddSingleton<IBeatsProvider, BeatsProvider>();
 #else
         services.AddSingleton<IScreenTimeProvider, StubScreenTimeProvider>();
@@ -614,6 +625,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IShortcutsProvider, StubShortcutsProvider>();
         services.AddSingleton<IMediaProvider, StubMediaProvider>();
         services.AddSingleton<IVolumeProvider, StubVolumeProvider>();
+        services.AddSingleton<IAudioDeviceProvider, StubAudioDeviceProvider>();
         services.AddSingleton<IBeatsProvider, StubBeatsProvider>();
 #endif
         return services;
@@ -652,6 +664,15 @@ public static class NexusServiceCollectionExtensions
 #endif
 
         services.AddSingleton<IShutdownProvider, StubShutdownProvider>();
+#if WINDOWS
+        services.AddSingleton<Nexus.Service.Platform.Power.ISystemPowerProvider, Nexus.Service.Platform.Power.WindowsSystemPowerProvider>();
+#elif MACOS
+        services.AddSingleton<Nexus.Service.Platform.Power.ISystemPowerProvider, Nexus.Service.Platform.Power.MacSystemPowerProvider>();
+#elif LINUX
+        services.AddSingleton<Nexus.Service.Platform.Power.ISystemPowerProvider, Nexus.Service.Platform.Power.LinuxSystemPowerProvider>();
+#else
+        services.AddSingleton<Nexus.Service.Platform.Power.ISystemPowerProvider, Nexus.Service.Platform.Power.StubSystemPowerProvider>();
+#endif
 #if WINDOWS
         services.AddSingleton<IPawnIoProvider, PawnIoProvider>();
 #else
@@ -699,7 +720,6 @@ public static class NexusServiceCollectionExtensions
             // gates per-widget access.
             Nexus.Service.Widgets.WidgetActions.DisplayActions.RegisterAll(registry);
             Nexus.Service.Widgets.WidgetActions.ScreentimeActions.RegisterAll(registry);
-            Nexus.Service.Widgets.WidgetActions.MacroActions.RegisterAll(registry);
             return registry;
         });
         return services;

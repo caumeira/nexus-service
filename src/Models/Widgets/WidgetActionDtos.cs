@@ -4,8 +4,8 @@ using System.Text.Json.Serialization;
 namespace Nexus.Service.Models.Widgets;
 
 /// <summary>
-/// Generic acknowledgement payload for fire-and-forget host actions
-/// (macros, etc.). AOT-safe replacement for the anonymous-type
+/// Generic acknowledgement payload for fire-and-forget host actions.
+/// AOT-safe replacement for the anonymous-type
 /// <c>new { ok, message }</c> idiom which silently fails under the
 /// source-gen JSON context.
 /// </summary>

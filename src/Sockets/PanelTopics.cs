@@ -14,6 +14,7 @@ public static class PanelTopics
     public const string Prefs = "prefs";
     public const string Lighting = "lighting";
     public const string Cooling = "cooling";
+    public const string Volume = "volume";
     public const string CoolingWarnings = "cooling/warnings";
     public const string PanelDevice = "panel/device";
     /// <summary>
@@ -48,6 +49,15 @@ public static class PanelTopics
         var frame = new CoolingChangedFrame { Revision = Now() };
         var env = WsEnvelope.Build(Cooling, frame, AppJsonContext.Default.CoolingChangedFrame);
         _ = hub.BroadcastTopicAsync(Cooling, env);
+    }
+
+    public static void BroadcastVolume(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(Volume))
+            return;
+        var frame = new VolumeChangedFrame { Revision = Now() };
+        var env = WsEnvelope.Build(Volume, frame, AppJsonContext.Default.VolumeChangedFrame);
+        _ = hub.BroadcastTopicAsync(Volume, env);
     }
 
     /// <summary>

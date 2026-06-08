@@ -22,6 +22,11 @@ public class RelayHttpAllowlistTests
     [InlineData("GET", "/api/steam/status")]
     [InlineData("GET", "/ping")]
     [InlineData("GET", "/panel/status?foo=bar")] // query is ignored for matching
+    [InlineData("POST", "/system/input/keys")]   // deck hotkey injection (relay-allowed)
+    [InlineData("POST", "/system/open-url")]      // deck open-url (relay-allowed)
+    [InlineData("POST", "/system/power/lock")]    // non-destructive power (relay-allowed)
+    [InlineData("POST", "/system/power/sleep")]
+    [InlineData("GET", "/system/audio/devices")]
     public void Allows_PanelAndControlSurface(string method, string path)
         => Assert.True(RelayHttpAllowlist.IsAllowed(method, path));
 
@@ -34,6 +39,10 @@ public class RelayHttpAllowlistTests
     [InlineData("GET", "/pawnio")]                   // off-allowlist
     [InlineData("GET", "/")]                          // SPA shell
     [InlineData("GET", "/panelX")]                   // not a /panel segment boundary
+    [InlineData("POST", "/system/open-path")]        // opens arbitrary local files — LAN-only
+    [InlineData("POST", "/system/power/shutdown")]   // destructive — LAN-only
+    [InlineData("POST", "/system/power/restart")]    // destructive — LAN-only
+    [InlineData("POST", "/system/power/logout")]     // strands a remote user — LAN-only
     public void Rejects_SocketHighBandwidthAndOffAllowlist(string method, string path)
         => Assert.False(RelayHttpAllowlist.IsAllowed(method, path));
 
