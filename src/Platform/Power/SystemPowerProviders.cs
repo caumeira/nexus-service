@@ -21,7 +21,20 @@ public interface ISystemPowerProvider
 /// <summary>Windows: LockWorkStation / SetSuspendState P/Invoke + shutdown.exe.</summary>
 public sealed class WindowsSystemPowerProvider : ISystemPowerProvider
 {
-    public bool Lock() => OperatingSystem.IsWindows() && LockWorkStation();
+    public bool Lock()
+    {
+        if (!OperatingSystem.IsWindows()) return false;
+#if WINDOWS
+        // The service runs as LocalSystem in Session 0, where LockWorkStation
+        // no-ops (no interactive desktop). Run it as the active console user via
+        // a one-shot scheduled task — the same mechanism the user-session helper
+        // uses. Fall back to a direct call (works if ever run interactively).
+        if (Nexus.Service.Lifecycle.UserHelperBootstrapper.RunInUserSession(
+                "rundll32.exe user32.dll,LockWorkStation", "lock", "NexusLock"))
+            return true;
+#endif
+        return LockWorkStation();
+    }
     public bool Sleep() => OperatingSystem.IsWindows() && SetSuspendState(false, false, false);
     public bool Shutdown() => Run("/s", "/t", "0");
     public bool Restart() => Run("/r", "/t", "0");
