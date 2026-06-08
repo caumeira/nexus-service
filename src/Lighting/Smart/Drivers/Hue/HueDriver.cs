@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Lighting.Smart.Discovery;
@@ -115,6 +116,9 @@ public sealed class HueDriver : ILightDriver
             catch (Exception ex) { return new PairResult { Ok = false, Error = "enumerate-failed: " + ex.Message }; }
 
             var token = SecretProtector.Protect(s.Username);
+            // clientkey is the DTLS pre-shared key for Entertainment streaming;
+            // it's only returned here at pairing, so capture it now.
+            var clientKey = s.ClientKey ?? "";
             var devices = new List<SmartLightConfig>();
             foreach (var l in lights)
             {
@@ -127,7 +131,7 @@ public sealed class HueDriver : ILightDriver
                     Host = target.Host,
                     StableKey = bridgeId,
                     Token = token,
-                    Extra = l.Id,
+                    Extra = BuildExtra(l.Id, clientKey),
                     Enabled = true,
                 });
             }
@@ -143,7 +147,8 @@ public sealed class HueDriver : ILightDriver
     public async Task SendAsync(SmartLight dev, LightFrame frame, CancellationToken ct)
     {
         var appKey = SecretProtector.Unprotect(dev.Token);
-        if (string.IsNullOrEmpty(appKey) || string.IsNullOrEmpty(dev.Extra)) return;
+        var (rid, _) = ParseExtra(dev.Extra);
+        if (string.IsNullOrEmpty(appKey) || string.IsNullOrEmpty(rid)) return;
 
         HueLightUpdate update;
         if (!frame.On)
@@ -165,13 +170,34 @@ public sealed class HueDriver : ILightDriver
                 Dynamics = new HueDynamics { Duration = 0 },
             };
         }
-        await _client.UpdateLightAsync(dev.Host, appKey, dev.Extra, update, ct).ConfigureAwait(false);
+        await _client.UpdateLightAsync(dev.Host, appKey, rid, update, ct).ConfigureAwait(false);
     }
 
     public async Task IdentifyAsync(SmartLight dev, CancellationToken ct)
     {
         var appKey = SecretProtector.Unprotect(dev.Token);
-        if (string.IsNullOrEmpty(appKey) || string.IsNullOrEmpty(dev.Extra)) return;
-        await _client.IdentifyAsync(dev.Host, appKey, dev.Extra, ct).ConfigureAwait(false);
+        var (rid, _) = ParseExtra(dev.Extra);
+        if (string.IsNullOrEmpty(appKey) || string.IsNullOrEmpty(rid)) return;
+        await _client.IdentifyAsync(dev.Host, appKey, rid, ct).ConfigureAwait(false);
+    }
+
+    // Extra encodes the v2 light rid + the bridge clientkey (DTLS PSK). New
+    // entries are JSON; legacy entries were the bare rid string.
+    internal static string BuildExtra(string rid, string clientKey)
+        => JsonSerializer.Serialize(new HueDeviceExtra { Rid = rid, ClientKey = clientKey }, HueJsonContext.Default.HueDeviceExtra);
+
+    internal static (string rid, string clientKey) ParseExtra(string extra)
+    {
+        if (string.IsNullOrEmpty(extra)) return ("", "");
+        if (extra[0] == '{')
+        {
+            try
+            {
+                var e = JsonSerializer.Deserialize(extra, HueJsonContext.Default.HueDeviceExtra);
+                if (e is not null) return (e.Rid, e.ClientKey);
+            }
+            catch { /* fall through to legacy */ }
+        }
+        return (extra, ""); // legacy: bare rid, no clientkey (re-pair to capture)
     }
 }

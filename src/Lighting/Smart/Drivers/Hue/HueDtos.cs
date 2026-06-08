@@ -109,6 +109,16 @@ public sealed class HueDynamics
     [JsonPropertyName("duration")] public int Duration { get; set; }
 }
 
+// Per-light opaque payload we persist in SmartLightConfig.Extra. Carries the v2
+// light resource id (for REST control) plus the bridge clientkey (the DTLS PSK
+// for Entertainment streaming, captured at pairing). Legacy entries stored just
+// the bare rid string — handled on parse.
+public sealed class HueDeviceExtra
+{
+    [JsonPropertyName("rid")] public string Rid { get; set; } = "";
+    [JsonPropertyName("ck")] public string ClientKey { get; set; } = "";
+}
+
 public sealed class HueIdentifyUpdate
 {
     [JsonPropertyName("identify")] public HueIdentifyAction Identify { get; set; } = new();
