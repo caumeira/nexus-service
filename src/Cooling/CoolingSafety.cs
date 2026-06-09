@@ -26,14 +26,20 @@ public static class CoolingSafety
 
     public static int ClampDuty(int dutyPercent) => Math.Clamp(dutyPercent, MinDuty, MaxDuty);
 
-    public static double ClampDuty(double duty) => Math.Clamp(duty, MinDuty, MaxDuty);
+    // Non-finite (NaN/Inf) collapses to the safe floor, so a malformed value never
+    // persists or round-trips back as NaN.
+    public static double ClampDuty(double duty) =>
+        double.IsFinite(duty) ? Math.Clamp(duty, MinDuty, MaxDuty) : MinDuty;
+
+    // A speed multiplier (global / per-graph). Non-finite or out-of-range collapses
+    // to 1.0 (no-op), never a negative or absurd boost.
+    private static double ClampModifier(double modifier) =>
+        double.IsFinite(modifier) ? Math.Clamp(modifier, 0.0, MaxGlobalModifier) : 1.0;
 
     /// <summary>Clamp every speed in a curve-set body in place and return it.</summary>
     public static SetCurvesBody Sanitize(SetCurvesBody body)
     {
-        body.GlobalSpeedModifier = double.IsFinite(body.GlobalSpeedModifier)
-            ? Math.Clamp(body.GlobalSpeedModifier, 0.0, MaxGlobalModifier)
-            : 1.0;
+        body.GlobalSpeedModifier = ClampModifier(body.GlobalSpeedModifier);
 
         foreach (var curve in body.Curves)
         {
@@ -50,6 +56,7 @@ public static class CoolingSafety
 
             if (curve.Graph is { } graph)
             {
+                graph.SpeedModifier = ClampModifier(graph.SpeedModifier);
                 foreach (var point in graph.Points)
                 {
                     point.Speed = ClampDuty(point.Speed);

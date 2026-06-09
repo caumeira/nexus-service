@@ -39,8 +39,16 @@ public sealed partial class UnixSocketListener : IDuplexListener
         if (File.Exists(socketPath)) File.Delete(socketPath);
 
         _listener = new Socket(AddressFamily.Unix, SocketType.Stream, ProtocolType.Unspecified);
-        _listener.Bind(new UnixDomainSocketEndPoint(socketPath));
-        _listener.Listen(16);
+        try
+        {
+            _listener.Bind(new UnixDomainSocketEndPoint(socketPath));
+            _listener.Listen(16);
+        }
+        catch
+        {
+            _listener.Dispose();
+            throw;
+        }
     }
 
     public async Task<IDuplexTransport> AcceptAsync(CancellationToken ct)
@@ -48,7 +56,7 @@ public sealed partial class UnixSocketListener : IDuplexListener
         var sock = await _listener.AcceptAsync(ct).ConfigureAwait(false);
         try
         {
-            var peer = ReadPeerCredentials(sock.Handle.ToInt32());
+            var peer = ReadPeerCredentials((int)sock.SafeHandle.DangerousGetHandle());
             return new UnixSocketTransport(sock, peer);
         }
         catch
@@ -86,6 +94,10 @@ public sealed partial class UnixSocketListener : IDuplexListener
             uint len = (uint)buf.Length;
             if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, buf, ref len) != 0)
                 throw new IOException($"SO_PEERCRED failed (errno {Marshal.GetLastPInvokeError()})");
+            // Refuse a short read: pid@0 + uid@4 need 8 bytes. Trusting a partial
+            // struct would silently report uid 0 (root) from the zeroed buffer.
+            if (len < 8)
+                throw new IOException($"SO_PEERCRED returned {len} bytes; expected >= 8");
             return new PeerCredentials(
                 BinaryPrimitives.ReadInt32LittleEndian(buf),
                 BinaryPrimitives.ReadInt32LittleEndian(buf.AsSpan(4)));
@@ -98,12 +110,18 @@ public sealed partial class UnixSocketListener : IDuplexListener
             uint clen = (uint)cred.Length;
             if (getsockopt(fd, SOL_LOCAL, LOCAL_PEERCRED, cred, ref clen) != 0)
                 throw new IOException($"LOCAL_PEERCRED failed (errno {Marshal.GetLastPInvokeError()})");
+            // Refuse a short read (uid is the second u_int, offset 4) — a partial
+            // xucred would silently report uid 0 (root) from the zeroed buffer.
+            if (clen < 8)
+                throw new IOException($"LOCAL_PEERCRED returned {clen} bytes; expected >= 8");
             var uid = BinaryPrimitives.ReadInt32LittleEndian(cred.AsSpan(4));
 
             var pidBuf = new byte[4];
             uint plen = (uint)pidBuf.Length;
             if (getsockopt(fd, SOL_LOCAL, LOCAL_PEERPID, pidBuf, ref plen) != 0)
                 throw new IOException($"LOCAL_PEERPID failed (errno {Marshal.GetLastPInvokeError()})");
+            if (plen < 4)
+                throw new IOException($"LOCAL_PEERPID returned {plen} bytes; expected >= 4");
             return new PeerCredentials(BinaryPrimitives.ReadInt32LittleEndian(pidBuf), uid);
         }
 
