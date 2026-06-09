@@ -77,7 +77,6 @@ internal static class ShaderLibrary
     public static string ChromaSpiral => Get("chromaspiral");
     public static string NeonGrid => Get("neongrid");
     public static string OilSlick => Get("oilslick");
-    public static string NeonCube => Get("neoncube");
     public static string Bubbles => Get("bubbles");
     public static string SilkWave => Get("silkwave");
     public static string PrismWave => Get("prismwave");
@@ -99,7 +98,7 @@ internal static class ShaderLibrary
         "interference",
         "sacredgeometry", "tessellation", "domainwarp",
         "inkbloom", "cosmicdust", "chromaspiral",
-        "neongrid", "oilslick", "neoncube",
+        "neongrid", "oilslick",
         "caustics", "galaxy", "starpath",
         "plasmaglobe", "lightning", "flowfield", "ferrofluid",
         "liquidchrome",
