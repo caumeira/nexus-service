@@ -504,6 +504,15 @@ public sealed class PanelPhoneSessionToken
     public string Id { get; set; } = "";
     public string Hash { get; set; } = "";
     public string Name { get; set; } = "";
+
+    /// <summary>
+    /// Device class frozen at claim time (e.g. "iPad", "Android tablet"). Unlike
+    /// <see cref="Name"/>, it is never overwritten by a user rename, so the
+    /// session list can show the original class alongside a custom name. Set from
+    /// the client-detected label when present, else the UA descriptor. Empty for
+    /// sessions claimed before this field existed — those fall back to the UA.
+    /// </summary>
+    public string DeviceType { get; set; } = "";
     public string UserAgent { get; set; } = "";
     public string RemoteAddress { get; set; } = "";
     public string DeviceFingerprint { get; set; } = "";
