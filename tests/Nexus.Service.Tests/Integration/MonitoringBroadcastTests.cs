@@ -33,8 +33,10 @@ internal sealed class StubSensorProvider : ISensorProvider
         };
     }
     public (bool Healthy, float DistanceToTJMax) GetCpuHealth() => (true, 20f);
-    public IReadOnlyList<string> GetGpuModels() => Array.Empty<string>();
-    public IReadOnlyList<HardwareSensor> GetGpuSensors() => Array.Empty<HardwareSensor>();
+    public List<GpuReadout> Gpus { get; init; } = new();
+    public IReadOnlyList<string> GetGpuModels() => Gpus.Select(g => g.Name).ToList();
+    public IReadOnlyList<HardwareSensor> GetGpuSensors() => Gpus.SelectMany(g => g.Sensors).ToList();
+    public IReadOnlyList<GpuReadout> GetGpus() => Gpus;
     public IReadOnlyList<HardwareSensor> GetMemorySensors()
     {
         MemorySensorReads++;
@@ -244,6 +246,75 @@ public class MonitoringBroadcastTests
         Assert.DoesNotContain("fps", captured.Select(c => c.Topic));
         Assert.Equal(0, fps.StartTransitions);
         Assert.Equal(0, fps.ComponentReads);
+    }
+
+    [Fact]
+    public async Task Tick_GpuTopic_PartitionsSensorsPerGpu_DiscreteFirst()
+    {
+        // Platform enumerates the integrated GPU first; the broadcast must order
+        // discrete first and give each component only its own GPU's sensors.
+        var hub = new MultiplexHub();
+        var sensors = new StubSensorProvider
+        {
+            Gpus =
+            {
+                new GpuReadout
+                {
+                    Id = "gpu/intel", Name = "Intel UHD Graphics", Vendor = "intel", Integrated = true,
+                    Sensors =
+                    {
+                        new HardwareSensor
+                        {
+                            Id = "intel/load", Name = "GPU Core", Type = "Load", Value = 10, Units = "%",
+                            Formatted = "10%", Parent = new SensorParent { Id = "intel", Name = "Intel UHD Graphics" },
+                        },
+                    },
+                },
+                new GpuReadout
+                {
+                    Id = "gpu/nvidia", Name = "NVIDIA GeForce RTX 4090", Vendor = "nvidia", Integrated = false,
+                    Sensors =
+                    {
+                        new HardwareSensor
+                        {
+                            Id = "nvidia/load", Name = "GPU Core", Type = "Load", Value = 80, Units = "%",
+                            Formatted = "80%", Parent = new SensorParent { Id = "nvidia", Name = "NVIDIA GeForce RTX 4090" },
+                        },
+                    },
+                },
+            },
+        };
+        var broadcaster = BuildBroadcaster(hub, sensors);
+        var captured = new List<(string Topic, byte[] Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) => captured.Add((topic, payload.ToArray()));
+
+        using var sub = hub.AddTestSubscription("gpu");
+        await broadcaster.Tick(CancellationToken.None);
+
+        var gpu = captured.FirstOrDefault(c => c.Topic == "gpu");
+        Assert.NotEqual(default, gpu);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(gpu.Payload);
+        var arr = doc.RootElement.GetProperty("d");
+        Assert.Equal(2, arr.GetArrayLength());
+
+        // Discrete (NVIDIA) first, regardless of enumeration order.
+        var first = arr[0];
+        Assert.Equal("NVIDIA GeForce RTX 4090", first.GetProperty("name").GetString());
+        Assert.Equal("nvidia", first.GetProperty("vendor").GetString());
+        Assert.False(first.GetProperty("integrated").GetBoolean());
+        var firstIds = first.GetProperty("sensors").EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString()).ToList();
+        Assert.Contains("nvidia/load", firstIds);
+        Assert.DoesNotContain("intel/load", firstIds); // no cross-GPU leakage
+
+        var second = arr[1];
+        Assert.Equal("Intel UHD Graphics", second.GetProperty("name").GetString());
+        Assert.True(second.GetProperty("integrated").GetBoolean());
+        var secondIds = second.GetProperty("sensors").EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString()).ToList();
+        Assert.Contains("intel/load", secondIds);
+        Assert.DoesNotContain("nvidia/load", secondIds);
     }
 
     [Fact]

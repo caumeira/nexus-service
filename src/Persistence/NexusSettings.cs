@@ -319,6 +319,8 @@ public sealed class CoolingSettings
     public string? PreferredCpuTempSensorId { get; set; }
     /// <summary>User-chosen sensor id for the GPU "temperature" reading shown across the Cooling page, Monitoring dashboard, and Cooling widget. Same nullable semantics as <see cref="PreferredCpuTempSensorId"/>.</summary>
     public string? PreferredGpuTempSensorId { get; set; }
+    /// <summary>User-chosen "primary" GPU (by model name) used wherever a single GPU's sensors are shown: the Monitoring widget, sensors/Detailed view, and the GPU temp display. Keyed by model name (not enumeration index) so the choice survives reboots / driver re-enumeration. Same nullable semantics as the temp prefs: null = auto (client defaults to the first discrete GPU), empty string on PATCH collapses to null.</summary>
+    public string? PreferredGpuId { get; set; }
 }
 
 public sealed class CurveDocument
