@@ -38,6 +38,26 @@ public class HardwareComponent
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
+    // GPU only (null for CPU/memory/motherboard/storage so they stay off the
+    // wire under WhenWritingNull). Vendor: "nvidia"|"amd"|"intel"|"apple".
+    // Integrated drives the client's default "discrete-first" GPU pick.
+    public string? Vendor { get; set; }
+    public bool? Integrated { get; set; }
+    public List<HardwareSensor> Sensors { get; set; } = new();
+}
+
+/// <summary>
+/// One physical GPU with its own sensor set, grouped and classified by the
+/// platform sensor provider. The monitoring broadcaster turns each into a
+/// `gpu/{i}` <see cref="HardwareComponent"/>; the client picks one as the
+/// "primary" GPU (defaulting to the first discrete one).
+/// </summary>
+public sealed class GpuReadout
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Vendor { get; set; } = "";
+    public bool Integrated { get; set; }
     public List<HardwareSensor> Sensors { get; set; } = new();
 }
 

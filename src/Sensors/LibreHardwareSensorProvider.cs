@@ -74,43 +74,62 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
         return (true, 0f);
     }
 
-    public IReadOnlyList<string> GetGpuModels()
-    {
-        _lhm.Update(TimeSpan.FromMilliseconds(100));
-        return FindHardware(HardwareType.GpuNvidia, HardwareType.GpuAmd, HardwareType.GpuIntel)
-            .Select(hw => hw.Name)
-            .ToList();
-    }
+    public IReadOnlyList<string> GetGpuModels() => GetGpus().Select(g => g.Name).ToList();
 
-    public IReadOnlyList<HardwareSensor> GetGpuSensors()
+    public IReadOnlyList<HardwareSensor> GetGpuSensors() => GetGpus().SelectMany(g => g.Sensors).ToList();
+
+    public IReadOnlyList<GpuReadout> GetGpus()
     {
         _lhm.Update(TimeSpan.FromMilliseconds(100));
-        var result = new List<HardwareSensor>();
+        var result = new List<GpuReadout>();
         foreach (var hw in FindHardware(HardwareType.GpuNvidia, HardwareType.GpuAmd, HardwareType.GpuIntel))
         {
             var mapped = MapSensors(hw);
             // VRAM total comes from the GPU's "GPU Memory Total" sensor; reuse it
             // as the ceiling for "GPU Memory Used" / "Free" so the client can
             // draw a proportional gauge without juggling sibling lookups.
-            float vramTotalGb = hw.Sensors
+            float vramTotalMb = hw.Sensors
                 .Where(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
                 .Select(s => s.Value ?? 0f)
                 .FirstOrDefault();
-            if (vramTotalGb > 0)
+            if (vramTotalMb > 0)
             {
                 foreach (var sensor in mapped)
                 {
                     if (sensor.Type == "SmallData" && (sensor.Name.Contains("Used", StringComparison.OrdinalIgnoreCase)
                         || sensor.Name.Contains("Free", StringComparison.OrdinalIgnoreCase)))
                     {
-                        sensor.TheoreticalMaximum = vramTotalGb;
+                        sensor.TheoreticalMaximum = vramTotalMb;
                     }
                 }
             }
-            result.AddRange(mapped);
+            var (vendor, integrated) = ClassifyGpu(hw.HardwareType, hw.Name, vramTotalMb);
+            result.Add(new GpuReadout
+            {
+                Id = hw.Identifier.ToString(),
+                Name = hw.Name,
+                Vendor = vendor,
+                Integrated = integrated,
+                Sensors = mapped,
+            });
         }
         return result;
     }
+
+    // LHM's HardwareType is authoritative for vendor; NVIDIA is always discrete,
+    // Intel client GPUs always integrated. AMD is the ambiguous one: a discrete
+    // Radeon and an APU's integrated "Radeon Graphics" both report HardwareType
+    // GpuAmd. An APU exposes only a tiny UMA carve-out as "GPU Memory Total"
+    // (≈512 MB, reported in MB here despite the field name) and an "…Graphics"
+    // name with no RX/Pro model, whereas a discrete card reports multiple GB and
+    // a model number. Treat either signal as integrated.
+    private static (string Vendor, bool Integrated) ClassifyGpu(HardwareType type, string name, float vramTotalMb) => type switch
+    {
+        HardwareType.GpuNvidia => ("nvidia", false),
+        HardwareType.GpuIntel => ("intel", true),
+        HardwareType.GpuAmd => ("amd", GpuClassifier.FromName(name).Integrated || (vramTotalMb > 0f && vramTotalMb < 1024f)),
+        _ => ("", false),
+    };
 
     public IReadOnlyList<HardwareSensor> GetMemorySensors()
     {

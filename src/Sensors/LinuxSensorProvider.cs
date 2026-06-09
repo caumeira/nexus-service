@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -246,14 +247,12 @@ public sealed class LinuxSensorProvider : ISensorProvider
         return _gpuModels;
     }
 
-    public IReadOnlyList<HardwareSensor> GetGpuSensors()
+    public IReadOnlyList<HardwareSensor> GetGpuSensors() => GetGpus().SelectMany(g => g.Sensors).ToList();
+
+    public IReadOnlyList<GpuReadout> GetGpus()
     {
-        var sensors = new List<HardwareSensor>();
+        var gpus = new List<GpuReadout>();
         var csv = GetNvidiaSmiCsv();
-        if (string.IsNullOrEmpty(csv))
-        {
-            return sensors;
-        }
 
         int gpuIndex = 0;
         foreach (var line in csv.Split('\n'))
@@ -270,6 +269,7 @@ public sealed class LinuxSensorProvider : ISensorProvider
                 continue;
             }
 
+            var sensors = new List<HardwareSensor>();
             var name = cols[0];
             var tempGpu = ParseFloat(cols[1]);
             var tempMem = ParseFloat(cols[2]);
@@ -320,10 +320,38 @@ public sealed class LinuxSensorProvider : ISensorProvider
             if (encSessions > 0)
                 sensors.Add(MakeSensor($"gpu/{gpuIndex}/encoder-sessions", "Encoder Sessions", "Factor", encSessions, "", name));
 
+            gpus.Add(new GpuReadout
+            {
+                Id = $"gpu/{gpuIndex}",
+                Name = name,
+                Vendor = "nvidia",
+                Integrated = false,
+                Sensors = sensors,
+            });
             gpuIndex++;
         }
 
-        return sensors;
+        // No nvidia-smi telemetry (AMD/Intel GPU, or no driver): surface the
+        // controllers from the cached lspci/name list so the GPU still appears,
+        // with a name-based vendor guess and no live sensors.
+        if (gpus.Count == 0)
+        {
+            var models = GetGpuModels();
+            for (int i = 0; i < models.Count; i++)
+            {
+                var (vendor, integrated) = GpuClassifier.FromName(models[i]);
+                gpus.Add(new GpuReadout
+                {
+                    Id = $"gpu/{i}",
+                    Name = models[i],
+                    Vendor = vendor,
+                    Integrated = integrated,
+                    Sensors = new List<HardwareSensor>(),
+                });
+            }
+        }
+
+        return gpus;
     }
 
     public IReadOnlyList<HardwareSensor> GetMemorySensors()

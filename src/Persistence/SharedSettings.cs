@@ -120,6 +120,8 @@ public sealed class CoolingPrefs
     public List<string>? FanChannelOrder { get; set; }
     public string? PreferredCpuTempSensorId { get; set; }
     public string? PreferredGpuTempSensorId { get; set; }
+    /// <summary>Primary GPU (by model name) for monitoring/sensor display. null = auto.</summary>
+    public string? PreferredGpuId { get; set; }
 }
 
 // PATCH wrappers. POST /preferences accepts PreferencesPatch with optional
@@ -191,4 +193,7 @@ public sealed class CoolingPrefsPatch
     // collapse these into a single semantic without updating ProfileRoutes.
     public string? PreferredCpuTempSensorId { get; set; }
     public string? PreferredGpuTempSensorId { get; set; }
+    // Same omitted-vs-reset semantics as the temp sensor fields above: null =
+    // not sent (preserve stored), empty string = reset to auto (store null).
+    public string? PreferredGpuId { get; set; }
 }

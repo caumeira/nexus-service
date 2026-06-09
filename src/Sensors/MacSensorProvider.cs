@@ -162,21 +162,23 @@ public sealed class MacSensorProvider : ISensorProvider
         return _gpuModels;
     }
 
-    public IReadOnlyList<HardwareSensor> GetGpuSensors()
+    public IReadOnlyList<HardwareSensor> GetGpuSensors() => GetGpus().SelectMany(g => g.Sensors).ToList();
+
+    public IReadOnlyList<GpuReadout> GetGpus()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {
-            return EmptySensors;
+            return new List<GpuReadout>();
         }
 
         var output = GetGpuProfilerOutput();
-        var sensors = new List<HardwareSensor>();
         var models = ParseGpuModels(output);
+        var gpus = new List<GpuReadout>();
 
         for (int i = 0; i < models.Count; i++)
         {
             var gpu = models[i];
-            sensors.Add(MakeSensor($"gpu/{i}/model", "Model", "Factor", 0, "", gpu));
+            var sensors = new List<HardwareSensor> { MakeSensor($"gpu/{i}/model", "Model", "Factor", 0, "", gpu) };
 
             // Extract Total Number of Cores
             var coresMatch = Regex.Match(output, @"Total Number of Cores:\s*(\d+)");
@@ -192,9 +194,24 @@ public sealed class MacSensorProvider : ISensorProvider
                 var unit = vramMatch.Groups[2].Value;
                 sensors.Add(MakeSensor($"gpu/{i}/vram", "VRAM", "SmallData", (float)(unit == "GB" ? vram : vram / 1024.0), "GB", gpu));
             }
+
+            // Classify by name: Apple Silicon and Intel iGPUs are integrated, AMD
+            // "Radeon Pro"/RX are discrete. The system_profiler VRAM line isn't
+            // scoped to the current GPU, so on a dual-GPU Mac it can't tell them
+            // apart — the name is the reliable signal, don't let VRAM override it.
+            var (vendor, integrated) = GpuClassifier.FromName(gpu);
+
+            gpus.Add(new GpuReadout
+            {
+                Id = $"gpu/{i}",
+                Name = gpu,
+                Vendor = vendor,
+                Integrated = integrated,
+                Sensors = sensors,
+            });
         }
 
-        return sensors;
+        return gpus;
     }
 
     // ── Memory ───────────────────────────────────────────────────
