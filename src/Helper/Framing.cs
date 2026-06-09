@@ -1,4 +1,3 @@
-#if WINDOWS
 using System;
 using System.Buffers;
 using System.Buffers.Binary;
@@ -79,4 +78,3 @@ internal static class Framing
         return true;
     }
 }
-#endif
