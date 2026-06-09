@@ -37,18 +37,24 @@ public static class CoolingSafety
 
         foreach (var curve in body.Curves)
         {
-            if (curve.Flat is not null)
-                curve.Flat.Speed = ClampDuty(curve.Flat.Speed);
-
-            if (curve.Linear is not null)
+            if (curve.Flat is { } flat)
             {
-                curve.Linear.MinSpeed = ClampDuty(curve.Linear.MinSpeed);
-                curve.Linear.MaxSpeed = ClampDuty(curve.Linear.MaxSpeed);
+                flat.Speed = ClampDuty(flat.Speed);
             }
 
-            if (curve.Graph is not null)
-                foreach (var point in curve.Graph.Points)
+            if (curve.Linear is { } linear)
+            {
+                linear.MinSpeed = ClampDuty(linear.MinSpeed);
+                linear.MaxSpeed = ClampDuty(linear.MaxSpeed);
+            }
+
+            if (curve.Graph is { } graph)
+            {
+                foreach (var point in graph.Points)
+                {
                     point.Speed = ClampDuty(point.Speed);
+                }
+            }
         }
 
         return body;

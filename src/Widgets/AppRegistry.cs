@@ -87,7 +87,10 @@ public sealed class AppRegistry
                 // nexus.app/1 is the current schema; nexus.widget/2 is the legacy
                 // id accepted for back-compat with bundles published before the rename.
                 if (!string.Equals(manifest.Schema, "nexus.app/1", StringComparison.Ordinal)
-                    && !string.Equals(manifest.Schema, "nexus.widget/2", StringComparison.Ordinal)) continue;
+                    && !string.Equals(manifest.Schema, "nexus.widget/2", StringComparison.Ordinal))
+                {
+                    continue;
+                }
                 // Every app's widget facet is an SDK (sandboxed remote-component) bundle
                 // rendered from widget.mjs in the sandboxed host. The legacy declarative
                 // view-tree runtime has been removed; reject anything that isn't SDK.

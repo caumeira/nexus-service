@@ -221,10 +221,14 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
             {
                 if (buf.Count == 0) continue;
                 if (_sessions.TryGetValue(host, out var s) && s.Active)
+                {
                     toPush.Add((s, new Dictionary<string, (byte r, byte g, byte b)>(buf, StringComparer.Ordinal)));
+                }
                 else if (!_starting.Contains(host)
                     && (!_failedUntil.TryGetValue(host, out var until) || Environment.TickCount64 >= until))
+                {
                     toStart.Add(host);
+                }
             }
         }
         foreach (var (sess, buf) in toPush) sess.Push(buf);

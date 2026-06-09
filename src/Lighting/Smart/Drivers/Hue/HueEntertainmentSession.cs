@@ -81,13 +81,17 @@ public sealed class HueEntertainmentSession : IDisposable
 
         var entServiceToChannel = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var ch in config.Channels)
+        {
             foreach (var m in ch.Members)
                 if (m.Service?.Rid is { Length: > 0 } rid) entServiceToChannel[rid] = ch.ChannelId;
+        }
 
         _lightToChannel.Clear();
         foreach (var (lightRid, device) in lightToDevice)
+        {
             if (deviceToEntService.TryGetValue(device, out var ent) && entServiceToChannel.TryGetValue(ent, out var chId))
                 _lightToChannel[lightRid] = chId;
+        }
     }
 
     /// <summary>Stream one frame: a color per mapped light. Channels with no
@@ -101,8 +105,10 @@ public sealed class HueEntertainmentSession : IDisposable
         Span<(byte ch, byte r, byte g, byte b)> chans = stackalloc (byte, byte, byte, byte)[_lightToChannel.Count];
         var n = 0;
         foreach (var (rid, color) in colorsByLightRid)
+        {
             if (_lightToChannel.TryGetValue(rid, out var chId))
                 chans[n++] = ((byte)chId, color.r, color.g, color.b);
+        }
         if (n == 0) return;
 
         var packet = BuildPacket(_configId, chans.Slice(0, n), unchecked(_seq++));

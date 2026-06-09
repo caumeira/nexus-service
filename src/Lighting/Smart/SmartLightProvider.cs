@@ -472,7 +472,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
             foreach (var c in s.SmartLights.Devices)
             {
                 if (repl.TryGetValue(c.Id, out var updated)) { next.Add(updated); seen.Add(c.Id); }
-                else next.Add(c);
+                else { next.Add(c); }
             }
             foreach (var dev in result.Devices)
                 if (seen.Add(dev.Id)) { next.Add(dev); added++; }

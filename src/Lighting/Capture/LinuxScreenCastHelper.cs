@@ -88,7 +88,9 @@ public static partial class LinuxScreenCastHelper
             "!", $"video/x-raw,format=RGB,width={w},height={h},pixel-aspect-ratio=1/1",
             "!", "fdsink", "fd=1", "sync=false",
         })
+        {
             psi.ArgumentList.Add(a);
+        }
 
         var gst = Process.Start(psi);
         if (gst is null)

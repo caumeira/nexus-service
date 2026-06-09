@@ -543,7 +543,7 @@ internal static class MacAppWindow
 
             IntPtr initMenuTitle = SelRegister("initWithTitle:");
 
-            IntPtr Item(string title, string sel, string key)
+            IntPtr Item(string title, string? sel, string key)
             {
                 IntPtr it = MsgSend(itemClass, alloc);
                 return MsgSend(it, initItem, NsString(title),
