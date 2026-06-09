@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Models.Panel;
 
@@ -22,6 +23,10 @@ public sealed class PanelDeviceRecord
     public string? BackgroundEffect { get; set; }
     public int? BackgroundTemplate { get; set; }
     public double? BackgroundOpacity { get; set; }
+    // Per-panel custom effect state (radial color + slider tweaks) layered on
+    // the selected background template. Saved on the device record like the
+    // other background fields.
+    public AnimateEffectState? BackgroundEffectState { get; set; }
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }
     public bool? WidgetBlur { get; set; }
@@ -72,6 +77,7 @@ public sealed class PanelDevicePatch
     public string? BackgroundEffect { get; set; }
     public int? BackgroundTemplate { get; set; }
     public double? BackgroundOpacity { get; set; }
+    public AnimateEffectState? BackgroundEffectState { get; set; }
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }
     public bool? WidgetBlur { get; set; }
