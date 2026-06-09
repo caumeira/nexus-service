@@ -23,6 +23,13 @@ public static class PanelTopics
     /// the active code) and "cancelled" (expired / denied / superseded).
     /// </summary>
     public const string PairCodeRequest = "panel/phone/pair-code/request";
+    /// <summary>
+    /// Host network address changed (VPN toggle, Wi-Fi↔wired switch, DHCP
+    /// renew). A displayed pairing QR embeds the LAN IP picked at mint time, so
+    /// subscribers re-fetch the QR for the current address instead of waiting
+    /// out its TTL.
+    /// </summary>
+    public const string PairQrRefresh = "panel/phone/pair-qr/refresh";
 
     public static void BroadcastPrefs(MultiplexHub hub)
     {
@@ -74,6 +81,15 @@ public static class PanelTopics
         var frame = new CoolingWarningsChangedFrame { Revision = Now(), DeviceId = deviceId };
         var env = WsEnvelope.Build(CoolingWarnings, frame, AppJsonContext.Default.CoolingWarningsChangedFrame);
         _ = hub.BroadcastTopicAsync(CoolingWarnings, env);
+    }
+
+    public static void BroadcastPairQrRefresh(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(PairQrRefresh))
+            return;
+        var frame = new PairQrRefreshFrame { Revision = Now() };
+        var env = WsEnvelope.Build(PairQrRefresh, frame, AppJsonContext.Default.PairQrRefreshFrame);
+        _ = hub.BroadcastTopicAsync(PairQrRefresh, env);
     }
 
     public static void BroadcastPanelDevice(MultiplexHub hub, string deviceId)

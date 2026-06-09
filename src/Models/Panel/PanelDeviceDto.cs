@@ -117,6 +117,17 @@ public sealed class VolumeChangedFrame
 }
 
 /// <summary>
+/// Multiplex frame: the host's network address changed (VPN toggle, Wi-Fi↔wired
+/// switch, DHCP renew), so any displayed pairing QR now embeds a stale LAN IP.
+/// Subscribers re-fetch <c>GET /panel/phone/pair-qr</c> to mint a fresh QR for
+/// the current address. Content-less beyond the echo-suppress revision.
+/// </summary>
+public sealed class PairQrRefreshFrame
+{
+    public long Revision { get; set; }
+}
+
+/// <summary>
 /// Multiplex frame: cooling-device warning state changed (e.g. NP50 AmpScale
 /// current overload, LED count exceeded). Subscribers refetch
 /// <c>GET /cooling/warnings</c>; <c>DeviceId</c> lets a UI scope the refetch
