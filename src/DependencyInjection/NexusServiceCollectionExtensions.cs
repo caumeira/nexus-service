@@ -11,6 +11,7 @@ using Nexus.Service.Obs;
 using Nexus.Service.Peripherals.Keeb;
 using Nexus.Service.Peripherals.QSeries;
 using Nexus.Service.Peripherals.Y70;
+using Nexus.Service.Plugins;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
@@ -112,6 +113,10 @@ public static class NexusServiceCollectionExtensions
 
     public static IServiceCollection AddNexusCooling(this IServiceCollection services)
     {
+        // The runtime plugin-provider registry — the single seam the cooling /
+        // sensor / device / DFU composites read so a plugin can add a source
+        // without a rebuild. Empty until the broker (Phase 2) registers one.
+        services.AddSingleton<PluginProviderRegistry>();
         services.AddSingleton<StubCoolingProvider>();
         // Pick the motherboard-side provider per platform, registered under
         // the concrete type. The public IFanControlProvider / ICoolingProvider
@@ -123,6 +128,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<WindowsFanControlProvider>(),
             sp.GetRequiredService<Np50CoolingProvider>(),
             sp.GetRequiredService<MiniHubCoolingProvider>(),
+            sp.GetRequiredService<PluginProviderRegistry>(),
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
@@ -132,6 +138,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<MacFanControlProvider>(),
             sp.GetRequiredService<Np50CoolingProvider>(),
             sp.GetRequiredService<MiniHubCoolingProvider>(),
+            sp.GetRequiredService<PluginProviderRegistry>(),
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
@@ -145,6 +152,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<LinuxFanControlProvider>(),
             sp.GetRequiredService<Np50CoolingProvider>(),
             sp.GetRequiredService<MiniHubCoolingProvider>(),
+            sp.GetRequiredService<PluginProviderRegistry>(),
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
@@ -157,6 +165,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<StubCoolingProvider>(),
             sp.GetRequiredService<Np50CoolingProvider>(),
             sp.GetRequiredService<MiniHubCoolingProvider>(),
+            sp.GetRequiredService<PluginProviderRegistry>(),
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
