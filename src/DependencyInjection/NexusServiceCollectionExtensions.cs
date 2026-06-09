@@ -80,6 +80,11 @@ public static class NexusServiceCollectionExtensions
         // spawn. Hard rule: this MUST stay off the startup critical path —
         // see SystemSpecsPrewarmService.ExecuteAsync.
         services.AddHostedService<SystemSpecsPrewarmService>();
+        // Pushes a pairing-QR-refresh nudge to the dashboard when the host IP
+        // changes (VPN/Wi-Fi↔wired/DHCP), so a displayed QR doesn't keep
+        // embedding a stale LAN address until its TTL. Off the critical path —
+        // it only subscribes to NetworkChange.NetworkAddressChanged.
+        services.AddHostedService<Nexus.Service.Net.NetworkAddressChangeListener>();
         // One-time hardware/specs snapshot to service.log after discovery
         // settles, so a tester's log opens with the full detected picture.
         // Off the critical path; see StartupDiagnosticsDumpService.ExecuteAsync.
