@@ -59,7 +59,7 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
     /// </summary>
     private IEnumerable<FanSource> Extras()
     {
-        foreach (var e in Extras()) yield return e;
+        foreach (var e in _extras) yield return e;
         foreach (var e in _registry.FanSources) yield return e;
     }
 
