@@ -4,6 +4,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Cooling;
+using Nexus.Service.Plugins;
 
 namespace Nexus.Service.Cooling;
 
@@ -32,18 +33,34 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
     private readonly Np50CoolingProvider _np50;
     private readonly MiniHubCoolingProvider _miniHub;
     private readonly FanSource[] _extras;
+    private readonly PluginProviderRegistry _registry;
 
     public CompositeFanControlProvider(
         IFanControlProvider motherboard,
         Np50CoolingProvider np50,
         MiniHubCoolingProvider miniHub,
+        PluginProviderRegistry registry,
         params FanSource[] extras)
     {
         _motherboard = motherboard;
         _motherboardCooling = motherboard as ICoolingProvider;
         _np50 = np50;
         _miniHub = miniHub;
+        _registry = registry;
         _extras = extras ?? Array.Empty<FanSource>();
+    }
+
+    /// <summary>
+    /// All extra prefixed sources layered on the motherboard: the platform's
+    /// first-party extras (SmartHub / liquidctl / NVIDIA, fixed at construction)
+    /// followed by the registry's plugin sources (a lock-free snapshot, empty
+    /// until the broker registers one). Plugin sources are prefix-scoped, so a
+    /// plugin can never route to a first-party channel.
+    /// </summary>
+    private IEnumerable<FanSource> Extras()
+    {
+        foreach (var e in _extras) yield return e;
+        foreach (var e in _registry.FanSources) yield return e;
     }
 
     // ── IFanControlProvider ──
@@ -53,7 +70,7 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
         var combined = new List<FanChannel>(_motherboard.GetFanChannels());
         combined.AddRange(_np50.GetFanChannels());
         combined.AddRange(_miniHub.GetFanChannels());
-        foreach (var e in _extras)
+        foreach (var e in Extras())
             combined.AddRange(e.Provider.GetFanChannels());
         return combined;
     }
@@ -63,7 +80,7 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
         var combined = new List<TemperatureSource>(_motherboard.GetTemperatureSources());
         combined.AddRange(_np50.GetTemperatureSources());
         combined.AddRange(_miniHub.GetTemperatureSources());
-        foreach (var e in _extras)
+        foreach (var e in Extras())
             combined.AddRange(e.Provider.GetTemperatureSources());
         return combined;
     }
@@ -72,16 +89,19 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
     {
         if (IsNp50Id(sensorId)) return _np50.ReadTemperature(sensorId);
         if (MiniHubCoolingProvider.IsMiniHubId(sensorId)) return _miniHub.ReadTemperature(sensorId);
-        foreach (var e in _extras)
+        foreach (var e in Extras())
             if (e.Owns(sensorId)) return e.Provider.ReadTemperature(sensorId);
         return _motherboard.ReadTemperature(sensorId);
     }
 
+    // The single fan-write chokepoint: every duty that reaches hardware — from a
+    // curve apply, a direct speed call, or a plugin-guided write — is clamped to
+    // [0,100] here, so no caller can drive a fan out of range.
     public int SetFanSpeed(string channelId, int dutyPercent)
-        => Route(channelId).SetFanSpeed(channelId, dutyPercent);
+        => Route(channelId).SetFanSpeed(channelId, CoolingSafety.ClampDuty(dutyPercent));
 
     public void DriveFanSpeed(string channelId, int dutyPercent)
-        => Route(channelId).DriveFanSpeed(channelId, dutyPercent);
+        => Route(channelId).DriveFanSpeed(channelId, CoolingSafety.ClampDuty(dutyPercent));
 
     public void ReleaseFan(string channelId)
         => Route(channelId).ReleaseFan(channelId);
@@ -91,7 +111,7 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
         _motherboard.ReleaseAll();
         _np50.ReleaseAll();
         _miniHub.ReleaseAll();
-        foreach (var e in _extras)
+        foreach (var e in Extras())
             e.Provider.ReleaseAll();
     }
 
@@ -117,7 +137,7 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
             _motherboardCooling?.GetAll() ?? Array.Empty<CoolingComponent>());
         combined.AddRange(_np50.GetAll());
         combined.AddRange(_miniHub.GetAll());
-        foreach (var e in _extras)
+        foreach (var e in Extras())
         {
             if (e.Provider is ICoolingProvider c)
                 combined.AddRange(c.GetAll());
@@ -131,7 +151,7 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
     {
         if (IsNp50Id(id)) return _np50;
         if (MiniHubCoolingProvider.IsMiniHubId(id)) return _miniHub;
-        foreach (var e in _extras)
+        foreach (var e in Extras())
             if (e.Owns(id)) return e.Provider;
         return _motherboard;
     }
@@ -140,7 +160,7 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
     {
         if (IsNp50Id(id) || MiniHubCoolingProvider.IsMiniHubId(id))
             return true;
-        foreach (var e in _extras)
+        foreach (var e in Extras())
             if (e.Owns(id)) return true;
         return false;
     }

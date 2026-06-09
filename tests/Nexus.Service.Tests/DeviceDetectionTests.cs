@@ -4,6 +4,7 @@ using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Devices.Handlers;
 using Nexus.Service.Models.Devices;
+using Nexus.Service.Plugins;
 using Xunit;
 
 namespace Nexus.Service.Tests;
@@ -35,7 +36,7 @@ public class DeviceDetectionTests
     [Fact]
     public void GetAll_ReturnsOneItemPerHandler()
     {
-        var manager = new DeviceManager(AllHandlers, new StubUsbEnumerator());
+        var manager = new DeviceManager(AllHandlers, new StubUsbEnumerator(), new PluginProviderRegistry());
 
         var items = manager.GetAll();
 
@@ -48,7 +49,7 @@ public class DeviceDetectionTests
     [Fact]
     public void GetAll_PopulatesNameAndCategory()
     {
-        var manager = new DeviceManager(AllHandlers, new StubUsbEnumerator());
+        var manager = new DeviceManager(AllHandlers, new StubUsbEnumerator(), new PluginProviderRegistry());
 
         var items = manager.GetAll();
 
@@ -132,7 +133,7 @@ public class DeviceDetectionTests
     [Fact]
     public void GetAll_WithEmptyUsbList_AllDevicesDisconnected()
     {
-        var manager = new DeviceManager(AllHandlers, new StubUsbEnumerator());
+        var manager = new DeviceManager(AllHandlers, new StubUsbEnumerator(), new PluginProviderRegistry());
 
         var items = manager.GetAll();
 
@@ -147,7 +148,7 @@ public class DeviceDetectionTests
         var enumerator = new FixedUsbEnumerator(
             new UsbDeviceEntry { VendorId = 0x3402, ProductId = 0x0600, Name = "Q60" }
         );
-        var manager = new DeviceManager(AllHandlers, enumerator);
+        var manager = new DeviceManager(AllHandlers, enumerator, new PluginProviderRegistry());
 
         var items = manager.GetAll();
 
@@ -163,7 +164,7 @@ public class DeviceDetectionTests
     {
         var manager = new DeviceManager(
             new IDeviceHandler[] { TestHandlers.QSeries() },
-            new StubUsbEnumerator()
+            new StubUsbEnumerator(), new PluginProviderRegistry()
         );
 
         var items = manager.GetAll();
@@ -177,7 +178,7 @@ public class DeviceDetectionTests
     {
         var manager = new DeviceManager(
             Enumerable.Empty<IDeviceHandler>(),
-            new StubUsbEnumerator()
+            new StubUsbEnumerator(), new PluginProviderRegistry()
         );
 
         var items = manager.GetAll();
@@ -190,7 +191,7 @@ public class DeviceDetectionTests
     {
         var manager = new DeviceManager(
             new IDeviceHandler[] { TestHandlers.Cnvs(), TestHandlers.FanHub() },
-            new StubUsbEnumerator()
+            new StubUsbEnumerator(), new PluginProviderRegistry()
         );
 
         var items = manager.GetAll();

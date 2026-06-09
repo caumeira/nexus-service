@@ -36,7 +36,7 @@ public static class RelayHttpAllowlist
         "/benchmark",
         "/system",
         "/overlay",
-        "/widgets-api",
+        "/apps-api",
         "/shortcuts",
         "/media",
         "/y70",
@@ -59,6 +59,10 @@ public static class RelayHttpAllowlist
     {
         "/ws",
         "/lighting/output",
+        "/system/open-path", // opens arbitrary local files — LAN-only, never relayed
+        "/system/power/shutdown", // destructive — LAN-only
+        "/system/power/restart",  // destructive — LAN-only
+        "/system/power/logout",   // strands a remote user — LAN-only
     };
 
     /// <summary>

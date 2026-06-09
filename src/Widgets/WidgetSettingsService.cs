@@ -23,9 +23,9 @@ public sealed class WidgetSettingsService
     public const string MarketplaceTypePrefix = "marketplace:";
 
     private readonly IConfigStore _store;
-    private readonly WidgetRegistry _registry;
+    private readonly AppRegistry _registry;
 
-    public WidgetSettingsService(IConfigStore store, WidgetRegistry registry)
+    public WidgetSettingsService(IConfigStore store, AppRegistry registry)
     {
         _store = store;
         _registry = registry;
@@ -40,7 +40,7 @@ public sealed class WidgetSettingsService
     /// </summary>
     public WidgetSettingsDocument Get(string instanceId)
     {
-        var doc = new WidgetSettingsDocument { WidgetId = instanceId };
+        var doc = new WidgetSettingsDocument { AppId = instanceId };
         if (!TryResolve(_store.Load(), instanceId, out var widget, out var manifest))
         {
             return doc;
@@ -96,7 +96,7 @@ public sealed class WidgetSettingsService
     /// device). Also resolves the marketplace manifest so callers don't need
     /// a second lookup. Returns false if either step fails.
     /// </summary>
-    private bool TryResolve(NexusSettings s, string instanceId, out PanelWidgetDto? widget, out WidgetManifest? manifest)
+    private bool TryResolve(NexusSettings s, string instanceId, out PanelWidgetDto? widget, out AppManifest? manifest)
     {
         widget = FindWidget(s, instanceId);
         manifest = null;
@@ -134,13 +134,6 @@ public sealed class WidgetSettingsService
                 if (w.Id == instanceId) return w;
             }
         }
-        if (layout.Dock is { } dock)
-        {
-            foreach (var w in dock.Widgets)
-            {
-                if (w.Id == instanceId) return w;
-            }
-        }
         return null;
     }
 
@@ -152,7 +145,7 @@ public sealed class WidgetSettingsService
             : null;
     }
 
-    private static bool HasManifestKey(WidgetManifest manifest, string key)
+    private static bool HasManifestKey(AppManifest manifest, string key)
     {
         foreach (var entry in manifest.Settings)
         {

@@ -11,6 +11,7 @@ using Nexus.Service.Obs;
 using Nexus.Service.Peripherals.Keeb;
 using Nexus.Service.Peripherals.QSeries;
 using Nexus.Service.Peripherals.Y70;
+using Nexus.Service.Plugins;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
@@ -80,6 +81,11 @@ public static class NexusServiceCollectionExtensions
         // spawn. Hard rule: this MUST stay off the startup critical path —
         // see SystemSpecsPrewarmService.ExecuteAsync.
         services.AddHostedService<SystemSpecsPrewarmService>();
+        // Pushes a pairing-QR-refresh nudge to the dashboard when the host IP
+        // changes (VPN/Wi-Fi↔wired/DHCP), so a displayed QR doesn't keep
+        // embedding a stale LAN address until its TTL. Off the critical path —
+        // it only subscribes to NetworkChange.NetworkAddressChanged.
+        services.AddHostedService<Nexus.Service.Net.NetworkAddressChangeListener>();
         // One-time hardware/specs snapshot to service.log after discovery
         // settles, so a tester's log opens with the full detected picture.
         // Off the critical path; see StartupDiagnosticsDumpService.ExecuteAsync.
@@ -112,6 +118,10 @@ public static class NexusServiceCollectionExtensions
 
     public static IServiceCollection AddNexusCooling(this IServiceCollection services)
     {
+        // The runtime plugin-provider registry — the single seam the cooling /
+        // sensor / device / DFU composites read so a plugin can add a source
+        // without a rebuild. Empty until the broker (Phase 2) registers one.
+        services.AddSingleton<PluginProviderRegistry>();
         services.AddSingleton<StubCoolingProvider>();
         // Pick the motherboard-side provider per platform, registered under
         // the concrete type. The public IFanControlProvider / ICoolingProvider
@@ -123,6 +133,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<WindowsFanControlProvider>(),
             sp.GetRequiredService<Np50CoolingProvider>(),
             sp.GetRequiredService<MiniHubCoolingProvider>(),
+            sp.GetRequiredService<PluginProviderRegistry>(),
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
@@ -132,6 +143,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<MacFanControlProvider>(),
             sp.GetRequiredService<Np50CoolingProvider>(),
             sp.GetRequiredService<MiniHubCoolingProvider>(),
+            sp.GetRequiredService<PluginProviderRegistry>(),
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
@@ -145,6 +157,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<LinuxFanControlProvider>(),
             sp.GetRequiredService<Np50CoolingProvider>(),
             sp.GetRequiredService<MiniHubCoolingProvider>(),
+            sp.GetRequiredService<PluginProviderRegistry>(),
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
@@ -157,6 +170,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<StubCoolingProvider>(),
             sp.GetRequiredService<Np50CoolingProvider>(),
             sp.GetRequiredService<MiniHubCoolingProvider>(),
+            sp.GetRequiredService<PluginProviderRegistry>(),
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
@@ -295,6 +309,25 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Keeb.KeebInputWorker>();
 
+        // Smart (network) lights — Philips Hue today; Nanoleaf / WLED / LIFX /
+        // Twinkly / WiZ / Yeelight / Elgato next. One brand-neutral provider +
+        // frame writer + send throttle; per-brand behavior is an ILightDriver.
+        // Joins the composite by id prefix ("hue:", …). Cross-platform (pure
+        // sockets), so it runs on macOS/Linux too. See
+        // plans/smart-lights-integration.md.
+        services.AddSingleton<Nexus.Service.Lighting.Smart.Discovery.MdnsQuery>();
+        services.AddSingleton<Nexus.Service.Lighting.Smart.Discovery.LanDiscovery>();
+        services.AddSingleton<Nexus.Service.Lighting.Smart.NetworkSendThrottle>();
+        services.AddSingleton<Nexus.Service.Lighting.Smart.Drivers.Hue.HueBridgeClient>();
+        services.AddSingleton<Nexus.Service.Lighting.Smart.Drivers.Hue.HueDriver>();
+        services.AddSingleton<Nexus.Service.Lighting.Smart.ILightDriver>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.Drivers.Hue.HueDriver>());
+        services.AddSingleton<Nexus.Service.Lighting.Smart.SmartLightProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Smart.SmartLightFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightFrameWriter>());
+
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
         {
             services.AddSingleton<Nexus.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>();
@@ -306,6 +339,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         }
@@ -319,6 +353,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
         }
@@ -511,10 +546,16 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IKeebProvider>(sp => sp.GetRequiredService<RealKeebProvider>());
 #if WINDOWS
         services.AddSingleton<IInputterProvider, WindowsInputter>();
+        services.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider, Nexus.Service.Platform.Clipboard.WindowsClipboardProvider>();
+#elif MACOS
+        services.AddSingleton<IInputterProvider, MacInputter>();
+        services.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider, Nexus.Service.Platform.Clipboard.MacClipboardProvider>();
 #elif LINUX
         services.AddSingleton<IInputterProvider, LinuxInputter>();
+        services.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider, Nexus.Service.Platform.Clipboard.LinuxClipboardProvider>();
 #else
         services.AddSingleton<IInputterProvider>(sp => sp.GetRequiredService<StubKeebProvider>());
+        services.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider, Nexus.Service.Platform.Clipboard.StubClipboardProvider>();
 #endif
 
         // Real Y70 control (serial brightness/power + DDC/CI fallback). Degrades
@@ -588,9 +629,12 @@ public static class NexusServiceCollectionExtensions
 #if WINDOWS
         services.AddSingleton<IScreenTimeProvider, WindowsScreenTimeProvider>();
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
-        services.AddSingleton<IShortcutsProvider, WindowsShortcutsProvider>();
+        // Enumeration (Get-StartApps) is per-user and empty from Session 0, so
+        // route it through the user-session helper. Launch stays direct (explorer).
+        services.AddSingleton<IShortcutsProvider, HelperShortcutsProxy>();
         services.AddSingleton<IMediaProvider, WindowsMediaProvider>();
         services.AddSingleton<IVolumeProvider, WindowsVolumeProvider>();
+        services.AddSingleton<IAudioDeviceProvider, WindowsAudioDeviceProvider>();
         services.AddSingleton<IBeatsProvider, WasapiLoopbackBeatsProvider>();
 #elif MACOS
         services.AddSingleton<IScreenTimeProvider, MacScreenTimeProvider>();
@@ -598,6 +642,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IShortcutsProvider, MacShortcutsProvider>();
         services.AddSingleton<IMediaProvider, MacMediaProvider>();
         services.AddSingleton<IVolumeProvider, MacVolumeProvider>();
+        services.AddSingleton<IAudioDeviceProvider, MacAudioDeviceProvider>();
         services.AddSingleton<IBeatsProvider, MacAudioBeatsProvider>();
 #elif LINUX
         services.AddSingleton<Nexus.Service.Activity.LinuxScreenTimeProvider>();
@@ -607,6 +652,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IShortcutsProvider, LinuxShortcutsProvider>();
         services.AddSingleton<IMediaProvider, LinuxMediaProvider>();
         services.AddSingleton<IVolumeProvider, LinuxVolumeProvider>();
+        services.AddSingleton<IAudioDeviceProvider, LinuxAudioDeviceProvider>();
         services.AddSingleton<IBeatsProvider, BeatsProvider>();
 #else
         services.AddSingleton<IScreenTimeProvider, StubScreenTimeProvider>();
@@ -614,6 +660,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IShortcutsProvider, StubShortcutsProvider>();
         services.AddSingleton<IMediaProvider, StubMediaProvider>();
         services.AddSingleton<IVolumeProvider, StubVolumeProvider>();
+        services.AddSingleton<IAudioDeviceProvider, StubAudioDeviceProvider>();
         services.AddSingleton<IBeatsProvider, StubBeatsProvider>();
 #endif
         return services;
@@ -653,6 +700,15 @@ public static class NexusServiceCollectionExtensions
 
         services.AddSingleton<IShutdownProvider, StubShutdownProvider>();
 #if WINDOWS
+        services.AddSingleton<Nexus.Service.Platform.Power.ISystemPowerProvider, Nexus.Service.Platform.Power.WindowsSystemPowerProvider>();
+#elif MACOS
+        services.AddSingleton<Nexus.Service.Platform.Power.ISystemPowerProvider, Nexus.Service.Platform.Power.MacSystemPowerProvider>();
+#elif LINUX
+        services.AddSingleton<Nexus.Service.Platform.Power.ISystemPowerProvider, Nexus.Service.Platform.Power.LinuxSystemPowerProvider>();
+#else
+        services.AddSingleton<Nexus.Service.Platform.Power.ISystemPowerProvider, Nexus.Service.Platform.Power.StubSystemPowerProvider>();
+#endif
+#if WINDOWS
         services.AddSingleton<IPawnIoProvider, PawnIoProvider>();
 #else
         services.AddSingleton<IPawnIoProvider, StubPawnIoProvider>();
@@ -681,27 +737,30 @@ public static class NexusServiceCollectionExtensions
 
     /// <summary>
     /// Widget runtime services. Serving routes are wired in
-    /// <see cref="Nexus.Service.Routes.WidgetRoutes.MapWidgetEndpoints"/>
+    /// <see cref="Nexus.Service.Routes.AppRoutes.MapAppEndpoints"/>
     /// in Program.cs.
     /// </summary>
     public static IServiceCollection AddNexusWidgets(this IServiceCollection services)
     {
-        services.AddSingleton<Nexus.Service.Widgets.WidgetRegistry>();
+        services.AddSingleton<Nexus.Service.Widgets.AppRegistry>();
         services.AddSingleton<Nexus.Service.Widgets.WidgetSettingsService>();
-        services.AddSingleton<Nexus.Service.Widgets.WidgetProxyService>();
-        services.AddSingleton<Nexus.Service.Widgets.WidgetInstaller>();
-        services.AddSingleton<Nexus.Service.Widgets.WidgetCodeSessionService>();
-        services.AddSingleton<Nexus.Service.Widgets.WidgetActionRegistry>(sp =>
+        services.AddSingleton<Nexus.Service.Widgets.AppProxyService>();
+        services.AddSingleton<Nexus.Service.Widgets.AppInstaller>();
+        services.AddSingleton<Nexus.Service.Widgets.AppCodeSessionService>();
+        services.AddSingleton<Nexus.Service.Widgets.AppActionRegistry>(sp =>
         {
-            var registry = new Nexus.Service.Widgets.WidgetActionRegistry();
+            var registry = new Nexus.Service.Widgets.AppActionRegistry();
             // First-party action modules. Each registers its own actions
             // by name; the manifest's capabilities.dispatch allowlist
             // gates per-widget access.
-            Nexus.Service.Widgets.WidgetActions.DisplayActions.RegisterAll(registry);
-            Nexus.Service.Widgets.WidgetActions.ScreentimeActions.RegisterAll(registry);
-            Nexus.Service.Widgets.WidgetActions.MacroActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.DisplayActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.ScreentimeActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.MediaActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.CoolingActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.LightingActions.RegisterAll(registry);
             return registry;
         });
+        services.AddSingleton<Nexus.Service.Widgets.AppDispatchRateLimiter>();
         return services;
     }
 

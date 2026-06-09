@@ -1,10 +1,11 @@
 {
-  "schema": "nexus.widget/2",
+  "schema": "nexus.app/1",
   "id": "com.hellonexus.fixture-basic",
   "name": "Fixture Basic",
   "version": "1.0.0",
-  "description": "Declarative-schema fixture used by the registry tests.",
+  "description": "SDK app fixture used by the registry tests.",
   "min_nexus_version": "0.42.0",
+  "runtime": "sdk",
   "surfaces": ["dashboard"],
   "sizes": ["2x2", "4x2", "4x4"],
   "default_size": "2x2",
@@ -17,12 +18,5 @@
   },
   "settings": [
     { "key": "color", "type": "color", "label": "Ring colour", "default": "#ff8800" }
-  ],
-  "data": {
-    "temp": { "sensor": "cpu.package.temperature" }
-  },
-  "view": {
-    "type": "value",
-    "text": "{temp.formatted}"
-  }
+  ]
 }

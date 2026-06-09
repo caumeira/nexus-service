@@ -13,20 +13,20 @@ namespace Nexus.Service.Tests.Widgets;
 /// Per-instance marketplace widget settings storage. Each placement carries
 /// its own <see cref="PanelWidgetDto.Config"/> dictionary in the layout;
 /// the service merges manifest defaults on read and writes overrides on
-/// apply. Tests wire up a real <see cref="WidgetRegistry"/> against a
+/// apply. Tests wire up a real <see cref="AppRegistry"/> against a
 /// fixture manifest folder so registry behavior (schema gate, folder/id
 /// match) is exercised end-to-end.
 /// </summary>
 public class WidgetSettingsServiceTests : IDisposable
 {
-    private const string WidgetId = "com.hellonexus.test";
+    private const string AppId = "com.hellonexus.test";
     private const string InstanceId = "test-instance";
-    private const string MarketplaceType = "marketplace:" + WidgetId;
+    private const string MarketplaceType = "marketplace:" + AppId;
 
     private readonly string _tempDir;
     private readonly string _settingsPath;
     private readonly JsonConfigStore _store;
-    private readonly WidgetRegistry _registry;
+    private readonly AppRegistry _registry;
 
     public WidgetSettingsServiceTests()
     {
@@ -35,9 +35,9 @@ public class WidgetSettingsServiceTests : IDisposable
         _settingsPath = Path.Combine(_tempDir, "settings.json");
         _store = new JsonConfigStore(_settingsPath);
         var widgetsRoot = Path.Combine(_tempDir, "widgets-root");
-        _registry = new WidgetRegistry(() => new[]
+        _registry = new AppRegistry(() => new[]
         {
-            new WidgetInstallPaths.Root(widgetsRoot, WidgetInstallPaths.Source.User),
+            new AppInstallPaths.Root(widgetsRoot, AppInstallPaths.Source.User),
         });
     }
 
@@ -53,9 +53,10 @@ public class WidgetSettingsServiceTests : IDisposable
     /// </summary>
     private WidgetSettingsService SetupWidget(params (string Key, string DefaultJson)[] settings)
     {
-        var widgetDir = Path.Combine(_tempDir, "widgets-root", WidgetId);
+        var widgetDir = Path.Combine(_tempDir, "widgets-root", AppId);
         Directory.CreateDirectory(widgetDir);
         File.WriteAllText(Path.Combine(widgetDir, "manifest.json"), BuildManifestJson(settings));
+        File.WriteAllText(Path.Combine(widgetDir, "widget.mjs"), "export const mount = () => {};");
 
         _store.Update(s =>
         {
@@ -89,14 +90,14 @@ public class WidgetSettingsServiceTests : IDisposable
         }
         return $$"""
         {
-          "schema": "nexus.widget/2",
-          "id": "{{WidgetId}}",
+          "schema": "nexus.app/1",
+          "id": "{{AppId}}",
           "name": "Test Widget",
           "version": "1.0.0",
           "min_nexus_version": "0.0.0",
           "surfaces": ["dashboard"],
           "sizes": ["2x2"],
-          "view": {"type":"text","text":"x"},
+          "runtime": "sdk",
           "settings": [{{settingsJson}}]
         }
         """;
@@ -130,9 +131,9 @@ public class WidgetSettingsServiceTests : IDisposable
         // (simulates a nexus-service restart).
         using var reloaded = new JsonConfigStore(_settingsPath);
         var widgetsRoot = Path.Combine(_tempDir, "widgets-root");
-        var registry2 = new WidgetRegistry(() => new[]
+        var registry2 = new AppRegistry(() => new[]
         {
-            new WidgetInstallPaths.Root(widgetsRoot, WidgetInstallPaths.Source.User),
+            new AppInstallPaths.Root(widgetsRoot, AppInstallPaths.Source.User),
         });
         var reloadedSvc = new WidgetSettingsService(reloaded, registry2);
 
@@ -218,9 +219,9 @@ public class WidgetSettingsServiceTests : IDisposable
 
         using var reloaded = new JsonConfigStore(_settingsPath);
         var widgetsRoot = Path.Combine(_tempDir, "widgets-root");
-        var registry2 = new WidgetRegistry(() => new[]
+        var registry2 = new AppRegistry(() => new[]
         {
-            new WidgetInstallPaths.Root(widgetsRoot, WidgetInstallPaths.Source.User),
+            new AppInstallPaths.Root(widgetsRoot, AppInstallPaths.Source.User),
         });
         var got = new WidgetSettingsService(reloaded, registry2).Get(InstanceId);
         Assert.Equal(weird, got.Values["blob"].GetString());

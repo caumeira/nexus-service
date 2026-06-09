@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Models.Devices;
+using Nexus.Service.Plugins;
 
 namespace Nexus.Service.Devices;
 
@@ -13,12 +14,18 @@ public sealed class DeviceManager
 {
     private readonly IReadOnlyList<IDeviceHandler> _handlers;
     private readonly IUsbEnumerator _enumerator;
+    private readonly PluginProviderRegistry _registry;
 
-    public DeviceManager(IEnumerable<IDeviceHandler> handlers, IUsbEnumerator enumerator)
+    public DeviceManager(IEnumerable<IDeviceHandler> handlers, IUsbEnumerator enumerator, PluginProviderRegistry registry)
     {
         _handlers = handlers.ToList();
         _enumerator = enumerator;
+        _registry = registry;
     }
+
+    // First-party handlers (static DI) + any plugin handlers (registry snapshot,
+    // read fresh each call so a plugin registered at runtime is detected).
+    private IEnumerable<IDeviceHandler> AllHandlers => _handlers.Concat(_registry.Handlers);
 
     /// <summary>
     /// Enumerates USB devices, checks each handler, and returns the full device list.
@@ -26,7 +33,7 @@ public sealed class DeviceManager
     public List<DeviceListItem> GetAll()
     {
         var usbDevices = _enumerator.Enumerate();
-        return _handlers.Select(h => new DeviceListItem
+        return AllHandlers.Select(h => new DeviceListItem
         {
             Id = h.Id,
             Name = h.Name,

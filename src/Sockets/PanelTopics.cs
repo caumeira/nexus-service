@@ -14,6 +14,7 @@ public static class PanelTopics
     public const string Prefs = "prefs";
     public const string Lighting = "lighting";
     public const string Cooling = "cooling";
+    public const string Volume = "volume";
     public const string CoolingWarnings = "cooling/warnings";
     public const string PanelDevice = "panel/device";
     /// <summary>
@@ -22,6 +23,13 @@ public static class PanelTopics
     /// the active code) and "cancelled" (expired / denied / superseded).
     /// </summary>
     public const string PairCodeRequest = "panel/phone/pair-code/request";
+    /// <summary>
+    /// Host network address changed (VPN toggle, Wi-Fi↔wired switch, DHCP
+    /// renew). A displayed pairing QR embeds the LAN IP picked at mint time, so
+    /// subscribers re-fetch the QR for the current address instead of waiting
+    /// out its TTL.
+    /// </summary>
+    public const string PairQrRefresh = "panel/phone/pair-qr/refresh";
 
     public static void BroadcastPrefs(MultiplexHub hub)
     {
@@ -50,6 +58,15 @@ public static class PanelTopics
         _ = hub.BroadcastTopicAsync(Cooling, env);
     }
 
+    public static void BroadcastVolume(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(Volume))
+            return;
+        var frame = new VolumeChangedFrame { Revision = Now() };
+        var env = WsEnvelope.Build(Volume, frame, AppJsonContext.Default.VolumeChangedFrame);
+        _ = hub.BroadcastTopicAsync(Volume, env);
+    }
+
     /// <summary>
     /// Broadcast a cooling-warnings-changed notification. Callers (the NP50
     /// heartbeat worker and any future warning producers) invoke this when
@@ -64,6 +81,15 @@ public static class PanelTopics
         var frame = new CoolingWarningsChangedFrame { Revision = Now(), DeviceId = deviceId };
         var env = WsEnvelope.Build(CoolingWarnings, frame, AppJsonContext.Default.CoolingWarningsChangedFrame);
         _ = hub.BroadcastTopicAsync(CoolingWarnings, env);
+    }
+
+    public static void BroadcastPairQrRefresh(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(PairQrRefresh))
+            return;
+        var frame = new PairQrRefreshFrame { Revision = Now() };
+        var env = WsEnvelope.Build(PairQrRefresh, frame, AppJsonContext.Default.PairQrRefreshFrame);
+        _ = hub.BroadcastTopicAsync(PairQrRefresh, env);
     }
 
     public static void BroadcastPanelDevice(MultiplexHub hub, string deviceId)

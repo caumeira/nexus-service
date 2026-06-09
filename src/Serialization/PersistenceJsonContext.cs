@@ -38,6 +38,10 @@ namespace Nexus.Service.Serialization;
 // service / adb-server restarts.
 [JsonSerializable(typeof(QSeriesTransportRecord))]
 [JsonSerializable(typeof(Dictionary<string, QSeriesTransportRecord>))]
+// Smart (network) lights — paired Hue / Nanoleaf / WLED / etc. config.
+[JsonSerializable(typeof(SmartLightsSettings))]
+[JsonSerializable(typeof(SmartLightConfig))]
+[JsonSerializable(typeof(List<SmartLightConfig>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

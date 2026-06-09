@@ -13,6 +13,8 @@ public class PanelPhonePairingServiceTests
     private const string UserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148";
     private const string AndroidUserAgent = "Mozilla/5.0 (Linux; Android 15; Pixel 9 Pro) AppleWebKit/537.36 Mobile Safari/537.36";
     private const string NativeIosUserAgent = "Nexus/1 CFNetwork/3860.500.112 Darwin/25.4.0";
+    // iPadOS Safari sends a desktop Mac UA indistinguishable from a real Mac.
+    private const string MacUserAgent = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Safari/605.1.15";
 
     [Fact]
     public void CreatePairQr_UsesSixtySecondTtl()
@@ -292,6 +294,44 @@ public class PanelPhonePairingServiceTests
         Assert.True(renamed);
         Assert.Equal("Desk iPhone", renamedSession.Name);
         Assert.Equal("iPhone", renamedSession.DeviceType);
+    }
+
+    [Fact]
+    public void GetSessions_ClientDeviceName_OverridesUserAgentGuess()
+    {
+        // An iPad reports a Mac UA; the client passes the detected "iPad" label so
+        // both the name and the device type read "iPad", not "Mac".
+        var service = NewService(new InMemoryConfigStore());
+        var result = service.Claim(
+            PairTokenFrom(service.CreatePairQr()),
+            deviceId: "",
+            deviceName: "iPad",
+            NewContext(MacUserAgent, "192.168.1.54"));
+
+        var session = Assert.Single(service.GetSessions(0).Sessions);
+
+        Assert.True(result.Paired);
+        Assert.Equal("iPad", session.Name);
+        Assert.Equal("iPad", session.DeviceType);
+    }
+
+    [Fact]
+    public void RenameSession_PreservesClientDeviceType()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        service.Claim(
+            PairTokenFrom(service.CreatePairQr()),
+            deviceId: "",
+            deviceName: "iPad",
+            NewContext(MacUserAgent, "192.168.1.54"));
+        var session = Assert.Single(service.GetSessions(0).Sessions);
+
+        var renamed = service.RenameSession(session.Id, "Studio iPad");
+        var renamedSession = Assert.Single(service.GetSessions(0).Sessions);
+
+        Assert.True(renamed);
+        Assert.Equal("Studio iPad", renamedSession.Name);
+        Assert.Equal("iPad", renamedSession.DeviceType);
     }
 
     [Fact]

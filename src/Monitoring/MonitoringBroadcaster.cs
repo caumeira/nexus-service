@@ -323,16 +323,22 @@ public sealed class MonitoringBroadcaster : BackgroundService
 
     private List<HardwareComponent> BuildGpuComponents()
     {
-        var models = _sensors.GetGpuModels();
-        var sensors = _sensors.GetGpuSensors();
-        var result = new List<HardwareComponent>(models.Count);
-        for (int i = 0; i < models.Count; i++)
+        // One component per physical GPU, each carrying only its own sensors.
+        // Discrete first, so any consumer that still reads gpu[0] defaults to the
+        // dGPU rather than whichever the platform enumerated first (often the iGPU);
+        // the client resolves its preferred GPU by name on top of this.
+        var gpus = _sensors.GetGpus().OrderBy(g => g.Integrated).ToList();
+        var result = new List<HardwareComponent>(gpus.Count);
+        for (int i = 0; i < gpus.Count; i++)
         {
+            var g = gpus[i];
             result.Add(new HardwareComponent
             {
                 Id = $"gpu/{i}",
-                Name = models[i],
-                Sensors = new List<HardwareSensor>(sensors),
+                Name = g.Name,
+                Vendor = g.Vendor,
+                Integrated = g.Integrated,
+                Sensors = g.Sensors,
             });
         }
         return result;

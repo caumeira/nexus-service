@@ -33,6 +33,7 @@ public sealed class NexusSettings
     public CoolingSettings Cooling { get; set; } = new();
     public Y70Settings Y70 { get; set; } = new();
     public DevicesSettings Devices { get; set; } = new();
+    public SmartLightsSettings SmartLights { get; set; } = new();
     public UiSettings Ui { get; set; } = new();
     public ScreenTimeSettings ScreenTime { get; set; } = new();
     public ObsSettings Obs { get; set; } = new();
@@ -51,6 +52,41 @@ public sealed class NexusSettings
     /// <summary>Category ids currently set to Shared. Allowed values: "lighting", "cooling", "theme", "dashboard". Categories not in this list are per-profile (the default). NOT profile-scoped: workstation-level. Hardware-bound state (Keeb, Y70, Devices, panel defaults) always lives at workstation root and is never per-profile, so it never appears here.</summary>
     public List<string> SharedCategories { get; set; } = new();
 
+}
+
+/// <summary>
+/// Paired network ("smart") lights — Philips Hue and (later) Nanoleaf, WLED,
+/// LIFX, etc. Each entry is one controllable light surfaced as a
+/// <see cref="Nexus.Service.Models.Devices.LightingDevice"/> card alongside the
+/// USB / serial RGB devices. Discovery + pairing populate this list; the
+/// SmartLightProvider routes control + canvas frames to the owning driver.
+/// </summary>
+public sealed class SmartLightsSettings
+{
+    public List<SmartLightConfig> Devices { get; set; } = new();
+}
+
+public sealed class SmartLightConfig
+{
+    /// <summary>Stable device id, e.g. "hue:&lt;bridgeId&gt;:&lt;rid&gt;". The id prefix
+    /// (brand) is how <see cref="Nexus.Service.Lighting.CompositeLightingDeviceProvider"/>
+    /// routes control + frames.</summary>
+    public string Id { get; set; } = "";
+    public string Brand { get; set; } = "";
+    public string Name { get; set; } = "";
+    /// <summary>Last-known LAN host (ip or hostname) of the controller / bridge.</summary>
+    public string Host { get; set; } = "";
+    /// <summary>Hardware-stable key (bridge id / device serial / MAC) used to
+    /// re-resolve the host when DHCP moves it.</summary>
+    public string StableKey { get; set; } = "";
+    /// <summary>Auth credential (Hue app-key, Nanoleaf/Twinkly token). Wrapped at
+    /// rest via <see cref="Nexus.Service.Security.SecretProtector"/> on Windows;
+    /// plaintext on macOS/Linux (same as Steam/Discord secrets).</summary>
+    public string Token { get; set; } = "";
+    /// <summary>Brand-specific opaque payload (Hue v2 resource id, LIFX zone
+    /// count, Nanoleaf panel layout, …). Driver-defined contents.</summary>
+    public string Extra { get; set; } = "";
+    public bool Enabled { get; set; } = true;
 }
 
 public sealed class TelemetrySettings
@@ -283,6 +319,8 @@ public sealed class CoolingSettings
     public string? PreferredCpuTempSensorId { get; set; }
     /// <summary>User-chosen sensor id for the GPU "temperature" reading shown across the Cooling page, Monitoring dashboard, and Cooling widget. Same nullable semantics as <see cref="PreferredCpuTempSensorId"/>.</summary>
     public string? PreferredGpuTempSensorId { get; set; }
+    /// <summary>User-chosen "primary" GPU (by model name) used wherever a single GPU's sensors are shown: the Monitoring widget, sensors/Detailed view, and the GPU temp display. Keyed by model name (not enumeration index) so the choice survives reboots / driver re-enumeration. Same nullable semantics as the temp prefs: null = auto (client defaults to the first discrete GPU), empty string on PATCH collapses to null.</summary>
+    public string? PreferredGpuId { get; set; }
 }
 
 public sealed class CurveDocument
@@ -468,6 +506,15 @@ public sealed class PanelPhoneSessionToken
     public string Id { get; set; } = "";
     public string Hash { get; set; } = "";
     public string Name { get; set; } = "";
+
+    /// <summary>
+    /// Device class frozen at claim time (e.g. "iPad", "Android tablet"). Unlike
+    /// <see cref="Name"/>, it is never overwritten by a user rename, so the
+    /// session list can show the original class alongside a custom name. Set from
+    /// the client-detected label when present, else the UA descriptor. Empty for
+    /// sessions claimed before this field existed — those fall back to the UA.
+    /// </summary>
+    public string DeviceType { get; set; } = "";
     public string UserAgent { get; set; } = "";
     public string RemoteAddress { get; set; } = "";
     public string DeviceFingerprint { get; set; } = "";

@@ -11,12 +11,12 @@ namespace Nexus.Service.Models.Widgets;
 /// </summary>
 public sealed class WidgetSettingsDocument
 {
-    public string WidgetId { get; set; } = "";
+    public string AppId { get; set; } = "";
     public Dictionary<string, JsonElement> Values { get; set; } = new();
 }
 
 /// <summary>
-/// Body of <c>PATCH /widgets-api/installed/{id}/settings</c>. Partial: any
+/// Body of <c>PATCH /apps-api/installed/{id}/settings</c>. Partial: any
 /// key in <see cref="Set"/> overwrites; keys in <see cref="Reset"/> drop back
 /// to the manifest default; keys absent from both are untouched. When the
 /// same key appears in both lists, <see cref="Reset"/> wins (the server

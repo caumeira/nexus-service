@@ -623,24 +623,23 @@
     <Delete Files="$(_OverlayPublishDir)nexus-overlay.pdb" />
   </Target>
 
-  <!-- First-party + community widgets. Live in the separate `nexus-widgets`
-       submodule (../nexus-widgets in this layout); MSBuild copies them into
-       <output>/widgets/<id>/, matching the bundled-install root the
-       WidgetRegistry scans. The host renders the declarative view
-       (nexus.widget/2) and, for Tier 2 widgets, serves worker.js + sibling
-       module files (lib/*.js) over a per-spawn /widgets-api/code/<session>
-       URL. The Web SDK's default Content include sometimes shadows the
-       Link metadata; remove + re-add to ensure our metadata wins. -->
+  <!-- First-party + community apps. Live in the separate `nexus-apps`
+       submodule (../nexus-apps in this layout), one dir per app under apps/<id>/
+       (manifest.json + the built widget.mjs). MSBuild copies them into
+       <output>/widgets/<id>/, the bundled-install root the AppRegistry scans
+       (an app's widget facet renders from widget.mjs in the sandboxed host).
+       The Web SDK's default Content include sometimes shadows the Link
+       metadata; remove + re-add to ensure our metadata wins. -->
   <PropertyGroup>
-    <NexusWidgetsRoot Condition="'$(NexusWidgetsRoot)' == ''">$(MSBuildThisFileDirectory)..\nexus-widgets\widgets</NexusWidgetsRoot>
+    <NexusAppsRoot Condition="'$(NexusAppsRoot)' == ''">$(MSBuildThisFileDirectory)..\nexus-apps\apps</NexusAppsRoot>
   </PropertyGroup>
-  <Target Name="CheckNexusWidgetsSubmodule" BeforeTargets="BeforeBuild">
-    <Error Condition="!Exists('$(NexusWidgetsRoot)')"
-           Text="nexus-widgets submodule missing at $(NexusWidgetsRoot). Run: git submodule update --init nexus-widgets" />
+  <Target Name="CheckNexusAppsSubmodule" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(NexusAppsRoot)')"
+           Text="nexus-apps submodule missing at $(NexusAppsRoot). Run: git submodule update --init nexus-apps" />
   </Target>
   <ItemGroup>
-    <Content Remove="$(NexusWidgetsRoot)\**\*" />
-    <Content Include="$(NexusWidgetsRoot)\**\*">
+    <Content Remove="$(NexusAppsRoot)\**\*" />
+    <Content Include="$(NexusAppsRoot)\**\*">
       <Link>widgets\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>

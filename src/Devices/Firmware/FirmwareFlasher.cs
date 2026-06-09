@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Devices;
+using Nexus.Service.Plugins;
 
 namespace Nexus.Service.Devices.Firmware;
 
@@ -23,6 +24,7 @@ public sealed class FirmwareFlasher
     private readonly IReadOnlyList<IDfuFlashTarget> _targets;
     private readonly WinUsbDriverInstaller _winusb;
     private readonly DfuUtil _dfu;
+    private readonly PluginProviderRegistry _registry;
     private readonly object _gate = new();
     private volatile bool _flashing;
 
@@ -30,13 +32,20 @@ public sealed class FirmwareFlasher
         BundledFirmwareCatalog catalog,
         IEnumerable<IDfuFlashTarget> targets,
         WinUsbDriverInstaller winusb,
-        DfuUtil dfu)
+        DfuUtil dfu,
+        PluginProviderRegistry registry)
     {
         _catalog = catalog;
         _targets = targets.ToList();
         _winusb = winusb;
         _dfu = dfu;
+        _registry = registry;
     }
+
+    // First-party DFU targets (static DI) + any plugin targets (registry snapshot,
+    // read fresh each call). Firmware grants stay first-party-only at v1; a plugin
+    // target only reaches here once the cert grants it (Phase 3).
+    private IEnumerable<IDfuFlashTarget> AllTargets => _targets.Concat(_registry.DfuTargets);
 
     public FlashStatusDto Status { get; } = new();
     public bool IsFlashing => _flashing;
@@ -51,7 +60,7 @@ public sealed class FirmwareFlasher
     {
         var result = new List<FlashableImage>();
         if (string.IsNullOrEmpty(connectedFirmwareType)) return result;
-        var target = _targets.FirstOrDefault(t => t.IsConnected && t.FirmwareType == connectedFirmwareType);
+        var target = AllTargets.FirstOrDefault(t => t.IsConnected && t.FirmwareType == connectedFirmwareType);
         if (target is null) return result;
         foreach (var key in _catalog.DeviceIds)
         {
@@ -76,7 +85,7 @@ public sealed class FirmwareFlasher
             { error = "deviceType and version are required."; return false; }
             if (!_catalog.GetAvailableVersions(deviceType).Contains(version))
             { error = $"No bundled firmware for {deviceType} {version}."; return false; }
-            var target = _targets.FirstOrDefault(t => t.IsConnected && t.CanFlash(deviceType));
+            var target = AllTargets.FirstOrDefault(t => t.IsConnected && t.CanFlash(deviceType));
             if (target is null) { error = $"No connected device can flash {deviceType}."; return false; }
 
 #if !DEV_TOOLS

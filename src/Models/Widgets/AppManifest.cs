@@ -1,0 +1,154 @@
+using System.Collections.Generic;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+
+namespace Nexus.Service.Models.Widgets;
+
+/// <summary>
+/// Parsed <c>manifest.json</c> for an installed app under the <c>nexus.app/1</c>
+/// schema. Field names match the on-disk JSON. An app's widget facet is a
+/// sandboxed remote-component bundle (<c>widget.mjs</c>); there is no declarative
+/// view tree. See <c>plans/third-party-app-sdk.md</c> for the contract.
+/// </summary>
+public sealed class AppManifest
+{
+    [JsonPropertyName("schema")]
+    public string Schema { get; set; } = "";
+
+    [JsonPropertyName("id")]
+    public string Id { get; set; } = "";
+
+    [JsonPropertyName("name")]
+    public string Name { get; set; } = "";
+
+    [JsonPropertyName("version")]
+    public string Version { get; set; } = "";
+
+    [JsonPropertyName("description")]
+    public string? Description { get; set; }
+
+    [JsonPropertyName("author")]
+    public AppManifestAuthor? Author { get; set; }
+
+    [JsonPropertyName("icon")]
+    public string? Icon { get; set; }
+
+    [JsonPropertyName("min_nexus_version")]
+    public string MinNexusVersion { get; set; } = "";
+
+    [JsonPropertyName("surfaces")]
+    public List<string> Surfaces { get; set; } = new();
+
+    /// <summary>
+    /// Render runtime. Must be <c>"sdk"</c>: the panel loads the built
+    /// <c>widget.mjs</c> into a sandboxed worker and reconciles its remote
+    /// component tree into host components. Carried through to the listing.
+    /// </summary>
+    [JsonPropertyName("runtime")]
+    public string? Runtime { get; set; }
+
+    /// <summary>
+    /// True when the widget ships an expanded "page" surface (a second render
+    /// of the bundle via <c>mount({ cell, page })</c>). The dashboard makes such
+    /// a widget click-through into a full section view. Default false.
+    /// </summary>
+    [JsonPropertyName("page")]
+    public bool Page { get; set; }
+
+    /// <summary>
+    /// Allowed grid sizes. Same alphabet as the panel engine:
+    /// <c>1x1</c>, <c>2x2</c>, <c>4x2</c>, <c>4x4</c>. The first entry is
+    /// the default if <see cref="DefaultSize"/> is unset. Anything outside
+    /// the alphabet is dropped by the panel registry's marketplace filter.
+    /// </summary>
+    [JsonPropertyName("sizes")]
+    public List<string> Sizes { get; set; } = new();
+
+    [JsonPropertyName("default_size")]
+    public string? DefaultSize { get; set; }
+
+    [JsonPropertyName("viewport")]
+    public AppManifestViewport? Viewport { get; set; }
+
+    [JsonPropertyName("capabilities")]
+    public AppManifestCapabilities Capabilities { get; set; } = new();
+
+    [JsonPropertyName("settings")]
+    public List<AppManifestSettingEntry> Settings { get; set; } = new();
+}
+
+public sealed class AppManifestAuthor
+{
+    [JsonPropertyName("name")] public string? Name { get; set; }
+    [JsonPropertyName("url")] public string? Url { get; set; }
+    [JsonPropertyName("email")] public string? Email { get; set; }
+}
+
+public sealed class AppManifestViewport
+{
+    [JsonPropertyName("min")] public List<int>? Min { get; set; }
+    [JsonPropertyName("preferred")] public List<int>? Preferred { get; set; }
+    [JsonPropertyName("max")] public List<int>? Max { get; set; }
+    [JsonPropertyName("aspect")] public string? Aspect { get; set; }
+}
+
+public sealed class AppManifestCapabilities
+{
+    [JsonPropertyName("sensors.read")]
+    public List<string> SensorsRead { get; set; } = new();
+
+    [JsonPropertyName("rgb.read")]
+    public bool RgbRead { get; set; }
+
+    [JsonPropertyName("rgb.write")]
+    public bool RgbWrite { get; set; }
+
+    /// <summary>HTTPS hosts the widget may fetch from. Phase 2 uses the
+    /// host-mediated proxy (`/apps-api/proxy`) for both Tier 1 declarative
+    /// fetch sources and Tier 2 worker `nexus.net.fetch` calls.</summary>
+    [JsonPropertyName("net.fetch")]
+    public List<string> NetFetch { get; set; } = new();
+
+    /// <summary>
+    /// Host-action allowlist. Widgets may POST to /apps-api/dispatch
+    /// only with action names that appear in this list. Names are
+    /// dotted (e.g. "displays.list", "displays.setBrightness"); the
+    /// server-side registry knows which controller each routes to.
+    /// </summary>
+    [JsonPropertyName("dispatch")]
+    public List<string> Dispatch { get; set; } = new();
+
+    [JsonPropertyName("config")]
+    public bool Config { get; set; } = true;
+
+    /// <summary>
+    /// Opt-in Tier 2 capability. When <c>true</c>, the bundle must ship
+    /// a <c>worker.js</c> alongside the manifest; the host spawns a Web
+    /// Worker per widget instance and exposes the <c>nexus.*</c> API there.
+    /// Stored as the JSON discriminator string (currently only "worker").
+    /// </summary>
+    [JsonPropertyName("code")]
+    public string? Code { get; set; }
+
+    /// <summary>Convenience: true when <see cref="Code"/> is "worker".</summary>
+    [JsonIgnore]
+    public bool WorkerCode => string.Equals(Code, "worker", System.StringComparison.Ordinal);
+}
+
+public sealed class AppManifestSettingEntry
+{
+    [JsonPropertyName("key")] public string Key { get; set; } = "";
+    [JsonPropertyName("type")] public string Type { get; set; } = "";
+    [JsonPropertyName("label")] public string? Label { get; set; }
+    [JsonPropertyName("default")] public JsonElement? Default { get; set; }
+    [JsonPropertyName("min")] public double? Min { get; set; }
+    [JsonPropertyName("max")] public double? Max { get; set; }
+    [JsonPropertyName("step")] public double? Step { get; set; }
+    [JsonPropertyName("filter")] public string? Filter { get; set; }
+    [JsonPropertyName("options")] public List<string>? Options { get; set; }
+    // Parallel to Options, for the icon-select control: a display label and an
+    // icon name (mapped host-side to a lucide glyph) per option. Lets an SDK
+    // widget declare a visual switcher (e.g. the clock's design picker).
+    [JsonPropertyName("optionLabels")] public List<string>? OptionLabels { get; set; }
+    [JsonPropertyName("optionIcons")] public List<string>? OptionIcons { get; set; }
+}

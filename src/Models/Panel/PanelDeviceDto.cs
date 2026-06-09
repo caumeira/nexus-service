@@ -50,7 +50,6 @@ public sealed class PanelDeviceCapabilities
     public string? Surface { get; set; }
     public string? Grid { get; set; }
     public bool? Touch { get; set; }
-    public bool? Dock { get; set; }
     public string? Orientation { get; set; }
     // Viewport hints reported by the kiosk SPA itself - the kiosk knows its
     // own CSS viewport and devicePixelRatio (== Windows display scaling on
@@ -114,6 +113,22 @@ public sealed class LightingChangedFrame
 }
 
 public sealed class CoolingChangedFrame
+{
+    public long Revision { get; set; }
+}
+
+public sealed class VolumeChangedFrame
+{
+    public long Revision { get; set; }
+}
+
+/// <summary>
+/// Multiplex frame: the host's network address changed (VPN toggle, Wi-Fi↔wired
+/// switch, DHCP renew), so any displayed pairing QR now embeds a stale LAN IP.
+/// Subscribers re-fetch <c>GET /panel/phone/pair-qr</c> to mint a fresh QR for
+/// the current address. Content-less beyond the echo-suppress revision.
+/// </summary>
+public sealed class PairQrRefreshFrame
 {
     public long Revision { get; set; }
 }

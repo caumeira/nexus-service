@@ -29,7 +29,7 @@ public static class PanelRoutes
 
         app.MapPost("/panel/phone/claim", (HttpContext ctx, PanelPhoneClaimBody body, PanelPhonePairingService pairing) =>
         {
-            var result = pairing.Claim(body.PairToken, body.DeviceId, ctx);
+            var result = pairing.Claim(body.PairToken, body.DeviceId, body.DeviceName, ctx);
             if (result.Paired && !string.IsNullOrWhiteSpace(result.Token))
             {
                 ctx.Response.Cookies.Append(

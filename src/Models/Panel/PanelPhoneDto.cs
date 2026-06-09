@@ -26,6 +26,14 @@ public sealed class PanelPhoneClaimBody
     /// Empty / missing falls back to fingerprint-based dedup (legacy behavior).
     /// </summary>
     public string DeviceId { get; set; } = "";
+
+    /// <summary>
+    /// Client-detected device class (e.g. "iPad", "Android tablet"). The browser
+    /// resolves cases the server-side User-Agent can't: an iPad reports a desktop
+    /// Mac UA, a Samsung tablet reports a phone UA. Non-blank wins over the
+    /// UA-derived descriptor; blank/missing falls back to it.
+    /// </summary>
+    public string DeviceName { get; set; } = "";
 }
 
 public sealed class PanelPhoneClaimResponse

@@ -58,6 +58,7 @@ public static class ProfileRoutes
                         FanChannelOrder = s.Cooling.FanChannelOrder,
                         PreferredCpuTempSensorId = s.Cooling.PreferredCpuTempSensorId,
                         PreferredGpuTempSensorId = s.Cooling.PreferredGpuTempSensorId,
+                        PreferredGpuId = s.Cooling.PreferredGpuId,
                     },
                     Ui = s.Ui,
                 };
@@ -163,6 +164,7 @@ public static class ProfileRoutes
                     FanChannelOrder = s.Cooling.FanChannelOrder,
                     PreferredCpuTempSensorId = s.Cooling.PreferredCpuTempSensorId,
                     PreferredGpuTempSensorId = s.Cooling.PreferredGpuTempSensorId,
+                    PreferredGpuId = s.Cooling.PreferredGpuId,
                 },
                 Ui = s.Ui,
             };
@@ -410,6 +412,8 @@ public static class ProfileRoutes
                         s.Cooling.PreferredCpuTempSensorId = cooling.PreferredCpuTempSensorId.Length == 0 ? null : cooling.PreferredCpuTempSensorId;
                     if (cooling.PreferredGpuTempSensorId is not null)
                         s.Cooling.PreferredGpuTempSensorId = cooling.PreferredGpuTempSensorId.Length == 0 ? null : cooling.PreferredGpuTempSensorId;
+                    if (cooling.PreferredGpuId is not null)
+                        s.Cooling.PreferredGpuId = cooling.PreferredGpuId.Length == 0 ? null : cooling.PreferredGpuId;
                 }
                 if (body.Ui is { } ui)
                 {

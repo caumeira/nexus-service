@@ -11,11 +11,12 @@ using Nexus.Service.Models;
 namespace Nexus.Service.Routes;
 
 /// <summary>
-/// Service-control surface. Four operations:
-///   GET  /service/startup-mode  -> current SCM start type (auto/demand)
-///   POST /service/startup-mode  -> change SCM start type for next boot
-///   POST /service/stop          -> graceful self-stop
-///   POST /service/open-app      -> ensure dashboard is open
+/// Service-control surface. Five operations:
+///   GET  /service/startup-mode   -> current SCM start type (auto/demand)
+///   POST /service/startup-mode   -> change SCM start type for next boot
+///   POST /service/stop           -> graceful self-stop
+///   POST /service/factory-reset  -> wipe all data dirs and restart fresh
+///   POST /service/open-app       -> ensure dashboard is open
 ///
 /// All are protected by two stacked gates:
 ///   1. <see cref="LocalhostOnlyEndpointExtensions.LocalhostOnly"/> - the
@@ -64,6 +65,32 @@ internal static class ServiceControlRoutes
             // ApplicationStopping token, which is what our SCM dispatcher
             // (WindowsServiceHost) is waiting on - SCM then sees the
             // service transition to STOPPED.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(200);
+                lifetime.StopApplication();
+            });
+            return Results.Ok(ApiResponse.Ok());
+        }).LocalhostOnly();
+
+        app.MapPost("/service/factory-reset", (IHostApplicationLifetime lifetime,
+            Nexus.Service.Devices.Firmware.FirmwareFlasher flasher) =>
+        {
+            // Same flash guard as /service/stop — tearing the service down
+            // mid-flash strands the device in the DFU bootloader.
+            if (flasher.IsFlashing)
+            {
+                return Results.Json(
+                    new ApiResponse { Error = true, Msg = "A firmware update is in progress; cannot reset now." },
+                    Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
+                    statusCode: 409);
+            }
+
+            // Spawn the detached finalizer, then stop ourselves (same 200ms
+            // response-flush delay as /service/stop). The finalizer waits for
+            // this process to exit, wipes every Nexus data dir, then restarts
+            // the service from a clean slate.
+            Nexus.Service.Lifecycle.FactoryReset.Begin();
             _ = Task.Run(async () =>
             {
                 await Task.Delay(200);

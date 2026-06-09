@@ -21,6 +21,14 @@ internal static class CommandLineEntry
                 Nexus.Service.Platform.Windows.TrayIcon.OpenLocalWindow();
                 return 0;
             },
+            // One-shot invoked by the service via schtasks to switch the default
+            // audio endpoint in the user session (per-user setting; IPolicyConfig
+            // can't change it from Session 0).
+            ["--set-audio-default"] = static a =>
+            {
+                if (a.Length < 2 || string.IsNullOrEmpty(a[1])) return 1;
+                return new Nexus.Service.Activity.WindowsAudioDeviceProvider().SetDefaultDirect(a[1]) ? 0 : 1;
+            },
         };
 #endif
 
@@ -31,6 +39,13 @@ internal static class CommandLineEntry
     {
         if (args.Length > 0 && args[0] == "--install-pawnio")
             return PawnIoInstaller.RunElevatedInstall();
+
+        // Detached finalizer spawned by POST /service/factory-reset: waits for
+        // the live service to exit, wipes every Nexus data dir, then restarts.
+        // A second instance by design, so — like --install-pawnio — it must run
+        // before the single-instance mutex.
+        if (args.Length > 0 && args[0] == FactoryReset.FinalizeFlag)
+            return FactoryReset.Finalize(args);
 
 #if WINDOWS
         if (args.Length > 0 && WindowsHandlers.TryGetValue(args[0], out var handler))
