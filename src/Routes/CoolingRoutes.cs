@@ -63,7 +63,10 @@ public static class CoolingRoutes
 
         app.MapPost("/cooling/curves/set", (SetCurvesBody body, ICurveProvider c, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
         {
-            c.SetCurves(body);
+            // Clamp every stored speed to [0,100] (and the global boost) so a
+            // malformed curve can't persist out-of-range values; the write
+            // chokepoint clamps the physical output independently.
+            c.SetCurves(CoolingSafety.Sanitize(body));
             // Recompute the active preset from the saved curve outputs so the
             // profile bar stays in sync after a manual edit in the curve list.
             var derived = FanProfiles.DerivePresetFromCurves(store, f);

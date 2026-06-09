@@ -94,11 +94,14 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
         return _motherboard.ReadTemperature(sensorId);
     }
 
+    // The single fan-write chokepoint: every duty that reaches hardware — from a
+    // curve apply, a direct speed call, or a plugin-guided write — is clamped to
+    // [0,100] here, so no caller can drive a fan out of range.
     public int SetFanSpeed(string channelId, int dutyPercent)
-        => Route(channelId).SetFanSpeed(channelId, dutyPercent);
+        => Route(channelId).SetFanSpeed(channelId, CoolingSafety.ClampDuty(dutyPercent));
 
     public void DriveFanSpeed(string channelId, int dutyPercent)
-        => Route(channelId).DriveFanSpeed(channelId, dutyPercent);
+        => Route(channelId).DriveFanSpeed(channelId, CoolingSafety.ClampDuty(dutyPercent));
 
     public void ReleaseFan(string channelId)
         => Route(channelId).ReleaseFan(channelId);
