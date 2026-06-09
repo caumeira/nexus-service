@@ -37,7 +37,7 @@ void main() {
         vec2 q = uv * scale + vec2(
             sin(t * 0.7 + phase) * 0.7,
             cos(t * 0.6 + phase * 1.3) * 0.6);
-        q += vec2(fbm(q + t * 0.25), fbm(q + vec2(5.0, 3.0) + t * 0.2)) * 0.45;
+        q += vec2(fbm3(q + t * 0.25), fbm3(q + vec2(5.0, 3.0) + t * 0.2)) * 0.45;
         float v = voronoi(q);
         float mask = smoothstep(soft, 0.0, v - 0.2);
         float alpha = mask * (0.35 + 0.15 * sin(fi * 2.0));

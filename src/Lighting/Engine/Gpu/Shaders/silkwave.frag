@@ -20,7 +20,12 @@ void main() {
     vec2 p = uv;
     float tw = t * flow;
 
+    // Height field = sine folds + a noise layer. The normal needs the field's
+    // gradient; accumulate the sine sum's analytic gradient in-loop
+    // (d/dp[A sin(dot(p,d)f + ph)] = A f cos(.) d) instead of re-evaluating the
+    // whole field at four offset points (the old finite-diff ran 5 passes).
     float h = 0.0;
+    vec2 gradH = vec2(0.0);
     for (int i = 0; i < 14; i++) {
         float fi = float(i);
         if (fi >= folds) break;
@@ -28,41 +33,21 @@ void main() {
         vec2 d = vec2(cos(ang), sin(ang));
         float freq = 1.5 + fi * 0.6;
         float phase = fi * 0.9 + tw * (0.4 + fi * 0.08);
-        h += sin(dot(p, d) * freq + phase) * (1.0 / (1.0 + fi * 0.6));
+        float amp = 1.0 / (1.0 + fi * 0.6);
+        float arg = dot(p, d) * freq + phase;
+        h += sin(arg) * amp;
+        gradH += amp * freq * cos(arg) * d;
     }
-    // Warped noise for cloth texture.
-    h += (fbm(p * 2.0 + tw * 0.1) - 0.5) * 0.5;
-
-    // Finite-diff normal (cheap).
+    // Noise micro-texture has no closed-form slope: forward-difference it from
+    // two extra taps, reusing the centre sample.
     float eps = 0.003;
-    float hx = h;
-    // recompute at +eps, -eps for x -- compact inline:
-    float hxp = 0.0, hxm = 0.0, hyp = 0.0, hym = 0.0;
-    for (int k = 0; k < 4; k++) {
-        vec2 shift;
-        if (k == 0) shift = vec2(eps, 0.0);
-        else if (k == 1) shift = vec2(-eps, 0.0);
-        else if (k == 2) shift = vec2(0.0, eps);
-        else shift = vec2(0.0, -eps);
-        float sum = 0.0;
-        vec2 pp = p + shift;
-        for (int i = 0; i < 14; i++) {
-            float fi = float(i);
-            if (fi >= folds) break;
-            float ang = fi * 0.7 + sin(t * 0.15 + fi) * 0.3;
-            vec2 d = vec2(cos(ang), sin(ang));
-            float freq = 1.5 + fi * 0.6;
-            float phase = fi * 0.9 + tw * (0.4 + fi * 0.08);
-            sum += sin(dot(pp, d) * freq + phase) * (1.0 / (1.0 + fi * 0.6));
-        }
-        sum += (fbm(pp * 2.0 + tw * 0.1) - 0.5) * 0.5;
-        if (k == 0) hxp = sum;
-        else if (k == 1) hxm = sum;
-        else if (k == 2) hyp = sum;
-        else hym = sum;
-    }
-    vec2 grad = vec2(hxp - hxm, hyp - hym) / (2.0 * eps);
-    vec3 n = normalize(vec3(-grad, 1.0));
+    float nC = fbm(p * 2.0 + tw * 0.1);
+    h += (nC - 0.5) * 0.5;
+    float nX = fbm((p + vec2(eps, 0.0)) * 2.0 + tw * 0.1);
+    float nY = fbm((p + vec2(0.0, eps)) * 2.0 + tw * 0.1);
+    gradH += vec2(nX - nC, nY - nC) / eps * 0.5;
+
+    vec3 n = normalize(vec3(-gradH, 1.0));
 
     // Light direction rotates slowly so the silk catches the light.
     vec3 L = normalize(vec3(sin(t * 0.3) * 0.7, cos(t * 0.25) * 0.7, 0.6));

@@ -118,3 +118,15 @@ float fbm(vec2 p) {
     }
     return v;
 }
+// 3-octave fbm for domain-warp offsets, where the top two octaves are washed
+// out by the warp anyway. ~40% cheaper than fbm; slightly lower amplitude.
+float fbm3(vec2 p) {
+    float v = 0.0;
+    float a = 0.5;
+    for (int i = 0; i < 3; i++) {
+        v += a * vnoise(p);
+        p *= 2.02;
+        a *= 0.5;
+    }
+    return v;
+}

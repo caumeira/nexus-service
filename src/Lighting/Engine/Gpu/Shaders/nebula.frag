@@ -28,10 +28,10 @@ void main() {
             sin(t * 0.3 + fi * 1.4) * 0.3,
             cos(t * 0.25 + fi * 2.1) * 0.2);
         // Domain warp for organic cloud shapes.
-        q += vec2(fbm(q + t * 0.08), fbm(q + vec2(3.0, 7.0) + t * 0.06)) * 0.5;
+        q += vec2(fbm3(q + t * 0.08), fbm3(q + vec2(3.0, 7.0) + t * 0.06)) * 0.5;
         float n = fbm(q);
         // High-freq detail.
-        n = n * 0.7 + fbm(q * 3.0 - t * 0.04) * 0.3;
+        n = n * 0.7 + fbm3(q * 3.0 - t * 0.04) * 0.3;
         float cloud = smoothstep(0.3, 0.7, n * dens);
         // Each layer gets its own palette slice for colour variety.
         vec3 tint = tintedPalette(fi * 0.17 + 0.05);
