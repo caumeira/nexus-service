@@ -23,6 +23,15 @@ public interface ISensorProvider
     IReadOnlyList<string> GetGpuModels();
     IReadOnlyList<HardwareSensor> GetGpuSensors();
 
+    /// <summary>
+    /// One entry per physical GPU, each carrying only its own sensors plus a
+    /// vendor + integrated/discrete classification. <see cref="GetGpuModels"/>
+    /// and <see cref="GetGpuSensors"/> are flat views over this. The monitoring
+    /// stream emits one component per entry so the client can target a specific
+    /// GPU instead of whichever the platform enumerates first.
+    /// </summary>
+    IReadOnlyList<GpuReadout> GetGpus();
+
     IReadOnlyList<HardwareSensor> GetMemorySensors();
     string GetMemoryTotalFormatted();
     /// <summary>

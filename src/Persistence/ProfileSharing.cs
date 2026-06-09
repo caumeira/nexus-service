@@ -64,6 +64,7 @@ public static class ProfileSharing
                 target.Cooling.FanChannelOrder = source.Cooling.FanChannelOrder;
                 target.Cooling.PreferredCpuTempSensorId = source.Cooling.PreferredCpuTempSensorId;
                 target.Cooling.PreferredGpuTempSensorId = source.Cooling.PreferredGpuTempSensorId;
+                target.Cooling.PreferredGpuId = source.Cooling.PreferredGpuId;
                 target.Panel.DashboardLayout = source.Panel.DashboardLayout;
                 target.Overlay = source.Overlay;
                 target.Ui.DisableConflictAlerts = source.Ui.DisableConflictAlerts;
@@ -90,6 +91,7 @@ public static class ProfileSharing
                 target.Cooling.FanChannelOrder = null;
                 target.Cooling.PreferredCpuTempSensorId = null;
                 target.Cooling.PreferredGpuTempSensorId = null;
+                target.Cooling.PreferredGpuId = null;
                 target.Panel.DashboardLayout = null;
                 target.Overlay = new OverlaySettings();
                 target.Ui.DisableConflictAlerts = false;

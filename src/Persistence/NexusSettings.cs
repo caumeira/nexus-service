@@ -319,6 +319,8 @@ public sealed class CoolingSettings
     public string? PreferredCpuTempSensorId { get; set; }
     /// <summary>User-chosen sensor id for the GPU "temperature" reading shown across the Cooling page, Monitoring dashboard, and Cooling widget. Same nullable semantics as <see cref="PreferredCpuTempSensorId"/>.</summary>
     public string? PreferredGpuTempSensorId { get; set; }
+    /// <summary>User-chosen "primary" GPU (by model name) used wherever a single GPU's sensors are shown: the Monitoring widget, sensors/Detailed view, and the GPU temp display. Keyed by model name (not enumeration index) so the choice survives reboots / driver re-enumeration. Same nullable semantics as the temp prefs: null = auto (client defaults to the first discrete GPU), empty string on PATCH collapses to null.</summary>
+    public string? PreferredGpuId { get; set; }
 }
 
 public sealed class CurveDocument
@@ -504,6 +506,15 @@ public sealed class PanelPhoneSessionToken
     public string Id { get; set; } = "";
     public string Hash { get; set; } = "";
     public string Name { get; set; } = "";
+
+    /// <summary>
+    /// Device class frozen at claim time (e.g. "iPad", "Android tablet"). Unlike
+    /// <see cref="Name"/>, it is never overwritten by a user rename, so the
+    /// session list can show the original class alongside a custom name. Set from
+    /// the client-detected label when present, else the UA descriptor. Empty for
+    /// sessions claimed before this field existed — those fall back to the UA.
+    /// </summary>
+    public string DeviceType { get; set; } = "";
     public string UserAgent { get; set; } = "";
     public string RemoteAddress { get; set; } = "";
     public string DeviceFingerprint { get; set; } = "";

@@ -344,9 +344,12 @@ public sealed class PanelPhonePairingService
     }
 
     public PanelPhoneClaimResponse Claim(string pairToken, HttpContext context)
-        => Claim(pairToken, deviceId: "", context);
+        => Claim(pairToken, deviceId: "", deviceName: "", context);
 
     public PanelPhoneClaimResponse Claim(string pairToken, string? deviceId, HttpContext context)
+        => Claim(pairToken, deviceId, deviceName: "", context);
+
+    public PanelPhoneClaimResponse Claim(string pairToken, string? deviceId, string? deviceName, HttpContext context)
     {
         var userAgent = context.Request.Headers["User-Agent"].ToString();
         var remoteAddress = context.Connection.RemoteIpAddress?.ToString() ?? "";
@@ -357,7 +360,10 @@ public sealed class PanelPhonePairingService
             : deviceId;
         var result = ClaimCore(
             pairToken,
-            deviceName: DescribeDevice(userAgent),
+            // The client-detected class (iPad / Android tablet) wins; the UA guess
+            // can't tell an iPad from a Mac or a Samsung tablet from a phone.
+            // Blank falls back to DescribeDevice(UA) inside ClaimCore.
+            deviceName: deviceName ?? "",
             userAgent: userAgent,
             remoteAddress: remoteAddress,
             deviceId: effectiveDeviceId,
@@ -475,6 +481,11 @@ public sealed class PanelPhonePairingService
                 Hash = hash,
                 RelayKey = relayKey,
                 Name = normalizedName,
+                // Device class frozen at claim time. Name can later be renamed by
+                // the user; DeviceType stays the original class so the session
+                // list's type line survives a rename (and reflects the client's
+                // detection, which beats the UA guess).
+                DeviceType = normalizedName,
                 UserAgent = userAgent,
                 RemoteAddress = remoteAddress,
                 DeviceFingerprint = deviceFingerprint,
@@ -520,7 +531,11 @@ public sealed class PanelPhonePairingService
             .Select(s =>
             {
                 var lastSeen = GetSessionActivity(s);
-                var deviceType = DescribeDevice(s.UserAgent);
+                // Persisted class wins (client-detected at claim); legacy sessions
+                // stored before DeviceType existed fall back to the UA descriptor.
+                var deviceType = string.IsNullOrWhiteSpace(s.DeviceType)
+                    ? DescribeDevice(s.UserAgent)
+                    : s.DeviceType;
                 var displayName = string.IsNullOrWhiteSpace(s.Name) ||
                     (string.Equals(s.Name, "Phone remote", StringComparison.Ordinal) && deviceType != "Phone remote")
                     ? deviceType
@@ -955,6 +970,8 @@ public sealed class PanelPhonePairingService
                 session.LastSeenAt = session.CreatedAt;
             if (string.IsNullOrWhiteSpace(session.Name))
                 session.Name = DescribeDevice(session.UserAgent);
+            if (string.IsNullOrWhiteSpace(session.DeviceType))
+                session.DeviceType = DescribeDevice(session.UserAgent);
             if (string.IsNullOrWhiteSpace(session.DeviceFingerprint))
                 session.DeviceFingerprint = BuildDeviceFingerprint(session.UserAgent, session.RemoteAddress);
         }
@@ -997,6 +1014,7 @@ public sealed class PanelPhonePairingService
             Hash = session.Hash,
             RelayKey = session.RelayKey,
             Name = session.Name,
+            DeviceType = session.DeviceType,
             UserAgent = session.UserAgent,
             RemoteAddress = session.RemoteAddress,
             DeviceFingerprint = session.DeviceFingerprint,
@@ -1636,6 +1654,10 @@ public sealed class PanelPhonePairingService
                 Hash = hash,
                 RelayKey = relayKey,
                 Name = DescribeDevice(userAgent),
+                // Pair-code path carries no client-detected label, so the class
+                // is the UA descriptor (matches the ClaimCore insert pattern
+                // rather than relying on the NormalizeSessionList backfill).
+                DeviceType = DescribeDevice(userAgent),
                 UserAgent = userAgent,
                 RemoteAddress = remoteAddress,
                 DeviceFingerprint = deviceFingerprint,
