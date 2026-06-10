@@ -28,6 +28,10 @@ internal static class PathAuthMiddleware
         new(StringComparer.OrdinalIgnoreCase)
         {
             "/ping", "/pair", "/ready", "/hardware/profile",
+            // Sealed LAN tunnel: anonymous at the middleware — auth is the in-band
+            // sealed handshake (the rid identifies the paired session, the AEAD key
+            // proves possession), so the session token never rides the wire here.
+            "/secure-tunnel",
             // Short-lived phone-panel pairing claims are validated at the handler level.
             "/panel/phone/claim",
         };

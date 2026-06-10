@@ -46,5 +46,23 @@ public static class WebSocketRoutes
             var hub = ctx.RequestServices.GetRequiredService<LightingOutputHub>();
             await hub.HandleClientAsync(socket, cancellationToken: ctx.RequestAborted);
         });
+
+        // Sealed LAN tunnel — the panel's E2E-encrypted transport over plain
+        // :9400/:9443. Auth is the in-band sealed handshake (the rid identifies the
+        // paired session, the per-connection AEAD key proves possession), so it is
+        // anonymous at the middleware and the session token never rides the wire.
+        app.Map("/secure-tunnel", async (HttpContext ctx) =>
+        {
+            if (!ctx.WebSockets.IsWebSocketRequest)
+            {
+                ctx.Response.StatusCode = 400;
+                ctx.Response.ContentType = "application/json";
+                await ctx.Response.WriteAsync("{\"error\":true,\"msg\":\"WebSocket expected\"}");
+                return;
+            }
+            using WebSocket socket = await ctx.WebSockets.AcceptWebSocketAsync();
+            var relay = ctx.RequestServices.GetRequiredService<Nexus.Service.Relay.RelayConnectionService>();
+            await relay.HandleInboundSealedTunnelAsync(socket, ctx.RequestAborted);
+        });
     }
 }

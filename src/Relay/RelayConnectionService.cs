@@ -332,6 +332,184 @@ public sealed class RelayConnectionService : BackgroundService
             link.Stop();
     }
 
+    // ───────────────────────── Inbound sealed LAN tunnel ─────────────────────
+    // Accept-side of the SAME sealed transport, but over a DIRECT LAN socket with
+    // NO cloud relay in the middle. The phone connects to /secure-tunnel and sends
+    // a CLIENT hello {role:"client", rid, salt}; this service IS the host, so it
+    // matches the rid to a paired session, sends the client a peer-up, and runs the
+    // same runtime (multiplex) or HTTP leg the cloud path runs — the frames just
+    // arrive on this accepted socket directly. The session token never crosses the
+    // wire: the 128-bit HKDF rid proves which session, the per-connection AEAD key
+    // proves possession. Same trust model as the relay, minus the broker.
+
+    private const string NoHost = "no-host";
+    private static readonly byte[] PeerUpFrame = Encoding.UTF8.GetBytes("{\"e\":\"" + PeerUp + "\"}");
+    private static readonly byte[] NoHostFrame = Encoding.UTF8.GetBytes("{\"e\":\"" + NoHost + "\"}");
+
+    /// <summary>
+    /// Drive one inbound sealed-tunnel connection accepted on /secure-tunnel: read
+    /// the client hello, identify the session + leg by rid, promote the client
+    /// (peer-up), and run the runtime or HTTP leg until the socket closes. A
+    /// no-match / killswitch-off reply is {"e":"no-host"} so the client backs off.
+    /// </summary>
+    public async Task HandleInboundSealedTunnelAsync(WebSocket socket, CancellationToken ct)
+    {
+        var hello = await ReadClientHelloAsync(socket, ct).ConfigureAwait(false);
+        if (hello is null)
+            return;
+
+        // The Pair Remote killswitch gates phone sessions the same on every transport.
+        if (!_pairing.GetRemoteControlEnabled())
+        {
+            await SendControlAsync(socket, NoHostFrame, ct).ConfigureAwait(false);
+            return;
+        }
+
+        var match = MatchSessionByRid(hello.Value.Rid);
+        if (match is null)
+        {
+            await SendControlAsync(socket, NoHostFrame, ct).ConfigureAwait(false);
+            return;
+        }
+        var (sessionId, relayRoot, isHttpLeg) = match.Value;
+
+        byte[] connSalt;
+        try { connSalt = RelayCrypto.FromBase64UrlNoPad(hello.Value.Salt); }
+        catch { return; }
+        if (connSalt.Length != RelayCrypto.ConnSaltLength)
+            return;
+
+        var aeadKey = RelayCrypto.DeriveAeadKey(relayRoot, connSalt);
+
+        // Promote the client to OPEN — mirrors the relay's peer-up. The web client
+        // sends no sealed frame until it sees this.
+        await SendControlAsync(socket, PeerUpFrame, ct).ConfigureAwait(false);
+
+        if (isHttpLeg)
+            await RunInboundHttpAsync(socket, aeadKey, sessionId, ct).ConfigureAwait(false);
+        else
+            await RunInboundRuntimeAsync(socket, aeadKey, sessionId, ct).ConfigureAwait(false);
+    }
+
+    /// <summary>Runtime leg: wrap the socket in a <see cref="RelayWebSocket"/> and
+    /// drive the hub on it, feeding inbound frames as they arrive for decrypt.</summary>
+    private async Task RunInboundRuntimeAsync(WebSocket socket, byte[] aeadKey, string sessionId, CancellationToken ct)
+    {
+        var relayWs = new RelayWebSocket(
+            socket, aeadKey, RelayCrypto.DirHostToClient, RelayCrypto.DirClientToHost);
+        var hubTask = _hub.HandleClientAsync(relayWs, sessionId, MultiplexHub.ClientTransport.Lan, ct);
+        try
+        {
+            await ReadBinaryFramesAsync(socket, relayWs.EnqueueInbound, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            relayWs.CompleteInbound();
+            try { await hubTask.ConfigureAwait(false); } catch { /* hub loop teardown */ }
+        }
+    }
+
+    /// <summary>HTTP leg: reuse <see cref="HttpChannel"/> to dispatch sealed REST
+    /// requests through the endpoint pipeline as this session's phone session.</summary>
+    private async Task RunInboundHttpAsync(WebSocket socket, byte[] aeadKey, string sessionId, CancellationToken ct)
+    {
+        var channel = new HttpChannel(this, socket, aeadKey, sessionId, ct);
+        try
+        {
+            await ReadBinaryFramesAsync(socket, channel.OnRequestFrame, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            channel.Dispose();
+        }
+    }
+
+    /// <summary>Read the first TEXT message as the client hello and validate it.
+    /// Returns null on a non-client / malformed / oversized hello.</summary>
+    private static async Task<ClientHello?> ReadClientHelloAsync(WebSocket socket, CancellationToken ct)
+    {
+        var buffer = new byte[ReceiveBufferSize];
+        using var message = new System.IO.MemoryStream();
+        WebSocketReceiveResult result;
+        do
+        {
+            result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), ct).ConfigureAwait(false);
+            if (result.MessageType == WebSocketMessageType.Close)
+                return null;
+            if (message.Length + result.Count > 8192) // a hello is tiny
+                return null;
+            message.Write(buffer, 0, result.Count);
+        }
+        while (!result.EndOfMessage);
+
+        if (result.MessageType != WebSocketMessageType.Text)
+            return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(message.ToArray());
+            var root = doc.RootElement;
+            var role = root.TryGetProperty("role", out var r) ? r.GetString() : null;
+            if (!string.Equals(role, "client", StringComparison.Ordinal))
+                return null;
+            var rid = root.TryGetProperty("rid", out var ri) ? ri.GetString() : null;
+            var salt = root.TryGetProperty(SaltKey, out var s) ? s.GetString() : null;
+            if (string.IsNullOrEmpty(rid) || string.IsNullOrEmpty(salt))
+                return null;
+            return new ClientHello(rid, salt);
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Match a hello rid to a paired session + whether it's the HTTP leg
+    /// (rid_http) vs the runtime leg (rid). Possession is still proven later by the
+    /// AEAD decrypt; the rid only routes.</summary>
+    private (string SessionId, byte[] RelayRoot, bool IsHttp)? MatchSessionByRid(string rid)
+    {
+        foreach (var s in _pairing.GetActiveRelaySessions())
+        {
+            if (string.Equals(RelayCrypto.DeriveRid(s.RelayRoot), rid, StringComparison.Ordinal))
+                return (s.Id, s.RelayRoot, false);
+            if (string.Equals(RelayCrypto.DeriveHttpRid(s.RelayRoot), rid, StringComparison.Ordinal))
+                return (s.Id, s.RelayRoot, true);
+        }
+        return null;
+    }
+
+    /// <summary>Read BINARY frames off the accepted socket, invoking
+    /// <paramref name="onBinary"/> per frame, until the socket closes. TEXT after
+    /// the hello is unused on the accept side and ignored.</summary>
+    private static async Task ReadBinaryFramesAsync(WebSocket socket, Action<byte[]> onBinary, CancellationToken ct)
+    {
+        var buffer = new byte[ReceiveBufferSize];
+        using var message = new System.IO.MemoryStream();
+        while (!ct.IsCancellationRequested && socket.State == WebSocketState.Open)
+        {
+            message.SetLength(0);
+            WebSocketReceiveResult result;
+            do
+            {
+                result = await socket.ReceiveAsync(new ArraySegment<byte>(buffer), ct).ConfigureAwait(false);
+                if (result.MessageType == WebSocketMessageType.Close)
+                    return;
+                if (message.Length + result.Count > MaxFrameBytes)
+                    throw new InvalidOperationException("sealed tunnel frame exceeds 256 KB cap");
+                message.Write(buffer, 0, result.Count);
+            }
+            while (!result.EndOfMessage);
+
+            if (result.MessageType == WebSocketMessageType.Binary)
+                onBinary(message.ToArray());
+        }
+    }
+
+    private static Task SendControlAsync(WebSocket socket, byte[] frame, CancellationToken ct)
+        => socket.SendAsync(frame, WebSocketMessageType.Text, endOfMessage: true, ct);
+
+    private readonly record struct ClientHello(string Rid, string Salt);
+
     /// <summary>
     /// One host leg: owns the reconnect loop, the relay socket, and the current
     /// relayed hub session (if a client is presently peered up).
