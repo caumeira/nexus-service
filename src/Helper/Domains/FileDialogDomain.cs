@@ -9,7 +9,12 @@ using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Helper.Domains
 {
-    public sealed class FileDialogRequest { public bool PickFolder { get; set; } }
+    public sealed class FileDialogRequest
+    {
+        public bool PickFolder { get; set; }
+        /// <summary>Folder path for dialog.openFolder; unused by dialog.pick.</summary>
+        public string Path { get; set; } = "";
+    }
 
     public sealed class FileDialogResult
     {
@@ -30,7 +35,30 @@ namespace Nexus.Service.Helper.Domains
     public static class FileDialogCommands
     {
         public const string PickType = "dialog.pick";
+        public const string OpenFolderType = "dialog.openFolder";
         private const int TimeoutMs = 600_000;
+
+        /// <summary>
+        /// Open a folder in Explorer inside the user session, brought in front
+        /// of the app window. Fire-and-forget semantics; returns false when no
+        /// helper session is connected.
+        /// </summary>
+        public static async Task<bool> OpenFolderAsync(HelperRegistry r, string path, CancellationToken ct = default)
+        {
+            var conn = r.GetAny();
+            if (conn is null)
+            {
+                return false;
+            }
+
+            var result = await conn.SendCommandAsync(
+                OpenFolderType,
+                new FileDialogRequest { Path = path },
+                AppJsonContext.Default.FileDialogRequest,
+                timeoutMs: 5000,
+                ct: ct).ConfigureAwait(false);
+            return result.Ok;
+        }
 
         public static async Task<FileDialogResult> PickAsync(HelperRegistry r, bool folder, CancellationToken ct = default)
         {
@@ -81,6 +109,19 @@ namespace Nexus.Service.Helper.Domains
                     Ok = true,
                     Payload = JsonSerializer.SerializeToElement(result, AppJsonContext.Default.FileDialogResult),
                 };
+            });
+
+            registry.Register(FileDialogCommands.OpenFolderType, (env, _) =>
+            {
+                var req = env.Payload is null
+                    ? new FileDialogRequest()
+                    : JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.FileDialogRequest) ?? new FileDialogRequest();
+                if (!string.IsNullOrWhiteSpace(req.Path))
+                {
+                    Platform.Windows.ForegroundNudge.OpenFolderOverApp(req.Path);
+                }
+
+                return Task.FromResult(new HelperResult { Id = env.Id ?? "", Ok = true });
             });
         }
     }

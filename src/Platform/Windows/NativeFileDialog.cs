@@ -102,7 +102,14 @@ public static unsafe class NativeFileDialog
                         Marshal.ThrowExceptionForHR(SetFileTypes(dlg, 1, specArray));
                     }
 
-                    var hr = ShowDialog(dlg, IntPtr.Zero);
+                    // Own the dialog to the Nexus app window when it exists so
+                    // it opens centered OVER the app (z-order tied to it), and
+                    // nudge it to the foreground either way — the helper is a
+                    // background process, so an unowned Show lands behind
+                    // whatever the user is looking at.
+                    var owner = TrayIcon.FindExistingNexusAppWindow();
+                    ForegroundNudge.ForegroundThreadWindowWhenShown(GetCurrentThreadId());
+                    var hr = ShowDialog(dlg, owner);
                     if (hr == HrCancelled)
                     {
                         return new FileDialogResult { Cancelled = true };
@@ -234,6 +241,9 @@ public static unsafe class NativeFileDialog
         var fn = (delegate* unmanaged[Stdcall]<IntPtr, uint>)GetVTableSlot(ptr, 2);
         fn(ptr);
     }
+
+    [DllImport("kernel32")]
+    private static extern uint GetCurrentThreadId();
 
     [DllImport("ole32")]
     private static extern int CoInitializeEx(IntPtr reserved, uint coInit);

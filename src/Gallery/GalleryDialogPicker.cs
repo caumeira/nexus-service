@@ -103,9 +103,13 @@ public sealed class GalleryDialogPicker : IGalleryDialogPicker
     {
         // osascript exits non-zero on user cancel ("User canceled. (-128)");
         // ShellExecutor surfaces that as empty stdout, which maps to Cancelled.
+        // "tell me to activate" fronts the chooser — without it the dialog can
+        // open behind the Nexus window.
         var script = folder
-            ? "return POSIX path of (choose folder with prompt \"Add a folder to the Nexus gallery\")"
-            : "set out to \"\"\n"
+            ? "tell me to activate\n"
+              + "return POSIX path of (choose folder with prompt \"Add a folder to the Nexus gallery\")"
+            : "tell me to activate\n"
+              + "set out to \"\"\n"
               + "repeat with f in (choose file with prompt \"Add images to the Nexus gallery\" of type {\"public.image\"} with multiple selections allowed)\n"
               + "set out to out & POSIX path of f & \"\\n\"\n"
               + "end repeat\n"

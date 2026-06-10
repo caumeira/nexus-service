@@ -681,9 +681,10 @@ public static class TrayIcon
     /// Returns the MainWindowHandle of any currently-running msedge.exe
     /// whose window title starts with "Nexus". Avoids the FindExistingAppWindow
     /// trap of matching by title alone across ALL top-level windows (which
-    /// could pick up File Explorer or stale handles).
+    /// could pick up File Explorer or stale handles). Internal: the native
+    /// file dialog owns itself to this window so it opens over the app.
     /// </summary>
-    private static IntPtr FindExistingNexusAppWindow()
+    internal static IntPtr FindExistingNexusAppWindow()
     {
         try
         {

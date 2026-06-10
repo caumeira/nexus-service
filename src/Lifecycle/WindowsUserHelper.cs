@@ -154,7 +154,10 @@ internal static class WindowsUserHelper
         };
         new OrientationHandler(new Platform.Displays.WindowsDisplayOrientationProvider()).Register(handlerRegistry);
         new ScreenMirrorHandler(screenCapture.Start, screenCapture.Stop).Register(handlerRegistry);
-        new DiagnosticsHandler(Nexus.Service.Diagnostics.LogsFolder.Open).Register(handlerRegistry);
+        // Foregrounded variant of LogsFolder.Open: the helper is a background
+        // process, so a plain explorer spawn lands behind the app window.
+        new DiagnosticsHandler(() => Platform.Windows.ForegroundNudge.OpenFolderOverApp(
+            Nexus.Service.Platform.ServiceLog.LogsDirectory)).Register(handlerRegistry);
 
         var client = new HelperClientLoop(handlerRegistry, outbound);
         var pipeTask = Task.Run(() => client.RunAsync(s_exit.Token));

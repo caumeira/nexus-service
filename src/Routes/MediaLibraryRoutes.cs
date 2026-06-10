@@ -67,19 +67,33 @@ public static class MediaLibraryRoutes
                 : Results.NotFound();
         });
 
-        app.MapPost("/media/library/open", (MediaLibrary lib) =>
+        app.MapPost("/media/library/open", async (MediaLibrary lib, IServiceProvider sp) =>
         {
             try
             {
                 var dir = lib.RootDir;
                 Directory.CreateDirectory(dir);
-                var psi = new System.Diagnostics.ProcessStartInfo { UseShellExecute = true };
+#if WINDOWS
                 if (OperatingSystem.IsWindows())
-                { psi.FileName = "explorer.exe"; psi.Arguments = $"\"{dir}\""; }
-                else if (OperatingSystem.IsMacOS())
-                { psi.FileName = "open"; psi.Arguments = $"\"{dir}\""; psi.UseShellExecute = false; }
+                {
+                    // The Session-0 service can't show Explorer; the user-session
+                    // helper opens the folder and brings it over the app window.
+                    var registry = sp.GetService<Nexus.Service.Helper.HelperRegistry>();
+                    if (registry is null ||
+                        !await Nexus.Service.Helper.Domains.FileDialogCommands.OpenFolderAsync(registry, dir))
+                    {
+                        return Results.Problem("no interactive user session");
+                    }
+
+                    return Results.Ok(new MediaPlayResponse());
+                }
+#endif
+                await Task.CompletedTask;
+                var psi = new System.Diagnostics.ProcessStartInfo { UseShellExecute = false };
+                if (OperatingSystem.IsMacOS())
+                { psi.FileName = "open"; psi.Arguments = $"\"{dir}\""; }
                 else
-                { psi.FileName = "xdg-open"; psi.Arguments = $"\"{dir}\""; psi.UseShellExecute = false; }
+                { psi.FileName = "xdg-open"; psi.Arguments = $"\"{dir}\""; }
                 System.Diagnostics.Process.Start(psi);
                 return Results.Ok(new MediaPlayResponse());
             }
