@@ -121,7 +121,9 @@ internal static class OverlayHostBootstrap
             return false;
         foreach (var record in snapshot.PanelDevices.Values)
         {
-            if (!string.IsNullOrEmpty(record.DisplayId))
+            // Only panels that are turned ON need the overlay; keeping it
+            // alive for disabled records would resurrect a stopped panel.
+            if (!string.IsNullOrEmpty(record.DisplayId) && record.Enabled != false)
                 return true;
         }
         return false;

@@ -94,6 +94,9 @@ public sealed class PanelDeviceRegistry
             s.PanelDevices[record.Id] = record;
         });
 
+        // Panel on/off is rare and must survive an immediate service exit —
+        // a write lost to the flush debounce would silently undo the toggle.
+        _store.FlushNow();
         if (result is not null) return (result, activated);
         return (record, true);
     }
@@ -119,6 +122,9 @@ public sealed class PanelDeviceRegistry
                 return;
             }
         });
+        // Same durability rule as AllocateForDisplay: the OFF must not be
+        // lost to the debounce window if the service exits right after.
+        _store.FlushNow();
         return snapshot;
     }
 
