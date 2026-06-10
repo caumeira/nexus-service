@@ -578,6 +578,13 @@ public static class NexusServiceCollectionExtensions
         // the enumeration and we proxy.
         services.AddSingleton<Nexus.Service.Platform.IMonitorEnumerator,
             Nexus.Service.Platform.Displays.HelperMonitorEnumeratorProxy>();
+        // Display topology (positions/modes/scale) is the same Session 0
+        // story: the helper runs the real provider in the user session.
+        services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayTopologyProvider,
+            Nexus.Service.Platform.Displays.HelperDisplayTopologyProxy>();
+        services.AddSingleton<Nexus.Service.Platform.Displays.DisplayTopologyWatcher>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Platform.Displays.DisplayTopologyWatcher>());
         // Screen-mirror frames also flow through the helper - DXGI desktop
         // duplication is Session 0-blind, so the helper captures + downsamples
         // and pushes canvas-resolution RGB24 over the pipe.
@@ -586,9 +593,13 @@ public static class NexusServiceCollectionExtensions
 #elif MACOS
         services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
             Nexus.Service.Platform.Displays.MacDisplayBrightnessProvider>();
+        services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayTopologyProvider,
+            Nexus.Service.Platform.Displays.MacDisplayTopologyProvider>();
 #elif LINUX
         services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
             Nexus.Service.Platform.Displays.LinuxDisplayBrightnessProvider>();
+        services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayTopologyProvider,
+            Nexus.Service.Platform.Displays.LinuxDisplayTopologyProvider>();
         // Screen-mirror frames come from the xdg-desktop-portal ScreenCast
         // portal (PipeWire), consumed by a gst-launch reader. The portal
         // handshake rides the session D-Bus connection (AddNexusLinuxDBus);
@@ -599,6 +610,8 @@ public static class NexusServiceCollectionExtensions
 #else
         services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayBrightnessProvider,
             Nexus.Service.Platform.Displays.StubDisplayBrightnessProvider>();
+        services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayTopologyProvider,
+            Nexus.Service.Platform.Displays.StubDisplayTopologyProvider>();
 #endif
 #if !WINDOWS
         // Non-Windows monitor enumeration + display orientation are platform-agnostic.
@@ -608,6 +621,7 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Platform.Displays.NoopDisplayOrientationProvider>();
 #endif
         services.AddSingleton<Nexus.Service.Platform.Displays.DisplayBrightnessController>();
+        services.AddSingleton<Nexus.Service.Platform.Displays.DisplayTopologyService>();
         return services;
     }
 

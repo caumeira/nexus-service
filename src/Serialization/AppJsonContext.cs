@@ -213,6 +213,16 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayVcpDto))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayVcpParams))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayListResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.RawDisplayInfo))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Displays.RawDisplayInfo>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayBoundsDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplaySizeDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayTopologyEntryDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayTopologyResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplaysChangedFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.PanelPromoteBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayAssignmentDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayAssignmentsResponse))]
 
 // Weather
 [JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherSnapshot))]
@@ -534,6 +544,10 @@ namespace Nexus.Service.Serialization;
 // Monitors
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.MonitorEnumerateRequest))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.MonitorListResult))]
+// Display topology
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.DisplayTopologyRequest))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.DisplayTopologyResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.DisplaysChangedPayload))]
 // Screen mirror
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorStartPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorStopPayload))]

@@ -480,6 +480,7 @@
     <Compile Remove="src/Lifecycle/MacStartupProvider.cs" />
     <Compile Remove="src/Lighting/Engine/Gpu/MacGlContext.cs" />
     <Compile Remove="src/Platform/Displays/MacDisplayBrightnessProvider.cs" />
+    <Compile Remove="src/Platform/Displays/MacDisplayTopologyProvider.cs" />
     <Compile Remove="src/Platform/Mac/MacAppBootstrap.cs" />
     <Compile Remove="src/Platform/Mac/MacAppWindow.cs" />
     <Compile Remove="src/Platform/Mac/MachStats.cs" />
@@ -518,6 +519,7 @@
     <Compile Remove="src/Peripherals/Hyte/Y70Display/LinuxY70DisplayPortDiscovery.cs" />
     <Compile Remove="src/Peripherals/Keeb/LinuxInputter.cs" />
     <Compile Remove="src/Platform/Displays/LinuxDisplayBrightnessProvider.cs" />
+    <Compile Remove="src/Platform/Displays/LinuxDisplayTopologyProvider.cs" />
     <Compile Remove="src/Platform/Linux/DBus/DBusConnection.cs" />
     <Compile Remove="src/Platform/Linux/DBus/DBusTypes.cs" />
     <Compile Remove="src/Platform/Linux/LinuxNotify.cs" />

@@ -28,7 +28,7 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
             for (int idx = 0; idx < monitors.Count; idx++)
             {
                 var entry = monitors[idx];
-                var (id, name, manufacturer, model, isInternal) = ResolveIdentity(entry.AdapterDevice);
+                var (id, name, manufacturer, model, isInternal) = WindowsDisplayIdentity.ResolveIdentity(entry.AdapterDevice);
                 // Show "Display 1", "Display 2", ... when no friendly name is
                 // available (EnumDisplayDevices left DeviceString empty / fell
                 // back to the raw \\.\DISPLAYn adapter token).
@@ -211,14 +211,14 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
         {
             foreach (var entry in EnumerateHMonitors())
             {
-                var rawDeviceId = ReadMonitorDeviceId(entry.AdapterDevice);
+                var rawDeviceId = WindowsDisplayIdentity.ReadMonitorDeviceId(entry.AdapterDevice);
                 if (string.IsNullOrEmpty(rawDeviceId)) continue;
                 foreach (var fragment in nameFragments)
                 {
                     if (rawDeviceId.IndexOf(fragment, StringComparison.OrdinalIgnoreCase) >= 0)
                     {
                         // Return the same stable id SetVcp/GetBrightness key off.
-                        var (id, _, _, _, _) = ResolveIdentity(entry.AdapterDevice);
+                        var (id, _, _, _, _) = WindowsDisplayIdentity.ResolveIdentity(entry.AdapterDevice);
                         return id;
                     }
                 }
@@ -231,20 +231,6 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
         return null;
     }
 
-    // Raw monitor PnP DeviceID (e.g. \\?\DISPLAY#RTK0004#...) for the first
-    // child monitor of an adapter — used to match a controller name before we
-    // collapse it to the sanitized stable id.
-    private static string ReadMonitorDeviceId(string adapterDeviceName)
-    {
-        var monitor = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
-        if (!EnumDisplayDevicesW(adapterDeviceName, 0, ref monitor, EDD_GET_DEVICE_INTERFACE_NAME))
-        {
-            monitor = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
-            if (!EnumDisplayDevicesW(adapterDeviceName, 0, ref monitor, 0)) return "";
-        }
-        return monitor.DeviceID ?? "";
-    }
-
     // Resolve an id back to a freshly-opened physical monitor handle. Caller
     // owns the handle via DestroyPhysicalMonitor. Lazy approach: re-enumerate
     // and match by id, since dxva2 handles aren't safe to cache.
@@ -253,7 +239,7 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
         phys = IntPtr.Zero;
         foreach (var entry in EnumerateHMonitors())
         {
-            var (eid, _, _, _, _) = ResolveIdentity(entry.AdapterDevice);
+            var (eid, _, _, _, _) = WindowsDisplayIdentity.ResolveIdentity(entry.AdapterDevice);
             if (!string.Equals(eid, id, StringComparison.Ordinal)) continue;
             return TryGetPhysicalMonitor(entry.HMonitor, out phys);
         }
@@ -307,82 +293,12 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
         return list;
     }
 
-    // Returns (stableId, friendlyName, manufacturer3, model, isInternal).
-    // Stable id is the EDID-derived portion of the monitor's PnP DeviceID
-    // (survives reboots and cable shuffles); falls back to the adapter+index
-    // identifier when EnumDisplayDevices doesn't expose the PnP id.
-    private const uint EDD_GET_DEVICE_INTERFACE_NAME = 0x00000001;
-
-    private static (string, string, string, string, bool) ResolveIdentity(string adapterDeviceName)
-    {
-        var monitor = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
-        bool ok = EnumDisplayDevicesW(adapterDeviceName, 0, ref monitor, EDD_GET_DEVICE_INTERFACE_NAME);
-        if (!ok)
-        {
-            // Retry without the interface-name flag for older drivers.
-            monitor = new DISPLAY_DEVICE { cb = Marshal.SizeOf<DISPLAY_DEVICE>() };
-            ok = EnumDisplayDevicesW(adapterDeviceName, 0, ref monitor, 0);
-        }
-        if (!ok)
-        {
-            return (adapterDeviceName, adapterDeviceName, "", "", false);
-        }
-        var deviceId = monitor.DeviceID ?? "";
-        var friendly = string.IsNullOrWhiteSpace(monitor.DeviceString) ? adapterDeviceName : monitor.DeviceString;
-
-        // DeviceID looks like \\?\DISPLAY#DEL41B7#5&abc&0&UID12345#{...guid...}
-        // Take the part between the first and last '#' as the EDID-stable id.
-        var stable = deviceId;
-        var firstHash = deviceId.IndexOf('#');
-        var lastHash = deviceId.LastIndexOf('#');
-        var manufacturer = "";
-        var model = "";
-        if (firstHash > 0 && lastHash > firstHash)
-        {
-            stable = deviceId.Substring(firstHash + 1, lastHash - firstHash - 1);
-            // "DEL41B7" -> "DEL" manufacturer EISA id, "41B7" hex product code
-            var firstSegEnd = stable.IndexOf('#');
-            if (firstSegEnd >= 7)
-            {
-                var seg = stable.Substring(0, firstSegEnd);
-                manufacturer = seg.Substring(0, 3);
-                model = seg.Length > 3 ? seg.Substring(3) : "";
-            }
-        }
-        if (string.IsNullOrEmpty(stable))
-        {
-            // EnumDisplayDevices left DeviceID empty (some virtual / non-PnP
-            // displays). Fall back to the adapter's trailing DISPLAYn segment
-            // so the row still gets a stable handle for brightness round-trips.
-            stable = AdapterIndexFallback(adapterDeviceName);
-        }
-        // Replace URL-hostile characters so the id round-trips through HTTP
-        // path segments without escaping headaches.
-        stable = SanitizeId(stable);
-
-        // "Generic PnP Monitor" is the default DeviceString; prefer something
-        // more user-friendly when we have manufacturer + model identifiers.
-        if (!string.IsNullOrEmpty(manufacturer) && !string.IsNullOrEmpty(model))
-        {
-            friendly = $"{manufacturer} {model}";
-        }
-
-        // Heuristic: classify a panel as internal by the absence of HDMI/DP
-        // signal in the friendly name (laptop internal panels show as
-        // "Built-in" / PnP IDs like LEN/AAP / output technology "internal").
-        var isInternal = friendly.IndexOf("internal", StringComparison.OrdinalIgnoreCase) >= 0
-                      || friendly.IndexOf("built-in", StringComparison.OrdinalIgnoreCase) >= 0;
-
-        return (stable, friendly, manufacturer, model, isInternal);
-    }
+    // Identity resolution (stable id, EDID parsing) lives in
+    // WindowsDisplayIdentity — shared with the topology provider.
 
     // -- P/Invoke -----------------------------------------------------------
 
     private const int CCHDEVICENAME = 32;
-    private const int CCHMONITORNAME = 32;
-    private const int CCHDEVICESTRING = 128;
-    private const int CCHDEVICEID = 128;
-    private const int CCHDEVICEKEY = 128;
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct MONITORINFOEX
@@ -398,17 +314,6 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
     private struct RECT { public int Left, Top, Right, Bottom; }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
-    private struct DISPLAY_DEVICE
-    {
-        public int cb;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = CCHDEVICESTRING)] public string DeviceName;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = CCHDEVICESTRING)] public string DeviceString;
-        public uint StateFlags;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = CCHDEVICEID)] public string DeviceID;
-        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = CCHDEVICEKEY)] public string DeviceKey;
-    }
-
-    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct PHYSICAL_MONITOR
     {
         public IntPtr hPhysicalMonitor;
@@ -422,9 +327,6 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     private static extern bool GetMonitorInfoW(IntPtr hMonitor, ref MONITORINFOEX lpmi);
-
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
-    private static extern bool EnumDisplayDevicesW(string lpDevice, uint iDevNum, ref DISPLAY_DEVICE lpDisplayDevice, uint dwFlags);
 
     [DllImport("dxva2.dll")]
     private static extern bool GetNumberOfPhysicalMonitorsFromHMONITOR(IntPtr hMonitor, out uint pdwNumberOfPhysicalMonitors);
@@ -446,26 +348,6 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
 
     [DllImport("dxva2.dll")]
     private static extern bool SetVCPFeature(IntPtr hMonitor, byte bVCPCode, uint dwNewValue);
-
-    private static string SanitizeId(string raw)
-    {
-        if (string.IsNullOrEmpty(raw)) return raw;
-        var buf = new char[raw.Length];
-        for (int i = 0; i < raw.Length; i++)
-        {
-            var c = raw[i];
-            buf[i] = (char.IsLetterOrDigit(c) || c == '-' || c == '_' || c == '.') ? c : '-';
-        }
-        return new string(buf);
-    }
-
-    private static string AdapterIndexFallback(string adapterDeviceName)
-    {
-        if (string.IsNullOrEmpty(adapterDeviceName)) return "display-unknown";
-        var lastSlash = adapterDeviceName.LastIndexOf('\\');
-        var tail = lastSlash >= 0 ? adapterDeviceName[(lastSlash + 1)..] : adapterDeviceName;
-        return string.IsNullOrEmpty(tail) ? "display-unknown" : tail.ToLowerInvariant();
-    }
 
     private static DisplayBrightnessControlDto BuildSupportedBrightnessControl(int current, string controlPath) => new()
     {

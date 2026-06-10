@@ -18,6 +18,11 @@ public static class PanelTopics
     public const string CoolingWarnings = "cooling/warnings";
     public const string PanelDevice = "panel/device";
     /// <summary>
+    /// Display topology or monitor-panel assignment changed. Subscribers
+    /// refetch GET /displays/topology.
+    /// </summary>
+    public const string Displays = "displays";
+    /// <summary>
     /// Manual pair-code lifecycle. Dashboard subscribes while the Pair
     /// Remote sheet is open; payload kinds are "request" (phone submitted
     /// the active code) and "cancelled" (expired / denied / superseded).
@@ -90,6 +95,15 @@ public static class PanelTopics
         var frame = new PairQrRefreshFrame { Revision = Now() };
         var env = WsEnvelope.Build(PairQrRefresh, frame, AppJsonContext.Default.PairQrRefreshFrame);
         _ = hub.BroadcastTopicAsync(PairQrRefresh, env);
+    }
+
+    public static void BroadcastDisplays(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(Displays))
+            return;
+        var frame = new Models.Displays.DisplaysChangedFrame { Revision = Now() };
+        var env = WsEnvelope.Build(Displays, frame, AppJsonContext.Default.DisplaysChangedFrame);
+        _ = hub.BroadcastTopicAsync(Displays, env);
     }
 
     public static void BroadcastPanelDevice(MultiplexHub hub, string deviceId)

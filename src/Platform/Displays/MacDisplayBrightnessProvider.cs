@@ -185,7 +185,9 @@ public sealed unsafe class MacDisplayBrightnessProvider : IDisplayBrightnessProv
             : null;
     }
 
-    private static List<MacDisplayHandle> EnumerateDisplayHandles()
+    // Internal: MacDisplayTopologyProvider reuses this enumeration so topology
+    // ids/names stay byte-identical to the /displays id space.
+    internal static List<MacDisplayHandle> EnumerateDisplayHandles()
     {
         var displays = new uint[32];
         var handles = new List<MacDisplayHandle>();
@@ -1028,7 +1030,7 @@ public sealed unsafe class MacDisplayBrightnessProvider : IDisplayBrightnessProv
         return checksum;
     }
 
-    private readonly record struct MacDisplayHandle(
+    internal readonly record struct MacDisplayHandle(
         string Id,
         uint DisplayId,
         uint Framebuffer,

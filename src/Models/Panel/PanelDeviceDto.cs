@@ -35,6 +35,19 @@ public sealed class PanelDeviceRecord
     public long FirstSeenAt { get; set; }
     public long LastSeenAt { get; set; }
     public PanelDeviceCapabilities? Capabilities { get; set; }
+    /// <summary>
+    /// Stable display id (GET /displays id space) when this record was
+    /// created by promoting an OS monitor to a panel. Mutated only via the
+    /// /displays/{id}/panel endpoints, never via the patch route. The Y70's
+    /// auto-managed record never carries one.
+    /// </summary>
+    public string? DisplayId { get; set; }
+    /// <summary>
+    /// Route-computed on GET /panel/devices responses for display-bound
+    /// records: false when the bound monitor is currently absent, null when
+    /// topology is unknown. Never persisted (null on stored records).
+    /// </summary>
+    public bool? DisplayAttached { get; set; }
 }
 
 /// <summary>

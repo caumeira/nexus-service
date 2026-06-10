@@ -47,6 +47,70 @@ public sealed class PanelDeviceRegistry
         return record;
     }
 
+    /// <summary>
+    /// Allocate a record bound to an OS monitor (promoted via
+    /// POST /displays/{id}/panel). The binding makes the record the layout +
+    /// kiosk identity for that display until demoted. Uniqueness on
+    /// <paramref name="displayId"/> is enforced inside the store transaction:
+    /// the route's pre-check races with concurrent promotes (double-click,
+    /// two dashboards), and a duplicate binding would host two kiosks on one
+    /// monitor and orphan a record on demote. Returns
+    /// <c>Created == false</c> with the existing record when already bound.
+    /// </summary>
+    public (PanelDeviceRecord Record, bool Created) AllocateForDisplay(string displayId, string? displayName, PanelDeviceCapabilities? capabilities)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var record = new PanelDeviceRecord
+        {
+            Id = NewId(),
+            DisplayName = NormalizeName(displayName) ?? DefaultName(now),
+            FirstSeenAt = now,
+            LastSeenAt = now,
+            Capabilities = capabilities,
+            DisplayId = displayId,
+        };
+
+        PanelDeviceRecord? existing = null;
+        _store.Update(s =>
+        {
+            foreach (var candidate in s.PanelDevices.Values)
+            {
+                if (string.Equals(candidate.DisplayId, displayId, StringComparison.Ordinal))
+                {
+                    existing = Clone(candidate);
+                    return;
+                }
+            }
+            s.PanelDevices[record.Id] = record;
+        });
+
+        return existing is not null ? (existing, false) : (record, true);
+    }
+
+    public PanelDeviceRecord? FindByDisplayId(string displayId)
+    {
+        if (string.IsNullOrWhiteSpace(displayId))
+            return null;
+        foreach (var record in _store.Load().PanelDevices.Values)
+        {
+            if (string.Equals(record.DisplayId, displayId, StringComparison.Ordinal))
+                return Clone(record);
+        }
+        return null;
+    }
+
+    /// <summary>All displayId -> panelDeviceId bindings (kiosk reconcile input).</summary>
+    public IReadOnlyList<(string DisplayId, string PanelDeviceId)> ListAssignments()
+    {
+        var assignments = new List<(string, string)>();
+        foreach (var record in _store.Load().PanelDevices.Values)
+        {
+            if (!string.IsNullOrEmpty(record.DisplayId))
+                assignments.Add((record.DisplayId, record.Id));
+        }
+        return assignments;
+    }
+
     public IReadOnlyList<PanelDeviceRecord> List()
     {
         var devices = _store.Load().PanelDevices;
@@ -208,6 +272,7 @@ public sealed class PanelDeviceRegistry
             FirstSeenAt = r.FirstSeenAt,
             LastSeenAt = r.LastSeenAt,
             Capabilities = r.Capabilities,
+            DisplayId = r.DisplayId,
         };
     }
 }

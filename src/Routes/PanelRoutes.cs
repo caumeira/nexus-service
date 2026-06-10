@@ -242,10 +242,24 @@ public static class PanelRoutes
             return Results.Json(result, AppJsonContext.Default.PanelPhonePairCodeHostDecisionResponse);
         });
 
-        app.MapGet("/panel/devices", (PanelDeviceRegistry registry) =>
+        app.MapGet("/panel/devices", (PanelDeviceRegistry registry, Platform.Displays.DisplayTopologyService topology) =>
         {
+            var devices = registry.List().ToList();
+            // displayAttached is response-only state for display-bound records
+            // (promoted monitors): false hides the row while the monitor is
+            // unplugged, null = topology unknown (no helper), so the UI keeps
+            // showing the panel rather than flickering it away.
+            if (devices.Any(d => !string.IsNullOrEmpty(d.DisplayId)))
+            {
+                var attached = topology.GetAttachedIds();
+                foreach (var device in devices)
+                {
+                    if (!string.IsNullOrEmpty(device.DisplayId))
+                        device.DisplayAttached = attached?.Contains(device.DisplayId);
+                }
+            }
             return Results.Json(
-                new PanelDeviceListResponse { Devices = registry.List().ToList() },
+                new PanelDeviceListResponse { Devices = devices },
                 AppJsonContext.Default.PanelDeviceListResponse);
         }).AllowPanel();
 
@@ -301,12 +315,5 @@ public static class PanelRoutes
         => PanelTopics.BroadcastPanelDevice(hub, deviceId);
 
     private static bool HasServiceToken(HttpContext ctx, TokenService tokens)
-    {
-        var authHeader = ctx.Request.Headers.Authorization.ToString();
-        if (!string.IsNullOrEmpty(authHeader) && authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase))
-            return tokens.Validate(authHeader.Substring("Bearer ".Length).Trim());
-
-        var queryToken = ctx.Request.Query["token"].ToString();
-        return tokens.Validate(queryToken);
-    }
+        => Auth.ServiceTokenRequests.HasServiceToken(ctx, tokens);
 }

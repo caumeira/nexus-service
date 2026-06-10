@@ -42,6 +42,7 @@ public static class TrayIcon
     private const int MF_UNCHECKED = 0x0000;
     private const int DefaultServicePort = 9400;
     private const uint WM_CLOSE = 0x0010;
+    private const uint WM_DISPLAYCHANGE = 0x007E;
 
     // uxtheme.dll ordinal 135: SetPreferredAppMode(int mode). The current
     // int-taking signature shipped in Windows 10 1903 (build 18362); the
@@ -51,6 +52,14 @@ public static class TrayIcon
     private const int APPMODE_DEFAULT = 0;
     private const int APPMODE_ALLOW_DARK = 1;
     private const int SetPreferredAppModeMinBuild = 18362;
+
+    /// <summary>
+    /// Raised on WM_DISPLAYCHANGE (monitor plug/unplug, resolution or
+    /// arrangement change). The tray's hidden top-level window receives the
+    /// system broadcast, making it the helper's display-change signal source.
+    /// Fired on the message-pump thread — subscribers must not block.
+    /// </summary>
+    public static event Action? DisplayChanged;
 
     private static int _port;
     private static Action? _onExit;
@@ -332,6 +341,10 @@ public static class TrayIcon
                     // soon as the window's WebSocket subscribes.
                     OpenLocalWindow();
                 }
+            }
+            else if (msg == WM_DISPLAYCHANGE)
+            {
+                DisplayChanged?.Invoke();
             }
             else if (msg == WM_COMMAND)
             {

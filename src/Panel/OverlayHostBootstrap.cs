@@ -38,7 +38,8 @@ internal static class OverlayHostBootstrap
             {
                 var snapshot = store.Load();
                 var shouldRun = (snapshot.Overlay.Enabled && snapshot.Overlay.Layout.Count > 0)
-                                || snapshot.Panel.AutoLaunch;
+                                || snapshot.Panel.AutoLaunch
+                                || HasMonitorPanelAssignment(snapshot);
                 if (shouldRun && !overlayHost.IsRunning)
                 {
                     overlayHost.Start();
@@ -93,7 +94,8 @@ internal static class OverlayHostBootstrap
         {
             var initial = store.Load();
             var shouldStartHost = (initial.Overlay.Enabled && initial.Overlay.Layout.Count > 0)
-                                  || initial.Panel.AutoLaunch;
+                                  || initial.Panel.AutoLaunch
+                                  || HasMonitorPanelAssignment(initial);
             if (shouldStartHost)
             {
                 _ = Task.Run(async () =>
@@ -108,5 +110,20 @@ internal static class OverlayHostBootstrap
         {
             try { overlayHost.Stop(); } catch { /* best-effort */ }
         });
+    }
+
+    // Promoted-monitor kiosks are hosted by the Windows overlay (it reconciles
+    // against /displays/assignments), so an assignment alone must keep the
+    // overlay process alive. Other platforms have no kiosk host yet.
+    private static bool HasMonitorPanelAssignment(NexusSettings snapshot)
+    {
+        if (!OperatingSystem.IsWindows())
+            return false;
+        foreach (var record in snapshot.PanelDevices.Values)
+        {
+            if (!string.IsNullOrEmpty(record.DisplayId))
+                return true;
+        }
+        return false;
     }
 }

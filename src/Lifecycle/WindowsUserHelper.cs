@@ -140,6 +140,17 @@ internal static class WindowsUserHelper
         new BrightnessHandler(brightness).Register(handlerRegistry);
         new ShortcutsHandler(new Nexus.Service.Activity.WindowsShortcutsProvider()).Register(handlerRegistry);
         new MonitorsHandler().Register(handlerRegistry);
+        new DisplaysHandler().Register(handlerRegistry);
+        // WM_DISPLAYCHANGE lands on the tray's hidden top-level window; push
+        // it to the service so dashboards refetch /displays/topology. Fired
+        // on the message-pump thread, so the send is fire-and-forget.
+        Platform.Windows.TrayIcon.DisplayChanged += () =>
+        {
+            _ = outbound.SendAsync(
+                type: DisplayTopologyCommands.ChangedType,
+                payload: new DisplaysChangedPayload(),
+                payloadType: Serialization.AppJsonContext.Default.DisplaysChangedPayload);
+        };
         new OrientationHandler(new Platform.Displays.WindowsDisplayOrientationProvider()).Register(handlerRegistry);
         new ScreenMirrorHandler(screenCapture.Start, screenCapture.Stop).Register(handlerRegistry);
         new DiagnosticsHandler(Nexus.Service.Diagnostics.LogsFolder.Open).Register(handlerRegistry);

@@ -25,6 +25,9 @@ public static class PanelLayoutDefaults
         var src = surface switch
         {
             "desktop" => layouts.Desktop,
+            // Promoted-monitor panels seed from the desktop layout: same
+            // landscape, large-canvas shape; no dedicated JSON entry needed.
+            Models.Panel.PanelSurfaces.Monitor => layouts.Desktop,
             "phone" => layouts.Phone,
             "q60" => layouts.Q60,
             _ => layouts.Y70,
