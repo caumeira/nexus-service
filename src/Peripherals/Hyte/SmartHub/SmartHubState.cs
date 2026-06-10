@@ -75,4 +75,13 @@ public sealed class SmartHubFanChannel
     /// 0% from vanishing off the cooling page. Cleared on disconnect.
     /// </summary>
     public bool SeenFan { get; set; }
+
+    /// <summary>
+    /// Latched true once the host successfully commanded this port's duty this
+    /// connection. Gates the heartbeat's watchdog re-assert: a port nothing has
+    /// driven yet (e.g. curve-bound with a stalled curve) keeps Duty=0, and
+    /// re-asserting that would feed the firmware 0% where its own watchdog
+    /// fallback (flash default) is the safer behaviour. Cleared on disconnect.
+    /// </summary>
+    public bool HostDriven { get; set; }
 }

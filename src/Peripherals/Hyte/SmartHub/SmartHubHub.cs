@@ -113,7 +113,7 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
         {
             try { _transport?.Dispose(); } catch { /* best effort */ }
             _transport = null;
-            foreach (var fan in State.Fans) fan.SeenFan = false;
+            foreach (var fan in State.Fans) { fan.SeenFan = false; fan.HostDriven = false; }
         }
     }
 
@@ -195,6 +195,7 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
         {
             State.Fans[channel].Duty = Math.Clamp(dutyPercent, SmartHubProtocol.FanMinDutyPercent, SmartHubProtocol.FanMaxDutyPercent);
             State.Fans[channel].Enabled = enabled;
+            State.Fans[channel].HostDriven = true;
         }
         return ok;
     }

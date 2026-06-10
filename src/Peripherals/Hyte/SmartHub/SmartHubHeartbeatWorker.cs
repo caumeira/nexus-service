@@ -16,17 +16,21 @@ namespace Nexus.Service.Peripherals.Hyte.SmartHub;
 /// (b) read the firmware version once on first connect, (c) turn the hub's
 /// onboard LED animation OFF after a (re)connect so our software LED frames
 /// take effect, (d) poll the per-channel tach + enabled state so the cooling
-/// page shows live RPM and only surfaces populated ports, (e) assert an
-/// initial fan duty per (re)connect — the firmware powers up at full speed
-/// and has no onboard curve, so an undriven port runs max forever.
+/// page shows live RPM and only surfaces populated ports, (e) assert fan
+/// duty on (re)connect and RE-ASSERT it every tick: the firmware runs a
+/// 5-second watchdog fed only by <c>FF CC 02</c> fan writes
+/// (<c>USB_NO_Activity_Time = 50</c> × 100 ms in the Control_box source) —
+/// when it expires the hub reloads <c>Default_FAN_Percent</c> from flash and
+/// re-applies it to ALL four ports, silently undoing any one-shot duty.
+/// This is why HYTE's legacy agent rewrites every port every second.
 /// </summary>
 public sealed class SmartHubHeartbeatWorker : BackgroundService
 {
     /// <summary>
     /// Duty written to ports with no saved manual speed and no curve binding.
-    /// The hub's power-on default is 100% (the legacy agent's
-    /// <c>SetInitialFanSpeed</c> leans on that for max-RPM calibration);
-    /// without this write a fresh out-of-box port screams at full speed.
+    /// The firmware's own fallback is the flash-saved <c>Default_FAN_Percent</c>
+    /// (60% when flash is erased); without host writes the watchdog holds
+    /// every port there forever.
     /// </summary>
     private const int DefaultDutyPercent = 50;
 
@@ -87,6 +91,8 @@ public sealed class SmartHubHeartbeatWorker : BackgroundService
 
         if (!_initialDutyAsserted)
             _initialDutyAsserted = ApplyInitialDuty();
+        else
+            ReassertDuty();
 
         var pollOk = _hub.PollChannelInfo();
         if (++_tickCount % TraceEveryNTicks == 1)
@@ -136,6 +142,25 @@ public sealed class SmartHubHeartbeatWorker : BackgroundService
         }
         if (ok) ServiceLog.Info($"[smarthub-cooling] initial duty asserted (default={DefaultDutyPercent}%, restored {restored} saved manual speed(s))");
         return ok;
+    }
+
+    /// <summary>
+    /// Rewrite each host-commanded port's last duty every tick (2 s, well
+    /// inside the firmware's 5 s watchdog) so the hub never falls back to its
+    /// flash default. Curve-bound ports also get fresh writes from
+    /// <see cref="CurveEngine"/> every second; the duplicate here is harmless
+    /// (6 bytes/port) and keeps the watchdog fed between curve ticks. Ports
+    /// nothing has driven yet (curve bound but stalled) are skipped — their
+    /// State duty is still 0, and feeding the watchdog 0% would defeat the
+    /// firmware's own flash-default fallback.
+    /// </summary>
+    private void ReassertDuty()
+    {
+        foreach (var fan in _hub.State.Fans)
+        {
+            if (!fan.HostDriven) continue;
+            _hub.WriteFanSpeed(fan.Index, fan.Duty, fan.Enabled);
+        }
     }
 
     private static System.Collections.Generic.IEnumerable<string> FanSummaries(SmartHubState s)
