@@ -62,6 +62,17 @@ public sealed class SmartHubFanChannel
     /// <summary>Last commanded duty (0..100%). 0 until driven from software.</summary>
     public int Duty { get; set; }
 
-    /// <summary>Firmware-reported "port output enabled" flag from the last poll. Drives whether the port appears on the cooling page.</summary>
+    /// <summary>
+    /// Firmware-reported "port output enabled" flag from the last poll.
+    /// Bookkeeping only — fw 1.0.0.1 reports 0x01 for every port regardless
+    /// of fan presence, so this must NOT drive presence.
+    /// </summary>
     public bool Enabled { get; set; }
+
+    /// <summary>
+    /// Latched true once the port shows a live tach this connection — the only
+    /// real presence signal this firmware gives. Keeps a fan the user parks at
+    /// 0% from vanishing off the cooling page. Cleared on disconnect.
+    /// </summary>
+    public bool SeenFan { get; set; }
 }

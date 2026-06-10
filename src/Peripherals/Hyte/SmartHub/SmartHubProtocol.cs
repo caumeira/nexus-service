@@ -26,7 +26,15 @@ public static class SmartHubProtocol
     public const int VendorId = 0x3402;
     public const int ProductId = 0x0904;
 
-    /// <summary>Number of PWM fan ports (0-indexed 0..3 on the wire).</summary>
+    /// <summary>
+    /// PID encoded into the OTA boot-flag key (<c>FF DC 06 09 01 00 DD</c>).
+    /// HYTE's <c>USBDevicesFactory</c> ControlHub entry ships NP50's key
+    /// (0x0901), NOT this device's operating PID 0x0904 — the Smart Hub and
+    /// NP50 share a bootloader identity.
+    /// </summary>
+    public const int OtaProductId = 0x0901;
+
+    /// <summary>Number of PWM fan ports (1-indexed 1..4 on the wire, 0..3 in <see cref="SmartHubState.Fans"/>).</summary>
     public const int FanChannelCount = 4;
 
     /// <summary>Number of ARGB ports (1-indexed 1..4 on the wire).</summary>
@@ -82,17 +90,18 @@ public static class SmartHubProtocol
 
     /// <summary>
     /// "Set Fan Speed" request for one PWM port (6 bytes):
-    /// <c>FF CC 02 &lt;channel 0..3&gt; &lt;duty%&gt; &lt;enabled&gt;</c>.
-    /// Matches <c>ControlHubCommand.SetFanSpeedByChannel</c> /
-    /// <c>SetFanPortEnabled</c>. Duty is clamped to 0..100; the channel index
-    /// is 0-based on the wire.
+    /// <c>FF CC 02 &lt;port 1..4&gt; &lt;duty%&gt; &lt;enabled&gt;</c>.
+    /// The wire port is <b>1-based</b>: <c>ControlHubCommand.SetFanSpeedByChannel</c>
+    /// sends <c>channel + 1</c> and <c>SetInitialFanSpeed</c> writes ports 1..4
+    /// directly. <paramref name="channel"/> stays 0-based to match
+    /// <see cref="SmartHubState.Fans"/> / the hub-info parse; the +1 happens here.
     /// </summary>
     public static byte[] BuildSetFanSpeed(int channel, int dutyPercent, bool enabled)
     {
         if (channel < 0 || channel >= FanChannelCount)
             throw new ArgumentOutOfRangeException(nameof(channel), channel, $"Channel must be in 0..{FanChannelCount - 1}.");
         var duty = (byte)Math.Clamp(dutyPercent, FanMinDutyPercent, FanMaxDutyPercent);
-        return new byte[] { Frame0, OpControl, SubSetFanSpeed, (byte)channel, duty, (byte)(enabled ? 0x01 : 0x00) };
+        return new byte[] { Frame0, OpControl, SubSetFanSpeed, (byte)(channel + 1), duty, (byte)(enabled ? 0x01 : 0x00) };
     }
 
     /// <summary>
@@ -149,17 +158,18 @@ public static class SmartHubProtocol
 
     /// <summary>
     /// Parse the 20-byte hub-info response into the four PWM channels'
-    /// tach + enabled state. Field layout follows
-    /// <c>ControlHubDeviceBase.CheckAndUpdateChannelInfo</c>:
-    /// <code>
-    ///   ch0: speedH=[3]  speedL=[4]  enabled=[11]
-    ///   ch1: speedH=[5]  speedL=[6]  enabled=[12]
-    ///   ch2: speedH=[7]  speedL=[8]  enabled=[13]
-    ///   ch3: speedH=[9]  speedL=[10] enabled=[14]
-    /// </code>
+    /// tach + enabled state. Tach layout follows
+    /// <c>ControlHubDeviceBase.CheckAndUpdateChannelInfo</c>
+    /// (speedH/L pairs at [3,4] [5,6] [7,8] [9,10] for ch0..3), but the
+    /// enabled flags read back REVERSED: bench-probed on fw 1.0.0.1,
+    /// <c>FF CC 02 N … en</c> flips readback byte <c>[15-N]</c> for every
+    /// N 1..4 — so enabled for ch (wire port ch+1) lives at <c>[14-ch]</c>,
+    /// not the <c>[11+ch]</c> the legacy parser assumes. The flags are also
+    /// <c>01</c> for all four ports regardless of fan presence (bookkeeping
+    /// only), so presence detection must come from the tach.
     /// Returns false (and leaves <paramref name="channels"/> null) if the
-    /// header isn't the expected <c>FF CC</c> echo or the response is short —
-    /// the heartbeat then drops the transport and re-discovers.
+    /// header isn't the expected <c>FF CC</c> echo or the response is short;
+    /// the caller keeps the transport and retries next tick.
     /// </summary>
     public static bool TryParseChannelInfo(ReadOnlySpan<byte> response, out SmartHubFanReading[]? channels)
     {
@@ -172,7 +182,7 @@ public static class SmartHubProtocol
         {
             var speedH = response[3 + ch * 2];
             var speedL = response[4 + ch * 2];
-            var enabled = response[11 + ch] == 0x01;
+            var enabled = response[14 - ch] == 0x01;
             channels[ch] = new SmartHubFanReading(DecodeFanRpm(speedH, speedL), enabled);
         }
         return true;

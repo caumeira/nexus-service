@@ -364,6 +364,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.KeebHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.FanHubHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Np50Handler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.SmartHubHandler>();
 
         // Read-only catalog of firmware images embedded in this build. Backs
         // the Firmware Updates page's "available version" column.
@@ -381,6 +382,8 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Np50.Np50Hub>());
         services.AddSingleton<Nexus.Service.Devices.Firmware.IDfuFlashTarget>(sp =>
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubHub>());
+        services.AddSingleton<Nexus.Service.Devices.Firmware.IDfuFlashTarget>(sp =>
+            sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.SmartHub.SmartHubHub>());
         services.AddSingleton<Nexus.Service.Devices.Firmware.IDfuFlashTarget>(sp =>
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHub>());
         services.AddSingleton<Nexus.Service.Devices.Firmware.IDfuFlashTarget>(sp =>

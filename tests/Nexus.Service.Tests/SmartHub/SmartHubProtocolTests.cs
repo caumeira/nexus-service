@@ -11,8 +11,6 @@ namespace Nexus.Service.Tests.SmartHub;
 ///   • <c>LightDancing/Hardware/Devices/HYTE/Hub/ControlHubController.cs</c>
 ///   • <c>LightDancing/Common/SmartDeviceCommon/Command/ControlHubCommand.cs</c>
 ///   • <c>LightDancing/Common/SmartDeviceCommon/SmartDeviceMethods.cs</c> (RPM)
-/// We have no Smart Hub hardware yet, so these tests are the only guard that
-/// the frames we emit match what the firmware expects.
 /// </summary>
 public class SmartHubProtocolTests
 {
@@ -37,11 +35,14 @@ public class SmartHubProtocolTests
     [InlineData(1)]
     [InlineData(2)]
     [InlineData(3)]
-    public void BuildSetFanSpeed_emits_FF_CC_02_channel_duty_enabled(int channel)
+    public void BuildSetFanSpeed_emits_FF_CC_02_with_1_based_wire_port(int channel)
     {
-        // Reference: ControlHubCommand.SetFanSpeedByChannel — FF CC 02 <ch> <pct> <en>.
+        // Reference: ControlHubCommand.SetFanSpeedByChannel sends `channel + 1`
+        // (SetInitialFanSpeed likewise writes ports 1..4). A 0-based wire port
+        // targets the wrong fan: hardware-confirmed (fan on physical port 2
+        // ignored every FF CC 02 with port byte 1).
         Assert.Equal(
-            new byte[] { 0xFF, 0xCC, 0x02, (byte)channel, 60, 0x01 },
+            new byte[] { 0xFF, 0xCC, 0x02, (byte)(channel + 1), 60, 0x01 },
             SmartHubProtocol.BuildSetFanSpeed(channel, 60, enabled: true));
     }
 
@@ -190,21 +191,21 @@ public class SmartHubProtocolTests
     [Fact]
     public void TryParseChannelInfo_decodes_all_four_channels_rpm_and_enabled()
     {
-        // Field layout (ControlHubDeviceBase.CheckAndUpdateChannelInfo):
-        //   ch0 speedH=[3] speedL=[4] enabled=[11]
-        //   ch1 speedH=[5] speedL=[6] enabled=[12]
-        //   ch2 speedH=[7] speedL=[8] enabled=[13]
-        //   ch3 speedH=[9] speedL=[10] enabled=[14]
+        // Tach layout (ControlHubDeviceBase.CheckAndUpdateChannelInfo):
+        //   ch0 speedH=[3] speedL=[4], ch1=[5,6], ch2=[7,8], ch3=[9,10].
+        // Enabled flags read back REVERSED — bench-probed on fw 1.0.0.1:
+        //   FF CC 02 N … en flips readback [15-N] for every N 1..4,
+        //   so ch0 enabled=[14], ch1=[13], ch2=[12], ch3=[11].
         var response = new byte[SmartHubProtocol.GetInfoResponseLength];
         response[0] = 0xFF; response[1] = 0xCC; response[2] = 0x01;
         response[3] = 10; response[4] = 0;   // ch0 → 1500 rpm
         response[5] = 20; response[6] = 0;   // ch1 → 750 rpm
         response[7] = 0; response[8] = 0;    // ch2 → 0 rpm
         response[9] = 30; response[10] = 0;  // ch3 → 500 rpm
-        response[11] = 0x01;                  // ch0 enabled
-        response[12] = 0x00;                  // ch1 disabled
-        response[13] = 0x01;                  // ch2 enabled
-        response[14] = 0x00;                  // ch3 disabled
+        response[11] = 0x00;                  // ch3 disabled
+        response[12] = 0x01;                  // ch2 enabled
+        response[13] = 0x00;                  // ch1 disabled
+        response[14] = 0x01;                  // ch0 enabled
 
         Assert.True(SmartHubProtocol.TryParseChannelInfo(response, out var channels));
         Assert.NotNull(channels);

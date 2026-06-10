@@ -33,8 +33,11 @@ public sealed class SmartHubCoolingProvider : IFanControlProvider, ICoolingProvi
     // per-port mode flag to query back, so we track it here — same reason as
     // MiniHubCoolingProvider: without it GetFanChannels would report "Auto"
     // for a freshly Manual-clicked channel and the panel would snap back to
-    // BIOS on the next cooling broadcast.
+    // BIOS on the next cooling broadcast. Guarded by _ctrlLock: REST handlers,
+    // the cooling broadcaster, and the heartbeat's manual-speed restore touch
+    // it from different threads.
     private readonly HashSet<string> _softwareControlled = new();
+    private readonly object _ctrlLock = new();
 
     public SmartHubCoolingProvider(SmartHubHub hub)
     {
@@ -65,7 +68,7 @@ public sealed class SmartHubCoolingProvider : IFanControlProvider, ICoolingProvi
                 Name = $"Fan Port {fan.Index + 1}",
                 DutyPercent = fan.Duty,
                 Rpm = fan.Rpm,
-                Mode = _softwareControlled.Contains(id) ? FanModes.Manual : FanModes.Auto,
+                Mode = IsSoftwareControlled(id) ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
                 DeviceName = SmartHubHub.ProductName,
                 PortLabel = $"Port {fan.Index + 1}",
@@ -99,12 +102,26 @@ public sealed class SmartHubCoolingProvider : IFanControlProvider, ICoolingProvi
     public void ReleaseFan(string channelId)
     {
         if (!IsSmartHubId(channelId)) return;
-        _softwareControlled.Remove(channelId);
+        lock (_ctrlLock) _softwareControlled.Remove(channelId);
     }
 
     public void ReleaseAll()
     {
-        _softwareControlled.Clear();
+        lock (_ctrlLock) _softwareControlled.Clear();
+    }
+
+    /// <summary>
+    /// Restore a persisted manual speed on (re)connect. Same write as
+    /// <see cref="SetFanSpeed"/> but reports wire success so the heartbeat can
+    /// retry next tick instead of leaving the port at the firmware's 100%
+    /// power-on default.
+    /// </summary>
+    public bool RestoreManualSpeed(string channelId, int dutyPercent)
+    {
+        if (!IsSmartHubId(channelId) || !TryParseChannel(channelId, out var index)) return false;
+        var ok = _hub.WriteFanSpeed(index, Math.Clamp(dutyPercent, 0, 100), enabled: true);
+        if (ok) lock (_ctrlLock) _softwareControlled.Add(channelId);
+        return ok;
     }
 
     public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(
@@ -155,9 +172,11 @@ public sealed class SmartHubCoolingProvider : IFanControlProvider, ICoolingProvi
 
     // ── Internals ──
 
-    // A port is shown only when the firmware reports it enabled or it has a
-    // live tach reading — keeps un-populated ports off the cooling page.
-    private static bool IsPopulated(SmartHubFanChannel fan) => fan.Enabled || fan.Rpm > 0;
+    // A port is shown only when a fan has shown a live tach this connection.
+    // The firmware's "enabled" flag is useless for presence (0x01 for every
+    // port, fan or not — bench-verified on fw 1.0.0.1); SeenFan latches so a
+    // fan parked at 0% duty doesn't vanish off the cooling page.
+    private static bool IsPopulated(SmartHubFanChannel fan) => fan.Rpm > 0 || fan.SeenFan;
 
     private void ApplyWrite(string channelId, int dutyPercent)
     {
@@ -176,12 +195,18 @@ public sealed class SmartHubCoolingProvider : IFanControlProvider, ICoolingProvi
         // Driving this channel implies software control; record so the next
         // GetFanChannels reports Mode="Manual" and the panel doesn't snap the
         // selection back to BIOS on the cooling-topic refresh.
-        _softwareControlled.Add(channelId);
+        lock (_ctrlLock) _softwareControlled.Add(channelId);
         var ok = _hub.WriteFanSpeed(index, dutyPercent, enabled: true);
         Console.Error.WriteLine($"[smarthub-cooling] {channelId} -> {dutyPercent}% (writeOk={ok})");
     }
 
-    private static string FanId(string serial, int index) =>
+    private bool IsSoftwareControlled(string id)
+    {
+        lock (_ctrlLock) return _softwareControlled.Contains(id);
+    }
+
+    /// <summary>Channel id for one PWM port (<c>smarthub:&lt;serial&gt;:fan&lt;0..3&gt;</c>). Shared with the heartbeat's saved-manual-speed restore.</summary>
+    public static string FanId(string serial, int index) =>
         $"{IdPrefix}{serial}:fan{index.ToString(CultureInfo.InvariantCulture)}";
 
     private static bool TryParseChannel(string channelId, out int index)

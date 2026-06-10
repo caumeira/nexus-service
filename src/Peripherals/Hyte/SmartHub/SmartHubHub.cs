@@ -1,30 +1,35 @@
 using System;
 using System.Threading;
+using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Peripherals.Hyte.Np50;
 using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.SmartHub;
 
 /// <summary>
-/// Singleton coordinator for a HYTE Smart Hub. Mirrors
+/// Singleton coordinator for a HYTE SmartHub. Mirrors
 /// <see cref="Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubHub"/>: opens the
 /// COM port lazily, exposes a <see cref="SmartHubState"/> snapshot, and lets
 /// the lighting + cooling capability classes push LED frames / fan speeds.
 ///
 /// It reuses the product-agnostic NP50 serial transport + port-discovery
 /// abstraction (<see cref="INp50Transport"/> / <see cref="INp50PortDiscovery"/>)
-/// — the Smart Hub is just another HYTE serial-over-USB hub, so there's no
+/// — the SmartHub is just another HYTE serial-over-USB hub, so there's no
 /// reason to duplicate the serial plumbing.
 /// </summary>
-public sealed class SmartHubHub : IDisposable
+public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
 {
     /// <summary>
     /// Single source of truth for this device's user-facing product label.
     /// Both the lighting and cooling providers reference this so the panel
-    /// shows the SAME name everywhere. Matches HYTE's own product taxonomy
-    /// for VID_3402&amp;PID_0904 (<c>UniversalHardwareInfo</c> = "HYTE Smart Hub").
+    /// shows the SAME name everywhere. (HYTE's legacy taxonomy for
+    /// VID_3402&amp;PID_0904 spells it "HYTE Smart Hub"; we brand it one word,
+    /// matching "HYTE NP50".)
     /// </summary>
-    public const string ProductName = "HYTE Smart Hub";
+    public const string ProductName = "HYTE SmartHub";
+
+    /// <summary>Device id + firmware-catalog key (<c>data/firmware/smarthub/</c>).</summary>
+    public const string DeviceType = "smarthub";
 
     private readonly INp50PortDiscovery _discovery;
     private readonly Func<Np50PortInfo, INp50Transport> _transportFactory;
@@ -47,6 +52,29 @@ public sealed class SmartHubHub : IDisposable
     public SmartHubState State { get; } = new();
     public bool IsConnected => _transport is { IsOpen: true };
     public string DeviceId => string.IsNullOrEmpty(State.Serial) ? "" : $"smarthub:{State.Serial}";
+
+    // ── IDfuFlashTarget ──
+    string IDfuFlashTarget.FirmwareType => IsConnected ? DeviceType : "";
+    bool IDfuFlashTarget.CanFlash(string firmwareType) => firmwareType == DeviceType;
+
+    /// <summary>
+    /// Drop the SmartHub into DFU: write the OTA key + magic over the serial
+    /// port, then release it for dfu-util. The key encodes
+    /// <see cref="SmartHubProtocol.OtaProductId"/> (NP50's 0x0901 — the legacy
+    /// ControlHub factory entry ships NP50's key, not PID 0x0904).
+    /// </summary>
+    public bool EnterDfuMode()
+    {
+        if (!EnsureConnected()) return false;
+        var t = _transport;
+        if (t is null) return false;
+        var verify = OtaDfuEntry.SupportsPidCheck(DeviceType, State.FirmwareVersion);
+        bool ok;
+        try { ok = OtaDfuEntry.Enter(t, OtaProductKey.ForProductId(SmartHubProtocol.OtaProductId), verify); }
+        catch { ok = true; /* port drops as the device reboots into DFU */ }
+        Disconnect();
+        return ok;
+    }
 
     public bool EnsureConnected()
     {
@@ -85,6 +113,7 @@ public sealed class SmartHubHub : IDisposable
         {
             try { _transport?.Dispose(); } catch { /* best effort */ }
             _transport = null;
+            foreach (var fan in State.Fans) fan.SeenFan = false;
         }
     }
 
@@ -134,6 +163,7 @@ public sealed class SmartHubHub : IDisposable
             {
                 State.Fans[i].Rpm = channels[i].Rpm;
                 State.Fans[i].Enabled = channels[i].Enabled;
+                if (channels[i].Rpm > 0) State.Fans[i].SeenFan = true;
             }
             return true;
         }
