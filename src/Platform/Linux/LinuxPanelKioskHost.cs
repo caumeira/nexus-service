@@ -97,7 +97,7 @@ public sealed class LinuxPanelKioskHost : IDisposable
                 _rapidFailures.Remove(displayId);
             foreach (var capped in _rapidFailures.Keys.ToList())
             {
-                if (!assignments.Any(a => string.Equals(a.Item1, capped, StringComparison.Ordinal)))
+                if (!assignments.Any(a => string.Equals(a.DisplayId, capped, StringComparison.Ordinal)))
                     _rapidFailures.Remove(capped);
             }
             foreach (var displayId in toClose)

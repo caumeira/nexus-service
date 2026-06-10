@@ -142,7 +142,7 @@ public sealed class GalleryLibrary
         {
             var sources = LoadSources();
             if (sources.Any(s => s.Kind == kind && string.Equals(s.Path, full, PathComparison)))
-                return Fail("source already added");
+                return Fail("source already added", GalleryErrorCodes.Duplicate);
 
             var source = NewSource(sources, kind, full, Path.GetFileName(full));
             sources.Add(source);
@@ -408,6 +408,6 @@ public sealed class GalleryLibrary
         AtomicJsonFile.Write(Path.Combine(RootDir, SourcesFileName), json);
     }
 
-    private static GallerySourceMutationResponse Fail(string msg) =>
-        new() { Error = true, Msg = msg };
+    private static GallerySourceMutationResponse Fail(string msg, string code = "") =>
+        new() { Error = true, Msg = msg, Code = code };
 }

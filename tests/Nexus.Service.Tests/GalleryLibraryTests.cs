@@ -85,13 +85,20 @@ public sealed class GalleryLibraryTests : IDisposable
     }
 
     [Fact]
-    public void AddReference_RejectsDuplicatePath()
+    public void AddReference_RejectsDuplicatePath_WithDuplicateCode()
     {
         var lib = NewLibrary();
         var path = WriteImage("a.png");
 
-        Assert.False(lib.AddReference(path, GallerySourceKinds.File).Error);
-        Assert.True(lib.AddReference(path, GallerySourceKinds.File).Error);
+        var first = lib.AddReference(path, GallerySourceKinds.File);
+        Assert.False(first.Error);
+        Assert.Equal("", first.Code);
+
+        var second = lib.AddReference(path, GallerySourceKinds.File);
+        Assert.True(second.Error);
+        // The UI branches on this to say "already in the gallery" instead of
+        // a generic add failure.
+        Assert.Equal(GalleryErrorCodes.Duplicate, second.Code);
     }
 
     [Fact]

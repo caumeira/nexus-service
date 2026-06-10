@@ -44,11 +44,20 @@ public sealed class AddGallerySourceBody
     public string Kind { get; set; } = "";
 }
 
+/// <summary>Machine-readable codes for <see cref="GallerySourceMutationResponse.Code"/>.</summary>
+public static class GalleryErrorCodes
+{
+    /// <summary>The path is already registered as a source of the same kind.</summary>
+    public const string Duplicate = "duplicate";
+}
+
 public sealed class GallerySourceMutationResponse
 {
     public GallerySource? Source { get; set; }
     public bool Error { get; set; }
     public string Msg { get; set; } = "";
+    /// <summary>Stable error code the UI can branch on; empty when n/a.</summary>
+    public string Code { get; set; } = "";
 }
 
 public sealed class GalleryExcludeBody
