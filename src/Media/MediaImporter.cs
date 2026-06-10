@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Media;
 using Nexus.Service.Platform;
@@ -107,7 +108,13 @@ public static class MediaImporter
         }
     }
 
-    private static async Task RunFfmpeg(params string[] args)
+    // Hard cap on any single ffmpeg run. A pathological input that wedges the
+    // decoder must not park callers forever (gallery thumbnails serialize per
+    // item behind a semaphore, so one hung process would block that item's
+    // thumbnail for the process lifetime).
+    private const int FfmpegTimeoutSeconds = 120;
+
+    internal static async Task RunFfmpeg(params string[] args)
     {
         var ffmpegPath = FfmpegResolver.Path
             ?? throw new InvalidOperationException("ffmpeg not found");
@@ -129,7 +136,20 @@ public static class MediaImporter
             ?? throw new InvalidOperationException("ffmpeg failed to start");
 
         var stderrTask = proc.StandardError.ReadToEndAsync();
-        await proc.WaitForExitAsync();
+        using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(FfmpegTimeoutSeconds));
+        try
+        {
+            await proc.WaitForExitAsync(cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            try
+            {
+                proc.Kill(entireProcessTree: true);
+            }
+            catch { }
+            throw new InvalidOperationException($"ffmpeg timed out after {FfmpegTimeoutSeconds}s");
+        }
         var stderr = await stderrTask;
         if (proc.ExitCode != 0)
         {
@@ -138,7 +158,7 @@ public static class MediaImporter
         }
     }
 
-    private static string SanitizeId(string id)
+    internal static string SanitizeId(string id)
     {
         var chars = id.ToCharArray();
         for (int i = 0; i < chars.Length; i++)

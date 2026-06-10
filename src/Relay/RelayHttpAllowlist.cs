@@ -39,6 +39,11 @@ public static class RelayHttpAllowlist
         "/apps-api",
         "/shortcuts",
         "/media",
+        // Gallery READ surface only (/gallery/items, …/{id}/file, …/{id}/thumbnail).
+        // Never widen to "/gallery": the trusted-relay dispatch lane bypasses the
+        // AllowPanel tier, so a blanket prefix would expose /gallery/browse (host
+        // filesystem) and source mutations to relayed phone sessions.
+        "/gallery/items",
         "/y70",
         "/qseries",
         "/api", // /api/steam, /api/obs, /api/discord, /api/weather, /api/media, /api/screentime

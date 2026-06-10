@@ -740,6 +740,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Benchmarks.BenchmarkRunner>();
         services.AddSingleton<ProfileManager>();
         services.AddSingleton<Nexus.Service.Media.MediaLibrary>();
+        services.AddSingleton<Nexus.Service.Gallery.GalleryLibrary>();
         return services;
     }
 

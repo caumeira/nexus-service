@@ -254,6 +254,21 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Media.MediaPlayResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Media.MediaCurrentResponse))]
 
+// Gallery
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GallerySource))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Gallery.GallerySource>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GallerySourcesFile))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GallerySourcesResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.AddGallerySourceBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GallerySourceMutationResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryItem))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Gallery.GalleryItem>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryItemsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryBrowseEntry))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Gallery.GalleryBrowseEntry>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryBrowseResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.GalleryChangedFrame))]
+
 // Lighting
 [JsonSerializable(typeof(AudioStateSnapshot))]
 [JsonSerializable(typeof(ShaderSourceResponse))]

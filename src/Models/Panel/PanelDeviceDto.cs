@@ -151,6 +151,11 @@ public sealed class VolumeChangedFrame
     public long Revision { get; set; }
 }
 
+public sealed class GalleryChangedFrame
+{
+    public long Revision { get; set; }
+}
+
 /// <summary>
 /// Multiplex frame: the host's network address changed (VPN toggle, Wi-Fi↔wired
 /// switch, DHCP renew), so any displayed pairing QR now embeds a stale LAN IP.
