@@ -25,6 +25,14 @@ public interface IOverlayHost
     /// callers that want to flip the level without an SPA round trip.
     /// </summary>
     void SetAlwaysOnTop(bool value);
+
+    /// <summary>
+    /// Display→panel assignments changed; the host should re-reconcile its
+    /// kiosk windows. No-op on Windows: nexus-overlay already re-polls on
+    /// the PrefsChanged push. The macOS helper has no push channel, so the
+    /// launcher pokes it over the stdin pipe it already holds open.
+    /// </summary>
+    void NotifyDisplayAssignmentsChanged();
 }
 
 /// <summary>Linux/unsupported fallback. Desktop widgets never start.</summary>
@@ -34,4 +42,5 @@ public sealed class NoopOverlayHost : IOverlayHost
     public bool Start() => false;
     public void Stop() { }
     public void SetAlwaysOnTop(bool value) { }
+    public void NotifyDisplayAssignmentsChanged() { }
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Threading.Tasks;
@@ -341,36 +342,30 @@ public sealed class LinuxTrayHost : IDisposable
         ".local", "share", "flatpak", "exports", "bin");
     private const string SysFlatpakBin = "/var/lib/flatpak/exports/bin";
 
-    private static readonly Launcher[] Launchers =
+    private static Launcher[] BuildLaunchers()
     {
+        var list = new List<Launcher>();
         // Chromium-family in --app mode FIRST: opens the dashboard as a clean,
         // chromeless window — the closest Linux equivalent to the Windows/macOS
-        // embedded panel (no native WebView host exists on Linux yet).
-        new(Path.Combine(UserFlatpakBin, "org.chromium.Chromium"), Array.Empty<string>(), true),
-        new(SysFlatpakBin + "/org.chromium.Chromium", Array.Empty<string>(), true),
-        new(Path.Combine(UserFlatpakBin, "com.google.Chrome"), Array.Empty<string>(), true),
-        new(SysFlatpakBin + "/com.google.Chrome", Array.Empty<string>(), true),
-        new(Path.Combine(UserFlatpakBin, "com.brave.Browser"), Array.Empty<string>(), true),
-        new(SysFlatpakBin + "/com.brave.Browser", Array.Empty<string>(), true),
-        new(SysFlatpakBin + "/com.microsoft.Edge", Array.Empty<string>(), true),
-        new("/usr/bin/chromium", Array.Empty<string>(), true),
-        new("/usr/bin/chromium-browser", Array.Empty<string>(), true),
-        new("/usr/bin/google-chrome", Array.Empty<string>(), true),
-        new("/usr/bin/brave-browser", Array.Empty<string>(), true),
+        // embedded panel (no native WebView host exists on Linux yet). Probe
+        // order shared with the panel kiosk host.
+        foreach (var path in LinuxBrowsers.ChromiumFamily())
+            list.Add(new Launcher(path, Array.Empty<string>(), true));
         // Fallbacks: desktop-portal openers launch the default browser in the
         // user's session context (avoids the flatpak sandbox EPERM), normal window.
-        new("/usr/bin/xdg-open", Array.Empty<string>(), false),
-        new("/usr/bin/kde-open", Array.Empty<string>(), false),
-        new("/usr/bin/gio", new[] { "open" }, false),
+        list.Add(new Launcher("/usr/bin/xdg-open", Array.Empty<string>(), false));
+        list.Add(new Launcher("/usr/bin/kde-open", Array.Empty<string>(), false));
+        list.Add(new Launcher("/usr/bin/gio", new[] { "open" }, false));
         // Last resort: Firefox (no --app mode) in a normal window.
-        new(UserFlatpakBin + "/org.mozilla.firefox", new[] { "--new-window" }, false),
-        new(SysFlatpakBin + "/org.mozilla.firefox", new[] { "--new-window" }, false),
-        new("/usr/bin/firefox", new[] { "--new-window" }, false),
-    };
+        list.Add(new Launcher(UserFlatpakBin + "/org.mozilla.firefox", new[] { "--new-window" }, false));
+        list.Add(new Launcher(SysFlatpakBin + "/org.mozilla.firefox", new[] { "--new-window" }, false));
+        list.Add(new Launcher("/usr/bin/firefox", new[] { "--new-window" }, false));
+        return list.ToArray();
+    }
 
     private static void OpenUrl(string url)
     {
-        foreach (var l in Launchers)
+        foreach (var l in BuildLaunchers())
         {
             if (!File.Exists(l.Path))
                 continue;

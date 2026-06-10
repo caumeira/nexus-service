@@ -31,6 +31,9 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     /// </summary>
     public void SetAlwaysOnTop(bool value) { }
 
+    /// <summary>No-op: nexus-overlay re-polls assignments on the PrefsChanged push.</summary>
+    public void NotifyDisplayAssignmentsChanged() { }
+
     private Process? _process;
     private DateTime _lastSpawnUtc = DateTime.MinValue;
     private int _consecutiveFailures;

@@ -29,8 +29,12 @@ internal static class OverlayHostBootstrap
         // Launch/Close.
         var showPanelEdgeLock = new object();
         var lastShowPanel = store.Load().Panel.AutoLaunch;
+        var lastAssignments = AssignmentsSignature(store.Load());
 #if WINDOWS
         var helperRegistry = app.Services.GetService<HelperRegistry>();
+#endif
+#if LINUX
+        var linuxKiosks = app.Services.GetService<Platform.Linux.LinuxPanelKioskHost>();
 #endif
         store.OnChanged += () =>
         {
@@ -86,6 +90,24 @@ internal static class OverlayHostBootstrap
                     if (target) panelKioskLauncher.Launch();
                     else panelKioskLauncher.Close();
                 }
+
+                // Poke the host when the active assignment set changed so its
+                // kiosk reconcile runs immediately (macOS stdin push; no-op on
+                // Windows where the PrefsChanged push above covers it).
+                var assignments = AssignmentsSignature(snapshot);
+                bool assignmentsChanged;
+                lock (showPanelEdgeLock)
+                {
+                    assignmentsChanged = assignments != lastAssignments;
+                    lastAssignments = assignments;
+                }
+                if (assignmentsChanged)
+                {
+                    overlayHost.NotifyDisplayAssignmentsChanged();
+#if LINUX
+                    linuxKiosks?.Reconcile();
+#endif
+                }
             }
             catch { /* best-effort */ }
         };
@@ -104,6 +126,15 @@ internal static class OverlayHostBootstrap
                     overlayHost.Start();
                 });
             }
+#if LINUX
+            // Off the startup critical path; the kiosk browser spawn is slow
+            // and the session env may still be settling right after boot.
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(2000);
+                linuxKiosks?.Reconcile();
+            });
+#endif
         });
 
         app.Lifetime.ApplicationStopping.Register(() =>
@@ -112,12 +143,13 @@ internal static class OverlayHostBootstrap
         });
     }
 
-    // Promoted-monitor kiosks are hosted by the Windows overlay (it reconciles
-    // against /displays/assignments), so an assignment alone must keep the
-    // overlay process alive. Other platforms have no kiosk host yet.
+    // Promoted-monitor kiosks are hosted by the Windows overlay and the macOS
+    // overlay-helper (both reconcile against /displays/assignments), so an
+    // assignment alone must keep the host process alive. Linux kiosks are
+    // spawned per-assignment by LinuxPanelKioskHost, not by IOverlayHost.
     private static bool HasMonitorPanelAssignment(NexusSettings snapshot)
     {
-        if (!OperatingSystem.IsWindows())
+        if (!OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS())
             return false;
         foreach (var record in snapshot.PanelDevices.Values)
         {
@@ -127,5 +159,19 @@ internal static class OverlayHostBootstrap
                 return true;
         }
         return false;
+    }
+
+    // Order-independent fingerprint of the active assignment set; a change
+    // means kiosk windows must be reconciled.
+    private static string AssignmentsSignature(NexusSettings snapshot)
+    {
+        var parts = new List<string>();
+        foreach (var record in snapshot.PanelDevices.Values)
+        {
+            if (!string.IsNullOrEmpty(record.DisplayId) && record.Enabled != false)
+                parts.Add($"{record.DisplayId}|{record.Id}|{record.ReserveMonitor ?? true}");
+        }
+        parts.Sort(StringComparer.Ordinal);
+        return string.Join(";", parts);
     }
 }

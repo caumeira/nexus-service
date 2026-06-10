@@ -89,6 +89,10 @@ public sealed class DisplayTopologyResponse
 {
     /// <summary>Kiosk hosting availability on this host OS.</summary>
     public bool HostingSupported { get; set; }
+    /// <summary>Promoted-monitor rotation availability on this host OS.</summary>
+    public bool RotationSupported { get; set; }
+    /// <summary>"Keep panel clear of other windows" availability on this host OS.</summary>
+    public bool ReserveSupported { get; set; }
     /// <summary>False when monitors carry no positions (web lays them out in a row).</summary>
     public bool PositionsAvailable { get; set; }
     public long Revision { get; set; }

@@ -129,6 +129,29 @@ public sealed class MacOverlayHostLauncher : IOverlayHost
         try { proc.Dispose(); } catch { }
     }
 
+    /// <summary>
+    /// Pokes the helper to refetch /displays/assignments and reconcile its
+    /// kiosk windows. The stdin pipe is already open for parent-death EOF
+    /// detection; a line on it is the push channel.
+    /// </summary>
+    public void NotifyDisplayAssignmentsChanged()
+    {
+        lock (_lock)
+        {
+            var proc = _process;
+            if (proc is null || proc.HasExited) return;
+            try
+            {
+                proc.StandardInput.WriteLine("assignments-changed");
+                proc.StandardInput.Flush();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[overlay-helper] assignments poke failed: {ex.Message}");
+            }
+        }
+    }
+
     public void SetAlwaysOnTop(bool value)
     {
         // The SPA posts setAlwaysOnTop directly via the WK bridge inside

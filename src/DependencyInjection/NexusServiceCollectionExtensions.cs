@@ -799,8 +799,10 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Panel.PanelOverlayHostLauncher>();
         // IOverlayHost picks the right impl per OS. Mac spawns the Swift
         // sidecar nexus-overlay-helper (transparent NSWindow + WKWebView
-        // per NSScreen). Windows spawns nexus-overlay.exe (WinForms +
-        // WebView2). Linux is a no-op until an X11/Wayland surface is added.
+        // per NSScreen, plus fullscreen panel kiosks). Windows spawns
+        // nexus-overlay.exe (WinForms + WebView2). Linux widgets are a
+        // no-op until an X11/Wayland surface is added; monitor-panel
+        // kiosks run through LinuxPanelKioskHost instead.
 #if MACOS
         Nexus.Service.Platform.Mac.MacOverlayHostLauncher.Configure(servicePort);
         services.AddSingleton<Nexus.Service.Panel.IOverlayHost, Nexus.Service.Platform.Mac.MacOverlayHostLauncher>();
@@ -809,6 +811,10 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Panel.PanelOverlayHostLauncher>());
 #else
         services.AddSingleton<Nexus.Service.Panel.IOverlayHost, Nexus.Service.Panel.NoopOverlayHost>();
+#endif
+#if LINUX
+        Nexus.Service.Platform.Linux.LinuxPanelKioskHost.Configure(servicePort);
+        services.AddSingleton<Nexus.Service.Platform.Linux.LinuxPanelKioskHost>();
 #endif
         services.AddSingleton<Nexus.Service.Panel.PanelPhonePairingService>();
         services.AddSingleton<Nexus.Service.Panel.PanelDeviceRegistry>();

@@ -15,8 +15,19 @@ namespace Nexus.Service.Platform.Displays;
 /// </summary>
 public sealed class DisplayTopologyService
 {
-    /// <summary>Kiosk hosting is overlay-based and Windows-only for now.</summary>
-    public static bool HostingSupportedOnHost => HostingSupportedOverrideForTests ?? OperatingSystem.IsWindows();
+    /// <summary>Kiosk hosting: nexus-overlay on Windows, the overlay-helper
+    /// sidecar on macOS, a user-session Chromium kiosk on Linux.</summary>
+    public static bool HostingSupportedOnHost => HostingSupportedOverrideForTests
+        ?? (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux());
+
+    /// <summary>Promoted-monitor rotation goes through ChangeDisplaySettingsEx;
+    /// macOS has no public rotation API and Linux layout is compositor-owned.</summary>
+    public static bool RotationSupportedOnHost => OperatingSystem.IsWindows();
+
+    /// <summary>"Keep panel clear of other windows" is the overlay's
+    /// PanelMonitorGuard, Windows-only. macOS kiosks sit above app windows
+    /// by level; Linux kiosks rely on the compositor.</summary>
+    public static bool ReserveSupportedOnHost => OperatingSystem.IsWindows();
 
     /// <summary>Lets the promote/demote integration tests run on any host OS.</summary>
     internal static bool? HostingSupportedOverrideForTests;
@@ -45,6 +56,8 @@ public sealed class DisplayTopologyService
         var response = new DisplayTopologyResponse
         {
             HostingSupported = HostingSupportedOnHost,
+            RotationSupported = RotationSupportedOnHost,
+            ReserveSupported = ReserveSupportedOnHost,
             PositionsAvailable = _provider.PositionsAvailable,
             Revision = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
             Hint = raw is null ? HelperUnavailableHint : "",

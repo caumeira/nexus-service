@@ -517,11 +517,257 @@ final class OverlayController {
     }
 }
 
+// MARK: - Panel kiosk windows (promoted-monitor panels)
+//
+// Fullscreen opaque windows hosting /panel/{deviceId} on monitors the user
+// promoted to Nexus panels. Counterpart of nexus-overlay's
+// MonitorKioskManager on Windows: reconciled against
+// GET /displays/assignments, which maps stable display ids to panel device
+// records. Refresh triggers: launch, a poke line on stdin from the service
+// (assignment changed), and screen-parameter changes (hot-plug, resolution).
+
+/// First click must reach the SPA even though the kiosk panel never becomes
+/// key (same constraint as HitTestView on the widget overlay).
+final class KioskWebView: WKWebView {
+    override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+}
+
+struct KioskAssignment {
+    let displayId: String
+    let panelDeviceId: String
+}
+
+final class KioskController {
+    private let opts: Options
+    private let webViewDelegate = OverlayWebViewDelegate()
+    private var kiosks: [String: (window: NSWindow, deviceId: String)] = [:]
+    private var fetchInFlight = false
+    private var fetchQueued = false
+    private var retryScheduled = false
+
+    init(_ opts: Options) {
+        self.opts = opts
+    }
+
+    func start() {
+        refresh()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(screensChanged),
+            name: NSApplication.didChangeScreenParametersNotification,
+            object: nil)
+    }
+
+    @objc private func screensChanged() {
+        refresh()
+    }
+
+    /// Fetch + reconcile, coalesced: a poke arriving mid-fetch queues exactly
+    /// one follow-up so a burst of changes ends on fresh state. Main thread
+    /// only, so no locking.
+    func refresh() {
+        if fetchInFlight { fetchQueued = true; return }
+        fetchInFlight = true
+        fetchAssignments { [weak self] items in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.fetchInFlight = false
+                if let items = items {
+                    self.reconcile(items)
+                } else {
+                    // Transient service hiccup: keep current windows and retry
+                    // shortly — without this a failed launch-time fetch would
+                    // leave the promoted monitor blank with no other trigger
+                    // (pokes only fire on signature change). Service death
+                    // tears the helper down via stdin EOF, so the retry loop
+                    // is bounded by helper lifetime.
+                    FileHandle.standardError.write("[overlay-helper] assignments fetch failed; keeping kiosks, retrying in 5s\n".data(using: .utf8)!)
+                    if !self.retryScheduled {
+                        self.retryScheduled = true
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 5) { [weak self] in
+                            self?.retryScheduled = false
+                            self?.refresh()
+                        }
+                    }
+                }
+                if self.fetchQueued {
+                    self.fetchQueued = false
+                    self.refresh()
+                }
+            }
+        }
+    }
+
+    private func fetchAssignments(_ completion: @escaping ([KioskAssignment]?) -> Void) {
+        var c = URLComponents()
+        c.scheme = "http"
+        c.host = "localhost"
+        c.port = opts.port
+        c.path = "/displays/assignments"
+        c.queryItems = [URLQueryItem(name: "token", value: opts.token)]
+        guard let url = c.url else { completion(nil); return }
+        let task = URLSession.shared.dataTask(with: url) { data, response, _ in
+            guard let data = data,
+                  let http = response as? HTTPURLResponse, http.statusCode == 200,
+                  let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  let list = obj["assignments"] as? [[String: Any]]
+            else { completion(nil); return }
+            var items: [KioskAssignment] = []
+            for entry in list {
+                guard let displayId = entry["displayId"] as? String,
+                      let deviceId = entry["panelDeviceId"] as? String,
+                      !displayId.isEmpty, !deviceId.isEmpty
+                else { continue }
+                items.append(KioskAssignment(displayId: displayId, panelDeviceId: deviceId))
+            }
+            completion(items)
+        }
+        task.resume()
+    }
+
+    private func reconcile(_ assignments: [KioskAssignment]) {
+        let screens = screensByStableId()
+
+        // Close kiosks that lost their assignment or screen, swapped device
+        // id, or whose screen geometry changed (close + respawn re-fits).
+        for (displayId, entry) in kiosks {
+            let want = assignments.first { $0.displayId == displayId }
+            let screen = screens[displayId]
+            let stale = want == nil
+                || screen == nil
+                || want!.panelDeviceId != entry.deviceId
+                || entry.window.frame != screen!.frame
+            if stale {
+                entry.window.orderOut(nil)
+                entry.window.close()
+                kiosks.removeValue(forKey: displayId)
+                FileHandle.standardError.write("[overlay-helper] kiosk closed display=\(displayId)\n".data(using: .utf8)!)
+            }
+        }
+
+        for a in assignments where kiosks[a.displayId] == nil {
+            guard let screen = screens[a.displayId] else {
+                FileHandle.standardError.write("[overlay-helper] kiosk display=\(a.displayId) not attached; skipping\n".data(using: .utf8)!)
+                continue
+            }
+            let win = makeKioskWindow(for: screen, deviceId: a.panelDeviceId)
+            kiosks[a.displayId] = (win, a.panelDeviceId)
+            FileHandle.standardError.write("[overlay-helper] kiosk opened display=\(a.displayId) device=\(a.panelDeviceId)\n".data(using: .utf8)!)
+        }
+    }
+
+    // MARK: stable display ids
+    //
+    // MUST mirror MacDisplayBrightnessProvider.BuildStableId exactly — the
+    // assignment key is produced there: "mac-{vendor:x4}-{model:x4}-{serial:x8}",
+    // fallback "display-{index+1}" when all three are zero, "-{index+1}"
+    // suffix on duplicates, index = CGGetOnlineDisplayList order.
+    private func stableIdsByCGDisplay() -> [CGDirectDisplayID: String] {
+        var ids = [CGDirectDisplayID](repeating: 0, count: 32)
+        var count: UInt32 = 0
+        guard CGGetOnlineDisplayList(UInt32(ids.count), &ids, &count) == .success else { return [:] }
+        var seen = Set<String>()
+        var result: [CGDirectDisplayID: String] = [:]
+        for index in 0..<Int(count) {
+            let display = ids[index]
+            let vendor = CGDisplayVendorNumber(display)
+            let model = CGDisplayModelNumber(display)
+            let serial = CGDisplaySerialNumber(display)
+            var id: String
+            if vendor != 0 || model != 0 || serial != 0 {
+                id = String(format: "mac-%04x-%04x-%08x", vendor, model, serial)
+            } else {
+                id = "display-\(index + 1)"
+            }
+            if !seen.insert(id).inserted {
+                id = "\(id)-\(index + 1)"
+            }
+            result[display] = id
+        }
+        return result
+    }
+
+    private func screensByStableId() -> [String: NSScreen] {
+        let stable = stableIdsByCGDisplay()
+        var result: [String: NSScreen] = [:]
+        for screen in NSScreen.screens {
+            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber
+            else { continue }
+            if let id = stable[CGDirectDisplayID(number.uint32Value)] {
+                result[id] = screen
+            }
+        }
+        return result
+    }
+
+    // MARK: window creation
+
+    private func makeKioskWindow(for screen: NSScreen, deviceId: String) -> NSWindow {
+        let frame = screen.frame
+        // Non-activating panel for the same reason as the widget overlay:
+        // the kiosk must take clicks without ever stealing key/main status
+        // from the user's apps (Windows parity: WS_EX_NOACTIVATE).
+        let win = OverlayPanel(
+            contentRect: frame,
+            styleMask: [.borderless, .nonactivatingPanel],
+            backing: .buffered,
+            defer: false,
+            screen: screen)
+        win.becomesKeyOnlyIfNeeded = true
+        win.hidesOnDeactivate = false
+        win.worksWhenModal = true
+        win.isOpaque = true
+        win.backgroundColor = .black
+        win.hasShadow = false
+        win.ignoresMouseEvents = false
+        win.collectionBehavior = [
+            .canJoinAllSpaces,
+            .stationary,
+            .ignoresCycle,
+            .fullScreenAuxiliary,
+        ]
+        // Above the menu bar / app windows: a promoted monitor is owned by
+        // the panel the way the Windows kiosk owns its monitor.
+        win.level = .statusBar
+
+        let cfg = WKWebViewConfiguration()
+        let webView = KioskWebView(
+            frame: NSRect(origin: .zero, size: frame.size),
+            configuration: cfg)
+        webView.autoresizingMask = [.width, .height]
+        webView.navigationDelegate = webViewDelegate
+        if #available(macOS 13.3, *) {
+            webView.isInspectable = true
+        } else {
+            webView.setValue(true, forKey: "_developerExtrasEnabled")
+        }
+        win.contentView = webView
+        win.setFrame(frame, display: true)
+        win.orderFrontRegardless()
+
+        if let url = panelURL(deviceId: deviceId) {
+            webView.load(URLRequest(url: url))
+        }
+        return win
+    }
+
+    private func panelURL(deviceId: String) -> URL? {
+        var c = URLComponents()
+        c.scheme = "http"
+        c.host = "localhost"
+        c.port = opts.port
+        c.path = "/panel/\(deviceId)"
+        c.queryItems = [URLQueryItem(name: "token", value: opts.token)]
+        return c.url
+    }
+}
+
 // MARK: - App delegate (Accessory app, no Dock icon)
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     let opts: Options
     var controller: OverlayController?
+    var kiosk: KioskController?
 
     init(_ opts: Options) { self.opts = opts }
 
@@ -530,13 +776,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         c.start()
         controller = c
 
-        // Die when our parent (nexus-service) goes away. NSPipe-based
-        // EOF detection keeps the helper from leaking after a service crash
-        // that doesn't close its child cleanly. Mirrors how /Users see
-        // launchd reap a parent process.
-        let stdin = FileHandle.standardInput
-        DispatchQueue.global(qos: .background).async {
-            let _ = stdin.readDataToEndOfFile()
+        let k = KioskController(opts)
+        k.start()
+        kiosk = k
+
+        // Stdin doubles as lifecycle + push channel: the service writes one
+        // command per line ("assignments-changed" -> kiosk reconcile), and
+        // EOF means the parent (nexus-service) is gone, so terminate. The
+        // EOF half keeps the helper from leaking after a service crash that
+        // doesn't close its child cleanly.
+        DispatchQueue.global(qos: .background).async { [weak self] in
+            while let line = readLine(strippingNewline: true) {
+                if line == "assignments-changed" {
+                    DispatchQueue.main.async { self?.kiosk?.refresh() }
+                }
+            }
             DispatchQueue.main.async { NSApplication.shared.terminate(nil) }
         }
     }
