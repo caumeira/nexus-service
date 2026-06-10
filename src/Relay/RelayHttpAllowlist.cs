@@ -41,8 +41,8 @@ public static class RelayHttpAllowlist
         "/media",
         // Gallery READ surface only (/gallery/items, …/{id}/file, …/{id}/thumbnail).
         // Never widen to "/gallery": the trusted-relay dispatch lane bypasses the
-        // AllowPanel tier, so a blanket prefix would expose /gallery/browse (host
-        // filesystem) and source mutations to relayed phone sessions.
+        // AllowPanel tier, so a blanket prefix would expose /gallery/pick (opens a
+        // dialog on the host) and source mutations to relayed phone sessions.
         "/gallery/items",
         "/y70",
         "/qseries",

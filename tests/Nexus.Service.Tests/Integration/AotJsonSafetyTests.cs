@@ -95,7 +95,7 @@ public class AotJsonSafetyTests
         new object[] { typeof(Nexus.Service.Models.Gallery.GallerySourcesResponse) },
         new object[] { typeof(Nexus.Service.Models.Gallery.GallerySourceMutationResponse) },
         new object[] { typeof(Nexus.Service.Models.Gallery.GalleryItemsResponse) },
-        new object[] { typeof(Nexus.Service.Models.Gallery.GalleryBrowseResponse) },
+        new object[] { typeof(Nexus.Service.Models.Gallery.GalleryPickResponse) },
         new object[] { typeof(Nexus.Service.Models.Gallery.GallerySourcesFile) },
         new object[] { typeof(Nexus.Service.Models.Panel.GalleryChangedFrame) },
     };

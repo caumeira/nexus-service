@@ -28,6 +28,15 @@ public sealed class GalleryLibrary
 
     private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif" };
 
+    // Folder sources scan recursively; depth-bounded so a junction/symlink
+    // cycle can't spin, inaccessible subtrees are skipped silently.
+    private static readonly EnumerationOptions FolderScanOptions = new()
+    {
+        RecurseSubdirectories = true,
+        IgnoreInaccessible = true,
+        MaxRecursionDepth = 8,
+    };
+
     private static readonly StringComparison PathComparison =
         RuntimeInformation.IsOSPlatform(OSPlatform.Windows)
             ? StringComparison.OrdinalIgnoreCase
@@ -208,27 +217,33 @@ public sealed class GalleryLibrary
         {
             if (source.Kind == GallerySourceKinds.Folder)
             {
-                string[] files;
+                // Recursive: users point at e.g. a Pictures root whose images
+                // live in subfolders. The cap applies before the sort, so an
+                // over-cap tree yields an arbitrary-but-stable subset.
+                List<string> files;
                 try
                 {
-                    files = Directory.GetFiles(source.Path);
+                    files = Directory.EnumerateFiles(source.Path, "*", FolderScanOptions)
+                        .Where(IsImageFile)
+                        .Take(MaxItemsPerFolder)
+                        .OrderBy(p => p, StringComparer.OrdinalIgnoreCase)
+                        .ToList();
                 }
                 catch
                 {
                     continue;
                 }
 
-                foreach (var file in files
-                    .Where(IsImageFile)
-                    .OrderBy(Path.GetFileName, StringComparer.OrdinalIgnoreCase)
-                    .Take(MaxItemsPerFolder))
+                foreach (var file in files)
                 {
-                    AddItem(file, source.Id);
+                    AddItem(file, source.Id, name: null);
                 }
             }
             else if (File.Exists(source.Path) && IsImageFile(source.Path))
             {
-                AddItem(source.Path, source.Id);
+                // Uploads store under an internal id-based filename; the
+                // user-facing name is the source's original name.
+                AddItem(source.Path, source.Id, source.Name);
             }
         }
 
@@ -248,13 +263,18 @@ public sealed class GalleryLibrary
 
         return items;
 
-        void AddItem(string file, string sourceId)
+        void AddItem(string file, string sourceId, string? name)
         {
             var full = Path.GetFullPath(file);
             var id = ItemIdForPath(full);
             if (paths.TryAdd(id, full))
             {
-                items.Add(new GalleryItem { Id = id, Name = Path.GetFileName(full), SourceId = sourceId });
+                items.Add(new GalleryItem
+                {
+                    Id = id,
+                    Name = string.IsNullOrEmpty(name) ? Path.GetFileName(full) : name,
+                    SourceId = sourceId,
+                });
             }
         }
     }

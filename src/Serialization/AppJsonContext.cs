@@ -264,9 +264,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryItem))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Gallery.GalleryItem>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryItemsResponse))]
-[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryBrowseEntry))]
-[JsonSerializable(typeof(List<Nexus.Service.Models.Gallery.GalleryBrowseEntry>))]
-[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryBrowseResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryPickBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryPickResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.GalleryChangedFrame))]
 
 // Lighting
@@ -574,6 +573,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutOneResult))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutIconResult))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutBoolResult))]
+// Native file/folder picker (IFileOpenDialog runs in the user-session helper)
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.FileDialogRequest))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.FileDialogResult))]
 #endif
 
 // Apps - manifest + listings (nexus.app/1 schema, sandboxed widget.mjs runtime)

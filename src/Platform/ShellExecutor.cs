@@ -122,6 +122,9 @@ public static class ShellExecutor
             cts.CancelAfter(timeoutMs);
             try
             {
+                // Drain stderr concurrently — a chatty child (GTK warnings from
+                // zenity) fills the 64KB pipe and blocks otherwise.
+                _ = proc.StandardError.ReadToEndAsync(cts.Token);
                 var stdout = await proc.StandardOutput.ReadToEndAsync(cts.Token).ConfigureAwait(false);
                 await proc.WaitForExitAsync(cts.Token).ConfigureAwait(false);
                 return stdout;

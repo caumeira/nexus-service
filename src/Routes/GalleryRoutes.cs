@@ -13,14 +13,11 @@ namespace Nexus.Service.Routes;
 /// <summary>
 /// Gallery widget backend: per-system shared image sources (referenced
 /// files/folders + uploads). Item reads are panel-accessible; source
-/// management and filesystem browsing are desktop-tier only — browse in
-/// particular exposes the host filesystem and must never be reachable from
-/// a paired panel session.
+/// management and the native file-picker dialog are desktop-tier only and
+/// must never be reachable from a paired panel session.
 /// </summary>
 public static class GalleryRoutes
 {
-    private const int MaxBrowseEntries = 1000;
-
     public static void MapGalleryEndpoints(this WebApplication app)
     {
         app.MapGet("/gallery/sources", (GalleryLibrary lib) =>
@@ -79,7 +76,12 @@ public static class GalleryRoutes
             return thumb is null ? Results.NotFound() : Results.File(thumb, "image/jpeg");
         }).AllowPanel();
 
-        app.MapGet("/gallery/browse", (string? path) => Browse(path));
+        // Native OS file/folder picker on the host PC. Desktop-tier only and
+        // deliberately NOT relayed — the dialog opens on the host's screen.
+        // RequestAborted flows in so closing the page abandons the wait (and
+        // kills the dialog child process on macOS/Linux).
+        app.MapPost("/gallery/pick", async (GalleryPickBody body, IGalleryDialogPicker picker, HttpContext ctx) =>
+            await picker.PickAsync(body.Folder, ctx.RequestAborted));
 
         app.MapPost("/gallery/import", async (HttpContext ctx, GalleryLibrary lib, MultiplexHub hub) =>
         {
@@ -130,160 +132,6 @@ public static class GalleryRoutes
             }
         }).DisableAntiforgery();
     }
-
-    private static GalleryBrowseResponse Browse(string? requested)
-    {
-        if (string.IsNullOrWhiteSpace(requested))
-        {
-            return BrowseRoots();
-        }
-
-        if (!Path.IsPathFullyQualified(requested))
-        {
-            return BrowseFail("path must be absolute");
-        }
-
-        string full;
-        try
-        {
-            full = Path.GetFullPath(requested);
-        }
-        catch
-        {
-            return BrowseFail("invalid path");
-        }
-
-        if (!Directory.Exists(full))
-        {
-            return BrowseFail("folder not found");
-        }
-
-        var response = new GalleryBrowseResponse
-        {
-            Path = full,
-            Parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(full)),
-        };
-
-        try
-        {
-            var dirs = new List<GalleryBrowseEntry>();
-            foreach (var dir in Directory.GetDirectories(full))
-            {
-                if (IsHidden(dir))
-                {
-                    continue;
-                }
-
-                dirs.Add(new GalleryBrowseEntry { Name = Path.GetFileName(dir), Path = dir });
-                if (dirs.Count >= MaxBrowseEntries)
-                {
-                    break;
-                }
-            }
-
-            dirs.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            response.Dirs = dirs;
-
-            var files = new List<GalleryBrowseEntry>();
-            foreach (var file in Directory.GetFiles(full))
-            {
-                if (!GalleryLibrary.IsImageFile(file) || IsHidden(file))
-                {
-                    continue;
-                }
-
-                files.Add(new GalleryBrowseEntry { Name = Path.GetFileName(file), Path = file });
-                if (files.Count >= MaxBrowseEntries - dirs.Count)
-                {
-                    break;
-                }
-            }
-
-            files.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
-            response.Files = files;
-        }
-        catch (UnauthorizedAccessException)
-        {
-            return BrowseFail("access denied");
-        }
-        catch (Exception ex)
-        {
-            return BrowseFail(ex.Message);
-        }
-
-        return response;
-    }
-
-    private static GalleryBrowseResponse BrowseRoots()
-    {
-        var response = new GalleryBrowseResponse { Path = "" };
-
-        if (OperatingSystem.IsWindows())
-        {
-            foreach (var drive in DriveInfo.GetDrives())
-            {
-                try
-                {
-                    if (!drive.IsReady)
-                    {
-                        continue;
-                    }
-                }
-                catch
-                {
-                    continue;
-                }
-
-                response.Dirs.Add(new GalleryBrowseEntry
-                {
-                    Name = drive.Name.TrimEnd(Path.DirectorySeparatorChar),
-                    Path = drive.RootDirectory.FullName,
-                });
-            }
-
-            return response;
-        }
-
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (Directory.Exists(home))
-        {
-            response.Dirs.Add(new GalleryBrowseEntry { Name = Path.GetFileName(home), Path = home });
-        }
-
-        var mountRoots = OperatingSystem.IsMacOS()
-            ? new[] { "/Volumes" }
-            : new[] { "/media", "/mnt" };
-        foreach (var root in mountRoots)
-        {
-            if (Directory.Exists(root))
-            {
-                response.Dirs.Add(new GalleryBrowseEntry { Name = root.TrimStart('/'), Path = root });
-            }
-        }
-
-        return response;
-    }
-
-    private static bool IsHidden(string path)
-    {
-        var name = Path.GetFileName(path);
-        if (name.StartsWith('.'))
-        {
-            return true;
-        }
-
-        try
-        {
-            return (File.GetAttributes(path) & (FileAttributes.Hidden | FileAttributes.System)) != 0;
-        }
-        catch
-        {
-            return true;
-        }
-    }
-
-    private static GalleryBrowseResponse BrowseFail(string msg) =>
-        new() { Error = true, Msg = msg };
 
     private static string ContentTypeFor(string path) =>
         Path.GetExtension(path).ToLowerInvariant() switch

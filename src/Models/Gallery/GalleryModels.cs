@@ -55,18 +55,15 @@ public sealed class GalleryItemsResponse
     public List<GalleryItem> Items { get; set; } = new();
 }
 
-public sealed class GalleryBrowseEntry
+public sealed class GalleryPickBody
 {
-    public string Name { get; set; } = "";
-    public string Path { get; set; } = "";
+    public bool Folder { get; set; }
 }
 
-public sealed class GalleryBrowseResponse
+public sealed class GalleryPickResponse
 {
-    public string Path { get; set; } = "";
-    public string? Parent { get; set; }
-    public List<GalleryBrowseEntry> Dirs { get; set; } = new();
-    public List<GalleryBrowseEntry> Files { get; set; } = new();
+    public List<string> Paths { get; set; } = new();
+    public bool Cancelled { get; set; }
     public bool Error { get; set; }
     public string Msg { get; set; } = "";
 }

@@ -741,6 +741,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<ProfileManager>();
         services.AddSingleton<Nexus.Service.Media.MediaLibrary>();
         services.AddSingleton<Nexus.Service.Gallery.GalleryLibrary>();
+        services.AddSingleton<Nexus.Service.Gallery.IGalleryDialogPicker, Nexus.Service.Gallery.GalleryDialogPicker>();
         return services;
     }
 

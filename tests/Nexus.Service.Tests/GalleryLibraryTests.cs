@@ -131,7 +131,7 @@ public sealed class GalleryLibraryTests : IDisposable
     // ── Enumeration ──────────────────────────────────────────────────────────
 
     [Fact]
-    public void EnumerateItems_FiltersAndSortsFolderContents()
+    public void EnumerateItems_ScansFoldersRecursively()
     {
         WriteImage("zebra.png");
         WriteImage("apple.jpg");
@@ -144,8 +144,9 @@ public sealed class GalleryLibraryTests : IDisposable
 
         var items = lib.EnumerateItems();
 
-        // Non-recursive, images only, name-sorted.
-        Assert.Equal(new[] { "apple.jpg", "zebra.png" }, items.Select(i => i.Name).ToArray());
+        // Recursive (users point at a Pictures root whose images live in
+        // subfolders), images only, path-sorted.
+        Assert.Equal(new[] { "apple.jpg", "deep.png", "zebra.png" }, items.Select(i => i.Name).ToArray());
     }
 
     [Fact]
@@ -230,7 +231,9 @@ public sealed class GalleryLibraryTests : IDisposable
         Assert.True(File.Exists(result.Source.Path));
         Assert.StartsWith(lib.UploadsDir, result.Source.Path);
         Assert.False(File.Exists(temp));
-        Assert.Single(lib.EnumerateItems());
+        var item = Assert.Single(lib.EnumerateItems());
+        // The library shows the original name, not the internal storage name.
+        Assert.Equal("Vacation Photo.png", item.Name);
     }
 
     [Fact]

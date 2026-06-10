@@ -17,8 +17,8 @@ namespace Nexus.Service.Tests.Integration;
 
 /// <summary>
 /// Gallery routes through the real pipeline: source CRUD + items/file reads,
-/// browse validation, upload import round-trip, and — critically — the auth
-/// tiers: item reads are panel-reachable, while browse and source mutations
+/// the stubbed native-picker route, upload import round-trip, and — critically
+/// — the auth tiers: item reads are panel-reachable, while pick and source mutations
 /// (host-filesystem surface) must reject a paired panel session.
 /// </summary>
 [Collection("NexusHost")]
@@ -57,7 +57,19 @@ public sealed class GalleryRoutesTests : IDisposable
             {
                 services.RemoveAll<GalleryLibrary>();
                 services.AddSingleton(new GalleryLibrary(galleryRoot));
+                // The real picker opens an OS dialog; tests stub it and only
+                // exercise the route plumbing + auth tier.
+                services.RemoveAll<IGalleryDialogPicker>();
+                services.AddSingleton<IGalleryDialogPicker>(new StubPicker());
             }));
+    }
+
+    private sealed class StubPicker : IGalleryDialogPicker
+    {
+        public static readonly List<string> StubPaths = new() { "/stub/a.png", "/stub/b.png" };
+
+        public Task<GalleryPickResponse> PickAsync(bool folder, CancellationToken ct) =>
+            Task.FromResult(new GalleryPickResponse { Paths = StubPaths });
     }
 
     public void Dispose()
@@ -158,49 +170,17 @@ public sealed class GalleryRoutesTests : IDisposable
         Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
     }
 
-    // ── Browse ───────────────────────────────────────────────────────────────
+    // ── Native picker route ──────────────────────────────────────────────────
 
     [Fact]
-    public async Task Browse_ListsDirsAndImageFiles()
+    public async Task Pick_ReturnsStubbedPaths_ForDesktopClient()
     {
-        WriteImage("a.png");
-        File.WriteAllText(Path.Combine(_photosDir, "skip.txt"), "x");
-        Directory.CreateDirectory(Path.Combine(_photosDir, "sub"));
+        var res = await DesktopClient().PostAsJsonAsync("/gallery/pick", new GalleryPickBody { Folder = false });
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
 
-        var res = await ReadAs(
-            await DesktopClient().GetAsync($"/gallery/browse?path={Uri.EscapeDataString(_photosDir)}"),
-            AppJsonContext.Default.GalleryBrowseResponse);
-
-        Assert.False(res!.Error);
-        Assert.Contains(res.Dirs, d => d.Name == "sub");
-        Assert.Single(res.Files);
-        Assert.Equal("a.png", res.Files[0].Name);
-        Assert.NotNull(res.Parent);
-    }
-
-    [Fact]
-    public async Task Browse_RelativeOrDotDotPath_Fails()
-    {
-        var client = DesktopClient();
-
-        var relative = await ReadAs(await client.GetAsync("/gallery/browse?path=photos"),
-            AppJsonContext.Default.GalleryBrowseResponse);
-        Assert.True(relative!.Error);
-
-        var dotted = await ReadAs(await client.GetAsync("/gallery/browse?path=..%2F..%2Fetc"),
-            AppJsonContext.Default.GalleryBrowseResponse);
-        Assert.True(dotted!.Error);
-    }
-
-    [Fact]
-    public async Task Browse_EmptyPath_ReturnsRoots()
-    {
-        var res = await ReadAs(await DesktopClient().GetAsync("/gallery/browse"),
-            AppJsonContext.Default.GalleryBrowseResponse);
-
-        Assert.False(res!.Error);
-        Assert.NotEmpty(res.Dirs);
-        Assert.Null(res.Parent);
+        var parsed = await ReadAs(res, AppJsonContext.Default.GalleryPickResponse);
+        Assert.False(parsed!.Error);
+        Assert.Equal(StubPicker.StubPaths, parsed.Paths);
     }
 
     // ── Upload import ────────────────────────────────────────────────────────
@@ -280,12 +260,12 @@ public sealed class GalleryRoutesTests : IDisposable
     }
 
     [Fact]
-    public async Task PanelSession_CannotBrowse_OrMutateSources()
+    public async Task PanelSession_CannotPick_OrMutateSources()
     {
         var panel = PanelClient();
 
-        var browse = await panel.GetAsync("/gallery/browse");
-        Assert.Equal(HttpStatusCode.Forbidden, browse.StatusCode);
+        var pick = await panel.PostAsJsonAsync("/gallery/pick", new GalleryPickBody());
+        Assert.Equal(HttpStatusCode.Forbidden, pick.StatusCode);
 
         var add = await panel.PostAsJsonAsync("/gallery/sources",
             new AddGallerySourceBody { Path = _photosDir, Kind = GallerySourceKinds.Folder });
@@ -304,7 +284,7 @@ public sealed class GalleryRoutesTests : IDisposable
         var anon = _factory.CreateClient();
 
         Assert.Equal(HttpStatusCode.Unauthorized, (await anon.GetAsync("/gallery/items")).StatusCode);
-        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.GetAsync("/gallery/browse")).StatusCode);
+        Assert.Equal(HttpStatusCode.Unauthorized, (await anon.PostAsJsonAsync("/gallery/pick", new GalleryPickBody())).StatusCode);
         Assert.Equal(HttpStatusCode.Unauthorized, (await anon.GetAsync("/gallery/sources")).StatusCode);
     }
 }
