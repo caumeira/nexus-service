@@ -15,6 +15,11 @@ public static class PanelTopics
     public const string Lighting = "lighting";
     public const string Cooling = "cooling";
     public const string Volume = "volume";
+    /// <summary>
+    /// Gallery sources changed (reference added/removed, upload). Subscribers
+    /// refetch GET /gallery/items.
+    /// </summary>
+    public const string Gallery = "gallery";
     public const string CoolingWarnings = "cooling/warnings";
     public const string PanelDevice = "panel/device";
     /// <summary>
@@ -70,6 +75,15 @@ public static class PanelTopics
         var frame = new VolumeChangedFrame { Revision = Now() };
         var env = WsEnvelope.Build(Volume, frame, AppJsonContext.Default.VolumeChangedFrame);
         _ = hub.BroadcastTopicAsync(Volume, env);
+    }
+
+    public static void BroadcastGallery(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(Gallery))
+            return;
+        var frame = new GalleryChangedFrame { Revision = Now() };
+        var env = WsEnvelope.Build(Gallery, frame, AppJsonContext.Default.GalleryChangedFrame);
+        _ = hub.BroadcastTopicAsync(Gallery, env);
     }
 
     /// <summary>

@@ -395,6 +395,7 @@ app.MapActivityEndpoints();
 app.MapLifecycleEndpoints();
 app.MapDiagnosticsEndpoints();
 app.MapMediaLibraryEndpoints();
+app.MapGalleryEndpoints();
 app.MapProfileEndpoints();
 app.MapPanelEndpoints();
 app.MapOverlayEndpoints();

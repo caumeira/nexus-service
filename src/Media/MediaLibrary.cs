@@ -29,7 +29,7 @@ public sealed class MediaLibrary
     {
     }
 
-    private static string ResolveDefaultRoot()
+    internal static string ResolveDefaultRoot()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
         {

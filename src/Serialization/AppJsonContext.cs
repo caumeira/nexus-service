@@ -254,6 +254,20 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Media.MediaPlayResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Media.MediaCurrentResponse))]
 
+// Gallery
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GallerySource))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Gallery.GallerySource>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GallerySourcesFile))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GallerySourcesResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.AddGallerySourceBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GallerySourceMutationResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryItem))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Gallery.GalleryItem>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryItemsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryPickBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryPickResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.GalleryChangedFrame))]
+
 // Lighting
 [JsonSerializable(typeof(AudioStateSnapshot))]
 [JsonSerializable(typeof(ShaderSourceResponse))]
@@ -559,6 +573,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutOneResult))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutIconResult))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutBoolResult))]
+// Native file/folder picker (IFileOpenDialog runs in the user-session helper)
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.FileDialogRequest))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.FileDialogResult))]
 #endif
 
 // Apps - manifest + listings (nexus.app/1 schema, sandboxed widget.mjs runtime)
