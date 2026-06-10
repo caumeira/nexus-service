@@ -25,6 +25,7 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
     {
         var results = new List<RawDisplayInfo>();
         var previousContext = TrySetPerMonitorAwareV2();
+        var touchMonitors = EnumerateTouchMonitors();
         try
         {
             bool Cb(IntPtr hMonitor, IntPtr _, IntPtr __, IntPtr ___)
@@ -53,6 +54,7 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
                         Height = info.rcMonitor.Bottom - info.rcMonitor.Top,
                         IsPrimary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0,
                         IsInternal = isInternal,
+                        IsTouch = touchMonitors.Contains(hMonitor),
                         RawHardwareId = WindowsDisplayIdentity.ReadMonitorDeviceId(info.szDevice),
                     };
 
@@ -63,6 +65,7 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
                     {
                         entry.ResolutionWidth = (int)mode.dmPelsWidth;
                         entry.ResolutionHeight = (int)mode.dmPelsHeight;
+                        entry.Orientation = DisplayOrientations.FromDmdo(mode.dmDisplayOrientation);
                     }
                     else
                     {
@@ -94,6 +97,34 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
             RestoreThreadDpiContext(previousContext);
         }
         return results;
+    }
+
+    /// <summary>
+    /// HMONITORs targeted by an integrated touch digitizer, via the Windows
+    /// pointer-device association (GetPointerDevices). Touch pads and pens
+    /// don't count — the gate decides whether touch-requiring panel widgets
+    /// are placeable on a promoted monitor.
+    /// </summary>
+    private static HashSet<IntPtr> EnumerateTouchMonitors()
+    {
+        var touch = new HashSet<IntPtr>();
+        try
+        {
+            uint count = 0;
+            if (!GetPointerDevices(ref count, null) || count == 0) return touch;
+            var devices = new POINTER_DEVICE_INFO[count];
+            if (!GetPointerDevices(ref count, devices)) return touch;
+            for (var i = 0; i < count && i < devices.Length; i++)
+            {
+                if (devices[i].pointerDeviceType == POINTER_DEVICE_TYPE_TOUCH && devices[i].monitor != IntPtr.Zero)
+                    touch.Add(devices[i].monitor);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[displays-win] pointer-device enumeration failed: {ex.Message}");
+        }
+        return touch;
     }
 
     /// <summary>
@@ -185,5 +216,24 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
 
     [DllImport("shcore.dll")]
     private static extern int GetDpiForMonitor(IntPtr hmonitor, int dpiType, out uint dpiX, out uint dpiY);
+
+    private const uint POINTER_DEVICE_TYPE_TOUCH = 0x00000003;
+    private const int POINTER_DEVICE_PRODUCT_STRING_MAX = 520;
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct POINTER_DEVICE_INFO
+    {
+        public uint displayOrientation;
+        public IntPtr device;
+        public uint pointerDeviceType;
+        public IntPtr monitor;
+        public uint startingCursorId;
+        public ushort maxActiveContacts;
+        [MarshalAs(UnmanagedType.ByValTStr, SizeConst = POINTER_DEVICE_PRODUCT_STRING_MAX)]
+        public string productString;
+    }
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool GetPointerDevices(ref uint deviceCount, [Out] POINTER_DEVICE_INFO[]? pointerDevices);
 }
 #endif

@@ -16,6 +16,11 @@ namespace Nexus.Service.Helper.Domains
     public sealed class DisplayOrientationRequest
     {
         public string Orientation { get; set; } = "";
+        /// <summary>
+        /// Stable display id to rotate (promoted-monitor panels). Empty =
+        /// the Y70 path (find the panel by its DDC controller names).
+        /// </summary>
+        public string DisplayId { get; set; } = "";
     }
 
     /// <summary>Helper reply: did the rotation apply, and why not if it did not.</summary>
@@ -35,8 +40,16 @@ namespace Nexus.Service.Helper.Domains
     [SupportedOSPlatform("windows")]
     public static class OrientationCommands
     {
-        public static async Task<DisplayOrientationResult> SetAsync(
+        public static Task<DisplayOrientationResult> SetAsync(
             HelperRegistry r, string orientation, CancellationToken ct = default)
+            => SendAsync(r, new DisplayOrientationRequest { Orientation = orientation }, ct);
+
+        public static Task<DisplayOrientationResult> SetForDisplayAsync(
+            HelperRegistry r, string displayId, string orientation, CancellationToken ct = default)
+            => SendAsync(r, new DisplayOrientationRequest { Orientation = orientation, DisplayId = displayId }, ct);
+
+        private static async Task<DisplayOrientationResult> SendAsync(
+            HelperRegistry r, DisplayOrientationRequest request, CancellationToken ct)
         {
             var conn = r.GetAny();
             if (conn is null)
@@ -45,7 +58,7 @@ namespace Nexus.Service.Helper.Domains
             }
             var res = await conn.SendCommandAsync(
                 "displayOrientation.set",
-                new DisplayOrientationRequest { Orientation = orientation },
+                request,
                 AppJsonContext.Default.DisplayOrientationRequest,
                 timeoutMs: 4000,
                 ct: ct).ConfigureAwait(false);
@@ -91,7 +104,9 @@ namespace Nexus.Service.Helper.Domains
                     }
                     catch { }
                 }
-                var (ok, err) = _provider.SetY70Orientation(req.Orientation);
+                var (ok, err) = string.IsNullOrEmpty(req.DisplayId)
+                    ? _provider.SetY70Orientation(req.Orientation)
+                    : _provider.SetDisplayOrientation(req.DisplayId, req.Orientation);
                 return Reply(env, new DisplayOrientationResult { Ok = ok, Error = err });
             });
         }

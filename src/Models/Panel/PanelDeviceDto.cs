@@ -43,6 +43,13 @@ public sealed class PanelDeviceRecord
     /// </summary>
     public string? DisplayId { get; set; }
     /// <summary>
+    /// Per-panel "keep panel clear of other windows": the overlay evicts
+    /// foreign windows from this panel's monitor while its kiosk is up.
+    /// Display-bound (monitor) records only; null = default (true). The Y70
+    /// kiosk keeps using the global Panel.ReserveMonitor preference.
+    /// </summary>
+    public bool? ReserveMonitor { get; set; }
+    /// <summary>
     /// Route-computed on GET /panel/devices responses for display-bound
     /// records: false when the bound monitor is currently absent, null when
     /// topology is unknown. Never persisted (null on stored records).
@@ -96,6 +103,8 @@ public sealed class PanelDevicePatch
     public bool? WidgetBlur { get; set; }
     public bool? ThemeSyncWithDesktop { get; set; }
     public bool? AccentSyncWithDesktop { get; set; }
+    /// <summary>Display-bound records only; ignored for other panels.</summary>
+    public bool? ReserveMonitor { get; set; }
     public PanelDeviceCapabilities? Capabilities { get; set; }
 }
 

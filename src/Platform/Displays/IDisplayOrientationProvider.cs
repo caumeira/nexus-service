@@ -14,9 +14,19 @@ public interface IDisplayOrientationProvider
     /// <param name="orientation">"Landscape", "Portrait", "LandscapeFlipped", or "PortraitFlipped".</param>
     /// <returns>(ok, error). <c>error</c> is empty on success or when no Y70 is attached.</returns>
     (bool Ok, string Error) SetY70Orientation(string orientation);
+
+    /// <summary>
+    /// Apply the requested orientation to the monitor with the given stable
+    /// display id (GET /displays id space — promoted-monitor panels). Unlike
+    /// the Y70 variant, an absent display IS an error: the caller targeted a
+    /// specific monitor.
+    /// </summary>
+    (bool Ok, string Error) SetDisplayOrientation(string displayId, string orientation);
 }
 
 public sealed class NoopDisplayOrientationProvider : IDisplayOrientationProvider
 {
     public (bool Ok, string Error) SetY70Orientation(string orientation) => (true, "");
+    public (bool Ok, string Error) SetDisplayOrientation(string displayId, string orientation)
+        => (false, "display rotation is not supported on this platform");
 }

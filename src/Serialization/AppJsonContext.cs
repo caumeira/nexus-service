@@ -223,6 +223,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.PanelPromoteBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayAssignmentDto))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayAssignmentsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayRotationBody))]
 
 // Weather
 [JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherSnapshot))]

@@ -87,6 +87,27 @@ public sealed class PanelDeviceRegistry
         return existing is not null ? (existing, false) : (record, true);
     }
 
+    /// <summary>
+    /// Persist the last orientation applied through Nexus on the display's
+    /// record (settings permanence, same model as the Y70's persisted
+    /// orientation). The live OS rotation in /displays/topology stays the
+    /// authoritative read; this survives service restarts and replug.
+    /// </summary>
+    public void UpdateDisplayOrientation(string displayId, string orientation)
+    {
+        if (string.IsNullOrWhiteSpace(displayId)) return;
+        _store.Update(s =>
+        {
+            foreach (var record in s.PanelDevices.Values)
+            {
+                if (!string.Equals(record.DisplayId, displayId, StringComparison.Ordinal)) continue;
+                record.Capabilities ??= new PanelDeviceCapabilities();
+                record.Capabilities.Orientation = orientation;
+                return;
+            }
+        });
+    }
+
     public PanelDeviceRecord? FindByDisplayId(string displayId)
     {
         if (string.IsNullOrWhiteSpace(displayId))
@@ -100,13 +121,13 @@ public sealed class PanelDeviceRegistry
     }
 
     /// <summary>All displayId -> panelDeviceId bindings (kiosk reconcile input).</summary>
-    public IReadOnlyList<(string DisplayId, string PanelDeviceId)> ListAssignments()
+    public IReadOnlyList<(string DisplayId, string PanelDeviceId, bool ReserveMonitor)> ListAssignments()
     {
-        var assignments = new List<(string, string)>();
+        var assignments = new List<(string, string, bool)>();
         foreach (var record in _store.Load().PanelDevices.Values)
         {
             if (!string.IsNullOrEmpty(record.DisplayId))
-                assignments.Add((record.DisplayId, record.Id));
+                assignments.Add((record.DisplayId, record.Id, record.ReserveMonitor ?? true));
         }
         return assignments;
     }
@@ -199,6 +220,10 @@ public sealed class PanelDeviceRegistry
                 record.ThemeSyncWithDesktop = patch.ThemeSyncWithDesktop.Value;
             if (patch.AccentSyncWithDesktop.HasValue)
                 record.AccentSyncWithDesktop = patch.AccentSyncWithDesktop.Value;
+            // Reserve only makes sense for display-bound (promoted monitor)
+            // records; the Y70 kiosk uses the global preference.
+            if (patch.ReserveMonitor.HasValue && !string.IsNullOrEmpty(record.DisplayId))
+                record.ReserveMonitor = patch.ReserveMonitor.Value;
             if (patch.Capabilities is not null)
                 record.Capabilities = patch.Capabilities;
 
@@ -273,6 +298,7 @@ public sealed class PanelDeviceRegistry
             LastSeenAt = r.LastSeenAt,
             Capabilities = r.Capabilities,
             DisplayId = r.DisplayId,
+            ReserveMonitor = r.ReserveMonitor,
         };
     }
 }

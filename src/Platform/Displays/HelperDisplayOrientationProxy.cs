@@ -26,5 +26,11 @@ public sealed class HelperDisplayOrientationProxy : IDisplayOrientationProvider
         var result = OrientationCommands.SetAsync(_registry, orientation).GetAwaiter().GetResult();
         return (result.Ok, result.Error);
     }
+
+    public (bool Ok, string Error) SetDisplayOrientation(string displayId, string orientation)
+    {
+        var result = OrientationCommands.SetForDisplayAsync(_registry, displayId, orientation).GetAwaiter().GetResult();
+        return (result.Ok, result.Error);
+    }
 }
 #endif

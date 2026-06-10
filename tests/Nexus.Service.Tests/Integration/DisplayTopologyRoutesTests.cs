@@ -48,6 +48,8 @@ public sealed class DisplayTopologyRoutesTests
                 ResolutionWidth = 3840, ResolutionHeight = 2160,
                 Scale = 1.5,
                 IsPrimary = true,
+                IsTouch = true,
+                Orientation = "Landscape",
                 RawHardwareId = @"\\?\DISPLAY#DEL41B7#5&abc&0&UID12345#{guid}",
             },
             new RawDisplayInfo
@@ -142,6 +144,8 @@ public sealed class DisplayTopologyRoutesTests
                 Assert.Equal("DEL 41B7", record.GetProperty("displayName").GetString());
                 var caps = record.GetProperty("capabilities");
                 Assert.Equal(PanelSurfaces.Monitor, caps.GetProperty("surface").GetString());
+                // Touch rides the pointer-device association from topology.
+                Assert.True(caps.GetProperty("touch").GetBoolean());
                 Assert.Equal(2560, caps.GetProperty("cssWidth").GetInt32());
                 Assert.Equal(1440, caps.GetProperty("cssHeight").GetInt32());
                 Assert.Equal(1.5, caps.GetProperty("dpr").GetDouble());
@@ -260,6 +264,88 @@ public sealed class DisplayTopologyRoutesTests
         finally
         {
             DisplayTopologyService.HostingSupportedOverrideForTests = null;
+        }
+    }
+
+    [Fact]
+    public async Task Reserve_monitor_patch_flows_into_assignments()
+    {
+        DisplayTopologyService.HostingSupportedOverrideForTests = true;
+        try
+        {
+            var (factory, client) = Boot();
+            using (factory)
+            {
+                var promote = await client.PostAsync($"/displays/{MonitorId}/panel", Json("{}"));
+                using var doc = JsonDocument.Parse(await promote.Content.ReadAsStringAsync());
+                var recordId = doc.RootElement.GetProperty("id").GetString();
+
+                // Default: reserved.
+                using (var assignments = JsonDocument.Parse(await client.GetStringAsync("/displays/assignments")))
+                {
+                    Assert.True(assignments.RootElement.GetProperty("assignments")[0]
+                        .GetProperty("reserveMonitor").GetBoolean());
+                }
+
+                var patch = await client.PostAsync($"/panel/devices/{recordId}",
+                    Json("{\"reserveMonitor\":false}"));
+                Assert.True(patch.IsSuccessStatusCode);
+
+                using (var assignments = JsonDocument.Parse(await client.GetStringAsync("/displays/assignments")))
+                {
+                    Assert.False(assignments.RootElement.GetProperty("assignments")[0]
+                        .GetProperty("reserveMonitor").GetBoolean());
+                }
+            }
+        }
+        finally
+        {
+            DisplayTopologyService.HostingSupportedOverrideForTests = null;
+        }
+    }
+
+    private sealed class FakeOrientationProvider : IDisplayOrientationProvider
+    {
+        public string? LastDisplayId;
+        public string? LastOrientation;
+        public (bool Ok, string Error) SetY70Orientation(string orientation) => (true, "");
+        public (bool Ok, string Error) SetDisplayOrientation(string displayId, string orientation)
+        {
+            LastDisplayId = displayId;
+            LastOrientation = orientation;
+            return (true, "");
+        }
+    }
+
+    [Fact]
+    public async Task Rotation_endpoint_validates_and_dispatches()
+    {
+        var fakeOrientation = new FakeOrientationProvider();
+        var factory = new NexusAppFactory().WithWebHostBuilder(b =>
+            b.ConfigureTestServices(s =>
+            {
+                s.RemoveAll<IDisplayTopologyProvider>();
+                s.AddSingleton<IDisplayTopologyProvider>(_provider);
+                s.RemoveAll<IDisplayOrientationProvider>();
+                s.AddSingleton<IDisplayOrientationProvider>(fakeOrientation);
+            }));
+        using (factory)
+        {
+            var client = factory.CreateClient();
+            client.DefaultRequestHeaders.Authorization =
+                new AuthenticationHeaderValue("Bearer", factory.Services.GetRequiredService<TokenService>().Token);
+
+            Assert.Equal(HttpStatusCode.BadRequest,
+                (await client.PostAsync($"/displays/{MonitorId}/rotation", Json("{\"orientation\":\"Sideways\"}"))).StatusCode);
+
+            var anonymous = factory.CreateClient();
+            Assert.Equal(HttpStatusCode.Unauthorized,
+                (await anonymous.PostAsync($"/displays/{MonitorId}/rotation", Json("{\"orientation\":\"Portrait\"}"))).StatusCode);
+
+            var ok = await client.PostAsync($"/displays/{MonitorId}/rotation", Json("{\"orientation\":\"Portrait\"}"));
+            Assert.True(ok.IsSuccessStatusCode);
+            Assert.Equal(MonitorId, fakeOrientation.LastDisplayId);
+            Assert.Equal("Portrait", fakeOrientation.LastOrientation);
         }
     }
 

@@ -70,6 +70,8 @@ public sealed class DisplayTopologyService
                 Dpi = info.Dpi,
                 IsPrimary = info.IsPrimary,
                 IsInternal = info.IsInternal,
+                IsTouch = info.IsTouch,
+                Orientation = info.Orientation,
                 IsY70 = isY70,
                 HostingSupported = HostingSupportedOnHost && !isY70,
                 AssignedPanelDeviceId = assigned?.Id,

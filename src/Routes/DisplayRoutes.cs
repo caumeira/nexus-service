@@ -57,12 +57,13 @@ public static class DisplayRoutes
             if (!ServiceTokenRequests.HasServiceToken(ctx, tokens))
                 return Results.Unauthorized();
             var response = new DisplayAssignmentsResponse();
-            foreach (var (displayId, panelDeviceId) in registry.ListAssignments())
+            foreach (var (displayId, panelDeviceId, reserveMonitor) in registry.ListAssignments())
             {
                 response.Assignments.Add(new DisplayAssignmentDto
                 {
                     DisplayId = displayId,
                     PanelDeviceId = panelDeviceId,
+                    ReserveMonitor = reserveMonitor,
                 });
             }
             return Results.Json(response, AppJsonContext.Default.DisplayAssignmentsResponse);
@@ -99,7 +100,11 @@ public static class DisplayRoutes
             var capabilities = new PanelDeviceCapabilities
             {
                 Surface = PanelSurfaces.Monitor,
-                Touch = false,
+                // Touch widgets are placeable only when an integrated touch
+                // digitizer targets this monitor (Windows pointer-device
+                // association); plain monitors behave like the Q-series.
+                Touch = display.IsTouch,
+                Orientation = string.IsNullOrEmpty(display.Orientation) ? null : display.Orientation,
                 CssWidth = (int)Math.Round(display.Resolution.Width / scale),
                 CssHeight = (int)Math.Round(display.Resolution.Height / scale),
                 Dpr = scale,
@@ -129,6 +134,37 @@ public static class DisplayRoutes
             PanelTopics.BroadcastPanelDevice(hub, record.Id);
             PanelTopics.BroadcastDisplays(hub);
             return Results.Ok(ApiResponse.Ok("removed"));
+        });
+
+        // Rotate any monitor by stable display id (promoted-panel settings).
+        // Runs through the user-session helper like the Y70 rotation; the
+        // resulting WM_DISPLAYCHANGE re-broadcasts the displays topic.
+        app.MapPost("/displays/{id}/rotation", (
+            string id,
+            DisplayRotationBody body,
+            HttpContext ctx,
+            IDisplayOrientationProvider orientation,
+            PanelDeviceRegistry registry,
+            MultiplexHub hub,
+            TokenService tokens) =>
+        {
+            if (!ServiceTokenRequests.HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+            if (!DisplayOrientations.IsValid(body.Orientation))
+                return Results.BadRequest(ApiResponse.Fail($"unknown orientation '{body.Orientation}'"));
+            var (ok, error) = orientation.SetDisplayOrientation(id, body.Orientation);
+            if (!ok)
+                return Results.BadRequest(ApiResponse.Fail(string.IsNullOrEmpty(error) ? "rotation failed" : error));
+            // Settings permanence: remember the applied orientation on the
+            // bound record (when this display is a panel), same model as the
+            // Y70's persisted orientation.
+            var record = registry.FindByDisplayId(id);
+            if (record is not null)
+            {
+                registry.UpdateDisplayOrientation(id, body.Orientation);
+                PanelTopics.BroadcastPanelDevice(hub, record.Id);
+            }
+            return Results.Ok(ApiResponse.Ok("rotated"));
         });
 
         app.MapGet("/displays/{id}/brightness", (string id, DisplayBrightnessController d) =>

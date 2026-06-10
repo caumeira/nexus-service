@@ -20,16 +20,37 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
 
     public (bool Ok, string Error) SetY70Orientation(string orientation)
     {
-        if (!TryParseOrientation(orientation, out var dmdo))
-        {
-            return (false, $"unknown orientation '{orientation}'");
-        }
         var device = FindY70AdapterDevice();
         if (string.IsNullOrEmpty(device))
         {
             // Not an error: the Y70 simply is not attached. The persisted
             // orientation will be re-applied when it next connects.
             return (true, "");
+        }
+        return ApplyToAdapter(device, orientation);
+    }
+
+    public (bool Ok, string Error) SetDisplayOrientation(string displayId, string orientation)
+    {
+        if (string.IsNullOrEmpty(displayId)) return (false, "missing display id");
+        foreach (var adapterName in EnumerateMonitorAdapters())
+        {
+            var (id, _, _, _, _) = WindowsDisplayIdentity.ResolveIdentity(adapterName);
+            if (string.Equals(id, displayId, StringComparison.Ordinal))
+            {
+                return ApplyToAdapter(adapterName, orientation);
+            }
+        }
+        // Unlike the Y70 path, the caller targeted a specific monitor.
+        return (false, "display not found");
+    }
+
+    /// <summary>Shared ChangeDisplaySettingsEx core for both rotation paths.</summary>
+    private static (bool Ok, string Error) ApplyToAdapter(string device, string orientation)
+    {
+        if (!TryParseOrientation(orientation, out var dmdo))
+        {
+            return (false, $"unknown orientation '{orientation}'");
         }
 
         var devMode = new DEVMODE { dmSize = (ushort)Marshal.SizeOf<DEVMODE>() };

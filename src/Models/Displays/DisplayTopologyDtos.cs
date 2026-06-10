@@ -33,6 +33,10 @@ public sealed class RawDisplayInfo
     public double? Dpi { get; set; }
     public bool IsPrimary { get; set; }
     public bool IsInternal { get; set; }
+    /// <summary>An integrated touch digitizer targets this monitor (Windows pointer-device association).</summary>
+    public bool IsTouch { get; set; }
+    /// <summary>"Landscape" | "Portrait" | "LandscapeFlipped" | "PortraitFlipped"; "" when unknown.</summary>
+    public string Orientation { get; set; } = "";
     /// <summary>
     /// Un-sanitized PnP/EDID hardware id (e.g. \\?\DISPLAY#RTK0004#...) used
     /// for Y70 controller-name matching. Never sent to clients.
@@ -69,6 +73,10 @@ public sealed class DisplayTopologyEntryDto
     public double? Dpi { get; set; }
     public bool IsPrimary { get; set; }
     public bool IsInternal { get; set; }
+    /// <summary>An integrated touch digitizer targets this monitor.</summary>
+    public bool IsTouch { get; set; }
+    /// <summary>Current OS rotation; "" when unknown.</summary>
+    public string Orientation { get; set; } = "";
     /// <summary>The Y70 panel's own monitor: auto-managed, never promotable here.</summary>
     public bool IsY70 { get; set; }
     /// <summary>Whether this display can host a Nexus panel kiosk.</summary>
@@ -109,6 +117,15 @@ public sealed class DisplayAssignmentDto
 {
     public string DisplayId { get; set; } = "";
     public string PanelDeviceId { get; set; } = "";
+    /// <summary>Per-panel "keep panel clear of other windows" (record setting; default true).</summary>
+    public bool ReserveMonitor { get; set; } = true;
+}
+
+/// <summary>Body for POST /displays/{id}/rotation.</summary>
+public sealed class DisplayRotationBody
+{
+    /// <summary>"Landscape" | "Portrait" | "LandscapeFlipped" | "PortraitFlipped".</summary>
+    public string Orientation { get; set; } = "";
 }
 
 /// <summary>GET /displays/assignments — the overlay's kiosk reconcile input.</summary>
