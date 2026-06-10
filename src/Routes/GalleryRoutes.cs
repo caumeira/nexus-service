@@ -64,17 +64,29 @@ public static class GalleryRoutes
             return Results.File(path, ContentTypeFor(path));
         }).AllowPanel();
 
-        app.MapGet("/gallery/items/{id}/thumbnail", async (string id, GalleryLibrary lib) =>
+        // Hide a folder item / clear a source's exclusion list. References
+        // only — nothing on disk is ever touched.
+        app.MapPost("/gallery/sources/{id}/exclude", (string id, GalleryExcludeBody body, GalleryLibrary lib, MultiplexHub hub) =>
         {
-            var path = MediaLibrary.IsValidId(id) ? lib.ResolveItemPath(id) : null;
-            if (path is null)
+            if (!MediaLibrary.IsValidId(id) || !lib.ExcludeItem(id, body.ItemId))
             {
                 return Results.NotFound();
             }
 
-            var thumb = await GalleryThumbnails.GetOrCreateAsync(lib, id, path);
-            return thumb is null ? Results.NotFound() : Results.File(thumb, "image/jpeg");
-        }).AllowPanel();
+            PanelTopics.BroadcastGallery(hub);
+            return Results.Ok(new GallerySourceMutationResponse());
+        });
+
+        app.MapPost("/gallery/sources/{id}/restore", (string id, GalleryLibrary lib, MultiplexHub hub) =>
+        {
+            if (!MediaLibrary.IsValidId(id) || !lib.RestoreExclusions(id))
+            {
+                return Results.NotFound();
+            }
+
+            PanelTopics.BroadcastGallery(hub);
+            return Results.Ok(new GallerySourceMutationResponse());
+        });
 
         // Native OS file/folder picker on the host PC. Desktop-tier only and
         // deliberately NOT relayed — the dialog opens on the host's screen.
@@ -82,55 +94,6 @@ public static class GalleryRoutes
         // kills the dialog child process on macOS/Linux).
         app.MapPost("/gallery/pick", async (GalleryPickBody body, IGalleryDialogPicker picker, HttpContext ctx) =>
             await picker.PickAsync(body.Folder, ctx.RequestAborted));
-
-        app.MapPost("/gallery/import", async (HttpContext ctx, GalleryLibrary lib, MultiplexHub hub) =>
-        {
-            if (!ctx.Request.HasFormContentType)
-            {
-                return Results.BadRequest(new GallerySourceMutationResponse { Error = true, Msg = "Expected multipart/form-data" });
-            }
-
-            var form = await ctx.Request.ReadFormAsync();
-            var file = form.Files.FirstOrDefault();
-            if (file is null || file.Length == 0)
-            {
-                return Results.BadRequest(new GallerySourceMutationResponse { Error = true, Msg = "No file provided" });
-            }
-
-            if (file.Length > GalleryLibrary.MaxUploadSize)
-            {
-                return Results.BadRequest(new GallerySourceMutationResponse { Error = true, Msg = $"File too large (max {GalleryLibrary.MaxUploadSize / 1024 / 1024} MB)" });
-            }
-
-            if (!GalleryLibrary.IsImageFile(file.FileName))
-            {
-                return Results.BadRequest(new GallerySourceMutationResponse { Error = true, Msg = "Unsupported image format" });
-            }
-
-            var tempPath = Path.Combine(Path.GetTempPath(), $"nexus-gallery-{Guid.NewGuid()}{Path.GetExtension(file.FileName)}");
-            try
-            {
-                using (var stream = File.Create(tempPath))
-                {
-                    await file.CopyToAsync(stream);
-                }
-
-                var result = lib.AddUpload(tempPath, file.FileName);
-                if (result.Error)
-                {
-                    return Results.BadRequest(result);
-                }
-
-                PanelTopics.BroadcastGallery(hub);
-                return Results.Ok(result);
-            }
-            finally
-            {
-                try
-                { File.Delete(tempPath); }
-                catch { }
-            }
-        }).DisableAntiforgery();
     }
 
     private static string ContentTypeFor(string path) =>

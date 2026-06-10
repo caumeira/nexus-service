@@ -214,39 +214,82 @@ public sealed class GalleryLibraryTests : IDisposable
         Assert.Equal(Path.GetFullPath(path), cold.ResolveItemPath(id));
     }
 
-    // ── Uploads ──────────────────────────────────────────────────────────────
+    // ── Auto kind (drag-n-drop sends bare paths) ─────────────────────────────
 
     [Fact]
-    public void AddUpload_MovesFileIntoUploadsAndRegisters()
+    public void AddReference_AutoKind_ResolvesFileAndFolder()
     {
-        var temp = Path.Combine(_tempDir, "upload-staging.png");
-        File.WriteAllBytes(temp, new byte[] { 9, 9, 9 });
-
         var lib = NewLibrary();
-        var result = lib.AddUpload(temp, "Vacation Photo.png");
 
-        Assert.False(result.Error);
-        Assert.Equal(GallerySourceKinds.Upload, result.Source!.Kind);
-        Assert.Equal("Vacation Photo.png", result.Source.Name);
-        Assert.True(File.Exists(result.Source.Path));
-        Assert.StartsWith(lib.UploadsDir, result.Source.Path);
-        Assert.False(File.Exists(temp));
-        var item = Assert.Single(lib.EnumerateItems());
-        // The library shows the original name, not the internal storage name.
-        Assert.Equal("Vacation Photo.png", item.Name);
+        var file = lib.AddReference(WriteImage("a.png"), GallerySourceKinds.Auto);
+        Assert.Equal(GallerySourceKinds.File, file.Source!.Kind);
+
+        var folder = lib.AddReference(_photosDir, GallerySourceKinds.Auto);
+        Assert.Equal(GallerySourceKinds.Folder, folder.Source!.Kind);
+    }
+
+    // ── Exclusions ───────────────────────────────────────────────────────────
+
+    [Fact]
+    public void ExcludeItem_HidesFolderItem_WithoutTouchingDisk()
+    {
+        var path = WriteImage("a.png");
+        WriteImage("b.png");
+        var lib = NewLibrary();
+        var source = lib.AddReference(_photosDir, GallerySourceKinds.Folder).Source!;
+        var hidden = lib.EnumerateItems().First(i => i.Name == "a.png");
+
+        Assert.True(lib.ExcludeItem(source.Id, hidden.Id));
+
+        Assert.Equal(new[] { "b.png" }, lib.EnumerateItems().Select(i => i.Name).ToArray());
+        Assert.True(File.Exists(path));
+        // The hidden id no longer resolves for file serving either.
+        Assert.Null(lib.ResolveItemPath(hidden.Id));
+        // Exclusion is visible on the source for the UI badge.
+        Assert.Single(lib.ListSources().Single().Excluded);
     }
 
     [Fact]
-    public void RemoveSource_DeletesUploadFile()
+    public void RestoreExclusions_BringsEverythingBack()
     {
-        var temp = Path.Combine(_tempDir, "upload-staging.png");
-        File.WriteAllBytes(temp, new byte[] { 9 });
+        WriteImage("a.png");
+        WriteImage("b.png");
         var lib = NewLibrary();
-        var source = lib.AddUpload(temp, "a.png").Source!;
+        var source = lib.AddReference(_photosDir, GallerySourceKinds.Folder).Source!;
+        lib.ExcludeItem(source.Id, lib.EnumerateItems()[0].Id);
 
-        Assert.True(lib.RemoveSource(source.Id));
-        Assert.False(File.Exists(source.Path));
-        Assert.Empty(lib.ListSources());
+        Assert.True(lib.RestoreExclusions(source.Id));
+
+        Assert.Equal(2, lib.EnumerateItems().Count);
+        Assert.Empty(lib.ListSources().Single().Excluded);
+    }
+
+    [Fact]
+    public void Exclusions_PersistAcrossInstances()
+    {
+        WriteImage("a.png");
+        WriteImage("b.png");
+        var lib = NewLibrary();
+        var source = lib.AddReference(_photosDir, GallerySourceKinds.Folder).Source!;
+        lib.ExcludeItem(source.Id, lib.EnumerateItems()[0].Id);
+
+        var reloaded = NewLibrary();
+
+        Assert.Single(reloaded.EnumerateItems());
+        Assert.Single(reloaded.ListSources().Single().Excluded);
+    }
+
+    [Fact]
+    public void LegacyUploadKind_MigratesToFileReference()
+    {
+        var path = WriteImage("a.png");
+        Directory.CreateDirectory(_rootDir);
+        File.WriteAllText(Path.Combine(_rootDir, "sources.json"),
+            $$"""{"sources":[{"id":"legacy1","kind":"upload","path":{{System.Text.Json.JsonSerializer.Serialize(path)}},"name":"a.png","addedAtUnixMs":1}]}""");
+
+        var sources = NewLibrary().ListSources();
+
+        Assert.Equal(GallerySourceKinds.File, Assert.Single(sources).Kind);
     }
 
     [Fact]

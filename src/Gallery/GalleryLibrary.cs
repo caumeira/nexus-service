@@ -24,7 +24,6 @@ public sealed class GalleryLibrary
 {
     private const string SourcesFileName = "sources.json";
     public const int MaxItemsPerFolder = 500;
-    public const long MaxUploadSize = 50 * 1024 * 1024;
 
     private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif" };
 
@@ -63,8 +62,6 @@ public sealed class GalleryLibrary
     }
 
     public string RootDir { get; }
-    public string ThumbsDir => Path.Combine(RootDir, "thumbs");
-    public string UploadsDir => Path.Combine(RootDir, "uploads");
 
     public static bool IsImageFile(string path)
     {
@@ -91,14 +88,27 @@ public sealed class GalleryLibrary
     {
         lock (_lock)
         {
-            return new List<GallerySource>(LoadSources());
+            // Deep-ish copy: Excluded is the one field mutated in place on
+            // cached sources (ExcludeItem/RestoreExclusions under this lock);
+            // callers serialize outside it, so they must not alias the list.
+            return LoadSources().Select(CloneSource).ToList();
         }
     }
 
+    private static GallerySource CloneSource(GallerySource s) => new()
+    {
+        Id = s.Id,
+        Kind = s.Kind,
+        Path = s.Path,
+        Name = s.Name,
+        AddedAtUnixMs = s.AddedAtUnixMs,
+        Excluded = new List<string>(s.Excluded),
+    };
+
     public GallerySourceMutationResponse AddReference(string path, string kind)
     {
-        if (kind != GallerySourceKinds.File && kind != GallerySourceKinds.Folder)
-            return Fail("kind must be 'file' or 'folder'");
+        if (kind != GallerySourceKinds.File && kind != GallerySourceKinds.Folder && kind != GallerySourceKinds.Auto)
+            return Fail("kind must be 'file', 'folder' or 'auto'");
         if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
             return Fail("path must be absolute");
 
@@ -110,6 +120,12 @@ public sealed class GalleryLibrary
         catch
         {
             return Fail("invalid path");
+        }
+
+        if (kind == GallerySourceKinds.Auto)
+        {
+            // Drag-n-drop sends bare paths; the service decides what they are.
+            kind = Directory.Exists(full) ? GallerySourceKinds.Folder : GallerySourceKinds.File;
         }
 
         if (kind == GallerySourceKinds.File)
@@ -137,38 +153,9 @@ public sealed class GalleryLibrary
     }
 
     /// <summary>
-    /// Take ownership of an uploaded temp file: move it under uploads/ and
-    /// register it as an upload-kind source named after the original file.
+    /// Remove a source. Sources are references — nothing is ever deleted
+    /// from disk.
     /// </summary>
-    public GallerySourceMutationResponse AddUpload(string tempPath, string originalName)
-    {
-        if (!IsImageFile(originalName))
-            return Fail("unsupported image format");
-
-        lock (_lock)
-        {
-            var sources = LoadSources();
-            var source = NewSource(sources, GallerySourceKinds.Upload, path: "", originalName);
-            var dest = Path.Combine(UploadsDir, source.Id + Path.GetExtension(originalName).ToLowerInvariant());
-            try
-            {
-                Directory.CreateDirectory(UploadsDir);
-                File.Move(tempPath, dest, overwrite: true);
-            }
-            catch (Exception ex)
-            {
-                return Fail($"upload failed: {ex.Message}");
-            }
-
-            source.Path = dest;
-            sources.Add(source);
-            SaveSources(sources);
-            InvalidateItemsLocked();
-            return new GallerySourceMutationResponse { Source = source };
-        }
-    }
-
-    /// <summary>Remove a source; upload-kind sources also lose their stored file.</summary>
     public bool RemoveSource(string id)
     {
         lock (_lock)
@@ -181,14 +168,55 @@ public sealed class GalleryLibrary
             sources.Remove(source);
             SaveSources(sources);
             InvalidateItemsLocked();
+            return true;
+        }
+    }
 
-            if (source.Kind == GallerySourceKinds.Upload)
+    /// <summary>
+    /// Hide one item of a folder source without touching the file: its id
+    /// goes on the source's exclusion list (restorable in one click).
+    /// </summary>
+    public bool ExcludeItem(string sourceId, string itemId)
+    {
+        if (!MediaLibrary.IsValidId(itemId))
+            return false;
+
+        lock (_lock)
+        {
+            var sources = LoadSources();
+            var source = sources.FirstOrDefault(s => s.Id == sourceId);
+            // Folder sources only — a file source's single item is removed by
+            // deleting the source; an exclusion on it would never be consulted
+            // and would render a phantom badge.
+            if (source is null || source.Kind != GallerySourceKinds.Folder)
+                return false;
+
+            if (!source.Excluded.Contains(itemId))
             {
-                try
-                {
-                    File.Delete(source.Path);
-                }
-                catch { /* best-effort */ }
+                source.Excluded.Add(itemId);
+                SaveSources(sources);
+                InvalidateItemsLocked();
+            }
+
+            return true;
+        }
+    }
+
+    /// <summary>Clear a source's exclusion list — every hidden item returns.</summary>
+    public bool RestoreExclusions(string sourceId)
+    {
+        lock (_lock)
+        {
+            var sources = LoadSources();
+            var source = sources.FirstOrDefault(s => s.Id == sourceId);
+            if (source is null)
+                return false;
+
+            if (source.Excluded.Count > 0)
+            {
+                source.Excluded.Clear();
+                SaveSources(sources);
+                InvalidateItemsLocked();
             }
 
             return true;
@@ -206,7 +234,10 @@ public sealed class GalleryLibrary
         long generation;
         lock (_lock)
         {
-            sources = new List<GallerySource>(LoadSources());
+            // Snapshot WITH copied Excluded lists: the scan below runs outside
+            // the lock for seconds while ExcludeItem/RestoreExclusions mutate
+            // the cached sources' lists under it.
+            sources = LoadSources().Select(CloneSource).ToList();
             generation = _generation;
         }
 
@@ -236,14 +267,12 @@ public sealed class GalleryLibrary
 
                 foreach (var file in files)
                 {
-                    AddItem(file, source.Id, name: null);
+                    AddItem(file, source.Id, name: null, source.Excluded);
                 }
             }
             else if (File.Exists(source.Path) && IsImageFile(source.Path))
             {
-                // Uploads store under an internal id-based filename; the
-                // user-facing name is the source's original name.
-                AddItem(source.Path, source.Id, source.Name);
+                AddItem(source.Path, source.Id, source.Name, excluded: null);
             }
         }
 
@@ -263,10 +292,15 @@ public sealed class GalleryLibrary
 
         return items;
 
-        void AddItem(string file, string sourceId, string? name)
+        void AddItem(string file, string sourceId, string? name, List<string>? excluded)
         {
             var full = Path.GetFullPath(file);
             var id = ItemIdForPath(full);
+            if (excluded is not null && excluded.Contains(id))
+            {
+                return;
+            }
+
             if (paths.TryAdd(id, full))
             {
                 items.Add(new GalleryItem
@@ -347,6 +381,15 @@ public sealed class GalleryLibrary
             _sources = parsed?.Sources
                 .Where(s => MediaLibrary.IsValidId(s.Id) && !string.IsNullOrEmpty(s.Path) && !string.IsNullOrEmpty(s.Kind))
                 .ToList() ?? new List<GallerySource>();
+            // Pre-exclusions builds stored uploaded copies as a distinct kind;
+            // they're plain file references now (upload support is gone).
+            foreach (var s in _sources)
+            {
+                if (s.Kind == GallerySourceKinds.Upload)
+                {
+                    s.Kind = GallerySourceKinds.File;
+                }
+            }
         }
         catch
         {

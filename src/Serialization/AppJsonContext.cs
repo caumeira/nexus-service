@@ -266,6 +266,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryItemsResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryPickBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryPickResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryExcludeBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.GalleryChangedFrame))]
 
 // Lighting

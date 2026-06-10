@@ -17,15 +17,15 @@ namespace Nexus.Service.Tests.Integration;
 
 /// <summary>
 /// Gallery routes through the real pipeline: source CRUD + items/file reads,
-/// the stubbed native-picker route, upload import round-trip, and — critically
+/// the stubbed native-picker route, exclusion round-trips, and — critically
 /// — the auth tiers: item reads are panel-reachable, while pick and source mutations
 /// (host-filesystem surface) must reject a paired panel session.
 /// </summary>
 [Collection("NexusHost")]
 public sealed class GalleryRoutesTests : IDisposable
 {
-    // Canonical 67-byte 1x1 transparent PNG — must decode in ffmpeg for the
-    // thumbnail test, not just satisfy the extension allowlist.
+    // Canonical 67-byte 1x1 transparent PNG (real bytes, not just a valid
+    // extension, so file-serving assertions compare meaningful content).
     private static readonly byte[] TinyPng =
     {
         0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A,
@@ -183,68 +183,39 @@ public sealed class GalleryRoutesTests : IDisposable
         Assert.Equal(StubPicker.StubPaths, parsed.Paths);
     }
 
-    // ── Upload import ────────────────────────────────────────────────────────
+    // ── Exclusions ───────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task Import_StoresOriginal_AndServesIt()
-    {
-        var client = DesktopClient();
-
-        using var form = new MultipartFormDataContent();
-        var content = new ByteArrayContent(TinyPng);
-        content.Headers.ContentType = new MediaTypeHeaderValue("image/png");
-        form.Add(content, "file", "upload.png");
-
-        var res = await client.PostAsync("/gallery/import", form);
-        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-        var imported = await ReadAs(res, AppJsonContext.Default.GallerySourceMutationResponse);
-        Assert.Equal(GallerySourceKinds.Upload, imported!.Source!.Kind);
-
-        var items = await ReadAs(await client.GetAsync("/gallery/items"), AppJsonContext.Default.GalleryItemsResponse);
-        var item = Assert.Single(items!.Items);
-
-        var file = await client.GetAsync($"/gallery/items/{item.Id}/file");
-        Assert.Equal(TinyPng, await file.Content.ReadAsByteArrayAsync());
-    }
-
-    [Fact]
-    public async Task Import_NonImage_IsRejected()
-    {
-        using var form = new MultipartFormDataContent();
-        form.Add(new ByteArrayContent(new byte[] { 1 }), "file", "evil.exe");
-
-        var res = await DesktopClient().PostAsync("/gallery/import", form);
-        Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
-    }
-
-    // ── Thumbnail (ffmpeg-dependent) ─────────────────────────────────────────
-
-    [Fact]
-    public async Task Thumbnail_ServesJpeg_OrCleanly404sWithoutFfmpeg()
+    public async Task Exclude_HidesItem_Restore_BringsItBack()
     {
         var client = DesktopClient();
         WriteImage("a.png");
-        await client.PostAsJsonAsync("/gallery/sources",
+        WriteImage("b.jpg");
+        var add = await client.PostAsJsonAsync("/gallery/sources",
             new AddGallerySourceBody { Path = _photosDir, Kind = GallerySourceKinds.Folder });
+        var source = (await ReadAs(add, AppJsonContext.Default.GallerySourceMutationResponse))!.Source!;
         var items = await ReadAs(await client.GetAsync("/gallery/items"), AppJsonContext.Default.GalleryItemsResponse);
 
-        var res = await client.GetAsync($"/gallery/items/{items!.Items[0].Id}/thumbnail");
+        var exclude = await client.PostAsJsonAsync($"/gallery/sources/{source.Id}/exclude",
+            new GalleryExcludeBody { ItemId = items!.Items[0].Id });
+        Assert.Equal(HttpStatusCode.OK, exclude.StatusCode);
 
-        if (FfmpegResolver.Path is null)
-        {
-            Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
-        }
-        else
-        {
-            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
-            Assert.Equal("image/jpeg", res.Content.Headers.ContentType!.MediaType);
-        }
+        var after = await ReadAs(await client.GetAsync("/gallery/items"), AppJsonContext.Default.GalleryItemsResponse);
+        Assert.Single(after!.Items);
+        // The exclusion count rides the sources response for the UI badge.
+        var sources = await ReadAs(await client.GetAsync("/gallery/sources"), AppJsonContext.Default.GallerySourcesResponse);
+        Assert.Single(sources!.Sources.Single().Excluded);
+
+        var restore = await client.PostAsJsonAsync($"/gallery/sources/{source.Id}/restore", new { });
+        Assert.Equal(HttpStatusCode.OK, restore.StatusCode);
+        var restored = await ReadAs(await client.GetAsync("/gallery/items"), AppJsonContext.Default.GalleryItemsResponse);
+        Assert.Equal(2, restored!.Items.Count);
     }
 
     // ── Auth tiers ───────────────────────────────────────────────────────────
 
     [Fact]
-    public async Task PanelSession_CanReadItems_File_And_Thumbnail()
+    public async Task PanelSession_CanReadItems_And_File()
     {
         WriteImage("a.png");
         await DesktopClient().PostAsJsonAsync("/gallery/sources",
@@ -276,6 +247,13 @@ public sealed class GalleryRoutesTests : IDisposable
 
         var del = await panel.DeleteAsync("/gallery/sources/whatever");
         Assert.Equal(HttpStatusCode.Forbidden, del.StatusCode);
+
+        var exclude = await panel.PostAsJsonAsync("/gallery/sources/whatever/exclude",
+            new GalleryExcludeBody { ItemId = "deadbeefdeadbeef" });
+        Assert.Equal(HttpStatusCode.Forbidden, exclude.StatusCode);
+
+        var restore = await panel.PostAsJsonAsync("/gallery/sources/whatever/restore", new { });
+        Assert.Equal(HttpStatusCode.Forbidden, restore.StatusCode);
     }
 
     [Fact]

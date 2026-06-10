@@ -7,6 +7,9 @@ public static class GallerySourceKinds
 {
     public const string File = "file";
     public const string Folder = "folder";
+    /// <summary>Add-time only: the service stats the path to pick file/folder.</summary>
+    public const string Auto = "auto";
+    /// <summary>Legacy stored-copy kind; migrated to <see cref="File"/> on load.</summary>
     public const string Upload = "upload";
 }
 
@@ -17,6 +20,11 @@ public sealed class GallerySource
     public string Path { get; set; } = "";
     public string Name { get; set; } = "";
     public long AddedAtUnixMs { get; set; }
+    /// <summary>
+    /// Item ids of a folder source the user removed from the gallery. The
+    /// files stay on disk untouched; restoring clears this list.
+    /// </summary>
+    public List<string> Excluded { get; set; } = new();
 }
 
 /// <summary>Persistence shape of gallery/sources.json.</summary>
@@ -41,6 +49,11 @@ public sealed class GallerySourceMutationResponse
     public GallerySource? Source { get; set; }
     public bool Error { get; set; }
     public string Msg { get; set; } = "";
+}
+
+public sealed class GalleryExcludeBody
+{
+    public string ItemId { get; set; } = "";
 }
 
 public sealed class GalleryItem
