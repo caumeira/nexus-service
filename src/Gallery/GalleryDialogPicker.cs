@@ -7,7 +7,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Nexus.Service.Models.Gallery;
 using Nexus.Service.Platform;
-#if !WINDOWS
+#if LINUX
 using Nexus.Service.Platform.Linux;
 #endif
 
@@ -118,7 +118,7 @@ public sealed class GalleryDialogPicker : IGalleryDialogPicker
         return FromLines(stdout);
     }
 
-#if !WINDOWS
+#if LINUX
     private static async Task<GalleryPickResponse> PickLinuxAsync(bool folder, CancellationToken ct)
     {
         string tool;
