@@ -83,6 +83,13 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.Np50CoolingModeRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.MiniHubCoolingModeRequest))]
 
+// SmartHub device state surface
+[JsonSerializable(typeof(Nexus.Service.Routes.SmartHubStateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFanResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFanResponse[]))]
+[JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFwSettingResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFwSettingRequest))]
+
 // Fan control
 [JsonSerializable(typeof(FanChannel))]
 [JsonSerializable(typeof(List<FanChannel>))]

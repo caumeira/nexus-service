@@ -40,6 +40,12 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
     // "discovery returned 0"; only a real change (0->N found, or N->0 disconnect) logs.
     private int _lastDiscoveredPortCount;
 
+    // Serializes request/response exchanges. The heartbeat used to be the
+    // only reader; the fw-setting REST route added a second exchanging thread,
+    // and an interleaved DiscardInput/Write/Read pair would eat or misalign
+    // the other's reply. Write-only frames (duty, LEDs) stay outside it.
+    private readonly object _exchangeLock = new();
+
     private int _consecutiveWriteFailures;
     private const int ConsecutiveWriteFailureThreshold = 5;
 
@@ -124,14 +130,17 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
         var transport = _transport!;
         try
         {
-            transport.DiscardInput();
-            transport.Write(SmartHubProtocol.BuildGetFirmwareVersion());
-            var buf = new byte[SmartHubProtocol.FirmwareVersionResponseLength];
-            var n = transport.Read(buf, 300);
-            if (n < SmartHubProtocol.FirmwareVersionResponseLength) { Disconnect(); return false; }
-            var v = SmartHubProtocol.ParseFirmwareVersion(buf.AsSpan(0, n));
-            if (!string.IsNullOrEmpty(v)) State.FirmwareVersion = v;
-            return true;
+            lock (_exchangeLock)
+            {
+                transport.DiscardInput();
+                transport.Write(SmartHubProtocol.BuildGetFirmwareVersion());
+                var buf = new byte[SmartHubProtocol.FirmwareVersionResponseLength];
+                var n = transport.Read(buf, 300);
+                if (n < SmartHubProtocol.FirmwareVersionResponseLength) { Disconnect(); return false; }
+                var v = SmartHubProtocol.ParseFirmwareVersion(buf.AsSpan(0, n));
+                if (!string.IsNullOrEmpty(v)) State.FirmwareVersion = v;
+                return true;
+            }
         }
         catch (Exception ex)
         {
@@ -152,20 +161,23 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
         var transport = _transport!;
         try
         {
-            transport.DiscardInput();
-            transport.Write(SmartHubProtocol.BuildGetInfo());
-            var buf = new byte[SmartHubProtocol.GetInfoResponseLength];
-            var n = transport.Read(buf, 300);
-            if (n < SmartHubProtocol.GetInfoResponseLength) { Disconnect(); return false; }
-            if (!SmartHubProtocol.TryParseChannelInfo(buf.AsSpan(0, n), out var channels) || channels is null)
-                return false;
-            for (var i = 0; i < State.Fans.Length && i < channels.Length; i++)
+            lock (_exchangeLock)
             {
-                State.Fans[i].Rpm = channels[i].Rpm;
-                State.Fans[i].Enabled = channels[i].Enabled;
-                if (channels[i].Rpm > 0) State.Fans[i].SeenFan = true;
+                transport.DiscardInput();
+                transport.Write(SmartHubProtocol.BuildGetInfo());
+                var buf = new byte[SmartHubProtocol.GetInfoResponseLength];
+                var n = transport.Read(buf, 300);
+                if (n < SmartHubProtocol.GetInfoResponseLength) { Disconnect(); return false; }
+                if (!SmartHubProtocol.TryParseChannelInfo(buf.AsSpan(0, n), out var channels) || channels is null)
+                    return false;
+                for (var i = 0; i < State.Fans.Length && i < channels.Length; i++)
+                {
+                    State.Fans[i].Rpm = channels[i].Rpm;
+                    State.Fans[i].Enabled = channels[i].Enabled;
+                    if (channels[i].Rpm > 0) State.Fans[i].SeenFan = true;
+                }
+                return true;
             }
-            return true;
         }
         catch (Exception ex)
         {
@@ -174,6 +186,44 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
             return false;
         }
     }
+
+    /// <summary>
+    /// Read the flash-persisted standalone setting (LED animation + colour +
+    /// brightness + the fan duty the watchdog holds when no host is driving).
+    /// Returns false on transport hiccup or a malformed reply so the caller
+    /// can surface a transient error and retry.
+    /// </summary>
+    public bool ReadMcuSetting(out SmartHubProtocol.SmartHubMcuSetting setting)
+    {
+        setting = default;
+        if (!EnsureConnected()) return false;
+        var transport = _transport!;
+        try
+        {
+            lock (_exchangeLock)
+            {
+                transport.DiscardInput();
+                transport.Write(SmartHubProtocol.BuildGetMcuSetting());
+                var buf = new byte[SmartHubProtocol.McuSettingResponseLength];
+                var n = transport.Read(buf, 300);
+                if (n < SmartHubProtocol.McuSettingResponseLength) { Disconnect(); return false; }
+                if (!SmartHubProtocol.TryParseMcuSetting(buf.AsSpan(0, n), out var parsed) || parsed is null)
+                    return false;
+                setting = parsed.Value;
+                return true;
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[smarthub] fw-setting exchange failed: {ex.GetType().Name}: {ex.Message}");
+            Disconnect();
+            return false;
+        }
+    }
+
+    /// <summary>Persist the standalone setting (animation/colour/brightness/fan duty) to flash. See <see cref="SmartHubProtocol.BuildSetMcuSetting"/>.</summary>
+    public bool WriteMcuSetting(int animation, byte r, byte g, byte b, int brightness, int fanPercent)
+        => SendOnly(SmartHubProtocol.BuildSetMcuSetting(animation, r, g, b, brightness, fanPercent));
 
     /// <summary>Turn the hub's onboard LED animation on/off. Off ⇒ software streaming drives the ARGB ports.</summary>
     public bool SetFirmwareAnimation(bool on) => SendOnly(SmartHubProtocol.BuildSetFirmwareAnimation(on));

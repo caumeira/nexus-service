@@ -87,6 +87,73 @@ public class SmartHubProtocolTests
         Assert.Equal(new byte[] { 0xFF, 0xCC, 0x07, 0x01 }, SmartHubProtocol.BuildSetFirmwareAnimation(on: false));
     }
 
+    // ── MCU setting (firmware FW_Animation, FF CC 0C / FF CC 0D) ──
+
+    [Fact]
+    public void BuildSetMcuSetting_emits_FF_CC_0C_frame_with_trailing_01_gate()
+    {
+        // Y50 firmware usbd_cdc_if.c: the 0x0C handler only matches when
+        // buffer[9]==0x01 — without the trailing gate byte the write is ignored.
+        Assert.Equal(
+            new byte[] { 0xFF, 0xCC, 0x0C, 0x02, 0x11, 0x22, 0x33, 80, 45, 0x01 },
+            SmartHubProtocol.BuildSetMcuSetting(SmartHubProtocol.McuAnimationRainbow, 0x11, 0x22, 0x33, 80, 45));
+        Assert.Equal(SmartHubProtocol.McuSettingLength,
+            SmartHubProtocol.BuildSetMcuSetting(SmartHubProtocol.McuAnimationColor, 0, 0, 0, 0, 0).Length);
+    }
+
+    [Theory]
+    [InlineData(-5, 0)]
+    [InlineData(0, 0)]
+    [InlineData(55, 55)]
+    [InlineData(100, 100)]
+    [InlineData(140, 100)]
+    public void BuildSetMcuSetting_clamps_brightness_and_fan_percent_to_0_through_100(int input, byte expected)
+    {
+        var buf = SmartHubProtocol.BuildSetMcuSetting(SmartHubProtocol.McuAnimationColor, 0, 0, 0, input, input);
+        Assert.Equal(expected, buf[7]); // brightness
+        Assert.Equal(expected, buf[8]); // fan%
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(5)]
+    [InlineData(-1)]
+    public void BuildSetMcuSetting_rejects_out_of_range_animation(int animation)
+    {
+        Assert.Throws<ArgumentOutOfRangeException>(() =>
+            SmartHubProtocol.BuildSetMcuSetting(animation, 0, 0, 0, 50, 50));
+    }
+
+    [Fact]
+    public void BuildGetMcuSetting_emits_FF_CC_0D()
+    {
+        Assert.Equal(new byte[] { 0xFF, 0xCC, 0x0D }, SmartHubProtocol.BuildGetMcuSetting());
+    }
+
+    [Fact]
+    public void TryParseMcuSetting_decodes_animation_color_brightness_and_fan_percent()
+    {
+        // Y50 firmware main.c Get_FW_Animation transmit:
+        //   FF CC 0D <anim> <R> <G> <B> <brightness%> <fan%>.
+        var response = new byte[] { 0xFF, 0xCC, 0x0D, 0x03, 0xAA, 0xBB, 0xCC, 70, 35 };
+        Assert.True(SmartHubProtocol.TryParseMcuSetting(response, out var setting));
+        Assert.NotNull(setting);
+        Assert.Equal(
+            new SmartHubProtocol.SmartHubMcuSetting(
+                Animation: SmartHubProtocol.McuAnimationBreathe,
+                R: 0xAA, G: 0xBB, B: 0xCC, Brightness: 70, FanPercent: 35),
+            setting!.Value);
+    }
+
+    [Fact]
+    public void TryParseMcuSetting_rejects_short_or_wrong_header_responses()
+    {
+        Assert.False(SmartHubProtocol.TryParseMcuSetting(new byte[] { 0xFF, 0xCC, 0x0D, 1, 2 }, out _)); // short
+        Assert.False(SmartHubProtocol.TryParseMcuSetting(
+            new byte[] { 0xFF, 0xCC, 0x0C, 1, 0, 0, 0, 50, 50 }, out var setting)); // 0x0C, not the 0x0D echo
+        Assert.Null(setting);
+    }
+
     // ── LED streaming framing ──
 
     [Theory]

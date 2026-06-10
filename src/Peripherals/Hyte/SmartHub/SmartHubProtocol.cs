@@ -60,13 +60,28 @@ public static class SmartHubProtocol
     private const byte SubGetInfo = 0x01;           // FF CC 01 00
     private const byte SubSetFanSpeed = 0x02;       // FF CC 02 <ch> <pct> <en>
     private const byte SubSetFwAnimation = 0x07;    // FF CC 07 <0 on | 1 off>
+    private const byte SubSetMcuSetting = 0x0C;     // FF CC 0C <anim> <r> <g> <b> <brt> <fan> 01
+    private const byte SubGetMcuSetting = 0x0D;     // FF CC 0D
     private const byte SubStreaming = 0x01;          // FF EE 01 <port> ...
+
+    // ── Standalone-animation ids (FF CC 0C/0D byte [3], firmware FW_Animation) ──
+
+    public const int McuAnimationColor = 1;
+    public const int McuAnimationRainbow = 2;
+    public const int McuAnimationBreathe = 3;
+    public const int McuAnimationRainbowGradient = 4;
 
     /// <summary>20-byte response to <see cref="BuildGetInfo"/> carrying all four channels' tach + enabled flags.</summary>
     public const int GetInfoResponseLength = 20;
 
     /// <summary>7-byte response to <see cref="BuildGetFirmwareVersion"/>.</summary>
     public const int FirmwareVersionResponseLength = 7;
+
+    /// <summary>10-byte "Set FW Setting" frame built by <see cref="BuildSetMcuSetting"/>.</summary>
+    public const int McuSettingLength = 10;
+
+    /// <summary>9-byte response to <see cref="BuildGetMcuSetting"/>.</summary>
+    public const int McuSettingResponseLength = 9;
 
     /// <summary>Streamed frame = 7-byte header + MaxLedsPerPort×3 colour bytes.</summary>
     public const int LightingFrameLength = 7 + MaxLedsPerPort * 3; // 607
@@ -113,6 +128,28 @@ public static class SmartHubProtocol
     /// </summary>
     public static byte[] BuildSetFirmwareAnimation(bool on)
         => new byte[] { Frame0, OpControl, SubSetFwAnimation, (byte)(on ? 0x00 : 0x01) };
+
+    /// <summary>
+    /// "Set FW Setting" request (10 bytes):
+    /// <c>FF CC 0C &lt;anim 1..4&gt; &lt;R&gt; &lt;G&gt; &lt;B&gt; &lt;brightness%&gt; &lt;fan%&gt; 01</c>.
+    /// Persists the hub's standalone behaviour to flash: LED animation +
+    /// colour + brightness, AND the fan duty it holds when no host is driving
+    /// (the firmware watchdog reapplies that duty to all four PWM ports 5 s
+    /// after the last host fan write). Reference: Y50 firmware
+    /// <c>usbd_cdc_if.c</c> FW_Animation handler.
+    /// </summary>
+    public static byte[] BuildSetMcuSetting(int animation, byte r, byte g, byte b, int brightness, int fanPercent)
+    {
+        if (animation < McuAnimationColor || animation > McuAnimationRainbowGradient)
+            throw new ArgumentOutOfRangeException(nameof(animation), animation, $"Animation must be in {McuAnimationColor}..{McuAnimationRainbowGradient}.");
+        var brt = (byte)Math.Clamp(brightness, 0, 100);
+        var fan = (byte)Math.Clamp(fanPercent, FanMinDutyPercent, FanMaxDutyPercent);
+        // Trailing 0x01 is a firmware gate: the 0x0C handler requires buffer[9]==0x01.
+        return new byte[] { Frame0, OpControl, SubSetMcuSetting, (byte)animation, r, g, b, brt, fan, 0x01 };
+    }
+
+    /// <summary>"Get FW Setting" request (3 bytes). The 9-byte reply echoes the flash-persisted setting (see <see cref="TryParseMcuSetting"/>).</summary>
+    public static byte[] BuildGetMcuSetting() => new byte[] { Frame0, OpControl, SubGetMcuSetting };
 
     /// <summary>
     /// Build an LED streaming frame for one ARGB port (1..4). Always emits a
@@ -185,6 +222,25 @@ public static class SmartHubProtocol
             var enabled = response[14 - ch] == 0x01;
             channels[ch] = new SmartHubFanReading(DecodeFanRpm(speedH, speedL), enabled);
         }
+        return true;
+    }
+
+    /// <summary>Flash-persisted standalone setting decoded from the "Get FW Setting" response.</summary>
+    public readonly record struct SmartHubMcuSetting(int Animation, byte R, byte G, byte B, int Brightness, int FanPercent);
+
+    /// <summary>
+    /// Parse the 9-byte "Get FW Setting" response:
+    /// <c>FF CC 0D &lt;anim&gt; &lt;R&gt; &lt;G&gt; &lt;B&gt; &lt;brightness%&gt; &lt;fan%&gt;</c>
+    /// (Y50 firmware <c>main.c</c> Get_FW_Animation transmit). Returns false
+    /// (and leaves <paramref name="setting"/> null) on a short response or a
+    /// header that isn't the <c>FF CC 0D</c> echo.
+    /// </summary>
+    public static bool TryParseMcuSetting(ReadOnlySpan<byte> response, out SmartHubMcuSetting? setting)
+    {
+        setting = null;
+        if (response.Length < McuSettingResponseLength) return false;
+        if (response[0] != Frame0 || response[1] != OpControl || response[2] != SubGetMcuSetting) return false;
+        setting = new SmartHubMcuSetting(response[3], response[4], response[5], response[6], response[7], response[8]);
         return true;
     }
 
