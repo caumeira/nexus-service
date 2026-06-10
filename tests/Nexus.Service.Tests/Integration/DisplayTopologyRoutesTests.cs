@@ -236,7 +236,7 @@ public sealed class DisplayTopologyRoutesTests
     }
 
     [Fact]
-    public async Task Demote_removes_the_record_and_assignment()
+    public async Task Demote_turns_the_panel_off_but_keeps_its_config()
     {
         DisplayTopologyService.HostingSupportedOverrideForTests = true;
         try
@@ -251,14 +251,42 @@ public sealed class DisplayTopologyRoutesTests
                 using var doc = JsonDocument.Parse(await promote.Content.ReadAsStringAsync());
                 var recordId = doc.RootElement.GetProperty("id").GetString();
 
+                // Persist a layout + a setting so the off/on cycle can prove
+                // the config survives.
+                Assert.True((await client.PostAsync($"/panel/devices/{recordId}",
+                    Json("{\"displayName\":\"Desk monitor\",\"reserveMonitor\":false}"))).IsSuccessStatusCode);
+
                 var assignments = await client.GetStringAsync("/displays/assignments");
                 Assert.Contains(MonitorId, assignments);
 
+                // Off: kiosk assignment gone, record still there with config.
                 Assert.True((await client.DeleteAsync($"/displays/{MonitorId}/panel")).IsSuccessStatusCode);
-
-                var registry = factory.Services.GetRequiredService<PanelDeviceRegistry>();
-                Assert.Null(registry.Get(recordId!));
                 Assert.DoesNotContain(MonitorId, await client.GetStringAsync("/displays/assignments"));
+                var registry = factory.Services.GetRequiredService<PanelDeviceRegistry>();
+                var off = registry.Get(recordId!);
+                Assert.NotNull(off);
+                Assert.False(off!.Enabled);
+                Assert.Equal("Desk monitor", off.DisplayName);
+
+                // Topology reads the display as unassigned while off.
+                using (var topo = JsonDocument.Parse(await client.GetStringAsync("/displays/topology")))
+                {
+                    Assert.Equal(JsonValueKind.Null,
+                        topo.RootElement.GetProperty("displays")[0].GetProperty("assignedPanelDeviceId").ValueKind);
+                }
+
+                // Second off is a no-op 404 (nothing active to turn off).
+                Assert.Equal(HttpStatusCode.NotFound,
+                    (await client.DeleteAsync($"/displays/{MonitorId}/panel")).StatusCode);
+
+                // On again: SAME record, settings intact, assignment restored.
+                var repromote = await client.PostAsync($"/displays/{MonitorId}/panel", Json("{}"));
+                Assert.True(repromote.IsSuccessStatusCode);
+                using var redoc = JsonDocument.Parse(await repromote.Content.ReadAsStringAsync());
+                Assert.Equal(recordId, redoc.RootElement.GetProperty("id").GetString());
+                Assert.Equal("Desk monitor", redoc.RootElement.GetProperty("displayName").GetString());
+                Assert.False(redoc.RootElement.GetProperty("reserveMonitor").GetBoolean());
+                Assert.Contains(MonitorId, await client.GetStringAsync("/displays/assignments"));
             }
         }
         finally

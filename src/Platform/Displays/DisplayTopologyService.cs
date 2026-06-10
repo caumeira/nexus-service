@@ -54,7 +54,11 @@ public sealed class DisplayTopologyService
         foreach (var info in raw)
         {
             var isY70 = IsY70Display(info.RawHardwareId);
+            // A disabled (turned-off) panel keeps its record but the display
+            // reads as unassigned: the UI offers "Use as Nexus panel", which
+            // re-activates the same record.
             var assigned = _panelRegistry.FindByDisplayId(info.Id);
+            if (assigned?.Enabled == false) assigned = null;
             response.Displays.Add(new DisplayTopologyEntryDto
             {
                 Id = info.Id,

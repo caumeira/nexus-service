@@ -57,7 +57,7 @@ public sealed class PanelDeviceRegistry
     /// monitor and orphan a record on demote. Returns
     /// <c>Created == false</c> with the existing record when already bound.
     /// </summary>
-    public (PanelDeviceRecord Record, bool Created) AllocateForDisplay(string displayId, string? displayName, PanelDeviceCapabilities? capabilities)
+    public (PanelDeviceRecord Record, bool Activated) AllocateForDisplay(string displayId, string? displayName, PanelDeviceCapabilities? capabilities)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var record = new PanelDeviceRecord
@@ -70,21 +70,56 @@ public sealed class PanelDeviceRegistry
             DisplayId = displayId,
         };
 
-        PanelDeviceRecord? existing = null;
+        PanelDeviceRecord? result = null;
+        var activated = false;
         _store.Update(s =>
         {
             foreach (var candidate in s.PanelDevices.Values)
             {
-                if (string.Equals(candidate.DisplayId, displayId, StringComparison.Ordinal))
+                if (!string.Equals(candidate.DisplayId, displayId, StringComparison.Ordinal)) continue;
+                if (candidate.Enabled == false)
                 {
-                    existing = Clone(candidate);
-                    return;
+                    // Turning the panel back on: same record, so layout,
+                    // theme, name, and reserve persist through off/on
+                    // cycles. Viewport hints refresh from the current OS
+                    // facts (resolution/scale/touch may have changed).
+                    candidate.Enabled = true;
+                    candidate.Capabilities = capabilities ?? candidate.Capabilities;
+                    candidate.LastSeenAt = now;
+                    activated = true;
                 }
+                result = Clone(candidate);
+                return;
             }
             s.PanelDevices[record.Id] = record;
         });
 
-        return existing is not null ? (existing, false) : (record, true);
+        if (result is not null) return (result, activated);
+        return (record, true);
+    }
+
+    /// <summary>
+    /// Turn a display's panel OFF without losing its configuration: the
+    /// record (layout/theme/settings) stays; assignments stop listing it so
+    /// the overlay closes the kiosk. Returns the disabled record, or null
+    /// when the display has no active monitor-panel record.
+    /// </summary>
+    public PanelDeviceRecord? DisablePanelForDisplay(string displayId)
+    {
+        if (string.IsNullOrWhiteSpace(displayId)) return null;
+        PanelDeviceRecord? snapshot = null;
+        _store.Update(s =>
+        {
+            foreach (var record in s.PanelDevices.Values)
+            {
+                if (!string.Equals(record.DisplayId, displayId, StringComparison.Ordinal)) continue;
+                if (record.Enabled == false) return;
+                record.Enabled = false;
+                snapshot = Clone(record);
+                return;
+            }
+        });
+        return snapshot;
     }
 
     /// <summary>
@@ -120,13 +155,14 @@ public sealed class PanelDeviceRegistry
         return null;
     }
 
-    /// <summary>All displayId -> panelDeviceId bindings (kiosk reconcile input).</summary>
+    /// <summary>Active displayId -> panelDeviceId bindings (kiosk reconcile
+    /// input). Disabled panels keep their record but host no kiosk.</summary>
     public IReadOnlyList<(string DisplayId, string PanelDeviceId, bool ReserveMonitor)> ListAssignments()
     {
         var assignments = new List<(string, string, bool)>();
         foreach (var record in _store.Load().PanelDevices.Values)
         {
-            if (!string.IsNullOrEmpty(record.DisplayId))
+            if (!string.IsNullOrEmpty(record.DisplayId) && record.Enabled != false)
                 assignments.Add((record.DisplayId, record.Id, record.ReserveMonitor ?? true));
         }
         return assignments;
@@ -299,6 +335,7 @@ public sealed class PanelDeviceRegistry
             Capabilities = r.Capabilities,
             DisplayId = r.DisplayId,
             ReserveMonitor = r.ReserveMonitor,
+            Enabled = r.Enabled,
         };
     }
 }

@@ -109,15 +109,18 @@ public static class DisplayRoutes
                 CssHeight = (int)Math.Round(display.Resolution.Height / scale),
                 Dpr = scale,
             };
-            var (record, created) = registry.AllocateForDisplay(id, body?.DisplayName ?? display.Name, capabilities);
-            if (!created)
+            var (record, activated) = registry.AllocateForDisplay(id, body?.DisplayName ?? display.Name, capabilities);
+            if (!activated)
                 return Results.Conflict(ApiResponse.Fail("display is already a panel"));
             PanelTopics.BroadcastPanelDevice(hub, record.Id);
             PanelTopics.BroadcastDisplays(hub);
             return Results.Json(record, AppJsonContext.Default.PanelDeviceRecord);
         });
 
-        // Demote: delete the record (and its layout) and release the monitor.
+        // Turn the panel OFF: the record (layout/theme/settings) persists so
+        // turning it back on restores the panel exactly; assignments stop
+        // listing it and the overlay closes the kiosk. Full record deletion
+        // stays available via DELETE /panel/devices/{id}.
         app.MapDelete("/displays/{id}/panel", (
             string id,
             HttpContext ctx,
@@ -128,12 +131,12 @@ public static class DisplayRoutes
             if (!ServiceTokenRequests.HasServiceToken(ctx, tokens))
                 return Results.Unauthorized();
             var record = registry.FindByDisplayId(id);
-            if (record is null || record.Capabilities?.Surface != PanelSurfaces.Monitor)
-                return Results.NotFound(ApiResponse.Fail("display is not a panel"));
-            registry.Remove(record.Id);
+            if (record is null || record.Capabilities?.Surface != PanelSurfaces.Monitor || record.Enabled == false)
+                return Results.NotFound(ApiResponse.Fail("display is not an active panel"));
+            registry.DisablePanelForDisplay(id);
             PanelTopics.BroadcastPanelDevice(hub, record.Id);
             PanelTopics.BroadcastDisplays(hub);
-            return Results.Ok(ApiResponse.Ok("removed"));
+            return Results.Ok(ApiResponse.Ok("panel turned off"));
         });
 
         // Rotate any monitor by stable display id (promoted-panel settings).

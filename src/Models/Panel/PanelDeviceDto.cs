@@ -50,6 +50,13 @@ public sealed class PanelDeviceRecord
     /// </summary>
     public bool? ReserveMonitor { get; set; }
     /// <summary>
+    /// Whether this display-bound panel is currently turned ON (kiosk
+    /// hosted). Turning a monitor's panel off keeps the record — layout,
+    /// theme, and settings persist through off/on cycles; promote
+    /// re-activates the same record. Null = enabled (back-compat).
+    /// </summary>
+    public bool? Enabled { get; set; }
+    /// <summary>
     /// Route-computed on GET /panel/devices responses for display-bound
     /// records: false when the bound monitor is currently absent, null when
     /// topology is unknown. Never persisted (null on stored records).
