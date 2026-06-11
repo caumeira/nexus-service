@@ -59,6 +59,17 @@ internal static class MacAppWindow
     private static IntPtr _window;
     private static IntPtr _webView;
     private static IntPtr _targetObj;
+    private static IntPtr _vibrancyView;
+    private static IntPtr _vibrancyTint;
+
+    // Behind-window frosted backdrop. Both themes use the subtle under-window
+    // material; behindWindow blending means its tint is translucent over a
+    // blurred desktop, which alone reads as washed-out grey in dark mode. Dark
+    // mode additionally lays a translucent black tint (_vibrancyTint) over the
+    // blur so the glass settles to dark grey while keeping the frost; light mode
+    // hides that tint.
+    private const long VibrancyMaterial = 21;          // underWindowBackground
+    private const double VibrancyDarkTintAlpha = 0.50;
     // Default origins of the three traffic-light buttons, captured once so the
     // padding is applied as an absolute offset (never compounding on re-apply).
     private static bool _trafficLightDefaultsCaptured;
@@ -216,6 +227,8 @@ internal static class MacAppWindow
             Console.WriteLine("[mac-app-window] window will close");
             _window = IntPtr.Zero;
             _webView = IntPtr.Zero;
+            _vibrancyView = IntPtr.Zero;
+            _vibrancyTint = IntPtr.Zero;
             // Drop back to Accessory so the Dock icon disappears - we are
             // back to "menu bar agent only" until the user re-opens the
             // dashboard.
@@ -262,6 +275,31 @@ internal static class MacAppWindow
             NsString(dark ? "NSAppearanceNameDarkAqua" : "NSAppearanceNameAqua"));
         if (appearance != IntPtr.Zero)
             MsgSend(_window, SelRegister("setAppearance:"), appearance);
+
+        // Dark mode lays the translucent black tint over the frosted material so
+        // the glass reads dark grey rather than washed-out; light mode hides it.
+        if (_vibrancyTint != IntPtr.Zero)
+            MsgSendVoidBool(_vibrancyTint, SelRegister("setHidden:"), !dark);
+
+        // Forcing the window appearance cascades to the WKWebView, which would
+        // pin its prefers-color-scheme to the in-app theme and blind 'system'
+        // mode to OS light/dark flips. Re-pin the web view to the live OS
+        // appearance so the page's media query keeps tracking the OS.
+        SyncWebViewAppearanceToOs();
+    }
+
+    // Pin the WKWebView's appearance to the OS (NSApp.effectiveAppearance) so its
+    // prefers-color-scheme follows the system, independent of the window's forced
+    // chrome appearance. Refreshed whenever the OS appearance changes so 'system'
+    // theme mode sees light/dark flips.
+    private static void SyncWebViewAppearanceToOs()
+    {
+        if (_webView == IntPtr.Zero) return;
+        IntPtr nsApp = MsgSend(ClassGet("NSApplication"), SelRegister("sharedApplication"));
+        if (nsApp == IntPtr.Zero) return;
+        IntPtr osAppearance = MsgSend(nsApp, SelRegister("effectiveAppearance"));
+        if (osAppearance != IntPtr.Zero)
+            MsgSend(_webView, SelRegister("setAppearance:"), osAppearance);
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -272,6 +310,12 @@ internal static class MacAppWindow
         // delay (on the main run loop) so the pushed colour is the new one.
         try
         {
+            // This observer also fires on OS light/dark flips (it watches
+            // AppleInterfaceThemeChangedNotification). Re-pin the web view to the
+            // new OS appearance so 'system' theme mode picks up the change - once
+            // now and again after the settle delay (effectiveAppearance, like the
+            // accent, can read stale on the notification edge).
+            SyncWebViewAppearanceToOs();
             MsgSend_PerformAfter(_targetObj,
                 SelRegister("performSelector:withObject:afterDelay:"),
                 SelRegister("pushAccentNow:"), IntPtr.Zero, 0.3);
@@ -282,7 +326,7 @@ internal static class MacAppWindow
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
     private static void PushAccentNowImpl(IntPtr self, IntPtr cmd, IntPtr arg)
     {
-        try { PushSystemAccent(); } catch { }
+        try { SyncWebViewAppearanceToOs(); PushSystemAccent(); } catch { }
     }
 
     // Push the three system traffic-light buttons in from the top-left corner by
@@ -738,18 +782,41 @@ internal static class MacAppWindow
         if (cls == IntPtr.Zero) return;
         IntPtr vev = MsgSend(cls, SelRegister("alloc"));
         vev = MsgSend_InitFrame(vev, SelRegister("initWithFrame:"), frame);
-        const long MaterialUnderWindowBackground = 21;
         const long BlendingModeBehindWindow = 0;
         // Follow the window's active state: full blur when the window is key,
         // the muted/flat inactive material when it loses focus (native macOS
         // behaviour, handled by the WindowServer at no cost to us).
         const long StateFollowsWindowActiveState = 0;
         const long ViewWidthHeightSizable = 18;
-        MsgSendVoidLong(vev, SelRegister("setMaterial:"), MaterialUnderWindowBackground);
+        MsgSendVoidLong(vev, SelRegister("setMaterial:"), VibrancyMaterial);
         MsgSendVoidLong(vev, SelRegister("setBlendingMode:"), BlendingModeBehindWindow);
         MsgSendVoidLong(vev, SelRegister("setState:"), StateFollowsWindowActiveState);
         MsgSendVoidLong(vev, SelRegister("setAutoresizingMask:"), ViewWidthHeightSizable);
         MsgSend(container, SelRegister("addSubview:"), vev);
+
+        // Dark-mode tint: a translucent pure-black NSView layered over the blur so
+        // the glass reads dark grey instead of the washed-out grey the bare
+        // material gives. Lives as a subview of the effect view (above the blur,
+        // below the transparent WKWebView). Hidden by default; SetWindowAppearance
+        // unhides it in dark mode. It dims the blur rather than replacing it.
+        IntPtr tint = MsgSend(ClassGet("NSView"), SelRegister("alloc"));
+        tint = MsgSend_InitFrame(tint, SelRegister("initWithFrame:"), frame);
+        MsgSendVoidBool(tint, SelRegister("setWantsLayer:"), true);
+        IntPtr tintLayer = MsgSend(tint, SelRegister("layer"));
+        IntPtr cg = CGColorCreateGenericGray(0.0, VibrancyDarkTintAlpha);
+        if (tintLayer != IntPtr.Zero && cg != IntPtr.Zero)
+            MsgSend(tintLayer, SelRegister("setBackgroundColor:"), cg);
+        if (cg != IntPtr.Zero) CGColorRelease(cg);
+        MsgSendVoidLong(tint, SelRegister("setAutoresizingMask:"), ViewWidthHeightSizable);
+        MsgSendVoidBool(tint, SelRegister("setHidden:"), true);
+        MsgSend(vev, SelRegister("addSubview:"), tint);
+
+        // Process-lifetime references so SetWindowAppearance can toggle the tint
+        // per theme. The view hierarchy retains both (effect view -> container ->
+        // window contentView), so the pointers stay valid; drop our +1 allocs.
+        _vibrancyView = vev;
+        _vibrancyTint = tint;
+        MsgSend(tint, SelRegister("release"));
         MsgSend(vev, SelRegister("release"));
     }
 
@@ -855,6 +922,7 @@ internal static class MacAppWindow
 
     private const string Libobjc = "/usr/lib/libobjc.dylib";
     private const string AppKit = "/System/Library/Frameworks/AppKit.framework/AppKit";
+    private const string CoreGraphics = "/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics";
     private const string WebKit = "/System/Library/Frameworks/WebKit.framework/WebKit";
 
     [StructLayout(LayoutKind.Sequential)]
@@ -883,6 +951,14 @@ internal static class MacAppWindow
 
     [DllImport("libSystem.dylib", EntryPoint = "dlopen")]
     private static extern IntPtr dlopen([MarshalAs(UnmanagedType.LPStr)] string path, int mode);
+
+    // Translucent grey CGColor for the dark-mode vibrancy tint layer (gray 0 =
+    // black). Create-rule: caller owns the +1, released after the layer retains.
+    [DllImport(CoreGraphics, EntryPoint = "CGColorCreateGenericGray")]
+    private static extern IntPtr CGColorCreateGenericGray(double gray, double alpha);
+
+    [DllImport(CoreGraphics, EntryPoint = "CGColorRelease")]
+    private static extern void CGColorRelease(IntPtr color);
 
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern IntPtr MsgSend(IntPtr receiver, IntPtr sel);
