@@ -180,27 +180,6 @@ public static class SystemRoutes
             a.SetDefaultOutput(body.DeviceId) ? ApiResponse.Ok() : ApiResponse.Fail("failed to set output device")).AllowPanel();
         app.MapPost("/system/audio/default-input", (SetAudioDefaultBody body, IAudioDeviceProvider a) =>
             a.SetDefaultInput(body.DeviceId) ? ApiResponse.Ok() : ApiResponse.Fail("failed to set input device")).AllowPanel();
-
-        // Current desktop wallpaper for the dashboard's "wallpaper" background
-        // mode. Windows + macOS; other platforms (and "no wallpaper set") return
-        // 404 and the web falls back to the flat base. Desktop-token gated (no
-        // AllowPanel) so paired phones can't pull the host's wallpaper.
-        app.MapGet("/system/wallpaper", () =>
-        {
-            if (OperatingSystem.IsWindows())
-            {
-                var path = WallpaperReader.GetCurrentWallpaperPath();
-                if (path is not null && File.Exists(path))
-                    return Results.File(path, "image/jpeg");
-            }
-            else if (OperatingSystem.IsMacOS())
-            {
-                var wp = Nexus.Service.Platform.Mac.MacWallpaperReader.GetServable();
-                if (wp is not null)
-                    return Results.File(wp.Value.Path, wp.Value.ContentType);
-            }
-            return Results.NotFound();
-        });
     }
 
     /// <summary>

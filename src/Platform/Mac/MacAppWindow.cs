@@ -1,6 +1,4 @@
 using System;
-using System.Globalization;
-using System.IO;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -76,14 +74,6 @@ internal static class MacAppWindow
     // _targetObj == IntPtr.Zero.
     private static readonly object _classRegistrationSync = new();
 
-    // Throttle window-origin pushes to ~display rate. windowDidMove: fires
-    // faster than the WebContent process can apply each evaluateJavaScript, and
-    // the queued backlog is exactly what makes the anchored wallpaper visibly
-    // lag behind (then snap to catch up). One push per frame keeps at most one
-    // eval in flight.
-    private static readonly System.Diagnostics.Stopwatch _originClock = System.Diagnostics.Stopwatch.StartNew();
-    private static long _lastOriginPushMs = long.MinValue;
-
     /// <summary>
     /// Open the dashboard window, or focus the existing one and navigate to
     /// the given URL. Safe to call from any thread - dispatches onto main.
@@ -147,14 +137,10 @@ internal static class MacAppWindow
                 AddMethod(targetClass, "openOrFocus:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&OpenOrFocusImpl, "v@:@");
                 AddMethod(targetClass, "windowWillClose:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&WindowWillCloseImpl, "v@:@");
                 AddMethod(targetClass, "windowDidResize:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&WindowDidResizeImpl, "v@:@");
-                AddMethod(targetClass, "windowDidMove:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&WindowDidMoveImpl, "v@:@");
-                // WKScriptMessageHandler callback for web->host messages (the
-                // wallpaper backdrop's request-window-origin). Encoding: void,
-                // self, _cmd, id userContentController, id WKScriptMessage.
+                // WKScriptMessageHandler callback for the page's request-system-accent.
+                // Encoding: void, self, _cmd, id userContentController, id WKScriptMessage.
                 AddMethod(targetClass, "userContentController:didReceiveScriptMessage:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, void>)&DidReceiveScriptMessageImpl, "v@:@@");
-                // Live OS->app theming callbacks: wallpaper store change (bounced
-                // from the file watcher) and OS accent change (distributed note).
-                AddMethod(targetClass, "pushWallpaperChanged:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&PushWallpaperChangedImpl, "v@:@");
+                // OS accent change (distributed notification) → re-push the accent.
                 AddMethod(targetClass, "accentChanged:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&AccentChangedImpl, "v@:@");
                 AddMethod(targetClass, "pushAccentNow:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&PushAccentNowImpl, "v@:@");
                 objc_registerClassPair(targetClass);
@@ -244,23 +230,6 @@ internal static class MacAppWindow
         // AppKit re-lays-out the traffic lights across some transitions (e.g.
         // exiting full screen); re-apply the padding so it sticks.
         try { ApplyTrafficLightPadding(); } catch { }
-        // A resize can shift the window's top-left or move it to another screen;
-        // re-anchor the wallpaper backdrop.
-        try { PushWindowOrigin(); } catch { }
-    }
-
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-    private static void WindowDidMoveImpl(IntPtr self, IntPtr cmd, IntPtr notification)
-    {
-        // Fires continuously while the user drags the window. Throttle to ~60fps
-        // so the wallpaper tracks the move without flooding the WebContent
-        // process (the backlog is the lag); PushWindowOrigin stamps the clock.
-        try
-        {
-            if (_originClock.ElapsedMilliseconds - _lastOriginPushMs < 16) return;
-            PushWindowOrigin();
-        }
-        catch { }
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -269,23 +238,12 @@ internal static class MacAppWindow
         try
         {
             string? body = NsStringToString(MsgSend(message, SelRegister("body")));
-            if (body == "nexus:request-window-origin")
-            {
-                PushWindowOrigin();
-            }
-            else if (body == "nexus:request-system-accent")
+            if (body == "nexus:request-system-accent")
             {
                 PushSystemAccent();
             }
         }
         catch { }
-    }
-
-    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
-    private static void PushWallpaperChangedImpl(IntPtr self, IntPtr cmd, IntPtr arg)
-    {
-        // Bounced onto the main thread from the wallpaper file watcher.
-        try { DispatchHostMessage("{type:'nexus:wallpaper-changed'}"); } catch { }
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
@@ -511,8 +469,8 @@ internal static class MacAppWindow
         // window.nexusShellPlatform = 'windows-app'.
         InjectMacShellMarker(config);
 
-        // Web->host channel (webkit.messageHandlers.nexusHost) for the wallpaper
-        // backdrop's request-window-origin. _targetObj implements
+        // Web->host channel (webkit.messageHandlers.nexusHost) for the page's
+        // request-system-accent. _targetObj implements
         // userContentController:didReceiveScriptMessage:.
         IntPtr ucc = MsgSend(config, SelRegister("userContentController"));
         if (ucc != IntPtr.Zero)
@@ -599,9 +557,8 @@ internal static class MacAppWindow
         // Inset the traffic lights now that the window (and its buttons) exist.
         ApplyTrafficLightPadding();
 
-        // Live OS->app theming: re-fetch the wallpaper + re-read the accent the
-        // instant the user changes them in System Settings (event-driven, no poll).
-        StartWallpaperWatch();
+        // Re-read the OS accent the instant the user changes it in System
+        // Settings (event-driven distributed notification, no poll).
         RegisterAccentObserver();
     }
 
@@ -743,12 +700,8 @@ internal static class MacAppWindow
         IntPtr userContentController = MsgSend(config, SelRegister("userContentController"));
         if (userContentController == IntPtr.Zero) return;
 
-        // Also define the window-origin apply helper once, so each per-move push
-        // is a tiny function call to evaluate rather than recompiling the full
-        // MessageEvent expression every frame.
         IntPtr source = NsString(
-            "Object.defineProperty(window,'nexusShellPlatform',{value:'mac-app',writable:false,configurable:false});"
-            + "window.__nxWO=function(x,y,w,h){window.dispatchEvent(new MessageEvent('message',{data:{type:'nexus:window-origin',x:x,y:y,w:w,h:h}}));};");
+            "Object.defineProperty(window,'nexusShellPlatform',{value:'mac-app',writable:false,configurable:false});");
         const long WKUserScriptInjectionTimeAtDocumentStart = 0;
         IntPtr script = MsgSend(classWKUserScript, SelRegister("alloc"));
         script = MsgSend_InitUserScript(
@@ -758,36 +711,6 @@ internal static class MacAppWindow
         MsgSend(userContentController, SelRegister("addUserScript:"), script);
         MsgSend(script, SelRegister("release"));
     }
-
-    // Push the window's content top-left + its screen size (points = CSS px) to
-    // the page so the "wallpaper" backdrop anchors to the desktop instead of the
-    // window (faked Mica). The macOS counterpart to DashboardWindow.PostWindowOrigin
-    // on Windows; the page consumes it via subscribeWindowOrigin in windowActions.ts.
-    private static void PushWindowOrigin()
-    {
-        if (_window == IntPtr.Zero || _webView == IntPtr.Zero) return;
-
-        NSRect win = MsgSend_GetRect(_window, SelRegister("frame"));
-        IntPtr screen = MsgSend(_window, SelRegister("screen"));
-        if (screen == IntPtr.Zero)
-            screen = MsgSend(ClassGet("NSScreen"), SelRegister("mainScreen"));
-        if (screen == IntPtr.Zero) return;
-        NSRect scr = MsgSend_GetRect(screen, SelRegister("frame"));
-
-        // AppKit screen coords are global and bottom-left origin; the page wants
-        // the window's top-left relative to the screen's top-left, y downward.
-        double x = win.x - scr.x;
-        double y = (scr.y + scr.height) - (win.y + win.height);
-
-        // Tiny call into the injected helper (see InjectMacShellMarker); cheaper
-        // to compile per frame than a full MessageEvent expression. Guarded in
-        // case the eval runs before the document-start script.
-        string js = "window.__nxWO&&__nxWO(" + Px(x) + "," + Px(y) + "," + Px(scr.width) + "," + Px(scr.height) + ")";
-        MsgSend(_webView, SelRegister("evaluateJavaScript:completionHandler:"), NsString(js), IntPtr.Zero);
-        _lastOriginPushMs = _originClock.ElapsedMilliseconds;
-    }
-
-    private static string Px(double v) => v.ToString("0.##", CultureInfo.InvariantCulture);
 
     // Behind-window frosted-glass view filling the window, added behind the
     // (transparent) WKWebView so the real desktop shows through, blurred.
@@ -875,48 +798,6 @@ internal static class MacAppWindow
             _accentObserverRegistered = true;
         }
         catch (Exception ex) { Console.Error.WriteLine($"[mac-app-window] accent observer failed: {ex.Message}"); }
-    }
-
-    private static FileSystemWatcher? _wallpaperWatcher;
-
-    // Watch the wallpaper choice store; macOS rewrites Index.plist when the user
-    // changes wallpaper. Event-driven (FSEvents under FileSystemWatcher), no poll.
-    private static void StartWallpaperWatch()
-    {
-        if (_wallpaperWatcher != null) return;
-        try
-        {
-            string dir = Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-                "Library", "Application Support", "com.apple.wallpaper", "Store");
-            if (!Directory.Exists(dir)) return;
-            var w = new FileSystemWatcher(dir)
-            {
-                NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
-                IncludeSubdirectories = true,
-            };
-            FileSystemEventHandler onChange = (_, __) => OnWallpaperStoreChanged();
-            w.Changed += onChange;
-            w.Created += onChange;
-            w.Renamed += (_, __) => OnWallpaperStoreChanged();
-            w.EnableRaisingEvents = true;
-            _wallpaperWatcher = w;
-        }
-        catch (Exception ex) { Console.Error.WriteLine($"[mac-app-window] wallpaper watch failed: {ex.Message}"); }
-    }
-
-    private static void OnWallpaperStoreChanged()
-    {
-        // Fires on a thread-pool thread; evaluateJavaScript must run on the main
-        // thread. The page debounces the re-fetch, so burst writes coalesce.
-        if (_targetObj == IntPtr.Zero) return;
-        try
-        {
-            MsgSend_Perform(_targetObj,
-                SelRegister("performSelectorOnMainThread:withObject:waitUntilDone:"),
-                SelRegister("pushWallpaperChanged:"), IntPtr.Zero, false);
-        }
-        catch { }
     }
 
     private static string? NsStringToString(IntPtr nsString)
