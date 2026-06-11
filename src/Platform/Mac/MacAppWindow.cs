@@ -45,12 +45,6 @@ internal static class MacAppWindow
     private const double TrafficLightInsetMac = 96;     // --mac-traffic-light-inset
     private const double RailWidthMac = 86;             // --rail-width (collapsed sidebar)
 
-    // Uniform scale applied to the three traffic-light buttons so they read a
-    // touch smaller than the macOS default (a 20% reduction). They're then
-    // centered in the collapsed rail (horizontally) at runtime in
-    // ApplyTrafficLightPadding.
-    private const double TrafficLightScale = 0.8;
-
     // Downward nudge (points) from the default light position. Kept small so the
     // lights stay within the native title-bar clip region (they can't reach the
     // center of the taller top bar).
@@ -361,18 +355,6 @@ internal static class MacAppWindow
         double groupRight = _trafficLightBaseOrigin[4] + frames[2].width;
         double shiftX = RailWidthMac / 2.0 - (groupLeft + groupRight) / 2.0;
 
-        // Scale each button down via KVC on its backing layer
-        // (layer.transform.scale). KVC takes an NSNumber + key-path string, so it
-        // sidesteps marshaling a CATransform3D / CGAffineTransform struct by
-        // value. transform.scale is absolute, so re-applying on every show is
-        // idempotent (never compounds); it scales about the layer anchorPoint
-        // (center), so the buttons shrink in place.
-        IntPtr scaleNum = MsgSendDouble(ClassGet("NSNumber"), SelRegister("numberWithDouble:"), TrafficLightScale);
-        IntPtr scaleKeyPath = NsString("transform.scale");
-        IntPtr selSetWantsLayer = SelRegister("setWantsLayer:");
-        IntPtr selLayer = SelRegister("layer");
-        IntPtr selSetValueForKeyPath = SelRegister("setValue:forKeyPath:");
-
         for (long i = 0; i <= 2; i++)
         {
             IntPtr button = MsgSend(_window, selButton, (IntPtr)i);
@@ -385,11 +367,6 @@ internal static class MacAppWindow
             // while staying fully visible.
             f.y = _trafficLightBaseOrigin[i * 2 + 1] - TrafficLightDrop;
             MsgSend_SetRect(button, selSetFrame, f);
-
-            MsgSendVoidBool(button, selSetWantsLayer, true);
-            IntPtr layer = MsgSend(button, selLayer);
-            if (layer != IntPtr.Zero)
-                MsgSend(layer, selSetValueForKeyPath, scaleNum, scaleKeyPath);
         }
     }
 
