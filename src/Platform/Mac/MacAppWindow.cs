@@ -242,8 +242,26 @@ internal static class MacAppWindow
             {
                 PushSystemAccent();
             }
+            else if (body == "nexus:theme-dark" || body == "nexus:theme-light")
+            {
+                // Drive the window appearance from the dashboard's resolved theme
+                // (not the OS), so the traffic lights + NSVisualEffectView glass
+                // follow light/dark with the in-app setting.
+                SetWindowAppearance(body == "nexus:theme-dark");
+            }
         }
         catch { }
+    }
+
+    private static void SetWindowAppearance(bool dark)
+    {
+        if (_window == IntPtr.Zero) return;
+        IntPtr cls = ClassGet("NSAppearance");
+        if (cls == IntPtr.Zero) return;
+        IntPtr appearance = MsgSend(cls, SelRegister("appearanceNamed:"),
+            NsString(dark ? "NSAppearanceNameDarkAqua" : "NSAppearanceNameAqua"));
+        if (appearance != IntPtr.Zero)
+            MsgSend(_window, SelRegister("setAppearance:"), appearance);
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
