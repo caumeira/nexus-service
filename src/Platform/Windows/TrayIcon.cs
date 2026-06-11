@@ -335,11 +335,31 @@ public static class TrayIcon
                 }
                 else if (ev == NIN_BALLOONUSERCLICK)
                 {
-                    // The pairing notification was clicked. Open the
-                    // dashboard; the service's snapshot provider replays the
-                    // pending pair request so the Allow/Deny modal pops as
-                    // soon as the window's WebSocket subscribes.
-                    OpenLocalWindow();
+                    // A balloon was clicked. NIN_BALLOONUSERCLICK carries no
+                    // identity, so routing state lives in _noticeFolderPath:
+                    // transfer notices open their inbox folder, everything
+                    // else (pairing) opens the dashboard — whose snapshot
+                    // provider replays a pending pair request so the
+                    // Allow/Deny modal pops once the WebSocket subscribes.
+                    string? folder;
+                    lock (_sync)
+                    {
+                        folder = _noticeFolderPath;
+                        _noticeFolderPath = null;
+                        _balloonKind = BalloonKind.None;
+                    }
+                    if (folder is not null && System.IO.Directory.Exists(folder))
+                    {
+                        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                        {
+                            FileName = folder,
+                            UseShellExecute = true,
+                        });
+                    }
+                    else
+                    {
+                        OpenLocalWindow();
+                    }
                 }
             }
             else if (msg == WM_DISPLAYCHANGE)
@@ -539,13 +559,42 @@ public static class TrayIcon
         var text = string.IsNullOrWhiteSpace(deviceLabel)
             ? "A phone wants to connect. Click to review."
             : $"{deviceLabel} wants to connect. Click to review.";
-        ModifyBalloon("Nexus pairing request", text);
+        ModifyBalloon("Nexus pairing request", text, BalloonKind.Pair, folderPath: null);
     }
 
-    /// <summary>Dismiss the pairing balloon once the request is resolved.</summary>
-    public static void ClearPairBalloon() => ModifyBalloon(string.Empty, string.Empty);
+    /// <summary>
+    /// Dismiss the pairing balloon once the request is resolved. Only clears
+    /// when a pairing balloon owns the slot — every resolution fires this, and
+    /// it must not blank a live transfer notice.
+    /// </summary>
+    public static void ClearPairBalloon()
+        => ModifyBalloon(string.Empty, string.Empty, BalloonKind.None, folderPath: null, onlyIfKind: BalloonKind.Pair);
 
-    private static void ModifyBalloon(string title, string text)
+    /// <summary>
+    /// One balloon slot exists (NIM_MODIFY replaces), so clicks carry no
+    /// identity; the owner kind + optional folder route NIN_BALLOONUSERCLICK.
+    /// </summary>
+    private enum BalloonKind { None, Pair, Notice }
+    private static BalloonKind _balloonKind;
+    private static string? _noticeFolderPath;
+
+    /// <summary>
+    /// Generic one-shot balloon (incoming transfers, future notices). Same
+    /// best-effort semantics as <see cref="ShowPairBalloon"/>: no-op while the
+    /// tray icon is hidden — and while a pairing balloon is pending, which is
+    /// time-sensitive and must not lose its click routing to a notice.
+    /// </summary>
+    public static void ShowNoticeBalloon(string title, string text, string? folderPath)
+        => ModifyBalloon(title, text, BalloonKind.Notice,
+            string.IsNullOrEmpty(folderPath) ? null : folderPath, notWhileKind: BalloonKind.Pair);
+
+    private static void ModifyBalloon(
+        string title,
+        string text,
+        BalloonKind kind,
+        string? folderPath,
+        BalloonKind? onlyIfKind = null,
+        BalloonKind? notWhileKind = null)
     {
         lock (_sync)
         {
@@ -553,6 +602,18 @@ public static class TrayIcon
             {
                 return;
             }
+            if (onlyIfKind is { } only && _balloonKind != only)
+            {
+                return;
+            }
+            if (notWhileKind is { } blocked && _balloonKind == blocked)
+            {
+                return;
+            }
+            // Routing state and the visible balloon swap under one acquisition,
+            // so a click can never observe one without the other.
+            _balloonKind = kind;
+            _noticeFolderPath = folderPath;
             try
             {
                 var nid = _nid;

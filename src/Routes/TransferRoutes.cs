@@ -104,6 +104,19 @@ public static class TransferRoutes
                 });
             }
 
+            // No dashboard subscribed to the topic means nobody saw the WS
+            // toast — surface a native notification instead. One summary
+            // notice per request, not per file (a 20-photo batch must not
+            // pop 20 balloons).
+            if (!hub.TopicHasSubscribers(PanelTopics.Transfer))
+            {
+                var sender = BalloonSender(from);
+                var text = saved.Count == 1
+                    ? $"{saved[0].Name} from {sender}. Click to open the folder."
+                    : $"{saved.Count} files from {sender}. Click to open the folder.";
+                inbox.RaiseAttention(new TransferAttentionNotice("Nexus transfer received", text, dir));
+            }
+
             return Results.Ok(new TransferItemsResponse
             {
                 Saved = saved,
@@ -112,7 +125,7 @@ public static class TransferRoutes
             });
         }).AllowPanel();
 
-        app.MapPost("/transfer/clipboard", (TransferClipboardBody body, HttpContext ctx, IClipboardProvider clipboard, MultiplexHub hub, PanelPhonePairingService pairing) =>
+        app.MapPost("/transfer/clipboard", (TransferClipboardBody body, HttpContext ctx, IClipboardProvider clipboard, MultiplexHub hub, PanelPhonePairingService pairing, TransferInbox inbox) =>
         {
             var text = body.Text ?? "";
             if (text.Length == 0)
@@ -123,12 +136,18 @@ public static class TransferRoutes
             // keystrokes is /system/input/text's job.
             if (!clipboard.SetText(text))
                 return ApiResponse.Fail("clipboard unavailable");
+            var from = SenderName(ctx, pairing);
             PanelTopics.BroadcastTransfer(hub, new TransferReceivedFrame
             {
                 Kind = "clipboard",
                 Size = text.Length,
-                From = SenderName(ctx, pairing),
+                From = from,
             });
+            if (!hub.TopicHasSubscribers(PanelTopics.Transfer))
+            {
+                inbox.RaiseAttention(new TransferAttentionNotice(
+                    "Nexus transfer received", $"Clipboard from {BalloonSender(from)}. Ready to paste.", null));
+            }
             return ApiResponse.Ok();
         }).AllowPanel();
     }
@@ -137,5 +156,19 @@ public static class TransferRoutes
     {
         var sessionId = ctx.Items.TryGetValue(PathAuthMiddleware.PhoneSessionIdItem, out var raw) ? raw as string : null;
         return string.IsNullOrEmpty(sessionId) ? "" : pairing.GetSessionDisplayName(sessionId);
+    }
+
+    /// <summary>Phone-supplied display names aren't control-char-stripped at claim; balloons render newlines literally.</summary>
+    private static string BalloonSender(string from)
+    {
+        if (string.IsNullOrEmpty(from))
+            return "your phone";
+        var chars = from.ToCharArray();
+        for (var i = 0; i < chars.Length; i++)
+        {
+            if (chars[i] < ' ')
+                chars[i] = ' ';
+        }
+        return new string(chars);
     }
 }

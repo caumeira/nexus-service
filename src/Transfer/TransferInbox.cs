@@ -5,6 +5,13 @@ using Nexus.Service.Persistence;
 namespace Nexus.Service.Transfer;
 
 /// <summary>
+/// Native-notification request for a transfer that landed while no dashboard
+/// was open to show the WebSocket toast. <see cref="FolderPath"/> set means
+/// "clicking should open this folder".
+/// </summary>
+public sealed record TransferAttentionNotice(string Title, string Text, string? FolderPath);
+
+/// <summary>
 /// Destination folder + safe-write helper for phone→PC transfers. Resolution
 /// order: explicit settings override → the interactive user's Downloads/Nexus
 /// (helper-reported on Windows — the Session-0 service can't resolve per-user
@@ -35,6 +42,28 @@ public sealed class TransferInbox
     {
         _store = store;
         _services = services;
+    }
+
+    /// <summary>
+    /// Raised when a transfer lands with no dashboard subscribed to the
+    /// "transfer" topic. Platform bootstraps subscribe to surface a native
+    /// notification (Windows tray balloon today).
+    /// </summary>
+    public event Action<TransferAttentionNotice>? TransferNeedsAttention;
+
+    public void RaiseAttention(TransferAttentionNotice notice)
+    {
+        // Raised synchronously inside the HTTP handler; a throwing subscriber
+        // must not turn an already-saved upload into a 500 (→ phone retry →
+        // duplicate files).
+        try
+        {
+            TransferNeedsAttention?.Invoke(notice);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[transfer-notify] subscriber failed: {ex.Message}");
+        }
     }
 
     public string ResolveDir()

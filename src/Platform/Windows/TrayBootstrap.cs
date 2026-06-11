@@ -81,6 +81,15 @@ internal static class TrayBootstrap
             try { TrayIcon.ClearPairBalloon(); }
             catch { /* best-effort */ }
         };
+
+        // Same dashboard-closed gate, transfer flavor: a phone→PC item landed
+        // with nobody subscribed to the WS toast.
+        var inbox = app.Services.GetRequiredService<Nexus.Service.Transfer.TransferInbox>();
+        inbox.TransferNeedsAttention += notice =>
+        {
+            try { TrayIcon.ShowNoticeBalloon(notice.Title, notice.Text, notice.FolderPath); }
+            catch { /* best-effort */ }
+        };
     }
 
 #if WINDOWS
@@ -114,6 +123,15 @@ internal static class TrayBootstrap
         {
             try { _ = TrayCommands.PairNoticeAsync(helperRegistry, false, ""); }
             catch (Exception ex) { Console.Error.WriteLine($"[pair-notify] dismiss failed: {ex.Message}"); }
+        };
+
+        // Same dashboard-closed gate, transfer flavor — pushed down the pipe
+        // because Session 0 can't draw UI.
+        var inbox = app.Services.GetRequiredService<Nexus.Service.Transfer.TransferInbox>();
+        inbox.TransferNeedsAttention += notice =>
+        {
+            try { _ = TrayCommands.NoticeAsync(helperRegistry, notice.Title, notice.Text, notice.FolderPath); }
+            catch (Exception ex) { Console.Error.WriteLine($"[transfer-notify] show failed: {ex.Message}"); }
         };
 
         // Push current state on every fresh helper connect: first bootstrap,

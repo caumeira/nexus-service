@@ -105,7 +105,8 @@ internal static class WindowsUserHelper
         new TrayHandler(
             Platform.Windows.TrayIcon.SetVisible,
             Platform.Windows.TrayIcon.ShowPairBalloon,
-            Platform.Windows.TrayIcon.ClearPairBalloon).Register(handlerRegistry);
+            Platform.Windows.TrayIcon.ClearPairBalloon,
+            Platform.Windows.TrayIcon.ShowNoticeBalloon).Register(handlerRegistry);
         new LifecycleHandler(
             onShutdown: () =>
             {

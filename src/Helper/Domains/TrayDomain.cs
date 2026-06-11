@@ -32,6 +32,19 @@ namespace Nexus.Service.Helper.Domains
         public string DeviceLabel { get; set; } = "";
     }
 
+    /// <summary>
+    /// Payload for <c>trayIcon.notice</c>. Service-to-helper. Generic one-shot
+    /// balloon (first user: incoming phone→PC transfers landing while no
+    /// dashboard is open). When <see cref="FolderPath"/> is set, clicking the
+    /// balloon opens that folder in Explorer instead of the dashboard.
+    /// </summary>
+    public sealed class TrayNoticePayload
+    {
+        public string Title { get; set; } = "";
+        public string Text { get; set; } = "";
+        public string FolderPath { get; set; } = "";
+    }
+
     // JSON source-gen registration lives in src/Serialization/AppJsonContext.cs
     // (see note in LifecycleDomain.cs).
 
@@ -59,6 +72,17 @@ namespace Nexus.Service.Helper.Domains
                 payloadType: AppJsonContext.Default.TrayPairNoticePayload,
                 ct: ct);
         }
+
+        public static Task NoticeAsync(HelperRegistry registry, string title, string text, string? folderPath, CancellationToken ct = default)
+        {
+            var conn = registry.GetAny();
+            if (conn is null) return Task.CompletedTask;
+            return conn.SendAsync(
+                type: "trayIcon.notice",
+                payload: new TrayNoticePayload { Title = title, Text = text, FolderPath = folderPath ?? "" },
+                payloadType: AppJsonContext.Default.TrayNoticePayload,
+                ct: ct);
+        }
     }
 
     [SupportedOSPlatform("windows")]
@@ -67,12 +91,14 @@ namespace Nexus.Service.Helper.Domains
         private readonly Action<bool> _setVisible;
         private readonly Action<string> _showPairNotice;
         private readonly Action _dismissPairNotice;
+        private readonly Action<string, string, string?> _showNotice;
 
-        public TrayHandler(Action<bool> setVisible, Action<string> showPairNotice, Action dismissPairNotice)
+        public TrayHandler(Action<bool> setVisible, Action<string> showPairNotice, Action dismissPairNotice, Action<string, string, string?> showNotice)
         {
             _setVisible = setVisible;
             _showPairNotice = showPairNotice;
             _dismissPairNotice = dismissPairNotice;
+            _showNotice = showNotice;
         }
 
         public void Register(HelperHandlerRegistry registry)
@@ -94,6 +120,15 @@ namespace Nexus.Service.Helper.Domains
                     if (p.Show) _showPairNotice(p.DeviceLabel ?? "");
                     else _dismissPairNotice();
                 }
+                return Task.FromResult(env.Ok());
+            });
+
+            registry.Register("trayIcon.notice", (env, _) =>
+            {
+                if (env.Payload is null) return Task.FromResult(env.Ok());
+                var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TrayNoticePayload);
+                if (p is not null)
+                    _showNotice(p.Title ?? "", p.Text ?? "", string.IsNullOrEmpty(p.FolderPath) ? null : p.FolderPath);
                 return Task.FromResult(env.Ok());
             });
         }
