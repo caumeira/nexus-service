@@ -42,7 +42,7 @@ public static class ClipboardCommands
         {
             // Distinguishes pipe skew ("unknown type") from timeout from a
             // helper-side Set-Clipboard failure.
-            ServiceLog.Warn($"[clipboard-win] helper set failed: {result.Error}");
+            Nexus.Service.Platform.ServiceLog.Warn($"[clipboard-win] helper set failed: {result.Error}");
         }
         return result.Ok;
     }
