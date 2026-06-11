@@ -799,11 +799,14 @@ internal static class MacAppWindow
         vev = MsgSend_InitFrame(vev, SelRegister("initWithFrame:"), frame);
         const long MaterialUnderWindowBackground = 21;
         const long BlendingModeBehindWindow = 0;
-        const long StateActive = 1;
+        // Follow the window's active state: full blur when the window is key,
+        // the muted/flat inactive material when it loses focus (native macOS
+        // behaviour, handled by the WindowServer at no cost to us).
+        const long StateFollowsWindowActiveState = 0;
         const long ViewWidthHeightSizable = 18;
         MsgSendVoidLong(vev, SelRegister("setMaterial:"), MaterialUnderWindowBackground);
         MsgSendVoidLong(vev, SelRegister("setBlendingMode:"), BlendingModeBehindWindow);
-        MsgSendVoidLong(vev, SelRegister("setState:"), StateActive);
+        MsgSendVoidLong(vev, SelRegister("setState:"), StateFollowsWindowActiveState);
         MsgSendVoidLong(vev, SelRegister("setAutoresizingMask:"), ViewWidthHeightSizable);
         MsgSend(container, SelRegister("addSubview:"), vev);
         MsgSend(vev, SelRegister("release"));
