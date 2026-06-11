@@ -129,13 +129,32 @@ public static class SystemRoutes
         }).AllowPanel();
 
         // open-path is LAN-only (denied on the relay) — it opens arbitrary local files.
-        app.MapPost("/system/open-path", (OpenPathBody body) =>
+        app.MapPost("/system/open-path", async (OpenPathBody body, IServiceProvider sp) =>
         {
             var path = body.Path?.Trim() ?? "";
             if (string.IsNullOrEmpty(path))
                 return ApiResponse.Fail("path is required");
             if (!File.Exists(path) && !Directory.Exists(path))
                 return ApiResponse.Fail("path does not exist");
+#if WINDOWS
+            // A Session-0 Process.Start opens Explorer on an invisible desktop;
+            // folders route through the user-session helper (same as
+            // /media/library/open). Files keep the legacy direct spawn — only
+            // meaningful in interactive runs.
+            if (OperatingSystem.IsWindows() && Directory.Exists(path))
+            {
+                var registry = sp.GetService<Nexus.Service.Helper.HelperRegistry>();
+                var helperConnected = registry?.GetAny() is not null;
+                if (helperConnected &&
+                    await Nexus.Service.Helper.Domains.FileDialogCommands.OpenFolderAsync(registry!, path))
+                {
+                    return ApiResponse.Ok("opened");
+                }
+                if (!Environment.UserInteractive)
+                    return ApiResponse.Fail(helperConnected ? "failed to open folder" : "no interactive user session");
+            }
+#endif
+            await Task.CompletedTask;
             try
             {
                 Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });

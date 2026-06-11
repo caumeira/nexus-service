@@ -549,7 +549,8 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IKeebProvider>(sp => sp.GetRequiredService<RealKeebProvider>());
 #if WINDOWS
         services.AddSingleton<IInputterProvider, WindowsInputter>();
-        services.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider, Nexus.Service.Platform.Clipboard.WindowsClipboardProvider>();
+        services.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider>(
+            sp => new Nexus.Service.Platform.Clipboard.HelperRoutedClipboardProvider(sp));
 #elif MACOS
         services.AddSingleton<IInputterProvider, MacInputter>();
         services.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider, Nexus.Service.Platform.Clipboard.MacClipboardProvider>();

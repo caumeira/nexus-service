@@ -82,3 +82,43 @@ public sealed class StubClipboardProvider : IClipboardProvider
 {
     public bool SetText(string text) => false;
 }
+
+#if WINDOWS
+/// <summary>
+/// Clipboards are per-session: a set from the Session-0 service lands on an
+/// invisible clipboard. Interactive runs set locally; service mode routes
+/// through the user-session helper and reports failure when none is connected
+/// (a local set would "succeed" without the user ever seeing the text).
+/// </summary>
+public sealed class HelperRoutedClipboardProvider : IClipboardProvider
+{
+    private readonly IServiceProvider _services;
+    private readonly WindowsClipboardProvider _local = new();
+
+    public HelperRoutedClipboardProvider(IServiceProvider services) => _services = services;
+
+    public bool SetText(string text)
+    {
+        if (Environment.UserInteractive)
+            return _local.SetText(text);
+        if (_services.GetService(typeof(Nexus.Service.Helper.HelperRegistry)) is not Nexus.Service.Helper.HelperRegistry registry)
+        {
+            return false;
+        }
+        try
+        {
+            // The token must also bound the pipe WRITE: SendCommandAsync's
+            // internal timeout only covers the reply wait, and this is a
+            // sync-over-async seam parking a worker thread.
+            using var cts = new System.Threading.CancellationTokenSource(TimeSpan.FromSeconds(6));
+            return Nexus.Service.Helper.Domains.ClipboardCommands
+                .SetTextAsync(registry, text, cts.Token).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Warn($"[clipboard-win] helper route failed: {ex.Message}");
+            return false;
+        }
+    }
+}
+#endif
