@@ -748,12 +748,6 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
-    public static IServiceCollection AddNexusWeather(this IServiceCollection services)
-    {
-        services.AddSingleton<Nexus.Service.Platform.Weather.IWeatherProvider, Nexus.Service.Platform.Weather.OpenMeteoWeatherProvider>();
-        return services;
-    }
-
     /// <summary>
     /// Widget runtime services. Serving routes are wired in
     /// <see cref="Nexus.Service.Routes.AppRoutes.MapAppEndpoints"/>

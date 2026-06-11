@@ -12,13 +12,7 @@ public static class ActivityRoutes
 {
     public static void MapActivityEndpoints(this WebApplication app)
     {
-        // Screen time
-        app.MapGet("/api/screentime", (IScreenTimeProvider st) =>
-        {
-            var session = st.GetCurrentSession();
-            return session is not null ? Results.Ok(session) : Results.Ok(new FocusSession());
-        });
-        // Persistent history browsing
+        // Screen time — persistent history browsing
         app.MapGet("/api/screentime/day/{date}", (string date, IScreenTimeStore store) =>
         {
             if (!DateOnly.TryParse(date, out var d))

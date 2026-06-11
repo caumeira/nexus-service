@@ -79,18 +79,6 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         _rgb?.AwaitShutdown();
     }
 
-    public void SetFrameRate(int frameRate)
-    {
-        _store.Update(s => s.Lighting.FrameRate = frameRate);
-        // Engine frame interval can be re-tuned live. Cap at 120fps so a
-        // typo can't peg the CPU.
-        var safe = Math.Clamp(frameRate, 1, 120);
-        _engine.FrameIntervalMs = 1000 / safe;
-    }
-
-    public void SetScaleRatio(double ratio) =>
-        _store.Update(s => s.Lighting.ScaleRatio = ratio);
-
     public void SetBrightness(BrightnessScale scale) => _store.Update(s =>
     {
         s.Lighting.BrightnessScale = scale.Scale;
@@ -629,8 +617,6 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         });
         return true;
     }
-
-    public void SetStreaming(SetHeadlessStreaming body) { /* no-op for the virtual strip */ }
 
     public void Dispose()
     {

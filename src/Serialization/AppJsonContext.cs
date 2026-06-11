@@ -13,7 +13,6 @@ using Nexus.Service.Models.Lighting;
 using Nexus.Service.Models.Obs;
 using Nexus.Service.Models.Peripherals;
 using Nexus.Service.Models.Peripherals.Keeb;
-using Nexus.Service.Models.Peripherals.QSeries;
 using Nexus.Service.Models.Peripherals.Y70;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Models.Steam;
@@ -48,7 +47,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(GetStoragePartitionsResponse))]
 [JsonSerializable(typeof(GetDriveStorageResponse))]
 [JsonSerializable(typeof(SystemSpecsResponse))]
-[JsonSerializable(typeof(SetPollingRateBody))]
 [JsonSerializable(typeof(GetPollingRateResponse))]
 
 // Cooling
@@ -232,17 +230,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayAssignmentsResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayRotationBody))]
 
-// Weather
-[JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherSnapshot))]
-[JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherHourlyForecast))]
-[JsonSerializable(typeof(List<Nexus.Service.Models.Weather.WeatherHourlyForecast>))]
-[JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherDailyForecast))]
-[JsonSerializable(typeof(List<Nexus.Service.Models.Weather.WeatherDailyForecast>))]
-[JsonSerializable(typeof(Nexus.Service.Platform.Weather.IpLocation))]
-[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoResponse))]
-[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoCurrent))]
-[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoHourly))]
-[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoDaily))]
 [JsonSerializable(typeof(Nexus.Service.Models.Profiles.ListProfilesResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Profiles.ProfileResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Profiles.SwitchProfileResponse))]
@@ -280,8 +267,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(AudioStateSnapshot))]
 [JsonSerializable(typeof(ShaderSourceResponse))]
 [JsonSerializable(typeof(CurrentSyncResponse))]
-[JsonSerializable(typeof(SetFrameRateBody))]
-[JsonSerializable(typeof(SetScaleRatioBody))]
 [JsonSerializable(typeof(BrightnessScale))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.GlobalBrightnessBody))]
 [JsonSerializable(typeof(SpeedScale))]
@@ -303,7 +288,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(ScreenSyncMonitor))]
 [JsonSerializable(typeof(List<ScreenSyncMonitor>))]
 [JsonSerializable(typeof(GifHeadlessStart))]
-[JsonSerializable(typeof(SetHeadlessStreaming))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.PostProcessBody))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.PostProcessSettings))]
 
@@ -428,7 +412,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.SmartLights.DiscoverSmartLightsResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.SmartLights.PairSmartLightBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.SmartLights.PairSmartLightResponse))]
-[JsonSerializable(typeof(Nexus.Service.Models.SmartLights.RemoveSmartLightBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.SmartLights.EnableSmartLightBody))]
 
 // Keeb
@@ -445,15 +428,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(InputterBody))]
 
 // Displays
-[JsonSerializable(typeof(Y70StatusResponse))]
 [JsonSerializable(typeof(Y70RotationParams))]
 [JsonSerializable(typeof(Y70BrightnessResponse))]
 [JsonSerializable(typeof(Y70BrightnessParams))]
 [JsonSerializable(typeof(Y70ToggleScreenResponse))]
 [JsonSerializable(typeof(Y70ToggleScreenParams))]
-[JsonSerializable(typeof(Y70IsRotatedResponse))]
-[JsonSerializable(typeof(GetSerialNumberResponse))]
-[JsonSerializable(typeof(GetQSeriesTimeResponse))]
 
 // Activity
 [JsonSerializable(typeof(FocusSession))]
@@ -483,7 +462,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SendKeysBody))]
 [JsonSerializable(typeof(SendTextBody))]
 [JsonSerializable(typeof(OpenPathBody))]
-[JsonSerializable(typeof(InputStatusResponse))]
 [JsonSerializable(typeof(AudioDevice))]
 [JsonSerializable(typeof(List<AudioDevice>))]
 [JsonSerializable(typeof(AudioDeviceList))]

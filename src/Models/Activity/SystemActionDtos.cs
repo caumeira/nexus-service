@@ -30,11 +30,3 @@ public sealed class OpenPathBody
 {
     public string Path { get; set; } = "";
 }
-
-/// <summary>Capability probe for the input subsystem (macOS Accessibility gate, etc.).</summary>
-public sealed class InputStatusResponse
-{
-    public bool Supported { get; set; }
-    public bool AccessibilityGranted { get; set; }
-    public string Platform { get; set; } = "";
-}

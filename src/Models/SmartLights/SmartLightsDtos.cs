@@ -58,11 +58,6 @@ public class PairSmartLightResponse
     public string Message { get; set; } = "";
 }
 
-public class RemoveSmartLightBody
-{
-    public string Id { get; set; } = "";
-}
-
 public class EnableSmartLightBody
 {
     public string Id { get; set; } = "";

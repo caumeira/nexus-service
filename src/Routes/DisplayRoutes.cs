@@ -3,7 +3,6 @@ using Nexus.Service.Auth;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Displays;
 using Nexus.Service.Models.Panel;
-using Nexus.Service.Models.Peripherals.QSeries;
 using Nexus.Service.Models.Peripherals.Y70;
 using Nexus.Service.Panel;
 using Nexus.Service.Peripherals.QSeries;
@@ -19,7 +18,6 @@ public static class DisplayRoutes
     public static void MapDisplayEndpoints(this WebApplication app)
     {
         // Y70
-        app.MapGet("/y70/status", (IY70Provider y) => new Y70StatusResponse { IsConnected = y.IsConnected() }).AllowPanel();
         app.MapGet("/y70/rotation", (IY70Provider y) => new Y70RotationParams { Orientation = y.GetOrientation() }).AllowPanel();
         app.MapPost("/y70/rotation", (Y70RotationParams body, IY70Provider y) =>
         {
@@ -38,11 +36,6 @@ public static class DisplayRoutes
             y.SetToggle(body.Toggle);
             return new Y70BrightnessResponse { Brightness = 20 };
         }).AllowPanel();
-        app.MapGet("/y70/is-rotated", (IY70Provider y) => new Y70IsRotatedResponse { IsRotated = y.IsRotated() }).AllowPanel();
-
-        // Q-series (Q60 + Q80)
-        app.MapGet("/qseries/serial", (IQSeriesProvider q) => new GetSerialNumberResponse { Serial = q.GetSerial() });
-        app.MapGet("/qseries/timev0", (IQSeriesProvider q) => new GetQSeriesTimeResponse { Time = q.GetFormattedTime() });
 
         // System monitors (external DDC/CI + internal panels)
         app.MapGet("/displays", (DisplayBrightnessController d) => d.ListDisplays()).AllowPanel();

@@ -12,8 +12,6 @@ public interface ILightingProvider
     string GetSync();
     void SetSync(string sync);
     void StopAll();
-    void SetFrameRate(int frameRate);
-    void SetScaleRatio(double ratio);
     void SetBrightness(BrightnessScale scale);
     void SetSpeed(SpeedScale scale);
 
@@ -27,7 +25,6 @@ public interface ILightingProvider
     void ReselectScreen();
     void StartGif(GifHeadlessStart body);
     bool StartMedia(string mediaId);
-    void SetStreaming(SetHeadlessStreaming body);
 
     /// <summary>Update the Mirror post-process (hue / colorize / saturation / contrast + flip X/Y). Persists to settings when persist=true.</summary>
     void UpdateScreenEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist);

@@ -1,10 +1,5 @@
 namespace Nexus.Service.Models.Peripherals.Y70;
 
-public class Y70StatusResponse : ApiResponse
-{
-    public bool IsConnected { get; set; }
-}
-
 public class Y70RotationParams : ApiResponse
 {
     /// <summary>One of: Landscape, Portrait, LandscapeFlipped, PortraitFlipped.</summary>
@@ -24,8 +19,3 @@ public class Y70ToggleScreenResponse : ApiResponse
 }
 
 public class Y70ToggleScreenParams { public bool Toggle { get; set; } }
-
-public class Y70IsRotatedResponse : ApiResponse
-{
-    public bool IsRotated { get; set; }
-}

@@ -23,14 +23,6 @@ public static class SystemRoutes
 {
     public static void MapSystemEndpoints(this WebApplication app)
     {
-        app.MapPost("/system/polling-rate", (SetPollingRateBody body, [FromServices] ProcessMonitor pm, [FromServices] INetworkProvider net, [FromServices] MonitoringBroadcaster monitoring) =>
-        {
-            pm.SetInterval(body.PollingRate);
-            net.SetInterval(body.PollingRate);
-            monitoring.SetInterval(body.PollingRate);
-            return ApiResponse.Ok();
-        });
-
         app.MapGet("/system/elevation", () =>
         {
             var platform = OperatingSystem.IsWindows() ? "windows"
@@ -92,17 +84,6 @@ public static class SystemRoutes
         }).AllowPanel();
 
         // ── Keyboard / text injection (deck hotkey + type-text actions) ──
-        app.MapGet("/system/input/status", () =>
-        {
-            var mac = OperatingSystem.IsMacOS();
-            return new InputStatusResponse
-            {
-                Platform = OperatingSystem.IsWindows() ? "windows" : mac ? "macos" : OperatingSystem.IsLinux() ? "linux" : "unsupported",
-                Supported = OperatingSystem.IsWindows() || mac || OperatingSystem.IsLinux(),
-                AccessibilityGranted = !mac || Nexus.Service.Peripherals.Keeb.MacInputter.AccessibilityGranted(),
-            };
-        }).AllowPanel();
-
         app.MapPost("/system/input/keys", (SendKeysBody body, IInputterProvider inputter) =>
         {
             var input = BuildKeyStrokes(body);

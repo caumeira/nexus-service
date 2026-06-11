@@ -2,11 +2,6 @@ using System.Collections.Generic;
 
 namespace Nexus.Service.Models.Sensors;
 
-public class SetPollingRateBody
-{
-    public int PollingRate { get; set; }
-}
-
 public class GetPollingRateResponse
 {
     public int PollingRate { get; set; }

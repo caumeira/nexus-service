@@ -24,9 +24,6 @@ public class CurrentSyncResponse : ApiResponse
     public string Sync { get; set; } = "none";
 }
 
-public class SetFrameRateBody { public int FrameRate { get; set; } }
-public class SetScaleRatioBody { public double Ratio { get; set; } }
-
 public class BrightnessScale
 {
     public Dictionary<string, float> Scale { get; set; } = new();
@@ -140,29 +137,6 @@ public class GifHeadlessStart
     public int Speed { get; set; }
     public string Mode { get; set; } = "Loop";
     public List<string> Paths { get; set; } = new();
-}
-
-public class StreamingScale
-{
-    public double Width { get; set; }
-    public double Height { get; set; }
-}
-
-public class Cropper
-{
-    public double Top { get; set; }
-    public double Left { get; set; }
-    public double Width { get; set; } = 1000;
-    public double Height { get; set; } = 550;
-    public string Mirroring { get; set; } = "Normal";
-    public string Rotation { get; set; } = "Zero";
-}
-
-public class SetHeadlessStreaming
-{
-    public Dictionary<string, Cropper> Streaming { get; set; } = new();
-    public StreamingScale Scale { get; set; } = new();
-    public string Mode { get; set; } = "";
 }
 
 // On-connect WS payloads
