@@ -15,6 +15,11 @@ public sealed class ThemeSettings
     public string Language { get; set; } = "en";
     public string ThemeMode { get; set; } = "system";
     public string AccentColor { get; set; } = "#2563eb";
+    // The desktop app's *resolved* theme ("dark"/"light"), republished whenever
+    // it changes. Lets remote panels in sync mode follow the desktop OS's
+    // light↔dark instead of re-resolving "system" against their own device's OS
+    // (the wrong OS). Empty = never published; panels fall back to ThemeMode.
+    public string ResolvedThemeMode { get; set; } = "";
 }
 
 public sealed class MonitoringSettings
@@ -143,6 +148,7 @@ public sealed class ThemeSettingsPatch
     public string? Language { get; set; }
     public string? ThemeMode { get; set; }
     public string? AccentColor { get; set; }
+    public string? ResolvedThemeMode { get; set; }
 }
 
 public sealed class PanelSettingsPatch
