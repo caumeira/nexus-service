@@ -501,9 +501,9 @@ internal static class MacAppWindow
 
         // Native frosted-glass backdrop: a behind-window NSVisualEffectView shows
         // the real desktop + windows behind, blurred by the window server - zero
-        // lag, no wallpaper image. The window goes non-opaque and the WKWebView
-        // transparent so the page's "wallpaper" backdrop reveals it; the flat /
-        // gradient modes paint an opaque --backdrop-base over it instead.
+        // lag. The window goes non-opaque and the WKWebView transparent so the
+        // page's "glass" backdrop reveals it; the flat / gradient modes paint an
+        // opaque --backdrop-base over it instead.
         MsgSendVoidBool(win, SelRegister("setOpaque:"), false);
         MsgSend(win, SelRegister("setBackgroundColor:"), MsgSend(ClassGet("NSColor"), SelRegister("clearColor")));
         InstallVibrancyBackdrop(container, containerFrame);
