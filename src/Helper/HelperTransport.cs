@@ -47,4 +47,11 @@ public sealed class HelperHello
     public int SessionId { get; set; }
     public int Pid { get; set; }
     public string Version { get; set; } = "";
+
+    /// <summary>
+    /// Downloads folder of the user session the helper runs in. The Session-0
+    /// service can't resolve per-user known folders itself; the transfer inbox
+    /// roots here. Empty when resolution failed (old helper, no profile).
+    /// </summary>
+    public string DownloadsDir { get; set; } = "";
 }

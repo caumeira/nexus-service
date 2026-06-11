@@ -85,6 +85,7 @@ public sealed class HelperClientLoop
             SessionId = System.Diagnostics.Process.GetCurrentProcess().SessionId,
             Pid = Environment.ProcessId,
             Version = BuildInfo.Version,
+            DownloadsDir = ResolveDownloadsDir(),
         };
         var env = new HelperEnvelope
         {
@@ -96,6 +97,34 @@ public sealed class HelperClientLoop
         // no helper-side provider can have a reference to the pipe.
         await Framing.WriteFrameAsync(pipe, bytes, ct).ConfigureAwait(false);
     }
+
+    /// <summary>
+    /// SHGetKnownFolderPath rather than UserProfile + "Downloads" — the
+    /// Downloads folder can be relocated via folder Properties → Location.
+    /// </summary>
+    private static string ResolveDownloadsDir()
+    {
+        try
+        {
+            var downloads = new Guid("374DE290-123F-4565-9164-39C4925E467B"); // FOLDERID_Downloads
+            if (SHGetKnownFolderPath(in downloads, 0, IntPtr.Zero, out var raw) == 0 && raw != IntPtr.Zero)
+            {
+                try
+                {
+                    return System.Runtime.InteropServices.Marshal.PtrToStringUni(raw) ?? "";
+                }
+                finally
+                {
+                    System.Runtime.InteropServices.Marshal.FreeCoTaskMem(raw);
+                }
+            }
+        }
+        catch { }
+        return "";
+    }
+
+    [System.Runtime.InteropServices.DllImport("shell32.dll")]
+    private static extern int SHGetKnownFolderPath(in Guid rfid, uint dwFlags, IntPtr hToken, out IntPtr ppszPath);
 
     private async Task ReadLoopAsync(NamedPipeClientStream pipe, CancellationToken ct)
     {

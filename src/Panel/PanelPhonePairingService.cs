@@ -522,6 +522,31 @@ public sealed class PanelPhonePairingService
     public PanelPhoneServiceInfoResponse GetServiceInfo()
         => new() { MachineName = NormalizeMachineName(MachineName) };
 
+    /// <summary>
+    /// Device class + display label for one stored session. Persisted class wins
+    /// (client-detected at claim); legacy sessions stored before DeviceType
+    /// existed fall back to the UA descriptor. A custom name wins over the class
+    /// unless it is the legacy generic "Phone remote" placeholder.
+    /// </summary>
+    private static (string DeviceType, string DisplayName) DescribeSession(PanelPhoneSessionToken s)
+    {
+        var deviceType = string.IsNullOrWhiteSpace(s.DeviceType)
+            ? DescribeDevice(s.UserAgent)
+            : s.DeviceType;
+        var displayName = string.IsNullOrWhiteSpace(s.Name) ||
+            (string.Equals(s.Name, "Phone remote", StringComparison.Ordinal) && deviceType != "Phone remote")
+            ? deviceType
+            : s.Name;
+        return (deviceType, displayName);
+    }
+
+    /// <summary>Display label for a paired session, used to attribute phone→PC transfers. Empty when the id is unknown.</summary>
+    public string GetSessionDisplayName(string id)
+    {
+        var s = _store.Load().Auth?.PanelPhoneSessions?.FirstOrDefault(t => t.Id == id);
+        return s is null ? "" : DescribeSession(s).DisplayName;
+    }
+
     public PanelPhoneSessionsResponse GetSessions(int connectedCount)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -531,15 +556,7 @@ public sealed class PanelPhonePairingService
             .Select(s =>
             {
                 var lastSeen = GetSessionActivity(s);
-                // Persisted class wins (client-detected at claim); legacy sessions
-                // stored before DeviceType existed fall back to the UA descriptor.
-                var deviceType = string.IsNullOrWhiteSpace(s.DeviceType)
-                    ? DescribeDevice(s.UserAgent)
-                    : s.DeviceType;
-                var displayName = string.IsNullOrWhiteSpace(s.Name) ||
-                    (string.Equals(s.Name, "Phone remote", StringComparison.Ordinal) && deviceType != "Phone remote")
-                    ? deviceType
-                    : s.Name;
+                var (deviceType, displayName) = DescribeSession(s);
                 return new PanelPhoneSessionDto
                 {
                     Id = s.Id,

@@ -40,6 +40,12 @@ public static class PanelTopics
     /// out its TTL.
     /// </summary>
     public const string PairQrRefresh = "panel/phone/pair-qr/refresh";
+    /// <summary>
+    /// Phone→PC transfer landed (file saved to the inbox / clipboard applied).
+    /// Carries the event payload directly — there is no canonical resource to
+    /// refetch.
+    /// </summary>
+    public const string Transfer = "transfer";
 
     public static void BroadcastPrefs(MultiplexHub hub)
     {
@@ -100,6 +106,15 @@ public static class PanelTopics
         var frame = new CoolingWarningsChangedFrame { Revision = Now(), DeviceId = deviceId };
         var env = WsEnvelope.Build(CoolingWarnings, frame, AppJsonContext.Default.CoolingWarningsChangedFrame);
         _ = hub.BroadcastTopicAsync(CoolingWarnings, env);
+    }
+
+    public static void BroadcastTransfer(MultiplexHub hub, Models.Transfer.TransferReceivedFrame frame)
+    {
+        if (!hub.TopicHasSubscribers(Transfer))
+            return;
+        frame.Revision = Now();
+        var env = WsEnvelope.Build(Transfer, frame, AppJsonContext.Default.TransferReceivedFrame);
+        _ = hub.BroadcastTopicAsync(Transfer, env);
     }
 
     public static void BroadcastPairQrRefresh(MultiplexHub hub)

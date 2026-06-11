@@ -46,6 +46,9 @@ public sealed class NexusSettings
     /// <summary>User-overridden display name for this host PC. Empty means "fall back to Environment.MachineName". Surfaced in the panel tray header and in the QR/claim payload paired phones see. NOT profile-scoped: a host has one name regardless of which profile is active.</summary>
     public string HostDisplayName { get; set; } = "";
 
+    /// <summary>Folder where phone→PC transfers land. Empty means auto-resolve (interactive user's Downloads/Nexus, falling back to CommonApplicationData/Nexus/inbox — see <see cref="Nexus.Service.Transfer.TransferInbox"/>). NOT profile-scoped.</summary>
+    public string TransferInboxPath { get; set; } = "";
+
     /// <summary>Profile id designated as the source for any category currently in <c>SharedCategories</c>. When a category is shared, switching profiles still loads its values from this profile, and edits to that category save back here. NOT profile-scoped: this routing decision is workstation-level and survives profile switches. Null means no Primary; shared categories then fall back to the active profile.</summary>
     public string? PrimaryProfileId { get; set; }
 

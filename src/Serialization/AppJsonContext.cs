@@ -245,6 +245,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<Nexus.Service.Models.Media.MediaItem>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Media.MediaLibraryResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Media.MediaImportResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Transfer.TransferItemsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Transfer.TransferClipboardBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Transfer.TransferReceivedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Media.MediaPlayResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Media.MediaCurrentResponse))]
 

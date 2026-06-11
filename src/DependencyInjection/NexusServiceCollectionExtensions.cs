@@ -561,6 +561,8 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider, Nexus.Service.Platform.Clipboard.StubClipboardProvider>();
 #endif
 
+        services.AddSingleton<Nexus.Service.Transfer.TransferInbox>();
+
         // Real Y70 control (serial brightness/power + DDC/CI fallback). Degrades
         // to persist-only when no panel is attached (hub disconnected + no DDC
         // match), so it works cross-platform.

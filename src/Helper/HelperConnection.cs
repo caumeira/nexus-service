@@ -33,6 +33,7 @@ public sealed class HelperConnection : IAsyncDisposable
     public int SessionId { get; }
     public int Pid { get; }
     public string Version { get; }
+    public string DownloadsDir { get; }
     public DateTimeOffset ConnectedAt { get; } = DateTimeOffset.UtcNow;
 
     private HelperConnection(NamedPipeServerStream pipe, HelperRegistry registry, HelperHello hello)
@@ -42,6 +43,7 @@ public sealed class HelperConnection : IAsyncDisposable
         SessionId = hello.SessionId;
         Pid = hello.Pid;
         Version = hello.Version;
+        DownloadsDir = hello.DownloadsDir;
     }
 
     /// <summary>

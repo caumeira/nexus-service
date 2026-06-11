@@ -24,6 +24,9 @@ namespace Nexus.Service.Auth;
 //      Pair Remote killswitch.
 internal static class PathAuthMiddleware
 {
+    /// <summary>HttpContext.Items key carrying the authenticated phone-session id.</summary>
+    public const string PhoneSessionIdItem = "PhoneSessionId";
+
     private static readonly HashSet<string> AlwaysPublicPaths =
         new(StringComparer.OrdinalIgnoreCase)
         {
@@ -237,7 +240,7 @@ internal static class PathAuthMiddleware
             // how KickPhoneSessionsAsync / KickAllPhoneAsync find the right
             // sockets to close.
             if (!string.IsNullOrEmpty(sessionId))
-                ctx.Items["PhoneSessionId"] = sessionId;
+                ctx.Items[PhoneSessionIdItem] = sessionId;
             await next(ctx);
         });
 }
