@@ -60,12 +60,16 @@ public static partial class DevicesRoutes
         // proxy and auto-apply worker keep warm.
         app.MapGet("/devices/lighting-devices/mappings/available", (
             Nexus.Service.Devices.ILightingDeviceProvider ld,
-            MappingCloudClient cloud) =>
+            MappingCloudClient cloud,
+            Nexus.Service.Persistence.IConfigStore store) =>
         {
             var response = new MappingsAvailableResponse();
+            var applied = store.Load().Devices.AppliedMappings;
             foreach (var card in ld.GetAll().Devices)
             {
-                if (card.DeviceKey.Length == 0)
+                // The badge advertises layouts the user has not engaged
+                // with yet; devices already running a mapping stay quiet.
+                if (card.DeviceKey.Length == 0 || applied.ContainsKey(card.Id))
                     continue;
                 var count = cloud.CachedMappingCount(card.DeviceKey);
                 if (count > 0)
