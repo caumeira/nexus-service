@@ -42,5 +42,17 @@ public static class KeebRoutes
             new GetMacroResponse { Macro = k.GetMacro(index) });
         app.MapPost("/keeb/macro/{index}", (int index, SetMacroBody body, IKeebProvider k) =>
             new GetMacroResponse { Macro = k.SetMacro(index, body) });
+
+        // Diagnostic: the raw 0xF2 layer table as hex, for reverse-engineering
+        // the firmware slot order on the bench. Read-only - never writes.
+        // Hex rides in ApiResponse.Msg so no new wire type needs registering
+        // in the AOT JSON context.
+        app.MapGet("/keeb/debug/layer-raw/{layer}", (int layer, Nexus.Service.Peripherals.Hyte.Keeb.KeebHub hub) =>
+        {
+            var raw = hub.ReadLayerRaw(hub.State.Profile, layer);
+            return raw is null
+                ? ApiResponse.Fail("layer read unavailable (disconnected or timed out)")
+                : ApiResponse.Ok(System.Convert.ToHexString(raw));
+        });
     }
 }
