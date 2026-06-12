@@ -657,6 +657,10 @@ public static class NexusServiceCollectionExtensions
             }
         });
 
+        // Windows/macOS push the accent from their native shell; the Linux
+        // block below overrides this with the portal reader (last registration
+        // wins for the resolved instance).
+        services.AddSingleton<ISystemAccentProvider, NullSystemAccentProvider>();
 #if WINDOWS
         services.AddSingleton<IScreenTimeProvider, WindowsScreenTimeProvider>();
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
@@ -681,6 +685,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IScreenTimeProvider>(sp => sp.GetRequiredService<Nexus.Service.Activity.LinuxScreenTimeProvider>());
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
         services.AddSingleton<IShortcutsProvider, LinuxShortcutsProvider>();
+        services.AddSingleton<ISystemAccentProvider, Nexus.Service.Platform.Linux.LinuxSystemAccentProvider>();
         services.AddSingleton<IMediaProvider, LinuxMediaProvider>();
         services.AddSingleton<IVolumeProvider, LinuxVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, LinuxAudioDeviceProvider>();
