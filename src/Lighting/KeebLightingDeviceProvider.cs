@@ -9,14 +9,15 @@ using Nexus.Service.Persistence;
 namespace Nexus.Service.Lighting;
 
 /// <summary>
-/// Exposes the directly-driven HYTE Keeb TKL as two lighting zones — the key
-/// matrix and the underglow — for the lighting page, and contributes their
-/// per-frame <see cref="DeviceFrame"/>s to the engine so canvas effects,
+/// Exposes the directly-driven HYTE Keeb TKL on the lighting page - by
+/// default as two zones (the key matrix and the underglow), or as whatever
+/// partition the user drew over those two fixed segments - and contributes
+/// the per-zone <see cref="DeviceFrame"/>s to the engine so canvas effects,
 /// brightness, and identify apply uniformly. Mirrors
 /// <see cref="Np50LightingDeviceProvider"/>; the keeb owns its vendor HID
 /// interface, so OpenRGB doesn't drive it.
 /// </summary>
-public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor
+public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor, Nexus.Service.Lighting.Zones.IDeviceStructureSource
 {
     /// <summary>Zone id suffixes (also the engine frame ids).</summary>
     public const string KeysSuffix = ":keys";
@@ -48,37 +49,103 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
     {
         var resp = new GetLightingDevicesResponse { IsInit = true };
         if (!_hub.IsConnected) return resp;
+        resp.Devices.AddRange(BuildCards(_hub.DeviceId, _store.Load()));
+        return resp;
+    }
 
-        var hubId = _hub.DeviceId;
-        var settings = _store.Load();
+    /// <summary>Pure card emission for the current partition; static so tests cover it without a live hub.</summary>
+    internal static List<LightingDevice> BuildCards(string hubId, NexusSettings settings)
+    {
         var disabled = settings.Devices.DisabledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var layouts = settings.Lighting.DeviceLayouts;
-        var zoneLedCounts = settings.Devices.ZoneLedCounts;
 
-        resp.Devices.Add(BuildZone(
-            id: hubId + KeysSuffix, name: $"{KeebHub.ProductName} - Keys",
-            deviceKey: Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForFirstParty(
-                Peripherals.Hyte.Keeb.KeebProtocol.VendorId, Peripherals.Hyte.Keeb.KeebProtocol.ProductId, "keys"),
-            iconType: "keyboard", firmwareLedCount: KeebLayout.KeyLedCount,
-            zoneIndex: 0, parentDeviceId: hubId, disabled, prefs, layouts, zoneLedCounts));
-        resp.Devices.Add(BuildZone(
-            id: hubId + UnderglowSuffix, name: $"{KeebHub.ProductName} - Underglow",
-            deviceKey: Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForFirstParty(
-                Peripherals.Hyte.Keeb.KeebProtocol.VendorId, Peripherals.Hyte.Keeb.KeebProtocol.ProductId, "underglow"),
-            iconType: "strip", firmwareLedCount: KeebLayout.SurroundLedCount,
-            zoneIndex: 1, parentDeviceId: hubId, disabled, prefs, layouts, zoneLedCounts));
-        return resp;
+        var structure = KeebZoneSupport.BuildStructure(hubId);
+        var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settings);
+        var cards = new List<LightingDevice>(zones.Count);
+
+        if (zones.Count > 0 && zones[0].IsDefault)
+        {
+            cards.Add(BuildZone(
+                id: hubId + KeysSuffix, name: $"{KeebHub.ProductName} - Keys",
+                deviceKey: Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForFirstParty(
+                    Peripherals.Hyte.Keeb.KeebProtocol.VendorId, Peripherals.Hyte.Keeb.KeebProtocol.ProductId, "keys"),
+                iconType: "keyboard", firmwareLedCount: KeebLayout.KeyLedCount,
+                zoneIndex: 0, parentDeviceId: hubId, structure, zones[0], settings));
+            cards.Add(BuildZone(
+                id: hubId + UnderglowSuffix, name: $"{KeebHub.ProductName} - Underglow",
+                deviceKey: Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForFirstParty(
+                    Peripherals.Hyte.Keeb.KeebProtocol.VendorId, Peripherals.Hyte.Keeb.KeebProtocol.ProductId, "underglow"),
+                iconType: "strip", firmwareLedCount: KeebLayout.SurroundLedCount,
+                zoneIndex: 1, parentDeviceId: hubId, structure, zones[1], settings));
+            return cards;
+        }
+
+        foreach (var zone in zones)
+        {
+            var touchesKeys = false;
+            foreach (var slice in zone.Slices)
+            {
+                if (slice.Segment == KeebZoneSupport.KeysSegment)
+                { touchesKeys = true; break; }
+            }
+            var isOn = true;
+            for (var i = 0; i < disabled.Count; i++)
+            { if (disabled[i] == zone.Id) { isOn = false; break; } }
+            prefs.TryGetValue(zone.Id, out var pref);
+            var (defX, defY, defW, defH) = DefaultKeebLayout(zone.Ordinal);
+            layouts.TryGetValue(zone.Id, out var layout);
+            cards.Add(new LightingDevice
+            {
+                Id = zone.Id,
+                Name = zone.Name,
+                Type = "ledstrip",
+                IconType = touchesKeys ? "keyboard" : "strip",
+                LedsOn = isOn,
+                Brightness = pref?.Brightness ?? 100,
+                Hue = pref?.Hue ?? 0f,
+                Saturation = pref?.Saturation ?? 1f,
+                LedCount = zone.LedCount,
+                // Contributor cards render through ResolveSeeded, which
+                // always selects artifact zone 0; the count must match it.
+                EnabledLedCount = Nexus.Service.Lighting.Zones.ZoneResolution.CountEnabled(
+                    structure, zone, zone.Id, zone.LedCount, zoneHint: 0, settings),
+                CanvasX = layout?.X ?? defX,
+                CanvasY = layout?.Y ?? defY,
+                CanvasW = layout?.W ?? defW,
+                CanvasH = layout?.H ?? defH,
+                CanvasRotation = ((((layout?.Rotation ?? 0) % 360) + 360) % 360),
+                ParentDeviceId = hubId,
+                ZoneIndex = zone.Ordinal,
+                ZoneType = "linear",
+                ZoneResizable = false,
+                DeviceId = hubId,
+                ZoneCustomizable = true,
+            });
+        }
+        return cards;
+    }
+
+    // ── IDeviceStructureSource ──
+
+    public IReadOnlyList<Nexus.Service.Lighting.Zones.DeviceStructure> GetStructures()
+    {
+        if (!_hub.IsConnected || string.IsNullOrEmpty(_hub.DeviceId))
+            return Array.Empty<Nexus.Service.Lighting.Zones.DeviceStructure>();
+        return new[] { KeebZoneSupport.BuildStructure(_hub.DeviceId) };
     }
 
     private static LightingDevice BuildZone(
         string id, string name, string deviceKey, string iconType, int firmwareLedCount,
         int zoneIndex, string parentDeviceId,
-        IReadOnlyList<string> disabled,
-        IReadOnlyDictionary<string, LightingDevicePreference> prefs,
-        IReadOnlyDictionary<string, Persistence.DeviceLayout> layouts,
-        IReadOnlyDictionary<string, int> zoneLedCounts)
+        Nexus.Service.Lighting.Zones.DeviceStructure structure,
+        Nexus.Service.Lighting.Zones.ResolvedZone zone,
+        NexusSettings settings)
     {
+        var disabled = settings.Devices.DisabledLightingDevices;
+        var prefs = settings.Devices.LightingDevicePrefs;
+        var layouts = settings.Lighting.DeviceLayouts;
+        var zoneLedCounts = settings.Devices.ZoneLedCounts;
         var isOn = true;
         for (var i = 0; i < disabled.Count; i++)
         { if (disabled[i] == id) { isOn = false; break; } }
@@ -98,6 +165,7 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
         return new LightingDevice
         {
             Id = id,
+            DeviceKey = deviceKey,
             Name = name,
             Type = "ledstrip",
             IconType = iconType,
@@ -106,6 +174,10 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
             Hue = hue,
             Saturation = saturation,
             LedCount = effectiveLedCount,
+            // Contributor cards render through ResolveSeeded, which always
+            // selects artifact zone 0; the count must match it.
+            EnabledLedCount = Nexus.Service.Lighting.Zones.ZoneResolution.CountEnabled(
+                structure, zone, id, effectiveLedCount, zoneHint: 0, settings),
             CanvasX = layout?.X ?? defX,
             CanvasY = layout?.Y ?? defY,
             CanvasW = layout?.W ?? defW,
@@ -115,6 +187,8 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
             ZoneIndex = zoneIndex,
             ZoneType = "linear",
             ZoneResizable = false,
+            DeviceId = parentDeviceId,
+            ZoneCustomizable = true,
         };
     }
 
@@ -178,12 +252,14 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
         var hubId = _hub.DeviceId;
         var settings = _store.Load();
         var layouts = settings.Lighting.DeviceLayouts;
+        var structure = KeebZoneSupport.BuildStructure(hubId);
+        var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settings);
         var idx = startingIndex;
-        var frames = new List<DeviceFrame>(2)
+        var frames = new List<DeviceFrame>(zones.Count);
+        foreach (var zone in zones)
         {
-            BuildOrReuseFrame(hubId + KeysSuffix, KeebLayout.KeyLedCount, 0, layouts, ref idx),
-            BuildOrReuseFrame(hubId + UnderglowSuffix, KeebLayout.SurroundLedCount, 1, layouts, ref idx),
-        };
+            frames.Add(BuildOrReuseFrame(zone.Id, zone.FrameLedCount, zone.Ordinal, layouts, ref idx));
+        }
         if (_frameCache.Count > frames.Count)
         {
             var live = new HashSet<string>(frames.Count);
@@ -196,10 +272,10 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
     }
 
     private DeviceFrame BuildOrReuseFrame(
-        string id, int ledCount, int zoneIndex,
+        string id, int ledCount, int slot,
         IReadOnlyDictionary<string, Persistence.DeviceLayout> layouts, ref int idx)
     {
-        var (defX, defY, defW, defH) = DefaultKeebLayout(zoneIndex);
+        var (defX, defY, defW, defH) = DefaultKeebLayout(slot);
         layouts.TryGetValue(id, out var layout);
         var rot = ((((layout?.Rotation ?? 0) % 360) + 360) % 360);
         var thisIdx = idx++;
@@ -221,8 +297,11 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
 
     /// <summary>
     /// Default canvas slots: a wide keys band and a thinner underglow band
-    /// beneath it (canvas is 0..1000 × 0..600). User can drag afterward.
+    /// beneath it (canvas is 0..1000 x 0..600). Slots cycle by zone ordinal
+    /// (same wrap rule as the OpenRGB grids) so a custom partition with many
+    /// zones alternates between the two bands instead of stacking everything
+    /// past the first zone on one slot. User can drag afterward.
     /// </summary>
-    internal static (float x, float y, float w, float h) DefaultKeebLayout(int zoneIndex) =>
-        zoneIndex == 0 ? (120f, 150f, 760f, 140f) : (120f, 300f, 760f, 50f);
+    internal static (float x, float y, float w, float h) DefaultKeebLayout(int slot) =>
+        slot % 2 == 0 ? (120f, 150f, 760f, 140f) : (120f, 300f, 760f, 50f);
 }

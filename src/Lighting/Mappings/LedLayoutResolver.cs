@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Rgb;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Lighting.Mappings;
@@ -18,13 +19,14 @@ namespace Nexus.Service.Lighting.Mappings;
 ///                           disabled, groups). LED-count changes are an
 ///                           apply-time side effect through the existing
 ///                           zone-resize path, never resolved here.
-///   3. user delta         - LedMapOverrides positions/disabled and the
+///   3. user delta         - DeviceLedOverrides positions/disabled (resolved
+///                           through the zone's segment slices) and the
 ///                           LedGroups dict; always wins.
 /// </summary>
 public static class LedLayoutResolver
 {
-    /// <summary>OpenRGB device or zone card.</summary>
-    public static ResolvedLedLayout ResolveOpenRgb(RgbDevice device, int zoneIndex, string id, NexusSettings settings)
+    /// <summary>OpenRGB device or default-partition zone card. <paramref name="overrides"/> maps the card into the device's segment-local override space; null treats the card as its own single-segment device.</summary>
+    public static ResolvedLedLayout ResolveOpenRgb(RgbDevice device, int zoneIndex, string id, NexusSettings settings, ZoneOverrideContext? overrides = null)
     {
         var layout = new ResolvedLedLayout { Id = id, ZoneHint = zoneIndex };
         if (zoneIndex >= 0 && zoneIndex < device.Zones.Count)
@@ -60,7 +62,59 @@ public static class LedLayoutResolver
             }
             layout.ZoneTypes = BuildZoneTypeMap(device);
         }
-        ApplyMappingAndDeltas(layout, settings);
+        ApplyMappingAndDeltas(layout, settings, overrides ?? ZoneOverrideContext.Identity(id));
+        return layout;
+    }
+
+    /// <summary>
+    /// Custom-partition zone over an OpenRGB device. The zone is one
+    /// contiguous device-space run (validation rule), so defaults slice the
+    /// device-level computed UVs when the zone's hardware indices are all
+    /// addressable; resizable headers (whose effective count can exceed what
+    /// the hardware reports) fall back to a linear strip, matching the legacy
+    /// zone-card behavior.
+    /// </summary>
+    public static ResolvedLedLayout ResolveZoneOpenRgb(RgbDevice device, DeviceStructure structure, ResolvedZone zone, NexusSettings settings)
+    {
+        var layout = new ResolvedLedLayout
+        {
+            Id = zone.Id,
+            LedCount = zone.LedCount,
+            ZoneHint = zone.Ordinal,
+            GlobalOffset = ZoneResolution.FrameOffset(structure, zone),
+        };
+        var (defU, defV) = LedUvComputer.ComputeDefaults(device);
+        var sliceable = defU.Length == device.LedCount
+            && defU.Length > 0
+            && layout.GlobalOffset + zone.LedCount <= defU.Length
+            && zone.LedCount == zone.FrameLedCount;
+        if (sliceable)
+        {
+            layout.U = new float[zone.LedCount];
+            layout.V = new float[zone.LedCount];
+            for (int i = 0; i < zone.LedCount; i++)
+            {
+                layout.U[i] = defU[layout.GlobalOffset + i];
+                layout.V[i] = defV[layout.GlobalOffset + i];
+            }
+        }
+        else
+        {
+            FillLinearDefaults(layout);
+        }
+        layout.ZoneTypes = new string[Math.Max(0, zone.LedCount)];
+        var pos = 0;
+        foreach (var slice in zone.Slices)
+        {
+            var typeName = slice.Segment >= 0 && slice.Segment < structure.Segments.Count
+                ? structure.Segments[slice.Segment].ZoneType
+                : "unknown";
+            for (int i = 0; i < slice.Count && pos < layout.ZoneTypes.Length; i++)
+                layout.ZoneTypes[pos++] = typeName;
+        }
+        while (pos < layout.ZoneTypes.Length)
+            layout.ZoneTypes[pos++] = "unknown";
+        ApplyMappingAndDeltas(layout, settings, ZoneResolution.ContextOf(structure, zone));
         return layout;
     }
 
@@ -71,7 +125,7 @@ public static class LedLayoutResolver
     /// edit never collapses the rest of the device to a line; falls back to
     /// a linear strip. Artifacts for these cards use zone index 0.
     /// </summary>
-    public static ResolvedLedLayout ResolveSeeded(string id, int ledCount, float[]? seedU, float[]? seedV, NexusSettings settings)
+    public static ResolvedLedLayout ResolveSeeded(string id, int ledCount, float[]? seedU, float[]? seedV, NexusSettings settings, ZoneOverrideContext? overrides = null)
     {
         var layout = new ResolvedLedLayout { Id = id, LedCount = ledCount, ZoneHint = 0 };
         var seeded = seedU is not null && seedV is not null
@@ -88,7 +142,7 @@ public static class LedLayoutResolver
         layout.ZoneTypes = new string[Math.Max(0, ledCount)];
         for (int i = 0; i < layout.ZoneTypes.Length; i++)
             layout.ZoneTypes[i] = seeded ? "matrix" : "linear";
-        ApplyMappingAndDeltas(layout, settings);
+        ApplyMappingAndDeltas(layout, settings, overrides ?? ZoneOverrideContext.Identity(id));
         return layout;
     }
 
@@ -124,7 +178,7 @@ public static class LedLayoutResolver
         return artifact.Zones.Count > 0 ? artifact.Zones[0] : null;
     }
 
-    private static void ApplyMappingAndDeltas(ResolvedLedLayout layout, NexusSettings settings)
+    private static void ApplyMappingAndDeltas(ResolvedLedLayout layout, NexusSettings settings, ZoneOverrideContext overrides)
     {
         // Layer 2: applied mapping artifact.
         if (settings.Devices.AppliedMappings.TryGetValue(layout.Id, out var applied))
@@ -156,37 +210,44 @@ public static class LedLayoutResolver
             }
         }
 
-        // Layer 3: user deltas always win.
-        if (settings.Devices.LedMapOverrides.TryGetValue(layout.Id, out var overrides) && overrides.Count > 0)
+        // Layer 3: user deltas always win. Overrides live in the device's
+        // stable (segment, localIndex) space; the context maps them into
+        // this card's zone-local indices regardless of partition shape.
+        if (settings.Devices.DeviceLedOverrides.TryGetValue(overrides.DeviceId, out var deviceOverrides)
+            && deviceOverrides.Count > 0)
         {
-            layout.HasUserOverrides = true;
             var anyDisabled = layout.Disabled is not null;
-            foreach (var o in overrides)
+            var mapped = new List<(int index, SegmentLedOverride o)>(deviceOverrides.Count);
+            foreach (var o in deviceOverrides)
             {
-                if (o.LedIndex < 0 || o.LedIndex >= layout.LedCount)
+                var idx = overrides.MapFromSegment(o.Segment, o.LedIndex);
+                if (idx < 0 || idx >= layout.LedCount)
                     continue;
-                layout.CustomLeds.Add(o.LedIndex);
-                layout.U[o.LedIndex] = o.U;
-                layout.V[o.LedIndex] = o.V;
+                mapped.Add((idx, o));
+            }
+            if (mapped.Count > 0)
+                layout.HasUserOverrides = true;
+            foreach (var (idx, o) in mapped)
+            {
+                layout.CustomLeds.Add(idx);
+                layout.U[idx] = o.U;
+                layout.V[idx] = o.V;
                 if (o.Disabled)
                     anyDisabled = true;
             }
-            if (anyDisabled)
+            if (anyDisabled && mapped.Count > 0)
             {
                 // A user override is authoritative for its LED in both
                 // directions (it can re-enable an LED a mapping disabled);
                 // LEDs without overrides keep the mapping-layer state.
                 layout.Disabled ??= new bool[layout.LedCount];
-                foreach (var o in overrides)
-                {
-                    if (o.LedIndex >= 0 && o.LedIndex < layout.LedCount)
-                        layout.Disabled[o.LedIndex] = o.Disabled;
-                }
+                foreach (var (idx, o) in mapped)
+                    layout.Disabled[idx] = o.Disabled;
             }
         }
         if (settings.Devices.LedGroups.TryGetValue(layout.Id, out var userGroups))
             layout.Groups = userGroups;
-        if (settings.Devices.LedMapAspectRatios.TryGetValue(layout.Id, out var savedRatio) && savedRatio > 0)
+        if (settings.Devices.DeviceAspectRatios.TryGetValue(overrides.DeviceId, out var savedRatio) && savedRatio > 0)
             layout.AspectRatio = savedRatio;
 
         // An all-false disabled array downgrades to null so the engine takes

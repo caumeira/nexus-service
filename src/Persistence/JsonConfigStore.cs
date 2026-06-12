@@ -66,6 +66,11 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
             {
                 var json = File.ReadAllText(SettingsPath);
                 _cached = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.NexusSettings) ?? new NexusSettings();
+                if (_cached.SchemaVersion < NexusSettings.CurrentSchemaVersion)
+                {
+                    Migrate(_cached);
+                    Persist(_cached);
+                }
             }
             catch (Exception ex)
             {
@@ -85,6 +90,20 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
 
             return _cached;
         }
+    }
+
+    /// <summary>
+    /// In-place schema migrations, applied once at load and persisted
+    /// immediately. v6: LED map overrides / aspect ratios move from per-card
+    /// keys into the device-scoped segment-local dicts (zones model).
+    /// </summary>
+    private static void Migrate(NexusSettings doc)
+    {
+        if (doc.SchemaVersion < 6)
+        {
+            Nexus.Service.Lighting.Zones.LegacyLedOverrideMigration.Apply(doc);
+        }
+        doc.SchemaVersion = NexusSettings.CurrentSchemaVersion;
     }
 
     public event Action? OnChanged;

@@ -21,9 +21,9 @@ mkdir -p "$APP/Contents/Resources"
 # Copy whatever the AOT publish produced at the staging root.
 cp "$STAGING/Nexus" "$APP/Contents/MacOS/"
 [ -d "$STAGING/wwwroot" ] && cp -R "$STAGING/wwwroot" "$APP/Contents/MacOS/"
-# Bundled marketplace widgets (nexus-widgets, copied to <staging>/widgets/ by the
-# csproj Content include). The WidgetRegistry scans <BaseDirectory>/widgets/, which
-# for the .app is Contents/MacOS/widgets/ — without this copy the app ships zero
+# Bundled marketplace widgets (nexus-apps, copied to <staging>/widgets/ by the
+# csproj Content include). The AppRegistry scans <BaseDirectory>/widgets/, which
+# for the .app is Contents/MacOS/widgets/ - without this copy the app ships zero
 # marketplace widgets even though the publish tree has them.
 [ -d "$STAGING/widgets" ] && { rm -rf "$APP/Contents/MacOS/widgets"; cp -R "$STAGING/widgets" "$APP/Contents/MacOS/"; }
 [ -d "$STAGING/openrgb" ] && cp -R "$STAGING/openrgb" "$APP/Contents/MacOS/"

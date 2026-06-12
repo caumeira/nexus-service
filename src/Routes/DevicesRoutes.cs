@@ -18,6 +18,7 @@ public static partial class DevicesRoutes
         MapDeviceListingEndpoints(app);
         MapDeviceSettingsEndpoints(app);
         MapLightingDevicesEndpoints(app);
+        MapZoneEndpoints(app);
         MapMappingEndpoints(app);
         MapSmartLightsEndpoints(app);
         MapNp50Endpoints(app);
@@ -27,45 +28,23 @@ public static partial class DevicesRoutes
     }
 
     /// <summary>
-    /// Re-resolve the full layout stack (defaults -> applied mapping -> user
-    /// deltas) for any lighting device and push it into the live engine
-    /// frame. OpenRGB ids resolve through the bridge; contributor cards
-    /// (NP50, hubs, smart lights) resolve through their engine frame seeded
-    /// with provider defaults.
+    /// The device's stored overrides that do NOT belong to the given card's
+    /// zone - the per-card save/reset endpoints replace only their own zone's
+    /// entries and must leave sibling zones untouched.
     /// </summary>
-    private static void RefreshEngineLedMap(string id,
-        Nexus.Service.Lighting.Engine.LightingEngine engine,
-        Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
-        Nexus.Service.Lighting.Mappings.ContributorFrameLayouts contributorLayouts,
-        Nexus.Service.Persistence.IConfigStore store)
+    internal static List<Nexus.Service.Persistence.SegmentLedOverride> CollectOverridesOutsideZone(
+        Nexus.Service.Persistence.NexusSettings settings,
+        Nexus.Service.Lighting.Zones.ZoneOverrideContext ctx)
     {
-        var settings = store.Load();
-        Nexus.Service.Lighting.Mappings.ResolvedLedLayout? resolved = null;
-        if (bridge is not null)
+        var result = new List<Nexus.Service.Persistence.SegmentLedOverride>();
+        if (settings.Devices.DeviceLedOverrides.TryGetValue(ctx.DeviceId, out var existing))
         {
-            var (device, zoneIdx) = Nexus.Service.Lighting.Rgb.OpenRgbResolver.Resolve(id, bridge.Devices);
-            if (device is not null)
-                resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveOpenRgb(device, zoneIdx, id, settings);
-        }
-        foreach (var frame in engine.Devices)
-        {
-            if (frame.Id != id)
-                continue;
-            if (resolved is not null)
+            foreach (var o in existing)
             {
-                // OpenRGB frame: untracked, plain application.
-                Nexus.Service.Lighting.Mappings.LedLayoutResolver.ApplyToFrame(frame, resolved);
+                if (ctx.MapFromSegment(o.Segment, o.LedIndex) < 0)
+                    result.Add(o);
             }
-            else
-            {
-                // Contributor frame: must go through the tracker so the
-                // write is not later mistaken for provider defaults.
-                var (defU, defV) = contributorLayouts.GetDefaults(id);
-                var seeded = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveSeeded(
-                    id, frame.LedCount, defU, defV, settings);
-                contributorLayouts.Apply(frame, seeded);
-            }
-            break;
         }
+        return result;
     }
 }

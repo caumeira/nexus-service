@@ -406,6 +406,26 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(LedHighlightBody))]
 [JsonSerializable(typeof(LedTestPatternBody))]
 
+// Zones model - device structure, partition save bodies, device-scoped LED map.
+[JsonSerializable(typeof(DeviceStructureResponse))]
+[JsonSerializable(typeof(StructureSegmentDto))]
+[JsonSerializable(typeof(List<StructureSegmentDto>))]
+[JsonSerializable(typeof(StructureZoneDto))]
+[JsonSerializable(typeof(List<StructureZoneDto>))]
+[JsonSerializable(typeof(SaveZonePartitionBody))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.ZoneDef))]
+[JsonSerializable(typeof(List<Nexus.Service.Persistence.ZoneDef>))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.ZoneSlice))]
+[JsonSerializable(typeof(List<Nexus.Service.Persistence.ZoneSlice>))]
+[JsonSerializable(typeof(DeviceMapResponse))]
+[JsonSerializable(typeof(DeviceMapSegmentDto))]
+[JsonSerializable(typeof(List<DeviceMapSegmentDto>))]
+[JsonSerializable(typeof(DeviceMapLedDto))]
+[JsonSerializable(typeof(List<DeviceMapLedDto>))]
+[JsonSerializable(typeof(SaveDeviceMapBody))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.SegmentLedOverride))]
+[JsonSerializable(typeof(List<Nexus.Service.Persistence.SegmentLedOverride>))]
+
 // Community LED mappings - artifact (wire + .nexusmap), registry proxy
 // DTOs, cloud signal bodies, and the auto-applied toast frame.
 [JsonSerializable(typeof(Nexus.Service.Lighting.Mappings.MappingArtifact))]
@@ -428,7 +448,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(AppliedMappingSummary))]
 [JsonSerializable(typeof(ApplyMappingBody))]
 [JsonSerializable(typeof(MappingsAvailableResponse))]
-[JsonSerializable(typeof(PublishMappingBody))]
 [JsonSerializable(typeof(PublishMappingResponse))]
 [JsonSerializable(typeof(ExportMappingResponse))]
 [JsonSerializable(typeof(PublishCloudBody))]

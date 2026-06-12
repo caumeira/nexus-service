@@ -53,6 +53,25 @@ public sealed class WindowsVirtualCamera : IVirtualCamera
         lock (_stateLock)
         {
             StopLocked();
+
+            // First time the user enables the webcam on this PC, grant the
+            // machine-wide desktop-camera consent — but DON'T create the camera
+            // on this pass. The Camera Frame Server reads that consent once at
+            // its own process start and caches it, so a create right after the
+            // grant still blocks on a prompt SYSTEM can't answer. Restart the
+            // Frame Server so it re-reads the fresh Allow, then surface a
+            // retriable signal; the next start creates cleanly (the web widget
+            // retries once so it's seamless). Only ever happens once per machine,
+            // on the user's opt-in - never at install. The platform guard
+            // keeps the analyzer honest; cross-platform unit tests drive this
+            // class through fakes and never reach the registry.
+            if (OperatingSystem.IsWindows() && NexusVCamControl.EnsureDesktopCameraConsent())
+            {
+                RestartFrameServer();
+                throw new InvalidOperationException(
+                    "Enabling camera access for this PC; start the camera again to begin.");
+            }
+
             _control.EnsureAvailable();
 
             IVCamFrameRing? ring = null;
@@ -99,6 +118,32 @@ public sealed class WindowsVirtualCamera : IVirtualCamera
             StopLocked();
         }
         return Task.CompletedTask;
+    }
+
+    // Bounce the Windows Camera Frame Server so it re-reads camera consent that
+    // was just granted (it caches the value at process start). It's a Manual,
+    // trigger-started service, so killing its host is enough — the next camera
+    // activation restarts it fresh. Best-effort.
+    private static void RestartFrameServer()
+    {
+        try
+        {
+            using var p = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = "taskkill.exe",
+                Arguments = "/F /FI \"SERVICES eq FrameServer\"",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            p?.WaitForExit(5000);
+        }
+        catch
+        {
+            // Couldn't bounce it; the retry may need a moment longer, but the
+            // consent is granted so it converges.
+        }
     }
 
     public ValueTask WriteFrameAsync(ReadOnlyMemory<byte> payload, in WebcamFrameInfo info)

@@ -78,6 +78,51 @@ public static class LedUvComputer
         return (ledU, ledV);
     }
 
+    /// <summary>
+    /// Evenly distribute positions along the unit-square perimeter, walking
+    /// clockwise from top-left: top edge, right edge, bottom edge, left edge.
+    /// Open mode (default) walks endpoint-inclusive, so the last position of
+    /// a span closes back onto the start corner; closed-loop mode steps by
+    /// perimeter over count, keeping every position distinct - use it for
+    /// physical rings whose last LED sits next to the first. Spans of one
+    /// land on the origin in both modes.
+    /// </summary>
+    public static void FillPerimeter(Span<float> u, Span<float> v, bool closedLoop = false)
+    {
+        var n = Math.Min(u.Length, v.Length);
+        for (int i = 0; i < n; i++)
+        {
+            // Perimeter length is 4 in the unit square.
+            var t = closedLoop
+                ? i * 4f / n
+                : (n > 1 ? i / (float)(n - 1) * 4f : 0f);
+            if (t <= 1f)
+            {
+                // Top edge: (0,0) -> (1,0)
+                u[i] = t;
+                v[i] = 0f;
+            }
+            else if (t <= 2f)
+            {
+                // Right edge: (1,0) -> (1,1)
+                u[i] = 1f;
+                v[i] = t - 1f;
+            }
+            else if (t <= 3f)
+            {
+                // Bottom edge: (1,1) -> (0,1)
+                u[i] = 1f - (t - 2f);
+                v[i] = 1f;
+            }
+            else
+            {
+                // Left edge: (0,1) -> (0,0)
+                u[i] = 0f;
+                v[i] = 1f - (t - 3f);
+            }
+        }
+    }
+
     private static void DistributePerimeter(float[] ledU, float[] ledV, bool[] populated, RgbDevice device)
     {
         var unpopulated = new List<int>();
@@ -94,40 +139,15 @@ public static class LedUvComputer
             return;
         }
 
-        // Walk clockwise from top-left: top edge, right edge, bottom edge, left edge.
-        // Perimeter length = 4.0 in unit square.
         var n = unpopulated.Count;
+        var walkU = new float[n];
+        var walkV = new float[n];
+        FillPerimeter(walkU, walkV);
         for (int i = 0; i < n; i++)
         {
-            var t = n > 1 ? i / (float)(n - 1) * 4f : 0f;
-            float u, v;
-            if (t <= 1f)
-            {
-                // Top edge: (0,0) -> (1,0)
-                u = t;
-                v = 0f;
-            }
-            else if (t <= 2f)
-            {
-                // Right edge: (1,0) -> (1,1)
-                u = 1f;
-                v = t - 1f;
-            }
-            else if (t <= 3f)
-            {
-                // Bottom edge: (1,1) -> (0,1)
-                u = 1f - (t - 2f);
-                v = 1f;
-            }
-            else
-            {
-                // Left edge: (0,1) -> (0,0)
-                u = 0f;
-                v = 1f - (t - 3f);
-            }
             var idx = unpopulated[i];
-            ledU[idx] = u;
-            ledV[idx] = v;
+            ledU[idx] = walkU[i];
+            ledV[idx] = walkV[i];
         }
     }
 

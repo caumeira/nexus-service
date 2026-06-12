@@ -422,13 +422,18 @@ public sealed class RgbBridge : IDisposable
     }
 
     /// <summary>
-    /// Debounced refresh trigger. OpenRGB can fire several DEVICE_LIST_UPDATED
-    /// in quick succession (one per detected plugin result); we only want to
-    /// query the device list once per burst. Coalesces using a 0/1 flag: the
+    /// Debounced refresh trigger for DEVICE_LIST_UPDATED bursts. OpenRGB can
+    /// fire several in quick succession (one per detected plugin result); we
+    /// only want to query the device list once per burst.
+    /// </summary>
+    private void OnDeviceListChanged() => ScheduleRefresh();
+
+    /// <summary>
+    /// Schedule a debounced device refresh. Coalesces using a 0/1 flag: the
     /// first call schedules the refresh, subsequent calls while the delay is
     /// running or the refresh is in flight are no-ops.
     /// </summary>
-    private void OnDeviceListChanged()
+    private void ScheduleRefresh()
     {
         if (Interlocked.CompareExchange(ref _refreshPending, 1, 0) != 0)
         {
@@ -448,7 +453,7 @@ public sealed class RgbBridge : IDisposable
             catch (Exception ex)
             {
                 Interlocked.Exchange(ref _refreshPending, 0);
-                Console.Error.WriteLine($"[rgb-bridge] hot-plug refresh failed: {ex.Message}");
+                Console.Error.WriteLine($"[rgb-bridge] scheduled refresh failed: {ex.Message}");
             }
         });
     }
@@ -662,9 +667,12 @@ public sealed class RgbBridge : IDisposable
             // the device doesn't flash black for one tick while the engine re-samples.
             // Only new or reshaped devices get a fresh DeviceFrame.
             //
-            // Motherboards with multiple ARGB headers are split into one DeviceFrame
-            // per zone - each zone gets its own canvas rect, power/brightness prefs,
-            // and LED map so the user can treat each physical strip separately.
+            // One frame per zone of the device's partition. With no custom
+            // partition this is the legacy emission: split motherboards get
+            // one frame per ARGB header, everything else one whole-device
+            // frame. Custom zones are contiguous device-space runs (validator
+            // rule), so offset + count still describes each frame's slice of
+            // the physical buffer.
             var existingFrames = _engine.Devices;
             var framesList = new List<DeviceFrame>(devices.Count);
             var settingsSnapshot = _store.Load();
@@ -676,27 +684,65 @@ public sealed class RgbBridge : IDisposable
             {
                 var d = devices[i];
                 var baseId = d.StableId;
-                var isSplitMotherboard = d.Type == 0 && d.Zones.Count > 1;
+                var isSplitMotherboard = OpenRgbZoneSupport.IsSplitMotherboard(d);
+                var structure = OpenRgbZoneSupport.BuildStructure(d, settingsSnapshot);
+                var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settingsSnapshot);
+                var isDefault = zones.Count > 0 && zones[0].IsDefault;
 
-                if (!isSplitMotherboard)
+                if (isDefault && !isSplitMotherboard)
                 {
                     BuildOrReuseFrame(baseId, d, physicalIndex: d.Index, zoneIndex: -1, zoneOffset: 0, zoneLedCount: d.LedCount,
-                        existingFrames, layouts, cardSlot, logicalOrdinal, framesList, isStrip: false, settingsSnapshot);
+                        existingFrames, layouts, cardSlot, logicalOrdinal, framesList, isStrip: false, settingsSnapshot,
+                        structure, zones[0]);
                     cardSlot++;
                     logicalOrdinal++;
                     continue;
                 }
 
-                int zoneOffset = 0;
-                for (int z = 0; z < d.Zones.Count; z++)
+                if (isDefault)
                 {
-                    var zone = d.Zones[z];
-                    var zoneId = $"{baseId}-{z}";
-                    BuildOrReuseFrame(zoneId, d, physicalIndex: d.Index, zoneIndex: z, zoneOffset: zoneOffset, zoneLedCount: zone.LedCount,
-                        existingFrames, layouts, stripSlot, logicalOrdinal, framesList, isStrip: true, settingsSnapshot);
-                    zoneOffset += zone.LedCount;
-                    stripSlot++;
+                    int zoneOffset = 0;
+                    for (int z = 0; z < d.Zones.Count; z++)
+                    {
+                        var zone = d.Zones[z];
+                        var zoneId = $"{baseId}-{z}";
+                        BuildOrReuseFrame(zoneId, d, physicalIndex: d.Index, zoneIndex: z, zoneOffset: zoneOffset, zoneLedCount: zone.LedCount,
+                            existingFrames, layouts, stripSlot, logicalOrdinal, framesList, isStrip: true, settingsSnapshot,
+                            structure, z < zones.Count ? zones[z] : null);
+                        zoneOffset += zone.LedCount;
+                        stripSlot++;
+                        logicalOrdinal++;
+                    }
+                    continue;
+                }
+
+                foreach (var zone in zones)
+                {
+                    var frameOffset = Nexus.Service.Lighting.Zones.ZoneResolution.FrameOffset(structure, zone);
+                    var wholeSegment = Nexus.Service.Lighting.Zones.ZoneResolution.WholeResizableSegment(structure, zone);
+                    BuildOrReuseFrame(zone.Id, d, physicalIndex: d.Index, zoneIndex: wholeSegment, zoneOffset: frameOffset,
+                        zoneLedCount: zone.FrameLedCount, existingFrames, layouts,
+                        isSplitMotherboard ? stripSlot : cardSlot, logicalOrdinal, framesList,
+                        isStrip: isSplitMotherboard, settingsSnapshot, structure, zone);
+                    if (isSplitMotherboard)
+                        stripSlot++;
+                    else
+                        cardSlot++;
                     logicalOrdinal++;
+                }
+            }
+
+            // Pre-resolve the zone layout of contributor devices that expose
+            // structures (keeb) so each contributed frame's user overrides
+            // resolve through its zone's segment slices.
+            List<(Nexus.Service.Lighting.Zones.DeviceStructure structure, IReadOnlyList<Nexus.Service.Lighting.Zones.ResolvedZone> zones)>? contributorZones = null;
+            foreach (var contributor in _frameContributors)
+            {
+                if (contributor is not Nexus.Service.Lighting.Zones.IDeviceStructureSource source)
+                    continue;
+                foreach (var s in source.GetStructures())
+                {
+                    (contributorZones ??= new()).Add((s, Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(s, settingsSnapshot)));
                 }
             }
 
@@ -706,14 +752,24 @@ public sealed class RgbBridge : IDisposable
             // and SampleDevicesFromCanvas processes them in one pass.
             // Each contributed frame then gets the resolver stack applied
             // (provider defaults -> applied mapping -> user deltas) so custom
-            // layouts survive topology rebuilds; provider-authored UVs are
-            // snapshotted as the pristine baseline.
+            // layouts survive topology rebuilds; structure-authored segment
+            // defaults seed zone-backed frames, and frame-authored UVs are
+            // snapshotted as the pristine baseline for the rest.
             foreach (var contributor in _frameContributors)
             {
                 var extra = contributor.BuildFrames(framesList.Count);
                 for (var i = 0; i < extra.Count; i++)
                 {
-                    _contributorLayouts.Refresh(extra[i], settingsSnapshot);
+                    if (FindContributorZone(contributorZones, extra[i].Id) is { } hit)
+                    {
+                        var (seedU, seedV) = Nexus.Service.Lighting.Zones.ZoneResolution.DefaultUv(hit.Structure, hit.Zone);
+                        _contributorLayouts.Refresh(extra[i], settingsSnapshot,
+                            Nexus.Service.Lighting.Zones.ZoneResolution.ContextOf(hit.Structure, hit.Zone), seedU, seedV);
+                    }
+                    else
+                    {
+                        _contributorLayouts.Refresh(extra[i], settingsSnapshot);
+                    }
                     framesList.Add(extra[i]);
                 }
             }
@@ -737,7 +793,9 @@ public sealed class RgbBridge : IDisposable
 
     private void BuildOrReuseFrame(string id, RgbDevice physicalDevice, int physicalIndex, int zoneIndex, int zoneOffset, int zoneLedCount,
         DeviceFrame[] existingFrames, Dictionary<string, DeviceLayout> layouts, int canvasSlot, int logicalOrdinal,
-        List<DeviceFrame> framesList, bool isStrip, NexusSettings settings)
+        List<DeviceFrame> framesList, bool isStrip, NexusSettings settings,
+        Nexus.Service.Lighting.Zones.DeviceStructure? structure = null,
+        Nexus.Service.Lighting.Zones.ResolvedZone? zone = null)
     {
         // Match on id so a motherboard zone keeps its existing buffer across refreshes
         // (no flash-black tick on unrelated hardware changes).
@@ -782,12 +840,70 @@ public sealed class RgbBridge : IDisposable
             zoneIndex: zoneIndex,
             zoneOffset: zoneOffset);
         // Full resolver stack (defaults -> applied mapping -> user deltas).
-        // Replaces the old matrix-only UV computation, which silently skipped
-        // override re-application for linear devices on every rebuild.
-        var resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveOpenRgb(
-            physicalDevice, zoneIndex, id, settings);
+        // Default-partition zones keep the legacy zone-index resolution with
+        // overrides mapped through their slices; custom zones resolve through
+        // the partition-aware path.
+        Nexus.Service.Lighting.Mappings.ResolvedLedLayout resolved;
+        if (structure is not null && zone is not null && !zone.IsDefault)
+        {
+            resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveZoneOpenRgb(
+                physicalDevice, structure, zone, settings);
+        }
+        else
+        {
+            var ctx = structure is not null && zone is not null
+                ? Nexus.Service.Lighting.Zones.ZoneResolution.ContextOf(structure, zone)
+                : null;
+            resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveOpenRgb(
+                physicalDevice, zoneIndex, id, settings, ctx);
+        }
         Nexus.Service.Lighting.Mappings.LedLayoutResolver.ApplyToFrame(frame, resolved);
         framesList.Add(frame);
+    }
+
+    private static (Nexus.Service.Lighting.Zones.DeviceStructure Structure, Nexus.Service.Lighting.Zones.ResolvedZone Zone)? FindContributorZone(
+        List<(Nexus.Service.Lighting.Zones.DeviceStructure structure, IReadOnlyList<Nexus.Service.Lighting.Zones.ResolvedZone> zones)>? contributorZones,
+        string frameId)
+    {
+        if (contributorZones is null)
+            return null;
+        foreach (var (structure, zones) in contributorZones)
+        {
+            foreach (var zone in zones)
+            {
+                if (zone.Id == frameId)
+                    return (structure, zone);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Re-run the device/frame sync after a zone partition change so cards
+    /// and engine frames reflect the new zones without waiting for the next
+    /// poll tick. No-op while the bridge is inactive (no frames exist then).
+    /// When the bridge is active but the controller is transiently
+    /// disconnected, the request falls back to <see cref="ScheduleRefresh"/>
+    /// so the rebuild is queued rather than dropped; if the controller is
+    /// still down when the debounce elapses, the reconnect path
+    /// (<see cref="EnsureConnectedAsync"/>) rebuilds frames from current
+    /// settings as soon as the connection returns.
+    /// </summary>
+    public void RequestTopologyRefresh()
+    {
+        if (!IsActive)
+            return;
+        if (!_controller.IsConnected)
+        {
+            ScheduleRefresh();
+            return;
+        }
+        _ = Task.Run(async () =>
+        {
+            try
+            { await RefreshDevicesAsync().ConfigureAwait(false); }
+            catch (Exception ex) { Console.Error.WriteLine($"[rgb-bridge] topology refresh failed: {ex.Message}"); }
+        });
     }
 
     private void SyncPhysicalBuffers(IReadOnlyList<RgbDevice> devices)

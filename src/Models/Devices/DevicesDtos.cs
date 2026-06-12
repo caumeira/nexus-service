@@ -186,6 +186,8 @@ public class LightingDevice
     public float Hue { get; set; }
     public float Saturation { get; set; }
     public int LedCount { get; set; }
+    /// <summary>Number of the card's LEDs not disabled in the resolved layout (applied mapping's disabled set layered under user overrides, which win in both directions). Equals <see cref="LedCount"/> when no disable data exists.</summary>
+    public int EnabledLedCount { get; set; }
     public float CanvasX { get; set; }
     public float CanvasY { get; set; }
     public float CanvasW { get; set; } = 80;
@@ -201,6 +203,10 @@ public class LightingDevice
     public bool ZoneResizable { get; set; }
     /// <summary>Cross-install hardware fingerprint for community mapping lookup (see DeviceKeyComputer). Empty when the device cannot be fingerprinted; the mapping UI hides itself then.</summary>
     public string DeviceKey { get; set; } = "";
+    /// <summary>Owning device for the device-level settings modal (zone editor routing target). Equals <see cref="Id"/> for single-zone standalone devices and non-partitionable cards.</summary>
+    public string DeviceId { get; set; } = "";
+    /// <summary>True when the owning device supports user zone partitions. False for hub ports, smart lights, and 1-LED devices so the UI hides zone management.</summary>
+    public bool ZoneCustomizable { get; set; }
 }
 
 public class GetLightingDevicesResponse

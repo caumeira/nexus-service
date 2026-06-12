@@ -18,7 +18,7 @@ sudo mkdir -p "$APP_DIR"
 for entry in "$HERE"/* "$HERE"/.[!.]*; do
   [ -e "$entry" ] || continue
   case "$(basename "$entry")" in
-    install.sh|uninstall.sh|README.md|nexus.service|99-nexus.rules|setup-sensors.sh) continue ;;
+    install.sh|uninstall.sh|README.md|nexus.service|setup-sensors.sh) continue ;;
   esac
   sudo cp -a "$entry" "$APP_DIR/"
 done

@@ -150,4 +150,4 @@ Installer artifacts are published to [`hello-nexus/nexus-releases`](https://gith
 
 ## Third-party
 
-OpenRGB (GPLv2) ships as a child process, source published at [`hello-nexus/openrgb-headless`](https://github.com/hello-nexus/openrgb-headless). A minimal LGPL-only ffmpeg build (`scripts/build-ffmpeg-minimal.sh`) ships alongside it; both are detailed with license texts in [`THIRD-PARTY.md`](THIRD-PARTY.md). LibreHardwareMonitor, PawnIO, and dfu-util are also bundled.
+OpenRGB (GPLv2) ships as a child process, source published at [`hello-nexus/openrgb-headless`](https://github.com/hello-nexus/openrgb-headless). A minimal LGPL-only ffmpeg build (`scripts/build-ffmpeg-minimal.sh`) ships alongside it. All bundled third-party components, including LibreHardwareMonitor, PawnIO, and dfu-util, are detailed with license info in [`THIRD-PARTY.md`](THIRD-PARTY.md).

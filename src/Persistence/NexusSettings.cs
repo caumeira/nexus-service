@@ -18,9 +18,9 @@ public sealed class NexusSettings
     /// a migration in <c>JsonConfigStore.Load()</c>. Lives as a constant so
     /// tests and tooling can reference "current" without bit-rotting.
     /// </summary>
-    public const int CurrentSchemaVersion = 5;
+    public const int CurrentSchemaVersion = 6;
 
-    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag — every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. The v1–v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
+    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     public ThemeSettings Theme { get; set; } = new();
@@ -409,8 +409,25 @@ public sealed class DevicesSettings
 {
     public List<string> DisabledLightingDevices { get; set; } = new();
     public Dictionary<string, LightingDevicePreference> LightingDevicePrefs { get; set; } = new();
+    /// <summary>LEGACY (pre-v6, per-card key). Read only by the one-time schema migration that moves entries into <see cref="DeviceLedOverrides"/>; empty afterward. Do not write.</summary>
     public Dictionary<string, List<LedPositionOverride>> LedMapOverrides { get; set; } = new();
+    /// <summary>LEGACY (pre-v6, per-card key). Migration source for <see cref="DeviceAspectRatios"/>; empty afterward. Do not write.</summary>
     public Dictionary<string, float> LedMapAspectRatios { get; set; } = new();
+    /// <summary>
+    /// User-defined zone partition per partitionable device, keyed by device id
+    /// (keeb hub id, OpenRGB stable id). Absent key = the provider's default
+    /// partition (today's cards). Slices are segment-local and must satisfy the
+    /// index-stability rules in <see cref="Nexus.Service.Lighting.Zones.ZonePartitionValidator"/>.
+    /// </summary>
+    public Dictionary<string, List<ZoneDef>> ZonePartitions { get; set; } = new();
+    /// <summary>
+    /// Per-LED user overrides keyed by device id, each local to a hardware
+    /// segment so they survive any re-partition. Replaces the per-card
+    /// <see cref="LedMapOverrides"/>.
+    /// </summary>
+    public Dictionary<string, List<SegmentLedOverride>> DeviceLedOverrides { get; set; } = new();
+    /// <summary>Editor canvas aspect ratio per device id. Replaces the per-card <see cref="LedMapAspectRatios"/>.</summary>
+    public Dictionary<string, float> DeviceAspectRatios { get; set; } = new();
     public List<MotherboardLedChannel> MotherboardLeds { get; set; } = new();
     /// <summary>
     /// User-configured LED count per motherboard ARGB zone, keyed by split device id
@@ -436,6 +453,36 @@ public sealed class DevicesSettings
     public List<string> MappingAutoApplyDeclined { get; set; } = new();
     /// <summary>Lighting-device ids ever seen on this install. A device not in this list is "new" and eligible for community-mapping auto-match.</summary>
     public List<string> MappingKnownDevices { get; set; } = new();
+}
+
+/// <summary>One user-defined zone of a device partition: an ordered run of segment-local slices. One zone = one lighting card = one engine frame.</summary>
+public sealed class ZoneDef
+{
+    public string Name { get; set; } = "";
+    public List<ZoneSlice> Slices { get; set; } = new();
+}
+
+/// <summary>A run of LEDs local to one hardware segment of a device.</summary>
+public sealed class ZoneSlice
+{
+    public int Segment { get; set; }
+    public int Start { get; set; }
+    public int Count { get; set; }
+}
+
+/// <summary>
+/// Per-LED user override in the device's stable space: the index is local to
+/// a hardware segment, so the entry stays valid no matter how the user
+/// re-partitions the device into zones.
+/// </summary>
+public sealed class SegmentLedOverride
+{
+    public int Segment { get; set; }
+    public int LedIndex { get; set; }
+    public float U { get; set; }
+    public float V { get; set; }
+    /// <summary>Same semantics as <see cref="LedPositionOverride.Disabled"/>.</summary>
+    public bool Disabled { get; set; }
 }
 
 public sealed class LedPositionOverride

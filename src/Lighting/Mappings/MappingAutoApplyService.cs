@@ -36,6 +36,7 @@ public sealed class MappingAutoApplyService : BackgroundService
     private readonly MappingCloudClient _cloud;
     private readonly MappingApplyService _apply;
     private readonly ILightingDeviceProvider _devices;
+    private readonly Nexus.Service.Lighting.Zones.ZoneTopology _topology;
     private readonly MultiplexHub _hub;
 
     public MappingAutoApplyService(
@@ -43,12 +44,14 @@ public sealed class MappingAutoApplyService : BackgroundService
         MappingCloudClient cloud,
         MappingApplyService apply,
         ILightingDeviceProvider devices,
+        Nexus.Service.Lighting.Zones.ZoneTopology topology,
         MultiplexHub hub)
     {
         _store = store;
         _cloud = cloud;
         _apply = apply;
         _devices = devices;
+        _topology = topology;
         _hub = hub;
     }
 
@@ -127,9 +130,9 @@ public sealed class MappingAutoApplyService : BackgroundService
         }
     }
 
-    private static bool HasLocalLayoutData(NexusSettings settings, string id)
+    private bool HasLocalLayoutData(NexusSettings settings, string id)
         => settings.Devices.AppliedMappings.ContainsKey(id)
-            || settings.Devices.LedMapOverrides.ContainsKey(id)
+            || _topology.HasUserOverrides(id, settings)
             || settings.Devices.LedGroups.ContainsKey(id)
             || settings.Devices.MappingAutoApplyDeclined.Contains(id);
 

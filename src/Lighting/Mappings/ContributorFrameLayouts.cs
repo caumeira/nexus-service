@@ -27,7 +27,18 @@ public sealed class ContributorFrameLayouts
     private readonly object _lock = new();
     private readonly Dictionary<string, Entry> _entries = new();
 
-    public void Refresh(DeviceFrame frame, NexusSettings settings)
+    /// <summary>
+    /// <paramref name="overrides"/> maps a partition-backed card (keeb zone)
+    /// into its device's segment-local override space; null treats the card
+    /// as a single-segment device of its own. <paramref name="seedU"/> /
+    /// <paramref name="seedV"/> carry structure-authored segment defaults for
+    /// the frame's zone; they are authoritative over any frame-authored UVs
+    /// (a reused frame instance can survive a partition reshape whose seed
+    /// changed) and become the pristine baseline.
+    /// </summary>
+    public void Refresh(DeviceFrame frame, NexusSettings settings,
+        Nexus.Service.Lighting.Zones.ZoneOverrideContext? overrides = null,
+        float[]? seedU = null, float[]? seedV = null)
     {
         lock (_lock)
         {
@@ -37,9 +48,15 @@ public sealed class ContributorFrameLayouts
                 _entries[frame.Id] = entry;
             }
 
+            if (seedU is not null && seedV is not null
+                && seedU.Length == frame.LedCount && seedV.Length == frame.LedCount)
+            {
+                entry.DefaultU = (float[])seedU.Clone();
+                entry.DefaultV = (float[])seedV.Clone();
+            }
             // Provider-authored UVs become the pristine default. Arrays we
             // applied ourselves are recognized by reference and skipped.
-            if (frame.LedU is not null && frame.LedV is not null
+            else if (frame.LedU is not null && frame.LedV is not null
                 && !ReferenceEquals(frame.LedU, entry.LastAppliedU)
                 && frame.LedU.Length == frame.LedCount
                 && frame.LedV.Length == frame.LedCount)
@@ -54,7 +71,7 @@ public sealed class ContributorFrameLayouts
             }
 
             var resolved = LedLayoutResolver.ResolveSeeded(
-                frame.Id, frame.LedCount, entry.DefaultU, entry.DefaultV, settings);
+                frame.Id, frame.LedCount, entry.DefaultU, entry.DefaultV, settings, overrides);
             LedLayoutResolver.ApplyToFrame(frame, resolved);
             entry.LastAppliedU = frame.LedU;
         }

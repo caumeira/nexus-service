@@ -68,13 +68,6 @@ public sealed class MappingsAvailableResponse : ApiResponse
     public Dictionary<string, int> Counts { get; set; } = new();
 }
 
-public sealed class PublishMappingBody
-{
-    public string Name { get; set; } = "";
-    public string? Description { get; set; }
-    public string? AuthorName { get; set; }
-}
-
 public sealed class PublishMappingResponse : ApiResponse
 {
     public string? MappingId { get; set; }

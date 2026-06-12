@@ -195,6 +195,9 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.Mappings.ContributorFrameLayouts>();
         services.AddSingleton<Nexus.Service.Lighting.Mappings.MappingCloudClient>();
         services.AddSingleton<Nexus.Service.Lighting.Mappings.MappingApplyService>();
+        // Zones model: aggregates every provider's partitionable-device
+        // structures and resolves any card id to its zone + layout.
+        services.AddSingleton<Nexus.Service.Lighting.Zones.ZoneTopology>();
         services.AddHostedService<Nexus.Service.Lighting.Mappings.MappingAutoApplyService>();
         services.AddSingleton(_ => new Nexus.Service.Lighting.Engine.Gpu.GpuContext(160, 90));
         services.AddSingleton<ILightingProvider, LightingProvider>();
@@ -340,6 +343,8 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.KeebLightingDeviceProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>());
         services.AddSingleton<Nexus.Service.Lighting.KeebLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingFrameWriter>());
         services.AddHostedService(sp => new Nexus.Service.Peripherals.Hyte.Keeb.KeebConnectionWorker(
@@ -382,6 +387,8 @@ public static class NexusServiceCollectionExtensions
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
         {
             services.AddSingleton<Nexus.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>();
+            services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+                sp => sp.GetRequiredService<Nexus.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>());
             services.AddSingleton<ILightingDeviceProvider>(sp => new Nexus.Service.Lighting.CompositeLightingDeviceProvider(
                 sp.GetRequiredService<Nexus.Service.Lighting.Rgb.OpenRgbLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Np50LightingDeviceProvider>(),
