@@ -785,6 +785,9 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Common.ExternalTools.ExternalToolManager>();
         services.AddHostedService(sp =>
             sp.GetRequiredService<Nexus.Service.Common.ExternalTools.ExternalToolManager>());
+        // Auto-launches each installed first-party driver app's binary when its
+        // device is present (the AW5 cooler runs at boot, pre-login).
+        services.AddHostedService<Nexus.Service.Common.ExternalTools.DriverAutoLaunchWorker>();
         return services;
     }
 
