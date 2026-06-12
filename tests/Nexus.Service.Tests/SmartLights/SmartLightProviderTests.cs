@@ -103,6 +103,68 @@ public class SmartLightProviderTests : IDisposable
         Assert.Equal(16, frame.LedU!.Length);
     }
 
+    [Fact]
+    public void BuildFrames_usesDriverUvMap_whenPlanProvidesOne()
+    {
+        _driver.Plan = new LightFramePlan(2, AverageToSingle: false,
+            LedU: new[] { 0.1f, 0.9f }, LedV: new[] { 0.2f, 0.8f });
+        _store.Update(s => s.SmartLights.Devices.Add(new SmartLightConfig
+        {
+            Id = "fake:bridge:1", Brand = "fake", Name = "L1", Host = "1.2.3.4", StableKey = "bridge", Extra = "1",
+        }));
+
+        var frame = Assert.Single(_provider.BuildFrames(0));
+        Assert.Equal(2, frame.LedCount);
+        Assert.Equal(new[] { 0.1f, 0.9f }, frame.LedU);
+        Assert.Equal(new[] { 0.2f, 0.8f }, frame.LedV);
+    }
+
+    [Fact]
+    public async Task SubmitEffectFrame_attachesZones_forZonePlans()
+    {
+        _driver.Plan = new LightFramePlan(3, AverageToSingle: false);
+        _store.Update(s => s.SmartLights.Devices.Add(new SmartLightConfig
+        {
+            Id = "fake:bridge:1", Brand = "fake", Name = "L1", Host = "1.2.3.4", StableKey = "bridge", Extra = "1",
+        }));
+        _provider.BuildFrames(0); // captures the plan + populates the cache
+
+        var tcs = new TaskCompletionSource<LightFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _driver.OnSend = f => tcs.TrySetResult(f);
+
+        var leds = new byte[] { 255, 0, 0, 0, 255, 0, 0, 0, 255 };
+        _provider.SubmitEffectFrame("fake:bridge:1", leds, 3, 0.5f);
+
+        var sent = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.True(sent.On);
+        Assert.Equal(leds, sent.Zones);
+        Assert.Equal((byte)85, sent.R); // channel averages across the 3 zones
+        Assert.Equal((byte)85, sent.G);
+        Assert.Equal((byte)85, sent.B);
+        Assert.Equal(0.5f, sent.Brightness01);
+    }
+
+    [Fact]
+    public async Task SubmitEffectFrame_noZones_forAveragingPlans()
+    {
+        _store.Update(s => s.SmartLights.Devices.Add(new SmartLightConfig
+        {
+            Id = "fake:bridge:1", Brand = "fake", Name = "L1", Host = "1.2.3.4", StableKey = "bridge", Extra = "1",
+        }));
+        _provider.BuildFrames(0);
+
+        var tcs = new TaskCompletionSource<LightFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        _driver.OnSend = f => tcs.TrySetResult(f);
+
+        _provider.SubmitEffectFrame("fake:bridge:1", new byte[] { 10, 20, 30 }, 1, 1f);
+
+        var sent = await tcs.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Null(sent.Zones);
+        Assert.Equal((byte)10, sent.R);
+        Assert.Equal((byte)20, sent.G);
+        Assert.Equal((byte)30, sent.B);
+    }
+
     public void Dispose()
     {
         _throttle.Dispose();
@@ -111,6 +173,9 @@ public class SmartLightProviderTests : IDisposable
 
     private sealed class FakeDriver : ILightDriver
     {
+        public LightFramePlan Plan = new(16, true);
+        public Action<LightFrame>? OnSend;
+
         public string Brand => "fake";
         public Task<IReadOnlyList<DiscoveredLight>> DiscoverAsync(CancellationToken ct)
             => Task.FromResult<IReadOnlyList<DiscoveredLight>>(new[] { new DiscoveredLight("fake", "1.2.3.4", "Fake", "bridge") });
@@ -123,8 +188,9 @@ public class SmartLightProviderTests : IDisposable
                     new() { Id = "fake:bridge:1", Brand = "fake", Name = "L1", Host = target.Host, StableKey = "bridge", Token = "t", Extra = "1" },
                 },
             });
-        public LightFramePlan PlanFrames(SmartLight dev) => new(16, true);
-        public Task SendAsync(SmartLight dev, LightFrame frame, CancellationToken ct) => Task.CompletedTask;
+        public LightFramePlan PlanFrames(SmartLight dev) => Plan;
+        public Task SendAsync(SmartLight dev, LightFrame frame, CancellationToken ct)
+        { OnSend?.Invoke(frame); return Task.CompletedTask; }
         public Task IdentifyAsync(SmartLight dev, CancellationToken ct) => Task.CompletedTask;
         public int MinIntervalMs(SmartLight dev) => 10;
         public string RateLimitKey(SmartLight dev) => dev.Id;

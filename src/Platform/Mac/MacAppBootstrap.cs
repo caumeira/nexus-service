@@ -39,8 +39,9 @@ internal static class MacAppBootstrap
         var iconPath = Path.Combine(AppContext.BaseDirectory, "status-icon.png");
 
         // Transfer landed with no dashboard subscribed to the WS toast — the
-        // mac analog of the Windows tray balloon. No click action (osascript
-        // limitation); the notice text names the inbox folder's purpose.
+        // mac analog of the Windows tray balloon. Request notification
+        // permission once at startup, not on the first transfer.
+        MacNotify.RequestAuthorization();
         var inbox = app.Services.GetRequiredService<Nexus.Service.Transfer.TransferInbox>();
         inbox.TransferNeedsAttention += notice =>
         {

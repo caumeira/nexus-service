@@ -7,7 +7,6 @@ using Nexus.Service.Models;
 using Nexus.Service.Models.Transfer;
 using Nexus.Service.Panel;
 using Nexus.Service.Platform.Clipboard;
-using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
 using Nexus.Service.Transfer;
 
@@ -38,13 +37,6 @@ public static class TransferRoutes
                 return Results.BadRequest(new TransferItemsResponse { Error = true, Msg = "Malformed form data" });
 
             var dir = inbox.ResolveDir();
-            if (ctx.Request.ContentLength is { } contentLength && !TransferInbox.HasFreeSpace(dir, contentLength))
-            {
-                return Results.Json(
-                    new TransferItemsResponse { Error = true, Msg = "Not enough disk space" },
-                    AppJsonContext.Default.TransferItemsResponse,
-                    statusCode: StatusCodes.Status507InsufficientStorage);
-            }
             TransferInbox.SweepStalePartials(dir);
 
             var from = SenderName(ctx, pairing);
