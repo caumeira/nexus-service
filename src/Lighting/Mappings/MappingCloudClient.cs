@@ -77,6 +77,14 @@ public sealed class MappingCloudClient
         }
     }
 
+    /// <summary>Disk-cache-only mapping count for a device key. Never touches the network; used by the device-card badge so list rendering stays offline-fast.</summary>
+    public int CachedMappingCount(string deviceKey)
+    {
+        if (string.IsNullOrEmpty(deviceKey))
+            return 0;
+        return TryReadCache(CachePathFor(deviceKey), out var cached, out _) ? cached.Items.Count : 0;
+    }
+
     /// <summary>Publish the artifact. Returns null when the user opted out of anonymous data (publishing requires the install id) or the registry rejected/was unreachable.</summary>
     public async Task<PublishMappingResponse?> PublishAsync(MappingArtifact artifact, string name, string? description, string? authorName, CancellationToken ct)
     {

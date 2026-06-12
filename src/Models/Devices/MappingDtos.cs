@@ -62,6 +62,12 @@ public sealed class ApplyMappingBody
     public string MappingId { get; set; } = "";
 }
 
+/// <summary>Device id -> cached community mapping count (only entries with a nonzero count).</summary>
+public sealed class MappingsAvailableResponse : ApiResponse
+{
+    public Dictionary<string, int> Counts { get; set; } = new();
+}
+
 public sealed class PublishMappingBody
 {
     public string Name { get; set; } = "";

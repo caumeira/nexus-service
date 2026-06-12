@@ -55,6 +55,25 @@ public static partial class DevicesRoutes
             return Results.Json(response, AppJsonContext.Default.DeviceMappingsResponse);
         });
 
+        // Cache-only availability counts for the device-card badge. Never
+        // touches the network: counts come from the disk cache the list
+        // proxy and auto-apply worker keep warm.
+        app.MapGet("/devices/lighting-devices/mappings/available", (
+            Nexus.Service.Devices.ILightingDeviceProvider ld,
+            MappingCloudClient cloud) =>
+        {
+            var response = new MappingsAvailableResponse();
+            foreach (var card in ld.GetAll().Devices)
+            {
+                if (card.DeviceKey.Length == 0)
+                    continue;
+                var count = cloud.CachedMappingCount(card.DeviceKey);
+                if (count > 0)
+                    response.Counts[card.Id] = count;
+            }
+            return Results.Json(response, AppJsonContext.Default.MappingsAvailableResponse);
+        });
+
         // Apply a community mapping by registry id (must be in the cached list).
         app.MapPost("/devices/lighting-devices/{id}/mappings/apply", async (string id, ApplyMappingBody body,
             MappingApplyService mappings,

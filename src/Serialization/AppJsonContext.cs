@@ -426,6 +426,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(DeviceMappingsResponse))]
 [JsonSerializable(typeof(AppliedMappingSummary))]
 [JsonSerializable(typeof(ApplyMappingBody))]
+[JsonSerializable(typeof(MappingsAvailableResponse))]
 [JsonSerializable(typeof(PublishMappingBody))]
 [JsonSerializable(typeof(PublishMappingResponse))]
 [JsonSerializable(typeof(ExportMappingResponse))]
