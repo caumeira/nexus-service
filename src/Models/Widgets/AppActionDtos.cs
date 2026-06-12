@@ -18,17 +18,6 @@ public sealed class AppActionAckDto
     [JsonPropertyName("applied")] public string? Applied { get; set; }
 }
 
-/// <summary>
-/// Status payload for the first-party driver actions (driver.status / launch /
-/// terminate). <c>status</c> is the legacy AW5 vocabulary the iBUYPOWER widget
-/// renders: "Running" | "NotRunning" | "NoDevice" | "Failed".
-/// </summary>
-public sealed class DriverStatusDto
-{
-    [JsonPropertyName("status")] public string Status { get; set; } = "";
-    [JsonPropertyName("message")] public string? Message { get; set; }
-}
-
 /// <summary>Combined cooling read for a widget: fan channels + temperature sources.</summary>
 public sealed class AppCoolingStateDto
 {

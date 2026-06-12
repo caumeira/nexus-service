@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
@@ -146,15 +145,9 @@ public static class AppRoutes
                     AppJsonContext.Default.AppDispatchResponse, statusCode: 429);
             }
 
-            // Inject the validated caller appId as a host-controlled arg so action
-            // handlers (e.g. driver.*) can authorize the caller against the
-            // first-party allowlist. Overwrite, never trust a widget-supplied value.
-            var dispatchArgs = body.Args ?? new Dictionary<string, JsonElement>();
-            dispatchArgs["__callerAppId"] = JsonSerializer.SerializeToElement(body.AppId, AppJsonContext.Default.String);
-
             try
             {
-                var result = await handler(services, dispatchArgs, ctx.RequestAborted);
+                var result = await handler(services, body.Args, ctx.RequestAborted);
                 return Results.Json(new AppDispatchResponse { Ok = true, Result = result },
                     AppJsonContext.Default.AppDispatchResponse);
             }

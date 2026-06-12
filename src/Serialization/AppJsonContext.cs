@@ -602,10 +602,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(AppProxyResponse))]
 [JsonSerializable(typeof(AppDispatchRequest))]
 [JsonSerializable(typeof(AppDispatchResponse))]
-// First-party driver actions (driver.status / launch / terminate).
-[JsonSerializable(typeof(DriverStatusDto))]
-// Host-injected caller appId is serialized into the dispatch args bag.
-[JsonSerializable(typeof(string))]
 
 // Conflict warning system - sidebar alarm for competing third-party apps.
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.DetectedConflict))]
