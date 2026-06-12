@@ -7,7 +7,6 @@ using Nexus.Service.Models;
 using Nexus.Service.Models.Transfer;
 using Nexus.Service.Panel;
 using Nexus.Service.Platform.Clipboard;
-using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
 using Nexus.Service.Transfer;
 
@@ -38,13 +37,6 @@ public static class TransferRoutes
                 return Results.BadRequest(new TransferItemsResponse { Error = true, Msg = "Malformed form data" });
 
             var dir = inbox.ResolveDir();
-            if (ctx.Request.ContentLength is { } contentLength && !TransferInbox.HasFreeSpace(dir, contentLength))
-            {
-                return Results.Json(
-                    new TransferItemsResponse { Error = true, Msg = "Not enough disk space" },
-                    AppJsonContext.Default.TransferItemsResponse,
-                    statusCode: StatusCodes.Status507InsufficientStorage);
-            }
             TransferInbox.SweepStalePartials(dir);
 
             var from = SenderName(ctx, pairing);
@@ -110,10 +102,12 @@ public static class TransferRoutes
             // pop 20 balloons).
             if (!hub.TopicHasSubscribers(PanelTopics.Transfer))
             {
+                // Interaction hints ("Click to open…") are appended by the
+                // platform consumer — osascript notifications have no click.
                 var sender = BalloonSender(from);
                 var text = saved.Count == 1
-                    ? $"{saved[0].Name} from {sender}. Click to open the folder."
-                    : $"{saved.Count} files from {sender}. Click to open the folder.";
+                    ? $"{saved[0].Name} from {sender}."
+                    : $"{saved.Count} files from {sender}.";
                 inbox.RaiseAttention(new TransferAttentionNotice("Nexus transfer received", text, dir));
             }
 
