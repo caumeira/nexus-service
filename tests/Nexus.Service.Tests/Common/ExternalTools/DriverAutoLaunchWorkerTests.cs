@@ -35,12 +35,12 @@ public class DriverAutoLaunchWorkerTests : IDisposable
     [Fact]
     public async Task Does_not_launch_when_no_matching_device()
     {
-        WriteIbpApp(withDriverBinary: true);
+        WriteDriverApp(withDriverBinary: true);
         var (worker, manager) = Build(new StubUsb()); // empty bus
 
         await worker.RunOnceAsync(CancellationToken.None);
 
-        Assert.NotEqual(ToolStatus.Running, manager.GetStatus("ibp-aw5"));
+        Assert.NotEqual(ToolStatus.Running, manager.GetStatus("acme-cooler"));
     }
 
     [Fact]
@@ -48,18 +48,18 @@ public class DriverAutoLaunchWorkerTests : IDisposable
     {
         if (OperatingSystem.IsWindows()) return; // real child process; Unix only
 
-        WriteIbpApp(withDriverBinary: true);
-        var (worker, manager) = Build(new StubUsb(new UsbDeviceEntry { VendorId = 0x3402, ProductId = 0x0406 }));
+        WriteDriverApp(withDriverBinary: true);
+        var (worker, manager) = Build(new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }));
 
         await worker.RunOnceAsync(CancellationToken.None);
-        Assert.Equal(ToolStatus.Running, manager.GetStatus("ibp-aw5"));
+        Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
 
         // A second pass while running is a no-op.
         await worker.RunOnceAsync(CancellationToken.None);
-        Assert.Equal(ToolStatus.Running, manager.GetStatus("ibp-aw5"));
+        Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
 
         manager.TerminateAll();
-        Assert.NotEqual(ToolStatus.Running, manager.GetStatus("ibp-aw5"));
+        Assert.NotEqual(ToolStatus.Running, manager.GetStatus("acme-cooler"));
     }
 
     // ── Harness ──
@@ -75,22 +75,22 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         return (worker, manager);
     }
 
-    private void WriteIbpApp(bool withDriverBinary)
+    private void WriteDriverApp(bool withDriverBinary)
     {
-        var dir = Path.Combine(_root, "com.ibuypower.control");
+        var dir = Path.Combine(_root, "com.example.cooler");
         Directory.CreateDirectory(dir);
         File.WriteAllText(Path.Combine(dir, "widget.mjs"), "export default function mount(){}\n");
         File.WriteAllText(Path.Combine(dir, "manifest.json"),
-            "{\"schema\":\"nexus.app/1\",\"id\":\"com.ibuypower.control\",\"name\":\"iBUYPOWER\",\"version\":\"1.0.0\"," +
+            "{\"schema\":\"nexus.app/1\",\"id\":\"com.example.cooler\",\"name\":\"Cooler\",\"version\":\"1.0.0\"," +
             "\"min_nexus_version\":\"0.42.0\",\"runtime\":\"sdk\",\"surfaces\":[\"dashboard\"],\"sizes\":[\"2x2\"]," +
-            "\"capabilities\":{},\"driver\":{\"toolId\":\"ibp-aw5\",\"match\":{\"vid\":\"3402\",\"pids\":[\"0405\",\"0406\",\"0407\"]}," +
-            "\"variants\":{\"0405\":\"Apaltek\",\"0406\":\"Levelplay\",\"0407\":\"CoolerMaster\"}," +
-            "\"manifestUrlBase\":\"https://assets.hellonexus.com/ibp_aw5_aio\"," +
-            "\"filePattern\":\"iBUYPOWER_AW5*.exe\",\"launch\":{\"session\":\"system\",\"hidden\":true}}}");
+            "\"capabilities\":{},\"driver\":{\"toolId\":\"acme-cooler\",\"match\":{\"vid\":\"1234\",\"pids\":[\"0001\",\"0002\",\"0003\"]}," +
+            "\"variants\":{\"0001\":\"VariantA\",\"0002\":\"VariantB\",\"0003\":\"VariantC\"}," +
+            "\"manifestUrlBase\":\"https://assets.hellonexus.com/acme_cooler\"," +
+            "\"filePattern\":\"MyDriver*.exe\",\"launch\":{\"session\":\"system\",\"hidden\":true}}}");
 
         if (!withDriverBinary) return;
 
-        var variantDir = Path.Combine(dir, "drivers", "Levelplay"); // matches PID 0x0406
+        var variantDir = Path.Combine(dir, "drivers", "VariantB"); // matches PID 0x0002
         Directory.CreateDirectory(variantDir);
         var sleeper = Path.Combine(variantDir, "sleeper.sh");
         File.WriteAllText(sleeper, "#!/bin/sh\nsleep 30\n");

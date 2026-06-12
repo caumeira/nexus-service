@@ -85,23 +85,22 @@ public sealed class AppManifest
     public bool Preinstalled { get; set; }
 
     /// <summary>
-    /// Optional first-party-only device-driver block: declares a native sidecar
-    /// executable the host fetches from the app store and runs (e.g. the iBUYPOWER
-    /// AW5 cooler driver). Honored ONLY for appIds on
-    /// <see cref="Nexus.Service.Widgets.FirstPartyDriverApps"/>; the registry drops
-    /// this block from any other app. See <c>plans/third-party-app-sdk.md</c> §"Raw .exe".
+    /// Optional device-driver block: declares a native sidecar executable the host
+    /// fetches from the app store and runs. Honored only for a <b>bundled</b> app
+    /// (the registry drops it from user/dev installs); the widget facet always
+    /// loads regardless. See <c>plans/third-party-app-sdk.md</c> §"Raw .exe".
     /// </summary>
     [JsonPropertyName("driver")]
     public AppManifestDriver? Driver { get; set; }
 }
 
 /// <summary>
-/// First-party driver descriptor. The host resolves a USB match to a variant,
-/// then fetches+runs the variant's binary via the external-tool manager.
+/// Device-driver descriptor. The host resolves a USB match to a variant, then
+/// fetches+runs the variant's binary via the external-tool manager.
 /// </summary>
 public sealed class AppManifestDriver
 {
-    /// <summary>Stable tool id, e.g. <c>"ibp-aw5"</c>. Names the cache folder + the store path.</summary>
+    /// <summary>Stable tool id (e.g. <c>"acme-cooler"</c>). Names the cache folder + the store path.</summary>
     [JsonPropertyName("toolId")]
     public string ToolId { get; set; } = "";
 
@@ -117,7 +116,7 @@ public sealed class AppManifestDriver
     [JsonPropertyName("manifestUrlBase")]
     public string ManifestUrlBase { get; set; } = "";
 
-    /// <summary>Glob for the dev-only offline fallback (e.g. <c>iBUYPOWER_AW5*.exe</c>).</summary>
+    /// <summary>Glob for the dev-only offline fallback (e.g. <c>MyDriver*.exe</c>).</summary>
     [JsonPropertyName("filePattern")]
     public string FilePattern { get; set; } = "";
 

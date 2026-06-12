@@ -7,8 +7,8 @@ using Xunit;
 namespace Nexus.Service.Tests.Widgets;
 
 /// <summary>
-/// The <c>driver</c> manifest block is a first-party-only grant: the registry must
-/// keep it for an allowlisted appId and silently drop it from everyone else (while
+/// The <c>driver</c> manifest block is honored only for a bundled app: the registry
+/// keeps it for a Bundled-source app and drops it from a user/dev install (while
 /// still loading the app's widget facet).
 /// </summary>
 public class DriverManifestGateTests : IDisposable
@@ -26,42 +26,42 @@ public class DriverManifestGateTests : IDisposable
         try { Directory.Delete(_root, recursive: true); } catch { /* best effort */ }
     }
 
-    private AppRegistry NewRegistry() => new(() => new List<AppInstallPaths.Root>
+    private AppRegistry NewRegistry(AppInstallPaths.Source source) => new(() => new List<AppInstallPaths.Root>
     {
-        new(_root, AppInstallPaths.Source.Bundled),
+        new(_root, source),
     });
 
     [Fact]
-    public void Keeps_driver_block_for_allowlisted_app()
+    public void Keeps_driver_block_for_a_bundled_app()
     {
-        WriteApp("com.ibuypower.control", withDriver: true);
+        WriteApp("com.example.cooler", withDriver: true);
 
-        var registry = NewRegistry();
-        Assert.True(registry.TryGet("com.ibuypower.control", out var entry));
+        var registry = NewRegistry(AppInstallPaths.Source.Bundled);
+        Assert.True(registry.TryGet("com.example.cooler", out var entry));
         Assert.NotNull(entry.Manifest.Driver);
-        Assert.Equal("ibp-aw5", entry.Manifest.Driver!.ToolId);
-        Assert.Equal("Apaltek", entry.Manifest.Driver.Variants["0405"]);
+        Assert.Equal("acme-cooler", entry.Manifest.Driver!.ToolId);
+        Assert.Equal("VariantA", entry.Manifest.Driver.Variants["0001"]);
         Assert.Equal("system", entry.Manifest.Driver.Launch!.Session);
-        Assert.Equal("3402", entry.Manifest.Driver.Match!.Vid);
+        Assert.Equal("1234", entry.Manifest.Driver.Match!.Vid);
     }
 
     [Fact]
-    public void Drops_driver_block_from_non_allowlisted_app_but_keeps_the_app()
+    public void Drops_driver_block_from_a_user_installed_app_but_keeps_the_app()
     {
-        WriteApp("com.hellonexus.fixture-basic", withDriver: true);
+        WriteApp("com.example.cooler", withDriver: true);
 
-        var registry = NewRegistry();
-        Assert.True(registry.TryGet("com.hellonexus.fixture-basic", out var entry));
+        var registry = NewRegistry(AppInstallPaths.Source.User);
+        Assert.True(registry.TryGet("com.example.cooler", out var entry));
         Assert.Null(entry.Manifest.Driver); // dropped — the app still loads
     }
 
     [Fact]
     public void No_driver_block_is_unaffected()
     {
-        WriteApp("com.hellonexus.fixture-basic", withDriver: false);
+        WriteApp("com.example.cooler", withDriver: false);
 
-        var registry = NewRegistry();
-        Assert.True(registry.TryGet("com.hellonexus.fixture-basic", out var entry));
+        var registry = NewRegistry(AppInstallPaths.Source.Bundled);
+        Assert.True(registry.TryGet("com.example.cooler", out var entry));
         Assert.Null(entry.Manifest.Driver);
     }
 
@@ -72,9 +72,9 @@ public class DriverManifestGateTests : IDisposable
         File.WriteAllText(Path.Combine(dir, "widget.mjs"), "export default function mount(){}\n");
 
         var driver = withDriver
-            ? ",\"driver\":{\"toolId\":\"ibp-aw5\",\"match\":{\"vid\":\"3402\",\"pids\":[\"0405\"]}," +
-              "\"variants\":{\"0405\":\"Apaltek\"},\"manifestUrlBase\":\"https://assets.hellonexus.com/ibp_aw5_aio\"," +
-              "\"filePattern\":\"iBUYPOWER_AW5*.exe\",\"launch\":{\"session\":\"system\",\"hidden\":true}}"
+            ? ",\"driver\":{\"toolId\":\"acme-cooler\",\"match\":{\"vid\":\"1234\",\"pids\":[\"0001\"]}," +
+              "\"variants\":{\"0001\":\"VariantA\"},\"manifestUrlBase\":\"https://assets.hellonexus.com/acme_cooler\"," +
+              "\"filePattern\":\"MyDriver*.exe\",\"launch\":{\"session\":\"system\",\"hidden\":true}}"
             : "";
 
         File.WriteAllText(Path.Combine(dir, "manifest.json"),

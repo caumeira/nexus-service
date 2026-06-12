@@ -9,11 +9,11 @@ using Nexus.Service.Widgets;
 namespace Nexus.Service.Common.ExternalTools;
 
 /// <summary>
-/// Auto-launches the native driver of every installed first-party driver app whose
-/// matching device is on the USB bus — so the iBUYPOWER AW5 cooler is driven at
-/// service start, before any user logs in. Generic: it reads each app's
-/// <c>driver</c> manifest block (only allowlisted apps have one — the registry
-/// enforces that), so a future first-party driver app needs zero changes here.
+/// Auto-launches the native driver of every installed bundled driver app whose
+/// matching device is on the USB bus — so a device's driver runs at service start,
+/// before any user logs in. Generic: it reads each app's <c>driver</c> manifest
+/// block (only bundled apps keep one — the registry enforces that), so a new driver
+/// app needs zero changes here.
 ///
 /// Single-instance is the manager's guarantee; shutdown kill is the manager's
 /// <see cref="ExternalToolManager.StopAsync"/>. This worker only starts things.

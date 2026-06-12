@@ -4,9 +4,7 @@ using System.Text.Json.Serialization;
 namespace Nexus.Service.Common.ExternalTools;
 
 /// <summary>
-/// Lifecycle state of an external tool process, surfaced to the UI via the
-/// driver dispatch actions. Mirrors the legacy AW5 <c>Aw5dAppStatus</c> so the
-/// iBUYPOWER widget renders the same four states.
+/// Lifecycle state of an external tool process.
 /// </summary>
 public enum ToolStatus
 {
@@ -41,7 +39,7 @@ public sealed record ToolLaunchOptions(bool Hidden = true, ToolSession Session =
 /// <summary>
 /// Everything the <see cref="ExternalToolManager"/> needs to resolve, fetch, and
 /// launch one tool variant. Built from an app's <c>driver</c> manifest block by a
-/// thin per-device factory (e.g. the AW5 factory maps a USB PID to a variant).
+/// thin per-device factory (maps a USB match to a variant).
 /// </summary>
 public sealed record ExternalToolSpec(
     string ToolId,

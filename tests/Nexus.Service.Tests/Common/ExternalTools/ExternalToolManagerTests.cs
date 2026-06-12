@@ -74,10 +74,10 @@ public class ExternalToolManagerTests : IDisposable
     public async Task ResolveAsync_uses_bundled_pin_without_touching_network()
     {
         var payload = RandomBytes(1024);
-        var pinned = Path.Combine(_preload, "iBUYPOWER_AW5_1.0.0.bin");
+        var pinned = Path.Combine(_preload, "tool-1.0.0.bin");
         await File.WriteAllBytesAsync(pinned, payload);
         await File.WriteAllTextAsync(Path.Combine(_preload, "bundled.json"),
-            BundledPinJson("iBUYPOWER_AW5_1.0.0.bin", Sha256Hex(payload), payload.Length));
+            BundledPinJson("tool-1.0.0.bin", Sha256Hex(payload), payload.Length));
 
         var handler = new ExplodingHandler();
         var mgr = new ExternalToolManager(new HttpClient(handler), _root);

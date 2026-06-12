@@ -779,13 +779,13 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Widgets.AppDispatchRateLimiter>();
 
         // Generic external-tool manager (NEX-13): fetches + runs a device's sidecar
-        // executable (the AW5 cooler driver is the first consumer). Hosted so its
-        // StopAsync kills every tracked tool process on service shutdown.
+        // executable. Hosted so its StopAsync kills every tracked tool process on
+        // service shutdown.
         services.AddSingleton<Nexus.Service.Common.ExternalTools.ExternalToolManager>();
         services.AddHostedService(sp =>
             sp.GetRequiredService<Nexus.Service.Common.ExternalTools.ExternalToolManager>());
-        // Auto-launches each installed first-party driver app's binary when its
-        // device is present (the AW5 cooler runs at boot, pre-login).
+        // Auto-launches each installed bundled driver app's binary when its device
+        // is present (runs at boot, pre-login).
         services.AddHostedService<Nexus.Service.Common.ExternalTools.DriverAutoLaunchWorker>();
         return services;
     }

@@ -102,14 +102,16 @@ public sealed class AppRegistry
                     manifest.DefaultSize = manifest.Sizes[0];
                 }
 
-                // Drop a `driver` block from any app not on the first-party
-                // allowlist. Running a fetched native exe is a host-only,
-                // first-party capability; a smuggled block must not grant it.
-                // The widget facet still loads — only the driver is ignored.
-                if (manifest.Driver is not null && !FirstPartyDriverApps.Contains(manifest.Id))
+                // A `driver` block — which lets the host fetch and run a native
+                // executable — is honored only for a bundled app (one shipped in
+                // the trusted build / OEM image). A user- or dev-installed app
+                // cannot grant itself a host-run driver; the widget facet still
+                // loads, only the driver block is dropped. (When app signing lands
+                // this becomes a cert-grant check.)
+                if (manifest.Driver is not null && root.Source != AppInstallPaths.Source.Bundled)
                 {
                     Nexus.Service.Platform.ServiceLog.Warn(
-                        $"[apps] {manifest.Id} declared a driver block but is not an allowlisted first-party driver app; ignoring it.");
+                        $"[apps] {manifest.Id} declares a driver block but is not a bundled app; ignoring it.");
                     manifest.Driver = null;
                 }
 
