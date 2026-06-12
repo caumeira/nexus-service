@@ -212,16 +212,24 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             ExtraParams = extras,
         };
 
-    // Cached thumbnail BMPs keyed by effect name. First request renders ~1s of
-    // the shader into an offscreen canvas, encodes to BMP, and stores the bytes.
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, byte[]> _thumbnailCache = new();
+    // Cached thumbnail BMP per effect name, stamped with the cache-bust token it
+    // was rendered for. A request whose token differs re-renders (the saved look
+    // changed); one entry per effect, so the cache never grows with edits.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Version, byte[] Bytes)> _thumbnailCache = new();
 
-    public byte[]? CaptureAnimateThumbnail(string key, bool skipCache = false)
+    // A thumbnail is a single frame captured this far into the animation. The
+    // shaders are stateless - output is a pure function of u_time - so one
+    // render at a settled time matches stepping there frame by frame, while
+    // t=0 would leave ramp-up effects (fire, starfield, matrix) cold or black.
+    private const double ThumbnailFrameTimeMs = 957.0;
+
+    public byte[]? CaptureAnimateThumbnail(string key, string? version = null, bool skipCache = false)
     {
         var name = (key ?? "").ToLowerInvariant();
-        if (!skipCache && _thumbnailCache.TryGetValue(name, out var cached))
+        var ver = version ?? "";
+        if (!skipCache && _thumbnailCache.TryGetValue(name, out var cached) && cached.Version == ver)
         {
-            return cached;
+            return cached.Bytes;
         }
         var defaults = DefaultParamsFor(name);
         if (defaults is null)
@@ -229,25 +237,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             return null;
         }
 
-        // Render 30 frames (~1s at 30fps) with the effect's signature hue +
-        // colorize + speed so the thumbnail shows the iconic look (fire orange,
-        // matrix green, nebula purple, etc.) instead of a generic rainbow.
-        // The signature table mirrors SIGNATURES in
-        // nexus-web/src/types/lightingTemplates.ts.
         var canvas = new Engine.CanvasBuffer(160, 90);
-        var sig = SignatureFor(name);
-        var thumbSpeed = sig.Speed / 50f;
-        if (name == "pulse")
-        {
-            thumbSpeed *= 0.5f;
-        }
-        var effect = BuildAnimateEffect(name, thumbSpeed, sig.Intensity, sig.Hue, sig.Colorize, sig.Saturation, sig.Contrast, defaults);
+        var effect = BuildThumbnailEffect(name, defaults);
         try
         {
-            for (int i = 0; i < 30; i++)
-            {
-                effect.RenderFrame(canvas, i * 33.0);
-            }
+            effect.RenderFrame(canvas, ThumbnailFrameTimeMs);
         }
         finally
         {
@@ -256,11 +250,46 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             catch { }
         }
         var bytes = Engine.Gpu.BmpEncoder.Encode(canvas.Pixels, canvas.Width, canvas.Height);
-        if (!skipCache)
-        {
-            _thumbnailCache[name] = bytes;
-        }
+        _thumbnailCache[name] = (ver, bytes);
         return bytes;
+    }
+
+    /// <summary>
+    /// Build the effect whose single frame becomes the thumbnail. Prefers the
+    /// user's saved selected-slot look (so the preview matches what playing the
+    /// effect will show); falls back to the signature look for effects the user
+    /// hasn't customised. Both paths mirror the live <see cref="StartAnimate"/>
+    /// uniform mapping (speed/50, params over defaults).
+    /// </summary>
+    private IEffect BuildThumbnailEffect(string name, System.Collections.Generic.Dictionary<string, float> defaults)
+    {
+        var templates = _store.Load().Lighting.Animate.Templates;
+        if (templates.TryGetValue(name, out var bundle) && bundle.Slots.Count > 0)
+        {
+            var idx = Math.Clamp(bundle.Selected, 0, bundle.Slots.Count - 1);
+            var slot = bundle.Slots[idx];
+            var extras = new System.Collections.Generic.Dictionary<string, float>(defaults);
+            if (slot.Params is not null)
+            {
+                foreach (var kv in slot.Params)
+                {
+                    extras[kv.Key] = kv.Value;
+                }
+            }
+            return BuildAnimateEffect(name, slot.Speed / 50f, slot.Intensity, slot.Hue, slot.Colorize, slot.Saturation, slot.Contrast, extras);
+        }
+
+        // Signature hue + colorize + speed give the iconic look (fire orange,
+        // matrix green, nebula purple) instead of a generic rainbow; the
+        // signature table mirrors SIGNATURES in
+        // nexus-web/src/types/lightingTemplates.ts.
+        var sig = SignatureFor(name);
+        var thumbSpeed = sig.Speed / 50f;
+        if (name == "pulse")
+        {
+            thumbSpeed *= 0.5f;
+        }
+        return BuildAnimateEffect(name, thumbSpeed, sig.Intensity, sig.Hue, sig.Colorize, sig.Saturation, sig.Contrast, defaults);
     }
 
     /// <summary>

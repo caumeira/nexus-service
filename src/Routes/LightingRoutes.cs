@@ -26,12 +26,15 @@ public static class LightingRoutes
         app.MapGet("/lighting/effects/{key}/thumbnail.bmp", (string key, ILightingProvider l, HttpRequest req, HttpResponse res) =>
         {
             var fresh = req.Query.ContainsKey("fresh");
-            var bytes = l.CaptureAnimateThumbnail(key, skipCache: fresh);
+            // ?v is the client's per-effect cache-bust token: it changes when the
+            // effect's saved selected-slot look changes, so the long browser cache
+            // below is bypassed and the service re-renders that one thumbnail.
+            var version = req.Query.TryGetValue("v", out var v) ? v.ToString() : null;
+            var bytes = l.CaptureAnimateThumbnail(key, version, skipCache: fresh);
             if (bytes is null) return Results.NotFound();
-            // Thumbnails are deterministic per effect key (signature + shader)
-            // for a service-process lifetime. Long-cache so /lighting reloads
-            // don't refetch 60 BMPs on every page mount. ?fresh stays as the
-            // dev override; the cache header is dropped on that path.
+            // The ?v token makes each saved look its own URL, so a long cache is
+            // safe and keeps /lighting reloads from refetching 60 BMPs. ?fresh
+            // stays as the dev override; the cache header is dropped on that path.
             if (!fresh) res.Headers.CacheControl = "public, max-age=86400";
             return Results.File(bytes, "image/bmp");
         }).AllowPanel();

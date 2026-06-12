@@ -31,6 +31,12 @@ public interface ILightingProvider
     /// <summary>Update the Media post-process. Same semantics as UpdateScreenEffect.</summary>
     void UpdateMediaEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist);
 
-    /// <summary>Render the given animate effect to a 160x90 BMP for UI previews.</summary>
-    byte[]? CaptureAnimateThumbnail(string key, bool skipCache = false);
+    /// <summary>
+    /// Render the given animate effect to a 160x90 BMP for UI previews. Uses the
+    /// user's saved selected-slot look when one exists, else the effect's
+    /// signature look. <paramref name="version"/> is an opaque cache-bust token
+    /// from the client (changes when the saved look changes); the bytes are
+    /// re-rendered whenever it differs from the last render's token.
+    /// </summary>
+    byte[]? CaptureAnimateThumbnail(string key, string? version = null, bool skipCache = false);
 }
