@@ -652,6 +652,10 @@ namespace Nexus.Service.Serialization;
 // Fleet telemetry heartbeat payload (anonymous).
 [JsonSerializable(typeof(Nexus.Service.Telemetry.HeartbeatPayload))]
 
+// Phone-as-webcam control surface.
+[JsonSerializable(typeof(Nexus.Service.Models.Webcam.WebcamStartRequest))]
+[JsonSerializable(typeof(Nexus.Service.Models.Webcam.WebcamStatusResponse))]
+
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
