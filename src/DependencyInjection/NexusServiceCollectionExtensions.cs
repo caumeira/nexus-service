@@ -212,6 +212,25 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
+    public static IServiceCollection AddNexusWebcam(this IServiceCollection services)
+    {
+        // Linux writes MJPEG passthrough into v4l2loopback; Windows/macOS get
+        // the null sink until their native camera backends land. Optional env
+        // override pins an explicit device node instead of the sysfs name scan.
+        if (OperatingSystem.IsLinux())
+        {
+            services.AddSingleton<Nexus.Service.Webcam.IVirtualCamera>(_ =>
+                new Nexus.Service.Webcam.Linux.V4l2LoopbackCamera(
+                    Environment.GetEnvironmentVariable("NEXUS_WEBCAM_DEVICE")));
+        }
+        else
+        {
+            services.AddSingleton<Nexus.Service.Webcam.IVirtualCamera, Nexus.Service.Webcam.NullVirtualCamera>();
+        }
+        services.AddSingleton<Nexus.Service.Webcam.WebcamSessionManager>();
+        return services;
+    }
+
     public static IServiceCollection AddNexusDevices(this IServiceCollection services)
     {
         // CNVS hub: serial-port discovery + hub singleton + connection

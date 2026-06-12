@@ -1,4 +1,5 @@
 using System.Net.WebSockets;
+using Nexus.Service.Auth;
 using Nexus.Service.Sockets;
 
 namespace Nexus.Service.Routes;
@@ -46,6 +47,28 @@ public static class WebSocketRoutes
             var hub = ctx.RequestServices.GetRequiredService<LightingOutputHub>();
             await hub.HandleClientAsync(socket, cancellationToken: ctx.RequestAborted);
         });
+
+        // Webcam stream - binary phone -> service video frames, one frame per
+        // message. LAN-only: trusted relay dispatches are refused before the
+        // upgrade, mirroring the REST guard in WebcamRoutes.
+        app.Map("/webcam/stream", async (HttpContext ctx) =>
+        {
+            if (Nexus.Service.Webcam.WebcamRelayGuard.IsRelayDispatch(ctx))
+            {
+                ctx.Response.StatusCode = StatusCodes.Status403Forbidden;
+                return;
+            }
+            if (!ctx.WebSockets.IsWebSocketRequest)
+            {
+                ctx.Response.StatusCode = 400;
+                ctx.Response.ContentType = "application/json";
+                await ctx.Response.WriteAsync("{\"error\":true,\"msg\":\"WebSocket expected\"}");
+                return;
+            }
+            using WebSocket socket = await ctx.WebSockets.AcceptWebSocketAsync();
+            var manager = ctx.RequestServices.GetRequiredService<Nexus.Service.Webcam.WebcamSessionManager>();
+            await manager.HandleStreamSocketAsync(socket, ctx.RequestAborted);
+        }).AllowPanel();
 
         // Sealed LAN tunnel — the panel's E2E-encrypted transport over plain
         // :9400/:9443. Auth is the in-band sealed handshake (the rid identifies the
