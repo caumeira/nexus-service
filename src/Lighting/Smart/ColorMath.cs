@@ -60,6 +60,26 @@ public static class ColorMath
     /// dimming from the streamed pixel so dark frames dim the lamp.</summary>
     public static float Value(byte r, byte g, byte b) => Math.Max(r, Math.Max(g, b)) / 255f;
 
+    /// <summary>8-bit sRGB → HSV with h,s,v in [0,1] — inverse of
+    /// <see cref="HsvToRgb"/>, for drivers whose state API takes hue/sat
+    /// (Nanoleaf) rather than RGB.</summary>
+    public static (float h, float s, float v) RgbToHsv(byte r, byte g, byte b)
+    {
+        float rf = r / 255f, gf = g / 255f, bf = b / 255f;
+        var max = Math.Max(rf, Math.Max(gf, bf));
+        var min = Math.Min(rf, Math.Min(gf, bf));
+        var d = max - min;
+        var h = 0f;
+        if (d > 0f)
+        {
+            if (max == rf) h = (((gf - bf) / d) % 6f + 6f) % 6f / 6f;
+            else if (max == gf) h = ((bf - rf) / d + 2f) / 6f;
+            else h = ((rf - gf) / d + 4f) / 6f;
+        }
+        var s = max <= 0f ? 0f : d / max;
+        return (h, s, max);
+    }
+
     /// <summary>Kelvin → reciprocal mega-kelvin (mirek), clamped to Hue's 153..500.</summary>
     public static int KelvinToMirek(int kelvin)
         => kelvin <= 0 ? 366 : Math.Clamp((int)Math.Round(1_000_000.0 / kelvin), 153, 500);

@@ -317,11 +317,11 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Keeb.KeebInputWorker>();
 
-        // Smart (network) lights — Philips Hue today; Nanoleaf / WLED / LIFX /
-        // Twinkly / WiZ / Yeelight / Elgato next. One brand-neutral provider +
-        // frame writer + send throttle; per-brand behavior is an ILightDriver.
-        // Joins the composite by id prefix ("hue:", …). Cross-platform (pure
-        // sockets), so it runs on macOS/Linux too. See
+        // Smart (network) lights — Philips Hue, Nanoleaf, Govee today; WLED /
+        // LIFX / Twinkly / WiZ / Yeelight / Elgato next. One brand-neutral
+        // provider + frame writer + send throttle; per-brand behavior is an
+        // ILightDriver. Joins the composite by id prefix ("hue:", …).
+        // Cross-platform (pure sockets), so it runs on macOS/Linux too. See
         // plans/smart-lights-integration.md.
         services.AddSingleton<Nexus.Service.Lighting.Smart.Discovery.MdnsQuery>();
         services.AddSingleton<Nexus.Service.Lighting.Smart.Discovery.LanDiscovery>();
@@ -330,6 +330,17 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.Smart.Drivers.Hue.HueDriver>();
         services.AddSingleton<Nexus.Service.Lighting.Smart.ILightDriver>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.Drivers.Hue.HueDriver>());
+        services.AddSingleton<Nexus.Service.Lighting.Smart.Drivers.Nanoleaf.NanoleafClient>();
+        services.AddSingleton(sp => new Nexus.Service.Lighting.Smart.Drivers.Nanoleaf.NanoleafDriver(
+            sp.GetRequiredService<Nexus.Service.Lighting.Smart.Drivers.Nanoleaf.NanoleafClient>(),
+            sp.GetRequiredService<Nexus.Service.Lighting.Smart.Discovery.LanDiscovery>(),
+            sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>()));
+        services.AddSingleton<Nexus.Service.Lighting.Smart.ILightDriver>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.Drivers.Nanoleaf.NanoleafDriver>());
+        services.AddSingleton(_ => new Nexus.Service.Lighting.Smart.Drivers.Govee.GoveeLanClient());
+        services.AddSingleton<Nexus.Service.Lighting.Smart.Drivers.Govee.GoveeDriver>();
+        services.AddSingleton<Nexus.Service.Lighting.Smart.ILightDriver>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.Drivers.Govee.GoveeDriver>());
         services.AddSingleton<Nexus.Service.Lighting.Smart.SmartLightProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>());
@@ -654,6 +665,10 @@ public static class NexusServiceCollectionExtensions
             }
         });
 
+        // Windows/macOS push the accent from their native shell; the Linux
+        // block below overrides this with the portal reader (last registration
+        // wins for the resolved instance).
+        services.AddSingleton<ISystemAccentProvider, NullSystemAccentProvider>();
 #if WINDOWS
         services.AddSingleton<IScreenTimeProvider, WindowsScreenTimeProvider>();
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
@@ -678,6 +693,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IScreenTimeProvider>(sp => sp.GetRequiredService<Nexus.Service.Activity.LinuxScreenTimeProvider>());
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
         services.AddSingleton<IShortcutsProvider, LinuxShortcutsProvider>();
+        services.AddSingleton<ISystemAccentProvider, Nexus.Service.Platform.Linux.LinuxSystemAccentProvider>();
         services.AddSingleton<IMediaProvider, LinuxMediaProvider>();
         services.AddSingleton<IVolumeProvider, LinuxVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, LinuxAudioDeviceProvider>();
