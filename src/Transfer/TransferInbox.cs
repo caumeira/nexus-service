@@ -157,22 +157,6 @@ public sealed class TransferInbox
         catch { }
     }
 
-    /// <summary>False only when the inbox volume is confidently too small for the incoming bytes (512 MB headroom); unknown volumes pass.</summary>
-    public static bool HasFreeSpace(string dir, long incomingBytes)
-    {
-        try
-        {
-            var root = Path.GetPathRoot(Path.GetFullPath(dir));
-            if (string.IsNullOrEmpty(root))
-                return true;
-            return new DriveInfo(root).AvailableFreeSpace > incomingBytes + 512L * 1024 * 1024;
-        }
-        catch
-        {
-            return true;
-        }
-    }
-
     internal static string SanitizeFileName(string? raw)
     {
         // GetFileName strips directory components — and with them any ../ traversal.
