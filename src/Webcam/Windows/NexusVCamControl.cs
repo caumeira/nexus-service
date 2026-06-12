@@ -64,6 +64,52 @@ internal sealed partial class NexusVCamControl : IVCamControl
 
     public int Destroy(nint handle) => NexusVCamDestroy(handle);
 
+    // The Camera Frame Server won't activate a virtual-camera source until the
+    // machine-wide "let desktop apps use the camera" consent is DECIDED; an
+    // undecided (missing) value makes MFCreateVirtualCamera hang forever from
+    // the LocalSystem service. Grant it (Allow) only when undecided — never
+    // override an explicit user Deny — and only from the start path, the moment
+    // the user turns the webcam on (their opt-in), never at install. The same
+    // toggle is what call apps need to see any camera, so it is inherent to
+    // using the feature, not an extra grant.
+    //
+    // Returns true when this call JUST granted consent. The caller must then
+    // NOT attempt the create on this pass: the Frame Server already cached the
+    // undecided state, so a create now blocks on a consent prompt SYSTEM can't
+    // answer (and wedges the Frame Server). The next start sees decided consent
+    // and proceeds. Best-effort: a locked-down ACL returns false and the create
+    // surfaces its own actionable error.
+    private const string WebcamConsentKey =
+        @"Software\Microsoft\Windows\CurrentVersion\CapabilityAccessManager\ConsentStore\webcam";
+
+    public static bool EnsureDesktopCameraConsent()
+    {
+        var granted = AllowIfUndecided(WebcamConsentKey);
+        granted |= AllowIfUndecided(WebcamConsentKey + @"\NonPackaged");
+        return granted;
+    }
+
+    private static bool AllowIfUndecided(string subKey)
+    {
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(subKey, writable: true)
+                ?? Microsoft.Win32.Registry.LocalMachine.CreateSubKey(subKey);
+            if (key is null)
+                return false;
+            if (key.GetValue("Value") is string existing && existing.Length > 0)
+                return false; // user (or policy) already decided — leave it
+            key.SetValue("Value", "Allow", Microsoft.Win32.RegistryValueKind.String);
+            return true;
+        }
+        catch
+        {
+            // Locked-down ACL / non-Windows test host: ignore; the camera
+            // create surfaces its own actionable error if consent is the gate.
+            return false;
+        }
+    }
+
     private static string? RegisteredDllPath() =>
         Microsoft.Win32.Registry.GetValue(ClsidKeyPath, "", null) as string;
 
