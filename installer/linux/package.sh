@@ -2,7 +2,7 @@
 # Assemble a Nexus Linux tarball from a `dotnet publish -r linux-x64` output dir.
 # Usage: package.sh <publish-dir> [output-dir]
 # Produces <output-dir>/Nexus-Linux-x64.tar.gz containing a top-level nexus/
-# directory (app payload + install scripts + systemd unit + udev rules).
+# directory (app payload + install scripts + systemd unit).
 set -euo pipefail
 
 PUBLISH_DIR="${1:?usage: package.sh <publish-dir> [output-dir]}"
@@ -24,7 +24,7 @@ cp -a "$PUBLISH_DIR/." "$APP/"
 
 # Install tooling + service definition.
 cp "$HERE/install.sh" "$HERE/uninstall.sh" "$HERE/README.md" \
-   "$HERE/nexus.service" "$HERE/99-nexus.rules" "$APP/"
+   "$HERE/nexus.service" "$APP/"
 chmod +x "$APP/install.sh" "$APP/uninstall.sh" "$APP/Nexus"
 
 # App icon (best-effort — menu entry uses it).
