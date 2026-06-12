@@ -22,6 +22,15 @@ public sealed class PanelDeviceRecord
     public string? BackgroundMode { get; set; }
     public string? BackgroundEffect { get; set; }
     public int? BackgroundTemplate { get; set; }
+    /// <summary>
+    /// Per-shader preset selection for THIS panel (effect key → preset index).
+    /// The panel remembers which of the universal presets it points at for each
+    /// shader, independent of the LEDs and other panels. The preset *contents*
+    /// stay central (Lighting.Animate.Templates); this only records the choice.
+    /// Absent/unset shaders default to preset 0. <see cref="BackgroundTemplate"/>
+    /// is the active shader's entry, kept for rendering + back-compat.
+    /// </summary>
+    public Dictionary<string, int>? BackgroundTemplates { get; set; }
     public double? BackgroundOpacity { get; set; }
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }
@@ -99,6 +108,9 @@ public sealed class PanelDevicePatch
     public string? BackgroundMode { get; set; }
     public string? BackgroundEffect { get; set; }
     public int? BackgroundTemplate { get; set; }
+    /// <summary>Full per-shader preset map to replace this panel's selection
+    /// (effect key → preset index). The client sends the whole map.</summary>
+    public Dictionary<string, int>? BackgroundTemplates { get; set; }
     public double? BackgroundOpacity { get; set; }
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }

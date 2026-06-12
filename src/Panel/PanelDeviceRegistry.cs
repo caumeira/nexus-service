@@ -246,6 +246,8 @@ public sealed class PanelDeviceRegistry
                 record.BackgroundEffect = NullIfEmpty(patch.BackgroundEffect);
             if (patch.BackgroundTemplate.HasValue)
                 record.BackgroundTemplate = patch.BackgroundTemplate.Value;
+            if (patch.BackgroundTemplates is not null)
+                record.BackgroundTemplates = new Dictionary<string, int>(patch.BackgroundTemplates);
             if (patch.BackgroundOpacity.HasValue)
                 record.BackgroundOpacity = patch.BackgroundOpacity.Value;
             if (patch.WidgetOpacity.HasValue)
@@ -325,6 +327,9 @@ public sealed class PanelDeviceRegistry
             BackgroundMode = r.BackgroundMode,
             BackgroundEffect = r.BackgroundEffect,
             BackgroundTemplate = r.BackgroundTemplate,
+            BackgroundTemplates = r.BackgroundTemplates is null
+                ? null
+                : new Dictionary<string, int>(r.BackgroundTemplates),
             BackgroundOpacity = r.BackgroundOpacity,
             WidgetOpacity = r.WidgetOpacity,
             WidgetLabels = r.WidgetLabels,
