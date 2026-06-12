@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleName</key>
+    <string>Nexus Camera</string>
+    <key>CFBundleDisplayName</key>
+    <string>Nexus Camera</string>
+    <key>CFBundleIdentifier</key>
+    <string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundlePackageType</key>
+    <string>SYSX</string>
+    <key>CFBundleVersion</key>
+    <string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>CFBundleShortVersionString</key>
+    <string>$(MARKETING_VERSION)</string>
+    <key>NSSystemExtensionUsageDescription</key>
+    <string>Exposes the paired phone's camera as the "Nexus Camera" system camera.</string>
+    <!-- The DAL assistant launches the extension via this mach service. The
+         name must be prefixed by the team id or an app group from the
+         entitlements; TeamIdentifierPrefix expands only when signing with a
+         real team, so unsigned dev builds produce a bare (invalid) name. -->
+    <key>CMIOExtension</key>
+    <dict>
+        <key>CMIOExtensionMachServiceName</key>
+        <string>$(TeamIdentifierPrefix)$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    </dict>
+    <!-- Stable identities shared with the .NET service: the service locates
+         the device by matching kCMIODevicePropertyDeviceUID against the
+         device UUID below. Regenerating these breaks client discovery. -->
+    <key>NexusCameraDeviceUUID</key>
+    <string>ECDD7A18-3AAE-4968-869D-D345C62F2EA5</string>
+    <key>NexusCameraSourceUUID</key>
+    <string>A72CC89A-54D8-4A81-BBA5-E3BF334F4842</string>
+    <key>NexusCameraSinkUUID</key>
+    <string>7605A81F-C70D-4C20-AD77-9B792D852835</string>
+</dict>
+</plist>

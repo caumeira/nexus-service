@@ -1,0 +1,45 @@
+name: NexusCameraExtension
+options:
+  bundleIdPrefix: com.hellonexus
+  deploymentTarget:
+    macOS: "13.0"
+  developmentLanguage: en
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "1.0.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEVELOPMENT_TEAM: "8ZFCKY2SQ9"
+    CODE_SIGN_STYLE: Automatic
+    GENERATE_INFOPLIST_FILE: NO
+    ENABLE_USER_SCRIPT_SANDBOXING: YES
+
+targets:
+  NexusCameraExtension:
+    type: system-extension
+    platform: macOS
+    sources:
+      - path: NexusCameraExtension
+        excludes:
+          - "Info.plist"
+    settings:
+      base:
+        INFOPLIST_FILE: NexusCameraExtension/Info.plist
+        PRODUCT_BUNDLE_IDENTIFIER: com.hellonexus.panel.service.camera-extension
+        # The bundle on disk must be named by its bundle id (Apple convention for
+        # Contents/Library/SystemExtensions; OBS does the same).
+        PRODUCT_NAME: com.hellonexus.panel.service.camera-extension
+        ENABLE_HARDENED_RUNTIME: YES
+    entitlements:
+      path: NexusCameraExtension/NexusCameraExtension.entitlements
+      properties:
+        # Camera extensions must be sandboxed or sysextd refuses to load them.
+        com.apple.security.app-sandbox: true
+        # Group prefixes the CMIOExtensionMachServiceName; the mach name must
+        # start with the team id or one of these groups.
+        com.apple.security.application-groups:
+          - $(TeamIdentifierPrefix)com.hellonexus.panel.service
+    scheme:
+      testTargets: []

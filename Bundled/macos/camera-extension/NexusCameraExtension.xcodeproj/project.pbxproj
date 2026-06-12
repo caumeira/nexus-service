@@ -1,0 +1,320 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		381D97F5C8B898616DE9A507 /* NexusCameraStreamSink.swift in Sources */ = {isa = PBXBuildFile; fileRef = 89ACDB5778EBA057902E4BFF /* NexusCameraStreamSink.swift */; };
+		57DB4900DEC1D851F73A8852 /* NexusCameraProviderSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 46FC2F3738F4477D2A0B6603 /* NexusCameraProviderSource.swift */; };
+		930987D2326333E5C0A4787B /* NexusTestPattern.swift in Sources */ = {isa = PBXBuildFile; fileRef = A03D493A765EE641387A4CF6 /* NexusTestPattern.swift */; };
+		C58652C61712FEEE89FCE9C3 /* NexusCameraDeviceSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5978230B918AF87576F71933 /* NexusCameraDeviceSource.swift */; };
+		CB34E61C07992F626E88E8BA /* NexusCameraStreamSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = 175265C33CA4DD3B73CC325D /* NexusCameraStreamSource.swift */; };
+		CC8E3AF63411126D11799D6D /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = 20CE4557520DF724938C950C /* main.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		175265C33CA4DD3B73CC325D /* NexusCameraStreamSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusCameraStreamSource.swift; sourceTree = "<group>"; };
+		20CE4557520DF724938C950C /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		3129A9D9615683FFA7E1B42A /* NexusCameraExtension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = NexusCameraExtension.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
+		46FC2F3738F4477D2A0B6603 /* NexusCameraProviderSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusCameraProviderSource.swift; sourceTree = "<group>"; };
+		5978230B918AF87576F71933 /* NexusCameraDeviceSource.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusCameraDeviceSource.swift; sourceTree = "<group>"; };
+		89ACDB5778EBA057902E4BFF /* NexusCameraStreamSink.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusCameraStreamSink.swift; sourceTree = "<group>"; };
+		A03D493A765EE641387A4CF6 /* NexusTestPattern.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NexusTestPattern.swift; sourceTree = "<group>"; };
+		D4DA56098E9C6AA83319FF18 /* NexusCameraExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = NexusCameraExtension.entitlements; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		68F6D661DCBCDCB003710364 /* NexusCameraExtension */ = {
+			isa = PBXGroup;
+			children = (
+				20CE4557520DF724938C950C /* main.swift */,
+				5978230B918AF87576F71933 /* NexusCameraDeviceSource.swift */,
+				D4DA56098E9C6AA83319FF18 /* NexusCameraExtension.entitlements */,
+				46FC2F3738F4477D2A0B6603 /* NexusCameraProviderSource.swift */,
+				89ACDB5778EBA057902E4BFF /* NexusCameraStreamSink.swift */,
+				175265C33CA4DD3B73CC325D /* NexusCameraStreamSource.swift */,
+				A03D493A765EE641387A4CF6 /* NexusTestPattern.swift */,
+			);
+			path = NexusCameraExtension;
+			sourceTree = "<group>";
+		};
+		7B17766619CDF99FC084F8B4 = {
+			isa = PBXGroup;
+			children = (
+				68F6D661DCBCDCB003710364 /* NexusCameraExtension */,
+				85991ACC8C4A493E085F8B9D /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		85991ACC8C4A493E085F8B9D /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				3129A9D9615683FFA7E1B42A /* NexusCameraExtension.systemextension */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		4643ED770AE22172FC09B058 /* NexusCameraExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 992717A1EEF6AA6DCEFEB23E /* Build configuration list for PBXNativeTarget "NexusCameraExtension" */;
+			buildPhases = (
+				ABE4DFC2B04DD99917ADD50A /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = NexusCameraExtension;
+			packageProductDependencies = (
+			);
+			productName = NexusCameraExtension;
+			productReference = 3129A9D9615683FFA7E1B42A /* NexusCameraExtension.systemextension */;
+			productType = "com.apple.product-type.system-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		379E0EF94DDD1464566CE316 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					4643ED770AE22172FC09B058 = {
+						DevelopmentTeam = 8ZFCKY2SQ9;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 8B138D18D60A476418CD7B5C /* Build configuration list for PBXProject "NexusCameraExtension" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 7B17766619CDF99FC084F8B4;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 85991ACC8C4A493E085F8B9D /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				4643ED770AE22172FC09B058 /* NexusCameraExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		ABE4DFC2B04DD99917ADD50A /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				C58652C61712FEEE89FCE9C3 /* NexusCameraDeviceSource.swift in Sources */,
+				57DB4900DEC1D851F73A8852 /* NexusCameraProviderSource.swift in Sources */,
+				381D97F5C8B898616DE9A507 /* NexusCameraStreamSink.swift in Sources */,
+				CB34E61C07992F626E88E8BA /* NexusCameraStreamSource.swift in Sources */,
+				930987D2326333E5C0A4787B /* NexusTestPattern.swift in Sources */,
+				CC8E3AF63411126D11799D6D /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		44A9A8F23219F0A69D3C1937 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = 8ZFCKY2SQ9;
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.10;
+			};
+			name = Release;
+		};
+		E7D9B8BF1ECE260CDAAE623B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NexusCameraExtension/NexusCameraExtension.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = NexusCameraExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.hellonexus.panel.service.camera-extension";
+				PRODUCT_NAME = "com.hellonexus.panel.service.camera-extension";
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		EB31CF31DC3E242743A5695F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				CURRENT_PROJECT_VERSION = 1;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = 8ZFCKY2SQ9;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MARKETING_VERSION = 1.0.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.10;
+			};
+			name = Debug;
+		};
+		F52BD9DCBF2F8B3F86EE5715 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = NexusCameraExtension/NexusCameraExtension.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = NexusCameraExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = "com.hellonexus.panel.service.camera-extension";
+				PRODUCT_NAME = "com.hellonexus.panel.service.camera-extension";
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		8B138D18D60A476418CD7B5C /* Build configuration list for PBXProject "NexusCameraExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				EB31CF31DC3E242743A5695F /* Debug */,
+				44A9A8F23219F0A69D3C1937 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		992717A1EEF6AA6DCEFEB23E /* Build configuration list for PBXNativeTarget "NexusCameraExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				F52BD9DCBF2F8B3F86EE5715 /* Debug */,
+				E7D9B8BF1ECE260CDAAE623B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 379E0EF94DDD1464566CE316 /* Project object */;
+}
