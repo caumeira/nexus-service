@@ -188,6 +188,14 @@ public static class NexusServiceCollectionExtensions
     public static IServiceCollection AddNexusLighting(this IServiceCollection services)
     {
         services.AddSingleton<LightingEngine>();
+        // Community LED mappings: resolver state for contributor frames, the
+        // registry client (disk-cached, offline-tolerant), the apply
+        // orchestrator shared by routes + auto-apply, and the first-seen
+        // auto-apply worker.
+        services.AddSingleton<Nexus.Service.Lighting.Mappings.ContributorFrameLayouts>();
+        services.AddSingleton<Nexus.Service.Lighting.Mappings.MappingCloudClient>();
+        services.AddSingleton<Nexus.Service.Lighting.Mappings.MappingApplyService>();
+        services.AddHostedService<Nexus.Service.Lighting.Mappings.MappingAutoApplyService>();
         services.AddSingleton(_ => new Nexus.Service.Lighting.Engine.Gpu.GpuContext(160, 90));
         services.AddSingleton<ILightingProvider, LightingProvider>();
         services.AddSingleton<IObsProvider, ObsProvider>();

@@ -65,6 +65,22 @@ public static class PanelTopics
         _ = hub.BroadcastTopicAsync(Lighting, env);
     }
 
+    /// <summary>
+    /// Community mapping auto-applied to a first-seen device. Payload rides
+    /// the frame directly (toast + one-click undo); a regular lighting
+    /// broadcast accompanies it for state refetch.
+    /// </summary>
+    public const string MappingApplied = "lighting/mapping-applied";
+
+    public static void BroadcastMappingApplied(MultiplexHub hub, MappingAutoAppliedFrame frame)
+    {
+        if (!hub.TopicHasSubscribers(MappingApplied))
+            return;
+        frame.Revision = Now();
+        var env = WsEnvelope.Build(MappingApplied, frame, AppJsonContext.Default.MappingAutoAppliedFrame);
+        _ = hub.BroadcastTopicAsync(MappingApplied, env);
+    }
+
     public static void BroadcastCooling(MultiplexHub hub)
     {
         if (!hub.TopicHasSubscribers(Cooling))

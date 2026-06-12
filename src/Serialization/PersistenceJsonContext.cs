@@ -42,6 +42,14 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SmartLightsSettings))]
 [JsonSerializable(typeof(SmartLightConfig))]
 [JsonSerializable(typeof(List<SmartLightConfig>))]
+// Community LED mappings — applied artifacts embedded in settings plus the
+// per-device group delta layer.
+[JsonSerializable(typeof(Nexus.Service.Lighting.Mappings.AppliedMappingRef))]
+[JsonSerializable(typeof(Dictionary<string, Nexus.Service.Lighting.Mappings.AppliedMappingRef>))]
+[JsonSerializable(typeof(Nexus.Service.Lighting.Mappings.MappingArtifact))]
+[JsonSerializable(typeof(Nexus.Service.Lighting.Mappings.MappingGroup))]
+[JsonSerializable(typeof(List<Nexus.Service.Lighting.Mappings.MappingGroup>))]
+[JsonSerializable(typeof(Dictionary<string, List<Nexus.Service.Lighting.Mappings.MappingGroup>>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

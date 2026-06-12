@@ -141,6 +141,21 @@ public sealed class LightingChangedFrame
     public long Revision { get; set; }
 }
 
+/// <summary>
+/// Multiplex frame: a community LED mapping was auto-applied to a newly seen
+/// device. Carries the payload directly (toast UX with one-click undo);
+/// subscribers also refetch lighting state via the regular lighting topic.
+/// </summary>
+public sealed class MappingAutoAppliedFrame
+{
+    public long Revision { get; set; }
+    public string DeviceId { get; set; } = "";
+    public string DeviceName { get; set; } = "";
+    public string MappingId { get; set; } = "";
+    public string MappingName { get; set; } = "";
+    public int AdopterCount { get; set; }
+}
+
 public sealed class CoolingChangedFrame
 {
     public long Revision { get; set; }
