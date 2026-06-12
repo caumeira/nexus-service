@@ -87,30 +87,22 @@ public sealed class MappingAutoApplyService : BackgroundService
         var settings = _store.Load();
 
         var newDevices = new List<Models.Devices.LightingDevice>();
-        var newIds = new List<string>();
+        var resolvedIds = new List<string>();
         var seenKeys = new HashSet<string>(StringComparer.Ordinal);
         foreach (var card in cards)
         {
             if (card.DeviceKey.Length > 0)
                 seenKeys.Add(card.DeviceKey);
-            if (!settings.Devices.MappingKnownDevices.Contains(card.Id))
-            {
-                newIds.Add(card.Id);
-                if (card.DeviceKey.Length > 0)
-                    newDevices.Add(card);
-            }
-        }
-
-        if (newIds.Count > 0)
-        {
-            _store.Update(s =>
-            {
-                foreach (var id in newIds)
-                {
-                    if (!s.Devices.MappingKnownDevices.Contains(id))
-                        s.Devices.MappingKnownDevices.Add(id);
-                }
-            });
+            if (settings.Devices.MappingKnownDevices.Contains(card.Id))
+                continue;
+            // Keyless devices and devices the user already laid out have
+            // nothing pending; everything else only becomes "known" once a
+            // registry lookup actually completed, so a transient outage on
+            // the first-seen tick does not consume the one auto-apply shot.
+            if (card.DeviceKey.Length == 0 || HasLocalLayoutData(settings, card.Id))
+                resolvedIds.Add(card.Id);
+            else
+                newDevices.Add(card);
         }
 
         // Ownership signal (no-ops when anonymous data is off).
@@ -118,9 +110,20 @@ public sealed class MappingAutoApplyService : BackgroundService
 
         foreach (var card in newDevices)
         {
-            if (HasLocalLayoutData(settings, card.Id))
-                continue;
-            await TryAutoApplyAsync(card, ct).ConfigureAwait(false);
+            if (await TryAutoApplyAsync(card, ct).ConfigureAwait(false))
+                resolvedIds.Add(card.Id);
+        }
+
+        if (resolvedIds.Count > 0)
+        {
+            _store.Update(s =>
+            {
+                foreach (var id in resolvedIds)
+                {
+                    if (!s.Devices.MappingKnownDevices.Contains(id))
+                        s.Devices.MappingKnownDevices.Add(id);
+                }
+            });
         }
     }
 
@@ -130,9 +133,12 @@ public sealed class MappingAutoApplyService : BackgroundService
             || settings.Devices.LedGroups.ContainsKey(id)
             || settings.Devices.MappingAutoApplyDeclined.Contains(id);
 
-    private async Task TryAutoApplyAsync(Models.Devices.LightingDevice card, CancellationToken ct)
+    /// <summary>Returns true when the registry interaction completed (device becomes known); false on outage so the next tick retries.</summary>
+    private async Task<bool> TryAutoApplyAsync(Models.Devices.LightingDevice card, CancellationToken ct)
     {
         var list = await _cloud.GetMappingsAsync(card.DeviceKey, forceRefresh: false, ct).ConfigureAwait(false);
+        if (list.Offline)
+            return false;
         Models.Devices.CommunityMapping? top = null;
         foreach (var item in list.Items)
         {
@@ -140,7 +146,7 @@ public sealed class MappingAutoApplyService : BackgroundService
             { top = item; break; }
         }
         if (top?.Payload is null)
-            return;
+            return true;
 
         // No-op rule: identical to the layout the device already resolves to
         // means nothing is applied and no adoption row exists. The common
@@ -148,12 +154,12 @@ public sealed class MappingAutoApplyService : BackgroundService
         // nothing.
         var current = _apply.Export(card.Id);
         if (current is not null && MappingHash.ContentHash(current) == top.ContentHash)
-            return;
+            return true;
 
         if (_apply.Apply(card.Id, top.Payload, top.Id, "community", auto: true, top.ContentHash)
             != MappingApplyService.ApplyOutcome.Applied)
         {
-            return;
+            return true;
         }
 
         Console.WriteLine($"[mappings] auto-applied '{top.Name}' to {card.Name} ({top.AdopterCount} adopters)");
@@ -165,5 +171,6 @@ public sealed class MappingAutoApplyService : BackgroundService
             MappingName = top.Name,
             AdopterCount = top.AdopterCount,
         });
+        return true;
     }
 }

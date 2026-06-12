@@ -405,7 +405,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(LedHighlightBody))]
 [JsonSerializable(typeof(LedTestPatternBody))]
 
-// Community LED mappings — artifact (wire + .nexusmap), registry proxy
+// Community LED mappings - artifact (wire + .nexusmap), registry proxy
 // DTOs, cloud signal bodies, and the auto-applied toast frame.
 [JsonSerializable(typeof(Nexus.Service.Lighting.Mappings.MappingArtifact))]
 [JsonSerializable(typeof(Nexus.Service.Lighting.Mappings.MappingDeviceInfo))]

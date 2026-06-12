@@ -121,7 +121,10 @@ public static partial class DevicesRoutes
                 ? new Nexus.Service.Persistence.NexusSettings
                 {
                     Devices = new Nexus.Service.Persistence.DevicesSettings
-                    { ZoneLedCounts = settings.Devices.ZoneLedCounts },
+                    {
+                        ZoneLedCounts = settings.Devices.ZoneLedCounts,
+                        LedMapAspectRatios = settings.Devices.LedMapAspectRatios,
+                    },
                 }
                 : settings;
 
@@ -160,7 +163,12 @@ public static partial class DevicesRoutes
                 {
                     if (frame.Id == id)
                     {
-                        Nexus.Service.Lighting.Mappings.LedLayoutResolver.ApplyToFrame(frame, resolved);
+                        // device != null means OpenRGB (untracked frame);
+                        // contributor frames must apply through the tracker.
+                        if (device is not null)
+                            Nexus.Service.Lighting.Mappings.LedLayoutResolver.ApplyToFrame(frame, resolved);
+                        else
+                            contributorLayouts.Apply(frame, resolved);
                         break;
                     }
                 }

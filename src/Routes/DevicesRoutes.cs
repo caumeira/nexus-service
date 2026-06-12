@@ -51,13 +51,20 @@ public static partial class DevicesRoutes
         {
             if (frame.Id != id)
                 continue;
-            if (resolved is null)
+            if (resolved is not null)
             {
-                var (defU, defV) = contributorLayouts.GetDefaults(id);
-                resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveSeeded(
-                    id, frame.LedCount, defU, defV, settings);
+                // OpenRGB frame: untracked, plain application.
+                Nexus.Service.Lighting.Mappings.LedLayoutResolver.ApplyToFrame(frame, resolved);
             }
-            Nexus.Service.Lighting.Mappings.LedLayoutResolver.ApplyToFrame(frame, resolved);
+            else
+            {
+                // Contributor frame: must go through the tracker so the
+                // write is not later mistaken for provider defaults.
+                var (defU, defV) = contributorLayouts.GetDefaults(id);
+                var seeded = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveSeeded(
+                    id, frame.LedCount, defU, defV, settings);
+                contributorLayouts.Apply(frame, seeded);
+            }
             break;
         }
     }

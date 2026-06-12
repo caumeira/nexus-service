@@ -60,6 +60,28 @@ public sealed class ContributorFrameLayouts
         }
     }
 
+    /// <summary>
+    /// Route-side frame application for contributor devices. Every write of
+    /// resolver output into a tracked frame MUST go through here (not
+    /// LedLayoutResolver.ApplyToFrame directly): the tracker recognizes its
+    /// own arrays by reference, so an untracked write would be mistaken for
+    /// provider-authored defaults on the next bridge rebuild and permanently
+    /// contaminate the reset baseline with user/mapping state.
+    /// </summary>
+    public void Apply(DeviceFrame frame, ResolvedLedLayout resolved)
+    {
+        lock (_lock)
+        {
+            LedLayoutResolver.ApplyToFrame(frame, resolved);
+            if (!_entries.TryGetValue(frame.Id, out var entry))
+            {
+                entry = new Entry();
+                _entries[frame.Id] = entry;
+            }
+            entry.LastAppliedU = frame.LedU;
+        }
+    }
+
     /// <summary>Pristine provider defaults for the editor's reset baseline; null when the provider never authored UVs (linear default applies).</summary>
     public (float[]? U, float[]? V) GetDefaults(string id)
     {

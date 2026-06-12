@@ -90,6 +90,34 @@ public class ContributorFrameLayoutsTests
     }
 
     [Fact]
+    public void Route_side_apply_does_not_contaminate_provider_defaults()
+    {
+        var tracker = new ContributorFrameLayouts();
+        var settings = new NexusSettings();
+        var frame = new DeviceFrame(0, Id, ledCount: 2);
+        frame.LedU = new[] { 0.2f, 0.8f };
+        frame.LedV = new[] { 0.3f, 0.7f };
+        tracker.Refresh(frame, settings);
+
+        // Route-side refresh (editor save) with a user override applied via
+        // the tracker-aware Apply, then a bridge rebuild reusing the SAME
+        // frame instance: the provider baseline must survive.
+        settings.Devices.LedMapOverrides[Id] = new()
+        {
+            new LedPositionOverride { LedIndex = 0, U = 0.99f, V = 0.99f },
+        };
+        var resolved = LedLayoutResolver.ResolveSeeded(
+            Id, frame.LedCount, tracker.GetDefaults(Id).U, tracker.GetDefaults(Id).V, settings);
+        tracker.Apply(frame, resolved);
+        tracker.Refresh(frame, settings);
+
+        settings.Devices.LedMapOverrides.Remove(Id);
+        tracker.Refresh(frame, settings);
+        Assert.Equal(0.2f, frame.LedU![0]);
+        Assert.Equal(0.8f, frame.LedU[1]);
+    }
+
+    [Fact]
     public void Prune_drops_state_for_removed_devices()
     {
         var tracker = new ContributorFrameLayouts();

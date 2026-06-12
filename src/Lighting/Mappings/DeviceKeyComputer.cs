@@ -43,9 +43,11 @@ public static class DeviceKeyComputer
     }
 
     /// <summary>
-    /// Pull "vid_XXXX&amp;pid_XXXX" out of a Windows HID path, or the
-    /// "1b1c:0c1a" shape some hidapi builds embed. Case-insensitive; returns
-    /// lowercase 4-digit hex.
+    /// Pull "vid_XXXX&amp;pid_XXXX" out of a Windows HID path.
+    /// Case-insensitive; returns lowercase 4-digit hex. Non-Windows OpenRGB
+    /// location strings rarely embed usb ids, so those installs key by the
+    /// vendor|name model hash until our OpenRGB fork exposes vid/pid over
+    /// the SDK protocol (recorded follow-up; pools split per OS until then).
     /// </summary>
     internal static bool TryParseUsbIdsFromLocation(string? location, out string vid, out string pid)
     {

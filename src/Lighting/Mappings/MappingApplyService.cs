@@ -83,16 +83,32 @@ public sealed class MappingApplyService
     /// <summary>Re-resolve and push the layout into the live engine frame so running effects pick the change up on the next tick.</summary>
     public void RefreshDevice(string id)
     {
-        var resolved = Resolve(id);
-        if (resolved is null)
-            return;
+        var settings = _store.Load();
+        ResolvedLedLayout? openRgbResolved = null;
+        if (_bridge is not null)
+        {
+            var (device, zoneIdx) = OpenRgbResolver.Resolve(id, _bridge.Devices);
+            if (device is not null)
+                openRgbResolved = LedLayoutResolver.ResolveOpenRgb(device, zoneIdx, id, settings);
+        }
         foreach (var frame in _engine.Devices)
         {
-            if (frame.Id == id)
+            if (frame.Id != id)
+                continue;
+            if (openRgbResolved is not null)
             {
-                LedLayoutResolver.ApplyToFrame(frame, resolved);
-                break;
+                LedLayoutResolver.ApplyToFrame(frame, openRgbResolved);
             }
+            else
+            {
+                // Contributor frames go through the tracker (see
+                // ContributorFrameLayouts.Apply) so this write is not later
+                // snapshotted as a provider default.
+                var (defU, defV) = _contributorLayouts.GetDefaults(id);
+                var seeded = LedLayoutResolver.ResolveSeeded(id, frame.LedCount, defU, defV, settings);
+                _contributorLayouts.Apply(frame, seeded);
+            }
+            break;
         }
     }
 
@@ -111,10 +127,24 @@ public sealed class MappingApplyService
             Console.Error.WriteLine($"[mappings] rejected artifact for {id}: {string.Join("; ", lint.Errors)}");
             return ApplyOutcome.Invalid;
         }
+        // Local guard rail independent of the registry's eligibility flag: a
+        // mapping the lint deems unfit as a community default (e.g. mostly
+        // disabled) is never applied silently, only by explicit user choice.
+        if (auto && lint.AutoApplyIneligible)
+        {
+            Console.Error.WriteLine($"[mappings] auto-apply refused for {id}: lint flags artifact auto-apply-ineligible");
+            return ApplyOutcome.Invalid;
+        }
 
         var contentHash = contentHashFromRegistry ?? MappingHash.ContentHash(artifact);
+        string? replacedMappingId = null;
         _store.Update(s =>
         {
+            if (s.Devices.AppliedMappings.TryGetValue(id, out var previous)
+                && previous.MappingId is { } prevId && prevId != mappingId)
+            {
+                replacedMappingId = prevId;
+            }
             s.Devices.AppliedMappings[id] = new AppliedMappingRef
             {
                 MappingId = mappingId,
@@ -137,6 +167,8 @@ public sealed class MappingApplyService
         RefreshDevice(id);
         PanelTopics.BroadcastLighting(_hub);
 
+        if (replacedMappingId is not null)
+            FireAndForget(_cloud.RevokeAsync(replacedMappingId, "switched", CancellationToken.None));
         if (mappingId is not null && card.DeviceKey.Length > 0)
             FireAndForget(_cloud.AdoptAsync(mappingId, card.DeviceKey, auto, CancellationToken.None));
         return ApplyOutcome.Applied;
