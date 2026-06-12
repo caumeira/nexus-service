@@ -124,15 +124,18 @@ public sealed class RgbBridge : IDisposable
     private readonly HashSet<int> _touchedPhysicals = new();
 
     private readonly IReadOnlyList<ILightingFrameContributor> _frameContributors;
+    private readonly Nexus.Service.Lighting.Mappings.ContributorFrameLayouts _contributorLayouts;
 
     public RgbBridge(OpenRgbProcessManager proc, IRgbController controller, LightingEngine engine, IConfigStore store, IUsbEnumerator usb,
-        IEnumerable<ILightingFrameContributor>? frameContributors = null)
+        IEnumerable<ILightingFrameContributor>? frameContributors = null,
+        Nexus.Service.Lighting.Mappings.ContributorFrameLayouts? contributorLayouts = null)
     {
         _proc = proc;
         _controller = controller;
         _engine = engine;
         _store = store;
         _usb = usb;
+        _contributorLayouts = contributorLayouts ?? new Nexus.Service.Lighting.Mappings.ContributorFrameLayouts();
         _frameContributors = frameContributors is null
             ? Array.Empty<ILightingFrameContributor>()
             : new List<ILightingFrameContributor>(frameContributors);
@@ -664,7 +667,8 @@ public sealed class RgbBridge : IDisposable
             // and LED map so the user can treat each physical strip separately.
             var existingFrames = _engine.Devices;
             var framesList = new List<DeviceFrame>(devices.Count);
-            var layouts = _store.Load().Lighting.DeviceLayouts;
+            var settingsSnapshot = _store.Load();
+            var layouts = settingsSnapshot.Lighting.DeviceLayouts;
             int logicalOrdinal = 0;
             int cardSlot = 0;
             int stripSlot = 0;
@@ -677,7 +681,7 @@ public sealed class RgbBridge : IDisposable
                 if (!isSplitMotherboard)
                 {
                     BuildOrReuseFrame(baseId, d, physicalIndex: d.Index, zoneIndex: -1, zoneOffset: 0, zoneLedCount: d.LedCount,
-                        existingFrames, layouts, cardSlot, logicalOrdinal, framesList, isStrip: false);
+                        existingFrames, layouts, cardSlot, logicalOrdinal, framesList, isStrip: false, settingsSnapshot);
                     cardSlot++;
                     logicalOrdinal++;
                     continue;
@@ -689,7 +693,7 @@ public sealed class RgbBridge : IDisposable
                     var zone = d.Zones[z];
                     var zoneId = $"{baseId}-{z}";
                     BuildOrReuseFrame(zoneId, d, physicalIndex: d.Index, zoneIndex: z, zoneOffset: zoneOffset, zoneLedCount: zone.LedCount,
-                        existingFrames, layouts, stripSlot, logicalOrdinal, framesList, isStrip: true);
+                        existingFrames, layouts, stripSlot, logicalOrdinal, framesList, isStrip: true, settingsSnapshot);
                     zoneOffset += zone.LedCount;
                     stripSlot++;
                     logicalOrdinal++;
@@ -700,13 +704,24 @@ public sealed class RgbBridge : IDisposable
             // subsystems (NP50 and other hubs). They start at the next ordinal
             // so SerializeAndBroadcast's per-device Index space stays packed
             // and SampleDevicesFromCanvas processes them in one pass.
+            // Each contributed frame then gets the resolver stack applied
+            // (provider defaults -> applied mapping -> user deltas) so custom
+            // layouts survive topology rebuilds; provider-authored UVs are
+            // snapshotted as the pristine baseline.
             foreach (var contributor in _frameContributors)
             {
                 var extra = contributor.BuildFrames(framesList.Count);
-                for (var i = 0; i < extra.Count; i++) framesList.Add(extra[i]);
+                for (var i = 0; i < extra.Count; i++)
+                {
+                    _contributorLayouts.Refresh(extra[i], settingsSnapshot);
+                    framesList.Add(extra[i]);
+                }
             }
 
             var frames = framesList.ToArray();
+            var liveIds = new List<string>(frames.Length);
+            foreach (var f in frames) liveIds.Add(f.Id);
+            _contributorLayouts.Prune(liveIds);
             _engine.UpdateDevices(frames);
 
             // Rebuild per-physical LED buffers sized to the OpenRGB device's full
@@ -722,7 +737,7 @@ public sealed class RgbBridge : IDisposable
 
     private void BuildOrReuseFrame(string id, RgbDevice physicalDevice, int physicalIndex, int zoneIndex, int zoneOffset, int zoneLedCount,
         DeviceFrame[] existingFrames, Dictionary<string, DeviceLayout> layouts, int canvasSlot, int logicalOrdinal,
-        List<DeviceFrame> framesList, bool isStrip)
+        List<DeviceFrame> framesList, bool isStrip, NexusSettings settings)
     {
         // Match on id so a motherboard zone keeps its existing buffer across refreshes
         // (no flash-black tick on unrelated hardware changes).
@@ -766,12 +781,12 @@ public sealed class RgbBridge : IDisposable
             physicalIndex: physicalIndex,
             zoneIndex: zoneIndex,
             zoneOffset: zoneOffset);
-        if (zoneIndex < 0)
-        {
-            // Non-zoned device: compute whole-device matrix UVs as before.
-            ComputeMatrixUvs(frame, physicalDevice);
-        }
-        ApplyCustomLedOverrides(frame, id);
+        // Full resolver stack (defaults -> applied mapping -> user deltas).
+        // Replaces the old matrix-only UV computation, which silently skipped
+        // override re-application for linear devices on every rebuild.
+        var resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveOpenRgb(
+            physicalDevice, zoneIndex, id, settings);
+        Nexus.Service.Lighting.Mappings.LedLayoutResolver.ApplyToFrame(frame, resolved);
         framesList.Add(frame);
     }
 
@@ -1151,68 +1166,6 @@ public sealed class RgbBridge : IDisposable
             {
                 _ = _controller.PushFrameAsync(physIdx, buf);
             }
-        }
-    }
-
-    /// <summary>
-    /// Delegates UV computation to the shared LedUvComputer so the same logic
-    /// is reusable from the LED map API endpoint.
-    /// </summary>
-    private static void ComputeMatrixUvs(DeviceFrame frame, RgbDevice dev)
-    {
-        var (ledU, ledV) = LedUvComputer.ComputeDefaults(dev);
-        if (ledU.Length > 0)
-        {
-            frame.LedU = ledU;
-            frame.LedV = ledV;
-        }
-    }
-
-    private void ApplyCustomLedOverrides(DeviceFrame frame, string deviceId)
-    {
-        var overrides = _store.Load().Devices.LedMapOverrides;
-        if (!overrides.TryGetValue(deviceId, out var list) || list.Count == 0)
-        {
-            return;
-        }
-        if (frame.LedU is null || frame.LedV is null)
-        {
-            return;
-        }
-        bool anyDisabled = false;
-        foreach (var o in list)
-        {
-            if (o.LedIndex >= 0 && o.LedIndex < frame.LedCount)
-            {
-                frame.LedU[o.LedIndex] = o.U;
-                frame.LedV[o.LedIndex] = o.V;
-                if (o.Disabled)
-                {
-                    anyDisabled = true;
-                }
-            }
-        }
-        // Only allocate the disabled array when at least one override flips
-        // the flag - the render loop treats a null array as "all enabled"
-        // and skips the per-LED check entirely.
-        if (anyDisabled)
-        {
-            frame.LedDisabled ??= new bool[frame.LedCount];
-            Array.Clear(frame.LedDisabled, 0, frame.LedDisabled.Length);
-            foreach (var o in list)
-            {
-                if (o.LedIndex >= 0 && o.LedIndex < frame.LedDisabled.Length && o.Disabled)
-                {
-                    frame.LedDisabled[o.LedIndex] = true;
-                }
-            }
-        }
-        else
-        {
-            // No LED is parked anymore -> null the array entirely so the
-            // render loop takes its zero-overhead "LedDisabled is null"
-            // fast path instead of walking the per-LED flag check.
-            frame.LedDisabled = null;
         }
     }
 

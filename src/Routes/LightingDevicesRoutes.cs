@@ -102,134 +102,125 @@ public static partial class DevicesRoutes
             return ApiResponse.Ok();
         });
 
-        // LED map: get resolved positions (defaults + custom overrides)
+        // LED map: get resolved positions (defaults -> applied mapping ->
+        // custom overrides) for ANY lighting device. OpenRGB ids resolve via
+        // the bridge; contributor cards (NP50, hubs, smart lights) resolve
+        // via their engine frame seeded with provider defaults.
         app.MapGet("/devices/lighting-devices/{id}/led-map", (string id, bool? defaults,
             Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
             Nexus.Service.Lighting.Engine.LightingEngine engine,
+            Nexus.Service.Lighting.Mappings.ContributorFrameLayouts contributorLayouts,
+            Nexus.Service.Lighting.Mappings.MappingApplyService mappings,
             Nexus.Service.Persistence.IConfigStore store) =>
         {
-            if (bridge is null)
-                return Results.Json(new LedMapResponse { Id = id }, Nexus.Service.Serialization.AppJsonContext.Default.LedMapResponse);
-
-            var (device, zoneIdx) = ResolveDevice(id, bridge.Devices);
-            if (device is null)
-                return Results.Json(new LedMapResponse { Id = id }, Nexus.Service.Serialization.AppJsonContext.Default.LedMapResponse);
-
             var settings = store.Load();
-            float[] defU, defV;
-            int ledCount;
-            string[] zoneTypes;
-            int globalOffset;
-            if (zoneIdx >= 0 && zoneIdx < device.Zones.Count)
-            {
-                var zone = device.Zones[zoneIdx];
-                // 12V single-zone headers ignore RESIZEZONE on the wire so OpenRGB
-                // keeps reporting the physical 1-LED placeholder even after the user
-                // has persisted "60". Trust the persisted value for the LED map so
-                // the editor's count field stays in sync with the device card.
-                ledCount = settings.Devices.ZoneLedCounts.TryGetValue(id, out var persistedCount)
-                    ? persistedCount
-                    : zone.LedCount;
-                globalOffset = 0;
-                for (int z = 0; z < zoneIdx; z++)
-                    globalOffset += device.Zones[z].LedCount;
-                defU = new float[ledCount];
-                defV = new float[ledCount];
-                for (int i = 0; i < ledCount; i++)
+            // defaults=true previews the factory layout: keep persisted LED
+            // counts (they describe the hardware as wired) but drop mapping +
+            // override + group layers.
+            var effective = defaults == true
+                ? new Nexus.Service.Persistence.NexusSettings
                 {
-                    defU[i] = ledCount > 1 ? (float)i / (ledCount - 1) : 0.5f;
-                    defV[i] = 0.5f;
-                }
-                zoneTypes = new string[ledCount];
-                var zt = zone.ZoneType switch { 0 => "single", 1 => "linear", 2 => "matrix", _ => "unknown" };
-                for (int i = 0; i < ledCount; i++)
-                    zoneTypes[i] = zt;
-            }
-            else
-            {
-                var (dU, dV) = Nexus.Service.Lighting.Rgb.LedUvComputer.ComputeDefaults(device);
-                defU = dU;
-                defV = dV;
-                ledCount = device.LedCount;
-                zoneTypes = BuildZoneTypeMap(device);
-                globalOffset = 0;
-                if (defU.Length == 0 && ledCount > 0)
-                {
-                    defU = new float[ledCount];
-                    defV = new float[ledCount];
-                    for (int i = 0; i < ledCount; i++)
+                    Devices = new Nexus.Service.Persistence.DevicesSettings
                     {
-                        defU[i] = ledCount > 1 ? (float)i / (ledCount - 1) : 0.5f;
-                        defV[i] = 0.5f;
+                        ZoneLedCounts = settings.Devices.ZoneLedCounts,
+                        LedMapAspectRatios = settings.Devices.LedMapAspectRatios,
+                    },
+                }
+                : settings;
+
+            Nexus.Service.Lighting.Mappings.ResolvedLedLayout? resolved = null;
+            Nexus.Service.Lighting.Rgb.RgbDevice? device = null;
+            var globalOffset = 0;
+            if (bridge is not null)
+            {
+                int zoneIdx;
+                (device, zoneIdx) = Nexus.Service.Lighting.Rgb.OpenRgbResolver.Resolve(id, bridge.Devices);
+                if (device is not null)
+                {
+                    resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveOpenRgb(device, zoneIdx, id, effective);
+                    globalOffset = resolved.GlobalOffset;
+                }
+            }
+            if (resolved is null)
+            {
+                foreach (var frame in engine.Devices)
+                {
+                    if (frame.Id == id)
+                    {
+                        var (defU, defV) = contributorLayouts.GetDefaults(id);
+                        resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveSeeded(
+                            id, frame.LedCount, defU, defV, effective);
+                        break;
                     }
                 }
             }
+            if (resolved is null)
+                return Results.Json(new LedMapResponse { Id = id }, Nexus.Service.Serialization.AppJsonContext.Default.LedMapResponse);
 
-            var customSet = new HashSet<int>();
-            var disabledSet = new HashSet<int>();
             if (defaults != true)
             {
-                var overrides = settings.Devices.LedMapOverrides;
-                overrides.TryGetValue(id, out var customList);
-                if (customList is not null)
+                foreach (var frame in engine.Devices)
                 {
-                    foreach (var o in customList)
+                    if (frame.Id == id)
                     {
-                        if (o.LedIndex >= 0 && o.LedIndex < ledCount)
-                        {
-                            customSet.Add(o.LedIndex);
-                            if (defU.Length > o.LedIndex)
-                            {
-                                defU[o.LedIndex] = o.U;
-                                defV[o.LedIndex] = o.V;
-                            }
-                            if (o.Disabled)
-                                disabledSet.Add(o.LedIndex);
-                        }
-                    }
-                }
-                if (defU.Length > 0)
-                {
-                    foreach (var frame in engine.Devices)
-                    {
-                        if (frame.Id == id)
-                        { frame.LedV = defV; frame.LedU = defU; break; }
+                        // device != null means OpenRGB (untracked frame);
+                        // contributor frames must apply through the tracker.
+                        if (device is not null)
+                            Nexus.Service.Lighting.Mappings.LedLayoutResolver.ApplyToFrame(frame, resolved);
+                        else
+                            contributorLayouts.Apply(frame, resolved);
+                        break;
                     }
                 }
             }
 
-            var leds = new List<LedMapEntry>(ledCount);
-            for (int i = 0; i < ledCount; i++)
+            var leds = new List<LedMapEntry>(resolved.LedCount);
+            for (int i = 0; i < resolved.LedCount; i++)
             {
                 var globalIdx = globalOffset + i;
                 leds.Add(new LedMapEntry
                 {
                     Index = i,
-                    U = i < defU.Length ? defU[i] : 0f,
-                    V = i < defV.Length ? defV[i] : 0f,
-                    Name = globalIdx < device.LedNames.Count ? device.LedNames[globalIdx] : $"LED {i}",
-                    ZoneType = i < zoneTypes.Length ? zoneTypes[i] : "unknown",
-                    IsCustom = customSet.Contains(i),
-                    Disabled = disabledSet.Contains(i),
+                    U = i < resolved.U.Length ? resolved.U[i] : 0f,
+                    V = i < resolved.V.Length ? resolved.V[i] : 0f,
+                    Name = device is not null && globalIdx < device.LedNames.Count
+                        ? device.LedNames[globalIdx]
+                        : $"LED {i}",
+                    ZoneType = i < resolved.ZoneTypes.Length ? resolved.ZoneTypes[i] : "unknown",
+                    IsCustom = resolved.CustomLeds.Contains(i),
+                    Disabled = resolved.Disabled is { } flags && i < flags.Length && flags[i],
                 });
             }
 
-            settings.Devices.LedMapAspectRatios.TryGetValue(id, out var savedRatio);
-
+            var card = mappings.FindCard(id);
             return Results.Json(new LedMapResponse
             {
                 Id = id,
-                LedCount = ledCount,
+                LedCount = resolved.LedCount,
                 Leds = leds,
-                HasCustomOverrides = customSet.Count > 0,
-                AspectRatio = savedRatio > 0 ? savedRatio : 0,
+                HasCustomOverrides = resolved.HasUserOverrides,
+                AspectRatio = resolved.AspectRatio,
+                Groups = resolved.Groups,
+                Applied = resolved.Applied is { } applied
+                    ? new AppliedMappingSummary
+                    {
+                        MappingId = applied.MappingId,
+                        Name = applied.Name,
+                        Source = applied.Source,
+                        ContentHash = applied.ContentHash,
+                        AutoApplied = applied.AutoApplied,
+                        AppliedAtMs = applied.AppliedAt.ToUnixTimeMilliseconds(),
+                    }
+                    : null,
+                DeviceKey = card?.DeviceKey ?? "",
             }, Nexus.Service.Serialization.AppJsonContext.Default.LedMapResponse);
         });
 
-        // LED map: save custom overrides
+        // LED map: save custom overrides (+ optional group replacement)
         app.MapPost("/devices/lighting-devices/{id}/led-map", (string id, SaveLedMapBody body,
             Nexus.Service.Persistence.IConfigStore store,
             Nexus.Service.Lighting.Engine.LightingEngine engine,
+            Nexus.Service.Lighting.Mappings.ContributorFrameLayouts contributorLayouts,
             Nexus.Service.Lighting.Rgb.RgbBridge? bridge) =>
         {
             store.Update(s =>
@@ -237,23 +228,28 @@ public static partial class DevicesRoutes
                 s.Devices.LedMapOverrides[id] = body.Overrides;
                 if (body.AspectRatio > 0)
                     s.Devices.LedMapAspectRatios[id] = body.AspectRatio;
+                if (body.Groups is not null)
+                    s.Devices.LedGroups[id] = body.Groups;
             });
-            RefreshEngineLedMap(id, engine, bridge, store);
+            RefreshEngineLedMap(id, engine, bridge, contributorLayouts, store);
             return ApiResponse.Ok();
         });
 
-        // LED map: reset to defaults
+        // LED map: reset user deltas (overrides, ratio, groups). An applied
+        // community mapping survives; reverting that is the mapping DELETE.
         app.MapDelete("/devices/lighting-devices/{id}/led-map", (string id,
             Nexus.Service.Persistence.IConfigStore store,
             Nexus.Service.Lighting.Engine.LightingEngine engine,
+            Nexus.Service.Lighting.Mappings.ContributorFrameLayouts contributorLayouts,
             Nexus.Service.Lighting.Rgb.RgbBridge? bridge) =>
         {
             store.Update(s =>
             {
                 s.Devices.LedMapOverrides.Remove(id);
                 s.Devices.LedMapAspectRatios.Remove(id);
+                s.Devices.LedGroups.Remove(id);
             });
-            RefreshEngineLedMap(id, engine, bridge, store);
+            RefreshEngineLedMap(id, engine, bridge, contributorLayouts, store);
             return ApiResponse.Ok();
         });
 

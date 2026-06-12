@@ -199,6 +199,8 @@ public class LightingDevice
     public string? ZoneType { get; set; }
     /// <summary>True when the ARGB zone supports live resize via OpenRGB's RESIZEZONE opcode. Drives whether the UI shows the LED-count editor.</summary>
     public bool ZoneResizable { get; set; }
+    /// <summary>Cross-install hardware fingerprint for community mapping lookup (see DeviceKeyComputer). Empty when the device cannot be fingerprinted; the mapping UI hides itself then.</summary>
+    public string DeviceKey { get; set; } = "";
 }
 
 public class GetLightingDevicesResponse
@@ -234,6 +236,11 @@ public sealed class LedMapResponse
     public List<LedMapEntry> Leds { get; set; } = new();
     public bool HasCustomOverrides { get; set; }
     public float AspectRatio { get; set; }
+    /// <summary>Named LED segments (resolved: user delta wins over the applied mapping's groups).</summary>
+    public List<Nexus.Service.Lighting.Mappings.MappingGroup> Groups { get; set; } = new();
+    /// <summary>Set when a community/file mapping is applied to this device.</summary>
+    public AppliedMappingSummary? Applied { get; set; }
+    public string DeviceKey { get; set; } = "";
 }
 
 public sealed class LedMapEntry
@@ -252,6 +259,8 @@ public sealed class SaveLedMapBody
 {
     public List<Nexus.Service.Persistence.LedPositionOverride> Overrides { get; set; } = new();
     public float AspectRatio { get; set; }
+    /// <summary>Optional group save: null leaves the stored groups untouched (older clients), a list (even empty) replaces them.</summary>
+    public List<Nexus.Service.Lighting.Mappings.MappingGroup>? Groups { get; set; }
 }
 
 public sealed class LedHighlightBody

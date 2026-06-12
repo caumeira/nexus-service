@@ -419,6 +419,23 @@ public sealed class DevicesSettings
     /// </summary>
     public Dictionary<string, int> ZoneLedCounts { get; set; } = new();
     public CnvsSettings Cnvs { get; set; } = new();
+    /// <summary>
+    /// Community / file mapping applied per device, keyed by lighting-device
+    /// id. The full artifact is embedded so applied mappings keep working
+    /// with the registry unreachable or gone. User deltas
+    /// (<see cref="LedMapOverrides"/>, <see cref="LedGroups"/>) layer on top.
+    /// </summary>
+    public Dictionary<string, Lighting.Mappings.AppliedMappingRef> AppliedMappings { get; set; } = new();
+    /// <summary>
+    /// Named LED groups per lighting-device id. Presence of a key means the
+    /// user edited groups for that device (an empty list = explicitly
+    /// cleared); absent = fall back to the applied mapping's groups.
+    /// </summary>
+    public Dictionary<string, List<Lighting.Mappings.MappingGroup>> LedGroups { get; set; } = new();
+    /// <summary>Device ids where the user undid an auto-applied mapping; suppresses future auto-apply for that device.</summary>
+    public List<string> MappingAutoApplyDeclined { get; set; } = new();
+    /// <summary>Lighting-device ids ever seen on this install. A device not in this list is "new" and eligible for community-mapping auto-match.</summary>
+    public List<string> MappingKnownDevices { get; set; } = new();
 }
 
 public sealed class LedPositionOverride

@@ -75,6 +75,9 @@ public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILi
         var settings = _store.Load();
         resp.Devices.Add(BuildCard(
             id: id, name: CardName(_hub.Variant),
+            deviceKey: Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForFirstParty(
+                Peripherals.Hyte.QSeriesCooler.QSeriesCoolerProtocol.VendorId,
+                Peripherals.Hyte.QSeriesCooler.QSeriesCoolerProtocol.ProductIdForVariant(_hub.Variant)),
             firmwareLedCount: QSeriesCoolerHub.LedCount,
             settings.Devices.DisabledLightingDevices,
             settings.Devices.LightingDevicePrefs,
@@ -83,7 +86,7 @@ public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILi
     }
 
     private static LightingDevice BuildCard(
-        string id, string name, int firmwareLedCount,
+        string id, string name, string deviceKey, int firmwareLedCount,
         IReadOnlyList<string> disabled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         IReadOnlyDictionary<string, DeviceLayout> layouts)
@@ -101,7 +104,7 @@ public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILi
         layouts.TryGetValue(id, out var layout);
         return new LightingDevice
         {
-            Id = id, Name = name, Type = "ledstrip", IconType = "cooler",
+            Id = id, DeviceKey = deviceKey, Name = name, Type = "ledstrip", IconType = "cooler",
             LedsOn = isOn, Brightness = brightness, Hue = hue, Saturation = saturation,
             LedCount = firmwareLedCount,
             CanvasX = layout?.X ?? defX, CanvasY = layout?.Y ?? defY,
