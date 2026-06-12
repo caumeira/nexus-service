@@ -22,6 +22,15 @@ public sealed class StructureSegment
     public bool Resizable { get; set; }
     /// <summary>"single" | "linear" | "matrix" - same vocabulary as the card DTO.</summary>
     public string ZoneType { get; set; } = "linear";
+    /// <summary>
+    /// Provider-authored stock per-LED positions in segment-local order
+    /// (length == <see cref="FrameLedCount"/>), or null when the provider has
+    /// no physical layout (the resolver's linear default applies). Treated as
+    /// immutable: consumers slice or clone, never write.
+    /// </summary>
+    public float[]? DefaultU { get; set; }
+    /// <summary>Paired with <see cref="DefaultU"/>.</summary>
+    public float[]? DefaultV { get; set; }
 }
 
 /// <summary>

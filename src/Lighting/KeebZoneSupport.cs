@@ -1,4 +1,6 @@
+using System;
 using Nexus.Service.Lighting.Mappings;
+using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Peripherals.Hyte.Keeb;
 using Nexus.Service.Persistence;
@@ -7,14 +9,26 @@ namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Authored zone structure for the HYTE Keeb TKL: two fixed segments in
-/// device order, keys then underglow, with counts from the firmware layout.
-/// Both are fixed (the firmware never re-wires LED counts), so any
-/// user partition over them is index-stable.
+/// device order, keys then underglow, with counts and stock per-LED
+/// positions from the firmware layout (the key matrix decoded from the wire
+/// values; the underglow as a clockwise board-edge perimeter). Both are
+/// fixed (the firmware never re-wires LED counts), so any user partition
+/// over them is index-stable.
 /// </summary>
 public static class KeebZoneSupport
 {
     public const int KeysSegment = 0;
     public const int UnderglowSegment = 1;
+
+    private static readonly Lazy<(float[] U, float[] V)> KeyUv = new(KeebLayout.ComputeKeyUv);
+
+    private static readonly Lazy<(float[] U, float[] V)> UnderglowUv = new(() =>
+    {
+        var u = new float[KeebLayout.SurroundLedCount];
+        var v = new float[KeebLayout.SurroundLedCount];
+        LedUvComputer.FillPerimeter(u, v);
+        return (u, v);
+    });
 
     public static DeviceStructure BuildStructure(string hubId)
     {
@@ -32,6 +46,8 @@ public static class KeebZoneSupport
             FrameLedCount = KeebLayout.KeyLedCount,
             Resizable = false,
             ZoneType = "linear",
+            DefaultU = KeyUv.Value.U,
+            DefaultV = KeyUv.Value.V,
         });
         structure.Segments.Add(new StructureSegment
         {
@@ -41,6 +57,8 @@ public static class KeebZoneSupport
             FrameLedCount = KeebLayout.SurroundLedCount,
             Resizable = false,
             ZoneType = "linear",
+            DefaultU = UnderglowUv.Value.U,
+            DefaultV = UnderglowUv.Value.V,
         });
         structure.DefaultZones.Add(new DefaultZoneDef
         {

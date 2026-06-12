@@ -118,6 +118,68 @@ public class ContributorFrameLayoutsTests
     }
 
     [Fact]
+    public void Structure_seeds_become_pristine_defaults_and_survive_overrides()
+    {
+        var tracker = new ContributorFrameLayouts();
+        var settings = new NexusSettings();
+        var frame = new DeviceFrame(0, Id, ledCount: 2);
+        var seedU = new[] { 0.25f, 0.75f };
+        var seedV = new[] { 0.1f, 0.9f };
+
+        tracker.Refresh(frame, settings, overrides: null, seedU, seedV);
+        Assert.Equal(seedU, frame.LedU);
+        Assert.Equal(seedV, frame.LedV);
+
+        settings.Devices.DeviceLedOverrides[Id] = new()
+        {
+            new SegmentLedOverride { Segment = 0, LedIndex = 0, U = 0.99f, V = 0.99f },
+        };
+        tracker.Refresh(frame, settings, overrides: null, seedU, seedV);
+        Assert.Equal(0.99f, frame.LedU![0]);
+        Assert.Equal(0.75f, frame.LedU[1]);
+
+        var (defU, defV) = tracker.GetDefaults(Id);
+        Assert.Equal(seedU, defU);
+        Assert.Equal(seedV, defV);
+    }
+
+    [Fact]
+    public void Structure_seed_wins_over_frame_authored_uvs_and_reseeds_reused_frames()
+    {
+        var tracker = new ContributorFrameLayouts();
+        var settings = new NexusSettings();
+        var frame = new DeviceFrame(0, Id, ledCount: 2);
+        frame.LedU = new[] { 0.2f, 0.8f };
+        frame.LedV = new[] { 0.3f, 0.7f };
+
+        tracker.Refresh(frame, settings, overrides: null, new[] { 0.4f, 0.6f }, new[] { 0.5f, 0.5f });
+        Assert.Equal(0.4f, frame.LedU![0]);
+
+        // Partition reshape: the same frame instance survives (it carries OUR
+        // applied arrays) but its zone's seed changed; the new seed must
+        // replace the baseline instead of being skipped by the
+        // own-array-by-reference rule.
+        tracker.Refresh(frame, settings, overrides: null, new[] { 0.45f, 0.65f }, new[] { 0.55f, 0.35f });
+        Assert.Equal(0.45f, frame.LedU![0]);
+        var (defU, _) = tracker.GetDefaults(Id);
+        Assert.Equal(new[] { 0.45f, 0.65f }, defU);
+    }
+
+    [Fact]
+    public void Seed_length_mismatch_falls_back_to_frame_snapshot()
+    {
+        var tracker = new ContributorFrameLayouts();
+        var frame = new DeviceFrame(0, Id, ledCount: 2);
+        frame.LedU = new[] { 0.2f, 0.8f };
+        frame.LedV = new[] { 0.3f, 0.7f };
+
+        tracker.Refresh(frame, new NexusSettings(), overrides: null, new[] { 0.4f }, new[] { 0.5f });
+        Assert.Equal(0.2f, frame.LedU![0]);
+        var (defU, _) = tracker.GetDefaults(Id);
+        Assert.Equal(0.2f, defU![0]);
+    }
+
+    [Fact]
     public void Prune_drops_state_for_removed_devices()
     {
         var tracker = new ContributorFrameLayouts();

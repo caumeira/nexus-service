@@ -111,7 +111,14 @@ public sealed class ZoneTopology
                     : LedLayoutResolver.ResolveZoneOpenRgb(rgbDevice, z.Structure, z.Zone, settings);
                 return new CardResolution { Layout = layout, Device = rgbDevice };
             }
-            var (defU, defV) = _contributorLayouts.GetDefaults(cardId);
+            // Structure-authored segment defaults win (they follow the zone's
+            // slices, so any partition shape keeps its true sub-shape); the
+            // tracker snapshot covers providers that only author per-frame UVs.
+            var (defU, defV) = ZoneResolution.DefaultUv(z.Structure, z.Zone);
+            if (defU is null || defV is null)
+            {
+                (defU, defV) = _contributorLayouts.GetDefaults(cardId);
+            }
             var seeded = LedLayoutResolver.ResolveSeeded(cardId, z.Zone.FrameLedCount, defU, defV, settings,
                 ZoneResolution.ContextOf(z.Structure, z.Zone));
             return new CardResolution { Layout = seeded };

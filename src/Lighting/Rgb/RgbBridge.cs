@@ -752,14 +752,24 @@ public sealed class RgbBridge : IDisposable
             // and SampleDevicesFromCanvas processes them in one pass.
             // Each contributed frame then gets the resolver stack applied
             // (provider defaults -> applied mapping -> user deltas) so custom
-            // layouts survive topology rebuilds; provider-authored UVs are
-            // snapshotted as the pristine baseline.
+            // layouts survive topology rebuilds; structure-authored segment
+            // defaults seed zone-backed frames, and frame-authored UVs are
+            // snapshotted as the pristine baseline for the rest.
             foreach (var contributor in _frameContributors)
             {
                 var extra = contributor.BuildFrames(framesList.Count);
                 for (var i = 0; i < extra.Count; i++)
                 {
-                    _contributorLayouts.Refresh(extra[i], settingsSnapshot, FindContributorContext(contributorZones, extra[i].Id));
+                    if (FindContributorZone(contributorZones, extra[i].Id) is { } hit)
+                    {
+                        var (seedU, seedV) = Nexus.Service.Lighting.Zones.ZoneResolution.DefaultUv(hit.Structure, hit.Zone);
+                        _contributorLayouts.Refresh(extra[i], settingsSnapshot,
+                            Nexus.Service.Lighting.Zones.ZoneResolution.ContextOf(hit.Structure, hit.Zone), seedU, seedV);
+                    }
+                    else
+                    {
+                        _contributorLayouts.Refresh(extra[i], settingsSnapshot);
+                    }
                     framesList.Add(extra[i]);
                 }
             }
@@ -851,7 +861,7 @@ public sealed class RgbBridge : IDisposable
         framesList.Add(frame);
     }
 
-    private static Nexus.Service.Lighting.Zones.ZoneOverrideContext? FindContributorContext(
+    private static (Nexus.Service.Lighting.Zones.DeviceStructure Structure, Nexus.Service.Lighting.Zones.ResolvedZone Zone)? FindContributorZone(
         List<(Nexus.Service.Lighting.Zones.DeviceStructure structure, IReadOnlyList<Nexus.Service.Lighting.Zones.ResolvedZone> zones)>? contributorZones,
         string frameId)
     {
@@ -862,7 +872,7 @@ public sealed class RgbBridge : IDisposable
             foreach (var zone in zones)
             {
                 if (zone.Id == frameId)
-                    return Nexus.Service.Lighting.Zones.ZoneResolution.ContextOf(structure, zone);
+                    return (structure, zone);
             }
         }
         return null;

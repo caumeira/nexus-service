@@ -113,6 +113,45 @@ public static class ZoneResolution
 
     public static string CustomZoneId(string deviceId, int ordinal) => $"{deviceId}:z{ordinal}";
 
+    /// <summary>
+    /// Provider-authored stock positions for a zone: the concatenation of its
+    /// slices' segment-default spans in zone-local order, so any partition
+    /// shape keeps each zone's true sub-shape. Null when any covered segment
+    /// has no authored defaults, a span falls outside them, or the effective
+    /// and frame counts diverge (resizable headers) - the resolver's linear
+    /// default applies then.
+    /// </summary>
+    public static (float[]? U, float[]? V) DefaultUv(DeviceStructure structure, ResolvedZone zone)
+    {
+        if (zone.Slices.Count == 0 || zone.LedCount <= 0 || zone.LedCount != zone.FrameLedCount)
+        {
+            return (null, null);
+        }
+        var u = new float[zone.LedCount];
+        var v = new float[zone.LedCount];
+        var pos = 0;
+        foreach (var slice in zone.Slices)
+        {
+            if (slice.Segment < 0 || slice.Segment >= structure.Segments.Count)
+            {
+                return (null, null);
+            }
+            var seg = structure.Segments[slice.Segment];
+            if (seg.DefaultU is null || seg.DefaultV is null
+                || slice.Start < 0 || slice.Count < 0
+                || slice.Start + slice.Count > seg.DefaultU.Length
+                || slice.Start + slice.Count > seg.DefaultV.Length
+                || pos + slice.Count > u.Length)
+            {
+                return (null, null);
+            }
+            Array.Copy(seg.DefaultU, slice.Start, u, pos, slice.Count);
+            Array.Copy(seg.DefaultV, slice.Start, v, pos, slice.Count);
+            pos += slice.Count;
+        }
+        return pos == zone.LedCount ? (u, v) : (null, null);
+    }
+
     public static ZoneOverrideContext ContextOf(DeviceStructure structure, ResolvedZone zone)
         => new(structure.DeviceId, zone.Slices);
 

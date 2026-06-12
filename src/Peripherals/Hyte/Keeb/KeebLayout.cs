@@ -68,6 +68,38 @@ public static class KeebLayout
     public static int KeyLedCount => KeyWireValues.Length; // 98
 
     /// <summary>
+    /// Firmware key values are row-major positions in a fixed-stride matrix:
+    /// row = value / stride, column = value % stride.
+    /// </summary>
+    public const int KeyMatrixStride = 21;
+
+    /// <summary>
+    /// Stock per-key positions derived from <see cref="KeyWireValues"/>: each
+    /// value decodes to its matrix (row, column) via
+    /// <see cref="KeyMatrixStride"/>, normalized so the outermost occupied
+    /// columns and rows land on the unit-square edges.
+    /// </summary>
+    public static (float[] U, float[] V) ComputeKeyUv()
+    {
+        var n = KeyWireValues.Length;
+        var u = new float[n];
+        var v = new float[n];
+        var maxCol = 0;
+        var maxRow = 0;
+        foreach (var value in KeyWireValues)
+        {
+            maxCol = Math.Max(maxCol, value % KeyMatrixStride);
+            maxRow = Math.Max(maxRow, value / KeyMatrixStride);
+        }
+        for (var i = 0; i < n; i++)
+        {
+            u[i] = maxCol > 0 ? KeyWireValues[i] % KeyMatrixStride / (float)maxCol : 0.5f;
+            v[i] = maxRow > 0 ? KeyWireValues[i] / KeyMatrixStride / (float)maxRow : 0.5f;
+        }
+        return (u, v);
+    }
+
+    /// <summary>
     /// Scatter <paramref name="ledOrder"/> (one color per physical key, in
     /// <see cref="KeyWireValues"/> order) into the 128-slot wire buffer the
     /// firmware streams. Clears <paramref name="wire"/> first, so slots without
