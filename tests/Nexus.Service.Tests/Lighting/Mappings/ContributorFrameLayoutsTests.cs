@@ -26,9 +26,9 @@ public class ContributorFrameLayoutsTests
         Assert.Equal(0.2f, frame.LedU![0]);
 
         // User edits one LED; the other keeps the provider default.
-        settings.Devices.LedMapOverrides[Id] = new()
+        settings.Devices.DeviceLedOverrides[Id] = new()
         {
-            new LedPositionOverride { LedIndex = 0, U = 0.99f, V = 0.99f },
+            new SegmentLedOverride { Segment = 0, LedIndex = 0, U = 0.99f, V = 0.99f },
         };
         tracker.Refresh(frame, settings);
         Assert.Equal(0.99f, frame.LedU![0]);
@@ -41,9 +41,9 @@ public class ContributorFrameLayoutsTests
     {
         var tracker = new ContributorFrameLayouts();
         var settings = new NexusSettings();
-        settings.Devices.LedMapOverrides[Id] = new()
+        settings.Devices.DeviceLedOverrides[Id] = new()
         {
-            new LedPositionOverride { LedIndex = 0, U = 0.99f, V = 0.99f },
+            new SegmentLedOverride { Segment = 0, LedIndex = 0, U = 0.99f, V = 0.99f },
         };
         var frame = new DeviceFrame(0, Id, ledCount: 2);
         frame.LedU = new[] { 0.2f, 0.8f };
@@ -54,7 +54,7 @@ public class ContributorFrameLayoutsTests
         // carrying OUR arrays; removing the override must restore the
         // provider default, not the override-tainted values.
         tracker.Refresh(frame, settings);
-        settings.Devices.LedMapOverrides.Remove(Id);
+        settings.Devices.DeviceLedOverrides.Remove(Id);
         tracker.Refresh(frame, settings);
         Assert.Equal(0.2f, frame.LedU![0]);
 
@@ -102,16 +102,16 @@ public class ContributorFrameLayoutsTests
         // Route-side refresh (editor save) with a user override applied via
         // the tracker-aware Apply, then a bridge rebuild reusing the SAME
         // frame instance: the provider baseline must survive.
-        settings.Devices.LedMapOverrides[Id] = new()
+        settings.Devices.DeviceLedOverrides[Id] = new()
         {
-            new LedPositionOverride { LedIndex = 0, U = 0.99f, V = 0.99f },
+            new SegmentLedOverride { Segment = 0, LedIndex = 0, U = 0.99f, V = 0.99f },
         };
         var resolved = LedLayoutResolver.ResolveSeeded(
             Id, frame.LedCount, tracker.GetDefaults(Id).U, tracker.GetDefaults(Id).V, settings);
         tracker.Apply(frame, resolved);
         tracker.Refresh(frame, settings);
 
-        settings.Devices.LedMapOverrides.Remove(Id);
+        settings.Devices.DeviceLedOverrides.Remove(Id);
         tracker.Refresh(frame, settings);
         Assert.Equal(0.2f, frame.LedU![0]);
         Assert.Equal(0.8f, frame.LedU[1]);

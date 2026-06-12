@@ -103,75 +103,41 @@ public static partial class DevicesRoutes
         });
 
         // LED map: get resolved positions (defaults -> applied mapping ->
-        // custom overrides) for ANY lighting device. OpenRGB ids resolve via
-        // the bridge; contributor cards (NP50, hubs, smart lights) resolve
-        // via their engine frame seeded with provider defaults.
+        // custom overrides) for ANY lighting device. Partition-backed cards
+        // (keeb / OpenRGB zones) resolve through the zone topology; other
+        // contributor cards (NP50, hubs, smart lights) resolve via their
+        // engine frame seeded with provider defaults.
         app.MapGet("/devices/lighting-devices/{id}/led-map", (string id, bool? defaults,
-            Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
-            Nexus.Service.Lighting.Engine.LightingEngine engine,
-            Nexus.Service.Lighting.Mappings.ContributorFrameLayouts contributorLayouts,
+            Nexus.Service.Lighting.Zones.ZoneTopology topology,
             Nexus.Service.Lighting.Mappings.MappingApplyService mappings,
             Nexus.Service.Persistence.IConfigStore store) =>
         {
             var settings = store.Load();
             // defaults=true previews the factory layout: keep persisted LED
-            // counts (they describe the hardware as wired) but drop mapping +
-            // override + group layers.
+            // counts and the partition (they describe the hardware as wired
+            // and the card shape) but drop mapping + override + group layers.
             var effective = defaults == true
                 ? new Nexus.Service.Persistence.NexusSettings
                 {
                     Devices = new Nexus.Service.Persistence.DevicesSettings
                     {
                         ZoneLedCounts = settings.Devices.ZoneLedCounts,
-                        LedMapAspectRatios = settings.Devices.LedMapAspectRatios,
+                        ZonePartitions = settings.Devices.ZonePartitions,
+                        DeviceAspectRatios = settings.Devices.DeviceAspectRatios,
                     },
                 }
                 : settings;
 
-            Nexus.Service.Lighting.Mappings.ResolvedLedLayout? resolved = null;
-            Nexus.Service.Lighting.Rgb.RgbDevice? device = null;
-            var globalOffset = 0;
-            if (bridge is not null)
-            {
-                int zoneIdx;
-                (device, zoneIdx) = Nexus.Service.Lighting.Rgb.OpenRgbResolver.Resolve(id, bridge.Devices);
-                if (device is not null)
-                {
-                    resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveOpenRgb(device, zoneIdx, id, effective);
-                    globalOffset = resolved.GlobalOffset;
-                }
-            }
-            if (resolved is null)
-            {
-                foreach (var frame in engine.Devices)
-                {
-                    if (frame.Id == id)
-                    {
-                        var (defU, defV) = contributorLayouts.GetDefaults(id);
-                        resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveSeeded(
-                            id, frame.LedCount, defU, defV, effective);
-                        break;
-                    }
-                }
-            }
-            if (resolved is null)
+            var resolution = topology.ResolveCard(id, effective);
+            if (resolution is null)
                 return Results.Json(new LedMapResponse { Id = id }, Nexus.Service.Serialization.AppJsonContext.Default.LedMapResponse);
+            var resolved = resolution.Layout;
+            var device = resolution.Device;
+            var globalOffset = resolved.GlobalOffset;
 
             if (defaults != true)
             {
-                foreach (var frame in engine.Devices)
-                {
-                    if (frame.Id == id)
-                    {
-                        // device != null means OpenRGB (untracked frame);
-                        // contributor frames must apply through the tracker.
-                        if (device is not null)
-                            Nexus.Service.Lighting.Mappings.LedLayoutResolver.ApplyToFrame(frame, resolved);
-                        else
-                            contributorLayouts.Apply(frame, resolved);
-                        break;
-                    }
-                }
+                topology.ApplyToEngine(id, resolution);
             }
 
             var leds = new List<LedMapEntry>(resolved.LedCount);
@@ -216,40 +182,55 @@ public static partial class DevicesRoutes
             }, Nexus.Service.Serialization.AppJsonContext.Default.LedMapResponse);
         });
 
-        // LED map: save custom overrides (+ optional group replacement)
+        // LED map: save custom overrides (+ optional group replacement). The
+        // body carries zone-local indices; they re-key through the card's
+        // slices into the device's segment-local store, replacing only the
+        // entries this zone covers.
         app.MapPost("/devices/lighting-devices/{id}/led-map", (string id, SaveLedMapBody body,
             Nexus.Service.Persistence.IConfigStore store,
-            Nexus.Service.Lighting.Engine.LightingEngine engine,
-            Nexus.Service.Lighting.Mappings.ContributorFrameLayouts contributorLayouts,
-            Nexus.Service.Lighting.Rgb.RgbBridge? bridge) =>
+            Nexus.Service.Lighting.Zones.ZoneTopology topology) =>
         {
+            var ctx = topology.ContextFor(id, store.Load());
             store.Update(s =>
             {
-                s.Devices.LedMapOverrides[id] = body.Overrides;
+                var next = CollectOverridesOutsideZone(s, ctx);
+                foreach (var o in body.Overrides)
+                {
+                    if (ctx.TryMapToSegment(o.LedIndex, out var segment, out var local))
+                    {
+                        next.Add(new Nexus.Service.Persistence.SegmentLedOverride
+                        { Segment = segment, LedIndex = local, U = o.U, V = o.V, Disabled = o.Disabled });
+                    }
+                }
+                s.Devices.DeviceLedOverrides[ctx.DeviceId] = next;
                 if (body.AspectRatio > 0)
-                    s.Devices.LedMapAspectRatios[id] = body.AspectRatio;
+                    s.Devices.DeviceAspectRatios[ctx.DeviceId] = body.AspectRatio;
                 if (body.Groups is not null)
                     s.Devices.LedGroups[id] = body.Groups;
             });
-            RefreshEngineLedMap(id, engine, bridge, contributorLayouts, store);
+            topology.RefreshCardFrame(id);
             return ApiResponse.Ok();
         });
 
-        // LED map: reset user deltas (overrides, ratio, groups). An applied
-        // community mapping survives; reverting that is the mapping DELETE.
+        // LED map: reset user deltas (overrides, ratio, groups) for this
+        // card's zone. An applied community mapping survives; reverting that
+        // is the mapping DELETE.
         app.MapDelete("/devices/lighting-devices/{id}/led-map", (string id,
             Nexus.Service.Persistence.IConfigStore store,
-            Nexus.Service.Lighting.Engine.LightingEngine engine,
-            Nexus.Service.Lighting.Mappings.ContributorFrameLayouts contributorLayouts,
-            Nexus.Service.Lighting.Rgb.RgbBridge? bridge) =>
+            Nexus.Service.Lighting.Zones.ZoneTopology topology) =>
         {
+            var ctx = topology.ContextFor(id, store.Load());
             store.Update(s =>
             {
-                s.Devices.LedMapOverrides.Remove(id);
-                s.Devices.LedMapAspectRatios.Remove(id);
+                var remaining = CollectOverridesOutsideZone(s, ctx);
+                if (remaining.Count > 0)
+                    s.Devices.DeviceLedOverrides[ctx.DeviceId] = remaining;
+                else
+                    s.Devices.DeviceLedOverrides.Remove(ctx.DeviceId);
+                s.Devices.DeviceAspectRatios.Remove(ctx.DeviceId);
                 s.Devices.LedGroups.Remove(id);
             });
-            RefreshEngineLedMap(id, engine, bridge, contributorLayouts, store);
+            topology.RefreshCardFrame(id);
             return ApiResponse.Ok();
         });
 

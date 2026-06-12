@@ -1,10 +1,7 @@
 using System;
-using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Devices;
-using Nexus.Service.Lighting.Engine;
-using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Persistence;
 using Nexus.Service.Sockets;
@@ -21,28 +18,22 @@ public sealed class MappingApplyService
 {
     private readonly IConfigStore _store;
     private readonly MappingCloudClient _cloud;
-    private readonly LightingEngine _engine;
     private readonly ILightingDeviceProvider _devices;
-    private readonly ContributorFrameLayouts _contributorLayouts;
+    private readonly Nexus.Service.Lighting.Zones.ZoneTopology _topology;
     private readonly MultiplexHub _hub;
-    private readonly RgbBridge? _bridge;
 
     public MappingApplyService(
         IConfigStore store,
         MappingCloudClient cloud,
-        LightingEngine engine,
         ILightingDeviceProvider devices,
-        ContributorFrameLayouts contributorLayouts,
-        MultiplexHub hub,
-        RgbBridge? bridge = null)
+        Nexus.Service.Lighting.Zones.ZoneTopology topology,
+        MultiplexHub hub)
     {
         _store = store;
         _cloud = cloud;
-        _engine = engine;
         _devices = devices;
-        _contributorLayouts = contributorLayouts;
+        _topology = topology;
         _hub = hub;
-        _bridge = bridge;
     }
 
     public LightingDevice? FindCard(string id)
@@ -56,61 +47,16 @@ public sealed class MappingApplyService
     }
 
     /// <summary>
-    /// Resolve the current layout for any lighting device id - OpenRGB
-    /// (device or zone) via the bridge, everything else via its engine frame
-    /// seeded with provider defaults. Null when the id is unknown.
+    /// Resolve the current layout for any lighting device id through the
+    /// zone topology (partition-backed cards via their zone slices, legacy
+    /// cards via the bridge / engine frame fallbacks). Null when the id is
+    /// unknown.
     /// </summary>
     public ResolvedLedLayout? Resolve(string id, NexusSettings? settings = null)
-    {
-        settings ??= _store.Load();
-        if (_bridge is not null)
-        {
-            var (device, zoneIdx) = OpenRgbResolver.Resolve(id, _bridge.Devices);
-            if (device is not null)
-                return LedLayoutResolver.ResolveOpenRgb(device, zoneIdx, id, settings);
-        }
-        foreach (var frame in _engine.Devices)
-        {
-            if (frame.Id == id)
-            {
-                var (defU, defV) = _contributorLayouts.GetDefaults(id);
-                return LedLayoutResolver.ResolveSeeded(id, frame.LedCount, defU, defV, settings);
-            }
-        }
-        return null;
-    }
+        => _topology.ResolveCard(id, settings ?? _store.Load())?.Layout;
 
     /// <summary>Re-resolve and push the layout into the live engine frame so running effects pick the change up on the next tick.</summary>
-    public void RefreshDevice(string id)
-    {
-        var settings = _store.Load();
-        ResolvedLedLayout? openRgbResolved = null;
-        if (_bridge is not null)
-        {
-            var (device, zoneIdx) = OpenRgbResolver.Resolve(id, _bridge.Devices);
-            if (device is not null)
-                openRgbResolved = LedLayoutResolver.ResolveOpenRgb(device, zoneIdx, id, settings);
-        }
-        foreach (var frame in _engine.Devices)
-        {
-            if (frame.Id != id)
-                continue;
-            if (openRgbResolved is not null)
-            {
-                LedLayoutResolver.ApplyToFrame(frame, openRgbResolved);
-            }
-            else
-            {
-                // Contributor frames go through the tracker (see
-                // ContributorFrameLayouts.Apply) so this write is not later
-                // snapshotted as a provider default.
-                var (defU, defV) = _contributorLayouts.GetDefaults(id);
-                var seeded = LedLayoutResolver.ResolveSeeded(id, frame.LedCount, defU, defV, settings);
-                _contributorLayouts.Apply(frame, seeded);
-            }
-            break;
-        }
-    }
+    public void RefreshDevice(string id) => _topology.RefreshCardFrame(id);
 
     public enum ApplyOutcome { Applied, NotFound, Invalid }
 

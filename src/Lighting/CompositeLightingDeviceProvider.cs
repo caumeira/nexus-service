@@ -155,6 +155,19 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
             rgb.Devices.AddRange(smartLights.Devices);
         }
 
+        // Non-partitionable cards (hub ports, smart lights, CNVS, Q-series)
+        // are their own single-zone devices: the modal routing target is the
+        // card itself and zone management stays hidden (ZoneCustomizable
+        // keeps its default false). Partition-aware providers set DeviceId
+        // themselves.
+        foreach (var dev in rgb.Devices)
+        {
+            if (dev.DeviceId.Length == 0)
+            {
+                dev.DeviceId = dev.Id;
+            }
+        }
+
         // Spread every device without a persisted layout across the grid. totalCount counts persisted devices too so the
         // slot for any one device is stable across calls (resetting one card doesn't shuffle the others). Must run
         // AFTER the CNVS / NP50 / MiniHub merges so newly-added hub devices also pick up a default slot.

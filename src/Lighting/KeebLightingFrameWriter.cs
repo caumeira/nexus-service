@@ -12,14 +12,15 @@ namespace Nexus.Service.Lighting;
 /// <summary>
 /// Pushes per-frame engine output to the keeb over raw HID. Mirrors
 /// <see cref="Np50LightingFrameWriter"/>: a 30 Hz timer walks
-/// <see cref="LightingEngine.Devices"/>, picks the keeb keys + underglow
-/// frames, applies brightness / disabled / identify against the shared
-/// settings store, and streams each zone via <see cref="KeebHub"/>.
+/// <see cref="LightingEngine.Devices"/>, composes the device's zone frames
+/// into the keys + underglow segment buffers (applying brightness / disabled
+/// / identify per zone card against the shared settings store), and streams
+/// each hardware segment via <see cref="KeebHub"/>. With the default
+/// partition this is byte-identical to the legacy per-card writer.
 /// </summary>
 public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 {
     private const int TickPeriodMs = 33; // 30 Hz, matches the engine + NP50 writer.
-    private const int IdentifyFlashHalfPeriodMs = 250;
 
     private readonly LightingEngine _engine;
     private readonly KeebHub _hub;
@@ -30,8 +31,7 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
     private Task? _loop;
     private bool _wasStreaming;
 
-    private RgbColor[] _keyBuf = new RgbColor[KeebLayout.KeyLedCount];
-    private RgbColor[] _surroundBuf = new RgbColor[KeebLayout.SurroundLedCount];
+    private RgbColor[][] _segmentBuffers = Array.Empty<RgbColor[]>();
 
     public KeebLightingFrameWriter(LightingEngine engine, KeebHub hub, IConfigStore store, Np50IdentifyTracker identify, KeebSettingsApplier applier)
     {
@@ -104,8 +104,6 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 
         var hubId = _hub.DeviceId;
         if (string.IsNullOrEmpty(hubId)) return;
-        var keysId = hubId + KeebLightingDeviceProvider.KeysSuffix;
-        var underglowId = hubId + KeebLightingDeviceProvider.UnderglowSuffix;
 
         var settings = _store.Load();
         var disabled = settings.Devices.DisabledLightingDevices;
@@ -113,74 +111,15 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var nowTicks = DateTime.UtcNow.Ticks;
 
-        DeviceFrame? keys = null;
-        DeviceFrame? underglow = null;
-        for (var i = 0; i < devices.Length; i++)
-        {
-            var d = devices[i];
-            if (d.Id == keysId) keys = d;
-            else if (d.Id == underglowId) underglow = d;
-        }
+        var structure = KeebZoneSupport.BuildStructure(hubId);
+        var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settings);
+        Nexus.Service.Lighting.Zones.SegmentFrameComposer.EnsureBuffers(structure, ref _segmentBuffers);
+        var touched = Nexus.Service.Lighting.Zones.SegmentFrameComposer.Compose(
+            structure, zones, devices, disabled, prefs, globalBrightness, nowTicks, _identify, _segmentBuffers);
 
-        if (keys is not null)
-        {
-            EnsureBuf(ref _keyBuf, KeebLayout.KeyLedCount);
-            FillZone(_keyBuf, keys, disabled, prefs, globalBrightness, nowTicks);
-            _hub.WriteKeyboard(_keyBuf);
-        }
-        if (underglow is not null)
-        {
-            EnsureBuf(ref _surroundBuf, KeebLayout.SurroundLedCount);
-            FillZone(_surroundBuf, underglow, disabled, prefs, globalBrightness, nowTicks);
-            _hub.WriteSurround(_surroundBuf);
-        }
-    }
-
-    private void FillZone(RgbColor[] dst, DeviceFrame frame,
-        System.Collections.Generic.IReadOnlyList<string> disabled,
-        System.Collections.Generic.IReadOnlyDictionary<string, LightingDevicePreference> prefs,
-        float globalBrightness, long nowTicks)
-    {
-        var ledCount = Math.Min(dst.Length, frame.LedCount);
-        var mul = ComputeBrightnessMul(frame.Id, disabled, prefs, globalBrightness);
-        if (_identify.TryGetActive(frame.Id, nowTicks, out var startTicks))
-        {
-            var elapsedMs = (nowTicks - startTicks) / TimeSpan.TicksPerMillisecond;
-            var on = (elapsedMs / IdentifyFlashHalfPeriodMs) % 2 == 0;
-            var c = on ? new RgbColor(255, 255, 255) : default;
-            for (var i = 0; i < ledCount; i++) dst[i] = c;
-            for (var i = ledCount; i < dst.Length; i++) dst[i] = default;
-            return;
-        }
-        var src = frame.LedBytes;
-        for (var i = 0; i < ledCount; i++)
-        {
-            var off = i * 3;
-            if (off + 2 >= src.Length) { dst[i] = default; continue; }
-            if (mul >= 0.999)
-                dst[i] = new RgbColor(src[off], src[off + 1], src[off + 2]);
-            else if (mul <= 0.0)
-                dst[i] = default;
-            else
-                dst[i] = new RgbColor((byte)(src[off] * mul), (byte)(src[off + 1] * mul), (byte)(src[off + 2] * mul));
-        }
-        for (var i = ledCount; i < dst.Length; i++) dst[i] = default;
-    }
-
-    private static double ComputeBrightnessMul(string id,
-        System.Collections.Generic.IReadOnlyList<string> disabled,
-        System.Collections.Generic.IReadOnlyDictionary<string, LightingDevicePreference> prefs,
-        float globalBrightness)
-    {
-        for (var i = 0; i < disabled.Count; i++) if (disabled[i] == id) return 0.0;
-        int devBrightness;
-        try { devBrightness = prefs.TryGetValue(id, out var pref) ? pref.Brightness : 100; }
-        catch (InvalidOperationException) { devBrightness = 100; }
-        return globalBrightness * Math.Clamp(devBrightness, 0, 100) / 100.0;
-    }
-
-    private static void EnsureBuf(ref RgbColor[] buf, int len)
-    {
-        if (buf.Length < len) buf = new RgbColor[len];
+        if (touched[KeebZoneSupport.KeysSegment])
+            _hub.WriteKeyboard(_segmentBuffers[KeebZoneSupport.KeysSegment]);
+        if (touched[KeebZoneSupport.UnderglowSegment])
+            _hub.WriteSurround(_segmentBuffers[KeebZoneSupport.UnderglowSegment]);
     }
 }

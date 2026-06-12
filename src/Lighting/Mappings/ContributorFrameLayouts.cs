@@ -27,7 +27,8 @@ public sealed class ContributorFrameLayouts
     private readonly object _lock = new();
     private readonly Dictionary<string, Entry> _entries = new();
 
-    public void Refresh(DeviceFrame frame, NexusSettings settings)
+    /// <summary><paramref name="overrides"/> maps a partition-backed card (keeb zone) into its device's segment-local override space; null treats the card as a single-segment device of its own.</summary>
+    public void Refresh(DeviceFrame frame, NexusSettings settings, Nexus.Service.Lighting.Zones.ZoneOverrideContext? overrides = null)
     {
         lock (_lock)
         {
@@ -54,7 +55,7 @@ public sealed class ContributorFrameLayouts
             }
 
             var resolved = LedLayoutResolver.ResolveSeeded(
-                frame.Id, frame.LedCount, entry.DefaultU, entry.DefaultV, settings);
+                frame.Id, frame.LedCount, entry.DefaultU, entry.DefaultV, settings, overrides);
             LedLayoutResolver.ApplyToFrame(frame, resolved);
             entry.LastAppliedU = frame.LedU;
         }

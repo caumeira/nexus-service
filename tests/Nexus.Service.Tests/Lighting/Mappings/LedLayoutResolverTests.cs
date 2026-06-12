@@ -7,7 +7,7 @@ namespace Nexus.Service.Tests.Lighting.Mappings;
 
 /// <summary>
 /// Layering contract: computed default, then applied mapping artifact, then
-/// user deltas (LedMapOverrides / LedGroups) - user always wins.
+/// user deltas (DeviceLedOverrides / LedGroups) - user always wins.
 /// </summary>
 public class LedLayoutResolverTests
 {
@@ -108,9 +108,9 @@ public class LedLayoutResolverTests
     {
         var settings = Settings();
         ApplyMapping(settings, Artifact());
-        settings.Devices.LedMapOverrides[Id] = new()
+        settings.Devices.DeviceLedOverrides[Id] = new()
         {
-            new LedPositionOverride { LedIndex = 0, U = 0.99f, V = 0.01f },
+            new SegmentLedOverride { Segment = 0, LedIndex = 0, U = 0.99f, V = 0.01f },
         };
         var layout = LedLayoutResolver.ResolveSeeded(Id, 4, null, null, settings);
         Assert.Equal(0.99f, layout.U[0]);
@@ -125,9 +125,9 @@ public class LedLayoutResolverTests
     {
         var settings = Settings();
         ApplyMapping(settings, Artifact());
-        settings.Devices.LedMapOverrides[Id] = new()
+        settings.Devices.DeviceLedOverrides[Id] = new()
         {
-            new LedPositionOverride { LedIndex = 1, U = 0.5f, V = 0.5f, Disabled = false },
+            new SegmentLedOverride { Segment = 0, LedIndex = 1, U = 0.5f, V = 0.5f, Disabled = false },
         };
         var layout = LedLayoutResolver.ResolveSeeded(Id, 4, null, null, settings);
         Assert.Null(layout.Disabled);
@@ -162,7 +162,7 @@ public class LedLayoutResolverTests
     {
         var settings = Settings();
         ApplyMapping(settings, Artifact());
-        settings.Devices.LedMapAspectRatios[Id] = 3.5f;
+        settings.Devices.DeviceAspectRatios[Id] = 3.5f;
         var layout = LedLayoutResolver.ResolveSeeded(Id, 4, null, null, settings);
         Assert.Equal(3.5f, layout.AspectRatio);
     }
@@ -242,9 +242,9 @@ public class LedLayoutResolverTests
     {
         var settings = Settings();
         ApplyMapping(settings, Artifact());
-        settings.Devices.LedMapOverrides[Id] = new()
+        settings.Devices.DeviceLedOverrides[Id] = new()
         {
-            new LedPositionOverride { LedIndex = 2, U = 0.42f, V = 0.13f },
+            new SegmentLedOverride { Segment = 0, LedIndex = 2, U = 0.42f, V = 0.13f },
         };
         var resolved = LedLayoutResolver.ResolveSeeded(Id, 4, null, null, settings);
 

@@ -18,6 +18,16 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(LedPositionOverride))]
 [JsonSerializable(typeof(List<LedPositionOverride>))]
 [JsonSerializable(typeof(Dictionary<string, List<LedPositionOverride>>))]
+// Zones model - device partitions and segment-local LED overrides.
+[JsonSerializable(typeof(ZoneDef))]
+[JsonSerializable(typeof(List<ZoneDef>))]
+[JsonSerializable(typeof(Dictionary<string, List<ZoneDef>>))]
+[JsonSerializable(typeof(ZoneSlice))]
+[JsonSerializable(typeof(List<ZoneSlice>))]
+[JsonSerializable(typeof(SegmentLedOverride))]
+[JsonSerializable(typeof(List<SegmentLedOverride>))]
+[JsonSerializable(typeof(Dictionary<string, List<SegmentLedOverride>>))]
+[JsonSerializable(typeof(Dictionary<string, float>))]
 [JsonSerializable(typeof(ProfileManifest))]
 [JsonSerializable(typeof(ProfileExport))]
 // Shared POCOs nested under NexusSettings root — picked up transitively but

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Nexus.Service.Devices;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Persistence;
 
@@ -15,13 +16,15 @@ namespace Nexus.Service.Lighting.Rgb;
 /// - same shape as the stub - so the UI can store user preferences even when no
 /// effect is currently running.
 ///
-/// Motherboards with multiple ARGB headers are split into one <see cref="LightingDevice"/>
-/// per zone. Each zone card carries its own id ("openrgb-N-Z"), power/brightness/hue
-/// prefs, canvas rect, and configurable LED count. ARGB is a one-way protocol so
-/// the LED count per header cannot be auto-detected - users set it via the zone
-/// card and we persist + re-apply it via OpenRGB's RESIZEZONE opcode.
+/// Card emission derives from each device's zone partition (see
+/// <see cref="OpenRgbZoneSupport"/>): with no partition persisted this is
+/// exactly the legacy behavior - motherboards with multiple ARGB headers are
+/// split into one card per zone ("openrgb-N-Z"), everything else is one
+/// whole-device card. ARGB is a one-way protocol so the LED count per header
+/// cannot be auto-detected - users set it via the zone card and we persist +
+/// re-apply it via OpenRGB's RESIZEZONE opcode.
 /// </summary>
-public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider
+public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider, IDeviceStructureSource
 {
     private readonly RgbBridge _bridge;
     private readonly IConfigStore _store;
@@ -35,102 +38,22 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider
     public bool IsConnected => _bridge.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
+        => OpenRgbZoneSupport.BuildCards(_bridge.Devices, _store.Load(), _bridge.IsConnected);
+
+    // ── IDeviceStructureSource ──
+
+    public IReadOnlyList<DeviceStructure> GetStructures()
     {
         var devices = _bridge.Devices;
+        if (devices.Count == 0)
+            return Array.Empty<DeviceStructure>();
         var settings = _store.Load();
-        var disabled = settings.Devices.DisabledLightingDevices;
-        var prefs = settings.Devices.LightingDevicePrefs;
-        var layouts = settings.Lighting.DeviceLayouts;
-        var zoneLedCounts = settings.Devices.ZoneLedCounts;
-
-        var result = new List<LightingDevice>(devices.Count);
-        // Two independent slot counters so device cards and motherboard zone strips
-        // get their own non-overlapping grids on the canvas (cards top-left, strips
-        // along the bottom). The sizes below are doubled from v1 so devices read as
-        // "equipment boxes" rather than tiny tiles.
-        int cardSlot = 0;
-        int stripSlot = 0;
-        for (int i = 0; i < devices.Count; i++)
+        var structures = new List<DeviceStructure>(devices.Count);
+        foreach (var d in devices)
         {
-            var d = devices[i];
-            var baseId = d.StableId;
-            var baseKey = Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForOpenRgbDevice(d);
-            var isSplitMotherboard = d.Type == 0 && d.Zones.Count > 1;
-
-            if (!isSplitMotherboard)
-            {
-                prefs.TryGetValue(baseId, out var pref);
-                layouts.TryGetValue(baseId, out var layout);
-                var (dx, dy, dw, dh) = DefaultCardLayout(cardSlot);
-                result.Add(new LightingDevice
-                {
-                    Id = baseId,
-                    DeviceKey = baseKey,
-                    Name = d.Name,
-                    Type = OpenRgbTypeName(d.Type),
-                    IconType = OpenRgbTypeName(d.Type),
-                    LedsOn = !disabled.Contains(baseId),
-                    Brightness = pref?.Brightness ?? 100,
-                    Hue = pref?.Hue ?? 0,
-                    Saturation = pref?.Saturation ?? 1.0f,
-                    LedCount = d.LedCount,
-                    CanvasX = layout?.X ?? dx,
-                    CanvasY = layout?.Y ?? dy,
-                    CanvasW = layout?.W ?? dw,
-                    CanvasH = layout?.H ?? dh,
-                    CanvasRotation = NormalizeRotation(layout?.Rotation ?? 0),
-                });
-                cardSlot++;
-                continue;
-            }
-
-            // Motherboard with more than one zone - emit one card per zone.
-            for (int z = 0; z < d.Zones.Count; z++)
-            {
-                var zone = d.Zones[z];
-                var zoneId = $"{baseId}-{z}";
-                prefs.TryGetValue(zoneId, out var pref);
-                layouts.TryGetValue(zoneId, out var layout);
-                // Trust the user's persisted choice over OpenRGB's reported count.
-                // 12V RGB headers ignore ResizeZone (physically one voltage line),
-                // so OpenRGB keeps reporting 1 even after we persist 60. Showing
-                // the user's intended value keeps the UI stable and means the
-                // LED-count editor actually "sticks" visually.
-                var effectiveLedCount = zoneLedCounts.TryGetValue(zoneId, out var persistedCount)
-                    ? persistedCount
-                    : zone.LedCount;
-                var (sx, sy, sw, sh) = DefaultStripLayout(stripSlot);
-                result.Add(new LightingDevice
-                {
-                    Id = zoneId,
-                    DeviceKey = Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForZone(baseKey, z),
-                    Name = BuildZoneName(d.Name, zone.Name, z),
-                    Type = OpenRgbTypeName(d.Type),
-                    IconType = OpenRgbTypeName(d.Type),
-                    LedsOn = !disabled.Contains(zoneId),
-                    Brightness = pref?.Brightness ?? 100,
-                    Hue = pref?.Hue ?? 0,
-                    Saturation = pref?.Saturation ?? 1.0f,
-                    LedCount = effectiveLedCount,
-                    CanvasX = layout?.X ?? sx,
-                    CanvasY = layout?.Y ?? sy,
-                    CanvasW = layout?.W ?? sw,
-                    CanvasH = layout?.H ?? sh,
-                    CanvasRotation = NormalizeRotation(layout?.Rotation ?? 0),
-                    ParentDeviceId = baseId,
-                    ZoneIndex = z,
-                    ZoneType = ZoneTypeName(zone.ZoneType),
-                    ZoneResizable = IsZoneResizable(zone.ZoneType),
-                });
-                stripSlot++;
-            }
+            structures.Add(OpenRgbZoneSupport.BuildStructure(d, settings));
         }
-
-        return new GetLightingDevicesResponse
-        {
-            IsInit = _bridge.IsConnected,
-            Devices = result,
-        };
+        return structures;
     }
 
     public void SetDisabled(IReadOnlyList<string> ids) => _store.Update(s =>
@@ -197,19 +120,26 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider
     {
         if (count < 0 || count > 1024)
             return;
-        if (!TryResolveZone(id, out var physIdx, out var zoneIdx))
+        if (!TryResolveResizableZone(id, out var physIdx, out var zoneIdx, out var deviceId))
             return;
 
+        // Counts persist under the hardware segment key (the legacy zone-card
+        // id) so the wiring choice survives any re-partition, and overrides
+        // beyond the new count are pruned in the segment-local store.
+        var segmentKey = $"{deviceId}-{zoneIdx}";
         _store.Update(s =>
         {
-            s.Devices.ZoneLedCounts[id] = count;
-            if (s.Devices.LedMapOverrides.TryGetValue(id, out var list))
+            s.Devices.ZoneLedCounts[segmentKey] = count;
+            if (s.Devices.DeviceLedOverrides.TryGetValue(deviceId, out var list))
             {
-                var pruned = new List<LedPositionOverride>(list.Count);
+                var pruned = new List<SegmentLedOverride>(list.Count);
                 foreach (var o in list)
-                { if (o.LedIndex < count) pruned.Add(o); }
+                {
+                    if (o.Segment != zoneIdx || o.LedIndex < count)
+                        pruned.Add(o);
+                }
                 if (pruned.Count != list.Count)
-                    s.Devices.LedMapOverrides[id] = pruned;
+                    s.Devices.DeviceLedOverrides[deviceId] = pruned;
             }
         });
 
@@ -227,7 +157,7 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider
     /// coords are 1000x600 internal units; the UI rescales. Row count is capped
     /// so no card lands off-canvas; once the grid is full the slot wraps to
     /// position 0 (the top-left), stacking new cards on existing defaults that
-    /// the user can drag apart — better than silently hiding cards beyond row 5.
+    /// the user can drag apart - better than silently hiding cards beyond row 5.
     /// </summary>
     internal static (float x, float y, float w, float h) DefaultCardLayout(int slot)
     {
@@ -268,13 +198,17 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider
     }
 
     /// <summary>
-    /// Resolve a zone ID to (physicalIndex, zoneIndex) by matching against the
-    /// live device list. Zone IDs are "{stableId}-{zoneIndex}".
+    /// Resolve a card id that supports LED-count editing to its
+    /// (physicalIndex, zoneIndex, deviceId). Handles the legacy zone-card
+    /// shape "{stableId}-{zoneIndex}" and custom-partition ids whose zone is
+    /// exactly one whole resizable segment (the only shape rule 2 allows on a
+    /// header).
     /// </summary>
-    private bool TryResolveZone(string id, out int physicalIndex, out int zoneIndex)
+    private bool TryResolveResizableZone(string id, out int physicalIndex, out int zoneIndex, out string deviceId)
     {
         physicalIndex = -1;
         zoneIndex = -1;
+        deviceId = "";
         if (string.IsNullOrEmpty(id))
             return false;
 
@@ -289,80 +223,32 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider
                 && zoneIndex >= 0)
             {
                 physicalIndex = devices[i].Index;
+                deviceId = stableId;
+                return true;
+            }
+        }
+
+        // Custom-partition card: find the owning device, resolve its zones,
+        // and accept only a whole-resizable-segment zone.
+        var settings = _store.Load();
+        foreach (var d in devices)
+        {
+            if (!id.StartsWith(d.StableId, StringComparison.Ordinal))
+                continue;
+            var structure = OpenRgbZoneSupport.BuildStructure(d, settings);
+            foreach (var zone in ZoneResolution.Resolve(structure, settings))
+            {
+                if (zone.Id != id)
+                    continue;
+                var segment = ZoneResolution.WholeResizableSegment(structure, zone);
+                if (segment < 0)
+                    return false;
+                physicalIndex = d.Index;
+                zoneIndex = segment;
+                deviceId = d.StableId;
                 return true;
             }
         }
         return false;
     }
-
-    private static string BuildZoneName(string deviceName, string zoneName, int zoneIndex)
-    {
-        if (!string.IsNullOrWhiteSpace(zoneName))
-        {
-            return $"{deviceName} - {zoneName}";
-        }
-        return $"{deviceName} - Zone {zoneIndex + 1}";
-    }
-
-    private static string ZoneTypeName(uint t) => t switch
-    {
-        0 => "single",
-        1 => "linear",
-        2 => "matrix",
-        _ => "unknown",
-    };
-
-    /// <summary>
-    /// Single (12V RGB) and Linear (5V ARGB) zones are both user-resizable. For a
-    /// 5V ARGB header the count is the addressable LED chain length. For a 12V RGB
-    /// header the header only outputs one colour but the user can still tell us
-    /// "there are 60 LEDs physically on that strip" so the count lines up with the
-    /// other cards. Matrix zones (keyboard grids) have a fixed layout and stay
-    /// non-resizable.
-    /// </summary>
-    private static bool IsZoneResizable(uint zoneType) => zoneType == 0 || zoneType == 1;
-
-    /// <summary>
-    /// Clamp persisted rotation values to the four valid quarter-turns. Older builds
-    /// wrote 80 as the default (DTO bug), which this normalises to 0 on load so the
-    /// UI and engine never see a nonsense angle.
-    /// </summary>
-    private static int NormalizeRotation(int rotation)
-    {
-        var r = ((rotation % 360) + 360) % 360;
-        return r switch
-        {
-            90 => 90,
-            180 => 180,
-            270 => 270,
-            _ => 0,
-        };
-    }
-
-    /// <summary>
-    /// OpenRGB device type enum -> human-readable string. Mirrors the names in
-    /// OpenRGB's RGBController/RGBController.h DEVICE_TYPE enum.
-    /// </summary>
-    private static string OpenRgbTypeName(uint type) => type switch
-    {
-        0 => "motherboard",
-        1 => "dram",
-        2 => "gpu",
-        3 => "cooler",
-        4 => "ledstrip",
-        5 => "keyboard",
-        6 => "mouse",
-        7 => "mousemat",
-        8 => "headset",
-        9 => "headset_stand",
-        10 => "gamepad",
-        11 => "light",
-        12 => "speaker",
-        13 => "virtual",
-        14 => "storage",
-        15 => "case",
-        16 => "microphone",
-        17 => "accessory",
-        _ => "unknown",
-    };
 }

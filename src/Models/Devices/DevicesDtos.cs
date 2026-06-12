@@ -201,6 +201,10 @@ public class LightingDevice
     public bool ZoneResizable { get; set; }
     /// <summary>Cross-install hardware fingerprint for community mapping lookup (see DeviceKeyComputer). Empty when the device cannot be fingerprinted; the mapping UI hides itself then.</summary>
     public string DeviceKey { get; set; } = "";
+    /// <summary>Owning device for the device-level settings modal (zone editor routing target). Equals <see cref="Id"/> for single-zone standalone devices and non-partitionable cards.</summary>
+    public string DeviceId { get; set; } = "";
+    /// <summary>True when the owning device supports user zone partitions. False for hub ports, smart lights, and 1-LED devices so the UI hides zone management.</summary>
+    public bool ZoneCustomizable { get; set; }
 }
 
 public class GetLightingDevicesResponse

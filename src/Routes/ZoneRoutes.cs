@@ -1,0 +1,233 @@
+using Nexus.Service.Lighting.Zones;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Devices;
+using Nexus.Service.Persistence;
+using Nexus.Service.Serialization;
+
+namespace Nexus.Service.Routes;
+
+public static partial class DevicesRoutes
+{
+    /// <summary>
+    /// Zones model surface: device structure (segments + current partition),
+    /// partition save/reset, and the device-scoped LED map the new editor
+    /// uses exclusively. Partition changes drop the device's per-zone prefs,
+    /// canvas layouts, and applied per-zone mappings (fresh defaults), then
+    /// rebuild engine frames and broadcast.
+    /// </summary>
+    private static void MapZoneEndpoints(WebApplication app)
+    {
+        app.MapGet("/devices/lighting-devices/{deviceId}/structure", (string deviceId,
+            ZoneTopology topology,
+            Nexus.Service.Persistence.IConfigStore store) =>
+        {
+            var structure = topology.FindStructure(deviceId);
+            if (structure is null)
+            {
+                return Results.Json(new DeviceStructureResponse { Error = true, Msg = "unknown device" },
+                    AppJsonContext.Default.DeviceStructureResponse);
+            }
+            var settings = store.Load();
+            var zones = topology.ZonesFor(structure, settings);
+            var response = new DeviceStructureResponse
+            {
+                Id = structure.DeviceId,
+                Name = structure.Name,
+                DeviceKey = structure.DeviceKey,
+                IsDefaultPartition = zones.Count == 0 || zones[0].IsDefault,
+            };
+            foreach (var seg in structure.Segments)
+            {
+                response.Segments.Add(new StructureSegmentDto
+                {
+                    Index = seg.Index,
+                    Name = seg.Name,
+                    LedCount = seg.LedCount,
+                    Resizable = seg.Resizable,
+                    ZoneType = seg.ZoneType,
+                });
+            }
+            foreach (var zone in zones)
+            {
+                var dto = new StructureZoneDto { Id = zone.Id, Name = zone.Name };
+                foreach (var slice in zone.Slices)
+                    dto.Slices.Add(new ZoneSlice { Segment = slice.Segment, Start = slice.Start, Count = slice.Count });
+                response.Zones.Add(dto);
+            }
+            return Results.Json(response, AppJsonContext.Default.DeviceStructureResponse);
+        });
+
+        app.MapPost("/devices/lighting-devices/{deviceId}/zones", (string deviceId, SaveZonePartitionBody body,
+            ZoneTopology topology,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
+            Nexus.Service.Sockets.MultiplexHub hub) =>
+        {
+            var structure = topology.FindStructure(deviceId);
+            if (structure is null)
+                return ApiResponse.Fail("unknown device");
+
+            var normalized = ZoneResolution.NormalizeDefs(structure, body.Zones);
+            var validation = ZonePartitionValidator.Validate(structure.Segments, normalized);
+            if (!validation.Ok)
+                return ApiResponse.Fail(string.Join("; ", validation.Errors));
+
+            var settings = store.Load();
+            var oldZoneIds = new List<string>();
+            foreach (var zone in topology.ZonesFor(structure, settings))
+                oldZoneIds.Add(zone.Id);
+
+            store.Update(s =>
+            {
+                s.Devices.ZonePartitions[deviceId] = normalized;
+                ZoneStateDrop.Drop(s, oldZoneIds);
+            });
+            bridge?.RequestTopologyRefresh();
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            return ApiResponse.Ok();
+        });
+
+        app.MapDelete("/devices/lighting-devices/{deviceId}/zones", (string deviceId,
+            ZoneTopology topology,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
+            Nexus.Service.Sockets.MultiplexHub hub) =>
+        {
+            var structure = topology.FindStructure(deviceId);
+            if (structure is null)
+                return ApiResponse.Fail("unknown device");
+
+            var settings = store.Load();
+            if (!settings.Devices.ZonePartitions.ContainsKey(deviceId))
+                return ApiResponse.Ok();
+
+            var oldZoneIds = new List<string>();
+            foreach (var zone in topology.ZonesFor(structure, settings))
+                oldZoneIds.Add(zone.Id);
+
+            store.Update(s =>
+            {
+                s.Devices.ZonePartitions.Remove(deviceId);
+                ZoneStateDrop.Drop(s, oldZoneIds);
+            });
+            bridge?.RequestTopologyRefresh();
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            return ApiResponse.Ok();
+        });
+
+        // Device-scoped LED map: the whole LED space per segment with
+        // resolved positions, override markers, and zone membership. The new
+        // editor reads this exclusively; UVs are zone-local (one canvas rect
+        // per zone), matching what each card's engine frame samples.
+        app.MapGet("/devices/lighting-devices/{deviceId}/device-map", (string deviceId,
+            ZoneTopology topology,
+            Nexus.Service.Persistence.IConfigStore store) =>
+        {
+            var structure = topology.FindStructure(deviceId);
+            if (structure is null)
+            {
+                return Results.Json(new DeviceMapResponse { Error = true, Msg = "unknown device" },
+                    AppJsonContext.Default.DeviceMapResponse);
+            }
+            var settings = store.Load();
+            var zones = topology.ZonesFor(structure, settings);
+
+            // Per-zone resolved layouts and contexts, then scattered back
+            // into segment space through each zone's slices.
+            var layouts = new Dictionary<string, Nexus.Service.Lighting.Mappings.ResolvedLedLayout>(zones.Count);
+            var contexts = new List<(ResolvedZone Zone, ZoneOverrideContext Ctx)>(zones.Count);
+            foreach (var zone in zones)
+            {
+                contexts.Add((zone, ZoneResolution.ContextOf(structure, zone)));
+                var resolution = topology.ResolveCard(zone.Id, settings);
+                if (resolution is not null)
+                    layouts[zone.Id] = resolution.Layout;
+            }
+
+            settings.Devices.DeviceLedOverrides.TryGetValue(structure.DeviceId, out var overrides);
+            var response = new DeviceMapResponse
+            {
+                Id = structure.DeviceId,
+                Name = structure.Name,
+                IsDefaultPartition = zones.Count == 0 || zones[0].IsDefault,
+                AspectRatio = settings.Devices.DeviceAspectRatios.TryGetValue(structure.DeviceId, out var ratio) ? ratio : 0f,
+            };
+
+            foreach (var seg in structure.Segments)
+            {
+                var segDto = new DeviceMapSegmentDto
+                {
+                    Index = seg.Index,
+                    Name = seg.Name,
+                    LedCount = seg.LedCount,
+                    Resizable = seg.Resizable,
+                    ZoneType = seg.ZoneType,
+                };
+                for (int local = 0; local < seg.LedCount; local++)
+                {
+                    var led = new DeviceMapLedDto { Index = local, Name = $"LED {local}" };
+                    foreach (var (zone, ctx) in contexts)
+                    {
+                        var zoneLocal = ctx.MapFromSegment(seg.Index, local);
+                        if (zoneLocal < 0)
+                            continue;
+                        led.ZoneId = zone.Id;
+                        if (layouts.TryGetValue(zone.Id, out var layout) && zoneLocal < layout.LedCount)
+                        {
+                            led.U = zoneLocal < layout.U.Length ? layout.U[zoneLocal] : 0f;
+                            led.V = zoneLocal < layout.V.Length ? layout.V[zoneLocal] : 0f;
+                            led.IsCustom = layout.CustomLeds.Contains(zoneLocal);
+                            led.Disabled = layout.Disabled is { } flags && zoneLocal < flags.Length && flags[zoneLocal];
+                        }
+                        break;
+                    }
+                    if (overrides is not null)
+                    {
+                        foreach (var o in overrides)
+                        {
+                            if (o.Segment == seg.Index && o.LedIndex == local)
+                            { led.IsCustom = true; break; }
+                        }
+                    }
+                    segDto.Leds.Add(led);
+                }
+                response.Segments.Add(segDto);
+            }
+            return Results.Json(response, AppJsonContext.Default.DeviceMapResponse);
+        });
+
+        // Device-scoped LED map save: segment-local override list replaces
+        // the device's stored overrides wholesale.
+        app.MapPost("/devices/lighting-devices/{deviceId}/device-map", (string deviceId, SaveDeviceMapBody body,
+            ZoneTopology topology,
+            Nexus.Service.Persistence.IConfigStore store) =>
+        {
+            var structure = topology.FindStructure(deviceId);
+            if (structure is null)
+                return ApiResponse.Fail("unknown device");
+
+            var sanitized = new List<SegmentLedOverride>(body.Overrides.Count);
+            foreach (var o in body.Overrides)
+            {
+                if (o.Segment < 0 || o.Segment >= structure.Segments.Count)
+                    continue;
+                if (o.LedIndex < 0 || o.LedIndex >= structure.Segments[o.Segment].LedCount)
+                    continue;
+                sanitized.Add(o);
+            }
+            store.Update(s =>
+            {
+                if (sanitized.Count > 0)
+                    s.Devices.DeviceLedOverrides[deviceId] = sanitized;
+                else
+                    s.Devices.DeviceLedOverrides.Remove(deviceId);
+                if (body.AspectRatio > 0)
+                    s.Devices.DeviceAspectRatios[deviceId] = body.AspectRatio;
+            });
+
+            foreach (var zone in topology.ZonesFor(structure, store.Load()))
+                topology.RefreshCardFrame(zone.Id);
+            return ApiResponse.Ok();
+        });
+    }
+}

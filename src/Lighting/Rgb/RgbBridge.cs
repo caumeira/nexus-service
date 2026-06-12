@@ -662,9 +662,12 @@ public sealed class RgbBridge : IDisposable
             // the device doesn't flash black for one tick while the engine re-samples.
             // Only new or reshaped devices get a fresh DeviceFrame.
             //
-            // Motherboards with multiple ARGB headers are split into one DeviceFrame
-            // per zone - each zone gets its own canvas rect, power/brightness prefs,
-            // and LED map so the user can treat each physical strip separately.
+            // One frame per zone of the device's partition. With no custom
+            // partition this is the legacy emission: split motherboards get
+            // one frame per ARGB header, everything else one whole-device
+            // frame. Custom zones are contiguous device-space runs (validator
+            // rule), so offset + count still describes each frame's slice of
+            // the physical buffer.
             var existingFrames = _engine.Devices;
             var framesList = new List<DeviceFrame>(devices.Count);
             var settingsSnapshot = _store.Load();
@@ -676,27 +679,65 @@ public sealed class RgbBridge : IDisposable
             {
                 var d = devices[i];
                 var baseId = d.StableId;
-                var isSplitMotherboard = d.Type == 0 && d.Zones.Count > 1;
+                var isSplitMotherboard = OpenRgbZoneSupport.IsSplitMotherboard(d);
+                var structure = OpenRgbZoneSupport.BuildStructure(d, settingsSnapshot);
+                var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settingsSnapshot);
+                var isDefault = zones.Count > 0 && zones[0].IsDefault;
 
-                if (!isSplitMotherboard)
+                if (isDefault && !isSplitMotherboard)
                 {
                     BuildOrReuseFrame(baseId, d, physicalIndex: d.Index, zoneIndex: -1, zoneOffset: 0, zoneLedCount: d.LedCount,
-                        existingFrames, layouts, cardSlot, logicalOrdinal, framesList, isStrip: false, settingsSnapshot);
+                        existingFrames, layouts, cardSlot, logicalOrdinal, framesList, isStrip: false, settingsSnapshot,
+                        structure, zones[0]);
                     cardSlot++;
                     logicalOrdinal++;
                     continue;
                 }
 
-                int zoneOffset = 0;
-                for (int z = 0; z < d.Zones.Count; z++)
+                if (isDefault)
                 {
-                    var zone = d.Zones[z];
-                    var zoneId = $"{baseId}-{z}";
-                    BuildOrReuseFrame(zoneId, d, physicalIndex: d.Index, zoneIndex: z, zoneOffset: zoneOffset, zoneLedCount: zone.LedCount,
-                        existingFrames, layouts, stripSlot, logicalOrdinal, framesList, isStrip: true, settingsSnapshot);
-                    zoneOffset += zone.LedCount;
-                    stripSlot++;
+                    int zoneOffset = 0;
+                    for (int z = 0; z < d.Zones.Count; z++)
+                    {
+                        var zone = d.Zones[z];
+                        var zoneId = $"{baseId}-{z}";
+                        BuildOrReuseFrame(zoneId, d, physicalIndex: d.Index, zoneIndex: z, zoneOffset: zoneOffset, zoneLedCount: zone.LedCount,
+                            existingFrames, layouts, stripSlot, logicalOrdinal, framesList, isStrip: true, settingsSnapshot,
+                            structure, z < zones.Count ? zones[z] : null);
+                        zoneOffset += zone.LedCount;
+                        stripSlot++;
+                        logicalOrdinal++;
+                    }
+                    continue;
+                }
+
+                foreach (var zone in zones)
+                {
+                    var frameOffset = Nexus.Service.Lighting.Zones.ZoneResolution.FrameOffset(structure, zone);
+                    var wholeSegment = Nexus.Service.Lighting.Zones.ZoneResolution.WholeResizableSegment(structure, zone);
+                    BuildOrReuseFrame(zone.Id, d, physicalIndex: d.Index, zoneIndex: wholeSegment, zoneOffset: frameOffset,
+                        zoneLedCount: zone.FrameLedCount, existingFrames, layouts,
+                        isSplitMotherboard ? stripSlot : cardSlot, logicalOrdinal, framesList,
+                        isStrip: isSplitMotherboard, settingsSnapshot, structure, zone);
+                    if (isSplitMotherboard)
+                        stripSlot++;
+                    else
+                        cardSlot++;
                     logicalOrdinal++;
+                }
+            }
+
+            // Pre-resolve the zone layout of contributor devices that expose
+            // structures (keeb) so each contributed frame's user overrides
+            // resolve through its zone's segment slices.
+            List<(Nexus.Service.Lighting.Zones.DeviceStructure structure, IReadOnlyList<Nexus.Service.Lighting.Zones.ResolvedZone> zones)>? contributorZones = null;
+            foreach (var contributor in _frameContributors)
+            {
+                if (contributor is not Nexus.Service.Lighting.Zones.IDeviceStructureSource source)
+                    continue;
+                foreach (var s in source.GetStructures())
+                {
+                    (contributorZones ??= new()).Add((s, Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(s, settingsSnapshot)));
                 }
             }
 
@@ -713,7 +754,7 @@ public sealed class RgbBridge : IDisposable
                 var extra = contributor.BuildFrames(framesList.Count);
                 for (var i = 0; i < extra.Count; i++)
                 {
-                    _contributorLayouts.Refresh(extra[i], settingsSnapshot);
+                    _contributorLayouts.Refresh(extra[i], settingsSnapshot, FindContributorContext(contributorZones, extra[i].Id));
                     framesList.Add(extra[i]);
                 }
             }
@@ -737,7 +778,9 @@ public sealed class RgbBridge : IDisposable
 
     private void BuildOrReuseFrame(string id, RgbDevice physicalDevice, int physicalIndex, int zoneIndex, int zoneOffset, int zoneLedCount,
         DeviceFrame[] existingFrames, Dictionary<string, DeviceLayout> layouts, int canvasSlot, int logicalOrdinal,
-        List<DeviceFrame> framesList, bool isStrip, NexusSettings settings)
+        List<DeviceFrame> framesList, bool isStrip, NexusSettings settings,
+        Nexus.Service.Lighting.Zones.DeviceStructure? structure = null,
+        Nexus.Service.Lighting.Zones.ResolvedZone? zone = null)
     {
         // Match on id so a motherboard zone keeps its existing buffer across refreshes
         // (no flash-black tick on unrelated hardware changes).
@@ -782,12 +825,59 @@ public sealed class RgbBridge : IDisposable
             zoneIndex: zoneIndex,
             zoneOffset: zoneOffset);
         // Full resolver stack (defaults -> applied mapping -> user deltas).
-        // Replaces the old matrix-only UV computation, which silently skipped
-        // override re-application for linear devices on every rebuild.
-        var resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveOpenRgb(
-            physicalDevice, zoneIndex, id, settings);
+        // Default-partition zones keep the legacy zone-index resolution with
+        // overrides mapped through their slices; custom zones resolve through
+        // the partition-aware path.
+        Nexus.Service.Lighting.Mappings.ResolvedLedLayout resolved;
+        if (structure is not null && zone is not null && !zone.IsDefault)
+        {
+            resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveZoneOpenRgb(
+                physicalDevice, structure, zone, settings);
+        }
+        else
+        {
+            var ctx = structure is not null && zone is not null
+                ? Nexus.Service.Lighting.Zones.ZoneResolution.ContextOf(structure, zone)
+                : null;
+            resolved = Nexus.Service.Lighting.Mappings.LedLayoutResolver.ResolveOpenRgb(
+                physicalDevice, zoneIndex, id, settings, ctx);
+        }
         Nexus.Service.Lighting.Mappings.LedLayoutResolver.ApplyToFrame(frame, resolved);
         framesList.Add(frame);
+    }
+
+    private static Nexus.Service.Lighting.Zones.ZoneOverrideContext? FindContributorContext(
+        List<(Nexus.Service.Lighting.Zones.DeviceStructure structure, IReadOnlyList<Nexus.Service.Lighting.Zones.ResolvedZone> zones)>? contributorZones,
+        string frameId)
+    {
+        if (contributorZones is null)
+            return null;
+        foreach (var (structure, zones) in contributorZones)
+        {
+            foreach (var zone in zones)
+            {
+                if (zone.Id == frameId)
+                    return Nexus.Service.Lighting.Zones.ZoneResolution.ContextOf(structure, zone);
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
+    /// Re-run the device/frame sync after a zone partition change so cards
+    /// and engine frames reflect the new zones without waiting for the next
+    /// poll tick. No-op while the bridge is inactive (no frames exist then).
+    /// </summary>
+    public void RequestTopologyRefresh()
+    {
+        if (!IsActive || !_controller.IsConnected)
+            return;
+        _ = Task.Run(async () =>
+        {
+            try
+            { await RefreshDevicesAsync().ConfigureAwait(false); }
+            catch (Exception ex) { Console.Error.WriteLine($"[rgb-bridge] topology refresh failed: {ex.Message}"); }
+        });
     }
 
     private void SyncPhysicalBuffers(IReadOnlyList<RgbDevice> devices)

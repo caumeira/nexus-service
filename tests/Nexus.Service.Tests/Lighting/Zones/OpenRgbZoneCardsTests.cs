@@ -1,0 +1,201 @@
+using Nexus.Service.Lighting.Rgb;
+using Nexus.Service.Lighting.Zones;
+using Nexus.Service.Persistence;
+
+namespace Nexus.Service.Tests.Lighting.Zones;
+
+/// <summary>
+/// OpenRGB card emission over the partition model. Default partitions must
+/// reproduce the legacy emission exactly: split motherboards as one card per
+/// header (persisted LED counts winning over the wire report), everything
+/// else as one whole-device card. Custom partitions emit ordinal ids.
+/// </summary>
+public class OpenRgbZoneCardsTests
+{
+    private static RgbDevice Motherboard() => new()
+    {
+        Index = 0,
+        Name = "B850I AORUS PRO",
+        Type = 0,
+        LedCount = 3,
+        Serial = "MB01",
+        Zones = new()
+        {
+            new RgbZone { Name = "D_LED1", ZoneType = 1, LedCount = 1 },
+            new RgbZone { Name = "D_LED2", ZoneType = 1, LedCount = 1 },
+            new RgbZone { Name = "LED_C1C2", ZoneType = 0, LedCount = 1 },
+        },
+    };
+
+    private static RgbDevice Mouse() => new()
+    {
+        Index = 1,
+        Name = "Gaming Mouse",
+        Type = 6,
+        LedCount = 4,
+        Serial = "MS01",
+        Zones = new()
+        {
+            new RgbZone { Name = "Logo", ZoneType = 1, LedCount = 1 },
+            new RgbZone { Name = "Wheel", ZoneType = 1, LedCount = 3 },
+        },
+    };
+
+    private static RgbDevice OneLedLight() => new()
+    {
+        Index = 2,
+        Name = "Tiny",
+        Type = 11,
+        LedCount = 1,
+        Serial = "TL01",
+        Zones = new() { new RgbZone { Name = "All", ZoneType = 0, LedCount = 1 } },
+    };
+
+    [Fact]
+    public void Split_motherboard_default_emits_legacy_zone_cards()
+    {
+        var settings = new NexusSettings();
+        settings.Devices.ZoneLedCounts["openrgb-s-MB01-0"] = 60;
+
+        var resp = OpenRgbZoneSupport.BuildCards(new[] { Motherboard() }, settings, isInit: true);
+        Assert.Equal(3, resp.Devices.Count);
+
+        var first = resp.Devices[0];
+        Assert.Equal("openrgb-s-MB01-0", first.Id);
+        Assert.Equal("B850I AORUS PRO - D_LED1", first.Name);
+        Assert.Equal("motherboard", first.Type);
+        // Persisted resize choice wins over the wire-reported count.
+        Assert.Equal(60, first.LedCount);
+        Assert.Equal("openrgb-s-MB01", first.ParentDeviceId);
+        Assert.Equal(0, first.ZoneIndex);
+        Assert.Equal("linear", first.ZoneType);
+        Assert.True(first.ZoneResizable);
+        Assert.Equal("openrgb-s-MB01", first.DeviceId);
+        Assert.True(first.ZoneCustomizable);
+
+        var second = resp.Devices[1];
+        Assert.Equal("openrgb-s-MB01-1", second.Id);
+        Assert.Equal(1, second.LedCount);
+
+        var third = resp.Devices[2];
+        Assert.Equal("openrgb-s-MB01-2", third.Id);
+        Assert.Equal("B850I AORUS PRO - LED_C1C2", third.Name);
+        Assert.Equal("single", third.ZoneType);
+        Assert.True(third.ZoneResizable);
+    }
+
+    [Fact]
+    public void Non_split_device_default_emits_single_whole_device_card()
+    {
+        var resp = OpenRgbZoneSupport.BuildCards(new[] { Mouse() }, new NexusSettings(), isInit: true);
+        Assert.Single(resp.Devices);
+        var card = resp.Devices[0];
+        Assert.Equal("openrgb-s-MS01", card.Id);
+        Assert.Equal("Gaming Mouse", card.Name);
+        Assert.Equal("mouse", card.Type);
+        Assert.Equal(4, card.LedCount);
+        Assert.Null(card.ParentDeviceId);
+        Assert.Null(card.ZoneIndex);
+        Assert.Null(card.ZoneType);
+        Assert.False(card.ZoneResizable);
+        Assert.Equal("openrgb-s-MS01", card.DeviceId);
+        Assert.True(card.ZoneCustomizable);
+    }
+
+    [Fact]
+    public void One_led_device_is_not_zone_customizable()
+    {
+        var resp = OpenRgbZoneSupport.BuildCards(new[] { OneLedLight() }, new NexusSettings(), isInit: true);
+        Assert.Single(resp.Devices);
+        Assert.False(resp.Devices[0].ZoneCustomizable);
+        Assert.Equal(resp.Devices[0].Id, resp.Devices[0].DeviceId);
+    }
+
+    [Fact]
+    public void Custom_partition_on_fixed_device_emits_ordinal_cards()
+    {
+        var settings = new NexusSettings();
+        settings.Devices.ZonePartitions["openrgb-s-MS01"] = new List<ZoneDef>
+        {
+            new()
+            {
+                Name = "Front",
+                Slices =
+                {
+                    new ZoneSlice { Segment = 0, Start = 0, Count = 1 },
+                    new ZoneSlice { Segment = 1, Start = 0, Count = 1 },
+                },
+            },
+            new() { Name = "Back", Slices = { new ZoneSlice { Segment = 1, Start = 1, Count = 2 } } },
+        };
+
+        var resp = OpenRgbZoneSupport.BuildCards(new[] { Mouse() }, settings, isInit: true);
+        Assert.Equal(2, resp.Devices.Count);
+
+        var front = resp.Devices[0];
+        Assert.Equal("openrgb-s-MS01:z0", front.Id);
+        Assert.Equal("Gaming Mouse - Front", front.Name);
+        Assert.Equal(2, front.LedCount);
+        Assert.Equal("", front.DeviceKey);
+        Assert.Equal("openrgb-s-MS01", front.ParentDeviceId);
+        Assert.Equal("openrgb-s-MS01", front.DeviceId);
+        Assert.Equal(0, front.ZoneIndex);
+        Assert.False(front.ZoneResizable);
+        Assert.True(front.ZoneCustomizable);
+
+        var back = resp.Devices[1];
+        Assert.Equal("openrgb-s-MS01:z1", back.Id);
+        Assert.Equal(2, back.LedCount);
+        Assert.Equal(1, back.ZoneIndex);
+    }
+
+    [Fact]
+    public void Custom_partition_on_motherboard_keeps_resizable_zone_cards()
+    {
+        var settings = new NexusSettings();
+        settings.Devices.ZoneLedCounts["openrgb-s-MB01-0"] = 60;
+        // Rule 2 only allows whole-header zones on a split motherboard, so a
+        // custom partition there is effectively a rename.
+        settings.Devices.ZonePartitions["openrgb-s-MB01"] = new List<ZoneDef>
+        {
+            new() { Name = "Fans", Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = 60 } } },
+            new() { Name = "Pump", Slices = { new ZoneSlice { Segment = 1, Start = 0, Count = 1 } } },
+            new() { Name = "Strimmer", Slices = { new ZoneSlice { Segment = 2, Start = 0, Count = 1 } } },
+        };
+
+        var resp = OpenRgbZoneSupport.BuildCards(new[] { Motherboard() }, settings, isInit: true);
+        Assert.Equal(3, resp.Devices.Count);
+        Assert.Equal("openrgb-s-MB01:z0", resp.Devices[0].Id);
+        Assert.Equal("B850I AORUS PRO - Fans", resp.Devices[0].Name);
+        Assert.Equal(60, resp.Devices[0].LedCount);
+        Assert.True(resp.Devices[0].ZoneResizable);
+        Assert.Equal("", resp.Devices[0].DeviceKey);
+    }
+
+    [Fact]
+    public void Structure_marks_only_split_motherboard_headers_resizable()
+    {
+        var settings = new NexusSettings();
+        var mobo = OpenRgbZoneSupport.BuildStructure(Motherboard(), settings);
+        Assert.Equal(3, mobo.Segments.Count);
+        Assert.All(mobo.Segments, s => Assert.True(s.Resizable));
+        Assert.Equal(3, mobo.DefaultZones.Count);
+
+        var mouse = OpenRgbZoneSupport.BuildStructure(Mouse(), settings);
+        Assert.Equal(2, mouse.Segments.Count);
+        Assert.All(mouse.Segments, s => Assert.False(s.Resizable));
+        Assert.Single(mouse.DefaultZones);
+        Assert.Equal("openrgb-s-MS01", mouse.DefaultZones[0].Id);
+        Assert.Equal(2, mouse.DefaultZones[0].Slices.Count);
+    }
+
+    [Fact]
+    public void Zoneless_device_gets_one_fixed_segment_covering_the_device()
+    {
+        var bare = new RgbDevice { Index = 3, Name = "Bare", Type = 4, LedCount = 12, Serial = "BR01" };
+        var structure = OpenRgbZoneSupport.BuildStructure(bare, new NexusSettings());
+        Assert.Single(structure.Segments);
+        Assert.Equal(12, structure.Segments[0].LedCount);
+        Assert.False(structure.Segments[0].Resizable);
+    }
+}
