@@ -9,8 +9,11 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    MARKETING_VERSION: "1.0.0"
-    CURRENT_PROJECT_VERSION: "1"
+    MARKETING_VERSION: "1.1.0"
+    # Bumped from 1: macOS keeps a running system extension until a higher
+    # version is activated, so the build version must rise for an upgrade to
+    # replace the installed extension (the black-idle change shipped here).
+    CURRENT_PROJECT_VERSION: "2"
     DEVELOPMENT_TEAM: "8ZFCKY2SQ9"
     CODE_SIGN_STYLE: Automatic
     GENERATE_INFOPLIST_FILE: NO
