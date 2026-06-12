@@ -7,10 +7,11 @@ namespace Nexus.Service.Tests.Lighting.Zones;
 
 /// <summary>
 /// Stock per-LED positions for the keeb: key UVs derived from the firmware
-/// wire values (row-major matrix decode), underglow as a clockwise unit
-/// square perimeter walk, and per-zone seeds as the concatenation of each
-/// zone's slice spans over the segment defaults - for the default partition
-/// and any custom partition shape alike.
+/// wire values (row-major matrix decode), underglow as a clockwise
+/// closed-loop unit square perimeter walk (the strip wraps the board edge,
+/// so the seam LEDs stay distinct), and per-zone seeds as the concatenation
+/// of each zone's slice spans over the segment defaults - for the default
+/// partition and any custom partition shape alike.
 /// </summary>
 public class KeebStockUvTests
 {
@@ -106,10 +107,22 @@ public class KeebStockUvTests
                 $"LED {i} ({u[i]}, {v[i]}) is off the perimeter");
         }
 
-        // Walk starts at the top-left corner and reaches the opposite corner.
+        // Walk starts at the top-left corner; the loop is closed, so the
+        // last LED stops on the left edge one step short of the origin
+        // instead of duplicating the first LED's position.
         Assert.Equal(0f, u[0]);
         Assert.Equal(0f, v[0]);
-        Assert.Contains(Enumerable.Range(0, u.Length), i => u[i] == 1f && v[i] == 1f);
+        var last = u.Length - 1;
+        Assert.True(u[last] != u[0] || v[last] != v[0],
+            "closed-loop seam LEDs share a position");
+        Assert.Equal(0f, u[last]);
+        Assert.True(v[last] > 0f);
+
+        // The walk approaches the opposite corner to within one step (no LED
+        // lands exactly on it when the count is not divisible by four).
+        var step = 4f / u.Length;
+        Assert.Contains(Enumerable.Range(0, u.Length),
+            i => Math.Abs(u[i] - 1f) + Math.Abs(v[i] - 1f) <= step);
 
         // Clockwise: the second LED moves along the top edge.
         Assert.True(u[1] > 0f && v[1] == 0f);

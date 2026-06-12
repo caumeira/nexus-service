@@ -81,15 +81,21 @@ public static class LedUvComputer
     /// <summary>
     /// Evenly distribute positions along the unit-square perimeter, walking
     /// clockwise from top-left: top edge, right edge, bottom edge, left edge.
-    /// Fills the full span; spans of one land on the origin.
+    /// Open mode (default) walks endpoint-inclusive, so the last position of
+    /// a span closes back onto the start corner; closed-loop mode steps by
+    /// perimeter over count, keeping every position distinct - use it for
+    /// physical rings whose last LED sits next to the first. Spans of one
+    /// land on the origin in both modes.
     /// </summary>
-    public static void FillPerimeter(Span<float> u, Span<float> v)
+    public static void FillPerimeter(Span<float> u, Span<float> v, bool closedLoop = false)
     {
         var n = Math.Min(u.Length, v.Length);
         for (int i = 0; i < n; i++)
         {
             // Perimeter length is 4 in the unit square.
-            var t = n > 1 ? i / (float)(n - 1) * 4f : 0f;
+            var t = closedLoop
+                ? i * 4f / n
+                : (n > 1 ? i / (float)(n - 1) * 4f : 0f);
             if (t <= 1f)
             {
                 // Top edge: (0,0) -> (1,0)

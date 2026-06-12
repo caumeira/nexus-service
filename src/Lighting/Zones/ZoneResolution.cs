@@ -165,8 +165,13 @@ public static class ZoneResolution
     /// (it can re-enable a mapping-disabled LED). Null structure/zone is the
     /// non-partitionable card path: the card is its own single-segment
     /// device (identity context). No disable data = <paramref name="ledCount"/>.
+    /// <paramref name="zoneHint"/> MUST be the artifact zone hint the render
+    /// path resolves this card with (ResolveOpenRgb / ResolveZoneOpenRgb for
+    /// bridge cards; ResolveSeeded, always zero, for contributor cards) so
+    /// the card's count agrees with the actually-lit LEDs - right or wrong -
+    /// when a multi-zone artifact makes the selection ambiguous.
     /// </summary>
-    public static int CountEnabled(DeviceStructure? structure, ResolvedZone? zone, string cardId, int ledCount, NexusSettings settings)
+    public static int CountEnabled(DeviceStructure? structure, ResolvedZone? zone, string cardId, int ledCount, int zoneHint, NexusSettings settings)
     {
         if (ledCount <= 0)
         {
@@ -175,13 +180,11 @@ public static class ZoneResolution
 
         bool[]? disabled = null;
 
-        // Mapping layer: artifact disabled indices are already zone-local.
-        // The zone hint matches the resolver's selection for OpenRGB cards;
-        // contributor cards resolve with hint 0, but v1 per-card artifacts
-        // are single-zone so the lenient SelectZone lands on the same zone.
+        // Mapping layer: artifact disabled indices are already zone-local;
+        // the caller-supplied hint keeps zone selection identical to the
+        // render path's.
         if (settings.Devices.AppliedMappings.TryGetValue(cardId, out var applied))
         {
-            var zoneHint = zone is null ? 0 : zone.IsDefault ? zone.LegacyZoneIndex : zone.Ordinal;
             var mappingZone = LedLayoutResolver.SelectZone(applied.Artifact, zoneHint);
             if (mappingZone is not null)
             {

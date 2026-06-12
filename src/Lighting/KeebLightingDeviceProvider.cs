@@ -106,8 +106,10 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
                 Hue = pref?.Hue ?? 0f,
                 Saturation = pref?.Saturation ?? 1f,
                 LedCount = zone.LedCount,
+                // Contributor cards render through ResolveSeeded, which
+                // always selects artifact zone 0; the count must match it.
                 EnabledLedCount = Nexus.Service.Lighting.Zones.ZoneResolution.CountEnabled(
-                    structure, zone, zone.Id, zone.LedCount, settings),
+                    structure, zone, zone.Id, zone.LedCount, zoneHint: 0, settings),
                 CanvasX = layout?.X ?? defX,
                 CanvasY = layout?.Y ?? defY,
                 CanvasW = layout?.W ?? defW,
@@ -172,8 +174,10 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
             Hue = hue,
             Saturation = saturation,
             LedCount = effectiveLedCount,
+            // Contributor cards render through ResolveSeeded, which always
+            // selects artifact zone 0; the count must match it.
             EnabledLedCount = Nexus.Service.Lighting.Zones.ZoneResolution.CountEnabled(
-                structure, zone, id, effectiveLedCount, settings),
+                structure, zone, id, effectiveLedCount, zoneHint: 0, settings),
             CanvasX = layout?.X ?? defX,
             CanvasY = layout?.Y ?? defY,
             CanvasW = layout?.W ?? defW,

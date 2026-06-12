@@ -169,7 +169,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
             {
                 dev.DeviceId = dev.Id;
                 dev.EnabledLedCount = Nexus.Service.Lighting.Zones.ZoneResolution.CountEnabled(
-                    structure: null, zone: null, dev.Id, dev.LedCount, settings);
+                    structure: null, zone: null, dev.Id, dev.LedCount, zoneHint: 0, settings);
             }
         }
 

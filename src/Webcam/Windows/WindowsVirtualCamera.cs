@@ -62,7 +62,7 @@ public sealed class WindowsVirtualCamera : IVirtualCamera
             // Frame Server so it re-reads the fresh Allow, then surface a
             // retriable signal; the next start creates cleanly (the web widget
             // retries once so it's seamless). Only ever happens once per machine,
-            // on the user's opt-in — never at install. The platform guard
+            // on the user's opt-in - never at install. The platform guard
             // keeps the analyzer honest; cross-platform unit tests drive this
             // class through fakes and never reach the registry.
             if (OperatingSystem.IsWindows() && NexusVCamControl.EnsureDesktopCameraConsent())

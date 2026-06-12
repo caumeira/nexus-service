@@ -26,7 +26,9 @@ public static class KeebZoneSupport
     {
         var u = new float[KeebLayout.SurroundLedCount];
         var v = new float[KeebLayout.SurroundLedCount];
-        LedUvComputer.FillPerimeter(u, v);
+        // The underglow strip physically closes on itself; closed-loop
+        // spacing keeps the seam LEDs from sharing a seed position.
+        LedUvComputer.FillPerimeter(u, v, closedLoop: true);
         return (u, v);
     });
 
