@@ -505,6 +505,7 @@
     <Compile Remove="src/Platform/Mac/MacAppBootstrap.cs" />
     <Compile Remove="src/Platform/Mac/MacAppWindow.cs" />
     <Compile Remove="src/Platform/Mac/MachStats.cs" />
+    <Compile Remove="src/Platform/Mac/MacNotify.cs" />
     <Compile Remove="src/Platform/Mac/MacOverlayHostLauncher.cs" />
     <Compile Remove="src/Platform/Mac/MacPerformanceProvider.cs" />
     <Compile Remove="src/Platform/Mac/MacProcInfo.cs" />
@@ -549,6 +550,7 @@
     <Compile Remove="src/Platform/Linux/LinuxPerformanceProvider.cs" />
     <Compile Remove="src/Platform/Linux/LinuxSession.cs" />
     <Compile Remove="src/Platform/Linux/LinuxSysfs.cs" />
+    <Compile Remove="src/Platform/Linux/LinuxSystemAccentProvider.cs" />
     <Compile Remove="src/Platform/Linux/LinuxTrayHost.cs" />
     <Compile Remove="src/Platform/Linux/LinuxTrayService.cs" />
     <Compile Remove="src/Sensors/LinuxSensorProvider.cs" />

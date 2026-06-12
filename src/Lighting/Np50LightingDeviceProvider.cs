@@ -105,6 +105,8 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
             firmwareLedCount: LogoLedCount,
             zoneIndex: slot++,
             parentDeviceId: hubId,
+            deviceKey: Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForFirstParty(
+                Peripherals.Hyte.Np50.Np50Protocol.VendorId, Peripherals.Hyte.Np50.Np50Protocol.ProductId, "logo"),
             disabled, prefs, layouts, zoneLedCounts));
 
         foreach (var port in _hub.State.Ports)
@@ -119,6 +121,8 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
                     firmwareLedCount: dev.LedCount,
                     zoneIndex: slot++,
                     parentDeviceId: hubId,
+                    deviceKey: Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForFirstParty(
+                        Peripherals.Hyte.Np50.Np50Protocol.VendorId, Peripherals.Hyte.Np50.Np50Protocol.ProductId, dev.Model),
                     disabled, prefs, layouts, zoneLedCounts));
             }
         }
@@ -128,6 +132,7 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
     private static LightingDevice BuildZone(
         string id, string name, string iconType,
         int firmwareLedCount, int zoneIndex, string parentDeviceId,
+        string deviceKey,
         IReadOnlyList<string> disabled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         IReadOnlyDictionary<string, Persistence.DeviceLayout> layouts,
@@ -164,6 +169,7 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
         return new LightingDevice
         {
             Id = id,
+            DeviceKey = deviceKey,
             Name = name,
             Type = "ledstrip",
             IconType = iconType,

@@ -171,6 +171,10 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         FlushPending();
     }
 
+    /// <summary>Per-OS Nexus data directory (the settings.json parent). Shared by auxiliary stores like the mapping registry disk cache.</summary>
+    public static string ResolveDataDirectory()
+        => Path.GetDirectoryName(ResolveSettingsPath())!;
+
     private static string ResolveSettingsPath()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))

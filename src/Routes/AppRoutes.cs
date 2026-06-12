@@ -361,6 +361,9 @@ public static class AppRoutes
             DefaultSize = entry.Manifest.DefaultSize,
             Source = source,
             Trusted = entry.Source != AppInstallPaths.Source.Dev,
+            // Preinstall is an OEM bake-in honored only for bundled apps; a user/dev
+            // copy of the same id is a deliberate user choice, not a pre-install.
+            Preinstalled = entry.Manifest.Preinstalled && entry.Source == AppInstallPaths.Source.Bundled,
         };
     }
 }

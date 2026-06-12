@@ -10,6 +10,14 @@ namespace Nexus.Service.Platform.Mac;
 // returns only when the user picks Quit from the status menu.
 internal static class MacAppBootstrap
 {
+    private static string AbbreviateHome(string path)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return !string.IsNullOrEmpty(home) && path.StartsWith(home, StringComparison.Ordinal)
+            ? "~" + path[home.Length..]
+            : path;
+    }
+
     public static int Run(WebApplication app, int servicePort)
     {
         // Auto-open the dashboard window when the .app finishes launching, so
@@ -29,6 +37,23 @@ internal static class MacAppBootstrap
         var store = app.Services.GetRequiredService<IConfigStore>();
         var showIcon = store.Load().Monitoring.ShowMacStatusBarIcon;
         var iconPath = Path.Combine(AppContext.BaseDirectory, "status-icon.png");
+
+        // Transfer landed with no dashboard subscribed to the WS toast — the
+        // mac analog of the Windows tray balloon. Request notification
+        // permission once at startup, not on the first transfer.
+        MacNotify.RequestAuthorization();
+        var inbox = app.Services.GetRequiredService<Nexus.Service.Transfer.TransferInbox>();
+        inbox.TransferNeedsAttention += notice =>
+        {
+            try
+            {
+                var body = notice.FolderPath is { } folder
+                    ? $"{notice.Text} Saved to {AbbreviateHome(folder)}."
+                    : notice.Text;
+                MacNotify.Send(notice.Title, body);
+            }
+            catch { /* best-effort */ }
+        };
 
         MacStatusBar.Initialize(
             iconPath,

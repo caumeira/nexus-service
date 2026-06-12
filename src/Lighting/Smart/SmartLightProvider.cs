@@ -35,6 +35,9 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     // id -> live snapshot, refreshed each BuildFrames so the 33 Hz writer's
     // SubmitFrame lookups don't re-parse settings per device per tick.
     private readonly ConcurrentDictionary<string, SmartLight> _cache = new();
+    // id -> frame plan captured in BuildFrames so SubmitEffectFrame knows
+    // whether the device takes per-zone colors without re-asking the driver.
+    private readonly ConcurrentDictionary<string, LightFramePlan> _plans = new();
     // id -> reused DeviceFrame so the per-LED buffer survives RgbBridge rebuilds.
     private readonly Dictionary<string, DeviceFrame> _frames = new();
 
@@ -223,7 +226,9 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
             live.Add(cfg.Id);
 
             var driver = DriverForId(cfg.Id);
-            var ledCount = driver?.PlanFrames(_cache[cfg.Id]).LedCount ?? 16;
+            var plan = driver?.PlanFrames(_cache[cfg.Id]) ?? new LightFramePlan(16, AverageToSingle: true);
+            _plans[cfg.Id] = plan;
+            var ledCount = plan.LedCount;
 
             var (defX, defY, defW, defH) = DefaultLayout(i);
             layouts.TryGetValue(cfg.Id, out var layout);
@@ -234,13 +239,17 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
             {
                 frame = new DeviceFrame(idx, cfg.Id, ledCount,
                     layout?.X ?? defX, layout?.Y ?? defY, layout?.W ?? defW, layout?.H ?? defH, rot);
-                BuildSampleGrid(frame);
+                ApplySampleMap(frame, plan);
                 _frames[cfg.Id] = frame;
             }
             else
             {
                 frame.X = layout?.X ?? defX; frame.Y = layout?.Y ?? defY;
                 frame.W = layout?.W ?? defW; frame.H = layout?.H ?? defH; frame.Rotation = rot;
+                // Re-paired devices can change their zone geometry without
+                // changing the count — re-apply the sample map both ways
+                // (fresh UVs, or back to the grid when UVs disappeared).
+                ApplySampleMap(frame, plan);
             }
             result.Add(frame);
             idx++;
@@ -254,6 +263,21 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
             foreach (var k in stale) _frames.Remove(k);
         }
         return result;
+    }
+
+    /// <summary>Map engine sample points for the device: real per-zone canvas
+    /// positions when the driver provides them (Nanoleaf panel layout),
+    /// otherwise an even grid across the rect (region averaging).</summary>
+    private static void ApplySampleMap(DeviceFrame frame, LightFramePlan plan)
+    {
+        if (plan.LedU is { } u && plan.LedV is { } v
+            && u.Length == frame.LedCount && v.Length == frame.LedCount)
+        {
+            frame.LedU = u;
+            frame.LedV = v;
+            return;
+        }
+        BuildSampleGrid(frame);
     }
 
     /// <summary>Spread N sample points across the device's canvas rect so a
@@ -277,6 +301,39 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     }
 
     // ── Streaming + static control (called by the writer + control methods) ───
+
+    /// <summary>Submit one engine effect frame for a device: averaged to a
+    /// single color, plus the per-zone RGB triplets when the device's plan
+    /// requests them. Called by the frame writer each tick.</summary>
+    public void SubmitEffectFrame(string id, ReadOnlySpan<byte> ledBytes, int ledCount, float brightness01)
+    {
+        var (r, g, b) = AverageRgb(ledBytes, ledCount);
+        byte[]? zones = null;
+        if (_plans.TryGetValue(id, out var plan) && !plan.AverageToSingle)
+        {
+            var len = Math.Min(ledCount * 3, ledBytes.Length);
+            if (len >= 3)
+            {
+                zones = new byte[len];
+                ledBytes.Slice(0, len).CopyTo(zones);
+            }
+        }
+        AccumulateOrSubmit(id, new LightFrame(On: true, r, g, b, brightness01, zones));
+    }
+
+    internal static (byte r, byte g, byte b) AverageRgb(ReadOnlySpan<byte> leds, int ledCount)
+    {
+        if (ledCount <= 0 || leds.Length < 3) return (0, 0, 0);
+        long sr = 0, sg = 0, sb = 0;
+        var n = Math.Min(ledCount, leds.Length / 3);
+        for (var i = 0; i < n; i++)
+        {
+            var off = i * 3;
+            sr += leds[off]; sg += leds[off + 1]; sb += leds[off + 2];
+        }
+        if (n == 0) return (0, 0, 0);
+        return ((byte)(sr / n), (byte)(sg / n), (byte)(sb / n));
+    }
 
     /// <summary>Submit the latest desired frame for a device (effect streaming).
     /// No-op if the device or its driver isn't resolvable.</summary>
@@ -501,6 +558,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         _throttle.Remove(id);
         _online.TryRemove(id, out _);
         _cache.TryRemove(id, out _);
+        _plans.TryRemove(id, out _);
         FireChanged();
     }
 

@@ -585,8 +585,14 @@ public static class TrayIcon
     /// time-sensitive and must not lose its click routing to a notice.
     /// </summary>
     public static void ShowNoticeBalloon(string title, string text, string? folderPath)
-        => ModifyBalloon(title, text, BalloonKind.Notice,
-            string.IsNullOrEmpty(folderPath) ? null : folderPath, notWhileKind: BalloonKind.Pair);
+    {
+        var folder = string.IsNullOrEmpty(folderPath) ? null : folderPath;
+        // The click hint is appended here, not by the notice producer — other
+        // platforms' notifications (macOS osascript) have no click action.
+        if (folder is not null)
+            text = $"{text} Click to open the folder.";
+        ModifyBalloon(title, text, BalloonKind.Notice, folder, notWhileKind: BalloonKind.Pair);
+    }
 
     private static void ModifyBalloon(
         string title,

@@ -68,6 +68,12 @@ public static class SystemRoutes
         app.MapGet("/system/specs", (SystemSpecsCollector collector, HttpContext ctx) =>
             collector.GetAsync(ctx.RequestAborted)).AllowPanel();
 
+        // OS accent for the web's "system" accent source. Windows/macOS push it
+        // from their native shell; Linux has no shell (the dashboard is a
+        // browser) so the service reads the XDG portal and serves it here.
+        app.MapGet("/system/accent", (ISystemAccentProvider accent) =>
+            new SystemAccentResponse { Accent = accent.GetAccentHex() ?? "" }).AllowPanel();
+
         // Volume (default render endpoint)
         app.MapGet("/system/volume", (IVolumeProvider v) => v.GetState()).AllowPanel();
         app.MapPost("/system/volume", (SetVolumeBody body, IVolumeProvider v, MultiplexHub hub) =>

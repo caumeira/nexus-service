@@ -102,29 +102,14 @@ public sealed class SmartLightFrameWriter : IHostedService, IDisposable
             if (frame.LedCount <= 0) continue;
             if (disabled.Contains(frame.Id)) continue;
 
-            var (r, g, b) = AverageRgb(frame.LedBytes, frame.LedCount);
             var devBrightness = prefs.TryGetValue(frame.Id, out var pref) ? pref.Brightness : 100;
             var b01 = global * Math.Clamp(devBrightness, 0, 100) / 100f;
-            _provider.AccumulateOrSubmit(frame.Id, new LightFrame(On: true, r, g, b, b01));
+            _provider.SubmitEffectFrame(frame.Id, frame.LedBytes, frame.LedCount, b01);
             streamed = true;
         }
 
         // Send this tick's batch to any session streamers (Hue Entertainment).
         _provider.FlushStreaming();
         if (streamed) _wasStreaming = true;
-    }
-
-    private static (byte r, byte g, byte b) AverageRgb(ReadOnlySpan<byte> leds, int ledCount)
-    {
-        if (ledCount <= 0 || leds.Length < 3) return (0, 0, 0);
-        long sr = 0, sg = 0, sb = 0;
-        var n = Math.Min(ledCount, leds.Length / 3);
-        for (var i = 0; i < n; i++)
-        {
-            var off = i * 3;
-            sr += leds[off]; sg += leds[off + 1]; sb += leds[off + 2];
-        }
-        if (n == 0) return (0, 0, 0);
-        return ((byte)(sr / n), (byte)(sg / n), (byte)(sb / n));
     }
 }
