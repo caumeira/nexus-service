@@ -1,8 +1,10 @@
 using System;
+using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Panel;
 using Nexus.Service.Platform.Linux.DBus;
+using Nexus.Service.Transfer;
 using Microsoft.Extensions.Hosting;
 
 namespace Nexus.Service.Platform.Linux;
@@ -22,14 +24,16 @@ public sealed class LinuxTrayService : IHostedService
     private readonly IHostApplicationLifetime _lifetime;
     private readonly DBusConnection _dbus;
     private readonly PanelPhonePairingService _pairing;
+    private readonly TransferInbox _transfer;
     private LinuxTrayHost? _host;
     private string _url = "http://localhost:9400";
 
-    public LinuxTrayService(IHostApplicationLifetime lifetime, DBusConnection dbus, PanelPhonePairingService pairing)
+    public LinuxTrayService(IHostApplicationLifetime lifetime, DBusConnection dbus, PanelPhonePairingService pairing, TransferInbox transfer)
     {
         _lifetime = lifetime;
         _dbus = dbus;
         _pairing = pairing;
+        _transfer = transfer;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -37,6 +41,7 @@ public sealed class LinuxTrayService : IHostedService
         _url = ResolveUrl();
         _dbus.Reconnected += OnReconnected;
         _pairing.PairRequestNeedsAttention += OnPairAttention;
+        _transfer.TransferNeedsAttention += OnTransferAttention;
         try
         {
             await _dbus.StartAsync();
@@ -55,6 +60,7 @@ public sealed class LinuxTrayService : IHostedService
     {
         _dbus.Reconnected -= OnReconnected;
         _pairing.PairRequestNeedsAttention -= OnPairAttention;
+        _transfer.TransferNeedsAttention -= OnTransferAttention;
         _host?.Dispose();
         _host = null;
         return Task.CompletedTask;
@@ -81,6 +87,25 @@ public sealed class LinuxTrayService : IHostedService
     private void OnPairAttention(PanelPhonePairingService.PairAttentionNotice notice)
         => LinuxNotify.Send("Nexus pairing request",
             $"{(string.IsNullOrWhiteSpace(notice.DeviceLabel) ? "A device" : notice.DeviceLabel)} wants to pair.");
+
+    // Transfer landed with no dashboard subscribed to the WS toast — the Linux
+    // analog of the Windows tray balloon / macOS banner. notify-send has no
+    // click action, so name the inbox folder in the body.
+    private void OnTransferAttention(TransferAttentionNotice notice)
+    {
+        var body = notice.FolderPath is { Length: > 0 } folder
+            ? $"{notice.Text} Saved to {AbbreviateHome(folder)}."
+            : notice.Text;
+        LinuxNotify.Send(notice.Title, body);
+    }
+
+    private static string AbbreviateHome(string path)
+    {
+        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        return !string.IsNullOrEmpty(home) && path.StartsWith(home + "/", StringComparison.Ordinal)
+            ? "~" + path[home.Length..]
+            : path;
+    }
 
     private static string ResolveUrl()
     {
