@@ -217,8 +217,9 @@ public static class NexusServiceCollectionExtensions
         // Linux writes MJPEG passthrough into v4l2loopback (optional env
         // override pins an explicit device node instead of the sysfs name
         // scan); Windows decodes H.264/MJPEG via Media Foundation into the
-        // bundled NexusVCam MF virtual camera; macOS keeps the null sink
-        // until its camera-extension backend lands.
+        // bundled NexusVCam MF virtual camera; macOS pipes encoded frames to
+        // the bundled camera helper, which decodes and feeds the CMIO camera
+        // extension's sink stream.
         if (OperatingSystem.IsLinux())
         {
             services.AddSingleton<Nexus.Service.Webcam.IVirtualCamera>(_ =>
@@ -229,6 +230,11 @@ public static class NexusServiceCollectionExtensions
         {
             services.AddSingleton<Nexus.Service.Webcam.IVirtualCamera>(_ =>
                 new Nexus.Service.Webcam.Windows.WindowsVirtualCamera());
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            services.AddSingleton<Nexus.Service.Webcam.IVirtualCamera>(_ =>
+                new Nexus.Service.Webcam.Mac.CmioCamera());
         }
         else
         {

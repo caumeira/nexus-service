@@ -48,5 +48,7 @@
             </array>
         </dict>
     </array>
+	<key>NSCameraUsageDescription</key>
+	<string>Nexus relays your phone's camera to Mac apps as the Nexus Camera.</string>
 </dict>
 </plist>

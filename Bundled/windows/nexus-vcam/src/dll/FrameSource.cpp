@@ -171,27 +171,13 @@ void FrameSource::RefreshCurrentFrame() noexcept
 
 void FrameSource::GenerateTestPattern() noexcept
 {
-    // Grayscale diagonal gradient sweeping with a bright moving bar.
+    // Idle frame: solid video-range black. A live consumer (Zoom, Teams) must
+    // never see a synthetic pattern when no phone frames are arriving.
     uint8_t* y = _current.get();
     uint8_t* uv = _current.get() + static_cast<size_t>(_strideY) * _height;
 
-    const uint32_t phase = static_cast<uint32_t>(_patternFrame * 4);
-    const uint32_t barX = (phase * 2) % _width;
-    const uint32_t barWidth = _width / 32;
-
     for (uint32_t row = 0; row < _height; row++)
-    {
-        uint8_t* line = y + static_cast<size_t>(row) * _strideY;
-        for (uint32_t col = 0; col < _width; col++)
-        {
-            uint8_t value = static_cast<uint8_t>((col + row + phase) >> 3);
-            if (col >= barX && col < barX + barWidth)
-                value = 235;
-            line[col] = value;
-        }
-    }
-
-    // Neutral chroma keeps the fallback colorless.
+        memset(y + static_cast<size_t>(row) * _strideY, 16, _width);
     memset(uv, 128, static_cast<size_t>(_strideY) * (_height / 2));
     _patternFrame++;
 }
