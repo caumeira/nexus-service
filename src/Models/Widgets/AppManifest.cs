@@ -75,6 +75,67 @@ public sealed class AppManifest
 
     [JsonPropertyName("settings")]
     public List<AppManifestSettingEntry> Settings { get; set; } = new();
+
+    /// <summary>
+    /// True when this app should be treated as installed + active at first boot
+    /// (OEM pre-install) rather than waiting for a user "install" of the bundled
+    /// copy. Honored only for bundled apps; ignored on user/dev copies.
+    /// </summary>
+    [JsonPropertyName("preinstalled")]
+    public bool Preinstalled { get; set; }
+
+    /// <summary>
+    /// Optional first-party-only device-driver block: declares a native sidecar
+    /// executable the host fetches from the app store and runs (e.g. the iBUYPOWER
+    /// AW5 cooler driver). Honored ONLY for appIds on
+    /// <see cref="Nexus.Service.Widgets.FirstPartyDriverApps"/>; the registry drops
+    /// this block from any other app. See <c>plans/third-party-app-sdk.md</c> §"Raw .exe".
+    /// </summary>
+    [JsonPropertyName("driver")]
+    public AppManifestDriver? Driver { get; set; }
+}
+
+/// <summary>
+/// First-party driver descriptor. The host resolves a USB match to a variant,
+/// then fetches+runs the variant's binary via the external-tool manager.
+/// </summary>
+public sealed class AppManifestDriver
+{
+    /// <summary>Stable tool id, e.g. <c>"ibp-aw5"</c>. Names the cache folder + the store path.</summary>
+    [JsonPropertyName("toolId")]
+    public string ToolId { get; set; } = "";
+
+    /// <summary>USB match that triggers the driver (vendor + product ids, hex strings).</summary>
+    [JsonPropertyName("match")]
+    public AppManifestDriverMatch? Match { get; set; }
+
+    /// <summary>Map of matched PID (hex string) → variant/OEM name (the store sub-path).</summary>
+    [JsonPropertyName("variants")]
+    public Dictionary<string, string> Variants { get; set; } = new();
+
+    /// <summary>Base URL of the per-variant tool manifest: <c>&lt;base&gt;/&lt;variant&gt;/latest.json</c>.</summary>
+    [JsonPropertyName("manifestUrlBase")]
+    public string ManifestUrlBase { get; set; } = "";
+
+    /// <summary>Glob for the dev-only offline fallback (e.g. <c>iBUYPOWER_AW5*.exe</c>).</summary>
+    [JsonPropertyName("filePattern")]
+    public string FilePattern { get; set; } = "";
+
+    [JsonPropertyName("launch")]
+    public AppManifestDriverLaunch? Launch { get; set; }
+}
+
+public sealed class AppManifestDriverMatch
+{
+    [JsonPropertyName("vid")] public string Vid { get; set; } = "";
+    [JsonPropertyName("pids")] public List<string> Pids { get; set; } = new();
+}
+
+public sealed class AppManifestDriverLaunch
+{
+    /// <summary><c>"system"</c> (LocalSystem/Session 0, pre-login — default) or <c>"user"</c>.</summary>
+    [JsonPropertyName("session")] public string Session { get; set; } = "system";
+    [JsonPropertyName("hidden")] public bool Hidden { get; set; } = true;
 }
 
 public sealed class AppManifestAuthor

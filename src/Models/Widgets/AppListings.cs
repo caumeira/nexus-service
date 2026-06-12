@@ -24,6 +24,7 @@ public sealed class AppInstalledListing
     public string? DefaultSize { get; set; }
     public string Source { get; set; } = ""; // "dev" | "user" | "bundled"
     public bool Trusted { get; set; }        // true when source != "dev"
+    public bool Preinstalled { get; set; }   // OEM bake-in: active at first boot, no user install
 }
 
 public sealed class AppInstalledListingResponse
@@ -44,6 +45,7 @@ public sealed class AppCatalogEntry
     public AppManifestCapabilities Capabilities { get; set; } = new();
     public string Source { get; set; } = ""; // "bundled" | "dev" | "user"
     public bool Installed { get; set; }      // true if a copy exists under user widgets
+    public bool Preinstalled { get; set; }   // OEM bake-in: active at first boot, no user install
 }
 
 public sealed class AppCatalogResponse

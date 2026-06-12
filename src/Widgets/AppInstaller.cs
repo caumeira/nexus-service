@@ -54,6 +54,7 @@ public sealed class AppInstaller
                 Capabilities = entry.Manifest.Capabilities,
                 Source = source,
                 Installed = entry.Source == AppInstallPaths.Source.User,
+                Preinstalled = entry.Manifest.Preinstalled && entry.Source == AppInstallPaths.Source.Bundled,
             };
             if (!seen.ContainsKey(entry.Id))
             {

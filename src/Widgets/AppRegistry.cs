@@ -102,6 +102,17 @@ public sealed class AppRegistry
                     manifest.DefaultSize = manifest.Sizes[0];
                 }
 
+                // Drop a `driver` block from any app not on the first-party
+                // allowlist. Running a fetched native exe is a host-only,
+                // first-party capability; a smuggled block must not grant it.
+                // The widget facet still loads — only the driver is ignored.
+                if (manifest.Driver is not null && !FirstPartyDriverApps.Contains(manifest.Id))
+                {
+                    Nexus.Service.Platform.ServiceLog.Warn(
+                        $"[apps] {manifest.Id} declared a driver block but is not an allowlisted first-party driver app; ignoring it.");
+                    manifest.Driver = null;
+                }
+
                 var entry = new AppEntry
                 {
                     Id = manifest.Id,
