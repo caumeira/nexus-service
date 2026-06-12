@@ -801,6 +801,16 @@ public static class NexusServiceCollectionExtensions
             return registry;
         });
         services.AddSingleton<Nexus.Service.Widgets.AppDispatchRateLimiter>();
+
+        // Generic external-tool manager (NEX-13): fetches + runs a device's sidecar
+        // executable. Hosted so its StopAsync kills every tracked tool process on
+        // service shutdown.
+        services.AddSingleton<Nexus.Service.Common.ExternalTools.ExternalToolManager>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Common.ExternalTools.ExternalToolManager>());
+        // Auto-launches each installed bundled driver app's binary when its device
+        // is present (runs at boot, pre-login).
+        services.AddHostedService<Nexus.Service.Common.ExternalTools.DriverAutoLaunchWorker>();
         return services;
     }
 
