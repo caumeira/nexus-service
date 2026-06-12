@@ -168,6 +168,17 @@ public sealed class PairQrRefreshFrame
 }
 
 /// <summary>
+/// Multiplex frame: the OS accent colour changed. Only the Linux service emits
+/// it — Windows/macOS push the accent straight from their native shell. The
+/// dashboard applies <see cref="Hex"/> live when the accent source is "system",
+/// matching how light/dark already tracks the OS in real time.
+/// </summary>
+public sealed class SystemAccentFrame
+{
+    public string Hex { get; set; } = "";
+}
+
+/// <summary>
 /// Multiplex frame: cooling-device warning state changed (e.g. NP50 AmpScale
 /// current overload, LED count exceeded). Subscribers refetch
 /// <c>GET /cooling/warnings</c>; <c>DeviceId</c> lets a UI scope the refetch

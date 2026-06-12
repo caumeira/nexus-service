@@ -171,6 +171,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.CoolingChangedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.VolumeChangedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PairQrRefreshFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.SystemAccentFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.CoolingWarningsChangedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.DevicesChangedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelDeviceChangedFrame))]

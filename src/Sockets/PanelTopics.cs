@@ -41,6 +41,11 @@ public static class PanelTopics
     /// </summary>
     public const string PairQrRefresh = "panel/phone/pair-qr/refresh";
     /// <summary>
+    /// OS accent colour changed (Linux only — the service watches the XDG
+    /// portal and pushes the new accent so the dashboard tracks it live).
+    /// </summary>
+    public const string SystemAccent = "system/accent";
+    /// <summary>
     /// Phone→PC transfer landed (file saved to the inbox / clipboard applied).
     /// Carries the event payload directly — there is no canonical resource to
     /// refetch.
@@ -106,6 +111,15 @@ public static class PanelTopics
         var frame = new CoolingWarningsChangedFrame { Revision = Now(), DeviceId = deviceId };
         var env = WsEnvelope.Build(CoolingWarnings, frame, AppJsonContext.Default.CoolingWarningsChangedFrame);
         _ = hub.BroadcastTopicAsync(CoolingWarnings, env);
+    }
+
+    public static void BroadcastSystemAccent(MultiplexHub hub, string hex)
+    {
+        if (!hub.TopicHasSubscribers(SystemAccent))
+            return;
+        var frame = new SystemAccentFrame { Hex = hex };
+        var env = WsEnvelope.Build(SystemAccent, frame, AppJsonContext.Default.SystemAccentFrame);
+        _ = hub.BroadcastTopicAsync(SystemAccent, env);
     }
 
     public static void BroadcastTransfer(MultiplexHub hub, Models.Transfer.TransferReceivedFrame frame)
