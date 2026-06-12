@@ -66,6 +66,7 @@ public class OpenRgbZoneCardsTests
         Assert.Equal("motherboard", first.Type);
         // Persisted resize choice wins over the wire-reported count.
         Assert.Equal(60, first.LedCount);
+        Assert.Equal(60, first.EnabledLedCount);
         Assert.Equal("openrgb-s-MB01", first.ParentDeviceId);
         Assert.Equal(0, first.ZoneIndex);
         Assert.Equal("linear", first.ZoneType);
@@ -94,6 +95,7 @@ public class OpenRgbZoneCardsTests
         Assert.Equal("Gaming Mouse", card.Name);
         Assert.Equal("mouse", card.Type);
         Assert.Equal(4, card.LedCount);
+        Assert.Equal(4, card.EnabledLedCount);
         Assert.Null(card.ParentDeviceId);
         Assert.Null(card.ZoneIndex);
         Assert.Null(card.ZoneType);
@@ -109,6 +111,34 @@ public class OpenRgbZoneCardsTests
         Assert.Single(resp.Devices);
         Assert.False(resp.Devices[0].ZoneCustomizable);
         Assert.Equal(resp.Devices[0].Id, resp.Devices[0].DeviceId);
+    }
+
+    [Fact]
+    public void Whole_device_card_layers_mapping_and_override_disables()
+    {
+        var settings = new NexusSettings();
+        var artifact = new Nexus.Service.Lighting.Mappings.MappingArtifact();
+        artifact.Zones.Add(new Nexus.Service.Lighting.Mappings.MappingZone
+        {
+            ZoneIndex = 0,
+            Disabled = { 0, 1 },
+        });
+        settings.Devices.AppliedMappings["openrgb-s-MS01"] =
+            new Nexus.Service.Lighting.Mappings.AppliedMappingRef { Name = "m", Artifact = artifact };
+        settings.Devices.DeviceLedOverrides["openrgb-s-MS01"] = new List<SegmentLedOverride>
+        {
+            // Re-enables a mapping-disabled LED (wheel LED 0 = zone-local 1).
+            new() { Segment = 1, LedIndex = 0, Disabled = false },
+            // Disables one the mapping left on (wheel LED 2 = zone-local 3).
+            new() { Segment = 1, LedIndex = 2, Disabled = true },
+        };
+
+        var resp = OpenRgbZoneSupport.BuildCards(new[] { Mouse() }, settings, isInit: true);
+        var card = resp.Devices[0];
+        Assert.Equal(4, card.LedCount);
+        // Mapping disables zone-local 0 and 1; the override re-enables 1 and
+        // disables 3, leaving LEDs 1 and 2 on.
+        Assert.Equal(2, card.EnabledLedCount);
     }
 
     [Fact]
@@ -136,6 +166,7 @@ public class OpenRgbZoneCardsTests
         Assert.Equal("openrgb-s-MS01:z0", front.Id);
         Assert.Equal("Gaming Mouse - Front", front.Name);
         Assert.Equal(2, front.LedCount);
+        Assert.Equal(2, front.EnabledLedCount);
         Assert.Equal("", front.DeviceKey);
         Assert.Equal("openrgb-s-MS01", front.ParentDeviceId);
         Assert.Equal("openrgb-s-MS01", front.DeviceId);

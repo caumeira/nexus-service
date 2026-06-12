@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Nexus.Service.Lighting.Mappings;
 using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Lighting.Zones;
@@ -154,6 +155,83 @@ public static class ZoneResolution
 
     public static ZoneOverrideContext ContextOf(DeviceStructure structure, ResolvedZone zone)
         => new(structure.DeviceId, zone.Slices);
+
+    /// <summary>
+    /// Count of the card's LEDs not disabled by the resolved layout stack,
+    /// mirroring the disabled layering in
+    /// <see cref="LedLayoutResolver"/>: the applied mapping's
+    /// disabled set first, then user overrides mapped through the zone's
+    /// slices into zone-local space - an override wins in both directions
+    /// (it can re-enable a mapping-disabled LED). Null structure/zone is the
+    /// non-partitionable card path: the card is its own single-segment
+    /// device (identity context). No disable data = <paramref name="ledCount"/>.
+    /// </summary>
+    public static int CountEnabled(DeviceStructure? structure, ResolvedZone? zone, string cardId, int ledCount, NexusSettings settings)
+    {
+        if (ledCount <= 0)
+        {
+            return 0;
+        }
+
+        bool[]? disabled = null;
+
+        // Mapping layer: artifact disabled indices are already zone-local.
+        // The zone hint matches the resolver's selection for OpenRGB cards;
+        // contributor cards resolve with hint 0, but v1 per-card artifacts
+        // are single-zone so the lenient SelectZone lands on the same zone.
+        if (settings.Devices.AppliedMappings.TryGetValue(cardId, out var applied))
+        {
+            var zoneHint = zone is null ? 0 : zone.IsDefault ? zone.LegacyZoneIndex : zone.Ordinal;
+            var mappingZone = LedLayoutResolver.SelectZone(applied.Artifact, zoneHint);
+            if (mappingZone is not null)
+            {
+                foreach (var di in mappingZone.Disabled)
+                {
+                    if (di >= 0 && di < ledCount)
+                    {
+                        disabled ??= new bool[ledCount];
+                        disabled[di] = true;
+                    }
+                }
+            }
+        }
+
+        // User layer: overrides live in the device's stable (segment, local)
+        // space; the context maps them into this card's zone-local indices.
+        var ctx = structure is not null && zone is not null
+            ? ContextOf(structure, zone)
+            : ZoneOverrideContext.Identity(cardId);
+        if (settings.Devices.DeviceLedOverrides.TryGetValue(ctx.DeviceId, out var deviceOverrides))
+        {
+            foreach (var o in deviceOverrides)
+            {
+                var idx = ctx.MapFromSegment(o.Segment, o.LedIndex);
+                if (idx < 0 || idx >= ledCount)
+                {
+                    continue;
+                }
+                if (o.Disabled)
+                {
+                    disabled ??= new bool[ledCount];
+                }
+                disabled?[idx] = o.Disabled;
+            }
+        }
+
+        if (disabled is null)
+        {
+            return ledCount;
+        }
+        var enabled = 0;
+        foreach (var f in disabled)
+        {
+            if (!f)
+            {
+                enabled++;
+            }
+        }
+        return enabled;
+    }
 
     /// <summary>
     /// Device-space offset (in hardware-reported counts) of the zone's first

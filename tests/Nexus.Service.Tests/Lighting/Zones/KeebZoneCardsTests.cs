@@ -27,6 +27,7 @@ public class KeebZoneCardsTests
         Assert.Equal("ledstrip", keys.Type);
         Assert.Equal("keyboard", keys.IconType);
         Assert.Equal(KeebLayout.KeyLedCount, keys.LedCount);
+        Assert.Equal(KeebLayout.KeyLedCount, keys.EnabledLedCount);
         Assert.Equal("usb:3402:0300:keys", keys.DeviceKey);
         Assert.True(keys.LedsOn);
         Assert.Equal(100, keys.Brightness);
@@ -42,6 +43,7 @@ public class KeebZoneCardsTests
         Assert.Equal($"{KeebHub.ProductName} - Underglow", underglow.Name);
         Assert.Equal("strip", underglow.IconType);
         Assert.Equal(KeebLayout.SurroundLedCount, underglow.LedCount);
+        Assert.Equal(KeebLayout.SurroundLedCount, underglow.EnabledLedCount);
         Assert.Equal(1, underglow.ZoneIndex);
         Assert.Equal(HubId, underglow.DeviceId);
     }
@@ -57,6 +59,25 @@ public class KeebZoneCardsTests
         Assert.Equal(42, cards[0].Brightness);
         Assert.True(cards[0].LedsOn);
         Assert.False(cards[1].LedsOn);
+    }
+
+    [Fact]
+    public void Cards_subtract_override_disabled_leds_from_enabled_count()
+    {
+        var settings = new NexusSettings();
+        settings.Devices.DeviceLedOverrides[HubId] = new List<SegmentLedOverride>
+        {
+            new() { Segment = 0, LedIndex = 3, Disabled = true },
+            new() { Segment = 1, LedIndex = 0, Disabled = true },
+            new() { Segment = 1, LedIndex = 1, Disabled = true },
+        };
+
+        var cards = KeebLightingDeviceProvider.BuildCards(HubId, settings);
+        Assert.Equal(KeebLayout.KeyLedCount - 1, cards[0].EnabledLedCount);
+        Assert.Equal(KeebLayout.SurroundLedCount - 2, cards[1].EnabledLedCount);
+        // The plain LED count never changes; only the enabled tally does.
+        Assert.Equal(KeebLayout.KeyLedCount, cards[0].LedCount);
+        Assert.Equal(KeebLayout.SurroundLedCount, cards[1].LedCount);
     }
 
     [Fact]
@@ -82,6 +103,7 @@ public class KeebZoneCardsTests
         Assert.Equal($"{HubId}:z0", card.Id);
         Assert.Equal($"{KeebHub.ProductName} - Everything", card.Name);
         Assert.Equal(KeebLayout.KeyLedCount + KeebLayout.SurroundLedCount, card.LedCount);
+        Assert.Equal(card.LedCount, card.EnabledLedCount);
         Assert.Equal("", card.DeviceKey);
         Assert.Equal(HubId, card.ParentDeviceId);
         Assert.Equal(HubId, card.DeviceId);

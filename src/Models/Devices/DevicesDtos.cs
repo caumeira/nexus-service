@@ -186,6 +186,8 @@ public class LightingDevice
     public float Hue { get; set; }
     public float Saturation { get; set; }
     public int LedCount { get; set; }
+    /// <summary>Number of the card's LEDs not disabled in the resolved layout (applied mapping's disabled set layered under user overrides, which win in both directions). Equals <see cref="LedCount"/> when no disable data exists.</summary>
+    public int EnabledLedCount { get; set; }
     public float CanvasX { get; set; }
     public float CanvasY { get; set; }
     public float CanvasW { get; set; } = 80;

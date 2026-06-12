@@ -159,19 +159,23 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         // are their own single-zone devices: the modal routing target is the
         // card itself and zone management stays hidden (ZoneCustomizable
         // keeps its default false). Partition-aware providers set DeviceId
-        // themselves.
+        // and EnabledLedCount themselves; everything else resolves disables
+        // here through the identity context, on the one settings snapshot
+        // this call already loads.
+        var settings = _store.Load();
         foreach (var dev in rgb.Devices)
         {
             if (dev.DeviceId.Length == 0)
             {
                 dev.DeviceId = dev.Id;
+                dev.EnabledLedCount = Nexus.Service.Lighting.Zones.ZoneResolution.CountEnabled(
+                    structure: null, zone: null, dev.Id, dev.LedCount, settings);
             }
         }
 
         // Spread every device without a persisted layout across the grid. totalCount counts persisted devices too so the
         // slot for any one device is stable across calls (resetting one card doesn't shuffle the others). Must run
         // AFTER the CNVS / NP50 / MiniHub merges so newly-added hub devices also pick up a default slot.
-        var settings = _store.Load();
         var layouts = settings.Lighting.DeviceLayouts;
         var total = rgb.Devices.Count;
         for (var i = 0; i < total; i++)
