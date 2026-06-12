@@ -58,17 +58,21 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
 
         resp.Devices.Add(BuildZone(
             id: hubId + KeysSuffix, name: $"{KeebHub.ProductName} - Keys",
+            deviceKey: Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForFirstParty(
+                Peripherals.Hyte.Keeb.KeebProtocol.VendorId, Peripherals.Hyte.Keeb.KeebProtocol.ProductId, "keys"),
             iconType: "keyboard", firmwareLedCount: KeebLayout.KeyLedCount,
             zoneIndex: 0, parentDeviceId: hubId, disabled, prefs, layouts, zoneLedCounts));
         resp.Devices.Add(BuildZone(
             id: hubId + UnderglowSuffix, name: $"{KeebHub.ProductName} - Underglow",
+            deviceKey: Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForFirstParty(
+                Peripherals.Hyte.Keeb.KeebProtocol.VendorId, Peripherals.Hyte.Keeb.KeebProtocol.ProductId, "underglow"),
             iconType: "strip", firmwareLedCount: KeebLayout.SurroundLedCount,
             zoneIndex: 1, parentDeviceId: hubId, disabled, prefs, layouts, zoneLedCounts));
         return resp;
     }
 
     private static LightingDevice BuildZone(
-        string id, string name, string iconType, int firmwareLedCount,
+        string id, string name, string deviceKey, string iconType, int firmwareLedCount,
         int zoneIndex, string parentDeviceId,
         IReadOnlyList<string> disabled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,

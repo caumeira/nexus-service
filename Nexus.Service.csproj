@@ -529,6 +529,7 @@
     <Compile Remove="src/Platform/Linux/LinuxPerformanceProvider.cs" />
     <Compile Remove="src/Platform/Linux/LinuxSession.cs" />
     <Compile Remove="src/Platform/Linux/LinuxSysfs.cs" />
+    <Compile Remove="src/Platform/Linux/LinuxSystemAccentProvider.cs" />
     <Compile Remove="src/Platform/Linux/LinuxTrayHost.cs" />
     <Compile Remove="src/Platform/Linux/LinuxTrayService.cs" />
     <Compile Remove="src/Sensors/LinuxSensorProvider.cs" />

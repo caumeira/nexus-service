@@ -54,6 +54,7 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider
         {
             var d = devices[i];
             var baseId = d.StableId;
+            var baseKey = Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForOpenRgbDevice(d);
             var isSplitMotherboard = d.Type == 0 && d.Zones.Count > 1;
 
             if (!isSplitMotherboard)
@@ -64,6 +65,7 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider
                 result.Add(new LightingDevice
                 {
                     Id = baseId,
+                    DeviceKey = baseKey,
                     Name = d.Name,
                     Type = OpenRgbTypeName(d.Type),
                     IconType = OpenRgbTypeName(d.Type),
@@ -101,6 +103,7 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider
                 result.Add(new LightingDevice
                 {
                     Id = zoneId,
+                    DeviceKey = Nexus.Service.Lighting.Mappings.DeviceKeyComputer.ForZone(baseKey, z),
                     Name = BuildZoneName(d.Name, zone.Name, z),
                     Type = OpenRgbTypeName(d.Type),
                     IconType = OpenRgbTypeName(d.Type),

@@ -30,3 +30,10 @@ public sealed class OpenPathBody
 {
     public string Path { get; set; } = "";
 }
+
+/// <summary>OS accent colour as #RRGGBB, or empty when unavailable (e.g. served
+/// only on Linux, where the dashboard browser has no native accent push).</summary>
+public sealed class SystemAccentResponse
+{
+    public string Accent { get; set; } = "";
+}

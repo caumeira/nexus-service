@@ -141,6 +141,21 @@ public sealed class LightingChangedFrame
     public long Revision { get; set; }
 }
 
+/// <summary>
+/// Multiplex frame: a community LED mapping was auto-applied to a newly seen
+/// device. Carries the payload directly (toast UX with one-click undo);
+/// subscribers also refetch lighting state via the regular lighting topic.
+/// </summary>
+public sealed class MappingAutoAppliedFrame
+{
+    public long Revision { get; set; }
+    public string DeviceId { get; set; } = "";
+    public string DeviceName { get; set; } = "";
+    public string MappingId { get; set; } = "";
+    public string MappingName { get; set; } = "";
+    public int AdopterCount { get; set; }
+}
+
 public sealed class CoolingChangedFrame
 {
     public long Revision { get; set; }
@@ -165,6 +180,17 @@ public sealed class GalleryChangedFrame
 public sealed class PairQrRefreshFrame
 {
     public long Revision { get; set; }
+}
+
+/// <summary>
+/// Multiplex frame: the OS accent colour changed. Only the Linux service emits
+/// it — Windows/macOS push the accent straight from their native shell. The
+/// dashboard applies <see cref="Hex"/> live when the accent source is "system",
+/// matching how light/dark already tracks the OS in real time.
+/// </summary>
+public sealed class SystemAccentFrame
+{
+    public string Hex { get; set; } = "";
 }
 
 /// <summary>

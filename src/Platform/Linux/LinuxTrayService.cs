@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Panel;
 using Nexus.Service.Platform.Linux.DBus;
+using Nexus.Service.Sockets;
 using Nexus.Service.Transfer;
 using Microsoft.Extensions.Hosting;
 
@@ -25,15 +26,21 @@ public sealed class LinuxTrayService : IHostedService
     private readonly DBusConnection _dbus;
     private readonly PanelPhonePairingService _pairing;
     private readonly TransferInbox _transfer;
+    private readonly MultiplexHub _hub;
+    private readonly ISystemAccentProvider _accent;
     private LinuxTrayHost? _host;
+    private CancellationTokenSource? _accentCts;
+    private string? _lastAccent;
     private string _url = "http://localhost:9400";
 
-    public LinuxTrayService(IHostApplicationLifetime lifetime, DBusConnection dbus, PanelPhonePairingService pairing, TransferInbox transfer)
+    public LinuxTrayService(IHostApplicationLifetime lifetime, DBusConnection dbus, PanelPhonePairingService pairing, TransferInbox transfer, MultiplexHub hub, ISystemAccentProvider accent)
     {
         _lifetime = lifetime;
         _dbus = dbus;
         _pairing = pairing;
         _transfer = transfer;
+        _hub = hub;
+        _accent = accent;
     }
 
     public async Task StartAsync(CancellationToken cancellationToken)
@@ -47,6 +54,7 @@ public sealed class LinuxTrayService : IHostedService
             await _dbus.StartAsync();
             _host = new LinuxTrayHost(_dbus, _url, () => _lifetime.StopApplication());
             await _host.StartAsync();
+            StartAccentWatch();
         }
         catch (Exception ex)
         {
@@ -61,6 +69,7 @@ public sealed class LinuxTrayService : IHostedService
         _dbus.Reconnected -= OnReconnected;
         _pairing.PairRequestNeedsAttention -= OnPairAttention;
         _transfer.TransferNeedsAttention -= OnTransferAttention;
+        _accentCts?.Cancel();
         _host?.Dispose();
         _host = null;
         return Task.CompletedTask;
@@ -77,10 +86,57 @@ public sealed class LinuxTrayService : IHostedService
             _host?.Dispose();
             _host = new LinuxTrayHost(_dbus, _url, () => _lifetime.StopApplication());
             await _host.StartAsync();
+            StartAccentWatch();
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[tray] re-register after reconnect failed: {ex.Message}");
+        }
+    }
+
+    // Push the OS accent to the dashboard whenever it changes, so "system"
+    // accent tracks the desktop live — the parity gap with light/dark, which
+    // already follows the OS via the browser's prefers-color-scheme query. The
+    // XDG portal emits SettingChanged on any appearance change; we re-read the
+    // accent and broadcast only when it actually moved.
+    private void StartAccentWatch()
+    {
+        _accentCts?.Cancel();
+        var cts = new CancellationTokenSource();
+        _accentCts = cts;
+        _ = WatchAccentAsync(cts.Token);
+    }
+
+    private async Task WatchAccentAsync(CancellationToken ct)
+    {
+        try
+        {
+            await _dbus.AddMatchAsync("type='signal',interface='org.freedesktop.portal.Settings',member='SettingChanged'");
+            _lastAccent = _accent.GetAccentHex();
+            while (!ct.IsCancellationRequested)
+            {
+                try
+                {
+                    // Long wait; the re-arm gap can drop a second change within
+                    // the same instant, harmless for a user-driven accent flip.
+                    await _dbus.WaitForSignalAsync("/org/freedesktop/portal/desktop", "SettingChanged", 600_000);
+                }
+                catch (TimeoutException)
+                {
+                    continue;
+                }
+                var hex = _accent.GetAccentHex();
+                if (hex is not null && hex != _lastAccent)
+                {
+                    _lastAccent = hex;
+                    PanelTopics.BroadcastSystemAccent(_hub, hex);
+                }
+            }
+        }
+        catch (OperationCanceledException) { }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[accent] watch stopped: {ex.Message}");
         }
     }
 

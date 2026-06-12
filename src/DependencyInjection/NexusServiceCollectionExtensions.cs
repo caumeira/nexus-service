@@ -188,6 +188,14 @@ public static class NexusServiceCollectionExtensions
     public static IServiceCollection AddNexusLighting(this IServiceCollection services)
     {
         services.AddSingleton<LightingEngine>();
+        // Community LED mappings: resolver state for contributor frames, the
+        // registry client (disk-cached, offline-tolerant), the apply
+        // orchestrator shared by routes + auto-apply, and the first-seen
+        // auto-apply worker.
+        services.AddSingleton<Nexus.Service.Lighting.Mappings.ContributorFrameLayouts>();
+        services.AddSingleton<Nexus.Service.Lighting.Mappings.MappingCloudClient>();
+        services.AddSingleton<Nexus.Service.Lighting.Mappings.MappingApplyService>();
+        services.AddHostedService<Nexus.Service.Lighting.Mappings.MappingAutoApplyService>();
         services.AddSingleton(_ => new Nexus.Service.Lighting.Engine.Gpu.GpuContext(160, 90));
         services.AddSingleton<ILightingProvider, LightingProvider>();
         services.AddSingleton<IObsProvider, ObsProvider>();
@@ -657,6 +665,10 @@ public static class NexusServiceCollectionExtensions
             }
         });
 
+        // Windows/macOS push the accent from their native shell; the Linux
+        // block below overrides this with the portal reader (last registration
+        // wins for the resolved instance).
+        services.AddSingleton<ISystemAccentProvider, NullSystemAccentProvider>();
 #if WINDOWS
         services.AddSingleton<IScreenTimeProvider, WindowsScreenTimeProvider>();
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
@@ -681,6 +693,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IScreenTimeProvider>(sp => sp.GetRequiredService<Nexus.Service.Activity.LinuxScreenTimeProvider>());
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
         services.AddSingleton<IShortcutsProvider, LinuxShortcutsProvider>();
+        services.AddSingleton<ISystemAccentProvider, Nexus.Service.Platform.Linux.LinuxSystemAccentProvider>();
         services.AddSingleton<IMediaProvider, LinuxMediaProvider>();
         services.AddSingleton<IVolumeProvider, LinuxVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, LinuxAudioDeviceProvider>();
@@ -788,6 +801,16 @@ public static class NexusServiceCollectionExtensions
             return registry;
         });
         services.AddSingleton<Nexus.Service.Widgets.AppDispatchRateLimiter>();
+
+        // Generic external-tool manager (NEX-13): fetches + runs a device's sidecar
+        // executable. Hosted so its StopAsync kills every tracked tool process on
+        // service shutdown.
+        services.AddSingleton<Nexus.Service.Common.ExternalTools.ExternalToolManager>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Common.ExternalTools.ExternalToolManager>());
+        // Auto-launches each installed bundled driver app's binary when its device
+        // is present (runs at boot, pre-login).
+        services.AddHostedService<Nexus.Service.Common.ExternalTools.DriverAutoLaunchWorker>();
         return services;
     }
 
