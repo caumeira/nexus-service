@@ -119,7 +119,9 @@ public static partial class DevicesRoutes
         // resolved positions, override markers, and zone membership. The new
         // editor reads this exclusively; UVs are zone-local (one canvas rect
         // per zone), matching what each card's engine frame samples.
-        app.MapGet("/devices/lighting-devices/{deviceId}/device-map", (string deviceId,
+        // defaults=true previews the factory layout without persisting
+        // anything (the SPA's Reset preview).
+        app.MapGet("/devices/lighting-devices/{deviceId}/device-map", (string deviceId, bool? defaults,
             ZoneTopology topology,
             Nexus.Service.Persistence.IConfigStore store) =>
         {
@@ -130,6 +132,8 @@ public static partial class DevicesRoutes
                     AppJsonContext.Default.DeviceMapResponse);
             }
             var settings = store.Load();
+            if (defaults == true)
+                settings = DeviceMapDefaultsFacade(settings);
             var zones = topology.ZonesFor(structure, settings);
 
             // Per-zone resolved layouts and contexts, then scattered back
@@ -229,5 +233,50 @@ public static partial class DevicesRoutes
                 topology.RefreshCardFrame(zone.Id);
             return ApiResponse.Ok();
         });
+
+        // Device-scoped LED map reset: drop the device's stored overrides and
+        // canvas aspect ratio so the resolver falls back to factory defaults.
+        // Partition, prefs, layouts, and applied mappings stay untouched.
+        app.MapDelete("/devices/lighting-devices/{deviceId}/device-map", (string deviceId,
+            ZoneTopology topology,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Sockets.MultiplexHub hub) =>
+        {
+            var structure = topology.FindStructure(deviceId);
+            if (structure is null)
+                return ApiResponse.Fail("unknown device");
+
+            store.Update(s => ClearDeviceMapState(s, deviceId));
+
+            foreach (var zone in topology.ZonesFor(structure, store.Load()))
+                topology.RefreshCardFrame(zone.Id);
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            return ApiResponse.Ok();
+        });
+    }
+
+    /// <summary>
+    /// Factory-defaults view of the settings for the device-map GET: keep the
+    /// partition and wired LED counts (they describe the hardware as
+    /// configured) but drop the override, aspect-ratio, and applied-mapping
+    /// layers so the resolver yields provider defaults.
+    /// </summary>
+    internal static NexusSettings DeviceMapDefaultsFacade(NexusSettings settings) => new()
+    {
+        Devices = new DevicesSettings
+        {
+            ZonePartitions = settings.Devices.ZonePartitions,
+            ZoneLedCounts = settings.Devices.ZoneLedCounts,
+        },
+    };
+
+    /// <summary>
+    /// The device-map DELETE's settings mutation: remove the device's LED
+    /// overrides and aspect ratio, nothing else.
+    /// </summary>
+    internal static void ClearDeviceMapState(NexusSettings settings, string deviceId)
+    {
+        settings.Devices.DeviceLedOverrides.Remove(deviceId);
+        settings.Devices.DeviceAspectRatios.Remove(deviceId);
     }
 }
