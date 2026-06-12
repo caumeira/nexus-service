@@ -11,14 +11,20 @@ public sealed record DiscoveredLight(string Brand, string Host, string Name, str
 /// whether the writer averages them to one color before sending.
 /// Single-color lamps (Hue bulbs, WiZ, Yeelight) request a small UV grid and
 /// average it so screen-mirror / effects pick up the canvas region's dominant
-/// color rather than a single point sample.
+/// color rather than a single point sample. Zone-addressable devices
+/// (Nanoleaf panels, Govee segments) set AverageToSingle=false and may supply
+/// per-LED canvas UVs (e.g. real panel positions) used instead of the default
+/// sample grid.
 /// </summary>
-public sealed record LightFramePlan(int LedCount, bool AverageToSingle);
+public sealed record LightFramePlan(int LedCount, bool AverageToSingle, float[]? LedU = null, float[]? LedV = null);
 
 /// <summary>The latest desired state for one light. Coalesced by the throttle
 /// and pushed to the device by its driver. Used for both effect streaming and
-/// static (manual) control — one path.</summary>
-public readonly record struct LightFrame(bool On, byte R, byte G, byte B, float Brightness01);
+/// static (manual) control — one path. <see cref="Zones"/> carries the per-zone
+/// RGB triplets (engine LED order) for zone-addressable devices while an effect
+/// streams; null for single-color sends. R/G/B always hold the averaged color
+/// so a driver can fall back to single-color regardless.</summary>
+public readonly record struct LightFrame(bool On, byte R, byte G, byte B, float Brightness01, byte[]? Zones = null);
 
 /// <summary>Runtime view of a paired smart light (the persisted
 /// <see cref="SmartLightConfig"/> plus live online state).</summary>
