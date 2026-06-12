@@ -34,9 +34,9 @@ public interface ILightingProvider
     /// <summary>
     /// Render the given animate effect to a 160x90 BMP for UI previews. Uses the
     /// user's saved selected-slot look when one exists, else the effect's
-    /// signature look. <paramref name="version"/> is an opaque cache-bust token
-    /// from the client (changes when the saved look changes); the bytes are
-    /// re-rendered whenever it differs from the last render's token.
+    /// signature look. Returns the BMP bytes plus a content tag (a hash of the
+    /// saved look) for the HTTP ETag; the render is re-cached whenever that tag
+    /// changes, so an edit is never served stale.
     /// </summary>
-    byte[]? CaptureAnimateThumbnail(string key, string? version = null, bool skipCache = false);
+    (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, bool skipCache = false);
 }

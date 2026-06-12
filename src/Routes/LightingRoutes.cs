@@ -26,16 +26,27 @@ public static class LightingRoutes
         app.MapGet("/lighting/effects/{key}/thumbnail.bmp", (string key, ILightingProvider l, HttpRequest req, HttpResponse res) =>
         {
             var fresh = req.Query.ContainsKey("fresh");
-            // ?v is the client's per-effect cache-bust token: it changes when the
-            // effect's saved selected-slot look changes, so the long browser cache
-            // below is bypassed and the service re-renders that one thumbnail.
-            var version = req.Query.TryGetValue("v", out var v) ? v.ToString() : null;
-            var bytes = l.CaptureAnimateThumbnail(key, version, skipCache: fresh);
-            if (bytes is null) return Results.NotFound();
-            // The ?v token makes each saved look its own URL, so a long cache is
-            // safe and keeps /lighting reloads from refetching 60 BMPs. ?fresh
-            // stays as the dev override; the cache header is dropped on that path.
-            if (!fresh) res.Headers.CacheControl = "public, max-age=86400";
+            var result = l.CaptureAnimateThumbnail(key, skipCache: fresh);
+            if (result is null) return Results.NotFound();
+            var (bytes, tag) = result.Value;
+            var etag = $"\"{tag}\"";
+            // ETag is the saved look's content hash + must-revalidate, so the
+            // browser may store the BMP but always rechecks: an edit is never
+            // pinned behind the old image, even when a surface keeps requesting
+            // the same ?v token. Unchanged looks come back as a cheap 304.
+            res.Headers.ETag = etag;
+            if (!fresh)
+            {
+                res.Headers.CacheControl = "no-cache";
+                if (string.Equals(req.Headers.IfNoneMatch.ToString(), etag, StringComparison.Ordinal))
+                {
+                    return Results.StatusCode(StatusCodes.Status304NotModified);
+                }
+            }
+            else
+            {
+                res.Headers.CacheControl = "no-store";
+            }
             return Results.File(bytes, "image/bmp");
         }).AllowPanel();
         // Music reactive toggle: starts/stops the audio capture pipeline. When

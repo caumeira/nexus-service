@@ -212,10 +212,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             ExtraParams = extras,
         };
 
-    // Cached thumbnail BMP per effect name, stamped with the cache-bust token it
-    // was rendered for. A request whose token differs re-renders (the saved look
-    // changed); one entry per effect, so the cache never grows with edits.
-    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Version, byte[] Bytes)> _thumbnailCache = new();
+    // Cached thumbnail BMP per effect name, stamped with a content tag derived
+    // from the saved look it was rendered for. A request re-renders whenever the
+    // current saved look's tag differs from the cached one - so an edit is never
+    // served stale, regardless of the cache-bust token the client happens to send.
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Tag, byte[] Bytes)> _thumbnailCache = new();
 
     // A thumbnail is a single frame captured this far into the animation. The
     // shaders are stateless - output is a pure function of u_time - so one
@@ -223,22 +224,26 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     // t=0 would leave ramp-up effects (fire, starfield, matrix) cold or black.
     private const double ThumbnailFrameTimeMs = 957.0;
 
-    public byte[]? CaptureAnimateThumbnail(string key, string? version = null, bool skipCache = false)
+    public (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, bool skipCache = false)
     {
         var name = (key ?? "").ToLowerInvariant();
-        var ver = version ?? "";
-        if (!skipCache && _thumbnailCache.TryGetValue(name, out var cached) && cached.Version == ver)
-        {
-            return cached.Bytes;
-        }
         var defaults = DefaultParamsFor(name);
         if (defaults is null)
         {
             return null;
         }
+        // Tag the cache by the CURRENT saved look, not the client's ?v token, so a
+        // surface that keeps requesting the same token still re-renders once the
+        // saved look changes.
+        var slot = ResolveThumbnailSlot(name);
+        var tag = slot is null ? "sig" : HashSlot(slot);
+        if (!skipCache && _thumbnailCache.TryGetValue(name, out var cached) && cached.Tag == tag)
+        {
+            return (cached.Bytes, tag);
+        }
 
         var canvas = new Engine.CanvasBuffer(160, 90);
-        var effect = BuildThumbnailEffect(name, defaults);
+        var effect = BuildThumbnailEffect(name, defaults, slot);
         try
         {
             effect.RenderFrame(canvas, ThumbnailFrameTimeMs);
@@ -250,24 +255,60 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             catch { }
         }
         var bytes = Engine.Gpu.BmpEncoder.Encode(canvas.Pixels, canvas.Width, canvas.Height);
-        _thumbnailCache[name] = (ver, bytes);
-        return bytes;
+        _thumbnailCache[name] = (tag, bytes);
+        return (bytes, tag);
     }
 
     /// <summary>
-    /// Build the effect whose single frame becomes the thumbnail. Prefers the
-    /// user's saved selected-slot look (so the preview matches what playing the
-    /// effect will show); falls back to the signature look for effects the user
-    /// hasn't customised. Both paths mirror the live <see cref="StartAnimate"/>
-    /// uniform mapping (speed/50, params over defaults).
+    /// The saved selected-slot look to render this effect's thumbnail from, or
+    /// null when the user hasn't customised it (render the signature look).
     /// </summary>
-    private IEffect BuildThumbnailEffect(string name, System.Collections.Generic.Dictionary<string, float> defaults)
+    private Nexus.Service.Persistence.AnimateEffectState? ResolveThumbnailSlot(string name)
     {
         var templates = _store.Load().Lighting.Animate.Templates;
         if (templates.TryGetValue(name, out var bundle) && bundle.Slots.Count > 0)
         {
-            var idx = Math.Clamp(bundle.Selected, 0, bundle.Slots.Count - 1);
-            var slot = bundle.Slots[idx];
+            return bundle.Slots[Math.Clamp(bundle.Selected, 0, bundle.Slots.Count - 1)];
+        }
+        return null;
+    }
+
+    /// <summary>Stable content tag over a slot's render-affecting fields (FNV-1a, base16).</summary>
+    private static string HashSlot(Nexus.Service.Persistence.AnimateEffectState slot)
+    {
+        static long R(float f) => (long)Math.Round(f * 1000f);
+        var sb = new System.Text.StringBuilder();
+        sb.Append(slot.Speed).Append(',').Append(R(slot.Intensity)).Append(',')
+          .Append(R(slot.Hue)).Append(',').Append(R(slot.Colorize)).Append(',')
+          .Append(R(slot.Saturation)).Append(',').Append(R(slot.Contrast));
+        if (slot.Params is not null)
+        {
+            var keys = new System.Collections.Generic.List<string>(slot.Params.Keys);
+            keys.Sort(System.StringComparer.Ordinal);
+            foreach (var k in keys)
+            {
+                sb.Append(';').Append(k).Append('=').Append(R(slot.Params[k]));
+            }
+        }
+        uint h = 2166136261;
+        foreach (var c in sb.ToString())
+        {
+            h ^= c;
+            h *= 16777619;
+        }
+        return h.ToString("x8");
+    }
+
+    /// <summary>
+    /// Build the effect whose single frame becomes the thumbnail. Renders the
+    /// saved selected-slot look when one exists (so the preview matches what
+    /// playing the effect shows), else the signature look. Both paths mirror the
+    /// live <see cref="StartAnimate"/> uniform mapping (speed/50, params over defaults).
+    /// </summary>
+    private IEffect BuildThumbnailEffect(string name, System.Collections.Generic.Dictionary<string, float> defaults, Nexus.Service.Persistence.AnimateEffectState? slot)
+    {
+        if (slot is not null)
+        {
             var extras = new System.Collections.Generic.Dictionary<string, float>(defaults);
             if (slot.Params is not null)
             {
