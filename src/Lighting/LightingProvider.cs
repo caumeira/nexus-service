@@ -212,10 +212,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             ExtraParams = extras,
         };
 
-    // Cached thumbnail BMP per effect name, stamped with a content tag derived
-    // from the saved look it was rendered for. A request re-renders whenever the
-    // current saved look's tag differs from the cached one - so an edit is never
-    // served stale, regardless of the cache-bust token the client happens to send.
+    // Cached thumbnail BMP per (effect, slot), stamped with a content tag derived
+    // from the saved look it was rendered for. Presets are universal, so this is
+    // bounded to 4 slots x effect count. A request re-renders whenever the slot's
+    // tag differs from the cached one - so an edit is never served stale.
     private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (string Tag, byte[] Bytes)> _thumbnailCache = new();
 
     // A thumbnail is a single frame captured this far into the animation. The
@@ -224,7 +224,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     // t=0 would leave ramp-up effects (fire, starfield, matrix) cold or black.
     private const double ThumbnailFrameTimeMs = 957.0;
 
-    public (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, bool skipCache = false)
+    public (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, int slot, bool skipCache = false)
     {
         var name = (key ?? "").ToLowerInvariant();
         var defaults = DefaultParamsFor(name);
@@ -232,18 +232,19 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         {
             return null;
         }
-        // Tag the cache by the CURRENT saved look, not the client's ?v token, so a
-        // surface that keeps requesting the same token still re-renders once the
-        // saved look changes.
-        var slot = ResolveThumbnailSlot(name);
-        var tag = slot is null ? "sig" : HashSlot(slot);
-        if (!skipCache && _thumbnailCache.TryGetValue(name, out var cached) && cached.Tag == tag)
+        // Render the requested preset slot's saved look. Tag the cache by that
+        // look (not the client's ?v token), so a surface that keeps requesting
+        // the same token still re-renders once the slot's saved look changes.
+        var state = ResolveThumbnailSlot(name, slot);
+        var tag = state is null ? "sig" : HashSlot(state);
+        var cacheKey = name + ":" + slot;
+        if (!skipCache && _thumbnailCache.TryGetValue(cacheKey, out var cached) && cached.Tag == tag)
         {
             return (cached.Bytes, tag);
         }
 
         var canvas = new Engine.CanvasBuffer(160, 90);
-        var effect = BuildThumbnailEffect(name, defaults, slot);
+        var effect = BuildThumbnailEffect(name, defaults, state);
         try
         {
             effect.RenderFrame(canvas, ThumbnailFrameTimeMs);
@@ -255,22 +256,80 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             catch { }
         }
         var bytes = Engine.Gpu.BmpEncoder.Encode(canvas.Pixels, canvas.Width, canvas.Height);
-        _thumbnailCache[name] = (tag, bytes);
+        _thumbnailCache[cacheKey] = (tag, bytes);
         return (bytes, tag);
     }
 
     /// <summary>
-    /// The saved selected-slot look to render this effect's thumbnail from, or
-    /// null when the user hasn't customised it (render the signature look).
+    /// The saved look for the given preset slot, or null when the user hasn't
+    /// customised this effect yet (render the signature look). Slot index is
+    /// clamped into the bundle.
     /// </summary>
-    private Nexus.Service.Persistence.AnimateEffectState? ResolveThumbnailSlot(string name)
+    private Nexus.Service.Persistence.AnimateEffectState? ResolveThumbnailSlot(string name, int slot)
     {
         var templates = _store.Load().Lighting.Animate.Templates;
         if (templates.TryGetValue(name, out var bundle) && bundle.Slots.Count > 0)
         {
-            return bundle.Slots[Math.Clamp(bundle.Selected, 0, bundle.Slots.Count - 1)];
+            return bundle.Slots[Math.Clamp(slot, 0, bundle.Slots.Count - 1)];
         }
         return null;
+    }
+
+    /// <summary>
+    /// Persist the universal preset templates. If the change altered the slot
+    /// currently driving the LEDs, push the new look to the running shader in
+    /// place so the hardware follows the edit (commit-time, from any surface).
+    /// Edits to other slots/effects leave the live LEDs untouched.
+    /// </summary>
+    public void SaveAnimateTemplates(System.Collections.Generic.Dictionary<string, Nexus.Service.Persistence.AnimateEffectTemplates> templates)
+    {
+        var before = ActiveLookTag();
+        _store.Update(s => s.Lighting.Animate.Templates = templates ?? new());
+        if (before != ActiveLookTag())
+        {
+            ReapplyActiveLook();
+        }
+    }
+
+    /// <summary>Content tag of the slot currently driving the LEDs, or null when no animate effect is active.</summary>
+    private string? ActiveLookTag()
+    {
+        var a = _store.Load().Lighting.Animate;
+        var effect = (a.Effect ?? "").ToLowerInvariant();
+        if (!a.Templates.TryGetValue(effect, out var b) || b.Slots.Count == 0)
+        {
+            return null;
+        }
+        return HashSlot(b.Slots[Math.Clamp(b.Selected, 0, b.Slots.Count - 1)]);
+    }
+
+    /// <summary>
+    /// Re-push the active effect's selected-slot uniforms onto the running shader
+    /// in place (no restart, no flicker). Mirrors the StartAnimate fast path.
+    /// </summary>
+    private void ReapplyActiveLook()
+    {
+        var a = _store.Load().Lighting.Animate;
+        var effect = (a.Effect ?? "").ToLowerInvariant();
+        if (_engine.CurrentEffect is not ShaderEffect cur || cur.Name != effect)
+        {
+            return;
+        }
+        if (!a.Templates.TryGetValue(effect, out var b) || b.Slots.Count == 0)
+        {
+            return;
+        }
+        var slot = b.Slots[Math.Clamp(b.Selected, 0, b.Slots.Count - 1)];
+        var speed = (float)(slot.Speed / 50.0);
+        cur.Speed = effect == "pulse" ? speed * 0.5f : speed;
+        cur.Intensity = slot.Intensity > 0 ? slot.Intensity : 1f;
+        cur.Hue = slot.Hue;
+        cur.Colorize = slot.Colorize;
+        cur.Saturation = slot.Saturation;
+        cur.Contrast = slot.Contrast;
+        cur.ExtraParams = slot.Params is not null && slot.Params.Count > 0
+            ? new System.Collections.Generic.Dictionary<string, float>(slot.Params)
+            : null;
     }
 
     /// <summary>Stable content tag over a slot's render-affecting fields (FNV-1a, base16).</summary>

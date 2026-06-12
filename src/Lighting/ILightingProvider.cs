@@ -32,11 +32,18 @@ public interface ILightingProvider
     void UpdateMediaEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist);
 
     /// <summary>
-    /// Render the given animate effect to a 160x90 BMP for UI previews. Uses the
-    /// user's saved selected-slot look when one exists, else the effect's
-    /// signature look. Returns the BMP bytes plus a content tag (a hash of the
-    /// saved look) for the HTTP ETag; the render is re-cached whenever that tag
-    /// changes, so an edit is never served stale.
+    /// Render the given animate effect's preset <paramref name="slot"/> to a
+    /// 160x90 BMP for UI previews (presets are universal, so the same render
+    /// serves every surface). Returns the BMP bytes plus a content tag (a hash
+    /// of the slot's saved look) for the HTTP ETag; the render is re-cached
+    /// whenever that tag changes, so an edit is never served stale.
     /// </summary>
-    (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, bool skipCache = false);
+    (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, int slot, bool skipCache = false);
+
+    /// <summary>
+    /// Persist the universal preset templates and, if the saved change altered
+    /// the slot currently driving the LEDs, push the new look to the running
+    /// shader in place (so the hardware follows a commit from any surface).
+    /// </summary>
+    void SaveAnimateTemplates(System.Collections.Generic.Dictionary<string, Nexus.Service.Persistence.AnimateEffectTemplates> templates);
 }

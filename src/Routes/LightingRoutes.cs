@@ -17,16 +17,22 @@ public static class LightingRoutes
         app.MapGet("/lighting/current", (ILightingProvider l) => new CurrentSyncResponse { Sync = l.GetSync() }).AllowPanel();
         app.MapGet("/lighting/animate/settings", (Nexus.Service.Persistence.IConfigStore store) =>
             store.Load().Lighting.Animate).AllowPanel();
-        app.MapPost("/lighting/animate/templates", (SetAnimateTemplatesBody body, Nexus.Service.Persistence.IConfigStore store, MultiplexHub hub) =>
+        app.MapPost("/lighting/animate/templates", (SetAnimateTemplatesBody body, ILightingProvider l, MultiplexHub hub) =>
         {
-            store.Update(s => { s.Lighting.Animate.Templates = body.Templates ?? new(); });
+            // Persist + reconcile: if the edited slot is the one driving the LEDs,
+            // the provider pushes the new look to the running shader in place.
+            l.SaveAnimateTemplates(body.Templates ?? new());
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
         app.MapGet("/lighting/effects/{key}/thumbnail.bmp", (string key, ILightingProvider l, HttpRequest req, HttpResponse res) =>
         {
             var fresh = req.Query.ContainsKey("fresh");
-            var result = l.CaptureAnimateThumbnail(key, skipCache: fresh);
+            // Preset slot to render (universal: 4 per effect). ?v is the client's
+            // content-bust token for the browser cache; the ETag below is the
+            // service's own freshness check.
+            var slot = int.TryParse(req.Query["slot"], out var sv) ? sv : 0;
+            var result = l.CaptureAnimateThumbnail(key, slot, skipCache: fresh);
             if (result is null) return Results.NotFound();
             var (bytes, tag) = result.Value;
             var etag = $"\"{tag}\"";

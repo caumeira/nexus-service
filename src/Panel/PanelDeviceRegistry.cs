@@ -248,10 +248,6 @@ public sealed class PanelDeviceRegistry
                 record.BackgroundTemplate = patch.BackgroundTemplate.Value;
             if (patch.BackgroundOpacity.HasValue)
                 record.BackgroundOpacity = patch.BackgroundOpacity.Value;
-            // Web always sends a concrete state (reseeded on effect/template
-            // change), so a non-null patch is authoritative; no clear-to-null.
-            if (patch.BackgroundEffectState is not null)
-                record.BackgroundEffectState = patch.BackgroundEffectState;
             if (patch.WidgetOpacity.HasValue)
                 record.WidgetOpacity = patch.WidgetOpacity.Value;
             if (patch.WidgetLabels.HasValue)
@@ -330,7 +326,6 @@ public sealed class PanelDeviceRegistry
             BackgroundEffect = r.BackgroundEffect,
             BackgroundTemplate = r.BackgroundTemplate,
             BackgroundOpacity = r.BackgroundOpacity,
-            BackgroundEffectState = r.BackgroundEffectState,
             WidgetOpacity = r.WidgetOpacity,
             WidgetLabels = r.WidgetLabels,
             WidgetBlur = r.WidgetBlur,
