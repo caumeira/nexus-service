@@ -137,20 +137,25 @@ public static partial class DevicesRoutes
             }, AppJsonContext.Default.ExportMappingResponse);
         });
 
-        // Publish the current layout to the registry. Always explicit; the
-        // registry enforces provenance, throttle, and dedup.
-        app.MapPost("/devices/lighting-devices/{id}/mappings/publish", async (string id, PublishMappingBody body,
+        // Publish the current layout to the registry. Always explicit. No
+        // user-authored text travels: the public name is derived from the
+        // device itself, so there is nothing to sanitize and nothing to
+        // moderate beyond geometry.
+        app.MapPost("/devices/lighting-devices/{id}/mappings/publish", async (string id,
             MappingApplyService mappings,
             MappingCloudClient cloud,
             CancellationToken ct) =>
         {
-            var name = body.Name.Trim();
-            if (name.Length == 0 || name.Length > MappingSchema.MaxNameLength)
+            var card = mappings.FindCard(id);
+            if (card is null)
             {
-                return Results.Json(new PublishMappingResponse { Error = true, Msg = "invalid name" },
+                return Results.Json(new PublishMappingResponse { Error = true, Msg = "unknown device" },
                     AppJsonContext.Default.PublishMappingResponse);
             }
-            var artifact = mappings.Export(id, name, body.Description);
+            var name = card.Name.Trim();
+            if (name.Length > MappingSchema.MaxNameLength)
+                name = name.Substring(0, MappingSchema.MaxNameLength);
+            var artifact = mappings.Export(id, name);
             if (artifact is null || artifact.Device.Key.Length == 0)
             {
                 return Results.Json(new PublishMappingResponse { Error = true, Msg = "device cannot be fingerprinted" },
@@ -162,7 +167,7 @@ public static partial class DevicesRoutes
                 return Results.Json(new PublishMappingResponse { Error = true, Msg = "layout failed validation" },
                     AppJsonContext.Default.PublishMappingResponse);
             }
-            var published = await cloud.PublishAsync(artifact, name, body.Description, body.AuthorName, ct).ConfigureAwait(false);
+            var published = await cloud.PublishAsync(artifact, name, description: null, authorName: null, ct).ConfigureAwait(false);
             if (published is null)
             {
                 return Results.Json(new PublishMappingResponse { Error = true, Msg = "publish failed or anonymous data is disabled" },
