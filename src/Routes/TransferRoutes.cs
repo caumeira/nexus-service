@@ -110,10 +110,12 @@ public static class TransferRoutes
             // pop 20 balloons).
             if (!hub.TopicHasSubscribers(PanelTopics.Transfer))
             {
+                // Interaction hints ("Click to open…") are appended by the
+                // platform consumer — osascript notifications have no click.
                 var sender = BalloonSender(from);
                 var text = saved.Count == 1
-                    ? $"{saved[0].Name} from {sender}. Click to open the folder."
-                    : $"{saved.Count} files from {sender}. Click to open the folder.";
+                    ? $"{saved[0].Name} from {sender}."
+                    : $"{saved.Count} files from {sender}.";
                 inbox.RaiseAttention(new TransferAttentionNotice("Nexus transfer received", text, dir));
             }
 

@@ -484,6 +484,7 @@
     <Compile Remove="src/Platform/Mac/MacAppBootstrap.cs" />
     <Compile Remove="src/Platform/Mac/MacAppWindow.cs" />
     <Compile Remove="src/Platform/Mac/MachStats.cs" />
+    <Compile Remove="src/Platform/Mac/MacNotify.cs" />
     <Compile Remove="src/Platform/Mac/MacOverlayHostLauncher.cs" />
     <Compile Remove="src/Platform/Mac/MacPerformanceProvider.cs" />
     <Compile Remove="src/Platform/Mac/MacProcInfo.cs" />
