@@ -299,6 +299,27 @@
     </Content>
   </ItemGroup>
 
+  <!-- NexusVCam: the Windows MF virtual camera media source, built
+       out-of-band from Bundled/windows/nexus-vcam (CMake + VS Build Tools on
+       the PC; see its NOTES.md). Ships to {output}/vcam/ where the installer
+       registers it and WindowsVirtualCamera resolves the control exports.
+       Unlike openrgb this tolerates absence - hosts without the C++ build
+       (this Mac) still build, and the camera surfaces a clear error at
+       runtime instead. Probes the deploy staging dir first, then the CMake
+       build trees next to the source. -->
+  <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))">
+    <_NexusVCamDll Condition="Exists('Bundled\win-x64\vcam\NexusVCam.dll')">Bundled\win-x64\vcam\NexusVCam.dll</_NexusVCamDll>
+    <_NexusVCamDll Condition="'$(_NexusVCamDll)' == '' AND Exists('Bundled\windows\nexus-vcam\build\Release\NexusVCam.dll')">Bundled\windows\nexus-vcam\build\Release\NexusVCam.dll</_NexusVCamDll>
+    <_NexusVCamDll Condition="'$(_NexusVCamDll)' == '' AND Exists('Bundled\windows\nexus-vcam\build-ninja\NexusVCam.dll')">Bundled\windows\nexus-vcam\build-ninja\NexusVCam.dll</_NexusVCamDll>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(_NexusVCamDll)' != ''">
+    <Content Include="$(_NexusVCamDll)">
+      <Link>vcam\NexusVCam.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
   <!-- dfu-util (statically linked, ~1.8 MB) used by the firmware flasher to
        write images to devices in DFU mode. Unlike openrgb/ffmpeg this binary
        IS committed to the repo (Bundled/win-x64/dfu-util/). Copied to

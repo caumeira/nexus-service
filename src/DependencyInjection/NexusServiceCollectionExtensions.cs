@@ -214,14 +214,21 @@ public static class NexusServiceCollectionExtensions
 
     public static IServiceCollection AddNexusWebcam(this IServiceCollection services)
     {
-        // Linux writes MJPEG passthrough into v4l2loopback; Windows/macOS get
-        // the null sink until their native camera backends land. Optional env
-        // override pins an explicit device node instead of the sysfs name scan.
+        // Linux writes MJPEG passthrough into v4l2loopback (optional env
+        // override pins an explicit device node instead of the sysfs name
+        // scan); Windows decodes H.264/MJPEG via Media Foundation into the
+        // bundled NexusVCam MF virtual camera; macOS keeps the null sink
+        // until its camera-extension backend lands.
         if (OperatingSystem.IsLinux())
         {
             services.AddSingleton<Nexus.Service.Webcam.IVirtualCamera>(_ =>
                 new Nexus.Service.Webcam.Linux.V4l2LoopbackCamera(
                     Environment.GetEnvironmentVariable("NEXUS_WEBCAM_DEVICE")));
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<Nexus.Service.Webcam.IVirtualCamera>(_ =>
+                new Nexus.Service.Webcam.Windows.WindowsVirtualCamera());
         }
         else
         {

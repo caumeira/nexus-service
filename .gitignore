@@ -22,6 +22,9 @@ Bundled/*/openrgb/
 # ffmpeg is vendored at Bundled/{rid}/ffmpeg/ but too large to commit
 # (~96 MB on Windows). Fetched from gyan.dev/ffmpeg at setup time.
 Bundled/*/ffmpeg/
+# NexusVCam media source binary staged for the win publish; built out-of-band
+# on the PC from Bundled/windows/nexus-vcam (CMake + VS Build Tools).
+Bundled/win-x64/vcam/
 
 # OS
 .DS_Store
