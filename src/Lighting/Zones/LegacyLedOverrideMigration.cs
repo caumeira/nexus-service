@@ -11,7 +11,11 @@ namespace Nexus.Service.Lighting.Zones;
 /// DeviceLedOverrides / DeviceAspectRatios. The legacy card id to
 /// (deviceId, segment) mapping is derivable for every provider's default
 /// partition; keys that match no known multi-segment shape migrate as
-/// single-segment devices (segment zero, deviceId = legacy key).
+/// single-segment devices (segment zero, deviceId = legacy key). Keys where
+/// both readings are plausible (a whole-device id whose serial ends in a
+/// dash-digit tail) are written under BOTH interpretations; runtime
+/// resolution keys on exact device ids, so the copy that matches no live
+/// device is inert.
 /// </summary>
 public static class LegacyLedOverrideMigration
 {
@@ -29,21 +33,10 @@ public static class LegacyLedOverrideMigration
                 continue;
             }
             var (deviceId, segment) = MapLegacyCardId(key);
-            if (!devices.DeviceLedOverrides.TryGetValue(deviceId, out var target))
+            AppendOverrides(devices, deviceId, segment, overrides);
+            if (IsAmbiguousZoneSplit(key, deviceId))
             {
-                target = new List<SegmentLedOverride>();
-                devices.DeviceLedOverrides[deviceId] = target;
-            }
-            foreach (var o in overrides)
-            {
-                target.Add(new SegmentLedOverride
-                {
-                    Segment = segment,
-                    LedIndex = o.LedIndex,
-                    U = o.U,
-                    V = o.V,
-                    Disabled = o.Disabled,
-                });
+                AppendOverrides(devices, key, 0, overrides);
             }
         }
         devices.LedMapOverrides.Clear();
@@ -54,9 +47,43 @@ public static class LegacyLedOverrideMigration
             // First mapped card wins when several legacy zone cards collapse
             // onto one device.
             devices.DeviceAspectRatios.TryAdd(deviceId, ratio);
+            if (IsAmbiguousZoneSplit(key, deviceId))
+            {
+                devices.DeviceAspectRatios.TryAdd(key, ratio);
+            }
         }
         devices.LedMapAspectRatios.Clear();
     }
+
+    private static void AppendOverrides(
+        DevicesSettings devices, string deviceId, int segment, List<LedPositionOverride> overrides)
+    {
+        if (!devices.DeviceLedOverrides.TryGetValue(deviceId, out var target))
+        {
+            target = new List<SegmentLedOverride>();
+            devices.DeviceLedOverrides[deviceId] = target;
+        }
+        foreach (var o in overrides)
+        {
+            target.Add(new SegmentLedOverride
+            {
+                Segment = segment,
+                LedIndex = o.LedIndex,
+                U = o.U,
+                V = o.V,
+                Disabled = o.Disabled,
+            });
+        }
+    }
+
+    /// <summary>
+    /// True when a legacy key was split as "{deviceId}-{zoneIndex}" but the
+    /// full key is itself a plausible whole-device id (a serial with a
+    /// dash-digit tail), so the migration cannot tell which device the
+    /// entries belong to and must write both interpretations.
+    /// </summary>
+    private static bool IsAmbiguousZoneSplit(string key, string mappedDeviceId)
+        => mappedDeviceId.Length != key.Length && IsPlausibleOpenRgbDeviceId(key);
 
     /// <summary>
     /// Legacy card id to (deviceId, segment). Known multi-segment shapes:

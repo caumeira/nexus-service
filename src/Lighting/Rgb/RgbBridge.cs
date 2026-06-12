@@ -422,13 +422,18 @@ public sealed class RgbBridge : IDisposable
     }
 
     /// <summary>
-    /// Debounced refresh trigger. OpenRGB can fire several DEVICE_LIST_UPDATED
-    /// in quick succession (one per detected plugin result); we only want to
-    /// query the device list once per burst. Coalesces using a 0/1 flag: the
+    /// Debounced refresh trigger for DEVICE_LIST_UPDATED bursts. OpenRGB can
+    /// fire several in quick succession (one per detected plugin result); we
+    /// only want to query the device list once per burst.
+    /// </summary>
+    private void OnDeviceListChanged() => ScheduleRefresh();
+
+    /// <summary>
+    /// Schedule a debounced device refresh. Coalesces using a 0/1 flag: the
     /// first call schedules the refresh, subsequent calls while the delay is
     /// running or the refresh is in flight are no-ops.
     /// </summary>
-    private void OnDeviceListChanged()
+    private void ScheduleRefresh()
     {
         if (Interlocked.CompareExchange(ref _refreshPending, 1, 0) != 0)
         {
@@ -448,7 +453,7 @@ public sealed class RgbBridge : IDisposable
             catch (Exception ex)
             {
                 Interlocked.Exchange(ref _refreshPending, 0);
-                Console.Error.WriteLine($"[rgb-bridge] hot-plug refresh failed: {ex.Message}");
+                Console.Error.WriteLine($"[rgb-bridge] scheduled refresh failed: {ex.Message}");
             }
         });
     }
@@ -867,11 +872,22 @@ public sealed class RgbBridge : IDisposable
     /// Re-run the device/frame sync after a zone partition change so cards
     /// and engine frames reflect the new zones without waiting for the next
     /// poll tick. No-op while the bridge is inactive (no frames exist then).
+    /// When the bridge is active but the controller is transiently
+    /// disconnected, the request falls back to <see cref="ScheduleRefresh"/>
+    /// so the rebuild is queued rather than dropped; if the controller is
+    /// still down when the debounce elapses, the reconnect path
+    /// (<see cref="EnsureConnectedAsync"/>) rebuilds frames from current
+    /// settings as soon as the connection returns.
     /// </summary>
     public void RequestTopologyRefresh()
     {
-        if (!IsActive || !_controller.IsConnected)
+        if (!IsActive)
             return;
+        if (!_controller.IsConnected)
+        {
+            ScheduleRefresh();
+            return;
+        }
         _ = Task.Run(async () =>
         {
             try

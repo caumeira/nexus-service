@@ -18,6 +18,7 @@ public sealed class StructureSegmentDto
 public sealed class StructureZoneDto
 {
     public string Id { get; set; } = "";
+    /// <summary>Raw zone name without the device prefix (segment default name for default zones, user-given name for custom zones). Card names stay "{DeviceName} - {ZoneName}".</summary>
     public string Name { get; set; } = "";
     public List<ZoneSlice> Slices { get; set; } = new();
 }

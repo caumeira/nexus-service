@@ -44,6 +44,8 @@ public class LegacyLedOverrideMigrationTests : IDisposable
     [InlineData("openrgb-s-123")]           // whole device with a numeric serial
     [InlineData("openrgb-s-ABC")]           // whole device, serial without dashes
     [InlineData("openrgb-s-X-2024")]        // numeric tail too large for a zone index
+    [InlineData("openrgb-s-2")]             // bare stem prefix is not a device id
+    [InlineData("openrgb-l-3")]             // same guard for location-keyed ids
     [InlineData("np50:hub1:port2")]         // hub port card
     [InlineData("hue:bridge:light-3000")]   // smart light
     [InlineData("keeb:SER1")]               // bare keeb hub id
@@ -89,6 +91,9 @@ public class LegacyLedOverrideMigrationTests : IDisposable
         Assert.Single(mobo);
         Assert.Equal(1, mobo[0].Segment);
         Assert.Equal(12, mobo[0].LedIndex);
+        // The dashed-serial reading of the same key is ambiguous, so the
+        // whole-device copy exists too (inert unless that device id is real).
+        Assert.Single(settings.Devices.DeviceLedOverrides["openrgb-s-MB01-1"]);
 
         var port = settings.Devices.DeviceLedOverrides["np50:hub1:port2"];
         Assert.Single(port);
@@ -99,6 +104,75 @@ public class LegacyLedOverrideMigrationTests : IDisposable
 
         Assert.Empty(settings.Devices.LedMapOverrides);
         Assert.Empty(settings.Devices.LedMapAspectRatios);
+    }
+
+    [Fact]
+    public void Ambiguous_dash_digit_serial_double_writes_both_interpretations()
+    {
+        // "openrgb-s-K70-2" reads both as zone 2 of "openrgb-s-K70" and as a
+        // whole device whose sanitized serial is "K70-2". The migration must
+        // not silently pick one and lose (or misfile) the user's overrides.
+        var settings = new NexusSettings();
+        settings.Devices.LedMapOverrides["openrgb-s-K70-2"] = new()
+        {
+            new LedPositionOverride { LedIndex = 4, U = 0.6f, V = 0.7f, Disabled = true },
+        };
+        settings.Devices.LedMapAspectRatios["openrgb-s-K70-2"] = 3.5f;
+
+        LegacyLedOverrideMigration.Apply(settings);
+
+        var split = settings.Devices.DeviceLedOverrides["openrgb-s-K70"];
+        Assert.Single(split);
+        Assert.Equal((2, 4), (split[0].Segment, split[0].LedIndex));
+        Assert.True(split[0].Disabled);
+
+        var whole = settings.Devices.DeviceLedOverrides["openrgb-s-K70-2"];
+        Assert.Single(whole);
+        Assert.Equal((0, 4), (whole[0].Segment, whole[0].LedIndex));
+        Assert.True(whole[0].Disabled);
+
+        Assert.Equal(3.5f, settings.Devices.DeviceAspectRatios["openrgb-s-K70"]);
+        Assert.Equal(3.5f, settings.Devices.DeviceAspectRatios["openrgb-s-K70-2"]);
+    }
+
+    [Fact]
+    public void Bare_stem_dash_digit_key_migrates_as_whole_device_only()
+    {
+        // "openrgb-s-2" would split into the bare stem "openrgb-s", which is
+        // never a device id; the key must migrate as a single-segment device
+        // with no sibling entry.
+        var settings = new NexusSettings();
+        settings.Devices.LedMapOverrides["openrgb-s-2"] = new()
+        {
+            new LedPositionOverride { LedIndex = 1, U = 0.1f, V = 0.2f },
+        };
+
+        LegacyLedOverrideMigration.Apply(settings);
+
+        var whole = settings.Devices.DeviceLedOverrides["openrgb-s-2"];
+        Assert.Single(whole);
+        Assert.Equal((0, 1), (whole[0].Segment, whole[0].LedIndex));
+        Assert.False(settings.Devices.DeviceLedOverrides.ContainsKey("openrgb-s"));
+        Assert.Single(settings.Devices.DeviceLedOverrides);
+    }
+
+    [Fact]
+    public void Unambiguous_zone_split_writes_only_the_split_target()
+    {
+        // Numeric legacy ids ("openrgb-0-1") cannot be whole-device ids with
+        // a dashed serial, so no double-write happens.
+        var settings = new NexusSettings();
+        settings.Devices.LedMapOverrides["openrgb-0-1"] = new()
+        {
+            new LedPositionOverride { LedIndex = 9, U = 0.4f, V = 0.5f },
+        };
+
+        LegacyLedOverrideMigration.Apply(settings);
+
+        Assert.Single(settings.Devices.DeviceLedOverrides);
+        var split = settings.Devices.DeviceLedOverrides["openrgb-0"];
+        Assert.Single(split);
+        Assert.Equal((1, 9), (split[0].Segment, split[0].LedIndex));
     }
 
     // ── load-time migration through JsonConfigStore ──────────────────────

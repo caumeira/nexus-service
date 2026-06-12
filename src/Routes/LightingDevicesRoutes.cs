@@ -212,9 +212,11 @@ public static partial class DevicesRoutes
             return ApiResponse.Ok();
         });
 
-        // LED map: reset user deltas (overrides, ratio, groups) for this
-        // card's zone. An applied community mapping survives; reverting that
-        // is the mapping DELETE.
+        // LED map: reset user deltas (overrides, groups) for this card's
+        // zone. The canvas aspect ratio is device-wide and shared by sibling
+        // zone cards, so it stays; the device-map DELETE owns device-level
+        // reset. An applied community mapping survives; reverting that is
+        // the mapping DELETE.
         app.MapDelete("/devices/lighting-devices/{id}/led-map", (string id,
             Nexus.Service.Persistence.IConfigStore store,
             Nexus.Service.Lighting.Zones.ZoneTopology topology) =>
@@ -227,7 +229,6 @@ public static partial class DevicesRoutes
                     s.Devices.DeviceLedOverrides[ctx.DeviceId] = remaining;
                 else
                     s.Devices.DeviceLedOverrides.Remove(ctx.DeviceId);
-                s.Devices.DeviceAspectRatios.Remove(ctx.DeviceId);
                 s.Devices.LedGroups.Remove(id);
             });
             topology.RefreshCardFrame(id);

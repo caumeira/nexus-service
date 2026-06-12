@@ -9,9 +9,11 @@ namespace Nexus.Service.Lighting.Zones;
 /// provider-authored default) into the zones that become cards and engine
 /// frames. Custom zones carry "{deviceId}:z{ordinal}" ids and
 /// "{DeviceName} - {ZoneName}" names; default zones keep their legacy
-/// identities. A persisted partition that no longer validates against the
-/// live segments (e.g. a fixed count changed across firmware) self-heals by
-/// falling back to the default partition.
+/// identities. Every zone also carries a RawName (segment default name or
+/// the user-given name) for surfaces that already show the device context.
+/// A persisted partition that no longer validates against the live segments
+/// (e.g. a fixed count changed across firmware) self-heals by falling back
+/// to the default partition.
 /// </summary>
 public static class ZoneResolution
 {
@@ -73,6 +75,7 @@ public static class ZoneResolution
             {
                 Id = def.Id,
                 Name = def.Name,
+                RawName = string.IsNullOrEmpty(def.RawName) ? def.Name : def.RawName,
                 DeviceKey = def.DeviceKey,
                 Ordinal = i,
                 IsDefault = true,
@@ -95,6 +98,7 @@ public static class ZoneResolution
             {
                 Id = CustomZoneId(structure.DeviceId, i),
                 Name = $"{structure.Name} - {def.Name}",
+                RawName = def.Name,
                 DeviceKey = "",
                 Ordinal = i,
                 IsDefault = false,

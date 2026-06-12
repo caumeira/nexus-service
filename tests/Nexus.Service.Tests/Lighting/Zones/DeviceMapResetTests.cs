@@ -6,9 +6,10 @@ namespace Nexus.Service.Tests.Lighting.Zones;
 
 /// <summary>
 /// Factory-defaults paths for the device-scoped LED map: the defaults facade
-/// keeps the hardware shape (partition, wired LED counts) while dropping the
-/// user layers (overrides, aspect ratio, applied mappings); the DELETE
-/// mutation removes exactly the device's override and aspect-ratio entries.
+/// keeps the hardware/canvas shape (partition, wired LED counts, aspect
+/// ratio) while dropping the user layers (overrides, applied mappings); the
+/// DELETE mutation removes exactly the device's override and aspect-ratio
+/// entries.
 /// </summary>
 public class DeviceMapResetTests
 {
@@ -34,16 +35,19 @@ public class DeviceMapResetTests
     }
 
     [Fact]
-    public void Defaults_facade_keeps_partition_and_counts_drops_user_layers()
+    public void Defaults_facade_keeps_partition_counts_and_ratio_drops_user_layers()
     {
         var settings = Seeded();
         var facade = DevicesRoutes.DeviceMapDefaultsFacade(settings);
 
         Assert.Same(settings.Devices.ZonePartitions, facade.Devices.ZonePartitions);
         Assert.Same(settings.Devices.ZoneLedCounts, facade.Devices.ZoneLedCounts);
+        // The aspect ratio shapes the editor canvas rather than the LED
+        // layout, so the defaults preview keeps it (same as the per-card
+        // led-map defaults facade).
+        Assert.Same(settings.Devices.DeviceAspectRatios, facade.Devices.DeviceAspectRatios);
 
         Assert.Empty(facade.Devices.DeviceLedOverrides);
-        Assert.Empty(facade.Devices.DeviceAspectRatios);
         Assert.Empty(facade.Devices.AppliedMappings);
 
         // The facade is a read-only view; the persisted snapshot keeps its

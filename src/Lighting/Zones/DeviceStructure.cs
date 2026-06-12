@@ -33,6 +33,8 @@ public sealed class DefaultZoneDef
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
+    /// <summary>Zone name without the device prefix (the segment default name, or "All" for a whole-device zone). Surfaced by the structure endpoint so the editor's zone rail doesn't repeat the device name; <see cref="Name"/> stays the card name.</summary>
+    public string RawName { get; set; } = "";
     public string DeviceKey { get; set; } = "";
     /// <summary>OpenRGB zone index the legacy card carried (drives the legacy resolution path); negative for whole-device and non-OpenRGB zones.</summary>
     public int LegacyZoneIndex { get; set; } = -1;
@@ -66,6 +68,8 @@ public sealed class ResolvedZone
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
+    /// <summary>Raw zone name without the device prefix: the segment default name for default zones, the user-given name for custom zones. Card names keep the full <see cref="Name"/>.</summary>
+    public string RawName { get; set; } = "";
     /// <summary>Cross-install fingerprint. Default zones keep the legacy card key; custom zones carry an empty key (community features hidden until device-scope artifacts land).</summary>
     public string DeviceKey { get; set; } = "";
     public int Ordinal { get; set; }

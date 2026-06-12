@@ -5,9 +5,10 @@ namespace Nexus.Service.Tests.Lighting.Zones;
 
 /// <summary>
 /// Partition resolution: custom zone identity ({deviceId}:z{ordinal} ids,
-/// "{DeviceName} - {ZoneName}" names, empty device keys), zone-local to
-/// (segment, local) index mapping including multi-slice zones, and the
-/// self-heal fallback to the default partition for stale persisted data.
+/// "{DeviceName} - {ZoneName}" names plus the raw zone name, empty device
+/// keys), zone-local to (segment, local) index mapping including multi-slice
+/// zones, and the self-heal fallback to the default partition for stale
+/// persisted data.
 /// </summary>
 public class ZoneResolutionTests
 {
@@ -22,6 +23,7 @@ public class ZoneResolutionTests
         {
             Id = "legacy-a",
             Name = "Device - A",
+            RawName = "A",
             DeviceKey = "usb:1111:2222:zone:0",
             LegacyZoneIndex = 0,
             Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = 10 } },
@@ -30,6 +32,7 @@ public class ZoneResolutionTests
         {
             Id = "legacy-b",
             Name = "Device - B",
+            RawName = "B",
             DeviceKey = "usb:1111:2222:zone:1",
             LegacyZoneIndex = 1,
             Slices = { new ZoneSlice { Segment = 1, Start = 0, Count = 6 } },
@@ -60,6 +63,7 @@ public class ZoneResolutionTests
         Assert.True(zones[0].IsDefault);
         Assert.Equal("legacy-a", zones[0].Id);
         Assert.Equal("Device - A", zones[0].Name);
+        Assert.Equal("A", zones[0].RawName);
         Assert.Equal("usb:1111:2222:zone:0", zones[0].DeviceKey);
         Assert.Equal(0, zones[0].LegacyZoneIndex);
         Assert.Equal(10, zones[0].LedCount);
@@ -79,11 +83,13 @@ public class ZoneResolutionTests
         Assert.False(zones[0].IsDefault);
         Assert.Equal($"{DeviceId}:z0", zones[0].Id);
         Assert.Equal("Device - Ring", zones[0].Name);
+        Assert.Equal("Ring", zones[0].RawName);
         Assert.Equal("", zones[0].DeviceKey);
         Assert.Equal(12, zones[0].LedCount);
         Assert.Equal(-1, zones[0].LegacyZoneIndex);
         Assert.Equal($"{DeviceId}:z1", zones[1].Id);
         Assert.Equal("Device - Strip", zones[1].Name);
+        Assert.Equal("Strip", zones[1].RawName);
         Assert.Equal(4, zones[1].LedCount);
     }
 

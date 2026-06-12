@@ -180,6 +180,10 @@ public class OpenRgbZoneCardsTests
         Assert.Equal(3, mobo.Segments.Count);
         Assert.All(mobo.Segments, s => Assert.True(s.Resizable));
         Assert.Equal(3, mobo.DefaultZones.Count);
+        // Split-motherboard default zones expose the segment default name as
+        // the raw name; the card name keeps the device prefix.
+        Assert.Equal("D_LED1", mobo.DefaultZones[0].RawName);
+        Assert.Equal("B850I AORUS PRO - D_LED1", mobo.DefaultZones[0].Name);
 
         var mouse = OpenRgbZoneSupport.BuildStructure(Mouse(), settings);
         Assert.Equal(2, mouse.Segments.Count);
@@ -187,6 +191,9 @@ public class OpenRgbZoneCardsTests
         Assert.Single(mouse.DefaultZones);
         Assert.Equal("openrgb-s-MS01", mouse.DefaultZones[0].Id);
         Assert.Equal(2, mouse.DefaultZones[0].Slices.Count);
+        // The whole-device default zone's raw name marks the full LED space.
+        Assert.Equal("All", mouse.DefaultZones[0].RawName);
+        Assert.Equal("Gaming Mouse", mouse.DefaultZones[0].Name);
     }
 
     [Fact]

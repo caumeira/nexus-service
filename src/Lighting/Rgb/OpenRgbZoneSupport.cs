@@ -80,6 +80,7 @@ public static class OpenRgbZoneSupport
                 {
                     Id = $"{baseId}-{z}",
                     Name = BuildZoneName(d.Name, d.Zones[z].Name, z),
+                    RawName = structure.Segments[z].Name,
                     DeviceKey = DeviceKeyComputer.ForZone(baseKey, z),
                     LegacyZoneIndex = z,
                     Slices = { new ZoneSlice { Segment = z, Start = 0, Count = structure.Segments[z].LedCount } },
@@ -92,6 +93,7 @@ public static class OpenRgbZoneSupport
             {
                 Id = baseId,
                 Name = d.Name,
+                RawName = "All",
                 DeviceKey = baseKey,
                 LegacyZoneIndex = -1,
             };

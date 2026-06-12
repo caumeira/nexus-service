@@ -46,6 +46,7 @@ public static class KeebZoneSupport
         {
             Id = hubId + KeebLightingDeviceProvider.KeysSuffix,
             Name = $"{KeebHub.ProductName} - Keys",
+            RawName = structure.Segments[KeysSegment].Name,
             DeviceKey = DeviceKeyComputer.ForFirstParty(KeebProtocol.VendorId, KeebProtocol.ProductId, "keys"),
             LegacyZoneIndex = 0,
             Slices = { new ZoneSlice { Segment = KeysSegment, Start = 0, Count = KeebLayout.KeyLedCount } },
@@ -54,6 +55,7 @@ public static class KeebZoneSupport
         {
             Id = hubId + KeebLightingDeviceProvider.UnderglowSuffix,
             Name = $"{KeebHub.ProductName} - Underglow",
+            RawName = structure.Segments[UnderglowSegment].Name,
             DeviceKey = DeviceKeyComputer.ForFirstParty(KeebProtocol.VendorId, KeebProtocol.ProductId, "underglow"),
             LegacyZoneIndex = 1,
             Slices = { new ZoneSlice { Segment = UnderglowSegment, Start = 0, Count = KeebLayout.SurroundLedCount } },

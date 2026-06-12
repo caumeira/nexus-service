@@ -118,6 +118,15 @@ public class KeebZoneCardsTests
         Assert.Equal(KeebLayout.KeyLedCount - 40, cards[1].LedCount);
         Assert.Equal(KeebLayout.SurroundLedCount, cards[2].LedCount);
         Assert.Equal("strip", cards[2].IconType);
+
+        // Default canvas slots cycle by ordinal: consecutive zones never
+        // share a slot, so 3+ zone partitions don't stack past the first.
+        var (x0, y0, _, _) = KeebLightingDeviceProvider.DefaultKeebLayout(0);
+        var (x1, y1, _, _) = KeebLightingDeviceProvider.DefaultKeebLayout(1);
+        Assert.Equal((x0, y0), (cards[0].CanvasX, cards[0].CanvasY));
+        Assert.Equal((x1, y1), (cards[1].CanvasX, cards[1].CanvasY));
+        Assert.Equal((x0, y0), (cards[2].CanvasX, cards[2].CanvasY));
+        Assert.NotEqual((cards[1].CanvasX, cards[1].CanvasY), (cards[2].CanvasX, cards[2].CanvasY));
     }
 
     [Fact]
@@ -133,5 +142,9 @@ public class KeebZoneCardsTests
         Assert.Equal(2, structure.DefaultZones.Count);
         Assert.Equal(HubId + ":keys", structure.DefaultZones[0].Id);
         Assert.Equal(HubId + ":underglow", structure.DefaultZones[1].Id);
+        // Raw names are the segment default names (no device prefix); the
+        // card names keep the "{DeviceName} - {ZoneName}" form.
+        Assert.Equal("Keys", structure.DefaultZones[0].RawName);
+        Assert.Equal("Underglow", structure.DefaultZones[1].RawName);
     }
 }

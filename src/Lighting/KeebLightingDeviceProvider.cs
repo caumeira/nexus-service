@@ -94,7 +94,7 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
             for (var i = 0; i < disabled.Count; i++)
             { if (disabled[i] == zone.Id) { isOn = false; break; } }
             prefs.TryGetValue(zone.Id, out var pref);
-            var (defX, defY, defW, defH) = DefaultKeebLayout(zone.Ordinal == 0 ? 0 : 1);
+            var (defX, defY, defW, defH) = DefaultKeebLayout(zone.Ordinal);
             layouts.TryGetValue(zone.Id, out var layout);
             cards.Add(new LightingDevice
             {
@@ -248,7 +248,7 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
         var frames = new List<DeviceFrame>(zones.Count);
         foreach (var zone in zones)
         {
-            frames.Add(BuildOrReuseFrame(zone.Id, zone.FrameLedCount, zone.Ordinal == 0 ? 0 : 1, layouts, ref idx));
+            frames.Add(BuildOrReuseFrame(zone.Id, zone.FrameLedCount, zone.Ordinal, layouts, ref idx));
         }
         if (_frameCache.Count > frames.Count)
         {
@@ -262,10 +262,10 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
     }
 
     private DeviceFrame BuildOrReuseFrame(
-        string id, int ledCount, int zoneIndex,
+        string id, int ledCount, int slot,
         IReadOnlyDictionary<string, Persistence.DeviceLayout> layouts, ref int idx)
     {
-        var (defX, defY, defW, defH) = DefaultKeebLayout(zoneIndex);
+        var (defX, defY, defW, defH) = DefaultKeebLayout(slot);
         layouts.TryGetValue(id, out var layout);
         var rot = ((((layout?.Rotation ?? 0) % 360) + 360) % 360);
         var thisIdx = idx++;
@@ -287,8 +287,11 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
 
     /// <summary>
     /// Default canvas slots: a wide keys band and a thinner underglow band
-    /// beneath it (canvas is 0..1000 × 0..600). User can drag afterward.
+    /// beneath it (canvas is 0..1000 x 0..600). Slots cycle by zone ordinal
+    /// (same wrap rule as the OpenRGB grids) so a custom partition with many
+    /// zones alternates between the two bands instead of stacking everything
+    /// past the first zone on one slot. User can drag afterward.
     /// </summary>
-    internal static (float x, float y, float w, float h) DefaultKeebLayout(int zoneIndex) =>
-        zoneIndex == 0 ? (120f, 150f, 760f, 140f) : (120f, 300f, 760f, 50f);
+    internal static (float x, float y, float w, float h) DefaultKeebLayout(int slot) =>
+        slot % 2 == 0 ? (120f, 150f, 760f, 140f) : (120f, 300f, 760f, 50f);
 }

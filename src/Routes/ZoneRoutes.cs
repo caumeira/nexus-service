@@ -49,7 +49,10 @@ public static partial class DevicesRoutes
             }
             foreach (var zone in zones)
             {
-                var dto = new StructureZoneDto { Id = zone.Id, Name = zone.Name };
+                // RawName, not the full card name: the editor's zone rail
+                // already shows the device, so chips carry just the zone
+                // ("Keys", "Digital LED 1", the user-given name).
+                var dto = new StructureZoneDto { Id = zone.Id, Name = zone.RawName };
                 foreach (var slice in zone.Slices)
                     dto.Slices.Add(new ZoneSlice { Segment = slice.Segment, Start = slice.Start, Count = slice.Count });
                 response.Zones.Add(dto);
@@ -257,9 +260,10 @@ public static partial class DevicesRoutes
 
     /// <summary>
     /// Factory-defaults view of the settings for the device-map GET: keep the
-    /// partition and wired LED counts (they describe the hardware as
-    /// configured) but drop the override, aspect-ratio, and applied-mapping
-    /// layers so the resolver yields provider defaults.
+    /// partition, wired LED counts, and canvas aspect ratio (they describe
+    /// the hardware as wired and the editor canvas shape, matching the
+    /// per-card led-map defaults preview) but drop the override and
+    /// applied-mapping layers so the resolver yields provider defaults.
     /// </summary>
     internal static NexusSettings DeviceMapDefaultsFacade(NexusSettings settings) => new()
     {
@@ -267,6 +271,7 @@ public static partial class DevicesRoutes
         {
             ZonePartitions = settings.Devices.ZonePartitions,
             ZoneLedCounts = settings.Devices.ZoneLedCounts,
+            DeviceAspectRatios = settings.Devices.DeviceAspectRatios,
         },
     };
 
