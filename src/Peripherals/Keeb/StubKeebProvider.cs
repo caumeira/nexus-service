@@ -29,11 +29,24 @@ public sealed class StubKeebProvider : IKeebProvider, IInputterProvider
             AltTabDisabled = k.GameMode.AltTab,
             ShiftKeyDisabled = k.GameMode.ShiftTab,
             WindowsKeyDisabled = k.GameMode.WindowsKey,
+            RotaryLeft = k.RotaryLeft,
+            RotaryRight = k.RotaryRight,
+            RotarySensitivity = k.RotarySensitivity,
             AnimationMode = k.FirmwareLighting.AnimationMode,
             Speed = k.FirmwareLighting.Speed,
             Direction = k.FirmwareLighting.Direction,
             Brightness = k.FirmwareLighting.Brightness,
             KeyIndicator = k.FirmwareLighting.KeyIndicator,
+            KeyReactive = k.FirmwareLighting.KeyReactive,
+            KeyReactiveMask = k.FirmwareLighting.KeyReactiveMask,
+            KeyReactiveMode = k.FirmwareLighting.KeyReactiveMode,
+            KeyReactiveColor = new RGBA
+            {
+                R = k.FirmwareLighting.KeyReactiveColor.R,
+                G = k.FirmwareLighting.KeyReactiveColor.G,
+                B = k.FirmwareLighting.KeyReactiveColor.B,
+                A = k.FirmwareLighting.KeyReactiveColor.A,
+            },
         };
     }
 

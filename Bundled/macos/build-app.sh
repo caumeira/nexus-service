@@ -42,6 +42,14 @@ bash "$SCRIPT_DIR/audio-helper/build-helper.sh" "$APP/Contents/MacOS"
 # widget is unpinned.
 bash "$SCRIPT_DIR/overlay-helper/build-helper.sh" "$APP/Contents/MacOS"
 
+# Build and copy the camera helper (VideoToolbox decode + CMIO sink feed) and
+# the activation dylib the service P/Invokes for OSSystemExtensionRequest.
+bash "$SCRIPT_DIR/camera-helper/build.sh" "$APP/Contents/MacOS"
+
+# Embed the CMIO camera extension. Activation additionally requires the app
+# to be signed with a real identity and installed in /Applications.
+bash "$SCRIPT_DIR/camera-extension/build-extension.sh" "$APP/Contents/Library/SystemExtensions"
+
 # Native dylibs (libe_sqlite3, libglfw, etc) are dlopen'd at runtime from
 # AppContext.BaseDirectory. Publish drops them at the staging root next to
 # the exe; mirror that placement inside the bundle. Single-level glob is
@@ -84,5 +92,39 @@ chmod +x "$APP/Contents/MacOS/Nexus"
 
 # Remove extended attributes that would trigger Gatekeeper quarantine warnings
 xattr -cr "$APP" 2>/dev/null || true
+
+# Optional dev signing: the system extension only activates from a bundle
+# signed with a real identity (plus a provisioning profile carrying the
+# system-extension.install entitlement). Default builds stay ad-hoc; CI and
+# smoke builds are unaffected. Set:
+#   NEXUS_MAC_SIGN_IDENTITY  codesign identity string
+#   NEXUS_MAC_PROFILE        provisioning profile to embed (optional)
+#   NEXUS_MAC_APP_ENTITLEMENTS  app entitlements plist (optional)
+if [ -n "${NEXUS_MAC_SIGN_IDENTITY:-}" ]; then
+    # The extension is NOT re-signed here: xcodebuild already signed it with
+    # build-setting expansion ($(TeamIdentifierPrefix) in the app group and
+    # mach name). codesign cannot expand those, so a re-sign with the raw
+    # entitlements file ships literal variables and the cmio category
+    # delegate rejects the extension at activation.
+    [ -n "${NEXUS_MAC_PROFILE:-}" ] && cp "$NEXUS_MAC_PROFILE" "$APP/Contents/embedded.provisionprofile"
+    # Sign the main binary, not the bundle: data trees under Contents/MacOS
+    # (wwwroot, openrgb, ffmpeg) break whole-bundle resource sealing, and
+    # sysextd validates the requesting process signature + entitlement, not
+    # the outer seal. A stale partial seal must go or verification trips.
+    rm -rf "$APP/Contents/_CodeSignature"
+    # Sign the binary outside the bundle: in place, codesign promotes the
+    # main executable to a whole-bundle sign and trips on the data trees.
+    # The signature lives in the Mach-O and survives the move back.
+    SIGN_TMP="$(mktemp -d)/Nexus"
+    cp "$APP/Contents/MacOS/Nexus" "$SIGN_TMP"
+    if [ -n "${NEXUS_MAC_APP_ENTITLEMENTS:-}" ]; then
+        codesign --force --identifier com.hellonexus.panel.service --entitlements "$NEXUS_MAC_APP_ENTITLEMENTS" -s "$NEXUS_MAC_SIGN_IDENTITY" "$SIGN_TMP"
+    else
+        codesign --force --identifier com.hellonexus.panel.service -s "$NEXUS_MAC_SIGN_IDENTITY" "$SIGN_TMP"
+    fi
+    mv "$SIGN_TMP" "$APP/Contents/MacOS/Nexus"
+    chmod +x "$APP/Contents/MacOS/Nexus"
+    echo "Signed: $APP/Contents/MacOS/Nexus ($NEXUS_MAC_SIGN_IDENTITY)"
+fi
 
 echo "Built: $APP"

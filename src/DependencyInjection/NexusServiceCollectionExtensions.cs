@@ -220,6 +220,38 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
+    public static IServiceCollection AddNexusWebcam(this IServiceCollection services)
+    {
+        // Linux writes MJPEG passthrough into v4l2loopback (optional env
+        // override pins an explicit device node instead of the sysfs name
+        // scan); Windows decodes H.264/MJPEG via Media Foundation into the
+        // bundled NexusVCam MF virtual camera; macOS pipes encoded frames to
+        // the bundled camera helper, which decodes and feeds the CMIO camera
+        // extension's sink stream.
+        if (OperatingSystem.IsLinux())
+        {
+            services.AddSingleton<Nexus.Service.Webcam.IVirtualCamera>(_ =>
+                new Nexus.Service.Webcam.Linux.V4l2LoopbackCamera(
+                    Environment.GetEnvironmentVariable("NEXUS_WEBCAM_DEVICE")));
+        }
+        else if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<Nexus.Service.Webcam.IVirtualCamera>(_ =>
+                new Nexus.Service.Webcam.Windows.WindowsVirtualCamera());
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            services.AddSingleton<Nexus.Service.Webcam.IVirtualCamera>(_ =>
+                new Nexus.Service.Webcam.Mac.CmioCamera());
+        }
+        else
+        {
+            services.AddSingleton<Nexus.Service.Webcam.IVirtualCamera, Nexus.Service.Webcam.NullVirtualCamera>();
+        }
+        services.AddSingleton<Nexus.Service.Webcam.WebcamSessionManager>();
+        return services;
+    }
+
     public static IServiceCollection AddNexusDevices(this IServiceCollection services)
     {
         // CNVS hub: serial-port discovery + hub singleton + connection

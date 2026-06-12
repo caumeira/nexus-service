@@ -49,6 +49,11 @@ public class GetKeebSettingsResponse : ApiResponse
     public bool WindowsKeyDisabled { get; set; }
     public bool AltF4Disabled { get; set; }
     public bool AltTabDisabled { get; set; }
+    // Rotary assignment is persisted desired-state like everything else here;
+    // without it the panel cannot restore the wheels after a reload.
+    public string RotaryLeft { get; set; } = "";
+    public string RotaryRight { get; set; } = "";
+    public string RotarySensitivity { get; set; } = "Balanced";
     public string AnimationMode { get; set; } = "Static";
     public string Speed { get; set; } = "Medium";
     public string Direction { get; set; } = "Forward";

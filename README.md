@@ -14,6 +14,7 @@ This is the engine of [Nexus](https://hellonexus.com). The other repos are clien
 - **Apps / widgets** - host for the `nexus.app/1` SDK apps shipped in [`nexus-apps`](https://github.com/hello-nexus/nexus-apps), with sensor bindings and a sandboxed Web Worker runtime. Legacy `nexus.widget/2` manifests still load.
 - **Activity** - screen-time, app detection, Steam / Discord / OBS integrations, shortcuts.
 - **Remote access** - relay client so the phone panel keeps working away from the LAN (nearest regional relay picked via the cloud API).
+- **Webcam** - phone-as-webcam: the mobile companion streams its camera into an OS virtual camera device (`Webcam/`, per-OS backends).
 - **Pairing + auth** - local TLS on `:9443` with SPKI-pinned client sessions (the mobile apps and the dashboard), 6-digit pair codes with SAS verification, host-side approval.
 - **Tray + lifecycle** - Windows service install / scheduled-task launcher / system tray. macOS launchd. Linux root systemd daemon that adopts the login session for tray and media. Single-instance, self-elevation when needed.
 
@@ -108,6 +109,12 @@ dotnet publish -c Release -r linux-x64 -o publish-linux
 
 All publishes fail loudly if the bundled OpenRGB binaries aren't present under `Bundled/{rid}/openrgb/`. Build them from [`nexus-rgb`](https://github.com/hello-nexus/nexus-rgb) first - error messages from the csproj spell out the exact commands.
 
+The bundled ffmpeg has no separate repo: it is stock upstream ffmpeg compiled by `scripts/build-ffmpeg-minimal.sh` with a minimal LGPL-only configuration (image/gif/video decode for media import, scale/pad, screen and audio capture). It is optional at build time; produce it once per RID with:
+
+```sh
+bash scripts/fetch-ffmpeg.sh all    # or: mac | win | linux
+```
+
 ## Installers
 
 - **Windows** - after the publish, assemble `Nexus-Setup.exe`:
@@ -143,4 +150,4 @@ Installer artifacts are published to [`hello-nexus/nexus-releases`](https://gith
 
 ## Third-party
 
-OpenRGB (GPLv2) ships as a child process, source published at [`hello-nexus/openrgb-headless`](https://github.com/hello-nexus/openrgb-headless). LibreHardwareMonitor, PawnIO, and the bundled Windows shims are listed in [`THIRD-PARTY.md`](THIRD-PARTY.md).
+OpenRGB (GPLv2) ships as a child process, source published at [`hello-nexus/openrgb-headless`](https://github.com/hello-nexus/openrgb-headless). A minimal LGPL-only ffmpeg build (`scripts/build-ffmpeg-minimal.sh`) ships alongside it; both are detailed with license texts in [`THIRD-PARTY.md`](THIRD-PARTY.md). LibreHardwareMonitor, PawnIO, and dfu-util are also bundled.

@@ -20,3 +20,19 @@ licenses. Their respective license texts ship alongside the bundled binaries.
   (Widgets, Gui, Core, DBus) so the SDK server can ship as a small Qt-less
   binary. The patches are tiny and viewable in the fork's diff against
   upstream `master`.
+
+## FFmpeg (minimal build)
+
+- **Project**: FFmpeg
+- **Upstream**: https://ffmpeg.org
+- **License**: GNU Lesser General Public License version 2.1 or later
+  (LGPL-2.1-or-later)
+- **License text**: shipped with the bundled binary at `ffmpeg/LICENSE.txt`
+  in the publish output
+- **Build**: compiled from unmodified upstream release source by
+  `scripts/build-ffmpeg-minimal.sh` with an LGPL-only configuration
+  (`--disable-gpl --disable-nonfree`); no GPL components are enabled and no
+  source changes are made, so the corresponding source is the upstream
+  release tarball of the pinned version
+- **Communication boundary**: launched as a separate child process; this
+  service does not link against the FFmpeg libraries

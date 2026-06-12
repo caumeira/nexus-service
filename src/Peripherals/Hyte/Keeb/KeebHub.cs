@@ -213,6 +213,52 @@ public sealed class KeebHub : IDisposable
         }
     }
 
+    /// <summary>
+    /// Read a layer's raw key-assignment pages (0x84 F2) for the active
+    /// profile. Diagnostic only: arms the read and pulls the layer's
+    /// output-report pages back. Returns null when disconnected or any page
+    /// read times out. Used to reverse-engineer the firmware's slot order on
+    /// the bench without ever writing the table.
+    /// </summary>
+    public byte[]? ReadLayerRaw(int profile, int layer)
+    {
+        lock (_io)
+        {
+            if (!EnsureConnectedLocked()) return null;
+            var dev = _device!;
+            try
+            {
+                if (!dev.SetFeature(KeebProtocol.LayerFeature(KeebProtocol.Read, profile, layer))) return null;
+                var pages = new byte[KeebProtocol.LayerPageCount * KeebLayout.PageSize];
+                for (var p = 0; p < KeebProtocol.LayerPageCount; p++)
+                {
+                    var buf = new byte[KeebLayout.PageSize];
+                    var n = dev.Read(buf, 250);
+                    if (n <= 0)
+                    {
+                        // Bail mid-burst: late pages could still land on this
+                        // handle and a later ReadSettings would consume one as
+                        // stale data. Drop the handle; the next op re-opens.
+                        ServiceLog.Error($"[keeb] layer read timed out at page {p}; dropping interface");
+                        try { _device?.Dispose(); } catch { /* best effort */ }
+                        _device = null;
+                        return null;
+                    }
+                    if (n < KeebLayout.PageSize)
+                        ServiceLog.Info($"[keeb] layer page {p} short read ({n} bytes)");
+                    System.Array.Copy(buf, 0, pages, p * KeebLayout.PageSize, System.Math.Min(n, KeebLayout.PageSize));
+                }
+                return pages;
+            }
+            catch (ObjectDisposedException) { return null; }
+            catch (Exception ex)
+            {
+                ServiceLog.Error($"[keeb] layer read failed: {ex.GetType().Name}: {ex.Message}");
+                return null;
+            }
+        }
+    }
+
     /// <summary>Write a macro's 4 pages (0xF3) for <paramref name="index"/> (0..31).</summary>
     public bool WriteMacro(int index, byte[] pages)
     {
