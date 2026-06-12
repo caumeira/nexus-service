@@ -153,6 +153,8 @@ public static partial class DevicesRoutes
                     AppJsonContext.Default.PublishMappingResponse);
             }
             var name = card.Name.Trim();
+            if (name.Length == 0)
+                name = card.DeviceKey;
             if (name.Length > MappingSchema.MaxNameLength)
                 name = name.Substring(0, MappingSchema.MaxNameLength);
             var artifact = mappings.Export(id, name);
