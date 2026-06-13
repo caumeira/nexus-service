@@ -14,6 +14,12 @@
     <RootNamespace>Nexus.Service</RootNamespace>
     <AssemblyName>Nexus</AssemblyName>
     <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- Workstation GC: this is a background hardware service, not a throughput
+         server. The Web SDK default (Server GC) commits a per-core heap, which
+         on a 16-core box reserves ~90 MB to hold ~30 MB live. Workstation keeps
+         one heap; gen0 collects more often but cheaper, irrelevant at this
+         allocation rate. Background (concurrent) GC stays on. -->
+    <ServerGarbageCollection>false</ServerGarbageCollection>
     <ApplicationIcon>icon.ico</ApplicationIcon>
     <PublishAot>true</PublishAot>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
