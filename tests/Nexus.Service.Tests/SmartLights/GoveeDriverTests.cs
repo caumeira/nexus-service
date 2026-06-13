@@ -190,6 +190,104 @@ public class GoveeDriverTests : IDisposable
     }
 
     [Fact]
+    public async Task SetColor_onRazerDevice_streamsRazerFramesNotColorwc()
+    {
+        // The color-route path: a solid color on a razer strip must take over via
+        // the razer stream — single-color colorwc can't override its built-in scene.
+        var dir = Path.Combine(Path.GetTempPath(), "nexus-gv-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        using var throttle = new NetworkSendThrottle();
+        try
+        {
+            var store = new JsonConfigStore(Path.Combine(dir, "settings.json"));
+            var provider = new SmartLightProvider(new ILightDriver[] { _driver }, store, throttle);
+            var pair = await provider.PairAsync(new Nexus.Service.Models.SmartLights.PairSmartLightBody
+            {
+                Brand = "govee", Host = "127.0.0.1", StableKey = _device.DeviceId, Name = "Govee H619A",
+            }, CancellationToken.None);
+            Assert.True(pair.Ok, pair.Message);
+            var id = $"govee:{_device.DeviceId}";
+
+            provider.SetHue(id, 0.33f);
+            provider.SetSaturation(id, 1f);
+
+            await TestWait.ForAsync(() => _device.RazerPackets.Count >= 2);
+            var packets = _device.RazerPackets.ToArray();
+            Assert.Equal(GoveePackets.BuildRazerMode(enable: true), packets[0]);
+            Assert.Equal(0xB0, packets[1][3]);     // per-segment color frame
+            Assert.Equal(20, packets[1][5]);       // all 20 segments
+            Assert.True(_device.Colors.IsEmpty);   // never fell back to colorwc
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task MaintainStreamedStatic_rePushesToKeepTakeoverAlive()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "nexus-gv-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        using var throttle = new NetworkSendThrottle();
+        try
+        {
+            var store = new JsonConfigStore(Path.Combine(dir, "settings.json"));
+            var provider = new SmartLightProvider(new ILightDriver[] { _driver }, store, throttle);
+            var pair = await provider.PairAsync(new Nexus.Service.Models.SmartLights.PairSmartLightBody
+            {
+                Brand = "govee", Host = "127.0.0.1", StableKey = _device.DeviceId, Name = "Govee H619A",
+            }, CancellationToken.None);
+            Assert.True(pair.Ok, pair.Message);
+            var id = $"govee:{_device.DeviceId}";
+
+            provider.SetHue(id, 0.5f);
+            await TestWait.ForAsync(() => _device.RazerPackets.Count >= 2);
+            var before = _device.RazerPackets.Count;
+
+            provider.MaintainStreamedStatic();
+            await TestWait.ForAsync(() => _device.RazerPackets.Count > before);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public async Task SetEnabled_false_stopsStreamingDisabledDevice()
+    {
+        var dir = Path.Combine(Path.GetTempPath(), "nexus-gv-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        using var throttle = new NetworkSendThrottle();
+        try
+        {
+            var store = new JsonConfigStore(Path.Combine(dir, "settings.json"));
+            var provider = new SmartLightProvider(new ILightDriver[] { _driver }, store, throttle);
+            var pair = await provider.PairAsync(new Nexus.Service.Models.SmartLights.PairSmartLightBody
+            {
+                Brand = "govee", Host = "127.0.0.1", StableKey = _device.DeviceId, Name = "Govee H619A",
+            }, CancellationToken.None);
+            Assert.True(pair.Ok, pair.Message);
+            var id = $"govee:{_device.DeviceId}";
+
+            provider.SetHue(id, 0.5f);
+            await TestWait.ForAsync(() => _device.RazerPackets.Count >= 2);
+
+            provider.SetEnabled(id, false);
+            await Task.Delay(150);                  // let any in-flight send drain
+            var afterDisable = _device.RazerPackets.Count;
+            provider.MaintainStreamedStatic();      // must not re-stream a disabled light
+            await Task.Delay(150);
+            Assert.Equal(afterDisable, _device.RazerPackets.Count);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
     public async Task Ping_reflectsDeviceReachability()
     {
         var dev = PairedDevice("""{"sku":"H619A","segments":20,"razer":true}""");

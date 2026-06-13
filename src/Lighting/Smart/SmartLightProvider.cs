@@ -40,6 +40,10 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     private readonly ConcurrentDictionary<string, LightFramePlan> _plans = new();
     // id -> reused DeviceFrame so the per-LED buffer survives RgbBridge rebuilds.
     private readonly Dictionary<string, DeviceFrame> _frames = new();
+    // Smart lights whose realtime mode drops a manual color without a continuous
+    // stream (plan.StaticNeedsStreaming, e.g. Govee razer/DreamView). The writer
+    // re-pushes these while no effect runs. Membership is set in PushStaticFrom.
+    private readonly ConcurrentDictionary<string, byte> _streamedStatic = new();
 
     public event Action? DevicesChanged;
 
@@ -113,7 +117,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
                 Brightness = brightness,
                 Hue = hue,
                 Saturation = saturation,
-                LedCount = 1,
+                LedCount = LedCountFor(cfg),
                 CanvasX = layout?.X ?? defX,
                 CanvasY = layout?.Y ?? defY,
                 CanvasW = layout?.W ?? defW,
@@ -398,28 +402,59 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         }
     }
 
-    private void PushStatic(string id)
+    /// <summary>Re-push the static color for lights whose realtime mode lapses
+    /// without a continuous stream (plan.StaticNeedsStreaming, e.g. Govee
+    /// razer/DreamView reverts ~60s without frames). Called by the frame writer on
+    /// a keep-alive cadence while no effect runs; no-op when none are driven.</summary>
+    public void MaintainStreamedStatic()
     {
-        // Resolve a fresh snapshot (control can run before BuildFrames populated
-        // the cache, e.g. right after pairing).
-        if (!_cache.ContainsKey(id))
-        {
-            var dev = Resolve(id);
-            if (dev is not null) _cache[id] = dev;
-        }
-        PushStaticFrom(id, _store.Load());
+        if (_streamedStatic.IsEmpty) return;
+        var s = _store.Load();
+        foreach (var id in _streamedStatic.Keys)
+            PushStaticFrom(id, s);
     }
+
+    private void PushStatic(string id) => PushStaticFrom(id, _store.Load());
 
     private void PushStaticFrom(string id, NexusSettings s)
     {
-        var disabled = s.Devices.DisabledLightingDevices.Contains(id);
+        // Control can run before BuildFrames populated the cache (e.g. right
+        // after pairing) — resolve a snapshot so SubmitFrame has a device.
+        if (!_cache.TryGetValue(id, out var dev))
+        {
+            dev = Resolve(id);
+            if (dev is null) return;
+            _cache[id] = dev;
+        }
+        var on = !s.Devices.DisabledLightingDevices.Contains(id);
         float hue = 0f, sat = 1f; int bri = 100;
         if (s.Devices.LightingDevicePrefs.TryGetValue(id, out var pref))
         { hue = pref.Hue; sat = pref.Saturation; bri = pref.Brightness; }
         var global = Math.Clamp(s.Lighting.GlobalBrightness, 0f, 1f);
         var (r, g, b) = ColorMath.HsvToRgb(hue, sat, 1f);
         var b01 = global * Math.Clamp(bri, 0, 100) / 100f;
-        SubmitFrame(id, new LightFrame(On: !disabled, r, g, b, b01));
+
+        // A device whose realtime mode lapses without a stream
+        // (plan.StaticNeedsStreaming, e.g. Govee) can't hold a single-color
+        // command while a built-in scene runs — only a per-segment frame takes
+        // over. Send a solid zoned frame and mark it for the writer's keep-alive.
+        // Devices that hold a manual color (bulbs, Nanoleaf) get the single path.
+        byte[]? zones = null;
+        // Prefer the cached plan (BuildFrames) — PlanFrames allocates a sample
+        // map, and this runs every writer tick for a streamed-static device.
+        var plan = _plans.TryGetValue(id, out var cachedPlan) ? cachedPlan : DriverForId(id)?.PlanFrames(dev);
+        if (on && plan is { StaticNeedsStreaming: true, LedCount: > 1 })
+        {
+            var n = plan.LedCount;
+            zones = new byte[n * 3];
+            for (var i = 0; i < n; i++) { zones[i * 3] = r; zones[i * 3 + 1] = g; zones[i * 3 + 2] = b; }
+            _streamedStatic[id] = 0;
+        }
+        else
+        {
+            _streamedStatic.TryRemove(id, out _);
+        }
+        SubmitFrame(id, new LightFrame(On: on, r, g, b, b01, zones));
     }
 
     // ── Routes surface (discover / pair / list / remove) ─────────────────────
@@ -461,7 +496,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
                 Host = cfg.Host,
                 Online = online,
                 Enabled = cfg.Enabled,
-                LedCount = 1,
+                LedCount = LedCountFor(cfg),
             });
         }
         return resp;
@@ -559,6 +594,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         _online.TryRemove(id, out _);
         _cache.TryRemove(id, out _);
         _plans.TryRemove(id, out _);
+        _streamedStatic.TryRemove(id, out _);
         FireChanged();
     }
 
@@ -572,7 +608,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
             foreach (var cfg in s.SmartLights.Devices)
                 if (cfg.Id == id) { cfg.Enabled = enabled; break; }
         });
-        if (!enabled) _throttle.Remove(id); // stop any in-flight sends
+        if (!enabled) { _throttle.Remove(id); _streamedStatic.TryRemove(id, out _); } // stop streaming a disabled light
         FireChanged();
     }
 
@@ -597,6 +633,14 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         Enabled = cfg.Enabled,
         Online = !_online.TryGetValue(cfg.Id, out var on) || on,
     };
+
+    // Per-zone count the UI shows: zone-addressable strips (Govee razer segments)
+    // report their segment count; single-color lamps report 1.
+    private int LedCountFor(SmartLightConfig cfg)
+    {
+        var plan = _plans.TryGetValue(cfg.Id, out var cachedPlan) ? cachedPlan : DriverForId(cfg.Id)?.PlanFrames(ToSmartLight(cfg));
+        return plan is { AverageToSingle: false } ? Math.Max(1, plan.LedCount) : 1;
+    }
 
     private void FireChanged()
     {

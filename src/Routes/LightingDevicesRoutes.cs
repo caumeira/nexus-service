@@ -75,6 +75,12 @@ public static partial class DevicesRoutes
             ld.SetBrightness(body.Id, body.Brightness);
             return ApiResponse.Ok();
         });
+        app.MapPost("/devices/lighting-devices/color", (SetLightingDeviceColor body, ILightingDeviceProvider ld) =>
+        {
+            ld.SetHue(body.Id, body.Hue);
+            ld.SetSaturation(body.Id, body.Saturation);
+            return ApiResponse.Ok();
+        });
 
         // Motherboard ARGB zone LED count - persists and applies via OpenRGB RESIZEZONE
         app.MapPost("/devices/lighting-devices/zone-size", (SetZoneLedCountBody body, ILightingDeviceProvider ld) =>

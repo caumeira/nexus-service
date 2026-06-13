@@ -14,9 +14,12 @@ public sealed record DiscoveredLight(string Brand, string Host, string Name, str
 /// color rather than a single point sample. Zone-addressable devices
 /// (Nanoleaf panels, Govee segments) set AverageToSingle=false and may supply
 /// per-LED canvas UVs (e.g. real panel positions) used instead of the default
-/// sample grid.
+/// sample grid. <paramref name="StaticNeedsStreaming"/> marks devices whose
+/// realtime mode drops a manual color unless frames keep flowing (Govee
+/// razer/DreamView): the provider then streams a solid zoned frame and the
+/// writer keeps it alive instead of sending one colorwc.
 /// </summary>
-public sealed record LightFramePlan(int LedCount, bool AverageToSingle, float[]? LedU = null, float[]? LedV = null);
+public sealed record LightFramePlan(int LedCount, bool AverageToSingle, float[]? LedU = null, float[]? LedV = null, bool StaticNeedsStreaming = false);
 
 /// <summary>The latest desired state for one light. Coalesced by the throttle
 /// and pushed to the device by its driver. Used for both effect streaming and

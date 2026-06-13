@@ -136,9 +136,17 @@ public sealed class GoveeDriver : ILightDriver
     public LightFramePlan PlanFrames(SmartLight dev)
     {
         var extra = GetExtra(dev);
-        return extra?.Razer == true
-            ? new LightFramePlan(Math.Max(1, extra.Segments), AverageToSingle: false)
-            : new LightFramePlan(16, AverageToSingle: true);
+        if (extra?.Razer != true)
+            return new LightFramePlan(16, AverageToSingle: true);
+        // Strip ICs lie on a line: sample the canvas left→right at mid-height so
+        // effects/screen-mirror map along the strip instead of a square grid.
+        var n = Math.Max(1, extra.Segments);
+        var u = new float[n];
+        var v = new float[n];
+        for (var i = 0; i < n; i++) { u[i] = n > 1 ? (float)i / (n - 1) : 0.5f; v[i] = 0.5f; }
+        // The realtime ("razer"/DreamView) mode drops a manual color ~60s without
+        // frames, so a static color must be streamed, not sent once.
+        return new LightFramePlan(n, AverageToSingle: false, u, v, StaticNeedsStreaming: true);
     }
 
     public async Task SendAsync(SmartLight dev, LightFrame frame, CancellationToken ct)

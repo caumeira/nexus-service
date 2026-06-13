@@ -83,6 +83,10 @@ public sealed class SmartLightFrameWriter : IHostedService, IDisposable
                 _provider.RestoreStatic();
                 _wasStreaming = false;
             }
+            // Streamed-static devices (Govee razer/DreamView) only hold a color
+            // while frames keep flowing — push every tick; the throttle paces the
+            // wire to each device's interval. No-op when none are driven.
+            _provider.MaintainStreamedStatic();
             return;
         }
 

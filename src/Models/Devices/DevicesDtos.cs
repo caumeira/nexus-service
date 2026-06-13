@@ -220,6 +220,7 @@ public class SetLightingDevicePowerBody { public string Id { get; set; } = ""; p
 public class SetLightingDeviceBrightness { public string Id { get; set; } = ""; public int Brightness { get; set; } }
 public class SetLightingDeviceHue { public string Id { get; set; } = ""; public float Hue { get; set; } }
 public class SetLightingDeviceSaturation { public string Id { get; set; } = ""; public float Saturation { get; set; } }
+public class SetLightingDeviceColor { public string Id { get; set; } = ""; public float Hue { get; set; } public float Saturation { get; set; } }
 public class SetZoneLedCountBody { public string Id { get; set; } = ""; public int Count { get; set; } }
 public class IdentifyLightingDeviceBody { public string Id { get; set; } = ""; public int DurationMs { get; set; } = 2000; }
 
