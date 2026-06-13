@@ -24,9 +24,11 @@ public sealed class GoveeDriver : ILightDriver
     private const int ControlIntervalMs = 100;
     private const int ProbeTimeoutMs = 2000;
     // Devices drop out of razer mode after ~1 min without frames AND on any
-    // power cycle, with no feedback either way — re-send the (idempotent)
-    // enable packet well inside that window so streaming self-heals.
-    private const int RazerRearmMs = 25_000;
+    // power cycle, with no feedback either way, and the enable is fire-and-forget
+    // UDP — a single re-arm lost while the strip wakes from a power-off strands it
+    // in its native scene. Re-arm every couple seconds so a dropped enable
+    // self-heals in ~2s instead of waiting out the revert window.
+    private const int RazerRearmMs = 2_000;
 
     // Bulb / single-zone models on the official LAN list (H60xx lamp class):
     // control-only, averaged to one color.
@@ -156,14 +158,26 @@ public sealed class GoveeDriver : ILightDriver
         if (frame.Zones is { } zones && frame.On && extra?.Razer == true)
         {
             var now = Environment.TickCount64;
-            if (!_razerArmedAt.TryGetValue(dev.Id, out var armedAt) || now - armedAt > RazerRearmMs)
+            if (!_razerArmedAt.TryGetValue(dev.Id, out var armedAt))
             {
-                // Some firmware scales razer output by the device's power and
-                // brightness state — normalize so dimming lives in the frame
-                // RGB only. Re-sent on every re-arm (not just cold entry) so a
-                // mid-effect power cycle restores the full streaming state.
+                // Cold entry (first frame, or after a power-off turned the strip
+                // off). Firmware scales razer output by power+brightness, so set
+                // those first. The strip ignores a razer enable that arrives while
+                // its Wi-Fi/firmware is still waking from the power-on: bench shows
+                // ~300ms gaps after turn-on let the enable take, while sending them
+                // back-to-back leaves it stuck in its built-in scene.
                 await _client.TurnAsync(dev.Host, on: true, ct).ConfigureAwait(false);
+                await Task.Delay(300, ct).ConfigureAwait(false);
                 await _client.BrightnessAsync(dev.Host, 100, ct).ConfigureAwait(false);
+                await Task.Delay(300, ct).ConfigureAwait(false);
+                await _client.RazerAsync(dev.Host, GoveePackets.RazerModeBase64(enable: true), ct).ConfigureAwait(false);
+                _razerArmedAt[dev.Id] = now;
+            }
+            else if (now - armedAt > RazerRearmMs)
+            {
+                // Periodic re-assert so a dropped enable self-heals; enable only,
+                // no turn/brightness churn that would bounce the strip out of
+                // DreamView mid-stream.
                 await _client.RazerAsync(dev.Host, GoveePackets.RazerModeBase64(enable: true), ct).ConfigureAwait(false);
                 _razerArmedAt[dev.Id] = now;
             }
