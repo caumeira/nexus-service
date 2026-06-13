@@ -34,6 +34,10 @@ namespace Nexus.Service.Lifecycle;
 internal static class FactoryReset
 {
     public const string FinalizeFlag = "--factory-reset-finalize";
+    // Same two-phase mechanism, but restart-only (no data wipe). Used by
+    // POST /service/restart to apply restart-to-apply settings like the
+    // lighting render-GPU choice.
+    public const string RestartFlag = "--restart-finalize";
 
     // A data tree to wipe, plus the names of any immediate children to skip.
     private sealed record Root(string Path, string[] Preserve);
@@ -128,8 +132,9 @@ internal static class FactoryReset
     }
 
     /// Spawn the detached finalizer and return. The caller stops the service
-    /// next; the finalizer waits for that, wipes, and restarts.
-    public static void Begin()
+    /// next; the finalizer waits for that, optionally wipes, and restarts.
+    /// <paramref name="wipe"/> false = plain restart (no data wipe).
+    public static void Begin(bool wipe = true)
     {
         var selfExe = Environment.ProcessPath;
         if (string.IsNullOrEmpty(selfExe))
@@ -143,7 +148,7 @@ internal static class FactoryReset
             UseShellExecute = false,
             CreateNoWindow = true,
         };
-        psi.ArgumentList.Add(FinalizeFlag);
+        psi.ArgumentList.Add(wipe ? FinalizeFlag : RestartFlag);
         psi.ArgumentList.Add(Environment.ProcessId.ToString());
         try
         {
@@ -161,9 +166,11 @@ internal static class FactoryReset
     private static extern int setsid();
 #endif
 
-    /// Detached child entry point (argv[0] == --factory-reset-finalize).
+    /// Detached child entry point (argv[0] == --factory-reset-finalize or
+    /// --restart-finalize). The restart variant skips the data wipe.
     public static int Finalize(string[] args)
     {
+        var wipe = args.Length > 0 && args[0] == FinalizeFlag;
         var parentPid = args.Length > 1 && int.TryParse(args[1], out var p) ? p : 0;
 #if !WINDOWS
         // Leave the service's session/process group before anything else, so
@@ -182,10 +189,16 @@ internal static class FactoryReset
         // down AND waits for the process to exit, so nothing can resurrect the
         // config mid-wipe. No-op when the service was started manually (dev).
 #if MACOS
-        BootoutMacAgent();
+        if (wipe)
+        {
+            BootoutMacAgent();
+        }
 #endif
 
-        DeleteRoots();
+        if (wipe)
+        {
+            DeleteRoots();
+        }
         RestartService();
         return 0;
     }

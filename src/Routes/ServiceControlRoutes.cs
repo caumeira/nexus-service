@@ -99,6 +99,28 @@ internal static class ServiceControlRoutes
             return Results.Ok(ApiResponse.Ok());
         }).LocalhostOnly();
 
+        // Plain restart (no data wipe). Applies restart-to-apply settings such as
+        // the lighting render-GPU choice. Same detached-finalizer + StopApplication
+        // pattern as factory-reset, minus the wipe.
+        app.MapPost("/service/restart", (IHostApplicationLifetime lifetime,
+            Nexus.Service.Devices.Firmware.FirmwareFlasher flasher) =>
+        {
+            if (flasher.IsFlashing)
+            {
+                return Results.Json(
+                    new ApiResponse { Error = true, Msg = "A firmware update is in progress; cannot restart now." },
+                    Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
+                    statusCode: 409);
+            }
+            Nexus.Service.Lifecycle.FactoryReset.Begin(wipe: false);
+            _ = Task.Run(async () =>
+            {
+                await Task.Delay(200);
+                lifetime.StopApplication();
+            });
+            return Results.Ok(ApiResponse.Ok());
+        }).LocalhostOnly();
+
         app.MapPost("/service/open-app", () =>
         {
 #if WINDOWS

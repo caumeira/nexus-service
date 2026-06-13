@@ -174,6 +174,12 @@ public sealed class LightingSettings
     public PostProcessSettings ScreenEffect { get; set; } = new();
     /// <summary>Post-process applied to Media Library playback frames. Same shape as ScreenEffect but tracked independently - users typically tune media differently from screen capture.</summary>
     public PostProcessSettings MediaEffect { get; set; } = new();
+    /// <summary>Which GPU renders the lighting shaders. "auto" = let the OS pick;
+    /// otherwise the GpuReadout.Name of the chosen card. Keyed by name (not
+    /// enumeration index) so it survives driver re-enumeration. Restart-to-apply:
+    /// Windows writes the DirectX UserGpuPreferences key before the GL context
+    /// inits; Linux matches it against the EGL device list. macOS ignores it.</summary>
+    public string RenderGpu { get; set; } = "auto";
 }
 
 /// <summary>

@@ -273,6 +273,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(CurrentSyncResponse))]
 [JsonSerializable(typeof(BrightnessScale))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.GlobalBrightnessBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.RenderGpuBody))]
 [JsonSerializable(typeof(SpeedScale))]
 [JsonSerializable(typeof(AnimateHeadlessStart))]
 [JsonSerializable(typeof(SetAnimateTemplatesBody))]

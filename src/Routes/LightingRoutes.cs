@@ -120,6 +120,20 @@ public static class LightingRoutes
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
+        // Render-GPU selection (which card runs the lighting shaders). Host-only
+        // (LocalhostOnly) -- a paired phone must not flip the host's GPU. The POST
+        // persists + writes the OS preference; applying it needs a service restart
+        // (POST /service/restart), since the GL context is created once at boot.
+        app.MapGet("/lighting/render-gpu", (Nexus.Service.Persistence.IConfigStore store) =>
+            new Models.Lighting.RenderGpuBody { Value = store.Load().Lighting.RenderGpu }).LocalhostOnly();
+        app.MapPost("/lighting/render-gpu", (Models.Lighting.RenderGpuBody body,
+            Nexus.Service.Persistence.IConfigStore store, Nexus.Service.Sensors.ISensorProvider sensors) =>
+        {
+            var value = string.IsNullOrWhiteSpace(body.Value) ? "auto" : body.Value.Trim();
+            store.Update(s => s.Lighting.RenderGpu = value);
+            GpuRenderPreference.Apply(value, sensors.GetGpus());
+            return ApiResponse.Ok();
+        }).LocalhostOnly();
         // Headless start endpoints
         app.MapPost("/lighting/animate/headless-start", (AnimateHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
         {

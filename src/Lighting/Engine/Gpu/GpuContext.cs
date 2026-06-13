@@ -58,10 +58,15 @@ public sealed class GpuContext : IDisposable
     private readonly ThreadLocal<ManualResetEventSlim> _invokeDone =
         new(() => new ManualResetEventSlim(false), trackAllValues: true);
 
-    public GpuContext(int width, int height)
+    // Optional: lets the Linux EGL path read the saved render-GPU choice. Null
+    // in contexts that don't need it (e.g. tests).
+    private readonly Nexus.Service.Persistence.IConfigStore? _store;
+
+    public GpuContext(int width, int height, Nexus.Service.Persistence.IConfigStore? store = null)
     {
         _width = width;
         _height = height;
+        _store = store;
     }
 
     public object Lock => _lock;
@@ -203,7 +208,7 @@ public sealed class GpuContext : IDisposable
         // context as root on the user's XWayland, so the root daemon can't
         // use it; EGL device-platform is windowless like macOS's CGL.
         Log("[gpu] Linux: EGL device-platform headless context");
-        LinuxEglContext.CreateAndMakeCurrent();
+        LinuxEglContext.CreateAndMakeCurrent(_store?.Load().Lighting.RenderGpu ?? "auto");
         _eglUsed = true;
         _gl = GL.GetApi(new EglNativeContext());
 #else
