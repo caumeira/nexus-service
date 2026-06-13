@@ -168,6 +168,7 @@
   <!-- Expose internal test-only helpers (e.g. USB enumerator parsers) to the xUnit project -->
   <ItemGroup>
     <InternalsVisibleTo Include="Nexus.Service.Tests" />
+    <InternalsVisibleTo Include="Nexus.Service.Benchmarks" />
   </ItemGroup>
 
   <!-- Static data assets shipped with the service live under data/. Files are

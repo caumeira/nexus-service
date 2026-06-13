@@ -1,6 +1,8 @@
 # .NET
 bin/
 obj/
+# BenchmarkDotNet writes results here when the benchmark project is run.
+BenchmarkDotNet.Artifacts/
 # Catch every flavour of publish output (publish-aot, publish-mac,
 # publish-mac-aot, publish-linux, publish-win, etc.) without having to
 # enumerate every variant.

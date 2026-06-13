@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    On-demand CPU/allocation micro-benchmarks for the service hot paths.
+    NOT part of any solution or the publish: `dotnet publish Nexus.Service.csproj`
+    never sees this project, so it adds nothing to the shipped binary. Run it
+    explicitly with `dotnet run -c Release -p:BuildWeb=false` against this csproj.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <!-- Mirror the service's conditional TFM so the project reference resolves
+         on Windows (net10.0-windows) and macOS/Linux (net10.0) alike. -->
+    <TargetFramework Condition="$(RuntimeIdentifier.StartsWith('win')) OR $([MSBuild]::IsOSPlatform('Windows'))">net10.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework Condition="!$(RuntimeIdentifier.StartsWith('win')) AND !$([MSBuild]::IsOSPlatform('Windows'))">net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <!-- BenchmarkDotNet requires an optimized build; never publish/AOT this. -->
+    <Optimize>true</Optimize>
+    <PublishAot>false</PublishAot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="BenchmarkDotNet" Version="0.14.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../Nexus.Service.csproj" />
+  </ItemGroup>
+
+</Project>

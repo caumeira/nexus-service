@@ -221,7 +221,7 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
     private bool TryGetActiveIdentify(string id, long nowTicks, out long startTicks)
         => _identify.TryGetActive(id, nowTicks, out startTicks);
 
-    private static void FillBufferSlice(RgbColor[] dst, int dstStart, ReadOnlySpan<byte> src, int ledCount,
+    internal static void FillBufferSlice(RgbColor[] dst, int dstStart, ReadOnlySpan<byte> src, int ledCount,
         double brightnessMul, bool hasIdentify, long identifyStartTicks, long nowTicks)
     {
         if (hasIdentify)
