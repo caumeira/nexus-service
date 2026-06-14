@@ -540,6 +540,7 @@ namespace Nexus.Service.Serialization;
 
 // Activity broadcaster (WebSocket push frames)
 [JsonSerializable(typeof(ProcessFrame))]
+[JsonSerializable(typeof(Nexus.Service.Activity.GpuProcessFrame))]
 [JsonSerializable(typeof(NetworkFrame))]
 [JsonSerializable(typeof(ScreenTimeFrame))]
 

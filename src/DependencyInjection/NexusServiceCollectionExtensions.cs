@@ -75,6 +75,8 @@ public static class NexusServiceCollectionExtensions
 #endif
         services.AddSingleton<ProcessMonitor>();
         services.AddHostedService(sp => sp.GetRequiredService<ProcessMonitor>());
+        services.AddSingleton<Nexus.Service.Activity.GpuProcessMonitor>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Activity.GpuProcessMonitor>());
         services.AddSingleton<SystemSpecsCollector>();
         // Pre-warms the specs cache in the background after host start so the
         // first Devices → System Specs request doesn't pay a cold PowerShell

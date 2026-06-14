@@ -199,10 +199,11 @@ public class MonitoringBroadcastTests
         var screenTime = new StubScreenTimeProvider();
         var performance = new StubPerformanceProvider();
         var processes = new ProcessMonitor(hub);
+        var gpuProcesses = new GpuProcessMonitor(hub);
         var volume = new StubVolumeProvider();
         return timeProvider is null
-            ? new MonitoringBroadcaster(sensors, processes, network, performance, screenTime, volume, fps, hub)
-            : new MonitoringBroadcaster(sensors, processes, network, performance, screenTime, volume, fps, hub, timeProvider);
+            ? new MonitoringBroadcaster(sensors, processes, gpuProcesses, network, performance, screenTime, volume, fps, hub)
+            : new MonitoringBroadcaster(sensors, processes, gpuProcesses, network, performance, screenTime, volume, fps, hub, timeProvider);
     }
 
     [Fact]
