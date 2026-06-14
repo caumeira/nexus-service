@@ -200,6 +200,16 @@ internal static class FactoryReset
             DeleteRoots();
         }
         RestartService();
+#if WINDOWS
+        // A plain restart (e.g. applying the render-GPU choice) was triggered
+        // from the open dashboard, but the overlay idle-exits across the restart,
+        // so the window would not come back on its own. Re-show it; the web
+        // auto-reconnects to the service while it finishes booting.
+        if (!wipe)
+        {
+            try { UserHelperBootstrapper.LaunchOpenApp(); } catch { }
+        }
+#endif
         return 0;
     }
 
