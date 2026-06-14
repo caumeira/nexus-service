@@ -334,7 +334,7 @@ public class SmartLightProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task ScanBrand_prunesAbsentLight_butKeepsItsMapping()
+    public async Task ScanBrand_prunesUnreachableLight_butKeepsItsMapping()
     {
         await _provider.PairAsync(
             new PairSmartLightBody { Brand = "fake", Host = "1.2.3.4", StableKey = "bridge" }, CancellationToken.None);
@@ -342,27 +342,27 @@ public class SmartLightProviderTests : IDisposable
         _store.Update(s => s.Devices.DeviceLedOverrides["fake:bridge:1"] =
             new List<SegmentLedOverride> { new() { Segment = 0, LedIndex = 0, U = 0.5f, V = 0.5f } });
 
-        _driver.DiscoverResult.Clear(); // nothing present now
-        var resp = await _provider.ScanBrandAsync("fake", CancellationToken.None);
+        _driver.PingResult = false; // unreachable -> the light was removed
+        await _provider.ScanBrandAsync("fake", CancellationToken.None);
 
-        Assert.True(resp.Ok);
-        Assert.Empty(_provider.GetAll().Devices);                 // pruned from the list
         Assert.DoesNotContain(_store.Load().SmartLights.Devices, d => d.Id == "fake:bridge:1");
         // Mapping survives so a re-add restores it.
         Assert.True(_store.Load().Devices.DeviceLedOverrides.ContainsKey("fake:bridge:1"));
     }
 
     [Fact]
-    public async Task ScanBrand_failedDiscovery_doesNotPrune()
+    public async Task ScanBrand_keepsReachableLight_evenWhenDiscoveryFindsNothing()
     {
+        // The Govee case: multicast discovery returns nothing over WiFi, but the
+        // light is reachable by IP, so the scan must NOT prune it.
         await _provider.PairAsync(
             new PairSmartLightBody { Brand = "fake", Host = "1.2.3.4", StableKey = "bridge" }, CancellationToken.None);
 
-        _driver.DiscoverThrows = true; // discovery errors -> resp.Ok == false
-        var resp = await _provider.ScanBrandAsync("fake", CancellationToken.None);
+        _driver.PingResult = true;       // reachable
+        _driver.DiscoverResult.Clear();  // but discovery sees nothing
+        await _provider.ScanBrandAsync("fake", CancellationToken.None);
 
-        Assert.False(resp.Ok);
-        Assert.Single(_store.Load().SmartLights.Devices); // a bad scan must never wipe the list
+        Assert.Single(_store.Load().SmartLights.Devices); // kept
     }
 
     public void Dispose()
@@ -379,13 +379,10 @@ public class SmartLightProviderTests : IDisposable
         public bool PingResult = true;
         // What a scan discovers; defaults to the one paired light's host/key.
         public List<DiscoveredLight> DiscoverResult = new() { new DiscoveredLight("fake", "1.2.3.4", "Fake", "bridge") };
-        public bool DiscoverThrows;
 
         public string Brand => "fake";
         public Task<IReadOnlyList<DiscoveredLight>> DiscoverAsync(CancellationToken ct)
-            => DiscoverThrows
-                ? throw new Exception("discover failed")
-                : Task.FromResult<IReadOnlyList<DiscoveredLight>>(DiscoverResult);
+            => Task.FromResult<IReadOnlyList<DiscoveredLight>>(DiscoverResult);
         public Task<PairResult> PairAsync(DiscoveredLight target, CancellationToken ct)
             => Task.FromResult(new PairResult
             {

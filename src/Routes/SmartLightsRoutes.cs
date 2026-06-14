@@ -20,9 +20,9 @@ public static partial class DevicesRoutes
         app.MapPost("/smart-lights/discover", async (DiscoverSmartLightsBody body, SmartLightProvider p, CancellationToken ct)
             => await p.DiscoverAsync(body.Brand, ct));
 
-        // Scan + reconcile: discover the brand and prune its paired lights no longer
-        // present (the way to drop a removed light). Returns discovery candidates for
-        // the pair UI; broadcasts so the lighting page refetches after a prune.
+        // Scan + reconcile: prune this brand's unreachable lights (the way to drop a
+        // removed light) and return discovery candidates for the pair UI. Broadcasts
+        // so the lighting page refetches after a prune.
         app.MapPost("/smart-lights/scan", async (DiscoverSmartLightsBody body, SmartLightProvider p, Nexus.Service.Sockets.MultiplexHub hub, CancellationToken ct) =>
         {
             var result = await p.ScanBrandAsync(body.Brand, ct);

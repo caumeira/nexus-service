@@ -776,22 +776,33 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         FireChanged();
     }
 
-    /// <summary>Scan a brand and reconcile its paired list: discover what is present
-    /// now, then prune that brand's lights whose StableKey is no longer discoverable.
-    /// Only prunes when the scan itself succeeded (a transient failure never wipes
-    /// the list); a successful empty scan means nothing is there. Govee/Nanoleaf
-    /// prune per device; Hue's StableKey is the bridge, so it prunes only when the
-    /// whole bridge is gone (per-bulb Hue removal is a follow-up). Pruned lights keep
-    /// their DeviceLedOverrides, so re-adding restores the mapping. Returns the
-    /// discovery result so the page can offer the existing pair UX for new lights.</summary>
+    /// <summary>Scan a brand and reconcile its paired list: prune that brand's
+    /// lights that are unreachable now (the way to drop a light you removed), then
+    /// run discovery to surface new candidates for the pair UI. Pruning is by an
+    /// active reachability probe, NOT discovery membership: discovery is unreliable
+    /// for some brands (Govee multicast over WiFi is why Govee is paired by IP), so
+    /// a present-but-undiscovered light must not be dropped. Probed once per host
+    /// (Hue lights share their bridge). Pruned lights keep their DeviceLedOverrides,
+    /// so re-adding restores the mapping. Returns discovery candidates.</summary>
     public async Task<DiscoverSmartLightsResponse> ScanBrandAsync(string brand, CancellationToken ct)
     {
-        var disc = await DiscoverAsync(brand, ct).ConfigureAwait(false);
-        if (!disc.Ok) return disc;
+        var brandLights = new List<SmartLightConfig>();
+        foreach (var c in _store.Load().SmartLights.Devices)
+            if (c.Brand == brand) brandLights.Add(c);
 
-        var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var d in disc.Devices)
-            if (!string.IsNullOrEmpty(d.StableKey)) present.Add(d.StableKey);
+        var hostReachable = new Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase);
+        foreach (var cfg in brandLights)
+        {
+            if (hostReachable.ContainsKey(cfg.Host)) continue;
+            var driver = DriverForId(cfg.Id);
+            var reachable = false;
+            if (driver is not null)
+            {
+                try { reachable = await driver.PingAsync(ToSmartLight(cfg), ct).ConfigureAwait(false); }
+                catch { reachable = false; }
+            }
+            hostReachable[cfg.Host] = reachable;
+        }
 
         var pruned = new List<string>();
         _store.Update(s =>
@@ -799,9 +810,9 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
             var next = new List<SmartLightConfig>(s.SmartLights.Devices.Count);
             foreach (var c in s.SmartLights.Devices)
             {
-                // Only prune a light we can reconcile by key; an empty StableKey
-                // can't be matched against the discovery set, so keep it.
-                if (c.Brand == brand && !string.IsNullOrEmpty(c.StableKey) && !present.Contains(c.StableKey))
+                // Prune only a probed-and-unreachable light of this brand; if we
+                // couldn't probe its host, keep it.
+                if (c.Brand == brand && hostReachable.TryGetValue(c.Host, out var ok) && !ok)
                 { pruned.Add(c.Id); continue; }
                 next.Add(c);
             }
@@ -817,10 +828,10 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         }
         if (pruned.Count > 0)
         {
-            ServiceLog.Info($"[smart-lights] scan {brand}: pruned {pruned.Count} light(s) no longer present");
+            ServiceLog.Info($"[smart-lights] scan {brand}: pruned {pruned.Count} unreachable light(s)");
             FireChanged();
         }
-        return disc;
+        return await DiscoverAsync(brand, ct).ConfigureAwait(false);
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
