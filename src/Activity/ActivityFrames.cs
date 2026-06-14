@@ -23,10 +23,12 @@ public sealed class ProcessFrame
 public sealed class GpuProcessEntry
 {
     public string Name { get; set; } = "";
-    /// <summary>Summed GPU engine utilization across all engines, 0..100.</summary>
+    /// <summary>Summed GPU engine utilization across this adapter's engines, 0..100.</summary>
     public double GpuPercent { get; set; }
-    /// <summary>Dedicated GPU memory in MB.</summary>
+    /// <summary>Dedicated GPU memory in MB on this adapter.</summary>
     public double DedicatedMb { get; set; }
+    /// <summary>Adapter LUID ("HighPart:LowPart") this row belongs to; "" if unknown.</summary>
+    public string AdapterLuid { get; set; } = "";
 }
 
 public sealed class GpuProcessFrame

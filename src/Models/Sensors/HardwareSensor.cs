@@ -43,6 +43,10 @@ public class HardwareComponent
     // Integrated drives the client's default "discrete-first" GPU pick.
     public string? Vendor { get; set; }
     public bool? Integrated { get; set; }
+    // GPU only: Windows adapter LUID ("HighPart:LowPart") so the client can
+    // attribute per-process GPU counters to this physical GPU. Null off Windows
+    // or when no DXGI adapter matched (client then shows combined totals).
+    public string? AdapterLuid { get; set; }
     public List<HardwareSensor> Sensors { get; set; } = new();
 }
 
@@ -58,6 +62,8 @@ public sealed class GpuReadout
     public string Name { get; set; } = "";
     public string Vendor { get; set; } = "";
     public bool Integrated { get; set; }
+    // Windows adapter LUID ("HighPart:LowPart"); "" off Windows or unmatched.
+    public string AdapterLuid { get; set; } = "";
     public List<HardwareSensor> Sensors { get; set; } = new();
 }
 

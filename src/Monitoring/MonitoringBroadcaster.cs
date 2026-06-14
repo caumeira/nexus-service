@@ -352,6 +352,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
                 Name = g.Name,
                 Vendor = g.Vendor,
                 Integrated = g.Integrated,
+                AdapterLuid = string.IsNullOrEmpty(g.AdapterLuid) ? null : g.AdapterLuid,
                 Sensors = g.Sensors,
             });
         }

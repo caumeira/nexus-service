@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Sensors;
 using Nexus.Service.Sockets;
 #if WINDOWS
 using System.Runtime.InteropServices;
@@ -84,45 +85,55 @@ public sealed class GpuProcessMonitor : BackgroundService
 #if WINDOWS
     private static IReadOnlyList<GpuProcessEntry> Sample(IntPtr engine, IntPtr mem)
     {
-        var util = new Dictionary<int, double>();
+        // Keyed by (pid, adapter-luid): a process using both GPUs reports under
+        // each adapter separately so the client can scope to the picked GPU.
+        var util = new Dictionary<(int pid, string luid), double>();
         foreach (var (inst, value) in Pdh.ReadArray(engine))
         {
             var pid = ParsePid(inst);
-            if (pid > 0) util[pid] = (util.TryGetValue(pid, out var v) ? v : 0) + value;
+            if (pid <= 0) continue;
+            var key = (pid, ParseLuid(inst));
+            util[key] = (util.TryGetValue(key, out var v) ? v : 0) + value;
         }
-        var dedicated = new Dictionary<int, double>();
+        var dedicated = new Dictionary<(int pid, string luid), double>();
         foreach (var (inst, value) in Pdh.ReadArray(mem))
         {
             var pid = ParsePid(inst);
-            if (pid > 0) dedicated[pid] = (dedicated.TryGetValue(pid, out var v) ? v : 0) + value;
+            if (pid <= 0) continue;
+            var key = (pid, ParseLuid(inst));
+            dedicated[key] = (dedicated.TryGetValue(key, out var v) ? v : 0) + value;
         }
 
-        var pids = new HashSet<int>(util.Keys);
-        pids.UnionWith(dedicated.Keys);
+        var keys = new HashSet<(int, string)>(util.Keys);
+        keys.UnionWith(dedicated.Keys);
 
         var rows = new List<GpuProcessEntry>();
-        foreach (var pid in pids)
+        foreach (var key in keys)
         {
-            var gpu = Math.Min(100, util.TryGetValue(pid, out var u) ? u : 0);
-            var dedMb = (dedicated.TryGetValue(pid, out var m) ? m : 0) / (1024.0 * 1024.0);
+            var gpu = Math.Min(100, util.TryGetValue(key, out var u) ? u : 0);
+            var dedMb = (dedicated.TryGetValue(key, out var m) ? m : 0) / (1024.0 * 1024.0);
             if (gpu < 0.5 && dedMb < 5) continue; // drop near-idle processes
-            var name = ProcName(pid);
+            var name = ProcName(key.Item1);
             if (name.Length == 0) continue;
-            rows.Add(new GpuProcessEntry { Name = name, GpuPercent = gpu, DedicatedMb = dedMb });
+            rows.Add(new GpuProcessEntry { Name = name, GpuPercent = gpu, DedicatedMb = dedMb, AdapterLuid = key.Item2 });
         }
 
-        // Group same-named processes (an app split across pids), then top 12.
+        // Group same-named processes (an app split across pids) within each
+        // adapter, then keep the top 12 per adapter.
         return rows
-            .GroupBy(r => r.Name)
+            .GroupBy(r => (r.Name, r.AdapterLuid))
             .Select(g => new GpuProcessEntry
             {
-                Name = g.Key,
+                Name = g.Key.Name,
+                AdapterLuid = g.Key.AdapterLuid,
                 GpuPercent = Math.Min(100, g.Sum(x => x.GpuPercent)),
                 DedicatedMb = g.Sum(x => x.DedicatedMb),
             })
-            .OrderByDescending(e => e.GpuPercent)
-            .ThenByDescending(e => e.DedicatedMb)
-            .Take(12)
+            .GroupBy(e => e.AdapterLuid)
+            .SelectMany(adapter => adapter
+                .OrderByDescending(e => e.GpuPercent)
+                .ThenByDescending(e => e.DedicatedMb)
+                .Take(12))
             .ToList();
     }
 
@@ -136,6 +147,24 @@ public sealed class GpuProcessMonitor : BackgroundService
         var j = i;
         while (j < inst.Length && char.IsDigit(inst[j])) j++;
         return j > i && int.TryParse(inst.AsSpan(i, j - i), out var pid) ? pid : 0;
+    }
+
+    // Extract the adapter LUID from the instance's "luid_0xHIGH_0xLOW" segment,
+    // normalized to the same "HighPart:LowPart" form GpuAdapterLuids produces
+    // from DXGI. "" when absent/unparseable.
+    private static string ParseLuid(string inst)
+    {
+        const string tag = "luid_";
+        var i = inst.IndexOf(tag, StringComparison.Ordinal);
+        if (i < 0) return "";
+        var rest = inst.AsSpan(i + tag.Length);
+        var u1 = rest.IndexOf('_');
+        if (u1 <= 0) return "";
+        var high = rest[..u1].ToString();
+        var after = rest[(u1 + 1)..];
+        var u2 = after.IndexOf('_');
+        var low = (u2 < 0 ? after : after[..u2]).ToString();
+        return GpuAdapterLuids.LuidFromHex(high, low);
     }
 
     private static string ProcName(int pid)
