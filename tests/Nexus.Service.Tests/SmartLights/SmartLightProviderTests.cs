@@ -216,20 +216,25 @@ public class SmartLightProviderTests : IDisposable
     }
 
     [Fact]
-    public async Task SubmitFrame_failedSend_hidesCard()
+    public async Task SuccessfulSend_doesNotReviveOfflineCard()
     {
+        // Regression: a fire-and-forget UDP send (Govee) always "succeeds" even
+        // to a dead device, so the send path must not mark it online and undo
+        // the probe's offline verdict.
         await _provider.PairAsync(
             new PairSmartLightBody { Brand = "fake", Host = "1.2.3.4", StableKey = "bridge" }, CancellationToken.None);
         _provider.BuildFrames(0); // populate the per-tick cache SubmitFrame needs
 
-        var flipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        _provider.OnlineChanged += () => flipped.TrySetResult();
-
-        _driver.FailSend = true;
-        _provider.SubmitFrame("fake:bridge:1", new LightFrame(On: true, 1, 2, 3, 1f, null));
-
-        await flipped.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        _driver.PingResult = false;
+        await _provider.GetSmartLightDtosAsync(CancellationToken.None); // probe -> offline
         Assert.Empty(_provider.GetAll().Devices);
+
+        var sent = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _driver.OnSend = _ => sent.TrySetResult();
+        _provider.SubmitFrame("fake:bridge:1", new LightFrame(On: true, 1, 2, 3, 1f, null));
+        await sent.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Empty(_provider.GetAll().Devices); // still hidden; the send didn't revive it
     }
 
     [Fact]
@@ -303,7 +308,6 @@ public class SmartLightProviderTests : IDisposable
     {
         public LightFramePlan Plan = new(16, true);
         public Action<LightFrame>? OnSend;
-        public bool FailSend;
         public bool PingResult = true;
 
         public string Brand => "fake";
@@ -320,7 +324,7 @@ public class SmartLightProviderTests : IDisposable
             });
         public LightFramePlan PlanFrames(SmartLight dev) => Plan;
         public Task SendAsync(SmartLight dev, LightFrame frame, CancellationToken ct)
-        { OnSend?.Invoke(frame); if (FailSend) throw new Exception("send failed"); return Task.CompletedTask; }
+        { OnSend?.Invoke(frame); return Task.CompletedTask; }
         public Task IdentifyAsync(SmartLight dev, CancellationToken ct) => Task.CompletedTask;
         public int MinIntervalMs(SmartLight dev) => 10;
         public string RateLimitKey(SmartLight dev) => dev.Id;

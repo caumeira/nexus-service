@@ -35,10 +35,12 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     private readonly IConfigStore _store;
     private readonly NetworkSendThrottle _throttle;
 
-    // id -> reachability (optimistic; a failed send flips it, a success restores).
+    // id -> reachability. Owned by the active probe (ProbeReachabilityAsync);
+    // the send path must NOT write it - a fire-and-forget UDP send (Govee)
+    // never errors on a dead device, so a "successful" send is not liveness.
     private readonly ConcurrentDictionary<string, bool> _online = new();
-    // Serializes the SetOnline read-modify; the probe loop, the route, and the
-    // send callback all write _online concurrently.
+    // Serializes the SetOnline read-modify; the probe loop and the
+    // /smart-lights/all route both write _online.
     private readonly object _onlineLock = new();
     // id -> live snapshot, refreshed each BuildFrames so the 33 Hz writer's
     // SubmitFrame lookups don't re-parse settings per device per tick.
@@ -113,8 +115,9 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
             var cfg = devices[i];
             if (!cfg.Enabled) continue;
             // Hide a known-offline light's card; absent/true keeps it shown
-            // (optimistic). The engine keeps sending (BuildFrames has no online
-            // filter), so a reconnecting successful send restores the card.
+            // (optimistic). Reachability is owned by the probe poll
+            // (ProbeReachabilityAsync); reconnect is detected there, not from the
+            // send path (a UDP send can't tell a live device from a dead one).
             if (_online.TryGetValue(cfg.Id, out var online) && !online) continue;
 
             var isOn = !disabled.Contains(cfg.Id);
@@ -421,11 +424,12 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         var driver = DriverForId(id);
         if (driver is null) return;
         var minInterval = driver.MinIntervalMs(dev);
-        _throttle.Submit(id, frame, minInterval, async (f, c) =>
-        {
-            try { await driver.SendAsync(dev, f, c).ConfigureAwait(false); if (SetOnline(id, true)) RaiseOnlineChanged(); }
-            catch { if (SetOnline(id, false)) RaiseOnlineChanged(); throw; }
-        }, hostKey: driver.RateLimitKey(dev), hostIntervalMs: minInterval);
+        // Reachability is NOT inferred from sends: a Govee UDP send always
+        // "succeeds" to a dead device, and a transient HTTP failure shouldn't
+        // strand a light. The probe poll owns _online.
+        _throttle.Submit(id, frame, minInterval,
+            (f, c) => driver.SendAsync(dev, f, c),
+            hostKey: driver.RateLimitKey(dev), hostIntervalMs: minInterval);
     }
 
     /// <summary>Route an effect frame: session-streaming drivers (Hue
@@ -785,10 +789,10 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     }
 
     // Records reachability and returns true when it flips the device's visible
-    // state. The optimistic baseline (absent or true = online) means the first
-    // failed send transitions (hides the card) while a first success does not.
-    // Serialized so concurrent writers (probe loop, route, send callback) can't
-    // interleave the read-modify and drop or duplicate the transition broadcast.
+    // state. The optimistic baseline (absent or true = online) means a device
+    // shows until the probe first reports it unreachable. Serialized so the poll
+    // loop and the /smart-lights/all route can't interleave the read-modify and
+    // drop or duplicate the transition broadcast.
     private bool SetOnline(string id, bool online)
     {
         lock (_onlineLock)
