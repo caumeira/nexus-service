@@ -23,16 +23,23 @@ void main() {
         float idx = float(i);
         float layer = (idx + 1.0) / float(L);
         float ringR = layer * 0.88 + 0.035 * sin(t * pulse + idx * 1.6);
-        float ring = exp(-pow((r - ringR) * edgeSharp, 2.0));
 
-        // Polygon SDF (regular N-gon).
-        float sides = 3.0 + idx;
-        float sectorAng = 6.28318530718 / sides;
-        float polyA = mod(a + t * (idx * 0.1 + 0.12), sectorAng) - sectorAng * 0.5;
-        float polyR = ringR * cos(sectorAng * 0.5) / max(cos(polyA), 0.001);
-        float poly = exp(-pow((r - polyR) * edgeSharp, 2.0));
-
-        float shape = (mod(idx, 2.0) < 0.5) ? ring : poly;
+        // perf: only one of ring/poly is ever selected per layer, so compute
+        // just that shape -- halves the exp() count in the loop. x*x for the
+        // Gaussian arg in place of pow(x,2.0). Look is unchanged.
+        float shape;
+        if (mod(idx, 2.0) < 0.5) {
+            float dr = (r - ringR) * edgeSharp;
+            shape = exp(-(dr * dr));
+        } else {
+            // Polygon SDF (regular N-gon).
+            float sides = 3.0 + idx;
+            float sectorAng = 6.28318530718 / sides;
+            float polyA = mod(a + t * (idx * 0.1 + 0.12), sectorAng) - sectorAng * 0.5;
+            float polyR = ringR * cos(sectorAng * 0.5) / max(cos(polyA), 0.001);
+            float dp = (r - polyR) * edgeSharp;
+            shape = exp(-(dp * dp));
+        }
         vec3 tint = tintedPalette(layer * 0.28 + t * 0.08);
         col += tint * shape * 1.35;
     }

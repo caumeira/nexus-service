@@ -38,6 +38,13 @@ public class GlobalBrightnessBody
     public float Value { get; set; } = 1.0f;
 }
 
+/// <summary>GET response / POST body for /lighting/render-gpu. "auto" or a GPU
+/// model name (matches GpuReadout.Name). Restart-to-apply.</summary>
+public class RenderGpuBody
+{
+    public string Value { get; set; } = "auto";
+}
+
 public class SpeedScale
 {
     public Dictionary<string, int> Scale { get; set; } = new();

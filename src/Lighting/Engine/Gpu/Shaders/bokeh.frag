@@ -17,7 +17,8 @@ void main() {
     float vignette = 1.0 - length(uv) * 0.35;
     vec3 col = tintedPalette(0.55 + uv.y * 0.12) * (0.14 + vignette * 0.08);
     // Diffuse light haze so every pixel carries some colour from nearby bokeh.
-    float haze = fbm(uv * 0.8 + vec2(t * 0.2, t * 0.15));
+    // perf: diffuse haze is heavily blurred -> fbm3
+    float haze = fbm3(uv * 0.8 + vec2(t * 0.2, t * 0.15));
     col += tintedPalette(0.3 + haze * 0.4) * haze * 0.12;
 
     for (int i = 0; i < 40; i++) {

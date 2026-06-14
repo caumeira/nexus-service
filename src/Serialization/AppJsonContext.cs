@@ -273,6 +273,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(CurrentSyncResponse))]
 [JsonSerializable(typeof(BrightnessScale))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.GlobalBrightnessBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.RenderGpuBody))]
 [JsonSerializable(typeof(SpeedScale))]
 [JsonSerializable(typeof(AnimateHeadlessStart))]
 [JsonSerializable(typeof(SetAnimateTemplatesBody))]
@@ -539,6 +540,7 @@ namespace Nexus.Service.Serialization;
 
 // Activity broadcaster (WebSocket push frames)
 [JsonSerializable(typeof(ProcessFrame))]
+[JsonSerializable(typeof(Nexus.Service.Activity.GpuProcessFrame))]
 [JsonSerializable(typeof(NetworkFrame))]
 [JsonSerializable(typeof(ScreenTimeFrame))]
 

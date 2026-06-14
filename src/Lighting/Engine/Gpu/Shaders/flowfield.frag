@@ -14,11 +14,13 @@ void main() {
     float spread = clamp(u_colorSpread, 0.0, 2.0);
 
     // Curl-noise approximation: gradient of fbm rotated 90 degrees.
+    // perf: the flow direction is set by the low frequencies; high octaves in a
+    // finite-difference gradient are just jitter -> fbm3 (3 oct) on all 4 taps.
     float eps = 0.04;
-    float fY1 = fbm(uv * 1.6 + vec2(0.0, eps) + t * 0.3);
-    float fY0 = fbm(uv * 1.6 + vec2(0.0, -eps) + t * 0.3);
-    float fX1 = fbm(uv * 1.6 + vec2(eps, 0.0) + t * 0.3);
-    float fX0 = fbm(uv * 1.6 + vec2(-eps, 0.0) + t * 0.3);
+    float fY1 = fbm3(uv * 1.6 + vec2(0.0, eps) + t * 0.3);
+    float fY0 = fbm3(uv * 1.6 + vec2(0.0, -eps) + t * 0.3);
+    float fX1 = fbm3(uv * 1.6 + vec2(eps, 0.0) + t * 0.3);
+    float fX0 = fbm3(uv * 1.6 + vec2(-eps, 0.0) + t * 0.3);
     vec2 grad = vec2((fY1 - fY0), -(fX1 - fX0));
     vec2 flowDir = normalize(grad + vec2(0.001));
 

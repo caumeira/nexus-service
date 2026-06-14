@@ -44,7 +44,7 @@ internal static class CommandLineEntry
         // the live service to exit, wipes every Nexus data dir, then restarts.
         // A second instance by design, so — like --install-pawnio — it must run
         // before the single-instance mutex.
-        if (args.Length > 0 && args[0] == FactoryReset.FinalizeFlag)
+        if (args.Length > 0 && (args[0] == FactoryReset.FinalizeFlag || args[0] == FactoryReset.RestartFlag))
             return FactoryReset.Finalize(args);
 
 #if WINDOWS

@@ -15,10 +15,12 @@ void main() {
     float scale = clamp(u_scale, 0.3, 4.0);
 
     vec2 p = uv * scale;
-    vec2 q = vec2(fbm(p + vec2(t * 0.3, 0.0)),
-                  fbm(p + vec2(0.0, t * 0.25)));
-    vec2 r = vec2(fbm(p + q * flow + vec2(t * 0.2, 1.7)),
-                  fbm(p + q * flow + vec2(9.2, t * 0.22)));
+    // perf: q is a pure warp offset (top octaves washed out by the warp) -> fbm3.
+    vec2 q = vec2(fbm3(p + vec2(t * 0.3, 0.0)),
+                  fbm3(p + vec2(0.0, t * 0.25)));
+    // perf: r feeds the bands but reads after the warp; fbm3 keeps the interference
+    vec2 r = vec2(fbm3(p + q * flow + vec2(t * 0.2, 1.7)),
+                  fbm3(p + q * flow + vec2(9.2, t * 0.22)));
 
     // Thickness drives palette position; many cycles of the rainbow pass
     // through as thickness changes, mimicking thin-film interference.

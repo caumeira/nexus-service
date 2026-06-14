@@ -6,7 +6,7 @@ uniform float u_trail;   // extra: motion streak length (0..1)
 void main() {
     vec2 uv = uvCentered();
     float t = u_time * u_speed * 0.6;
-    int lyrs = int(clamp(u_layers, 1.0, 8.0));
+    int lyrs = int(clamp(u_layers, 1.0, 3.0)); // perf: depth cap 8->3
     float dens = clamp(u_density, 5.0, 80.0);
     float trail = clamp(u_trail, 0.0, 1.0);
     vec3 col = vec3(0.0);
@@ -15,7 +15,7 @@ void main() {
     // As zoom grows the grid tiles spread outward from center, giving
     // the illusion of flying forward. When the phase wraps, new tiles
     // appear near the center seamlessly because the grid repeats.
-    for (int i = 0; i < 8; i++) {
+    for (int i = 0; i < 3; i++) { // perf: 8->3 layer bound
         if (i >= lyrs) break;
         float fi = float(i);
         float layerRate = 0.12 + fi * 0.04;
@@ -34,7 +34,8 @@ void main() {
         // Radial trail direction: streak pointing away from the center of the frame.
         vec2 radial = normalize(scaled + 0.001);
         // Star grows as it zooms closer.
-        float starR = (0.025 + 0.065 * depth) * (0.65 + fi * 0.1);
+        // fill: bigger stars so the field stays dense with fewer depth layers (8->3)
+        float starR = (0.035 + 0.09 * depth) * (0.65 + fi * 0.1);
         float trailLen = starR * (4.0 + 8.0 * trail) * depth;
         // Fade edges of the cycle so the phase-wrap seam isn't visible.
         float edgeFade = smoothstep(0.0, 0.08, phase) * smoothstep(1.0, 0.9, phase);
@@ -53,7 +54,8 @@ void main() {
                 vec2 delta = cellUv - cellOffset - starPos;
                 float d = length(delta);
                 float core = smoothstep(starR, starR * 0.15, d) * brightness;
-                float glow = smoothstep(starR * 3.5, 0.0, d) * 0.85 * brightness;
+                // fill: wider glow halo to fill gaps left by fewer depth layers
+                float glow = smoothstep(starR * 4.5, 0.0, d) * 0.85 * brightness;
                 float along = dot(delta, radial);
                 float perp = length(delta - radial * along);
                 float trailMask = smoothstep(0.0, trailLen, -along) * smoothstep(starR * 1.5, 0.0, perp) * trail;

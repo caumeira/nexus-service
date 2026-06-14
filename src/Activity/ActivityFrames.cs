@@ -20,6 +20,20 @@ public sealed class ProcessFrame
     public double TotalMemoryPercent { get; set; }
 }
 
+public sealed class GpuProcessEntry
+{
+    public string Name { get; set; } = "";
+    /// <summary>Summed GPU engine utilization across all engines, 0..100.</summary>
+    public double GpuPercent { get; set; }
+    /// <summary>Dedicated GPU memory in MB.</summary>
+    public double DedicatedMb { get; set; }
+}
+
+public sealed class GpuProcessFrame
+{
+    public List<GpuProcessEntry> Processes { get; set; } = new();
+}
+
 public sealed class NetworkRateEntry
 {
     public string Name { get; set; } = "";

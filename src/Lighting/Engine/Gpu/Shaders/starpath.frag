@@ -22,7 +22,8 @@ void main() {
 
     // Faint milky-way-style ambient gradient across the frame so the
     // background is never pure black - gives the arcs something to sit on.
-    float skyFbm = fbm(uv * 1.8 + vec2(0.0, t * 0.3));
+    // perf: faint ambient sky gradient, low-detail -> fbm3
+    float skyFbm = fbm3(uv * 1.8 + vec2(0.0, t * 0.3));
     vec3 col = tintedPalette(0.6 + r * 0.1) * (0.06 + skyFbm * 0.08);
 
     // Background star field - tiny bright points scattered across the frame.
@@ -39,15 +40,18 @@ void main() {
     float rStep = 0.075;
     float rCell = floor(r / rStep);
 
-    for (int dr = -2; dr <= 2; dr++) {
+    // perf: nested trip count was 5 radial cells x 7 stars = 35; trim the
+    // radial neighbourhood to 3 cells (-1..1). The 0.09 radial cull already
+    // discards far rings, so the outer two cells contributed little.
+    for (int dr = -1; dr <= 1; dr++) {
         float rc = rCell + float(dr);
         if (rc < 0.0) continue;
         float ringR = (rc + 0.5) * rStep;
         float radial = abs(r - ringR);
         if (radial > 0.09) continue;
 
-        // Several stars per ring at different angular phases.
-        for (int s = 0; s < 7; s++) {
+        // perf: stars per ring 7 -> 4 (3x4=12 inner iters vs 35, ~2.9x)
+        for (int s = 0; s < 4; s++) {
             float sf = float(s);
             float starHash = hash21(vec2(rc, sf * 13.7));
             float starPhase = starHash * 6.28318;

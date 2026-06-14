@@ -17,14 +17,17 @@ void main() {
     p.x += sin(uv.y * 11.0 + t * fl * 1.3) * 0.025 * shim;
     p.y += cos(uv.x * 9.0 - t * fl * 0.9) * 0.02 * shim;
 
+    // perf: all three fields fbm3 (3 oct) - ridge masks are thin smoothstep bands
+    // that hide the top fbm octaves; cuts 15 octaves/px to 9. 1.107 restores fbm's
+    // weight-sum so the 0.5 ridge crossings stay at the same density.
     vec2 q = p + vec2(t * 0.08 * fl, t * 0.03 * fl);
-    float n = fbm(q);
+    float n = fbm3(q) * 1.107;
     float crack = 1.0 - smoothstep(0.0, cw * 0.32, abs(n - 0.5));
-    float n2 = fbm(q * 2.3 + vec2(3.1, -1.7));
+    float n2 = fbm3(q * 2.3 + vec2(3.1, -1.7)) * 1.107;
     float crack2 = 1.0 - smoothstep(0.0, cw * 0.22, abs(n2 - 0.5));
     float cracks = max(crack, crack2 * 0.7);
 
-    float lavaFlow = fbm(q * 1.6 + vec2(t * fl * 0.8, 0.0));
+    float lavaFlow = fbm3(q * 1.6 + vec2(t * fl * 0.8, 0.0)) * 1.107;
     float heat = cracks * (0.35 + 0.65 * lavaFlow);
 
     vec3 rock = mix(vec3(0.02, 0.01, 0.01), vec3(0.09, 0.04, 0.02),

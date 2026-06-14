@@ -35,8 +35,9 @@ void main() {
     float beatRate = 1.0 + u_audioBeat * aPresence * 0.6;
     float bassFlash = u_audioBass * aPresence;
 
-    float c1 = fbm(uv * 1.2 + vec2(t * 0.08, t * 0.05));
-    float c2 = fbm(uv * 2.0 - vec2(t * 0.06, -t * 0.09));
+    // perf: cloud-haze fbm->fbm3 (soft backdrop, fine octaves invisible)
+    float c1 = fbm3(uv * 1.2 + vec2(t * 0.08, t * 0.05));
+    float c2 = fbm3(uv * 2.0 - vec2(t * 0.06, -t * 0.09));
     vec3 col = tintedPalette(0.62 + c1 * 0.08) * (0.05 + c1 * 0.06 + c2 * 0.02);
 
     vec3 hot = vec3(1.0, 0.97, 0.92);

@@ -46,8 +46,9 @@ void main() {
 
     // Caustic-like color blobs so the backdrop has real color variety.
     vec2 cq = p * 1.2 + vec2(t * 0.06, t * 0.04);
-    float blob1 = fbm(cq + fbm(cq * 1.3 + t * 0.05));
-    float blob2 = fbm(cq * 0.7 + vec2(3.1, 7.9) - t * 0.04);
+    // perf: caustic fbm->fbm3 (low-freq blotches, fine octaves invisible)
+    float blob1 = fbm3(cq + fbm3(cq * 1.3 + t * 0.05));
+    float blob2 = fbm3(cq * 0.7 + vec2(3.1, 7.9) - t * 0.04);
     bg += tintedPalette(0.2) * smoothstep(0.45, 0.7, blob1) * 0.28;
     bg += tintedPalette(0.9) * smoothstep(0.5, 0.75, blob2) * 0.22;
 

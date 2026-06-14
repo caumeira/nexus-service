@@ -25,12 +25,11 @@ float bellDist(vec2 p, float phase, float size) {
 float tentacleMask(vec2 p, float seed, float t, float len, float thickness) {
     if (p.y < 0.0 || p.y > len) return 0.0;
     float wobbleFreq1 = 7.0 + fract(seed * 0.37) * 4.0;
-    float wobbleFreq2 = 14.0 + fract(seed * 0.53) * 6.0;
     // Ramp wobble in over the first 25% of the tentacle so the attach
     // point sits flush against the bell edge.
     float wobbleAmp = smoothstep(0.0, len * 0.25, p.y);
-    float waveX = (sin(p.y * wobbleFreq1 + t * 2.2 + seed * 3.1) * 0.025
-                + sin(p.y * wobbleFreq2 - t * 1.4 + seed * 1.7) * 0.012) * wobbleAmp;
+    // perf: drop the secondary high-freq sin; single wobble reads the same
+    float waveX = sin(p.y * wobbleFreq1 + t * 2.2 + seed * 3.1) * 0.030 * wobbleAmp;
     float dx = p.x - waveX;
     float taper = 1.0 - smoothstep(0.0, len * 0.95, p.y);
     float thick = thickness * (taper * 0.85 + 0.15);
@@ -47,7 +46,8 @@ void main() {
     float glowStr = max(0.1, u_glow);
 
     // Deep water background with caustic shimmer that also drifts.
-    float caustic = fbm(uv * 2.6 + vec2(t * 0.12, -t * 0.18)) * 0.14;
+    // perf: caustic is a soft low-amplitude tint -> fbm3 (3 oct), look unchanged
+    float caustic = fbm3(uv * 2.6 + vec2(t * 0.12, -t * 0.18)) * 0.14;
     vec3 water = tintedPalette(0.6) * 0.05 + vec3(caustic * 0.25, caustic * 0.45, caustic);
     vec3 col = water;
 

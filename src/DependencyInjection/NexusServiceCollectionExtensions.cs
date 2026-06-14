@@ -75,6 +75,8 @@ public static class NexusServiceCollectionExtensions
 #endif
         services.AddSingleton<ProcessMonitor>();
         services.AddHostedService(sp => sp.GetRequiredService<ProcessMonitor>());
+        services.AddSingleton<Nexus.Service.Activity.GpuProcessMonitor>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Activity.GpuProcessMonitor>());
         services.AddSingleton<SystemSpecsCollector>();
         // Pre-warms the specs cache in the background after host start so the
         // first Devices → System Specs request doesn't pay a cold PowerShell
@@ -199,7 +201,8 @@ public static class NexusServiceCollectionExtensions
         // structures and resolves any card id to its zone + layout.
         services.AddSingleton<Nexus.Service.Lighting.Zones.ZoneTopology>();
         services.AddHostedService<Nexus.Service.Lighting.Mappings.MappingAutoApplyService>();
-        services.AddSingleton(_ => new Nexus.Service.Lighting.Engine.Gpu.GpuContext(160, 90));
+        services.AddSingleton(sp => new Nexus.Service.Lighting.Engine.Gpu.GpuContext(
+            160, 90, sp.GetService<Nexus.Service.Persistence.IConfigStore>()));
         services.AddSingleton<ILightingProvider, LightingProvider>();
         services.AddSingleton<IObsProvider, ObsProvider>();
         services.AddSingleton<ISteamProvider, SteamProvider>();

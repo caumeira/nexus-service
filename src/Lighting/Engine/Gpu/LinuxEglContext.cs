@@ -49,9 +49,15 @@ internal static unsafe class LinuxEglContext
     private static IntPtr _display;
     private static IntPtr _context;
 
+    private const uint GL_VENDOR = 0x1F00;
+    private const uint GL_RENDERER = 0x1F01;
+
     /// <summary>Create + make-current a headless GL 3.3 core context on the
-    /// calling thread. Walks the EGL device list until one yields a context.</summary>
-    public static void CreateAndMakeCurrent()
+    /// calling thread. With <paramref name="renderGpu"/> = "auto", walks the EGL
+    /// device list and takes the first that yields a context. With an explicit
+    /// GPU model name, prefers the first device whose GL vendor/renderer matches
+    /// that card's vendor, falling back to first-working when none match.</summary>
+    public static void CreateAndMakeCurrent(string renderGpu = "auto")
     {
         // Device-platform entrypoints are extensions, fetched at runtime.
         var queryDevices = (delegate* unmanaged<int, IntPtr*, int*, int>)eglGetProcAddress("eglQueryDevicesEXT");
@@ -59,17 +65,39 @@ internal static unsafe class LinuxEglContext
         if (getPlatformDisplay == null)
             throw new InvalidOperationException("EGL platform display unavailable (no eglGetPlatformDisplayEXT)");
 
-        // 1. Hardware path: try each GPU EGLDevice until one yields a context.
+        string? wantVendor = VendorKeyword(renderGpu);
+
+        // 1. Hardware path: try each GPU EGLDevice. With an explicit choice, take
+        //    the first device whose GL vendor matches; otherwise the first that
+        //    yields a context (Windows can only express integrated-vs-discrete;
+        //    here we can target the actual GPU's vendor).
         if (queryDevices != null)
         {
             IntPtr* devices = stackalloc IntPtr[16];
             int num = 0;
             if (queryDevices(16, devices, &num) != 0 && num > 0)
             {
+                int firstWorking = -1;
                 for (var i = 0; i < num; i++)
                 {
-                    if (TryInitDisplay(getPlatformDisplay(EGL_PLATFORM_DEVICE_EXT, devices[i], null)))
+                    if (!TryInitDisplay(getPlatformDisplay(EGL_PLATFORM_DEVICE_EXT, devices[i], null)))
+                        continue;
+                    if (wantVendor == null)
+                        return; // auto: first working device wins
+                    if (RendererContains(wantVendor))
+                    {
+                        Console.Error.WriteLine($"[gpu] EGL: render GPU '{renderGpu}' -> {GlString(GL_RENDERER)}");
                         return;
+                    }
+                    if (firstWorking < 0) firstWorking = i;
+                    Destroy(); // not the requested vendor; release and keep looking
+                }
+                // Requested vendor not present: fall back to the first device that worked.
+                if (firstWorking >= 0 &&
+                    TryInitDisplay(getPlatformDisplay(EGL_PLATFORM_DEVICE_EXT, devices[firstWorking], null)))
+                {
+                    Console.Error.WriteLine($"[gpu] EGL: no device matched '{renderGpu}'; using first available GPU.");
+                    return;
                 }
             }
         }
@@ -144,6 +172,30 @@ internal static unsafe class LinuxEglContext
         }
         catch { }
         _context = _display = IntPtr.Zero;
+    }
+
+    private static string GlString(uint name)
+    {
+        var fn = (delegate* unmanaged<uint, byte*>)LoadGlSymbol("glGetString");
+        if (fn == null) return "";
+        byte* p = fn(name);
+        return p == null ? "" : (Marshal.PtrToStringAnsi((IntPtr)p) ?? "");
+    }
+
+    // Does the current context's GL vendor/renderer contain the wanted vendor token?
+    private static bool RendererContains(string vendor)
+        => (GlString(GL_RENDERER) + " " + GlString(GL_VENDOR)).ToLowerInvariant().Contains(vendor);
+
+    // Coarse vendor token from a saved GPU model name, to match the EGL device's
+    // GL strings. null = "auto" or unrecognized (both fall back to first-working).
+    private static string? VendorKeyword(string renderGpu)
+    {
+        if (string.IsNullOrWhiteSpace(renderGpu) || renderGpu == "auto") return null;
+        var n = renderGpu.ToLowerInvariant();
+        if (n.Contains("nvidia") || n.Contains("geforce") || n.Contains("rtx") || n.Contains("gtx")) return "nvidia";
+        if (n.Contains("radeon") || n.Contains("amd")) return "amd";
+        if (n.Contains("intel") || n.Contains("arc")) return "intel";
+        return null;
     }
 
     private static IntPtr _libgl;

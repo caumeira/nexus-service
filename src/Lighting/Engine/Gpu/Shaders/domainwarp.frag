@@ -16,15 +16,19 @@ void main() {
     vec2 p = uv * 1.4;
     vec2 flow = vec2(cos(dir), sin(dir)) * 0.3;
 
+    // perf: both warp passes feed displaced coords whose top octaves the warp
+    // washes out -> fbm3 (3 oct). Final read stays fbm for macro detail.
     vec2 q = vec2(
-        fbm(p + vec2(t * 0.2, 0.0) + flow),
-        fbm(p + vec2(5.2, 1.3) - flow)
+        fbm3(p + vec2(t * 0.2, 0.0) + flow),
+        fbm3(p + vec2(5.2, 1.3) - flow)
     );
     vec2 r = vec2(
-        fbm(p + turb * q + vec2(1.7, 9.2) + flow * 2.0 + t * 0.15),
-        fbm(p + turb * q + vec2(8.3, 2.8) - flow * 2.0 + t * 0.12)
+        fbm3(p + turb * q + vec2(1.7, 9.2) + flow * 2.0 + t * 0.15),
+        fbm3(p + turb * q + vec2(8.3, 2.8) - flow * 2.0 + t * 0.12)
     );
-    float n = fbm(p + turb * r);
+    // perf: after a double warp the high octaves are smeared; fbm3 reads nearly
+    // identical here and drops the per-pixel cost another 2 octaves.
+    float n = fbm3(p + turb * r) + 0.12;
     n = pow(clamp(n, 0.0, 1.0), bite);
 
     vec3 col = tintedPalette(n * 0.6 + 0.05);

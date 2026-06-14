@@ -39,11 +39,11 @@ void main() {
     float edge = facetEdge * 0.7 + sectionEdge * 0.5;
 
     // Refraction streak across each facet face. The phase carries time so
-    // light "moves" within each section. Doubled with a half-offset so the
-    // streak bands feel layered rather than flat.
+    // light "moves" within each section.
+    // perf: single streak layer (dropped the half-offset second sin) - keeps the
+    // moving band, loses a barely-visible interference ripple.
     float streak = 0.5 + 0.5 * sin(aLocal * 6.28318 * (1.0 + refr) + t * 1.4 + section * 0.8);
-    streak += 0.5 + 0.5 * sin(aLocal * 6.28318 * (1.0 + refr) * 0.5 + t * 0.9);
-    streak = pow(streak * 0.5, 2.5);
+    streak = pow(streak, 2.5);
 
     // Compose: dim filled cell + bright streaks + edge highlight on top.
     vec3 col = cellColor * 0.25;

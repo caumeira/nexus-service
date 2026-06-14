@@ -26,6 +26,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
 {
     private readonly ISensorProvider _sensors;
     private readonly ProcessMonitor _processes;
+    private readonly GpuProcessMonitor _gpuProcesses;
     private readonly INetworkProvider _network;
     private readonly IPerformanceProvider _performance;
     private readonly IScreenTimeProvider _screenTime;
@@ -63,19 +64,21 @@ public sealed class MonitoringBroadcaster : BackgroundService
     public MonitoringBroadcaster(
         ISensorProvider sensors,
         ProcessMonitor processes,
+        GpuProcessMonitor gpuProcesses,
         INetworkProvider network,
         IPerformanceProvider performance,
         IScreenTimeProvider screenTime,
         IVolumeProvider volume,
         IFpsProvider fps,
         MultiplexHub hub)
-        : this(sensors, processes, network, performance, screenTime, volume, fps, hub, TimeProvider.System)
+        : this(sensors, processes, gpuProcesses, network, performance, screenTime, volume, fps, hub, TimeProvider.System)
     {
     }
 
     internal MonitoringBroadcaster(
         ISensorProvider sensors,
         ProcessMonitor processes,
+        GpuProcessMonitor gpuProcesses,
         INetworkProvider network,
         IPerformanceProvider performance,
         IScreenTimeProvider screenTime,
@@ -86,6 +89,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
     {
         _sensors = sensors;
         _processes = processes;
+        _gpuProcesses = gpuProcesses;
         _network = network;
         _performance = performance;
         _screenTime = screenTime;
@@ -161,6 +165,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
         bool needMotherboard = composite || _hub.TopicHasSubscribers("motherboard");
         bool needLhm = needCpu || needGpu || needMemory || needStorage || needMotherboard;
         bool needProcesses = composite || _hub.TopicHasSubscribers("processes");
+        bool needGpuProcesses = _hub.TopicHasSubscribers("gpu-processes");
         bool needNetwork = composite || _hub.TopicHasSubscribers("network");
         bool needScreenTime = _hub.TopicHasSubscribers("screentime")
             && ShouldBroadcastScreenTime(_timeProvider.GetUtcNow().UtcTicks);
@@ -182,7 +187,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
             _fps.Stop();
         }
 
-        if (!needLhm && !needProcesses && !needNetwork && !needScreenTime && !needFps && !needExtras)
+        if (!needLhm && !needProcesses && !needGpuProcesses && !needNetwork && !needScreenTime && !needFps && !needExtras)
             return;
 
         // Process/network/screentime reads are volatile snapshots (<1ms each),
@@ -269,6 +274,15 @@ public sealed class MonitoringBroadcaster : BackgroundService
         {
             var env = WsEnvelope.Build("processes", processFrame, AppJsonContext.Default.ProcessFrame);
             await _hub.BroadcastTopicAsync("processes", env);
+        }
+        if (_hub.TopicHasSubscribers("gpu-processes"))
+        {
+            var gpuFrame = new GpuProcessFrame
+            {
+                Processes = new List<GpuProcessEntry>(_gpuProcesses.GetSnapshot()),
+            };
+            var env = WsEnvelope.Build("gpu-processes", gpuFrame, AppJsonContext.Default.GpuProcessFrame);
+            await _hub.BroadcastTopicAsync("gpu-processes", env);
         }
         if (needNetwork && networkFrame != null && _hub.TopicHasSubscribers("network"))
         {
