@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Net;
+using System.Net.NetworkInformation;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -172,6 +173,14 @@ public sealed class GoveeLanClient : IDisposable
         try
         {
             await SendScanRequestAsync(_scanEndpoint, ct).ConfigureAwait(false);
+            // WiFi APs drop multicast unreliably, but Govee devices also answer a
+            // broadcast scan; hit each subnet's directed broadcast so a device the
+            // multicast misses still replies.
+            foreach (var bcast in BroadcastTargets())
+            {
+                try { await SendScanRequestAsync(new IPEndPoint(bcast, _scanPort), ct).ConfigureAwait(false); }
+                catch (SocketException) { /* a downed interface must not abort the scan */ }
+            }
             await Task.Delay(timeoutMs, ct).ConfigureAwait(false);
         }
         finally
@@ -179,6 +188,28 @@ public sealed class GoveeLanClient : IDisposable
             lock (_lock) _scanSinks.Remove(sink);
         }
         return new List<GoveeDeviceInfo>(sink.Values);
+    }
+
+    // Directed broadcast (ip | ~mask) of each up IPv4 interface, so a scan reaches
+    // same-segment devices even where multicast is filtered.
+    private static IEnumerable<IPAddress> BroadcastTargets()
+    {
+        foreach (var nic in NetworkInterface.GetAllNetworkInterfaces())
+        {
+            if (nic.OperationalStatus != OperationalStatus.Up) continue;
+            if (nic.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
+            foreach (var ua in nic.GetIPProperties().UnicastAddresses)
+            {
+                if (ua.Address.AddressFamily != AddressFamily.InterNetwork) continue;
+                if (IPAddress.IsLoopback(ua.Address)) continue;
+                var ip = ua.Address.GetAddressBytes();
+                var mask = ua.IPv4Mask?.GetAddressBytes();
+                if (mask is null || mask.Length != 4) continue;
+                var b = new byte[4];
+                for (var i = 0; i < 4; i++) b[i] = (byte)(ip[i] | ~mask[i]);
+                yield return new IPAddress(b);
+            }
+        }
     }
 
     /// <summary>Unicast scan probe of one host — confirms LAN Control is
