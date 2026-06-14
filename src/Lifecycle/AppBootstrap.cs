@@ -143,6 +143,23 @@ internal static class AppBootstrap
                 PanelTopics.BroadcastPanelDevice(muxHub, "presence");
         };
 
+        // A smart light flipping online/offline refreshes the lighting list so
+        // its card drops or returns. Decoupled from DevicesChanged, which forces
+        // a full rebuild.
+        var smartLights = app.Services.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>();
+        smartLights.OnlineChanged += () => PanelTopics.BroadcastLighting(muxHub);
+
+        // Probe smart-light reachability only while a lighting view is open. A
+        // smart light gives no event when it drops off the LAN (Govee frames are
+        // fire-and-forget UDP), so an active per-brand probe is the only offline
+        // signal — gated on subscribers like the beats provider so it costs
+        // nothing when no one is watching.
+        muxHub.OnTopicFirstSubscriber += topic =>
+        { if (topic == PanelTopics.Lighting) smartLights.StartReachabilityPolling(); };
+        muxHub.OnTopicLastUnsubscriber += topic =>
+        { if (topic == PanelTopics.Lighting && !muxHub.TopicHasSubscribers(PanelTopics.Lighting)) smartLights.StopReachabilityPolling(); };
+        if (muxHub.TopicHasSubscribers(PanelTopics.Lighting)) smartLights.StartReachabilityPolling();
+
         // Auto-resume Music Reactive capture if the user had it on before a restart.
         var store = app.Services.GetRequiredService<IConfigStore>();
         BootTimer.Mark("WireBeatsAndPresence: IConfigStore resolved");

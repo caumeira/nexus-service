@@ -165,8 +165,136 @@ public class SmartLightProviderTests : IDisposable
         Assert.Equal((byte)30, sent.B);
     }
 
+    [Fact]
+    public async Task GetAll_hidesOfflineDevice_andRestoresOnReconnect()
+    {
+        await _provider.PairAsync(
+            new PairSmartLightBody { Brand = "fake", Host = "1.2.3.4", StableKey = "bridge" }, CancellationToken.None);
+
+        _driver.PingResult = true;
+        await _provider.GetSmartLightDtosAsync(CancellationToken.None);
+        Assert.Single(_provider.GetAll().Devices);   // online -> shown
+
+        _driver.PingResult = false;
+        await _provider.GetSmartLightDtosAsync(CancellationToken.None);
+        Assert.Empty(_provider.GetAll().Devices);     // offline -> card hidden
+
+        _driver.PingResult = true;
+        await _provider.GetSmartLightDtosAsync(CancellationToken.None);
+        Assert.Single(_provider.GetAll().Devices);   // reconnect -> shown again
+    }
+
+    [Fact]
+    public async Task OnlineProbe_raisesOnlineChanged_onlyOnTransition()
+    {
+        await _provider.PairAsync(
+            new PairSmartLightBody { Brand = "fake", Host = "1.2.3.4", StableKey = "bridge" }, CancellationToken.None);
+        var events = 0;
+        _provider.OnlineChanged += () => Interlocked.Increment(ref events);
+
+        _driver.PingResult = true;
+        await _provider.GetSmartLightDtosAsync(CancellationToken.None);  // absent->online: no transition
+        _driver.PingResult = false;
+        await _provider.GetSmartLightDtosAsync(CancellationToken.None);  // online->offline: +1
+        await _provider.GetSmartLightDtosAsync(CancellationToken.None);  // still offline: no event
+        _driver.PingResult = true;
+        await _provider.GetSmartLightDtosAsync(CancellationToken.None);  // offline->online: +1
+
+        Assert.Equal(2, events);
+    }
+
+    [Fact]
+    public async Task BuildFrames_stillBuildsOfflineDevice()
+    {
+        await _provider.PairAsync(
+            new PairSmartLightBody { Brand = "fake", Host = "1.2.3.4", StableKey = "bridge" }, CancellationToken.None);
+        _driver.PingResult = false;
+        await _provider.GetSmartLightDtosAsync(CancellationToken.None);
+
+        Assert.Empty(_provider.GetAll().Devices);   // card hidden
+        Assert.Single(_provider.BuildFrames(0));      // engine keeps sending (the reconnect signal)
+    }
+
+    [Fact]
+    public async Task SubmitFrame_failedSend_hidesCard()
+    {
+        await _provider.PairAsync(
+            new PairSmartLightBody { Brand = "fake", Host = "1.2.3.4", StableKey = "bridge" }, CancellationToken.None);
+        _provider.BuildFrames(0); // populate the per-tick cache SubmitFrame needs
+
+        var flipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _provider.OnlineChanged += () => flipped.TrySetResult();
+
+        _driver.FailSend = true;
+        _provider.SubmitFrame("fake:bridge:1", new LightFrame(On: true, 1, 2, 3, 1f, null));
+
+        await flipped.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        Assert.Empty(_provider.GetAll().Devices);
+    }
+
+    [Fact]
+    public void GetStructures_exposesLinearStrip_forZoneAddressableLight()
+    {
+        _driver.Plan = new LightFramePlan(20, AverageToSingle: false);
+        _store.Update(s => s.SmartLights.Devices.Add(new SmartLightConfig
+        {
+            Id = "fake:bridge:1", Brand = "fake", Name = "L1", Host = "1.2.3.4", StableKey = "bridge", Extra = "1",
+        }));
+
+        var st = Assert.Single(_provider.GetStructures());
+        Assert.Equal("fake:bridge:1", st.DeviceId);
+        var seg = Assert.Single(st.Segments);
+        Assert.Equal(20, seg.LedCount);
+        Assert.Equal(20, seg.FrameLedCount);
+        Assert.False(seg.Resizable);
+        Assert.Equal("linear", seg.ZoneType);
+
+        var zone = Assert.Single(st.DefaultZones);
+        Assert.Equal("fake:bridge:1", zone.Id); // MUST equal the card id so RgbBridge matches the frame
+        var slice = Assert.Single(zone.Slices);
+        Assert.Equal(0, slice.Segment);
+        Assert.Equal(0, slice.Start);
+        Assert.Equal(20, slice.Count);
+    }
+
+    [Fact]
+    public void GetStructures_seedsDriverUv_andSkipsSingleColorLamps()
+    {
+        // Single-color lamp (default averaging plan) has nothing to arrange.
+        _store.Update(s => s.SmartLights.Devices.Add(new SmartLightConfig
+        {
+            Id = "fake:bridge:1", Brand = "fake", Name = "L1", Host = "1.2.3.4", StableKey = "bridge", Extra = "1",
+        }));
+        Assert.Empty(_provider.GetStructures());
+
+        // A zone-addressable light's driver sweep seeds the segment defaults.
+        _driver.Plan = new LightFramePlan(2, AverageToSingle: false,
+            LedU: new[] { 0.1f, 0.9f }, LedV: new[] { 0.5f, 0.5f });
+        var seg = Assert.Single(Assert.Single(_provider.GetStructures()).Segments);
+        Assert.Equal(new[] { 0.1f, 0.9f }, seg.DefaultU);
+        Assert.Equal(new[] { 0.5f, 0.5f }, seg.DefaultV);
+    }
+
+    [Fact]
+    public async Task ReachabilityPolling_probesAndHidesCard_whenOffline()
+    {
+        await _provider.PairAsync(
+            new PairSmartLightBody { Brand = "fake", Host = "1.2.3.4", StableKey = "bridge" }, CancellationToken.None);
+
+        var flipped = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _provider.OnlineChanged += () => flipped.TrySetResult();
+
+        _driver.PingResult = false;
+        _provider.StartReachabilityPolling();   // probes immediately, then on interval
+
+        await flipped.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        _provider.StopReachabilityPolling();
+        Assert.Empty(_provider.GetAll().Devices);
+    }
+
     public void Dispose()
     {
+        _provider.StopReachabilityPolling();
         _throttle.Dispose();
         try { Directory.Delete(_dir, recursive: true); } catch { }
     }
@@ -175,6 +303,8 @@ public class SmartLightProviderTests : IDisposable
     {
         public LightFramePlan Plan = new(16, true);
         public Action<LightFrame>? OnSend;
+        public bool FailSend;
+        public bool PingResult = true;
 
         public string Brand => "fake";
         public Task<IReadOnlyList<DiscoveredLight>> DiscoverAsync(CancellationToken ct)
@@ -190,10 +320,10 @@ public class SmartLightProviderTests : IDisposable
             });
         public LightFramePlan PlanFrames(SmartLight dev) => Plan;
         public Task SendAsync(SmartLight dev, LightFrame frame, CancellationToken ct)
-        { OnSend?.Invoke(frame); return Task.CompletedTask; }
+        { OnSend?.Invoke(frame); if (FailSend) throw new Exception("send failed"); return Task.CompletedTask; }
         public Task IdentifyAsync(SmartLight dev, CancellationToken ct) => Task.CompletedTask;
         public int MinIntervalMs(SmartLight dev) => 10;
         public string RateLimitKey(SmartLight dev) => dev.Id;
-        public Task<bool> PingAsync(SmartLight dev, CancellationToken ct) => Task.FromResult(true);
+        public Task<bool> PingAsync(SmartLight dev, CancellationToken ct) => Task.FromResult(PingResult);
     }
 }

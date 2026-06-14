@@ -381,6 +381,8 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.Smart.SmartLightProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>());
         services.AddSingleton<Nexus.Service.Lighting.Smart.SmartLightFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightFrameWriter>());
 

@@ -5,6 +5,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Models.SmartLights;
 using Nexus.Service.Persistence;
@@ -22,9 +23,13 @@ namespace Nexus.Service.Lighting.Smart;
 /// stalls the engine. Mirrors the CNVS/NP50 provider pattern; the difference is
 /// the transport is the LAN, not a serial/HID hub.
 /// </summary>
-public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrameContributor
+public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource
 {
     private const string IconType = "bulb";
+    // Reachability probe cadence while a lighting view is open. Govee is UDP, so
+    // its frames never error on a dead device; an active devStatus probe at this
+    // interval is the only signal that drops/restores the card.
+    private const int ReachabilityPollSeconds = 5;
 
     private readonly Dictionary<string, ILightDriver> _drivers;
     private readonly IConfigStore _store;
@@ -32,6 +37,9 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
 
     // id -> reachability (optimistic; a failed send flips it, a success restores).
     private readonly ConcurrentDictionary<string, bool> _online = new();
+    // Serializes the SetOnline read-modify; the probe loop, the route, and the
+    // send callback all write _online concurrently.
+    private readonly object _onlineLock = new();
     // id -> live snapshot, refreshed each BuildFrames so the 33 Hz writer's
     // SubmitFrame lookups don't re-parse settings per device per tick.
     private readonly ConcurrentDictionary<string, SmartLight> _cache = new();
@@ -45,7 +53,15 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     // re-pushes these while no effect runs. Membership is set in PushStaticFrom.
     private readonly ConcurrentDictionary<string, byte> _streamedStatic = new();
 
+    // Reachability poll lifecycle, started/stopped by lighting-topic subscribers.
+    private readonly object _pollLock = new();
+    private CancellationTokenSource? _pollCts;
+
     public event Action? DevicesChanged;
+    // Raised only when a device's visible online/offline state flips, so the
+    // lighting list can refetch and drop/restore the card. Distinct from
+    // DevicesChanged (which forces a full topology rebuild).
+    public event Action? OnlineChanged;
 
     public SmartLightProvider(IEnumerable<ILightDriver> drivers, IConfigStore store, NetworkSendThrottle throttle)
     {
@@ -96,6 +112,10 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         {
             var cfg = devices[i];
             if (!cfg.Enabled) continue;
+            // Hide a known-offline light's card; absent/true keeps it shown
+            // (optimistic). The engine keeps sending (BuildFrames has no online
+            // filter), so a reconnecting successful send restores the card.
+            if (_online.TryGetValue(cfg.Id, out var online) && !online) continue;
 
             var isOn = !disabled.Contains(cfg.Id);
             var brightness = 100;
@@ -304,6 +324,60 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         frame.LedV = v;
     }
 
+    // ── IDeviceStructureSource ────────────────────────────────────────────────
+
+    /// <summary>Expose zone-addressable strips (Govee razer segments) as a
+    /// single linear structure so the LED-map editor can position each segment
+    /// and the resolver folds the user's overrides into the engine sample
+    /// points. Single-color lamps have nothing to arrange and are omitted.</summary>
+    public IReadOnlyList<DeviceStructure> GetStructures()
+    {
+        var devices = _store.Load().SmartLights.Devices;
+        if (devices.Count == 0) return Array.Empty<DeviceStructure>();
+        List<DeviceStructure>? structures = null;
+        foreach (var cfg in devices)
+        {
+            if (!cfg.Enabled) continue;
+            var plan = _plans.TryGetValue(cfg.Id, out var cached) ? cached : DriverForId(cfg.Id)?.PlanFrames(ToSmartLight(cfg));
+            if (plan is not { AverageToSingle: false }) continue;
+            var n = Math.Max(1, plan.LedCount);
+            if (n <= 1) continue;
+
+            // The driver's stock sample sweep seeds the editor's default
+            // positions; null falls back to the resolver's linear default,
+            // which equals the Govee razer sweep (left→right at mid-height).
+            float[]? du = null, dv = null;
+            if (plan.LedU is { } pu && plan.LedV is { } pv && pu.Length == n && pv.Length == n)
+            { du = pu; dv = pv; }
+
+            var structure = new DeviceStructure { DeviceId = cfg.Id, Name = cfg.Name };
+            structure.Segments.Add(new StructureSegment
+            {
+                Index = 0,
+                Name = cfg.Name,
+                LedCount = n,
+                FrameLedCount = n,
+                Resizable = false,
+                ZoneType = "linear",
+                DefaultU = du,
+                DefaultV = dv,
+            });
+            // Zone id MUST equal the card id (cfg.Id): the editor opens with the
+            // card id as its zone, and RgbBridge matches the contributed frame
+            // to this zone by id to apply the override context.
+            structure.DefaultZones.Add(new DefaultZoneDef
+            {
+                Id = cfg.Id,
+                Name = cfg.Name,
+                RawName = cfg.Name,
+                LegacyZoneIndex = -1,
+                Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = n } },
+            });
+            (structures ??= new()).Add(structure);
+        }
+        return (IReadOnlyList<DeviceStructure>?)structures ?? Array.Empty<DeviceStructure>();
+    }
+
     // ── Streaming + static control (called by the writer + control methods) ───
 
     /// <summary>Submit one engine effect frame for a device: averaged to a
@@ -349,8 +423,8 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         var minInterval = driver.MinIntervalMs(dev);
         _throttle.Submit(id, frame, minInterval, async (f, c) =>
         {
-            try { await driver.SendAsync(dev, f, c).ConfigureAwait(false); _online[id] = true; }
-            catch { _online[id] = false; throw; }
+            try { await driver.SendAsync(dev, f, c).ConfigureAwait(false); if (SetOnline(id, true)) RaiseOnlineChanged(); }
+            catch { if (SetOnline(id, false)) RaiseOnlineChanged(); throw; }
         }, hostKey: driver.RateLimitKey(dev), hostIntervalMs: minInterval);
     }
 
@@ -465,10 +539,32 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         var devices = _store.Load().SmartLights.Devices;
         if (devices.Count == 0) return resp;
 
-        // Reachability is probed ONCE per (brand, host), not inferred from past
-        // send failures — so a transient streaming 429 doesn't strand a whole
-        // bridge's lights as "offline". Every light on a reachable bridge is
-        // reported online.
+        var hostOnline = await ProbeReachabilityAsync(devices, ct).ConfigureAwait(false);
+        foreach (var cfg in devices)
+        {
+            resp.Devices.Add(new SmartLightDto
+            {
+                Id = cfg.Id,
+                Brand = cfg.Brand,
+                Name = cfg.Name,
+                Host = cfg.Host,
+                Online = hostOnline.TryGetValue((cfg.Brand, cfg.Host), out var on) && on,
+                Enabled = cfg.Enabled,
+                LedCount = LedCountFor(cfg),
+            });
+        }
+        return resp;
+    }
+
+    // Probe reachability ONCE per (brand, host) — a transient streaming 429
+    // doesn't strand a whole bridge's lights — then sync _online and broadcast
+    // once on any transition. Brand-neutral: each driver's PingAsync is the
+    // active liveness check its transport allows (Govee UDP devStatus, Hue/
+    // Nanoleaf HTTP). Hue lights share their bridge's host, so the probe is
+    // bridge-level for Hue and per-device for Govee.
+    private async Task<Dictionary<(string brand, string host), bool>> ProbeReachabilityAsync(
+        IReadOnlyList<SmartLightConfig> devices, CancellationToken ct)
+    {
         var hostOnline = new Dictionary<(string brand, string host), bool>();
         foreach (var cfg in devices)
         {
@@ -483,23 +579,59 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
             }
             hostOnline[key] = online;
         }
-
+        var changed = false;
         foreach (var cfg in devices)
+            changed |= SetOnline(cfg.Id, hostOnline.TryGetValue((cfg.Brand, cfg.Host), out var on) && on);
+        if (changed) RaiseOnlineChanged();
+        return hostOnline;
+    }
+
+    /// <summary>Begin probing reachability on an interval; idempotent. Wired to
+    /// the lighting topic's first subscriber, so the poll runs only while a
+    /// lighting view is open and stops when the last one leaves.</summary>
+    public void StartReachabilityPolling()
+    {
+        lock (_pollLock)
         {
-            var online = hostOnline.TryGetValue((cfg.Brand, cfg.Host), out var on) && on;
-            _online[cfg.Id] = online; // keep the internal hint in sync with the probe
-            resp.Devices.Add(new SmartLightDto
-            {
-                Id = cfg.Id,
-                Brand = cfg.Brand,
-                Name = cfg.Name,
-                Host = cfg.Host,
-                Online = online,
-                Enabled = cfg.Enabled,
-                LedCount = LedCountFor(cfg),
-            });
+            if (_pollCts is not null) return;
+            _pollCts = new CancellationTokenSource();
+            _ = ReachabilityLoopAsync(_pollCts.Token);
         }
-        return resp;
+    }
+
+    public void StopReachabilityPolling()
+    {
+        // An in-flight probe may finish after this returns; its writes go
+        // through SetOnline, so a brief overlap with a restarted loop is safe.
+        lock (_pollLock)
+        {
+            _pollCts?.Cancel();
+            _pollCts?.Dispose();
+            _pollCts = null;
+        }
+    }
+
+    private async Task ReachabilityLoopAsync(CancellationToken ct)
+    {
+        try
+        {
+            using var timer = new PeriodicTimer(TimeSpan.FromSeconds(ReachabilityPollSeconds));
+            // Probe immediately, then on each tick, so opening a lighting view
+            // reflects current reachability without waiting a full interval.
+            do
+            {
+                try
+                {
+                    var devices = _store.Load().SmartLights.Devices;
+                    if (devices.Count > 0)
+                        await ProbeReachabilityAsync(devices, ct).ConfigureAwait(false);
+                }
+                catch (OperationCanceledException) { break; }
+                catch { /* transient probe failure; keep polling */ }
+            }
+            while (await timer.WaitForNextTickAsync(ct).ConfigureAwait(false));
+        }
+        catch (OperationCanceledException) { /* stopped */ }
     }
 
     public async Task<DiscoverSmartLightsResponse> DiscoverAsync(string brand, CancellationToken ct)
@@ -645,6 +777,26 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     private void FireChanged()
     {
         try { DevicesChanged?.Invoke(); } catch { /* swallow subscriber failures */ }
+    }
+
+    private void RaiseOnlineChanged()
+    {
+        try { OnlineChanged?.Invoke(); } catch { /* swallow subscriber failures */ }
+    }
+
+    // Records reachability and returns true when it flips the device's visible
+    // state. The optimistic baseline (absent or true = online) means the first
+    // failed send transitions (hides the card) while a first success does not.
+    // Serialized so concurrent writers (probe loop, route, send callback) can't
+    // interleave the read-modify and drop or duplicate the transition broadcast.
+    private bool SetOnline(string id, bool online)
+    {
+        lock (_onlineLock)
+        {
+            var wasOnline = !_online.TryGetValue(id, out var prev) || prev;
+            _online[id] = online;
+            return wasOnline != online;
+        }
     }
 
     private static (float x, float y, float w, float h) DefaultLayout(int index)
