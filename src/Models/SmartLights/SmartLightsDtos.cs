@@ -17,6 +17,14 @@ public class SmartLightDto
 public class GetSmartLightsResponse
 {
     public List<SmartLightDto> Devices { get; set; } = new();
+    /// <summary>Per-brand scan/probe/visibility toggle; a brand absent here is off.</summary>
+    public Dictionary<string, bool> BrandEnabled { get; set; } = new();
+}
+
+public class BrandEnableBody
+{
+    public string Brand { get; set; } = "";
+    public bool Enabled { get; set; }
 }
 
 public class DiscoverSmartLightsBody

@@ -170,6 +170,7 @@ public class GoveeDriverTests : IDisposable
                 Name = "Govee H619A",
             }, CancellationToken.None);
             Assert.True(pair.Ok, pair.Message);
+            provider.SetBrandEnabled("govee", true); // brands default off; this one drives the canvas
 
             var frame = Assert.Single(provider.BuildFrames(0));
             Assert.Equal(20, frame.LedCount);

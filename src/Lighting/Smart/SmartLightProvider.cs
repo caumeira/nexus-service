@@ -96,6 +96,11 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         return brand is not null && _drivers.TryGetValue(brand, out var d) ? d : null;
     }
 
+    // A brand absent from the map (or false) is OFF: not scanned, not probed, and
+    // its lights stay off the lighting canvas.
+    private static bool BrandOn(IReadOnlyDictionary<string, bool> brandEnabled, string brand)
+        => brandEnabled.TryGetValue(brand, out var v) && v;
+
     // ── ILightingDeviceProvider ──────────────────────────────────────────────
 
     public GetLightingDevicesResponse GetAll()
@@ -109,11 +114,12 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         var disabled = settings.Devices.DisabledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var layouts = settings.Lighting.DeviceLayouts;
+        var brandEnabled = settings.SmartLights.BrandEnabled;
 
         for (var i = 0; i < devices.Count; i++)
         {
             var cfg = devices[i];
-            if (!cfg.Enabled) continue;
+            if (!cfg.Enabled || !BrandOn(brandEnabled, cfg.Brand)) continue;
             // Hide a known-offline light's card; absent/true keeps it shown
             // (optimistic). Reachability is owned by the probe poll
             // (ProbeReachabilityAsync); reconnect is detected there, not from the
@@ -236,6 +242,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         var settings = _store.Load();
         var devices = settings.SmartLights.Devices;
         var layouts = settings.Lighting.DeviceLayouts;
+        var brandEnabled = settings.SmartLights.BrandEnabled;
 
         // Refresh the per-tick lookup cache from the persisted config.
         _cache.Clear();
@@ -248,7 +255,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         for (var i = 0; i < devices.Count; i++)
         {
             var cfg = devices[i];
-            if (!cfg.Enabled) continue;
+            if (!cfg.Enabled || !BrandOn(brandEnabled, cfg.Brand)) continue;
             _cache[cfg.Id] = ToSmartLight(cfg);
             live.Add(cfg.Id);
 
@@ -540,7 +547,9 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     public async Task<GetSmartLightsResponse> GetSmartLightDtosAsync(CancellationToken ct)
     {
         var resp = new GetSmartLightsResponse();
-        var devices = _store.Load().SmartLights.Devices;
+        var smart = _store.Load().SmartLights;
+        resp.BrandEnabled = new Dictionary<string, bool>(smart.BrandEnabled);
+        var devices = smart.Devices;
         if (devices.Count == 0) return resp;
 
         var hostOnline = await ProbeReachabilityAsync(devices, ct).ConfigureAwait(false);
@@ -569,9 +578,11 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     private async Task<Dictionary<(string brand, string host), bool>> ProbeReachabilityAsync(
         IReadOnlyList<SmartLightConfig> devices, CancellationToken ct)
     {
+        var brandEnabled = _store.Load().SmartLights.BrandEnabled;
         var hostOnline = new Dictionary<(string brand, string host), bool>();
         foreach (var cfg in devices)
         {
+            if (!BrandOn(brandEnabled, cfg.Brand)) continue; // off brands are never probed
             var key = (cfg.Brand, cfg.Host);
             if (hostOnline.ContainsKey(key)) continue;
             var driver = DriverForId(cfg.Id);
@@ -585,7 +596,10 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         }
         var changed = false;
         foreach (var cfg in devices)
+        {
+            if (!BrandOn(brandEnabled, cfg.Brand)) continue;
             changed |= SetOnline(cfg.Id, hostOnline.TryGetValue((cfg.Brand, cfg.Host), out var on) && on);
+        }
         if (changed) RaiseOnlineChanged();
         return hostOnline;
     }
@@ -746,6 +760,67 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         });
         if (!enabled) { _throttle.Remove(id); _streamedStatic.TryRemove(id, out _); } // stop streaming a disabled light
         FireChanged();
+    }
+
+    /// <summary>Turn a whole brand on or off. OFF brands are not scanned, not
+    /// probed, and their lights leave the lighting canvas (GetAll/BuildFrames and
+    /// the probe gate on BrandOn). Paired lights and their LED mappings are kept.</summary>
+    public void SetBrandEnabled(string brand, bool enabled)
+    {
+        _store.Update(s => s.SmartLights.BrandEnabled[brand] = enabled);
+        if (!enabled)
+        {
+            foreach (var cfg in _store.Load().SmartLights.Devices)
+                if (cfg.Brand == brand) { _throttle.Remove(cfg.Id); _streamedStatic.TryRemove(cfg.Id, out _); }
+        }
+        FireChanged();
+    }
+
+    /// <summary>Scan a brand and reconcile its paired list: discover what is present
+    /// now, then prune that brand's lights whose StableKey is no longer discoverable.
+    /// Only prunes when the scan itself succeeded (a transient failure never wipes
+    /// the list); a successful empty scan means nothing is there. Govee/Nanoleaf
+    /// prune per device; Hue's StableKey is the bridge, so it prunes only when the
+    /// whole bridge is gone (per-bulb Hue removal is a follow-up). Pruned lights keep
+    /// their DeviceLedOverrides, so re-adding restores the mapping. Returns the
+    /// discovery result so the page can offer the existing pair UX for new lights.</summary>
+    public async Task<DiscoverSmartLightsResponse> ScanBrandAsync(string brand, CancellationToken ct)
+    {
+        var disc = await DiscoverAsync(brand, ct).ConfigureAwait(false);
+        if (!disc.Ok) return disc;
+
+        var present = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var d in disc.Devices)
+            if (!string.IsNullOrEmpty(d.StableKey)) present.Add(d.StableKey);
+
+        var pruned = new List<string>();
+        _store.Update(s =>
+        {
+            var next = new List<SmartLightConfig>(s.SmartLights.Devices.Count);
+            foreach (var c in s.SmartLights.Devices)
+            {
+                // Only prune a light we can reconcile by key; an empty StableKey
+                // can't be matched against the discovery set, so keep it.
+                if (c.Brand == brand && !string.IsNullOrEmpty(c.StableKey) && !present.Contains(c.StableKey))
+                { pruned.Add(c.Id); continue; }
+                next.Add(c);
+            }
+            s.SmartLights.Devices = next;
+        });
+        foreach (var id in pruned)
+        {
+            _throttle.Remove(id);
+            _online.TryRemove(id, out _);
+            _cache.TryRemove(id, out _);
+            _plans.TryRemove(id, out _);
+            _streamedStatic.TryRemove(id, out _);
+        }
+        if (pruned.Count > 0)
+        {
+            ServiceLog.Info($"[smart-lights] scan {brand}: pruned {pruned.Count} light(s) no longer present");
+            FireChanged();
+        }
+        return disc;
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────

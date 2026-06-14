@@ -24,6 +24,9 @@ public class SmartLightProviderTests : IDisposable
         Directory.CreateDirectory(_dir);
         _store = new JsonConfigStore(Path.Combine(_dir, "settings.json"));
         _provider = new SmartLightProvider(new ILightDriver[] { _driver }, _store, _throttle);
+        // Brands default OFF; enable the fake brand so the existing visibility/probe
+        // assertions hold. The default-off behavior is covered by a dedicated test.
+        _provider.SetBrandEnabled("fake", true);
     }
 
     [Fact]
@@ -297,6 +300,71 @@ public class SmartLightProviderTests : IDisposable
         Assert.Empty(_provider.GetAll().Devices);
     }
 
+    [Fact]
+    public async Task Brand_defaultsOff_hidingAllItsLights()
+    {
+        // Fresh provider/store: no brand enabled, so a paired light stays hidden.
+        var dir = Path.Combine(Path.GetTempPath(), "nexus-sl-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(dir);
+        using var throttle = new NetworkSendThrottle();
+        var store = new JsonConfigStore(Path.Combine(dir, "settings.json"));
+        var provider = new SmartLightProvider(new ILightDriver[] { new FakeDriver() }, store, throttle);
+        await provider.PairAsync(
+            new PairSmartLightBody { Brand = "fake", Host = "1.2.3.4", StableKey = "bridge" }, CancellationToken.None);
+
+        Assert.Empty(provider.GetAll().Devices);  // brand off by default
+        Assert.Empty(provider.BuildFrames(0));
+        try { Directory.Delete(dir, recursive: true); } catch { }
+    }
+
+    [Fact]
+    public async Task BrandToggle_gatesVisibilityAndFrames()
+    {
+        await _provider.PairAsync(
+            new PairSmartLightBody { Brand = "fake", Host = "1.2.3.4", StableKey = "bridge" }, CancellationToken.None);
+        Assert.Single(_provider.GetAll().Devices);   // fake brand on (ctor)
+
+        _provider.SetBrandEnabled("fake", false);
+        Assert.Empty(_provider.GetAll().Devices);     // off -> hidden
+        Assert.Empty(_provider.BuildFrames(0));
+
+        _provider.SetBrandEnabled("fake", true);
+        Assert.Single(_provider.GetAll().Devices);   // on -> shown
+        Assert.Single(_provider.BuildFrames(0));
+    }
+
+    [Fact]
+    public async Task ScanBrand_prunesAbsentLight_butKeepsItsMapping()
+    {
+        await _provider.PairAsync(
+            new PairSmartLightBody { Brand = "fake", Host = "1.2.3.4", StableKey = "bridge" }, CancellationToken.None);
+        // Stand in a saved LED mapping for the light.
+        _store.Update(s => s.Devices.DeviceLedOverrides["fake:bridge:1"] =
+            new List<SegmentLedOverride> { new() { Segment = 0, LedIndex = 0, U = 0.5f, V = 0.5f } });
+
+        _driver.DiscoverResult.Clear(); // nothing present now
+        var resp = await _provider.ScanBrandAsync("fake", CancellationToken.None);
+
+        Assert.True(resp.Ok);
+        Assert.Empty(_provider.GetAll().Devices);                 // pruned from the list
+        Assert.DoesNotContain(_store.Load().SmartLights.Devices, d => d.Id == "fake:bridge:1");
+        // Mapping survives so a re-add restores it.
+        Assert.True(_store.Load().Devices.DeviceLedOverrides.ContainsKey("fake:bridge:1"));
+    }
+
+    [Fact]
+    public async Task ScanBrand_failedDiscovery_doesNotPrune()
+    {
+        await _provider.PairAsync(
+            new PairSmartLightBody { Brand = "fake", Host = "1.2.3.4", StableKey = "bridge" }, CancellationToken.None);
+
+        _driver.DiscoverThrows = true; // discovery errors -> resp.Ok == false
+        var resp = await _provider.ScanBrandAsync("fake", CancellationToken.None);
+
+        Assert.False(resp.Ok);
+        Assert.Single(_store.Load().SmartLights.Devices); // a bad scan must never wipe the list
+    }
+
     public void Dispose()
     {
         _provider.StopReachabilityPolling();
@@ -309,10 +377,15 @@ public class SmartLightProviderTests : IDisposable
         public LightFramePlan Plan = new(16, true);
         public Action<LightFrame>? OnSend;
         public bool PingResult = true;
+        // What a scan discovers; defaults to the one paired light's host/key.
+        public List<DiscoveredLight> DiscoverResult = new() { new DiscoveredLight("fake", "1.2.3.4", "Fake", "bridge") };
+        public bool DiscoverThrows;
 
         public string Brand => "fake";
         public Task<IReadOnlyList<DiscoveredLight>> DiscoverAsync(CancellationToken ct)
-            => Task.FromResult<IReadOnlyList<DiscoveredLight>>(new[] { new DiscoveredLight("fake", "1.2.3.4", "Fake", "bridge") });
+            => DiscoverThrows
+                ? throw new Exception("discover failed")
+                : Task.FromResult<IReadOnlyList<DiscoveredLight>>(DiscoverResult);
         public Task<PairResult> PairAsync(DiscoveredLight target, CancellationToken ct)
             => Task.FromResult(new PairResult
             {

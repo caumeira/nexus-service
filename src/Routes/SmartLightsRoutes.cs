@@ -20,6 +20,25 @@ public static partial class DevicesRoutes
         app.MapPost("/smart-lights/discover", async (DiscoverSmartLightsBody body, SmartLightProvider p, CancellationToken ct)
             => await p.DiscoverAsync(body.Brand, ct));
 
+        // Scan + reconcile: discover the brand and prune its paired lights no longer
+        // present (the way to drop a removed light). Returns discovery candidates for
+        // the pair UI; broadcasts so the lighting page refetches after a prune.
+        app.MapPost("/smart-lights/scan", async (DiscoverSmartLightsBody body, SmartLightProvider p, Nexus.Service.Sockets.MultiplexHub hub, CancellationToken ct) =>
+        {
+            var result = await p.ScanBrandAsync(body.Brand, ct);
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            return result;
+        });
+
+        // Turn a whole brand on/off (default off). Off brands are not scanned, not
+        // probed, and their lights leave the lighting canvas.
+        app.MapPost("/smart-lights/brand-enable", (BrandEnableBody body, SmartLightProvider p, Nexus.Service.Sockets.MultiplexHub hub) =>
+        {
+            p.SetBrandEnabled(body.Brand, body.Enabled);
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            return ApiResponse.Ok();
+        });
+
         app.MapPost("/smart-lights/pair", async (PairSmartLightBody body, SmartLightProvider p, Nexus.Service.Sockets.MultiplexHub hub, CancellationToken ct) =>
         {
             var result = await p.PairAsync(body, ct);

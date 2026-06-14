@@ -469,6 +469,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.SmartLights.PairSmartLightBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.SmartLights.PairSmartLightResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.SmartLights.EnableSmartLightBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.SmartLights.BrandEnableBody))]
+[JsonSerializable(typeof(System.Collections.Generic.Dictionary<string, bool>))]
 
 // Keeb
 [JsonSerializable(typeof(KeyboardState))]

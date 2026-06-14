@@ -67,6 +67,10 @@ public sealed class NexusSettings
 public sealed class SmartLightsSettings
 {
     public List<SmartLightConfig> Devices { get; set; } = new();
+    /// <summary>Per-brand toggle (key = brand prefix like "hue"). A brand absent or
+    /// false is OFF: not scanned, not probed, and its lights stay off the lighting
+    /// canvas. Default off so a fresh install probes nothing until a brand is enabled.</summary>
+    public Dictionary<string, bool> BrandEnabled { get; set; } = new();
 }
 
 public sealed class SmartLightConfig
