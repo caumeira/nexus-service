@@ -16,12 +16,14 @@ vec3 voronoi2(vec2 p, float t, float drift) {
             vec2 pt = vec2(hash21(seed), hash21(seed + 99.0));
             // Drift the cell centers over time.
             pt = 0.5 + drift * 0.45 * sin(t * 0.4 + pt * 6.28318);
-            float d = length(n + pt - f);
+            // perf: rank cells by squared distance (no sqrt); sqrt only the two winners below.
+            vec2 dv = n + pt - f;
+            float d = dot(dv, dv);
             if (d < d1) { d2 = d1; d1 = d; cellId = hash21(seed + 777.0); }
             else if (d < d2) { d2 = d; }
         }
     }
-    return vec3(d1, d2, cellId);
+    return vec3(sqrt(d1), sqrt(d2), cellId);
 }
 
 void main() {

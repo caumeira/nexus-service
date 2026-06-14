@@ -16,7 +16,9 @@ void main() {
     vec2 p = uv * dens * 1.6;
     // Two warped fbm samples that flow against each other.
     float n1 = fbm(p + vec2(t, t * 0.6));
-    float n2 = fbm(p * 1.7 + vec2(-t * 0.7, t * 0.45) + vec2(n1 * 1.3, n1));
+    // perf: n2 is domain-warped by n1 and only feeds the band difference, so its
+    // top two octaves are washed out -- fbm3 (3 oct) instead of fbm (5 oct).
+    float n2 = fbm3(p * 1.7 + vec2(-t * 0.7, t * 0.45) + vec2(n1 * 1.3, n1));
     // Caustic bands form where successive noise gradients align: take the
     // distance between the two samples and invert into bright thin veins.
     float caustic = abs(n1 - n2);

@@ -8,14 +8,15 @@ uniform float u_turbulence; // extra: flame turbulence (0.5..3)
 // as flame and not blob.
 float flame(vec2 uv, float t, float turb) {
     vec2 q = vec2(uv.x * 2.5 * turb, uv.y * 1.6 * turb + t * 1.5);
+    // perf: warp offsets are low-freq, top octaves washed out -> fbm3 (3 oct)
     vec2 w = vec2(
-        fbm(q * 0.55 + vec2(0.0,  t * 0.20)) - 0.5,
-        fbm(q * 0.55 + vec2(7.3, -t * 0.25)) - 0.5
+        fbm3(q * 0.55 + vec2(0.0,  t * 0.20)) - 0.5,
+        fbm3(q * 0.55 + vec2(7.3, -t * 0.25)) - 0.5
     ) * 0.65;
+    // perf: drop the 5x detail octave; base fbm + one 2.2x detail keeps tongues
     float n = fbm(q + w);
-    n += fbm((q + w) * 2.2 + vec2(0.0, t * 0.6)) * 0.50;
-    n += fbm((q + w) * 5.0 - vec2(0.0, t * 0.9)) * 0.25;
-    return n / 1.75;
+    n += fbm3((q + w) * 2.2 + vec2(0.0, t * 0.6)) * 0.50;
+    return n / 1.40;
 }
 
 void main() {

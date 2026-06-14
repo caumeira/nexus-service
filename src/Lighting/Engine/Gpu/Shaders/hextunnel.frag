@@ -49,7 +49,8 @@ void main() {
 
     vec3 col = fillColor + cellColor * edge * neon * 1.6;
     // Brighter near the centre (close end of the tunnel).
-    float centerBoost = exp(-r * 1.5) * 0.4;
+    // perf: rational falloff replaces exp() for the soft centre glow - visually equivalent, no transcendental.
+    float centerBoost = 0.4 / (1.0 + r * r * 4.0);
     col += cellColor * centerBoost;
     // Vignette fade at the very edges so the corners aren't black.
     col += tintedPalette(0.65) * 0.04;

@@ -32,8 +32,9 @@ void main() {
         // Tendril path: along baseAng but curving with fbm along radius.
         float jitterAmp = jit * 0.28;
         float pathOffset = (fbm3(vec2(r * 4.0, fi * 3.7 + t)) - 0.5) * jitterAmp;
-        // Secondary wiggle so the tendril has audible crackle shape.
-        pathOffset += (fbm3(vec2(r * 12.0, fi * 5.1 + t * 2.0)) - 0.5) * 0.08;
+        // perf: drop the secondary high-freq wiggle fbm3 (2 noise->1 per tendril);
+        // a cheap sin keeps comparable crackle shape.
+        pathOffset += sin(r * 12.0 + fi * 5.1 + t * 2.0) * 0.04;
         float perp = abs(r * angDelta - pathOffset * r);
 
         // Wider tendril profile + slower distance falloff so the whole

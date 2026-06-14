@@ -25,7 +25,8 @@ void main() {
         float d = length(dir);
         float ang = atan(dir.y, dir.x);
         // fbm-deformed radius -> ragged edge.
-        float edgeN = fbm(vec2(ang * 3.0 + age * 5.0, d * 7.5 + t)) - 0.5;
+        // perf: fbm3 (3 oct) per drop; top octaves of the edge wash out under the smoothstep.
+        float edgeN = fbm3(vec2(ang * 3.0 + age * 5.0, d * 7.5 + t)) - 0.5;
         float edge = d - rad + edgeN * curl * 0.32 * age;
         float blob = smoothstep(0.1, -0.03, edge);
         float life = pow(max(1.0 - age, 0.0), fade);

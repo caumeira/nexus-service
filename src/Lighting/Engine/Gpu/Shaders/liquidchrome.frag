@@ -52,17 +52,19 @@ void main() {
     float tileR = length(local);
     float bump = (1.0 - smoothstep(0.25, 0.5, tileR)) * thick;
     float wobble = sin(t * (1.4 + tileHash * 0.8) + tileHash * 6.28) * 0.25;
+    // perf: hoist the shared groove term (reused by h and hY unchanged).
+    float groove = 0.18 * bump * cos(rotL.x * 14.0 + t * 2.0);
     float h = bump + wobble * bump * 0.6;
     // Add a secondary groove that crosses each tile - this is what
     // makes the pattern read as "cut" rather than "drop".
-    h += 0.18 * bump * cos(rotL.x * 14.0 + t * 2.0);
+    h += groove;
 
     // Normal from finite-differenced height inside the tile.
     float eps = 0.015;
     float hX = (1.0 - smoothstep(0.25, 0.5, length(local + vec2(eps, 0.0))))
              + 0.18 * bump * cos((rotL.x + eps) * 14.0 + t * 2.0);
     float hY = (1.0 - smoothstep(0.25, 0.5, length(local + vec2(0.0, eps))))
-             + 0.18 * bump * cos(rotL.x * 14.0 + t * 2.0);
+             + groove;
     vec3 n = normalize(vec3(h - hX, h - hY, 0.5 * eps));
 
     // Chrome shading: dark base, soft diffuse from a fixed key light,

@@ -35,14 +35,8 @@ void main() {
     if (orient == 2) p = vec2(p.x, -p.y);
     if (orient == 3) p = vec2(-p.x, -p.y);
 
-    // Distance to L (right + up arms).
-    float horizArm = max(0.0, -p.y);  // approach axis from below
-    float vertArm  = max(0.0, -p.x);  // approach axis from left
-    float distToL = min(
-        max(horizArm, abs(p.x) - 0.5),  // bottom edge to centre to right edge
-        max(vertArm,  abs(p.y) - 0.5)
-    );
-    distToL = abs(distToL);
+    // perf: dropped the unused distToL distance-to-L computation (min/max/abs
+    // chain whose result was never read) - pure per-pixel waste.
 
     // Trace itself: thin line.
     float trace = exp(-abs(p.y) * 35.0) * step(0.0, 0.5 - abs(p.x))
@@ -51,23 +45,28 @@ void main() {
 
     // Pulse traveling along the trace: parametric position 0..1 along
     // each arm. Use cellHash-offset time so all cells aren't synchronised.
-    float pulsePhase = fract(t * pulseRate * 0.7 + cellHash);
-    // Pulse along horizontal arm.
-    float pulseHX = pulsePhase * 1.0 - 0.5;  // -0.5..0.5
-    float pulseDistH = abs(p.x - pulseHX) + abs(p.y) * 4.0;
-    float pulseGlowH = exp(-pulseDistH * 20.0 / glow);
-    // Pulse along vertical arm.
-    float pulseVY = (1.0 - pulsePhase) * 1.0 - 0.5;
-    float pulseDistV = abs(p.y - pulseVY) + abs(p.x) * 4.0;
-    float pulseGlowV = exp(-pulseDistV * 20.0 / glow);
-    float pulseGlow = pulseGlowH + pulseGlowV;
+    // perf: pulses only live on a lit trace; where trace==0 (most pixels, a
+    // coherent background region) both glow exp() are ~0, so skip the heavy pair.
+    float pulseGlow = 0.0;
+    if (trace > 0.0) {
+        float pulsePhase = fract(t * pulseRate * 0.7 + cellHash);
+        float invGlow = 20.0 / glow;
+        // Pulse along horizontal arm.
+        float pulseHX = pulsePhase - 0.5;  // -0.5..0.5
+        float pulseDistH = abs(p.x - pulseHX) + abs(p.y) * 4.0;
+        // Pulse along vertical arm.
+        float pulseVY = (1.0 - pulsePhase) - 0.5;
+        float pulseDistV = abs(p.y - pulseVY) + abs(p.x) * 4.0;
+        pulseGlow = exp(-pulseDistH * invGlow) + exp(-pulseDistV * invGlow);
+    }
 
     vec3 traceColor = tintedPalette(0.55 + cellHash * 0.2);
     vec3 pulseColor = tintedPalette(0.4 + cellHash * 0.2 + t * 0.1);
 
     // Board tint varies across the frame so the background itself carries
     // colour instead of being a dim uniform slab.
-    float boardFbm = fbm(uv * 1.4 + vec2(t * 0.2, 0.0));
+    // perf: faint 0.18-scaled background tint, no fine detail needed -> fbm3
+    float boardFbm = fbm3(uv * 1.4 + vec2(t * 0.2, 0.0));
     vec3 boardTint = tintedPalette(0.35 + boardFbm * 0.3) * 0.18;
 
     vec3 col = boardTint;

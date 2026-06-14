@@ -32,7 +32,9 @@ void main() {
 
     // Dust nebulosity: fbm folded onto the arm pattern so colour pools
     // follow the spirals instead of being uniform noise.
-    float dustNoise = fbm(uv * 2.4 + vec2(t * 0.3, -t * 0.2));
+    // perf: fbm3 (3 octaves) - blended in at low weight, so the dropped top
+    // octaves are invisible.
+    float dustNoise = fbm3(uv * 2.4 + vec2(t * 0.3, -t * 0.2));
     vec3 armColor = tintedPalette(0.55 + r * 0.15 + dustNoise * 0.2);
     vec3 dustColor = tintedPalette(0.78 + dustNoise * 0.15) * dust;
 
@@ -62,8 +64,10 @@ void main() {
             // Soft core + faint horizontal/vertical spikes so each star reads
             // as a crisp bright pinpoint rather than a square.
             float core = exp(-d * d * 80.0);
-            float spikeH = exp(-abs(cellP.x) * 8.0) * exp(-abs(cellP.y) * 120.0);
-            float spikeV = exp(-abs(cellP.y) * 8.0) * exp(-abs(cellP.x) * 120.0);
+            // perf: fold each spike's two exp() into one (exp(a)*exp(b)=exp(a+b)) - 4 exp -> 2.
+            float ax = abs(cellP.x), ay = abs(cellP.y);
+            float spikeH = exp(-(ax * 8.0 + ay * 120.0));
+            float spikeV = exp(-(ay * 8.0 + ax * 120.0));
             // Brightness scaled by how far above threshold this cell hashed,
             // so most stars are dim and a few are bright (real sky feel).
             float bright = (sh - threshold) / max(0.01, 1.0 - threshold);

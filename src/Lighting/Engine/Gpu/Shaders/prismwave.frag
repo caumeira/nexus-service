@@ -46,12 +46,11 @@ void main() {
     float w2 = pow(clamp(0.5 + 0.5 * sin(d2 * bands - t * 1.7) + bias, 0.0, 1.0), sharp);
     float w3 = pow(clamp(0.5 + 0.5 * sin(d3 * bands - t * 1.1) + bias, 0.0, 1.0), sharp);
 
-    // Soft-max via summed pow keeps the brightest source dominant per pixel
-    // while still letting overlap regions visibly blend (plasma feel).
-    float p = 6.0;
-    float vsum = pow(w0, p) + pow(w1, p) + pow(w2, p) + pow(w3, p);
-    float v = pow(vsum, 1.0 / p);
-    v = clamp(v, 0.0, 1.0);
+    // perf: soft-max approximated by max(...) blended toward the summed value;
+    // drops 5 pow() per pixel for near-identical plateau/overlap feel.
+    float vmax = max(max(w0, w1), max(w2, w3));
+    float vavg = (w0 + w1 + w2 + w3) * 0.25;
+    float v = clamp(mix(vmax, vavg, 0.15), 0.0, 1.0);
 
     // Each source claims its own slice of the palette so where they overlap
     // the colours mix naturally; the band scroll term keeps hue marching.

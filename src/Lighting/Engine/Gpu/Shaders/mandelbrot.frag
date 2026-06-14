@@ -11,7 +11,9 @@ uniform float u_brightness;// extra: brightness
 void main() {
     vec2 uv = uvCentered();
     float t = u_time * u_speed;
-    int maxIter = int(clamp(u_depth * 40.0, 50.0, 280.0));
+    // perf: escape-iteration count is the whole cost; cap ~2.7x lower
+    // (was *40 / 50..280). Smooth coloring below hides the shallower bands.
+    int maxIter = int(clamp(u_depth * 15.0, 24.0, 104.0));
     float bright = clamp(u_brightness, 0.0, 3.0);
     float rate = max(u_rotation, 0.05);
 
@@ -25,7 +27,8 @@ void main() {
     vec2 z = vec2(0.0);
     float iter = 0.0;
     bool escaped = false;
-    for (int i = 0; i < 280; i++) {
+    // perf: hard loop bound lowered to match the new cap (280 -> 104)
+    for (int i = 0; i < 104; i++) {
         if (i >= maxIter) break;
         z = vec2(z.x*z.x - z.y*z.y, 2.0*z.x*z.y) + c;
         float r2 = dot(z, z);

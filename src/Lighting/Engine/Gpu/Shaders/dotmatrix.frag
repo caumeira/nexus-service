@@ -24,7 +24,8 @@ void main() {
     float p2 = sin(pattern.y * 6.0 + t * 1.1);
     float p3 = sin((pattern.x + pattern.y) * 8.0 - t * 1.7);
     float pat = (p1 + p2 + p3) * 0.16;
-    pat += (fbm(pattern * 4.0 - t * 0.3) - 0.5) * complexity;
+    // perf: fbm3 (3 oct), *1.107 to keep it centered on 0.5 - it's a coarse per-cell wash.
+    pat += (fbm3(pattern * 4.0 - t * 0.3) * 1.107 - 0.5) * complexity;
 
     // Dot mask: round dot inside each cell, with small inter-dot spacing.
     float dotR = length(inCell);

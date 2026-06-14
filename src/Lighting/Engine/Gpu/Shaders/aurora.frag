@@ -12,6 +12,8 @@ void main() {
 
     vec3 sky = mix(vec3(0.0, 0.0, 0.02), vec3(0.0, 0.01, 0.06), uv.y);
     vec3 col = sky;
+    // perf: bandWidth is loop-invariant -- hoist it and its reciprocal out.
+    float invBandWidth = 1.0 / (h * 0.18 + 0.02);
     for (int i = 0; i < 8; i++) {
         if (i >= bands) break;
         float fi = float(i);
@@ -24,10 +26,17 @@ void main() {
         // Curtain center sits in the upper portion of the frame.
         float cy = 0.15 + fi * 0.06 + warp;
         // Vertical falloff: bright near the center, fading down toward u_height.
-        float bandWidth = (h * 0.18 + 0.02);
-        float band = exp(-pow((uv.y - cy) / bandWidth, 2.0));
-        // High-freq shimmer noise along the curtain.
-        float flicker = 1.0 + shim * (vnoise(vec2(uv.x * 30.0 + fi * 7.0, t * 4.0 + fi)) - 0.5) * 0.8;
+        // perf: x*x instead of pow(x,2.0) for the Gaussian argument.
+        float dy = (uv.y - cy) * invBandWidth;
+        float band = exp(-(dy * dy));
+        // perf: band falls to ~0 a couple of widths from the curtain center, so
+        // skip the per-band shimmer vnoise outside the lit zone -- where band is
+        // negligible the flicker term scales to nothing anyway, so the look holds.
+        float flicker = 1.0;
+        if (band > 0.004) {
+            // High-freq shimmer noise along the curtain.
+            flicker = 1.0 + shim * (vnoise(vec2(uv.x * 30.0 + fi * 7.0, t * 4.0 + fi)) - 0.5) * 0.8;
+        }
         vec3 tint = tintedPalette(fi * 0.14 + 0.25);
         col += tint * band * flicker * 0.55;
     }

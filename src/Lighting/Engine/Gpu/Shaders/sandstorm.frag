@@ -26,7 +26,8 @@ void main() {
     // per-pixel deflection means streaks curve through the frame rather
     // than all pointing the same way.
     float windTilt = -0.35 + sin(t * 0.25) * 0.12;
-    float swirl = (fbm(uv * 1.3 + vec2(t * 0.08, -t * 0.06)) - 0.5) * 0.75;
+    // perf: swirl is a low-freq warp field, top octaves invisible -> fbm3
+    float swirl = (fbm3(uv * 1.3 + vec2(t * 0.08, -t * 0.06)) - 0.5) * 0.75;
     float windAngle = windTilt + swirl;
     mat2 R = rot2(-windAngle);
     vec2 w = R * uv;
@@ -45,20 +46,22 @@ void main() {
     vec3 bgTop = palA * 0.20;
     vec3 bgBot = palB * 0.38;
     vec3 col = mix(bgTop, bgBot, smoothstep(0.0, 1.0, uv.y));
-    col += palC * fbm(uv * 1.4 + t * 0.08) * 0.10;
+    // perf: backdrop haze tint, smooth low-detail -> fbm3
+    col += palC * fbm3(uv * 1.4 + t * 0.08) * 0.10;
 
     // -------- Layer 1: broad dust curtain ---------------------------
     vec2 p1 = vec2(w.x * 0.8 - t * 0.35, w.y * 1.8);
-    // Domain-warp eddies: sample a second fbm to offset this one.
-    p1 += vec2(fbm(p1 * 0.9 + t * 0.15), fbm(p1 * 1.1 - t * 0.13)) * 0.8;
-    float haze = fbm(p1);
+    // perf: domain-warp eddies + curtain washed out by the warp -> fbm3 (3 calls)
+    p1 += vec2(fbm3(p1 * 0.9 + t * 0.15), fbm3(p1 * 1.1 - t * 0.13)) * 0.8;
+    float haze = fbm3(p1);
     haze = smoothstep(0.32, 0.7, haze) * dens;
     col += palA * haze * 0.55;
 
     // -------- Layer 2: mid streaks ----------------------------------
     vec2 p2 = vec2(w.x * 2.2 - t * 1.0, w.y * 18.0);
-    p2 += vec2(fbm(p2 * 0.35 + t * 0.1), fbm(p2 * 0.35 + 9.0 - t * 0.12)) * 0.35;
-    float mid = fbm(p2);
+    // perf: streak warp offsets + body -> fbm3 (3 calls)
+    p2 += vec2(fbm3(p2 * 0.35 + t * 0.1), fbm3(p2 * 0.35 + 9.0 - t * 0.12)) * 0.35;
+    float mid = fbm3(p2);
     mid = pow(smoothstep(0.42, 0.85, mid), 1.2) * dens;
     col += palB * mid * 1.05;
 
@@ -66,8 +69,9 @@ void main() {
     vec2 p3 = vec2(w.x * 4.0 - t * 2.2, w.y * 55.0);
     // Small lateral jitter per column so grains don't march in straight
     // horizontal lines across the frame.
-    p3.y += (fbm(vec2(w.x * 3.0, t * 0.8)) - 0.5) * 1.5;
-    float fine = fbm(p3);
+    // perf: per-column jitter + grain body -> fbm3 (2 calls)
+    p3.y += (fbm3(vec2(w.x * 3.0, t * 0.8)) - 0.5) * 1.5;
+    float fine = fbm3(p3);
     fine = pow(smoothstep(0.5, 0.92, fine), 1.5) * dens;
     col += palC * fine * 1.25;
 

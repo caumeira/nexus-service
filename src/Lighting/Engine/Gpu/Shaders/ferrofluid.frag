@@ -33,7 +33,8 @@ void main() {
 
     // Iridescent pool base - liquid surface between spikes catches light
     // and shifts hue with the global palette so the frame is never black.
-    float poolFbm = fbm(uv * 1.6 + vec2(t * 0.3, -t * 0.2));
+    // perf: fbm3 (3 oct) - this only drives a low-amplitude base tint, fine detail is invisible.
+    float poolFbm = fbm3(uv * 1.6 + vec2(t * 0.3, -t * 0.2));
     vec3 base = tintedPalette(0.45 + poolFbm * 0.25 + uv.y * 0.1) *
                 (0.15 + poolFbm * 0.15);
     vec3 tipColor = tintedPalette(spikeHash * 0.7 + t * 0.04);
