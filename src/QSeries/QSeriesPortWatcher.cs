@@ -284,6 +284,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
             await EnsureReverseAsync(device, ct);
             await EnsureQshellForegroundAsync(device, ct);
+            await SyncDeviceClockAsync(device, ct);
             await TryEscalateRebootAsync(device, ct);
         }
 
@@ -317,6 +318,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
         foreach (var key in _transportIdBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
         {
             _transportIdBySerial.Remove(key);
+        }
+        // Re-sync the clock on a re-attach (a reboot may have reset the device clock).
+        foreach (var key in _lastClockSyncBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
+        {
+            _lastClockSyncBySerial.Remove(key);
         }
     }
 
@@ -781,6 +787,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly HashSet<string> _escalationRebootedThisRun = new(StringComparer.Ordinal);
 
+    /// <summary>Re-push the host clock to the panel this often; covers RTC drift
+    /// without spamming set-time every tick.</summary>
+    private static readonly TimeSpan ClockSyncInterval = TimeSpan.FromMinutes(30);
+
+    /// <summary>Serial -> last device-clock sync time. Cleared on detach so a
+    /// re-attach (which may have reset the clock on reboot) re-syncs at once.</summary>
+    private readonly Dictionary<string, DateTimeOffset> _lastClockSyncBySerial = new(StringComparer.Ordinal);
+
     /// <summary>
     /// Keep qshell foreground: dump <c>mCurrentFocus</c>; if something else holds
     /// focus, <c>am start</c> it. Covers first-attach (OEM launcher), post-USB-reset
@@ -873,6 +887,57 @@ public sealed class QSeriesPortWatcher : BackgroundService
             _qshellFirstSeenThisRun.Remove(device.Serial);
             return false;
         }
+    }
+
+    /// <summary>
+    /// The Q-series panel is sealed with no NTP, so its RTC drifts (seen stuck
+    /// years off), and the panel renders its clock widget from the device's own
+    /// wall clock. Push the host's time + IANA timezone to it via <c>cmd
+    /// alarm</c>, which the shell user can call without root. Re-synced on first
+    /// sighting and every <see cref="ClockSyncInterval"/> for drift.
+    /// </summary>
+    private async Task SyncDeviceClockAsync(DeviceData device, CancellationToken ct)
+    {
+        var now = DateTimeOffset.UtcNow;
+        if (_lastClockSyncBySerial.TryGetValue(device.Serial, out var last)
+            && now - last < ClockSyncInterval)
+        {
+            return;
+        }
+        _lastClockSyncBySerial[device.Serial] = now;
+
+        try
+        {
+            // Timezone first so the wall clock lands in the right offset; the
+            // host TZ is stable, but re-sending it is a cheap no-op.
+            var iana = ResolveHostIanaTimeZone();
+            if (iana is not null)
+            {
+                await _client.ExecuteShellCommandAsync(
+                    device, $"cmd alarm set-timezone {iana}", new ConsoleOutputReceiver(), ct);
+            }
+            await _client.ExecuteShellCommandAsync(
+                device, $"cmd alarm set-time {now.ToUnixTimeMilliseconds()}", new ConsoleOutputReceiver(), ct);
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            // Forget the sync time so the next tick retries.
+            _lastClockSyncBySerial.Remove(device.Serial);
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {device.Serial}: clock sync failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Host system timezone as an IANA id (<c>cmd alarm set-timezone</c> wants
+    /// IANA, e.g. "America/Los_Angeles"); null when a Windows id has no IANA
+    /// mapping, in which case the timezone is left as-is and only the clock set.
+    /// </summary>
+    private static string? ResolveHostIanaTimeZone()
+    {
+        var local = TimeZoneInfo.Local;
+        if (local.HasIanaId) return local.Id;
+        return TimeZoneInfo.TryConvertWindowsIdToIanaId(local.Id, out var iana) ? iana : null;
     }
 
     /// <summary>
