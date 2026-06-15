@@ -113,12 +113,24 @@ public static class SystemRoutes
         }).AllowPanel();
 
         // ── Open URL / file / folder / OS settings (deck launch actions) ──
-        app.MapPost("/system/open-settings", () =>
+        app.MapPost("/system/open-settings", async (IServiceProvider sp) =>
         {
             try
             {
                 if (OperatingSystem.IsWindows())
                 {
+#if WINDOWS
+                    var registry = sp.GetService<Nexus.Service.Helper.HelperRegistry>();
+                    if (registry?.GetAny() is not null)
+                    {
+                        await Nexus.Service.Helper.Domains.SystemCommands.OpenSettingsAsync(registry).ConfigureAwait(false);
+                        return ApiResponse.Ok("opened");
+                    }
+                    if (!Environment.UserInteractive)
+                    {
+                        return ApiResponse.Fail("no interactive user session");
+                    }
+#endif
                     Process.Start(new ProcessStartInfo("ms-settings:") { UseShellExecute = true });
                     return ApiResponse.Ok("opened");
                 }
@@ -149,18 +161,38 @@ public static class SystemRoutes
             }
         }).AllowPanel();
 
-        app.MapPost("/system/open-url", (OpenUrlRequest body) =>
+        app.MapPost("/system/open-url", async (OpenUrlRequest body, IServiceProvider sp) =>
         {
             var url = body.Url?.Trim() ?? "";
             if (string.IsNullOrEmpty(url))
+            {
                 return ApiResponse.Fail("url is required");
+            }
+
             if (!Uri.TryCreate(url, UriKind.Absolute, out var parsed) ||
                 (parsed.Scheme != "http" && parsed.Scheme != "https"))
             {
                 return ApiResponse.Fail("invalid url - must be an absolute http or https URL");
             }
+
             try
             {
+#if WINDOWS
+                if (OperatingSystem.IsWindows())
+                {
+                    var registry = sp.GetService<Nexus.Service.Helper.HelperRegistry>();
+                    if (registry?.GetAny() is not null)
+                    {
+                        await Nexus.Service.Helper.Domains.SystemCommands.OpenUrlAsync(registry, parsed.AbsoluteUri).ConfigureAwait(false);
+                        return ApiResponse.Ok("opened");
+                    }
+                    if (!Environment.UserInteractive)
+                    {
+                        return ApiResponse.Fail("no interactive user session");
+                    }
+                }
+#endif
+                await Task.CompletedTask.ConfigureAwait(false);
                 Process.Start(new ProcessStartInfo(parsed.AbsoluteUri) { UseShellExecute = true });
                 return ApiResponse.Ok("opened");
             }
@@ -175,28 +207,45 @@ public static class SystemRoutes
         {
             var path = body.Path?.Trim() ?? "";
             if (string.IsNullOrEmpty(path))
+            {
                 return ApiResponse.Fail("path is required");
+            }
+
             if (!File.Exists(path) && !Directory.Exists(path))
+            {
                 return ApiResponse.Fail("path does not exist");
+            }
+
 #if WINDOWS
-            // A Session-0 Process.Start opens Explorer on an invisible desktop;
-            // folders route through the user-session helper (same as
-            // /media/library/open). Files keep the legacy direct spawn — only
-            // meaningful in interactive runs.
-            if (OperatingSystem.IsWindows() && Directory.Exists(path))
+            if (OperatingSystem.IsWindows())
             {
                 var registry = sp.GetService<Nexus.Service.Helper.HelperRegistry>();
                 var helperConnected = registry?.GetAny() is not null;
-                if (helperConnected &&
-                    await Nexus.Service.Helper.Domains.FileDialogCommands.OpenFolderAsync(registry!, path))
+                if (helperConnected)
                 {
+                    if (Directory.Exists(path))
+                    {
+                        if (await Nexus.Service.Helper.Domains.FileDialogCommands.OpenFolderAsync(registry!, path).ConfigureAwait(false))
+                        {
+                            return ApiResponse.Ok("opened");
+                        }
+
+                        return ApiResponse.Fail("failed to open folder");
+                    }
+
+                    // Files: route through the helper so they open in the user session
+                    // and the resulting window can be brought to the foreground.
+                    await Nexus.Service.Helper.Domains.SystemCommands.OpenFileAsync(registry!, path).ConfigureAwait(false);
                     return ApiResponse.Ok("opened");
                 }
+
                 if (!Environment.UserInteractive)
-                    return ApiResponse.Fail(helperConnected ? "failed to open folder" : "no interactive user session");
+                {
+                    return ApiResponse.Fail("no interactive user session");
+                }
             }
 #endif
-            await Task.CompletedTask;
+            await Task.CompletedTask.ConfigureAwait(false);
             try
             {
                 Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });

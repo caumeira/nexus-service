@@ -162,6 +162,7 @@ internal static class WindowsUserHelper
         // process, so a plain explorer spawn lands behind the app window.
         new DiagnosticsHandler(() => Platform.Windows.ForegroundNudge.OpenFolderOverApp(
             Nexus.Service.Platform.ServiceLog.LogsDirectory)).Register(handlerRegistry);
+        new SystemHandler().Register(handlerRegistry);
 
         var client = new HelperClientLoop(handlerRegistry, outbound);
         var pipeTask = Task.Run(() => client.RunAsync(s_exit.Token));
