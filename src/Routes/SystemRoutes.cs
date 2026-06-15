@@ -112,7 +112,43 @@ public static class SystemRoutes
             return ApiResponse.Ok();
         }).AllowPanel();
 
-        // ── Open URL / file / folder (deck launch actions) ──
+        // ── Open URL / file / folder / OS settings (deck launch actions) ──
+        app.MapPost("/system/open-settings", () =>
+        {
+            try
+            {
+                if (OperatingSystem.IsWindows())
+                {
+                    Process.Start(new ProcessStartInfo("ms-settings:") { UseShellExecute = true });
+                    return ApiResponse.Ok("opened");
+                }
+                if (OperatingSystem.IsMacOS())
+                {
+                    var exit = ShellExecutor.RunExit("open", 5000, "-b", "com.apple.systempreferences");
+                    return exit == 0 ? ApiResponse.Ok("opened") : ApiResponse.Fail("failed to open settings");
+                }
+                // Linux: fire-and-forget the first launcher that starts. Settings
+                // apps are long-lived GUIs that never exit, so we must NOT wait on
+                // them (RunExit would block, then kill the window it just opened).
+                // Process.Start throws when the binary is absent - try the next.
+                string[] linuxCandidates = ["gnome-control-center", "systemsettings5", "systemsettings"];
+                foreach (var candidate in linuxCandidates)
+                {
+                    try
+                    {
+                        Process.Start(new ProcessStartInfo(candidate) { UseShellExecute = false });
+                        return ApiResponse.Ok("opened");
+                    }
+                    catch { /* launcher not installed - try the next */ }
+                }
+                return ApiResponse.Fail("no settings app found");
+            }
+            catch (Exception ex)
+            {
+                return ApiResponse.Fail($"failed to open settings: {ex.Message}");
+            }
+        }).AllowPanel();
+
         app.MapPost("/system/open-url", (OpenUrlRequest body) =>
         {
             var url = body.Url?.Trim() ?? "";
