@@ -29,6 +29,19 @@ public class ShaderLibraryTests
     [InlineData("prismwave")]
     [InlineData("crystaltunnel")]
     [InlineData("ribbonflow")]
+    [InlineData("ringtunnel")]
+    [InlineData("vortextunnel")]
+    [InlineData("helixtunnel")]
+    [InlineData("boxtunnel")]
+    [InlineData("meshgradient")]
+    [InlineData("tide")]
+    [InlineData("vapor")]
+    [InlineData("satinflow")]
+    [InlineData("ridgeline")]
+    [InlineData("chevron")]
+    [InlineData("terrace")]
+    [InlineData("harlequin")]
+    [InlineData("mosaic")]
     public void NewShaders_Are_Registered(string key)
     {
         Assert.Contains(key, ShaderLibrary.AllEffectKeys);

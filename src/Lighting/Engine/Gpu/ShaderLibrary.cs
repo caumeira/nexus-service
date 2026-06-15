@@ -106,6 +106,10 @@ internal static class ShaderLibrary
         "bokeh", "sandstorm", "dotmatrix",
         "bubbles", "silkwave",
         "prismwave", "crystaltunnel", "ribbonflow",
+        // Tunnels + flowy + abstract backgrounds.
+        "ringtunnel", "vortextunnel", "helixtunnel", "boxtunnel",
+        "meshgradient", "tide", "vapor", "satinflow",
+        "ridgeline", "chevron", "terrace", "harlequin", "mosaic",
         // Audio-reactive set - all react to u_audioLevel / u_audioBass /
         // u_audioMid / u_audioHigh / u_audioBeat / u_spectrum and all
         // have an always-on idle animation for when no audio is captured.

@@ -134,6 +134,106 @@ public static class ForegroundNudge
         });
     }
 
+    /// <summary>
+    /// Launch ms-settings: in the user session (the helper is already in session 1)
+    /// and bring the resulting ApplicationFrameWindow to the foreground. Settings is
+    /// a UWP app; its top-level HWND class is ApplicationFrameWindow, not an Explorer class.
+    /// </summary>
+    public static void OpenSettingsOverApp()
+    {
+        try
+        {
+            var before = SnapshotWindowsByClass("ApplicationFrameWindow");
+            Process.Start(new ProcessStartInfo("ms-settings:") { UseShellExecute = true });
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                for (var i = 0; i < 40; i++)
+                {
+                    var fresh = SnapshotWindowsByClass("ApplicationFrameWindow")
+                        .FirstOrDefault(h => !before.Contains(h) && IsWindowVisible(h));
+                    if (fresh != IntPtr.Zero)
+                    {
+                        TryForeground(fresh);
+                        return;
+                    }
+
+                    Thread.Sleep(100);
+                }
+            });
+        }
+        catch { /* best-effort */ }
+    }
+
+    /// <summary>
+    /// Open a URL in the user session's default browser and bring the new window to
+    /// the foreground. The helper runs in session 1 so Process.Start already lands in
+    /// the user session; we poll for a new visible top-level window on the spawned
+    /// process's threads.
+    /// </summary>
+    public static void OpenUrlOverApp(string url)
+    {
+        try
+        {
+            var proc = Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+            if (proc is null)
+            {
+                return;
+            }
+
+            PollProcessWindowAndForeground(proc);
+        }
+        catch { /* best-effort */ }
+    }
+
+    /// <summary>
+    /// Open a file with the OS default handler in the user session and bring the
+    /// resulting window to the foreground.
+    /// </summary>
+    public static void OpenFileOverApp(string path)
+    {
+        try
+        {
+            var proc = Process.Start(new ProcessStartInfo(path) { UseShellExecute = true });
+            if (proc is null)
+            {
+                return;
+            }
+
+            PollProcessWindowAndForeground(proc);
+        }
+        catch { /* best-effort */ }
+    }
+
+    /// <summary>
+    /// Poll for a visible top-level window owned by any thread in <paramref name="proc"/>
+    /// and bring it to the foreground. Many handlers (browsers, Explorer) are multi-process
+    /// or reuse an existing window without spawning a new process; the poll caps at 2 s so
+    /// it does not spin forever when the handler reuses an existing window.
+    /// </summary>
+    private static void PollProcessWindowAndForeground(Process proc)
+    {
+        ThreadPool.QueueUserWorkItem(_ =>
+        {
+            try
+            {
+                for (var i = 0; i < 20; i++)
+                {
+                    proc.Refresh();
+                    var main = proc.MainWindowHandle;
+                    if (main != IntPtr.Zero && IsWindowVisible(main))
+                    {
+                        TryForeground(main);
+                        return;
+                    }
+
+                    Thread.Sleep(100);
+                }
+            }
+            catch { /* best-effort */ }
+        });
+    }
+
     private static HashSet<IntPtr> SnapshotExplorerWindows()
     {
         var set = new HashSet<IntPtr>();
@@ -147,6 +247,22 @@ public static class ForegroundNudge
                 {
                     set.Add(h);
                 }
+            }
+
+            return true;
+        }, IntPtr.Zero);
+        return set;
+    }
+
+    private static HashSet<IntPtr> SnapshotWindowsByClass(string className)
+    {
+        var set = new HashSet<IntPtr>();
+        EnumWindows((h, _) =>
+        {
+            var sb = new StringBuilder(64);
+            if (GetClassNameW(h, sb, 64) > 0 && sb.ToString() == className)
+            {
+                set.Add(h);
             }
 
             return true;
