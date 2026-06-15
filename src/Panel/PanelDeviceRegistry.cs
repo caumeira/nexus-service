@@ -30,21 +30,46 @@ public sealed class PanelDeviceRegistry
     public PanelDeviceRecord Allocate(string? displayName, PanelDeviceCapabilities? capabilities)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-        var record = new PanelDeviceRecord
-        {
-            Id = NewId(),
-            DisplayName = NormalizeName(displayName) ?? DefaultName(now),
-            FirstSeenAt = now,
-            LastSeenAt = now,
-            Capabilities = capabilities,
-        };
+        var surface = capabilities?.Surface;
 
+        PanelDeviceRecord? result = null;
         _store.Update(s =>
         {
+            // Single-instance surfaces (Y70, Q-series) are one physical panel
+            // per host with no OS displayId to key on. They self-register and
+            // lean on the kiosk's localStorage to reuse their record; the
+            // Q-series OEM WebView drops that cache across reconnects, so a
+            // plain allocate would mint a fresh record every connect and orphan
+            // the user's theme/layout. Reuse the existing record instead.
+            if (PanelSurfaces.IsSingleInstance(surface))
+            {
+                var existing = s.PanelDevices.Values
+                    .Where(d => string.IsNullOrEmpty(d.DisplayId)
+                        && string.Equals(d.Capabilities?.Surface, surface, StringComparison.Ordinal))
+                    .OrderByDescending(d => d.LastSeenAt)
+                    .FirstOrDefault();
+                if (existing is not null)
+                {
+                    existing.LastSeenAt = now;
+                    existing.Capabilities = capabilities ?? existing.Capabilities;
+                    result = Clone(existing);
+                    return;
+                }
+            }
+
+            var record = new PanelDeviceRecord
+            {
+                Id = NewId(),
+                DisplayName = NormalizeName(displayName) ?? DefaultName(now),
+                FirstSeenAt = now,
+                LastSeenAt = now,
+                Capabilities = capabilities,
+            };
             s.PanelDevices[record.Id] = record;
+            result = Clone(record);
         });
 
-        return record;
+        return result!;
     }
 
     /// <summary>

@@ -136,19 +136,10 @@
         "surface": "q60",
         "widgets": [
           {
-            "type": "monitoring",
+            "type": "clock",
             "size": "2x4",
             "col": 0,
-            "row": 0,
-            "config": {
-              "slotCount": 2,
-              "slot0_device": "cpu",
-              "slot0_sensor": "CPU Total",
-              "slot0_design": "sparkline",
-              "slot1_device": "gpu",
-              "slot1_sensor": "GPU Core",
-              "slot1_design": "sparkline"
-            }
+            "row": 0
           }
         ]
       }
