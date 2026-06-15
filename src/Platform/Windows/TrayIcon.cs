@@ -43,6 +43,14 @@ public static class TrayIcon
     private const int DefaultServicePort = 9400;
     private const uint WM_CLOSE = 0x0010;
     private const uint WM_DISPLAYCHANGE = 0x007E;
+    private const uint WM_TIMER = 0x0113;
+    // Wake posted to the window thread to arm the NIM_ADD retry when an add
+    // fails off-thread (the service's cross-thread SetVisible push).
+    private const int WM_ARM_ICON_RETRY = WM_USER + 90;
+    // NIM_ADD retry poll (see StartIconRetry): timer id, interval, attempt cap.
+    private const int IconRetryTimerId = 0xBEEF;
+    private const uint IconRetryIntervalMs = 1000;
+    private const int IconRetryMaxAttempts = 60;
 
     // uxtheme.dll ordinal 135: SetPreferredAppMode(int mode). The current
     // int-taking signature shipped in Windows 10 1903 (build 18362); the
@@ -77,6 +85,15 @@ public static class TrayIcon
     private static bool _visible;
     private static bool _iconDataReady;
     private static NOTIFYICONDATA _nid;
+    private static IntPtr _hwnd;
+    // RegisterWindowMessage("TaskbarCreated") id. Explorer broadcasts this to
+    // every top-level window when it (re)creates the taskbar - at first shell
+    // start after a cold boot and on every Explorer restart. The prior
+    // NIM_ADD registration dies with the old taskbar, so the icon must be
+    // re-added on receipt or it never reappears.
+    private static uint _taskbarCreatedMsg;
+    private static bool _retryTimerArmed;
+    private static int _iconRetryAttempts;
 
     // Race guard for rapid tray clicks: between spawning an Edge --app and
     // its window title becoming "Nexus*" (~1-2s), FindExistingNexusAppWindow
@@ -153,20 +170,74 @@ public static class TrayIcon
 
         try
         {
-            if (_requestedVisible && !_visible)
+            if (_requestedVisible)
             {
-                var nid = _nid;
-                Shell_NotifyIcon(NIM_ADD, ref nid);
-                _visible = true;
+                if (!_visible)
+                {
+                    var nid = _nid;
+                    if (Shell_NotifyIcon(NIM_ADD, ref nid))
+                    {
+                        _visible = true;
+                        StopIconRetry();
+                        DiagFile("tray icon added");
+                    }
+                    else
+                    {
+                        // Shell tray not ready to accept the icon (heavy cold
+                        // boot, or a taskbar recreation in flight). Leave
+                        // _visible=false so a TaskbarCreated broadcast, the
+                        // service's connect-time push, or the retry poll
+                        // re-attempts; latching it true here is what stranded
+                        // the icon invisible until a manual off/on toggle.
+                        DiagFile("NIM_ADD failed; shell tray not ready");
+                        StartIconRetry();
+                    }
+                }
             }
-            else if (!_requestedVisible && _visible)
+            else
             {
-                var nid = _nid;
-                Shell_NotifyIcon(NIM_DELETE, ref nid);
-                _visible = false;
+                StopIconRetry();
+                if (_visible)
+                {
+                    var nid = _nid;
+                    Shell_NotifyIcon(NIM_DELETE, ref nid);
+                    _visible = false;
+                }
             }
         }
         catch { /* tray is non-critical */ }
+    }
+
+    // Re-attempt NIM_ADD on a cadence when the shell tray rejected it on a cold
+    // boot: the taskbar exists but isn't ready, so no TaskbarCreated broadcast
+    // follows to drive a re-add. SetTimer/KillTimer must run on the window
+    // thread; an off-thread caller (the service's cross-thread SetVisible push)
+    // posts a wake so the window thread re-attempts and arms on its own.
+    private static void StartIconRetry()
+    {
+        if (_hwnd == IntPtr.Zero) return;
+        if (!ReferenceEquals(Thread.CurrentThread, _thread))
+        {
+            PostMessage(_hwnd, (uint)WM_ARM_ICON_RETRY, IntPtr.Zero, IntPtr.Zero);
+            return;
+        }
+        if (_retryTimerArmed) return;
+        _iconRetryAttempts = 0;
+        if (SetTimer(_hwnd, (UIntPtr)IconRetryTimerId, IconRetryIntervalMs, IntPtr.Zero) != UIntPtr.Zero)
+        {
+            _retryTimerArmed = true;
+        }
+    }
+
+    private static void StopIconRetry()
+    {
+        // KillTimer must run on the timer-owning thread. A cross-thread hide
+        // (service push of ShowWindowsTrayIcon=false) skips this; the next
+        // WM_TIMER tick on the window thread sees !_requestedVisible and stops.
+        if (_thread is null || !ReferenceEquals(Thread.CurrentThread, _thread)) return;
+        if (!_retryTimerArmed || _hwnd == IntPtr.Zero) return;
+        KillTimer(_hwnd, (UIntPtr)IconRetryTimerId);
+        _retryTimerArmed = false;
     }
 
     private static void Run()
@@ -197,6 +268,8 @@ public static class TrayIcon
                 ResetThreadState();
                 return;
             }
+            _hwnd = hwnd;
+            _taskbarCreatedMsg = RegisterWindowMessage("TaskbarCreated");
 
             // Opt the process into Windows 11 immersive theming so the
             // right-click popup menu picks up the system dark/light theme.
@@ -253,6 +326,7 @@ public static class TrayIcon
 
             lock (_sync)
             {
+                StopIconRetry();
                 if (_visible)
                 {
                     var deleteNid = _nid;
@@ -260,6 +334,7 @@ public static class TrayIcon
                 }
                 _visible = false;
                 _iconDataReady = false;
+                _hwnd = IntPtr.Zero;
                 _thread = null;
             }
         }
@@ -270,6 +345,8 @@ public static class TrayIcon
             {
                 _visible = false;
                 _iconDataReady = false;
+                _retryTimerArmed = false;
+                _hwnd = IntPtr.Zero;
                 _thread = null;
             }
         }
@@ -281,6 +358,8 @@ public static class TrayIcon
         {
             _visible = false;
             _iconDataReady = false;
+            _retryTimerArmed = false;
+            _hwnd = IntPtr.Zero;
             _thread = null;
         }
     }
@@ -384,6 +463,44 @@ public static class TrayIcon
                     // pre-Exit cleanup (panel close, overlay stop) would land
                     // here. We swallow because there is nothing useful to do.
                     try { _onExit?.Invoke(); } catch { }
+                }
+            }
+            else if (msg == WM_ARM_ICON_RETRY)
+            {
+                // Off-thread add failed; re-attempt here, which arms the retry
+                // timer on this (the window) thread if it still can't add.
+                lock (_sync) { ApplyIconVisibilityNoThrow(); }
+            }
+            else if (msg == WM_TIMER && wParam == (IntPtr)IconRetryTimerId)
+            {
+                lock (_sync)
+                {
+                    _iconRetryAttempts++;
+                    if (!_requestedVisible || _visible)
+                    {
+                        StopIconRetry();
+                    }
+                    else if (_iconRetryAttempts >= IconRetryMaxAttempts)
+                    {
+                        DiagFile($"NIM_ADD still failing after {_iconRetryAttempts} attempts; giving up");
+                        StopIconRetry();
+                    }
+                    else
+                    {
+                        ApplyIconVisibilityNoThrow();
+                    }
+                }
+            }
+            else if (msg == _taskbarCreatedMsg && _taskbarCreatedMsg != 0)
+            {
+                // Taskbar (re)created: the prior NIM_ADD registration is gone,
+                // so re-add. Covers Explorer restarts and the cold-boot case
+                // where the shell wasn't ready when the icon first went up.
+                DiagFile("TaskbarCreated received; re-adding tray icon");
+                lock (_sync)
+                {
+                    _visible = false;
+                    ApplyIconVisibilityNoThrow();
                 }
             }
         }
@@ -984,6 +1101,8 @@ public static class TrayIcon
     [DllImport("user32")] private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
     [DllImport("user32")] private static extern bool AllowSetForegroundWindow(uint dwProcessId);
     [DllImport("shell32", CharSet = CharSet.Unicode)] private static extern bool Shell_NotifyIcon(int msg, ref NOTIFYICONDATA data);
+    [DllImport("user32")] private static extern UIntPtr SetTimer(IntPtr hWnd, UIntPtr nIDEvent, uint uElapse, IntPtr lpTimerFunc);
+    [DllImport("user32")] private static extern bool KillTimer(IntPtr hWnd, UIntPtr uIDEvent);
 
     // Single-instance window focus path
     private const int SW_RESTORE = 9;

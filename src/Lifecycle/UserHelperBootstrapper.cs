@@ -27,14 +27,38 @@ internal static class UserHelperBootstrapper
 {
     public static void EnsureLaunched()
     {
-        try
+        // Cold boot: the service starts seconds after power-on, before the
+        // auto-login console session exists, so no launch target is resolvable
+        // yet. A one-shot here skipped and never retried, stranding the tray
+        // icon (the helper owns it) until the next service start. Poll for the
+        // console session, then spawn. Fire-and-forget so service startup is
+        // not blocked.
+        _ = Task.Run(async () =>
         {
-            SpawnInUserSession("--helper", "helper-bootstrap", "NexusHelperBootstrap");
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[helper-bootstrap] failed: {ex.Message}");
-        }
+            var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(5);
+            while (true)
+            {
+                try
+                {
+                    if (!string.IsNullOrEmpty(ResolveActiveConsoleUsername()))
+                    {
+                        SpawnInUserSession("--helper", "helper-bootstrap", "NexusHelperBootstrap");
+                        return;
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[helper-bootstrap] failed: {ex.Message}");
+                    return;
+                }
+                if (DateTime.UtcNow >= deadline)
+                {
+                    Console.WriteLine("[helper-bootstrap] no active console user after 5 min; giving up");
+                    return;
+                }
+                await Task.Delay(2000);
+            }
+        });
     }
 
     /// <summary>
