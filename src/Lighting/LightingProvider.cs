@@ -481,6 +481,20 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "harmonicstar" => new(0.60f, 0.30f, 55f, 1.15f, 1.10f, 1f),
         "audiotunnel" => new(0.45f, 0.35f, 60f, 1.15f, 1.10f, 1f),
         "bassbloom" => new(0.85f, 0.35f, 45f, 1.15f, 1.10f, 1f),
+        // Tunnels + flowy + abstract backgrounds. Mirror SIGNATURES in lightingTemplates.ts.
+        "ringtunnel" => new(0.50f, 0.40f, 65f, 1.20f, 1.10f, 1f),
+        "vortextunnel" => new(0.72f, 0.30f, 55f, 1.15f, 1.10f, 1f),
+        "helixtunnel" => new(0.45f, 0.35f, 60f, 1.15f, 1.10f, 1f),
+        "boxtunnel" => new(0.80f, 0.35f, 60f, 1.20f, 1.15f, 1f),
+        "meshgradient" => new(0.00f, 0.00f, 45f, 1.00f, 1.00f, 1f),
+        "tide" => new(0.58f, 0.40f, 50f, 1.05f, 1.00f, 1f),
+        "vapor" => new(0.60f, 0.45f, 45f, 0.95f, 1.05f, 1f),
+        "satinflow" => new(0.88f, 0.30f, 50f, 1.15f, 1.10f, 1f),
+        "ridgeline" => new(0.55f, 0.30f, 50f, 1.10f, 1.10f, 1f),
+        "chevron" => new(0.08f, 0.45f, 60f, 1.20f, 1.10f, 1f),
+        "terrace" => new(0.40f, 0.35f, 45f, 1.15f, 1.10f, 1f),
+        "harlequin" => new(0.92f, 0.40f, 55f, 1.20f, 1.10f, 1f),
+        "mosaic" => new(0.55f, 0.30f, 55f, 1.20f, 1.10f, 1f),
         _ => new(0.00f, 0.00f, 50f, 1.00f, 1.00f, 1f),
     };
 
@@ -559,6 +573,21 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "harmonicstar" => new() { ["u_points"] = 12f, ["u_core"] = 0.1f, ["u_flare"] = 1.0f },
         "audiotunnel" => new() { ["u_ringDensity"] = 6f, ["u_twist"] = 0.8f, ["u_neon"] = 1.0f },
         "bassbloom" => new() { ["u_petals"] = 7f, ["u_shimmer"] = 1.0f, ["u_bloomSize"] = 0.4f },
+        // Tunnels + flowy + abstract backgrounds. Slot 0 must match the frontend
+        // EFFECTS defaults and PARAM_VARIATIONS slot 0.
+        "ringtunnel" => new() { ["u_rings"] = 2f, ["u_zoom"] = 1.0f, ["u_neon"] = 1.0f },
+        "vortextunnel" => new() { ["u_twist"] = 0.8f, ["u_churn"] = 1.0f, ["u_depth"] = 1.2f },
+        "helixtunnel" => new() { ["u_pitch"] = 3f, ["u_strands"] = 2f, ["u_glow"] = 1.0f },
+        "boxtunnel" => new() { ["u_depth"] = 1.2f, ["u_square"] = 1.0f, ["u_glow"] = 1.0f },
+        "meshgradient" => new() { ["u_blobs"] = 5f, ["u_spread"] = 0.8f, ["u_softness"] = 0.8f },
+        "tide" => new() { ["u_layers"] = 5f, ["u_amp"] = 0.08f, ["u_freq"] = 4f },
+        "vapor" => new() { ["u_density"] = 1.0f, ["u_scale"] = 1.5f, ["u_drift"] = 1.0f },
+        "satinflow" => new() { ["u_folds"] = 5f, ["u_flow"] = 1.0f, ["u_sheen"] = 1.0f },
+        "ridgeline" => new() { ["u_layers"] = 5f, ["u_jag"] = 4f, ["u_height"] = 0.18f },
+        "chevron" => new() { ["u_bands"] = 14f, ["u_angle"] = 1.0f, ["u_width"] = 0.18f },
+        "terrace" => new() { ["u_levels"] = 8f, ["u_scale"] = 1.4f, ["u_line"] = 0.5f },
+        "harlequin" => new() { ["u_cells"] = 8f, ["u_skew"] = 1.0f, ["u_shift"] = 1.0f },
+        "mosaic" => new() { ["u_cells"] = 9f, ["u_wave"] = 1.5f, ["u_pop"] = 0.7f },
         _ => null,
     };
 
@@ -635,6 +664,19 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             "prismwave" => ShaderLibrary.PrismWave,
             "crystaltunnel" => ShaderLibrary.CrystalTunnel,
             "ribbonflow" => ShaderLibrary.RibbonFlow,
+            "ringtunnel" => ShaderLibrary.Get("ringtunnel"),
+            "vortextunnel" => ShaderLibrary.Get("vortextunnel"),
+            "helixtunnel" => ShaderLibrary.Get("helixtunnel"),
+            "boxtunnel" => ShaderLibrary.Get("boxtunnel"),
+            "meshgradient" => ShaderLibrary.Get("meshgradient"),
+            "tide" => ShaderLibrary.Get("tide"),
+            "vapor" => ShaderLibrary.Get("vapor"),
+            "satinflow" => ShaderLibrary.Get("satinflow"),
+            "ridgeline" => ShaderLibrary.Get("ridgeline"),
+            "chevron" => ShaderLibrary.Get("chevron"),
+            "terrace" => ShaderLibrary.Get("terrace"),
+            "harlequin" => ShaderLibrary.Get("harlequin"),
+            "mosaic" => ShaderLibrary.Get("mosaic"),
             _ => ShaderLibrary.Rainbow,
         };
         return MakeShader(name, src, effectSpeed, intensity, hue, colorize, saturation, contrast, extras);
