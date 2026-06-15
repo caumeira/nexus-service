@@ -870,7 +870,8 @@ public static class NexusServiceCollectionExtensions
             services.AddSingleton<Nexus.Service.QSeries.QSeriesPortWatcher>(
                 sp => new Nexus.Service.QSeries.QSeriesPortWatcher(
                     servicePort,
-                    sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>()));
+                    sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
+                    sp.GetRequiredService<Nexus.Service.Panel.PanelDeviceRegistry>()));
             services.AddHostedService(sp =>
                 sp.GetRequiredService<Nexus.Service.QSeries.QSeriesPortWatcher>());
         }

@@ -12,6 +12,8 @@ using AdvancedSharpAdbClient.Models;
 using AdvancedSharpAdbClient.Receivers;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Devices.Detection;
+using Nexus.Service.Models.Panel;
+using Nexus.Service.Panel;
 using Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 using Nexus.Service.Platform;
 
@@ -82,6 +84,13 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private readonly QSeriesTransportStore _transportStore;
     private readonly HardwarePresence _presence;
 
+    /// <summary>
+    /// Panel registry, read-only here, to check whether the Q-series panel has
+    /// re-contacted the service (its record's <c>LastSeenAt</c>) after a host
+    /// restart - the liveness gate for the escalation reboot.
+    /// </summary>
+    private readonly PanelDeviceRegistry _panelDevices;
+
     /// <summary>Serials with an applied reverse, so the steady-state path stays quiet.</summary>
     private readonly Dictionary<string, bool> _reverseAppliedBySerial = new(StringComparer.Ordinal);
 
@@ -122,14 +131,15 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _lastRecoveryByInstanceId = new(StringComparer.Ordinal);
 
-    public QSeriesPortWatcher(int servicePort, HardwarePresence presence)
-        : this(servicePort, presence, new QSeriesTransportStore()) { }
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices)
+        : this(servicePort, presence, panelDevices, new QSeriesTransportStore()) { }
 
     /// <summary>Test seam: inject a store pointing at a tmp path.</summary>
-    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, QSeriesTransportStore transportStore)
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, QSeriesTransportStore transportStore)
     {
         _servicePort = servicePort;
         _presence = presence;
+        _panelDevices = panelDevices;
         _localSpec = $"tcp:{servicePort}";
         _remoteSpec = $"tcp:{servicePort}";
         _client = new AdbClient();
@@ -261,7 +271,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             // A reseat re-enumerates with the same serial but a new transport id. The
             // 10 s poll often misses the brief offline window, so a transport-id change
             // is the reliable reseat signal: on change, reboot to reset the degraded
-            // USB-FFS link (a cold reload alone doesn't clear it).
+            // USB-FFS link (re-launching qshell alone doesn't clear it).
             var transportId = device.TransportId;
             if (!string.IsNullOrEmpty(transportId))
             {
@@ -287,19 +297,19 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             _reverseRefreshedThisRun.Remove(key);
         }
-        // A re-attach gets a fresh cold reload (it may return on the OEM launcher or a
-        // stale splash).
-        foreach (var key in _qshellReloadedThisRun.Where(k => !seenSerials.Contains(k)).ToList())
+        // A re-attach is a fresh first sighting (it may return on the OEM launcher or
+        // a stale splash, needing an am start).
+        foreach (var key in _qshellFirstSeenThisRun.Where(k => !seenSerials.Contains(k)).ToList())
         {
-            _qshellReloadedThisRun.Remove(key);
+            _qshellFirstSeenThisRun.Remove(key);
         }
-        // Re-arm the cold-reload grace anchor on detach. _escalationRebootedThisRun is
+        // Re-arm the grace anchor on detach. _escalationRebootedThisRun is
         // deliberately NOT cleared here — like _lastQshellRebootBySerial it must
         // survive our reboot's re-enumeration so a still-stranded panel isn't rebooted
         // twice.
-        foreach (var key in _coldReloadAtBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
+        foreach (var key in _firstSeenAtBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
         {
-            _coldReloadAtBySerial.Remove(key);
+            _firstSeenAtBySerial.Remove(key);
         }
         // Drop transport-id memory on detach so a re-attach is a fresh first sighting,
         // not a transport-id change against a stale value (this also stops our reboot's
@@ -721,12 +731,12 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private readonly Dictionary<string, DateTimeOffset> _lastQshellStartBySerial = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Serials force-reloaded this run. A qshell left running across a service
-    /// (re)start is bound to the dead instance and shows its splash, which the
-    /// foreground check reads as "fine"; force-stop + am start re-navigates it to the
-    /// panel. Cleared on detach.
+    /// Serials whose first sighting this run has been handled (escalation grace
+    /// anchored, qshell ensured foreground). A qshell left running across a
+    /// service restart keeps its WebView mounted; its SPA reconnects the socket
+    /// on its own, so this run no longer force-stops it. Cleared on detach.
     /// </summary>
-    private readonly HashSet<string> _qshellReloadedThisRun = new(StringComparer.Ordinal);
+    private readonly HashSet<string> _qshellFirstSeenThisRun = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Last adb transport id per serial. A change (same serial) is the reliable reseat
@@ -744,20 +754,25 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private static readonly TimeSpan QshellRebootCooldown = TimeSpan.FromMinutes(2);
 
     /// <summary>
-    /// Wait after the first-sighting cold reload before the one-shot escalation reboot
-    /// — enough for qshell to relaunch and reconnect (~3 ticks).
+    /// Grace after first sighting this run before the liveness-gated escalation
+    /// reboot. Must exceed the slowest legitimate reconnect: a cold qshell
+    /// bootstrap pulls the SPA + ~56 assets over the marginal USB-FFS link and
+    /// takes ~2 min (per the panel recovery guide), far longer than the soft
+    /// case (qshell stays up, socket reconnects in seconds). Sized above that so
+    /// a cold boot / relaunch is never preempted; only a panel still silent past
+    /// it is rebooted.
     /// </summary>
-    private static readonly TimeSpan EscalationGrace = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan EscalationGrace = TimeSpan.FromSeconds(180);
 
     /// <summary>Serial → last reboot time (anti-loop cooldown). NOT cleared on detach,
     /// so it survives the reboot's own re-enumeration.</summary>
     private readonly Dictionary<string, DateTimeOffset> _lastQshellRebootBySerial = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Time of this run's first-sighting cold reload; anchors <see cref="EscalationGrace"/>.
+    /// Time a serial was first seen this run; anchors <see cref="EscalationGrace"/>.
     /// Cleared on detach (a re-attach re-arms it).
     /// </summary>
-    private readonly Dictionary<string, DateTimeOffset> _coldReloadAtBySerial = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTimeOffset> _firstSeenAtBySerial = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Serials escalation-rebooted this run — bounds it to one reboot per run so a
@@ -769,35 +784,17 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// <summary>
     /// Keep qshell foreground: dump <c>mCurrentFocus</c>; if something else holds
     /// focus, <c>am start</c> it. Covers first-attach (OEM launcher), post-USB-reset
-    /// kill, user force-stop, and reboot.
+    /// kill, user force-stop, and reboot. Does NOT force-stop a running qshell: it
+    /// keeps its WebView mounted across a host restart and its SPA reconnects on
+    /// its own, so a force-stop would gratuitously bounce the panel through the
+    /// splash. First sighting this run only anchors the escalation grace.
     /// </summary>
     private async Task EnsureQshellForegroundAsync(DeviceData device, CancellationToken ct)
     {
-        // One forced cold reload per run: a qshell still foreground from before a
-        // service (re)start is bound to the dead instance and shows its splash; the
-        // foreground check below reads that as "fine". force-stop + am start
-        // re-navigates it to the fresh service.
-        if (!_qshellReloadedThisRun.Contains(device.Serial))
+        if (!_qshellFirstSeenThisRun.Contains(device.Serial))
         {
-            _qshellReloadedThisRun.Add(device.Serial);
-            var reloadNow = DateTimeOffset.UtcNow;
-            _lastQshellStartBySerial[device.Serial] = reloadNow;
-            // Anchor the escalation grace window from this cold reload.
-            _coldReloadAtBySerial[device.Serial] = reloadNow;
-            var reloadReceiver = new ConsoleOutputReceiver();
-            try
-            {
-                await _client.ExecuteShellCommandAsync(device, $"am force-stop {QshellFocusMarker}", reloadReceiver, ct);
-                await _client.ExecuteShellCommandAsync(device, $"am start -n {QshellComponent}", reloadReceiver, ct);
-                ServiceLog.Info(
-                    $"[qseries-port-watcher] {device.Serial}: forced qshell reload on first sighting this run (reconnect to fresh service)");
-            }
-            catch (Exception ex) when (!ct.IsCancellationRequested)
-            {
-                ServiceLog.Info(
-                    $"[qseries-port-watcher] {device.Serial}: forced qshell reload failed: {ex.GetType().Name}: {ex.Message}");
-            }
-            return;
+            _qshellFirstSeenThisRun.Add(device.Serial);
+            _firstSeenAtBySerial[device.Serial] = DateTimeOffset.UtcNow;
         }
 
         // Device-side grep narrows the verbose dumpsys (busybox grep present on
@@ -842,11 +839,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// A reseat (same serial, new transport id) leaves a degraded USB-FFS link a cold
-    /// reload can't fix — qshell relaunches into it and never completes its bootstrap.
-    /// Reboot to reset device-side adbd/FFS; the post-reboot first-sighting cold reload
-    /// reconnects qshell. Throttled per serial. Returns true when a reboot was issued
-    /// (caller then skips this tick's reverse/qshell passes).
+    /// A reseat (same serial, new transport id) leaves a degraded USB-FFS link that
+    /// strands qshell. Reboot to reset device-side adbd/FFS; the post-reboot first
+    /// sighting re-anchors the grace and ensures qshell is foreground. Throttled per
+    /// serial. Returns true when a reboot was issued (caller then skips this tick's
+    /// reverse/qshell passes).
     /// </summary>
     private async Task<bool> TryRebootOnReseatAsync(DeviceData device, string lastTransportId, string transportId, CancellationToken ct)
     {
@@ -854,10 +851,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
         if (_lastQshellRebootBySerial.TryGetValue(device.Serial, out var lastReboot)
             && now - lastReboot < QshellRebootCooldown)
         {
-            // Within cooldown: re-arm a cold reload instead of rebooting again.
-            _qshellReloadedThisRun.Remove(device.Serial);
+            // Within cooldown: re-arm first-sighting handling instead of rebooting again.
+            _qshellFirstSeenThisRun.Remove(device.Serial);
             ServiceLog.Info(
-                $"[qseries-port-watcher] {device.Serial}: transport id {lastTransportId} -> {transportId} (reseat) but a reboot is within cooldown; re-arming cold reload instead");
+                $"[qseries-port-watcher] {device.Serial}: transport id {lastTransportId} -> {transportId} (reseat) but a reboot is within cooldown; re-arming first-sighting handling instead");
             return false;
         }
 
@@ -872,26 +869,30 @@ public sealed class QSeriesPortWatcher : BackgroundService
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             ServiceLog.Info(
-                $"[qseries-port-watcher] {device.Serial}: reseat reboot failed: {ex.GetType().Name}: {ex.Message}; re-arming cold reload");
-            _qshellReloadedThisRun.Remove(device.Serial);
+                $"[qseries-port-watcher] {device.Serial}: reseat reboot failed: {ex.GetType().Name}: {ex.Message}; re-arming first-sighting handling");
+            _qshellFirstSeenThisRun.Remove(device.Serial);
             return false;
         }
     }
 
     /// <summary>
-    /// Backstop the reseat path misses: a host *service* restart cold-reloads qshell,
-    /// but if the abrupt kill wedged the USB-FFS tunnel qshell re-pings a dead tunnel
-    /// and latches to its splash with no reseat to trigger
-    /// <see cref="TryRebootOnReseatAsync"/>. A device reboot is the only reliable clear.
+    /// Last-resort backstop for a hard USB-FFS wedge: a host *service* restart can
+    /// leave the reverse tunnel listed but passing no traffic, with no reseat to
+    /// trigger <see cref="TryRebootOnReseatAsync"/>. qshell keeps its WebView up and
+    /// its SPA retries the socket, but across a hard wedge that socket can never
+    /// reconnect, so the panel sits on its clock failsafe. A device reboot is the
+    /// only reliable clear of a hard wedge.
     ///
-    /// No liveness probe first: both available signals are unusable. The loopback
-    /// socket reads ESTABLISHED on the splash too (adbd accepts qshell's
-    /// <c>localhost:{port}</c> dial locally regardless of whether the forward works),
-    /// and reading the framebuffer to check the screen is destructive — the ~3.6 MB
-    /// pull over the shared USB-FFS gadget stalls the reverse tunnel and freezes a
-    /// healthy panel. So after the grace window we reboot once, unconditionally:
-    /// needed in the stranded case, a single ~40 s reboot in the rarer
-    /// already-recovered case.
+    /// Gated on real liveness so the common restart (tunnel fine, or a reverse
+    /// remove+re-add cleared a soft wedge) never reboots: the panel's record
+    /// <c>LastSeenAt</c> is bumped whenever its SPA reaches the service - on load
+    /// and on the nexus-web socket-reconnect refetch (usePanelLayout). If it has
+    /// advanced past this run's first sighting, the panel reconnected on its own
+    /// through a healthy tunnel, so leave it alone. Only a panel still stale past
+    /// <see cref="EscalationGrace"/> is rebooted. The gate trusts any contact with
+    /// the q60 record, so an operator opening the device's settings during the
+    /// grace also counts as alive; that risks a missed reboot (panel stays on its
+    /// clock failsafe), never a spurious one, so it fails safe.
     ///
     /// One reboot per run (<see cref="_escalationRebootedThisRun"/>); shares
     /// <see cref="_lastQshellRebootBySerial"/> with the reseat path so they can't
@@ -899,13 +900,22 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private async Task TryEscalateRebootAsync(DeviceData device, CancellationToken ct)
     {
-        // No anchor → the cold reload hasn't run this run; nothing to escalate.
-        if (!_coldReloadAtBySerial.TryGetValue(device.Serial, out var reloadedAt)) return;
+        // No anchor → not seen this run yet; nothing to escalate.
+        if (!_firstSeenAtBySerial.TryGetValue(device.Serial, out var firstSeenAt)) return;
         if (_escalationRebootedThisRun.Contains(device.Serial)) return;
 
         var now = DateTimeOffset.UtcNow;
-        var sinceReload = now - reloadedAt;
-        if (sinceReload < EscalationGrace) return;
+        var sinceFirstSeen = now - firstSeenAt;
+        if (sinceFirstSeen < EscalationGrace) return;
+
+        // Liveness gate: skip the reboot if the panel re-contacted the service since
+        // we started watching it this run (its SPA reconnected through a healthy
+        // tunnel). A reboot here would bounce a recovered panel through the splash.
+        var panelLastSeen = QSeriesPanelLastSeenUtcMs();
+        if (panelLastSeen is long seenMs && seenMs >= firstSeenAt.ToUnixTimeMilliseconds())
+        {
+            return;
+        }
 
         if (_lastQshellRebootBySerial.TryGetValue(device.Serial, out var lastReboot)
             && now - lastReboot < QshellRebootCooldown)
@@ -917,7 +927,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         try
         {
             ServiceLog.Info(
-                $"[qseries-port-watcher] {device.Serial}: {sinceReload.TotalSeconds:F0}s after cold reload; rebooting once to clear any USB-FFS wedge from the host restart");
+                $"[qseries-port-watcher] {device.Serial}: panel never re-contacted the service {sinceFirstSeen.TotalSeconds:F0}s after first sighting; rebooting once to clear a hard USB-FFS wedge");
             await _client.RebootAsync(device, ct);
             // Record the reboot only after it's issued; if RebootAsync throws (stale
             // transport id mid-re-enumeration) leave the flags unset so the next tick
@@ -931,6 +941,18 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 $"[qseries-port-watcher] {device.Serial}: escalation reboot failed: {ex.GetType().Name}: {ex.Message}; will retry next tick");
         }
     }
+
+    /// <summary>
+    /// Freshest <c>LastSeenAt</c> (unix ms UTC) among Q-series panel records, or null
+    /// if none exist yet. The Q-series posts <c>surface == "q60"</c> for both Q60 and
+    /// Q80, and the registry keeps one single-instance record per surface, so this is
+    /// the attached panel's last contact with the service.
+    /// </summary>
+    private long? QSeriesPanelLastSeenUtcMs() =>
+        _panelDevices.List()
+            .Where(d => string.Equals(d.Capabilities?.Surface, PanelSurfaces.Q60, StringComparison.Ordinal))
+            .Select(d => (long?)d.LastSeenAt)
+            .FirstOrDefault();
 
     private async Task EnsureReverseAsync(DeviceData device, CancellationToken ct)
     {
