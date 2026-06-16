@@ -182,7 +182,7 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
                 Label = "CPU",
                 Score = score,
                 RawValue = Math.Round(raw / 1_000_000_000d, 3),
-                RawUnit = "primes/s",
+                RawUnit = "Gprimes/s",
                 Detail = singlePrimesPerSec > 0
                     ? $"single {Math.Round(singlePrimesPerSec / 1_000_000_000d, 3)} Gprimes/s | all-core {Math.Round(raw / 1_000_000_000d, 3)} Gprimes/s"
                     : $"all-core {Math.Round(raw / 1_000_000_000d, 3)} Gprimes/s",
