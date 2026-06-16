@@ -251,6 +251,13 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Transfer.TransferReceivedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Media.MediaPlayResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Media.MediaCurrentResponse))]
+// Panel background media
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelBgItem))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Panel.PanelBgItem>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelBgListResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelBgImportResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelBgResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelBgStageResponse))]
 
 // Gallery
 [JsonSerializable(typeof(Nexus.Service.Models.Gallery.GallerySource))]

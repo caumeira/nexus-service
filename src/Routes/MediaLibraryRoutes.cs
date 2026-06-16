@@ -40,7 +40,7 @@ public static class MediaLibraryRoutes
                     await file.CopyToAsync(stream);
                 }
 
-                var result = await MediaImporter.ImportAsync(lib, tempPath, file.FileName);
+                var result = await MediaImporter.ImportAsync(lib, tempPath, file.FileName, form["crop"].ToString());
                 if (!result.Ok)
                 {
                     return Results.BadRequest(new MediaImportResponse { Error = true, Msg = result.Error ?? "Import failed" });

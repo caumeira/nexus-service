@@ -6,9 +6,11 @@
 #   - capture video: gdigrab (Win), avfoundation (macOS)
 #   - capture audio: dshow (Win), avfoundation (macOS), pulse (Linux)
 #
-# Configure flags drop: streaming protocols, GPL encoders (x264/x265/aom/vpx-enc),
-# subtitle codecs, hardware accel, hundreds of obscure decoders. Outcome is a
-# ~10-15 MB statically-linked ffmpeg vs the ~96 MB gyan.dev essentials.
+# Includes libx264 (GPL) for the H.264 mp4 the panel-background feature encodes
+# per device. Configure flags still drop: streaming protocols, other GPL/nonfree
+# encoders (x265/aom/vpx-enc), subtitle codecs, hardware accel, hundreds of
+# obscure decoders. Outcome is a ~10-15 MB statically-linked ffmpeg vs the
+# ~96 MB gyan.dev essentials. The bundle is GPLv2 (x264); ship COPYING.GPLv2.
 #
 # Usage:
 #   bash scripts/build-ffmpeg-minimal.sh <target>
@@ -47,9 +49,10 @@ fi
 
 # Shared configure flags: what we enable / disable for every target
 COMMON_CONFIG=(
-  # Licensing: LGPL-only, no GPL encumbrance
-  --disable-gpl
+  # Licensing: GPL (libx264). No nonfree.
+  --enable-gpl
   --disable-nonfree
+  --enable-libx264
 
   # Build shape
   --enable-static
@@ -74,9 +77,11 @@ COMMON_CONFIG=(
   --disable-programs
   --enable-ffmpeg
 
-  # Filters we literally call from MediaImporter.cs / ScreenMirrorEffect.cs
+  # Filters we literally call from MediaImporter.cs / PanelBgImporter.cs /
+  # ScreenMirrorEffect.cs (crop: panel-background + lighting media cropper)
   --enable-filter=scale
   --enable-filter=pad
+  --enable-filter=crop
   --enable-filter=format
   --enable-filter=fps
   --enable-filter=aresample
@@ -132,15 +137,19 @@ COMMON_CONFIG=(
   --enable-decoder=pcm_f32le
   --enable-decoder=pcm_s24le
 
-  # Encoders: rawvideo passthrough + mjpeg thumbnails + audio pipe
+  # Encoders: rawvideo passthrough + mjpeg thumbnails/images + libx264 for the
+  # per-device H.264 panel background + audio pipe
   --enable-encoder=rawvideo
   --enable-encoder=mjpeg
+  --enable-encoder=libx264
   --enable-encoder=pcm_s16le
   --enable-encoder=pcm_f32le
 
-  # Muxers
+  # Muxers (mp4/mov carry the H.264 panel background)
   --enable-muxer=rawvideo
   --enable-muxer=image2
+  --enable-muxer=mp4
+  --enable-muxer=mov
   --enable-muxer=wav
   --enable-muxer=null
 
@@ -177,7 +186,10 @@ case "$TARGET" in
     EXTRA_CONFIG+=(
       --enable-avdevice
       --enable-indev=avfoundation
+      --pkg-config-flags=--static
     )
+    # libx264 from Homebrew (brew install x264).
+    export PKG_CONFIG_PATH="$(brew --prefix x264)/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
     ;;
   win)
     RID="win-x64"
@@ -223,11 +235,32 @@ case "$TARGET" in
       cd "${SRC_DIR}"
     fi
 
+    # libx264 (GPL) cross-built into the mingw sysroot for the H.264
+    # panel-background encode. Own guard (not the zlib/bzip2 sentinel) so it
+    # still builds on machines that pre-date this dep. Installs libx264.a +
+    # x264.pc, picked up below via pkg-config.
+    if [[ ! -f "${MINGW_ROOT}/lib/libx264.a" ]]; then
+      echo "[ffmpeg] cross-building libx264 into mingw sysroot (one-time)..."
+      DEPS_WORK="${BUILD_ROOT}/mingw-deps"
+      mkdir -p "${DEPS_WORK}"
+      cd "${DEPS_WORK}"
+      [[ -d x264 ]] || git clone --depth 1 https://code.videolan.org/videolan/x264.git
+      cd x264
+      ./configure --host=x86_64-w64-mingw32 --cross-prefix=x86_64-w64-mingw32- \
+        --prefix="${MINGW_ROOT}" --enable-static --disable-cli --disable-opencl
+      make -j"$(sysctl -n hw.ncpu 2>/dev/null || nproc)"
+      make install
+      cd "${SRC_DIR}"
+    fi
+
+    export PKG_CONFIG_PATH="${MINGW_ROOT}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+
     EXTRA_CONFIG=(
       --arch=x86_64
       --target-os=mingw64
       --cross-prefix=x86_64-w64-mingw32-
       --pkg-config=pkg-config
+      --pkg-config-flags=--static
       --enable-avdevice
       --enable-indev=gdigrab
       --enable-indev=dshow
@@ -244,9 +277,11 @@ case "$TARGET" in
     EXTRA_CONFIG=(
       --arch=x86_64
       --target-os=linux
+      --pkg-config-flags=--static
       --enable-avdevice
       --enable-indev=pulse
     )
+    # libx264 from the system (apt install libx264-dev / equivalent).
     ;;
   *)
     echo "unknown target: $TARGET" >&2
@@ -277,7 +312,8 @@ case "$TARGET" in
 esac
 
 cp "${BIN_NAME}" "${OUT_DIR}/${BIN_NAME}"
-cp COPYING.LGPLv2.1 "${OUT_DIR}/LICENSE.txt" 2>/dev/null || true
+# GPLv2: the build links libx264.
+cp COPYING.GPLv2 "${OUT_DIR}/LICENSE.txt" 2>/dev/null || true
 
 SIZE_BYTES=$(wc -c < "${OUT_DIR}/${BIN_NAME}")
 SIZE_MB=$(awk "BEGIN {printf \"%.1f\", ${SIZE_BYTES}/1024/1024}")

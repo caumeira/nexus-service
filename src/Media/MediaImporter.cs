@@ -29,7 +29,7 @@ public static class MediaImporter
     private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif" };
     private static readonly string[] AnimatedExtensions = { ".gif", ".mp4", ".webm", ".mov", ".avi", ".mkv", ".wmv", ".m4v", ".mpg", ".mpeg" };
 
-    public static async Task<ImportResult> ImportAsync(MediaLibrary library, string sourcePath, string originalName)
+    public static async Task<ImportResult> ImportAsync(MediaLibrary library, string sourcePath, string originalName, string? crop = null)
     {
         var ext = Path.GetExtension(originalName).ToLowerInvariant();
         var baseName = Path.GetFileNameWithoutExtension(originalName);
@@ -54,8 +54,12 @@ public static class MediaImporter
             var framesPath = library.GetFramesBinPath(id);
             var thumbPath = library.GetThumbPath(id);
 
-            var scaleFilter = $"scale={CanvasWidth}:{CanvasHeight}:force_original_aspect_ratio=decrease,pad={CanvasWidth}:{CanvasHeight}:-1:-1:color=black";
-            var thumbScaleFilter = $"scale={ThumbWidth}:{ThumbHeight}:force_original_aspect_ratio=decrease,pad={ThumbWidth}:{ThumbHeight}:-1:-1:color=black";
+            // Optional pre-crop (normalized to the source) selected in the
+            // cropper; the cropped region is already 16:9, so decrease+pad below
+            // lands exactly on the canvas with no bars.
+            var cropPrefix = CropRect.TryParse(crop, out var cropRect) ? cropRect.ToFfmpegCrop() + "," : "";
+            var scaleFilter = $"{cropPrefix}scale={CanvasWidth}:{CanvasHeight}:force_original_aspect_ratio=decrease,pad={CanvasWidth}:{CanvasHeight}:-1:-1:color=black";
+            var thumbScaleFilter = $"{cropPrefix}scale={ThumbWidth}:{ThumbHeight}:force_original_aspect_ratio=decrease,pad={ThumbWidth}:{ThumbHeight}:-1:-1:color=black";
 
             if (isImage)
             {
