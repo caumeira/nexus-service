@@ -319,7 +319,7 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
         }
     }
 
-    private static (double gflops, double memGbPerSec, string? version) ParseClpeakJson(string json)
+    internal static (double gflops, double memGbPerSec, string? version) ParseClpeakJson(string json)
     {
         try
         {
@@ -334,10 +334,22 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
             double bestMem = 0;
             foreach (var entry in result.Entries)
             {
-                string cat = entry.Category ?? "";
+                // clpeak enumerates a "CPU" pseudo-device alongside GPUs; exclude
+                // it so a GPU-less machine reports 0 GPU, not the CPU's compute.
+                if (string.Equals(entry.Backend, "CPU", StringComparison.OrdinalIgnoreCase))
+                {
+                    continue;
+                }
+                // Unsupported entries carry a status + reason and no value.
+                if (entry.Status is not null)
+                {
+                    continue;
+                }
+                // The benchmark name is in `test`; `category` is only the coarse
+                // group ("fp_compute" / "bandwidth").
+                string test = entry.Test ?? "";
                 string unit = entry.Unit ?? "";
-                if ((cat.Contains("single_precision_compute", StringComparison.OrdinalIgnoreCase) ||
-                     cat.Contains("single-precision-compute", StringComparison.OrdinalIgnoreCase)) &&
+                if (string.Equals(test, "single_precision_compute", StringComparison.OrdinalIgnoreCase) &&
                     string.Equals(unit, "gflops", StringComparison.OrdinalIgnoreCase))
                 {
                     if (entry.Value > bestGflops)
@@ -345,8 +357,7 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
                         bestGflops = entry.Value;
                     }
                 }
-                else if ((cat.Contains("global_memory_bandwidth", StringComparison.OrdinalIgnoreCase) ||
-                          cat.Contains("global-memory-bandwidth", StringComparison.OrdinalIgnoreCase)) &&
+                else if (string.Equals(test, "global_memory_bandwidth", StringComparison.OrdinalIgnoreCase) &&
                          string.Equals(unit, "gbps", StringComparison.OrdinalIgnoreCase))
                 {
                     if (entry.Value > bestMem)
@@ -474,11 +485,11 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
         {
             progress.Report(new BenchmarkPhaseProgress { Phase = "storage", Detail = "DiskSpd seq+rand", Percent = 0 });
 
-            var args = $"-b1M -d15 -o1 -t1 -Sh -Zr -Rxml -c512M -w25 \"{tempFile}\"";
+            var args = $"-b1M -d15 -o1 -t1 -Sh -Zr -L -Rxml -c512M -w25 \"{tempFile}\"";
             var (exit, stdout, stderr) = await RunProcessAsync(
                 exePath, args, progress, "storage", "DiskSpd seq+rand", 0, 0.7, 20, ct);
 
-            var args4k = $"-b4K -d10 -o32 -t4 -Sh -Zr -r -Rxml \"{tempFile}\"";
+            var args4k = $"-b4K -d10 -o32 -t4 -Sh -Zr -L -r -Rxml \"{tempFile}\"";
             var (exit4k, stdout4k, stderr4k) = await RunProcessAsync(
                 exePath, args4k, progress, "storage", "DiskSpd 4K rand", 0.7, 1.0, 15, ct);
 
@@ -565,16 +576,15 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
             double totalLatMs = 0;
             double durationSec = 0;
 
-            var timeSpan = doc.Descendants("TimeSpan").FirstOrDefault();
-            if (timeSpan is not null)
+            // DiskSpd emits two <TimeSpan> nodes: the Profile/config one (carries
+            // <Duration>, no <TestTimeSeconds>) and the results one. Read
+            // TestTimeSeconds directly so we get the results node, not the config.
+            var durEl = doc.Descendants("TestTimeSeconds").FirstOrDefault();
+            if (durEl is not null &&
+                double.TryParse(durEl.Value, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var d))
             {
-                var durEl = timeSpan.Element("TestTimeSeconds");
-                if (durEl is not null &&
-                    double.TryParse(durEl.Value, System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out var d))
-                {
-                    durationSec = d;
-                }
+                durationSec = d;
             }
 
             foreach (var thread in doc.Descendants("Thread"))

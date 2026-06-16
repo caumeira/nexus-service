@@ -74,8 +74,18 @@ Triad:          54321.0     0.009055     0.009055     0.009055";
     [Fact]
     public void ParseDiskSpdXml_ValidXml_ParsesMbPerSec()
     {
+        // DiskSpd emits a config <TimeSpan> (no <TestTimeSeconds>, has <Duration>)
+        // before the results <TimeSpan>. The parser must read the results node.
         const string xml = @"<?xml version=""1.0"" encoding=""UTF-8""?>
 <Results>
+  <Profile>
+    <TimeSpans>
+      <TimeSpan>
+        <Duration>15</Duration>
+        <Targets><Target><Path>x</Path></Target></Targets>
+      </TimeSpan>
+    </TimeSpans>
+  </Profile>
   <TimeSpan>
     <TestTimeSeconds>15</TestTimeSeconds>
     <Thread>
@@ -92,6 +102,35 @@ Triad:          54321.0     0.009055     0.009055     0.009055";
         Assert.True(seqMbPerSec > 2000, $"expected >2000 MB/s, got {seqMbPerSec}");
         Assert.True(iops > 0, $"expected positive IOPS, got {iops}");
         Assert.InRange(latMs, 0.3, 0.4);
+    }
+
+    [Fact]
+    public void ParseClpeakJson_RealSchema_PicksGpuSinglePrecisionAndBandwidth()
+    {
+        // Flat clpeak schema: the benchmark name is in `test`, the coarse group
+        // in `category`; a "CPU" backend pseudo-device must be excluded and
+        // unsupported entries (status, no value) skipped.
+        const string json = @"{""clpeak_version"":""2.0.13"",""entries"":[
+{""backend"":""OpenCL"",""category"":""fp_compute"",""test"":""single_precision_compute"",""metric"":""float2"",""unit"":""gflops"",""value"":20962.3},
+{""backend"":""CPU"",""category"":""fp_compute"",""test"":""single_precision_compute"",""metric"":""float MT"",""unit"":""gflops"",""value"":1077.5},
+{""backend"":""OpenCL"",""category"":""fp_compute"",""test"":""half_precision_compute"",""metric"":""half"",""unit"":""gflops"",""status"":""unsupported""},
+{""backend"":""OpenCL"",""category"":""bandwidth"",""test"":""global_memory_bandwidth"",""metric"":""float4"",""unit"":""gbps"",""value"":417.8},
+{""backend"":""CPU"",""category"":""bandwidth"",""test"":""global_memory_bandwidth"",""metric"":""triad"",""unit"":""gbps"",""value"":31.3}]}";
+
+        var (gflops, memGbPerSec, version) = ExternalToolBenchmarkProvider.ParseClpeakJson(json);
+        Assert.InRange(gflops, 20962.2, 20962.4);
+        Assert.InRange(memGbPerSec, 417.7, 417.9);
+        Assert.Equal("2.0.13", version);
+    }
+
+    [Fact]
+    public void ParseClpeakJson_NoGpuEntries_ReturnsZero()
+    {
+        const string json = @"{""clpeak_version"":""2.0.13"",""entries"":[
+{""backend"":""CPU"",""category"":""fp_compute"",""test"":""single_precision_compute"",""metric"":""float MT"",""unit"":""gflops"",""value"":1077.5}]}";
+        var (gflops, memGbPerSec, _) = ExternalToolBenchmarkProvider.ParseClpeakJson(json);
+        Assert.Equal(0, gflops);
+        Assert.Equal(0, memGbPerSec);
     }
 
     [Fact]
