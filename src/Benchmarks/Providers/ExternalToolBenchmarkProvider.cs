@@ -16,6 +16,9 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
 {
     private static string BenchDir => Path.Combine(AppContext.BaseDirectory, "bench");
 
+    private readonly Dictionary<string, string> _collectedTools = new();
+    public IReadOnlyDictionary<string, string> CollectedTools => _collectedTools;
+
     private static string ToolPath(string tool, string exe)
         => Path.Combine(BenchDir, tool, exe);
 
@@ -58,10 +61,18 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
         var tcs = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         proc.Exited += (_, _) => tcs.TrySetResult(proc.ExitCode);
 
+        double hardCap = Math.Max(60, wallSeconds * 3);
+        using var hardTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(hardCap));
         using var reg = ct.Register(() =>
         {
             try { proc.Kill(entireProcessTree: true); } catch { }
             tcs.TrySetCanceled(ct);
+        });
+        using var hardReg = hardTimeout.Token.Register(() =>
+        {
+            try { proc.Kill(entireProcessTree: true); } catch { }
+            stderrSb.AppendLine($"[nexus] hard timeout after {hardCap}s");
+            tcs.TrySetResult(-1);
         });
 
         while (!tcs.Task.IsCompleted)
@@ -85,6 +96,34 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
         return (proc.ExitCode, stdoutSb.ToString(), stderrSb.ToString());
     }
 
+    private static string RunVersionProcess(string exe, string args)
+    {
+        try
+        {
+            var psi = new ProcessStartInfo(exe, args)
+            {
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true,
+            };
+            using var proc = Process.Start(psi);
+            if (proc is null)
+            {
+                return "";
+            }
+
+            string stdout = proc.StandardOutput.ReadToEnd();
+            string stderr = proc.StandardError.ReadToEnd();
+            proc.WaitForExit(3000);
+            return stdout + stderr;
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
     public async Task<BenchmarkSubScore> RunCpuAsync(
         IProgress<BenchmarkPhaseProgress> progress, CancellationToken ct)
     {
@@ -93,10 +132,16 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
         var exePath = ToolPath(tool, exe);
 
         if (!File.Exists(exePath))
+        {
             return MissingTool("cpu", "CPU", tool);
+        }
 
         try
         {
+            var verOut = RunVersionProcess(exePath, "--version");
+            var verMatch = Regex.Match(verOut, @"primesieve\s+([\d.]+)", RegexOptions.IgnoreCase);
+            _collectedTools["cpu"] = verMatch.Success ? $"primesieve {verMatch.Groups[1].Value}" : "primesieve";
+
             progress.Report(new BenchmarkPhaseProgress { Phase = "cpu", Detail = "single-core", Percent = 0 });
             var (singleExit, singleOut, singleErr) = await RunProcessAsync(
                 exePath, "1e10 -t 1 --time", progress, "cpu", "single-core", 0, 0.4, 30, ct);
@@ -147,23 +192,26 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
 
     internal static double ParsePrimesPerSec(string output)
     {
-        var m = Regex.Match(output, @"([\d,\.]+)\s+billion\s+primes/sec", RegexOptions.IgnoreCase);
-        if (m.Success &&
-            double.TryParse(m.Groups[1].Value.Replace(",", ""), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var billions))
+        var mCount = Regex.Match(output, @"Primes:\s*([\d,]+)", RegexOptions.IgnoreCase);
+        var mSecs = Regex.Match(output, @"Seconds:\s*([\d.]+)", RegexOptions.IgnoreCase);
+        if (!mCount.Success || !mSecs.Success)
         {
-            return billions * 1_000_000_000d;
+            return 0;
         }
 
-        m = Regex.Match(output, @"([\d,\.]+)\s+primes/s", RegexOptions.IgnoreCase);
-        if (m.Success &&
-            double.TryParse(m.Groups[1].Value.Replace(",", ""), System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var ps))
+        if (!double.TryParse(mCount.Groups[1].Value.Replace(",", ""), System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var primes))
         {
-            return ps;
+            return 0;
         }
 
-        return 0;
+        if (!double.TryParse(mSecs.Groups[1].Value, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var seconds) || seconds <= 0)
+        {
+            return 0;
+        }
+
+        return primes / seconds;
     }
 
     public async Task<BenchmarkSubScore> RunGpuAsync(
@@ -244,6 +292,11 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
                     string.IsNullOrEmpty(detail) ? "gpu tools returned no parseable result" : detail);
             }
 
+            if (versionStr is not null)
+            {
+                _collectedTools["gpu"] = versionStr;
+            }
+
             double score = Scoring.Score(gflops, Scoring.BaselineGpuGflops);
             string detailStr = memGbPerSec > 0
                 ? $"{Math.Round(gflops, 1)} GFLOPS sp | {Math.Round(memGbPerSec, 1)} GB/s mem"
@@ -272,25 +325,37 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
         {
             var result = System.Text.Json.JsonSerializer.Deserialize(json,
                 Nexus.Service.Serialization.AppJsonContext.Default.ClpeakResult);
-            if (result?.Platforms is null)
+            if (result?.Entries is null)
+            {
                 return (0, 0, null);
+            }
 
             double bestGflops = 0;
             double bestMem = 0;
-            foreach (var plat in result.Platforms)
+            foreach (var entry in result.Entries)
             {
-                if (plat.Devices is null)
-                    continue;
-                foreach (var dev in plat.Devices)
+                string cat = entry.Category ?? "";
+                string unit = entry.Unit ?? "";
+                if ((cat.Contains("single_precision_compute", StringComparison.OrdinalIgnoreCase) ||
+                     cat.Contains("single-precision-compute", StringComparison.OrdinalIgnoreCase)) &&
+                    string.Equals(unit, "gflops", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (dev.SinglePrecisionGflops.HasValue && dev.SinglePrecisionGflops.Value > bestGflops)
+                    if (entry.Value > bestGflops)
                     {
-                        bestGflops = dev.SinglePrecisionGflops.Value;
-                        bestMem = dev.GlobalMemBandwidthGbPerSec ?? 0;
+                        bestGflops = entry.Value;
+                    }
+                }
+                else if ((cat.Contains("global_memory_bandwidth", StringComparison.OrdinalIgnoreCase) ||
+                          cat.Contains("global-memory-bandwidth", StringComparison.OrdinalIgnoreCase)) &&
+                         string.Equals(unit, "gbps", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (entry.Value > bestMem)
+                    {
+                        bestMem = entry.Value;
                     }
                 }
             }
-            return (bestGflops, bestMem, null);
+            return (bestGflops, bestMem, result.ClpeakVersion);
         }
         catch
         {
@@ -300,14 +365,16 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
 
     private static double ParseVkpeakGflops(string output)
     {
-        var m = Regex.Match(output, @"fp32\s*:\s*([\d\.]+)\s*GFLOPS", RegexOptions.IgnoreCase);
-        if (m.Success &&
-            double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Float,
-                System.Globalization.CultureInfo.InvariantCulture, out var v))
+        double best = 0;
+        foreach (Match m in Regex.Matches(output, @"fp32[\w-]*\s*=\s*([\d.]+)\s*GFLOPS", RegexOptions.IgnoreCase))
         {
-            return v;
+            if (double.TryParse(m.Groups[1].Value, System.Globalization.NumberStyles.Float,
+                    System.Globalization.CultureInfo.InvariantCulture, out var v) && v > best)
+            {
+                best = v;
+            }
         }
-        return 0;
+        return best;
     }
 
     private static string? ParseVkpeakVersion(string output)
@@ -324,10 +391,14 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
         var exePath = ToolPath(tool, exe);
 
         if (!File.Exists(exePath))
+        {
             return MissingTool("ram", "RAM", tool);
+        }
 
         try
         {
+            _collectedTools["ram"] = "STREAM";
+
             progress.Report(new BenchmarkPhaseProgress { Phase = "ram", Detail = "STREAM Triad", Percent = 0 });
             var (exit, stdout, stderr) = await RunProcessAsync(
                 exePath, "", progress, "ram", "STREAM Triad", 0, 1.0, 15, ct);
@@ -338,7 +409,10 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
             {
                 var truncated = stdout.Trim();
                 if (truncated.Length > 200)
+                {
                     truncated = truncated.Substring(0, 200);
+                }
+
                 return ParseFailure("ram", "RAM",
                     $"STREAM parse failed (exit={exit}). stdout={truncated}");
             }
@@ -383,10 +457,13 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
         var exePath = ToolPath(tool, exe);
 
         if (!File.Exists(exePath))
+        {
             return MissingTool("storage", "Storage", tool);
+        }
 
         var tempFile = Path.Combine(Path.GetTempPath(), $"nexus-diskspd-{Guid.NewGuid():N}.bin");
 
+        // Guards a future caller-supplied path; the temp path never starts with these prefixes.
         if (tempFile.StartsWith(@"\\.\", StringComparison.Ordinal) ||
             tempFile.StartsWith("#", StringComparison.Ordinal))
         {
@@ -412,7 +489,14 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
             if (exit == 0 && !string.IsNullOrWhiteSpace(stdout))
             {
                 (seqMbPerSec, _, _) = ParseDiskSpdXml(stdout);
+                var verEl = TryParseDiskSpdVersion(stdout);
+                _collectedTools["storage"] = verEl is not null ? $"diskspd {verEl}" : "diskspd";
             }
+            else
+            {
+                _collectedTools["storage"] = "diskspd";
+            }
+
             if (exit4k == 0 && !string.IsNullOrWhiteSpace(stdout4k))
             {
                 (_, randIops, latencyMs) = ParseDiskSpdXml(stdout4k);
@@ -427,9 +511,14 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
             double score = Scoring.Score(seqMbPerSec > 0 ? seqMbPerSec : 1000, Scoring.BaselineStorageMbPerSec);
             string detailStr = $"seq {Math.Round(seqMbPerSec)} MB/s";
             if (randIops > 0)
+            {
                 detailStr += $" | 4K {Math.Round(randIops)} IOPS";
+            }
+
             if (latencyMs > 0)
+            {
                 detailStr += $" | lat {Math.Round(latencyMs, 2)} ms";
+            }
 
             return new BenchmarkSubScore
             {
@@ -449,6 +538,19 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
         finally
         {
             try { File.Delete(tempFile); } catch { }
+        }
+    }
+
+    private static string? TryParseDiskSpdVersion(string xml)
+    {
+        try
+        {
+            var doc = XDocument.Parse(xml);
+            return doc.Descendants("Version").FirstOrDefault()?.Value;
+        }
+        catch
+        {
+            return null;
         }
     }
 

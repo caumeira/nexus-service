@@ -560,10 +560,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(StartBenchmarkBody))]
 [JsonSerializable(typeof(BenchmarkBaselines))]
 [JsonSerializable(typeof(ClpeakResult))]
-[JsonSerializable(typeof(ClpeakPlatform))]
-[JsonSerializable(typeof(ClpeakDevice))]
-[JsonSerializable(typeof(ClpeakPlatform[]))]
-[JsonSerializable(typeof(ClpeakDevice[]))]
+[JsonSerializable(typeof(ClpeakEntry))]
+[JsonSerializable(typeof(ClpeakEntry[]))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
 
 [JsonSerializable(typeof(float[]))]

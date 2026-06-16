@@ -31,16 +31,4 @@ internal static class Scoring
         return Math.Round(Math.Exp(logSum / 4d), 1);
     }
 
-    // Compatibility shims -- delegates to Score()
-    public static double Normalize(double raw, double reference) => Score(raw, reference);
-
-    // Compatibility shim -- delegates to Composite()
-    public static double WeightedGeoMean(double cpu, double gpu, double ram, double storage)
-        => Composite(cpu, gpu, ram, storage);
-
-    // Old reference constants kept for test compatibility only
-    public const double RefCpuHashesPerSec = BaselineCpuPrimesPerSec;
-    public const double RefGpuGflops = BaselineGpuGflops;
-    public const double RefRamGbPerSec = BaselineRamGbPerSec;
-    public const double RefStorageComposite = BaselineStorageMbPerSec;
 }

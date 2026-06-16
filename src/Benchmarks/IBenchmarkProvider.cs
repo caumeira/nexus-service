@@ -18,4 +18,5 @@ public interface IBenchmarkProvider
     Task<BenchmarkSubScore> RunRamAsync(IProgress<BenchmarkPhaseProgress> progress, CancellationToken ct);
     Task<BenchmarkSubScore> RunStorageAsync(IProgress<BenchmarkPhaseProgress> progress, CancellationToken ct);
     Task<BenchmarkSubScore> RunGpuAsync(IProgress<BenchmarkPhaseProgress> progress, CancellationToken ct);
+    IReadOnlyDictionary<string, string> CollectedTools { get; }
 }

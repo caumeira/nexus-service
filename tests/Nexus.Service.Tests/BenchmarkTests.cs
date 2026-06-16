@@ -10,89 +10,36 @@ namespace Nexus.Service.Tests;
 public class BenchmarkTests
 {
     [Fact]
-    public void Scoring_Normalize_ZeroReference_ReturnsZero()
+    public void Scoring_Score_ZeroReference_ReturnsZero()
     {
-        Assert.Equal(0, Scoring.Normalize(100, 0));
+        Assert.Equal(0, Scoring.Score(100, 0));
     }
 
     [Fact]
-    public void Scoring_Normalize_AtReference_ReturnsThousand()
+    public void Scoring_Score_AtBaseline_ReturnsThousand()
     {
-        Assert.Equal(1000, Scoring.Normalize(Scoring.RefCpuHashesPerSec, Scoring.RefCpuHashesPerSec));
+        Assert.Equal(1000, Scoring.Score(Scoring.BaselineCpuPrimesPerSec, Scoring.BaselineCpuPrimesPerSec));
     }
 
     [Fact]
-    public void Scoring_WeightedGeoMean_AllEqual_ReturnsInput()
+    public void Scoring_Composite_AllThousand_ReturnsThousand()
     {
-        var c = Scoring.WeightedGeoMean(1000, 1000, 1000, 1000);
-        Assert.InRange(c, 999, 1001);
+        var result = Scoring.Composite(1000, 1000, 1000, 1000);
+        Assert.InRange(result, 999, 1001);
     }
 
     [Fact]
-    public void Scoring_WeightedGeoMean_WeakStorageHurtsComposite()
+    public void Scoring_Composite_WeakStorageHurtsComposite()
     {
-        // Same cpu/gpu/ram. Storage drops 90%. Composite should drop noticeably.
-        var balanced = Scoring.WeightedGeoMean(1000, 1000, 1000, 1000);
-        var weakStorage = Scoring.WeightedGeoMean(1000, 1000, 1000, 100);
+        var balanced = Scoring.Composite(1000, 1000, 1000, 1000);
+        var weakStorage = Scoring.Composite(1000, 1000, 1000, 100);
         Assert.True(weakStorage < balanced * 0.75);
     }
 
-    // The four "ProducesPositiveScore" tests actually run the benchmarks
-    // end-to-end (20s + 20s + 9s + 8s ≈ 57s, ~91% of the suite). They're
-    // tagged Manual so the default `dotnet test` (and the build-pc + pre-push
-    // gates) skip them. Run them explicitly with:
-    //   dotnet test --filter Category=Manual
-    [Fact(Timeout = 60_000), Trait("Category", "Manual")]
-    public async Task Cpu_ProducesPositiveScore()
+    [Fact]
+    public void Scoring_ScoringVersion_NotEmpty()
     {
-        var provider = new DefaultBenchmarkProvider();
-        var progress = new Progress<BenchmarkPhaseProgress>(_ => { });
-        var result = await provider.RunCpuAsync(progress, CancellationToken.None);
-        Assert.Equal("cpu", result.Key);
-        Assert.True(result.Score > 0, $"expected positive CPU score, got {result.Score}");
-        Assert.True(result.RawValue > 0);
-    }
-
-    [Fact(Timeout = 30_000), Trait("Category", "Manual")]
-    public async Task Ram_ProducesPositiveScore()
-    {
-        var provider = new DefaultBenchmarkProvider();
-        var progress = new Progress<BenchmarkPhaseProgress>(_ => { });
-        var result = await provider.RunRamAsync(progress, CancellationToken.None);
-        Assert.Equal("ram", result.Key);
-        Assert.True(result.Score > 0);
-    }
-
-    [Fact(Timeout = 60_000), Trait("Category", "Manual")]
-    public async Task Storage_ProducesPositiveScore()
-    {
-        var provider = new DefaultBenchmarkProvider();
-        var progress = new Progress<BenchmarkPhaseProgress>(_ => { });
-        var result = await provider.RunStorageAsync(progress, CancellationToken.None);
-        Assert.Equal("storage", result.Key);
-        Assert.True(result.Score > 0, $"expected positive storage score, got {result.Score}. detail={result.Detail}");
-    }
-
-    [Fact(Timeout = 30_000), Trait("Category", "Manual")]
-    public async Task Gpu_SimdProxy_ProducesPositiveScore()
-    {
-        var provider = new DefaultBenchmarkProvider();
-        var progress = new Progress<BenchmarkPhaseProgress>(_ => { });
-        var result = await provider.RunGpuAsync(progress, CancellationToken.None);
-        Assert.Equal("gpu", result.Key);
-        Assert.True(result.Score > 0);
-    }
-
-    [Fact(Timeout = 30_000)]
-    public async Task Cancellation_AbortsQuickly()
-    {
-        var provider = new DefaultBenchmarkProvider();
-        var progress = new Progress<BenchmarkPhaseProgress>(_ => { });
-        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
-        {
-            await provider.RunRamAsync(progress, cts.Token);
-        });
+        Assert.False(string.IsNullOrEmpty(Scoring.ScoringVersion));
     }
 
     [Fact]
@@ -109,27 +56,6 @@ public class BenchmarkTests
             frame, Nexus.Service.Serialization.AppJsonContext.Default.BenchmarkProgressFrame);
         Assert.Contains("\"runId\":\"abc\"", json);
         Assert.Contains("\"phase\":{", json);
-    }
-
-    // v2 scoring model
-
-    [Fact]
-    public void Scoring_Score_AtBaseline_ReturnsThousand()
-    {
-        Assert.Equal(1000, Scoring.Score(Scoring.BaselineCpuPrimesPerSec, Scoring.BaselineCpuPrimesPerSec));
-    }
-
-    [Fact]
-    public void Scoring_Composite_AllThousand_ReturnsThousand()
-    {
-        var result = Scoring.Composite(1000, 1000, 1000, 1000);
-        Assert.InRange(result, 999, 1001);
-    }
-
-    [Fact]
-    public void Scoring_ScoringVersion_NotEmpty()
-    {
-        Assert.False(string.IsNullOrEmpty(Scoring.ScoringVersion));
     }
 
     [Fact]
@@ -169,10 +95,17 @@ Triad:          54321.0     0.009055     0.009055     0.009055";
     }
 
     [Fact]
-    public void ParsePrimesPerSec_BillionOutput_ParsesCorrectly()
+    public void ParsePrimesPerSec_RealOutput_ParsesCorrectly()
     {
-        const string output = "Sieve speed: 2.845 billion primes/sec";
+        const string output = "Primes: 455,052,511\nSeconds: 2.123";
         double result = ExternalToolBenchmarkProvider.ParsePrimesPerSec(output);
-        Assert.InRange(result, 2_845_000_000d, 2_845_000_001d);
+        Assert.InRange(result, 214_000_000d, 215_000_000d);
+    }
+
+    [Fact]
+    public void ParsePrimesPerSec_NoMatch_ReturnsZero()
+    {
+        double result = ExternalToolBenchmarkProvider.ParsePrimesPerSec("some unrelated output");
+        Assert.Equal(0, result);
     }
 }

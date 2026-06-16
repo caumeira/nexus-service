@@ -148,7 +148,7 @@ public sealed class BenchmarkRunner
             }
             subs.Add(gpu);
 
-            var composite = Scoring.WeightedGeoMean(cpu.Score, gpu.Score, ram.Score, storage.Score);
+            var composite = Scoring.Composite(cpu.Score, gpu.Score, ram.Score, storage.Score);
             lock (_lock)
             {
                 Result = new BenchmarkResult
@@ -171,7 +171,7 @@ public sealed class BenchmarkRunner
                         Ram = Scoring.BaselineRamGbPerSec,
                         Storage = Scoring.BaselineStorageMbPerSec,
                     },
-                    Tools = new System.Collections.Generic.Dictionary<string, string>(),
+                    Tools = new System.Collections.Generic.Dictionary<string, string>(_provider.CollectedTools),
                 };
                 State = BenchmarkState.Complete;
                 _lastFrame = new BenchmarkProgressFrame

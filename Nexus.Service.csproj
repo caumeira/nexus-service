@@ -279,7 +279,7 @@
            Text="Bench bundle missing: Bundled\win-x64\bench\stream\stream.exe. Build on Windows: cl /O2 /openmp /Fe:stream.exe stream.c (source: https://www.cs.virginia.edu/stream/FTP/Code/stream.c). See Bundled\win-x64\bench\stream\BUILD.md." />
   </Target>
 
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\bench')">
+  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))) AND Exists('Bundled\win-x64\bench')">
     <Content Include="Bundled\win-x64\bench\**\*.*">
       <Link>bench\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

@@ -68,22 +68,25 @@ public sealed class BenchmarkBaselines
     public double Storage { get; set; }
 }
 
-// DTOs for clpeak --json-file output (source-gen JSON, AOT-safe)
+// DTOs for clpeak --json-file flat output (source-gen JSON, AOT-safe)
 public sealed class ClpeakResult
 {
-    public ClpeakPlatform[]? Platforms { get; set; }
+    [System.Text.Json.Serialization.JsonPropertyName("clpeak_version")]
+    public string? ClpeakVersion { get; set; }
+    public ClpeakEntry[]? Entries { get; set; }
 }
 
-public sealed class ClpeakPlatform
+public sealed class ClpeakEntry
 {
-    public ClpeakDevice[]? Devices { get; set; }
-}
-
-public sealed class ClpeakDevice
-{
-    public string? Name { get; set; }
-    public double? SinglePrecisionGflops { get; set; }
-    public double? GlobalMemBandwidthGbPerSec { get; set; }
+    public string? Backend { get; set; }
+    public string? Platform { get; set; }
+    public string? Device { get; set; }
+    public string? Category { get; set; }
+    public string? Test { get; set; }
+    public string? Metric { get; set; }
+    public string? Unit { get; set; }
+    public string? Status { get; set; }
+    public double Value { get; set; }
 }
 
 public sealed class StartBenchmarkResponse
