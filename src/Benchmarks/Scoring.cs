@@ -4,36 +4,43 @@ namespace Nexus.Service.Benchmarks;
 
 internal static class Scoring
 {
-    // Weights sum to 1.0. See plans/benchmark-system.md for rationale.
-    public const double WeightCpu = 0.30;
-    public const double WeightGpu = 0.35;
-    public const double WeightRam = 0.15;
-    public const double WeightStorage = 0.20;
+    // v2-2026.06: primesieve / clpeak+vkpeak / STREAM / DiskSpd
+    // Reference machine: Ryzen 7600 / RTX 4060 / DDR5-6000 CL30 / PCIe 4 NVMe
+    public const string ScoringVersion = "v2-2026.06";
 
-    // Reference raw numbers that normalise to ~1000 points, spot-sampled on a
-    // mid-range 2023/2024 build (Ryzen 7600 / RTX 4060-class / DDR5-6000 CL30 /
-    // PCIe 4.0 NVMe). Must stay stable so scores compare across app versions;
-    // if changed, bump a schema version so the leaderboard partitions.
-    public const double RefCpuHashesPerSec = 2_500_000_000d;
-    public const double RefGpuGflops = 400d;
-    public const double RefRamGbPerSec = 35d;
-    public const double RefStorageComposite = 3_000d; // MB/s equivalent
+    public const double BaselineCpuPrimesPerSec = 2_800_000_000d;
+    public const double BaselineGpuGflops = 10_000d;
+    public const double BaselineRamGbPerSec = 35d;
+    public const double BaselineStorageMbPerSec = 3_000d;
 
-    public static double Normalize(double raw, double reference)
+    public static double Score(double raw, double baseline)
     {
-        if (reference <= 0 || raw <= 0)
+        if (baseline <= 0 || raw <= 0)
             return 0;
-        return Math.Round((raw / reference) * 1000, 2);
+        return Math.Round(raw / baseline * 1000d, 1);
     }
 
-    public static double WeightedGeoMean(double cpu, double gpu, double ram, double storage)
+    public static double Composite(double cpuScore, double gpuScore, double ramScore, double storageScore)
     {
-        double Safe(double v) => v <= 0 ? 1 : v;
+        static double Safe(double v) => v <= 0 ? 1 : v;
         double logSum =
-            WeightCpu * Math.Log(Safe(cpu)) +
-            WeightGpu * Math.Log(Safe(gpu)) +
-            WeightRam * Math.Log(Safe(ram)) +
-            WeightStorage * Math.Log(Safe(storage));
-        return Math.Round(Math.Exp(logSum), 2);
+            Math.Log(Safe(cpuScore)) +
+            Math.Log(Safe(gpuScore)) +
+            Math.Log(Safe(ramScore)) +
+            Math.Log(Safe(storageScore));
+        return Math.Round(Math.Exp(logSum / 4d), 1);
     }
+
+    // Compatibility shims -- delegates to Score()
+    public static double Normalize(double raw, double reference) => Score(raw, reference);
+
+    // Compatibility shim -- delegates to Composite()
+    public static double WeightedGeoMean(double cpu, double gpu, double ram, double storage)
+        => Composite(cpu, gpu, ram, storage);
+
+    // Old reference constants kept for test compatibility only
+    public const double RefCpuHashesPerSec = BaselineCpuPrimesPerSec;
+    public const double RefGpuGflops = BaselineGpuGflops;
+    public const double RefRamGbPerSec = BaselineRamGbPerSec;
+    public const double RefStorageComposite = BaselineStorageMbPerSec;
 }
