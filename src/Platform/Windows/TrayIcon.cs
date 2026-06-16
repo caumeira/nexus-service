@@ -36,10 +36,14 @@ public static class TrayIcon
     private const int IDM_OPEN_APP = 1;
     private const int IDM_OPEN_SETTINGS = 2;
     private const int IDM_SHUTDOWN = 3;
+    // Profile command ids occupy [IDM_PROFILE_BASE, IDM_PROFILE_BASE + count).
+    // 0x100 stays well clear of the three fixed IDM_* ids above.
+    private const int IDM_PROFILE_BASE = 0x100;
     private const int MF_STRING = 0x0000;
     private const int MF_SEPARATOR = 0x0800;
     private const int MF_CHECKED = 0x0008;
     private const int MF_UNCHECKED = 0x0000;
+    private const int MF_POPUP = 0x0010;
     private const int DefaultServicePort = 9400;
     private const uint WM_CLOSE = 0x0010;
     private const uint WM_DISPLAYCHANGE = 0x007E;
@@ -78,6 +82,10 @@ public static class TrayIcon
     private static Func<bool>? _hasOverlayWidgets;
     private static Action? _onToggleAutostart;
     private static Func<bool>? _isAutostartEnabled;
+    private static Func<(System.Collections.Generic.IReadOnlyList<(string Id, string Name)> Items, string ActiveId)>? _getProfiles;
+    private static Action<string>? _onSwitchProfile;
+    // Rebuilt on every right-click menu open; maps submenu index to profile id.
+    private static readonly System.Collections.Generic.List<string> _profileMenuIds = new();
     private static WndProcDelegate? _pinnedProc; // prevent GC
     private static readonly object _sync = new();
     private static Thread? _thread;
@@ -134,6 +142,19 @@ public static class TrayIcon
         _onToggleOverlayTopmost = onToggleOverlayTopmost;
         _isOverlayTopmost = isOverlayTopmost;
         _hasOverlayWidgets = hasOverlayWidgets;
+    }
+
+    /// <summary>
+    /// Wire the "Profiles" submenu. <paramref name="getProfiles"/> is called on
+    /// each right-click; <paramref name="onSwitchProfile"/> is called with the
+    /// selected profile id. Both run on the tray window thread; no locking needed.
+    /// </summary>
+    public static void ConfigureProfiles(
+        Func<(System.Collections.Generic.IReadOnlyList<(string Id, string Name)> Items, string ActiveId)> getProfiles,
+        Action<string> onSwitchProfile)
+    {
+        _getProfiles = getProfiles;
+        _onSwitchProfile = onSwitchProfile;
     }
 
     public static void Show(int servicePort, Action onExit, Action? onTogglePanel = null, Func<bool>? isPanelRunning = null)
@@ -401,6 +422,27 @@ public static class TrayIcon
                     var menu = CreatePopupMenu();
                     AppendMenu(menu, MF_STRING, IDM_OPEN_APP, "Open");
                     AppendMenu(menu, MF_STRING, IDM_OPEN_SETTINGS, "Settings");
+                    _profileMenuIds.Clear();
+                    if (_getProfiles is not null)
+                    {
+                        try
+                        {
+                            var (items, activeId) = _getProfiles();
+                            if (items.Count >= 1)
+                            {
+                                var sub = CreatePopupMenu();
+                                for (var i = 0; i < items.Count; i++)
+                                {
+                                    var (id, name) = items[i];
+                                    var flags = MF_STRING | (id == activeId ? MF_CHECKED : MF_UNCHECKED);
+                                    AppendMenu(sub, flags, IDM_PROFILE_BASE + i, name);
+                                    _profileMenuIds.Add(id);
+                                }
+                                AppendMenu(menu, MF_POPUP, sub, "Profiles");
+                            }
+                        }
+                        catch { /* omit submenu on any fetch failure */ }
+                    }
                     AppendMenu(menu, MF_SEPARATOR, 0, string.Empty);
                     AppendMenu(menu, MF_STRING, IDM_SHUTDOWN, "Shut down");
                     SetForegroundWindow(hwnd);
@@ -463,6 +505,11 @@ public static class TrayIcon
                     // pre-Exit cleanup (panel close, overlay stop) would land
                     // here. We swallow because there is nothing useful to do.
                     try { _onExit?.Invoke(); } catch { }
+                }
+                else if (id >= IDM_PROFILE_BASE && id < IDM_PROFILE_BASE + _profileMenuIds.Count)
+                {
+                    var profileId = _profileMenuIds[id - IDM_PROFILE_BASE];
+                    try { _onSwitchProfile?.Invoke(profileId); } catch { }
                 }
             }
             else if (msg == WM_ARM_ICON_RETRY)
@@ -542,9 +589,12 @@ public static class TrayIcon
             // the overlay widgets - far cheaper than spawning a fresh
             // Edge --app tree. Sending the registered ShowDashboard
             // message either creates or focuses the dashboard window.
-            if (TrySendShowDashboardToOverlay())
+            var overlayMsg = path == "/settings"
+                ? ShowDashboardSettingsMessageName
+                : ShowDashboardMessageName;
+            if (TrySendShowDashboardToOverlay(messageName: overlayMsg))
             {
-                DiagFile("ShowDashboard posted to nexus-overlay marshaler");
+                DiagFile($"{overlayMsg} posted to nexus-overlay marshaler");
                 return;
             }
 
@@ -552,10 +602,10 @@ public static class TrayIcon
             // back to the heavy Edge --app path. EnsureOverlayRunning is
             // best-effort; on success the marshaler usually appears within
             // a few seconds. We retry the send once after the spawn.
-            if (EnsureOverlayRunning() && TrySendShowDashboardToOverlay(timeoutMs: 8000))
+            if (EnsureOverlayRunning() && TrySendShowDashboardToOverlay(timeoutMs: 8000, messageName: overlayMsg))
             {
                 _lastSpawnUtc = DateTime.UtcNow;
-                DiagFile("started nexus-overlay and posted ShowDashboard");
+                DiagFile($"started nexus-overlay and posted {overlayMsg}");
                 return;
             }
 
@@ -753,6 +803,8 @@ public static class TrayIcon
     private const string OverlayMarshalerClassName = "Nexus.Overlay.Marshaler";
     private const string OverlayDashboardClassName = "Nexus.Overlay.Dashboard";
     private const string ShowDashboardMessageName = "Nexus.Overlay.ShowDashboard";
+    // Overlay-side handler for this message navigates directly to /settings.
+    private const string ShowDashboardSettingsMessageName = "Nexus.Overlay.ShowDashboardSettings";
 
     /// <summary>
     /// Tries to deliver a registered window message to the running nexus-overlay
@@ -812,8 +864,8 @@ public static class TrayIcon
         }
     }
 
-    private static bool TrySendShowDashboardToOverlay(int timeoutMs = 0)
-        => TryPostToOverlayMarshaler(ShowDashboardMessageName, timeoutMs, handoffForeground: true);
+    private static bool TrySendShowDashboardToOverlay(int timeoutMs = 0, string messageName = ShowDashboardMessageName)
+        => TryPostToOverlayMarshaler(messageName, timeoutMs, handoffForeground: true);
 
     /// <summary>
     /// Starts nexus-overlay.exe in the current user session. We're already
@@ -1088,6 +1140,8 @@ public static class TrayIcon
     [DllImport("user32")] private static extern int GetSystemMetrics(int nIndex);
     [DllImport("user32")] private static extern IntPtr CreatePopupMenu();
     [DllImport("user32", CharSet = CharSet.Unicode)] private static extern bool AppendMenu(IntPtr menu, int flags, int id, string text);
+    // MF_POPUP overload: idNewItem is the submenu HMENU, which is pointer-sized.
+    [DllImport("user32", EntryPoint = "AppendMenuW", CharSet = CharSet.Unicode)] private static extern bool AppendMenu(IntPtr menu, int flags, IntPtr idNewItem, string text);
     [DllImport("user32")] private static extern bool TrackPopupMenu(IntPtr menu, int flags, int x, int y, int reserved, IntPtr hwnd, IntPtr rect);
     [DllImport("user32")] private static extern bool DestroyMenu(IntPtr menu);
     [DllImport("user32")] private static extern bool GetCursorPos(out POINT pt);

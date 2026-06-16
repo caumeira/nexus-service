@@ -629,6 +629,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenSettingsPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenUrlPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenFilePayload))]
+// Profiles pipe push/switch
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProfileListPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProfileSwitchPayload))]
 #endif
 
 // Apps - manifest + listings (nexus.app/1 schema, sandboxed widget.mjs runtime)
