@@ -269,7 +269,13 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
                         if (exit == 0 && File.Exists(tmpJson))
                         {
                             var json = await File.ReadAllTextAsync(tmpJson, ct);
-                            (gflops, memGbPerSec, versionStr) = ParseClpeakJson(json);
+                            var (g, m, ver) = ParseClpeakJson(json);
+                            gflops = g;
+                            memGbPerSec = m;
+                            if (ver is not null)
+                            {
+                                versionStr = $"clpeak {ver}";
+                            }
                         }
                         return gflops > 0;
                     }
@@ -301,7 +307,8 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
                     gflops = ParseVkpeakGflops(vkOut + vkErr);
                     if (gflops > 0 && versionStr is null)
                     {
-                        versionStr = ParseVkpeakVersion(vkOut + vkErr);
+                        var vkv = ParseVkpeakVersion(vkOut + vkErr);
+                        versionStr = vkv is not null ? $"vkpeak {vkv}" : "vkpeak";
                     }
                     if (gflops > 0)
                     {
