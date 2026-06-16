@@ -142,9 +142,14 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
             var verMatch = Regex.Match(verOut, @"primesieve\s+([\d.]+)", RegexOptions.IgnoreCase);
             _collectedTools["cpu"] = verMatch.Success ? $"primesieve {verMatch.Groups[1].Value}" : "primesieve";
 
+            // Sieve sizes pick run duration. primesieve leaves the cache-fast
+            // regime above ~1e11, so the rate (and thus score) is tied to N --
+            // changing these requires a ScoringVersion bump. 4e10 single / 4e11
+            // all-core run ~4-5 s each on a 2024 desktop, long enough to reach
+            // sustained clocks rather than a sub-second boost spike.
             progress.Report(new BenchmarkPhaseProgress { Phase = "cpu", Detail = "single-core", Percent = 0 });
             var (singleExit, singleOut, singleErr) = await RunProcessAsync(
-                exePath, "1e10 -t 1 --time", progress, "cpu", "single-core", 0, 0.4, 30, ct);
+                exePath, "4e10 -t 1 --time", progress, "cpu", "single-core", 0, 0.4, 30, ct);
 
             double singlePrimesPerSec = 0;
             if (singleExit == 0)
@@ -154,7 +159,7 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
 
             progress.Report(new BenchmarkPhaseProgress { Phase = "cpu", Detail = "all-core", Percent = 0.4 });
             var (multiExit, multiOut, multiErr) = await RunProcessAsync(
-                exePath, "1e10 --time", progress, "cpu", "all-core", 0.4, 1.0, 30, ct);
+                exePath, "4e11 --time", progress, "cpu", "all-core", 0.4, 1.0, 30, ct);
 
             double allCorePrimesPerSec = 0;
             if (multiExit == 0)

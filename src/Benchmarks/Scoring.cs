@@ -4,11 +4,14 @@ namespace Nexus.Service.Benchmarks;
 
 internal static class Scoring
 {
-    // v2-2026.06: primesieve / clpeak+vkpeak / STREAM / DiskSpd
+    // v2.1-2026.06: primesieve / clpeak+vkpeak / STREAM / DiskSpd
     // Reference machine: Ryzen 7600 / RTX 4060 / DDR5-6000 CL30 / PCIe 4 NVMe
-    public const string ScoringVersion = "v2-2026.06";
+    // Bump on any tool, invocation, or baseline change so the leaderboard
+    // partitions. The CPU baseline is tied to the all-core sieve size (4e11);
+    // changing it shifts the rate and requires a new version.
+    public const string ScoringVersion = "v2.1-2026.06";
 
-    public const double BaselineCpuPrimesPerSec = 2_800_000_000d;
+    public const double BaselineCpuPrimesPerSec = 2_000_000_000d;
     public const double BaselineGpuGflops = 10_000d;
     public const double BaselineRamGbPerSec = 35d;
     public const double BaselineStorageMbPerSec = 3_000d;
