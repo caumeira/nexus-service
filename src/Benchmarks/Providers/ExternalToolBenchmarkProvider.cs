@@ -242,27 +242,46 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
         {
             if (hasClpeak)
             {
-                var tmpJson = Path.Combine(Path.GetTempPath(), $"nexus-clpeak-{Guid.NewGuid():N}.json");
-                try
+                // clpeak runs every test on every backend by default (~2 min). We
+                // only need peak single-precision GFLOPS + global bandwidth, so
+                // restrict to one backend, those two categories, and a 300 ms
+                // per-test budget. Below ~300 ms the GPU never reaches boost
+                // clocks and the result collapses (200 ms read ~20% of true).
+                // OpenCL is the most universal Windows backend; fall back to
+                // Vulkan if it yields nothing. The first run on a fresh machine
+                // pays a one-time kernel-JIT cost (driver caches it afterward),
+                // so the wallSeconds hard-cap stays generous.
+                async Task<bool> TryClpeak(string backend, string label)
                 {
-                    progress.Report(new BenchmarkPhaseProgress { Phase = "gpu", Detail = "clpeak (OpenCL)", Percent = 0 });
-                    var (exit, stdout, stderr) = await RunProcessAsync(
-                        clpeakPath, $"--json-file \"{tmpJson}\"", progress, "gpu", "clpeak (OpenCL)", 0, 0.8, 60, ct);
-
-                    if (exit == 0 && File.Exists(tmpJson))
+                    var tmpJson = Path.Combine(Path.GetTempPath(), $"nexus-clpeak-{Guid.NewGuid():N}.json");
+                    try
                     {
-                        var json = await File.ReadAllTextAsync(tmpJson, ct);
-                        (gflops, memGbPerSec, versionStr) = ParseClpeakJson(json);
+                        progress.Report(new BenchmarkPhaseProgress { Phase = "gpu", Detail = label, Percent = 0 });
+                        var (exit, _, _) = await RunProcessAsync(
+                            clpeakPath,
+                            $"{backend} --no-cpu --fp-compute --bandwidth --max-time 300 --json-file \"{tmpJson}\"",
+                            progress, "gpu", label, 0, 0.9, 60, ct);
+                        if (exit == 0 && File.Exists(tmpJson))
+                        {
+                            var json = await File.ReadAllTextAsync(tmpJson, ct);
+                            (gflops, memGbPerSec, versionStr) = ParseClpeakJson(json);
+                        }
+                        return gflops > 0;
                     }
-
-                    if (gflops <= 0)
+                    finally
                     {
-                        detail = $"clpeak exit={exit} parse-failed";
+                        try { File.Delete(tmpJson); } catch { }
                     }
                 }
-                finally
+
+                if (!await TryClpeak("--opencl", "clpeak (OpenCL)"))
                 {
-                    try { File.Delete(tmpJson); } catch { }
+                    await TryClpeak("--vulkan", "clpeak (Vulkan)");
+                }
+
+                if (gflops <= 0)
+                {
+                    detail = "clpeak parse-failed";
                 }
             }
 
@@ -485,13 +504,15 @@ public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
         {
             progress.Report(new BenchmarkPhaseProgress { Phase = "storage", Detail = "DiskSpd seq+rand", Percent = 0 });
 
-            var args = $"-b1M -d15 -o1 -t1 -Sh -Zr -L -Rxml -c512M -w25 \"{tempFile}\"";
+            // -d5 measure + -W1 warmup per pass: an SSD reaches steady state in
+            // well under a second, so short passes match a longer run's rate.
+            var args = $"-b1M -d5 -W1 -o1 -t1 -Sh -Zr -L -Rxml -c512M -w25 \"{tempFile}\"";
             var (exit, stdout, stderr) = await RunProcessAsync(
-                exePath, args, progress, "storage", "DiskSpd seq+rand", 0, 0.7, 20, ct);
+                exePath, args, progress, "storage", "DiskSpd seq+rand", 0, 0.7, 8, ct);
 
-            var args4k = $"-b4K -d10 -o32 -t4 -Sh -Zr -L -r -Rxml \"{tempFile}\"";
+            var args4k = $"-b4K -d5 -W1 -o32 -t4 -Sh -Zr -L -r -Rxml \"{tempFile}\"";
             var (exit4k, stdout4k, stderr4k) = await RunProcessAsync(
-                exePath, args4k, progress, "storage", "DiskSpd 4K rand", 0.7, 1.0, 15, ct);
+                exePath, args4k, progress, "storage", "DiskSpd 4K rand", 0.7, 1.0, 8, ct);
 
             double seqMbPerSec = 0;
             double randIops = 0;
