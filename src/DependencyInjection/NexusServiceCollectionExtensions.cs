@@ -810,7 +810,7 @@ public static class NexusServiceCollectionExtensions
 
     public static IServiceCollection AddNexusBenchmarks(this IServiceCollection services)
     {
-        services.AddSingleton<Nexus.Service.Benchmarks.IBenchmarkProvider, Nexus.Service.Benchmarks.Providers.DefaultBenchmarkProvider>();
+        services.AddSingleton<Nexus.Service.Benchmarks.IBenchmarkProvider, Nexus.Service.Benchmarks.Providers.ExternalToolBenchmarkProvider>();
         services.AddSingleton<Nexus.Service.Benchmarks.BenchmarkRunner>();
         services.AddSingleton<ProfileManager>();
         services.AddSingleton<Nexus.Service.Media.MediaLibrary>();
