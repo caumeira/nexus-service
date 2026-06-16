@@ -189,11 +189,12 @@ builder.Logging.AddFilter("System", LogLevel.Warning);
 builder.Logging.AddFilter("Microsoft.Hosting.Lifetime", LogLevel.Information);
 // Kestrel + form upload body limits. Default Kestrel cap is 30 MB which drops
 // larger multipart uploads before /media/import sees them (the browser then
-// reports "could not reach the service"). Match MediaImporter.MaxFileSize so
-// the route-level check is the only place we reject oversized uploads.
+// reports "could not reach the service"). Use the largest route cap (panel
+// background media allows bigger uploads than lighting) so the route-level
+// check is the only place we reject oversized uploads.
 builder.WebHost.ConfigureKestrel(k =>
 {
-    k.Limits.MaxRequestBodySize = Nexus.Service.Media.MediaImporter.MaxFileSize;
+    k.Limits.MaxRequestBodySize = System.Math.Max(Nexus.Service.Media.MediaImporter.MaxFileSize, Nexus.Service.Panel.PanelBgImporter.MaxFileSize);
     k.ListenAnyIP(servicePort);
     if (localHttpsCertificate is not null)
     {
@@ -202,7 +203,7 @@ builder.WebHost.ConfigureKestrel(k =>
 });
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
 {
-    o.MultipartBodyLengthLimit = Nexus.Service.Media.MediaImporter.MaxFileSize;
+    o.MultipartBodyLengthLimit = System.Math.Max(Nexus.Service.Media.MediaImporter.MaxFileSize, Nexus.Service.Panel.PanelBgImporter.MaxFileSize);
     o.ValueLengthLimit = int.MaxValue;
 });
 
@@ -396,6 +397,7 @@ app.MapActivityEndpoints();
 app.MapLifecycleEndpoints();
 app.MapDiagnosticsEndpoints();
 app.MapMediaLibraryEndpoints();
+app.MapPanelBgEndpoints();
 app.MapGalleryEndpoints();
 app.MapTransferEndpoints();
 app.MapProfileEndpoints();

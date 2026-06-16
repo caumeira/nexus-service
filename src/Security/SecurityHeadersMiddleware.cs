@@ -49,8 +49,16 @@ internal static class SecurityHeadersMiddleware
             ctx.Response.OnStarting(() =>
             {
                 var path = ctx.Request.Path.Value ?? string.Empty;
-                var noCacheShell = NoCacheShellPaths.Contains(path)
-                    || path.StartsWith("/panel", StringComparison.OrdinalIgnoreCase);
+                // Panel-background assets are immutable (content-addressed by id);
+                // they carry their own long-lived Cache-Control from the route so
+                // the WebView caches them after one fetch (the Q60 streams over USB-FFS).
+                // Route shape: /panel/devices/<deviceId>/background-media/<assetId>/{file,thumbnail}
+                var isCacheableBgAsset = path.Contains("/background-media/", StringComparison.OrdinalIgnoreCase)
+                    && (path.EndsWith("/file", StringComparison.OrdinalIgnoreCase)
+                        || path.EndsWith("/thumbnail", StringComparison.OrdinalIgnoreCase));
+                var noCacheShell = !isCacheableBgAsset
+                    && (NoCacheShellPaths.Contains(path)
+                        || path.StartsWith("/panel", StringComparison.OrdinalIgnoreCase));
 
                 if (noCacheShell)
                 {
