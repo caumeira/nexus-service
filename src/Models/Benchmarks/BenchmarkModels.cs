@@ -55,6 +55,35 @@ public sealed class BenchmarkResult
     public BenchmarkSubScore Ram { get; set; } = new();
     public BenchmarkSubScore Storage { get; set; } = new();
     public string Error { get; set; } = "";
+    public string ScoringVersion { get; set; } = "";
+    public BenchmarkBaselines Baselines { get; set; } = new();
+    public Dictionary<string, string> Tools { get; set; } = new();
+}
+
+public sealed class BenchmarkBaselines
+{
+    public double Cpu { get; set; }
+    public double Gpu { get; set; }
+    public double Ram { get; set; }
+    public double Storage { get; set; }
+}
+
+// DTOs for clpeak --json-file output (source-gen JSON, AOT-safe)
+public sealed class ClpeakResult
+{
+    public ClpeakPlatform[]? Platforms { get; set; }
+}
+
+public sealed class ClpeakPlatform
+{
+    public ClpeakDevice[]? Devices { get; set; }
+}
+
+public sealed class ClpeakDevice
+{
+    public string? Name { get; set; }
+    public double? SinglePrecisionGflops { get; set; }
+    public double? GlobalMemBandwidthGbPerSec { get; set; }
 }
 
 public sealed class StartBenchmarkResponse
