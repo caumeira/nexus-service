@@ -2,6 +2,8 @@ using System;
 using System.Collections.Generic;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Mappings;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Peripherals.Hyte.SmartHub;
 using Nexus.Service.Persistence;
@@ -20,7 +22,7 @@ namespace Nexus.Service.Lighting;
 /// and the user declares the count (zones are resizable up to
 /// <see cref="SmartHubProtocol.MaxLedsPerPort"/> via the lighting page).
 /// </summary>
-public sealed class SmartHubLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor
+public sealed class SmartHubLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource
 {
     private readonly SmartHubHub _hub;
     private readonly IConfigStore _store;
@@ -73,6 +75,57 @@ public sealed class SmartHubLightingDeviceProvider : ILightingDeviceProvider, IL
                 disabled, prefs, layouts, counts));
         }
         return resp;
+    }
+
+    // ── IDeviceStructureSource ──
+
+    public IReadOnlyList<DeviceStructure> GetStructures()
+    {
+        if (!_hub.IsConnected || string.IsNullOrEmpty(_hub.DeviceId))
+        {
+            return Array.Empty<DeviceStructure>();
+        }
+        var hubId = _hub.DeviceId;
+        var settings = _store.Load();
+        var counts = settings.Devices.ZoneLedCounts;
+        var structures = new List<DeviceStructure>(_hub.State.Ports.Length);
+
+        foreach (var port in _hub.State.Ports)
+        {
+            var portId = $"{hubId}:port{port.Channel}";
+            var effectiveLedCount = port.LedCount;
+            if (counts.TryGetValue(portId, out var persisted))
+            {
+                effectiveLedCount = Math.Max(0, persisted);
+            }
+            var structure = new DeviceStructure
+            {
+                DeviceId = portId,
+                Name = $"{SmartHubHub.ProductName} - Port {port.Channel} (ARGB)",
+                DeviceKey = DeviceKeyComputer.ForFirstParty(
+                    SmartHubProtocol.VendorId, SmartHubProtocol.ProductId, $"port{port.Channel}"),
+            };
+            structure.Segments.Add(new StructureSegment
+            {
+                Index = 0,
+                Name = $"Port {port.Channel}",
+                LedCount = effectiveLedCount,
+                FrameLedCount = effectiveLedCount,
+                Resizable = true,
+                ZoneType = "linear",
+            });
+            structure.DefaultZones.Add(new DefaultZoneDef
+            {
+                Id = portId,
+                Name = $"{SmartHubHub.ProductName} - Port {port.Channel} (ARGB)",
+                RawName = $"Port {port.Channel}",
+                DeviceKey = structure.DeviceKey,
+                LegacyZoneIndex = -1,
+                Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = effectiveLedCount } },
+            });
+            structures.Add(structure);
+        }
+        return structures;
     }
 
     private static LightingDevice BuildZone(

@@ -38,7 +38,7 @@ public sealed class SmartHubHeartbeatWorker : BackgroundService
     private readonly HardwarePresence _presence;
     private readonly IConfigStore _config;
     private readonly SmartHubCoolingProvider _cooling;
-    private bool _animationOffAsserted;
+    private bool? _animationStateAsserted; // null = not yet asserted (e.g. fresh connect)
     private bool _initialDutyAsserted;
     private int _tickCount;
     private const int TraceEveryNTicks = 15; // every ~30 s with the 2 s timer
@@ -72,8 +72,8 @@ public sealed class SmartHubHeartbeatWorker : BackgroundService
             return;
 
         var connectedBefore = _hub.IsConnected;
-        if (!_hub.EnsureConnected()) { _animationOffAsserted = false; _initialDutyAsserted = false; return; }
-        if (!connectedBefore) _initialDutyAsserted = false; // hub may have power-cycled back to 100%
+        if (!_hub.EnsureConnected()) { _animationStateAsserted = null; _initialDutyAsserted = false; return; }
+        if (!connectedBefore) { _initialDutyAsserted = false; _animationStateAsserted = null; }
 
         // First connect ⇒ read FW version. Cheap; no-op once populated.
         if (!connectedBefore || string.IsNullOrEmpty(_hub.State.FirmwareVersion))
@@ -81,12 +81,15 @@ public sealed class SmartHubHeartbeatWorker : BackgroundService
             _hub.PollFirmwareVersion();
         }
 
-        // Hand the ARGB ports to software streaming by turning the onboard
-        // animation off. Re-asserted on each reconnect; no-op for steady state.
-        if (!_animationOffAsserted)
+        // Assert firmware animation on/off to match the persisted preference.
+        // Re-asserted on reconnect (null tracker) or whenever the preference changes.
+        var desiredOn = _config.Load().Devices.SmartHubFirmwareControl;
+        if (_animationStateAsserted != desiredOn)
         {
-            if (_hub.SetFirmwareAnimation(on: false))
-                _animationOffAsserted = true;
+            if (_hub.SetFirmwareAnimation(on: desiredOn))
+            {
+                _animationStateAsserted = desiredOn;
+            }
         }
 
         if (!_initialDutyAsserted)

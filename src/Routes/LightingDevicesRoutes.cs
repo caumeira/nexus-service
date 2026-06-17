@@ -272,6 +272,41 @@ public static partial class DevicesRoutes
             return ApiResponse.Ok();
         });
 
+        // LED map editor: transient preview layout (draft LED count + positions, not persisted)
+        app.MapPost("/devices/lighting-devices/{id}/led-preview-layout", (string id, LedPreviewLayoutBody body,
+            Nexus.Service.Lighting.Engine.LightingEngine engine) =>
+        {
+            foreach (var frame in engine.Devices)
+            {
+                if (frame.Id == id)
+                {
+                    frame.PreviewLedCount = body.LedCount > 0 ? body.LedCount : null;
+                    if (body.Leds.Count > 0)
+                    {
+                        var positions = new Nexus.Service.Lighting.Engine.PreviewLedPosition[body.Leds.Count];
+                        for (int i = 0; i < body.Leds.Count; i++)
+                        {
+                            var src = body.Leds[i];
+                            positions[i] = new Nexus.Service.Lighting.Engine.PreviewLedPosition
+                            {
+                                Index = src.Index,
+                                U = src.U,
+                                V = src.V,
+                                Disabled = src.Disabled,
+                            };
+                        }
+                        frame.PreviewLayout = positions;
+                    }
+                    else
+                    {
+                        frame.PreviewLayout = null;
+                    }
+                    break;
+                }
+            }
+            return ApiResponse.Ok();
+        });
+
         // LED map editor: clear all overlays
         app.MapDelete("/devices/lighting-devices/{id}/led-editor", (string id,
             Nexus.Service.Lighting.Engine.LightingEngine engine) =>
@@ -282,6 +317,8 @@ public static partial class DevicesRoutes
                 {
                     frame.HighlightLeds = null;
                     frame.TestPattern = null;
+                    frame.PreviewLedCount = null;
+                    frame.PreviewLayout = null;
                     break;
                 }
             }
