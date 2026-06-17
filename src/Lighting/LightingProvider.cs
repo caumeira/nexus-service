@@ -54,7 +54,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         _frameSource = frameSource;
 
         var s = _store.Load().Lighting;
-        _screenPP.Set(s.ScreenEffect.Hue, s.ScreenEffect.Colorize, s.ScreenEffect.Saturation, s.ScreenEffect.Contrast, s.ScreenEffect.FlipX, s.ScreenEffect.FlipY);
+        _screenPP.Set(s.ScreenEffect.Hue, s.ScreenEffect.Colorize, s.ScreenEffect.Saturation, s.ScreenEffect.Contrast, s.ScreenEffect.FlipX, s.ScreenEffect.FlipY, s.ScreenEffect.Reactive, s.ScreenEffect.Reactivity, s.ScreenEffect.Intensity);
         _mediaPP.Set(s.MediaEffect.Hue, s.MediaEffect.Colorize, s.MediaEffect.Saturation, s.MediaEffect.Contrast, s.MediaEffect.FlipX, s.MediaEffect.FlipY);
 
         _engine.OnFrame += frame => _ = _hub.BroadcastBinaryAsync(frame);
@@ -699,7 +699,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // client calls /start with empty post-process fields before it has
         // fetched the current values, overwriting here would silently clobber
         // the user's saved look back to identity on every mode swap.
-        _engine.SetEffect(new ScreenMirrorEffect(body.Monitor, _screenPP, _frameSource));
+        _engine.SetEffect(new ScreenMirrorEffect(body.Monitor, _screenPP, _frameSource, _gpu));
         _store.Update(s => s.Lighting.Sync = "screen");
     }
 
@@ -724,11 +724,13 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     /// <summary>Same alias for the Media post-process holder.</summary>
     public PostProcessState MediaPostProcess => _mediaPP;
 
-    public void UpdateScreenEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist)
+    public void UpdateScreenEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist, bool reactive = false, float reactivity = 0.5f, float intensity = 0.5f)
     {
-        _screenPP.Set(hue, colorize, saturation, contrast, flipX, flipY);
+        _screenPP.Set(hue, colorize, saturation, contrast, flipX, flipY, reactive, reactivity, intensity);
         if (!persist)
+        {
             return;
+        }
         _store.Update(s =>
         {
             s.Lighting.ScreenEffect.Hue = hue;
@@ -737,6 +739,9 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             s.Lighting.ScreenEffect.Contrast = contrast;
             s.Lighting.ScreenEffect.FlipX = flipX;
             s.Lighting.ScreenEffect.FlipY = flipY;
+            s.Lighting.ScreenEffect.Reactive = reactive;
+            s.Lighting.ScreenEffect.Reactivity = reactivity;
+            s.Lighting.ScreenEffect.Intensity = intensity;
         });
     }
 

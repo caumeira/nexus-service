@@ -173,4 +173,16 @@ public class LightingPostProcessTests : IDisposable
         Assert.Equal(((byte)40, (byte)50, (byte)60), canvas.GetPixel(0, 0));
         Assert.Equal(((byte)10, (byte)20, (byte)30), canvas.GetPixel(0, 3));
     }
+
+    [Fact]
+    public void UpdateScreenEffect_PersistsReactiveFields()
+    {
+        _provider.UpdateScreenEffect(0.0f, 0.0f, 1f, 1f, flipX: false, flipY: false, persist: true, reactive: true, reactivity: 0.7f, intensity: 0.3f);
+        _store.FlushNow();
+
+        var s = _store.Load().Lighting.ScreenEffect;
+        Assert.True(s.Reactive);
+        Assert.Equal(0.7f, s.Reactivity);
+        Assert.Equal(0.3f, s.Intensity);
+    }
 }

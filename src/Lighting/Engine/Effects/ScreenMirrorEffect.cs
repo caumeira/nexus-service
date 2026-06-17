@@ -5,7 +5,9 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Lighting.Capture;
+using Nexus.Service.Lighting.Engine.Gpu;
 using Nexus.Service.Platform;
+using Silk.NET.OpenGL;
 
 namespace Nexus.Service.Lighting.Engine.Effects;
 
@@ -15,6 +17,7 @@ public sealed class ScreenMirrorEffect : IEffect
     private readonly string _monitorId;
     private readonly PostProcessState _postProcess;
     private readonly IScreenFrameSource? _frameSource;
+    private readonly GpuContext? _gpu;
     private readonly object _frameLock = new();
     private byte[]? _latestFrame;
     private int _captureW, _captureH;
@@ -28,11 +31,18 @@ public sealed class ScreenMirrorEffect : IEffect
     private Process? _proc;
     private Task? _readerTask;
 
-    public ScreenMirrorEffect(string monitorId = "", PostProcessState? postProcess = null, IScreenFrameSource? frameSource = null)
+    // Reactive glow members - lazily initialised when Reactive first becomes true
+    private ReactiveGlow? _reactive;
+    private ShaderEffect? _glow;
+    private int _uBands = -1;
+    private int _uBandCount = -1;
+
+    public ScreenMirrorEffect(string monitorId = "", PostProcessState? postProcess = null, IScreenFrameSource? frameSource = null, GpuContext? gpu = null)
     {
         _monitorId = monitorId;
         _postProcess = postProcess ?? new PostProcessState();
         _frameSource = frameSource;
+        _gpu = gpu;
     }
 #if WINDOWS
     private Capture.DxgiScreenCapture? _dxgi;
@@ -44,6 +54,10 @@ public sealed class ScreenMirrorEffect : IEffect
         {
             EnsureStarted(canvas.Width, canvas.Height);
         }
+        if (_postProcess.Reactive)
+        {
+            EnsureGlow();
+        }
         if (_frameSource is not null)
         {
             var helperFrame = _frameSource.TryAcquireFrame(out var helperW, out var helperH);
@@ -53,6 +67,14 @@ public sealed class ScreenMirrorEffect : IEffect
                 return;
             }
             BlitToCanvas(canvas, helperFrame, helperW, helperH);
+            if (_postProcess.Reactive && _glow is not null)
+            {
+                _reactive!.Ingest(canvas, _postProcess.Intensity);
+                _reactive.Advance(_postProcess.Reactivity);
+                SyncGlowParams();
+                _glow.RenderFrame(canvas, tickMs);
+                return;
+            }
             canvas.ApplyFlip(_postProcess.FlipX, _postProcess.FlipY);
             canvas.ApplyPostProcess(_postProcess);
             return;
@@ -76,6 +98,17 @@ public sealed class ScreenMirrorEffect : IEffect
             }
             if (_hasFrame)
             {
+                if (_postProcess.Reactive && _glow is not null)
+                {
+                    if (freshFrame)
+                    {
+                        _reactive!.Ingest(canvas, _postProcess.Intensity);
+                    }
+                    _reactive!.Advance(_postProcess.Reactivity);
+                    SyncGlowParams();
+                    _glow.RenderFrame(canvas, tickMs);
+                    return;
+                }
                 // DXGI only hands us a fresh frame when something on screen
                 // actually changed. On cached ticks the canvas still holds the
                 // post-processed output from the last blit - re-running
@@ -99,8 +132,83 @@ public sealed class ScreenMirrorEffect : IEffect
         if (frame is null)
         { canvas.Fill(20, 20, 24); return; }
         BlitToCanvas(canvas, frame, fw, fh);
+        if (_postProcess.Reactive && _glow is not null)
+        {
+            _reactive!.Ingest(canvas, _postProcess.Intensity);
+            _reactive.Advance(_postProcess.Reactivity);
+            SyncGlowParams();
+            _glow.RenderFrame(canvas, tickMs);
+            return;
+        }
         canvas.ApplyFlip(_postProcess.FlipX, _postProcess.FlipY);
         canvas.ApplyPostProcess(_postProcess);
+    }
+
+    private void EnsureGlow()
+    {
+        if (_glow is not null || _gpu is null)
+        {
+            return;
+        }
+        _reactive = new ReactiveGlow();
+        _glow = new ShaderEffect("reactiveglow", _gpu, ShaderLibrary.ReactiveGlow, BindBands);
+    }
+
+    private void SyncGlowParams()
+    {
+        if (_glow is null)
+        {
+            return;
+        }
+        _glow.Hue = _postProcess.Hue;
+        _glow.Colorize = _postProcess.Colorize;
+        _glow.Saturation = _postProcess.Saturation;
+        _glow.Contrast = _postProcess.Contrast;
+        _glow.Intensity = _postProcess.Intensity;
+    }
+
+    private unsafe void BindBands(GL gl, int prog, double _tickMs)
+    {
+        if (_uBands < 0)
+        {
+            _uBands = gl.GetUniformLocation((uint)prog, "u_bands[0]");
+            if (_uBands < 0)
+            {
+                _uBands = gl.GetUniformLocation((uint)prog, "u_bands");
+            }
+            _uBandCount = gl.GetUniformLocation((uint)prog, "u_bandCount");
+        }
+        if (_uBands >= 0 && _reactive is not null)
+        {
+            int k = _reactive.BandCount;
+            if (_postProcess.FlipX)
+            {
+                // Reverse band order so the left-to-right glow mirrors correctly
+                Span<float> reversed = stackalloc float[k * 3];
+                for (int band = 0; band < k; band++)
+                {
+                    int src = (k - 1 - band) * 3;
+                    reversed[band * 3] = _reactive.BandFloats[src];
+                    reversed[band * 3 + 1] = _reactive.BandFloats[src + 1];
+                    reversed[band * 3 + 2] = _reactive.BandFloats[src + 2];
+                }
+                fixed (float* p = &reversed[0])
+                {
+                    gl.Uniform3(_uBands, (uint)k, p);
+                }
+            }
+            else
+            {
+                fixed (float* p = _reactive.BandFloats)
+                {
+                    gl.Uniform3(_uBands, (uint)k, p);
+                }
+            }
+        }
+        if (_uBandCount >= 0 && _reactive is not null)
+        {
+            gl.Uniform1(_uBandCount, _reactive.BandCount);
+        }
     }
 
     private static void BlitToCanvas(CanvasBuffer canvas, byte[] src, int srcW, int srcH)
@@ -199,7 +307,7 @@ public sealed class ScreenMirrorEffect : IEffect
                 while (read < frameBytes)
                 { var n = await stream.ReadAsync(buffer.AsMemory(read, frameBytes - read), ct); if (n <= 0) { return; } read += n; }
                 var snap = useA ? snapA : snapB;
-                Buffer.BlockCopy(buffer, 0, snap, 0, frameBytes);
+                System.Buffer.BlockCopy(buffer, 0, snap, 0, frameBytes);
                 lock (_frameLock)
                 { _latestFrame = snap; _captureW = w; _captureH = h; }
                 useA = !useA;
@@ -212,6 +320,7 @@ public sealed class ScreenMirrorEffect : IEffect
 
     public void Dispose()
     {
+        _glow?.Dispose();
         if (_frameSource is not null)
         {
             try { _frameSource.Stop(); } catch { }

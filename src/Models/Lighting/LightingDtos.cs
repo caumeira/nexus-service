@@ -137,6 +137,9 @@ public sealed class PostProcessBody
     public bool FlipY { get; set; }
     /// <summary>False while the user drags a slider. True on release or programmatic change.</summary>
     public bool Persist { get; set; } = true;
+    public bool Reactive { get; set; }
+    public float Reactivity { get; set; } = 0.5f;
+    public float Intensity { get; set; } = 0.5f;
 }
 
 public class GifHeadlessStart
