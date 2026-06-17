@@ -274,11 +274,17 @@ case "$TARGET" in
   linux)
     RID="linux-x64"
     BIN_NAME="ffmpeg"
+    # --disable-autodetect requires opting into every external lib explicitly:
+    # pulse capture (BeatsProvider runs `ffmpeg -f pulse`) needs both
+    # --enable-libpulse and --enable-indev=pulse. No --pkg-config-flags=--static
+    # either: libpulse's static dep chain is unsatisfiable on a normal glibc
+    # host and would drop libpulse again. External deps (libx264, libpulse,
+    # zlib, bzip2) link dynamically and ship as distro packages.
     EXTRA_CONFIG=(
       --arch=x86_64
       --target-os=linux
-      --pkg-config-flags=--static
       --enable-avdevice
+      --enable-libpulse
       --enable-indev=pulse
     )
     # libx264 from the system (apt install libx264-dev / equivalent).
