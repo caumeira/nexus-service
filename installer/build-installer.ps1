@@ -52,6 +52,42 @@ if (-not (Test-Path (Join-Path $PublishDir "Nexus.exe"))) {
 [System.IO.Directory]::EnumerateFiles($PublishDir, "._*", "AllDirectories") |
     ForEach-Object { [System.IO.File]::Delete("\\?\" + $_) }
 
+# Fail if wwwroot/assets holds a bundle unreachable from index.html. The
+# BuildWeb=false publish path skips the wwwroot wipe in Nexus.Service.csproj, so
+# bundles from earlier builds accumulate; this asserts every bundle belongs to
+# the current build. Closure: seed from index.html, expand through inter-chunk
+# references (Vite hashed basenames), flag the rest.
+$assetsDir = Join-Path $PublishDir "wwwroot\assets"
+$indexHtml = Join-Path $PublishDir "wwwroot\index.html"
+if ((Test-Path $assetsDir) -and (Test-Path $indexHtml)) {
+    $all = @(Get-ChildItem $assetsDir -File |
+        Where-Object { $_.Extension -eq '.js' -or $_.Extension -eq '.css' } |
+        ForEach-Object { $_.Name })
+    $reach = [System.Collections.Generic.HashSet[string]]::new()
+    $indexText = Get-Content $indexHtml -Raw
+    foreach ($f in $all) { if ($indexText.Contains($f)) { [void]$reach.Add($f) } }
+    $changed = $true
+    while ($changed) {
+        $changed = $false
+        foreach ($f in @($reach)) {
+            if (-not $f.EndsWith('.js')) { continue }
+            $text = Get-Content (Join-Path $assetsDir $f) -Raw
+            foreach ($g in $all) {
+                if (-not $reach.Contains($g) -and $text.Contains($g)) {
+                    [void]$reach.Add($g); $changed = $true
+                }
+            }
+        }
+    }
+    $orphans = @($all | Where-Object { -not $reach.Contains($_) })
+    if ($orphans.Count -gt 0) {
+        Write-Host "Orphaned bundles in $assetsDir (stale, not reachable from index.html):"
+        $orphans | ForEach-Object { Write-Host "  $_" }
+        throw "wwwroot is not clean: $($orphans.Count) orphaned bundle(s). Rebuild nexus-web (which wipes wwwroot) before packaging."
+    }
+    Write-Host "wwwroot clean: $($all.Count) bundles, 0 orphaned."
+}
+
 Push-Location $scriptDir
 try {
     & $iscc /DPublishDir="$PublishDir" Nexus.iss
