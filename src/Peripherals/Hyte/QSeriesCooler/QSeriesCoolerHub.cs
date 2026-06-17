@@ -30,6 +30,9 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     // Starts at 0 (the silent default) so a device absent from boot never logs
     // "discovery returned 0"; only a real change (0->N found, or N->0 disconnect) logs.
     private int _lastDiscoveredPortCount;
+    // Last software-commanded pump duty, echoed when toggling turbo so it
+    // doesn't reset the pump speed.
+    private int _lastPumpDuty = 50;
 
     public QSeriesCoolerHub(IQSeriesCoolerPortDiscovery discovery, Func<Np50PortInfo, INp50Transport> transportFactory)
     {
@@ -42,6 +45,9 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
 
     /// <summary>"q60" / "q80" once connected, else empty. Used as the firmware-catalog key.</summary>
     public string Variant => State.Variant;
+
+    /// <summary>User-facing product name for the cooling / lighting pages ("HYTE Q60" / "HYTE Q80").</summary>
+    public string ProductName => Variant == QSeriesCoolerProtocol.VariantQ80 ? "HYTE Q80" : "HYTE Q60";
 
     public string DeviceId => string.IsNullOrEmpty(State.Serial) ? "" : $"qseries:{State.Serial}";
 
@@ -188,6 +194,178 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"[qseries-cooler] fw-version exchange failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
+        }
+    }
+
+    // Telemetry read deadline. The pump answers a Port-0 query in a few ms; this
+    // is the silent-device ceiling. Kept well under the fw-version poll's 400 ms
+    // because telemetry polls every heartbeat (3 s) and holds _lock against the
+    // 30 Hz lighting writer — a longer deadline would stall the LED stream that
+    // long on a marginal serial link.
+    private const int TelemetryReadTimeoutMs = 150;
+
+    /// <summary>
+    /// Poll pump telemetry (Port-0, plus the Q80 second pump) into <see cref="State"/>.
+    /// Read-only on the wire — issues no control writes. Shares <c>_lock</c> with
+    /// the 30 Hz lighting stream, so it can't interleave with a frame write. A
+    /// short / mis-framed reply skips the update (leaving lighting streaming);
+    /// only a thrown transport error tears the port down for the heartbeat to
+    /// reconnect.
+    /// </summary>
+    public bool PollTelemetry()
+    {
+        lock (_lock)
+        {
+            if (!EnsureConnected()) return false;
+            var transport = _transport;
+            if (transport is null) return false;
+            try
+            {
+                transport.DiscardInput();
+                transport.Write(QSeriesCoolerProtocol.BuildGetPort0Info());
+                var buf = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+                var n = transport.Read(buf, TelemetryReadTimeoutMs);
+                if (!QSeriesCoolerProtocol.TryParsePort0PumpRpm(buf.AsSpan(0, n), out var pumpRpm))
+                    return false;
+                State.PumpRpm = pumpRpm;
+                State.ControlMode = QSeriesCoolerProtocol.ControlModeOf(buf);
+                State.TurboOn = QSeriesCoolerProtocol.TurboOnOf(buf);
+
+                if (Variant == QSeriesCoolerProtocol.VariantQ80)
+                {
+                    transport.DiscardInput();
+                    transport.Write(QSeriesCoolerProtocol.BuildGetPump2Info());
+                    var buf2 = new byte[QSeriesCoolerProtocol.Pump2ResponseLength];
+                    var n2 = transport.Read(buf2, TelemetryReadTimeoutMs);
+                    if (QSeriesCoolerProtocol.TryParsePump2Rpm(buf2.AsSpan(0, n2), out var pump2))
+                    {
+                        State.Pump2Rpm = pump2;
+                        State.HasPump2 = pump2 > 0;
+                    }
+                }
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[qseries-cooler] telemetry poll failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
+        }
+    }
+
+    // Caller holds _lock. Reads the 20-byte Port-0 status into buf; false on a
+    // short / mis-framed reply. A control write echoes buf's fw-animation bytes.
+    private bool ReadPort0(byte[] buf)
+    {
+        var t = _transport;
+        if (t is null) return false;
+        t.DiscardInput();
+        t.Write(QSeriesCoolerProtocol.BuildGetPort0Info());
+        var n = t.Read(buf, TelemetryReadTimeoutMs);
+        return n >= QSeriesCoolerProtocol.Port0ResponseLength
+            && QSeriesCoolerProtocol.TryParsePort0PumpRpm(buf.AsSpan(0, n), out _);
+    }
+
+    /// <summary>
+    /// Drive the pump at <paramref name="dutyPercent"/> (0-100) under software
+    /// control. Reads Port-0 first to preserve turbo + fw-animation state, maps
+    /// the duty to the firmware's voltage byte, then writes the control frame.
+    /// </summary>
+    public bool SetPumpSpeed(int dutyPercent)
+    {
+        lock (_lock)
+        {
+            if (!EnsureConnected()) return false;
+            var t = _transport;
+            if (t is null) return false;
+            try
+            {
+                var port0 = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+                if (!ReadPort0(port0)) return false;
+                var turboOn = QSeriesCoolerProtocol.TurboOnOf(port0);
+                var wire = QSeriesCoolerProtocol.MapPumpDutyToWire(dutyPercent, turboOn);
+                var turboByte = turboOn ? QSeriesCoolerProtocol.TurboOnByte : QSeriesCoolerProtocol.TurboOffByte;
+                // HYTE switches to software mode in one frame, then sends the speed
+                // in a SEPARATE frame with the mode byte cleared. Re-asserting the
+                // mode in the speed frame resets the pump, so only switch when the
+                // hub isn't already in software control.
+                if (QSeriesCoolerProtocol.ControlModeOf(port0) != QSeriesCoolerProtocol.ControlModeSoftware)
+                    t.Write(QSeriesCoolerProtocol.BuildSetControl(QSeriesCoolerProtocol.ControlModeSoftware, wire, turboByte, port0));
+                t.Write(QSeriesCoolerProtocol.BuildSetControl(QSeriesCoolerProtocol.ControlModeKeep, wire, turboByte, port0));
+                _lastPumpDuty = Math.Clamp(dutyPercent, 0, 100);
+                State.ControlMode = QSeriesCoolerProtocol.ControlModeSoftware;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[qseries-cooler] set pump speed failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Switch the hub control mode (Software / Motherboard / Firmware). Reads
+    /// Port-0 first to preserve turbo + fw-animation state.
+    /// </summary>
+    public bool SetControlMode(byte mode)
+    {
+        lock (_lock)
+        {
+            if (!EnsureConnected()) return false;
+            var t = _transport;
+            if (t is null) return false;
+            try
+            {
+                var port0 = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+                if (!ReadPort0(port0)) return false;
+                t.Write(QSeriesCoolerProtocol.BuildSetControl(
+                    mode, 0,
+                    QSeriesCoolerProtocol.TurboOnOf(port0) ? QSeriesCoolerProtocol.TurboOnByte : QSeriesCoolerProtocol.TurboOffByte,
+                    port0));
+                State.ControlMode = mode;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[qseries-cooler] set control mode failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Toggle turbo. Writes the control frame (preserving the current mode and
+    /// last-commanded pump duty) then persists the turbo flag to the MCU (FF CC 0A).
+    /// </summary>
+    public bool SetTurbo(bool on)
+    {
+        lock (_lock)
+        {
+            if (!EnsureConnected()) return false;
+            var t = _transport;
+            if (t is null) return false;
+            try
+            {
+                var port0 = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+                if (!ReadPort0(port0)) return false;
+                var mode = QSeriesCoolerProtocol.ControlModeOf(port0);
+                var wire = QSeriesCoolerProtocol.MapPumpDutyToWire(_lastPumpDuty, on);
+                var turboByte = on ? QSeriesCoolerProtocol.TurboOnByte : QSeriesCoolerProtocol.TurboOffByte;
+                t.Write(QSeriesCoolerProtocol.BuildSetControl(mode, wire, turboByte, port0));
+                t.Write(QSeriesCoolerProtocol.BuildSetTurboMcu(turboByte));
+                State.TurboOn = on;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[qseries-cooler] set turbo failed: {ex.GetType().Name}: {ex.Message}");
                 Disconnect();
                 return false;
             }

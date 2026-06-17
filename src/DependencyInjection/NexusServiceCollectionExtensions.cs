@@ -137,7 +137,9 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<MiniHubCoolingProvider>(),
             sp.GetRequiredService<PluginProviderRegistry>(),
             new CompositeFanControlProvider.FanSource(
-                SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
+                SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #elif MACOS
         services.AddSingleton<MacFanControlProvider>();
@@ -147,7 +149,9 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<MiniHubCoolingProvider>(),
             sp.GetRequiredService<PluginProviderRegistry>(),
             new CompositeFanControlProvider.FanSource(
-                SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
+                SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #elif LINUX
         // hwmon (motherboard + AMD GPU via amdgpu) + liquidctl USB coolers
@@ -163,6 +167,8 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
+                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
                 LinuxLiquidctlProvider.IsLiquidctlId, sp.GetRequiredService<LinuxLiquidctlProvider>()),
             new CompositeFanControlProvider.FanSource(
                 LinuxNvidiaFanProvider.IsNvidiaId, sp.GetRequiredService<LinuxNvidiaFanProvider>())));
@@ -174,12 +180,15 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<MiniHubCoolingProvider>(),
             sp.GetRequiredService<PluginProviderRegistry>(),
             new CompositeFanControlProvider.FanSource(
-                SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>())));
+                SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #endif
         services.AddSingleton<Np50CoolingProvider>();
         services.AddSingleton<MiniHubCoolingProvider>();
         services.AddSingleton<SmartHubCoolingProvider>();
+        services.AddSingleton<QSeriesCoolerCoolingProvider>();
         services.AddSingleton<ICurveProvider>(sp => sp.GetRequiredService<StubCoolingProvider>());
         services.AddSingleton<CurveEngine>();
         services.AddHostedService(sp => sp.GetRequiredService<CurveEngine>());

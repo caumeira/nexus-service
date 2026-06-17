@@ -24,6 +24,7 @@ public static partial class DevicesRoutes
         MapNp50Endpoints(app);
         MapSmartHubEndpoints(app);
         MapMiniHubEndpoints(app);
+        MapQSeriesCoolerEndpoints(app);
         MapFirmwareEndpoints(app);
     }
 

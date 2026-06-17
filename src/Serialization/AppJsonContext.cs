@@ -89,6 +89,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFwSettingRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFirmwareControlRequest))]
 
+// Q-series cooler device surface
+[JsonSerializable(typeof(Nexus.Service.Routes.QSeriesCoolerStateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.QSeriesControlModeRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.QSeriesTurboRequest))]
+
 // Fan control
 [JsonSerializable(typeof(FanChannel))]
 [JsonSerializable(typeof(List<FanChannel>))]
