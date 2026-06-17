@@ -87,6 +87,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFanResponse[]))]
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFwSettingResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFwSettingRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFirmwareControlRequest))]
 
 // Fan control
 [JsonSerializable(typeof(FanChannel))]
@@ -414,6 +415,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<Nexus.Service.Persistence.LedPositionOverride>))]
 [JsonSerializable(typeof(LedHighlightBody))]
 [JsonSerializable(typeof(LedTestPatternBody))]
+[JsonSerializable(typeof(LedPreviewLayoutBody))]
+[JsonSerializable(typeof(LedPreviewPosition))]
+[JsonSerializable(typeof(List<LedPreviewPosition>))]
 
 // Zones model - device structure, partition save bodies, device-scoped LED map.
 [JsonSerializable(typeof(DeviceStructureResponse))]

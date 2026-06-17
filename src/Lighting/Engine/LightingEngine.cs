@@ -114,10 +114,21 @@ public sealed class LightingEngine : IDisposable
         const float CW = 1000f, CH = 600f;
         foreach (var dev in devices)
         {
-            var ledCount = dev.LedCount;
+            // Preview LED count from the editor's unsaved draft; clamped to the
+            // physical buffer size because SetLed bounds-guards on LedCount.
+            var ledCount = dev.PreviewLedCount is { } pc
+                ? Math.Min(pc, dev.LedCount)
+                : dev.LedCount;
             if (ledCount <= 0)
             {
                 continue;
+            }
+
+            // LEDs above the preview count are not part of the draft; zero them
+            // so they don't show stale colour from a prior render.
+            for (int z = ledCount; z < dev.LedCount; z++)
+            {
+                dev.SetLed(z, 0, 0, 0);
             }
 
             var rectX = dev.X / CW * cw;
@@ -126,13 +137,49 @@ public sealed class LightingEngine : IDisposable
             var rectH = dev.H / CH * ch;
             var rot = ((dev.Rotation % 360) + 360) % 360;
 
-            // Keyboards and other matrix devices provide per-LED UVs so each key samples
-            // from its real 2D position inside the rectangle instead of being stretched
-            // along a single axis. Rotation is applied to the UV coordinates around the
-            // rectangle centre so reorienting the board keeps the mapping right.
-            var devLedU = dev.LedU;
-            var devLedV = dev.LedV;
-            var devLedDisabled = dev.LedDisabled;
+            // Preview layout: editor draft positions keyed by LED index.
+            // When present, build parallel U/V/Disabled arrays in index order
+            // so the same UV sampling path below works without branching.
+            var previewLayout = dev.PreviewLayout;
+            float[]? devLedU;
+            float[]? devLedV;
+            bool[]? devLedDisabled;
+            if (previewLayout is not null && previewLayout.Length > 0)
+            {
+                var pu = new float[ledCount];
+                var pv = new float[ledCount];
+                bool[]? pd = null;
+                foreach (var pos in previewLayout)
+                {
+                    var idx = pos.Index;
+                    if (idx < 0 || idx >= ledCount)
+                    {
+                        continue;
+                    }
+                    pu[idx] = pos.U;
+                    pv[idx] = pos.V;
+                    if (pos.Disabled)
+                    {
+                        pd ??= new bool[ledCount];
+                        pd[idx] = true;
+                    }
+                }
+                devLedU = pu;
+                devLedV = pv;
+                devLedDisabled = pd;
+            }
+            else
+            {
+                // Keyboards and other matrix devices provide per-LED UVs so each key
+                // samples from its real 2D position inside the rectangle instead of
+                // being stretched along a single axis. Rotation is applied to the UV
+                // coordinates around the rectangle centre so reorienting the board
+                // keeps the mapping right.
+                devLedU = dev.LedU;
+                devLedV = dev.LedV;
+                devLedDisabled = dev.LedDisabled;
+            }
+
             if (devLedU is not null && devLedV is not null
                 && devLedU.Length == ledCount && devLedV.Length == ledCount)
             {
@@ -217,10 +264,12 @@ public sealed class LightingEngine : IDisposable
     {
         foreach (var dev in devices)
         {
+            var previewCount = dev.PreviewLedCount is { } pc ? Math.Min(pc, dev.LedCount) : dev.LedCount;
+
             var highlights = dev.HighlightLeds;
             if (highlights is not null && highlights.Count > 0)
             {
-                for (int i = 0; i < dev.LedCount; i++)
+                for (int i = 0; i < previewCount; i++)
                 {
                     if (highlights.Contains(i))
                     {
@@ -235,28 +284,54 @@ public sealed class LightingEngine : IDisposable
             }
 
             var pattern = dev.TestPattern;
-            var ledU = dev.LedU;
-            var ledV = dev.LedV;
             if (pattern is not null)
             {
                 if (pattern == "none")
                 {
                     dev.Fill(0, 0, 0);
                 }
-                else if (ledU is not null && ledV is not null)
+                else
                 {
-                    var elapsed = dev.TestPatternStartMs > 0
-                        ? Environment.TickCount64 - dev.TestPatternStartMs
-                        : 0L;
-                    var phase = (float)(elapsed % 2000 / 2000.0);
-                    for (int i = 0; i < dev.LedCount && i < ledU.Length && i < ledV.Length; i++)
+                    // Prefer preview layout UVs when present; fall back to saved LedU/LedV.
+                    float[]? ledU = null;
+                    float[]? ledV = null;
+                    var previewLayout = dev.PreviewLayout;
+                    if (previewLayout is not null && previewLayout.Length > 0)
                     {
-                        var u = ledU[i];
-                        var v = ledV[i];
-                        float t = pattern == "horizontal" ? u : v;
-                        var band = 1f - Math.Min(1f, Math.Abs(t - phase) * 5f);
-                        dev.SetLed(i,
-                            (byte)(band * 255), (byte)(band * 255), (byte)(band * 255));
+                        var pu = new float[previewCount];
+                        var pv = new float[previewCount];
+                        foreach (var pos in previewLayout)
+                        {
+                            if (pos.Index >= 0 && pos.Index < previewCount)
+                            {
+                                pu[pos.Index] = pos.U;
+                                pv[pos.Index] = pos.V;
+                            }
+                        }
+                        ledU = pu;
+                        ledV = pv;
+                    }
+                    else
+                    {
+                        ledU = dev.LedU;
+                        ledV = dev.LedV;
+                    }
+
+                    if (ledU is not null && ledV is not null)
+                    {
+                        var elapsed = dev.TestPatternStartMs > 0
+                            ? Environment.TickCount64 - dev.TestPatternStartMs
+                            : 0L;
+                        var phase = (float)(elapsed % 2000 / 2000.0);
+                        for (int i = 0; i < previewCount && i < ledU.Length && i < ledV.Length; i++)
+                        {
+                            var u = ledU[i];
+                            var v = ledV[i];
+                            float t = pattern == "horizontal" ? u : v;
+                            var band = 1f - Math.Min(1f, Math.Abs(t - phase) * 5f);
+                            dev.SetLed(i,
+                                (byte)(band * 255), (byte)(band * 255), (byte)(band * 255));
+                        }
                     }
                 }
             }
