@@ -70,6 +70,7 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
             },
         };
         if (_hub.State.HasPump2)
+        {
             result.Add(new FanChannel
             {
                 Id = PumpId(serial, "pump2"),
@@ -82,6 +83,7 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
                 DeviceName = deviceName,
                 PortLabel = "Pump 2",
             });
+        }
         return result;
     }
 
@@ -110,7 +112,11 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
 
     public void ReleaseAll()
     {
-        lock (_ctrlLock) _pumpSoftware = false;
+        bool wasSoftware;
+        lock (_ctrlLock) { wasSoftware = _pumpSoftware; _pumpSoftware = false; }
+        // Hand the pump back to the motherboard, matching ReleaseFan and the
+        // other hub providers — ReleaseAll runs on profile switch + shutdown.
+        if (wasSoftware) _hub.SetControlMode(QSeriesCoolerProtocol.ControlModeMotherboard);
     }
 
     public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(
