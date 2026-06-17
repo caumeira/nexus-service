@@ -222,23 +222,31 @@ public static class FanProfiles
     }
 
     /// <summary>
-    /// True when a preset curve's Type + Linear params still match
+    /// True when a preset curve's Type + Graph points still match
     /// <see cref="PresetDefaults"/>. Used by /cooling/curves so the SPA can
     /// gate the Reset-to-defaults button without having to mirror the default
-    /// values locally. Returns false for non-Linear preset curves or curves
+    /// values locally. Returns false for non-Graph preset curves or curves
     /// without a Preset flag.
     /// </summary>
     public static bool IsPresetCurveAtDefaults(CurveDocument c)
     {
         if (c.Preset is null) return false;
-        if (c.Type != "Linear" || c.Linear is null) return false;
+        if (c.Type != "Graph" || c.Graph is null) return false;
         var d = PresetDefaults.For(c.Preset);
-        // Float `==` is sound here: every PresetDefaults value (3.0, 1.5, 0.5,
-        // integers) is exactly representable in binary64, and the slider /
-        // JSON round-trip preserves the same canonical value with no drift.
-        return c.Linear.ResponseTime == d.ResponseTime
-            && c.Linear.MinTemp == d.MinTemp && c.Linear.MaxTemp == d.MaxTemp
-            && c.Linear.MinSpeed == d.MinSpeed && c.Linear.MaxSpeed == d.MaxSpeed;
+        // Float `==` is sound here: the default points are whole numbers and
+        // the drag / JSON round-trip preserves the same canonical values.
+        if (c.Graph.ResponseTime != d.ResponseTime) return false;
+        // Default presets carry no global scaling; a changed SpeedModifier
+        // (the engine multiplies every point by it) counts as an edit.
+        if (c.Graph.SpeedModifier != 1.0) return false;
+        var pts = DefaultPresetPoints(d);
+        if (c.Graph.Points.Count != pts.Count) return false;
+        for (int i = 0; i < pts.Count; i++)
+        {
+            if (c.Graph.Points[i].Temp != pts[i].Temp || c.Graph.Points[i].Speed != pts[i].Speed)
+                return false;
+        }
+        return true;
     }
 
     /// <summary>
@@ -262,7 +270,9 @@ public static class FanProfiles
             // write on the just-created path is harmless.
             var curve = EnsurePresetCurve(s.Cooling.Curves, canonical, inputSensor);
             curve.Name = DisplayName(canonical);
-            curve.Type = "Linear";
+            // Preset defaults are multi-point (Graph) curves; the Linear params
+            // stay populated as a fallback if the user switches the type.
+            curve.Type = "Graph";
             // Only overwrite the input binding when we actually have a sensor
             // to bind to — a transient LHM read during reset shouldn't strip
             // a perfectly valid existing input.
@@ -276,8 +286,13 @@ public static class FanProfiles
                 MinTemp = defaults.MinTemp, MaxTemp = defaults.MaxTemp,
                 MinSpeed = defaults.MinSpeed, MaxSpeed = defaults.MaxSpeed,
             };
+            curve.Graph = new GraphCurveData
+            {
+                ResponseTime = defaults.ResponseTime,
+                SpeedModifier = 1.0,
+                Points = DefaultPresetPoints(defaults),
+            };
             curve.Flat = null;
-            curve.Graph = null;
             curve.Mixed = null;
         });
     }
@@ -320,7 +335,7 @@ public static class FanProfiles
         {
             Id = id,
             Name = DisplayName(presetName),
-            Type = "Linear",
+            Type = "Graph",
             Preset = presetName,
             Input = inputSensor is null
                 ? new CurveInputDocument()
@@ -333,6 +348,12 @@ public static class FanProfiles
                 MaxTemp = defaults.MaxTemp,
                 MinSpeed = defaults.MinSpeed,
                 MaxSpeed = defaults.MaxSpeed,
+            },
+            Graph = new GraphCurveData
+            {
+                ResponseTime = defaults.ResponseTime,
+                SpeedModifier = 1.0,
+                Points = DefaultPresetPoints(defaults),
             },
         };
         curves.Add(doc);
@@ -366,6 +387,26 @@ public static class FanProfiles
         "turbo" => "Turbo",
         _ => presetName,
     };
+
+    /// <summary>
+    /// A preset's default multi-point curve: four points evenly spaced along
+    /// the preset's Linear ramp (min->max temp / speed), so the default shape
+    /// matches the historical linear behaviour while being a draggable curve.
+    /// </summary>
+    private static List<Persistence.GraphPoint> DefaultPresetPoints(PresetCurveDefaults d)
+    {
+        var pts = new List<Persistence.GraphPoint>(4);
+        for (int i = 0; i <= 3; i++)
+        {
+            double f = i / 3.0;
+            pts.Add(new Persistence.GraphPoint
+            {
+                Temp = System.Math.Round(d.MinTemp + f * (d.MaxTemp - d.MinTemp)),
+                Speed = System.Math.Round(d.MinSpeed + f * (d.MaxSpeed - d.MinSpeed)),
+            });
+        }
+        return pts;
+    }
 
     /// <summary>
     /// Default Linear curve parameters per preset. Preset curves are

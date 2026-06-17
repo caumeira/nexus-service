@@ -582,7 +582,7 @@ public class FanProfilesTests : IDisposable
     }
 
 [Fact]
-    public void ResetPresetCurve_RestoresLinearDefaults()
+    public void ResetPresetCurve_RestoresMultipointDefaults()
     {
         FanProfiles.Apply("silent", _fans, _store);
         // User edits the silent curve away from defaults and switches it to
@@ -600,8 +600,17 @@ public class FanProfilesTests : IDisposable
         var s = _store.Load();
         var preset = s.Cooling.Curves.First(c => c.Preset == "silent");
         var defaults = FanProfiles.PresetDefaults.For("silent");
-        Assert.Equal("Linear", preset.Type);
+        // Presets reset to a multi-point (Graph) curve whose end points sit on
+        // the preset's min/max ramp; the Linear params stay populated as a
+        // fallback for switching the type back.
+        Assert.Equal("Graph", preset.Type);
         Assert.Null(preset.Flat);
+        Assert.NotNull(preset.Graph);
+        Assert.Equal(4, preset.Graph!.Points.Count);
+        Assert.Equal(defaults.MinTemp, preset.Graph.Points[0].Temp);
+        Assert.Equal(defaults.MinSpeed, preset.Graph.Points[0].Speed);
+        Assert.Equal(defaults.MaxTemp, preset.Graph.Points[^1].Temp);
+        Assert.Equal(defaults.MaxSpeed, preset.Graph.Points[^1].Speed);
         Assert.Equal(defaults.MinTemp, preset.Linear!.MinTemp);
         Assert.Equal(defaults.MaxTemp, preset.Linear.MaxTemp);
         Assert.Equal(defaults.MinSpeed, preset.Linear.MinSpeed);
