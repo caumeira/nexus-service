@@ -213,6 +213,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton(sp => new Nexus.Service.Lighting.Engine.Gpu.GpuContext(
             160, 90, sp.GetService<Nexus.Service.Persistence.IConfigStore>()));
         services.AddSingleton<ILightingProvider, LightingProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.GameSyncGameScanner>();
         services.AddSingleton<IObsProvider, ObsProvider>();
         services.AddSingleton<ISteamProvider, SteamProvider>();
         services.AddSingleton<IDiscordProvider, DiscordProvider>();

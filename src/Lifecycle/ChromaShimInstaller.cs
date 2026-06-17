@@ -1,0 +1,434 @@
+using System.IO;
+using System.Runtime.InteropServices;
+#if WINDOWS
+using System;
+using System.Diagnostics;
+using System.Runtime.Versioning;
+using System.Security.Principal;
+#endif
+
+using Nexus.Service.Platform;
+
+namespace Nexus.Service.Lifecycle;
+
+/// <summary>Result of a single-file deploy decision.</summary>
+public enum ChromaShimFileDecision
+{
+    /// <summary>File is absent; copy from bundle.</summary>
+    Copy,
+    /// <summary>File is our shim at the same content; no-op.</summary>
+    Skip,
+    /// <summary>File has changed content; overwrite.</summary>
+    Overwrite,
+    /// <summary>File belongs to a real Razer install; do not touch.</summary>
+    Conflict,
+}
+
+public enum ChromaShimInstallResult
+{
+    Installed,
+    AlreadyCurrent,
+    SynapseConflict,
+    NotElevated,
+    BundleMissing,
+    Failed,
+    NotApplicable,
+}
+
+/// <summary>Snapshot of shim-install state exposed on the /lighting/game-sync/state endpoint.</summary>
+public sealed class ChromaShimState
+{
+    /// <summary>Both Chroma shim pairs are present in System32/SysWOW64 and are ours.</summary>
+    public bool ProviderInstalled { get; init; }
+
+    /// <summary>A real Razer Chroma SDK DLL was found; our shim was not installed.</summary>
+    public bool SynapseConflict { get; init; }
+}
+
+/// <summary>
+/// Installs or removes the Nexus Chroma shim DLLs that intercept the Razer
+/// Chroma SDK surface and forward frames to the Game Sync endpoint.
+///
+/// The shim DLLs are produced by the nexus-gamesync component (build.bat /
+/// build32.bat) and staged into Bundled/win-x64/chroma/x64/ and x86/ before
+/// the service publish. Four files total:
+///   x64: RzChromaSDK64.dll, RzChromatic64.dll  -> System32
+///   x86: RzChromaSDK.dll,   RzChromatic.dll    -> SysWOW64
+///
+/// The service runs as LocalSystem (or elevated during dev), so it can write
+/// to both directories directly. On non-elevated dev runs the install is
+/// skipped and logged.
+///
+/// Razer-conflict check: before writing, we read the FileDescription of any
+/// existing DLL. Our shims carry FileDescription "Nexus Chroma Shim". A DLL
+/// with any other non-empty FileDescription (e.g. "Razer Chroma SDK") is not
+/// ours and must not be overwritten.
+/// </summary>
+public static class ChromaShimInstaller
+{
+    // FileDescription embedded in our shim DLLs by the nexus-gamesync build.
+    internal const string OurFileDescription = "Nexus Chroma Shim";
+
+    // Source paths inside the publish output directory.
+    private static string BundleX64Dir => Path.Combine(AppContext.BaseDirectory, "chroma", "x64");
+    private static string BundleX86Dir => Path.Combine(AppContext.BaseDirectory, "chroma", "x86");
+
+    // x64 pair -> System32
+    internal static readonly string[] X64Names = { "RzChromaSDK64.dll", "RzChromatic64.dll" };
+
+    // x86 pair -> SysWOW64
+    internal static readonly string[] X86Names = { "RzChromaSDK.dll", "RzChromatic.dll" };
+
+    /// <summary>
+    /// Ensures both shim pairs are current in System32 and SysWOW64.
+    /// Idempotent: skips files that are already our shim at the same content.
+    /// Skips entirely (with a conflict log) when a real Razer DLL is present.
+    /// </summary>
+    public static ChromaShimInstallResult EnsureInstalled()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return ChromaShimInstallResult.NotApplicable;
+        }
+
+#if WINDOWS
+        return DoEnsureInstalled();
+#else
+        return ChromaShimInstallResult.NotApplicable;
+#endif
+    }
+
+    /// <summary>
+    /// Removes shim DLLs from System32/SysWOW64 only when they carry our marker.
+    /// Real Razer DLLs are never touched.
+    /// </summary>
+    // TODO: wire this into the service uninstaller (NSIS/WiX uninstall action).
+    // No production caller exists yet; shims installed by EnsureInstalled will
+    // persist on the system after uninstall until this is called.
+    public static void RemoveIfOurs()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return;
+        }
+
+#if WINDOWS
+        DoRemoveIfOurs();
+#endif
+    }
+
+    /// <summary>Reads the current install state without modifying the filesystem.</summary>
+    public static ChromaShimState GetState()
+    {
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return new ChromaShimState();
+        }
+
+#if WINDOWS
+        return DoGetState();
+#else
+        return new ChromaShimState();
+#endif
+    }
+
+    /// <summary>
+    /// Pure deploy decision for a single target file given pre-read metadata.
+    /// Extracted for unit testing; the caller resolves the actual file bytes
+    /// and description rather than reading from disk.
+    /// </summary>
+    internal static ChromaShimFileDecision DecideFile(
+        bool destExists,
+        string destFileDescription,
+        bool contentMatches)
+    {
+        if (!destExists)
+        {
+            return ChromaShimFileDecision.Copy;
+        }
+
+        // Non-empty description that is not ours: real Razer DLL.
+        if (!string.IsNullOrEmpty(destFileDescription) &&
+            !string.Equals(destFileDescription, OurFileDescription, StringComparison.OrdinalIgnoreCase))
+        {
+            return ChromaShimFileDecision.Conflict;
+        }
+
+        // Our shim (or unsigned/no description). Skip if content is already the same.
+        return contentMatches ? ChromaShimFileDecision.Skip : ChromaShimFileDecision.Overwrite;
+    }
+
+#if WINDOWS
+    [SupportedOSPlatform("windows")]
+    private static ChromaShimInstallResult DoEnsureInstalled()
+    {
+        if (!IsElevated())
+        {
+            ServiceLog.Warn("[chroma-shim] not elevated; skipping shim install (dev run)");
+            return ChromaShimInstallResult.NotElevated;
+        }
+
+        if (!Directory.Exists(BundleX64Dir) || !Directory.Exists(BundleX86Dir))
+        {
+            ServiceLog.Error("[chroma-shim] bundled shim directory missing");
+            return ChromaShimInstallResult.BundleMissing;
+        }
+
+        var system32 = Environment.SystemDirectory;
+        // On a 64-bit process SystemX86 is SysWOW64 (the 32-bit system dir).
+        var sysWow64 = Environment.GetFolderPath(Environment.SpecialFolder.SystemX86);
+
+        if (!Directory.Exists(system32) || !Directory.Exists(sysWow64))
+        {
+            ServiceLog.Error("[chroma-shim] System32/SysWOW64 directories not found");
+            return ChromaShimInstallResult.Failed;
+        }
+
+        if (HasConflictInDir(system32, X64Names) || HasConflictInDir(sysWow64, X86Names))
+        {
+            ServiceLog.Warn("[chroma-shim] real Razer Chroma SDK DLL detected; skipping install to avoid conflict");
+            return ChromaShimInstallResult.SynapseConflict;
+        }
+
+        bool anyUpdated = false;
+        if (!CopyPair(BundleX64Dir, X64Names, system32, ref anyUpdated))
+        {
+            return ChromaShimInstallResult.Failed;
+        }
+        if (!CopyPair(BundleX86Dir, X86Names, sysWow64, ref anyUpdated))
+        {
+            return ChromaShimInstallResult.Failed;
+        }
+
+        return anyUpdated ? ChromaShimInstallResult.Installed : ChromaShimInstallResult.AlreadyCurrent;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool CopyPair(string srcDir, string[] names, string destDir, ref bool anyUpdated)
+    {
+        foreach (var name in names)
+        {
+            var src = Path.Combine(srcDir, name);
+            if (!File.Exists(src))
+            {
+                ServiceLog.Error($"[chroma-shim] bundled DLL not found: {src}");
+                return false;
+            }
+
+            var dest = Path.Combine(destDir, name);
+            bool destExists = File.Exists(dest);
+            string destDesc = destExists ? ReadFileDescription(dest) : "";
+            bool contentMatches = destExists && FileBytesEqual(src, dest);
+
+            var decision = DecideFile(destExists, destDesc, contentMatches);
+            switch (decision)
+            {
+                case ChromaShimFileDecision.Skip:
+                    ServiceLog.Info($"[chroma-shim] already current: {name}");
+                    continue;
+                case ChromaShimFileDecision.Conflict:
+                    // Per-pair conflict scan already ran before this loop;
+                    // this path is not normally reached.
+                    ServiceLog.Warn($"[chroma-shim] conflict on {name}; aborting pair");
+                    return false;
+                case ChromaShimFileDecision.Copy:
+                case ChromaShimFileDecision.Overwrite:
+                    try
+                    {
+                        File.Copy(src, dest, overwrite: true);
+                        ServiceLog.Info($"[chroma-shim] installed {name} -> {destDir}");
+                        anyUpdated = true;
+                    }
+                    catch (Exception ex)
+                    {
+                        ServiceLog.Error($"[chroma-shim] failed to copy {name}: {ex.Message}");
+                        return false;
+                    }
+                    break;
+            }
+        }
+        return true;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void DoRemoveIfOurs()
+    {
+        if (!IsElevated())
+        {
+            ServiceLog.Warn("[chroma-shim] not elevated; cannot remove shims");
+            return;
+        }
+
+        var system32 = Environment.SystemDirectory;
+        var sysWow64 = Environment.GetFolderPath(Environment.SpecialFolder.SystemX86);
+
+        RemovePairIfOurs(system32, X64Names);
+        RemovePairIfOurs(sysWow64, X86Names);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void RemovePairIfOurs(string dir, string[] names)
+    {
+        foreach (var name in names)
+        {
+            var path = Path.Combine(dir, name);
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+            var desc = ReadFileDescription(path);
+            if (!string.Equals(desc, OurFileDescription, StringComparison.OrdinalIgnoreCase))
+            {
+                ServiceLog.Warn($"[chroma-shim] skipping removal of {name}: not our shim");
+                continue;
+            }
+            try
+            {
+                File.Delete(path);
+                ServiceLog.Info($"[chroma-shim] removed {path}");
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Error($"[chroma-shim] failed to remove {name}: {ex.Message}");
+            }
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static ChromaShimState DoGetState()
+    {
+        var system32 = Environment.SystemDirectory;
+        var sysWow64 = Environment.GetFolderPath(Environment.SpecialFolder.SystemX86);
+
+        if (HasConflictInDir(system32, X64Names) || HasConflictInDir(sysWow64, X86Names))
+        {
+            return new ChromaShimState { SynapseConflict = true };
+        }
+
+        bool allInstalled =
+            AllOurShims(system32, X64Names) &&
+            AllOurShims(sysWow64, X86Names);
+
+        return new ChromaShimState { ProviderInstalled = allInstalled };
+    }
+
+    // True when any named DLL in dir has a non-empty FileDescription that is not ours.
+    [SupportedOSPlatform("windows")]
+    private static bool HasConflictInDir(string dir, string[] names)
+    {
+        foreach (var name in names)
+        {
+            var path = Path.Combine(dir, name);
+            if (!File.Exists(path))
+            {
+                continue;
+            }
+            var desc = ReadFileDescription(path);
+            if (desc.Length > 0 &&
+                !string.Equals(desc, OurFileDescription, StringComparison.OrdinalIgnoreCase))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool AllOurShims(string dir, string[] names)
+    {
+        foreach (var name in names)
+        {
+            var path = Path.Combine(dir, name);
+            if (!File.Exists(path))
+            {
+                return false;
+            }
+            var desc = ReadFileDescription(path);
+            if (!string.Equals(desc, OurFileDescription, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static string ReadFileDescription(string path)
+    {
+        try
+        {
+            return FileVersionInfo.GetVersionInfo(path).FileDescription ?? "";
+        }
+        catch
+        {
+            return "";
+        }
+    }
+
+    private static bool FileBytesEqual(string a, string b)
+    {
+        var infoA = new FileInfo(a);
+        var infoB = new FileInfo(b);
+        if (infoA.Length != infoB.Length)
+        {
+            return false;
+        }
+
+        const int BufSize = 65536;
+        using var fa = File.OpenRead(a);
+        using var fb = File.OpenRead(b);
+        var bufA = new byte[BufSize];
+        var bufB = new byte[BufSize];
+        while (true)
+        {
+            int na = ReadFull(fa, bufA);
+            int nb = ReadFull(fb, bufB);
+            if (na != nb)
+            {
+                return false;
+            }
+            if (na == 0)
+            {
+                return true;
+            }
+            for (int i = 0; i < na; i++)
+            {
+                if (bufA[i] != bufB[i])
+                {
+                    return false;
+                }
+            }
+        }
+    }
+
+    private static int ReadFull(Stream s, byte[] buf)
+    {
+        int total = 0;
+        while (total < buf.Length)
+        {
+            int n = s.Read(buf, total, buf.Length - total);
+            if (n == 0)
+            {
+                break;
+            }
+            total += n;
+        }
+        return total;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool IsElevated()
+    {
+        try
+        {
+            using var identity = WindowsIdentity.GetCurrent();
+            var principal = new WindowsPrincipal(identity);
+            return principal.IsInRole(WindowsBuiltInRole.Administrator);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+#endif
+}

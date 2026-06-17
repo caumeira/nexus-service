@@ -1,6 +1,7 @@
 using System;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Lighting.Engine.Effects;
 
 namespace Nexus.Service.Lighting.Engine;
 
@@ -77,7 +78,15 @@ public sealed class LightingEngine : IDisposable
                 }
 
                 try
-                { effect.RenderFrame(_canvas, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()); SampleDevicesFromCanvas(); SerializeAndBroadcast(); }
+                {
+                    effect.RenderFrame(_canvas, DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+                    SampleDevicesFromCanvas();
+                    if (effect is GameSyncEffect gs)
+                    {
+                        gs.WriteToDevices(_devices);
+                    }
+                    SerializeAndBroadcast();
+                }
                 catch (Exception ex) { Console.Error.WriteLine($"[lighting-engine] {effect.Name} threw: {ex.Message}"); }
 
                 var nextPeriodMs = Math.Max(1, FrameIntervalMs);

@@ -8,7 +8,7 @@ This is the engine of [Nexus](https://hellonexus.com). The other repos are clien
 
 - **Sensors / monitoring** - CPU, GPU, RAM, network, disk, fan, temp, FPS, battery (laptop), media sessions. LibreHardwareMonitor on Windows, IOKit on macOS, sysfs/hwmon on Linux.
 - **Cooling** - fan curves, pump speed, AIO control. Per-device drivers under `Cooling/` + `QSeries/`.
-- **Lighting** - RGB control via a bundled [headless OpenRGB child process](https://github.com/hello-nexus/openrgb-headless), plus first-party HYTE peripheral protocols. Effects engine, screen sync, audio sync, anime mode.
+- **Lighting** - RGB control via a bundled [headless OpenRGB child process](https://github.com/hello-nexus/openrgb-headless), plus first-party HYTE peripheral protocols. Effects engine, screen sync, audio sync, anime mode, game sync (mirror a game's Razer Chroma lighting onto your own hardware via a bundled capture shim).
 - **Peripherals** - DPI / polling / battery / sleep for supported mice and keyboards (`Peripherals/`).
 - **Panel runtimes** - pair + serve the React panel UIs for the HYTE Y70/Y80 secondary touch panel, mobile companion (`/panel/phone`), and Q-Series on-device screens.
 - **Apps / widgets** - host for the `nexus.app/1` SDK apps shipped in [`nexus-apps`](https://github.com/hello-nexus/nexus-apps), with sensor bindings and a sandboxed Web Worker runtime. Legacy `nexus.widget/2` manifests still load.
@@ -79,7 +79,7 @@ docs/
   network-transport.md# REST + WebSocket inventory + cadence
   ws-topic-rbac.md    # who may subscribe to which WS topics
 Bundled/
-  win-x64/            # openrgb (built, not committed), ffmpeg, pawnio, dfu-util + dfu-driver
+  win-x64/            # openrgb (built, not committed), ffmpeg, pawnio, dfu-util + dfu-driver, chroma (game-sync shim from nexus-gamesync, built, not committed)
   osx-arm64/          # openrgb (built, not committed), ffmpeg
   linux-x64/          # openrgb (built, not committed)
   macos/  linux/      # tray/status icons, helpers, app icons

@@ -812,6 +812,7 @@ public sealed class RgbBridge : IDisposable
             && existing.PhysicalIndex == physicalIndex && existing.ZoneIndex == zoneIndex
             && existing.ZoneOffset == zoneOffset && existing.Index == logicalOrdinal)
         {
+            existing.Archetype = ArchetypeForDevice(physicalDevice);
             framesList.Add(existing);
             return;
         }
@@ -858,8 +859,18 @@ public sealed class RgbBridge : IDisposable
                 physicalDevice, zoneIndex, id, settings, ctx);
         }
         Nexus.Service.Lighting.Mappings.LedLayoutResolver.ApplyToFrame(frame, resolved);
+        frame.Archetype = ArchetypeForDevice(physicalDevice);
         framesList.Add(frame);
     }
+
+    private static string? ArchetypeForDevice(RgbDevice d) => OpenRgbZoneSupport.OpenRgbTypeName(d.Type) switch
+    {
+        "keyboard" => "keyboard",
+        "mouse" => "mouse",
+        "mousemat" => "mousepad",
+        "headset" => "headset",
+        _ => null
+    };
 
     private static (Nexus.Service.Lighting.Zones.DeviceStructure Structure, Nexus.Service.Lighting.Zones.ResolvedZone Zone)? FindContributorZone(
         List<(Nexus.Service.Lighting.Zones.DeviceStructure structure, IReadOnlyList<Nexus.Service.Lighting.Zones.ResolvedZone> zones)>? contributorZones,

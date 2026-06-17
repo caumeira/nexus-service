@@ -385,6 +385,7 @@ app.MapTelemetryEndpoints();
 app.MapCoolingEndpoints();
 app.MapBenchmarkEndpoints();
 app.MapLightingEndpoints();
+app.MapGameSyncEndpoints();
 app.MapWebcamEndpoints();
 app.MapObsEndpoints();
 app.MapSteamEndpoints();
