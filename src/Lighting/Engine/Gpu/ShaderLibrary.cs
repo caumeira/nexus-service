@@ -83,6 +83,9 @@ internal static class ShaderLibrary
     public static string CrystalTunnel => Get("crystaltunnel");
     public static string RibbonFlow => Get("ribbonflow");
 
+    /// <summary>Internal shader for the Screen Mirror Reactive sub-mode. Not user-selectable.</summary>
+    internal static string ReactiveGlow => Get("reactiveglow");
+
     /// <summary>Every registered effect key. Most match a .frag filename; the
     /// "simple*" keys all alias the shared simple.frag (see Get above).</summary>
     public static IReadOnlyList<string> AllEffectKeys { get; } = new[]

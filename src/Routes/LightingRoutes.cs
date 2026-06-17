@@ -167,7 +167,7 @@ public static class LightingRoutes
             store.Load().Lighting.ScreenEffect).AllowPanel();
         app.MapPost("/lighting/screen/effect", (Nexus.Service.Models.Lighting.PostProcessBody body, ILightingProvider l, MultiplexHub hub) =>
         {
-            l.UpdateScreenEffect(body.Hue, body.Colorize, body.Saturation, body.Contrast, body.FlipX, body.FlipY, body.Persist);
+            l.UpdateScreenEffect(body.Hue, body.Colorize, body.Saturation, body.Contrast, body.FlipX, body.FlipY, body.Persist, body.Reactive, body.Reactivity, body.Intensity);
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();

@@ -201,6 +201,10 @@ public sealed class PostProcessSettings
     public bool FlipX { get; set; }
     /// <summary>Mirror the frame vertically before applying the colour post-process.</summary>
     public bool FlipY { get; set; }
+    /// <summary>When true, the Reactive sub-mode replaces the standard post-process with a GPU-rendered glow driven by per-band colours extracted from the source frame.</summary>
+    public bool Reactive { get; set; }
+    public float Reactivity { get; set; } = InstallDefaults.Lighting.PostProcess.Reactivity;
+    public float Intensity { get; set; } = InstallDefaults.Lighting.PostProcess.Intensity;
 }
 
 public sealed class StaticColorSettings
