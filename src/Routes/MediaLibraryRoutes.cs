@@ -3,6 +3,7 @@ using Nexus.Service.Auth;
 using Nexus.Service.Lighting;
 using Nexus.Service.Media;
 using Nexus.Service.Models.Media;
+using Nexus.Service.Sockets;
 
 namespace Nexus.Service.Routes;
 
@@ -55,6 +56,122 @@ public static class MediaLibraryRoutes
                 catch { }
             }
         }).DisableAntiforgery();
+
+        app.MapPost("/media/stage", async (HttpContext ctx, MediaLibrary lib) =>
+        {
+            if (!ctx.Request.HasFormContentType)
+            {
+                return Results.BadRequest(new MediaStageResponse { Error = true, Msg = "Expected multipart/form-data" });
+            }
+
+            var form = await ctx.Request.ReadFormAsync();
+            var file = form.Files.FirstOrDefault();
+            if (file is null || file.Length == 0)
+            {
+                return Results.BadRequest(new MediaStageResponse { Error = true, Msg = "No file provided" });
+            }
+
+            if (file.Length > MediaImporter.MaxFileSize)
+            {
+                return Results.BadRequest(new MediaStageResponse
+                {
+                    Error = true,
+                    Msg = $"File too large (max {MediaImporter.MaxFileSize / 1024 / 1024} MB)",
+                });
+            }
+
+            var tempPath = Path.Combine(
+                Path.GetTempPath(),
+                $"nexus-media-stage-{Guid.NewGuid()}{Path.GetExtension(file.FileName)}");
+            try
+            {
+                using (var stream = File.Create(tempPath))
+                {
+                    await file.CopyToAsync(stream);
+                }
+
+                var result = await MediaImporter.StageAsync(lib, tempPath, file.FileName);
+                if (!result.Ok)
+                {
+                    return Results.BadRequest(new MediaStageResponse { Error = true, Msg = result.Error ?? "Stage failed" });
+                }
+
+                return Results.Ok(new MediaStageResponse { StageId = result.StageId });
+            }
+            finally
+            {
+                // Only reached if StageAsync didn't move the file (error path).
+                try { File.Delete(tempPath); }
+                catch { }
+            }
+        }).AllowPanel().DisableAntiforgery();
+
+        app.MapGet("/media/stage/{stageId}/preview", (string stageId, MediaLibrary lib) =>
+        {
+            if (!MediaLibrary.IsValidId(stageId))
+            {
+                return Results.BadRequest("invalid stage id");
+            }
+
+            var previewPath = lib.GetStagePreviewPath(stageId);
+            if (!File.Exists(previewPath))
+            {
+                return Results.NotFound();
+            }
+
+            return Results.File(previewPath, "image/jpeg");
+        }).AllowPanel();
+
+        app.MapPost("/media/commit", async (HttpContext ctx, MediaLibrary lib) =>
+        {
+            if (!ctx.Request.HasFormContentType)
+            {
+                return Results.BadRequest(new MediaImportResponse { Error = true, Msg = "Expected multipart/form-data" });
+            }
+
+            var form = await ctx.Request.ReadFormAsync();
+
+            var stageId = form["stageId"].ToString();
+            if (string.IsNullOrEmpty(stageId))
+            {
+                return Results.BadRequest(new MediaImportResponse { Error = true, Msg = "stageId is required" });
+            }
+
+            if (!MediaLibrary.IsValidId(stageId))
+            {
+                return Results.BadRequest(new MediaImportResponse { Error = true, Msg = "invalid stage id" });
+            }
+
+            var cropStr = form["crop"].ToString();
+            if (string.IsNullOrEmpty(cropStr))
+            {
+                return Results.BadRequest(new MediaImportResponse { Error = true, Msg = "crop is required (x,y,w,h)" });
+            }
+
+            if (lib.FindStagedRaw(stageId) is null)
+            {
+                return Results.NotFound(new MediaImportResponse { Error = true, Msg = "Stage not found or expired" });
+            }
+
+            var result = await MediaImporter.CommitAsync(lib, stageId, cropStr, form["name"].ToString());
+            if (!result.Ok)
+            {
+                return Results.BadRequest(new MediaImportResponse { Error = true, Msg = result.Error ?? "Commit failed" });
+            }
+
+            return Results.Ok(new MediaImportResponse { Item = result.Item });
+        }).AllowPanel().DisableAntiforgery();
+
+        app.MapDelete("/media/stage/{stageId}", (string stageId, MediaLibrary lib) =>
+        {
+            if (!MediaLibrary.IsValidId(stageId))
+            {
+                return Results.BadRequest(new MediaPlayResponse { Error = true, Msg = "invalid stage id" });
+            }
+
+            lib.DeleteStage(stageId);
+            return Results.Ok(new MediaPlayResponse());
+        }).AllowPanel();
 
         app.MapDelete("/media/{id}", (string id, MediaLibrary lib) =>
         {
@@ -118,12 +235,19 @@ public static class MediaLibraryRoutes
             return Results.File(thumbPath, "image/jpeg");
         }).AllowPanel();
 
-        app.MapPost("/media/{id}/play", (string id, ILightingProvider lighting) =>
+        app.MapPost("/media/{id}/play", (string id, ILightingProvider lighting, MultiplexHub hub) =>
         {
             if (!MediaLibrary.IsValidId(id))
+            {
                 return Results.BadRequest(new MediaPlayResponse { Error = true, Msg = "invalid media id" });
+            }
 
             var ok = lighting.StartMedia(id);
+            if (ok)
+            {
+                PanelTopics.BroadcastLighting(hub);
+            }
+
             return ok
                 ? Results.Ok(new MediaPlayResponse())
                 : Results.NotFound();

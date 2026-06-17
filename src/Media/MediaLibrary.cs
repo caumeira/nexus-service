@@ -21,6 +21,7 @@ public sealed class MediaLibrary
     private const string MetaFileName = "meta.json";
     private const string ThumbFileName = "thumb.jpg";
     private const string FramesFileName = "frames.bin";
+    private const string StagingDirName = ".staging";
 
     private readonly string _rootDir;
 
@@ -126,6 +127,77 @@ public sealed class MediaLibrary
     public string GetItemDir(string id) => Path.Combine(_rootDir, RequireValidId(id));
     public string GetThumbPath(string id) => Path.Combine(_rootDir, RequireValidId(id), ThumbFileName);
     public string GetFramesBinPath(string id) => Path.Combine(_rootDir, RequireValidId(id), FramesFileName);
+
+    public string GetStagingDir() => Path.Combine(_rootDir, StagingDirName);
+
+    public string GetStagePreviewPath(string stageId) =>
+        Path.Combine(GetStagingDir(), stageId + ".preview.jpg");
+
+    /// <summary>
+    /// Finds the raw staged file for stageId (any extension except .preview.jpg).
+    /// Returns null if not found.
+    /// </summary>
+    public string? FindStagedRaw(string stageId)
+    {
+        var stagingDir = GetStagingDir();
+        if (!Directory.Exists(stagingDir))
+        {
+            return null;
+        }
+
+        foreach (var file in Directory.GetFiles(stagingDir, stageId + ".*"))
+        {
+            if (!file.EndsWith(".preview.jpg", StringComparison.OrdinalIgnoreCase))
+            {
+                return file;
+            }
+        }
+
+        return null;
+    }
+
+    /// <summary>
+    /// Deletes both the raw upload and preview for stageId.
+    /// </summary>
+    public void DeleteStage(string stageId)
+    {
+        var stagingDir = GetStagingDir();
+        if (!Directory.Exists(stagingDir))
+        {
+            return;
+        }
+
+        foreach (var file in Directory.GetFiles(stagingDir, stageId + ".*"))
+        {
+            try { File.Delete(file); }
+            catch { }
+        }
+    }
+
+    /// <summary>
+    /// Removes staging files older than maxAgeMinutes (abandoned stages).
+    /// </summary>
+    public void SweepStaging(int maxAgeMinutes)
+    {
+        var stagingDir = GetStagingDir();
+        if (!Directory.Exists(stagingDir))
+        {
+            return;
+        }
+
+        var cutoff = DateTime.UtcNow.AddMinutes(-maxAgeMinutes);
+        foreach (var file in Directory.GetFiles(stagingDir))
+        {
+            try
+            {
+                if (File.GetLastWriteTimeUtc(file) < cutoff)
+                {
+                    File.Delete(file);
+                }
+            }
+            catch { }
+        }
+    }
 
     public void SaveMeta(MediaItem item)
     {
