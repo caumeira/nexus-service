@@ -71,13 +71,17 @@ internal sealed class AutoRestoreOnStart : BackgroundService
 
     private bool RestoreCooling()
     {
+        // Blank install: create Silent/Balanced/Turbo so all three are present
+        // the first time the cooling page loads. No-op once any curve exists.
+        var seeded = FanProfiles.SeedDefaultPresetCurves(_fans, _store);
+
         var current = _store.Load().Cooling.ActivePreset ?? "";
         // If the user picked a different preset in the dashboard during the
         // 4s init window, respect their choice.
         if (!string.Equals(current, _coolingPresetAtBoot, StringComparison.OrdinalIgnoreCase))
         {
             Console.WriteLine($"[auto-restore] cooling preset changed since boot ({_coolingPresetAtBoot} -> {current}), leaving as-is");
-            return false;
+            return seeded;
         }
         // "custom" needs no re-apply (the curves already carry their fan
         // assignments). "off" was already idle; skipping avoids stomping on
@@ -88,7 +92,7 @@ internal sealed class AutoRestoreOnStart : BackgroundService
             Console.WriteLine($"[auto-restore] cooling preset re-applied: {current}");
             return true;
         }
-        return false;
+        return seeded;
     }
 
     private bool RestoreLighting()

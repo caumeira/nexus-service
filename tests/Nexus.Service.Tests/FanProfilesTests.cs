@@ -606,7 +606,7 @@ public class FanProfilesTests : IDisposable
         Assert.Equal("Graph", preset.Type);
         Assert.Null(preset.Flat);
         Assert.NotNull(preset.Graph);
-        Assert.Equal(4, preset.Graph!.Points.Count);
+        Assert.Equal(5, preset.Graph!.Points.Count);
         Assert.Equal(defaults.MinTemp, preset.Graph.Points[0].Temp);
         Assert.Equal(defaults.MinSpeed, preset.Graph.Points[0].Speed);
         Assert.Equal(defaults.MaxTemp, preset.Graph.Points[^1].Temp);
@@ -644,6 +644,74 @@ public class FanProfilesTests : IDisposable
         var s = _store.Load();
         Assert.Equal("silent", s.Cooling.ActivePreset);
         Assert.Equal(11, s.Cooling.Curves.First(c => c.Preset == "silent").Linear!.MinTemp);
+    }
+
+    [Fact]
+    public void SeedDefaultPresetCurves_OnEmptyProfile_CreatesAllThreeAtDefaults()
+    {
+        var seeded = FanProfiles.SeedDefaultPresetCurves(_fans, _store);
+
+        Assert.True(seeded);
+        var s = _store.Load();
+        Assert.Equal(3, s.Cooling.Curves.Count);
+        foreach (var name in new[] { "silent", "balanced", "turbo" })
+        {
+            var c = Assert.Single(s.Cooling.Curves, c => c.Preset == name);
+            Assert.Equal($"preset-{name}", c.Id);
+            Assert.Equal("Graph", c.Type);
+            // Not attached to any fan until the preset is activated.
+            Assert.Empty(c.Outputs);
+            // Bound to the preferred CPU sensor exposed by the fake provider.
+            Assert.Equal("cpu-package", c.Input.Id);
+            Assert.True(FanProfiles.IsPresetCurveAtDefaults(c));
+        }
+    }
+
+    [Fact]
+    public void SeedDefaultPresetCurves_NoOpWhenCurvesExist()
+    {
+        _store.Update(s => s.Cooling.Curves.Add(new CurveDocument { Id = "user-a", Type = "Linear" }));
+
+        var seeded = FanProfiles.SeedDefaultPresetCurves(_fans, _store);
+
+        Assert.False(seeded);
+        var s = _store.Load();
+        Assert.Single(s.Cooling.Curves);
+        Assert.DoesNotContain(s.Cooling.Curves, c => c.Preset != null);
+    }
+
+    [Fact]
+    public void SeedDefaultPresetCurves_DoesNotResurrectAfterUserClearsAllCurves()
+    {
+        Assert.True(FanProfiles.SeedDefaultPresetCurves(_fans, _store));
+        // User empties every curve (e.g. an empty /cooling/curves/set), then a
+        // later restart re-runs the seed: it must stay empty, not re-create.
+        _store.Update(s => s.Cooling.Curves.Clear());
+
+        var seededAgain = FanProfiles.SeedDefaultPresetCurves(_fans, _store);
+
+        Assert.False(seededAgain);
+        Assert.Empty(_store.Load().Cooling.Curves);
+    }
+
+    [Fact]
+    public void DefaultPresetPoints_EaseGentlerAtBothEnds()
+    {
+        FanProfiles.Apply("silent", _fans, _store);
+        FanProfiles.ResetPresetCurve("silent", _fans, _store);
+
+        var pts = _store.Load().Cooling.Curves.First(c => c.Preset == "silent").Graph!.Points;
+        Assert.Equal(5, pts.Count);
+        double Slope(int i) => (pts[i + 1].Speed - pts[i].Speed) / (pts[i + 1].Temp - pts[i].Temp);
+        var steepest = Enumerable.Range(0, pts.Count - 1).Max(Slope);
+        Assert.True(Slope(0) < steepest);
+        Assert.True(Slope(pts.Count - 2) < steepest);
+        // Endpoints still anchor the preset's temp/speed band.
+        var d = FanProfiles.PresetDefaults.For("silent");
+        Assert.Equal(d.MinTemp, pts[0].Temp);
+        Assert.Equal(d.MinSpeed, pts[0].Speed);
+        Assert.Equal(d.MaxTemp, pts[^1].Temp);
+        Assert.Equal(d.MaxSpeed, pts[^1].Speed);
     }
 
     private sealed class FakeFanProvider : IFanControlProvider

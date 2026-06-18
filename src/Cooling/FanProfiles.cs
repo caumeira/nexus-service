@@ -222,6 +222,37 @@ public static class FanProfiles
     }
 
     /// <summary>
+    /// Seed the Silent / Balanced / Turbo preset curves on first run so all
+    /// three exist the first time the cooling page is opened on a fresh install.
+    /// Runs at most once per profile (tracked by
+    /// <see cref="CoolingSettings.CurvesSeeded"/>) and only adds curves when the
+    /// profile is empty, so neither an existing install nor a user who later
+    /// deletes every curve gets the presets resurrected. Fan outputs are
+    /// attached separately by <see cref="Apply"/> for the active preset only.
+    /// Returns true when curves were seeded.
+    /// </summary>
+    public static bool SeedDefaultPresetCurves(IFanControlProvider fans, IConfigStore store)
+    {
+        if (store.Load().Cooling.CurvesSeeded) return false;
+        var inputSensor = PreferredInput(fans.GetTemperatureSources());
+        var seeded = false;
+        store.Update(s =>
+        {
+            if (s.Cooling.CurvesSeeded) return;
+            // Mark first-run seeding done unconditionally: an upgraded install
+            // that already has curves must not be re-checked on later boots.
+            s.Cooling.CurvesSeeded = true;
+            if (s.Cooling.Curves.Count > 0) return;
+            foreach (var name in new[] { "silent", "balanced", "turbo" })
+            {
+                s.Cooling.Curves.Add(BuildPresetCurve(name, inputSensor));
+            }
+            seeded = true;
+        });
+        return seeded;
+    }
+
+    /// <summary>
     /// True when a preset curve's Type + Graph points still match
     /// <see cref="PresetDefaults"/>. Used by /cooling/curves so the SPA can
     /// gate the Reset-to-defaults button without having to mirror the default
@@ -321,8 +352,7 @@ public static class FanProfiles
 
     private static CurveDocument EnsurePresetCurve(List<CurveDocument> curves, string presetName, TemperatureSource? inputSensor)
     {
-        var id = $"preset-{presetName}";
-        var existing = curves.FirstOrDefault(c => c.Id == id);
+        var existing = curves.FirstOrDefault(c => c.Id == $"preset-{presetName}");
         if (existing is not null)
         {
             // Make sure the Preset flag is set; tolerate older settings written
@@ -330,10 +360,22 @@ public static class FanProfiles
             if (existing.Preset != presetName) existing.Preset = presetName;
             return existing;
         }
+        var doc = BuildPresetCurve(presetName, inputSensor);
+        curves.Add(doc);
+        return doc;
+    }
+
+    /// <summary>
+    /// A fresh preset curve at its <see cref="PresetDefaults"/> template, with
+    /// no fan outputs attached. Used both to create a preset lazily on first
+    /// activation and to seed all three on a blank install.
+    /// </summary>
+    private static CurveDocument BuildPresetCurve(string presetName, TemperatureSource? inputSensor)
+    {
         var defaults = PresetDefaults.For(presetName);
-        var doc = new CurveDocument
+        return new CurveDocument
         {
-            Id = id,
+            Id = $"preset-{presetName}",
             Name = DisplayName(presetName),
             Type = "Graph",
             Preset = presetName,
@@ -356,8 +398,6 @@ public static class FanProfiles
                 Points = DefaultPresetPoints(defaults),
             },
         };
-        curves.Add(doc);
-        return doc;
     }
 
     private static TemperatureSource? PreferredInput(IReadOnlyList<TemperatureSource> temps)
@@ -388,21 +428,26 @@ public static class FanProfiles
         _ => presetName,
     };
 
+    private const int DefaultPresetPointCount = 5;
+
     /// <summary>
-    /// A preset's default multi-point curve: four points evenly spaced along
-    /// the preset's Linear ramp (min->max temp / speed), so the default shape
-    /// matches the historical linear behaviour while being a draggable curve.
+    /// A preset's default multi-point curve: temps spaced evenly across the
+    /// preset's band, with speed eased by smootherstep so the first and last
+    /// segments ramp gently and the mid-band climbs steeper. Endpoints stay on
+    /// the band's corners. Whole-number rounding keeps
+    /// <see cref="IsPresetCurveAtDefaults"/>'s exact comparison valid.
     /// </summary>
     private static List<Persistence.GraphPoint> DefaultPresetPoints(PresetCurveDefaults d)
     {
-        var pts = new List<Persistence.GraphPoint>(4);
-        for (int i = 0; i <= 3; i++)
+        var pts = new List<Persistence.GraphPoint>(DefaultPresetPointCount);
+        for (int i = 0; i < DefaultPresetPointCount; i++)
         {
-            double f = i / 3.0;
+            double f = i / (double)(DefaultPresetPointCount - 1);
+            double eased = f * f * f * (f * (f * 6 - 15) + 10);
             pts.Add(new Persistence.GraphPoint
             {
                 Temp = System.Math.Round(d.MinTemp + f * (d.MaxTemp - d.MinTemp)),
-                Speed = System.Math.Round(d.MinSpeed + f * (d.MaxSpeed - d.MinSpeed)),
+                Speed = System.Math.Round(d.MinSpeed + eased * (d.MaxSpeed - d.MinSpeed)),
             });
         }
         return pts;

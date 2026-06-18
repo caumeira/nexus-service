@@ -320,6 +320,10 @@ public sealed class CoolingSettings
 {
     public double GlobalSpeedModifier { get; set; } = InstallDefaults.Cooling.GlobalSpeedModifier;
     public List<CurveDocument> Curves { get; set; } = new();
+    /// <summary>True once first-run preset seeding has run. Distinguishes a
+    /// fresh install (seed Silent/Balanced/Turbo) from a profile the user has
+    /// since emptied (leave it empty - do not resurrect the presets).</summary>
+    public bool CurvesSeeded { get; set; }
     public MiniHubLayout MiniHubLayout { get; set; } = new();
     /// <summary>User-defined fan names keyed by channel ID. Only valid while the hardware mapping is unchanged.</summary>
     public Dictionary<string, string> FanNames { get; set; } = new();
