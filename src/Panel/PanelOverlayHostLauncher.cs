@@ -148,6 +148,17 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             _process = proc;
             if (proc is not null)
             {
+                // A Stop() can land mid-spawn - the cross-session schtasks dance
+                // takes 1-3s, and Stop() set _stopRequested but had no process to
+                // kill yet. Honor it now so a shutdown that raced the spawn does
+                // not leave an orphaned host running past service exit.
+                if (_stopRequested)
+                {
+                    try { if (!proc.HasExited) proc.Kill(entireProcessTree: true); } catch { /* gone */ }
+                    try { proc.Dispose(); } catch { }
+                    _process = null;
+                    return;
+                }
                 WritePidFile(proc.Id);
                 proc.EnableRaisingEvents = true;
                 proc.Exited += OnExited;
@@ -203,6 +214,11 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
             }
             try { proc.Dispose(); } catch { }
         }
+        // The in-memory handle is null after a crash-respawn cycle or when a
+        // prior service instance spawned the live host, so also kill whatever
+        // PID we last tracked - shutdown must reliably reap nexus-overlay.exe,
+        // not just the host this instance happens to hold a Process for.
+        KillTrackedHost();
         try { DeletePidFile(); } catch { }
     }
 
@@ -213,25 +229,32 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
     /// </summary>
     public static void CleanupOrphans()
     {
+        KillTrackedHost();
+        try { DeletePidFile(); } catch { }
+    }
+
+    /// <summary>
+    /// Kill the nexus-overlay.exe recorded in the PID file if it is still
+    /// alive. The ProcessName guard rejects a recycled PID. Shared by the
+    /// startup orphan sweep and shutdown; the PID file is deleted by the
+    /// callers, not here.
+    /// </summary>
+    private static void KillTrackedHost()
+    {
         try
         {
             if (!File.Exists(PidFilePath)) return;
             var text = File.ReadAllText(PidFilePath).Trim();
-            if (!int.TryParse(text, out var pid)) { DeletePidFile(); return; }
-            try
+            if (!int.TryParse(text, out var pid)) return;
+            var proc = Process.GetProcessById(pid);
+            if (proc.ProcessName.Contains("nexus-overlay", StringComparison.OrdinalIgnoreCase))
             {
-                var proc = Process.GetProcessById(pid);
-                if (proc.ProcessName.Contains("nexus-overlay", StringComparison.OrdinalIgnoreCase))
-                {
-                    proc.Kill(entireProcessTree: true);
-                    Console.WriteLine($"[overlay-host] killed orphan (pid {pid})");
-                }
-                proc.Dispose();
+                proc.Kill(entireProcessTree: true);
+                Console.WriteLine($"[overlay-host] killed tracked host (pid {pid})");
             }
-            catch { }
-            DeletePidFile();
+            proc.Dispose();
         }
-        catch { }
+        catch { /* no pid file / already gone / recycled pid */ }
     }
 
     // -----------------------------------------------------------------------

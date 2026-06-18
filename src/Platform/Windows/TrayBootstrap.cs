@@ -290,13 +290,21 @@ internal static class TrayBootstrap
             }
         });
 
-        // Kill panel kiosk webview on any shutdown (Ctrl+C, Task Manager,
-        // Stop-Process, etc.) and flush in-memory settings + active profile
-        // to disk so recent mutations survive a graceful stop.
+        // Kill panel kiosk webview AND the overlay host (nexus-overlay.exe) on
+        // any shutdown (Ctrl+C, Task Manager, Stop-Process, the tray "Shut
+        // down", /service/stop, etc.) and flush in-memory settings + active
+        // profile to disk so recent mutations survive a graceful stop. Without
+        // the overlay Stop() the host - spawned cross-session via schtasks, so
+        // the KILL_ON_JOB_CLOSE job never holds it - outlives the service: the
+        // service stops and the tray goes, but nexus-overlay.exe (and any
+        // dashboard/widget window) lingers. The interactive tray's onExit kills
+        // it directly; service mode (the shipped path) only runs this handler.
         app.Lifetime.ApplicationStopping.Register(() =>
         {
             var launcher = app.Services.GetRequiredService<PanelKioskLauncher>();
             launcher.Close();
+            try { app.Services.GetRequiredService<PanelOverlayHostLauncher>().Stop(); }
+            catch { /* best-effort */ }
             try { app.Services.GetRequiredService<IConfigStore>().FlushNow(); }
             catch { /* best-effort */ }
             try { app.Services.GetRequiredService<ProfileManager>().SaveActiveProfile(); }
