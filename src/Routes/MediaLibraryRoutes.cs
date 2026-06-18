@@ -15,7 +15,7 @@ public static class MediaLibraryRoutes
         app.MapGet("/media/library", (MediaLibrary lib) =>
             new MediaLibraryResponse { Items = lib.ListItems() }).AllowPanel();
 
-        app.MapPost("/media/import", async (HttpContext ctx, MediaLibrary lib) =>
+        app.MapPost("/media/import", async (HttpContext ctx, MediaLibrary lib, MultiplexHub hub) =>
         {
             if (!ctx.Request.HasFormContentType)
             {
@@ -48,6 +48,7 @@ public static class MediaLibraryRoutes
                     return Results.BadRequest(new MediaImportResponse { Error = true, Msg = result.Error ?? "Import failed" });
                 }
 
+                PanelTopics.BroadcastMediaLibrary(hub);
                 return Results.Ok(new MediaImportResponse { Item = result.Item });
             }
             finally
@@ -123,7 +124,7 @@ public static class MediaLibraryRoutes
             return Results.File(previewPath, "image/jpeg");
         }).AllowPanel();
 
-        app.MapPost("/media/commit", async (HttpContext ctx, MediaLibrary lib) =>
+        app.MapPost("/media/commit", async (HttpContext ctx, MediaLibrary lib, MultiplexHub hub) =>
         {
             if (!ctx.Request.HasFormContentType)
             {
@@ -160,6 +161,7 @@ public static class MediaLibraryRoutes
                 return Results.BadRequest(new MediaImportResponse { Error = true, Msg = result.Error ?? "Commit failed" });
             }
 
+            PanelTopics.BroadcastMediaLibrary(hub);
             return Results.Ok(new MediaImportResponse { Item = result.Item });
         }).AllowPanel().DisableAntiforgery();
 
@@ -174,12 +176,17 @@ public static class MediaLibraryRoutes
             return Results.Ok(new MediaPlayResponse());
         }).AllowPanel();
 
-        app.MapDelete("/media/{id}", (string id, MediaLibrary lib) =>
+        app.MapDelete("/media/{id}", (string id, MediaLibrary lib, MultiplexHub hub) =>
         {
             if (!MediaLibrary.IsValidId(id))
                 return Results.BadRequest(new MediaPlayResponse { Error = true, Msg = "invalid media id" });
 
             var deleted = lib.DeleteItem(id);
+            if (deleted)
+            {
+                PanelTopics.BroadcastMediaLibrary(hub);
+            }
+
             return deleted
                 ? Results.Ok(new MediaPlayResponse())
                 : Results.NotFound();

@@ -280,6 +280,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryPickResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryExcludeBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.GalleryChangedFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.MediaLibraryChangedFrame))]
 
 // Lighting
 [JsonSerializable(typeof(AudioStateSnapshot))]
