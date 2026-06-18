@@ -8,38 +8,46 @@ using Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 namespace Nexus.Service.Cooling;
 
 /// <summary>
-/// Bridges the HYTE Q-series (Q60 / Q80) AIO pump into the cooling subsystem.
-/// The primary pump head is a controllable <see cref="FanChannel"/>
-/// (<see cref="FanKinds.Pump"/>): Manual drives it under software control via
-/// <see cref="QSeriesCoolerHub.SetPumpSpeed"/>, BIOS hands it back to the
-/// motherboard. A Q80 second pump is surfaced read-only (telemetry only).
+/// Bridges the HYTE Q-series (Q60 / Q80) AIO into the cooling subsystem. The pump
+/// head and the radiator fans are both controllable <see cref="FanChannel"/>s:
+/// Manual / Curve drive them under software control, BIOS hands them to the
+/// motherboard, FW Control runs the onboard firmware curve.
 ///
-/// Channel ids: <c>qseries:&lt;serial&gt;:pump</c> / <c>:pump2</c>. The hub
-/// control mode is hub-wide, so only the primary pump carries the duty control.
+/// The cooler has a SINGLE hub-wide control mode shared by the pump and fans, so
+/// the mode (software / motherboard / firmware) is shared while each channel keeps
+/// its own duty. <see cref="QSeriesCoolerHub.DesiredControlMode"/> is the pinned
+/// mode the engine must not override: while it is a non-software mode, duty writes
+/// are swallowed so the engine doesn't flip a user-chosen BIOS/FW mode back to
+/// software. Mirrors <see cref="Np50CoolingProvider"/>. A Q80 second pump is
+/// surfaced read-only. Channel ids: <c>qseries:&lt;serial&gt;:pump</c> / <c>:pump2</c> / <c>:fans</c>.
 /// </summary>
 public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICoolingProvider
 {
     private const string IdPrefix = "qseries:";
     private const string PumpSuffix = ":pump";
+    private const string FanSuffix = ":fans";
 
     private readonly QSeriesCoolerHub _hub;
 
-    // The pump is under software control once the user drives it; cleared on
-    // BIOS/release. Tracked here because the hub has no per-channel mode flag to
-    // query back — same reason as SmartHub/MiniHub. _pumpDuty is the last
-    // commanded duty so GetFanChannels can report it back to the card.
+    // Channels under active software control (Manual/Curve). The pump and fans
+    // share the hub's one mode, so the hub stays in software while any channel is
+    // driven and reverts to motherboard once all are released. _pumpDuty/_fanDuty
+    // are the last commanded duties so GetFanChannels can report them back.
     private readonly object _ctrlLock = new();
-    private bool _pumpSoftware;
+    private readonly HashSet<string> _softwareControlled = new(StringComparer.Ordinal);
     private int _pumpDuty = 50;
+    private int _fanDuty = 50;
 
     public QSeriesCoolerCoolingProvider(QSeriesCoolerHub hub) => _hub = hub;
 
     public static bool IsQSeriesId(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith(IdPrefix, StringComparison.Ordinal);
 
-    // Only the primary pump carries a duty control; pump2 is read-only telemetry.
+    // ":pump" excludes ":pump2" (EndsWith); ":fans" is the radiator-fan channel.
     private static bool IsPumpControlId(string id) =>
         IsQSeriesId(id) && id.EndsWith(PumpSuffix, StringComparison.Ordinal);
+    private static bool IsFanControlId(string id) =>
+        IsQSeriesId(id) && id.EndsWith(FanSuffix, StringComparison.Ordinal);
 
     // ── IFanControlProvider ──
 
@@ -48,22 +56,30 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
         var serial = _hub.State.Serial;
         if (!_hub.IsConnected || string.IsNullOrEmpty(serial)) return Array.Empty<FanChannel>();
 
-        bool sw; int duty;
-        lock (_ctrlLock) { sw = _pumpSoftware; duty = _pumpDuty; }
+        var pumpId = PumpId(serial, "pump");
+        var fanId = PumpId(serial, "fans");
+        bool pumpSw, fanSw; int pumpDuty, fanDuty;
+        lock (_ctrlLock)
+        {
+            pumpSw = _softwareControlled.Contains(pumpId);
+            fanSw = _softwareControlled.Contains(fanId);
+            pumpDuty = _pumpDuty;
+            fanDuty = _fanDuty;
+        }
 
         var deviceId = _hub.DeviceId;
         var deviceName = _hub.ProductName;
-        var result = new List<FanChannel>(2)
+        var result = new List<FanChannel>(3)
         {
             new FanChannel
             {
-                Id = PumpId(serial, "pump"),
+                Id = pumpId,
                 Name = "Pump",
                 Kind = FanKinds.Pump,
                 ReadOnly = false,
                 Rpm = _hub.State.PumpRpm,
-                DutyPercent = sw ? duty : 0,
-                Mode = sw ? FanModes.Manual : FanModes.Auto,
+                DutyPercent = pumpSw ? pumpDuty : 0,
+                Mode = pumpSw ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
                 DeviceName = deviceName,
                 PortLabel = "Pump",
@@ -84,6 +100,22 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
                 PortLabel = "Pump 2",
             });
         }
+        if (_hub.State.HasFan)
+        {
+            result.Add(new FanChannel
+            {
+                Id = fanId,
+                Name = "Fans",
+                Kind = FanKinds.Fan,
+                ReadOnly = false,
+                Rpm = _hub.State.FanRpm,
+                DutyPercent = fanSw ? fanDuty : 0,
+                Mode = fanSw ? FanModes.Manual : FanModes.Auto,
+                DeviceId = deviceId,
+                DeviceName = deviceName,
+                PortLabel = "Radiator fans",
+            });
+        }
         return result;
     }
 
@@ -94,29 +126,36 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
     public int SetFanSpeed(string channelId, int dutyPercent)
     {
         var clamped = Math.Clamp(dutyPercent, 0, 100);
-        if (!IsPumpControlId(channelId)) return clamped;
-        lock (_ctrlLock) { _pumpSoftware = true; _pumpDuty = clamped; }
-        _hub.SetPumpSpeed(clamped);
+        ApplyChannelWrite(channelId, clamped);
         return clamped;
     }
 
-    public void DriveFanSpeed(string channelId, int dutyPercent) => SetFanSpeed(channelId, dutyPercent);
+    public void DriveFanSpeed(string channelId, int dutyPercent) =>
+        ApplyChannelWrite(channelId, Math.Clamp(dutyPercent, 0, 100));
 
     public void ReleaseFan(string channelId)
     {
-        if (!IsPumpControlId(channelId)) return;
-        bool wasSoftware;
-        lock (_ctrlLock) { wasSoftware = _pumpSoftware; _pumpSoftware = false; }
-        if (wasSoftware) _hub.SetControlMode(QSeriesCoolerProtocol.ControlModeMotherboard);
+        if (!IsPumpControlId(channelId) && !IsFanControlId(channelId)) return;
+        bool empty;
+        lock (_ctrlLock)
+        {
+            _softwareControlled.Remove(channelId);
+            empty = _softwareControlled.Count == 0;
+        }
+        // Hub mode is shared: only hand back to the motherboard once BOTH the pump
+        // and fans are released, so releasing one doesn't yank PWM from the other.
+        if (empty) _hub.SetControlMode(QSeriesCoolerProtocol.ControlModeMotherboard);
     }
 
     public void ReleaseAll()
     {
-        bool wasSoftware;
-        lock (_ctrlLock) { wasSoftware = _pumpSoftware; _pumpSoftware = false; }
-        // Hand the pump back to the motherboard, matching ReleaseFan and the
-        // other hub providers — ReleaseAll runs on profile switch + shutdown.
-        if (wasSoftware) _hub.SetControlMode(QSeriesCoolerProtocol.ControlModeMotherboard);
+        bool any;
+        lock (_ctrlLock)
+        {
+            any = _softwareControlled.Count > 0;
+            _softwareControlled.Clear();
+        }
+        if (any) _hub.SetControlMode(QSeriesCoolerProtocol.ControlModeMotherboard);
     }
 
     public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(
@@ -130,12 +169,14 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
         var serial = _hub.State.Serial;
         if (!_hub.IsConnected || string.IsNullOrEmpty(serial)) return Array.Empty<CoolingComponent>();
 
-        var devices = new List<CoolingDevice>(2)
+        var devices = new List<CoolingDevice>(3)
         {
             new CoolingDevice { Id = PumpId(serial, "pump"), Name = "Pump", Type = "Pump", Rpm = _hub.State.PumpRpm },
         };
         if (_hub.State.HasPump2)
             devices.Add(new CoolingDevice { Id = PumpId(serial, "pump2"), Name = "Pump 2", Type = "Pump", Rpm = _hub.State.Pump2Rpm });
+        if (_hub.State.HasFan)
+            devices.Add(new CoolingDevice { Id = PumpId(serial, "fans"), Name = "Fans", Type = "Fan", Rpm = _hub.State.FanRpm });
 
         return new[]
         {
@@ -150,6 +191,35 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
     }
 
     // ── Internals ──
+
+    private void ApplyChannelWrite(string channelId, int duty)
+    {
+        var isPump = IsPumpControlId(channelId);
+        var isFan = IsFanControlId(channelId);
+        if (!isPump && !isFan) return;
+        if (!_hub.IsConnected) return;
+
+        // User pinned a non-software mode (BIOS = motherboard, FW Control =
+        // firmware): swallow the duty write so the engine's next tick doesn't
+        // flip the shared pump+fan hub back to software. Drop the channel from
+        // the software-control set so GetFanChannels reports its pinned state.
+        if (_hub.DesiredControlMode is byte pinned && pinned != QSeriesCoolerProtocol.ControlModeSoftware)
+        {
+            lock (_ctrlLock) _softwareControlled.Remove(channelId);
+            return;
+        }
+
+        lock (_ctrlLock)
+        {
+            _softwareControlled.Add(channelId);
+            if (isPump) _pumpDuty = duty; else _fanDuty = duty;
+        }
+        // Driving implies software control; latch it so a sibling channel's write
+        // (or this one's next tick) isn't swallowed.
+        _hub.MarkDesiredControlMode(QSeriesCoolerProtocol.ControlModeSoftware);
+        if (isPump) _hub.SetPumpSpeed(duty);
+        else _hub.SetFanSpeed(duty);
+    }
 
     private static string PumpId(string serial, string suffix) => $"{IdPrefix}{serial}:{suffix}";
 }

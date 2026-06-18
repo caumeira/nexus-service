@@ -27,6 +27,12 @@ public sealed class QSeriesCoolerState
     /// <summary>True once a Q80 second pump has reported a non-zero RPM.</summary>
     public bool HasPump2 { get; set; }
 
+    /// <summary>Representative radiator-fan RPM (Type-M channel). 0 until first poll / when no fan.</summary>
+    public int FanRpm { get; set; }
+
+    /// <summary>True once an FT12 fan unit is reported on the Type-M channel.</summary>
+    public bool HasFan { get; set; }
+
     /// <summary>Hub control mode byte from the last Port-0 poll (Software/Motherboard/Firmware/Mix).</summary>
     public byte ControlMode { get; set; } = QSeriesCoolerProtocol.ControlModeMotherboard;
 

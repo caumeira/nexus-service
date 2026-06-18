@@ -88,6 +88,22 @@ public static class QSeriesCoolerProtocol
     /// <summary>Length of the Q80 second-pump response (tach in bytes [3..4]).</summary>
     public const int Pump2ResponseLength = 7;
 
+    /// <summary>Type-M channel carrying the radiator fans (GetInfo channel byte).</summary>
+    public const byte FanChannel = 0x02;
+
+    /// <summary>
+    /// Length of the per-channel device-info response (FF CC 01 &lt;channel&gt;):
+    /// FF CC echo then up to 19 device blocks of 12 bytes each.
+    /// </summary>
+    public const int ChannelInfoResponseLength = 240;
+    private const int ChannelDeviceStride = 12;
+
+    // Device-category codes in the channel-info block (byte [3] of device 0).
+    // Maps HYTE SmartDeviceMethods.ByteToSmartComponent.
+    private const byte CompFt12 = 0x03;      // 1 fan
+    private const byte CompFt12Duo = 0x04;   // 2 fans (Q60 radiator default)
+    private const byte CompFt12Trio = 0x05;  // 3 fans
+
     // ── Lighting wire constants ──
     //
     // Mirrors the legacy PQSeriesDeviceBase.SendToHardware flow: enable software
@@ -126,6 +142,9 @@ public static class QSeriesCoolerProtocol
 
     /// <summary>Build the Q80 second-pump info request (3 bytes).</summary>
     public static byte[] BuildGetPump2Info() => new byte[] { Frame0, OpCooler, SubGetPump2 };
+
+    /// <summary>Build the per-channel device-info request (FF CC 01 &lt;channel&gt;). Channel 2 carries the radiator fans.</summary>
+    public static byte[] BuildGetChannelInfo(byte channel) => new byte[] { Frame0, OpCooler, SubGetInfo, channel };
 
     /// <summary>
     /// Build the "Set RGB Control Mode" request (4 bytes). <see cref="RgbModeSoftware"/> gives
@@ -234,6 +253,43 @@ public static class QSeriesCoolerProtocol
         return true;
     }
 
+    /// <summary>
+    /// Decode a HYTE FT12 fan tach pair to RPM. The encoding differs per fan-unit
+    /// variant: solo divides by 4, duo additionally by 10, trio packs the value.
+    /// Matches SmartDeviceMethods.GetFanRPM.
+    /// </summary>
+    private static int DecodeFanRpm(byte high, byte low, byte component)
+    {
+        if (high == 0x00 && low == 0x00) return 0;
+        if (component == CompFt12Trio) return high % 10 * 1000 + low * 10;
+        var rpm = (int)(60 * 1000 / (high + (float)low / 100)) / 4;
+        return component == CompFt12Duo ? rpm / 10 : rpm;
+    }
+
+    /// <summary>
+    /// Parse the radiator-fan RPM from the per-channel device-info response
+    /// (FF CC 01 02). Device 0's 12-byte block (after the FF CC echo) carries the
+    /// FT12 fan unit: category at byte [3], fan tachs at [8..9] / [4..5] (and
+    /// [10..11] on a trio). Returns the representative (max) fan RPM;
+    /// <paramref name="present"/> is false when no fan unit is on the channel.
+    /// </summary>
+    public static bool TryParseFanRpm(ReadOnlySpan<byte> response, out int fanRpm, out bool present)
+    {
+        fanRpm = 0;
+        present = false;
+        if (response.Length < ChannelInfoResponseLength) return false;
+        if (response[0] != Frame0 || response[1] != OpCooler) return false;
+        var component = response[3];
+        if (component != CompFt12 && component != CompFt12Duo && component != CompFt12Trio)
+            return true; // valid reply, no fan unit on this channel
+        present = true;
+        var r1 = DecodeFanRpm(response[8], response[9], component);
+        var r2 = component != CompFt12 ? DecodeFanRpm(response[4], response[5], component) : 0;
+        var r3 = component == CompFt12Trio ? DecodeFanRpm(response[10], response[11], component) : 0;
+        fanRpm = Math.Max(r1, Math.Max(r2, r3));
+        return true;
+    }
+
     /// <summary>The hub control mode the last Port-0 poll reported (byte [12]).</summary>
     public static byte ControlModeOf(ReadOnlySpan<byte> port0) =>
         port0.Length >= Port0ResponseLength ? port0[12] : ControlModeMotherboard;
@@ -273,6 +329,49 @@ public static class QSeriesCoolerProtocol
 
     /// <summary>Build the turbo-persist MCU write (FF CC 0A &lt;turbo&gt;).</summary>
     public static byte[] BuildSetTurboMcu(byte turboByte) => new byte[] { Frame0, OpCooler, SubSetTurboMcu, turboByte };
+
+    /// <summary>
+    /// Fan duty ceiling (%) the firmware enforces when turbo is off. HYTE's client
+    /// caps fan duty off-turbo (reference uses 70); we use 65 to match the duty
+    /// shown by the cooling-card limit line and the turbo explainer (2000 RPM ≈ 65%).
+    /// </summary>
+    public const int FanTurboOffDutyCap = 65;
+
+    /// <summary>Clamp a fan duty to 0-100 and apply the off-turbo ceiling. Mirrors the pump's off-turbo cap.</summary>
+    public static int CapFanDutyForTurbo(int dutyPercent, bool turboOn)
+    {
+        var d = Math.Clamp(dutyPercent, 0, 100);
+        return turboOn ? d : Math.Min(d, FanTurboOffDutyCap);
+    }
+
+    /// <summary>Length of the per-channel fan-speed frame: FF CC 02 &lt;channel&gt; + 18 nine-byte device blocks (per the set-fan spec, 18*9+4).</summary>
+    public const int SetFanFrameLength = 4 + ChannelDeviceCount * FanDeviceBlock;
+    private const int ChannelDeviceCount = 18;
+    private const int FanDeviceBlock = 9;
+
+    /// <summary>
+    /// Build the per-channel fan-speed frame (FF CC 02 &lt;channel&gt;) per the set-fan
+    /// spec: 18 nine-byte device blocks after the 4-byte header. Each block is
+    /// [device index, 0x00, percentage%, RPM-mode (0), RPM_H, RPM_L, reserve×3].
+    /// Plain 0-100% duty in the percentage byte; no voltage map. The cooler must
+    /// already be in software mode for this to take effect.
+    /// </summary>
+    public static byte[] BuildSetFanSpeed(byte channel, int dutyPercent)
+    {
+        var duty = (byte)Math.Clamp(dutyPercent, 0, 100);
+        var cmd = new byte[SetFanFrameLength];
+        cmd[0] = Frame0;
+        cmd[1] = OpCooler;
+        cmd[2] = SubSetControl;
+        cmd[3] = channel;
+        for (var i = 0; i < ChannelDeviceCount; i++)
+        {
+            var b = 4 + i * FanDeviceBlock;
+            cmd[b + 0] = (byte)(i + 1); // 1-based device index
+            cmd[b + 2] = duty;          // percentage % (RPM mode left 0)
+        }
+        return cmd;
+    }
 
     /// <summary>
     /// Map a 0-100 pump duty to the firmware's voltage-percentage wire byte.
