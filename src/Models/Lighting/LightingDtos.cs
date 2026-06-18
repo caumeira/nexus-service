@@ -173,6 +173,8 @@ public sealed class GameSyncFrameBody
     public int Cols { get; set; }
     /// <summary>COLORREF values, row-major. Each entry is 0x00BBGGRR.</summary>
     public int[] Colors { get; set; } = System.Array.Empty<int>();
+    /// <summary>Source application title reported by the shim. Empty when the game calls Init() without InitSDK().</summary>
+    public string App { get; set; } = "";
 }
 
 /// <summary>One device entry in the Game Sync state response.</summary>
@@ -196,6 +198,12 @@ public sealed class GameSyncStateResponse
     public bool SynapseConflict { get; set; }
 
     public List<GameSyncDeviceInfo> Devices { get; set; } = new();
+
+    /// <summary>Unix epoch milliseconds of the most recently ingested Chroma frame. Null when no frame has been received this session.</summary>
+    public long? LastFrameAt { get; set; }
+
+    /// <summary>Source application title from the most recent shim frame that carried one. Null when unknown.</summary>
+    public string? ActiveApp { get; set; }
 }
 
 public sealed class DetectedGame

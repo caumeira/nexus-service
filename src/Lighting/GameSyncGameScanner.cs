@@ -45,6 +45,55 @@ public sealed class GameSyncGameScanner
         Task.Run(() => RunScan(ct), ct);
     }
 
+    // Store precedence for dedupe: lower value wins.
+    private static int StorePrecedence(string store) => store switch
+    {
+        "steam" => 0,
+        "epic" => 1,
+        _ => 2,
+    };
+
+    // Path.GetFullPath unifies separators and drive-letter case; falls back to
+    // Trim() when the path is malformed and GetFullPath throws.
+    private static string CanonicalDirKey(string dir)
+    {
+        try
+        {
+            return Path.GetFullPath(dir).TrimEnd('\\', '/');
+        }
+        catch
+        {
+            return dir.Trim();
+        }
+    }
+
+    // Collapse candidates sharing the same normalized installDir to one entry,
+    // keeping the one from the highest-precedence store (steam > epic > ubisoft).
+    internal static List<(string Name, string InstallDir, string Store)> DedupeByInstallDir(
+        List<(string Name, string InstallDir, string Store)> candidates)
+    {
+        var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
+        var result = new List<(string Name, string InstallDir, string Store)>(candidates.Count);
+        for (int i = 0; i < candidates.Count; i++)
+        {
+            var (name, dir, store) = candidates[i];
+            var key = CanonicalDirKey(dir);
+            if (seen.TryGetValue(key, out var existingIdx))
+            {
+                if (StorePrecedence(store) < StorePrecedence(result[existingIdx].Store))
+                {
+                    result[existingIdx] = (name, dir, store);
+                }
+            }
+            else
+            {
+                seen[key] = result.Count;
+                result.Add((name, dir, store));
+            }
+        }
+        return result;
+    }
+
     private void RunScan(CancellationToken ct)
     {
         _scanning = true;
@@ -54,6 +103,7 @@ public sealed class GameSyncGameScanner
             CollectSteamGames(candidates);
             CollectUbisoftGames(candidates);
             CollectEpicGames(candidates);
+            candidates = DedupeByInstallDir(candidates);
 
             var results = new List<DetectedGame>(candidates.Count);
             foreach (var (name, installDir, store) in candidates)

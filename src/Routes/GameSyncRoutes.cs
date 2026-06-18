@@ -45,7 +45,8 @@ public static class GameSyncRoutes
                     body.Effect ?? "",
                     body.Rows,
                     body.Cols,
-                    body.Colors ?? System.Array.Empty<int>());
+                    body.Colors ?? System.Array.Empty<int>(),
+                    body.App ?? "");
 
                 return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
             }).LocalhostOnly();
@@ -109,6 +110,7 @@ public static class GameSyncRoutes
                     });
                 }
 
+                var eff = l.ActiveGameSyncEffect();
                 return Results.Json(
                     new GameSyncStateResponse
                     {
@@ -116,6 +118,8 @@ public static class GameSyncRoutes
                         ProviderInstalled = shimState.ProviderInstalled,
                         SynapseConflict = shimState.SynapseConflict,
                         Devices = infos,
+                        LastFrameAt = eff?.LastFrameAtMs,
+                        ActiveApp = string.IsNullOrEmpty(eff?.ActiveApp) ? null : eff.ActiveApp,
                     },
                     AppJsonContext.Default.GameSyncStateResponse);
             }).AllowPanel();

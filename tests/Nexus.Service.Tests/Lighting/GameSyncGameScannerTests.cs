@@ -141,4 +141,89 @@ public class GameSyncGameScannerTests
             Directory.Delete(dir, true);
         }
     }
+
+    [Fact]
+    public void DedupeByInstallDir_SameDir_CollapsesToOne()
+    {
+        var dir = @"C:\Games\Cyberpunk2077";
+        var candidates = new List<(string, string, string)>
+        {
+            ("Cyberpunk 2077", dir, "epic"),
+            ("Cyberpunk 2077", dir, "steam"),
+        };
+
+        var result = GameSyncGameScanner.DedupeByInstallDir(candidates);
+
+        Assert.Single(result);
+        Assert.Equal("steam", result[0].Store);
+    }
+
+    [Fact]
+    public void DedupeByInstallDir_SameDirCaseInsensitive_CollapsesToOne()
+    {
+        var candidates = new List<(string, string, string)>
+        {
+            ("Dead Cells", @"C:\Games\DeadCells", "ubisoft"),
+            ("Dead Cells", @"C:\games\deadcells", "steam"),
+        };
+
+        var result = GameSyncGameScanner.DedupeByInstallDir(candidates);
+
+        Assert.Single(result);
+        Assert.Equal("steam", result[0].Store);
+    }
+
+    [Theory]
+    [InlineData("steam", "epic", "steam")]
+    [InlineData("steam", "ubisoft", "steam")]
+    [InlineData("epic", "ubisoft", "epic")]
+    [InlineData("epic", "steam", "steam")]
+    [InlineData("ubisoft", "steam", "steam")]
+    [InlineData("ubisoft", "epic", "epic")]
+    public void DedupeByInstallDir_StorePrecedence_HigherPrecedenceWins(
+        string storeA, string storeB, string expectedWinner)
+    {
+        var dir = @"C:\Games\SomeGame";
+        var candidates = new List<(string, string, string)>
+        {
+            ("Game", dir, storeA),
+            ("Game", dir, storeB),
+        };
+
+        var result = GameSyncGameScanner.DedupeByInstallDir(candidates);
+
+        Assert.Single(result);
+        Assert.Equal(expectedWinner, result[0].Store);
+    }
+
+    [Fact]
+    public void DedupeByInstallDir_DifferentDirs_BothKept()
+    {
+        var candidates = new List<(string, string, string)>
+        {
+            ("Game A", @"C:\Games\GameA", "steam"),
+            ("Game B", @"C:\Games\GameB", "epic"),
+        };
+
+        var result = GameSyncGameScanner.DedupeByInstallDir(candidates);
+
+        Assert.Equal(2, result.Count);
+    }
+
+    [Fact]
+    public void DedupeByInstallDir_SeparatorAndDriveLetterCaseDifference_CollapsesToOne()
+    {
+        // Steam registry SteamPath uses forward slashes + lowercase drive;
+        // libraryfolders.vdf paths use backslashes + uppercase drive after Path.Combine.
+        var candidates = new List<(string, string, string)>
+        {
+            ("Cyberpunk 2077", @"C:\Games\Cyberpunk2077", "epic"),
+            ("Cyberpunk 2077", "c:/Games/Cyberpunk2077", "steam"),
+        };
+
+        var result = GameSyncGameScanner.DedupeByInstallDir(candidates);
+
+        Assert.Single(result);
+        Assert.Equal("steam", result[0].Store);
+    }
 }

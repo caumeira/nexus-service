@@ -786,6 +786,9 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             _gameSyncEffect = new GameSyncEffect();
             _engine.SetEffect(_gameSyncEffect);
         }
+        // Clear per-session signal so a stale app name or last-seen time
+        // from a previous Game Sync session does not bleed into the new one.
+        _gameSyncEffect.Reset();
         _store.Update(s => s.Lighting.Sync = "gamesync");
 
         // Deploy shim DLLs into System32/SysWOW64. Idempotent and guarded by

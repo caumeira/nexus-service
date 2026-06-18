@@ -20,6 +20,9 @@ public sealed class GameSyncEffect : IEffect
 
     private readonly object _lock = new();
 
+    private DateTimeOffset? _lastFrameAtUtc;
+    private string? _activeApp;
+
     // Latest keyboard grid: R,G,B triples row-major. Null = no frame received.
     private byte[]? _keyboardRgb;
     private int _keyboardRows;
@@ -37,9 +40,37 @@ public sealed class GameSyncEffect : IEffect
     private byte _fallbackR, _fallbackG, _fallbackB;
     private bool _hasFrame;
 
+    /// <summary>Unix epoch milliseconds of the last ingested frame. Null when no frame has been received this session.</summary>
+    public long? LastFrameAtMs
+    {
+        get
+        {
+            lock (_lock) { return _lastFrameAtUtc?.ToUnixTimeMilliseconds(); }
+        }
+    }
+
+    /// <summary>Source application title from the most recent frame that carried one. Null when unknown.</summary>
+    public string? ActiveApp
+    {
+        get
+        {
+            lock (_lock) { return _activeApp; }
+        }
+    }
+
+    /// <summary>Clears per-session state. Called when Game Sync is (re)started.</summary>
+    public void Reset()
+    {
+        lock (_lock)
+        {
+            _lastFrameAtUtc = null;
+            _activeApp = null;
+        }
+    }
+
     // Ingest one Chroma frame from the shim. Thread-safe. Called from the route handler.
     // colors is COLORREF 0x00BBGGRR packed: R=low byte, G=next, B=high byte of the low 3 bytes.
-    public void IngestFrame(string device, string effect, int rows, int cols, int[] colors)
+    public void IngestFrame(string device, string effect, int rows, int cols, int[] colors, string app = "")
     {
         var effectUpper = (effect ?? "").ToUpperInvariant();
         var deviceLower = (device ?? "").ToLowerInvariant();
@@ -49,6 +80,8 @@ public sealed class GameSyncEffect : IEffect
             lock (_lock)
             {
                 _hasFrame = true;
+                _lastFrameAtUtc = DateTimeOffset.UtcNow;
+                if ((app ?? "").Length > 0) { _activeApp = app; }
                 ClearDevice(deviceLower);
             }
             return;
@@ -63,6 +96,8 @@ public sealed class GameSyncEffect : IEffect
             lock (_lock)
             {
                 _hasFrame = true;
+                _lastFrameAtUtc = DateTimeOffset.UtcNow;
+                if ((app ?? "").Length > 0) { _activeApp = app; }
                 SetDeviceSolid(deviceLower, r, g, b);
                 _fallbackR = r; _fallbackG = g; _fallbackB = b;
             }
@@ -86,6 +121,8 @@ public sealed class GameSyncEffect : IEffect
         lock (_lock)
         {
             _hasFrame = true;
+            _lastFrameAtUtc = DateTimeOffset.UtcNow;
+            if ((app ?? "").Length > 0) { _activeApp = app; }
             if (deviceLower == "keyboard")
             {
                 _keyboardRgb = rgb;
