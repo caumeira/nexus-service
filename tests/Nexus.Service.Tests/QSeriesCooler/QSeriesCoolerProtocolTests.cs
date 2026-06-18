@@ -248,4 +248,104 @@ public class QSeriesCoolerProtocolTests
     {
         Assert.Equal(expected, QSeriesCoolerProtocol.MapPumpDutyToWire(duty, turboOn: false));
     }
+
+    // ── Firmware temperature curve (FF CC 03 / FF CC 04) ──
+
+    [Theory]
+    [InlineData("q60", "2.0.0.1", true)]    // exactly the Q60 threshold
+    [InlineData("q60", "2.0.9.1", true)]
+    [InlineData("q60", "1.9.9.9", false)]   // below threshold
+    [InlineData("q80", "1.0.4.1", true)]    // exactly the Q80 threshold
+    [InlineData("q80", "1.0.3.9", false)]
+    [InlineData("q60", "", false)]          // no version polled yet
+    public void SupportsFirmwareCurve_gates_on_version(string variant, string version, bool expected)
+    {
+        Assert.Equal(expected, QSeriesCoolerProtocol.SupportsFirmwareCurve(variant, version));
+    }
+
+    [Fact]
+    public void BuildGetFirmwareDefault_emits_FF_CC_04_00()
+    {
+        Assert.Equal(new byte[] { 0xFF, 0xCC, 0x04, 0x00 }, QSeriesCoolerProtocol.BuildGetFirmwareDefault());
+    }
+
+    [Theory]
+    [InlineData(false)]   // pump thermistor table
+    [InlineData(true)]    // fan thermistor table
+    public void CurveTemp_round_trips_for_every_editor_temperature(bool fan)
+    {
+        for (var t = QSeriesCoolerProtocol.FirmwareCurveTempMin; t <= QSeriesCoolerProtocol.FirmwareCurveTempMax; t++)
+        {
+            var (high, low) = QSeriesCoolerProtocol.EncodeCurveTemp(t, fan);
+            Assert.Equal(t, QSeriesCoolerProtocol.DecodeCurveTemp(high, low, fan));
+        }
+    }
+
+    [Fact]
+    public void BuildSetFirmwareMode_lays_out_header_mode_speeds_and_save()
+    {
+        var pts = new QSeriesFirmwareCurvePoint[]
+        {
+            new() { PumpTempC = 0,  PumpDutyPercent = 50, FanTempC = 0,  FanDutyPercent = 35 },
+            new() { PumpTempC = 20, PumpDutyPercent = 60, FanTempC = 20, FanDutyPercent = 45 },
+            new() { PumpTempC = 30, PumpDutyPercent = 70, FanTempC = 30, FanDutyPercent = 55 },
+            new() { PumpTempC = 40, PumpDutyPercent = 85, FanTempC = 40, FanDutyPercent = 75 },
+            new() { PumpTempC = 50, PumpDutyPercent = 100, FanTempC = 50, FanDutyPercent = 100 },
+        };
+        var cmd = QSeriesCoolerProtocol.BuildSetFirmwareMode(QSeriesCoolerProtocol.FwDefaultModeTemperature, pts);
+
+        Assert.Equal(QSeriesCoolerProtocol.SetFirmwareModeFrameLength, cmd.Length);
+        Assert.Equal(new byte[] { 0xFF, 0xCC, 0x03, 0x00 }, cmd[0..4]);
+        Assert.Equal(QSeriesCoolerProtocol.FwDefaultModeTemperature, cmd[4]);
+        // Pump speeds: slots 0-2 at [5..7], slots 3-4 at [17..18].
+        Assert.Equal(new byte[] { 50, 60, 70 }, cmd[5..8]);
+        Assert.Equal(new byte[] { 85, 100 }, cmd[17..19]);
+        // Fan speeds: slots 0-2 at [8..10], slots 3-4 at [19..20].
+        Assert.Equal(new byte[] { 35, 45, 55 }, cmd[8..11]);
+        Assert.Equal(new byte[] { 75, 100 }, cmd[19..21]);
+        // SAVE byte commits to EEPROM.
+        Assert.Equal(0x01, cmd[35]);
+    }
+
+    [Fact]
+    public void BuildSetFirmwareMode_rejects_wrong_point_count()
+    {
+        var three = new QSeriesFirmwareCurvePoint[3];
+        Assert.Throws<ArgumentException>(() =>
+            QSeriesCoolerProtocol.BuildSetFirmwareMode(QSeriesCoolerProtocol.FwDefaultModeTemperature, three));
+    }
+
+    [Fact]
+    public void TryParseFirmwareCurve_round_trips_a_built_frame()
+    {
+        var pts = new QSeriesFirmwareCurvePoint[]
+        {
+            new() { PumpTempC = 5,  PumpDutyPercent = 50, FanTempC = 10, FanDutyPercent = 35 },
+            new() { PumpTempC = 18, PumpDutyPercent = 62, FanTempC = 22, FanDutyPercent = 48 },
+            new() { PumpTempC = 30, PumpDutyPercent = 75, FanTempC = 33, FanDutyPercent = 60 },
+            new() { PumpTempC = 41, PumpDutyPercent = 88, FanTempC = 44, FanDutyPercent = 80 },
+            new() { PumpTempC = 50, PumpDutyPercent = 100, FanTempC = 50, FanDutyPercent = 95 },
+        };
+        var cmd = QSeriesCoolerProtocol.BuildSetFirmwareMode(QSeriesCoolerProtocol.FwDefaultModeMix, pts);
+
+        // FF CC 04 response carries the same [4..34] layout (no SAVE byte).
+        Assert.True(QSeriesCoolerProtocol.TryParseFirmwareCurve(cmd.AsSpan(0, QSeriesCoolerProtocol.FirmwareDefaultResponseLength), out var parsed));
+        Assert.Equal(QSeriesCoolerProtocol.FwDefaultModeMix, QSeriesCoolerProtocol.FirmwareDefaultModeOf(cmd));
+        for (var i = 0; i < pts.Length; i++)
+        {
+            Assert.Equal(pts[i].PumpDutyPercent, parsed[i].PumpDutyPercent);
+            Assert.Equal(pts[i].FanDutyPercent, parsed[i].FanDutyPercent);
+            Assert.Equal(pts[i].PumpTempC, parsed[i].PumpTempC);
+            Assert.Equal(pts[i].FanTempC, parsed[i].FanTempC);
+        }
+    }
+
+    [Fact]
+    public void TryParseFirmwareCurve_rejects_short_or_misframed()
+    {
+        Assert.False(QSeriesCoolerProtocol.TryParseFirmwareCurve(new byte[10], out _));
+        var wrongHeader = new byte[QSeriesCoolerProtocol.FirmwareDefaultResponseLength];
+        wrongHeader[0] = 0xFF; wrongHeader[1] = 0xDD;
+        Assert.False(QSeriesCoolerProtocol.TryParseFirmwareCurve(wrongHeader, out _));
+    }
 }

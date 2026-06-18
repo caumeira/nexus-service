@@ -1,3 +1,6 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
 using Microsoft.AspNetCore.Http;
 using Nexus.Service.Models;
 using Nexus.Service.Peripherals.Hyte.QSeriesCooler;
@@ -56,6 +59,64 @@ public static partial class DevicesRoutes
                 return Results.Problem("Failed to set Q-series turbo.");
             return Results.Ok(ApiResponse.Ok());
         });
+
+        // Read the device's stored firmware temperature curve (pump + fan). Used by
+        // the Q60 settings tab to seed the two curve editors. `supported` is false on
+        // older firmware that lacks the 5-point format.
+        app.MapGet("/devices/qseries/firmware-curve", (QSeriesCoolerHub hub) =>
+        {
+            var supported = hub.SupportsFirmwareCurve;
+            var resp = new QSeriesFirmwareCurveResponse
+            {
+                Connected = hub.IsConnected,
+                Supported = supported,
+                Variant = hub.Variant,
+                TempMin = QSeriesCoolerProtocol.FirmwareCurveTempMin,
+                TempMax = QSeriesCoolerProtocol.FirmwareCurveTempMax,
+            };
+            if (supported && hub.TryReadFirmwareCurve(out var points))
+            {
+                foreach (var p in points)
+                {
+                    resp.Pump.Add(new QSeriesCurvePointDto { TempC = p.PumpTempC, DutyPercent = p.PumpDutyPercent });
+                    resp.Fan.Add(new QSeriesCurvePointDto { TempC = p.FanTempC, DutyPercent = p.FanDutyPercent });
+                }
+            }
+            return Results.Ok(resp);
+        });
+
+        // Persist a new firmware temperature curve. Pump and fan are independent
+        // 5-point curves; each is sorted by temperature before being zipped into the
+        // device's combined slot array. Does not change the active control mode.
+        app.MapPut("/devices/qseries/firmware-curve", (QSeriesFirmwareCurveRequest body, QSeriesCoolerHub hub) =>
+        {
+            if (!hub.IsConnected)
+                return Results.Conflict(new { error = "Q-series cooler not connected" });
+            if (!hub.SupportsFirmwareCurve)
+                return Results.Conflict(new { error = "Firmware curve not supported on this cooler firmware" });
+            var n = QSeriesCoolerProtocol.FirmwareCurvePointCount;
+            if (body.Pump.Count != n || body.Fan.Count != n)
+                return Results.BadRequest(new { error = $"pump and fan each require exactly {n} points" });
+
+            int ClampTemp(int c) => Math.Clamp(c, QSeriesCoolerProtocol.FirmwareCurveTempMin, QSeriesCoolerProtocol.FirmwareCurveTempMax);
+            int ClampDuty(int d) => Math.Clamp(d, 0, 100);
+            var pump = body.Pump.OrderBy(p => p.TempC).ToArray();
+            var fan = body.Fan.OrderBy(p => p.TempC).ToArray();
+            var points = new QSeriesFirmwareCurvePoint[n];
+            for (var i = 0; i < n; i++)
+            {
+                points[i] = new QSeriesFirmwareCurvePoint
+                {
+                    PumpTempC = ClampTemp(pump[i].TempC),
+                    PumpDutyPercent = ClampDuty(pump[i].DutyPercent),
+                    FanTempC = ClampTemp(fan[i].TempC),
+                    FanDutyPercent = ClampDuty(fan[i].DutyPercent),
+                };
+            }
+            if (!hub.WriteFirmwareCurve(points))
+                return Results.Problem("Failed to write Q-series firmware curve.");
+            return Results.Ok(ApiResponse.Ok());
+        });
     }
 }
 
@@ -85,4 +146,31 @@ public sealed class QSeriesControlModeRequest
 public sealed class QSeriesTurboRequest
 {
     public bool On { get; set; }
+}
+
+/// <summary>One firmware-curve point: coolant temperature (°C) → duty (%).</summary>
+public sealed class QSeriesCurvePointDto
+{
+    public int TempC { get; set; }
+    public int DutyPercent { get; set; }
+}
+
+/// <summary>Shape returned by GET /devices/qseries/firmware-curve.</summary>
+public sealed class QSeriesFirmwareCurveResponse
+{
+    public bool Connected { get; set; }
+    /// <summary>False on firmware too old for the 5-point curve format.</summary>
+    public bool Supported { get; set; }
+    public string Variant { get; set; } = "";
+    public int TempMin { get; set; }
+    public int TempMax { get; set; }
+    public List<QSeriesCurvePointDto> Pump { get; set; } = new();
+    public List<QSeriesCurvePointDto> Fan { get; set; } = new();
+}
+
+/// <summary>Body for PUT /devices/qseries/firmware-curve.</summary>
+public sealed class QSeriesFirmwareCurveRequest
+{
+    public List<QSeriesCurvePointDto> Pump { get; set; } = new();
+    public List<QSeriesCurvePointDto> Fan { get; set; } = new();
 }

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Peripherals.Hyte.Np50;
 using Nexus.Service.Platform;
@@ -53,6 +54,10 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
 
     /// <summary>COM port currently held (e.g. "COM4"), empty when disconnected.</summary>
     public string PortName => _portName;
+
+    /// <summary>True when the connected cooler's firmware supports the editable 5-point temperature curve.</summary>
+    public bool SupportsFirmwareCurve =>
+        IsConnected && QSeriesCoolerProtocol.SupportsFirmwareCurve(Variant, State.FirmwareVersion);
 
     /// <summary>
     /// LEDs addressed per Q-series lighting card. One 90-byte port frame carries
@@ -329,6 +334,29 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                     QSeriesCoolerProtocol.TurboOnOf(port0) ? QSeriesCoolerProtocol.TurboOnByte : QSeriesCoolerProtocol.TurboOffByte,
                     port0));
                 State.ControlMode = mode;
+                // The live control byte alone doesn't engage the onboard curve;
+                // firmware mode also needs the EEPROM default flipped to Temperature
+                // (and reset to Motherboard when handing back), preserving the
+                // stored curve. Mirrors HYTE SwitchToTemperatureMode /
+                // SetFirmwareToMotherboardMode. These extra read + write round-trips
+                // run under _lock, so this rare user-initiated switch can delay the
+                // 30 Hz lighting stream more than a plain control write. Best-effort:
+                // the live mode already changed, so a curve read/write hiccup here
+                // must not fail the whole switch (the next poll re-reads true mode).
+                if (SupportsFirmwareCurve)
+                {
+                    try
+                    {
+                        if (mode == QSeriesCoolerProtocol.ControlModeFirmware)
+                            SetFirmwareDefaultModeLocked(t, QSeriesCoolerProtocol.FwDefaultModeTemperature);
+                        else if (mode == QSeriesCoolerProtocol.ControlModeMotherboard)
+                            SetFirmwareDefaultModeLocked(t, QSeriesCoolerProtocol.FwDefaultModeMotherboard);
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"[qseries-cooler] firmware default-mode engage failed: {ex.GetType().Name}: {ex.Message}");
+                    }
+                }
                 return true;
             }
             catch (Exception ex)
@@ -370,6 +398,95 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                 return false;
             }
         }
+    }
+
+    // EEPROM curve read deadline. The default-mode response comes back in a few
+    // ms; kept under the fw-version poll's 400 ms but above the 150 ms telemetry
+    // ceiling since this is a user-initiated read, not the hot lighting path.
+    private const int FirmwareReadTimeoutMs = 300;
+
+    /// <summary>
+    /// Read the stored 5-point firmware temperature curve (FF CC 04) into
+    /// <paramref name="points"/>. False on disconnect, an unsupported firmware,
+    /// or a short / mis-framed reply.
+    /// </summary>
+    public bool TryReadFirmwareCurve(out QSeriesFirmwareCurvePoint[] points)
+    {
+        points = Array.Empty<QSeriesFirmwareCurvePoint>();
+        lock (_lock)
+        {
+            if (!EnsureConnected() || !SupportsFirmwareCurve) return false;
+            var t = _transport;
+            if (t is null) return false;
+            try
+            {
+                return TryReadFirmwareCurveLocked(t, out points, out _);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[qseries-cooler] read firmware curve failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Persist a new 5-point firmware temperature curve to EEPROM (FF CC 03),
+    /// preserving the current default mode so saving the curve never changes which
+    /// controller drives the pump. False on disconnect / unsupported firmware.
+    /// </summary>
+    public bool WriteFirmwareCurve(IReadOnlyList<QSeriesFirmwareCurvePoint> points)
+    {
+        if (points.Count != QSeriesCoolerProtocol.FirmwareCurvePointCount) return false;
+        lock (_lock)
+        {
+            if (!EnsureConnected() || !SupportsFirmwareCurve) return false;
+            var t = _transport;
+            if (t is null) return false;
+            try
+            {
+                // Read back the current default mode so the write preserves it.
+                var mode = TryReadFirmwareCurveLocked(t, out _, out var current)
+                    ? current
+                    : QSeriesCoolerProtocol.FwDefaultModeMotherboard;
+                var arr = new QSeriesFirmwareCurvePoint[points.Count];
+                for (var i = 0; i < points.Count; i++) arr[i] = points[i];
+                t.Write(QSeriesCoolerProtocol.BuildSetFirmwareMode(mode, arr));
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[qseries-cooler] write firmware curve failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
+        }
+    }
+
+    // Caller holds _lock. Reads FF CC 04 into a parsed curve + the current default
+    // mode byte. False on a short / mis-framed reply.
+    private bool TryReadFirmwareCurveLocked(INp50Transport t, out QSeriesFirmwareCurvePoint[] points, out byte defaultMode)
+    {
+        points = Array.Empty<QSeriesFirmwareCurvePoint>();
+        defaultMode = QSeriesCoolerProtocol.FwDefaultModeMotherboard;
+        t.DiscardInput();
+        t.Write(QSeriesCoolerProtocol.BuildGetFirmwareDefault());
+        var buf = new byte[QSeriesCoolerProtocol.FirmwareDefaultResponseLength];
+        var n = t.Read(buf, FirmwareReadTimeoutMs);
+        if (!QSeriesCoolerProtocol.TryParseFirmwareCurve(buf.AsSpan(0, n), out points)) return false;
+        defaultMode = QSeriesCoolerProtocol.FirmwareDefaultModeOf(buf.AsSpan(0, n));
+        return true;
+    }
+
+    // Caller holds _lock. Flips the EEPROM default mode to newMode while preserving
+    // the stored curve (read it back, re-send with the new mode). No-op when already
+    // in newMode or when the read fails.
+    private void SetFirmwareDefaultModeLocked(INp50Transport t, byte newMode)
+    {
+        if (!TryReadFirmwareCurveLocked(t, out var curve, out var current)) return;
+        if (current == newMode || curve.Length != QSeriesCoolerProtocol.FirmwareCurvePointCount) return;
+        t.Write(QSeriesCoolerProtocol.BuildSetFirmwareMode(newMode, curve));
     }
 
     public void Dispose()

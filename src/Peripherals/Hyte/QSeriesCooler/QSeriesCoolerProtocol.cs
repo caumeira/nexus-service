@@ -50,6 +50,8 @@ public static class QSeriesCoolerProtocol
     private const byte SubGetInfo = 0x01;       // port-0 status (port byte 0) / per-channel smart-device info
     private const byte SubGetPump2 = 0x09;      // Q80 second-pump RPM
     private const byte SubSetControl = 0x02;    // set pump speed + control mode + turbo (15-byte frame)
+    private const byte SubSetFirmwareMode = 0x03;   // write EEPROM default mode + temperature curve (36-byte frame)
+    private const byte SubGetFirmwareDefault = 0x04; // read EEPROM default mode + temperature curve
     private const byte SubSetTurboMcu = 0x0A;   // persist turbo state to the MCU
     private const byte Port0 = 0x00;
 
@@ -63,6 +65,17 @@ public static class QSeriesCoolerProtocol
     /// <summary>Turbo byte convention shared by Port-0 [14] and SetControl [9]: 0x00 = on, 0x01 = off.</summary>
     public const byte TurboOnByte = 0x00;
     public const byte TurboOffByte = 0x01;
+
+    /// <summary>
+    /// EEPROM "default mode" byte for the firmware-curve frame (FF CC 03 byte [4],
+    /// FF CC 04 response byte [4]). DISTINCT enumeration from the live-control
+    /// <c>ControlMode*</c> bytes used by FF CC 02: here Temperature (the onboard
+    /// curve) is 0x02, whereas the live control byte uses 0x03 for firmware.
+    /// Mirrors HYTE's PQSeriesFirmwareMode.
+    /// </summary>
+    public const byte FwDefaultModeMotherboard = 0x01;
+    public const byte FwDefaultModeTemperature = 0x02; // onboard pump+fan temperature curve
+    public const byte FwDefaultModeMix = 0x03;
 
     public const int SetControlFrameLength = 15;
 
@@ -288,4 +301,200 @@ public static class QSeriesCoolerProtocol
         77,78,80,80,81,85,87,88,92,94,                          // 86-95
         95,95,99,99,100,                                        // 96-100
     };
+
+    // ── Firmware temperature curve (FF CC 03 set / FF CC 04 get) ──
+    //
+    // The cooler MCU stores a temperature→speed curve in EEPROM and drives the
+    // pump + radiator fans from it when in firmware (Temperature) mode. Recent
+    // firmware (Q60 ≥ 2.0.0.1, Q80 ≥ 1.0.4.1) holds 5 points, each carrying an
+    // independent pump (temp, speed) and fan (temp, speed): a separate pump
+    // curve and fan curve sharing one 5-slot array. Older firmware uses a 3-point
+    // shared format we don't write. Ported from HYTE PQSeriesCommand.SetFirmwareMode
+    // + FirmwareTemperatureModel.GetFirmwareTempModelBytes.
+
+    /// <summary>Curve point count for the supported (V2) firmware format.</summary>
+    public const int FirmwareCurvePointCount = 5;
+
+    /// <summary>FF CC 03 set frame length (V2): 4-byte header, mode, 30-byte payload, SAVE byte.</summary>
+    public const int SetFirmwareModeFrameLength = 36;
+
+    /// <summary>FF CC 04 response length (V2): set frame minus the SAVE byte.</summary>
+    public const int FirmwareDefaultResponseLength = 35;
+
+    /// <summary>
+    /// Coolant-temperature range the editor exposes (°C) = the full span of the
+    /// thermistor tables. HYTE's client caps user curves at 50, but the device's
+    /// own factory fan curve stores points up to 56, so clamping to 50 would
+    /// mangle it on save; the firmware accepts the full table range.
+    /// </summary>
+    public const int FirmwareCurveTempMin = 0;
+    public const int FirmwareCurveTempMax = 75;
+
+    // Per-slot frame offsets for the 5-point V2 curve. Pump/fan speeds are plain
+    // 0-100 bytes; each temperature is two bytes (high, low) = TempH at the listed
+    // offset, TempL at +1. Matches GetFirmwareTempModelBytes copied to frame[5..34].
+    private static readonly int[] PumpSpeedOffsets = { 5, 6, 7, 17, 18 };
+    private static readonly int[] FanSpeedOffsets = { 8, 9, 10, 19, 20 };
+    private static readonly int[] PumpTempHighOffsets = { 11, 13, 15, 21, 23 };
+    private static readonly int[] FanTempHighOffsets = { 25, 27, 29, 31, 33 };
+
+    /// <summary>True when the connected variant's firmware supports the 5-point curve format.</summary>
+    public static bool SupportsFirmwareCurve(string variant, string fwVersion)
+    {
+        if (string.IsNullOrEmpty(fwVersion)) return false;
+        var threshold = variant == VariantQ80 ? "1.0.4.1"
+            : variant == VariantQ60 ? "2.0.0.1"
+            : "1.0.2.1";
+        return CompareFwVersionAtLeast(fwVersion, threshold);
+    }
+
+    // fwVersion >= reference, comparing dotted numeric parts left-to-right.
+    // Equal counts as "at least". Mirrors HYTE Methods.CompareFwVersions == UpToDate.
+    private static bool CompareFwVersionAtLeast(string fwVersion, string reference)
+    {
+        var a = fwVersion.Split('.');
+        var b = reference.Split('.');
+        var n = Math.Max(a.Length, b.Length);
+        for (var i = 0; i < n; i++)
+        {
+            var ai = i < a.Length && int.TryParse(a[i], out var av) ? av : 0;
+            var bi = i < b.Length && int.TryParse(b[i], out var bv) ? bv : 0;
+            if (ai > bi) return true;
+            if (ai < bi) return false;
+        }
+        return true;
+    }
+
+    /// <summary>Build the "Get Firmware Default Mode" request (4 bytes). Response carries the default mode + stored curve.</summary>
+    public static byte[] BuildGetFirmwareDefault() => new byte[] { Frame0, OpCooler, SubGetFirmwareDefault, Port0 };
+
+    /// <summary>
+    /// Build the 36-byte firmware-curve write (FF CC 03). Sets the EEPROM default
+    /// mode [4], the 5-point pump+fan curve [5..34], and the SAVE byte [35]=0x01
+    /// that commits it. Requires exactly <see cref="FirmwareCurvePointCount"/> points.
+    /// </summary>
+    public static byte[] BuildSetFirmwareMode(byte defaultMode, ReadOnlySpan<QSeriesFirmwareCurvePoint> points)
+    {
+        if (points.Length != FirmwareCurvePointCount)
+            throw new ArgumentException($"Firmware curve needs exactly {FirmwareCurvePointCount} points.", nameof(points));
+        var cmd = new byte[SetFirmwareModeFrameLength];
+        cmd[0] = Frame0;
+        cmd[1] = OpCooler;
+        cmd[2] = SubSetFirmwareMode;
+        cmd[4] = defaultMode;
+        for (var i = 0; i < FirmwareCurvePointCount; i++)
+        {
+            var p = points[i];
+            cmd[PumpSpeedOffsets[i]] = (byte)Math.Clamp(p.PumpDutyPercent, 0, 100);
+            cmd[FanSpeedOffsets[i]] = (byte)Math.Clamp(p.FanDutyPercent, 0, 100);
+            var (ph, pl) = EncodeCurveTemp(p.PumpTempC, fan: false);
+            cmd[PumpTempHighOffsets[i]] = ph;
+            cmd[PumpTempHighOffsets[i] + 1] = pl;
+            var (fh, fl) = EncodeCurveTemp(p.FanTempC, fan: true);
+            cmd[FanTempHighOffsets[i]] = fh;
+            cmd[FanTempHighOffsets[i] + 1] = fl;
+        }
+        cmd[SetFirmwareModeFrameLength - 1] = 0x01; // SAVE to EEPROM
+        return cmd;
+    }
+
+    /// <summary>The EEPROM default mode byte the firmware-curve response reports (byte [4]).</summary>
+    public static byte FirmwareDefaultModeOf(ReadOnlySpan<byte> response) =>
+        response.Length > 4 ? response[4] : FwDefaultModeMotherboard;
+
+    /// <summary>
+    /// Parse the 5-point pump+fan curve from a FF CC 04 response (or the bytes of a
+    /// FF CC 03 echo). Returns false on a short or mis-echoed reply.
+    /// </summary>
+    public static bool TryParseFirmwareCurve(ReadOnlySpan<byte> response, out QSeriesFirmwareCurvePoint[] points)
+    {
+        points = Array.Empty<QSeriesFirmwareCurvePoint>();
+        if (response.Length < FirmwareDefaultResponseLength) return false;
+        if (response[0] != Frame0 || response[1] != OpCooler) return false;
+        var result = new QSeriesFirmwareCurvePoint[FirmwareCurvePointCount];
+        for (var i = 0; i < FirmwareCurvePointCount; i++)
+        {
+            result[i] = new QSeriesFirmwareCurvePoint
+            {
+                PumpDutyPercent = response[PumpSpeedOffsets[i]],
+                FanDutyPercent = response[FanSpeedOffsets[i]],
+                PumpTempC = DecodeCurveTemp(response[PumpTempHighOffsets[i]], response[PumpTempHighOffsets[i] + 1], fan: false),
+                FanTempC = DecodeCurveTemp(response[FanTempHighOffsets[i]], response[FanTempHighOffsets[i] + 1], fan: true),
+            };
+        }
+        points = result;
+        return true;
+    }
+
+    /// <summary>
+    /// Encode a coolant temperature (°C) to the firmware's two voltage bytes
+    /// (high, low). The thermistor voltage is split as high = floor(v*1000)/100,
+    /// low = floor(v*1000)%100, decoded back by <see cref="DecodeCurveTemp"/> as
+    /// high/10 + low/1000. Pump and fan use separate thermistor tables.
+    /// </summary>
+    public static (byte high, byte low) EncodeCurveTemp(int tempC, bool fan)
+    {
+        var table = fan ? FanTempVoltage : PumpTempVoltage;
+        var t = Math.Clamp(tempC, 0, table.Length - 1);
+        // Replicates HYTE byte-for-byte: GetVoltageByTemp floors the voltage to 3
+        // decimals, then the model getter scales by 1000 and truncates each byte.
+        var voltage = Math.Floor(table[t] * 1000) / 1000;
+        var milliVolts = voltage * 1000;
+        return ((byte)(milliVolts / 100), (byte)(milliVolts % 100));
+    }
+
+    /// <summary>Decode the firmware's two voltage bytes back to the nearest °C in the thermistor table.</summary>
+    public static int DecodeCurveTemp(byte high, byte low, bool fan)
+    {
+        var voltage = high / 10.0 + low / 1000.0;
+        var table = fan ? FanTempVoltage : PumpTempVoltage;
+        var best = 0;
+        var bestErr = double.MaxValue;
+        for (var i = 0; i < table.Length; i++)
+        {
+            var err = Math.Abs(table[i] - voltage);
+            if (err < bestErr) { bestErr = err; best = i; }
+        }
+        return best;
+    }
+
+    // Thermistor temp(°C, index 0..75) → sensor voltage. Ported verbatim from HYTE
+    // SmartDeviceMethods._pumpTempToVoltageMapping. Pump and fan use distinct curves.
+    private static readonly double[] PumpTempVoltage =
+    {
+        3.04, 3.033, 3.025, 3.012, 3.009, 3.0, 2.995, 2.987, 2.98, 2.976,
+        2.968, 2.954, 2.949, 2.943, 2.932, 2.918, 2.89, 2.882, 2.874, 2.866,
+        2.84, 2.832, 2.826, 2.789, 2.773, 2.755, 2.74, 2.715, 2.694, 2.682,
+        2.669, 2.644, 2.631, 2.611, 2.591, 2.57, 2.555, 2.53, 2.515, 2.496,
+        2.469, 2.452, 2.433, 2.408, 2.387, 2.361, 2.346, 2.318, 2.299, 2.277,
+        2.261, 2.233, 2.207, 2.18, 2.155, 2.133, 2.103, 2.084, 2.058, 2.034,
+        2.011, 1.988, 1.964, 1.93, 1.911, 1.884, 1.858, 1.836, 1.807, 1.781,
+        1.761, 1.734, 1.704, 1.681, 1.654, 1.643,
+    };
+
+    // HYTE SmartDeviceMethods._fanTempToVoltageMapping.
+    private static readonly double[] FanTempVoltage =
+    {
+        3.22, 3.21, 3.2, 3.19, 3.181, 3.17, 3.159, 3.146, 3.133, 3.125,
+        3.104, 3.099, 3.088, 3.075, 3.063, 3.05, 3.034, 3.023, 3.012, 2.999,
+        2.984, 2.968, 2.952, 2.94, 2.921, 2.904, 2.886, 2.872, 2.852, 2.837,
+        2.816, 2.798, 2.783, 2.761, 2.745, 2.729, 2.7, 2.684, 2.666, 2.635,
+        2.624, 2.603, 2.58, 2.558, 2.538, 2.515, 2.492, 2.472, 2.449, 2.427,
+        2.404, 2.383, 2.363, 2.338, 2.311, 2.29, 2.264, 2.241, 2.217, 2.194,
+        2.168, 2.143, 2.115, 2.093, 2.066, 2.042, 2.02, 1.998, 1.976, 1.947,
+        1.927, 1.902, 1.876, 1.853, 1.828, 1.803,
+    };
+}
+
+/// <summary>
+/// One slot of the HYTE Q-series firmware curve. Each slot carries an independent
+/// pump (temp, speed) and fan (temp, speed) point; the device stores a pump curve
+/// and a fan curve in one 5-slot array.
+/// </summary>
+public struct QSeriesFirmwareCurvePoint
+{
+    public int PumpTempC;
+    public int PumpDutyPercent;
+    public int FanTempC;
+    public int FanDutyPercent;
 }
