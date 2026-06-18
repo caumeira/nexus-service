@@ -53,17 +53,18 @@ public sealed class GameSyncGameScanner
         _ => 2,
     };
 
-    // Path.GetFullPath unifies separators and drive-letter case; falls back to
-    // Trim() when the path is malformed and GetFullPath throws.
+    // Normalizes Windows-style paths for dedup. Path.GetFullPath unifies separators
+    // on Windows; on non-Windows hosts (test runs) it won't, so we normalize slashes
+    // explicitly. The dict uses OrdinalIgnoreCase so drive-letter case is handled.
     private static string CanonicalDirKey(string dir)
     {
         try
         {
-            return Path.GetFullPath(dir).TrimEnd('\\', '/');
+            return Path.GetFullPath(dir).TrimEnd('\\', '/').Replace('/', '\\');
         }
         catch
         {
-            return dir.Trim();
+            return dir.Trim().Replace('/', '\\');
         }
     }
 
