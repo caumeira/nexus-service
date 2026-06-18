@@ -96,6 +96,9 @@ public static class ChromaShimInstaller
     }
 
     /// <summary>Removes shim DLLs from System32/SysWOW64 only when they carry our marker.</summary>
+    /// <remarks>Not called from the uninstaller by design (see WindowsServiceInstaller.RunUninstall):
+    /// the shims are left in place rather than risk deleting a same-named real vendor DLL. A caller
+    /// must add a byte-match-to-bundle check before this is safe to wire into uninstall.</remarks>
     public static void RemoveIfOurs()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))

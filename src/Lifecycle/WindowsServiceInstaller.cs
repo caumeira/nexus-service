@@ -7,7 +7,6 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
 using Microsoft.Win32;
-using Nexus.Service.Lighting.GameSync;
 
 namespace Nexus.Service.Lifecycle;
 
@@ -275,11 +274,12 @@ internal static class WindowsServiceInstaller
         RunNetsh("advfirewall", "firewall", "delete", "rule",
             $"name=\"{FirewallRuleName}\"");
 
-        Log("removing Game Sync shims");
-        try { ChromaShimInstaller.RemoveIfOurs(); }
-        catch (Exception ex) { Log($"WARN shim removal failed: {ex.Message}"); }
-        try { GsiConfigInstaller.RemoveIfPresent(); }
-        catch (Exception ex) { Log($"WARN gsi cfg removal failed: {ex.Message}"); }
+        // The Game Sync shims in System32/SysWOW64 and the CS2 GSI cfg are left
+        // in place on uninstall by design. Our shim filenames are the vendor
+        // names (RzChromaSDK64.dll, LightFX.dll, LogitechLedEnginesWrapper.dll),
+        // so deleting by name from System32 could remove a real vendor DLL. Any
+        // future removal must first verify the file is ours (CompanyName "Nexus"
+        // AND byte-identical to the bundled shim), never delete by name alone.
 
         Log("removing Add/Remove Programs entry");
         try { Registry.LocalMachine.DeleteSubKeyTree(UninstallRegKey, throwOnMissingSubKey: false); }
