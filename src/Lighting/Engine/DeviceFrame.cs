@@ -61,6 +61,8 @@ public sealed class DeviceFrame
     public int? PreviewLedCount { get; set; }
     /// <summary>Transient per-LED UV positions from the LED map editor draft. Parallel to preview LEDs by index. Null = use saved LedU/LedV.</summary>
     public PreviewLedPosition[]? PreviewLayout { get; set; }
+    /// <summary>Semantic device class for effect routing. Null = no archetype, falls back to canvas sampling. Values: "keyboard", "mouse", "mousepad", "headset", "keypad", "chromalink".</summary>
+    public string? Archetype { get; set; }
 
     public void SetLed(int i, byte r, byte g, byte b)
     {

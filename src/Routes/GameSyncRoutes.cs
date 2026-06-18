@@ -1,0 +1,123 @@
+using Nexus.Service.Auth;
+using Nexus.Service.Devices;
+using Nexus.Service.Lifecycle;
+using Nexus.Service.Lighting;
+using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Models;
+using Nexus.Service.Models.Lighting;
+using Nexus.Service.Serialization;
+using Nexus.Service.Sockets;
+
+namespace Nexus.Service.Routes;
+
+public static class GameSyncRoutes
+{
+    public static void MapGameSyncEndpoints(this WebApplication app)
+    {
+        // Activate Game Sync mode and deploy the Chroma shim DLLs into
+        // System32/SysWOW64 when not already current. The shim install is
+        // idempotent: no-op if the files are already ours at the same version.
+        app.MapPost("/lighting/game-sync/start", (ILightingProvider l, MultiplexHub hub) =>
+        {
+            l.StartGameSync();
+            PanelTopics.BroadcastLighting(hub);
+            return ApiResponse.Ok();
+        }).LocalhostOnly();
+
+        // Per-device frame receiver. The native shim posts one body per device
+        // per rendered Chroma frame. Frames are only forwarded when Game Sync
+        // is the active mode; otherwise the shim's continuous output is silently
+        // dropped (returns 409 so the shim can log and continue).
+        app.MapPost("/lighting/game-sync/frame",
+            (GameSyncFrameBody body, ILightingProvider l) =>
+            {
+                var effect = l.ActiveGameSyncEffect();
+                if (effect is null)
+                {
+                    return Results.Json(
+                        new ApiResponse { Error = true, Msg = "Game Sync not active" },
+                        AppJsonContext.Default.ApiResponse,
+                        statusCode: 409);
+                }
+
+                effect.IngestFrame(
+                    body.Device ?? "",
+                    body.Effect ?? "",
+                    body.Rows,
+                    body.Cols,
+                    body.Colors ?? System.Array.Empty<int>());
+
+                return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
+            }).LocalhostOnly();
+
+        // Detected games with Chroma SDK evidence. Returns cached results plus
+        // current scan status. The optional refresh=true query param triggers a
+        // background scan before returning the (still-cached) result.
+        app.MapGet("/lighting/game-sync/games",
+            (GameSyncGameScanner scanner, HttpContext ctx) =>
+            {
+                if (ctx.Request.Query.TryGetValue("refresh", out var refreshVal) &&
+                    refreshVal.ToString().Equals("true", StringComparison.OrdinalIgnoreCase))
+                {
+                    scanner.RequestScan();
+                }
+
+                return Results.Json(
+                    new GameSyncGamesResponse
+                    {
+                        Scanning = scanner.Scanning,
+                        ScannedAt = scanner.ScannedAt,
+                        Games = new List<DetectedGame>(scanner.Games),
+                    },
+                    AppJsonContext.Default.GameSyncGamesResponse);
+            }).AllowPanel();
+
+        // Trigger a background scan of installed game stores.
+        app.MapPost("/lighting/game-sync/games/scan",
+            (GameSyncGameScanner scanner) =>
+            {
+                scanner.RequestScan();
+                return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
+            }).AllowPanel();
+
+        // Current Game Sync mode state: whether it is active, whether our
+        // Chroma shim DLLs are installed, whether a real Razer SDK conflicts,
+        // and which devices the mode will drive.
+        app.MapGet("/lighting/game-sync/state",
+            (ILightingProvider l, LightingEngine engine, ILightingDeviceProvider deviceProvider) =>
+            {
+                var active = l.GetSync() == "gamesync";
+                var shimState = ChromaShimInstaller.GetState();
+                var deviceList = deviceProvider.GetAll();
+                // Build id->name lookup from the canonical device registry.
+                var nameById = new System.Collections.Generic.Dictionary<string, string>(
+                    deviceList.Devices.Count, System.StringComparer.Ordinal);
+                foreach (var d in deviceList.Devices)
+                {
+                    nameById[d.Id] = d.Name;
+                }
+
+                var frames = engine.Devices;
+                var infos = new System.Collections.Generic.List<GameSyncDeviceInfo>(frames.Length);
+                foreach (var frame in frames)
+                {
+                    infos.Add(new GameSyncDeviceInfo
+                    {
+                        Name = nameById.TryGetValue(frame.Id, out var n) ? n : frame.Id,
+                        Archetype = frame.Archetype ?? "ambient",
+                        LedCount = frame.LedCount,
+                    });
+                }
+
+                return Results.Json(
+                    new GameSyncStateResponse
+                    {
+                        Active = active,
+                        ProviderInstalled = shimState.ProviderInstalled,
+                        SynapseConflict = shimState.SynapseConflict,
+                        Devices = infos,
+                    },
+                    AppJsonContext.Default.GameSyncStateResponse);
+            }).AllowPanel();
+    }
+}

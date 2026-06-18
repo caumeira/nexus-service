@@ -307,6 +307,13 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(ScreenSyncMonitor))]
 [JsonSerializable(typeof(List<ScreenSyncMonitor>))]
 [JsonSerializable(typeof(GifHeadlessStart))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncFrameBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncDeviceInfo))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncStateResponse))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Lighting.GameSyncDeviceInfo>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.DetectedGame))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Lighting.DetectedGame>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncGamesResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.PostProcessBody))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.PostProcessSettings))]
 

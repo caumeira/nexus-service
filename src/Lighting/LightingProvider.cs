@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Engine.Effects;
 using Nexus.Service.Lighting.Engine.Gpu;
@@ -41,6 +42,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     // the user had previously set.
     private readonly PostProcessState _screenPP = new();
     private readonly PostProcessState _mediaPP = new();
+
+    // Shared GameSyncEffect instance. Kept alive across StartGameSync calls so
+    // frames that arrive while the effect is already running are not dropped.
+    private GameSyncEffect? _gameSyncEffect;
 
     public LightingProvider(IConfigStore store, LightingEngine engine, LightingOutputHub hub, GpuContext gpu, MediaLibrary media, IMonitorEnumerator monitors, IScreenFrameSource? frameSource = null, RgbBridge? rgb = null)
     {
@@ -769,6 +774,53 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             _engine.SetEffect(new GifEffect(body.Paths[0]));
         }
         _store.Update(s => s.Lighting.Sync = "gif");
+    }
+
+    public void StartGameSync()
+    {
+        EnsureRgbActive();
+        // Reuse the existing effect instance so frames ingested before the
+        // mode selection round-trip arrives are not lost.
+        if (_gameSyncEffect is null || _engine.CurrentEffect != _gameSyncEffect)
+        {
+            _gameSyncEffect = new GameSyncEffect();
+            _engine.SetEffect(_gameSyncEffect);
+        }
+        _store.Update(s => s.Lighting.Sync = "gamesync");
+
+        // Deploy shim DLLs into System32/SysWOW64. Idempotent and guarded by
+        // an elevation check; skipped on macOS/Linux (NotApplicable).
+        var shimResult = ChromaShimInstaller.EnsureInstalled();
+        switch (shimResult)
+        {
+            case ChromaShimInstallResult.Installed:
+                ServiceLog.Info("[chroma-shim] shim DLLs installed");
+                break;
+            case ChromaShimInstallResult.AlreadyCurrent:
+                ServiceLog.Info("[chroma-shim] shim DLLs already current");
+                break;
+            case ChromaShimInstallResult.SynapseConflict:
+                ServiceLog.Warn("[chroma-shim] Razer Chroma SDK present; shim not installed");
+                break;
+            case ChromaShimInstallResult.NotElevated:
+                ServiceLog.Warn("[chroma-shim] not elevated; shim install skipped");
+                break;
+            case ChromaShimInstallResult.BundleMissing:
+                ServiceLog.Error("[chroma-shim] bundled shim DLLs not found");
+                break;
+            case ChromaShimInstallResult.Failed:
+                ServiceLog.Error("[chroma-shim] shim install failed");
+                break;
+        }
+    }
+
+    public GameSyncEffect? ActiveGameSyncEffect()
+    {
+        if (_engine.CurrentEffect is GameSyncEffect eff)
+        {
+            return eff;
+        }
+        return null;
     }
 
     public bool StartMedia(string mediaId)
