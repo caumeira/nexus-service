@@ -25,6 +25,7 @@ public interface ILightingProvider
     void ReselectScreen();
     void StartGif(GifHeadlessStart body);
     bool StartMedia(string mediaId);
+    void StartMediaIdle();
 
     /// <summary>Update the Mirror post-process (hue / colorize / saturation / contrast + flip X/Y + reactive). Persists to settings when persist=true.</summary>
     void UpdateScreenEffect(float hue, float colorize, float saturation, float contrast, bool flipX, bool flipY, bool persist, bool reactive = false, float reactivity = 0.5f, float intensity = 0.5f);

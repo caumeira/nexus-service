@@ -794,6 +794,13 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         return true;
     }
 
+    public void StartMediaIdle()
+    {
+        EnsureRgbActive();
+        _engine.SetEffect(new Engine.Effects.BlackEffect());
+        _store.Update(s => s.Lighting.Sync = "media");
+    }
+
     public void Dispose()
     {
         _rgb?.Dispose();

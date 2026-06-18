@@ -2,6 +2,7 @@ using System.IO;
 using Nexus.Service.Auth;
 using Nexus.Service.Lighting;
 using Nexus.Service.Media;
+using Nexus.Service.Models;
 using Nexus.Service.Models.Media;
 using Nexus.Service.Sockets;
 
@@ -251,6 +252,13 @@ public static class MediaLibraryRoutes
             return ok
                 ? Results.Ok(new MediaPlayResponse())
                 : Results.NotFound();
+        }).AllowPanel();
+
+        app.MapPost("/media/idle", (ILightingProvider lighting, MultiplexHub hub) =>
+        {
+            lighting.StartMediaIdle();
+            PanelTopics.BroadcastLighting(hub);
+            return ApiResponse.Ok();
         }).AllowPanel();
 
         app.MapGet("/media/current", (Nexus.Service.Persistence.IConfigStore store, MediaLibrary lib) =>
