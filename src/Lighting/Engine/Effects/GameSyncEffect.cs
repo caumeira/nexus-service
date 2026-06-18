@@ -283,5 +283,29 @@ public sealed class GameSyncEffect : IEffect
         }
     }
 
+    // Sets a whole-rig solid color from GSI state; clears per-device grids so canvas fill drives all devices.
+    public void IngestAuthoredFill(byte r, byte g, byte b, string app)
+    {
+        lock (_lock)
+        {
+            _hasFrame = true;
+            _lastFrameAtUtc = DateTimeOffset.UtcNow;
+            if (app.Length > 0)
+            {
+                _activeApp = app;
+            }
+
+            _fallbackR = r;
+            _fallbackG = g;
+            _fallbackB = b;
+            _keyboardRgb = null;
+            _mouseRgb = null;
+            _mousepadRgb = null;
+            _headsetRgb = null;
+            _keypadRgb = null;
+            _chromalinkRgb = null;
+        }
+    }
+
     public void Dispose() { }
 }

@@ -3,6 +3,7 @@ using System.Threading.Tasks;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Engine.Effects;
+using Nexus.Service.Lighting.GameSync;
 using Nexus.Service.Lighting.Engine.Gpu;
 using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Lighting.Capture;
@@ -814,6 +815,12 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             case ChromaShimInstallResult.Failed:
                 ServiceLog.Error("[chroma-shim] shim install failed");
                 break;
+        }
+
+        var token = _store.Load().Auth?.Token ?? "";
+        if (token.Length > 0)
+        {
+            GsiConfigInstaller.EnsureInstalled(token);
         }
     }
 

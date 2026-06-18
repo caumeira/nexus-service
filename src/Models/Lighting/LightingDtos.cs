@@ -211,7 +211,9 @@ public sealed class DetectedGame
     public string Name { get; set; } = "";
     public string Store { get; set; } = "";
     public string InstallDir { get; set; } = "";
+    public string AppId { get; set; } = "";
     public bool EmitsChroma { get; set; }
+    public bool EmitsGsi { get; set; }
     public int ScannedFiles { get; set; }
     public int SkippedFiles { get; set; }
 }

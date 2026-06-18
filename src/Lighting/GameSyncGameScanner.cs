@@ -69,26 +69,26 @@ public sealed class GameSyncGameScanner
 
     // Collapse candidates sharing the same normalized installDir to one entry,
     // keeping the one from the highest-precedence store (steam > epic > ubisoft).
-    internal static List<(string Name, string InstallDir, string Store)> DedupeByInstallDir(
-        List<(string Name, string InstallDir, string Store)> candidates)
+    internal static List<(string Name, string InstallDir, string Store, string AppId)> DedupeByInstallDir(
+        List<(string Name, string InstallDir, string Store, string AppId)> candidates)
     {
         var seen = new Dictionary<string, int>(StringComparer.OrdinalIgnoreCase);
-        var result = new List<(string Name, string InstallDir, string Store)>(candidates.Count);
+        var result = new List<(string Name, string InstallDir, string Store, string AppId)>(candidates.Count);
         for (int i = 0; i < candidates.Count; i++)
         {
-            var (name, dir, store) = candidates[i];
+            var (name, dir, store, appId) = candidates[i];
             var key = CanonicalDirKey(dir);
             if (seen.TryGetValue(key, out var existingIdx))
             {
                 if (StorePrecedence(store) < StorePrecedence(result[existingIdx].Store))
                 {
-                    result[existingIdx] = (name, dir, store);
+                    result[existingIdx] = (name, dir, store, appId);
                 }
             }
             else
             {
                 seen[key] = result.Count;
-                result.Add((name, dir, store));
+                result.Add((name, dir, store, appId));
             }
         }
         return result;
@@ -99,14 +99,14 @@ public sealed class GameSyncGameScanner
         _scanning = true;
         try
         {
-            var candidates = new List<(string Name, string InstallDir, string Store)>();
+            var candidates = new List<(string Name, string InstallDir, string Store, string AppId)>();
             CollectSteamGames(candidates);
             CollectUbisoftGames(candidates);
             CollectEpicGames(candidates);
             candidates = DedupeByInstallDir(candidates);
 
             var results = new List<DetectedGame>(candidates.Count);
-            foreach (var (name, installDir, store) in candidates)
+            foreach (var (name, installDir, store, appId) in candidates)
             {
                 if (ct.IsCancellationRequested)
                 {
@@ -119,7 +119,9 @@ public sealed class GameSyncGameScanner
                     Name = name,
                     Store = store,
                     InstallDir = installDir,
+                    AppId = appId,
                     EmitsChroma = emits,
+                    EmitsGsi = store == "steam" && appId == "730",
                     ScannedFiles = scanned,
                     SkippedFiles = skipped,
                 });
@@ -142,35 +144,14 @@ public sealed class GameSyncGameScanner
         }
     }
 
-    private void CollectSteamGames(List<(string, string, string)> candidates)
+    private void CollectSteamGames(List<(string, string, string, string)> candidates)
     {
         try
         {
-            var steamRoot = ResolveSteamRoot();
-            if (steamRoot is null)
+            var libraryFolders = new List<string>(SteamLibraryLocator.EnumerateLibraryPaths());
+            if (libraryFolders.Count == 0)
             {
                 return;
-            }
-
-            var libraryFolders = new List<string> { steamRoot };
-            var vdfPath = Path.Combine(steamRoot, "steamapps", "libraryfolders.vdf");
-            if (File.Exists(vdfPath))
-            {
-                foreach (var rawLine in File.ReadLines(vdfPath))
-                {
-                    var line = rawLine.Trim();
-                    var key = ReadFirstQuotedValue(line);
-                    if (!key.Equals("path", StringComparison.OrdinalIgnoreCase))
-                    {
-                        continue;
-                    }
-
-                    var value = ReadSecondQuotedValue(line);
-                    if (value.Length > 0 && Directory.Exists(value))
-                    {
-                        libraryFolders.Add(value);
-                    }
-                }
             }
 
             foreach (var library in libraryFolders)
@@ -196,6 +177,10 @@ public sealed class GameSyncGameScanner
                 {
                     try
                     {
+                        var manifestFileName = Path.GetFileNameWithoutExtension(manifest);
+                        var underscoreIdx = manifestFileName.IndexOf('_');
+                        var appId = underscoreIdx >= 0 ? manifestFileName.Substring(underscoreIdx + 1) : "";
+
                         var name = "";
                         var installDir = "";
                         foreach (var rawLine in File.ReadLines(manifest))
@@ -217,7 +202,7 @@ public sealed class GameSyncGameScanner
                             var fullPath = Path.Combine(library, "steamapps", "common", installDir);
                             if (Directory.Exists(fullPath))
                             {
-                                candidates.Add((name, fullPath, "steam"));
+                                candidates.Add((name, fullPath, "steam", appId));
                             }
                         }
                     }
@@ -234,46 +219,7 @@ public sealed class GameSyncGameScanner
         }
     }
 
-    private static string? ResolveSteamRoot()
-    {
-#if WINDOWS
-        try
-        {
-            var regPath = Registry.GetValue(
-                @"HKEY_CURRENT_USER\Software\Valve\Steam", "SteamPath", null) as string;
-            if (regPath is not null && Directory.Exists(regPath))
-            {
-                return regPath;
-            }
-        }
-        catch
-        {
-            // fall through to path-based fallbacks
-        }
-#endif
-        var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-        if (OperatingSystem.IsLinux())
-        {
-            var linuxPath = Path.Combine(home, ".steam", "steam");
-            if (Directory.Exists(linuxPath))
-            {
-                return linuxPath;
-            }
-        }
-
-        if (OperatingSystem.IsMacOS())
-        {
-            var macPath = Path.Combine(home, "Library", "Application Support", "Steam");
-            if (Directory.Exists(macPath))
-            {
-                return macPath;
-            }
-        }
-
-        return null;
-    }
-
-    private void CollectUbisoftGames(List<(string, string, string)> candidates)
+    private void CollectUbisoftGames(List<(string, string, string, string)> candidates)
     {
 #if WINDOWS
         try
@@ -308,7 +254,7 @@ public sealed class GameSyncGameScanner
                 var gameName = Path.GetFileName(dir);
                 if (gameName.Length > 0)
                 {
-                    candidates.Add((gameName, dir, "ubisoft"));
+                    candidates.Add((gameName, dir, "ubisoft", ""));
                 }
             }
         }
@@ -319,7 +265,7 @@ public sealed class GameSyncGameScanner
 #endif
     }
 
-    private void CollectEpicGames(List<(string, string, string)> candidates)
+    private void CollectEpicGames(List<(string, string, string, string)> candidates)
     {
 #if WINDOWS
         try
@@ -339,7 +285,7 @@ public sealed class GameSyncGameScanner
                     var installLocation = ExtractJsonStringValue(text, "InstallLocation");
                     if (displayName.Length > 0 && installLocation.Length > 0 && Directory.Exists(installLocation))
                     {
-                        candidates.Add((displayName, installLocation, "epic"));
+                        candidates.Add((displayName, installLocation, "epic", ""));
                     }
                 }
                 catch (Exception ex)

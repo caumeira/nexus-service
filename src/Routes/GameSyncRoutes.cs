@@ -3,6 +3,7 @@ using Nexus.Service.Devices;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting;
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.GameSync;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Lighting;
 using Nexus.Service.Serialization;
@@ -80,6 +81,48 @@ public static class GameSyncRoutes
                 scanner.RequestScan();
                 return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
             }).AllowPanel();
+
+        // CS2 GSI receiver. CS2 posts live game state here; the mapper converts
+        // state to a whole-rig fill color ingested by the active GameSyncEffect.
+        app.MapPost("/lighting/game-sync/gsi",
+            async (HttpContext ctx, ILightingProvider l) =>
+            {
+                Cs2GsiPayload? payload;
+                try
+                {
+                    payload = await System.Text.Json.JsonSerializer.DeserializeAsync(
+                        ctx.Request.Body,
+                        AppJsonContext.Default.Cs2GsiPayload);
+                }
+                catch
+                {
+                    return Results.Json(
+                        new ApiResponse { Error = true, Msg = "invalid payload" },
+                        AppJsonContext.Default.ApiResponse,
+                        statusCode: 400);
+                }
+
+                if (payload is null)
+                {
+                    return Results.Json(
+                        new ApiResponse { Error = true, Msg = "invalid payload" },
+                        AppJsonContext.Default.ApiResponse,
+                        statusCode: 400);
+                }
+
+                var effect = l.ActiveGameSyncEffect();
+                if (effect is null)
+                {
+                    return Results.Json(
+                        new ApiResponse { Error = true, Msg = "Game Sync not active" },
+                        AppJsonContext.Default.ApiResponse,
+                        statusCode: 409);
+                }
+
+                var (r, g, b) = GsiLightingMapper.MapToColor(payload);
+                effect.IngestAuthoredFill(r, g, b, "Counter-Strike 2");
+                return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
+            }).LocalhostOnly();
 
         // Current Game Sync mode state: whether it is active, whether our
         // Chroma shim DLLs are installed, whether a real Razer SDK conflicts,
