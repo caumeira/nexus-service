@@ -84,6 +84,25 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
                 PortLabel = "Pump 2",
             });
         }
+        if (_hub.State.HasFan)
+        {
+            // Radiator fans on the Type-M channel. Telemetry-only for now: the
+            // cooler drives them from the firmware curve / motherboard. Live host
+            // fan-duty control is a separate change (the per-channel FF CC 02 02
+            // command + the hub-wide mode coupling with the pump).
+            result.Add(new FanChannel
+            {
+                Id = PumpId(serial, "fans"),
+                Name = "Fans",
+                Kind = FanKinds.Fan,
+                ReadOnly = true,
+                Rpm = _hub.State.FanRpm,
+                Mode = FanModes.Auto,
+                DeviceId = deviceId,
+                DeviceName = deviceName,
+                PortLabel = "Radiator fans",
+            });
+        }
         return result;
     }
 
@@ -136,6 +155,8 @@ public sealed class QSeriesCoolerCoolingProvider : IFanControlProvider, ICooling
         };
         if (_hub.State.HasPump2)
             devices.Add(new CoolingDevice { Id = PumpId(serial, "pump2"), Name = "Pump 2", Type = "Pump", Rpm = _hub.State.Pump2Rpm });
+        if (_hub.State.HasFan)
+            devices.Add(new CoolingDevice { Id = PumpId(serial, "fans"), Name = "Fans", Type = "Fan", Rpm = _hub.State.FanRpm });
 
         return new[]
         {

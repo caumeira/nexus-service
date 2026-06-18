@@ -212,6 +212,10 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     // long on a marginal serial link.
     private const int TelemetryReadTimeoutMs = 150;
 
+    // The 240-byte Type-M channel-info reply is larger than the pump status, so it
+    // gets a longer read deadline. Still well under the fw-version poll's 400 ms.
+    private const int FanReadTimeoutMs = 250;
+
     /// <summary>
     /// Poll pump telemetry (Port-0, plus the Q80 second pump) into <see cref="State"/>.
     /// Read-only on the wire — issues no control writes. Shares <c>_lock</c> with
@@ -250,6 +254,17 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                         State.Pump2Rpm = pump2;
                         State.HasPump2 = pump2 > 0;
                     }
+                }
+
+                // Radiator fans on the Type-M channel (FF CC 01 02).
+                transport.DiscardInput();
+                transport.Write(QSeriesCoolerProtocol.BuildGetChannelInfo(QSeriesCoolerProtocol.FanChannel));
+                var fbuf = new byte[QSeriesCoolerProtocol.ChannelInfoResponseLength];
+                var fn = transport.Read(fbuf, FanReadTimeoutMs);
+                if (QSeriesCoolerProtocol.TryParseFanRpm(fbuf.AsSpan(0, fn), out var fanRpm, out var fanPresent))
+                {
+                    State.HasFan = fanPresent;
+                    State.FanRpm = fanRpm;
                 }
                 return true;
             }

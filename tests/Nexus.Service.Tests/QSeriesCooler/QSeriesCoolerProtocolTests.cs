@@ -348,4 +348,45 @@ public class QSeriesCoolerProtocolTests
         wrongHeader[0] = 0xFF; wrongHeader[1] = 0xDD;
         Assert.False(QSeriesCoolerProtocol.TryParseFirmwareCurve(wrongHeader, out _));
     }
+
+    // ── Radiator fan telemetry (FF CC 01 02) ──
+
+    [Fact]
+    public void BuildGetChannelInfo_emits_FF_CC_01_channel()
+    {
+        Assert.Equal(new byte[] { 0xFF, 0xCC, 0x01, 0x02 },
+            QSeriesCoolerProtocol.BuildGetChannelInfo(QSeriesCoolerProtocol.FanChannel));
+    }
+
+    [Fact]
+    public void TryParseFanRpm_duo_reports_max_of_the_two_fans()
+    {
+        var resp = new byte[QSeriesCoolerProtocol.ChannelInfoResponseLength];
+        resp[0] = 0xFF; resp[1] = 0xCC;
+        resp[3] = 0x04;            // FT12Duo
+        resp[8] = 1; resp[9] = 0;  // fan 1 -> 1500 rpm
+        resp[4] = 2; resp[5] = 0;  // fan 2 -> 750 rpm
+        Assert.True(QSeriesCoolerProtocol.TryParseFanRpm(resp, out var rpm, out var present));
+        Assert.True(present);
+        Assert.Equal(1500, rpm);
+    }
+
+    [Fact]
+    public void TryParseFanRpm_no_fan_unit_reports_absent()
+    {
+        var resp = new byte[QSeriesCoolerProtocol.ChannelInfoResponseLength];
+        resp[0] = 0xFF; resp[1] = 0xCC; // category byte [3] left 0x00 = no device
+        Assert.True(QSeriesCoolerProtocol.TryParseFanRpm(resp, out var rpm, out var present));
+        Assert.False(present);
+        Assert.Equal(0, rpm);
+    }
+
+    [Fact]
+    public void TryParseFanRpm_rejects_short_or_misframed()
+    {
+        Assert.False(QSeriesCoolerProtocol.TryParseFanRpm(new byte[20], out _, out _));
+        var wrong = new byte[QSeriesCoolerProtocol.ChannelInfoResponseLength];
+        wrong[0] = 0xFF; wrong[1] = 0xDD;
+        Assert.False(QSeriesCoolerProtocol.TryParseFanRpm(wrong, out _, out _));
+    }
 }
