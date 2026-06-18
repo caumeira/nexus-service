@@ -389,4 +389,40 @@ public class QSeriesCoolerProtocolTests
         wrong[0] = 0xFF; wrong[1] = 0xDD;
         Assert.False(QSeriesCoolerProtocol.TryParseFanRpm(wrong, out _, out _));
     }
+
+    [Fact]
+    public void BuildSetFanSpeed_lays_out_header_and_per_device_duty()
+    {
+        var cmd = QSeriesCoolerProtocol.BuildSetFanSpeed(QSeriesCoolerProtocol.FanChannel, 60);
+        Assert.Equal(166, cmd.Length); // 18 device blocks * 9 + 4-byte header
+        Assert.Equal(QSeriesCoolerProtocol.SetFanFrameLength, cmd.Length);
+        Assert.Equal(new byte[] { 0xFF, 0xCC, 0x02, 0x02 }, cmd[0..4]);
+        // Device 0 block starts at byte 4: index, percentage, rpm-mode.
+        Assert.Equal(1, cmd[4]);   // 1-based device index
+        Assert.Equal(60, cmd[6]);  // percentage %
+        Assert.Equal(0, cmd[7]);   // RPM mode 0 = percentage
+        Assert.Equal(0, cmd[10]);  // reserve
+        Assert.Equal(0, cmd[11]);  // reserve
+        // Device 1 block at byte 13.
+        Assert.Equal(2, cmd[13]);
+        Assert.Equal(60, cmd[15]);
+    }
+
+    [Fact]
+    public void BuildSetFanSpeed_clamps_duty()
+    {
+        Assert.Equal(100, QSeriesCoolerProtocol.BuildSetFanSpeed(QSeriesCoolerProtocol.FanChannel, 150)[6]);
+        Assert.Equal(0, QSeriesCoolerProtocol.BuildSetFanSpeed(QSeriesCoolerProtocol.FanChannel, -5)[6]);
+    }
+
+    [Theory]
+    [InlineData(90, true, 90)]    // turbo on: full range
+    [InlineData(100, true, 100)]
+    [InlineData(90, false, 65)]   // turbo off: capped at the fan ceiling
+    [InlineData(50, false, 50)]   // below the cap: unchanged
+    [InlineData(150, false, 65)]
+    public void CapFanDutyForTurbo_ceilings_off_turbo(int duty, bool turbo, int expected)
+    {
+        Assert.Equal(expected, QSeriesCoolerProtocol.CapFanDutyForTurbo(duty, turbo));
+    }
 }

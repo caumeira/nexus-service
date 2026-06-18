@@ -331,6 +331,49 @@ public static class QSeriesCoolerProtocol
     public static byte[] BuildSetTurboMcu(byte turboByte) => new byte[] { Frame0, OpCooler, SubSetTurboMcu, turboByte };
 
     /// <summary>
+    /// Fan duty ceiling (%) the firmware enforces when turbo is off. HYTE's client
+    /// caps fan duty off-turbo (reference uses 70); we use 65 to match the duty
+    /// shown by the cooling-card limit line and the turbo explainer (2000 RPM ≈ 65%).
+    /// </summary>
+    public const int FanTurboOffDutyCap = 65;
+
+    /// <summary>Clamp a fan duty to 0-100 and apply the off-turbo ceiling. Mirrors the pump's off-turbo cap.</summary>
+    public static int CapFanDutyForTurbo(int dutyPercent, bool turboOn)
+    {
+        var d = Math.Clamp(dutyPercent, 0, 100);
+        return turboOn ? d : Math.Min(d, FanTurboOffDutyCap);
+    }
+
+    /// <summary>Length of the per-channel fan-speed frame: FF CC 02 &lt;channel&gt; + 18 nine-byte device blocks (per the set-fan spec, 18*9+4).</summary>
+    public const int SetFanFrameLength = 4 + ChannelDeviceCount * FanDeviceBlock;
+    private const int ChannelDeviceCount = 18;
+    private const int FanDeviceBlock = 9;
+
+    /// <summary>
+    /// Build the per-channel fan-speed frame (FF CC 02 &lt;channel&gt;) per the set-fan
+    /// spec: 18 nine-byte device blocks after the 4-byte header. Each block is
+    /// [device index, 0x00, percentage%, RPM-mode (0), RPM_H, RPM_L, reserve×3].
+    /// Plain 0-100% duty in the percentage byte; no voltage map. The cooler must
+    /// already be in software mode for this to take effect.
+    /// </summary>
+    public static byte[] BuildSetFanSpeed(byte channel, int dutyPercent)
+    {
+        var duty = (byte)Math.Clamp(dutyPercent, 0, 100);
+        var cmd = new byte[SetFanFrameLength];
+        cmd[0] = Frame0;
+        cmd[1] = OpCooler;
+        cmd[2] = SubSetControl;
+        cmd[3] = channel;
+        for (var i = 0; i < ChannelDeviceCount; i++)
+        {
+            var b = 4 + i * FanDeviceBlock;
+            cmd[b + 0] = (byte)(i + 1); // 1-based device index
+            cmd[b + 2] = duty;          // percentage % (RPM mode left 0)
+        }
+        return cmd;
+    }
+
+    /// <summary>
     /// Map a 0-100 pump duty to the firmware's voltage-percentage wire byte.
     /// The pump is off below 46% and ramps non-linearly above; off-turbo the
     /// wire byte is additionally capped at 55. Matches PQSeriesCommand

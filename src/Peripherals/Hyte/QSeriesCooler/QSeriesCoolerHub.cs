@@ -31,9 +31,16 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     // Starts at 0 (the silent default) so a device absent from boot never logs
     // "discovery returned 0"; only a real change (0->N found, or N->0 disconnect) logs.
     private int _lastDiscoveredPortCount;
-    // Last software-commanded pump duty, echoed when toggling turbo so it
-    // doesn't reset the pump speed.
+    // Last software-commanded pump / fan duty, echoed when toggling turbo or
+    // switching to software so the other channel isn't reset.
     private int _lastPumpDuty = 50;
+    private int _lastFanDuty = 50;
+    // The cooling-policy "pinned" mode (null until the user picks one). The
+    // cooling provider reads it to decide whether to swallow engine duty writes
+    // so they don't flip the shared pump+fan hub back to software. Reset to null
+    // on process start, so a restored profile drives normally. Mirrors the NP50
+    // hub's DesiredCoolingMode.
+    private byte? _desiredControlMode;
 
     public QSeriesCoolerHub(IQSeriesCoolerPortDiscovery discovery, Func<Np50PortInfo, INp50Transport> transportFactory)
     {
@@ -330,6 +337,63 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     }
 
     /// <summary>
+    /// The user-pinned control mode (null until one is chosen, reset on process
+    /// start). The cooling provider swallows engine duty writes when this is a
+    /// non-software mode so they don't flip the shared pump+fan hub back to
+    /// software.
+    /// </summary>
+    public byte? DesiredControlMode => _desiredControlMode;
+
+    /// <summary>Record the pinned mode without re-issuing a control write (the duty setters assert software live).</summary>
+    public void MarkDesiredControlMode(byte? mode)
+    {
+        lock (_lock) { _desiredControlMode = mode; }
+    }
+
+    /// <summary>
+    /// Drive the radiator fans at <paramref name="dutyPercent"/> (0-100) under
+    /// software control. Ensures the hub is in software mode first (preserving the
+    /// pump's last duty), then writes the per-channel fan frame. Plain 0-100% duty.
+    /// </summary>
+    public bool SetFanSpeed(int dutyPercent)
+    {
+        lock (_lock)
+        {
+            if (!EnsureConnected()) return false;
+            var t = _transport;
+            if (t is null) return false;
+            try
+            {
+                var port0 = new byte[QSeriesCoolerProtocol.Port0ResponseLength];
+                if (!ReadPort0(port0)) return false;
+                var turboOn = QSeriesCoolerProtocol.TurboOnOf(port0);
+                // Off-turbo the firmware ceilings fan duty; apply it host-side so
+                // the cooling-card limit line is the actual cap.
+                var fanDuty = QSeriesCoolerProtocol.CapFanDutyForTurbo(dutyPercent, turboOn);
+                // The fan frame only takes effect in software mode; switch if
+                // needed, preserving the pump's last commanded duty so we don't
+                // stall it while bringing the fan under control.
+                if (QSeriesCoolerProtocol.ControlModeOf(port0) != QSeriesCoolerProtocol.ControlModeSoftware)
+                {
+                    var pumpWire = QSeriesCoolerProtocol.MapPumpDutyToWire(_lastPumpDuty, turboOn);
+                    var turboByte = turboOn ? QSeriesCoolerProtocol.TurboOnByte : QSeriesCoolerProtocol.TurboOffByte;
+                    t.Write(QSeriesCoolerProtocol.BuildSetControl(QSeriesCoolerProtocol.ControlModeSoftware, pumpWire, turboByte, port0));
+                }
+                t.Write(QSeriesCoolerProtocol.BuildSetFanSpeed(QSeriesCoolerProtocol.FanChannel, fanDuty));
+                _lastFanDuty = fanDuty;
+                State.ControlMode = QSeriesCoolerProtocol.ControlModeSoftware;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[qseries-cooler] set fan speed failed: {ex.GetType().Name}: {ex.Message}");
+                Disconnect();
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
     /// Switch the hub control mode (Software / Motherboard / Firmware). Reads
     /// Port-0 first to preserve turbo + fw-animation state.
     /// </summary>
@@ -349,6 +413,7 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                     QSeriesCoolerProtocol.TurboOnOf(port0) ? QSeriesCoolerProtocol.TurboOnByte : QSeriesCoolerProtocol.TurboOffByte,
                     port0));
                 State.ControlMode = mode;
+                _desiredControlMode = mode; // pin: a user-chosen mode the engine must not override
                 // The live control byte alone doesn't engage the onboard curve;
                 // firmware mode also needs the EEPROM default flipped to Temperature
                 // (and reset to Motherboard when handing back), preserving the
