@@ -35,6 +35,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     private readonly MediaLibrary _media;
     private readonly IMonitorEnumerator _monitors;
     private readonly IScreenFrameSource? _frameSource;
+    private readonly GameSyncGameScanner? _scanner;
 
     // Live-reactive post-process holders shared between the effect and the
     // /lighting/{mode}/effect endpoint. The endpoint mutates the fields; the
@@ -48,7 +49,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     // frames that arrive while the effect is already running are not dropped.
     private GameSyncEffect? _gameSyncEffect;
 
-    public LightingProvider(IConfigStore store, LightingEngine engine, LightingOutputHub hub, GpuContext gpu, MediaLibrary media, IMonitorEnumerator monitors, IScreenFrameSource? frameSource = null, RgbBridge? rgb = null)
+    public LightingProvider(IConfigStore store, LightingEngine engine, LightingOutputHub hub, GpuContext gpu, MediaLibrary media, IMonitorEnumerator monitors, IScreenFrameSource? frameSource = null, RgbBridge? rgb = null, GameSyncGameScanner? scanner = null)
     {
         _store = store;
         _engine = engine;
@@ -58,12 +59,26 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         _media = media;
         _monitors = monitors;
         _frameSource = frameSource;
+        _scanner = scanner;
 
         var s = _store.Load().Lighting;
         _screenPP.Set(s.ScreenEffect.Hue, s.ScreenEffect.Colorize, s.ScreenEffect.Saturation, s.ScreenEffect.Contrast, s.ScreenEffect.FlipX, s.ScreenEffect.FlipY, s.ScreenEffect.Reactive, s.ScreenEffect.Reactivity, s.ScreenEffect.Intensity);
         _mediaPP.Set(s.MediaEffect.Hue, s.MediaEffect.Colorize, s.MediaEffect.Saturation, s.MediaEffect.Contrast, s.MediaEffect.FlipX, s.MediaEffect.FlipY);
 
         _engine.OnFrame += frame => _ = _hub.BroadcastBinaryAsync(frame);
+        WireScanner(_scanner);
+    }
+
+    // Separate method so the nullable assignment does not produce IDE0031 in
+    // the constructor (null-conditional can't appear on the left of an assignment).
+    private void WireScanner(GameSyncGameScanner? scanner)
+    {
+        if (scanner is null)
+        {
+            return;
+        }
+
+        scanner.OnScanComplete = OnGameScanComplete;
     }
 
     /// <summary>
@@ -775,6 +790,38 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             _engine.SetEffect(new GifEffect(body.Paths[0]));
         }
         _store.Update(s => s.Lighting.Sync = "gif");
+    }
+
+    // Fires on the scanner's background thread after each scan completes.
+    // Ensures the GSI cfg is present when Game Sync is active and a supported
+    // GSI game was found, without requiring the user to re-toggle.
+    private void OnGameScanComplete(IReadOnlyList<DetectedGame> games)
+    {
+        if (!string.Equals(GetSync(), "gamesync", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        var hasGsiGame = false;
+        foreach (var g in games)
+        {
+            if (g.EmitsGsi)
+            {
+                hasGsiGame = true;
+                break;
+            }
+        }
+
+        if (!hasGsiGame)
+        {
+            return;
+        }
+
+        var token = _store.Load().Auth?.Token ?? "";
+        if (token.Length > 0)
+        {
+            GsiConfigInstaller.EnsureInstalled(token);
+        }
     }
 
     public void StartGameSync()

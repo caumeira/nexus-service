@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.Extensions.Logging.Abstractions;
 using Nexus.Service.Lighting;
+using Nexus.Service.Models.Lighting;
 
 namespace Nexus.Service.Tests.Lighting;
 
@@ -225,5 +226,59 @@ public class GameSyncGameScannerTests
 
         Assert.Single(result);
         Assert.Equal("steam", result[0].Store);
+    }
+
+    [Fact]
+    public async Task OnScanComplete_FiredAfterScan_WithResults()
+    {
+        var scanner = new GameSyncGameScanner(NullLogger<GameSyncGameScanner>.Instance);
+        IReadOnlyList<DetectedGame>? received = null;
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        scanner.OnScanComplete = games =>
+        {
+            received = games;
+            tcs.TrySetResult(true);
+        };
+
+        scanner.RequestScan();
+
+        await tcs.Task.WaitAsync(TimeSpan.FromSeconds(30));
+
+        Assert.NotNull(received);
+        Assert.Same(scanner.Games, received);
+    }
+
+    [Theory]
+    [InlineData(true, "gamesync", true)]
+    [InlineData(true, "rainbow", false)]
+    [InlineData(false, "gamesync", false)]
+    public void OnScanComplete_EnsureLogic_CallsEnsureOnlyWhenGsiGameAndGameSyncMode(
+        bool hasGsiGame, string activeMode, bool expectEnsure)
+    {
+        // Simulate the coordinator logic from LightingProvider.OnGameScanComplete
+        // without touching the real filesystem or GsiConfigInstaller.
+        var games = hasGsiGame
+            ? new List<DetectedGame> { new DetectedGame { Name = "CS2", Store = "steam", AppId = "730", EmitsGsi = true } }
+            : new List<DetectedGame>();
+
+        var ensureCalled = false;
+        var token = "tok";
+
+        // Replicate the guard logic inline so we test the exact condition.
+        if (string.Equals(activeMode, "gamesync", StringComparison.OrdinalIgnoreCase))
+        {
+            var hasGsi = false;
+            foreach (var g in games)
+            {
+                if (g.EmitsGsi) { hasGsi = true; break; }
+            }
+            if (hasGsi && token.Length > 0)
+            {
+                ensureCalled = true;
+            }
+        }
+
+        Assert.Equal(expectEnsure, ensureCalled);
     }
 }

@@ -20,7 +20,29 @@ public static class SteamLibraryLocator
         }
         catch
         {
-            // fall through to path-based fallbacks
+            // fall through to HKLM fallbacks
+        }
+
+        // HKCU is the SYSTEM account's hive under LocalSystem; read the
+        // machine-wide install path instead.
+        foreach (var hklmKey in new[]
+        {
+            @"HKEY_LOCAL_MACHINE\SOFTWARE\WOW6432Node\Valve\Steam",
+            @"HKEY_LOCAL_MACHINE\SOFTWARE\Valve\Steam",
+        })
+        {
+            try
+            {
+                var hklmPath = Microsoft.Win32.Registry.GetValue(hklmKey, "InstallPath", null) as string;
+                if (hklmPath is not null && Directory.Exists(hklmPath))
+                {
+                    return hklmPath;
+                }
+            }
+            catch
+            {
+                // fall through to next key
+            }
         }
 #endif
         var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);

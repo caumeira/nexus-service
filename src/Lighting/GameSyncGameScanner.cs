@@ -31,6 +31,10 @@ public sealed class GameSyncGameScanner
         _logger = logger;
     }
 
+    // Called on the scan thread after results are published. Used to trigger
+    // side-effects (e.g. cfg ensure) without coupling the scanner to providers.
+    public Action<IReadOnlyList<DetectedGame>>? OnScanComplete { get; set; }
+
     public bool Scanning => _scanning;
     public long? ScannedAt => _scannedAtEpoch == 0 ? null : _scannedAtEpoch;
     public IReadOnlyList<DetectedGame> Games => _games;
@@ -137,6 +141,9 @@ public sealed class GameSyncGameScanner
             var emitterCount = results.Count(g => g.EmitsChroma);
             _logger.LogInformation("[game-sync-scanner] scan complete: {GameCount} games, {EmitterCount} emitters",
                 results.Count, emitterCount);
+
+            try { OnScanComplete?.Invoke(_games); }
+            catch (Exception ex) { _logger.LogWarning(ex, "[game-sync-scanner] OnScanComplete callback faulted"); }
         }
         finally
         {
