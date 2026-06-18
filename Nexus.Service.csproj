@@ -354,11 +354,13 @@
     </Content>
   </ItemGroup>
 
-  <!-- Nexus Chroma shim DLLs produced by the nexus-gamesync component.
+  <!-- Nexus Game Sync shim DLLs produced by the nexus-gamesync component.
        build.bat / build32.bat place them under Bundled/win-x64/chroma/x64/
-       (RzChromaSDK64.dll + RzChromatic64.dll) and x86/
-       (RzChromaSDK.dll + RzChromatic.dll). ChromaShimInstaller copies them
-       from {output}/chroma/{x64,x86}/ into System32/SysWOW64 at enable-time.
+       (RzChromaSDK64.dll, RzChromatic64.dll, LightFX.dll,
+        LogitechLedEnginesWrapper.dll, LogitechLed.dll) and x86/ (same names
+       except the Chroma pair uses the 32-bit names without the 64 suffix;
+       LightFX/Logitech share the same filenames across arches). x64 -> System32,
+       x86 -> SysWOW64. ChromaShimInstaller copies them at enable-time.
        Absence is tolerated at build time so Mac/CI builds are unaffected. -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\chroma')">
     <Content Include="Bundled\win-x64\chroma\**\*.*" Exclude="Bundled\win-x64\chroma\**\.gitkeep">

@@ -7,6 +7,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Threading;
 using Microsoft.Win32;
+using Nexus.Service.Lighting.GameSync;
 
 namespace Nexus.Service.Lifecycle;
 
@@ -273,6 +274,12 @@ internal static class WindowsServiceInstaller
         Log("removing firewall rule");
         RunNetsh("advfirewall", "firewall", "delete", "rule",
             $"name=\"{FirewallRuleName}\"");
+
+        Log("removing Game Sync shims");
+        try { ChromaShimInstaller.RemoveIfOurs(); }
+        catch (Exception ex) { Log($"WARN shim removal failed: {ex.Message}"); }
+        try { GsiConfigInstaller.RemoveIfPresent(); }
+        catch (Exception ex) { Log($"WARN gsi cfg removal failed: {ex.Message}"); }
 
         Log("removing Add/Remove Programs entry");
         try { Registry.LocalMachine.DeleteSubKeyTree(UninstallRegKey, throwOnMissingSubKey: false); }

@@ -20,7 +20,7 @@ public enum ChromaShimFileDecision
     Skip,
     /// <summary>File has changed content; overwrite.</summary>
     Overwrite,
-    /// <summary>File belongs to a real Razer install; do not touch.</summary>
+    /// <summary>File belongs to a real vendor install; do not touch.</summary>
     Conflict,
 }
 
@@ -38,51 +38,48 @@ public enum ChromaShimInstallResult
 /// <summary>Snapshot of shim-install state exposed on the /lighting/game-sync/state endpoint.</summary>
 public sealed class ChromaShimState
 {
-    /// <summary>Both Chroma shim pairs are present in System32/SysWOW64 and are ours.</summary>
+    /// <summary>All shim DLLs are present in System32/SysWOW64 and carry our marker.</summary>
     public bool ProviderInstalled { get; init; }
 
-    /// <summary>A real Razer Chroma SDK DLL was found; our shim was not installed.</summary>
+    /// <summary>A real vendor DLL was found in at least one shim slot; those slots were not overwritten.</summary>
     public bool SynapseConflict { get; init; }
 }
 
 /// <summary>
-/// Installs or removes the Nexus Chroma shim DLLs that intercept the Razer
-/// Chroma SDK surface and forward frames to the Game Sync endpoint.
+/// Installs or removes the Nexus Game Sync shim DLLs (Razer Chroma,
+/// Alienware LightFX, and Logitech LED) into System32 and SysWOW64.
 ///
-/// The shim DLLs are produced by the nexus-gamesync component (build.bat /
-/// build32.bat) and staged into Bundled/win-x64/chroma/x64/ and x86/ before
-/// the service publish. Four files total:
-///   x64: RzChromaSDK64.dll, RzChromatic64.dll  -> System32
-///   x86: RzChromaSDK.dll,   RzChromatic.dll    -> SysWOW64
+/// Shim DLLs are produced by the nexus-gamesync component and staged
+/// under Bundled/win-x64/chroma/x64/ and x86/ before the service publish.
+/// Ten files total:
+///   x64: RzChromaSDK64.dll, RzChromatic64.dll, LightFX.dll,
+///        LogitechLedEnginesWrapper.dll, LogitechLed.dll  -> System32
+///   x86: RzChromaSDK.dll, RzChromatic.dll, LightFX.dll,
+///        LogitechLedEnginesWrapper.dll, LogitechLed.dll  -> SysWOW64
 ///
-/// The service runs as LocalSystem (or elevated during dev), so it can write
-/// to both directories directly. On non-elevated dev runs the install is
-/// skipped and logged.
-///
-/// Razer-conflict check: before writing, we read the FileDescription of any
-/// existing DLL. Our shims carry FileDescription "Nexus Chroma Shim". A DLL
-/// with any other non-empty FileDescription (e.g. "Razer Chroma SDK") is not
-/// ours and must not be overwritten.
+/// Ownership check: all Nexus shims carry CompanyName "Nexus". A DLL with
+/// any other non-empty CompanyName (e.g. "Razer Inc.", "Logitech") is not
+/// ours and is never overwritten. Conflict is per-file: a real vendor DLL
+/// in one slot does not block installing unrelated slots.
 /// </summary>
 public static class ChromaShimInstaller
 {
-    // FileDescription embedded in our shim DLLs by the nexus-gamesync build.
-    internal const string OurFileDescription = "Nexus Chroma Shim";
+    internal const string OurCompanyName = "Nexus";
 
     // Source paths inside the publish output directory.
     private static string BundleX64Dir => Path.Combine(AppContext.BaseDirectory, "chroma", "x64");
     private static string BundleX86Dir => Path.Combine(AppContext.BaseDirectory, "chroma", "x86");
 
     // x64 pair -> System32
-    internal static readonly string[] X64Names = { "RzChromaSDK64.dll", "RzChromatic64.dll" };
+    internal static readonly string[] X64Names = { "RzChromaSDK64.dll", "RzChromatic64.dll", "LightFX.dll", "LogitechLedEnginesWrapper.dll", "LogitechLed.dll" };
 
     // x86 pair -> SysWOW64
-    internal static readonly string[] X86Names = { "RzChromaSDK.dll", "RzChromatic.dll" };
+    internal static readonly string[] X86Names = { "RzChromaSDK.dll", "RzChromatic.dll", "LightFX.dll", "LogitechLedEnginesWrapper.dll", "LogitechLed.dll" };
 
     /// <summary>
-    /// Ensures both shim pairs are current in System32 and SysWOW64.
-    /// Idempotent: skips files that are already our shim at the same content.
-    /// Skips entirely (with a conflict log) when a real Razer DLL is present.
+    /// Ensures all shim files are current in System32 and SysWOW64.
+    /// Idempotent: skips files already at the same content. Skips individual
+    /// files (with a conflict log) when a real vendor DLL occupies the slot.
     /// </summary>
     public static ChromaShimInstallResult EnsureInstalled()
     {
@@ -98,13 +95,7 @@ public static class ChromaShimInstaller
 #endif
     }
 
-    /// <summary>
-    /// Removes shim DLLs from System32/SysWOW64 only when they carry our marker.
-    /// Real Razer DLLs are never touched.
-    /// </summary>
-    // TODO: wire this into the service uninstaller (NSIS/WiX uninstall action).
-    // No production caller exists yet; shims installed by EnsureInstalled will
-    // persist on the system after uninstall until this is called.
+    /// <summary>Removes shim DLLs from System32/SysWOW64 only when they carry our marker.</summary>
     public static void RemoveIfOurs()
     {
         if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -139,7 +130,7 @@ public static class ChromaShimInstaller
     /// </summary>
     internal static ChromaShimFileDecision DecideFile(
         bool destExists,
-        string destFileDescription,
+        string destCompanyName,
         bool contentMatches)
     {
         if (!destExists)
@@ -147,14 +138,14 @@ public static class ChromaShimInstaller
             return ChromaShimFileDecision.Copy;
         }
 
-        // Non-empty description that is not ours: real Razer DLL.
-        if (!string.IsNullOrEmpty(destFileDescription) &&
-            !string.Equals(destFileDescription, OurFileDescription, StringComparison.OrdinalIgnoreCase))
+        // Non-empty CompanyName that is not ours: real vendor DLL.
+        if (!string.IsNullOrEmpty(destCompanyName) &&
+            !string.Equals(destCompanyName, OurCompanyName, StringComparison.OrdinalIgnoreCase))
         {
             return ChromaShimFileDecision.Conflict;
         }
 
-        // Our shim (or unsigned/no description). Skip if content is already the same.
+        // Our shim or unsigned DLL. Skip if content matches.
         return contentMatches ? ChromaShimFileDecision.Skip : ChromaShimFileDecision.Overwrite;
     }
 
@@ -184,12 +175,6 @@ public static class ChromaShimInstaller
             return ChromaShimInstallResult.Failed;
         }
 
-        if (HasConflictInDir(system32, X64Names) || HasConflictInDir(sysWow64, X86Names))
-        {
-            ServiceLog.Warn("[chroma-shim] real Razer Chroma SDK DLL detected; skipping install to avoid conflict");
-            return ChromaShimInstallResult.SynapseConflict;
-        }
-
         bool anyUpdated = false;
         if (!CopyPair(BundleX64Dir, X64Names, system32, ref anyUpdated))
         {
@@ -217,20 +202,18 @@ public static class ChromaShimInstaller
 
             var dest = Path.Combine(destDir, name);
             bool destExists = File.Exists(dest);
-            string destDesc = destExists ? ReadFileDescription(dest) : "";
+            string destCompany = destExists ? ReadCompanyName(dest) : "";
             bool contentMatches = destExists && FileBytesEqual(src, dest);
 
-            var decision = DecideFile(destExists, destDesc, contentMatches);
+            var decision = DecideFile(destExists, destCompany, contentMatches);
             switch (decision)
             {
                 case ChromaShimFileDecision.Skip:
                     ServiceLog.Info($"[chroma-shim] already current: {name}");
                     continue;
                 case ChromaShimFileDecision.Conflict:
-                    // Per-pair conflict scan already ran before this loop;
-                    // this path is not normally reached.
-                    ServiceLog.Warn($"[chroma-shim] conflict on {name}; aborting pair");
-                    return false;
+                    ServiceLog.Warn($"[chroma-shim] real vendor DLL at {name}; skipping");
+                    continue;
                 case ChromaShimFileDecision.Copy:
                 case ChromaShimFileDecision.Overwrite:
                     try
@@ -276,8 +259,8 @@ public static class ChromaShimInstaller
             {
                 continue;
             }
-            var desc = ReadFileDescription(path);
-            if (!string.Equals(desc, OurFileDescription, StringComparison.OrdinalIgnoreCase))
+            var company = ReadCompanyName(path);
+            if (!string.Equals(company, OurCompanyName, StringComparison.OrdinalIgnoreCase))
             {
                 ServiceLog.Warn($"[chroma-shim] skipping removal of {name}: not our shim");
                 continue;
@@ -312,7 +295,7 @@ public static class ChromaShimInstaller
         return new ChromaShimState { ProviderInstalled = allInstalled };
     }
 
-    // True when any named DLL in dir has a non-empty FileDescription that is not ours.
+    // True when any named DLL in dir has a non-empty CompanyName that is not ours.
     [SupportedOSPlatform("windows")]
     private static bool HasConflictInDir(string dir, string[] names)
     {
@@ -323,9 +306,9 @@ public static class ChromaShimInstaller
             {
                 continue;
             }
-            var desc = ReadFileDescription(path);
-            if (desc.Length > 0 &&
-                !string.Equals(desc, OurFileDescription, StringComparison.OrdinalIgnoreCase))
+            var company = ReadCompanyName(path);
+            if (company.Length > 0 &&
+                !string.Equals(company, OurCompanyName, StringComparison.OrdinalIgnoreCase))
             {
                 return true;
             }
@@ -343,8 +326,8 @@ public static class ChromaShimInstaller
             {
                 return false;
             }
-            var desc = ReadFileDescription(path);
-            if (!string.Equals(desc, OurFileDescription, StringComparison.OrdinalIgnoreCase))
+            var company = ReadCompanyName(path);
+            if (!string.Equals(company, OurCompanyName, StringComparison.OrdinalIgnoreCase))
             {
                 return false;
             }
@@ -353,11 +336,11 @@ public static class ChromaShimInstaller
     }
 
     [SupportedOSPlatform("windows")]
-    private static string ReadFileDescription(string path)
+    private static string ReadCompanyName(string path)
     {
         try
         {
-            return FileVersionInfo.GetVersionInfo(path).FileDescription ?? "";
+            return FileVersionInfo.GetVersionInfo(path).CompanyName ?? "";
         }
         catch
         {

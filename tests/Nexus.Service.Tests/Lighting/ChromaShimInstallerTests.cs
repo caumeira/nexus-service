@@ -4,7 +4,7 @@ namespace Nexus.Service.Tests.Lighting;
 
 /// <summary>
 /// Tests for ChromaShimInstaller.DecideFile, the pure deploy-decision logic.
-/// Covers: missing -> copy, current -> skip, updated -> overwrite, real Razer -> conflict.
+/// Covers: missing -> copy, current -> skip, updated -> overwrite, real vendor DLL -> conflict.
 /// </summary>
 public class ChromaShimInstallerTests
 {
@@ -15,7 +15,7 @@ public class ChromaShimInstallerTests
     {
         var decision = ChromaShimInstaller.DecideFile(
             destExists: false,
-            destFileDescription: "",
+            destCompanyName: "",
             contentMatches: false);
 
         Assert.Equal(ChromaShimFileDecision.Copy, decision);
@@ -28,35 +28,35 @@ public class ChromaShimInstallerTests
         // function should still return Copy (the dest doesn't exist).
         var decision = ChromaShimInstaller.DecideFile(
             destExists: false,
-            destFileDescription: "",
+            destCompanyName: "",
             contentMatches: true);
 
         Assert.Equal(ChromaShimFileDecision.Copy, decision);
     }
 
-    // ── Real Razer DLL present ───────────────────────────────────────────────
+    // ── Real vendor DLL present ───────────────────────────────────────────────
 
     [Theory]
-    [InlineData("Razer Chroma SDK")]
-    [InlineData("Razer Chroma SDK Service")]
+    [InlineData("Razer Inc.")]
     [InlineData("Razer USA Ltd.")]
-    [InlineData("some other product")]
-    public void DecideFile_Returns_Conflict_When_Destination_Has_Non_Nexus_Description(string description)
+    [InlineData("Logitech")]
+    [InlineData("some other company")]
+    public void DecideFile_Returns_Conflict_When_Destination_Has_Non_Nexus_CompanyName(string companyName)
     {
         var decision = ChromaShimInstaller.DecideFile(
             destExists: true,
-            destFileDescription: description,
+            destCompanyName: companyName,
             contentMatches: false);
 
         Assert.Equal(ChromaShimFileDecision.Conflict, decision);
     }
 
     [Fact]
-    public void DecideFile_Returns_Conflict_Even_When_Content_Would_Match_But_Description_Is_Foreign()
+    public void DecideFile_Returns_Conflict_Even_When_Content_Would_Match_But_CompanyName_Is_Foreign()
     {
         var decision = ChromaShimInstaller.DecideFile(
             destExists: true,
-            destFileDescription: "Razer Chroma SDK",
+            destCompanyName: "Razer Inc.",
             contentMatches: true);
 
         Assert.Equal(ChromaShimFileDecision.Conflict, decision);
@@ -69,18 +69,18 @@ public class ChromaShimInstallerTests
     {
         var decision = ChromaShimInstaller.DecideFile(
             destExists: true,
-            destFileDescription: ChromaShimInstaller.OurFileDescription,
+            destCompanyName: ChromaShimInstaller.OurCompanyName,
             contentMatches: true);
 
         Assert.Equal(ChromaShimFileDecision.Skip, decision);
     }
 
     [Fact]
-    public void DecideFile_OurFileDescription_Case_Insensitive_Matches_Skip()
+    public void DecideFile_OurCompanyName_Case_Insensitive_Matches_Skip()
     {
         var decision = ChromaShimInstaller.DecideFile(
             destExists: true,
-            destFileDescription: ChromaShimInstaller.OurFileDescription.ToLowerInvariant(),
+            destCompanyName: ChromaShimInstaller.OurCompanyName.ToLowerInvariant(),
             contentMatches: true);
 
         Assert.Equal(ChromaShimFileDecision.Skip, decision);
@@ -93,32 +93,32 @@ public class ChromaShimInstallerTests
     {
         var decision = ChromaShimInstaller.DecideFile(
             destExists: true,
-            destFileDescription: ChromaShimInstaller.OurFileDescription,
+            destCompanyName: ChromaShimInstaller.OurCompanyName,
             contentMatches: false);
 
         Assert.Equal(ChromaShimFileDecision.Overwrite, decision);
     }
 
-    // ── Empty FileDescription (unsigned or stripped DLL) ─────────────────────
+    // ── Empty CompanyName (unsigned or stripped DLL) ─────────────────────────
 
     [Fact]
-    public void DecideFile_Returns_Skip_When_Description_Empty_And_Content_Matches()
+    public void DecideFile_Returns_Skip_When_CompanyName_Empty_And_Content_Matches()
     {
-        // A DLL with no FileDescription is treated as our shim if content matches.
+        // A DLL with no CompanyName is treated as our shim if content matches.
         var decision = ChromaShimInstaller.DecideFile(
             destExists: true,
-            destFileDescription: "",
+            destCompanyName: "",
             contentMatches: true);
 
         Assert.Equal(ChromaShimFileDecision.Skip, decision);
     }
 
     [Fact]
-    public void DecideFile_Returns_Overwrite_When_Description_Empty_And_Content_Differs()
+    public void DecideFile_Returns_Overwrite_When_CompanyName_Empty_And_Content_Differs()
     {
         var decision = ChromaShimInstaller.DecideFile(
             destExists: true,
-            destFileDescription: "",
+            destCompanyName: "",
             contentMatches: false);
 
         Assert.Equal(ChromaShimFileDecision.Overwrite, decision);
@@ -127,17 +127,43 @@ public class ChromaShimInstallerTests
     // ── DLL name constants ────────────────────────────────────────────────────
 
     [Fact]
-    public void X64Names_Contains_Both_Required_DLLs()
+    public void X64Names_Contains_All_Required_DLLs()
     {
         Assert.Contains("RzChromaSDK64.dll", ChromaShimInstaller.X64Names);
         Assert.Contains("RzChromatic64.dll", ChromaShimInstaller.X64Names);
+        Assert.Contains("LightFX.dll", ChromaShimInstaller.X64Names);
+        Assert.Contains("LogitechLedEnginesWrapper.dll", ChromaShimInstaller.X64Names);
+        Assert.Contains("LogitechLed.dll", ChromaShimInstaller.X64Names);
     }
 
     [Fact]
-    public void X86Names_Contains_Both_Required_DLLs()
+    public void X86Names_Contains_All_Required_DLLs()
     {
         Assert.Contains("RzChromaSDK.dll", ChromaShimInstaller.X86Names);
         Assert.Contains("RzChromatic.dll", ChromaShimInstaller.X86Names);
+        Assert.Contains("LightFX.dll", ChromaShimInstaller.X86Names);
+        Assert.Contains("LogitechLedEnginesWrapper.dll", ChromaShimInstaller.X86Names);
+        Assert.Contains("LogitechLed.dll", ChromaShimInstaller.X86Names);
+    }
+
+    // ── Per-file conflict does not block other slots ───────────────────────────
+
+    [Fact]
+    public void DecideFile_Conflict_On_One_File_Does_Not_Affect_Independent_Decisions()
+    {
+        // A vendor DLL in one slot must not affect the decision for a different slot.
+        var conflictDecision = ChromaShimInstaller.DecideFile(
+            destExists: true,
+            destCompanyName: "Logitech",
+            contentMatches: false);
+
+        var copyDecision = ChromaShimInstaller.DecideFile(
+            destExists: false,
+            destCompanyName: "",
+            contentMatches: false);
+
+        Assert.Equal(ChromaShimFileDecision.Conflict, conflictDecision);
+        Assert.Equal(ChromaShimFileDecision.Copy, copyDecision);
     }
 
     // ── Non-Windows returns NotApplicable ─────────────────────────────────────
