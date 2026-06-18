@@ -249,6 +249,43 @@ public class GameSyncGameScannerTests
         Assert.Same(scanner.Games, received);
     }
 
+    [Fact]
+    public async Task RequestScanIfStale_WhenNeverScanned_TriggersScan()
+    {
+        var scanner = new GameSyncGameScanner(NullLogger<GameSyncGameScanner>.Instance);
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        scanner.OnScanComplete = _ => tcs.TrySetResult(true);
+
+        Assert.Null(scanner.ScannedAt);
+        scanner.RequestScanIfStale();
+
+        await tcs.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.NotNull(scanner.ScannedAt);
+    }
+
+    [Fact]
+    public async Task RequestScanIfStale_WhenFresh_DoesNotRescan()
+    {
+        var scanner = new GameSyncGameScanner(NullLogger<GameSyncGameScanner>.Instance);
+        var count = 0;
+        var firstDone = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        scanner.OnScanComplete = _ =>
+        {
+            System.Threading.Interlocked.Increment(ref count);
+            firstDone.TrySetResult(true);
+        };
+
+        scanner.RequestScan();
+        await firstDone.Task.WaitAsync(TimeSpan.FromSeconds(30));
+        Assert.Equal(1, count);
+
+        // ScannedAt is now within the freshness window, so a stale-check must
+        // not start a second scan.
+        scanner.RequestScanIfStale();
+        await Task.Delay(400);
+        Assert.Equal(1, count);
+    }
+
     [Theory]
     [InlineData(true, "gamesync", true)]
     [InlineData(true, "rainbow", false)]

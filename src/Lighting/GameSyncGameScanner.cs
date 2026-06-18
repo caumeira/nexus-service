@@ -49,6 +49,21 @@ public sealed class GameSyncGameScanner
         Task.Run(() => RunScan(ct), ct);
     }
 
+    // Re-scan freshness window. The /games route (this method's only caller) is
+    // hit when the Game Sync surface loads, so this fires on view, not on a timer.
+    private const long StaleScanSeconds = 600;
+
+    // Scans only when none has run yet or the last result is stale. Deduped by
+    // RequestScan's run guard, so concurrent polls collapse to one scan.
+    public void RequestScanIfStale(CancellationToken ct = default)
+    {
+        var at = ScannedAt;
+        if (at is null || DateTimeOffset.UtcNow.ToUnixTimeSeconds() - at.Value > StaleScanSeconds)
+        {
+            RequestScan(ct);
+        }
+    }
+
     // Store precedence for dedupe: lower value wins.
     private static int StorePrecedence(string store) => store switch
     {

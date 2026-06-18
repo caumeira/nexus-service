@@ -52,9 +52,11 @@ public static class GameSyncRoutes
                 return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
             }).LocalhostOnly();
 
-        // Detected games with Chroma SDK evidence. Returns cached results plus
-        // current scan status. The optional refresh=true query param triggers a
-        // background scan before returning the (still-cached) result.
+        // Detected games with Chroma/GSI evidence. Returns cached results plus
+        // current scan status. refresh=true forces a background scan; otherwise
+        // a scan is auto-triggered only when none has run yet or the cache is
+        // stale. This endpoint is hit only when the Game Sync surface loads (its
+        // sole caller), not on a timer, so the auto-scan never runs with the UI closed.
         app.MapGet("/lighting/game-sync/games",
             (GameSyncGameScanner scanner, HttpContext ctx) =>
             {
@@ -62,6 +64,10 @@ public static class GameSyncRoutes
                     refreshVal.ToString().Equals("true", StringComparison.OrdinalIgnoreCase))
                 {
                     scanner.RequestScan();
+                }
+                else
+                {
+                    scanner.RequestScanIfStale();
                 }
 
                 return Results.Json(
