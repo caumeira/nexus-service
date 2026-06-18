@@ -39,6 +39,7 @@ internal static class MacAppWindow
     private const double TopBarLeftPad = 8;             // .topBar padding-left (0.5rem)
     private const double TopBarRightPad = 8;            // .topBar padding-right (0.5rem)
     private const double TopBarIconButton = 32;         // .iconButton width
+    private const double TopBarGearButton = 34;         // .pageSettingsButton width
     private const double TopBarArrowsGroup = 64;        // two history arrows
     private const double TopBarPillGap = 7;             // arrows -> pill gap (0.4rem)
     private const double TopBarRightCluster = 80;       // "..." menu + profile avatar
@@ -415,9 +416,10 @@ internal static class MacAppWindow
 
     // True when x (points from the bar's left edge, bar width w) falls in a
     // control column that must stay clickable: the collapse toggle (left), the
-    // history arrows just left of the centered search pill, or the "..." menu +
-    // profile cluster (right). Mirrors the layout in TopBar.module.scss; a small
-    // margin pads each column so the whole hit-target clears the drag region.
+    // history arrows just left of the centered search pill, the page-settings
+    // gear just right of it, or the "..." menu + profile cluster (right). Mirrors
+    // the layout in TopBar.module.scss; a small margin pads each column so the
+    // whole hit-target clears the drag region.
     private static bool IsTopBarButtonColumn(double x, double w)
     {
         const double m = 4; // safety margin around each column
@@ -436,6 +438,14 @@ internal static class MacAppWindow
         // must fall through to the WKWebView rather than start a window drag, so
         // carve its full width out of the strip.
         if (x >= pillLeft - m && x <= pillLeft + TopBarSearchPillWidth + m) return true;
+
+        // Page-settings gear (.pageSettings): mirror of the history arrows, one
+        // round button a gap right of the pill. Only present when the active page
+        // registers a settings action (cooling/lighting/monitoring); carving it
+        // out unconditionally costs a sliver of drag area, never a dead button.
+        double pillRight = center + TopBarSearchPillWidth / 2.0;
+        double gearL = pillRight + TopBarPillGap;
+        if (x >= gearL - m && x <= gearL + TopBarGearButton + m) return true;
 
         // Right cluster: against the right edge.
         if (x >= w - TopBarRightCluster - TopBarRightPad - m && x <= w - TopBarRightPad + m) return true;

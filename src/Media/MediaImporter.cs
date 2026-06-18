@@ -29,7 +29,111 @@ public static class MediaImporter
     private static readonly string[] ImageExtensions = { ".jpg", ".jpeg", ".png", ".bmp", ".webp", ".tiff", ".tif" };
     private static readonly string[] AnimatedExtensions = { ".gif", ".mp4", ".webm", ".mov", ".avi", ".mkv", ".wmv", ".m4v", ".mpg", ".mpeg" };
 
-    public static async Task<ImportResult> ImportAsync(MediaLibrary library, string sourcePath, string originalName)
+    /// <summary>
+    /// Stores the raw upload and extracts a 1280-wide preview JPEG.
+    /// Returns StageResult with stageId on success, or Error on unsupported/unreadable input.
+    /// </summary>
+    public static async Task<StageResult> StageAsync(
+        MediaLibrary library,
+        string sourcePath,
+        string originalName)
+    {
+        var ext = Path.GetExtension(originalName).ToLowerInvariant();
+        bool isImage = Array.Exists(ImageExtensions, e => e == ext);
+        bool isAnimated = Array.Exists(AnimatedExtensions, e => e == ext);
+        if (!isImage && !isAnimated)
+        {
+            return StageResult.Failure("Unsupported file format");
+        }
+
+        if (FfmpegResolver.Path is null)
+        {
+            return StageResult.Failure("Media conversion requires ffmpeg, which is missing. Reinstall nexus-service.");
+        }
+
+        library.SweepStaging(maxAgeMinutes: 30);
+
+        var baseName = Path.GetFileNameWithoutExtension(originalName);
+        var stageId = SanitizeId($"{DateTimeOffset.UtcNow.ToUnixTimeMilliseconds():x}-{baseName}");
+        var stagingDir = library.GetStagingDir();
+        Directory.CreateDirectory(stagingDir);
+
+        var stagedPath = Path.Combine(stagingDir, stageId + ext);
+        try
+        {
+            File.Move(sourcePath, stagedPath);
+        }
+        catch (Exception ex)
+        {
+            return StageResult.Failure($"Failed to store upload: {ex.Message}");
+        }
+
+        var previewPath = library.GetStagePreviewPath(stageId);
+        try
+        {
+            await RunFfmpeg(
+                "-y", "-i", stagedPath,
+                "-frames:v", "1",
+                "-vf", "scale=1280:1280:force_original_aspect_ratio=decrease",
+                "-q:v", "4",
+                previewPath);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[media-stage] ffmpeg preview failed: {ex.Message}");
+        }
+
+        if (!File.Exists(previewPath) || new FileInfo(previewPath).Length == 0)
+        {
+            try { File.Delete(stagedPath); }
+            catch { }
+            try { File.Delete(previewPath); }
+            catch { }
+            return StageResult.Failure("Unsupported or unreadable media");
+        }
+
+        return StageResult.Success(stageId);
+    }
+
+    /// <summary>
+    /// Bakes the staged raw file into a committed library item (frames.bin + thumb.jpg + meta.json),
+    /// then deletes the staging files for stageId.
+    /// </summary>
+    public static async Task<CommitResult> CommitAsync(
+        MediaLibrary library,
+        string stageId,
+        string? crop,
+        string? originalName = null)
+    {
+        var stagedPath = library.FindStagedRaw(stageId);
+        if (stagedPath is null || !File.Exists(stagedPath))
+        {
+            return CommitResult.Failure("Stage not found or expired");
+        }
+
+        if (FfmpegResolver.Path is null)
+        {
+            return CommitResult.Failure("Media conversion requires ffmpeg, which is missing. Reinstall nexus-service.");
+        }
+
+        // Prefer the caller's original upload name so the library shows the real
+        // filename, not the random stage id; the staged file's extension stays
+        // authoritative for format detection.
+        var importName = string.IsNullOrWhiteSpace(originalName)
+            ? Path.GetFileName(stagedPath)
+            : Path.GetFileNameWithoutExtension(originalName) + Path.GetExtension(stagedPath);
+        var result = await ImportAsync(library, stagedPath, importName, crop);
+        library.DeleteStage(stageId);
+
+        if (!result.Ok)
+        {
+            return CommitResult.Failure(result.Error ?? "Import failed");
+        }
+
+        return CommitResult.Success(result.Item!);
+    }
+
+    public static async Task<ImportResult> ImportAsync(MediaLibrary library, string sourcePath, string originalName, string? crop = null)
     {
         var ext = Path.GetExtension(originalName).ToLowerInvariant();
         var baseName = Path.GetFileNameWithoutExtension(originalName);
@@ -54,8 +158,12 @@ public static class MediaImporter
             var framesPath = library.GetFramesBinPath(id);
             var thumbPath = library.GetThumbPath(id);
 
-            var scaleFilter = $"scale={CanvasWidth}:{CanvasHeight}:force_original_aspect_ratio=decrease,pad={CanvasWidth}:{CanvasHeight}:-1:-1:color=black";
-            var thumbScaleFilter = $"scale={ThumbWidth}:{ThumbHeight}:force_original_aspect_ratio=decrease,pad={ThumbWidth}:{ThumbHeight}:-1:-1:color=black";
+            // Optional pre-crop (normalized to the source) selected in the
+            // cropper; the cropped region is already 16:9, so decrease+pad below
+            // lands exactly on the canvas with no bars.
+            var cropPrefix = CropRect.TryParse(crop, out var cropRect) ? cropRect.ToFfmpegCrop() + "," : "";
+            var scaleFilter = $"{cropPrefix}scale={CanvasWidth}:{CanvasHeight}:force_original_aspect_ratio=decrease,pad={CanvasWidth}:{CanvasHeight}:-1:-1:color=black";
+            var thumbScaleFilter = $"{cropPrefix}scale={ThumbWidth}:{ThumbHeight}:force_original_aspect_ratio=decrease,pad={ThumbWidth}:{ThumbHeight}:-1:-1:color=black";
 
             if (isImage)
             {
@@ -176,5 +284,19 @@ public static class MediaImporter
         public bool Ok => Item is not null;
         public static ImportResult Success(MediaItem item) => new(item, null);
         public static ImportResult Failure(string error) => new(null, error);
+    }
+
+    public readonly record struct StageResult(string? StageId, string? Error)
+    {
+        public bool Ok => StageId is not null;
+        public static StageResult Success(string stageId) => new(stageId, null);
+        public static StageResult Failure(string error) => new(null, error);
+    }
+
+    public readonly record struct CommitResult(MediaItem? Item, string? Error)
+    {
+        public bool Ok => Item is not null;
+        public static CommitResult Success(MediaItem item) => new(item, null);
+        public static CommitResult Failure(string error) => new(null, error);
     }
 }

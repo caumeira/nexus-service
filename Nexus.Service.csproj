@@ -35,6 +35,33 @@
     <ApplicationManifest Condition="$([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))">app.manifest</ApplicationManifest>
   </PropertyGroup>
 
+  <!-- AOT size-reduction feature switches. EventSourceSupport=false is safe:
+       the FPS provider consumes OS ETW via TraceEventSession, not managed
+       EventSource; it does disable dotnet-counters/dotnet-trace on this
+       process. Hot-reload, debugger-attach, and HTTP trace-header propagation
+       are unused in the shipped service. StackTraceSupport and
+       UseSystemResourceKeys are left at their defaults so field logs keep
+       exception stack traces and readable framework messages. -->
+  <PropertyGroup>
+    <EventSourceSupport>false</EventSourceSupport>
+    <MetadataUpdaterSupport>false</MetadataUpdaterSupport>
+    <DebuggerSupport>false</DebuggerSupport>
+    <HttpActivityPropagationSupport>false</HttpActivityPropagationSupport>
+  </PropertyGroup>
+
+  <!-- TraceEvent ships DIA/ETL symbol+relog native helpers: msdia140.dll +
+       KernelTraceControl.dll under a host-ProcessorArchitecture subdir
+       (amd64/x86/arm64), plus Dia2Lib.dll and TraceReloggerLib.dll in the root.
+       The FPS provider's real-time DXGKRNL session uses in-box ETW APIs and
+       never resolves symbols, so none are loaded; verified on T1 by deleting
+       them and confirming live FPS capture survives. Strip every arch subdir so
+       the output is the same regardless of which host runs the publish. -->
+  <Target Name="StripTraceEventNatives" AfterTargets="Publish"
+          Condition="$([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))">
+    <Delete Files="$(PublishDir)Dia2Lib.dll;$(PublishDir)TraceReloggerLib.dll" />
+    <RemoveDir Directories="$(PublishDir)amd64;$(PublishDir)x86;$(PublishDir)arm64" />
+  </Target>
+
   <!-- Windows: define WINDOWS constant + include LibreHardwareMonitor.
        Supports both native builds (IsOSPlatform) and cross-compilation (RID starts with 'win'). -->
   <PropertyGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))">
@@ -346,6 +373,22 @@
   <ItemGroup Condition="'$(_NexusVCamDll)' != ''">
     <Content Include="$(_NexusVCamDll)">
       <Link>vcam\NexusVCam.dll</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Nexus Game Sync shim DLLs produced by the nexus-gamesync component.
+       build.bat / build32.bat place them under Bundled/win-x64/chroma/x64/
+       (RzChromaSDK64.dll, RzChromatic64.dll, LightFX.dll,
+        LogitechLedEnginesWrapper.dll, LogitechLed.dll) and x86/ (same names
+       except the Chroma pair uses the 32-bit names without the 64 suffix;
+       LightFX/Logitech share the same filenames across arches). x64 -> System32,
+       x86 -> SysWOW64. ChromaShimInstaller copies them at enable-time.
+       Absence is tolerated at build time so Mac/CI builds are unaffected. -->
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\chroma')">
+    <Content Include="Bundled\win-x64\chroma\**\*.*" Exclude="Bundled\win-x64\chroma\**\.gitkeep">
+      <Link>chroma\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>

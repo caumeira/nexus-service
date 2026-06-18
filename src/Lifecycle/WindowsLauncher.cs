@@ -18,13 +18,19 @@ namespace Nexus.Service.Lifecycle;
 ///   Query SCM: is NexusService registered?
 ///     No  -> self-elevate, run --install on self (the ONLY UAC path).
 ///     Yes -> Query status.
-///            Running       -> spawn --helper if not running, open dashboard.
+///            Running       -> spawn --helper if needed, open dashboard. If
+///                             /ping stays silent and SCM no longer reports
+///                             RUNNING, it stopped under us: wait for STOPPED
+///                             and restart fresh (falls into Stopped).
 ///            StartPending  -> wait briefly, retry, then dashboard.
+///            StopPending   -> a relaunch landed mid-shutdown; wait for STOPPED
+///                             then start fresh, so we never open onto a dead
+///                             port (the blank-dashboard bug).
 ///            Stopped       -> StartService() directly (DACL grant; no UAC),
 ///                             then open dashboard.
-///            Other / StopPending -> log the state and open the dashboard so
-///                             the user sees the service-down banner; SCM
-///                             state is ambiguous so we don't try to start.
+///            Other         -> log the state and open the dashboard so the user
+///                             sees the service-down banner; state is ambiguous
+///                             so we don't try to start.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal static class WindowsLauncher
@@ -47,7 +53,18 @@ internal static class WindowsLauncher
             case ServiceState.Running:
                 Console.WriteLine("[launcher] service is running; opening dashboard");
                 EnsureHelperRunning();
-                WaitForPing(TimeSpan.FromSeconds(10));
+                // Was RUNNING at query time but /ping never answered AND SCM no
+                // longer reports RUNNING -> it shut down under us (the user hit
+                // "Shut down" then immediately reopened). Opening now points Edge
+                // at a dead port -> blank page; wait for the stop to finish and
+                // restart instead. The state re-check keeps a slow-but-healthy
+                // boot (ping slow, still RUNNING) on the plain open-dashboard path.
+                if (!WaitForPing(TimeSpan.FromSeconds(10)) && QueryServiceState() != ServiceState.Running)
+                {
+                    Console.WriteLine("[launcher] service stopped under us; waiting for stop, then restarting");
+                    WaitForState(ServiceState.Stopped, TimeSpan.FromSeconds(20));
+                    goto case ServiceState.Stopped;
+                }
                 OpenDashboard();
                 return 0;
 
@@ -58,6 +75,14 @@ internal static class WindowsLauncher
                 WaitForPing(TimeSpan.FromSeconds(10));
                 OpenDashboard();
                 return 0;
+
+            case ServiceState.StopPending:
+                // Relaunch landed mid-shutdown (tray "Shut down" then reopen).
+                // Opening the dashboard now points Edge at a dying port -> blank
+                // page. Wait for the stop to settle, then start fresh.
+                Console.WriteLine("[launcher] service is stopping; waiting for stop, then restarting");
+                WaitForState(ServiceState.Stopped, TimeSpan.FromSeconds(20));
+                goto case ServiceState.Stopped;
 
             case ServiceState.Stopped:
                 Console.WriteLine("[launcher] service is stopped; starting unprivileged (DACL grant)");

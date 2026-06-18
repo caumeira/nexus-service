@@ -2,6 +2,15 @@ using System;
 
 namespace Nexus.Service.Lighting.Engine;
 
+/// <summary>One LED's draft position in the LED map editor's unsaved layout.</summary>
+public readonly struct PreviewLedPosition
+{
+    public int Index { get; init; }
+    public float U { get; init; }
+    public float V { get; init; }
+    public bool Disabled { get; init; }
+}
+
 public sealed class DeviceFrame
 {
     private readonly byte[] _leds;
@@ -48,6 +57,12 @@ public sealed class DeviceFrame
     public string? TestPattern { get; set; }
     /// <summary>TickCount64 tick recorded when TestPattern was last activated. Subtracted from the current tick to get elapsed time for phase computation, so the sweep starts at phase 0 on activation.</summary>
     public long TestPatternStartMs { get; set; }
+    /// <summary>Transient LED count override from the LED map editor draft. Clamped to LedCount on read. Null = use LedCount.</summary>
+    public int? PreviewLedCount { get; set; }
+    /// <summary>Transient per-LED UV positions from the LED map editor draft. Parallel to preview LEDs by index. Null = use saved LedU/LedV.</summary>
+    public PreviewLedPosition[]? PreviewLayout { get; set; }
+    /// <summary>Semantic device class for effect routing. Null = no archetype, falls back to canvas sampling. Values: "keyboard", "mouse", "mousepad", "headset", "keypad", "chromalink".</summary>
+    public string? Archetype { get; set; }
 
     public void SetLed(int i, byte r, byte g, byte b)
     {

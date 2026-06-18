@@ -201,6 +201,10 @@ public sealed class PostProcessSettings
     public bool FlipX { get; set; }
     /// <summary>Mirror the frame vertically before applying the colour post-process.</summary>
     public bool FlipY { get; set; }
+    /// <summary>When true, the Reactive sub-mode replaces the standard post-process with a GPU-rendered glow driven by per-band colours extracted from the source frame.</summary>
+    public bool Reactive { get; set; }
+    public float Reactivity { get; set; } = InstallDefaults.Lighting.PostProcess.Reactivity;
+    public float Intensity { get; set; } = InstallDefaults.Lighting.PostProcess.Intensity;
 }
 
 public sealed class StaticColorSettings
@@ -316,6 +320,10 @@ public sealed class CoolingSettings
 {
     public double GlobalSpeedModifier { get; set; } = InstallDefaults.Cooling.GlobalSpeedModifier;
     public List<CurveDocument> Curves { get; set; } = new();
+    /// <summary>True once first-run preset seeding has run. Distinguishes a
+    /// fresh install (seed Silent/Balanced/Turbo) from a profile the user has
+    /// since emptied (leave it empty - do not resurrect the presets).</summary>
+    public bool CurvesSeeded { get; set; }
     public MiniHubLayout MiniHubLayout { get; set; } = new();
     /// <summary>User-defined fan names keyed by channel ID. Only valid while the hardware mapping is unchanged.</summary>
     public Dictionary<string, string> FanNames { get; set; } = new();
@@ -463,6 +471,8 @@ public sealed class DevicesSettings
     public List<string> MappingAutoApplyDeclined { get; set; } = new();
     /// <summary>Lighting-device ids ever seen on this install. A device not in this list is "new" and eligible for community-mapping auto-match.</summary>
     public List<string> MappingKnownDevices { get; set; } = new();
+    /// <summary>When true, the SmartHub's onboard firmware animation drives the ARGB ports and Nexus stops streaming to them.</summary>
+    public bool SmartHubFirmwareControl { get; set; }
 }
 
 /// <summary>One user-defined zone of a device partition: an ordered run of segment-local slices. One zone = one lighting card = one engine frame.</summary>

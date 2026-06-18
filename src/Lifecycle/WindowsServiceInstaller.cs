@@ -274,6 +274,13 @@ internal static class WindowsServiceInstaller
         RunNetsh("advfirewall", "firewall", "delete", "rule",
             $"name=\"{FirewallRuleName}\"");
 
+        // The Game Sync shims in System32/SysWOW64 and the CS2 GSI cfg are left
+        // in place on uninstall by design. Our shim filenames are the vendor
+        // names (RzChromaSDK64.dll, LightFX.dll, LogitechLedEnginesWrapper.dll),
+        // so deleting by name from System32 could remove a real vendor DLL. Any
+        // future removal must first verify the file is ours (CompanyName "Nexus"
+        // AND byte-identical to the bundled shim), never delete by name alone.
+
         Log("removing Add/Remove Programs entry");
         try { Registry.LocalMachine.DeleteSubKeyTree(UninstallRegKey, throwOnMissingSubKey: false); }
         catch (Exception ex) { Log($"WARN reg delete failed: {ex.Message}"); }

@@ -177,7 +177,9 @@
       "hue": 0.0,
       "colorize": 0.0,
       "saturation": 1.0,
-      "contrast": 1.0
+      "contrast": 1.0,
+      "reactivity": 0.5,
+      "intensity": 0.5
     },
     "devicePreference": {
       "brightness": 100,

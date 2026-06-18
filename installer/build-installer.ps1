@@ -47,10 +47,63 @@ if (-not (Test-Path (Join-Path $PublishDir "Nexus.exe"))) {
     throw "AOT publish not found at $PublishDir. Run dotnet publish first."
 }
 
+# Verify Game Sync shim DLLs are present. They are produced by the nexus-gamesync
+# component (build.bat for x64, build32.bat for x86) and must exist before packaging.
+$shimX64 = @("RzChromaSDK64.dll", "RzChromatic64.dll", "LightFX.dll", "LogitechLedEnginesWrapper.dll", "LogitechLed.dll")
+$shimX86 = @("RzChromaSDK.dll", "RzChromatic.dll", "LightFX.dll", "LogitechLedEnginesWrapper.dll", "LogitechLed.dll")
+$shimX64Dir = Join-Path $PublishDir "chroma\x64"
+$shimX86Dir = Join-Path $PublishDir "chroma\x86"
+$missingShims = @()
+foreach ($dll in $shimX64) {
+    if (-not (Test-Path (Join-Path $shimX64Dir $dll))) { $missingShims += "chroma\x64\$dll" }
+}
+foreach ($dll in $shimX86) {
+    if (-not (Test-Path (Join-Path $shimX86Dir $dll))) { $missingShims += "chroma\x86\$dll" }
+}
+if ($missingShims.Count -gt 0) {
+    throw "Game Sync shim DLLs missing from publish dir ($PublishDir):`n  $($missingShims -join "`n  ")`nRun nexus-gamesync build.bat (x64) and build32.bat (x86) first, then re-publish."
+}
+
 # Strip any leftover macOS AppleDouble files from the publish dir (they slip in
 # through scp/tar from a Mac dev machine and break Inno's compressor).
 [System.IO.Directory]::EnumerateFiles($PublishDir, "._*", "AllDirectories") |
     ForEach-Object { [System.IO.File]::Delete("\\?\" + $_) }
+
+# Fail if wwwroot/assets holds a bundle unreachable from index.html. The
+# BuildWeb=false publish path skips the wwwroot wipe in Nexus.Service.csproj, so
+# bundles from earlier builds accumulate; this asserts every bundle belongs to
+# the current build. Closure: seed from index.html, expand through inter-chunk
+# references (Vite hashed basenames), flag the rest.
+$assetsDir = Join-Path $PublishDir "wwwroot\assets"
+$indexHtml = Join-Path $PublishDir "wwwroot\index.html"
+if ((Test-Path $assetsDir) -and (Test-Path $indexHtml)) {
+    $all = @(Get-ChildItem $assetsDir -File |
+        Where-Object { $_.Extension -eq '.js' -or $_.Extension -eq '.css' } |
+        ForEach-Object { $_.Name })
+    $reach = [System.Collections.Generic.HashSet[string]]::new()
+    $indexText = Get-Content $indexHtml -Raw
+    foreach ($f in $all) { if ($indexText.Contains($f)) { [void]$reach.Add($f) } }
+    $changed = $true
+    while ($changed) {
+        $changed = $false
+        foreach ($f in @($reach)) {
+            if (-not $f.EndsWith('.js')) { continue }
+            $text = Get-Content (Join-Path $assetsDir $f) -Raw
+            foreach ($g in $all) {
+                if (-not $reach.Contains($g) -and $text.Contains($g)) {
+                    [void]$reach.Add($g); $changed = $true
+                }
+            }
+        }
+    }
+    $orphans = @($all | Where-Object { -not $reach.Contains($_) })
+    if ($orphans.Count -gt 0) {
+        Write-Host "Orphaned bundles in $assetsDir (stale, not reachable from index.html):"
+        $orphans | ForEach-Object { Write-Host "  $_" }
+        throw "wwwroot is not clean: $($orphans.Count) orphaned bundle(s). Rebuild nexus-web (which wipes wwwroot) before packaging."
+    }
+    Write-Host "wwwroot clean: $($all.Count) bundles, 0 orphaned."
+}
 
 Push-Location $scriptDir
 try {

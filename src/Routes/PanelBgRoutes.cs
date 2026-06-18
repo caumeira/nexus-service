@@ -1,0 +1,281 @@
+using System.IO;
+using Nexus.Service.Auth;
+using Nexus.Service.Media;
+using Nexus.Service.Models.Panel;
+using Nexus.Service.Panel;
+
+namespace Nexus.Service.Routes;
+
+public static class PanelBgRoutes
+{
+    public static void MapPanelBgEndpoints(this WebApplication app)
+    {
+        app.MapGet("/panel/devices/{deviceId}/background-media/library",
+            (string deviceId, PanelBgLibrary lib) =>
+            {
+                if (!PanelBgLibrary.IsValidId(deviceId))
+                {
+                    return Results.BadRequest(new PanelBgListResponse { Error = true, Msg = "invalid deviceId" });
+                }
+
+                return Results.Ok(new PanelBgListResponse { Items = lib.ListItems(deviceId) });
+            }).AllowPanel();
+
+        // --- Stage phase: upload raw, extract server-side preview ---
+
+        app.MapPost("/panel/devices/{deviceId}/background-media/stage",
+            async (string deviceId, HttpContext ctx, PanelBgLibrary lib) =>
+            {
+                if (!PanelBgLibrary.IsValidId(deviceId))
+                {
+                    return Results.BadRequest(new PanelBgStageResponse { Error = true, Msg = "invalid deviceId" });
+                }
+
+                if (!ctx.Request.HasFormContentType)
+                {
+                    return Results.BadRequest(new PanelBgStageResponse { Error = true, Msg = "Expected multipart/form-data" });
+                }
+
+                var form = await ctx.Request.ReadFormAsync();
+                var file = form.Files.FirstOrDefault();
+                if (file is null || file.Length == 0)
+                {
+                    return Results.BadRequest(new PanelBgStageResponse { Error = true, Msg = "No file provided" });
+                }
+
+                if (file.Length > PanelBgImporter.MaxFileSize)
+                {
+                    return Results.BadRequest(new PanelBgStageResponse
+                    {
+                        Error = true,
+                        Msg = $"File too large (max {PanelBgImporter.MaxFileSize / 1024 / 1024} MB)",
+                    });
+                }
+
+                // Write upload to a temp file; StageAsync moves it into staging.
+                var tempPath = Path.Combine(
+                    Path.GetTempPath(),
+                    $"nexus-bg-stage-{System.Guid.NewGuid()}{Path.GetExtension(file.FileName)}");
+                try
+                {
+                    using (var stream = File.Create(tempPath))
+                    {
+                        await file.CopyToAsync(stream);
+                    }
+
+                    var result = await PanelBgImporter.StageAsync(lib, deviceId, tempPath, file.FileName);
+                    if (!result.Ok)
+                    {
+                        return Results.BadRequest(new PanelBgStageResponse { Error = true, Msg = result.Error ?? "Stage failed" });
+                    }
+
+                    return Results.Ok(new PanelBgStageResponse { StageId = result.StageId });
+                }
+                finally
+                {
+                    // Only reached if StageAsync didn't move the file (error path).
+                    try { File.Delete(tempPath); }
+                    catch { }
+                }
+            }).AllowPanel().DisableAntiforgery();
+
+        app.MapGet("/panel/devices/{deviceId}/background-media/stage/{stageId}/preview",
+            (string deviceId, string stageId, HttpContext ctx, PanelBgLibrary lib) =>
+            {
+                if (!PanelBgLibrary.IsValidId(deviceId))
+                {
+                    return Results.BadRequest("invalid deviceId");
+                }
+
+                var previewPath = lib.GetStagePreviewPath(deviceId, stageId);
+                if (!File.Exists(previewPath))
+                {
+                    return Results.NotFound();
+                }
+
+                ctx.Response.Headers.CacheControl = "no-store";
+                return Results.File(previewPath, "image/jpeg");
+            }).AllowPanel();
+
+        // --- Commit phase: bake from staged raw using crop/dimensions ---
+
+        app.MapPost("/panel/devices/{deviceId}/background-media/commit",
+            async (string deviceId, HttpContext ctx, PanelBgLibrary lib) =>
+            {
+                if (!PanelBgLibrary.IsValidId(deviceId))
+                {
+                    return Results.BadRequest(new PanelBgImportResponse { Error = true, Msg = "invalid deviceId" });
+                }
+
+                if (!ctx.Request.HasFormContentType)
+                {
+                    return Results.BadRequest(new PanelBgImportResponse { Error = true, Msg = "Expected multipart/form-data" });
+                }
+
+                var form = await ctx.Request.ReadFormAsync();
+
+                var stageId = form["stageId"].ToString();
+                if (string.IsNullOrEmpty(stageId))
+                {
+                    return Results.BadRequest(new PanelBgImportResponse { Error = true, Msg = "stageId is required" });
+                }
+
+                var cropStr = form["crop"].ToString();
+                if (string.IsNullOrEmpty(cropStr) || !CropRect.TryParse(cropStr, out var cropRect))
+                {
+                    return Results.BadRequest(new PanelBgImportResponse { Error = true, Msg = "crop is required (x,y,w,h)" });
+                }
+
+                if (!int.TryParse(form["w"].ToString(), out var targetW) || targetW < 1 || targetW > 8192)
+                {
+                    return Results.BadRequest(new PanelBgImportResponse { Error = true, Msg = "w is required (1..8192)" });
+                }
+
+                if (!int.TryParse(form["h"].ToString(), out var targetH) || targetH < 1 || targetH > 8192)
+                {
+                    return Results.BadRequest(new PanelBgImportResponse { Error = true, Msg = "h is required (1..8192)" });
+                }
+
+                if (lib.FindStagedRaw(deviceId, stageId) is null)
+                {
+                    return Results.NotFound(new PanelBgImportResponse { Error = true, Msg = "Stage not found or expired" });
+                }
+
+                var result = await PanelBgImporter.CommitAsync(lib, deviceId, stageId, cropRect, targetW, targetH);
+                if (!result.Ok)
+                {
+                    return Results.BadRequest(new PanelBgImportResponse { Error = true, Msg = result.Error ?? "Commit failed" });
+                }
+
+                return Results.Ok(new PanelBgImportResponse { Item = result.Item });
+            }).AllowPanel().DisableAntiforgery();
+
+        // --- Cancel stage ---
+
+        app.MapDelete("/panel/devices/{deviceId}/background-media/stage/{stageId}",
+            (string deviceId, string stageId, PanelBgLibrary lib) =>
+            {
+                if (!PanelBgLibrary.IsValidId(deviceId))
+                {
+                    return Results.BadRequest(new PanelBgResponse { Error = true, Msg = "invalid deviceId" });
+                }
+
+                lib.DeleteStage(deviceId, stageId);
+                return Results.Ok(new PanelBgResponse());
+            }).AllowPanel();
+
+        // --- Existing endpoints (unchanged) ---
+
+        app.MapDelete("/panel/devices/{deviceId}/background-media/{id}",
+            (string deviceId, string id, PanelBgLibrary lib) =>
+            {
+                if (!PanelBgLibrary.IsValidId(deviceId))
+                {
+                    return Results.BadRequest(new PanelBgResponse { Error = true, Msg = "invalid deviceId" });
+                }
+
+                if (!PanelBgLibrary.IsValidId(id))
+                {
+                    return Results.BadRequest(new PanelBgResponse { Error = true, Msg = "invalid id" });
+                }
+
+                return lib.DeleteItem(deviceId, id) ? Results.Ok(new PanelBgResponse()) : Results.NotFound();
+            }).AllowPanel();
+
+        app.MapGet("/panel/devices/{deviceId}/background-media/{id}/thumbnail",
+            (string deviceId, string id, PanelBgLibrary lib) =>
+            {
+                if (!PanelBgLibrary.IsValidId(deviceId))
+                {
+                    return Results.BadRequest("invalid deviceId");
+                }
+
+                if (!PanelBgLibrary.IsValidId(id))
+                {
+                    return Results.BadRequest("invalid id");
+                }
+
+                var path = lib.GetThumbPath(deviceId, id);
+                return File.Exists(path) ? Results.File(path, "image/jpeg") : Results.NotFound();
+            }).AllowPanel();
+
+        app.MapGet("/panel/devices/{deviceId}/background-media/{id}/file",
+            (string deviceId, string id, HttpContext ctx, PanelBgLibrary lib) =>
+            {
+                if (!PanelBgLibrary.IsValidId(deviceId))
+                {
+                    return Results.BadRequest("invalid deviceId");
+                }
+
+                if (!PanelBgLibrary.IsValidId(id))
+                {
+                    return Results.BadRequest("invalid id");
+                }
+
+                var item = lib.GetItem(deviceId, id);
+                if (item is null)
+                {
+                    return Results.NotFound();
+                }
+
+                var isVideo = item.Type == "animated";
+                var mediaExt = isVideo ? ".mp4" : ".jpg";
+                var mediaPath = lib.GetMediaPath(deviceId, id, mediaExt);
+                if (!File.Exists(mediaPath))
+                {
+                    return Results.NotFound();
+                }
+
+                ctx.Response.Headers.CacheControl = "public, max-age=31536000, immutable";
+                return Results.File(mediaPath, isVideo ? "video/mp4" : "image/jpeg");
+            }).AllowPanel();
+
+        app.MapPost("/panel/devices/{deviceId}/background-media/library/open",
+            async (string deviceId, PanelBgLibrary lib, IServiceProvider sp) =>
+            {
+                if (!PanelBgLibrary.IsValidId(deviceId))
+                {
+                    return Results.BadRequest(new PanelBgResponse { Error = true, Msg = "invalid deviceId" });
+                }
+
+                try
+                {
+                    var dir = lib.GetDeviceDir(deviceId);
+                    Directory.CreateDirectory(dir);
+#if WINDOWS
+                    if (OperatingSystem.IsWindows())
+                    {
+                        var registry = sp.GetService<Nexus.Service.Helper.HelperRegistry>();
+                        if (registry is null ||
+                            !await Nexus.Service.Helper.Domains.FileDialogCommands.OpenFolderAsync(registry, dir))
+                        {
+                            return Results.Problem("no interactive user session");
+                        }
+
+                        return Results.Ok(new PanelBgResponse());
+                    }
+#endif
+                    await Task.CompletedTask;
+                    var psi = new System.Diagnostics.ProcessStartInfo { UseShellExecute = false };
+                    if (OperatingSystem.IsMacOS())
+                    {
+                        psi.FileName = "open";
+                        psi.Arguments = $"\"{dir}\"";
+                    }
+                    else
+                    {
+                        psi.FileName = "xdg-open";
+                        psi.Arguments = $"\"{dir}\"";
+                    }
+
+                    System.Diagnostics.Process.Start(psi);
+                    return Results.Ok(new PanelBgResponse());
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[panel-bg] open folder failed: {ex.Message}");
+                    return Results.Problem(ex.Message);
+                }
+            }).AllowPanel();
+    }
+}

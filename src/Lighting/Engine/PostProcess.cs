@@ -18,8 +18,11 @@ public sealed class PostProcessState
     public float Contrast = 1f;
     public bool FlipX;
     public bool FlipY;
+    public bool Reactive;
+    public float Reactivity = 0.5f;
+    public float Intensity = 0.5f;
 
-    public void Set(float hue, float colorize, float saturation, float contrast, bool flipX = false, bool flipY = false)
+    public void Set(float hue, float colorize, float saturation, float contrast, bool flipX = false, bool flipY = false, bool reactive = false, float reactivity = 0.5f, float intensity = 0.5f)
     {
         Hue = hue;
         Colorize = colorize;
@@ -27,6 +30,9 @@ public sealed class PostProcessState
         Contrast = contrast;
         FlipX = flipX;
         FlipY = flipY;
+        Reactive = reactive;
+        Reactivity = reactivity;
+        Intensity = intensity;
     }
 
     public bool IsIdentity()

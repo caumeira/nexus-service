@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using System.Linq;
 using System.Runtime.Versioning;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
@@ -8,6 +10,7 @@ using Nexus.Service.Sockets;
 #if WINDOWS
 using Nexus.Service.Helper;
 using Nexus.Service.Helper.Domains;
+using Nexus.Service.Serialization;
 #endif
 
 namespace Nexus.Service.Platform.Windows;
@@ -58,6 +61,28 @@ internal static class TrayBootstrap
             isOverlayTopmost: () => store.Load().Overlay.AlwaysOnTop,
             hasOverlayWidgets: () => store.Load().Overlay.Layout.Count > 0);
 
+        var pm = app.Services.GetRequiredService<ProfileManager>();
+        TrayIcon.ConfigureProfiles(
+            getProfiles: () =>
+            {
+                var manifest = pm.GetManifest();
+                var items = manifest.Profiles
+                    .Select(p => (p.Id, p.Name))
+                    .ToList();
+                return (items, manifest.ActiveProfileId);
+            },
+            onSwitchProfile: id =>
+            {
+                try
+                {
+                    pm.SwitchProfile(id);
+                    PanelTopics.BroadcastPrefs(hub);
+                    PanelTopics.BroadcastLighting(hub);
+                    PanelTopics.BroadcastCooling(hub);
+                }
+                catch (KeyNotFoundException) { /* stale id; ignore */ }
+            });
+
         TrayIcon.SetVisible(store.Load().Monitoring.ShowWindowsTrayIcon);
 
         store.OnChanged += () =>
@@ -105,7 +130,15 @@ internal static class TrayBootstrap
     {
         var trayStore = app.Services.GetRequiredService<IConfigStore>();
         var helperRegistry = app.Services.GetRequiredService<HelperRegistry>();
+        var pm = app.Services.GetRequiredService<ProfileManager>();
+        var hub = app.Services.GetRequiredService<MultiplexHub>();
         var lastVisible = trayStore.Load().Monitoring.ShowWindowsTrayIcon;
+
+        void PushProfiles()
+        {
+            var m = pm.GetManifest();
+            _ = ProfileCommands.PushListAsync(helperRegistry, m.Profiles, m.ActiveProfileId);
+        }
 
         // Surface a native tray balloon when a phone pair request arrives and
         // no dashboard is open to show the Allow/Deny modal. The service runs
@@ -163,6 +196,18 @@ internal static class TrayBootstrap
             catch (Exception ex) { Console.Error.WriteLine($"[y70-sync] initial orientation failed: {ex.Message}"); }
         };
 
+        helperRegistry.Connected += _ =>
+        {
+            try { PushProfiles(); }
+            catch (Exception ex) { Console.Error.WriteLine($"[profiles-sync] push on connect failed: {ex.Message}"); }
+        };
+
+        pm.OnProfileSwitched += () =>
+        {
+            try { PushProfiles(); }
+            catch (Exception ex) { Console.Error.WriteLine($"[profiles-sync] push on switch failed: {ex.Message}"); }
+        };
+
         trayStore.OnChanged += () =>
         {
             try
@@ -180,6 +225,25 @@ internal static class TrayBootstrap
             if (env.Type != "service.requestStop") return;
             try { app.Lifetime.StopApplication(); }
             catch (Exception ex) { Console.Error.WriteLine($"[helper-sync] requestStop failed: {ex.Message}"); }
+        };
+
+        helperRegistry.InboundEnvelope += (_, env) =>
+        {
+            if (env.Type != "profiles.switch") return;
+            if (env.Payload is null) return;
+            try
+            {
+                var p = System.Text.Json.JsonSerializer.Deserialize(
+                    env.Payload.Value,
+                    AppJsonContext.Default.ProfileSwitchPayload);
+                if (p is null) return;
+                pm.SwitchProfile(p.Id);
+                PanelTopics.BroadcastPrefs(hub);
+                PanelTopics.BroadcastLighting(hub);
+                PanelTopics.BroadcastCooling(hub);
+            }
+            catch (KeyNotFoundException) { /* stale id; ignore */ }
+            catch (Exception ex) { Console.Error.WriteLine($"[profiles-switch] failed: {ex.Message}"); }
         };
 
         // Quitting must take the user-session UI with it: close the --app

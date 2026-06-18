@@ -133,6 +133,8 @@ public sealed class LightingPostProcess
     public float Colorize { get; set; }
     public float Saturation { get; set; } = 1f;
     public float Contrast { get; set; } = 1f;
+    public float Reactivity { get; set; } = 0.5f;
+    public float Intensity { get; set; } = 0.5f;
 }
 
 public sealed class LightingDevicePreferenceDefaults

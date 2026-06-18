@@ -112,6 +112,10 @@ public sealed class FanChannel
     public int Rpm { get; set; }
     /// <summary>One of <see cref="FanModes.Auto"/>, <see cref="FanModes.Manual"/>, <see cref="FanModes.Curve"/>.</summary>
     public string Mode { get; set; } = FanModes.Auto;
+    /// <summary>One of <see cref="FanKinds.Fan"/> / <see cref="FanKinds.Pump"/>. Drives the fan card's header icon.</summary>
+    public string Kind { get; set; } = FanKinds.Fan;
+    /// <summary>Telemetry-only channel: the card shows the readout but no duty bar or mode control (Q-series pump today).</summary>
+    public bool ReadOnly { get; set; }
     public int? MinRpm { get; set; }
     public int? MaxRpm { get; set; }
     public int? MinDuty { get; set; }

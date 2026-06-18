@@ -279,3 +279,17 @@ public sealed class LedTestPatternBody
 {
     public string Pattern { get; set; } = "horizontal";
 }
+
+public sealed class LedPreviewPosition
+{
+    public int Index { get; set; }
+    public float U { get; set; }
+    public float V { get; set; }
+    public bool Disabled { get; set; }
+}
+
+public sealed class LedPreviewLayoutBody
+{
+    public int LedCount { get; set; }
+    public List<LedPreviewPosition> Leds { get; set; } = new();
+}

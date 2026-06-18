@@ -114,6 +114,21 @@ public static class PanelTopics
     }
 
     /// <summary>
+    /// Lighting media library mutated (item imported, committed, or deleted).
+    /// Subscribers refetch GET /media/library.
+    /// </summary>
+    public const string MediaLibrary = "mediaLibrary";
+
+    public static void BroadcastMediaLibrary(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(MediaLibrary))
+            return;
+        var frame = new MediaLibraryChangedFrame { Revision = Now() };
+        var env = WsEnvelope.Build(MediaLibrary, frame, AppJsonContext.Default.MediaLibraryChangedFrame);
+        _ = hub.BroadcastTopicAsync(MediaLibrary, env);
+    }
+
+    /// <summary>
     /// Broadcast a cooling-warnings-changed notification. Callers (the NP50
     /// heartbeat worker and any future warning producers) invoke this when
     /// the active warning set transitions. Subscribers refetch

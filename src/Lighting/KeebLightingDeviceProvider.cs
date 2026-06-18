@@ -279,6 +279,7 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
         layouts.TryGetValue(id, out var layout);
         var rot = ((((layout?.Rotation ?? 0) % 360) + 360) % 360);
         var thisIdx = idx++;
+        var isKeysZone = id.EndsWith(KeysSuffix, StringComparison.Ordinal);
         if (_frameCache.TryGetValue(id, out var existing)
             && existing.Index == thisIdx && existing.LedCount == ledCount)
         {
@@ -287,10 +288,12 @@ public sealed class KeebLightingDeviceProvider : ILightingDeviceProvider, ILight
             existing.W = layout?.W ?? defW;
             existing.H = layout?.H ?? defH;
             existing.Rotation = rot;
+            existing.Archetype = isKeysZone ? "keyboard" : null;
             return existing;
         }
         var frame = new DeviceFrame(thisIdx, id, ledCount,
             layout?.X ?? defX, layout?.Y ?? defY, layout?.W ?? defW, layout?.H ?? defH, rot);
+        frame.Archetype = isKeysZone ? "keyboard" : null;
         _frameCache[id] = frame;
         return frame;
     }

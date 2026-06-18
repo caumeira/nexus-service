@@ -17,17 +17,18 @@ public sealed class SmartHubState
     public string FirmwareVersion { get; set; } = "";
 
     /// <summary>
-    /// The four ARGB ports (streaming channels 1..4). LedCount defaults to 0:
-    /// a generic ARGB hub can't know what the user wired, so each port starts
-    /// dark and the user declares the count via the lighting page (the zone is
-    /// resizable up to <see cref="SmartHubProtocol.MaxLedsPerPort"/>).
+    /// The four ARGB ports (streaming channels 1..4). The firmware can't
+    /// enumerate ARGB, so LedCount defaults to a common strip length rather
+    /// than 0 (a zero-LED zone is undrivable); the user adjusts it to match
+    /// what they wired via the lighting page (the zone is resizable up to
+    /// <see cref="SmartHubProtocol.MaxLedsPerPort"/>).
     /// </summary>
     public SmartHubLedZone[] Ports { get; } =
     {
-        new() { Channel = 1, LedCount = 0 },
-        new() { Channel = 2, LedCount = 0 },
-        new() { Channel = 3, LedCount = 0 },
-        new() { Channel = 4, LedCount = 0 },
+        new() { Channel = 1, LedCount = 60 },
+        new() { Channel = 2, LedCount = 60 },
+        new() { Channel = 3, LedCount = 60 },
+        new() { Channel = 4, LedCount = 60 },
     };
 
     /// <summary>The four PWM-fan channels (wire index 0..3).</summary>

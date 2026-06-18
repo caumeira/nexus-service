@@ -71,6 +71,8 @@ public sealed class QSeriesCoolerHeartbeatWorker : BackgroundService
         {
             _hub.PollFirmwareVersion();
         }
+        // Refresh pump RPM so the cooling page's fan card shows live telemetry.
+        _hub.PollTelemetry();
         // Nudge the lighting provider so RgbBridge rebuilds its frame map on
         // (re)connect. Debounced inside the provider via a signature compare.
         _lighting?.OnHubStateUpdated();

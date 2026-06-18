@@ -87,6 +87,15 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFanResponse[]))]
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFwSettingResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFwSettingRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFirmwareControlRequest))]
+
+// Q-series cooler device surface
+[JsonSerializable(typeof(Nexus.Service.Routes.QSeriesCoolerStateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.QSeriesControlModeRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.QSeriesTurboRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.QSeriesFirmwareCurveResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.QSeriesFirmwareCurveRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.QSeriesCurvePointDto))]
 
 // Fan control
 [JsonSerializable(typeof(FanChannel))]
@@ -251,6 +260,14 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Transfer.TransferReceivedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Media.MediaPlayResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Media.MediaCurrentResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Media.MediaStageResponse))]
+// Panel background media
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelBgItem))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Panel.PanelBgItem>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelBgListResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelBgImportResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelBgResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelBgStageResponse))]
 
 // Gallery
 [JsonSerializable(typeof(Nexus.Service.Models.Gallery.GallerySource))]
@@ -266,6 +283,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryPickResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Gallery.GalleryExcludeBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.GalleryChangedFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.MediaLibraryChangedFrame))]
 
 // Lighting
 [JsonSerializable(typeof(AudioStateSnapshot))]
@@ -293,6 +311,23 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(ScreenSyncMonitor))]
 [JsonSerializable(typeof(List<ScreenSyncMonitor>))]
 [JsonSerializable(typeof(GifHeadlessStart))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncFrameBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncDeviceInfo))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncStateResponse))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Lighting.GameSyncDeviceInfo>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.DetectedGame))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Lighting.DetectedGame>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncGamesResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.Cs2GsiPayload))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.Cs2GsiProvider))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.Cs2GsiPlayer))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.Cs2GsiPlayerState))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.Cs2GsiRound))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.Cs2GsiBomb))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.Cs2GsiMap))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.Cs2GsiTeamScore))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.Cs2GsiPhaseCountdowns))]
+[JsonSerializable(typeof(Nexus.Service.Models.Lighting.Cs2GsiAuth))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.PostProcessBody))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.PostProcessSettings))]
 
@@ -407,6 +442,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<Nexus.Service.Persistence.LedPositionOverride>))]
 [JsonSerializable(typeof(LedHighlightBody))]
 [JsonSerializable(typeof(LedTestPatternBody))]
+[JsonSerializable(typeof(LedPreviewLayoutBody))]
+[JsonSerializable(typeof(LedPreviewPosition))]
+[JsonSerializable(typeof(List<LedPreviewPosition>))]
 
 // Zones model - device structure, partition save bodies, device-scoped LED map.
 [JsonSerializable(typeof(DeviceStructureResponse))]
@@ -634,6 +672,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenSettingsPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenUrlPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenFilePayload))]
+// Profiles pipe push/switch
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProfileListPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProfileSwitchPayload))]
 #endif
 
 // Apps - manifest + listings (nexus.app/1 schema, sandboxed widget.mjs runtime)

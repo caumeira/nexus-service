@@ -32,6 +32,14 @@ public sealed class PanelDeviceRecord
     /// </summary>
     public Dictionary<string, int>? BackgroundTemplates { get; set; }
     public double? BackgroundOpacity { get; set; }
+    /// <summary>Selected background-media asset id (PanelBgLibrary) for THIS
+    /// panel; null = none. Only set for local panels (y70 / q-series).</summary>
+    public string? BackgroundMediaId { get; set; }
+    /// <summary>Type of the selected background-media asset: "static" or
+    /// "animated". Null when no asset is selected. Stored so the render layer
+    /// does not need to refetch the library to know whether to use an img or
+    /// video element.</summary>
+    public string? BackgroundMediaType { get; set; }
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }
     public bool? WidgetBlur { get; set; }
@@ -112,6 +120,8 @@ public sealed class PanelDevicePatch
     /// (effect key → preset index). The client sends the whole map.</summary>
     public Dictionary<string, int>? BackgroundTemplates { get; set; }
     public double? BackgroundOpacity { get; set; }
+    public string? BackgroundMediaId { get; set; }
+    public string? BackgroundMediaType { get; set; }
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }
     public bool? WidgetBlur { get; set; }
@@ -174,6 +184,11 @@ public sealed class VolumeChangedFrame
 }
 
 public sealed class GalleryChangedFrame
+{
+    public long Revision { get; set; }
+}
+
+public sealed class MediaLibraryChangedFrame
 {
     public long Revision { get; set; }
 }

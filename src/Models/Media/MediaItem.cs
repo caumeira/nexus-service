@@ -39,3 +39,10 @@ public sealed class MediaCurrentResponse
     public string? MediaId { get; set; }
     public MediaItem? Item { get; set; }
 }
+
+public sealed class MediaStageResponse
+{
+    public string? StageId { get; set; }
+    public bool Error { get; set; }
+    public string Msg { get; set; } = "Ok";
+}

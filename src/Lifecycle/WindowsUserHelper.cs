@@ -1,5 +1,6 @@
 #if WINDOWS
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
@@ -7,6 +8,8 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Helper;
 using Nexus.Service.Helper.Domains;
+using Nexus.Service.Persistence;
+using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Lifecycle;
 
@@ -30,6 +33,23 @@ internal static class WindowsUserHelper
     private const string SessionMutexName = @"Local\NexusHelper";
 
     private static readonly CancellationTokenSource s_exit = new();
+
+    // Immutable snapshot of the latest profiles.list push. Written by the pipe
+    // handler thread; read on the tray message-pump thread. Volatile reference
+    // swap to an immutable object is the safe cross-thread publish pattern.
+    private sealed class ProfileSnapshot
+    {
+        public IReadOnlyList<(string Id, string Name)> Items { get; }
+        public string ActiveId { get; }
+
+        public ProfileSnapshot(IReadOnlyList<(string Id, string Name)> items, string activeId)
+        {
+            Items = items;
+            ActiveId = activeId;
+        }
+    }
+
+    private static volatile ProfileSnapshot s_profiles = new(Array.Empty<(string, string)>(), "");
 
     public static int Run(string[] args)
     {
@@ -82,6 +102,7 @@ internal static class WindowsUserHelper
                 try { RequestServiceStop(outbound); } catch { }
                 s_exit.Cancel();
             });
+
         Platform.Windows.TrayIcon.SetVisible(true);
 
         // Watchdog: only exits the helper when the service is uninstalled.
@@ -163,6 +184,33 @@ internal static class WindowsUserHelper
         new DiagnosticsHandler(() => Platform.Windows.ForegroundNudge.OpenFolderOverApp(
             Nexus.Service.Platform.ServiceLog.LogsDirectory)).Register(handlerRegistry);
         new SystemHandler().Register(handlerRegistry);
+        new ProfileListHandler(payload =>
+        {
+            var items = new List<(string Id, string Name)>(payload.Profiles.Count);
+            foreach (var p in payload.Profiles)
+            {
+                items.Add((p.Id, p.Name));
+            }
+            s_profiles = new ProfileSnapshot(items, payload.ActiveId);
+        }).Register(handlerRegistry);
+
+        Platform.Windows.TrayIcon.ConfigureProfiles(
+            getProfiles: () =>
+            {
+                var s = s_profiles;
+                return (s.Items, s.ActiveId);
+            },
+            onSwitchProfile: id =>
+            {
+                try
+                {
+                    _ = outbound.SendAsync(
+                        type: "profiles.switch",
+                        payload: new ProfileSwitchPayload { Id = id },
+                        payloadType: AppJsonContext.Default.ProfileSwitchPayload);
+                }
+                catch { /* best-effort */ }
+            });
 
         var client = new HelperClientLoop(handlerRegistry, outbound);
         var pipeTask = Task.Run(() => client.RunAsync(s_exit.Token));
