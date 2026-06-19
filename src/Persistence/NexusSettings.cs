@@ -18,7 +18,7 @@ public sealed class NexusSettings
     /// a migration in <c>JsonConfigStore.Load()</c>. Lives as a constant so
     /// tests and tooling can reference "current" without bit-rotting.
     /// </summary>
-    public const int CurrentSchemaVersion = 6;
+    public const int CurrentSchemaVersion = 7;
 
     /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -673,4 +673,12 @@ public sealed class UpdateSettings
     /// Prevents the popup from re-appearing for the same version after dismissal.
     /// </summary>
     public string LastDismissedUpdateVersion { get; set; } = "";
+
+    /// <summary>
+    /// Pre-v7 field. Read during schema migration only; the v7 migration maps
+    /// true to UpdateMode "notify" and then this field is dropped on the next
+    /// write (WhenWritingNull).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("autoUpdateDisabled")]
+    public bool? LegacyAutoUpdateDisabled { get; set; }
 }

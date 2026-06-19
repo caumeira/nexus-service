@@ -528,7 +528,7 @@ internal static class WindowsServiceInstaller
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            if (string.IsNullOrEmpty(RunScCaptureOutput("query", ServiceName))) return;
+            if (!RunScSilent("query", ServiceName)) return;
             Thread.Sleep(500);
         }
         Log("WARN service still present after delete; sc create may need retries");
