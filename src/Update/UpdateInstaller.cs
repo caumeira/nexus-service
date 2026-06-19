@@ -113,20 +113,23 @@ public static class UpdateInstaller
 
     private static bool IsValidVersionTag(string v)
     {
-        if (string.IsNullOrEmpty(v) || v[0] != 'v')
+        // Accept a "v"-prefixed dotted-numeric tag (semver "v3.0.1" or the legacy
+        // "v80"). Only digits and dots after the "v", so it stays safe to embed in
+        // the staged .cmd / log file paths (no separators, no path traversal).
+        if (string.IsNullOrEmpty(v) || v[0] != 'v' || v.Length < 2)
         {
             return false;
         }
 
+        bool hasDigit = false;
         for (int i = 1; i < v.Length; i++)
         {
-            if (!char.IsAsciiDigit(v[i]))
-            {
-                return false;
-            }
+            char c = v[i];
+            if (char.IsAsciiDigit(c)) { hasDigit = true; }
+            else if (c != '.') { return false; }
         }
 
-        return v.Length > 1;
+        return hasDigit;
     }
 
     private static bool Schtasks(params string[] args)

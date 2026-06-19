@@ -193,14 +193,14 @@ public sealed class MonitoringSettingsPatch
 
 public sealed class UpdatePrefs
 {
-    public bool AutoUpdateDisabled { get; set; }
+    public string UpdateMode { get; set; } = "always";
     public string UpdateChannel { get; set; } = "production";
     public string LastDismissedUpdateVersion { get; set; } = "";
 }
 
 public sealed class UpdatePrefsPatch
 {
-    public bool? AutoUpdateDisabled { get; set; }
+    public string? UpdateMode { get; set; }
     public string? UpdateChannel { get; set; }
     public string? LastDismissedUpdateVersion { get; set; }
 }

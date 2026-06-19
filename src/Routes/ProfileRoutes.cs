@@ -63,7 +63,7 @@ public static class ProfileRoutes
                     Ui = s.Ui,
                     Update = new UpdatePrefs
                     {
-                        AutoUpdateDisabled = s.Update.AutoUpdateDisabled,
+                        UpdateMode = s.Update.UpdateMode,
                         UpdateChannel = s.Update.UpdateChannel,
                         LastDismissedUpdateVersion = s.Update.LastDismissedUpdateVersion,
                     },
@@ -175,7 +175,7 @@ public static class ProfileRoutes
                 Ui = s.Ui,
                 Update = new UpdatePrefs
                 {
-                    AutoUpdateDisabled = s.Update.AutoUpdateDisabled,
+                    UpdateMode = s.Update.UpdateMode,
                     UpdateChannel = s.Update.UpdateChannel,
                     LastDismissedUpdateVersion = s.Update.LastDismissedUpdateVersion,
                 },
@@ -434,7 +434,7 @@ public static class ProfileRoutes
                 }
                 if (body.Update is { } update)
                 {
-                    if (update.AutoUpdateDisabled.HasValue) s.Update.AutoUpdateDisabled = update.AutoUpdateDisabled.Value;
+                    if (update.UpdateMode is "notify" or "download" or "always") s.Update.UpdateMode = update.UpdateMode;
                     if (update.UpdateChannel is not null) s.Update.UpdateChannel = update.UpdateChannel;
                     if (update.LastDismissedUpdateVersion is not null) s.Update.LastDismissedUpdateVersion = update.LastDismissedUpdateVersion;
                 }

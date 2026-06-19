@@ -60,8 +60,8 @@ public sealed class UpdateBootLoopGuardTests : IDisposable
     {
         var marker = new StagedInstallMarker
         {
-            Version = "v77",
-            InstallerPath = @"C:\ProgramData\Nexus\staged-updates\Nexus-Setup-v77.exe",
+            Version = "v3.1.0",
+            InstallerPath = @"C:\ProgramData\Nexus\staged-updates\Nexus-Setup-v3.1.0.exe",
             Sha256 = "abc123def456",
         };
 
@@ -69,8 +69,8 @@ public sealed class UpdateBootLoopGuardTests : IDisposable
 
         var read = ReadMarkerDirect();
         Assert.NotNull(read);
-        Assert.Equal("v77", read.Version);
-        Assert.Equal(@"C:\ProgramData\Nexus\staged-updates\Nexus-Setup-v77.exe", read.InstallerPath);
+        Assert.Equal("v3.1.0", read.Version);
+        Assert.Equal(@"C:\ProgramData\Nexus\staged-updates\Nexus-Setup-v3.1.0.exe", read.InstallerPath);
         Assert.Equal("abc123def456", read.Sha256);
     }
 
@@ -86,7 +86,7 @@ public sealed class UpdateBootLoopGuardTests : IDisposable
     [Fact]
     public void Marker_delete_removes_file()
     {
-        WriteMarkerDirect(new StagedInstallMarker { Version = "v10", InstallerPath = "x", Sha256 = "y" });
+        WriteMarkerDirect(new StagedInstallMarker { Version = "v3.0.1", InstallerPath = "x", Sha256 = "y" });
         Assert.True(File.Exists(MarkerPath));
 
         DeleteMarkerDirect();
@@ -100,13 +100,13 @@ public sealed class UpdateBootLoopGuardTests : IDisposable
         // Simulate: marker written for vX before the install attempt,
         // but current version is still < vX (install did not complete).
         // Expected: marker is deleted, caller can detect the loop condition.
-        var targetVersion = "v99";
-        var currentVersion = "v50";
+        var targetVersion = "v3.1.0";
+        var currentVersion = "v3.0.0";
 
         WriteMarkerDirect(new StagedInstallMarker
         {
             Version = targetVersion,
-            InstallerPath = "/path/to/Nexus-Setup-v99.exe",
+            InstallerPath = "/path/to/Nexus-Setup-v3.1.0.exe",
             Sha256 = "deadbeef",
         });
 
@@ -133,8 +133,8 @@ public sealed class UpdateBootLoopGuardTests : IDisposable
     {
         var marker = new StagedInstallMarker
         {
-            Version = "v80",
-            InstallerPath = @"C:\ProgramData\Nexus\staged-updates\Nexus-Setup-v80.exe",
+            Version = "v3.2.0",
+            InstallerPath = @"C:\ProgramData\Nexus\staged-updates\Nexus-Setup-v3.2.0.exe",
             Sha256 = "deadbeef00",
             State = StagedInstallMarkerStore.StatePending,
         };
@@ -149,8 +149,8 @@ public sealed class UpdateBootLoopGuardTests : IDisposable
     {
         var marker = new StagedInstallMarker
         {
-            Version = "v80",
-            InstallerPath = @"C:\ProgramData\Nexus\staged-updates\Nexus-Setup-v80.exe",
+            Version = "v3.2.0",
+            InstallerPath = @"C:\ProgramData\Nexus\staged-updates\Nexus-Setup-v3.2.0.exe",
             Sha256 = "deadbeef00",
             State = StagedInstallMarkerStore.StateAttempted,
         };
@@ -165,7 +165,7 @@ public sealed class UpdateBootLoopGuardTests : IDisposable
     {
         WriteMarkerDirect(new StagedInstallMarker
         {
-            Version = "v50",
+            Version = "v3.0.1",
             InstallerPath = "/x",
             Sha256 = "y",
             State = StagedInstallMarkerStore.StateAttempted,
@@ -174,7 +174,7 @@ public sealed class UpdateBootLoopGuardTests : IDisposable
         var marker = ReadMarkerDirect();
         Assert.NotNull(marker);
 
-        var isSuccess = !VersionCompare.IsNewer(marker.Version, "v99");
+        var isSuccess = !VersionCompare.IsNewer(marker.Version, "v3.1.0");
         Assert.True(isSuccess);
 
         DeleteMarkerDirect();
@@ -184,12 +184,12 @@ public sealed class UpdateBootLoopGuardTests : IDisposable
     [Fact]
     public void Guard_branch_attempted_still_old_version_is_failed()
     {
-        var targetVersion = "v99";
-        var currentVersion = "v50";
+        var targetVersion = "v3.1.0";
+        var currentVersion = "v3.0.0";
         WriteMarkerDirect(new StagedInstallMarker
         {
             Version = targetVersion,
-            InstallerPath = "/path/Nexus-Setup-v99.exe",
+            InstallerPath = "/path/Nexus-Setup-v3.1.0.exe",
             Sha256 = "abc",
             State = StagedInstallMarkerStore.StateAttempted,
         });
@@ -208,12 +208,12 @@ public sealed class UpdateBootLoopGuardTests : IDisposable
     [Fact]
     public void Guard_branch_pending_newer_version_should_apply()
     {
-        var targetVersion = "v99";
-        var currentVersion = "v50";
+        var targetVersion = "v3.1.0";
+        var currentVersion = "v3.0.0";
         WriteMarkerDirect(new StagedInstallMarker
         {
             Version = targetVersion,
-            InstallerPath = "/path/Nexus-Setup-v99.exe",
+            InstallerPath = "/path/Nexus-Setup-v3.1.0.exe",
             Sha256 = "abc",
             State = StagedInstallMarkerStore.StatePending,
         });

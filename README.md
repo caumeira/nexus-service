@@ -80,7 +80,7 @@ docs/
   network-transport.md# REST + WebSocket inventory + cadence
   ws-topic-rbac.md    # who may subscribe to which WS topics
 Bundled/
-  win-x64/            # openrgb (built, not committed), ffmpeg, pawnio, dfu-util + dfu-driver, chroma/ (game-sync shims from nexus-gamesync: Razer Chroma, Alienware LightFX, Logitech; 5 x64 + 5 x86 DLLs; built, not committed)
+  win-x64/            # openrgb (built, not committed), ffmpeg, pawnio, dfu-util + dfu-driver, gamesync/ (game-sync shims from nexus-gamesync: Razer Chroma, Alienware LightFX, Logitech; 5 x64 + 5 x86 DLLs; built, not committed)
   osx-arm64/          # openrgb (built, not committed), ffmpeg
   linux-x64/          # openrgb (built, not committed)
   macos/  linux/      # tray/status icons, helpers, app icons
@@ -165,7 +165,9 @@ dotnet run -c Release -p:BuildWeb=false \
 
 ## Releases
 
-Installer artifacts are published to [`hello-nexus/nexus-releases`](https://github.com/hello-nexus/nexus-releases) under monotonic `vNN` tags: `Nexus-Setup.exe` (Windows) and `Nexus.dmg` (macOS), alongside the mobile app builds from the wrapper repos. The download links on hellonexus.com point at `/releases/latest/download/<asset>`. Each release also carries a `SHA256SUMS` text asset containing the hex-encoded SHA-256 hash of `Nexus-Setup.exe`; the OTA engine uses this for integrity verification before installing.
+Installer artifacts are published to [`hello-nexus/nexus-releases`](https://github.com/hello-nexus/nexus-releases) under semver tags (`v3.0.0`, `v3.1.0`, ...): `Nexus-Setup.exe` (Windows) and `Nexus.dmg` (macOS), alongside the mobile app builds from the wrapper repos. The download links on hellonexus.com point at `/releases/latest/download/<asset>`. Each release also carries a `SHA256SUMS` text asset containing the hex-encoded SHA-256 hash of `Nexus-Setup.exe`; the OTA engine uses this for integrity verification before installing.
+
+The canonical version lives in the `VERSION` file at the repo root (e.g. `3.0.0`). The build stamps `"v" + <VERSION content>` into `BuildInfo.Version` at compile time via the `SetGitVersion` MSBuild target.
 
 ## Third-party
 

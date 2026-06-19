@@ -17,6 +17,8 @@ public sealed class StagedInstallMarker
     [JsonPropertyName("sha256")] public string Sha256 { get; set; } = "";
     /// <summary>"pending" = downloaded+verified, not yet launched. "attempted" = installer was launched.</summary>
     [JsonPropertyName("state")] public string State { get; set; } = "pending";
+    /// <summary>When true, the new instance opens the dashboard after confirming the version advanced.</summary>
+    [JsonPropertyName("reopen_dashboard")] public bool ReopenDashboard { get; set; }
 }
 
 /// <summary>

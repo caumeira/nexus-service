@@ -379,16 +379,16 @@
   </ItemGroup>
 
   <!-- Nexus Game Sync shim DLLs produced by the nexus-gamesync component.
-       build.bat / build32.bat place them under Bundled/win-x64/chroma/x64/
+       build.bat / build32.bat place them under Bundled/win-x64/gamesync/x64/
        (RzChromaSDK64.dll, RzChromatic64.dll, LightFX.dll,
         LogitechLedEnginesWrapper.dll, LogitechLed.dll) and x86/ (same names
        except the Chroma pair uses the 32-bit names without the 64 suffix;
        LightFX/Logitech share the same filenames across arches). x64 -> System32,
-       x86 -> SysWOW64. ChromaShimInstaller copies them at enable-time.
+       x86 -> SysWOW64. GameSyncShimInstaller copies them at enable-time.
        Absence is tolerated at build time so Mac/CI builds are unaffected. -->
-  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\chroma')">
-    <Content Include="Bundled\win-x64\chroma\**\*.*" Exclude="Bundled\win-x64\chroma\**\.gitkeep">
-      <Link>chroma\%(RecursiveDir)%(Filename)%(Extension)</Link>
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\gamesync')">
+    <Content Include="Bundled\win-x64\gamesync\**\*.*" Exclude="Bundled\win-x64\gamesync\**\.gitkeep">
+      <Link>gamesync\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
@@ -727,7 +727,7 @@
   <!-- First-party + community apps. Live in the separate `nexus-apps`
        submodule (../nexus-apps in this layout), one dir per app under apps/<id>/
        (manifest.json + the built widget.mjs). MSBuild copies them into
-       <output>/widgets/<id>/, the bundled-install root the AppRegistry scans
+       <output>/apps/<id>/, the bundled-install root the AppRegistry scans
        (an app's widget facet renders from widget.mjs in the sandboxed host).
        The Web SDK's default Content include sometimes shadows the Link
        metadata; remove + re-add to ensure our metadata wins. -->
@@ -741,26 +741,26 @@
   <ItemGroup>
     <Content Remove="$(NexusAppsRoot)\**\*" />
     <Content Include="$(NexusAppsRoot)\**\*">
-      <Link>widgets\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <Link>apps\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
 
-  <!-- Bake git commit count as version -->
+  <!-- Bake VERSION file contents as the build version -->
   <Target Name="SetGitVersion" BeforeTargets="CoreCompile">
-    <Exec Command="git rev-list --count HEAD 2>NUL" ConsoleToMsBuild="true" IgnoreExitCode="true"
-          Condition="$([MSBuild]::IsOSPlatform('Windows'))">
-      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitCount" />
-    </Exec>
-    <Exec Command="git rev-list --count HEAD 2>/dev/null" ConsoleToMsBuild="true" IgnoreExitCode="true"
-          Condition="!$([MSBuild]::IsOSPlatform('Windows'))">
-      <Output TaskParameter="ConsoleOutput" PropertyName="GitCommitCount" />
-    </Exec>
     <PropertyGroup>
-      <GitCommitCount Condition="'$(GitCommitCount)' == ''">0</GitCommitCount>
+      <VersionFilePath>$(MSBuildThisFileDirectory)VERSION</VersionFilePath>
     </PropertyGroup>
-    <WriteLinesToFile File="$(IntermediateOutputPath)GitVersion.g.cs" Lines="namespace Nexus.Service { internal static partial class BuildInfo { public const string Version = &quot;v$(GitCommitCount)&quot;%3B } }" Overwrite="true" />
+    <ReadLinesFromFile File="$(VersionFilePath)" Condition="Exists('$(VersionFilePath)')">
+      <Output TaskParameter="Lines" PropertyName="VersionFileContents" />
+    </ReadLinesFromFile>
+    <PropertyGroup>
+      <VersionFileContents Condition="'$(VersionFileContents)' == ''">0.0.0</VersionFileContents>
+      <!-- Split on ";" (ReadLinesFromFile joins lines with ";") and take the first element. -->
+      <NexusBuildVersion>v$([System.String]::Copy('$(VersionFileContents)').Split(';')[0].Trim())</NexusBuildVersion>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(IntermediateOutputPath)GitVersion.g.cs" Lines="namespace Nexus.Service { internal static partial class BuildInfo { public const string Version = &quot;$(NexusBuildVersion)&quot;%3B } }" Overwrite="true" />
     <ItemGroup>
       <Compile Include="$(IntermediateOutputPath)GitVersion.g.cs" />
     </ItemGroup>

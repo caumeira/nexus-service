@@ -658,10 +658,10 @@ public sealed class RgbaColor
 public sealed class UpdateSettings
 {
     /// <summary>
-    /// When true, the poller detects updates but never auto-downloads or installs.
-    /// A manual POST /update/start is still allowed.
+    /// Auto-update behavior: "notify" (detect only), "download" (stage but don't install),
+    /// "always" (download and install automatically). Default "always".
     /// </summary>
-    public bool AutoUpdateDisabled { get; set; }
+    public string UpdateMode { get; set; } = "always";
 
     /// <summary>"production" or "beta". Production maps to the GitHub latest-release
     /// endpoint (excludes prereleases); beta picks the newest release regardless of

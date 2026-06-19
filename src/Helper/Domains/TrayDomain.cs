@@ -51,6 +51,11 @@ namespace Nexus.Service.Helper.Domains
         public string Version { get; set; } = "";
     }
 
+    /// <summary>Payload for <c>trayIcon.openDashboard</c>. Service-to-helper. No fields required.</summary>
+    public sealed class TrayOpenDashboardPayload
+    {
+    }
+
     // JSON source-gen registration lives in src/Serialization/AppJsonContext.cs
     // (see note in LifecycleDomain.cs).
 
@@ -100,6 +105,17 @@ namespace Nexus.Service.Helper.Domains
                 payloadType: AppJsonContext.Default.TrayUpdateReadyPayload,
                 ct: ct);
         }
+
+        public static Task OpenDashboardAsync(HelperRegistry registry, CancellationToken ct = default)
+        {
+            var conn = registry.GetAny();
+            if (conn is null) return Task.CompletedTask;
+            return conn.SendAsync(
+                type: "trayIcon.openDashboard",
+                payload: new TrayOpenDashboardPayload(),
+                payloadType: AppJsonContext.Default.TrayOpenDashboardPayload,
+                ct: ct);
+        }
     }
 
     [SupportedOSPlatform("windows")]
@@ -110,6 +126,7 @@ namespace Nexus.Service.Helper.Domains
         private readonly Action _dismissPairNotice;
         private readonly Action<string, string, string?> _showNotice;
         private readonly Action<string> _showUpdateReady;
+        private readonly Action _openDashboard;
         // Deduplicates balloon: skip if the version was already notified.
         private string? _notifiedVersion;
 
@@ -118,13 +135,15 @@ namespace Nexus.Service.Helper.Domains
             Action<string> showPairNotice,
             Action dismissPairNotice,
             Action<string, string, string?> showNotice,
-            Action<string> showUpdateReady)
+            Action<string> showUpdateReady,
+            Action openDashboard)
         {
             _setVisible = setVisible;
             _showPairNotice = showPairNotice;
             _dismissPairNotice = dismissPairNotice;
             _showNotice = showNotice;
             _showUpdateReady = showUpdateReady;
+            _openDashboard = openDashboard;
         }
 
         public void Register(HelperHandlerRegistry registry)
@@ -169,6 +188,12 @@ namespace Nexus.Service.Helper.Domains
                     _notifiedVersion = p.Version;
                     _showUpdateReady(p.Version);
                 }
+                return Task.FromResult(env.Ok());
+            });
+
+            registry.Register("trayIcon.openDashboard", (env, _) =>
+            {
+                _openDashboard();
                 return Task.FromResult(env.Ok());
             });
         }

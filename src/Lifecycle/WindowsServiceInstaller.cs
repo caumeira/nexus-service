@@ -130,12 +130,22 @@ internal static class WindowsServiceInstaller
             // needs internal quotes around the EXE path so the space in
             // "Program Files" doesn't split the launcher arg.
             Log("creating Windows Service");
-            if (!RunSc("create", ServiceName,
-                "binPath=", $"\"{installedExe}\" --service",
-                "start=", "auto",
-                "obj=", "LocalSystem",
-                "DisplayName=", ServiceDisplayName,
-                "depend=", "PawnIO"))
+            bool created = false;
+            for (int attempt = 1; attempt <= 4 && !created; attempt++)
+            {
+                created = RunSc("create", ServiceName,
+                    "binPath=", $"\"{installedExe}\" --service",
+                    "start=", "auto",
+                    "obj=", "LocalSystem",
+                    "DisplayName=", ServiceDisplayName,
+                    "depend=", "PawnIO");
+                if (!created)
+                {
+                    Log($"sc create failed (attempt {attempt}); waiting for prior service handle to release");
+                    WaitForServiceDeleted(TimeSpan.FromSeconds(5));
+                }
+            }
+            if (!created)
             {
                 return 3;
             }
@@ -359,7 +369,12 @@ internal static class WindowsServiceInstaller
         {
             RunSc("stop", ServiceName);
             WaitForServiceStop(TimeSpan.FromSeconds(8));
+            // Kill any lingering Nexus.exe (other than this --install process)
+            // so the service handle releases and sc delete completes instead of
+            // being deferred. Mirrors the uninstall path.
+            KillSiblingProcesses(BinaryName);
             RunSc("delete", ServiceName);
+            WaitForServiceDeleted(TimeSpan.FromSeconds(15));
         }
     }
 
@@ -501,6 +516,22 @@ internal static class WindowsServiceInstaller
             if (status.Contains("STOPPED", StringComparison.OrdinalIgnoreCase)) return;
             Thread.Sleep(500);
         }
+    }
+
+    private static void WaitForServiceDeleted(TimeSpan timeout)
+    {
+        // sc delete only MARKS the service for deletion; the SCM removes it once
+        // the last open handle closes. A same-name sc create while it is still
+        // marked fails with 1072. During an OTA upgrade the old service process
+        // was just force-killed, so a handle lingers - poll until the query
+        // reports it gone before recreating.
+        var deadline = DateTime.UtcNow + timeout;
+        while (DateTime.UtcNow < deadline)
+        {
+            if (string.IsNullOrEmpty(RunScCaptureOutput("query", ServiceName))) return;
+            Thread.Sleep(500);
+        }
+        Log("WARN service still present after delete; sc create may need retries");
     }
 
     private static bool RunSc(params string[] args)

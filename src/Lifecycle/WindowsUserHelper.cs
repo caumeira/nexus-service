@@ -128,7 +128,8 @@ internal static class WindowsUserHelper
             Platform.Windows.TrayIcon.ShowPairBalloon,
             Platform.Windows.TrayIcon.ClearPairBalloon,
             Platform.Windows.TrayIcon.ShowNoticeBalloon,
-            Platform.Windows.TrayIcon.ShowUpdateReadyBalloon).Register(handlerRegistry);
+            Platform.Windows.TrayIcon.ShowUpdateReadyBalloon,
+            () => Platform.Windows.TrayIcon.OpenLocalWindow()).Register(handlerRegistry);
         // Runs in the user session, so this set lands on the clipboard the
         // user actually pastes from (the service's Session-0 one is invisible).
         new ClipboardHandler(new Platform.Clipboard.WindowsClipboardProvider().SetText).Register(handlerRegistry);
