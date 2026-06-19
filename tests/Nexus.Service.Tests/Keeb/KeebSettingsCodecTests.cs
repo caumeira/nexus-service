@@ -105,4 +105,27 @@ public class KeebSettingsCodecTests
         var page = KeebSettingsCodec.BuildSettingsPage(s);
         Assert.Equal(1 << 4, page[2]); // only the LED-on bit
     }
+
+    [Theory]
+    [InlineData(0, 0)]
+    [InlineData(255, 100)]
+    [InlineData(204, 80)]   // the page[4] value BuildSettingsPage writes for 80%
+    [InlineData(128, 50)]
+    [InlineData(77, 30)]    // a knob-set byte that isn't one Nexus would write
+    public void BrightnessPercentFromByte_maps_device_byte_to_percent(byte raw, int expected)
+        => Assert.Equal(expected, KeebSettingsCodec.BrightnessPercentFromByte(raw));
+
+    // The connection-worker poll reads the brightness byte back and compares it to
+    // the stored percent; if a value Nexus writes didn't decode to itself, every
+    // poll would see a phantom change and broadcast/flatten in a loop.
+    [Fact]
+    public void Brightness_round_trips_through_encode_and_decode_for_every_percent()
+    {
+        for (var pct = 0; pct <= 100; pct++)
+        {
+            var page = KeebSettingsCodec.BuildSettingsPage(
+                new KeebSettings { FirmwareLighting = new KeebFirmwareLighting { Brightness = pct } });
+            Assert.Equal(pct, KeebSettingsCodec.BrightnessPercentFromByte(page[4]));
+        }
+    }
 }

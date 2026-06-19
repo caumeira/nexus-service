@@ -67,6 +67,13 @@ public static class KeebSettingsCodec
         _ => null,
     };
 
+    /// <summary>
+    /// Device brightness byte (0-255) → 0-100% slider. Inverse of the page[4]
+    /// encode in <see cref="BuildSettingsPage"/>, so a value Nexus wrote round-trips
+    /// and a knob-set value maps to the nearest percent.
+    /// </summary>
+    public static int BrightnessPercentFromByte(byte b) => (int)Math.Round(b / 255.0 * 100);
+
     /// <summary>Speed byte: 1 = fastest, 5 = slowest. Web FW_SPEEDS = Slow..Rapid.</summary>
     public static byte SpeedByte(string? speed) => Norm(speed) switch
     {

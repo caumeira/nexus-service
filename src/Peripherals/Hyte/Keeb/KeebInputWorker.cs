@@ -98,10 +98,10 @@ public sealed class KeebInputWorker : BackgroundService
                 break;
             case KeebProtocol.KeebInputKind.ScrollMiddle:
                 // The middle button cycles the firmware effect on the device.
-                // Re-read the effect immediately so the panel's Effect selector
-                // follows without waiting on a poll.
+                // Re-read immediately so the panel's Effect selector follows
+                // without waiting on the connection-worker poll.
                 ServiceLog.Info("[keeb-input] rotary middle click");
-                _applier.SyncEffectFromDevice();
+                _applier.SyncFromDevice();
                 break;
             case KeebProtocol.KeebInputKind.SoftwareKey:
                 ServiceLog.Info($"[keeb-input] software key ap={ev.ApCode} pressed={ev.Pressed}");
