@@ -73,6 +73,7 @@ src/
   Net/                # local cert provisioning, loopback discovery
   Lifecycle/          # service install/uninstall, scheduled task, tray entry, CLI flags
   Platform/           # OS-specific shims behind interfaces
+  Update/             # OTA self-update engine (IUpdateSource, GitHubReleaseProvider, UpdateService poller, UpdateDownloader, UpdateIntegrity, UpdateInstaller)
   ...                 # supporting subsystems (Devices, Monitoring, Models, Plugins, Telemetry, ...)
 docs/
   api-spec.md         # REST surface
@@ -164,7 +165,7 @@ dotnet run -c Release -p:BuildWeb=false \
 
 ## Releases
 
-Installer artifacts are published to [`hello-nexus/nexus-releases`](https://github.com/hello-nexus/nexus-releases) under monotonic `vNN` tags: `Nexus-Setup.exe` (Windows) and `Nexus.dmg` (macOS), alongside the mobile app builds from the wrapper repos. The download links on hellonexus.com point at `/releases/latest/download/<asset>`.
+Installer artifacts are published to [`hello-nexus/nexus-releases`](https://github.com/hello-nexus/nexus-releases) under monotonic `vNN` tags: `Nexus-Setup.exe` (Windows) and `Nexus.dmg` (macOS), alongside the mobile app builds from the wrapper repos. The download links on hellonexus.com point at `/releases/latest/download/<asset>`. Each release also carries a `SHA256SUMS` text asset containing the hex-encoded SHA-256 hash of `Nexus-Setup.exe`; the OTA engine uses this for integrity verification before installing.
 
 ## Third-party
 

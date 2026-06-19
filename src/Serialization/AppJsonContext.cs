@@ -16,9 +16,11 @@ using Nexus.Service.Models.Peripherals.Keeb;
 using Nexus.Service.Models.Peripherals.Y70;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Models.Steam;
+using Nexus.Service.Models.Update;
 using Nexus.Service.Models.Widgets;
 using Nexus.Service.Platform;
 using Nexus.Service.Routes;
+using Nexus.Service.Update;
 
 namespace Nexus.Service.Serialization;
 
@@ -628,6 +630,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TraySetVisiblePayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TrayPairNoticePayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TrayNoticePayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.TrayUpdateReadyPayload))]
 // Clipboard
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ClipboardSetTextPayload))]
 // Screen-time
@@ -709,6 +712,20 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(AppProxyResponse))]
 [JsonSerializable(typeof(AppDispatchRequest))]
 [JsonSerializable(typeof(AppDispatchResponse))]
+
+// OTA self-update routes + GitHub provider DTOs
+[JsonSerializable(typeof(UpdateStatusResponse))]
+[JsonSerializable(typeof(UpdateProgressResponse))]
+[JsonSerializable(typeof(UpdateStartResponse))]
+[JsonSerializable(typeof(UpdateStartRequest))]
+[JsonSerializable(typeof(GitHubRelease))]
+[JsonSerializable(typeof(List<GitHubRelease>))]
+[JsonSerializable(typeof(GitHubReleaseAsset))]
+[JsonSerializable(typeof(List<GitHubReleaseAsset>))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.UpdateSettings))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.UpdatePrefs))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.UpdatePrefsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Update.StagedInstallMarker))]
 
 // Conflict warning system - sidebar alarm for competing third-party apps.
 [JsonSerializable(typeof(Nexus.Service.Models.Conflicts.DetectedConflict))]

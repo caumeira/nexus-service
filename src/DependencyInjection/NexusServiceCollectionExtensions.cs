@@ -17,6 +17,7 @@ using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 using Nexus.Service.Sockets;
 using Nexus.Service.Steam;
+using Nexus.Service.Update;
 using Microsoft.Extensions.DependencyInjection;
 
 namespace Nexus.Service.DependencyInjection;
@@ -933,6 +934,22 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Platform.Linux.DBus.DBusConnection>();
         services.AddHostedService<Nexus.Service.Platform.Linux.LinuxTrayService>();
 #endif
+        return services;
+    }
+
+    /// <summary>
+    /// OTA self-update engine. Cross-platform compile; install handoff is
+    /// Windows-only and is gated internally by platform checks.
+    /// </summary>
+    public static IServiceCollection AddNexusUpdate(this IServiceCollection services)
+    {
+        services.AddSingleton<IUpdateSource>(sp =>
+            new GitHubReleaseProvider(sp.GetRequiredService<IHttpClientFactory>()));
+        services.AddSingleton<UpdateDownloader>();
+        // UpdateService is both a singleton (for route access) and a hosted
+        // service (for the background poll loop). The same instance is reused.
+        services.AddSingleton<UpdateService>();
+        services.AddHostedService(sp => sp.GetRequiredService<UpdateService>());
         return services;
     }
 

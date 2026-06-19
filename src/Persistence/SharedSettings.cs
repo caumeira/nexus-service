@@ -118,6 +118,7 @@ public sealed class Preferences
     public MonitoringSettings Monitoring { get; set; } = new();
     public CoolingPrefs Cooling { get; set; } = new();
     public UiSettings Ui { get; set; } = new();
+    public UpdatePrefs Update { get; set; } = new();
 }
 
 public sealed class CoolingPrefs
@@ -141,6 +142,7 @@ public sealed class PreferencesPatch
     public MonitoringSettingsPatch? Monitoring { get; set; }
     public CoolingPrefsPatch? Cooling { get; set; }
     public UiSettingsPatch? Ui { get; set; }
+    public UpdatePrefsPatch? Update { get; set; }
 }
 
 public sealed class ThemeSettingsPatch
@@ -187,6 +189,20 @@ public sealed class MonitoringSettingsPatch
     public bool? ShowMacStatusBarIcon { get; set; }
     public bool? ShowWindowsTrayIcon { get; set; }
     public List<string>? DetailedCollapsed { get; set; }
+}
+
+public sealed class UpdatePrefs
+{
+    public bool AutoUpdateDisabled { get; set; }
+    public string UpdateChannel { get; set; } = "production";
+    public string LastDismissedUpdateVersion { get; set; } = "";
+}
+
+public sealed class UpdatePrefsPatch
+{
+    public bool? AutoUpdateDisabled { get; set; }
+    public string? UpdateChannel { get; set; }
+    public string? LastDismissedUpdateVersion { get; set; }
 }
 
 public sealed class CoolingPrefsPatch

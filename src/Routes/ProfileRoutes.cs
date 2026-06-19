@@ -61,6 +61,12 @@ public static class ProfileRoutes
                         PreferredGpuId = s.Cooling.PreferredGpuId,
                     },
                     Ui = s.Ui,
+                    Update = new UpdatePrefs
+                    {
+                        AutoUpdateDisabled = s.Update.AutoUpdateDisabled,
+                        UpdateChannel = s.Update.UpdateChannel,
+                        LastDismissedUpdateVersion = s.Update.LastDismissedUpdateVersion,
+                    },
                 };
                 // Profile switches swap the entire prefs block — everyone refetches via the broadcast.
                 PanelTopics.BroadcastPrefs(hub);
@@ -167,6 +173,12 @@ public static class ProfileRoutes
                     PreferredGpuId = s.Cooling.PreferredGpuId,
                 },
                 Ui = s.Ui,
+                Update = new UpdatePrefs
+                {
+                    AutoUpdateDisabled = s.Update.AutoUpdateDisabled,
+                    UpdateChannel = s.Update.UpdateChannel,
+                    LastDismissedUpdateVersion = s.Update.LastDismissedUpdateVersion,
+                },
             };
         }).AllowPanel();
 
@@ -419,6 +431,12 @@ public static class ProfileRoutes
                 if (body.Ui is { } ui)
                 {
                     if (ui.DisableConflictAlerts.HasValue) s.Ui.DisableConflictAlerts = ui.DisableConflictAlerts.Value;
+                }
+                if (body.Update is { } update)
+                {
+                    if (update.AutoUpdateDisabled.HasValue) s.Update.AutoUpdateDisabled = update.AutoUpdateDisabled.Value;
+                    if (update.UpdateChannel is not null) s.Update.UpdateChannel = update.UpdateChannel;
+                    if (update.LastDismissedUpdateVersion is not null) s.Update.LastDismissedUpdateVersion = update.LastDismissedUpdateVersion;
                 }
             });
             pm.MarkDirty();

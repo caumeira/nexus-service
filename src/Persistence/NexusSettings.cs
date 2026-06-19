@@ -55,6 +55,9 @@ public sealed class NexusSettings
     /// <summary>Category ids currently set to Shared. Allowed values: "lighting", "cooling", "theme", "dashboard". Categories not in this list are per-profile (the default). NOT profile-scoped: workstation-level. Hardware-bound state (Keeb, Y70, Devices, panel defaults) always lives at workstation root and is never per-profile, so it never appears here.</summary>
     public List<string> SharedCategories { get; set; } = new();
 
+    /// <summary>OTA self-update settings. NOT profile-scoped: workstation-level.</summary>
+    public UpdateSettings Update { get; set; } = new();
+
 }
 
 /// <summary>
@@ -647,4 +650,27 @@ public sealed class RgbaColor
     public byte G { get; set; }
     public byte B { get; set; }
     public double A { get; set; } = 1.0;
+}
+
+/// <summary>
+/// OTA self-update preferences. Adding fields is schema-safe; no SchemaVersion bump needed.
+/// </summary>
+public sealed class UpdateSettings
+{
+    /// <summary>
+    /// When true, the poller detects updates but never auto-downloads or installs.
+    /// A manual POST /update/start is still allowed.
+    /// </summary>
+    public bool AutoUpdateDisabled { get; set; }
+
+    /// <summary>"production" or "beta". Production maps to the GitHub latest-release
+    /// endpoint (excludes prereleases); beta picks the newest release regardless of
+    /// the prerelease flag.</summary>
+    public string UpdateChannel { get; set; } = "production";
+
+    /// <summary>
+    /// Version tag the user last dismissed ("Later") the auto-update popup for.
+    /// Prevents the popup from re-appearing for the same version after dismissal.
+    /// </summary>
+    public string LastDismissedUpdateVersion { get; set; } = "";
 }

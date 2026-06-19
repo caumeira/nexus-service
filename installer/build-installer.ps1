@@ -114,14 +114,18 @@ try {
 }
 
 $out = Join-Path $scriptDir "output\Nexus-Setup.exe"
-# Drop a copy at the parent nexus/ dir so the latest installer always lives
-# next to the other top-level nexus artifacts, not buried in installer\output.
 $dropDir = (Resolve-Path (Join-Path $scriptDir "..\..")).Path
 $drop    = Join-Path $dropDir "Nexus-Setup.exe"
 Copy-Item $out $drop -Force
+
+$sha256 = (Get-FileHash $out -Algorithm SHA256).Hash.ToLower()
+$sumsLine = "$sha256  Nexus-Setup.exe"
+Set-Content -Path (Join-Path $scriptDir "output\SHA256SUMS") -Value $sumsLine -NoNewline
+Set-Content -Path (Join-Path $dropDir "SHA256SUMS") -Value $sumsLine -NoNewline
 
 $size = [math]::Round((Get-Item $out).Length / 1MB, 2)
 Write-Host ""
 Write-Host "Built: $out  ($size MB)"
 Write-Host "Drop:  $drop"
+Write-Host "SHA256: $sha256"
 if ($OpenOutput) { explorer.exe "/select,$drop" }

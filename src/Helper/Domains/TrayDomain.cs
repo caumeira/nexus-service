@@ -45,6 +45,12 @@ namespace Nexus.Service.Helper.Domains
         public string FolderPath { get; set; } = "";
     }
 
+    /// <summary>Payload for <c>trayIcon.updateReady</c>. Service-to-helper.</summary>
+    public sealed class TrayUpdateReadyPayload
+    {
+        public string Version { get; set; } = "";
+    }
+
     // JSON source-gen registration lives in src/Serialization/AppJsonContext.cs
     // (see note in LifecycleDomain.cs).
 
@@ -83,6 +89,17 @@ namespace Nexus.Service.Helper.Domains
                 payloadType: AppJsonContext.Default.TrayNoticePayload,
                 ct: ct);
         }
+
+        public static Task UpdateReadyAsync(HelperRegistry registry, string version, CancellationToken ct = default)
+        {
+            var conn = registry.GetAny();
+            if (conn is null) return Task.CompletedTask;
+            return conn.SendAsync(
+                type: "trayIcon.updateReady",
+                payload: new TrayUpdateReadyPayload { Version = version },
+                payloadType: AppJsonContext.Default.TrayUpdateReadyPayload,
+                ct: ct);
+        }
     }
 
     [SupportedOSPlatform("windows")]
@@ -92,13 +109,22 @@ namespace Nexus.Service.Helper.Domains
         private readonly Action<string> _showPairNotice;
         private readonly Action _dismissPairNotice;
         private readonly Action<string, string, string?> _showNotice;
+        private readonly Action<string> _showUpdateReady;
+        // Deduplicates balloon: skip if the version was already notified.
+        private string? _notifiedVersion;
 
-        public TrayHandler(Action<bool> setVisible, Action<string> showPairNotice, Action dismissPairNotice, Action<string, string, string?> showNotice)
+        public TrayHandler(
+            Action<bool> setVisible,
+            Action<string> showPairNotice,
+            Action dismissPairNotice,
+            Action<string, string, string?> showNotice,
+            Action<string> showUpdateReady)
         {
             _setVisible = setVisible;
             _showPairNotice = showPairNotice;
             _dismissPairNotice = dismissPairNotice;
             _showNotice = showNotice;
+            _showUpdateReady = showUpdateReady;
         }
 
         public void Register(HelperHandlerRegistry registry)
@@ -128,7 +154,21 @@ namespace Nexus.Service.Helper.Domains
                 if (env.Payload is null) return Task.FromResult(env.Ok());
                 var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TrayNoticePayload);
                 if (p is not null)
+                {
                     _showNotice(p.Title ?? "", p.Text ?? "", string.IsNullOrEmpty(p.FolderPath) ? null : p.FolderPath);
+                }
+                return Task.FromResult(env.Ok());
+            });
+
+            registry.Register("trayIcon.updateReady", (env, _) =>
+            {
+                if (env.Payload is null) return Task.FromResult(env.Ok());
+                var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TrayUpdateReadyPayload);
+                if (p is not null && !string.IsNullOrEmpty(p.Version) && p.Version != _notifiedVersion)
+                {
+                    _notifiedVersion = p.Version;
+                    _showUpdateReady(p.Version);
+                }
                 return Task.FromResult(env.Ok());
             });
         }

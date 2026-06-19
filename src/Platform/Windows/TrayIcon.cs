@@ -741,7 +741,7 @@ public static class TrayIcon
     /// One balloon slot exists (NIM_MODIFY replaces), so clicks carry no
     /// identity; the owner kind + optional folder route NIN_BALLOONUSERCLICK.
     /// </summary>
-    private enum BalloonKind { None, Pair, Notice }
+    private enum BalloonKind { None, Pair, Notice, UpdateReady }
     private static BalloonKind _balloonKind;
     private static string? _noticeFolderPath;
 
@@ -757,8 +757,25 @@ public static class TrayIcon
         // The click hint is appended here, not by the notice producer — other
         // platforms' notifications (macOS osascript) have no click action.
         if (folder is not null)
+        {
             text = $"{text} Click to open the folder.";
+        }
         ModifyBalloon(title, text, BalloonKind.Notice, folder, notWhileKind: BalloonKind.Pair);
+    }
+
+    /// <summary>
+    /// Notify the user that a staged update is ready to install. Clicking the
+    /// balloon opens the dashboard where the install button is presented.
+    /// No-op while a pairing balloon is pending (pairing is time-sensitive).
+    /// </summary>
+    public static void ShowUpdateReadyBalloon(string version)
+    {
+        ModifyBalloon(
+            $"Nexus {version} is ready",
+            "Click to install the update.",
+            BalloonKind.UpdateReady,
+            folderPath: null,
+            notWhileKind: BalloonKind.Pair);
     }
 
     private static void ModifyBalloon(
