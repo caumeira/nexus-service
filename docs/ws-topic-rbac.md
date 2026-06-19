@@ -1,4 +1,4 @@
-# WebSocket Topic RBAC — Design Note
+# WebSocket Topic RBAC - Design Note
 
 **Status:** proposal, not implemented. Tracks the gap identified in the
 2026-05-13 security audit.
@@ -10,8 +10,8 @@ bearer / panel cookie auth gate during the upgrade can subsequently send
 `{"sub":["<topic>"]}` for any topic the service exposes. There is no
 per-topic permission check inside `MultiplexHub`.
 
-That means a paired *phone* session — which we want to restrict to the
-panel surface (lighting, beats, presence) — currently has the same topic
+That means a paired *phone* session - which we want to restrict to the
+panel surface (lighting, beats, presence) - currently has the same topic
 surface as the *desktop* dashboard session, including diagnostic streams
 that contain process names, network connections, and screen-time data.
 
@@ -34,9 +34,9 @@ call sites in `src/Monitoring`, `src/Sensors`, and the audio pipeline.
 | `volume`      | media session         | low         | yes       |
 | `audio`       | spectrum analyser     | low         | yes       |
 | `beats`       | beat detector         | low         | yes       |
-| **`processes`**   | top-N process list   | **medium — leaks user app usage** | **no** |
-| **`network`**     | per-PID throughput  | **medium — leaks browsing patterns** | **no** |
-| **`screentime`**  | per-app daily time  | **medium — privacy-sensitive**       | **no** |
+| **`processes`**   | top-N process list   | **medium - leaks user app usage** | **no** |
+| **`network`**     | per-PID throughput  | **medium - leaks browsing patterns** | **no** |
+| **`screentime`**  | per-app daily time  | **medium - privacy-sensitive**       | **no** |
 
 The three highlighted topics expose user-activity signal that a phone
 client (potentially handed to a guest, propped in the kitchen, or pinned
@@ -70,11 +70,11 @@ that would have driven the subscribe instead of silently spinning.
 
 ## Out of scope for this note
 
-- Topic-level **rate** limits (separate hardening item — bound queue
+- Topic-level **rate** limits (separate hardening item - bound queue
   depth + per-client send budget in `MultiplexHub`).
 - Frame size limits (handled by `WebSocketOptions.KeepAliveInterval`
   and an explicit per-client receive buffer cap).
-- Killswitch propagation — needs a hub event so the phone-control
+- Killswitch propagation - needs a hub event so the phone-control
   killswitch can close all phone sessions inside one tick instead of
   waiting for natural disconnect.
 

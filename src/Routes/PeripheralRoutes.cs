@@ -28,15 +28,15 @@ public static class PeripheralRoutes
             return Results.Ok(BuildDetail(p));
         });
 
-        // Static catalog — peripherals (mice / keyboards / headsets with config support).
+        // Static catalog - peripherals (mice / keyboards / headsets with config support).
         app.MapGet("/peripherals/supported", () =>
             new GetSupportedDevicesResponse { Items = SupportedDevicesCatalog.All.ToList() });
 
-        // Static catalog — RGB/lighting-capable devices (backed by OpenRGB).
+        // Static catalog - RGB/lighting-capable devices (backed by OpenRGB).
         app.MapGet("/peripherals/lighting-supported", () =>
             new GetSupportedDevicesResponse { Items = LightingDevicesCatalog.All.ToList() });
 
-        // Capability writes — all exceptions are caught so a device protocol glitch
+        // Capability writes - all exceptions are caught so a device protocol glitch
         // returns a 500 with a readable body instead of an unhandled server error.
         app.MapPut("/peripherals/{id}/dpi", (string id, SetDpiBody body, PeripheralRegistry reg) =>
         {

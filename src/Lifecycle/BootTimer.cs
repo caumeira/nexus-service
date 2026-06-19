@@ -5,7 +5,7 @@ namespace Nexus.Service.Lifecycle;
 // Temporary boot-trace instrumentation. Prints `[boot] +<elapsed>ms (+<delta>ms) <label>`
 // per phase so we can attribute the ~2-3s gap between process start and
 // the first `[nexus-service] listening` log line on cold boots. Sw starts
-// at static-ctor time, which fires the first time the type is touched —
+// at static-ctor time, which fires the first time the type is touched -
 // i.e. the very first call to BootTimer.Mark() near the top of Program.cs.
 //
 // Remove the call sites once boot time is back under the desired budget.

@@ -15,11 +15,11 @@ namespace Nexus.Service.Lighting.Smart.Drivers.Hue;
 /// link-button flow, and controls/streams lights over CLIP v2. Hue bulbs are
 /// single-color, so frames are averaged from a small canvas grid; the bridge
 /// throttles REST, so we cap sends at ~10/s (Entertainment streaming is out of
-/// scope — see plans/smart-lights-integration.md).
+/// scope - see plans/smart-lights-integration.md).
 /// </summary>
 public sealed class HueDriver : ILightDriver, ISessionStreamer
 {
-    private const int MinSendIntervalMs = 100; // ~10 Hz — bridge REST ceiling.
+    private const int MinSendIntervalMs = 100; // ~10 Hz - bridge REST ceiling.
     private const string MdnsService = "_hue._tcp";
 
     private readonly HueBridgeClient _client;
@@ -50,14 +50,14 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
 
     public int MinIntervalMs(SmartLight dev) => MinSendIntervalMs;
 
-    // All bulbs on a bridge share one rate budget — keyed by bridge host — so a
+    // All bulbs on a bridge share one rate budget - keyed by bridge host - so a
     // many-light effect can't flood the bridge (it handles ~10 cmds/s total).
     public string RateLimitKey(SmartLight dev) => "hue:" + dev.Host;
 
     public async Task<IReadOnlyList<DiscoveredLight>> DiscoverAsync(CancellationToken ct)
     {
         // Dedup by HOST (IP): cloud discovery and mDNS both surface the same
-        // bridge, and the same IP is always the same bridge — so keying on host
+        // bridge, and the same IP is always the same bridge - so keying on host
         // is duplicate-proof even when the config probe (which yields the
         // bridge id) races or fails.
         var byHost = new Dictionary<string, DiscoveredLight>(StringComparer.OrdinalIgnoreCase);
@@ -70,7 +70,7 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
                     await AddHostAsync(byHost, e.InternalIpAddress, e.Id, ct).ConfigureAwait(false);
             }
         }
-        catch { /* cloud unreachable — fall through to mDNS */ }
+        catch { /* cloud unreachable - fall through to mDNS */ }
 
         try
         {
@@ -86,12 +86,12 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
 
     private async Task AddHostAsync(Dictionary<string, DiscoveredLight> sink, string host, string idHint, CancellationToken ct)
     {
-        // Already found this IP (e.g. cloud then mDNS) — skip the redundant probe.
+        // Already found this IP (e.g. cloud then mDNS) - skip the redundant probe.
         if (sink.ContainsKey(host)) return;
 
         HueBridgeConfig? cfg = null;
         try { cfg = await _client.GetBridgeConfigAsync(host, ct).ConfigureAwait(false); }
-        catch { /* unreachable host — still record under its IP below */ }
+        catch { /* unreachable host - still record under its IP below */ }
 
         var bridgeId = !string.IsNullOrEmpty(cfg?.BridgeId) ? cfg!.BridgeId
             : !string.IsNullOrEmpty(idHint) ? idHint
@@ -179,7 +179,7 @@ public sealed class HueDriver : ILightDriver, ISessionStreamer
                 On = new HueOn { On = true },
                 Dimming = new HueDimming { Brightness = Math.Max(1.0, bri) },
                 Color = (x > 0 || y > 0) ? new HueColor { Xy = new HueXy { X = x, Y = y } } : null,
-                // Snap instantly — without this the lamp applies its default
+                // Snap instantly - without this the lamp applies its default
                 // ~400ms fade, smearing every streamed frame.
                 Dynamics = new HueDynamics { Duration = 0 },
             };

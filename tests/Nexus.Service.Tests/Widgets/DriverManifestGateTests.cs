@@ -52,7 +52,7 @@ public class DriverManifestGateTests : IDisposable
 
         var registry = NewRegistry(AppInstallPaths.Source.User);
         Assert.True(registry.TryGet("com.example.cooler", out var entry));
-        Assert.Null(entry.Manifest.Driver); // dropped — the app still loads
+        Assert.Null(entry.Manifest.Driver); // dropped - the app still loads
     }
 
     [Fact]

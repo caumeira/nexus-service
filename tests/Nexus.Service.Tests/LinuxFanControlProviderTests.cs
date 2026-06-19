@@ -11,7 +11,7 @@ namespace Nexus.Service.Tests;
 /// <summary>
 /// Drives LinuxFanControlProvider against a fake hwmon tree: enumeration,
 /// duty↔pwm scaling, mode, the set/release sysfs writes, temps, and the
-/// calibration ramp — all without real hardware (1ms settle).
+/// calibration ramp - all without real hardware (1ms settle).
 /// </summary>
 public class LinuxFanControlProviderTests
 {
@@ -89,7 +89,7 @@ public class LinuxFanControlProviderTests
         using var t = new TempDir();
         // it8696 temp6 on an unconnected header reports -55000 m°C; temp7 a
         // disabled channel reads 0; an unpopulated SPD-style channel reads
-        // ~250 m°C (0.25°C). None must surface as a curve source — otherwise a
+        // ~250 m°C (0.25°C). None must surface as a curve source - otherwise a
         // new/preset curve defaults to a fake input.
         t.Write("hwmon/hwmon0/name", "it8696\n");
         t.Write("hwmon/hwmon0/temp1_input", "43000\n");

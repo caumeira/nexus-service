@@ -10,12 +10,12 @@ namespace Nexus.Service.Lighting.Capture;
 /// <summary>
 /// User-side screen-mirror capture helper. The root daemon spawns this as the
 /// logged-in user (via setpriv) because the xdg-desktop-portal ScreenCast portal
-/// rejects a root caller — it tries to read the caller's <c>/proc/&lt;pid&gt;/root</c>
+/// rejects a root caller - it tries to read the caller's <c>/proc/&lt;pid&gt;/root</c>
 /// to identify the app and can't read root's. Running as the user, the portal
 /// handshake succeeds and shows the share dialog on the user's screen.
 ///
 /// It does the handshake (<see cref="LinuxScreenCastPortal"/>), then runs a
-/// <c>gst-launch pipewiresrc</c> consumer whose stdout is inherited from us —
+/// <c>gst-launch pipewiresrc</c> consumer whose stdout is inherited from us -
 /// raw RGB frames flow straight to the daemon's read pipe. We hold the portal
 /// session (our D-Bus connection) open for the stream's lifetime and only ever
 /// write logs to stderr, so the frame stream on fd&#160;1 stays uncorrupted. The

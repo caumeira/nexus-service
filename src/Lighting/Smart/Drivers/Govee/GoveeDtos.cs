@@ -18,7 +18,7 @@ public sealed class GoveeMsg<TData>
     [JsonPropertyName("data")] public TData? Data { get; set; }
 }
 
-/// <summary>Scan request data — the API requires the literal "reserve".</summary>
+/// <summary>Scan request data - the API requires the literal "reserve".</summary>
 public sealed class GoveeScanRequestData
 {
     [JsonPropertyName("account_topic")] public string AccountTopic { get; set; } = "reserve";
@@ -48,14 +48,14 @@ public sealed class GoveeColorWcData
 /// <summary>"devStatus" request data (must serialize as an empty object).</summary>
 public sealed class GoveeEmptyData;
 
-/// <summary>"razer" request data — base64 of the binary realtime packet.</summary>
+/// <summary>"razer" request data - base64 of the binary realtime packet.</summary>
 public sealed class GoveePtData
 {
     [JsonPropertyName("pt")] public string Pt { get; set; } = "";
 }
 
 /// <summary>Union of every reply's fields ("scan" and "devStatus" don't
-/// collide). Replies carry no request correlation — match on source IP.</summary>
+/// collide). Replies carry no request correlation - match on source IP.</summary>
 public sealed class GoveeReplyData
 {
     // scan

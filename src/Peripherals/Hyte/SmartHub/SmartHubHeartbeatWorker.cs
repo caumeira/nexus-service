@@ -19,7 +19,7 @@ namespace Nexus.Service.Peripherals.Hyte.SmartHub;
 /// page shows live RPM and only surfaces populated ports, (e) assert fan
 /// duty on (re)connect and RE-ASSERT it every tick: the firmware runs a
 /// 5-second watchdog fed only by <c>FF CC 02</c> fan writes
-/// (<c>USB_NO_Activity_Time = 50</c> × 100 ms in the Control_box source) —
+/// (<c>USB_NO_Activity_Time = 50</c> × 100 ms in the Control_box source) -
 /// when it expires the hub reloads <c>Default_FAN_Percent</c> from flash and
 /// re-applies it to ALL four ports, silently undoing any one-shot duty.
 /// This is why HYTE's legacy agent rewrites every port every second.
@@ -111,7 +111,7 @@ public sealed class SmartHubHeartbeatWorker : BackgroundService
     /// Bring every PWM port off the firmware's 100% power-on default: restore
     /// the user's saved manual speed where one exists (so it survives a service
     /// restart), otherwise write <see cref="DefaultDutyPercent"/>. Curve-bound
-    /// ports are skipped — <see cref="CurveEngine"/> drives those within a tick.
+    /// ports are skipped - <see cref="CurveEngine"/> drives those within a tick.
     /// Returns false (retry next tick) if any write fails.
     /// </summary>
     private bool ApplyInitialDuty()
@@ -128,7 +128,7 @@ public sealed class SmartHubHeartbeatWorker : BackgroundService
             var id = SmartHubCoolingProvider.FanId(serial, ch);
             var hasSaved = manual.TryGetValue(id, out var saved);
             // A saved manual speed or a curve binding means the user set this
-            // port up — seed the presence latch so a fan parked at 0% duty
+            // port up - seed the presence latch so a fan parked at 0% duty
             // doesn't vanish from the cooling page across a restart (the tach
             // reads 0 and would never latch on its own).
             if (hasSaved || curveBound.Contains(id)) _hub.State.Fans[ch].SeenFan = true;
@@ -153,7 +153,7 @@ public sealed class SmartHubHeartbeatWorker : BackgroundService
     /// flash default. Curve-bound ports also get fresh writes from
     /// <see cref="CurveEngine"/> every second; the duplicate here is harmless
     /// (6 bytes/port) and keeps the watchdog fed between curve ticks. Ports
-    /// nothing has driven yet (curve bound but stalled) are skipped — their
+    /// nothing has driven yet (curve bound but stalled) are skipped - their
     /// State duty is still 0, and feeding the watchdog 0% would defeat the
     /// firmware's own flash-default fallback.
     /// </summary>

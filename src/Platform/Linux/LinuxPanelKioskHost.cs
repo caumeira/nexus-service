@@ -17,7 +17,7 @@ namespace Nexus.Service.Platform.Linux;
 /// KioskController (macOS).
 ///
 /// Placement caveat: Wayland gives clients no protocol to target a specific
-/// output, so the kiosk fullscreens on the compositor-chosen monitor —
+/// output, so the kiosk fullscreens on the compositor-chosen monitor -
 /// exact on single-monitor rigs, best-effort on multi-monitor. The DRM
 /// topology also carries no positions, so there is nothing to translate a
 /// displayId into screen coordinates with from the daemon side.
@@ -64,7 +64,7 @@ public sealed class LinuxPanelKioskHost : IDisposable
 
     /// <summary>
     /// Re-reads the active assignment set from the registry under the host
-    /// lock — racing callers each see fresh state, so the last reconcile to
+    /// lock - racing callers each see fresh state, so the last reconcile to
     /// run reflects the newest store snapshot (no stale-args ordering race).
     /// </summary>
     public void Reconcile()

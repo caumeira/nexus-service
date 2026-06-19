@@ -13,7 +13,7 @@ namespace Nexus.Service.Devices.Firmware;
 /// <c>EmbeddedResource</c> group in <c>Nexus.Service.csproj</c>) under the
 /// manifest name <c>firmware/&lt;deviceId&gt;/&lt;version&gt;.hex</c>, where
 /// <c>deviceId</c> matches <see cref="IDeviceHandler.Id"/>. There is no OTA /
-/// download path — the only versions a machine can install are the ones baked
+/// download path - the only versions a machine can install are the ones baked
 /// into the build it is running.
 ///
 /// The catalog is what the Firmware Updates page reads to show the "available"
@@ -29,7 +29,7 @@ public sealed class BundledFirmwareCatalog
     private readonly Dictionary<string, List<string>> _versions = new(StringComparer.Ordinal);
     // "deviceId/version" -> the ACTUAL manifest resource name. The build host's
     // separator differs (macOS '/' vs Windows '\'), so we can't reconstruct the
-    // name with a fixed separator — store and reuse what the assembly reports.
+    // name with a fixed separator - store and reuse what the assembly reports.
     private readonly Dictionary<string, string> _resourceNames = new(StringComparer.Ordinal);
     private readonly Assembly _assembly;
 

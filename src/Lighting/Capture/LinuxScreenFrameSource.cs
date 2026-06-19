@@ -42,7 +42,7 @@ public sealed class LinuxScreenFrameSource : IScreenFrameSource
         {
             _stopGen++; // a (re-)apply: cancel any pending deferred stop
             if (_proc is not null && !_proc.HasExited && _reqW == width && _reqH == height)
-                return; // healthy capture at this size already running — reuse it
+                return; // healthy capture at this size already running - reuse it
             KillLocked();
             _reqW = width;
             _reqH = height;
@@ -181,7 +181,7 @@ public sealed class LinuxScreenFrameSource : IScreenFrameSource
 
     /// <summary>
     /// Forget the saved screen choice and drop the current capture so the next
-    /// start re-opens the system screen picker — the only way to change which
+    /// start re-opens the system screen picker - the only way to change which
     /// screen is mirrored on Wayland.
     /// </summary>
     public void Reselect()

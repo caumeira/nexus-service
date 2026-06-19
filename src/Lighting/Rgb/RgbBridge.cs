@@ -150,7 +150,7 @@ public sealed class RgbBridge : IDisposable
 
     private void OnContributorDevicesChanged()
     {
-        // Cheap fire-and-forget — RefreshDevicesAsync is the same path the
+        // Cheap fire-and-forget - RefreshDevicesAsync is the same path the
         // periodic refresh loop uses and is debounced by _refreshSemaphore.
         _ = RefreshDevicesAsync();
     }
@@ -181,7 +181,7 @@ public sealed class RgbBridge : IDisposable
     public bool IsConnected => _controller.IsConnected;
 
     /// <summary>
-    /// Bring the bridge online. Idempotent. Non-blocking — the actual subprocess
+    /// Bring the bridge online. Idempotent. Non-blocking - the actual subprocess
     /// boot + handshake happens on a background task. The first lighting frame
     /// arrives ~1-3 seconds later (subject to OpenRGB device detection cost).
     /// </summary>
@@ -494,7 +494,7 @@ public sealed class RgbBridge : IDisposable
             // Subprocess restarted (crash recovery or explicit bounce): every
             // controller in the new OpenRGB instance is in its cold-start mode.
             // Clear _directModeApplied so RefreshDevicesAsync re-issues
-            // SetCustomMode for each device. Critical for ENE DRAM — without
+            // SetCustomMode for each device. Critical for ENE DRAM - without
             // re-issuing, the controller stays in whatever hardware preset
             // mode it boots into (typically a rainbow/breathing effect) and
             // silently ignores per-LED UpdateLEDs writes.

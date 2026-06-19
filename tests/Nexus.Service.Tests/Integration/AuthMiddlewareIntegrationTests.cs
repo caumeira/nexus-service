@@ -9,7 +9,7 @@ namespace Nexus.Service.Tests.Integration;
 /// <summary>
 /// Exercises the composed auth/CORS/security pipeline end-to-end through the
 /// real Program.cs middleware chain (UseRouting → UseCors → UseNexusPathAuth)
-/// — the wiring the per-helper unit tests (AuthRequestPolicyTests,
+/// - the wiring the per-helper unit tests (AuthRequestPolicyTests,
 /// CorsConfigTests) could not cover. Uses <see cref="TestServer.SendAsync"/>
 /// to set RemoteIpAddress for the loopback-gated paths.
 /// </summary>

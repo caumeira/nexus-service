@@ -22,7 +22,7 @@ public sealed class TransferClipboardBody
 
 /// <summary>
 /// Push payload for the "transfer" topic. Unlike the refetch-style frames it
-/// carries the event itself — there is no canonical resource to refetch.
+/// carries the event itself - there is no canonical resource to refetch.
 /// </summary>
 public sealed class TransferReceivedFrame
 {

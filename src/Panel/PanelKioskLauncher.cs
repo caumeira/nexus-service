@@ -38,7 +38,7 @@ public sealed class PanelKioskLauncher
 
     /// <summary>
     /// Ask the overlay to open the panel kiosk window. No-op if the overlay
-    /// process isn't running — the overlay's startup auto-launch path (gated
+    /// process isn't running - the overlay's startup auto-launch path (gated
     /// on the <c>panelAutoLaunch</c> pref) is the normal way the kiosk
     /// appears; this method exists for explicit triggers from the tray.
     /// </summary>

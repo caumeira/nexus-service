@@ -6,7 +6,7 @@ public class GpuClassifierTests
 {
     [Theory]
     // The 9800X3D iGPU (found on T1): LHM reports a 512 MB UMA carve-out as its
-    // "GPU Memory Total", so a VRAM>0 check alone would mark it discrete — the
+    // "GPU Memory Total", so a VRAM>0 check alone would mark it discrete - the
     // "…Graphics" name with no RX/Pro model is what correctly flags it integrated.
     [InlineData("AMD Radeon(TM) Graphics", "amd", true)]
     [InlineData("AMD Radeon RX 7900 XTX", "amd", false)]

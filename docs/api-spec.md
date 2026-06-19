@@ -1,4 +1,4 @@
-# Nexus Service — API Spec
+# Nexus Service - API Spec
 
 Source of truth for the contract test suite. Mirrors the the original control service surface 1:1 by route + verb.
 Each endpoint has an `impl` column: **real** = working implementation, **stub** = returns well-formed empty/disconnected data, **macOS** = real on macOS only.
@@ -214,31 +214,31 @@ share routes; PID-level distinction lives in `QSeriesHandler`.
 
 ## Provider interfaces
 - `IPerformanceProvider` ✅ exists
-- `ISensorProvider` — CPU/GPU/Memory/Storage/Motherboard/Fps/Sensor for the System controllers
-- `ICoolingProvider` — cooling components (GetAll)
-- `ICurveProvider` — fan curve registration + calculation events
-- `ILightingProvider` — sync state, brightness, speed, frame rate
+- `ISensorProvider` - CPU/GPU/Memory/Storage/Motherboard/Fps/Sensor for the System controllers
+- `ICoolingProvider` - cooling components (GetAll)
+- `ICurveProvider` - fan curve registration + calculation events
+- `ILightingProvider` - sync state, brightness, speed, frame rate
 - `IStaticSyncProvider`, `IAnimateSyncProvider`, `IMusicSyncProvider`, `IScreenSyncProvider`, `IGifSyncProvider`, `IStreamingProvider`
-- `ILightingDeviceProvider` — device list + per-device hue/sat/brightness
-- `IDeviceProvider` — USB enumeration, firmware updates, motherboard LEDs, CNVS
-- `IKeebProvider` — keyboard state, settings, macros, rotary, game mode
-- `IInputterProvider` — keystroke playback
-- `IY70Provider` — display status, rotation, brightness
-- `IQ60Provider` — Q60 status, serial, time
-- `IScreenTimeProvider` — focus sessions, today usage (Windows/macOS/Linux real)
-- `IAppDetectionProvider` — detected RGB apps (macOS real)
-- `IMediaProvider` — playback sessions + control (macOS real)
-- `IShortcutsProvider` — installed shortcuts + icons (macOS real)
-- `IBeatsProvider` — music analysis stream
-- `IWarningProvider` — USB warning event stream
-- `IPawnIoProvider` — Windows-only stub
-- `IStartupProvider` — autostart toggle
+- `ILightingDeviceProvider` - device list + per-device hue/sat/brightness
+- `IDeviceProvider` - USB enumeration, firmware updates, motherboard LEDs, CNVS
+- `IKeebProvider` - keyboard state, settings, macros, rotary, game mode
+- `IInputterProvider` - keystroke playback
+- `IY70Provider` - display status, rotation, brightness
+- `IQ60Provider` - Q60 status, serial, time
+- `IScreenTimeProvider` - focus sessions, today usage (Windows/macOS/Linux real)
+- `IAppDetectionProvider` - detected RGB apps (macOS real)
+- `IMediaProvider` - playback sessions + control (macOS real)
+- `IShortcutsProvider` - installed shortcuts + icons (macOS real)
+- `IBeatsProvider` - music analysis stream
+- `IWarningProvider` - USB warning event stream
+- `IPawnIoProvider` - Windows-only stub
+- `IStartupProvider` - autostart toggle
 
 ## Persistence (IConfigStore)
 File: `~/Library/Application Support/Nexus/settings.json` (macOS), `%LOCALAPPDATA%/Nexus/settings.json` (Windows).
 Atomic write via tmp+rename. Schema-versioned. Sections:
-- `lighting` — current sync, brightness, speed, frame rate, scale ratio
-- `keeb` — game mode, rotary functions, sensitivity, macros, firmware lighting
-- `cooling` — fan curves, mini-hub layout
-- `y70` — rotation, brightness, toggle state
-- `devices` — disabled devices, motherboard LEDs, CNVS settings
+- `lighting` - current sync, brightness, speed, frame rate, scale ratio
+- `keeb` - game mode, rotary functions, sensitivity, macros, firmware lighting
+- `cooling` - fan curves, mini-hub layout
+- `y70` - rotation, brightness, toggle state
+- `devices` - disabled devices, motherboard LEDs, CNVS settings

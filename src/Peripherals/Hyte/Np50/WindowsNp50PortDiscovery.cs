@@ -65,7 +65,7 @@ public sealed class WindowsNp50PortDiscovery : INp50PortDiscovery
         var buf = new byte[1024];
         if (!Native.SetupDiGetDeviceRegistryProperty(devInfo, ref devData, property, out _, buf, (uint)buf.Length, out var size))
             return "";
-        // REG_SZ / REG_MULTI_SZ — both deserialize the first string fine.
+        // REG_SZ / REG_MULTI_SZ - both deserialize the first string fine.
         var raw = Encoding.Unicode.GetString(buf, 0, Math.Max(0, (int)size - 2));
         var nul = raw.IndexOf('\0');
         return nul >= 0 ? raw.Substring(0, nul) : raw;

@@ -10,7 +10,7 @@ namespace Nexus.Service.Tests;
 /// <summary>
 /// Builds device handlers backed by stub port-discovery hubs for detection
 /// tests. The stub discovery never opens a port, so the hubs report no
-/// connection and an empty firmware version — exactly the state the detection
+/// connection and an empty firmware version - exactly the state the detection
 /// tests assume.
 /// </summary>
 internal static class TestHandlers

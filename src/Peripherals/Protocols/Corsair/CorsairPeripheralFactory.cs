@@ -22,7 +22,7 @@ public sealed class CorsairPeripheralFactory
     // protocol mice (e.g. Scimitar Elite Bragi) do use HID reports.
     private static readonly Dictionary<int, (string Name, string Category, bool HasProtocol)> Models = new()
     {
-        // Mice — all detection-only on Windows without Zadig-style driver replacement
+        // Mice - all detection-only on Windows without Zadig-style driver replacement
         [0x1B2E] = ("M65 Pro RGB", "mouse", false),
         [0x1B5A] = ("M65 RGB Elite", "mouse", false),
         [0x1B4C] = ("Dark Core RGB Pro", "mouse", false),

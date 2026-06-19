@@ -15,10 +15,10 @@ namespace Nexus.Service.Tests;
 /// <summary>
 /// Hardening for the phone-session revoke → kick path. Revoking a session whose
 /// live client is a relay-bridged <see cref="RelayWebSocket"/> (or any client
-/// whose close throws — e.g. a transport already faulted) must NOT fault the
+/// whose close throws - e.g. a transport already faulted) must NOT fault the
 /// revoke: the session removal succeeds, the endpoint returns 200, and the
 /// client is still torn down (aborted with the revoked status) so the phone
-/// sees the disconnect. The MultiplexHub killswitch semantics stay intact — the
+/// sees the disconnect. The MultiplexHub killswitch semantics stay intact - the
 /// kick still closes every client, it just can no longer throw out.
 /// </summary>
 public sealed class MultiplexHubRevokeTests
@@ -59,7 +59,7 @@ public sealed class MultiplexHubRevokeTests
         using var cts = new CancellationTokenSource();
 
         // A relay-bridged client: a real RelayWebSocket whose underlying relay
-        // transport both reports a non-Open state AND throws from Abort — the
+        // transport both reports a non-Open state AND throws from Abort - the
         // worst case for the revoke path. CloseAsync aborts the transport, so a
         // throwing Abort must not escape and fault the kick.
         var transport = new FaultedThrowingTransport();

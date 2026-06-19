@@ -97,7 +97,7 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
         // Gate: the firmware drops FF DC 07 (SetSettings) once any FF DC 05
         // has been sent since USB connect, so CnvsConnectionWorker has to be
         // the very first thing on the wire after a connect. Skip our tick
-        // entirely until the worker has applied settings — IsReadyForStreaming
+        // entirely until the worker has applied settings - IsReadyForStreaming
         // is the explicit signal it flips when WriteSettings completes.
         if (!_hub.IsReadyForStreaming) return;
 
@@ -125,7 +125,7 @@ public sealed class CnvsLightingFrameWriter : IHostedService, IDisposable
         {
             // Engine hasn't built device list yet (RgbBridge.RefreshDevicesAsync
             // hasn't ticked); push a blank frame so the mat shows a steady
-            // black rather than the firmware default. Cheap — 157-byte frame
+            // black rather than the firmware default. Cheap - 157-byte frame
             // over USB-CDC at 115200 baud is well under a millisecond.
             PushBlank();
             return;

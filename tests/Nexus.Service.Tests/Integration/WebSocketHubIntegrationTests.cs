@@ -7,7 +7,7 @@ namespace Nexus.Service.Tests.Integration;
 
 /// <summary>
 /// Drives the binary lighting hub (<see cref="LightingOutputHub"/>, the 60fps
-/// /lighting/output stream) over a real TestServer WebSocket — replacing the
+/// /lighting/output stream) over a real TestServer WebSocket - replacing the
 /// old WebSocketHubTests which only asserted ClientCount==0 and a
 /// Task.CompletedTask identity on an empty hub.
 /// </summary>

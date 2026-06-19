@@ -9,7 +9,7 @@ namespace Nexus.Service.Tests;
 /// Round-trips the exact xdg-desktop-portal ScreenCast wire formats the Linux
 /// screen-mirror path depends on: the <c>a{sv}</c> options dict we send and the
 /// <c>ua{sv}</c> Request.Response body we parse (including the nested
-/// <c>streams: a(ua{sv})</c>). These are the fiddly, alignment-sensitive bits —
+/// <c>streams: a(ua{sv})</c>). These are the fiddly, alignment-sensitive bits -
 /// a marshalling regression here silently breaks capture, so we pin it with the
 /// real <see cref="LinuxScreenCastPortal"/> helpers + <see cref="DBusWriter"/>/
 /// <see cref="DBusReader"/>. The live PipeWire stream is verified on hardware.

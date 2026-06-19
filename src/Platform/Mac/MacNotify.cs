@@ -6,7 +6,7 @@ namespace Nexus.Service.Platform.Mac;
 
 /// <summary>
 /// Native banner via UNUserNotificationCenter, attributed to the Nexus bundle
-/// (com.hellonexus.panel.service) so it actually slides out — osascript
+/// (com.hellonexus.panel.service) so it actually slides out - osascript
 /// notifications are attributed to Script Editor, which only lands them in the
 /// list with no banner. The macOS analog of the Windows tray balloon.
 ///
@@ -115,7 +115,7 @@ internal static class MacNotify
 
     // ── A single reusable no-op completion block ─────────────────────────────
     // requestAuthorization/addNotificationRequest each take a block; we ignore
-    // the result. One global no-op block serves both — its invoke reads only
+    // the result. One global no-op block serves both - its invoke reads only
     // the block ptr and the extra register args (BOOL/NSError*) are harmless on
     // the ARM64/x64 calling convention.
 
@@ -186,11 +186,11 @@ internal static class MacNotify
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern IntPtr MsgSend(IntPtr receiver, IntPtr sel, IntPtr arg1, IntPtr arg2, IntPtr arg3);
 
-    // requestAuthorizationWithOptions:completionHandler: — (NSUInteger, block)
+    // requestAuthorizationWithOptions:completionHandler: - (NSUInteger, block)
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern void MsgSend_AuthReq(IntPtr receiver, IntPtr sel, nuint options, IntPtr block);
 
-    // addNotificationRequest:withCompletionHandler: — (id, block)
+    // addNotificationRequest:withCompletionHandler: - (id, block)
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern void MsgSend_Add(IntPtr receiver, IntPtr sel, IntPtr request, IntPtr block);
 

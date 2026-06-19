@@ -69,7 +69,7 @@ internal sealed class FakeGoveeDevice : IDisposable
 
             if (res.ReceivedBytes <= 0 || res.RemoteEndPoint is not IPEndPoint from) continue;
             try { Handle(Encoding.UTF8.GetString(buf, 0, res.ReceivedBytes), from); }
-            catch { /* malformed test payload — ignore */ }
+            catch { /* malformed test payload - ignore */ }
         }
     }
 

@@ -26,7 +26,7 @@ public sealed class MacSensorProvider : ISensorProvider
     private static readonly IReadOnlyList<HardwareSensor> EmptySensors = Array.Empty<HardwareSensor>();
     private static readonly IReadOnlyList<string> EmptyStrings = Array.Empty<string>();
 
-    // Cached static hardware data — fetched once, never changes at runtime.
+    // Cached static hardware data - fetched once, never changes at runtime.
     private string? _cpuModel;
     private string? _moboModel;
     private string? _memTotal;
@@ -44,7 +44,7 @@ public sealed class MacSensorProvider : ISensorProvider
     private bool _hasPrevCpuTicks;
 
     // Mac hardware enumeration is shell-driven (sysctl / system_profiler) and
-    // synchronous — Get* methods cache lazily on first call. No async warmup
+    // synchronous - Get* methods cache lazily on first call. No async warmup
     // window to wait on.
     public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
 
@@ -101,7 +101,7 @@ public sealed class MacSensorProvider : ISensorProvider
             sensors.Add(MakeSensor("cpu/system", "CPU System", "Load", sysPct, "%", model));
         }
 
-        // Core counts — static, cache on first call.
+        // Core counts - static, cache on first call.
         if (_cpuCoreCount is null)
         {
             var ncpu = ShellOut("/usr/sbin/sysctl", "-n", "hw.logicalcpu").Trim();
@@ -198,7 +198,7 @@ public sealed class MacSensorProvider : ISensorProvider
             // Classify by name: Apple Silicon and Intel iGPUs are integrated, AMD
             // "Radeon Pro"/RX are discrete. The system_profiler VRAM line isn't
             // scoped to the current GPU, so on a dual-GPU Mac it can't tell them
-            // apart — the name is the reliable signal, don't let VRAM override it.
+            // apart - the name is the reliable signal, don't let VRAM override it.
             var (vendor, integrated) = GpuClassifier.FromName(gpu);
 
             gpus.Add(new GpuReadout

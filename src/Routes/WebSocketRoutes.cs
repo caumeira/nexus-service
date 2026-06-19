@@ -33,7 +33,7 @@ public static class WebSocketRoutes
             await hub.HandleClientAsync(socket, phoneSessionId, ctx.RequestAborted);
         });
 
-        // Lighting output — binary 60fps frames (not multiplexed)
+        // Lighting output - binary 60fps frames (not multiplexed)
         app.Map("/lighting/output", async (HttpContext ctx) =>
         {
             if (!ctx.WebSockets.IsWebSocketRequest)
@@ -70,7 +70,7 @@ public static class WebSocketRoutes
             await manager.HandleStreamSocketAsync(socket, ctx.RequestAborted);
         }).AllowPanel();
 
-        // Sealed LAN tunnel — the panel's E2E-encrypted transport over plain
+        // Sealed LAN tunnel - the panel's E2E-encrypted transport over plain
         // :9400/:9443. Auth is the in-band sealed handshake (the rid identifies the
         // paired session, the per-connection AEAD key proves possession), so it is
         // anonymous at the middleware and the session token never rides the wire.

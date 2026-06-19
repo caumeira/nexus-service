@@ -40,7 +40,7 @@ public class BundledFirmwareCatalogTests
     [Fact]
     public void GetLatestVersion_is_empty_for_unbundled_devices()
     {
-        // The bare handler ids ("y70" / "qseries") have no bundle — they're the
+        // The bare handler ids ("y70" / "qseries") have no bundle - they're the
         // "variant not yet identified" sentinels.
         Assert.Equal("", _catalog.GetLatestVersion("y70"));
         Assert.Equal("", _catalog.GetLatestVersion("qseries"));

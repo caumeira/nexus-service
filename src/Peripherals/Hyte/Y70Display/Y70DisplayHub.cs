@@ -132,7 +132,7 @@ public sealed class Y70DisplayHub : IDisposable, IDfuFlashTarget
     /// Set brightness (0-100 percent) and screen power in one FF CC 01 frame on
     /// the serial models (Touch / Infinite). Returns false if the port can't be
     /// opened or the write throws. The command has no reply, so a true result
-    /// means the bytes left the port — not that the firmware applied them.
+    /// means the bytes left the port - not that the firmware applied them.
     /// </summary>
     public bool SetBrightnessPower(bool screenOn, int percent)
     {

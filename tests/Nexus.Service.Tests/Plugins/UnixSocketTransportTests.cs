@@ -28,7 +28,7 @@ public class UnixSocketTransportTests
 
         using var server = await acceptTask;
 
-        // The client is THIS process, so the kernel must attest our own pid — the
+        // The client is THIS process, so the kernel must attest our own pid - the
         // proof the getsockopt peer-cred read works and isn't peer-supplied.
         Assert.Equal(Environment.ProcessId, server.Peer.ProcessId);
         Assert.True(server.Peer.UserId >= 0);

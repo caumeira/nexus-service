@@ -5,7 +5,7 @@ namespace Nexus.Service.Sensors;
 /// platforms that expose only a name (macOS system_profiler, Linux lspci).
 /// Windows classifies from the LibreHardwareMonitor HardwareType instead, which
 /// is authoritative. The integrated flag drives the client's default
-/// "discrete-first" GPU pick, so a wrong guess only changes the default — the
+/// "discrete-first" GPU pick, so a wrong guess only changes the default - the
 /// user can still select any GPU explicitly.
 /// </summary>
 internal static class GpuClassifier

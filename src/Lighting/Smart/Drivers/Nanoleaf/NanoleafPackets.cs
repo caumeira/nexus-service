@@ -5,7 +5,7 @@ namespace Nexus.Service.Lighting.Smart.Drivers.Nanoleaf;
 /// <summary>
 /// External Control v2 datagram packing (UDP to the controller). All
 /// multi-byte fields big-endian: zone count, then per zone: zoneId, R, G, B,
-/// W (always 0 — white is the device's own calibration), transition in 100 ms
+/// W (always 0 - white is the device's own calibration), transition in 100 ms
 /// units. Zone id is the panelId on panel products and the LED index on
 /// Essentials strips.
 /// </summary>
@@ -18,7 +18,7 @@ internal static class NanoleafPackets
 
     /// <summary>Build one v2 datagram for zones [start, start+count). Empty
     /// <paramref name="zoneIds"/> means identity ids (LED-index addressing).
-    /// RGB triplets are scaled by <paramref name="scale01"/> (the brightness —
+    /// RGB triplets are scaled by <paramref name="scale01"/> (the brightness -
     /// the device's own brightness state is pinned to 100 while streaming).</summary>
     public static byte[] BuildV2Datagram(
         ReadOnlySpan<int> zoneIds, int start, int count,

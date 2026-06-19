@@ -271,7 +271,7 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
     // its LED buffer holding the last rendered colors) survives the 3 s
     // RgbBridge.RefreshDevicesAsync rebuild. Without this every refresh
     // hands the writer a fresh, zero-filled frame for one tick and the hub
-    // sees a black-out — the OpenRGB path avoids this via
+    // sees a black-out - the OpenRGB path avoids this via
     // RgbBridge.BuildOrReuseFrame; contributors need the same protection.
     private readonly Dictionary<string, DeviceFrame> _frameCache = new();
 
@@ -285,7 +285,7 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
         var layouts = settings.Lighting.DeviceLayouts;
         var zoneLedCounts = settings.Devices.ZoneLedCounts;
 
-        // IDs + layout positions stay in lockstep with what GetAll returns —
+        // IDs + layout positions stay in lockstep with what GetAll returns -
         // the engine's canvas-sample step uses the per-frame X/Y/W/H, and
         // the lighting-page card editor writes to the same DeviceLayouts
         // store, so dragging a card moves where the engine samples colors
@@ -343,7 +343,7 @@ public sealed class Np50LightingDeviceProvider : ILightingDeviceProvider, ILight
         var rot = ((((layout?.Rotation ?? 0) % 360) + 360) % 360);
         var thisIdx = idx++;
 
-        // Reuse if id + Index + LedCount all match — same criteria as
+        // Reuse if id + Index + LedCount all match - same criteria as
         // RgbBridge.BuildOrReuseFrame. X/Y/W/H/Rotation are {get; set;} on
         // DeviceFrame so we can update layout on the existing instance
         // without forcing a fresh allocation (and the zero-LED buffer that

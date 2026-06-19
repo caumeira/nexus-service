@@ -20,7 +20,7 @@ public static partial class DevicesRoutes
 {
     private static void MapNp50Endpoints(WebApplication app)
     {
-        // Singleton-style endpoint — nexus currently supports at most one NP50.
+        // Singleton-style endpoint - nexus currently supports at most one NP50.
         // Per-serial routes get added once multi-hub support arrives; the
         // shape is intentionally compatible (a single NP50 means /devices/np50
         // and /devices/np50/{any-serial} both return the same state).
@@ -37,7 +37,7 @@ public static partial class DevicesRoutes
         app.MapGet("/devices/np50/{serial}", (string serial, Np50Hub hub) =>
         {
             // Until multi-hub support lands, accept any serial and return the
-            // singleton. Doesn't 404 — the UI uses this to refetch on event.
+            // singleton. Doesn't 404 - the UI uses this to refetch on event.
             return Results.Ok(new Np50StateResponse
             {
                 Connected = hub.IsConnected,
@@ -69,7 +69,7 @@ public static partial class DevicesRoutes
         });
 
         // Persist new firmware defaults to EEPROM. Read-before-write inside
-        // SetFirmwareDefaults — if the hub already reports the same values
+        // SetFirmwareDefaults - if the hub already reports the same values
         // we do not issue a write (EEPROM endurance is ~10 000 cycles).
         app.MapPut("/devices/np50/firmware-defaults", (Np50FirmwareDefaultsRequest body, Np50Hub hub) =>
         {
@@ -87,7 +87,7 @@ public static partial class DevicesRoutes
         });
 
         // Read the firmware-side LED animation (effect + RGB + brightness).
-        // What the strips show when the firmware is driving them — i.e. PC
+        // What the strips show when the firmware is driving them - i.e. PC
         // off, service down, or hub in Software mode while nexus isn't
         // streaming frames.
         app.MapGet("/devices/np50/firmware-animation", (Np50Hub hub) =>
@@ -131,7 +131,7 @@ public static partial class DevicesRoutes
         });
 
         // Switch the LIVE cooling mode (opcode #3). Distinct from the
-        // EEPROM-persisted default above — this is what's actively driving
+        // EEPROM-persisted default above - this is what's actively driving
         // the fans right now. SetDesiredCoolingMode also stores the value
         // so the heartbeat re-asserts it if the firmware drifts back.
         app.MapPut("/devices/np50/cooling-mode", (Np50CoolingModeRequest body, Np50Hub hub) =>
@@ -148,7 +148,7 @@ public static partial class DevicesRoutes
             return Results.Ok(ApiResponse.Ok());
         });
 
-        // "FW Control" — hand the fans back to the firmware's standalone
+        // "FW Control" - hand the fans back to the firmware's standalone
         // behaviour configured on the device page (Static @ stored % or
         // Motherboard PWM). Replaces "BIOS control" for the NP50 in the
         // cooling-page dropdown: a USB hub has no motherboard hand-off of its

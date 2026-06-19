@@ -10,7 +10,7 @@ namespace Nexus.Service.Peripherals.Hyte.Keeb;
 /// already lights the board.
 ///
 /// The keyboard zone is addressed on the wire by each key's firmware LED
-/// "value" (0..121, sparse — not every index is a physical key). The stream
+/// "value" (0..121, sparse - not every index is a physical key). The stream
 /// is 6 pages × 64 payload bytes = 384 bytes = 128 RGB triplets; physical
 /// keys live at the <see cref="KeyWireValues"/> indices and every other slot
 /// is left black (no LED is wired there, so the byte is a no-op). The
@@ -46,7 +46,7 @@ public static class KeebLayout
 
     /// <summary>
     /// Physical keyboard LED "values" in firmware index order (ascending).
-    /// Source: RGBController_HYTEKeyboard.cpp — the 89-entry base list
+    /// Source: RGBController_HYTEKeyboard.cpp - the 89-entry base list
     /// <c>hyte_keeb_tkl_values</c> PLUS the 9 edit-key LEDs merged in by
     /// <c>ChangeKeys(edit_keys)</c> (media row 77/78/79/98/100 and the four
     /// spacebar-underglow LEDs 109/110/112/113). 89 + 9 = 98 = the board's

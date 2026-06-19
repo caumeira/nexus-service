@@ -49,7 +49,7 @@ public sealed class SystemSpecsPrewarmService : BackgroundService
         }
         catch (Exception ex)
         {
-            // Never fatal — the next /system/specs request will rebuild on
+            // Never fatal - the next /system/specs request will rebuild on
             // demand. Logged so a silent regression is discoverable.
             _logger.LogWarning(ex, "SystemSpecs prewarm failed; first request will pay cold start.");
         }

@@ -24,7 +24,7 @@ internal static class OverlayHostBootstrap
         var store = app.Services.GetRequiredService<IConfigStore>();
         var panelKioskLauncher = app.Services.GetRequiredService<PanelKioskLauncher>();
         // Lock guards the edge-detect against concurrent IConfigStore.Update()
-        // callers — without it two writers racing into OnChanged could both
+        // callers - without it two writers racing into OnChanged could both
         // pass the equality check on a stale lastShowPanel and double-
         // Launch/Close.
         var showPanelEdgeLock = new object();

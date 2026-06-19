@@ -80,7 +80,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
     /// Hand the fans to the firmware's standalone behaviour, mirroring the
     /// EEPROM defaults configured on the device page: Static plays the stored
     /// static-fan setpoint, Motherboard passes motherboard PWM through. This is
-    /// the cooling page's "FW Control" — a USB hub has no motherboard hand-off
+    /// the cooling page's "FW Control" - a USB hub has no motherboard hand-off
     /// of its own, so firmware control is the off / hand-back setting. Reads the
     /// EEPROM defaults first so the live mode matches what the user configured.
     /// Returns false when the hub is unreachable or the EEPROM read fails.
@@ -253,7 +253,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
 
     public bool SetCoolingMode(byte mode)
     {
-        // v2 mode-switch wants every parameter filled — pass through the
+        // v2 mode-switch wants every parameter filled - pass through the
         // current firmware-animation state so changing cooling mode doesn't
         // accidentally clobber the user's LED setup.
         var hi = State.HubInfo;
@@ -287,7 +287,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
 
     /// <summary>
     /// Disable the firmware's steady-state default animation. MUST be sent
-    /// when running in software lighting mode — without it, any LED our
+    /// when running in software lighting mode - without it, any LED our
     /// wire frame doesn't address (e.g. the first LED of each port's
     /// daisy-chain on some firmware revs) keeps cycling the firmware
     /// rainbow on top of the software stream.
@@ -299,7 +299,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
     /// Push the firmware-animation state directly to the MCU. Pair with
     /// <see cref="SetFirmwareLightingOff"/>: the EEPROM-saved off flag
     /// (0x07) doesn't appear to clear an animation already running on
-    /// the live MCU — only this 0x0C direct-write does. Call with
+    /// the live MCU - only this 0x0C direct-write does. Call with
     /// <c>animation=0, r=g=b=0, brightness=0</c> to fully silence the
     /// firmware default animation while we stream software LED frames.
     /// </summary>
@@ -309,7 +309,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
     /// <summary>
     /// Read the 17-byte EEPROM-persisted firmware default-mode block (opcode
     /// 0xCC 0x04). Use this before issuing any SAVE-byte write to default-mode
-    /// fields to verify what's actually there — `SendOnly` returning true only
+    /// fields to verify what's actually there - `SendOnly` returning true only
     /// means the bytes left the wire, not that the firmware accepted them.
     /// See `.agents/rules/failure-log.md` 2026-05-21 EEPROM read-before-write.
     /// </summary>
@@ -492,7 +492,7 @@ public sealed class Np50Hub : IDisposable, IDfuFlashTarget
             Console.Error.WriteLine($"[np50] write failed (#{n}): {ex.GetType().Name}: {ex.Message}");
             if (n >= ConsecutiveWriteFailureThreshold)
             {
-                Console.Error.WriteLine($"[np50] {n} consecutive write failures — dropping transport so next tick rediscovers");
+                Console.Error.WriteLine($"[np50] {n} consecutive write failures - dropping transport so next tick rediscovers");
                 _consecutiveWriteFailures = 0;
                 Disconnect();
             }

@@ -8,7 +8,7 @@ using Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 namespace Nexus.Service.Routes;
 
 /// <summary>
-/// HYTE Q-series (Q60 / Q80) cooler-controller device endpoints — the firmware
+/// HYTE Q-series (Q60 / Q80) cooler-controller device endpoints - the firmware
 /// options surfaced on the Q60 device page's settings tab. The singleton
 /// <see cref="QSeriesCoolerHub"/> holds live state polled from Port-0; pump
 /// speed itself is driven through the cooling fan-channel path

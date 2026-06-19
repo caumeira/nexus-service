@@ -17,7 +17,7 @@ namespace Nexus.Service.Gallery;
 /// Per-system gallery source registry + item enumeration. Sources are
 /// referenced files/folders on local disk plus uploaded images; every panel
 /// surface of this PC draws from the same set. sources.json (plus the upload
-/// files themselves) is the only persisted state — folders are rescanned on
+/// files themselves) is the only persisted state - folders are rescanned on
 /// each enumeration so external file changes show up without a watcher.
 /// </summary>
 public sealed class GalleryLibrary
@@ -153,7 +153,7 @@ public sealed class GalleryLibrary
     }
 
     /// <summary>
-    /// Remove a source. Sources are references — nothing is ever deleted
+    /// Remove a source. Sources are references - nothing is ever deleted
     /// from disk.
     /// </summary>
     public bool RemoveSource(string id)
@@ -185,7 +185,7 @@ public sealed class GalleryLibrary
         {
             var sources = LoadSources();
             var source = sources.FirstOrDefault(s => s.Id == sourceId);
-            // Folder sources only — a file source's single item is removed by
+            // Folder sources only - a file source's single item is removed by
             // deleting the source; an exclusion on it would never be consulted
             // and would render a phantom badge.
             if (source is null || source.Kind != GallerySourceKinds.Folder)
@@ -202,7 +202,7 @@ public sealed class GalleryLibrary
         }
     }
 
-    /// <summary>Clear a source's exclusion list — every hidden item returns.</summary>
+    /// <summary>Clear a source's exclusion list - every hidden item returns.</summary>
     public bool RestoreExclusions(string sourceId)
     {
         lock (_lock)
@@ -279,7 +279,7 @@ public sealed class GalleryLibrary
         lock (_lock)
         {
             // A mutation mid-scan means this map may contain items from a
-            // removed source — drop it; the next enumeration rebuilds fresh.
+            // removed source - drop it; the next enumeration rebuilds fresh.
             // The throttle timestamp only advances on a real swap, else a
             // discarded scan would arm it over an empty map and panel reads
             // would false-negative for the throttle window.
@@ -315,7 +315,7 @@ public sealed class GalleryLibrary
 
     /// <summary>
     /// Resolve an item id to its absolute path. Only ids derived from the
-    /// registered source set resolve — client-supplied paths never enter.
+    /// registered source set resolve - client-supplied paths never enter.
     /// </summary>
     public string? ResolveItemPath(string id)
     {

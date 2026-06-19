@@ -14,7 +14,7 @@ namespace Nexus.Service.Diagnostics;
 /// <summary>
 /// Writes a one-time hardware/specs snapshot to the service log shortly after
 /// startup, so a tester's service.log opens with the full picture of what Nexus
-/// detected — system specs plus every device, monitor, RGB and cooling
+/// detected - system specs plus every device, monitor, RGB and cooling
 /// component as read at boot. Diagnostics only; never on the boot critical path.
 ///
 /// Gated on <see cref="SystemSpecsCollector.GetAsync"/>, which awaits the sensor
@@ -58,7 +58,7 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
         {
             // Awaits the sensor provider's readiness, so the snapshot runs once
             // hardware enumeration has settled rather than mid-probe. Bounded: a
-            // stalled provider must not suppress the whole snapshot — emit the rest
+            // stalled provider must not suppress the whole snapshot - emit the rest
             // with a note rather than silently never logging anything.
             using var specsCts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
             specsCts.CancelAfter(TimeSpan.FromSeconds(30));
@@ -85,7 +85,7 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
 
         try
         {
-            // Only the actually-attached devices — a registered handler reporting
+            // Only the actually-attached devices - a registered handler reporting
             // connected=False is just "Nexus supports this, none plugged in", which
             // is noise on a machine that will never have that device.
             var devices = _devices.GetAll().Where(d => d.Connected).ToList();

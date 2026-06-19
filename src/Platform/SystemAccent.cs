@@ -7,7 +7,7 @@ namespace Nexus.Service.Platform;
 /// <summary>
 /// Reads the desktop's OS accent colour. Windows and macOS push the accent into
 /// the web straight from their native app shell (DWM / NSColor), so those return
-/// null here. Linux has no native shell — the dashboard is a plain browser — so
+/// null here. Linux has no native shell - the dashboard is a plain browser - so
 /// the service reads the accent from the XDG desktop portal and serves it over
 /// <c>GET /system/accent</c> for the web to apply when the accent source is
 /// "system".

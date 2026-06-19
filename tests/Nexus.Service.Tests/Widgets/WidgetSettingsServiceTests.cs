@@ -209,7 +209,7 @@ public class WidgetSettingsServiceTests : IDisposable
     {
         var svc = SetupWidget(("blob", "\"\""));
 
-        var weird = "He said \"hi\" — 🎉 " + new string('x', 4096);
+        var weird = "He said \"hi\" - 🎉 " + new string('x', 4096);
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(weird));
         svc.Apply(InstanceId, new WidgetSettingsPatch
         {

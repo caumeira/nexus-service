@@ -154,7 +154,7 @@ public sealed class QSeriesLightingFrameWriter : IHostedService, IDisposable
             for (var i = 0; i < ledCount && i < dst.Length; i++) dst[i] = default;
             return;
         }
-        // src is RGB triples (engine order); QColor(R,G,B) — the hub emits GRB on the wire.
+        // src is RGB triples (engine order); QColor(R,G,B) - the hub emits GRB on the wire.
         if (brightnessMul >= 0.999)
         {
             for (var i = 0; i < ledCount && i < dst.Length; i++)

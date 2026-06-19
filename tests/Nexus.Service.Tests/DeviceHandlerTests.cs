@@ -137,7 +137,7 @@ public class DeviceHandlerTests
     {
         var qs = TestHandlers.QSeries();
         // A random "Q60" in the descriptor under a third-party VID
-        // shouldn't trip the handler — keeps the name-match honest.
+        // shouldn't trip the handler - keeps the name-match honest.
         Assert.False(qs.IsConnected(new List<UsbDeviceEntry>
         {
             new() { VendorId = 0x1234, ProductId = 0xABCD, Name = "Generic Q60 Adapter" },

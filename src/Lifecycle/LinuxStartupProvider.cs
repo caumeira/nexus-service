@@ -52,7 +52,7 @@ public sealed class LinuxStartupProvider : IStartupProvider
         if (exit != 0)
         {
             Console.Error.WriteLine(
-                $"[linux-startup] systemctl {verb} {UnitName} failed (exit {exit}) — " +
+                $"[linux-startup] systemctl {verb} {UnitName} failed (exit {exit}) - " +
                 "not root, or the system unit isn't installed (dev --user run?).");
         }
         return exit == 0;

@@ -9,7 +9,7 @@ using System.Threading.Tasks;
 namespace Nexus.Service.Lighting.Smart.Drivers.Nanoleaf;
 
 /// <summary>
-/// HTTP client for the Nanoleaf Open API — plain HTTP on the LAN, token in the
+/// HTTP client for the Nanoleaf Open API - plain HTTP on the LAN, token in the
 /// path (<c>/api/v1/&lt;token&gt;/…</c>). Shared by panel products and Matter
 /// WiFi Essentials; both expose the same endpoints on the same port.
 /// </summary>
@@ -81,7 +81,7 @@ public sealed class NanoleafClient
         resp.EnsureSuccessStatusCode();
     }
 
-    /// <summary>Revoke an auth token (DELETE /api/v1/&lt;token&gt;) — used to
+    /// <summary>Revoke an auth token (DELETE /api/v1/&lt;token&gt;) - used to
     /// clean up when pairing fails after token creation, so abandoned tokens
     /// don't accumulate on the controller.</summary>
     public async Task DeleteTokenAsync(string host, int port, string token, CancellationToken ct)
@@ -91,7 +91,7 @@ public sealed class NanoleafClient
     }
 
     /// <summary>Flash the panels so the user can spot the controller. Not
-    /// supported on Essentials — failures are non-fatal.</summary>
+    /// supported on Essentials - failures are non-fatal.</summary>
     public async Task IdentifyAsync(string host, int port, string token, CancellationToken ct)
     {
         using var resp = await Http.PutAsync(Base(host, port, token) + "/identify", content: null, ct).ConfigureAwait(false);

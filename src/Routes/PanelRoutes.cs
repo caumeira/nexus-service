@@ -139,7 +139,7 @@ public static class PanelRoutes
 
         // Cloud-relay transport opt-in. GET is public (same rationale as the
         // killswitch GET: a relay client / panel can read the state without a
-        // token). POST is desktop-token only — only a user at the PC may turn
+        // token). POST is desktop-token only - only a user at the PC may turn
         // the relay on/off, matching the remote-control toggle. Persisting the
         // change fires IConfigStore.OnChanged, which RelayConnectionService
         // listens on to open / tear down its host sockets (no poll loop).
@@ -183,7 +183,7 @@ public static class PanelRoutes
         });
 
         // iOS Wi-Fi discovery → tap → initiate. Same SAS-comparison handshake as
-        // /pair-code/submit but with no 6-digit code — phone discovered us over
+        // /pair-code/submit but with no 6-digit code - phone discovered us over
         // Bonjour, user's Allow click on the desktop is the OOB authentication.
         // Public (auth-bypassed in PathAuthMiddleware) and rate-limited inside
         // the service (per-IP lockout shared with the code flow).

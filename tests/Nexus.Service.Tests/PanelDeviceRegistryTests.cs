@@ -10,7 +10,7 @@ namespace Nexus.Service.Tests;
 
 /// <summary>
 /// Single-instance surfaces (Y70, Q-series) must reuse one record across
-/// (re)connects instead of accreting a fresh one — the Q-series OEM WebView
+/// (re)connects instead of accreting a fresh one - the Q-series OEM WebView
 /// drops its cached deviceId, which otherwise mints a record every connect and
 /// orphans the user's theme/layout.
 /// </summary>

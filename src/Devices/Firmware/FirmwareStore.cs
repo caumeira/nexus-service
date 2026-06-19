@@ -122,13 +122,13 @@ public sealed class FirmwareStore : IFirmwareStore
         var finalPath = GetBinaryPath(deviceType, version, extension);
         if (await HasValidBinaryAsync(deviceType, version, extension, expectedSha256, ct))
         {
-            // Already cached & valid — caller can use it directly.
+            // Already cached & valid - caller can use it directly.
             return finalPath;
         }
 
         var tmpPath = finalPath + ".tmp";
         // Drop any leftover from a previously aborted download. Don't try to
-        // resume partial content — the SHA wouldn't match anyway.
+        // resume partial content - the SHA wouldn't match anyway.
         TryDelete(tmpPath);
 
         using (var resp = await _http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct))

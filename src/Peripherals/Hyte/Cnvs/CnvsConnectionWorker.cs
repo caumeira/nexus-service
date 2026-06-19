@@ -14,7 +14,7 @@ namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 /// first claimant of the CNVS COM port at service startup, beating
 /// OpenRGB-headless to it. Without this, OpenRGB launches via
 /// <c>OpenRgbProcessManager.Start</c> within a couple of seconds of the
-/// service coming up and grabs COM7 — every subsequent CnvsHub write
+/// service coming up and grabs COM7 - every subsequent CnvsHub write
 /// then loses the race and returns <c>UnauthorizedAccessException</c>.
 ///
 /// The worker ticks every 5 s. On hot-plug (CNVS unplugged + replugged
@@ -91,7 +91,7 @@ public sealed class CnvsConnectionWorker : BackgroundService
 
         // Brand-new connection. Sanity-probe the firmware first so we have
         // a version logged regardless of whether the settings command
-        // actually works — useful for distinguishing "device is silent"
+        // actually works - useful for distinguishing "device is silent"
         // from "device is responsive but doesn't implement FF DC 07/08".
         try
         {
@@ -106,7 +106,7 @@ public sealed class CnvsConnectionWorker : BackgroundService
             ServiceLog.Error($"[cnvs-conn] firmware version probe threw {ex.GetType().Name}: {ex.Message}");
         }
 
-        // Apply the persisted firmware settings FIRST — before anything else
+        // Apply the persisted firmware settings FIRST - before anything else
         // touches FF DC 05 (the lighting writer is gated on
         // hub.IsReadyForStreaming, which only flips true after WriteSettings
         // completes). The firmware appears to drop FF DC 07 if any FF DC 05

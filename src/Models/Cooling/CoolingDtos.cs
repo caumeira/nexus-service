@@ -131,7 +131,7 @@ public sealed class FanChannel
 
     /// <summary>
     /// User-facing product name of the owning device, e.g. "HYTE NP50" or
-    /// "HYTE MiniHub". Identical for every channel on the same device — the
+    /// "HYTE MiniHub". Identical for every channel on the same device - the
     /// cooling page groups by <see cref="DeviceId"/> and labels the group
     /// from any group member's <see cref="DeviceName"/>, so the lighting and
     /// cooling pages always show the same name for the same physical device.

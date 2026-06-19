@@ -79,7 +79,7 @@ public class NexusServiceCollectionExtensionsTests
         Assert.NotNull(sp!.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>());
         Assert.NotNull(sp.GetRequiredService<ILightingProvider>());
         // Constructs the CompositeLightingDeviceProvider and every backing provider
-        // (OpenRGB/stub, NP50, MiniHub, CNVS, Q-series) — guards the composite ctor
+        // (OpenRGB/stub, NP50, MiniHub, CNVS, Q-series) - guards the composite ctor
         // arg order and that each provider's dependency graph resolves.
         Assert.NotNull(sp.GetRequiredService<Nexus.Service.Devices.ILightingDeviceProvider>());
     }

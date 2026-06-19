@@ -34,7 +34,7 @@ internal sealed class TelemetryFlushService : BackgroundService
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (_sinks.Count == 0)
-            return; // nothing configured to send to — don't spin a timer.
+            return; // nothing configured to send to - don't spin a timer.
 
         using var timer = new PeriodicTimer(FlushInterval);
         do
@@ -57,7 +57,7 @@ internal sealed class TelemetryFlushService : BackgroundService
         var distinctId = InstallIdentity.Resolve(_store);
         if (distinctId is null)
         {
-            _telemetry.Clear(); // opted out — drop whatever queued.
+            _telemetry.Clear(); // opted out - drop whatever queued.
             return;
         }
 

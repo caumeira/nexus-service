@@ -8,7 +8,7 @@ using Nexus.Service.Platform;
 namespace Nexus.Service.Peripherals.Keeb;
 
 /// <summary>
-/// macOS keyboard input injection via CoreGraphics CGEvent — the macOS
+/// macOS keyboard input injection via CoreGraphics CGEvent - the macOS
 /// counterpart to <see cref="WindowsInputter"/>'s SendInput and
 /// <see cref="LinuxInputter"/>'s uinput paths. Modifiers are applied as
 /// CGEventFlags on the key event itself (the idiomatic CGEvent chord) rather
@@ -31,7 +31,7 @@ public sealed class MacInputter : IInputterProvider
         if (!AccessibilityGranted() && !_warned)
         {
             _warned = true;
-            ServiceLog.Warn("[inputter-mac] Accessibility permission not granted — keyboard injection will no-op. Grant it in System Settings → Privacy & Security → Accessibility.");
+            ServiceLog.Warn("[inputter-mac] Accessibility permission not granted - keyboard injection will no-op. Grant it in System Settings → Privacy & Security → Accessibility.");
         }
 
         foreach (var stroke in body.Strokes)

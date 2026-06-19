@@ -31,7 +31,7 @@ public static class PingRoutes
         // face. By serving stubs here on the nexus service we let the OEM's
         // WebView stay open and load our panel at `/panel/{deviceId}`.
         // Raw-JSON literals because the .NET 10 AOT JsonSerializer rejects
-        // anonymous types at runtime — we'd otherwise hit 500s here.
+        // anonymous types at runtime - we'd otherwise hit 500s here.
         app.MapGet("/ready", () => Results.Content("{\"ready\":true}", "application/json"));
         app.MapGet("/hardware/profile", () => Results.Content(
             "{\"offlineView\":\"default\",\"disableDisplayWithoutSata\":false,\"intervalDuration\":0,\"mediaFiles\":[],\"text\":\"\",\"preview\":false}",

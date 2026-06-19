@@ -39,7 +39,7 @@ public class DBusVariantParsingTests
     [Fact]
     public void ReadStringVariantDict_ParsesMprisGetAllPayload()
     {
-        // Mimics Properties.GetAll("org.mpris.MediaPlayer2.Player") — a{sv} with
+        // Mimics Properties.GetAll("org.mpris.MediaPlayer2.Player") - a{sv} with
         // scalars, an array-of-string, and a nested a{sv} Metadata dict.
         var w = new DBusWriter();
         w.OpenArray(8);

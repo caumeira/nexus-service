@@ -46,7 +46,7 @@ public static class ShellExecutor
     }
 
     /// <summary>
-    /// Run a command for its exit status (not its output) — for fire-and-verify
+    /// Run a command for its exit status (not its output) - for fire-and-verify
     /// writes where success must be confirmed, not assumed. Returns the process
     /// exit code, or a negative value if it couldn't start / timed out. Drains
     /// stdout+stderr so the child never blocks on a full pipe.
@@ -122,7 +122,7 @@ public static class ShellExecutor
             cts.CancelAfter(timeoutMs);
             try
             {
-                // Drain stderr concurrently — a chatty child (GTK warnings from
+                // Drain stderr concurrently - a chatty child (GTK warnings from
                 // zenity) fills the 64KB pipe and blocks otherwise.
                 _ = proc.StandardError.ReadToEndAsync(cts.Token);
                 var stdout = await proc.StandardOutput.ReadToEndAsync(cts.Token).ConfigureAwait(false);

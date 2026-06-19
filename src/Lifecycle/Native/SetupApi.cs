@@ -9,11 +9,11 @@ namespace Nexus.Service.Lifecycle.Native;
 /// create on its own. AOT-friendly via LibraryImport.
 ///
 /// The flow for installing a root-enumerated device like PawnIO:
-///   1. SetupDiCreateDeviceInfoList — empty info set for the device class
-///   2. SetupDiCreateDeviceInfo — add a new device entry with generated ID
-///   3. SetupDiSetDeviceRegistryProperty(SPDRP_HARDWAREID) — set hardware ID
-///   4. SetupDiCallClassInstaller(DIF_REGISTERDEVICE) — register device with PnP
-///   5. UpdateDriverForPlugAndPlayDevices — install the driver from the INF
+///   1. SetupDiCreateDeviceInfoList - empty info set for the device class
+///   2. SetupDiCreateDeviceInfo - add a new device entry with generated ID
+///   3. SetupDiSetDeviceRegistryProperty(SPDRP_HARDWAREID) - set hardware ID
+///   4. SetupDiCallClassInstaller(DIF_REGISTERDEVICE) - register device with PnP
+///   5. UpdateDriverForPlugAndPlayDevices - install the driver from the INF
 /// </summary>
 internal static partial class SetupApi
 {

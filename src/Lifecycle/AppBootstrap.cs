@@ -152,7 +152,7 @@ internal static class AppBootstrap
         // Probe smart-light reachability only while a lighting view is open. A
         // smart light gives no event when it drops off the LAN (Govee frames are
         // fire-and-forget UDP), so an active per-brand probe is the only offline
-        // signal — gated on subscribers like the beats provider so it costs
+        // signal - gated on subscribers like the beats provider so it costs
         // nothing when no one is watching.
         muxHub.OnTopicFirstSubscriber += topic =>
         { if (topic == PanelTopics.Lighting) smartLights.StartReachabilityPolling(); };

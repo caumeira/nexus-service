@@ -143,7 +143,7 @@ public static class RelayCrypto
     /// <summary>
     /// Open one frame: parses the nonce (recovering dir + counter), AES-256-GCM
     /// decrypts and verifies the tag (AAD empty). Throws
-    /// <see cref="CryptographicException"/> on a tampered tag / wrong key — the
+    /// <see cref="CryptographicException"/> on a tampered tag / wrong key - the
     /// caller must drop the frame and close the channel on failure.
     /// </summary>
     public static (byte Dir, ulong Counter, byte[] Plaintext) Open(byte[] aeadKey, ReadOnlySpan<byte> frame)

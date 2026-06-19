@@ -16,7 +16,7 @@ public static partial class DevicesRoutes
 {
     private static void MapSmartHubEndpoints(WebApplication app)
     {
-        // Singleton-style endpoint — nexus currently supports at most one SmartHub.
+        // Singleton-style endpoint - nexus currently supports at most one SmartHub.
         app.MapGet("/devices/smarthub", (SmartHubHub hub, IConfigStore store) =>
         {
             var fans = new SmartHubFanResponse[hub.State.Fans.Length];

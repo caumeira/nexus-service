@@ -5,7 +5,7 @@ using Nexus.Service.Routes;
 namespace Nexus.Service.Tests.Widgets;
 
 /// <summary>
-/// Direct tests of <see cref="AppRoutes.ResolveBundleFile"/> — the bundle
+/// Direct tests of <see cref="AppRoutes.ResolveBundleFile"/> - the bundle
 /// asset path-traversal / symlink guard behind <c>/apps-api/installed/{id}/asset/**</c>
 /// and <c>/apps-api/code/**</c>. Tested directly rather than over HTTP
 /// because ASP.NET normalizes <c>..</c> out of the request path before routing,
@@ -65,7 +65,7 @@ public sealed class AppBundleResolverTests : IDisposable
         catch
         {
             File.Delete(outside);
-            return; // platform/permission without symlink support — skip
+            return; // platform/permission without symlink support - skip
         }
 
         try

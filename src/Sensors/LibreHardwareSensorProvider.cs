@@ -18,7 +18,7 @@ namespace Nexus.Service.Sensors;
 /// instance is shared with WindowsFanControlProvider. Updates are cheap
 /// (~1-5ms per cycle) because LHM caches hardware handles.
 ///
-/// On non-Windows platforms this class should never be instantiated — the
+/// On non-Windows platforms this class should never be instantiated - the
 /// factory in Program.cs gates on RuntimeInformation.IsOSPlatform.
 /// </summary>
 public sealed class LibreHardwareSensorProvider : ISensorProvider
@@ -169,7 +169,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
     {
         _lhm.Update(TimeSpan.FromMilliseconds(100));
         var result = new List<HardwareSensor>();
-        // Skip LHM's `/vram` (pagefile) hardware — it exposes "Memory Used"
+        // Skip LHM's `/vram` (pagefile) hardware - it exposes "Memory Used"
         // and "Memory Available" with the same Type/Name as the physical `/ram`,
         // so flattening both would collide on the client's name-based find()
         // and could display pagefile metrics with a pagefile ceiling.

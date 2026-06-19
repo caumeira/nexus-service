@@ -48,7 +48,7 @@ public sealed class LhmWarmupService : BackgroundService
         }
         catch (Exception ex)
         {
-            // Never fatal — the next /cooling or /sensors request will pay
+            // Never fatal - the next /cooling or /sensors request will pay
             // the singleton ctor inline. Logged so silent regressions are
             // discoverable.
             _logger.LogWarning(ex, "LHM warmup failed; first cooling/sensors request will pay cold start.");

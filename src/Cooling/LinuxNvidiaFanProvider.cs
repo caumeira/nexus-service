@@ -10,14 +10,14 @@ using Nexus.Service.Persistence;
 namespace Nexus.Service.Cooling;
 
 /// <summary>
-/// NVIDIA GPU fan + temperature provider backed by NVML (libnvidia-ml) — the
+/// NVIDIA GPU fan + temperature provider backed by NVML (libnvidia-ml) - the
 /// same library CoolerControl uses, which (unlike <c>nvidia-smi</c>) exposes
 /// each fan individually. A dual-fan card therefore shows two channels.
 /// Reading works as the unprivileged service user; control
 /// (<c>nvmlDeviceSetFanSpeed_v2</c>) requires root, so on a normal user session
 /// a write is attempted and logged-once when the driver returns no-permission.
 ///
-/// AMD GPUs are intentionally NOT handled here — the amdgpu driver exposes its
+/// AMD GPUs are intentionally NOT handled here - the amdgpu driver exposes its
 /// fan through hwmon, so <see cref="LinuxFanControlProvider"/> already covers it.
 ///
 /// Channel ids are <c>nvidia:&lt;gpu&gt;:&lt;fan&gt;</c>; the composite routes by
@@ -144,7 +144,7 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
         }
         else
         {
-            WarnOnce(channelId); // write didn't land (needs root) — stays Auto
+            WarnOnce(channelId); // write didn't land (needs root) - stays Auto
         }
         return dutyPercent;
     }
@@ -166,7 +166,7 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
                 _control(g.Index, f.Fan, null);
         }
         lock (_lock) _manual.Clear();
-        // Only drop our own ids — ManualSpeeds is shared with the hwmon/liquidctl
+        // Only drop our own ids - ManualSpeeds is shared with the hwmon/liquidctl
         // providers in the composite, so a blanket Clear() would wipe theirs.
         _config?.Update(s =>
         {
@@ -177,7 +177,7 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
 
     /// <summary>
     /// Re-apply the user's saved manual GPU duties once, lazily, on first
-    /// enumeration — so the reported mode matches reality after a service
+    /// enumeration - so the reported mode matches reality after a service
     /// restart or reboot (NVML resets fans to auto on reboot). Mirrors
     /// <see cref="WindowsFanControlProvider"/>'s RestoreSavedManualSpeeds.
     /// </summary>
@@ -271,7 +271,7 @@ public sealed class LinuxNvidiaFanProvider : IFanControlProvider, ICoolingProvid
                 return;
         }
         Console.Error.WriteLine(
-            $"[cooling] nvidia fan write for {channelId} was rejected — NVML fan control needs root. " +
+            $"[cooling] nvidia fan write for {channelId} was rejected - NVML fan control needs root. " +
             "GPU stays on its automatic curve.");
     }
 }

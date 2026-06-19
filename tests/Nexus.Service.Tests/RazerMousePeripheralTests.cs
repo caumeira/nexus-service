@@ -133,7 +133,7 @@ public class RazerMousePeripheralTests
     [Fact]
     public void HyperPolling_Set8000UsesSetPollingRate2Command()
     {
-        // DeathAdder V3 Pro — HyperPolling variant
+        // DeathAdder V3 Pro - HyperPolling variant
         var (dev, mouse) = Build(0x00B7);
         var poll = (IPollingRateCapability)mouse;
         Assert.Contains(8000, poll.SupportedHz);
@@ -153,8 +153,8 @@ public class RazerMousePeripheralTests
     [Fact]
     public void Battery_OnlyPresentForWirelessProfiles()
     {
-        var (_, wired) = Build(0x007C);      // V2 Pro Wired — no battery
-        var (_, wireless) = Build(0x007D);   // V2 Pro Wireless — battery
+        var (_, wired) = Build(0x007C);      // V2 Pro Wired - no battery
+        var (_, wireless) = Build(0x007D);   // V2 Pro Wireless - battery
 
         Assert.Null(wired.GetCapability<IBatteryCapability>());
         Assert.NotNull(wireless.GetCapability<IBatteryCapability>());

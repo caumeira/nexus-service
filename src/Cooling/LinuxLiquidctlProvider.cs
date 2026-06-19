@@ -13,7 +13,7 @@ namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// USB liquid-cooler / AIO / fan-hub provider backed by the
-/// <a href="https://github.com/liquidctl/liquidctl">liquidctl</a> CLI — the same
+/// <a href="https://github.com/liquidctl/liquidctl">liquidctl</a> CLI - the same
 /// universal driver library CoolerControl shells out to. Covers NZXT Kraken,
 /// Corsair Commander/AIOs, EVGA CLC, Aquacomputer, and the rest of liquidctl's
 /// device list without Nexus reimplementing each USB protocol. Reads via
@@ -21,7 +21,7 @@ namespace Nexus.Service.Cooling;
 /// &lt;channel&gt; speed &lt;duty&gt;</c>.
 ///
 /// Subprocess-based (AOT-safe, no native deps) through <see cref="ShellExecutor"/>.
-/// When liquidctl isn't installed every method degrades to empty — the provider
+/// When liquidctl isn't installed every method degrades to empty - the provider
 /// is inert, never throws. Channel ids are <c>liquidctl:&lt;addr&gt;:&lt;channel&gt;</c>;
 /// the composite routes by that prefix. These are USB coolers with no BIOS
 /// fallback, so <see cref="ReleaseFan"/> is a no-op and calibration is skipped.
@@ -52,11 +52,11 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
     {
         _config = config;
         _statusJson = () => ShellExecutor.Run("liquidctl", 8000, "--json", "status");
-        // Verify the write landed (exit 0) instead of assuming it — a rejected
+        // Verify the write landed (exit 0) instead of assuming it - a rejected
         // `set` (permissions, wrong channel) must not be reported as applied.
         // NOTE: a few liquidctl devices need `liquidctl initialize` once per
         // boot before `set` is accepted; omitted here because it mutates device
-        // state and can't be verified on this bench — revisit with hardware.
+        // state and can't be verified on this bench - revisit with hardware.
         _setSpeed = (addr, chan, duty) => ShellExecutor.RunExit("liquidctl", 8000,
             "--address", addr, "set", chan, "speed", duty.ToString(CultureInfo.InvariantCulture)) == 0;
         _forceAvailable = false;
@@ -77,7 +77,7 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
             return true;
         if (!OperatingSystem.IsLinux())
             return false;
-        // Cache only a positive probe — liquidctl may be installed after us.
+        // Cache only a positive probe - liquidctl may be installed after us.
         if (_present == true)
             return true;
         var ok = !string.IsNullOrWhiteSpace(ShellExecutor.Run("liquidctl", "--version"));
@@ -113,7 +113,7 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
                 });
             }
         }
-        lock (_lock) _control = control; // atomic publish — no half-built map
+        lock (_lock) _control = control; // atomic publish - no half-built map
         return channels;
     }
 
@@ -201,11 +201,11 @@ public sealed class LinuxLiquidctlProvider : IFanControlProvider, ICoolingProvid
                 return;
         }
         Console.Error.WriteLine(
-            $"[cooling] liquidctl set failed for {channelId} — the cooler rejected the write " +
+            $"[cooling] liquidctl set failed for {channelId} - the cooler rejected the write " +
             "(check udev access to its hidraw node; some devices need `liquidctl initialize`).");
     }
 
-    // USB AIOs have no BIOS/automatic mode to hand control back to — leave the
+    // USB AIOs have no BIOS/automatic mode to hand control back to - leave the
     // last applied duty in place rather than guess a "default".
     public void ReleaseFan(string channelId) { }
     public void ReleaseAll() { }

@@ -26,7 +26,7 @@ cleanup() {
 trap cleanup EXIT
 
 if [[ ! -f "$DLL" ]]; then
-  echo "[contract-test] dll missing at $DLL — running 'dotnet build' first" >&2
+  echo "[contract-test] dll missing at $DLL - running 'dotnet build' first" >&2
   (cd "$REPO_ROOT" && dotnet build >/dev/null 2>&1) || { echo "build failed"; exit 2; }
 fi
 
@@ -305,7 +305,7 @@ fi
 check_http GET /pawnio
 check_http GET /start
 check_http POST /start '{"enabled":false,"path":"","arguments":""}'
-# Skip /shutdown — it would tear down the server we're testing.
+# Skip /shutdown - it would tear down the server we're testing.
 
 echo
 echo "[contract-test] $PASS passed, $FAIL failed"

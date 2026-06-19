@@ -8,7 +8,7 @@ namespace Nexus.Service.Benchmarks;
 /// <summary>
 /// Cross-platform contract for the four sub-benchmarks. Implementations must
 /// honour <paramref name="progress"/> (report percent in the range [0, 1] and
-/// the current raw throughput), respect cancellation, and never throw — on
+/// the current raw throughput), respect cancellation, and never throw - on
 /// failure return a <see cref="BenchmarkSubScore"/> with Score = 0 and a
 /// diagnostic in Detail. All implementations are expected to be AOT-safe.
 /// </summary>

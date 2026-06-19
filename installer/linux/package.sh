@@ -10,7 +10,7 @@ OUT_DIR="${2:-$(pwd)}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
 if [ ! -e "$PUBLISH_DIR/Nexus" ]; then
-  echo "error: $PUBLISH_DIR/Nexus not found — run 'dotnet publish -r linux-x64 -o $PUBLISH_DIR' first" >&2
+  echo "error: $PUBLISH_DIR/Nexus not found - run 'dotnet publish -r linux-x64 -o $PUBLISH_DIR' first" >&2
   exit 1
 fi
 
@@ -27,7 +27,7 @@ cp "$HERE/install.sh" "$HERE/uninstall.sh" "$HERE/README.md" \
    "$HERE/nexus.service" "$APP/"
 chmod +x "$APP/install.sh" "$APP/uninstall.sh" "$APP/Nexus"
 
-# App icon (best-effort — menu entry uses it).
+# App icon (best-effort - menu entry uses it).
 ICON="$HERE/../../Bundled/linux/nexus-512.png"
 [ -f "$ICON" ] && cp "$ICON" "$APP/nexus.png" || true
 

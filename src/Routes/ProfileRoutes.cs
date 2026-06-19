@@ -68,7 +68,7 @@ public static class ProfileRoutes
                         LastDismissedUpdateVersion = s.Update.LastDismissedUpdateVersion,
                     },
                 };
-                // Profile switches swap the entire prefs block — everyone refetches via the broadcast.
+                // Profile switches swap the entire prefs block - everyone refetches via the broadcast.
                 PanelTopics.BroadcastPrefs(hub);
                 PanelTopics.BroadcastLighting(hub);
                 PanelTopics.BroadcastCooling(hub);
@@ -401,7 +401,7 @@ public static class ProfileRoutes
                     if (overlay.Monitor.HasValue)
                     {
                         // -1 (primary) or any non-negative index. Don't clamp to a
-                        // max here — the overlay host validates against the
+                        // max here - the overlay host validates against the
                         // enumerated monitor count and falls back to primary if
                         // the index is out of range.
                         var v = overlay.Monitor.Value;

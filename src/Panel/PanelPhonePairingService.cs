@@ -110,7 +110,7 @@ public sealed class PanelPhonePairingService
 
     /// <summary>
     /// Fired when a phone submits a pair request but no dashboard is
-    /// currently subscribed to surface the Allow/Deny modal — i.e. the
+    /// currently subscribed to surface the Allow/Deny modal - i.e. the
     /// Nexus window isn't open. The Windows tray host turns this into a
     /// native notification; clicking it opens the dashboard, which then
     /// receives the retained request via the snapshot provider. No-op on
@@ -130,7 +130,7 @@ public sealed class PanelPhonePairingService
 
     /// <summary>
     /// Fired whenever the set of outstanding (unconsumed, unexpired) QR pair
-    /// tokens changes — a token is minted in <see cref="CreatePairQr"/>, consumed
+    /// tokens changes - a token is minted in <see cref="CreatePairQr"/>, consumed
     /// in <see cref="ClaimCore"/>, or reaped on expiry. <c>RelayConnectionService</c>
     /// listens on this to reconcile its per-token pair rendezvous links the same
     /// way it reconciles session links off <see cref="IConfigStore.OnChanged"/>:
@@ -165,7 +165,7 @@ public sealed class PanelPhonePairingService
             tokens = _pairTokens.Keys.ToList();
         }
         // If expiry shrank the set, push the change so any reconcile that raced
-        // this read converges (and stale pair links get dropped) — no poll loop.
+        // this read converges (and stale pair links get dropped) - no poll loop.
         if (reaped > 0)
             RaisePairTokensChanged();
         var result = new List<OutstandingPairToken>(tokens.Count);
@@ -182,8 +182,8 @@ public sealed class PanelPhonePairingService
 
     /// <summary>
     /// Single chokepoint for every pair-code "request" and "cancelled"
-    /// frame. Fans the frame out to live dashboard subscribers, and — for a
-    /// fresh "request" with no subscriber listening — raises
+    /// frame. Fans the frame out to live dashboard subscribers, and - for a
+    /// fresh "request" with no subscriber listening - raises
     /// <see cref="PairRequestNeedsAttention"/> so the desktop surfaces a
     /// notification. "cancelled" frames resolve any raised notification.
     /// </summary>
@@ -216,7 +216,7 @@ public sealed class PanelPhonePairingService
     /// <summary>
     /// Snapshot provider for <c>panel/phone/pair-code/request</c>. Returns
     /// the live request envelope only while it is still awaiting the
-    /// host's Allow/Deny — a phone has submitted (RequestId set), the host
+    /// host's Allow/Deny - a phone has submitted (RequestId set), the host
     /// hasn't decided, and the TTL hasn't lapsed. Any other state returns
     /// null so a connecting dashboard sees nothing stale.
     /// </summary>
@@ -407,8 +407,8 @@ public sealed class PanelPhonePairingService
     /// already proves token possession), so it is stored
     /// <see cref="PanelPhoneSessionToken.ClaimedOverHttps"/>=true to get the long
     /// 30-day idle window, exactly like an SPKI-pinned HTTPS claim. There is no
-    /// remote IP / per-request UA bind on a relayed session — the relay obscures
-    /// the client address and a hard bind would 401 the app on every reconnect —
+    /// remote IP / per-request UA bind on a relayed session - the relay obscures
+    /// the client address and a hard bind would 401 the app on every reconnect -
     /// so it follows the same skip the HTTPS path uses.
     /// </summary>
     public ClaimResult ClaimCore(
@@ -451,7 +451,7 @@ public sealed class PanelPhonePairingService
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var normalizedName = NormalizeSessionDisplayName(deviceName, userAgent);
         // A relayed claim is E2E-authenticated and carries no usable client IP,
-        // so it skips the IP+UA bind — same treatment as an HTTPS-pinned claim.
+        // so it skips the IP+UA bind - same treatment as an HTTPS-pinned claim.
         var effectiveHttps = overRelay || claimedOverHttps;
         var deviceFingerprint = overRelay ? "" : BuildDeviceFingerprint(userAgent, remoteAddress);
         var normalizedDeviceId = NormalizeDeviceId(deviceId);
@@ -598,7 +598,7 @@ public sealed class PanelPhonePairingService
     /// <summary>
     /// Enumerate live sessions that can be relayed: every non-expired session
     /// that carries a <see cref="PanelPhoneSessionToken.RelayKey"/> (sessions
-    /// paired before the relay feature shipped have none and are skipped — they
+    /// paired before the relay feature shipped have none and are skipped - they
     /// must re-pair). Returns each session's id plus the decoded relay root.
     /// The plaintext token is never involved; the relay never sees the root.
     /// </summary>
@@ -638,7 +638,7 @@ public sealed class PanelPhonePairingService
         // The session is already gone from the store; kicking the live client is
         // best-effort cleanup. Never let a close failure (e.g. a relay-bridged
         // client whose transport already faulted) turn a successful revoke into
-        // an HTTP 500 — the device list would show it removed yet the request
+        // an HTTP 500 - the device list would show it removed yet the request
         // would report failure.
         if (removed)
         {
@@ -743,7 +743,7 @@ public sealed class PanelPhonePairingService
     /// Persists the relay opt-in. The write goes through
     /// <see cref="IConfigStore.Update"/>, which fires
     /// <see cref="IConfigStore.OnChanged"/>; <c>RelayConnectionService</c>
-    /// listens on that signal and opens / tears down its host sockets — no
+    /// listens on that signal and opens / tears down its host sockets - no
     /// poll loop. Turning the relay off therefore closes every relayed session
     /// as a side effect of the service reconciling to the new state.
     /// </summary>
@@ -1108,7 +1108,7 @@ public sealed class PanelPhonePairingService
     /// Validate + normalize a client-provided device id for dedup. Trims
     /// surrounding whitespace; treats empty / whitespace-only as "no dedup id"
     /// (returns ""), and rejects (also returns "") absurdly long values rather
-    /// than truncating — a truncated id could collide with a different device's
+    /// than truncating - a truncated id could collide with a different device's
     /// id. Kept case-sensitive: the contract is an opaque persisted UUID, and
     /// the dedup compare is Ordinal.
     /// </summary>
@@ -1405,7 +1405,7 @@ public sealed class PanelPhonePairingService
     /// <summary>
     /// Phone-side: Wi-Fi-discovered pair handshake. Same SAS-comparison
     /// model as <see cref="SubmitPairCode"/> but with no out-of-band code
-    /// — the phone found us via Bonjour, the user taps the discovered
+    /// - the phone found us via Bonjour, the user taps the discovered
     /// device, and the OOB authentication is the user's physical Allow
     /// click on the desktop (matching Bluetooth-style numeric comparison).
     ///

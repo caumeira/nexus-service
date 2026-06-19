@@ -6,7 +6,7 @@ namespace Nexus.Service.Tests.Cnvs;
 /// <summary>
 /// Golden-vector coverage for the CNVS settings wire protocol. Bytes
 /// here come from HYTE's nexus-control-service CNVSHelper.cs (the
-/// shipping vendor reference), not from the spec doc table — there
+/// shipping vendor reference), not from the spec doc table - there
 /// isn't a separate spec for these commands. Same testing posture as
 /// Np50ProtocolTests.cs.
 /// </summary>

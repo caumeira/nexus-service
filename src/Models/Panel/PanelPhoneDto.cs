@@ -164,7 +164,7 @@ public static class RelayClaimMessageTypes
 /// <summary>
 /// phone→PC sealed claim request, sent over the pair rendezvous (rid_pair) once
 /// the AEAD channel is up. Possession of the QR pair token is proven by the
-/// successful AEAD decrypt — the rid_pair already pins which token the PC is
+/// successful AEAD decrypt - the rid_pair already pins which token the PC is
 /// claiming, so the token itself is never put on the wire.
 /// </summary>
 public sealed class RelayClaimRequest
@@ -175,7 +175,7 @@ public sealed class RelayClaimRequest
     /// <summary>
     /// Stable client-persisted device id (a UUID). When present, the PC dedups
     /// authorized sessions on it so re-pairing the same phone over the relay
-    /// replaces its prior session instead of accumulating duplicates — the relay
+    /// replaces its prior session instead of accumulating duplicates - the relay
     /// obscures the client IP/UA, so fingerprint-based dedup can't see it. Empty
     /// / missing falls back to no relay-side dedup (legacy behavior).
     /// </summary>
@@ -227,7 +227,7 @@ public sealed class RelayHttpRequest
 /// pending fetch. <see cref="Status"/> is the real HTTP status the in-process
 /// dispatch produced (or 403 for an off-allowlist path / 413 for an oversized
 /// body). <see cref="Body"/> carries the response bytes base64-encoded when
-/// <see cref="Base64"/> is true (binary-safe — thumbnails, icons), else the raw
+/// <see cref="Base64"/> is true (binary-safe - thumbnails, icons), else the raw
 /// UTF-8 text (error frames). The tunnel is a UTF-8 JSON string channel, so
 /// binary MUST be base64 or its bytes corrupt on the round-trip.
 /// </summary>

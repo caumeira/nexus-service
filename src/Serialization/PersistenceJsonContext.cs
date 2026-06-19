@@ -30,7 +30,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Dictionary<string, float>))]
 [JsonSerializable(typeof(ProfileManifest))]
 [JsonSerializable(typeof(ProfileExport))]
-// Shared POCOs nested under NexusSettings root — picked up transitively but
+// Shared POCOs nested under NexusSettings root - picked up transitively but
 // listed explicitly so the source generator emits the proper converters.
 [JsonSerializable(typeof(ThemeSettings))]
 [JsonSerializable(typeof(MonitoringSettings))]
@@ -48,7 +48,7 @@ namespace Nexus.Service.Serialization;
 // service / adb-server restarts.
 [JsonSerializable(typeof(QSeriesTransportRecord))]
 [JsonSerializable(typeof(Dictionary<string, QSeriesTransportRecord>))]
-// Smart (network) lights — paired Hue / Nanoleaf / WLED / etc. config.
+// Smart (network) lights - paired Hue / Nanoleaf / WLED / etc. config.
 [JsonSerializable(typeof(SmartLightsSettings))]
 [JsonSerializable(typeof(SmartLightConfig))]
 [JsonSerializable(typeof(List<SmartLightConfig>))]

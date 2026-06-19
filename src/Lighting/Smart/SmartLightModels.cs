@@ -23,7 +23,7 @@ public sealed record LightFramePlan(int LedCount, bool AverageToSingle, float[]?
 
 /// <summary>The latest desired state for one light. Coalesced by the throttle
 /// and pushed to the device by its driver. Used for both effect streaming and
-/// static (manual) control — one path. <see cref="Zones"/> carries the per-zone
+/// static (manual) control - one path. <see cref="Zones"/> carries the per-zone
 /// RGB triplets (engine LED order) for zone-addressable devices while an effect
 /// streams; null for single-color sends. R/G/B always hold the averaged color
 /// so a driver can fall back to single-color regardless.</summary>

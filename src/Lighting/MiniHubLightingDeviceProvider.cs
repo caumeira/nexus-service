@@ -61,7 +61,7 @@ public sealed class MiniHubLightingDeviceProvider : ILightingDeviceProvider, ILi
         var slot = 0;
 
         // All four physical ports can carry LEDs. The MiniHub firmware
-        // doesn't enumerate them — the official HYTE tool keeps the per-
+        // doesn't enumerate them - the official HYTE tool keeps the per-
         // port LED counts in a user-edited config (MiniHubLayoutConfig).
         // We mirror that: emit all four LED zones unconditionally with
         // sensible defaults (matching the spec table and the typical
@@ -188,7 +188,7 @@ public sealed class MiniHubLightingDeviceProvider : ILightingDeviceProvider, ILi
         // One DeviceFrame per channel. Channels 1+2 cover the RGB-fan rings
         // on the Nexus-Link fan ports; 3+4 are the standalone LED outputs.
         // Always emitted regardless of declared LED count so the writer
-        // always pushes a blank frame to every channel — keeps the hub
+        // always pushes a blank frame to every channel - keeps the hub
         // from falling back to firmware animation on un-addressed channels.
         frames.Add(BuildOrReuseFrame($"{hubId}:port1", _hub.State.Port1.LedCount, slot++, layouts, counts, ref idx));
         frames.Add(BuildOrReuseFrame($"{hubId}:port2", _hub.State.Port2.LedCount, slot++, layouts, counts, ref idx));

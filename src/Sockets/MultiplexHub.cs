@@ -257,7 +257,7 @@ public sealed class MultiplexHub
     /// error can never fault the whole revoke (which would surface as an HTTP 500
     /// on the revoke endpoint). <see cref="SubscribedClient.CloseRevokedAsync"/>
     /// already swallows internally; this is a second belt so the killswitch
-    /// semantics — "kick still closes every client, just can't throw" — hold even
+    /// semantics - "kick still closes every client, just can't throw" - hold even
     /// if a future close path regresses.
     /// </summary>
     private static async Task CloseClientSafeAsync(SubscribedClient client)
@@ -414,7 +414,7 @@ public sealed class MultiplexHub
         }
         catch
         {
-            // Malformed command — ignore.
+            // Malformed command - ignore.
         }
     }
 
@@ -449,7 +449,7 @@ public sealed class MultiplexHub
             // endpoint). The await is inside the try because _writeLock can be
             // disposed underneath us: the receive loop in HandleClientAsync
             // disposes this client the instant its socket reports Close, and a
-            // relay-bridged client closes that fast — RelayWebSocket.CloseAsync
+            // relay-bridged client closes that fast - RelayWebSocket.CloseAsync
             // aborts the relay transport, which immediately unblocks that loop.
             // So WaitAsync (or the finally Release) can race an ObjectDisposed.
             bool acquired = false;

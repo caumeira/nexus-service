@@ -43,7 +43,7 @@ Each device type has its own subdirectory. `manifest.json` tracks available vers
 1. Service checks a remote manifest URL for each device type (configurable per handler)
 2. If a newer version exists, downloads the binary to the local cache
 3. Validates SHA-256 checksum before marking as available
-4. The binary is never served over HTTP — the service flashes it directly via USB/HID
+4. The binary is never served over HTTP - the service flashes it directly via USB/HID
 
 ## Update Flow (API)
 
@@ -71,7 +71,7 @@ Task<bool> FlashFirmwareAsync(string firmwarePath, IProgress<int> progress);
 
 ## TODO
 
-- [x] Implement FirmwareStore (local cache manager) — `FirmwareStore.cs`
+- [x] Implement FirmwareStore (local cache manager) - `FirmwareStore.cs`
 - [ ] Define remote manifest URL per device type (NP50 pending: see `plans/np50-support.md`)
 - [ ] Implement STM32 DFU flash protocol for CNVS
 - [ ] Add progress reporting via WebSocket

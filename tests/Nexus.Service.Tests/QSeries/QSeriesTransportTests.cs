@@ -62,7 +62,7 @@ public class QSeriesTransportTests
     [Fact]
     public void ParseLanIPv4_skips_link_local_169_254()
     {
-        // No DHCP lease yet — kernel assigns 169.254.x.x. We should not
+        // No DHCP lease yet - kernel assigns 169.254.x.x. We should not
         // promote to TCP using a link-local address because it won't be
         // routable from the host.
         const string output = "1.1.1.1 dev wlan0 src 169.254.43.10 uid 2000";
@@ -131,7 +131,7 @@ public class QSeriesTransportTests
     [Fact]
     public void IsPrivateLanIPv4_rejects_ipv6()
     {
-        // IPv6 addresses are not in scope for adb tcpip — the protocol
+        // IPv6 addresses are not in scope for adb tcpip - the protocol
         // is IPv4-only in adbd. Make sure the gate rejects them.
         Assert.False(QSeriesTransport.IsPrivateLanIPv4(IPAddress.Parse("::1")));
         Assert.False(QSeriesTransport.IsPrivateLanIPv4(IPAddress.Parse("fe80::1")));

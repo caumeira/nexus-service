@@ -12,7 +12,7 @@ namespace Nexus.Service.Peripherals.Hyte;
 /// identity straight out of sysfs: every <c>/dev/ttyACM*</c> / <c>/dev/ttyUSB*</c>
 /// node has a <c>/sys/class/tty/&lt;name&gt;/device</c> symlink into the USB device
 /// tree, whose enclosing device directory exposes <c>idVendor</c>,
-/// <c>idProduct</c> and <c>serial</c>. Pure BCL file IO — AOT-safe, no P/Invoke.
+/// <c>idProduct</c> and <c>serial</c>. Pure BCL file IO - AOT-safe, no P/Invoke.
 /// All five HYTE hubs share VID 0x3402 and differ only by PID, so one helper
 /// backs all of them; each device's thin wrapper maps the matched PID to its
 /// own port-info shape.
@@ -35,7 +35,7 @@ internal static class LinuxSerialDiscovery
 
     /// <summary>
     /// Core discovery against explicit <paramref name="devRoot"/> and
-    /// <paramref name="sysTtyRoot"/> trees, with no platform gate — so tests can
+    /// <paramref name="sysTtyRoot"/> trees, with no platform gate - so tests can
     /// drive it against a fake sysfs tree on any OS.
     /// </summary>
     internal static IReadOnlyList<Match> FindIn(string devRoot, string sysTtyRoot, int vendorId, params int[] productIds)
@@ -98,7 +98,7 @@ internal static class LinuxSerialDiscovery
         {
             var target = Directory.ResolveLinkTarget(deviceSymlink, returnFinalTarget: true);
             if (target is null)
-                return null; // not a symlink / unresolvable — don't walk the literal path
+                return null; // not a symlink / unresolvable - don't walk the literal path
             dir = target.FullName;
         }
         catch

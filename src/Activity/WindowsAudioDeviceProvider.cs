@@ -12,7 +12,7 @@ namespace Nexus.Service.Activity;
 /// Windows audio device enumeration + default-device switching via raw Core Audio
 /// COM (IMMDeviceEnumerator / IMMDeviceCollection / IMMDevice / IPropertyStore)
 /// plus the undocumented IPolicyConfig::SetDefaultEndpoint. IntPtr + manual
-/// vtable indirection (AOT-safe), all on a dedicated MTA thread — same model as
+/// vtable indirection (AOT-safe), all on a dedicated MTA thread - same model as
 /// <see cref="WindowsVolumeProvider"/>.
 ///
 /// NOTE: IPolicyConfig is undocumented; its vtable slot for SetDefaultEndpoint

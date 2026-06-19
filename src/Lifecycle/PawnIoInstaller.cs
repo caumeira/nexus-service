@@ -42,7 +42,7 @@ public static class PawnIoInstaller
     private const string ServiceRegistryKey = @"SYSTEM\CurrentControlSet\Services\PawnIO";
     private const string HardwareId = "Root\\PawnIO";
 
-    // SoftwareDevice setup class GUID — matches Class={62f9c741-...} in PawnIO.inf
+    // SoftwareDevice setup class GUID - matches Class={62f9c741-...} in PawnIO.inf
     private static readonly Guid SoftwareDeviceClassGuid = new("62f9c741-b25a-46ce-b54c-9bccce08b6f2");
 
     /// <summary>
@@ -93,7 +93,7 @@ public static class PawnIoInstaller
         }
         catch (Win32Exception ex) when (ex.NativeErrorCode == 1223)
         {
-            // ERROR_CANCELLED — user clicked "No" on the UAC prompt
+            // ERROR_CANCELLED - user clicked "No" on the UAC prompt
             return PawnIoInstallResult.UserDenied;
         }
         catch (Exception ex)
@@ -160,7 +160,7 @@ public static class PawnIoInstaller
         }
         Log($"installing driver from {infPath}");
 
-        // pnputil.exe lives in System32 — use the absolute path so we don't
+        // pnputil.exe lives in System32 - use the absolute path so we don't
         // depend on PATH.
         var pnputil = Path.Combine(Environment.SystemDirectory, "pnputil.exe");
         if (!File.Exists(pnputil))
@@ -224,7 +224,7 @@ public static class PawnIoInstaller
         }
 
         // pnputil added the driver package to the driver store, but PawnIO is a
-        // root-enumerated PnP device — there's no physical device for PnP to
+        // root-enumerated PnP device - there's no physical device for PnP to
         // auto-enumerate. We have to create the root device node ourselves via
         // SetupAPI, then call UpdateDriverForPlugAndPlayDevices to bind the
         // driver to it.
@@ -276,7 +276,7 @@ public static class PawnIoInstaller
                 return false;
             }
 
-            // Hardware ID is REG_MULTI_SZ — double-null-terminated UTF-16
+            // Hardware ID is REG_MULTI_SZ - double-null-terminated UTF-16
             var hwIdBuffer = Encoding.Unicode.GetBytes(HardwareId + "\0\0");
             if (!SetupApi.SetupDiSetDeviceRegistryProperty(
                     deviceInfoSet,

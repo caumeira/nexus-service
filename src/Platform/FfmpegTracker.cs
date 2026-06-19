@@ -11,7 +11,7 @@ namespace Nexus.Service.Platform;
 ///
 /// On startup, CleanupOrphans() reads stale PIDs from the tracker file and
 /// kills any that are still running ffmpeg. Only PIDs we recorded are touched
-/// — the user's unrelated ffmpeg work is never affected.
+/// - the user's unrelated ffmpeg work is never affected.
 /// </summary>
 public static class FfmpegTracker
 {
@@ -99,7 +99,7 @@ public static class FfmpegTracker
                         }
                         proc.Dispose();
                     }
-                    catch { /* process already gone or access denied — fine */ }
+                    catch { /* process already gone or access denied - fine */ }
                 }
 
                 File.Delete(PidFilePath);

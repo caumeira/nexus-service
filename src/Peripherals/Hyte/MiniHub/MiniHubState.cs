@@ -11,9 +11,9 @@ namespace Nexus.Service.Peripherals.Hyte.MiniHub;
 ///   • Port 3: LED-strip output, streamed on channel 3. Default 16
 ///     LEDs per the spec table.
 ///   • Port 4: LED-strip output, streamed on channel 4. Default 0
-///     LEDs — user must declare how many they wired.
+///     LEDs - user must declare how many they wired.
 ///
-/// The MiniHub firmware does NOT enumerate connected hardware — the
+/// The MiniHub firmware does NOT enumerate connected hardware - the
 /// official HYTE tool keeps these counts in a user-edited config
 /// (MiniHubLayoutConfig) and we mirror that via
 /// settings.Devices.ZoneLedCounts overrides exposed on the lighting page.
@@ -44,7 +44,7 @@ public sealed class MiniHubState
     /// <summary>
     /// Fans wired to port 2 (0..3 daisy-chained). Defaults to 3 to match the
     /// Y70 stock front-fan trio. All chained fans share one PWM duty and one
-    /// tach reading — port 2 surfaces as a single logical "Port 2 Fans" card
+    /// tach reading - port 2 surfaces as a single logical "Port 2 Fans" card
     /// in the cooling list, not one card per chained fan.
     /// </summary>
     public int Port2Fans { get; set; } = 3;
@@ -62,7 +62,7 @@ public sealed class MiniHubState
     public int Port2Duty { get; set; }
 }
 
-/// <summary>One MiniHub LED port — the user can adjust LedCount if the strip they wired differs from the firmware default.</summary>
+/// <summary>One MiniHub LED port - the user can adjust LedCount if the strip they wired differs from the firmware default.</summary>
 public sealed class MiniHubLedZone
 {
     /// <summary>Streaming channel byte (1..4, matching the physical port number).</summary>

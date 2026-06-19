@@ -39,7 +39,7 @@ public sealed class DBusConnection : IDisposable
 
     /// <summary>
     /// Raised after the connection is re-established following a drop (logout,
-    /// bus restart) — not on the first connect. Subsystems holding bus-side
+    /// bus restart) - not on the first connect. Subsystems holding bus-side
     /// registrations (tray StatusNotifierItem, signal matches) re-establish
     /// them here. Consumers that only issue calls don't need this: every call
     /// is preceded by <see cref="StartAsync"/>, which now transparently

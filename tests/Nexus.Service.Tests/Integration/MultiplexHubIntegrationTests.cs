@@ -8,7 +8,7 @@ namespace Nexus.Service.Tests.Integration;
 
 /// <summary>
 /// Drives the real <see cref="MultiplexHub"/> over an actual TestServer
-/// WebSocket — the fan-out / subscribe-lifecycle / disconnect-cleanup path
+/// WebSocket - the fan-out / subscribe-lifecycle / disconnect-cleanup path
 /// that the unit suite (snapshot-provider registration only) never exercised.
 /// </summary>
 [Collection("NexusHost")]
@@ -74,7 +74,7 @@ public sealed class MultiplexHubIntegrationTests : IClassFixture<NexusAppFactory
         }
         catch (OperationCanceledException)
         {
-            // Expected — nothing arrived in the window.
+            // Expected - nothing arrived in the window.
         }
     }
 

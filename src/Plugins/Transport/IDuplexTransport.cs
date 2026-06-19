@@ -9,7 +9,7 @@ namespace Nexus.Service.Plugins.Transport;
 /// The OS-verified identity of the process at the other end of a transport. Pid
 /// and uid come from the kernel (Linux <c>SO_PEERCRED</c> / macOS
 /// <c>LOCAL_PEERCRED</c>+<c>LOCAL_PEERPID</c>), never from anything the peer
-/// claims — this is the spine of the broker's creation-time peer pin: the host
+/// claims - this is the spine of the broker's creation-time peer pin: the host
 /// pins the child pid at spawn, then rejects any connection whose kernel-attested
 /// pid doesn't match.
 /// </summary>

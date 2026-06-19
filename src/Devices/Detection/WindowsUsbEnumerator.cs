@@ -10,7 +10,7 @@ namespace Nexus.Service.Devices.Detection;
 /// pnputil reports ONLY presently-attached devices (the HKLM\...\Enum\USB registry
 /// subtree, used by an earlier implementation, is historical and lists every device
 /// ever seen). The `/properties` flag makes pnputil include DEVPKEY_* fields so we
-/// can pull DEVPKEY_Device_BusReportedDeviceDesc (the USB iProduct string — the
+/// can pull DEVPKEY_Device_BusReportedDeviceDesc (the USB iProduct string - the
 /// device's own brand name) and DEVPKEY_Device_LocationInfo in a single call.
 /// </summary>
 public sealed class WindowsUsbEnumerator : IUsbEnumerator

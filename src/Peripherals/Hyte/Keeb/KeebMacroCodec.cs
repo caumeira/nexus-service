@@ -40,7 +40,7 @@ public static class KeebMacroCodec
         foreach (var k in macro.Keys)
         {
             var hid = KeebKeyCodes.MacroHid(k.Key);
-            if (hid == 0) continue; // unmappable key — skip rather than emit a stray action
+            if (hid == 0) continue; // unmappable key - skip rather than emit a stray action
 
             var release = IsRelease(k.Type);
             var units = (int)Math.Round(Math.Max(0, k.Duration) / 10.0);

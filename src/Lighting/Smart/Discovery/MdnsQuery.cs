@@ -15,7 +15,7 @@ namespace Nexus.Service.Lighting.Smart.Discovery;
 /// multicast-group-join portability headaches across Windows/macOS/Linux.
 ///
 /// Every responder to a service-specific query offers that service, so a reply
-/// source address is a device host. We don't parse A/SRV records — the source
+/// source address is a device host. We don't parse A/SRV records - the source
 /// IP is what we want and is reliable. Best-effort: any socket error yields an
 /// empty list (callers also have cloud discovery + manual IP).
 /// </summary>
@@ -61,7 +61,7 @@ public sealed class MdnsQuery
         }
         catch
         {
-            // Best-effort discovery — never throw to callers.
+            // Best-effort discovery - never throw to callers.
         }
         return new List<string>(hosts);
     }

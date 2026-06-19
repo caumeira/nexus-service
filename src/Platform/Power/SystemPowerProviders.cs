@@ -27,7 +27,7 @@ public sealed class WindowsSystemPowerProvider : ISystemPowerProvider
 #if WINDOWS
         // The service runs as LocalSystem in Session 0, where LockWorkStation
         // no-ops (no interactive desktop). Run it as the active console user via
-        // a one-shot scheduled task — the same mechanism the user-session helper
+        // a one-shot scheduled task - the same mechanism the user-session helper
         // uses. Fall back to a direct call (works if ever run interactively).
         if (Nexus.Service.Lifecycle.UserHelperBootstrapper.RunInUserSession(
                 "rundll32.exe user32.dll,LockWorkStation", "lock", "NexusLock"))

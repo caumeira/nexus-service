@@ -15,7 +15,7 @@ namespace Nexus.Service.Tests;
 /// <summary>
 /// Allocation regression guards for the service hot paths. Uses the thread-local
 /// <see cref="GC.GetAllocatedBytesForCurrentThread"/> counter, so the parallel
-/// xUnit runner cannot pollute a measurement — only work on this thread counts.
+/// xUnit runner cannot pollute a measurement - only work on this thread counts.
 /// Fast and deterministic, so these run in the default suite (no Manual gate).
 ///
 /// Companion ns/op micro-benchmarks live in tests/Nexus.Service.Benchmarks

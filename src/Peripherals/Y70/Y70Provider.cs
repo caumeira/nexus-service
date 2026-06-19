@@ -98,7 +98,7 @@ public sealed class Y70Provider : IY70Provider
             return;
         }
 
-        // DDC/CI path (Truly / GW). UNVERIFIED — see class remarks.
+        // DDC/CI path (Truly / GW). UNVERIFIED - see class remarks.
         var id = DdcDisplayId();
         if (id is null) return; // no panel reachable; store-only
         _ddc.SetVcp(id, Y70DisplayProtocol.VcpPower, screenOn ? Y70DisplayProtocol.VcpPowerOn : Y70DisplayProtocol.VcpPowerOff);

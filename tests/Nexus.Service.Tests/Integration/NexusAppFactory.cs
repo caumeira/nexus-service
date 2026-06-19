@@ -20,12 +20,12 @@ public sealed class NexusHostCollection { }
 
 /// <summary>
 /// In-process integration host. Boots the real <c>Program.cs</c> request
-/// pipeline — middleware order, CORS, SecurityHeaders, PathAuth, every mapped
-/// route, the source-generated JSON, and the WebSocket hubs — against an
+/// pipeline - middleware order, CORS, SecurityHeaders, PathAuth, every mapped
+/// route, the source-generated JSON, and the WebSocket hubs - against an
 /// in-memory TestServer. No Kestrel, no hardware, and no machine-mutating boot
 /// side effects (single-instance mutex, HTTPS cert provisioning, GPU/profile
 /// init, orphan-process cleanup, OS protocol-handler registration, GUI/service
-/// host) — all gated by <c>NEXUS_TEST_HOST</c> in Program.cs.
+/// host) - all gated by <c>NEXUS_TEST_HOST</c> in Program.cs.
 ///
 /// Background <see cref="IHostedService"/>s (mDNS advertiser, curve engine,
 /// device/serial/USB watchers, monitoring broadcaster) are stripped so request
@@ -42,8 +42,8 @@ public class NexusAppFactory : WebApplicationFactory<Program>
     public NexusAppFactory()
     {
         // Must be set before the base class lazily starts the host (on first
-        // CreateClient / Services access) so Program.cs's pre-build gates —
-        // single-instance mutex and cert provisioning — observe it.
+        // CreateClient / Services access) so Program.cs's pre-build gates -
+        // single-instance mutex and cert provisioning - observe it.
         Environment.SetEnvironmentVariable("NEXUS_TEST_HOST", "1");
 
         _configDir = Path.Combine(Path.GetTempPath(), "nexus-itest-" + Guid.NewGuid().ToString("N"));
@@ -58,7 +58,7 @@ public class NexusAppFactory : WebApplicationFactory<Program>
         {
             // The request pipeline under test does not depend on any hosted
             // service being started, and they touch hardware/network and add
-            // timing nondeterminism — so strip them all.
+            // timing nondeterminism - so strip them all.
             services.RemoveAll<IHostedService>();
 
             // Isolate config (the auth token + all settings) to a per-factory

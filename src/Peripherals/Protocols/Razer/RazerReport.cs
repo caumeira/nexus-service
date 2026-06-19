@@ -38,7 +38,7 @@ public sealed class RazerReport
 
     /// <summary>
     /// True when a parsed reply's stored CRC (byte 89) matched the XOR checksum
-    /// recomputed over its payload — i.e. the reply was not corrupted in
+    /// recomputed over its payload - i.e. the reply was not corrupted in
     /// transit. Always true for reports built locally via <see cref="Command"/>.
     /// Callers reading device telemetry (DPI, battery) should check this before
     /// trusting <see cref="Arguments"/>.

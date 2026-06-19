@@ -12,7 +12,7 @@ namespace Nexus.Service.Lighting.Smart;
 /// Streams engine canvas color to the network lights while an effect runs.
 /// Unlike the serial/HID hub writers (which push every tick to keep hardware
 /// refreshed), this only streams when <see cref="LightingEngine.CurrentEffect"/>
-/// is active — network devices hold their last state, and hammering them when
+/// is active - network devices hold their last state, and hammering them when
 /// idle wastes bandwidth and trips rate limits. Per-device coalescing + rate
 /// ceilings live in <see cref="NetworkSendThrottle"/> (via the provider), so a
 /// 33 ms tick here can't outrun a slow bridge. When an effect stops, lamps are
@@ -84,7 +84,7 @@ public sealed class SmartLightFrameWriter : IHostedService, IDisposable
                 _wasStreaming = false;
             }
             // Streamed-static devices (Govee razer/DreamView) only hold a color
-            // while frames keep flowing — push every tick; the throttle paces the
+            // while frames keep flowing - push every tick; the throttle paces the
             // wire to each device's interval. No-op when none are driven.
             _provider.MaintainStreamedStatic();
             return;

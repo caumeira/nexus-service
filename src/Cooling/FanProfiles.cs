@@ -305,7 +305,7 @@ public static class FanProfiles
             // stay populated as a fallback if the user switches the type.
             curve.Type = "Graph";
             // Only overwrite the input binding when we actually have a sensor
-            // to bind to — a transient LHM read during reset shouldn't strip
+            // to bind to - a transient LHM read during reset shouldn't strip
             // a perfectly valid existing input.
             if (inputSensor is not null)
             {

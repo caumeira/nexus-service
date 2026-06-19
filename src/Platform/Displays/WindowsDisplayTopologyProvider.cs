@@ -102,7 +102,7 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
     /// <summary>
     /// HMONITORs targeted by an integrated touch digitizer, via the Windows
     /// pointer-device association (GetPointerDevices). Touch pads and pens
-    /// don't count — the gate decides whether touch-requiring panel widgets
+    /// don't count - the gate decides whether touch-requiring panel widgets
     /// are placeable on a promoted monitor.
     /// </summary>
     private static HashSet<IntPtr> EnumerateTouchMonitors()

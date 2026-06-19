@@ -4,7 +4,7 @@ using Nexus.Service.Models.Peripherals.Keeb;
 namespace Nexus.Service.Models.Activity;
 
 /// <summary>
-/// A keyboard injection request. Either a single chord (Key + modifier flags —
+/// A keyboard injection request. Either a single chord (Key + modifier flags -
 /// the common deck-button case) OR an explicit ordered <see cref="Strokes"/>
 /// list. When Strokes is non-empty it wins over the single-chord form.
 /// </summary>

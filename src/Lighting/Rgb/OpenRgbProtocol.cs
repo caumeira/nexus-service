@@ -184,7 +184,7 @@ public static class OpenRgbProtocol
     /// past so we don't have to maintain the full controller struct serializer
     /// just to display a device list.
     ///
-    /// Layout — verified against upstream `RGBController::GetDeviceDescription`
+    /// Layout - verified against upstream `RGBController::GetDeviceDescription`
     /// in OpenRGB master (RGBController/RGBController.cpp). The optional fields
     /// MUST be parsed in exactly this order:
     ///
@@ -261,7 +261,7 @@ public static class OpenRgbProtocol
         var modeCount = BinaryPrimitives.ReadUInt16LittleEndian(body.Slice(pos, 2));
         pos += 2;
         EnsureBytes(body, pos, 4, "active_mode");
-        pos += 4; // active_mode (uint32) — present at all protocol versions
+        pos += 4; // active_mode (uint32) - present at all protocol versions
         var modes = new List<RgbMode>(modeCount);
         for (int i = 0; i < modeCount; i++)
         {
@@ -278,7 +278,7 @@ public static class OpenRgbProtocol
             }
 
             EnsureBytes(body, pos, modeFixed, $"mode[{i}] fixed block");
-            // color_mode is the LAST uint32 in the fixed block — capture it so we
+            // color_mode is the LAST uint32 in the fixed block - capture it so we
             // can pick the right mode to apply for per-LED control without parsing
             // every field in between.
             var colorMode = BinaryPrimitives.ReadUInt32LittleEndian(body.Slice(pos + modeFixed - 4, 4));
@@ -400,7 +400,7 @@ public static class OpenRgbProtocol
     /// <summary>
     /// Build the RGBCONTROLLER_UPDATEMODE body. The OpenRGB SDK server runs
     /// <c>SetModeDescription(data)</c> then <c>UpdateMode()</c> on receipt, which
-    /// calls each controller's <c>DeviceUpdateMode()</c> — for ENE-style DRAM
+    /// calls each controller's <c>DeviceUpdateMode()</c> - for ENE-style DRAM
     /// controllers that's where the SMBus write to the hardware mode register
     /// actually happens. The lighter SET_CUSTOM_MODE packet (1100) only updates
     /// the server's in-memory active_mode and does NOT call UpdateMode(), so
@@ -410,7 +410,7 @@ public static class OpenRgbProtocol
     /// Body layout:
     ///   uint32 data_size (total body size including itself)
     ///   int32  mode_idx
-    ///   [mode-entry bytes — same wire format the server emitted in CONTROLLER_DATA]
+    ///   [mode-entry bytes - same wire format the server emitted in CONTROLLER_DATA]
     ///
     /// We echo the mode bytes back verbatim rather than re-serializing field-
     /// by-field so we don't have to maintain a full per-protocol-version writer
@@ -427,7 +427,7 @@ public static class OpenRgbProtocol
     }
 
     /// <summary>
-    /// Read an OpenRGB "bstring" — uint16 length prefix + that many UTF-8 bytes
+    /// Read an OpenRGB "bstring" - uint16 length prefix + that many UTF-8 bytes
     /// (the length includes the trailing NUL terminator). A length of 1 means
     /// an empty string with just the NUL byte.
     /// </summary>
@@ -438,7 +438,7 @@ public static class OpenRgbProtocol
         pos += 2;
         if (len == 0)
         {
-            // Malformed — every bstring should at least have the NUL terminator.
+            // Malformed - every bstring should at least have the NUL terminator.
             // Treat as empty without advancing.
             return string.Empty;
         }

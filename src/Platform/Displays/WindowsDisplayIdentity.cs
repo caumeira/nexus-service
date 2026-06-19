@@ -8,7 +8,7 @@ namespace Nexus.Service.Platform.Displays;
 /// Shared monitor-identity resolution for the Windows display providers.
 /// The stable id is the EDID-derived portion of the monitor's PnP DeviceID
 /// (survives reboots and cable shuffles) and is the join key across
-/// GET /displays, GET /displays/topology, and panel assignments — any change
+/// GET /displays, GET /displays/topology, and panel assignments - any change
 /// here is a breaking id migration. nexus-overlay duplicates this extraction
 /// in its DisplayIdentity; keep the two in sync.
 /// </summary>
@@ -87,7 +87,7 @@ internal static class WindowsDisplayIdentity
 
     /// <summary>
     /// Raw monitor PnP DeviceID (e.g. \\?\DISPLAY#RTK0004#...) for the first
-    /// child monitor of an adapter — used to match a controller name before we
+    /// child monitor of an adapter - used to match a controller name before we
     /// collapse it to the sanitized stable id.
     /// </summary>
     internal static string ReadMonitorDeviceId(string adapterDeviceName)
@@ -130,7 +130,7 @@ internal static class WindowsDisplayIdentity
         return i < adapterDeviceName.Length && int.TryParse(adapterDeviceName[i..], out var n) ? n : 0;
     }
 
-    // Win32 DISPLAY_DEVICEW ABI: WCHAR DeviceName[32] (NOT 128 — the
+    // Win32 DISPLAY_DEVICEW ABI: WCHAR DeviceName[32] (NOT 128 - the
     // brightness provider's old private copy used 128, which skews every
     // subsequent field offset so DeviceID unmarshals empty and ids degrade
     // to adapter fallbacks). Matches nexus-overlay's PanelDisplay struct.

@@ -12,12 +12,12 @@ namespace Nexus.Service.Helper.Domains
     /// service handler runs as LocalSystem in Session 0, where an explorer.exe it
     /// spawns lands in the non-interactive session and never appears. The helper
     /// runs in the user session, so it opens the logs folder on the user's
-    /// desktop. No fields — the envelope's existence is the signal.
+    /// desktop. No fields - the envelope's existence is the signal.
     /// </summary>
     public sealed class OpenLogsPayload { }
 
     // JSON source-gen registration is centralised in
-    // src/Serialization/AppJsonContext.cs — append a matching
+    // src/Serialization/AppJsonContext.cs - append a matching
     // [JsonSerializable(typeof(OpenLogsPayload))] line there.
 
     /// <summary>

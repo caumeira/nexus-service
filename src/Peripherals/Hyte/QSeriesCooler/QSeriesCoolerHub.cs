@@ -215,7 +215,7 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
     // Telemetry read deadline. The pump answers a Port-0 query in a few ms; this
     // is the silent-device ceiling. Kept well under the fw-version poll's 400 ms
     // because telemetry polls every heartbeat (3 s) and holds _lock against the
-    // 30 Hz lighting writer — a longer deadline would stall the LED stream that
+    // 30 Hz lighting writer - a longer deadline would stall the LED stream that
     // long on a marginal serial link.
     private const int TelemetryReadTimeoutMs = 150;
 
@@ -225,7 +225,7 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
 
     /// <summary>
     /// Poll pump telemetry (Port-0, plus the Q80 second pump) into <see cref="State"/>.
-    /// Read-only on the wire — issues no control writes. Shares <c>_lock</c> with
+    /// Read-only on the wire - issues no control writes. Shares <c>_lock</c> with
     /// the 30 Hz lighting stream, so it can't interleave with a frame write. A
     /// short / mis-framed reply skips the update (leaving lighting streaming);
     /// only a thrown transport error tears the port down for the heartbeat to

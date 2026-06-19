@@ -11,15 +11,15 @@ namespace Nexus.Service.Platform.Linux;
 /// Bridges a root system daemon to the active graphical login session.
 ///
 /// Run as root (like coolercontrol's <c>coolercontrold</c>) Nexus gets full
-/// hardware access — direct pwm writes, NVML fan control, kernel-module loading,
-/// raw i2c/hidraw — but loses the per-user session context the tray (D-Bus
+/// hardware access - direct pwm writes, NVML fan control, kernel-module loading,
+/// raw i2c/hidraw - but loses the per-user session context the tray (D-Bus
 /// StatusNotifierItem), MPRIS media, <c>wpctl</c>/<c>pactl</c> volume, and the
 /// dashboard launcher need. This detects the active seat's user via
 /// <c>loginctl</c> and adopts their session environment (bus, runtime dir,
 /// config home, display) so those features keep working, and so the daemon
 /// reads the user's existing settings/profiles instead of root's empty home.
 ///
-/// No-ops unless running as root with no session env already set — so a normal
+/// No-ops unless running as root with no session env already set - so a normal
 /// <c>systemd --user</c> install or a dev run is untouched. Single active
 /// graphical session is assumed (the desktop case); multi-seat picks the first.
 /// </summary>
@@ -55,7 +55,7 @@ public static partial class LinuxSession
         SessionGid = s.Gid;
         // Override unconditionally: this only runs as a root daemon with no
         // session env, where HOME/XDG_CONFIG_HOME are pre-set to root's by
-        // sudo/systemd — set-if-unset would leave them pointing at /root.
+        // sudo/systemd - set-if-unset would leave them pointing at /root.
         var run = $"/run/user/{s.Uid}";
         Environment.SetEnvironmentVariable("XDG_RUNTIME_DIR", run);
         Environment.SetEnvironmentVariable("DBUS_SESSION_BUS_ADDRESS", $"unix:path={run}/bus");
@@ -69,7 +69,7 @@ public static partial class LinuxSession
         Environment.SetEnvironmentVariable("WAYLAND_DISPLAY", s.Wayland ?? "wayland-0");
         // Deliberately do NOT export DISPLAY/XAUTHORITY. The GPU lighting shader
         // context renders fully headless via EGL on the GPU device platform (see
-        // LinuxEglContext) — no display required. Exporting DISPLAY would only
+        // LinuxEglContext) - no display required. Exporting DISPLAY would only
         // tempt a GLFW/GLX path that segfaults creating an nvidia GL context as
         // root on the user's XWayland (uncatchable native fault); EGL needs none
         // of it. Direct device control (identify, static) is unaffected either way.
@@ -80,7 +80,7 @@ public static partial class LinuxSession
     private static bool IsRoot()
     {
         // Environment.UserName resolves via getpwuid(geteuid()) on Unix, so it
-        // reflects the effective user — "root" for a root daemon.
+        // reflects the effective user - "root" for a root daemon.
         try { return string.Equals(Environment.UserName, "root", StringComparison.Ordinal); }
         catch { return false; }
     }
@@ -109,14 +109,14 @@ public static partial class LinuxSession
                 continue; // skip ttys / non-graphical sessions
             if (!uint.TryParse(props.GetValueOrDefault("User"), out var uid))
                 continue;
-            // Skip the display-manager greeter and other system users — adopting
+            // Skip the display-manager greeter and other system users - adopting
             // gdm/sddm's session (uid < 1000) would point us at a bus the real
             // user can't use.
             if (uid < 1000)
                 continue;
             var (gid, home) = PasswdForUid(uid);
             if (string.IsNullOrEmpty(home))
-                continue; // no passwd entry — can't safely adopt this session
+                continue; // no passwd entry - can't safely adopt this session
             var display = props.GetValueOrDefault("Display");
             return new SessionInfo(uid, gid, home, string.IsNullOrEmpty(display) ? null : display, WaylandSocket(uid));
         }
@@ -201,14 +201,14 @@ public static partial class LinuxSession
         {
             if (seteuid(uid.Value) != 0)
             {
-                connect(); // couldn't drop — try anyway (will likely fail upstream)
+                connect(); // couldn't drop - try anyway (will likely fail upstream)
                 return;
             }
             try { connect(); }
             finally
             {
                 // A root daemon (ruid=suid=0) can always restore euid 0; if it
-                // somehow can't, every later hardware write would fail forever —
+                // somehow can't, every later hardware write would fail forever -
                 // crash instead so systemd restarts us clean.
                 if (seteuid(0) != 0)
                     Environment.FailFast("[session] could not restore root euid after a session-bus connect");

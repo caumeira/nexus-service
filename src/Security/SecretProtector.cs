@@ -10,7 +10,7 @@ namespace Nexus.Service.Security;
 /// client secret, etc.) stored in the JSON settings file. Encrypted values get a
 /// <c>dpapi:</c> sentinel so the persistence layer can round-trip plain and
 /// protected entries side-by-side without a schema bump. Decryption is bound to
-/// the service identity (CurrentUser scope) — copying settings.json to another
+/// the service identity (CurrentUser scope) - copying settings.json to another
 /// machine or another account renders the value unreadable.
 ///
 /// macOS / Linux: pass-through. The dev workstation does not have DPAPI; values

@@ -12,9 +12,9 @@ namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 /// <see cref="Np50.Np50Hub"/>'s "open at startup, hold forever" model so
 /// OpenRGB-headless (which also tries to claim CNVS) finds the port busy
 /// and silently skips it. Whoever opens the COM port first wins under
-/// Windows serial semantics; running our open BEFORE OpenRGB launches —
+/// Windows serial semantics; running our open BEFORE OpenRGB launches -
 /// which <see cref="CnvsConnectionWorker"/> guarantees via an early
-/// background tick — makes us the de-facto owner.
+/// background tick - makes us the de-facto owner.
 ///
 /// Surfaces three wire commands:
 /// - <see cref="WriteSettings"/>: EEPROM-persisted firmware bits
@@ -23,7 +23,7 @@ namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 /// - <see cref="WriteLighting"/>: the 157-byte LED stream frame
 ///   (`FF EE 02 01 00 32 00 + 50×3 GRB bytes`) lifted from
 ///   HYTE's HYTEMousematController.StreamingCommand in OpenRGB.
-/// - <see cref="SetFirmwareAnimationOff"/>: `FF DC 05 00` — every
+/// - <see cref="SetFirmwareAnimationOff"/>: `FF DC 05 00` - every
 ///   streaming frame must be preceded by this (HYTE's reference does
 ///   the same in CNVSBaseController.SendToHardware) so the firmware
 ///   stops overlaying its boot animation.
@@ -106,7 +106,7 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
             catch (Exception ex)
             {
                 // The port commonly drops mid-write as the device reboots into
-                // DFU — that's the success signal, not a failure.
+                // DFU - that's the success signal, not a failure.
                 Console.Error.WriteLine($"[cnvs] EnterDfuMode (port dropping as device reboots): {ex.GetType().Name}");
             }
             // Release the COM port so dfu-util can open the DFU device.
@@ -126,7 +126,7 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
     /// True when the connected firmware honors the <c>FF DC 07</c> /
     /// <c>FF DC 08</c> settings commands. Introduced in CNVS firmware
     /// v1.0.2.1 per <c>hyte-refs/hyte-documents/firmware-protocol/CNVS/stm32-commands.md</c>
-    /// §3 — older firmware (e.g. 1.0.1.1 observed in the Y70 dev unit)
+    /// §3 - older firmware (e.g. 1.0.1.1 observed in the Y70 dev unit)
     /// silently accepts and ignores the FF DC 07 frame.
     /// </summary>
     public bool SettingsSupported =>
@@ -176,7 +176,7 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
             _port = null;
             _firmwareVersion = "";
             // Force the next connect to re-apply settings before the
-            // lighting writer is allowed to stream — see WriteSettings
+            // lighting writer is allowed to stream - see WriteSettings
             // doc for the firmware invariant.
             IsReadyForStreaming = false;
         }
@@ -184,12 +184,12 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
 
     /// <summary>
     /// Persist both firmware settings to EEPROM. Read-back after to verify
-    /// the firmware accepted them — returns true when the read-back matches,
+    /// the firmware accepted them - returns true when the read-back matches,
     /// false on transport error or device disagreement.
     /// </summary>
     /// <summary>
     /// Write the 5-byte SetSettings command exactly as HYTE's
-    /// <c>CNVSHelper.ChangeCnvsSetting</c> does — no bracket, no extra
+    /// <c>CNVSHelper.ChangeCnvsSetting</c> does - no bracket, no extra
     /// preamble.
     ///
     /// **Firmware version requirement.** Per
@@ -198,7 +198,7 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
     /// in <see cref="ReadSettings"/>) were introduced in CNVS firmware
     /// <b>v1.0.2.1 / v1.0.2.2</b>. Units running older firmware
     /// (Y70 dev hardware in the lab observed at 1.0.1.1) silently accept
-    /// the bytes — no error, no disconnect — and do nothing: the boot
+    /// the bytes - no error, no disconnect - and do nothing: the boot
     /// animation still plays, the PC-off behavior is unchanged, and
     /// the FF DC 08 read-back returns zero bytes. Returning true from
     /// this method therefore means "bytes left the port", NOT "firmware
@@ -248,7 +248,7 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
     /// connection. Cleared on <see cref="Disconnect"/>. The lighting
     /// frame writer gates every tick on this so a fresh USB connect
     /// gets the FF DC 07 settings write BEFORE any FF DC 05 streaming
-    /// command goes out — the firmware invariant that makes the
+    /// command goes out - the firmware invariant that makes the
     /// settings actually persist.
     /// </summary>
     public bool IsReadyForStreaming { get; private set; }
@@ -275,7 +275,7 @@ public sealed class CnvsHub : IDisposable, IDfuFlashTarget
                     port.DiscardInBuffer();
                     var req = CnvsProtocol.BuildGetFirmwareVersion();
                     port.Write(req, 0, req.Length);
-                    // 20 ms write→read gap per HYTE CNVSHelper.cs:93 — firmware
+                    // 20 ms write→read gap per HYTE CNVSHelper.cs:93 - firmware
                     // takes that long to assemble the 7-byte version reply.
                     Thread.Sleep(20);
                     var buf = new byte[7];
@@ -459,7 +459,7 @@ public sealed class CnvsPortInfo
 {
     public required string PortName { get; init; }
     public string Serial { get; init; } = "";
-    /// <summary>Operating USB PID (0B00/0B01/0B02/0BFF) the port matched — selects the firmware variant.</summary>
+    /// <summary>Operating USB PID (0B00/0B01/0B02/0BFF) the port matched - selects the firmware variant.</summary>
     public int ProductId { get; init; }
 }
 

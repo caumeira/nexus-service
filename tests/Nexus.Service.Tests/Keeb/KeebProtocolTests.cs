@@ -7,8 +7,8 @@ namespace Nexus.Service.Tests.Keeb;
 /// <summary>
 /// Golden-vector coverage for the HYTE Keeb TKL wire protocol. The RGB stream
 /// format is taken from the shipping OpenRGB controller
-/// (nexus-rgb/openrgb-headless HYTEKeyboardController.cpp) — the path that
-/// already lights real hardware — so our direct-HID stream stays byte-identical.
+/// (nexus-rgb/openrgb-headless HYTEKeyboardController.cpp) - the path that
+/// already lights real hardware - so our direct-HID stream stays byte-identical.
 /// Pure functions, no hardware, fast.
 /// </summary>
 public class KeebProtocolTests
