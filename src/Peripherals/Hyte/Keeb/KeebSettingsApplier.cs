@@ -20,8 +20,8 @@ namespace Nexus.Service.Peripherals.Hyte.Keeb;
 /// FirmwareLighting.Brightness dims only the firmware animation (the byte), so
 /// when the firmware animation is showing the knob drives it directly. While a
 /// software effect streams the firmware animation is suppressed; global then mirrors the
-/// firmware byte's 0-100 position via <see cref="TrackKnobAndEaseGlobal"/> (eased) - one
-/// value, so there is no separate software level to drift out of sync with the byte.
+/// firmware byte's 0-100 position via <see cref="PollKnobToGlobal"/> - one value, so there
+/// is no separate software level to drift out of sync with the byte.
 /// </summary>
 public sealed class KeebSettingsApplier
 {
@@ -37,25 +37,9 @@ public sealed class KeebSettingsApplier
     // Touched only under _gate.
     private int _lastBrightByte = -1;
     private int _lastAnimByte = -1;
-    // Streaming knob -> global state, all under _gate. The firmware knob is a rotary
-    // encoder whose 0-100 brightness byte is the only position the host can read. Mirror it:
-    // _knobTargetGlobal = byte/100, so global and the byte are ONE value - there is no second
-    // accumulator to drift out of sync (a separate software level capped/stuck once the byte
-    // pinned before the level reached the same end). The byte's full 0-100 covers global 0-1,
-    // pin included (pin = 100%/0%, correct). The stored global eases toward the target so
-    // dimming glides; the target moves only when the byte changes, so the lighting-page
-    // slider is free while the knob is idle.
-    // Heavy smoothing: the firmware exposes only ~10 coarse brightness levels, so the
-    // target jumps in big chunks; a low ease factor spreads each chunk into an even glide
-    // instead of a surge. The active window must outlast the slower ease so it reaches the
-    // target after the knob stops.
-    private const float KnobEaseFactor = 0.1f;   // per-tick fraction of the gap to the target
-    private const int KnobEaseActiveTicks = 45;  // keep easing this many ticks past the last move
-    private const int KnobBroadcastEveryTicks = 3;
+    // Streaming knob -> global, under _gate. On a byte change, global = byte/100 directly
+    // (no smoothing): global mirrors the firmware byte's 0-100 position, one value.
     private int _lastKnobPct = -1;
-    private float _knobTargetGlobal;
-    private int _knobActiveTicks;
-    private int _knobBroadcastTicks;
 
     public KeebSettingsApplier(KeebHub hub, IConfigStore store, MultiplexHub panel)
     {
@@ -81,60 +65,35 @@ public sealed class KeebSettingsApplier
     }
 
     /// <summary>
-    /// Re-reference the knob so the next read adopts the byte's current position as the
-    /// target. The frame writer calls this when a software effect starts streaming.
+    /// Re-reference the knob so the next read adopts the byte's current position. The frame
+    /// writer calls this when a software effect starts streaming.
     /// </summary>
     public void ResetKnobBaseline()
     {
-        lock (_gate)
-        {
-            _lastKnobPct = -1;
-            _knobTargetGlobal = Math.Clamp(_store.Load().Lighting.GlobalBrightness, 0f, 1f);
-            _knobActiveTicks = 0;
-        }
+        lock (_gate) { _lastKnobPct = -1; }
     }
 
     /// <summary>
-    /// Per-frame-tick knob -> global while a software effect streams. On <paramref
-    /// name="readByte"/> ticks it reads the firmware brightness byte and sets the target to
-    /// its POSITION (byte/100) - global mirrors the one value the firmware maintains, so
-    /// there is no separate software level to drift out of sync, and the byte's full 0-100
-    /// travel covers global 0-1 with no cap (pin = 100%/0%). Every tick the stored global
-    /// eases toward the target so dimming glides. The target updates only when the byte
-    /// changes, so the lighting-page slider is free while the knob is idle.
+    /// On a <paramref name="readByte"/> tick while a software effect streams, read the
+    /// firmware brightness byte and, when it changed, set global = byte/100 directly. No
+    /// smoothing: global mirrors the byte's 0-100 position. The frame writer calls this.
     /// </summary>
-    public void TrackKnobAndEaseGlobal(bool readByte)
+    public void PollKnobToGlobal(bool readByte)
     {
-        if (!_hub.IsConnected) return;
-        var broadcast = false;
+        if (!readByte || !_hub.IsConnected) return;
+        var changed = false;
         lock (_gate)
         {
-            if (readByte)
-            {
-                var raw = _hub.ReadSettings();
-                var brightIndex = (OperatingSystem.IsWindows() ? 3 : 2) + 1;
-                if (raw is not null && raw.Length > brightIndex)
-                {
-                    var pct = KeebSettingsCodec.BrightnessPercentFromByte(raw[brightIndex]);
-                    if (pct != _lastKnobPct)
-                    {
-                        _lastKnobPct = pct;
-                        _knobTargetGlobal = pct / 100f;
-                        _knobActiveTicks = KnobEaseActiveTicks;
-                    }
-                }
-            }
-            if (_knobActiveTicks <= 0) return;
-            _knobActiveTicks--;
-            var cur = _store.Load().Lighting.GlobalBrightness;
-            var next = cur + (_knobTargetGlobal - cur) * KnobEaseFactor;
-            if (Math.Abs(_knobTargetGlobal - next) < 0.004f) next = _knobTargetGlobal;
-            if (Math.Abs(next - cur) <= 0.0004f) return;
-            _store.Update(s => s.Lighting.GlobalBrightness = next);
-            broadcast = ++_knobBroadcastTicks >= KnobBroadcastEveryTicks;
-            if (broadcast) _knobBroadcastTicks = 0;
+            var raw = _hub.ReadSettings();
+            var brightIndex = (OperatingSystem.IsWindows() ? 3 : 2) + 1;
+            if (raw is null || raw.Length <= brightIndex) return;
+            var pct = KeebSettingsCodec.BrightnessPercentFromByte(raw[brightIndex]);
+            if (pct == _lastKnobPct) return;
+            _lastKnobPct = pct;
+            _store.Update(s => s.Lighting.GlobalBrightness = pct / 100f);
+            changed = true;
         }
-        if (broadcast) PanelTopics.BroadcastLighting(_panel);
+        if (changed) PanelTopics.BroadcastLighting(_panel);
     }
 
     /// <summary>

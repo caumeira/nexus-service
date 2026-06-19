@@ -103,17 +103,15 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         }
         if (!_wasStreaming)
         {
-            // Stream started: baseline the knob so its delta nudges global from here.
+            // Stream started: re-reference the knob so the next read adopts its position.
             _wasStreaming = true;
             _applier.ResetKnobBaseline();
         }
 
-        // Track the knob each tick: read its byte every Nth tick for the delta, ease
-        // global toward the accumulated target every tick so the dimming glides
-        // instead of stepping with the coarse poll. The read fits the 33 ms budget.
+        // Read the knob byte every Nth tick and set global = byte/100 on a change.
         var readByte = ++_knobPollTicks >= KnobReadEveryTicks;
         if (readByte) _knobPollTicks = 0;
-        _applier.TrackKnobAndEaseGlobal(readByte);
+        _applier.PollKnobToGlobal(readByte);
 
         var devices = _engine.Devices;
         if (devices.Length == 0) return;
