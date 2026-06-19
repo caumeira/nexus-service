@@ -68,7 +68,7 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
     /// User-pinned fan-control mode. Null = unpinned (cooling provider
     /// owns it). When set to <see cref="MiniHubProtocol.FanModeMotherboard"/>,
     /// the cooling provider must NOT re-assert Software on subsequent fan
-    /// writes — otherwise the next curve tick clobbers the user's BIOS
+    /// writes - otherwise the next curve tick clobbers the user's BIOS
     /// pick before the hub has even reported the mode change back.
     /// </summary>
     public byte? DesiredFanControlMode { get; private set; }
@@ -237,7 +237,7 @@ public sealed class MiniHubHub : IDisposable, IDfuFlashTarget
             Console.Error.WriteLine($"[minihub] write failed (#{n}): {ex.GetType().Name}: {ex.Message}");
             if (n >= ConsecutiveWriteFailureThreshold)
             {
-                Console.Error.WriteLine($"[minihub] {n} consecutive write failures — dropping transport so next tick rediscovers");
+                Console.Error.WriteLine($"[minihub] {n} consecutive write failures - dropping transport so next tick rediscovers");
                 _consecutiveWriteFailures = 0;
                 Disconnect();
             }

@@ -15,7 +15,7 @@ namespace Nexus.Service.Relay;
 public static class RelayHttpAllowlist
 {
     /// <summary>
-    /// Allowed path prefixes — the panel / control REST API. Matched
+    /// Allowed path prefixes - the panel / control REST API. Matched
     /// case-insensitively at a path-segment boundary (exact, or prefix followed
     /// by '/'), so <c>/panel</c> matches <c>/panel/status</c> but not
     /// <c>/panelX</c>.
@@ -53,10 +53,10 @@ public static class RelayHttpAllowlist
     };
 
     /// <summary>
-    /// Denied exact paths — checked BEFORE the prefix allow. These sit under an
+    /// Denied exact paths - checked BEFORE the prefix allow. These sit under an
     /// allowed prefix but must never be tunneled:
-    ///   • <c>/ws</c> — the multiplex socket upgrade (it has its own relay channel).
-    ///   • <c>/lighting/output</c> — the 60fps binary RGB / screen-mirror stream (~1.3 MB/s).
+    ///   • <c>/ws</c> - the multiplex socket upgrade (it has its own relay channel).
+    ///   • <c>/lighting/output</c> - the 60fps binary RGB / screen-mirror stream (~1.3 MB/s).
     /// A WebSocket upgrade can't ride a request/response tunnel anyway, but we
     /// reject them by path so the contract is explicit and a 403 is returned.
     /// </summary>
@@ -64,14 +64,14 @@ public static class RelayHttpAllowlist
     {
         "/ws",
         "/lighting/output",
-        "/system/open-path", // opens arbitrary local files — LAN-only, never relayed
-        "/system/power/shutdown", // destructive — LAN-only
-        "/system/power/restart",  // destructive — LAN-only
-        "/system/power/logout",   // strands a remote user — LAN-only
+        "/system/open-path", // opens arbitrary local files - LAN-only, never relayed
+        "/system/power/shutdown", // destructive - LAN-only
+        "/system/power/restart",  // destructive - LAN-only
+        "/system/power/logout",   // strands a remote user - LAN-only
     };
 
     /// <summary>
-    /// Denied prefixes — every screen-mirror / capture sub-path is blocked even
+    /// Denied prefixes - every screen-mirror / capture sub-path is blocked even
     /// though it lives under the allowed <c>/lighting/</c> prefix. The mirror
     /// pulls a continuous high-bandwidth capture the relay must never carry.
     /// </summary>

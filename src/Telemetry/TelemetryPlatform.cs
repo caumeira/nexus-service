@@ -4,7 +4,7 @@ namespace Nexus.Service.Telemetry;
 
 internal static class TelemetryPlatform
 {
-    /// <summary>Short OS tag shared by every telemetry channel — the fleet
+    /// <summary>Short OS tag shared by every telemetry channel - the fleet
     /// heartbeat, product events, and the system profile all report the same
     /// spelling. (PingRoutes uses its own win→"windows" form for its public
     /// /ping contract; don't unify the two without a contract change.)</summary>

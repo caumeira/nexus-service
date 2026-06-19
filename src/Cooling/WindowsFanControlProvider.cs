@@ -159,7 +159,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
         if (mapping is null) return;
         mapping.ControlSensor.Control.SetSoftware(clamped);
         _softwareControlled.Add(channelId);
-        // No ManualSpeeds write — see interface doc.
+        // No ManualSpeeds write - see interface doc.
     }
 
     public void ReleaseFan(string channelId)
@@ -377,7 +377,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
             if (sensor.SensorType != SensorType.Temperature) continue;
             var value = sensor.Value ?? 0f;
             // Skip disconnected/disabled channels (e.g. unpopulated DIMM SPD
-            // temps read 0 / ~0.25°C) so they never become curve inputs —
+            // temps read 0 / ~0.25°C) so they never become curve inputs -
             // same gate every platform's provider applies. See TemperatureSourceFilter.
             if (!TemperatureSourceFilter.IsPlausible(value)) continue;
             list.Add(new TemperatureSource

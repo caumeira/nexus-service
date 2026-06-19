@@ -67,8 +67,8 @@ internal sealed partial class NexusVCamControl : IVCamControl
     // The Camera Frame Server won't activate a virtual-camera source until the
     // machine-wide "let desktop apps use the camera" consent is DECIDED; an
     // undecided (missing) value makes MFCreateVirtualCamera hang forever from
-    // the LocalSystem service. Grant it (Allow) only when undecided — never
-    // override an explicit user Deny — and only from the start path, the moment
+    // the LocalSystem service. Grant it (Allow) only when undecided - never
+    // override an explicit user Deny - and only from the start path, the moment
     // the user turns the webcam on (their opt-in), never at install. The same
     // toggle is what call apps need to see any camera, so it is inherent to
     // using the feature, not an extra grant.
@@ -98,7 +98,7 @@ internal sealed partial class NexusVCamControl : IVCamControl
             if (key is null)
                 return false;
             if (key.GetValue("Value") is string existing && existing.Length > 0)
-                return false; // user (or policy) already decided — leave it
+                return false; // user (or policy) already decided - leave it
             key.SetValue("Value", "Allow", Microsoft.Win32.RegistryValueKind.String);
             return true;
         }

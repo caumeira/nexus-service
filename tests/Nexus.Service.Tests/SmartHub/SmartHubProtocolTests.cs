@@ -6,7 +6,7 @@ namespace Nexus.Service.Tests.SmartHub;
 /// <summary>
 /// Wire-protocol coverage for the HYTE Smart Hub (legacy enum
 /// <c>USBDevices.ControlHub</c>). Reference for every byte pinned below is
-/// HYTE's shipping nexus-control-service — the working production agent
+/// HYTE's shipping nexus-control-service - the working production agent
 /// against the same firmware:
 ///   • <c>LightDancing/Hardware/Devices/HYTE/Hub/ControlHubController.cs</c>
 ///   • <c>LightDancing/Common/SmartDeviceCommon/Command/ControlHubCommand.cs</c>
@@ -93,7 +93,7 @@ public class SmartHubProtocolTests
     public void BuildSetMcuSetting_emits_FF_CC_0C_frame_with_trailing_01_gate()
     {
         // Y50 firmware usbd_cdc_if.c: the 0x0C handler only matches when
-        // buffer[9]==0x01 — without the trailing gate byte the write is ignored.
+        // buffer[9]==0x01 - without the trailing gate byte the write is ignored.
         Assert.Equal(
             new byte[] { 0xFF, 0xCC, 0x0C, 0x02, 0x11, 0x22, 0x33, 80, 45, 0x01 },
             SmartHubProtocol.BuildSetMcuSetting(SmartHubProtocol.McuAnimationRainbow, 0x11, 0x22, 0x33, 80, 45));
@@ -260,7 +260,7 @@ public class SmartHubProtocolTests
     {
         // Tach layout (ControlHubDeviceBase.CheckAndUpdateChannelInfo):
         //   ch0 speedH=[3] speedL=[4], ch1=[5,6], ch2=[7,8], ch3=[9,10].
-        // Enabled flags read back REVERSED — bench-probed on fw 1.0.0.1:
+        // Enabled flags read back REVERSED - bench-probed on fw 1.0.0.1:
         //   FF CC 02 N … en flips readback [15-N] for every N 1..4,
         //   so ch0 enabled=[14], ch1=[13], ch2=[12], ch3=[11].
         var response = new byte[SmartHubProtocol.GetInfoResponseLength];

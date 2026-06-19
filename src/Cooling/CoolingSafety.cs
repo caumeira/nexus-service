@@ -4,10 +4,10 @@ using Nexus.Service.Models.Cooling;
 namespace Nexus.Service.Cooling;
 
 /// <summary>
-/// The fan-write safety boundary — two clamps, defense in depth:
+/// The fan-write safety boundary - two clamps, defense in depth:
 ///   • <see cref="ClampDuty(int)"/> bounds every physical write at the composite
 ///     chokepoint, so no caller (a curve apply, a direct <c>/cooling/fan/{id}/speed</c>
-///     call, or — later — a plugin-guided write) can drive a fan outside [0,100].
+///     call, or - later - a plugin-guided write) can drive a fan outside [0,100].
 ///   • <see cref="Sanitize"/> bounds the stored curve definition at
 ///     <c>/cooling/curves/set</c>, so a malformed curve can't persist out-of-range
 ///     speeds (the apply loop re-clamps the computed output, but bad input

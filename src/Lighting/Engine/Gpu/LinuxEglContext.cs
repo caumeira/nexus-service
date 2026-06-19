@@ -5,15 +5,15 @@ namespace Nexus.Service.Lighting.Engine.Gpu;
 
 /// <summary>
 /// Offscreen OpenGL 3.3 core context on Linux via EGL on a GPU **device
-/// platform** (EGL_PLATFORM_DEVICE_EXT) — fully headless: no X server, no
+/// platform** (EGL_PLATFORM_DEVICE_EXT) - fully headless: no X server, no
 /// Wayland, no window. This is what lets the lighting shader effects render
 /// under the root system daemon, where GLFW (which needs a display) can't (and
 /// crashes creating an nvidia GL context as root on the user's XWayland).
 ///
-/// Direct analog of <see cref="MacGlContext"/> (CGL) — both create a windowless
+/// Direct analog of <see cref="MacGlContext"/> (CGL) - both create a windowless
 /// GL context the dedicated GL worker thread can make current. Hardware
 /// accelerated on the GPU device (probe showed RENDERER=NVIDIA …). Blittable
-/// P/Invoke + unmanaged function pointers only — AOT-safe; compiles everywhere
+/// P/Invoke + unmanaged function pointers only - AOT-safe; compiles everywhere
 /// (libEGL is resolved lazily, only used on Linux).
 /// </summary>
 internal static unsafe class LinuxEglContext
@@ -104,8 +104,8 @@ internal static unsafe class LinuxEglContext
 
         // 2. Software fallback: no GPU EGLDevice worked (headless server, VM, or
         //    an Intel-only Mesa stack without EGL_EXT_platform_device). Use Mesa's
-        //    surfaceless platform (llvmpipe) so the RGB shaders still render —
-        //    slowly — instead of going black. A pure proprietary-NVIDIA libEGL
+        //    surfaceless platform (llvmpipe) so the RGB shaders still render -
+        //    slowly - instead of going black. A pure proprietary-NVIDIA libEGL
         //    lacks this platform, so the display comes back null and we surface
         //    the failure to the caller (which logs + disables GPU lighting).
         if (TryInitDisplay(getPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA, IntPtr.Zero, null)))
@@ -149,7 +149,7 @@ internal static unsafe class LinuxEglContext
         var ctx = eglCreateContext(dpy, config, IntPtr.Zero, ctxAttr);
         if (ctx == IntPtr.Zero) { eglTerminate(dpy); return false; }
 
-        // Surfaceless current — render goes to an FBO, no EGL surface.
+        // Surfaceless current - render goes to an FBO, no EGL surface.
         if (eglMakeCurrent(dpy, IntPtr.Zero, IntPtr.Zero, ctx) == 0)
         { eglDestroyContext(dpy, ctx); eglTerminate(dpy); return false; }
 
@@ -217,7 +217,7 @@ internal static unsafe class LinuxEglContext
 /// <summary>
 /// Silk.NET <see cref="Silk.NET.Core.Contexts.INativeContext"/> resolving GL
 /// function pointers through <see cref="LinuxEglContext.LoadGlSymbol"/>, once
-/// the EGL context is current — mirror of <see cref="CglNativeContext"/>.
+/// the EGL context is current - mirror of <see cref="CglNativeContext"/>.
 /// </summary>
 internal sealed class EglNativeContext : Silk.NET.Core.Contexts.INativeContext
 {

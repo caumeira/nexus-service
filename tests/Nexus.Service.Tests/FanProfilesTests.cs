@@ -277,7 +277,7 @@ public class FanProfilesTests : IDisposable
         // split: CurveEngine no longer writes to ManualSpeeds, but a user can
         // still set manual then attach the fan to a curve, leaving a stale
         // entry. Derivation must ignore manual entries for fans that ARE
-        // attached to a curve — otherwise the active preset flips to "custom"
+        // attached to a curve - otherwise the active preset flips to "custom"
         // even though every fan is being driven by the preset curve.
         FanProfiles.Apply("silent", _fans, _store);
         _store.Update(s =>

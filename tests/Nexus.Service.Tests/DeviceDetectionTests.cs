@@ -62,7 +62,7 @@ public class DeviceDetectionTests
         Assert.Equal("display", qs.Category);
     }
 
-    // ---- Handler.IsConnected() — returns true when matching VID/PID is in the device list ----
+    // ---- Handler.IsConnected() - returns true when matching VID/PID is in the device list ----
 
     [Fact]
     public void IsConnected_ReturnsTrue_WhenMatchingDevicePresent()
@@ -76,7 +76,7 @@ public class DeviceDetectionTests
         Assert.True(handler.IsConnected(devices));
     }
 
-    // ---- Handler.IsConnected() — returns false when no match ----
+    // ---- Handler.IsConnected() - returns false when no match ----
 
     [Fact]
     public void IsConnected_ReturnsFalse_WhenNoMatchingDevice()
@@ -157,7 +157,7 @@ public class DeviceDetectionTests
         Assert.False(items.Single(i => i.Id == "fan-hub").Connected);
     }
 
-    // ---- Handler modularity — DeviceManager works with any subset of handlers ----
+    // ---- Handler modularity - DeviceManager works with any subset of handlers ----
 
     [Fact]
     public void GetAll_WithSingleHandler_ReturnsOnlyThatDevice()

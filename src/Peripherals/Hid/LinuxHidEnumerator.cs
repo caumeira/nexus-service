@@ -113,7 +113,7 @@ public sealed partial class LinuxHidEnumerator : IHidEnumerator
 
     /// <summary>
     /// Parse a HID report descriptor for the top-level (application collection)
-    /// Usage Page + Usage — the first Usage Page / Usage items before the first
+    /// Usage Page + Usage - the first Usage Page / Usage items before the first
     /// Collection. Enough to pick the keeb's vendor collection (0xFF11 / 0xF0).
     /// </summary>
     internal static (int UsagePage, int Usage) ParseTopUsage(byte[] desc)
@@ -149,7 +149,7 @@ public sealed partial class LinuxHidEnumerator : IHidEnumerator
             }
             else if (bType == 0 && bTag == 0xA)
             {
-                break; // Collection (Main) — stop at the application collection
+                break; // Collection (Main) - stop at the application collection
             }
 
             i += 1 + dataLen;

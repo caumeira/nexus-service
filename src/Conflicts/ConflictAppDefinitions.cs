@@ -22,7 +22,7 @@ public sealed class ConflictAppDefinition
     /// <summary>Human-readable name shown in the warning UI.</summary>
     public string DisplayName { get; init; } = "";
 
-    /// <summary>One of "lighting", "cooling", "peripherals", "monitoring" — drives the UI hint.</summary>
+    /// <summary>One of "lighting", "cooling", "peripherals", "monitoring" - drives the UI hint.</summary>
     public string Category { get; init; } = "";
 
     /// <summary>Process names to match against <c>Process.GetProcesses().ProcessName</c>.</summary>

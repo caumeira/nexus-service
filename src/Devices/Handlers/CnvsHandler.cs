@@ -5,7 +5,7 @@ using Nexus.Service.Peripherals.Hyte.Cnvs;
 namespace Nexus.Service.Devices.Handlers;
 
 /// <summary>
-/// CNVS RGB controller — the main iBUYPOWER case lighting controller.
+/// CNVS RGB controller - the main iBUYPOWER case lighting controller.
 /// Multiple hardware revisions share the same handler.
 /// </summary>
 public sealed class CnvsHandler : IDeviceHandler
@@ -37,7 +37,7 @@ public sealed class CnvsHandler : IDeviceHandler
     public string GetFirmwareVersion() => _hub.FirmwareVersion;
 
     // CNVS firmware is variant-specific (Left/v1/White ship different images),
-    // so the catalog key is the connected variant — never the bare "cnvs" id,
+    // so the catalog key is the connected variant - never the bare "cnvs" id,
     // which has no bundled image. Empty/"cnvs" when not connected.
     public string FirmwareType => _hub.Variant;
 }

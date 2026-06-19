@@ -27,7 +27,7 @@ Inno Setup 6 lands at `%LOCALAPPDATA%\Programs\Inno Setup 6\ISCC.exe`.
 
 The installer wraps an existing AOT publish output. Under the current
 deploy flow the service publishes **directly into `C:\Program Files\Nexus\`**
-(see the `build-pc` runbook), so point the script there explicitly — the
+(see the `build-pc` runbook), so point the script there explicitly - the
 script's legacy `..\..\aot` default no longer exists:
 
 ```powershell
@@ -47,11 +47,11 @@ Optional flags:
 The installer wraps the publish tree **verbatim**, so anything stray in
 `C:\Program Files\Nexus\` ships inside it. The installer is lzma2/max
 compressed, so an unexpected multi-MB size jump vs the previous release is a
-signal worth checking — diff against the last `Nexus-Setup.exe`. A jump can be
+signal worth checking - diff against the last `Nexus-Setup.exe`. A jump can be
 intended (a new bundled feature) or junk; verify which.
 
 - **Intended payload:** the firmware flasher binaries (`dfu-util\`,
-  `dfu-driver\`, ~4.4 MB) ship in release — end users flash firmware upgrades
+  `dfu-driver\`, ~4.4 MB) ship in release - end users flash firmware upgrades
   through them (this is what grew v69 = 24 MB vs v68 = 18.7 MB; the firmware
   flasher feature landed between those tags). They are *not* junk. `DevTools`
   only unlocks the brick-risky cross-variant / downgrade paths in

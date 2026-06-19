@@ -11,7 +11,7 @@ using System.Threading.Tasks;
 namespace Nexus.Service.Telemetry;
 
 /// <summary>
-/// Ships batches to PostHog's /batch/ ingestion endpoint as hand-written JSON —
+/// Ships batches to PostHog's /batch/ ingestion endpoint as hand-written JSON -
 /// no SDK, so nothing reflective enters the NativeAOT build. Mirrors
 /// HeartbeatService's transport (IHttpClientFactory, 10s timeout, swallowed
 /// failures). No-op until a Project API Key is configured.
@@ -75,7 +75,7 @@ internal sealed class PostHogSink : ITelemetrySink
                 w.WritePropertyName(p.Key);
                 WriteValue(w, p.Value);
             }
-            // Person properties ($set) — persisted on the install id (e.g. the
+            // Person properties ($set) - persisted on the install id (e.g. the
             // hardware/system profile from an Identify call).
             if (e.Set is { Count: > 0 })
             {
@@ -94,7 +94,7 @@ internal sealed class PostHogSink : ITelemetrySink
         w.WriteEndObject();
     }
 
-    // Reflection-free value writer — covers the property types Capture accepts.
+    // Reflection-free value writer - covers the property types Capture accepts.
     private static void WriteValue(Utf8JsonWriter w, object? v)
     {
         switch (v)

@@ -132,7 +132,7 @@ public sealed class DisplayRotationBody
     public string Orientation { get; set; } = "";
 }
 
-/// <summary>GET /displays/assignments — the overlay's kiosk reconcile input.</summary>
+/// <summary>GET /displays/assignments - the overlay's kiosk reconcile input.</summary>
 public sealed class DisplayAssignmentsResponse
 {
     public List<DisplayAssignmentDto> Assignments { get; set; } = new();

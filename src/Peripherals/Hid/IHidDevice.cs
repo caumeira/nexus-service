@@ -27,7 +27,7 @@ public interface IHidDevice : IDisposable
     /// <summary>
     /// Reads an input report (interrupt IN), waiting up to <paramref name="timeoutMs"/>.
     /// Returns the bytes read (&gt;0), 0 on idle/timeout, or a negative value when the
-    /// device is gone or the read failed — the caller must close and reopen rather
+    /// device is gone or the read failed - the caller must close and reopen rather
     /// than retrying in a tight loop (a non-blocking failure otherwise pegs a core).
     /// </summary>
     int Read(Span<byte> buffer, int timeoutMs);

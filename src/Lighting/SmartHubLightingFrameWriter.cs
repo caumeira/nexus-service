@@ -84,7 +84,7 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
         var nowTicks = DateTime.UtcNow.Ticks;
 
         var hubId = _hub.DeviceId;
-        // Push every port every tick — even ports with zero declared LEDs get
+        // Push every port every tick - even ports with zero declared LEDs get
         // a zero-length frame, which the hub honours by keeping the strip dark
         // and stops it falling back to the firmware animation.
         for (var channel = 1; channel <= SmartHubProtocol.ArgbPortCount; channel++)

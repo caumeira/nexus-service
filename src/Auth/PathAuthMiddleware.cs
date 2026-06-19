@@ -12,15 +12,15 @@ namespace Nexus.Service.Auth;
 // the route handler so a 401/403 short-circuits any state mutation.
 //
 // Auth order, top to bottom:
-//   1. OPTIONS preflight — always passes.
+//   1. OPTIONS preflight - always passes.
 //   2. Public paths (ping/pair/ready/hardware profile + a handful of phone-
 //      pairing endpoints whose own handlers enforce per-request validation).
 //   3. Static asset extensions (.js/.css/etc.) so the SPA bundle loads
 //      without a token before the user has paired.
 //   4. SPA shell fallback for unmatched top-level GET navigations.
-//   5. Localhost-only routes (LocalhostOnlyAccess metadata) — 404 from LAN.
-//   6. Bearer / query token — desktop session.
-//   7. Phone session cookie / token — paired phone session, gated by the
+//   5. Localhost-only routes (LocalhostOnlyAccess metadata) - 404 from LAN.
+//   6. Bearer / query token - desktop session.
+//   7. Phone session cookie / token - paired phone session, gated by the
 //      Pair Remote killswitch.
 internal static class PathAuthMiddleware
 {
@@ -31,7 +31,7 @@ internal static class PathAuthMiddleware
         new(StringComparer.OrdinalIgnoreCase)
         {
             "/ping", "/pair", "/ready", "/hardware/profile",
-            // Sealed LAN tunnel: anonymous at the middleware — auth is the in-band
+            // Sealed LAN tunnel: anonymous at the middleware - auth is the in-band
             // sealed handshake (the rid identifies the paired session, the AEAD key
             // proves possession), so the session token never rides the wire here.
             "/secure-tunnel",
@@ -148,7 +148,7 @@ internal static class PathAuthMiddleware
                 return;
             }
 
-            // SPA shell fallback — unmatched top-level browser navigation.
+            // SPA shell fallback - unmatched top-level browser navigation.
             // GET-only is important: Sec-Fetch-Site: none also fires on POSTs
             // from the address bar (curl with no Origin), but a POST to a
             // state-changing endpoint must never ride the auth-bypass lane.

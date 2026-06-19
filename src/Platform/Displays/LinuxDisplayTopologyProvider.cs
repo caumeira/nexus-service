@@ -8,7 +8,7 @@ namespace Nexus.Service.Platform.Displays;
 
 /// <summary>
 /// Linux monitor topology from DRM sysfs (/sys/class/drm/card*-*). Works
-/// headless as root — no X/Wayland required — but layout positions are a
+/// headless as root - no X/Wayland required - but layout positions are a
 /// compositor concept sysfs doesn't expose, so X/Y stay null and
 /// <see cref="PositionsAvailable"/> is false (the UI rows monitors instead
 /// of mapping them). Identity comes from the connector's EDID blob; the

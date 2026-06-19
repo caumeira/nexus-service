@@ -10,7 +10,7 @@ namespace Nexus.Service.Devices.Firmware;
 ///
 /// The key encodes the device's operating USB PID: byte[3]=PID high, byte[4]=PID
 /// low, then <c>00 DD</c>. Confirmed against HYTE's <c>USBDevicesFactory</c>
-/// PIDBytes table — Q60 0400→…04 00, Q80 0403→…04 03, NP50 0901→…09 01,
+/// PIDBytes table - Q60 0400→…04 00, Q80 0403→…04 03, NP50 0901→…09 01,
 /// MiniHub 0900→…09 00, CNVS Left 0B00→…0B 00, Y70 Infinite 0C01→…0C 01, etc.
 /// </summary>
 public static class OtaProductKey

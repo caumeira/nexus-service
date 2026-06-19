@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace Nexus.Service.Models.Peripherals;
 
-/// <summary>Item in /peripherals list — live, detected peripherals with capabilities.</summary>
+/// <summary>Item in /peripherals list - live, detected peripherals with capabilities.</summary>
 public sealed class PeripheralDto
 {
     public string Id { get; set; } = "";
@@ -67,7 +67,7 @@ public sealed class SetPollingBody { public int Hz { get; set; } }
 public sealed class SetSleepBody { public int? IdleSeconds { get; set; } public int? LowBatteryPercent { get; set; } }
 public sealed class SetToggleBody { public string Key { get; set; } = ""; public bool Enabled { get; set; } }
 
-// --- /peripherals/supported — static catalog ---
+// --- /peripherals/supported - static catalog ---
 
 public sealed class SupportedDeviceDto
 {

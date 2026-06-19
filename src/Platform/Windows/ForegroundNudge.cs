@@ -15,7 +15,7 @@ namespace Nexus.Service.Platform.Windows;
 /// Brings windows the helper spawns (native file dialogs, Explorer folder
 /// windows) in front of the Nexus app window. A background process can't
 /// simply SetForegroundWindow (foreground lock), so this attaches to the
-/// current foreground thread's input queue first — the standard escape hatch
+/// current foreground thread's input queue first - the standard escape hatch
 /// for "the user just asked for this window via another process's UI".
 /// </summary>
 [SupportedOSPlatform("windows")]
@@ -80,7 +80,7 @@ public static class ForegroundNudge
             });
 
             // The window is created asynchronously by the (foreign) Explorer
-            // process — there is no completion signal to wait on, so a bounded
+            // process - there is no completion signal to wait on, so a bounded
             // poll finds the freshly-created folder window.
             ThreadPool.QueueUserWorkItem(_ =>
             {

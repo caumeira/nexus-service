@@ -9,7 +9,7 @@ namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 
 /// <summary>
 /// SetupAPI-based discovery for CNVS hubs on Windows. Same shape as
-/// <c>WindowsNp50PortDiscovery</c> — walks <c>GUID_DEVCLASS_PORTS</c>
+/// <c>WindowsNp50PortDiscovery</c> - walks <c>GUID_DEVCLASS_PORTS</c>
 /// and filters to hardware ids matching <c>VID_3402</c> with any of the
 /// four CNVS PIDs (Left/Gen1, v1/Gen2, White, CES). AOT-safe; no WMI.
 /// </summary>

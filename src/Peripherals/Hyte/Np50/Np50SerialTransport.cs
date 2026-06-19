@@ -13,7 +13,7 @@ namespace Nexus.Service.Peripherals.Hyte.Np50;
 /// Concurrency model: <b>writes and reads use independent locks</b> so a
 /// long heartbeat read (the 240-byte port-info poll has a 400 ms timeout
 /// and the worker chains three of them) does NOT block the 30 Hz lighting
-/// writer. SerialPort's underlying read/write streams are independent —
+/// writer. SerialPort's underlying read/write streams are independent -
 /// concurrent Write-during-Read on a single port instance is fine as long
 /// as multiple writers are serialised among themselves (which the write
 /// lock guarantees).

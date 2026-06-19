@@ -8,7 +8,7 @@ namespace Nexus.Service.Routes;
 /// <summary>
 /// Telemetry consent surface (dashboard-only, loopback). The Settings → General
 /// toggle reads and flips the single anonymous-data opt-out that gates BOTH the
-/// fleet heartbeat and product events. Dashboard-only by design — a paired phone
+/// fleet heartbeat and product events. Dashboard-only by design - a paired phone
 /// shouldn't be able to turn the whole install's telemetry on/off, so these are
 /// <see cref="LocalhostOnlyEndpointExtensions.LocalhostOnly"/> (no .AllowPanel()).
 ///   GET  /telemetry/consent  -> { enabled }

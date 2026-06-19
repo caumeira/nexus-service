@@ -111,7 +111,7 @@ public sealed class GpuContext : IDisposable
             System.IO.File.AppendAllText(LogPath, $"{DateTime.UtcNow:HH:mm:ss.fff} {line}\n");
         }
         catch { }
-        // These are GL init/shader traces, not failures — INF, not ERR. Full
+        // These are GL init/shader traces, not failures - INF, not ERR. Full
         // detail still lands in the dedicated gpu.log above.
         ServiceLog.Info(line);
     }
@@ -203,7 +203,7 @@ public sealed class GpuContext : IDisposable
         _cglCtx = MacGlContext.CreateAndMakeCurrent();
         _gl = GL.GetApi(new CglNativeContext());
 #elif LINUX
-        // Linux: headless EGL on the GPU device platform — no X/Wayland, no
+        // Linux: headless EGL on the GPU device platform - no X/Wayland, no
         // window. GLFW needs a display and crashes creating an nvidia GL
         // context as root on the user's XWayland, so the root daemon can't
         // use it; EGL device-platform is windowless like macOS's CGL.

@@ -9,7 +9,7 @@ namespace Nexus.Service.Tests;
 /// Safety invariant for fan curves: a thermally loaded component must never be
 /// allowed to sit at 0 RPM. Guards the shipped <c>install-defaults.json</c>
 /// presets against a future edit that drops a floor to 0 (which would ship
-/// silently — the existing FanProfilesTests assert plumbing, not duty math).
+/// silently - the existing FanProfilesTests assert plumbing, not duty math).
 /// </summary>
 public sealed class FanCurveSafetyTests
 {
@@ -24,7 +24,7 @@ public sealed class FanCurveSafetyTests
 
         // The safety floor itself.
         Assert.True(d.MinSpeed > 0,
-            $"{preset}: MinSpeed must be > 0 (got {d.MinSpeed}) — a 0 floor lets a hot part stall");
+            $"{preset}: MinSpeed must be > 0 (got {d.MinSpeed}) - a 0 floor lets a hot part stall");
         Assert.True(d.MaxSpeed >= d.MinSpeed, $"{preset}: MaxSpeed must be >= MinSpeed");
         Assert.InRange(d.MaxSpeed, d.MinSpeed, 100);
 

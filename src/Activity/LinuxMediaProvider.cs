@@ -17,7 +17,7 @@ namespace Nexus.Service.Activity;
 /// and maps them onto the shared <see cref="MediaSession"/> shape. Transport
 /// control issues Play/Pause/Next/Previous method calls; album art comes from
 /// the metadata <c>mpris:artUrl</c> (file:// or http(s)). All D-Bus work is the
-/// hand-rolled marshaller — AOT-safe, no native deps.
+/// hand-rolled marshaller - AOT-safe, no native deps.
 /// </summary>
 public sealed class LinuxMediaProvider : IMediaProvider
 {

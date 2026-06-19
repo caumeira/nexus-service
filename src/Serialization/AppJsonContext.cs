@@ -672,7 +672,7 @@ namespace Nexus.Service.Serialization;
 // Native file/folder picker (IFileOpenDialog runs in the user-session helper)
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.FileDialogRequest))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.FileDialogResult))]
-// System launch (open-settings, open-url, open-file — user-session helper handles foreground)
+// System launch (open-settings, open-url, open-file - user-session helper handles foreground)
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenSettingsPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenUrlPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenFilePayload))]

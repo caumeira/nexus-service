@@ -576,7 +576,7 @@ final class KioskController {
                     self.reconcile(items)
                 } else {
                     // Transient service hiccup: keep current windows and retry
-                    // shortly — without this a failed launch-time fetch would
+                    // shortly - without this a failed launch-time fetch would
                     // leave the promoted monitor blank with no other trigger
                     // (pokes only fire on signature change). Service death
                     // tears the helper down via stdin EOF, so the retry loop
@@ -658,7 +658,7 @@ final class KioskController {
 
     // MARK: stable display ids
     //
-    // MUST mirror MacDisplayBrightnessProvider.BuildStableId exactly — the
+    // MUST mirror MacDisplayBrightnessProvider.BuildStableId exactly - the
     // assignment key is produced there: "mac-{vendor:x4}-{model:x4}-{serial:x8}",
     // fallback "display-{index+1}" when all three are zero, "-{index+1}"
     // suffix on duplicates, index = CGGetOnlineDisplayList order.

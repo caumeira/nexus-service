@@ -16,7 +16,7 @@ namespace Nexus.Service.Lighting.Smart;
 /// next latest frame. Bursts collapse to the most recent state.
 ///
 /// The per-host gate caps TOTAL sends to a shared controller (e.g. a Hue bridge
-/// driving many bulbs) — without it, N lights each at 10/s would flood a bridge
+/// driving many bulbs) - without it, N lights each at 10/s would flood a bridge
 /// that only handles ~10/s total, saturating it until it stops responding. With
 /// the gate, the bridge stays healthy and each light simply refreshes less often.
 /// </summary>
@@ -107,7 +107,7 @@ public sealed class NetworkSendThrottle : IDisposable
                 catch (OperationCanceledException) { break; }
                 catch (Exception ex)
                 {
-                    // A single failed send must not kill the loop — the device may
+                    // A single failed send must not kill the loop - the device may
                     // come back. Online status is probed separately, not inferred here.
                     ServiceLog.Warn($"[smart-lights] send failed for {id}: {ex.GetType().Name}: {ex.Message}");
                 }
@@ -120,8 +120,8 @@ public sealed class NetworkSendThrottle : IDisposable
 
     /// <summary>Block until at least <paramref name="intervalMs"/> has elapsed
     /// since the last grant for this host, then record now as the new grant time.
-    /// Serializes only the (cheap) scheduling decision — the send itself runs
-    /// outside the lock — so total grants/s to a host ≤ 1000/intervalMs.</summary>
+    /// Serializes only the (cheap) scheduling decision - the send itself runs
+    /// outside the lock - so total grants/s to a host ≤ 1000/intervalMs.</summary>
     private async Task WaitHostTurnAsync(string hostKey, int intervalMs, CancellationToken ct)
     {
         var gate = _hostGates.GetOrAdd(hostKey, _ => new HostGate());

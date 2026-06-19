@@ -15,7 +15,7 @@ namespace Nexus.Service.Lighting.Rgb;
 /// Auto-restart with exponential backoff: 1s → 2s → 4s → 8s → 16s, capped at 30s.
 /// Backoff resets after a process has been running for 60+ seconds.
 ///
-/// AOT-safe — pure System.Diagnostics.Process, no reflection.
+/// AOT-safe - pure System.Diagnostics.Process, no reflection.
 /// </summary>
 public sealed class OpenRgbProcessManager : IDisposable
 {
@@ -79,7 +79,7 @@ public sealed class OpenRgbProcessManager : IDisposable
 
     /// <summary>
     /// Resolved path: <c>{AppContext.BaseDirectory}/openrgb/&lt;binary&gt;</c>. The
-    /// bundled binary name differs per platform — Windows ships
+    /// bundled binary name differs per platform - Windows ships
     /// <c>OpenRGB-headless.exe</c>, macOS <c>OpenRGB-headless</c>, and Linux the
     /// lowercase <c>openrgb-headless</c> (which is also what <see cref="CleanupOrphans"/>
     /// greps for off-Windows).
@@ -98,7 +98,7 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// Windows. On Linux <see cref="Environment.SpecialFolder.CommonApplicationData"/>
     /// resolves to <c>/usr/share</c>, which is root-owned (and read-only on
     /// immutable distros like Bazzite), so headless OpenRGB couldn't write its
-    /// config there — use the per-user XDG config dir instead.
+    /// config there - use the per-user XDG config dir instead.
     /// </summary>
     public static string ResolveConfigDir()
     {
@@ -128,7 +128,7 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// OpenRGB detectors nexus-service keeps disabled because it drives those
     /// devices directly over their own transport. The keeb rides raw HID, where
     /// the COM-port "first open wins" guard the serial hubs rely on does NOT
-    /// apply — two stacks could hold the HID handle and fight over the LEDs — so
+    /// apply - two stacks could hold the HID handle and fight over the LEDs - so
     /// the detector MUST be disabled here. Names match the
     /// <c>REGISTER_*_DETECTOR</c> strings in nexus-rgb/openrgb-headless verbatim
     /// (HYTEKeyboardControllerDetect.cpp → "HYTE Keeb TKL").
@@ -205,7 +205,7 @@ public sealed class OpenRgbProcessManager : IDisposable
             File.SetUnixFileMode(path, mode | UnixFileMode.UserExecute
                 | UnixFileMode.GroupExecute | UnixFileMode.OtherExecute);
         }
-        catch { /* best effort — launch will surface the real error */ }
+        catch { /* best effort - launch will surface the real error */ }
     }
 
     /// <summary>
@@ -247,7 +247,7 @@ public sealed class OpenRgbProcessManager : IDisposable
             EnsureDetectorOverrides(configDir);
 
             // The MSBuild Content copy (and tar/zip round-trips) drop the
-            // executable bit on Linux/macOS — restore it or Process.Start fails
+            // executable bit on Linux/macOS - restore it or Process.Start fails
             // with EACCES and RGB silently never comes up.
             EnsureExecutable(_exePath);
 
@@ -285,7 +285,7 @@ public sealed class OpenRgbProcessManager : IDisposable
                 _ = Task.Run(() => DrainStreamAsync(proc.StandardError, "stderr"));
 
                 // Replace the previous CTS so Stop() can cancel only the current
-                // supervisor — and dispose the old one to avoid leaks.
+                // supervisor - and dispose the old one to avoid leaks.
                 var oldCts = _supervisorCts;
                 _supervisorCts = new CancellationTokenSource();
                 try
@@ -334,7 +334,7 @@ public sealed class OpenRgbProcessManager : IDisposable
                 _proc.WaitForExit(500);
             }
         }
-        catch { /* swallow — best effort */ }
+        catch { /* swallow - best effort */ }
         try
         { _proc?.Dispose(); }
         catch { }
@@ -430,7 +430,7 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// </summary>
     private static bool IsKnownNoise(string line)
     {
-        // Client disconnect — fires every time the bridge closes the TCP socket.
+        // Client disconnect - fires every time the bridge closes the TCP socket.
         if (line.Contains("recv_select failed receiving magic"))
         {
             return true;

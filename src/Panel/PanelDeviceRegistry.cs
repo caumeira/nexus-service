@@ -119,7 +119,7 @@ public sealed class PanelDeviceRegistry
             s.PanelDevices[record.Id] = record;
         });
 
-        // Panel on/off is rare and must survive an immediate service exit —
+        // Panel on/off is rare and must survive an immediate service exit -
         // a write lost to the flush debounce would silently undo the toggle.
         _store.FlushNow();
         if (result is not null) return (result, activated);

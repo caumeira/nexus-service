@@ -7,7 +7,7 @@ namespace Nexus.Service.Peripherals.Hyte.Keeb;
 /// </summary>
 public sealed class KeebState
 {
-    /// <summary>HID serial (or device-path hash fallback) — stable per physical unit.</summary>
+    /// <summary>HID serial (or device-path hash fallback) - stable per physical unit.</summary>
     public string Serial { get; set; } = "";
 
     /// <summary>"Major.Minor" firmware version, empty until the device-info read succeeds.</summary>

@@ -8,10 +8,10 @@ namespace Nexus.Service.Activity;
 
 /// <summary>
 /// Linux master-volume provider. Drives the default audio sink through
-/// <c>wpctl</c> (PipeWire / WirePlumber — the default on modern desktops and on
+/// <c>wpctl</c> (PipeWire / WirePlumber - the default on modern desktops and on
 /// Bazzite) and falls back to <c>pactl</c> (PulseAudio, also provided by the
-/// pipewire-pulse shim). Subprocess-based via <see cref="ShellExecutor"/> — no
-/// native deps, AOT-safe — and chosen over the PulseAudio D-Bus API, which
+/// pipewire-pulse shim). Subprocess-based via <see cref="ShellExecutor"/> - no
+/// native deps, AOT-safe - and chosen over the PulseAudio D-Bus API, which
 /// needs the frequently-unloaded <c>module-dbus-protocol</c>. The working
 /// backend is probed once and cached.
 /// </summary>
@@ -81,7 +81,7 @@ public sealed class LinuxVolumeProvider : IVolumeProvider
             else if (!string.IsNullOrWhiteSpace(RunC("pactl", "get-sink-volume", PactlSink)))
                 _backend = Backend.Pactl;
             else
-                return Backend.None; // don't cache — the audio stack may come up after us
+                return Backend.None; // don't cache - the audio stack may come up after us
             return _backend;
         }
     }

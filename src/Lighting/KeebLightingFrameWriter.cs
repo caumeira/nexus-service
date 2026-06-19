@@ -85,7 +85,7 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 
         // Firmware/software arbitration: stream only while a software effect is
         // active. When it stops, re-assert the persisted firmware settings once
-        // so the onboard animation (which streaming suppressed) comes back —
+        // so the onboard animation (which streaming suppressed) comes back -
         // matching the panel's "firmware lighting applies when nexus isn't
         // actively driving the LEDs".
         if (_engine.CurrentEffectName == "none")

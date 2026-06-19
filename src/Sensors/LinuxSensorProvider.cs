@@ -18,7 +18,7 @@ namespace Nexus.Service.Sensors;
 /// and GPU metrics from nvidia-smi (NVIDIA only; AMD/Intel fall back to lspci name).
 ///
 /// All reads are cheap (file reads under sysfs/procfs) except nvidia-smi which
-/// is a subprocess — GPU output is cached for 1s so the hot path stays fast.
+/// is a subprocess - GPU output is cached for 1s so the hot path stays fast.
 /// Every method catches internally and returns empty on failure (never throws).
 /// </summary>
 public sealed class LinuxSensorProvider : ISensorProvider
@@ -26,7 +26,7 @@ public sealed class LinuxSensorProvider : ISensorProvider
     private static readonly IReadOnlyList<HardwareSensor> EmptySensors = Array.Empty<HardwareSensor>();
     private static readonly IReadOnlyList<string> EmptyStrings = Array.Empty<string>();
 
-    // Linux hardware reads are shell / sysfs-driven and synchronous — Get*
+    // Linux hardware reads are shell / sysfs-driven and synchronous - Get*
     // methods cache lazily on first call. No async warmup window to wait on.
     public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
 
@@ -46,17 +46,17 @@ public sealed class LinuxSensorProvider : ISensorProvider
     // Per-core tick cache (idx → (idle, total))
     private readonly Dictionary<int, (ulong Idle, ulong Total)> _prevCoreTicks = new();
 
-    // Context switches / interrupts / processes — delta-based rates
+    // Context switches / interrupts / processes - delta-based rates
     private ulong _prevCtxt;
     private ulong _prevIntr;
     private ulong _prevProcesses;
     private DateTime _prevStatTime;
 
-    // RAPL energy counters (Intel) — µJ delta per interval
+    // RAPL energy counters (Intel) - µJ delta per interval
     private long _prevRaplEnergyUj = -1;
     private DateTime _prevRaplTime;
 
-    // Per-NIC bytes — prev rx/tx per interface
+    // Per-NIC bytes - prev rx/tx per interface
     private readonly Dictionary<string, (ulong Rx, ulong Tx, DateTime At)> _prevNetStats = new();
 
     private List<string>? _gpuModels;
@@ -143,7 +143,7 @@ public sealed class LinuxSensorProvider : ISensorProvider
             sensors.Add(MakeSensor("cpu/package-power", "Package Power", "Power", pkgPower.Value, "W", model));
         }
 
-        // Extra counters from /proc/stat tail (ctxt, intr, processes) — delta-based rates
+        // Extra counters from /proc/stat tail (ctxt, intr, processes) - delta-based rates
         foreach (var extra in ReadCpuCounters())
         {
             sensors.Add(MakeSensor(extra.Id, extra.Name, extra.Type, extra.Value, extra.Units, model));
@@ -506,7 +506,7 @@ public sealed class LinuxSensorProvider : ISensorProvider
             sensors.Add(MakeSensor($"mobo/temp/{idFrag}", name, "Temperature", tempC, "°C", model));
         }
 
-        // Per-NIC rx/tx rates (B/s) — only emit for interfaces with activity.
+        // Per-NIC rx/tx rates (B/s) - only emit for interfaces with activity.
         foreach (var (iface, rx, tx) in ReadNetRates())
         {
             if (rx <= 0 && tx <= 0)

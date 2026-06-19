@@ -189,7 +189,7 @@ public static class CoolingRoutes
             return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
 
-        // Calibration — fire-and-forget, poll status
+        // Calibration - fire-and-forget, poll status
         app.MapPost("/cooling/calibrate", (StartCalibrationBody body, IFanControlProvider f, CalibrationRunner runner) =>
         {
             var started = runner.Start(f, body.FanIds);

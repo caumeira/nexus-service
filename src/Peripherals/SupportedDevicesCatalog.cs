@@ -12,7 +12,7 @@ public static class SupportedDevicesCatalog
 {
     public static readonly IReadOnlyList<SupportedDeviceDto> All = new List<SupportedDeviceDto>
     {
-        // Razer mice — all entries here are protocol-supported via RazerMousePeripheral
+        // Razer mice - all entries here are protocol-supported via RazerMousePeripheral
         // + RazerMouseProfiles. To add a new device: put a row in RazerMouseProfiles.ByPid
         // and another here with matching VID/PID/capabilities. Caps reflect what the profile
         // advertises (battery + sleep only for wireless models).

@@ -7,7 +7,7 @@ namespace Nexus.Service.Routes;
 
 /// <summary>
 /// iBUYPOWER MiniHub device-specific endpoints. The hub supports two
-/// cooling modes — Software (Nexus drives) and Motherboard (PWM passthrough).
+/// cooling modes - Software (Nexus drives) and Motherboard (PWM passthrough).
 /// There is no firmware-side standalone setpoint, so no "Firmware Control"
 /// mode and no EEPROM-default surface (unlike NP50).
 /// </summary>

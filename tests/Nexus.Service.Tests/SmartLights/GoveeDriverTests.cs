@@ -194,7 +194,7 @@ public class GoveeDriverTests : IDisposable
     public async Task SetColor_onRazerDevice_streamsRazerFramesNotColorwc()
     {
         // The color-route path: a solid color on a razer strip must take over via
-        // the razer stream — single-color colorwc can't override its built-in scene.
+        // the razer stream - single-color colorwc can't override its built-in scene.
         var dir = Path.Combine(Path.GetTempPath(), "nexus-gv-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(dir);
         using var throttle = new NetworkSendThrottle();

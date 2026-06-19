@@ -47,13 +47,13 @@ public sealed class HueEntertainmentSession : IDisposable
     public async Task StartAsync(CancellationToken ct)
     {
         if (string.IsNullOrEmpty(_clientKeyHex))
-            throw new InvalidOperationException("no clientkey — re-pair the bridge to enable Entertainment");
+            throw new InvalidOperationException("no clientkey - re-pair the bridge to enable Entertainment");
 
         var configs = await _client.GetEntertainmentConfigsAsync(_host, _appKey, ct).ConfigureAwait(false);
         HueEntConfig? chosen = null;
         foreach (var c in configs) { if (c.Channels.Count > 0) { chosen = c; break; } }
         if (chosen is null)
-            throw new InvalidOperationException("no Hue Entertainment Area configured — create one in the Hue app");
+            throw new InvalidOperationException("no Hue Entertainment Area configured - create one in the Hue app");
         _configId = chosen.Id;
 
         await BuildChannelMapAsync(chosen, ct).ConfigureAwait(false);

@@ -109,7 +109,7 @@ public class RazerFramingTests
     [Fact]
     public void Command_DefaultsTransactionIdTo0()
     {
-        // Per OpenRazer's get_razer_report — device-specific code overrides.
+        // Per OpenRazer's get_razer_report - device-specific code overrides.
         var report = RazerReport.Command(0x00, 0x00, 0x00, Array.Empty<byte>());
         Assert.Equal(0x00, report.TransactionId);
     }

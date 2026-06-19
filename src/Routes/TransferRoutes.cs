@@ -45,7 +45,7 @@ public static class TransferRoutes
             try
             {
                 // Streamed straight to the inbox: ReadFormAsync would buffer every
-                // part to the service's %TEMP% first — a second full write and a
+                // part to the service's %TEMP% first - a second full write and a
                 // system-drive exhaustion risk at 2 GiB.
                 // BodyLengthLimit is per-section; the request total is capped by
                 // the MaxRequestBodySize override above.
@@ -97,13 +97,13 @@ public static class TransferRoutes
             }
 
             // No dashboard subscribed to the topic means nobody saw the WS
-            // toast — surface a native notification instead. One summary
+            // toast - surface a native notification instead. One summary
             // notice per request, not per file (a 20-photo batch must not
             // pop 20 balloons).
             if (!hub.TopicHasSubscribers(PanelTopics.Transfer))
             {
                 // Interaction hints ("Click to open…") are appended by the
-                // platform consumer — osascript notifications have no click.
+                // platform consumer - osascript notifications have no click.
                 var sender = BalloonSender(from);
                 var text = saved.Count == 1
                     ? $"{saved[0].Name} from {sender}."
@@ -126,7 +126,7 @@ public static class TransferRoutes
                 return ApiResponse.Fail("text required");
             if (text.Length > TransferInbox.MaxClipboardChars)
                 return ApiResponse.Fail("text too large");
-            // Set only — no paste chord. The user pastes when ready; injecting
+            // Set only - no paste chord. The user pastes when ready; injecting
             // keystrokes is /system/input/text's job.
             if (!clipboard.SetText(text))
                 return ApiResponse.Fail("clipboard unavailable");

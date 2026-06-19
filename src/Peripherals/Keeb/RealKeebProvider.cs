@@ -108,7 +108,7 @@ public sealed class RealKeebProvider : IKeebProvider
             KeebSettingsApplier.ApplyBrightnessToSettings(s, _hub.DeviceId, brightness);
         });
         // A single 0x06 settings write applies effect/speed/direction/brightness
-        // live — the firmware dims the running animation from the brightness byte
+        // live - the firmware dims the running animation from the brightness byte
         // with no mode re-init (verified on the bench).
         _applier.Apply();
     }

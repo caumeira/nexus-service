@@ -49,7 +49,7 @@ internal static class ServiceControlRoutes
         app.MapPost("/service/stop", (IHostApplicationLifetime lifetime,
             Nexus.Service.Devices.Firmware.FirmwareFlasher flasher) =>
         {
-            // Never tear the service down mid-flash — that would strand the
+            // Never tear the service down mid-flash - that would strand the
             // device in the DFU bootloader. Refuse the stop while a firmware
             // update is running; the UI also blocks its quit affordance.
             if (flasher.IsFlashing)
@@ -76,7 +76,7 @@ internal static class ServiceControlRoutes
         app.MapPost("/service/factory-reset", (IHostApplicationLifetime lifetime,
             Nexus.Service.Devices.Firmware.FirmwareFlasher flasher) =>
         {
-            // Same flash guard as /service/stop — tearing the service down
+            // Same flash guard as /service/stop - tearing the service down
             // mid-flash strands the device in the DFU bootloader.
             if (flasher.IsFlashing)
             {

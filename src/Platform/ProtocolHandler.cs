@@ -7,7 +7,7 @@ namespace Nexus.Service.Platform;
 
 /// <summary>
 /// Registers the nexus:// custom protocol handler so browsers can launch the service.
-/// Self-registers on first run — no installer needed, no admin rights.
+/// Self-registers on first run - no installer needed, no admin rights.
 ///
 /// Windows: HKCU\Software\Classes\nexus → shell\open\command → exe path
 /// macOS:   ~/Applications/Nexus.app bundle with Info.plist CFBundleURLTypes
@@ -52,13 +52,13 @@ public static class ProtocolHandler
 
         if (File.Exists(nativeExe))
         {
-            // Published AOT binary — register the exe directly.
+            // Published AOT binary - register the exe directly.
             command = $"\"{nativeExe}\" \"%1\"";
             iconPath = $"\"{nativeExe}\",0";
         }
         else
         {
-            // Dev / framework-dependent — register as `dotnet <dll>`.
+            // Dev / framework-dependent - register as `dotnet <dll>`.
             var dllPath = Path.Combine(AppContext.BaseDirectory, "nexus-service.dll");
             var dotnetPath = Environment.ProcessPath ?? "dotnet";
             // If ProcessPath is the dotnet host, use it; otherwise find dotnet on PATH.

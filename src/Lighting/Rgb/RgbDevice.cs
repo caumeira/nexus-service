@@ -25,7 +25,7 @@ public sealed class RgbDevice
     /// Applied via UPDATE_MODE so the controller's hardware mode register is
     /// flipped (SET_CUSTOM_MODE only updates the server's
     /// in-memory active_mode and never calls DeviceUpdateMode, leaving controllers
-    /// with hardware mode registers — ENE DRAM is the canonical example — silently
+    /// with hardware mode registers - ENE DRAM is the canonical example - silently
     /// rejecting subsequent UPDATE_LEDS pushes).
     /// </summary>
     public RgbMode? FindCustomMode()

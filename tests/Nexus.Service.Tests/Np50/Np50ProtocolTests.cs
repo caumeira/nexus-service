@@ -5,8 +5,8 @@ namespace Nexus.Service.Tests.Np50;
 
 /// <summary>
 /// Golden-vector coverage for the NP50 wire protocol. Bytes here come from
-/// hyte-refs/hyte-documents/firmware-protocol/NP50/ — the authoritative
-/// spec — not from the WPF test apps (which have a few buffer-handling
+/// hyte-refs/hyte-documents/firmware-protocol/NP50/ - the authoritative
+/// spec - not from the WPF test apps (which have a few buffer-handling
 /// workarounds we shouldn't ossify).
 ///
 /// The whole point of <see cref="Np50Protocol"/> is to be pure functions
@@ -253,7 +253,7 @@ public class Np50ProtocolTests
         Assert.Equal(0x03, buf[3]); // port 3
         // HYTE reference (CoolingHubBaseController.SendToHardware) hardcodes
         // these two bytes to the magic 0x01 0x68 regardless of the real
-        // LED count — see the comment on LedCountMagicHigh/Low.
+        // LED count - see the comment on LedCountMagicHigh/Low.
         Assert.Equal(0x01, buf[4]);
         Assert.Equal(0x68, buf[5]);
         Assert.Equal(0x00, buf[6]); // reserved
@@ -301,7 +301,7 @@ public class Np50ProtocolTests
     public void BuildLightingStream_accepts_port_4_rejects_port_5()
     {
         // The lighting-stream cycle is 4 frames per tick (HYTE's
-        // CoolingHubBaseController iterates devicePort 0..3) — port 4 must
+        // CoolingHubBaseController iterates devicePort 0..3) - port 4 must
         // be addressable even though NP50 only has 3 fan ports. Anything
         // past port 4 is out of contract.
         _ = Np50Protocol.BuildLightingStream(port: 4, ReadOnlySpan<RgbColor>.Empty);
@@ -379,7 +379,7 @@ public class Np50ProtocolTests
     {
         // Two populated slots followed by an empty one.
         // Slot 0: FF CC + 12-byte device frame. Slot 1: 00 00 prefix + frame.
-        // Empty slot: Type byte (off+3) == 0 is the real stop signal — on
+        // Empty slot: Type byte (off+3) == 0 is the real stop signal - on
         // firmware 2.0.3.1 the device-count byte at off+2 stays non-zero
         // in trailing empty slots, so the spec-doc "stop at DC=0" was wrong.
         var resp = new byte[12 * 3];
@@ -412,7 +412,7 @@ public class Np50ProtocolTests
         // non-zero just like real hardware does.
         resp[24] = 0x00; resp[25] = 0x00;
         resp[26] = 0x05;      // arbitrary non-zero device count
-        resp[27] = 0x00;      // type byte zero — STOP signal
+        resp[27] = 0x00;      // type byte zero - STOP signal
 
         var port = new Np50Port { Index = 2 };
         Np50Protocol.ParseChannelInfo(resp, port);

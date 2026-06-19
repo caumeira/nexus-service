@@ -8,7 +8,7 @@ namespace Nexus.Service.Tests;
 
 /// <summary>
 /// Covers the NVML-backed NVIDIA provider's channel building, per-fan control
-/// routing, and temperature sources — using injected GPU snapshots, no real
+/// routing, and temperature sources - using injected GPU snapshots, no real
 /// NVML / GPU. (The libnvidia-ml interop itself is verified live on hardware.)
 /// </summary>
 public class LinuxNvidiaFanProviderTests
@@ -70,7 +70,7 @@ public class LinuxNvidiaFanProviderTests
     {
         var calls = new List<(int, int, int?)>();
         var p = new LinuxNvidiaFanProvider(DualFan, (g, f, d) => { calls.Add((g, f, d)); return true; });
-        p.SetFanSpeed("nvidia:temp:0", 50); // not a fan id — must not drive anything
+        p.SetFanSpeed("nvidia:temp:0", 50); // not a fan id - must not drive anything
         Assert.Empty(calls);
     }
 
@@ -132,7 +132,7 @@ public class LinuxNvidiaFanProviderTests
         Assert.Equal(70, store.Load().Cooling.ManualSpeeds["nvidia:0:0"]);
 
         // A fresh instance (process restart) re-applies the saved duty on first
-        // enumeration and reports Manual — NVML resets fans to auto on reboot.
+        // enumeration and reports Manual - NVML resets fans to auto on reboot.
         var applied = new List<(int gpu, int fan, int? duty)>();
         var p2 = new LinuxNvidiaFanProvider(DualFan, (g, f, d) => { applied.Add((g, f, d)); return true; }, store);
         Assert.Equal("Manual", p2.GetFanChannels().Single(c => c.Id == "nvidia:0:0").Mode);

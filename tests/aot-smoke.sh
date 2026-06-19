@@ -6,7 +6,7 @@
 # source-generated JSON context does not cover serializes to "{}" once Native
 # AOT trims the reflection fallback. This script publishes the real AOT binary,
 # starts it, hits a handful of data endpoints, and fails if any response body is
-# empty ("{}") — which is the signature of a missing [JsonSerializable] entry.
+# empty ("{}") - which is the signature of a missing [JsonSerializable] entry.
 #
 # Intended for CI (a clean runner). It boots the real service, so it has the
 # normal first-run side effects (protocol-handler registration, orphan cleanup);

@@ -27,7 +27,7 @@ internal static class DiagnosticsRoutes
 #if WINDOWS
                 // The service is LocalSystem in Session 0; an explorer.exe it
                 // spawns lands in the non-interactive session and never shows.
-                // Hand off to the user-session helper over the pipe — it opens
+                // Hand off to the user-session helper over the pipe - it opens
                 // the folder on the user's desktop.
                 var registry = sp.GetRequiredService<Nexus.Service.Helper.HelperRegistry>();
                 _ = Nexus.Service.Helper.Domains.DiagnosticsCommands.OpenLogsAsync(registry);

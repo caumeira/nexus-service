@@ -45,7 +45,7 @@ public class PluginProviderRegistryTests
         r.Add(Provider("aaa", fans: new FakeFans()));
 
         var src = Assert.Single(r.FanSources);
-        // The host builds Owns from the verified prefix — it matches the plugin's
+        // The host builds Owns from the verified prefix - it matches the plugin's
         // own channels and rejects everything else (other plugins, first-party).
         Assert.True(src.Owns("plugin:aaa:fan0"));
         Assert.False(src.Owns("plugin:bbb:fan0"));

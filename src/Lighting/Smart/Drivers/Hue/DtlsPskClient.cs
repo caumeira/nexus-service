@@ -12,7 +12,7 @@ namespace Nexus.Service.Lighting.Smart.Drivers.Hue;
 
 /// <summary>
 /// Minimal DTLS 1.2 client for the single ciphersuite the Hue bridge accepts:
-/// <c>TLS_PSK_WITH_AES_128_GCM_SHA256</c>. No certificates, no negotiation — a
+/// <c>TLS_PSK_WITH_AES_128_GCM_SHA256</c>. No certificates, no negotiation - a
 /// fixed PSK handshake + an AES-128-GCM record layer. Hand-rolled (vs pulling
 /// BouncyCastle) so the whole thing stays NativeAOT-clean: it uses only BCL
 /// primitives (<see cref="AesGcm"/>, <see cref="HMACSHA256"/>,
@@ -23,7 +23,7 @@ namespace Nexus.Service.Lighting.Smart.Drivers.Hue;
 ///
 /// SINGLE-USE: each instance generates a fresh client random and derives fresh
 /// keys, so the (key, GCM nonce) pair is never reused. Never reconnect or reuse
-/// an instance — always create a new one per session (the record sequence only
+/// an instance - always create a new one per session (the record sequence only
 /// guarantees nonce uniqueness within one instance's epoch).
 /// </summary>
 public sealed class DtlsPskClient : IDisposable
@@ -107,7 +107,7 @@ public sealed class DtlsPskClient : IDisposable
     private bool _sawServerFinished;
 
     // Sends a flight ONCE then waits. Retransmitting in place would re-increment
-    // message_seq and re-append to the transcript, corrupting the handshake — so
+    // message_seq and re-append to the transcript, corrupting the handshake - so
     // on loss the caller retries the whole handshake (a fresh client) instead.
     private async Task SendFlightUntilAsync(Action sendFlight, byte expectedType, CancellationToken ct)
     {
@@ -159,7 +159,7 @@ public sealed class DtlsPskClient : IDisposable
             }
             else if (type == CtChangeCipherSpec)
             {
-                // server CCS — next server records (epoch 1) are encrypted
+                // server CCS - next server records (epoch 1) are encrypted
             }
             else if (type == CtHandshake)
             {
@@ -204,7 +204,7 @@ public sealed class DtlsPskClient : IDisposable
                 if (body.Length >= 34) _serverRandom = body.Slice(2, 32).ToArray();
                 break;
             case HtServerKeyExchange:
-                // PSK identity hint — ignored.
+                // PSK identity hint - ignored.
                 break;
             case HtServerHelloDone:
                 _sawServerHelloDone = true;
@@ -370,7 +370,7 @@ public sealed class DtlsPskClient : IDisposable
     // ── Application data ───────────────────────────────────────────────────────
 
     /// <summary>Send one application-data record (the HueStream packet). Fire-and-forget
-    /// over UDP — no ack. Safe to call at the stream rate.</summary>
+    /// over UDP - no ack. Safe to call at the stream rate.</summary>
     public void Send(ReadOnlySpan<byte> payload)
     {
         SendRecordRaw(CtAppData, EncryptRecord(CtAppData, payload.ToArray()));

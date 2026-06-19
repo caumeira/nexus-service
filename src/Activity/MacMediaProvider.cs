@@ -12,7 +12,7 @@ namespace Nexus.Service.Activity;
 /// Real macOS media provider via AppleScript. Queries Spotify and Music.app
 /// (Apple Music) for now-playing info, playback state, and control actions.
 ///
-/// Each GetSessions() call does 2 AppleScript invocations (~100ms each) — one
+/// Each GetSessions() call does 2 AppleScript invocations (~100ms each) - one
 /// per player app. If a player isn't running, osascript returns immediately
 /// with no error (the script guards with `application X is running`).
 ///

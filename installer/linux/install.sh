@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Install Nexus as a ROOT system daemon (like coolercontrol's coolercontrold)
-# for full hardware access — motherboard pwm, NVML GPU fans, kernel modules,
-# raw i2c/hidraw — with no udev rules or group membership to juggle. The daemon
+# for full hardware access - motherboard pwm, NVML GPU fans, kernel modules,
+# raw i2c/hidraw - with no udev rules or group membership to juggle. The daemon
 # adopts the active user's login session at startup so the tray, MPRIS media,
 # volume, and dashboard still work. Needs sudo.
 # Immutable-distro friendly (Bazzite/rpm-ostree): /opt and /etc are writable.
@@ -28,7 +28,7 @@ sudo chmod +x "$APP_DIR/Nexus"
 # bin_t. restorecon stamps the default context so systemd can launch it.
 sudo restorecon -R "$APP_DIR" 2>/dev/null || true
 
-# Desktop menu entry just opens the dashboard — the binary is the service now,
+# Desktop menu entry just opens the dashboard - the binary is the service now,
 # not a user-launched app. (The tray's "Open Dashboard" gives the --app window.)
 mkdir -p "$APPS_DIR" "$ICON_DIR"
 [ -f "$APP_DIR/nexus.png" ] && cp "$APP_DIR/nexus.png" "$ICON_DIR/nexus.png" 2>/dev/null || true
@@ -55,5 +55,5 @@ sudo systemctl enable --now nexus.service
 
 echo
 echo "Nexus installed as a root daemon. Dashboard: http://localhost:9400"
-echo "Tray + media attach to your login session at startup — if you installed"
+echo "Tray + media attach to your login session at startup - if you installed"
 echo "before logging in, run:  sudo systemctl restart nexus"

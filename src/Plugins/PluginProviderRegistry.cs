@@ -9,19 +9,19 @@ using Nexus.Service.Models.Sensors;
 namespace Nexus.Service.Plugins;
 
 /// <summary>
-/// Runtime registry of plugin-contributed device providers — the single seam the
+/// Runtime registry of plugin-contributed device providers - the single seam the
 /// four compile-time device subsystems (cooling, sensors, device-id, DFU) read
 /// at their composite boundary so a plugin can add a source without a rebuild.
 ///
 /// Phase 0 builds the seam empty (first-party providers keep their static DI
 /// registrations); the out-of-process broker (Phase 2) populates it. Reads are
-/// lock-free copy-on-write snapshots — the cooling tick routes through
+/// lock-free copy-on-write snapshots - the cooling tick routes through
 /// <see cref="FanSources"/> on the hot path and must never block on a writer.
 ///
 /// Ownership is the security spine: a plugin's surface is its cryptographic
 /// prefix <c>plugin:&lt;appId&gt;:</c>, and the HOST builds the ownership
 /// predicate from that prefix. A plugin never supplies its own <c>Owns</c>
-/// lambda (T11), so it can never claim another plugin's — or a first-party —
+/// lambda (T11), so it can never claim another plugin's - or a first-party -
 /// channel. Writes to cooling/lighting stay first-party: a plugin only
 /// registers sources the host routes to; the host holds the write loop.
 /// </summary>
@@ -33,7 +33,7 @@ public sealed class PluginProviderRegistry
 
     // Copy-on-write snapshots, rebuilt under the lock on every mutation and read
     // lock-free. ImmutableArray is a single-reference struct, so a field read
-    // copies one array reference (atomic) — the hot read path never tears or waits.
+    // copies one array reference (atomic) - the hot read path never tears or waits.
     private ImmutableArray<CompositeFanControlProvider.FanSource> _fanSources =
         ImmutableArray<CompositeFanControlProvider.FanSource>.Empty;
     private ImmutableArray<ISensorSource> _sensorSources = ImmutableArray<ISensorSource>.Empty;
@@ -78,7 +78,7 @@ public sealed class PluginProviderRegistry
     /// The single ownership chokepoint. <paramref name="id"/> belongs to
     /// <paramref name="pluginId"/> iff that plugin is registered AND the id
     /// carries its cryptographic prefix. Called by every adapter on every RPC;
-    /// the host — not the plugin — decides ownership.
+    /// the host - not the plugin - decides ownership.
     /// </summary>
     public bool AssertOwns(string pluginId, string id)
     {
@@ -136,7 +136,7 @@ public sealed record RegisteredProvider(
 
 /// <summary>
 /// A read-only sensor source a plugin contributes. Plugin sensors are namespaced
-/// <c>plugin:&lt;appId&gt;:...</c> and read-only for everyone — a plugin can
+/// <c>plugin:&lt;appId&gt;:...</c> and read-only for everyone - a plugin can
 /// surface telemetry but never drive cooling from it.
 /// </summary>
 public interface ISensorSource
@@ -148,7 +148,7 @@ public interface ISensorSource
 /// <summary>
 /// The capability grant backing a registered provider. In Phase 0/1 this is a
 /// first-party trusted grant constructed in-code; in Phase 3 the identical shape
-/// is read from the verified signed cert — the consumers never change, only the
+/// is read from the verified signed cert - the consumers never change, only the
 /// source. Grants live here, never in a plugin's manifest.
 /// </summary>
 public sealed record CapabilityGrant(string AppId, ImmutableHashSet<string> Surfaces)

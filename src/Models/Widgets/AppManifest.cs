@@ -132,7 +132,7 @@ public sealed class AppManifestDriverMatch
 
 public sealed class AppManifestDriverLaunch
 {
-    /// <summary><c>"system"</c> (LocalSystem/Session 0, pre-login — default) or <c>"user"</c>.</summary>
+    /// <summary><c>"system"</c> (LocalSystem/Session 0, pre-login - default) or <c>"user"</c>.</summary>
     [JsonPropertyName("session")] public string Session { get; set; } = "system";
     [JsonPropertyName("hidden")] public bool Hidden { get; set; } = true;
 }

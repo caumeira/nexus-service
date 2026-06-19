@@ -10,7 +10,7 @@ public class CnvsFirmwareTests
     [InlineData("1.0.2.5", true)]   // higher build, same minor
     [InlineData("1.0.3.0", true)]   // higher minor
     [InlineData("2.0.0.0", true)]   // higher major
-    [InlineData("1.0.1.1", false)]  // Y70 dev unit pre-flash — silent no-op
+    [InlineData("1.0.1.1", false)]  // Y70 dev unit pre-flash - silent no-op
     [InlineData("1.0.0.99", false)] // older build
     [InlineData("0.9.9.9", false)]  // lower major
     public void SupportsSettings_matches_protocol_doc_v1_0_2_1_floor(string version, bool expected)

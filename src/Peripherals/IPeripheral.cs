@@ -6,7 +6,7 @@ namespace Nexus.Service.Peripherals;
 /// Common interface for third-party peripherals (Logitech mice, Razer mice/keyboards,
 /// Corsair, etc.) that Nexus can read and configure beyond simple VID/PID detection.
 ///
-/// Capabilities are composable traits — each peripheral implements whichever subset
+/// Capabilities are composable traits - each peripheral implements whichever subset
 /// of capability interfaces its protocol supports. Consumers check via
 /// <see cref="HasCapability{T}"/> / <see cref="GetCapability{T}"/>.
 /// </summary>

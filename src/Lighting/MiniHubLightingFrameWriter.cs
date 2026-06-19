@@ -82,7 +82,7 @@ public sealed class MiniHubLightingFrameWriter : IHostedService, IDisposable
         var nowTicks = DateTime.UtcNow.Ticks;
 
         var hubId = _hub.DeviceId;
-        // Push every channel every tick — even channels with zero declared
+        // Push every channel every tick - even channels with zero declared
         // LEDs get a padded blank frame, which the hub firmware honours by
         // blacking out the strip. The per-channel padded buffer comes from
         // MiniHubProtocol.BuildLightingStream, so each WriteLighting call
@@ -102,7 +102,7 @@ public sealed class MiniHubLightingFrameWriter : IHostedService, IDisposable
         DeviceFrame? frame = null;
         for (var i = 0; i < devices.Length; i++)
         { if (devices[i].Id == id) { frame = devices[i]; break; } }
-        // Always push something — even a zero-LED frame goes out as a fully
+        // Always push something - even a zero-LED frame goes out as a fully
         // zero-padded buffer, which BuildLightingStream then sends to the
         // hub. Skipping a channel means the hub eventually drops back to
         // its firmware animation on that strip. Cheap: BuildLightingStream

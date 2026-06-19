@@ -60,7 +60,7 @@ public class IntelHexTests
 
         // Surface the content range so we know whether it extends past the
         // boot-flag sector at 0x0801FFF0 (decides if the flag-erase shim is
-        // needed before flashing). Logged, not asserted — it's informational.
+        // needed before flashing). Logged, not asserted - it's informational.
         _out.WriteLine($"{deviceId}/{version}: 0x{img.BaseAddress:X8}..0x{img.EndAddress:X8} " +
                        $"({img.Data.Length} bytes); pastFlag={(img.EndAddress > 0x0801FFF0)}");
     }

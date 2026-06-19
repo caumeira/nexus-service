@@ -12,7 +12,7 @@ namespace Nexus.Service.Cooling;
 /// <summary>
 /// Probes a fan's PWM→RPM response by ramping duty from 100% to 0% in 10%
 /// steps, waiting for the RPM to stabilize at each level, then classifying
-/// the fan based on the resulting curve. Pure algorithm — no DI, no routes,
+/// the fan based on the resulting curve. Pure algorithm - no DI, no routes,
 /// no persistence. Called by the provider's CalibrateAsync method.
 /// </summary>
 public sealed class FanCalibrator

@@ -3,7 +3,7 @@ using System.Text.Json.Serialization;
 
 namespace Nexus.Service.Lighting.Smart.Drivers.Hue;
 
-// AOT source-gen surface for the Hue wire types. No naming policy — every
+// AOT source-gen surface for the Hue wire types. No naming policy - every
 // property carries an explicit [JsonPropertyName] (Hue's casing is irregular).
 // Null fields are omitted so a partial PUT (color-only / on-only) is valid.
 [JsonSerializable(typeof(HueDiscoveryEntry))]

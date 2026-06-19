@@ -6,7 +6,7 @@ namespace Nexus.Service.Peripherals.Hyte.Cnvs;
 /// Pure builders + parsers for the HYTE CNVS firmware-settings wire protocol.
 /// Source: HYTE nexus-control-service `LightDancing/Common/CNVSHelper.cs`.
 /// The CNVS exposes a small set of single-frame HID commands; there is no
-/// heartbeat or polling cadence — the settings are written once on user
+/// heartbeat or polling cadence - the settings are written once on user
 /// change and read back on demand.
 ///
 /// Every command starts with <c>0xFF</c> followed by an opcode family byte:
@@ -33,8 +33,8 @@ public static class CnvsProtocol
 
     /// <summary>
     /// Firmware-catalog variant key for a CNVS product id. CNVS firmware is
-    /// variant-specific — Left and v1 ship DIFFERENT images and flashing the
-    /// wrong one rewrites the device's USB identity (bench-confirmed) — so each
+    /// variant-specific - Left and v1 ship DIFFERENT images and flashing the
+    /// wrong one rewrites the device's USB identity (bench-confirmed) - so each
     /// variant maps to its own bundled-.hex directory. 0BFF (CES) has no bundled
     /// image, so it falls back to "cnvs" (no update offered).
     /// </summary>
@@ -95,7 +95,7 @@ public static class CnvsProtocol
         => new byte[] { Frame0, OpControl, SubAnimToggle, 0x00 };
 
     /// <summary>Build the "Turn firmware animation on" priming request (3 bytes).
-    /// HYTE's reference issues this then the on-main command — see
+    /// HYTE's reference issues this then the on-main command - see
     /// <see cref="BuildTurnAnimationOnMain"/>.</summary>
     public static byte[] BuildTurnAnimationOnPreamble()
         => new byte[] { Frame0, OpControl, SubAnimOn };

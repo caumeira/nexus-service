@@ -4,7 +4,7 @@ namespace Nexus.Service.Cooling;
 /// Shared plausibility gate for temperature sources across every platform's
 /// fan-control provider (hwmon on Linux, LibreHardwareMonitor on Windows, SMC
 /// on macOS). A disconnected / disabled hardware temp channel reports a junk
-/// sentinel — an unconnected ITE SuperIO header reads -55°C on Linux, an
+/// sentinel - an unconnected ITE SuperIO header reads -55°C on Linux, an
 /// unpopulated DIMM SPD temp reads 0 or ~0.25°C via LHM on Windows. Those must
 /// not surface as curve sources, or a new/preset curve can default its input to
 /// a fake reading. Keeping the rule here means the cooling source list behaves

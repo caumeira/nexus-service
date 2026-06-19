@@ -20,7 +20,7 @@ public sealed class WindowsFpsProvider : IFpsProvider
     private static readonly TraceEventID PresentInfoEventId = (TraceEventID)0x00b8;
 
     // The nexus-service runs as LocalSystem in Session 0, which has no
-    // interactive desktop — GetForegroundWindow() from here always returns
+    // interactive desktop - GetForegroundWindow() from here always returns
     // nothing useful. The user-session helper polls foreground via
     // ScreenTimePoller and publishes the PID through IScreenTimeProvider,
     // so we read the target PID from there.

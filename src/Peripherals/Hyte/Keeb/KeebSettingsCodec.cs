@@ -128,7 +128,7 @@ public static class KeebSettingsCodec
         var page = new byte[KeebLayout.PageSize]; // 65; [0] = report id 0x00
         page[1] = 0x01; // debounce (reserved; legacy sends 1)
 
-        // Game-mode bitfield. Bit 4 = LED master ON — must stay set or the board
+        // Game-mode bitfield. Bit 4 = LED master ON - must stay set or the board
         // goes dark. (1 = key disabled, matching the firmware spec semantics.)
         byte gm = 0;
         if (s.GameMode.WindowsKey) gm |= 1 << 0;
@@ -141,7 +141,7 @@ public static class KeebSettingsCodec
         var anim = AnimationModeByte(s.FirmwareLighting.AnimationMode);
         page[3] = anim;
         // Brightness (page[4] = doc byte 3, range 0-255). The firmware applies this
-        // to the running animation LIVE — verified on the bench: the rotary knob's
+        // to the running animation LIVE - verified on the bench: the rotary knob's
         // brightness function moves exactly this byte, and a plain host write of it
         // dims the animation immediately (no mode re-init, no palette trick needed).
         // Map the 0-100% slider linearly to 0-255, as the legacy KeebSettings did.

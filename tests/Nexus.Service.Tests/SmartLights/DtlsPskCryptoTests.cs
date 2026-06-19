@@ -10,7 +10,7 @@ namespace Nexus.Service.Tests.SmartLights;
 /// </summary>
 public class DtlsPskCryptoTests
 {
-    // Canonical TLS 1.2 PRF (P_SHA256) test vector — widely published
+    // Canonical TLS 1.2 PRF (P_SHA256) test vector - widely published
     // (IETF TLS WG list). PRF(secret, "test label", seed) → 100 bytes.
     [Fact]
     public void Prf_matchesTls12Sha256Vector()

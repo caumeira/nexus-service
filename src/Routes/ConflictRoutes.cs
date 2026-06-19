@@ -15,7 +15,7 @@ public static class ConflictRoutes
 {
     public static void MapConflictEndpoints(this WebApplication app)
     {
-        // Current set of detected conflicts. Cheap — backed by the
+        // Current set of detected conflicts. Cheap - backed by the
         // watcher's in-memory snapshot, no rescan.
         app.MapGet("/conflicts", (ConflictWatcher watcher) =>
         {
@@ -27,7 +27,7 @@ public static class ConflictRoutes
         });
 
         // Terminate every running process matching the catalog entry for
-        // <c>body.Id</c>. We never trust a caller-supplied process name —
+        // <c>body.Id</c>. We never trust a caller-supplied process name -
         // the SPA only sends a catalog id, and we resolve it to the names
         // we have already vetted in ConflictAppCatalog.
         app.MapPost("/conflicts/kill", (KillConflictBody body) =>

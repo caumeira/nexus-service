@@ -13,12 +13,12 @@ namespace Nexus.Service.Relay;
 /// the cloud relay). It is the end-to-end AEAD codec for one relayed panel
 /// session:
 ///
-///   • <see cref="SendAsync"/> — the hub hands us a plaintext multiplex frame
+///   • <see cref="SendAsync"/> - the hub hands us a plaintext multiplex frame
 ///     (<c>{"t":..,"d":..}</c>). We <see cref="RelayCrypto.Seal"/> it with
 ///     dir=1 (host→client) and a monotonically increasing counter, then write
 ///     it as a single BINARY message to the underlying relay socket.
 ///
-///   • <see cref="ReceiveAsync"/> — the connection loop in
+///   • <see cref="ReceiveAsync"/> - the connection loop in
 ///     <c>RelayConnectionService</c> feeds inbound BINARY frames via
 ///     <see cref="EnqueueInbound"/>. We dequeue the next one,
 ///     <see cref="RelayCrypto.Open"/> it (verifying dir=2 client→host and a
@@ -191,7 +191,7 @@ public sealed class RelayWebSocket : WebSocket
         }
         catch (Exception) when (_state != WebSocketState.Open)
         {
-            // Racing teardown — swallow.
+            // Racing teardown - swallow.
         }
         finally
         {

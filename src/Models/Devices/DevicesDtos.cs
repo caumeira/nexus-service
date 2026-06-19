@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace Nexus.Service.Models.Devices;
 
-// ----- /devices/all — unified device list -----
+// ----- /devices/all - unified device list -----
 
 public sealed class DeviceListItem
 {
@@ -15,7 +15,7 @@ public sealed class DeviceListItem
     public string FirmwareType { get; set; } = "";
 }
 
-// ----- /devices/firmware/status — current vs bundled-available firmware -----
+// ----- /devices/firmware/status - current vs bundled-available firmware -----
 
 public sealed class FirmwareStatusItem
 {
@@ -34,7 +34,7 @@ public sealed class FirmwareStatusItem
     /// <summary>All bundled versions for this device's connected variant (newest first).</summary>
     public List<string> AvailableVersions { get; set; } = new();
     /// <summary>
-    /// Every image the connected device can be flashed with — including
+    /// Every image the connected device can be flashed with - including
     /// sibling-variant images (e.g. a Gen1 CNVS can also take the Gen2 image).
     /// Drives the dev-only picker so cross-branch testing is possible; the prod
     /// Install path never uses these.
@@ -49,7 +49,7 @@ public sealed class FlashableImage
     public string Version { get; set; } = "";
 }
 
-// ----- /devices/firmware/flash — flash orchestration -----
+// ----- /devices/firmware/flash - flash orchestration -----
 
 public sealed class FlashRequest
 {
@@ -81,7 +81,7 @@ public sealed class FlashStartResponse : ApiResponse
     public bool Started { get; set; }
 }
 
-// ----- /devices/usb/all — raw USB device list with full details -----
+// ----- /devices/usb/all - raw USB device list with full details -----
 
 public sealed class UsbDeviceDetail
 {
@@ -110,7 +110,7 @@ public class GetCnvsSettingsResponse : ApiResponse
     public string FirmwareVersion { get; set; } = "";
     /// <summary>
     /// True when the firmware honors the FF DC 07 / FF DC 08 settings
-    /// commands (introduced in CNVS firmware v1.0.2.1 — see
+    /// commands (introduced in CNVS firmware v1.0.2.1 - see
     /// hyte-refs protocol doc CNVS/stm32-commands.md §3). The UI gates the
     /// two toggles on this: when false (older firmware) the writes silently
     /// no-op, so the toggles are disabled with a "Requires CNVS firmware

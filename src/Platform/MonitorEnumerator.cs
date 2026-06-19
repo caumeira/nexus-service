@@ -29,7 +29,7 @@ public static class MonitorEnumerator
 
     /// <summary>
     /// Enumerate connected displays from the DRM connector sysfs tree. Works for
-    /// a root daemon with no graphical session attached — no X/Wayland, no DXGI —
+    /// a root daemon with no graphical session attached - no X/Wayland, no DXGI -
     /// and covers every GPU/compositor. <c>/sys/class/drm/cardN-CONN/status</c> is
     /// "connected" for live outputs; the preferred mode (first line of <c>modes</c>)
     /// gives a resolution label. The connector name (e.g. <c>DP-1</c>) is the id.

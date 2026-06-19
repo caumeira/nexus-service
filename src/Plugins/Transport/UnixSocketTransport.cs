@@ -110,7 +110,7 @@ public sealed partial class UnixSocketListener : IDuplexListener
             uint clen = (uint)cred.Length;
             if (getsockopt(fd, SOL_LOCAL, LOCAL_PEERCRED, cred, ref clen) != 0)
                 throw new IOException($"LOCAL_PEERCRED failed (errno {Marshal.GetLastPInvokeError()})");
-            // Refuse a short read (uid is the second u_int, offset 4) — a partial
+            // Refuse a short read (uid is the second u_int, offset 4) - a partial
             // xucred would silently report uid 0 (root) from the zeroed buffer.
             if (clen < 8)
                 throw new IOException($"LOCAL_PEERCRED returned {clen} bytes; expected >= 8");

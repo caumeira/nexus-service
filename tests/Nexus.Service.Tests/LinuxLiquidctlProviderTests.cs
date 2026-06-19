@@ -118,7 +118,7 @@ public class LinuxLiquidctlProviderTests
     public void SetFanSpeed_ClampsAndRebuildsMapOnColdCache()
     {
         var calls = new List<(string addr, string chan, int duty)>();
-        // No GetFanChannels() first — Drive must lazily rebuild the control map.
+        // No GetFanChannels() first - Drive must lazily rebuild the control map.
         var p = new LinuxLiquidctlProvider(() => KrakenJson, (a, c, d) => { calls.Add((a, c, d)); return true; });
         p.SetFanSpeed("liquidctl:dev-hidraw3:pump", 250); // clamp to 100
         Assert.Equal(("/dev/hidraw3", "pump", 100), Assert.Single(calls));
@@ -138,7 +138,7 @@ public class LinuxLiquidctlProviderTests
     {
         var p = new LinuxLiquidctlProvider(() => KrakenJson, (_, _, _) => true);
         var src = Assert.Single(p.GetTemperatureSources());
-        // id keyed by sanitized label, not ordinal — stable across reorders
+        // id keyed by sanitized label, not ordinal - stable across reorders
         Assert.Equal("liquidctl:dev-hidraw3:t:liquid-temperature", src.Id);
         Assert.Equal("Hub", src.Category);
         Assert.Equal(29.9f, p.ReadTemperature(src.Id) ?? -1, 1);

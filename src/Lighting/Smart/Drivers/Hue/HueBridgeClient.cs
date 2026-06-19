@@ -11,7 +11,7 @@ namespace Nexus.Service.Lighting.Smart.Drivers.Hue;
 
 /// <summary>
 /// HTTP(S) client for a Philips Hue bridge. The bridge serves a self-signed
-/// certificate (CN = bridge id), so we accept the server cert for these calls —
+/// certificate (CN = bridge id), so we accept the server cert for these calls -
 /// scoped: this client only ever talks to LAN Hue bridges and Philips' own
 /// discovery endpoint, both user-initiated. Uses CLIP v2 for enumerate/control
 /// and the legacy /api endpoints for pairing + unauthenticated config.
@@ -19,12 +19,12 @@ namespace Nexus.Service.Lighting.Smart.Drivers.Hue;
 public sealed class HueBridgeClient
 {
     // Bridge calls hit a LAN device with a self-signed cert (CN = bridge id), so
-    // this client trusts the bridge's cert. Used ONLY for direct bridge IPs —
+    // this client trusts the bridge's cert. Used ONLY for direct bridge IPs -
     // never for the public cloud-discovery endpoint.
     private static readonly HttpClient Http = CreateBridgeClient();
 
     // Cloud discovery (discovery.meethue.com) is a public HTTPS endpoint with a
-    // real CA cert — validated NORMALLY so an on-path attacker can't strip TLS
+    // real CA cert - validated NORMALLY so an on-path attacker can't strip TLS
     // and inject bogus bridge IPs (which would become DTLS stream targets).
     private static readonly HttpClient CloudHttp = new() { Timeout = TimeSpan.FromSeconds(8) };
 
@@ -41,7 +41,7 @@ public sealed class HueBridgeClient
         return new HttpClient(handler) { Timeout = TimeSpan.FromSeconds(8) };
     }
 
-    /// <summary>Philips cloud discovery — returns bridges seen from this WAN IP.</summary>
+    /// <summary>Philips cloud discovery - returns bridges seen from this WAN IP.</summary>
     public async Task<List<HueDiscoveryEntry>> CloudDiscoverAsync(CancellationToken ct)
     {
         using var resp = await CloudHttp.GetAsync("https://discovery.meethue.com", ct).ConfigureAwait(false);

@@ -10,7 +10,7 @@ public class ApiResponse
     public bool Error { get; set; }
     public string Msg { get; set; } = "Ok";
 
-    /// <summary>Diagnostic only — never serialized to clients, never trusted from clients.</summary>
+    /// <summary>Diagnostic only - never serialized to clients, never trusted from clients.</summary>
     [JsonIgnore]
     public System.Exception? Exception { get; set; }
 

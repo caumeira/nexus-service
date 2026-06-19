@@ -13,7 +13,7 @@ namespace Nexus.Service.Devices.Handlers;
 /// Detection is name-first because the panel's USB stack rides MediaTek's
 /// SoC bridge: VIDs and PIDs change between modes (bootloader, runtime,
 /// ADB interface) and across firmware revisions. The BusReportedDeviceDesc
-/// the host pulls from the descriptor is stable across all modes —
+/// the host pulls from the descriptor is stable across all modes -
 /// bench-verified strings on a real Q60 (2026-05-18):
 ///   - <c>"HYTE Q60 Display"</c> (composite + ADB interface entries)
 ///   - <c>"HYTE THICC Q60"</c> (alternate descriptor in some modes)

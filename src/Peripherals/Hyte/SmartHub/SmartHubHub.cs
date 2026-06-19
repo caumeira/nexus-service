@@ -14,7 +14,7 @@ namespace Nexus.Service.Peripherals.Hyte.SmartHub;
 ///
 /// It reuses the product-agnostic NP50 serial transport + port-discovery
 /// abstraction (<see cref="INp50Transport"/> / <see cref="INp50PortDiscovery"/>)
-/// — the SmartHub is just another HYTE serial-over-USB hub, so there's no
+/// - the SmartHub is just another HYTE serial-over-USB hub, so there's no
 /// reason to duplicate the serial plumbing.
 /// </summary>
 public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
@@ -66,7 +66,7 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
     /// <summary>
     /// Drop the SmartHub into DFU: write the OTA key + magic over the serial
     /// port, then release it for dfu-util. The key encodes
-    /// <see cref="SmartHubProtocol.OtaProductId"/> (NP50's 0x0901 — the legacy
+    /// <see cref="SmartHubProtocol.OtaProductId"/> (NP50's 0x0901 - the legacy
     /// ControlHub factory entry ships NP50's key, not PID 0x0904).
     /// </summary>
     public bool EnterDfuMode()
@@ -282,7 +282,7 @@ public sealed class SmartHubHub : IDisposable, IDfuFlashTarget
             Console.Error.WriteLine($"[smarthub] write failed (#{n}): {ex.GetType().Name}: {ex.Message}");
             if (n >= ConsecutiveWriteFailureThreshold)
             {
-                Console.Error.WriteLine($"[smarthub] {n} consecutive write failures — dropping transport so next tick rediscovers");
+                Console.Error.WriteLine($"[smarthub] {n} consecutive write failures - dropping transport so next tick rediscovers");
                 _consecutiveWriteFailures = 0;
                 Disconnect();
             }

@@ -34,7 +34,7 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
     /// frame interval, so we push at the same rate the canvas sampler
     /// updates. We drive our own timer (rather than subscribing to
     /// <see cref="LightingEngine.OnFrame"/>) so disabled zones still
-    /// receive blank-out frames when no effect is active — otherwise
+    /// receive blank-out frames when no effect is active - otherwise
     /// "turn off" silently strands the hub at its last lit state.
     /// </summary>
     private const int TickPeriodMs = 33;

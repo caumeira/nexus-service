@@ -21,7 +21,7 @@ namespace Nexus.Service.Helper.Domains
     /// Service-side outbound facade for installed-app (Start menu) enumeration.
     /// Get-StartApps is per-user and returns nothing for the Session-0 LocalSystem
     /// service, so enumeration, icons, and launch all run in the user-session
-    /// helper — a direct Session-0 launch can't even resolve the target id.
+    /// helper - a direct Session-0 launch can't even resolve the target id.
     /// </summary>
     [SupportedOSPlatform("windows")]
     public static class ShortcutsCommands

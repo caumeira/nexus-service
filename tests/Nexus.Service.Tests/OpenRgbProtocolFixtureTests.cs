@@ -5,7 +5,7 @@ namespace Nexus.Service.Tests;
 public class OpenRgbProtocolFixtureTests
 {
     // Captured from a real OpenRGB headless server running on Windows with a
-    // Razer Deathadder V2 Pro (Wireless) — controller index 0. Two captures
+    // Razer Deathadder V2 Pro (Wireless) - controller index 0. Two captures
     // taken with different negotiated protocol versions so we exercise both
     // size cases (v5 = with zone_flags, v4 = without).
     private const string Controller0HexV5 =

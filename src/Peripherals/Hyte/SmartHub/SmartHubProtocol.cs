@@ -4,7 +4,7 @@ namespace Nexus.Service.Peripherals.Hyte.SmartHub;
 
 /// <summary>
 /// Pure builders + parsers for the HYTE Smart Hub serial-over-USB protocol
-/// — a simple ARGB + PWM-fan hub (4 ARGB ports + 4 PWM-fan ports).
+/// - a simple ARGB + PWM-fan hub (4 ARGB ports + 4 PWM-fan ports).
 ///
 /// Every behaviour pinned here mirrors HYTE's shipping nexus-control-service
 /// (the working production agent against the same firmware):
@@ -29,7 +29,7 @@ public static class SmartHubProtocol
     /// <summary>
     /// PID encoded into the OTA boot-flag key (<c>FF DC 06 09 01 00 DD</c>).
     /// HYTE's <c>USBDevicesFactory</c> ControlHub entry ships NP50's key
-    /// (0x0901), NOT this device's operating PID 0x0904 — the Smart Hub and
+    /// (0x0901), NOT this device's operating PID 0x0904 - the Smart Hub and
     /// NP50 share a bootloader identity.
     /// </summary>
     public const int OtaProductId = 0x0901;
@@ -96,7 +96,7 @@ public static class SmartHubProtocol
 
     /// <summary>
     /// "Get Hub Info" request (4 bytes). The 20-byte reply carries every
-    /// channel's tach + enabled byte in one shot — the reference
+    /// channel's tach + enabled byte in one shot - the reference
     /// <c>ControlHubCommand.GetFanChannelInfoBytes</c> sends this exact frame
     /// for every channel and reads the per-channel fields out of the single
     /// response (see <see cref="TryParseChannelInfo"/>).
@@ -168,7 +168,7 @@ public static class SmartHubProtocol
         buf[1] = OpLighting;
         buf[2] = SubStreaming;
         buf[3] = (byte)port;
-        // buf[4..6] reserved (0) — header is `FF EE 01 <port> 00 00 00`.
+        // buf[4..6] reserved (0) - header is `FF EE 01 <port> 00 00 00`.
         var count = Math.Min(leds.Length, MaxLedsPerPort);
         for (var i = 0; i < count; i++)
         {
@@ -200,7 +200,7 @@ public static class SmartHubProtocol
     /// (speedH/L pairs at [3,4] [5,6] [7,8] [9,10] for ch0..3), but the
     /// enabled flags read back REVERSED: bench-probed on fw 1.0.0.1,
     /// <c>FF CC 02 N … en</c> flips readback byte <c>[15-N]</c> for every
-    /// N 1..4 — so enabled for ch (wire port ch+1) lives at <c>[14-ch]</c>,
+    /// N 1..4 - so enabled for ch (wire port ch+1) lives at <c>[14-ch]</c>,
     /// not the <c>[11+ch]</c> the legacy parser assumes. The flags are also
     /// <c>01</c> for all four ports regardless of fan presence (bookkeeping
     /// only), so presence detection must come from the tach.
@@ -258,5 +258,5 @@ public static class SmartHubProtocol
     }
 }
 
-/// <summary>24-bit RGB colour — same wire-level triple as MiniHub / NP50, streamed GRB by <see cref="SmartHubProtocol.BuildLightingStream"/>.</summary>
+/// <summary>24-bit RGB colour - same wire-level triple as MiniHub / NP50, streamed GRB by <see cref="SmartHubProtocol.BuildLightingStream"/>.</summary>
 public readonly record struct RgbColor(byte R, byte G, byte B);

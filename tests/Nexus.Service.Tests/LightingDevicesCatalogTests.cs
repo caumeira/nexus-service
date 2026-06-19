@@ -12,7 +12,7 @@ public class LightingDevicesCatalogTests
         var all = LightingDevicesCatalog.All;
 
         Assert.True(all.Count > 1500,
-            $"expected the OpenRGB-derived catalog (>1500 devices), got {all.Count} — " +
+            $"expected the OpenRGB-derived catalog (>1500 devices), got {all.Count} - " +
             "the embedded resource is likely missing or stale");
     }
 

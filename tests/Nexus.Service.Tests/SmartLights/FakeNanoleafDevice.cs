@@ -42,7 +42,7 @@ internal sealed class FakeNanoleafDevice : IDisposable
     public string SerialNo = "S16331A0217";
     public string Name = "Office Shapes";
     public string Model = "NL42";
-    /// <summary>(panelId, x, y, shapeType) — include non-light parts to test
+    /// <summary>(panelId, x, y, shapeType) - include non-light parts to test
     /// filtering. Empty + <see cref="NumLeds"/> set = Essentials device.</summary>
     public List<(int Id, int X, int Y, int Shape)> Panels = new();
     public int? NumLeds;
@@ -69,7 +69,7 @@ internal sealed class FakeNanoleafDevice : IDisposable
             }
             catch (HttpListenerException) when (attempt < 5)
             {
-                // Port raced away between probe and bind — try another.
+                // Port raced away between probe and bind - try another.
             }
         }
     }

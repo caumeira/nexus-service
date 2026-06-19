@@ -90,7 +90,7 @@ public sealed class Np50HeartbeatWorker : BackgroundService
         }
 
         // First time we see the hub, grab the firmware version. After that,
-        // re-read only when we reconnect — version doesn't change at runtime.
+        // re-read only when we reconnect - version doesn't change at runtime.
         if (!connectedBefore || string.IsNullOrEmpty(_hub.State.FirmwareVersion))
         {
             _hub.PollFirmwareVersion();

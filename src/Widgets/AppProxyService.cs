@@ -57,7 +57,7 @@ public sealed class AppProxyService
 
     // Tight allowlist for response headers proxied back to the widget. We
     // never echo Set-Cookie, Strict-Transport-Security, or vendor `X-*`
-    // tracing headers — anything outside this list is dropped.
+    // tracing headers - anything outside this list is dropped.
     private static readonly HashSet<string> ExposedResponseHeaders = new(StringComparer.OrdinalIgnoreCase)
     {
         "Content-Type", "Content-Length", "Content-Encoding", "Content-Language",
@@ -171,7 +171,7 @@ public sealed class AppProxyService
             using var upstream = await http.SendAsync(msg, HttpCompletionOption.ResponseHeadersRead, ct);
             resp.Status = (int)upstream.StatusCode;
             resp.StatusText = upstream.ReasonPhrase ?? "";
-            // Echo a narrow allowlist of upstream headers — never proxy
+            // Echo a narrow allowlist of upstream headers - never proxy
             // Set-Cookie, HSTS, or vendor `X-*` debug fields to widget JS.
             foreach (var h in upstream.Headers)
             {
@@ -285,7 +285,7 @@ public sealed class AppProxyService
     }
 
     /// <summary>
-    /// True when <paramref name="host"/> is — or resolves into — any IP
+    /// True when <paramref name="host"/> is - or resolves into - any IP
     /// range that should never leave the box: loopback, link-local
     /// (169.254/16 incl. cloud-metadata), RFC1918 private (10/8, 172.16/12,
     /// 192.168/16), CG-NAT (100.64/10), benchmark (198.18/15), broadcast

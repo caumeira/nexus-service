@@ -38,7 +38,7 @@ public static class Np50Protocol
     /// physical Nexus Link ports for fans, but the firmware-side lighting
     /// loop iterates 4 (per HYTE's <c>CoolingHubBaseController.SendToHardware</c>),
     /// and skipping the 4th appears to leave the latch un-committed on
-    /// firmware 2.0.5.1 — strips stay dark even with valid 1..3 frames.
+    /// firmware 2.0.5.1 - strips stay dark even with valid 1..3 frames.
     /// </summary>
     public const int LightingCyclePortCount = 4;
 
@@ -53,7 +53,7 @@ public static class Np50Protocol
 
     // ── Firmware default-mode bytes (EEPROM; opcode #6 / #7) ──
     //
-    // Distinct from the live cooling-mode bytes above — the firmware default
+    // Distinct from the live cooling-mode bytes above - the firmware default
     // is what runs when nexus isn't streaming. "Software" isn't meaningful as
     // a default because by definition there's no software running then.
     public const byte DefaultModeStatic = 0x00;
@@ -109,7 +109,7 @@ public static class Np50Protocol
     /// <summary>
     /// Build the "Set Firmware Lighting Off" request (4 bytes). When passed
     /// <c>true</c>, the firmware stops driving its built-in default animation
-    /// on any LED. Critical when running in software lighting mode — without
+    /// on any LED. Critical when running in software lighting mode - without
     /// it, the firmware animation runs in parallel with our stream and shows
     /// through on any LED our wire frame doesn't update (observed
     /// symptom: the first strip LED on every port permanently cycles a
@@ -123,7 +123,7 @@ public static class Np50Protocol
 
     /// <summary>
     /// Build the "Write Firmware Animation to MCU" request (9 bytes).
-    /// Direct write to the microcontroller — bypasses the EEPROM-saving
+    /// Direct write to the microcontroller - bypasses the EEPROM-saving
     /// 0x02/0x07 paths and takes immediate effect on the live MCU state.
     /// Matches HYTE's reference <c>SmartHubCommandBase.WriteFwAnimationToMcu</c>:
     /// <c>0xFF 0xCC 0x0C animation R G B brightness 0x01(SAVE)</c>.
@@ -134,7 +134,7 @@ public static class Np50Protocol
     /// firmware animation while we're streaming software-controlled LED
     /// frames. The 0x05/0x07 commands appear to set the persistent
     /// "off" flag in EEPROM but do NOT clear the currently-running MCU
-    /// animation — this 0x0C path is the one HYTE always pairs with
+    /// animation - this 0x0C path is the one HYTE always pairs with
     /// any firmware-animation change in <c>SwitchFwAnimation</c>.
     /// </summary>
     public static byte[] BuildWriteFirmwareAnimationToMcu(
@@ -143,7 +143,7 @@ public static class Np50Protocol
 
     /// <summary>
     /// Build the "Get NP50 Firmware Animation" request (3 bytes). Returns 9
-    /// bytes containing the current firmware-driven animation state — opcode
+    /// bytes containing the current firmware-driven animation state - opcode
     /// 0xCC 0x0D per HYTE's <c>ControlHubCommand.GetFwAnimation</c>.
     /// </summary>
     public static byte[] BuildGetFirmwareAnimation()
@@ -168,7 +168,7 @@ public static class Np50Protocol
     /// setpoint at <paramref name="fanPercent"/>; <see cref="DefaultModeMotherboard"/>
     /// passes through motherboard PWM and ignores fan-percent.
     ///
-    /// EEPROM endurance is ~10 000 writes — callers MUST read current state
+    /// EEPROM endurance is ~10 000 writes - callers MUST read current state
     /// via <see cref="BuildGetFirmwareDefaultMode"/> first and skip the
     /// write when the bytes already match.
     /// </summary>
@@ -183,7 +183,7 @@ public static class Np50Protocol
         buf[4] = defaultMode;
         buf[5] = pct;
         // bytes 6..16 reserved (zero)
-        buf[17] = 0x01; // SAVE — commits to EEPROM
+        buf[17] = 0x01; // SAVE - commits to EEPROM
         return buf;
     }
 
@@ -267,7 +267,7 @@ public static class Np50Protocol
     // into the two LED-count header bytes regardless of how many LEDs the
     // frame actually carries. The spec says these are LedCount_H/L; the
     // shipping firmware ignores that and accepts whatever bytes follow up
-    // to the wire-frame boundary. Match the reference exactly — sending the
+    // to the wire-frame boundary. Match the reference exactly - sending the
     // real count has been observed to leave the firmware mid-latch in
     // some firmware revs.
     private const byte LedCountMagicHigh = 0x01;
@@ -412,7 +412,7 @@ public static class Np50Protocol
             // First slot carries the FF CC header; subsequent slots start with 00 00.
             // The spec doc says to stop when the Device Count byte (off+2) is 0,
             // but on real firmware (2.0.3.1) the device-count byte stays
-            // non-zero in empty trailing slots — it's the Device Type byte
+            // non-zero in empty trailing slots - it's the Device Type byte
             // (off+3) that drops to 0x00 when no fan is present. That's the
             // reliable stop condition.
             var typeByte = response[off + 3];
@@ -484,14 +484,14 @@ public static class Np50Protocol
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // Helpers — RPM and temperature decoding from raw bytes
+    // Helpers - RPM and temperature decoding from raw bytes
     // ────────────────────────────────────────────────────────────────────
 
     /// <summary>
     /// Decode the legacy 4-pin / pump RPM from the Get-Info response (bytes
     /// 9 &amp; 10). Per spec command #1 and HYTE's <c>SmartDeviceMethods.GetRPM</c>:
     /// <c>RPM = 60_000 / ((H*100 + L) / 10 * 4)</c>. Note this is a DIFFERENT
-    /// scaling than the Nexus Link per-fan reading — see <see cref="DecodeFanRpm"/>.
+    /// scaling than the Nexus Link per-fan reading - see <see cref="DecodeFanRpm"/>.
     /// Returns 0 when both bytes are zero (the hub's "no fan attached" sentinel).
     /// </summary>
     public static int DecodeLegacyRpm(byte rpmHigh, byte rpmLow)
@@ -507,7 +507,7 @@ public static class Np50Protocol
     /// branch of HYTE's <c>SmartDeviceMethods.GetFanRPM</c> (FP12 = single FT12):
     /// <c>RPM = (60_000 / (H + L/100)) / 4</c>. This yields ~10× the value the
     /// legacy decode would for the same raw bytes, because the firmware reports
-    /// the Type-C fan period in a finer unit — applying the legacy formula here
+    /// the Type-C fan period in a finer unit - applying the legacy formula here
     /// was the "fake RPM" bug. Returns 0 for the (0,0) "no fan" sentinel.
     /// </summary>
     public static int DecodeFanRpm(byte rpmHigh, byte rpmLow)
@@ -552,7 +552,7 @@ public static class Np50Protocol
     private static double NearestTempByVoltage(double voltage, FanOrPump kind)
     {
         var table = kind == FanOrPump.Pump ? PumpTempToVoltage : FanTempToVoltage;
-        // Linear scan — table is 76 entries, no need for a binary search.
+        // Linear scan - table is 76 entries, no need for a binary search.
         var bestTemp = 0.0;
         var bestDelta = double.MaxValue;
         foreach (var (temp, refV) in table)

@@ -19,7 +19,7 @@ namespace Nexus.Service.Cooling;
 /// duty is the 0-255 pwm value scaled to 0-100, RPM comes from the paired
 /// <c>fanN_input</c>. Writes set <c>pwmN_enable=1</c> (manual) then <c>pwmN</c>;
 /// release restores <c>pwmN_enable=2</c> (automatic). Pure sysfs file IO via
-/// <see cref="LinuxSysfs"/> — AOT-safe, no P/Invoke. Only DI-wired on Linux; on
+/// <see cref="LinuxSysfs"/> - AOT-safe, no P/Invoke. Only DI-wired on Linux; on
 /// any other OS the hwmon root is absent so enumeration simply yields nothing.
 /// Writing pwm needs access to the hwmon attributes (see the bundled udev rule);
 /// failures are swallowed (logged once) so a locked-down box degrades to read-only.
@@ -27,7 +27,7 @@ namespace Nexus.Service.Cooling;
 public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvider
 {
     private static readonly int[] CalibrationDuties = { 100, 90, 80, 70, 60, 50, 40, 30, 20, 10, 0 };
-    // pwm read-back tolerance (0..255 scale) — absorbs 0..100 → 0..255 rounding.
+    // pwm read-back tolerance (0..255 scale) - absorbs 0..100 → 0..255 rounding.
     private const int PwmVerifyTolerance = 4;
 
     private readonly string _hwmonRoot;
@@ -35,7 +35,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
     // calibration dwells at each step before sampling. Injectable for tests.
     private readonly TimeSpan _stepSettle;
     // Calibration results (MinRpm/MaxRpm/Classification) are persisted here and
-    // merged back into channels, mirroring WindowsFanControlProvider — so an
+    // merged back into channels, mirroring WindowsFanControlProvider - so an
     // unconnected header calibrates to "Unresponsive" and the UI can mark it.
     private readonly IConfigStore? _config;
 
@@ -60,7 +60,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
     {
         var discovered = EnumerateControllableFans().ToList();
         // Record the path map under the lock, but do the (potentially slow) sysfs
-        // reads OUTSIDE it — a stuck hwmon read must not serialize every fan op.
+        // reads OUTSIDE it - a stuck hwmon read must not serialize every fan op.
         lock (_lock)
         {
             _fanPaths.Clear();
@@ -159,7 +159,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
     private static void ReleasePaths(FanPaths paths)
     {
         // Most SuperIO chips: 2 = automatic. A few only accept 0 (= no
-        // software control / full speed) — fall back to that if 2 is rejected.
+        // software control / full speed) - fall back to that if 2 is rejected.
         if (!LinuxSysfs.WriteText(paths.EnablePath, "2"))
             LinuxSysfs.WriteText(paths.EnablePath, "0");
     }
@@ -210,7 +210,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
             targets = ids.Select(id => (id, _fanPaths[id])).ToList();
         }
 
-        // Calibrate fans in parallel — each ramps its own pwm independently.
+        // Calibrate fans in parallel - each ramps its own pwm independently.
         var tasks = targets.Select(t => CalibrateOneAsync(t.Id, t.Paths, progress, ct));
         var results = (await Task.WhenAll(tasks).ConfigureAwait(false))
             .Where(r => r is not null).Select(r => r!).ToList();
@@ -298,7 +298,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
         if (!LinuxSysfs.WriteText(paths.Value.EnablePath, "1") ||
             !LinuxSysfs.WriteText(paths.Value.PwmPath, raw.ToString(CultureInfo.InvariantCulture)))
         {
-            WarnOnce(channelId, $"fan write failed for {channelId} — check hwmon pwm permissions (udev rule / group). Reporting read-only.");
+            WarnOnce(channelId, $"fan write failed for {channelId} - check hwmon pwm permissions (udev rule / group). Reporting read-only.");
             return;
         }
         VerifyDuty(channelId, paths.Value, raw);
@@ -306,7 +306,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
 
     /// <summary>
     /// Confirm a pwm write actually landed. <see cref="LinuxSysfs.WriteText"/>
-    /// returning true only means the bytes left the handle — many SuperIO
+    /// returning true only means the bytes left the handle - many SuperIO
     /// drivers clamp the value or revert pwmN_enable to a BIOS curve, so a
     /// successful write is not an accepted duty. Read both back (synchronously;
     /// the kernel stores the value on write, so no sleep) and warn once if the
@@ -329,7 +329,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
             if (_fanPaths.TryGetValue(id, out var p))
                 return p;
         }
-        GetFanChannels(); // refresh — hwmonX numbering can change across reboots
+        GetFanChannels(); // refresh - hwmonX numbering can change across reboots
         lock (_lock)
         {
             return _fanPaths.TryGetValue(id, out var p2) ? p2 : null;
@@ -398,7 +398,7 @@ public sealed class LinuxFanControlProvider : IFanControlProvider, ICoolingProvi
                     continue;
                 // Drop disconnected/disabled channels (an unconnected SuperIO
                 // header reads a -55°C sentinel; a disabled one reads 0) so they
-                // never become curve inputs — same gate every platform applies.
+                // never become curve inputs - same gate every platform applies.
                 if (!TemperatureSourceFilter.IsPlausible(milli.Value / 1000f))
                     continue;
                 var label = LinuxSysfs.ReadText(Path.Combine(dir, $"temp{index}_label"));

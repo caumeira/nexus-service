@@ -31,14 +31,14 @@ internal static class MacAppBootstrap
             catch (Exception ex) { Console.Error.WriteLine($"[nexus-service] mac auto-open failed: {ex.Message}"); }
         });
 
-        // Start web host on background thread — returns immediately.
+        // Start web host on background thread - returns immediately.
         var webTask = app.RunAsync();
 
         var store = app.Services.GetRequiredService<IConfigStore>();
         var showIcon = store.Load().Monitoring.ShowMacStatusBarIcon;
         var iconPath = Path.Combine(AppContext.BaseDirectory, "status-icon.png");
 
-        // Transfer landed with no dashboard subscribed to the WS toast — the
+        // Transfer landed with no dashboard subscribed to the WS toast - the
         // mac analog of the Windows tray balloon. Request notification
         // permission once at startup, not on the first transfer.
         MacNotify.RequestAuthorization();

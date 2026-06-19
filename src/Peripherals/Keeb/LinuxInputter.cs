@@ -12,7 +12,7 @@ namespace Nexus.Service.Peripherals.Keeb;
 /// Linux keyboard input injection via the kernel uinput subsystem
 /// (<c>/dev/uinput</c>). Creates a single virtual keyboard on first use and
 /// keeps it open for the provider's lifetime, then writes <c>input_event</c>
-/// records to play back macro strokes — the Linux counterpart to
+/// records to play back macro strokes - the Linux counterpart to
 /// <see cref="WindowsInputter"/>'s SendInput path. AOT-safe: blittable
 /// <c>[LibraryImport]</c> P/Invoke into libc (open/close/ioctl/write), no
 /// reflection. Needs write access to <c>/dev/uinput</c> (see the bundled udev
@@ -72,7 +72,7 @@ public sealed partial class LinuxInputter : IInputterProvider, IDisposable
         if (fd < 0)
         {
             _failed = true;
-            ServiceLog.Warn("[keeb] /dev/uinput open failed — keyboard macros unavailable (check udev rule / 'input' group membership).");
+            ServiceLog.Warn("[keeb] /dev/uinput open failed - keyboard macros unavailable (check udev rule / 'input' group membership).");
             return false;
         }
 
@@ -94,7 +94,7 @@ public sealed partial class LinuxInputter : IInputterProvider, IDisposable
             {
                 close(fd);
                 _failed = true;
-                ServiceLog.Warn("[keeb] uinput device setup failed — keyboard macros unavailable.");
+                ServiceLog.Warn("[keeb] uinput device setup failed - keyboard macros unavailable.");
                 return false;
             }
 
@@ -126,7 +126,7 @@ public sealed partial class LinuxInputter : IInputterProvider, IDisposable
         if (write(_fd, in ev, (nuint)Marshal.SizeOf<input_event>()) < 0 && !_emitWarned)
         {
             _emitWarned = true;
-            ServiceLog.Warn("[keeb] uinput write failed (device unbound?) — macro events dropped.");
+            ServiceLog.Warn("[keeb] uinput write failed (device unbound?) - macro events dropped.");
         }
     }
 

@@ -11,7 +11,7 @@ namespace Nexus.Service.Lighting;
 /// Aggregates the OpenRGB-backed lighting devices (motherboard, RAM, AIO, etc.) with NP50 + MiniHub hub devices behind a
 /// single <see cref="ILightingDeviceProvider"/> so the /devices/lighting-devices/* routes and the React lighting page don't
 /// have to know there's more than one source. Routes by id prefix: anything starting with <c>np50:</c> or <c>minihub:</c>
-/// goes to the matching hub provider; everything else stays on the OpenRGB provider. Also the layout authority — applies
+/// goes to the matching hub provider; everything else stays on the OpenRGB provider. Also the layout authority - applies
 /// <see cref="CanvasGridLayout"/> to every device without a persisted layout and mirrors the result into engine frames so
 /// running effects sample from the same rectangles the SPA shows. Mirrors <see cref="Cooling.CompositeFanControlProvider"/>.
 /// </summary>

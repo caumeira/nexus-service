@@ -6,12 +6,12 @@ namespace Nexus.Service.Devices.Firmware;
 
 /// <summary>
 /// Minimal Intel HEX parser. The bundled firmware images are Intel HEX text,
-/// but dfu-util flashes raw binaries — so before a download we convert the
+/// but dfu-util flashes raw binaries - so before a download we convert the
 /// .hex to a flat <c>.bin</c> covering <see cref="BaseAddress"/>..
 /// <see cref="EndAddress"/>, with gaps filled by 0xFF (erased-flash value).
 ///
 /// Supports record types 00 (data), 01 (EOF), 04 (extended linear address),
-/// 05 (start linear address — ignored). That's the full set HYTE's images use.
+/// 05 (start linear address - ignored). That's the full set HYTE's images use.
 /// </summary>
 public sealed class IntelHexImage
 {
@@ -53,7 +53,7 @@ public static class IntelHex
             if (line.Length == 0) continue;
             if (line[0] != ':') throw new InvalidDataException($"Intel HEX line {lineNo} does not start with ':'.");
 
-            // :LL AAAA TT [DD..] CC  — all hex, byte-count LL covers data only.
+            // :LL AAAA TT [DD..] CC  - all hex, byte-count LL covers data only.
             var bytes = HexToBytes(line.AsSpan(1), lineNo);
             if (bytes.Length < 5) throw new InvalidDataException($"Intel HEX line {lineNo} too short.");
 
@@ -83,14 +83,14 @@ public static class IntelHex
                     if (count != 2) throw new InvalidDataException($"Intel HEX line {lineNo} ELA record must be 2 bytes.");
                     upper = (uint)((bytes[4] << 8) | bytes[5]);
                     break;
-                case 0x05: // start linear address — execution entry, irrelevant to flashing
+                case 0x05: // start linear address - execution entry, irrelevant to flashing
                     break;
                 default:
                     throw new InvalidDataException($"Intel HEX line {lineNo} has unsupported record type 0x{type:X2}.");
             }
         }
 
-        // No EOF record — still flatten what we have rather than throw.
+        // No EOF record - still flatten what we have rather than throw.
         return Flatten(records, min, max);
     }
 

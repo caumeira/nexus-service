@@ -165,7 +165,7 @@ public class PanelPhonePairingServiceTests
     public void ClaimOverRelay_EmptyDeviceId_DoesNotDedup()
     {
         // Empty deviceId + relay (empty fingerprint) ⇒ no dedup key at all, so
-        // each claim is a distinct session — the pre-deviceId behavior. This is
+        // each claim is a distinct session - the pre-deviceId behavior. This is
         // the duplicate-accumulation the deviceId is designed to fix, asserted
         // here as the explicit "no regression / no false dedup" baseline.
         var store = new InMemoryConfigStore();
@@ -226,7 +226,7 @@ public class PanelPhonePairingServiceTests
     public void ClaimOverRelay_AbsurdlyLongDeviceId_TreatedAsNoDedupId()
     {
         // An over-length deviceId is rejected (treated as empty) rather than
-        // truncated — truncation could collide with a different device.
+        // truncated - truncation could collide with a different device.
         var store = new InMemoryConfigStore();
         var service = NewService(store);
         var huge = new string('x', 5000);
@@ -728,7 +728,7 @@ public class PanelPhonePairingServiceTests
         // A dashboard opened from the tray pairing notification connects
         // AFTER the one-shot live broadcast. The snapshot provider is what
         // lets that late subscriber still receive the pending request and pop
-        // the Allow/Deny modal — but only while it's still pending.
+        // the Allow/Deny modal - but only while it's still pending.
         var hub = new Nexus.Service.Sockets.MultiplexHub();
         var service = NewServiceWithHub(hub);
         var start = service.StartPairCode();

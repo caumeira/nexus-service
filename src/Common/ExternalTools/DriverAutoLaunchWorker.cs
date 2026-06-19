@@ -10,9 +10,9 @@ namespace Nexus.Service.Common.ExternalTools;
 
 /// <summary>
 /// Auto-launches the native driver of every installed bundled driver app whose
-/// matching device is on the USB bus — so a device's driver runs at service start,
+/// matching device is on the USB bus - so a device's driver runs at service start,
 /// before any user logs in. Generic: it reads each app's <c>driver</c> manifest
-/// block (only bundled apps keep one — the registry enforces that), so a new driver
+/// block (only bundled apps keep one - the registry enforces that), so a new driver
 /// app needs zero changes here.
 ///
 /// Single-instance is the manager's guarantee; shutdown kill is the manager's
@@ -52,7 +52,7 @@ public sealed class DriverAutoLaunchWorker : BackgroundService
             while (await timer.WaitForNextTickAsync(stoppingToken));
         }
         catch (OperationCanceledException) { }
-        // Process teardown is ExternalToolManager.StopAsync (hosted) — not here.
+        // Process teardown is ExternalToolManager.StopAsync (hosted) - not here.
     }
 
     /// <summary>One pass: launch the driver of each present, not-yet-running driver app.</summary>
@@ -67,7 +67,7 @@ public sealed class DriverAutoLaunchWorker : BackgroundService
             if (_tools.GetStatus(driver.ToolId) == ToolStatus.Running) continue;
 
             // ResolvePresent reads the shared 10s-cached enumeration and returns null
-            // when no matching device is attached — the silent "no hardware" gate.
+            // when no matching device is attached - the silent "no hardware" gate.
             var spec = DriverToolSpecFactory.ResolvePresent(driver, entry.RootPath, _usb);
             if (spec is null) continue;
 

@@ -20,7 +20,7 @@ public static partial class DevicesRoutes
     private static void MapFirmwareEndpoints(WebApplication app)
     {
         // Only devices that are (a) connected and (b) have a bundled firmware
-        // image are returned — no blank rows for devices we can't offer an
+        // image are returned - no blank rows for devices we can't offer an
         // update for. CurrentVersion may still be empty when the device hasn't
         // reported its version yet; UpdateAvailable stays false in that case.
         app.MapGet("/devices/firmware/status", (DeviceManager dm, BundledFirmwareCatalog catalog, FirmwareFlasher flasher) =>
@@ -59,7 +59,7 @@ public static partial class DevicesRoutes
 
         // Start a flash (async). Body: { deviceType: <catalog key>, version }.
         // deviceType is the firmware-catalog key (the connected variant), i.e.
-        // FirmwareStatusItem.FirmwareType — NOT the display id.
+        // FirmwareStatusItem.FirmwareType - NOT the display id.
         app.MapPost("/devices/firmware/flash", (FlashRequest body, FirmwareFlasher flasher) =>
         {
             if (flasher.TryStart(body.DeviceType, body.Version, out var error))

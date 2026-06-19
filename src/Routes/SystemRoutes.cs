@@ -54,7 +54,7 @@ public static class SystemRoutes
             };
         });
 
-        // No REST sensor endpoints — all hardware sensor / model data is
+        // No REST sensor endpoints - all hardware sensor / model data is
         // delivered via the `/monitoring` topic over the multiplex WebSocket.
         // RAM capacity ships as `theoreticalMaximum` on the Memory Used sensor.
 
@@ -104,7 +104,7 @@ public static class SystemRoutes
             var text = body.Text ?? "";
             if (text.Length == 0)
                 return ApiResponse.Fail("text required");
-            // Clipboard-set then paste — the only Unicode-reliable cross-platform
+            // Clipboard-set then paste - the only Unicode-reliable cross-platform
             // path. Clobbers the clipboard (restore deferred). Cmd+V on macOS, Ctrl+V elsewhere.
             if (!clipboard.SetText(text))
                 return ApiResponse.Fail("clipboard unavailable");
@@ -202,7 +202,7 @@ public static class SystemRoutes
             }
         }).AllowPanel();
 
-        // open-path is LAN-only (denied on the relay) — it opens arbitrary local files.
+        // open-path is LAN-only (denied on the relay) - it opens arbitrary local files.
         app.MapPost("/system/open-path", async (OpenPathBody body, IServiceProvider sp) =>
         {
             var path = body.Path?.Trim() ?? "";

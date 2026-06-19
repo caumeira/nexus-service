@@ -72,7 +72,7 @@ public static class NexusServiceCollectionExtensions
 #elif LINUX
         services.AddSingleton<ISensorProvider, LinuxSensorProvider>();
 #else
-#error No ISensorProvider for this target — wire one when adding a platform.
+#error No ISensorProvider for this target - wire one when adding a platform.
 #endif
         services.AddSingleton<ProcessMonitor>();
         services.AddHostedService(sp => sp.GetRequiredService<ProcessMonitor>());
@@ -81,22 +81,22 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<SystemSpecsCollector>();
         // Pre-warms the specs cache in the background after host start so the
         // first Devices → System Specs request doesn't pay a cold PowerShell
-        // spawn. Hard rule: this MUST stay off the startup critical path —
+        // spawn. Hard rule: this MUST stay off the startup critical path -
         // see SystemSpecsPrewarmService.ExecuteAsync.
         services.AddHostedService<SystemSpecsPrewarmService>();
         // Pushes a pairing-QR-refresh nudge to the dashboard when the host IP
         // changes (VPN/Wi-Fi↔wired/DHCP), so a displayed QR doesn't keep
-        // embedding a stale LAN address until its TTL. Off the critical path —
+        // embedding a stale LAN address until its TTL. Off the critical path -
         // it only subscribes to NetworkChange.NetworkAddressChanged.
         services.AddHostedService<Nexus.Service.Net.NetworkAddressChangeListener>();
         // One-time hardware/specs snapshot to service.log after discovery
         // settles, so a tester's log opens with the full detected picture.
         // Off the critical path; see StartupDiagnosticsDumpService.ExecuteAsync.
         services.AddHostedService<Nexus.Service.Diagnostics.StartupDiagnosticsDumpService>();
-        // Anonymous fleet heartbeat — post-boot, off the critical path, gated by
+        // Anonymous fleet heartbeat - post-boot, off the critical path, gated by
         // the collect-anonymous-data setting (default on).
         services.AddHostedService<Nexus.Service.Telemetry.HeartbeatService>();
-        // Product telemetry — anonymous events to PostHog, same opt-out + install
+        // Product telemetry - anonymous events to PostHog, same opt-out + install
         // id as the heartbeat. Inject ITelemetry and call Capture(...). The flush
         // worker stays dormant until a PostHog key is configured (PostHogOptions).
         services.AddSingleton<Nexus.Service.Telemetry.TelemetryClient>();
@@ -121,7 +121,7 @@ public static class NexusServiceCollectionExtensions
 
     public static IServiceCollection AddNexusCooling(this IServiceCollection services)
     {
-        // The runtime plugin-provider registry — the single seam the cooling /
+        // The runtime plugin-provider registry - the single seam the cooling /
         // sensor / device / DFU composites read so a plugin can add a source
         // without a rebuild. Empty until the broker (Phase 2) registers one.
         services.AddSingleton<PluginProviderRegistry>();
@@ -274,7 +274,7 @@ public static class NexusServiceCollectionExtensions
         // CNVS hub: serial-port discovery + hub singleton + connection
         // worker that grabs COM7 at startup before OpenRGB-headless can
         // claim it (whoever opens the COM port first wins on Windows
-        // serial — same race-and-hold pattern that lets NP50 and MiniHub
+        // serial - same race-and-hold pattern that lets NP50 and MiniHub
         // coexist with OpenRGB). Windows-only discovery; non-Windows gets
         // a stub that never finds anything.
 #if WINDOWS
@@ -370,7 +370,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Keeb.KeebInputWorker>();
 
-        // Smart (network) lights — Philips Hue, Nanoleaf, Govee today; WLED /
+        // Smart (network) lights - Philips Hue, Nanoleaf, Govee today; WLED /
         // LIFX / Twinkly / WiZ / Yeelight / Elgato next. One brand-neutral
         // provider + frame writer + send throttle; per-brand behavior is an
         // ILightDriver. Joins the composite by id prefix ("hue:", …).
@@ -490,7 +490,7 @@ public static class NexusServiceCollectionExtensions
 
         // MiniHub hub: own port-discovery instance (we don't bind it to
         // INp50PortDiscovery in DI because that interface is already taken
-        // by the NP50 binding — instead the hub factory below constructs
+        // by the NP50 binding - instead the hub factory below constructs
         // the MiniHub-specific discovery inline). Transport factory reuses
         // the generic serial-port wrapper since it's product-agnostic.
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.MiniHub.MiniHubHub>(sp =>
@@ -877,7 +877,7 @@ public static class NexusServiceCollectionExtensions
         // QSeriesPortWatcher keeps `adb reverse tcp:{servicePort}` alive
         // while a HYTE Q60 / Q80 USB display is attached. Without it,
         // every time Y70's adb-server restarts the panel's multiplex
-        // WebSocket on the Q-series silently freezes. Windows-only — the
+        // WebSocket on the Q-series silently freezes. Windows-only - the
         // Q-series host stack lives on the Y70 PC.
         if (OperatingSystem.IsWindows())
         {

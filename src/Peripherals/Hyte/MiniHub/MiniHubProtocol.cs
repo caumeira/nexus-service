@@ -85,7 +85,7 @@ public static class MiniHubProtocol
     /// <summary>
     /// Build the "Set Fan Control Mode" request (4 bytes). Software mode is
     /// required before any <see cref="BuildSetFanSpeed"/> write actually
-    /// reaches the fans — by default the hub hands fan PWM to the motherboard
+    /// reaches the fans - by default the hub hands fan PWM to the motherboard
     /// header so nexus writes are ignored until this command flips the mode.
     /// </summary>
     public static byte[] BuildSetFanControlMode(byte mode)
@@ -199,5 +199,5 @@ public static class MiniHubProtocol
     }
 }
 
-/// <summary>24-bit RGB color shared with NP50 — same wire-level RGB triple, just byte-ordered differently per device.</summary>
+/// <summary>24-bit RGB color shared with NP50 - same wire-level RGB triple, just byte-ordered differently per device.</summary>
 public readonly record struct RgbColor(byte R, byte G, byte B);

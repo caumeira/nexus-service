@@ -11,7 +11,7 @@ namespace Nexus.Service.QSeries;
 /// </summary>
 /// <param name="Model">
 /// Device model string from <c>getprop ro.product.model</c> at promotion
-/// time. Diagnostic / log breadcrumb only — the (serial, ip, port) tuple
+/// time. Diagnostic / log breadcrumb only - the (serial, ip, port) tuple
 /// is what the watcher acts on.
 /// </param>
 /// <param name="IpAddress">
@@ -22,7 +22,7 @@ namespace Nexus.Service.QSeries;
 /// </param>
 /// <param name="Port">
 /// Listening port on the device's adbd after <c>adb tcpip &lt;port&gt;</c>.
-/// Always 5555 — kept as a field so a non-default port doesn't invalidate
+/// Always 5555 - kept as a field so a non-default port doesn't invalidate
 /// the on-disk format.
 /// </param>
 /// <param name="PromotedAt">
@@ -44,7 +44,7 @@ public static class QSeriesTransport
 {
     /// <summary>
     /// Default port adbd listens on after <c>adb tcpip</c>. Matches
-    /// Android's documented default — overriding it requires writing
+    /// Android's documented default - overriding it requires writing
     /// <c>service.adb.tcp.port</c> via setprop, which we don't do.
     /// </summary>
     public const int DefaultAdbTcpPort = 5555;
@@ -67,7 +67,7 @@ public static class QSeriesTransport
     /// every realistic deployment, and (b) the marker IP that <c>ip route
     /// get</c> echoes back (we use <c>1.1.1.1</c>) would otherwise be
     /// returned ahead of the device's actual src address. Returns null if
-    /// nothing in the output looks like a private LAN IPv4 — caller falls
+    /// nothing in the output looks like a private LAN IPv4 - caller falls
     /// back to the next discovery command, or gives up and defers to the
     /// next watcher tick.
     /// </summary>
@@ -108,7 +108,7 @@ public static class QSeriesTransport
         if (bytes[0] == 172 && bytes[1] >= 16 && bytes[1] <= 31) return true;
         // 192.168.0.0/16
         if (bytes[0] == 192 && bytes[1] == 168) return true;
-        // 100.64.0.0/10 — CGNAT (some ISPs use this for residential WAN,
+        // 100.64.0.0/10 - CGNAT (some ISPs use this for residential WAN,
         // but it can also appear on internal LANs).
         if (bytes[0] == 100 && bytes[1] >= 64 && bytes[1] <= 127) return true;
         return false;

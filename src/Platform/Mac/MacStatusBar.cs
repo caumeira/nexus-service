@@ -118,7 +118,7 @@ internal static class MacStatusBar
         }
     }
 
-    /// <summary>Show or hide the status item. Safe to call from any thread — dispatches to main thread.</summary>
+    /// <summary>Show or hide the status item. Safe to call from any thread - dispatches to main thread.</summary>
     public static void SetVisible(bool visible)
     {
         if (!_initialized || !IsSupported)
@@ -177,7 +177,7 @@ internal static class MacStatusBar
             return;
         try
         {
-            // Prefer [NSApp stop:nil] over CFRunLoopStop — it cleanly exits the NSApp event loop.
+            // Prefer [NSApp stop:nil] over CFRunLoopStop - it cleanly exits the NSApp event loop.
             IntPtr nsApp = MsgSend(_classNSApplication, _selSharedApplication);
             IntPtr selStop = SelRegister("stop:");
             MsgSend(nsApp, selStop, IntPtr.Zero);
@@ -351,7 +351,7 @@ internal static class MacStatusBar
 
         // Load template image: [[NSImage alloc] initWithContentsOfFile:path]
         // Template images on macOS are rendered black (in dark menu bar) or
-        // appropriately masked for light menu bars — adapts automatically.
+        // appropriately masked for light menu bars - adapts automatically.
         if (File.Exists(iconPath))
         {
             IntPtr pathNs = NsString(iconPath);
@@ -474,7 +474,7 @@ internal static class MacStatusBar
     [DllImport(Appkit, EntryPoint = "NSApplicationLoad")]
     private static extern byte NSApplicationLoad();
 
-    // objc_msgSend variants — signature matters for ARM64/x64 calling conventions.
+    // objc_msgSend variants - signature matters for ARM64/x64 calling conventions.
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern IntPtr MsgSend(IntPtr receiver, IntPtr sel);
 
@@ -494,11 +494,11 @@ internal static class MacStatusBar
     [return: MarshalAs(UnmanagedType.I1)]
     private static extern bool MsgSendLong_ret_bool(IntPtr receiver, IntPtr sel, long arg1);
 
-    // performSelectorOnMainThread:withObject:waitUntilDone: — signature is (SEL, id, BOOL)
+    // performSelectorOnMainThread:withObject:waitUntilDone: - signature is (SEL, id, BOOL)
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern void MsgSend_Perform(IntPtr receiver, IntPtr sel, IntPtr selArg, IntPtr withObject, [MarshalAs(UnmanagedType.I1)] bool waitUntilDone);
 
-    // setEventHandler:andSelector:forEventClass:andEventID: — (id, SEL, AEEventClass, AEEventID)
+    // setEventHandler:andSelector:forEventClass:andEventID: - (id, SEL, AEEventClass, AEEventID)
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern void MsgSend_SetEventHandler(IntPtr receiver, IntPtr sel, IntPtr handler, IntPtr handlerSelector, uint eventClass, uint eventID);
 

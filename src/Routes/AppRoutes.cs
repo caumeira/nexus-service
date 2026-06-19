@@ -76,7 +76,7 @@ public static class AppRoutes
             // Instance ids are GUIDs assigned at widget-placement time, so we
             // don't apply the marketplace-id charset whitelist. The service
             // returns an empty doc when the id doesn't resolve to a known
-            // placement — the SPA renders that as "no settings".
+            // placement - the SPA renders that as "no settings".
             return Results.Json(settings.Get(instanceId), AppJsonContext.Default.WidgetSettingsDocument);
         }).AllowPanel();
 
@@ -137,7 +137,7 @@ public static class AppRoutes
                 return Results.Json(new AppDispatchResponse { Ok = false, Error = $"action '{body.Action}' is not registered" },
                     AppJsonContext.Default.AppDispatchResponse, statusCode: 404);
             }
-            // Cap dispatch rate per widget — control actions drive real hardware,
+            // Cap dispatch rate per widget - control actions drive real hardware,
             // so a runaway worker loop must not hammer them.
             if (!limiter.TryAcquire(body.AppId))
             {
@@ -166,7 +166,7 @@ public static class AppRoutes
         }).AllowPanel();
 
         // (The legacy GET /apps-api/installed/{id}/worker.js route was
-        // removed — Tier 2 workers always boot through a per-spawn code
+        // removed - Tier 2 workers always boot through a per-spawn code
         // session URL `/apps-api/code/{sessionId}/worker.js`, so the
         // installed-route variant served only to widen the attack surface.)
 

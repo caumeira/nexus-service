@@ -91,7 +91,7 @@ public sealed class FirmwareFlasher
 #if !DEV_TOOLS
             // Release builds permit upgrades only: the connected variant's latest
             // bundled image. Cross-variant and downgrade / re-flash are dev-tools-
-            // only (brick risk) and gated out of release — see the DEV_TOOLS define.
+            // only (brick risk) and gated out of release - see the DEV_TOOLS define.
             if (deviceType != target.FirmwareType)
             { error = "Cross-variant flashing is not permitted in this build."; return false; }
             if (version != _catalog.GetLatestVersion(deviceType))
@@ -165,7 +165,7 @@ public sealed class FirmwareFlasher
             var readback = await File.ReadAllBytesAsync(readbackPath);
             if (!readback.AsSpan().SequenceEqual(bin))
             {
-                Fail("Verification mismatch — flashed image does not match the source.");
+                Fail("Verification mismatch - flashed image does not match the source.");
                 return;
             }
 
@@ -174,7 +174,7 @@ public sealed class FirmwareFlasher
             flagPath = Path.Combine(Path.GetTempPath(), "nexus-fw-flag.bin");
             await File.WriteAllBytesAsync(flagPath, Enumerable.Repeat((byte)0xFF, 16).ToArray());
             // dfu-util reports a get_status error on :leave (device detaches before
-            // the final status read) — that's expected, so don't treat it as failure.
+            // the final status read) - that's expected, so don't treat it as failure.
             await _dfu.DownloadAsync(flagPath, DfuUtil.BootFlagAddress, leave: true, CancellationToken.None);
 
             Status.Success = true;

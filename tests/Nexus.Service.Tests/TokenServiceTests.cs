@@ -87,7 +87,7 @@ public class TokenServiceTests
 }
 
 /// <summary>
-/// In-memory IConfigStore for unit tests — no disk I/O.
+/// In-memory IConfigStore for unit tests - no disk I/O.
 /// </summary>
 internal sealed class InMemoryConfigStore : IConfigStore
 {

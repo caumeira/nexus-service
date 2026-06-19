@@ -14,13 +14,13 @@ namespace Nexus.Service.Activity;
 /// <summary>
 /// Linux network/IO monitor. The kernel has no per-process network byte counter
 /// without eBPF/cgroups, so the byte totals are approximated from rchar/wchar in
-/// <c>/proc/[pid]/io</c> — but only for processes that actually own a TCP socket
+/// <c>/proc/[pid]/io</c> - but only for processes that actually own a TCP socket
 /// to a non-loopback peer (resolved via <c>/proc/net/tcp{,6}</c> → socket inode →
 /// <c>/proc/[pid]/fd</c>). That keeps disk-bound processes, pure loopback
 /// chatter, and our own PID off the list, mirroring the Windows provider's
 /// "active non-loopback TCP connection" gate (<c>NetstatParser</c>).
 ///
-/// Pure file reads — no subprocesses. Only samples when the "network" or
+/// Pure file reads - no subprocesses. Only samples when the "network" or
 /// "monitoring" WS topics have subscribers.
 /// </summary>
 public sealed class LinuxNetworkProvider : BackgroundService, INetworkProvider
@@ -77,7 +77,7 @@ public sealed class LinuxNetworkProvider : BackgroundService, INetworkProvider
         // Only attribute processes that actually own a non-loopback network
         // socket; /proc/[pid]/io counts ALL syscall I/O (disk + pipe + socket),
         // so without this gate the list is dominated by compilers, browsers
-        // writing cache, and our own SQLite — not network talkers.
+        // writing cache, and our own SQLite - not network talkers.
         var active = ActiveNetworkPids();
         active.Remove(OwnPid);
         if (active.Count == 0)
@@ -168,7 +168,7 @@ public sealed class LinuxNetworkProvider : BackgroundService, INetworkProvider
                     }
                 }
             }
-            catch { /* pid vanished or fd dir unreadable — skip */ }
+            catch { /* pid vanished or fd dir unreadable - skip */ }
         }
         return pids;
     }
@@ -186,7 +186,7 @@ public sealed class LinuxNetworkProvider : BackgroundService, INetworkProvider
             {
                 continue;
             }
-            if (f[3] == "0A") // TCP LISTEN — not an active conversation
+            if (f[3] == "0A") // TCP LISTEN - not an active conversation
             {
                 continue;
             }
@@ -203,7 +203,7 @@ public sealed class LinuxNetworkProvider : BackgroundService, INetworkProvider
 
     /// <summary>
     /// True if a /proc/net rem_address hex ("0100007F:0050" v4, 32-hex v6) is a
-    /// real peer — non-zero and not loopback (127.0.0.0/8 or ::1). IPv4 is
+    /// real peer - non-zero and not loopback (127.0.0.0/8 or ::1). IPv4 is
     /// little-endian, so 127.x shows as a trailing "7F".
     /// </summary>
     internal static bool IsRemoteRoutable(string remHex)

@@ -12,7 +12,7 @@ namespace Nexus.Service.Sensors;
 
 /// <summary>
 /// Builds a one-line-per-field <see cref="SystemSpecsResponse"/> describing the
-/// PC for the Devices → System Specs tab. The values are display strings —
+/// PC for the Devices → System Specs tab. The values are display strings -
 /// callers paste them straight into the UI or a shared rig summary.
 ///
 /// Reads from <see cref="ISensorProvider"/> for the LHM-resident basics
@@ -50,7 +50,7 @@ public sealed class SystemSpecsCollector
         var snapshot = _cached;
         if (snapshot is not null) return snapshot;
 
-        // Wait outside the lock — `ReadyAsync` for the Windows provider is a
+        // Wait outside the lock - `ReadyAsync` for the Windows provider is a
         // background `Computer.Open` task that can take seconds; holding the
         // lock would serialise unrelated concurrent callers behind it.
         await _sensors.ReadyAsync(ct).ConfigureAwait(false);
@@ -81,7 +81,7 @@ public sealed class SystemSpecsCollector
             EnrichMac(s);
 
         // Storage fallback for paths the platform-specific enrichment didn't
-        // fill in (today: macOS — Windows always populates Storage via the
+        // fill in (today: macOS - Windows always populates Storage via the
         // single PS script below).
         if (string.IsNullOrWhiteSpace(s.Storage))
         {
@@ -277,7 +277,7 @@ $net = @(Get-NetAdapter -Physical | Select-Object InterfaceDescription,LinkSpeed
         }
 
         // Walk the video controllers and pick the first row with non-zero
-        // current resolution — laptops with dGPU+iGPU report both, only one
+        // current resolution - laptops with dGPU+iGPU report both, only one
         // is actually driving pixels.
         string resolution = "";
         foreach (var row in video?.AsArray()?.OfType<JsonObject>() ?? Enumerable.Empty<JsonObject>())
@@ -431,7 +431,7 @@ $net = @(Get-NetAdapter -Physical | Select-Object InterfaceDescription,LinkSpeed
         try { return n.GetValue<string>() ?? ""; }
         catch
         {
-            // Numeric or bool nodes — fall back to the JSON literal.
+            // Numeric or bool nodes - fall back to the JSON literal.
             try { return n.ToJsonString().Trim('"'); }
             catch { return ""; }
         }

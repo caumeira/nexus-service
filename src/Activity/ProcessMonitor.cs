@@ -66,7 +66,7 @@ public sealed class ProcessMonitor : BackgroundService
 #if MACOS
     /// <summary>
     /// macOS: proc_pidinfo gives per-process CPU time and RSS via direct
-    /// kernel syscalls — no subprocess spawn. Delta-based CPU% normalized
+    /// kernel syscalls - no subprocess spawn. Delta-based CPU% normalized
     /// by elapsed time and core count, same approach as the Windows path.
     /// </summary>
     private void SampleMacOs()

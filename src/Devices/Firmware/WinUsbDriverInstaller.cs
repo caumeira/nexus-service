@@ -11,9 +11,9 @@ namespace Nexus.Service.Devices.Firmware;
 /// Installs the WinUSB driver bound to the DFU bootloader (VID 3402/PID 0A00)
 /// so dfu-util can open the device once it re-enumerates into DFU mode. Runs
 /// <c>pnputil /add-driver &lt;inf&gt; /install</c> against the bundled, signed
-/// <c>dfu-driver/DFU_Bootloader.inf</c>. Idempotent — re-adding an already
+/// <c>dfu-driver/DFU_Bootloader.inf</c>. Idempotent - re-adding an already
 /// staged driver is a no-op. Windows-only; a no-op elsewhere (Linux uses a
-/// udev rule, macOS needs nothing — both deferred).
+/// udev rule, macOS needs nothing - both deferred).
 /// </summary>
 public sealed class WinUsbDriverInstaller
 {
@@ -59,7 +59,7 @@ public sealed class WinUsbDriverInstaller
             await proc.WaitForExitAsync(timeoutCts.Token).ConfigureAwait(false);
 
             // pnputil exit codes: 0 = added, 259 (ERROR_NO_MORE_ITEMS) / 3010
-            // (reboot) are also treated as success — a previously-staged driver
+            // (reboot) are also treated as success - a previously-staged driver
             // still binds.
             Console.Error.WriteLine($"[winusb] pnputil exit={proc.ExitCode}: {stdout.Trim()} {stderr.Trim()}");
             _installedThisSession = proc.ExitCode is 0 or 259 or 3010

@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Nexus.Service.Tests.SmartLights;
 
-/// <summary>Byte-vector tests pinning the razer/DreamView wire format — the
+/// <summary>Byte-vector tests pinning the razer/DreamView wire format - the
 /// known-good reference packets the hardware accepts.</summary>
 public class GoveePacketsTests
 {

@@ -4,14 +4,14 @@ namespace Nexus.Service.Peripherals.Hyte.Y70Display;
 
 /// <summary>
 /// Pure builders + parsers for the HYTE Y70 Touch display's STM32 controller
-/// serial protocol — the controller that the bundled <c>y70*/*.hex</c> images
+/// serial protocol - the controller that the bundled <c>y70*/*.hex</c> images
 /// flash. Ported from HYTE's nexus-control-service <c>Y70TouchStm32Commander</c>.
 ///
 /// The Y70 shares the "smart hub" command family with the Q-series/MiniHub, so
 /// the firmware-version request is byte-identical (0xFF 0xDD 0x02); the only
 /// difference is the Y70 returns a 13-byte response (vs 7), with the version
 /// still in bytes [3..6]. Display brightness / on-off use a separate 0xFF 0xCC
-/// command set on the serial models (Touch / Infinite) — built below — and
+/// command set on the serial models (Touch / Infinite) - built below - and
 /// DDC/CI VCP codes on the DDC models (Truly / GW), driven through the
 /// platform display-brightness provider.
 /// </summary>
@@ -74,7 +74,7 @@ public static class Y70DisplayProtocol
 
     /// <summary>
     /// The Y70 controller answers the version query with a 7-byte frame
-    /// (FF DD 02 maj min build hw) — bench-confirmed on a Y70 Touch Infinite
+    /// (FF DD 02 maj min build hw) - bench-confirmed on a Y70 Touch Infinite
     /// (2026-05-27). HYTE's legacy commander over-allocates a 13-byte read
     /// buffer, but the device only sends 7; the version is in bytes [3..6].
     /// </summary>

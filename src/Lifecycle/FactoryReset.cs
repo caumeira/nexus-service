@@ -11,25 +11,25 @@ namespace Nexus.Service.Lifecycle;
 /// Factory reset: wipe every Nexus data directory and restart the service from
 /// a clean slate. Runs in two halves so no live file handle blocks the wipe:
 ///
-///   1. <see cref="Begin"/> — called inside the running service from
+///   1. <see cref="Begin"/> - called inside the running service from
 ///      POST /service/factory-reset. Spawns a detached copy of this binary as
 ///      <c>--factory-reset-finalize &lt;pid&gt;</c>; the caller then stops the
 ///      service (StopApplication).
-///   2. <see cref="Finalize"/> — the detached child. Waits for the old process
+///   2. <see cref="Finalize"/> - the detached child. Waits for the old process
 ///      to exit (so Windows file locks are released), deletes the data roots,
 ///      then restarts the service via the platform service manager
 ///      (sc / launchctl / systemctl), falling back to re-exec of the binary.
 ///
 /// The child is spawned by the live service, so it inherits the service's
-/// identity and environment — including the user-session HOME/XDG_* the Linux
-/// daemon adopts at startup — which is exactly why its path resolution lands on
+/// identity and environment - including the user-session HOME/XDG_* the Linux
+/// daemon adopts at startup - which is exactly why its path resolution lands on
 /// the same directories the individual stores wrote to.
 ///
 /// The install/binary dir is never listed: it holds the running exe plus the
 /// bundled widgets and firmware. On Windows the PawnIO kernel-driver subfolder
 /// is preserved (it is re-extracted on boot anyway; no need to churn a loaded
 /// driver). The local HTTPS cert IS wiped, so the service mints a fresh one on
-/// next boot — a true clean-slate identity.
+/// next boot - a true clean-slate identity.
 /// </summary>
 internal static class FactoryReset
 {
@@ -272,7 +272,7 @@ internal static class FactoryReset
     private static void RestartService()
     {
 #if WINDOWS
-        // SCM owns the daemon. StopApplication left it STOPPED — a clean stop,
+        // SCM owns the daemon. StopApplication left it STOPPED - a clean stop,
         // not a failure, so the sc.exe recovery policy didn't fire. Start it
         // again, retrying while SCM transitions out of STOP_PENDING.
         for (var i = 0; i < 10; i++)

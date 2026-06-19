@@ -3,7 +3,7 @@ namespace Nexus.Service.Peripherals.Hyte.SmartHub;
 /// <summary>
 /// Top-level snapshot of a HYTE Smart Hub. The hub has four ARGB ports and
 /// four PWM-fan ports. The firmware does NOT enumerate how many LEDs are
-/// wired to each ARGB port (same as the MiniHub) — the user declares the
+/// wired to each ARGB port (same as the MiniHub) - the user declares the
 /// per-port LED count, which we persist in <c>settings.Devices.ZoneLedCounts</c>
 /// and surface as resizable lighting zones. The PWM ports DO report a tach
 /// reading + an enabled flag, which the heartbeat refreshes each tick.
@@ -51,7 +51,7 @@ public sealed class SmartHubLedZone
     public int LedCount { get; set; }
 }
 
-/// <summary>One Smart Hub PWM-fan port — live tach + last-commanded duty + firmware-reported enabled flag.</summary>
+/// <summary>One Smart Hub PWM-fan port - live tach + last-commanded duty + firmware-reported enabled flag.</summary>
 public sealed class SmartHubFanChannel
 {
     /// <summary>Wire channel index (0..3).</summary>
@@ -65,13 +65,13 @@ public sealed class SmartHubFanChannel
 
     /// <summary>
     /// Firmware-reported "port output enabled" flag from the last poll.
-    /// Bookkeeping only — fw 1.0.0.1 reports 0x01 for every port regardless
+    /// Bookkeeping only - fw 1.0.0.1 reports 0x01 for every port regardless
     /// of fan presence, so this must NOT drive presence.
     /// </summary>
     public bool Enabled { get; set; }
 
     /// <summary>
-    /// Latched true once the port shows a live tach this connection — the only
+    /// Latched true once the port shows a live tach this connection - the only
     /// real presence signal this firmware gives. Keeps a fan the user parks at
     /// 0% from vanishing off the cooling page. Cleared on disconnect.
     /// </summary>

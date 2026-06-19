@@ -6,15 +6,15 @@ namespace Nexus.Service.Lifecycle;
 /// <summary>
 /// Windows-only PawnIO driver detection. Checks two things:
 ///
-/// 1. IsInstalled — checks the kernel service registry key at
+/// 1. IsInstalled - checks the kernel service registry key at
 ///    HKLM\SYSTEM\CurrentControlSet\Services\PawnIO. Returns true if the
 ///    PawnIO kernel driver service is registered (regardless of whether
 ///    it was installed by us via PawnIoInstaller or by the user via
 ///    PawnIO_setup.exe). Uses Microsoft.Win32.Registry which is AOT-safe.
 ///
-/// 2. IsOpen — tries to open the PawnIO kernel device handle at
+/// 2. IsOpen - tries to open the PawnIO kernel device handle at
 ///    \\?\GLOBALROOT\Device\PawnIO. If the handle succeeds, the driver
-///    is loaded and running. The handle is closed immediately — we don't
+///    is loaded and running. The handle is closed immediately - we don't
 ///    keep it open because sensor reading goes through LibreHardwareMonitor.
 ///
 /// On non-Windows platforms both properties return false.

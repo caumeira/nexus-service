@@ -8,7 +8,7 @@ namespace Nexus.Service.Tests;
 /// In-memory-ish <see cref="IConfigStore"/> test double: an immediate
 /// (non-debounced) file-backed store used as a dependency by tests that just
 /// need a working config store (lighting, fan profiles). It is NOT a stand-in
-/// for testing JsonConfigStore itself — that is covered against the real store
+/// for testing JsonConfigStore itself - that is covered against the real store
 /// by JsonConfigStoreDebounceTests, JsonConfigStoreCorruptLoadTests, and
 /// ConfigRoundTripIntegrationTests.
 /// </summary>

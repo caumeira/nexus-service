@@ -36,7 +36,7 @@ public static class AuthErrorResponse
         ctx.Response.ContentType = "application/json";
         // JsonEncodedText escapes quotes/backslashes/control chars so the body
         // stays well-formed regardless of what `code` contains (defense in depth
-        // — today every caller passes a hardcoded literal).
+        // - today every caller passes a hardcoded literal).
         var safeCode = System.Text.Json.JsonEncodedText.Encode(code);
         await ctx.Response.WriteAsync($"{{\"error\":true,\"msg\":\"{safeCode}\"}}");
     }

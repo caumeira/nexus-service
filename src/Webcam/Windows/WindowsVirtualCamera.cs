@@ -55,7 +55,7 @@ public sealed class WindowsVirtualCamera : IVirtualCamera
             StopLocked();
 
             // First time the user enables the webcam on this PC, grant the
-            // machine-wide desktop-camera consent — but DON'T create the camera
+            // machine-wide desktop-camera consent - but DON'T create the camera
             // on this pass. The Camera Frame Server reads that consent once at
             // its own process start and caches it, so a create right after the
             // grant still blocks on a prompt SYSTEM can't answer. Restart the
@@ -122,7 +122,7 @@ public sealed class WindowsVirtualCamera : IVirtualCamera
 
     // Bounce the Windows Camera Frame Server so it re-reads camera consent that
     // was just granted (it caches the value at process start). It's a Manual,
-    // trigger-started service, so killing its host is enough — the next camera
+    // trigger-started service, so killing its host is enough - the next camera
     // activation restarts it fresh. Best-effort.
     private static void RestartFrameServer()
     {

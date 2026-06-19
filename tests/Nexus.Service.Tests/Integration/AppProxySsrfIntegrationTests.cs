@@ -13,7 +13,7 @@ namespace Nexus.Service.Tests.Integration;
 /// <summary>
 /// One host whose AppRegistry is backed by a temp fixture bundle whose
 /// manifest <c>net.fetch</c> allowlist deliberately permits private / reserved
-/// hosts — the "malicious signed manifest" SSRF threat. Drives the real
+/// hosts - the "malicious signed manifest" SSRF threat. Drives the real
 /// <c>POST /apps-api/proxy</c>; the proxy must refuse, proving the
 /// IsPrivateOrReservedAddress guard overrides the manifest allowlist.
 /// </summary>
@@ -30,7 +30,7 @@ public sealed class SsrfAppFactory : NexusAppFactory
         Directory.CreateDirectory(bundle);
 
         // Derive the allowlist from each probe URL's Uri.Host so the allowlist
-        // match never fails for the wrong reason — every request reaches the
+        // match never fails for the wrong reason - every request reaches the
         // SSRF guard.
         var hosts = new[]
         {
@@ -121,7 +121,7 @@ public sealed class AppProxySsrfIntegrationTests : IClassFixture<SsrfAppFactory>
     [Fact]
     public async Task Proxy_rejects_host_outside_manifest_allowlist()
     {
-        // Public host that is NOT allowlisted — rejected before the SSRF check.
+        // Public host that is NOT allowlisted - rejected before the SSRF check.
         var json = await ProxyError(SsrfAppFactory.AppId, "https://example.org/");
 
         Assert.Contains("allowlist", json);

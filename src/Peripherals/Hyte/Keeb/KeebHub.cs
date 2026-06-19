@@ -13,7 +13,7 @@ namespace Nexus.Service.Peripherals.Hyte.Keeb;
 /// (<see cref="IHidEnumerator"/> / <see cref="IHidDevice"/>): feature reports
 /// arm a stream/settings write and 65-byte output reports carry the pages.
 ///
-/// We drive the keyboard directly instead of via OpenRGB — the bundled
+/// We drive the keyboard directly instead of via OpenRGB - the bundled
 /// openrgb-headless has its "HYTE Keeb TKL" detector disabled
 /// (<see cref="Rgb.OpenRgbProcessManager"/>) so nothing else holds the
 /// interface. Hot-plug is self-healing: each <see cref="EnsureConnected"/>
@@ -393,7 +393,7 @@ public sealed class KeebHub : IDisposable
         var n = ++_consecutiveWriteFailures;
         if (n >= ConsecutiveWriteFailureThreshold)
         {
-            ServiceLog.Error($"[keeb] {n} consecutive write failures ({where}) — dropping interface");
+            ServiceLog.Error($"[keeb] {n} consecutive write failures ({where}) - dropping interface");
             _consecutiveWriteFailures = 0;
             try { _device?.Dispose(); } catch { /* best effort */ }
             _device = null;
@@ -403,7 +403,7 @@ public sealed class KeebHub : IDisposable
 
     private static string StableIdFromPath(string path)
     {
-        // No serial reported — derive a stable short id from the device path
+        // No serial reported - derive a stable short id from the device path
         // so the device id survives reconnects of the same physical port.
         unchecked
         {

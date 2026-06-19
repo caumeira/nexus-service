@@ -7,7 +7,7 @@ namespace Nexus.Service.Telemetry;
 /// <summary>
 /// A destination for a batch of telemetry events. PostHog is the only sink
 /// today; a future first-party sink (own /telemetry/event → Postgres) plugs in
-/// here — register it in DI and it receives the same batches, with zero
+/// here - register it in DI and it receives the same batches, with zero
 /// call-site changes.
 /// </summary>
 internal interface ITelemetrySink
