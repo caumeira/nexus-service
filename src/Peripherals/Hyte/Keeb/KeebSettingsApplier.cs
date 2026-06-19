@@ -1,5 +1,4 @@
 using System;
-using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Sockets;
@@ -16,37 +15,37 @@ namespace Nexus.Service.Peripherals.Hyte.Keeb;
 ///     firmware animation, which streaming had suppressed).
 /// Desired-state model: we always write the COMPLETE state from settings.json.
 /// The one exception is device-initiated changes the host can't otherwise see -
-/// the firmware-mode rotary cycles the effect and moves the brightness byte
-/// without a host callback - which <see cref="SyncFromDevice"/> reads back.
-/// FirmwareLighting.Brightness dims only the firmware animation (the byte). The
-/// knob therefore drives the firmware animation brightness when it is showing,
-/// and the system-wide GlobalBrightness while a software effect streams (the
-/// firmware byte is irrelevant to the stream then) - so turning the knob always
-/// changes what is actually visible without the firmware level fighting the stream.
+/// the firmware rotary cycles the effect and moves the brightness byte without a
+/// host callback - which <see cref="SyncFromDevice"/> reads back.
+/// FirmwareLighting.Brightness dims only the firmware animation (the byte), so
+/// when the firmware animation is showing the knob drives it directly. While a
+/// software effect streams the firmware animation is suppressed; the knob's byte
+/// DELTA then nudges system-wide GlobalBrightness via <see cref="NudgeGlobalFromKnob"/>
+/// (a relative encoder), without mirroring the absolute byte onto global.
 /// </summary>
 public sealed class KeebSettingsApplier
 {
     private readonly KeebHub _hub;
     private readonly IConfigStore _store;
     private readonly MultiplexHub _panel;
-    private readonly LightingEngine _engine;
     // Serializes a host settings write (store mutate + byte write) against the
     // device read-back, so the poll can't read a pre-write byte and clobber the
     // value a Settings-slider write just stored before its byte reaches the device.
     private readonly object _gate = new();
     // Last device bytes SyncFromDevice saw. It adopts a byte only when it changes,
-    // so a redundant read can't re-apply the same value and bounce the brightness,
-    // and a host-set master we deliberately didn't write to the device (streaming)
-    // isn't reverted by reading the unchanged knob byte back. Touched only under _gate.
+    // so a redundant read can't re-apply the same value and bounce the brightness.
+    // Touched only under _gate.
     private int _lastBrightByte = -1;
     private int _lastAnimByte = -1;
+    // Reference brightness percent for the streaming knob delta (NudgeGlobalFromKnob);
+    // -1 until ResetKnobBaseline + the first read establish it. Touched under _gate.
+    private int _lastKnobPct = -1;
 
-    public KeebSettingsApplier(KeebHub hub, IConfigStore store, MultiplexHub panel, LightingEngine engine)
+    public KeebSettingsApplier(KeebHub hub, IConfigStore store, MultiplexHub panel)
     {
         _hub = hub;
         _store = store;
         _panel = panel;
-        _engine = engine;
     }
 
     /// <summary>Build the page from current settings and write it. No-op (false) when disconnected.</summary>
@@ -55,18 +54,59 @@ public sealed class KeebSettingsApplier
         if (!_hub.IsConnected) return false;
         try
         {
-            // Rotary goes to software mode while a software effect streams, so the
-            // brightness knob drives global brightness via host events instead of the
-            // firmware acting on it (which flashed the firmware animation through the
-            // stream). Firmware mode otherwise, so the knob/volume work natively.
-            var softwareRotary = _engine.CurrentEffectName != "none";
-            var page = KeebSettingsCodec.BuildSettingsPage(_store.Load().Keeb, softwareRotary);
+            var page = KeebSettingsCodec.BuildSettingsPage(_store.Load().Keeb);
             return _hub.WriteSettings(page);
         }
         catch (Exception ex)
         {
             ServiceLog.Error($"[keeb] apply settings failed: {ex.GetType().Name}: {ex.Message}");
             return false;
+        }
+    }
+
+    /// <summary>
+    /// Reset the knob delta baseline. The frame writer calls this when a software
+    /// effect starts streaming, so the first <see cref="NudgeGlobalFromKnob"/> after
+    /// that establishes the reference byte rather than applying a spurious jump.
+    /// </summary>
+    public void ResetKnobBaseline()
+    {
+        lock (_gate) { _lastKnobPct = -1; }
+    }
+
+    /// <summary>
+    /// While a software effect streams, read the firmware brightness byte and apply
+    /// its CHANGE since the last read to the system-wide GlobalBrightness - the knob
+    /// nudges the software master up/down like a relative encoder. The absolute byte
+    /// is never mirrored onto global (that made the firmware value and global fight to
+    /// match, which bounced); only the delta moves. The firmware byte saturates at
+    /// 0/100, so a knob pinned at an extreme stops producing delta until reversed.
+    /// </summary>
+    public void NudgeGlobalFromKnob()
+    {
+        if (!_hub.IsConnected) return;
+        float? applied = null;
+        lock (_gate)
+        {
+            var raw = _hub.ReadSettings();
+            if (raw is null) return;
+            var brightIndex = (OperatingSystem.IsWindows() ? 3 : 2) + 1;
+            if (raw.Length <= brightIndex) return;
+            var pct = KeebSettingsCodec.BrightnessPercentFromByte(raw[brightIndex]);
+            if (_lastKnobPct < 0) { _lastKnobPct = pct; return; }
+            var delta = pct - _lastKnobPct;
+            _lastKnobPct = pct;
+            if (delta == 0) return;
+            _store.Update(s =>
+            {
+                applied = Math.Clamp(s.Lighting.GlobalBrightness + delta / 100f, 0f, 1f);
+                s.Lighting.GlobalBrightness = applied.Value;
+            });
+        }
+        if (applied is not null)
+        {
+            ServiceLog.Info($"[keeb] knob delta -> global {(int)(applied * 100)}%");
+            PanelTopics.BroadcastLighting(_panel);
         }
     }
 
@@ -129,10 +169,10 @@ public sealed class KeebSettingsApplier
 
             effect = KeebSettingsCodec.AnimationModeName((byte)animByte);
             brightness = KeebSettingsCodec.BrightnessPercentFromByte((byte)brightByte);
-            // Only reached in firmware rotary mode (no software effect): the byte is
-            // the firmware animation brightness. While streaming the rotary is in
-            // software mode, so the knob sends events (KeebInputWorker) and the byte
-            // doesn't move - the connection worker doesn't poll then either.
+            // The byte is the firmware animation brightness; adopt it as the keeb
+            // master. The connection worker only calls this with no software effect
+            // (the firmware animation showing); while streaming the frame writer reads
+            // the byte instead, as a delta onto global - see NudgeGlobalFromKnob.
             _store.Update(s =>
             {
                 if (animChanged && effect is not null

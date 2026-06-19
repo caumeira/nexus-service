@@ -128,12 +128,4 @@ public class KeebSettingsCodecTests
             Assert.Equal(pct, KeebSettingsCodec.BrightnessPercentFromByte(page[4]));
         }
     }
-
-    [Fact]
-    public void BuildSettingsPage_rotary_mode_byte_follows_software_flag()
-    {
-        var s = new KeebSettings();
-        Assert.Equal(KeebSettingsCodec.RotaryModeFirmware, KeebSettingsCodec.BuildSettingsPage(s)[36]);
-        Assert.Equal(KeebSettingsCodec.RotaryModeSoftware, KeebSettingsCodec.BuildSettingsPage(s, softwareRotary: true)[36]);
-    }
 }

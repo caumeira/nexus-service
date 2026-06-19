@@ -2,11 +2,8 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Nexus.Service.Activity;
 using Nexus.Service.Peripherals.Hid;
-using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
-using Nexus.Service.Sockets;
 
 namespace Nexus.Service.Peripherals.Hyte.Keeb;
 
@@ -23,29 +20,17 @@ public sealed class KeebInputWorker : BackgroundService
 {
     private const int ReadTimeoutMs = 200;
     private const int RetryDelayMs = 1000;
-    // Per-detent step while the rotary is host-driven (software mode, i.e. a software
-    // effect is streaming). Brightness is the keeb master onto global; volume mirrors
-    // a media-key tap. Tunable to match the firmware's native feel.
-    private const float GlobalStep = 0.04f;
-    private const double VolumeStep = 0.02;
 
     private readonly IHidEnumerator _hid;
     private readonly KeebHub _hub;
     private readonly KeebSettingsApplier _applier;
-    private readonly IConfigStore _store;
-    private readonly IVolumeProvider _volume;
-    private readonly MultiplexHub _panel;
     private IHidDevice? _reader;
 
-    public KeebInputWorker(IHidEnumerator hid, KeebHub hub, KeebSettingsApplier applier,
-        IConfigStore store, IVolumeProvider volume, MultiplexHub panel)
+    public KeebInputWorker(IHidEnumerator hid, KeebHub hub, KeebSettingsApplier applier)
     {
         _hid = hid;
         _hub = hub;
         _applier = applier;
-        _store = store;
-        _volume = volume;
-        _panel = panel;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -109,7 +94,7 @@ public sealed class KeebInputWorker : BackgroundService
                 break;
             case KeebProtocol.KeebInputKind.ScrollUp:
             case KeebProtocol.KeebInputKind.ScrollDown:
-                HandleRotary(ev);
+                ServiceLog.Info($"[keeb-input] {ev.Encoder} encoder {ev.Kind}");
                 break;
             case KeebProtocol.KeebInputKind.ScrollMiddle:
                 // The middle button cycles the firmware effect on the device.
@@ -124,39 +109,6 @@ public sealed class KeebInputWorker : BackgroundService
             case KeebProtocol.KeebInputKind.Profile:
                 ServiceLog.Info($"[keeb-input] profile -> {ev.Profile}");
                 break;
-        }
-    }
-
-    /// <summary>
-    /// Rotary turn-events fire only while the keeb is in software mode (a software
-    /// effect is streaming; see <see cref="KeebSettingsApplier.Apply"/>). The
-    /// brightness encoder drives global brightness, the volume encoder mirrors a
-    /// media-key volume tap. Mapping follows each encoder's configured function so a
-    /// reassigned encoder still behaves; other functions are inert while streaming.
-    /// </summary>
-    private void HandleRotary(KeebProtocol.KeebInputEvent ev)
-    {
-        var up = ev.Kind == KeebProtocol.KeebInputKind.ScrollUp;
-        var settings = _store.Load();
-        var fn = (ev.Encoder == KeebProtocol.KeebEncoder.Left ? settings.Keeb.RotaryLeft : settings.Keeb.RotaryRight) ?? "";
-        if (fn.Equals("BrightnessAdjustment", StringComparison.OrdinalIgnoreCase))
-        {
-            var next = 0f;
-            _store.Update(s =>
-            {
-                next = Math.Clamp(s.Lighting.GlobalBrightness + (up ? GlobalStep : -GlobalStep), 0f, 1f);
-                s.Lighting.GlobalBrightness = next;
-            });
-            PanelTopics.BroadcastLighting(_panel);
-            ServiceLog.Info($"[keeb-input] knob -> global {(int)(next * 100)}%");
-        }
-        else if (fn.Equals("VolumeAdjustment", StringComparison.OrdinalIgnoreCase))
-        {
-            var st = _volume.GetState();
-            if (!st.Supported) return;
-            var v = Math.Clamp(st.Volume + (up ? VolumeStep : -VolumeStep), 0.0, 1.0);
-            _volume.SetVolume(v);
-            PanelTopics.BroadcastVolume(_panel);
         }
     }
 

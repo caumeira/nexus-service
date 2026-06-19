@@ -120,12 +120,9 @@ public static class KeebSettingsCodec
 
     /// <summary>
     /// Build the 65-byte settings page (byte 0 = report id 0x00) for the 0x06
-    /// write from the persisted desired state. <paramref name="softwareRotary"/>
-    /// puts the rotary in software mode so the encoders send turn-events to the
-    /// host instead of the firmware acting on them - used while a software effect
-    /// streams, so the brightness knob never touches the firmware animation.
+    /// write from the persisted desired state.
     /// </summary>
-    public static byte[] BuildSettingsPage(KeebSettings s, bool softwareRotary = false)
+    public static byte[] BuildSettingsPage(KeebSettings s)
     {
         ArgumentNullException.ThrowIfNull(s);
         var page = new byte[KeebLayout.PageSize]; // 65; [0] = report id 0x00
@@ -164,12 +161,9 @@ public static class KeebSettingsCodec
             page[14 + i * 3] = c.B;
         }
 
-        // Rotary mode byte. Firmware mode: the firmware acts on volume/brightness/etc.
-        // natively (no host event). Software mode: the encoders send EP2 turn-events
-        // to the host (KeebInputWorker), which drives global brightness / volume - so
-        // the brightness knob can dim a live software effect without the firmware
-        // animation flashing through it. Right encoder at 37..40, left at 41..44.
-        page[36] = softwareRotary ? RotaryModeSoftware : RotaryModeFirmware;
+        // Firmware mode: the firmware acts on volume/brightness/etc. natively. Right
+        // encoder at 37..40, left at 41..44 (legacy ScrollWheel byte order).
+        page[36] = RotaryModeFirmware;
         WriteRotaryCode(page, 37, s.RotaryRight);
         WriteRotaryCode(page, 41, s.RotaryLeft);
 

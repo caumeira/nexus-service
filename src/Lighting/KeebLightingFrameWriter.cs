@@ -21,6 +21,7 @@ namespace Nexus.Service.Lighting;
 public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 {
     private const int TickPeriodMs = 33; // 30 Hz, matches the engine + NP50 writer.
+    private const int KnobReadEveryTicks = 4; // ~130 ms knob poll while streaming.
 
     private readonly LightingEngine _engine;
     private readonly KeebHub _hub;
@@ -30,6 +31,7 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private bool _wasStreaming;
+    private int _knobPollTicks;
 
     private RgbColor[][] _segmentBuffers = Array.Empty<RgbColor[]>();
 
@@ -92,8 +94,8 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         {
             if (_wasStreaming)
             {
-                // Stream stopped: re-assert the firmware settings, which also flips
-                // the rotary back to firmware mode (Apply reads CurrentEffectName).
+                // Stream stopped: re-assert the firmware settings so the firmware
+                // animation (which streaming suppressed) shows again.
                 _wasStreaming = false;
                 _applier.Apply();
             }
@@ -101,11 +103,18 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         }
         if (!_wasStreaming)
         {
-            // Stream started: write the settings page so the rotary goes to software
-            // mode - the brightness knob now sends turn-events (handled by
-            // KeebInputWorker) instead of the firmware acting on it over the stream.
+            // Stream started: baseline the knob so its delta nudges global from here.
             _wasStreaming = true;
-            _applier.Apply();
+            _applier.ResetKnobBaseline();
+        }
+
+        // Read the brightness byte every Nth tick and apply its CHANGE to global
+        // brightness - the knob acts as a relative dimmer over the stream. The read
+        // fits the 33 ms tick budget so it drops no frames.
+        if (++_knobPollTicks >= KnobReadEveryTicks)
+        {
+            _knobPollTicks = 0;
+            _applier.NudgeGlobalFromKnob();
         }
 
         var devices = _engine.Devices;
