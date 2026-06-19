@@ -19,9 +19,9 @@ namespace Nexus.Service.Peripherals.Hyte.Keeb;
 /// host callback - which <see cref="SyncFromDevice"/> reads back.
 /// FirmwareLighting.Brightness dims only the firmware animation (the byte), so
 /// when the firmware animation is showing the knob drives it directly. While a
-/// software effect streams the firmware animation is suppressed; the knob's byte
-/// DELTA then nudges system-wide GlobalBrightness via <see cref="TrackKnobAndEaseGlobal"/>
-/// (a relative encoder, eased), without mirroring the absolute byte onto global.
+/// software effect streams the firmware animation is suppressed; the knob then steps
+/// system-wide GlobalBrightness up/down via <see cref="TrackKnobAndEaseGlobal"/> - a
+/// relative up/down control with its own level, eased, never mirroring the byte position.
 /// </summary>
 public sealed class KeebSettingsApplier
 {
@@ -37,12 +37,15 @@ public sealed class KeebSettingsApplier
     // Touched only under _gate.
     private int _lastBrightByte = -1;
     private int _lastAnimByte = -1;
-    // Streaming knob -> global state, all under _gate. The knob's byte DELTA accumulates
-    // into _knobTargetGlobal; the stored global eases toward it each tick so the dimming
-    // glides instead of stepping with the coarse poll, and a single misread is low-passed
-    // rather than snapping global. Easing runs only for a window after the last move, so
-    // it doesn't fight the lighting-page slider once the knob is idle.
-    private const int KnobGlitchMaxPct = 25;     // a delta this big in one poll is a misread
+    // Streaming knob -> global state, all under _gate. The firmware knob is a rotary
+    // encoder; the host only sees its 0-100 brightness byte, which pins at the ends. So
+    // _knobTargetGlobal is the software's OWN level - it does NOT mirror the byte. Each
+    // poll the byte moved steps it up/down by KnobStep, like an up/down key, so the level's
+    // range is independent of where the byte sits (no start-position cap). The stored global
+    // eases toward it so the dimming glides. A knob spun past the firmware's extreme pins the
+    // byte and stops registering until reversed - the direction we can't read in firmware mode.
+    private const int KnobGlitchMaxPct = 35;     // a single-poll jump this big is a misread
+    private const float KnobStep = 0.04f;        // level step per poll the byte moved
     private const float KnobEaseFactor = 0.3f;   // per-tick fraction of the gap to the target
     private const int KnobEaseActiveTicks = 20;  // keep easing this many ticks past the last move
     private const int KnobBroadcastEveryTicks = 3;
@@ -75,9 +78,9 @@ public sealed class KeebSettingsApplier
     }
 
     /// <summary>
-    /// Re-reference the knob delta and seed the ease target from the current global.
-    /// The frame writer calls this when a software effect starts streaming, so the
-    /// first read establishes the baseline rather than applying a spurious jump.
+    /// Seed the software level from the current global so the knob steps continue from
+    /// wherever the brightness already is (no jump), and re-reference the byte. The frame
+    /// writer calls this when a software effect starts streaming.
     /// </summary>
     public void ResetKnobBaseline()
     {
@@ -91,13 +94,13 @@ public sealed class KeebSettingsApplier
 
     /// <summary>
     /// Per-frame-tick knob -> global while a software effect streams. On <paramref
-    /// name="readByte"/> ticks it reads the firmware brightness byte and accumulates its
-    /// CHANGE since the last read into a target (the knob is a relative encoder; the
-    /// absolute byte is never mirrored onto global). Every tick it eases the stored
-    /// global toward that target, so the dimming glides instead of stepping with the
-    /// coarse poll and a single misread is low-passed rather than snapping global.
-    /// The firmware byte saturates at 0/100, so a knob pinned at an extreme stops
-    /// producing delta until reversed.
+    /// name="readByte"/> ticks it reads the firmware brightness byte and, when it moved,
+    /// steps the software's own level (_knobTargetGlobal) up or down by KnobStep - a
+    /// relative up/down control, never mirrored onto the byte's position, so the byte's
+    /// start point and end-stops don't cap the reachable range. Every tick the stored
+    /// global eases toward that level, so the dimming glides instead of stepping. A lone
+    /// implausible jump is skipped as a misread. The firmware byte pins at 0/100, so
+    /// turning past the firmware's extreme stops registering until reversed.
     /// </summary>
     public void TrackKnobAndEaseGlobal(bool readByte)
     {
@@ -116,15 +119,15 @@ public sealed class KeebSettingsApplier
                     {
                         _lastKnobPct = pct;
                     }
-                    else
+                    else if (pct != _lastKnobPct)
                     {
-                        var delta = pct - _lastKnobPct;
-                        _lastKnobPct = pct;
-                        if (delta != 0 && Math.Abs(delta) <= KnobGlitchMaxPct)
+                        if (Math.Abs(pct - _lastKnobPct) <= KnobGlitchMaxPct)
                         {
-                            _knobTargetGlobal = Math.Clamp(_knobTargetGlobal + delta / 100f, 0f, 1f);
+                            var step = pct > _lastKnobPct ? KnobStep : -KnobStep;
+                            _knobTargetGlobal = Math.Clamp(_knobTargetGlobal + step, 0f, 1f);
                             _knobActiveTicks = KnobEaseActiveTicks;
                         }
+                        _lastKnobPct = pct;
                     }
                 }
             }
