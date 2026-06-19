@@ -21,6 +21,12 @@ namespace Nexus.Service.Lighting;
 public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 {
     private const int TickPeriodMs = 33; // 30 Hz, matches the engine + NP50 writer.
+    // While streaming, read the firmware brightness byte every Nth tick (~130 ms)
+    // so a knob turn follows the software stream promptly. The knob moves the byte
+    // with no host event, and the connection worker only polls every 1 s. The read
+    // fits inside the 33 ms tick budget so it drops no frames, and runs only while
+    // streaming - so it never arms a settings read over a live firmware animation.
+    private const int KnobReadEveryTicks = 4;
 
     private readonly LightingEngine _engine;
     private readonly KeebHub _hub;
@@ -30,6 +36,7 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private bool _wasStreaming;
+    private int _knobPollTicks;
 
     private RgbColor[][] _segmentBuffers = Array.Empty<RgbColor[]>();
 
@@ -98,6 +105,15 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
             return;
         }
         _wasStreaming = true;
+
+        // Adopt a knob-driven brightness change into fw_master before composing, so
+        // it applies to the software stream this frame instead of waiting on the 1 s
+        // connection-worker poll.
+        if (++_knobPollTicks >= KnobReadEveryTicks)
+        {
+            _knobPollTicks = 0;
+            _applier.SyncFromDevice();
+        }
 
         var devices = _engine.Devices;
         if (devices.Length == 0) return;
