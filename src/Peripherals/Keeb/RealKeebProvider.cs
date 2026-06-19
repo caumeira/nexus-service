@@ -57,16 +57,25 @@ public sealed class RealKeebProvider : IKeebProvider
             RotaryRight = k.RotaryRight,
             RotarySensitivity = k.RotarySensitivity,
             AnimationMode = k.FirmwareLighting.AnimationMode,
-            Speed = k.FirmwareLighting.Speed,
+            Speed = NormalizeSpeed(k.FirmwareLighting.Speed),
             Direction = k.FirmwareLighting.Direction,
             Brightness = k.FirmwareLighting.Brightness,
             KeyIndicator = k.FirmwareLighting.KeyIndicator,
             KeyReactive = k.FirmwareLighting.KeyReactive,
             KeyReactiveMask = k.FirmwareLighting.KeyReactiveMask,
-            KeyReactiveMode = k.FirmwareLighting.KeyReactiveMode,
+            KeyReactiveMode = NormalizeReactiveMode(k.FirmwareLighting.KeyReactiveMode),
             KeyReactiveColor = ToRgba(k.FirmwareLighting.KeyReactiveColor),
         };
     }
+
+    // The panel dropdowns only list canonical values; map legacy persisted ones
+    // so the control isn't blank. "Medium" is the old synonym for "Standard"
+    // (same speed byte); "Off" was a non-mode default (on/off is KeyReactive).
+    private static string NormalizeSpeed(string s) =>
+        string.Equals(s, "Medium", StringComparison.OrdinalIgnoreCase) ? "Standard" : s;
+
+    private static string NormalizeReactiveMode(string m) =>
+        string.Equals(m, "Off", StringComparison.OrdinalIgnoreCase) ? "SingleKey" : m;
 
     public string[] GetRotaryFunctions() => KeebSettingsCodec.RotaryFunctions;
 
@@ -95,22 +104,18 @@ public sealed class RealKeebProvider : IKeebProvider
     public void SetFirmwareLighting(SetFirmwareLightingBody body)
     {
         var brightness = Math.Clamp(body.Brightness, 0, 100);
-        _store.Update(s =>
+        // Brightness is the keeb master: the byte dims the firmware animation and
+        // the frame writer multiplies FirmwareLighting.Brightness into the software
+        // stream. Gated store-mutate + 0x06 write so the read-back poll can't clobber
+        // it mid-write; firmware applies brightness live with no mode re-init.
+        _applier.ApplyGated(s =>
         {
             s.Keeb.FirmwareLighting.AnimationMode = body.AnimationMode;
             s.Keeb.FirmwareLighting.Speed = body.Speed;
             s.Keeb.FirmwareLighting.Direction = body.Direction;
             s.Keeb.FirmwareLighting.KeyIndicator = body.KeyIndicator;
-            // Mirror brightness onto FirmwareLighting + both keeb zone prefs so it
-            // dims the firmware animation and a software effect alike. The read-back
-            // (KeebSettingsApplier.SyncFromDevice) writes the same fields, so both
-            // paths share this helper and can't drift.
-            KeebSettingsApplier.ApplyBrightnessToSettings(s, _hub.DeviceId, brightness);
+            s.Keeb.FirmwareLighting.Brightness = brightness;
         });
-        // A single 0x06 settings write applies effect/speed/direction/brightness
-        // live — the firmware dims the running animation from the brightness byte
-        // with no mode re-init (verified on the bench).
-        _applier.Apply();
     }
 
     public void SetPassiveLighting(SetPassiveLightingBody body)

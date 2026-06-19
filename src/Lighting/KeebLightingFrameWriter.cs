@@ -109,13 +109,17 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         var disabled = settings.Devices.DisabledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
+        // Firmware-brightness level (knob + Settings slider) is the keeb master. The
+        // firmware byte only dims the firmware animation, so for the software stream
+        // apply it here as a multiplier over the per-zone software brightness.
+        var fwMaster = Math.Clamp(settings.Keeb.FirmwareLighting.Brightness, 0, 100) / 100.0;
         var nowTicks = DateTime.UtcNow.Ticks;
 
         var structure = KeebZoneSupport.BuildStructure(hubId);
         var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settings);
         Nexus.Service.Lighting.Zones.SegmentFrameComposer.EnsureBuffers(structure, ref _segmentBuffers);
         var touched = Nexus.Service.Lighting.Zones.SegmentFrameComposer.Compose(
-            structure, zones, devices, disabled, prefs, globalBrightness, nowTicks, _identify, _segmentBuffers);
+            structure, zones, devices, disabled, prefs, globalBrightness, fwMaster, nowTicks, _identify, _segmentBuffers);
 
         if (touched[KeebZoneSupport.KeysSegment])
             _hub.WriteKeyboard(_segmentBuffers[KeebZoneSupport.KeysSegment]);
