@@ -45,12 +45,14 @@ public sealed class KeebSettingsApplier
     // pin included (pin = 100%/0%, correct). The stored global eases toward the target so
     // dimming glides; the target moves only when the byte changes, so the lighting-page
     // slider is free while the knob is idle.
-    private const float KnobEaseFactor = 0.3f;   // per-tick fraction of the gap to the target
-    private const int KnobEaseActiveTicks = 20;  // keep easing this many ticks past the last move
+    // Heavy smoothing: the firmware exposes only ~10 coarse brightness levels, so the
+    // target jumps in big chunks; a low ease factor spreads each chunk into an even glide
+    // instead of a surge. The active window must outlast the slower ease so it reaches the
+    // target after the knob stops.
+    private const float KnobEaseFactor = 0.1f;   // per-tick fraction of the gap to the target
+    private const int KnobEaseActiveTicks = 45;  // keep easing this many ticks past the last move
     private const int KnobBroadcastEveryTicks = 3;
     private int _lastKnobPct = -1;
-    private int _knobPrev1 = -1;       // previous two raw byte reads, for the median-of-3
-    private int _knobPrev2 = -1;       // outlier filter that drops a lone misread.
     private float _knobTargetGlobal;
     private int _knobActiveTicks;
     private int _knobBroadcastTicks;
@@ -87,8 +89,6 @@ public sealed class KeebSettingsApplier
         lock (_gate)
         {
             _lastKnobPct = -1;
-            _knobPrev1 = -1;
-            _knobPrev2 = -1;
             _knobTargetGlobal = Math.Clamp(_store.Load().Lighting.GlobalBrightness, 0f, 1f);
             _knobActiveTicks = 0;
         }
@@ -116,19 +116,10 @@ public sealed class KeebSettingsApplier
                 if (raw is not null && raw.Length > brightIndex)
                 {
                     var pct = KeebSettingsCodec.BrightnessPercentFromByte(raw[brightIndex]);
-                    // Median-of-3 over consecutive reads drops a lone misread (the residual
-                    // flicker) without lagging a real turn by more than one read.
-                    var med = (_knobPrev1 < 0 || _knobPrev2 < 0)
-                        ? pct
-                        : pct + _knobPrev1 + _knobPrev2
-                          - Math.Max(pct, Math.Max(_knobPrev1, _knobPrev2))
-                          - Math.Min(pct, Math.Min(_knobPrev1, _knobPrev2));
-                    _knobPrev2 = _knobPrev1;
-                    _knobPrev1 = pct;
-                    if (med != _lastKnobPct)
+                    if (pct != _lastKnobPct)
                     {
-                        _lastKnobPct = med;
-                        _knobTargetGlobal = med / 100f;
+                        _lastKnobPct = pct;
+                        _knobTargetGlobal = pct / 100f;
                         _knobActiveTicks = KnobEaseActiveTicks;
                     }
                 }
@@ -138,7 +129,7 @@ public sealed class KeebSettingsApplier
             var cur = _store.Load().Lighting.GlobalBrightness;
             var next = cur + (_knobTargetGlobal - cur) * KnobEaseFactor;
             if (Math.Abs(_knobTargetGlobal - next) < 0.004f) next = _knobTargetGlobal;
-            if (Math.Abs(next - cur) <= 0.0008f) return;
+            if (Math.Abs(next - cur) <= 0.0004f) return;
             _store.Update(s => s.Lighting.GlobalBrightness = next);
             broadcast = ++_knobBroadcastTicks >= KnobBroadcastEveryTicks;
             if (broadcast) _knobBroadcastTicks = 0;
