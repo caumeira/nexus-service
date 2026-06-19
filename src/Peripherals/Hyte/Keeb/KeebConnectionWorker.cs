@@ -63,22 +63,24 @@ public sealed class KeebConnectionWorker : BackgroundService
         {
             _lastConnected = connected;
             // On (re)connect, read device info (firmware version + layout), sync the
-            // device's current firmware effect into persisted state, then push the
-            // saved settings so game mode / rotary / animation take effect immediately.
+            // device's current firmware effect + brightness into persisted state,
+            // then push the saved settings so game mode / rotary / animation take
+            // effect immediately.
             if (connected)
             {
                 _hub.ReadDeviceInfo();
-                _applier.SyncEffectFromDevice();
+                _applier.SyncFromDevice();
                 _applier.Apply();
             }
             _lighting?.OnConnectionChanged();
             return;
         }
-        // While connected, poll the device's firmware effect each tick so the panel
-        // follows a hardware-side change. The rotary middle button cycles the effect
-        // in FIRMWARE mode but sends NO host callback — the EP2 roller callbacks
-        // (hyte-refs Keeb/9-callback.md) only fire in SOFTWARE rotary mode — so a
-        // periodic settings read is the only way to observe it.
-        if (connected) _applier.SyncEffectFromDevice();
+        // While connected, poll the device's firmware effect + brightness each tick
+        // so the panel and software stream follow a hardware-side change. In FIRMWARE
+        // rotary mode the middle button cycles the effect and the knob moves the
+        // brightness byte with NO host callback (the EP2 roller callbacks, hyte-refs
+        // Keeb/9-callback.md, only fire in SOFTWARE rotary mode), so a periodic
+        // settings read is the only way to observe either.
+        if (connected) _applier.SyncFromDevice();
     }
 }

@@ -100,30 +100,12 @@ public sealed class RealKeebProvider : IKeebProvider
             s.Keeb.FirmwareLighting.AnimationMode = body.AnimationMode;
             s.Keeb.FirmwareLighting.Speed = body.Speed;
             s.Keeb.FirmwareLighting.Direction = body.Direction;
-            s.Keeb.FirmwareLighting.Brightness = brightness;
             s.Keeb.FirmwareLighting.KeyIndicator = body.KeyIndicator;
-
-            // Settings "Brightness" must dim the keyboard for both the firmware
-            // animation and a software effect. The firmware byte (written by
-            // the applier below) only scales the firmware animation, so mirror
-            // the value onto the keeb zones' software-stream brightness too.
-            var hubId = _hub.DeviceId;
-            if (!string.IsNullOrEmpty(hubId))
-            {
-                foreach (var id in new[]
-                {
-                    hubId + Nexus.Service.Lighting.KeebLightingDeviceProvider.KeysSuffix,
-                    hubId + Nexus.Service.Lighting.KeebLightingDeviceProvider.UnderglowSuffix,
-                })
-                {
-                    if (!s.Devices.LightingDevicePrefs.TryGetValue(id, out var pref))
-                    {
-                        pref = new LightingDevicePreference();
-                        s.Devices.LightingDevicePrefs[id] = pref;
-                    }
-                    pref.Brightness = brightness;
-                }
-            }
+            // Mirror brightness onto FirmwareLighting + both keeb zone prefs so it
+            // dims the firmware animation and a software effect alike. The read-back
+            // (KeebSettingsApplier.SyncFromDevice) writes the same fields, so both
+            // paths share this helper and can't drift.
+            KeebSettingsApplier.ApplyBrightnessToSettings(s, _hub.DeviceId, brightness);
         });
         // A single 0x06 settings write applies effect/speed/direction/brightness
         // live — the firmware dims the running animation from the brightness byte
