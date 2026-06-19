@@ -106,9 +106,9 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         }
         _wasStreaming = true;
 
-        // Adopt a knob-driven brightness change into fw_master before composing, so
-        // it applies to the software stream this frame instead of waiting on the 1 s
-        // connection-worker poll.
+        // Read the knob before composing so a turn drives global brightness this
+        // frame (SyncFromDevice maps the knob to global while streaming) instead of
+        // waiting on the 1 s connection-worker poll.
         if (++_knobPollTicks >= KnobReadEveryTicks)
         {
             _knobPollTicks = 0;
@@ -125,17 +125,17 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         var disabled = settings.Devices.DisabledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
-        // Firmware-brightness level (knob + Settings slider) is the keeb master. The
-        // firmware byte only dims the firmware animation, so for the software stream
-        // apply it here as a multiplier over the per-zone software brightness.
-        var fwMaster = Math.Clamp(settings.Keeb.FirmwareLighting.Brightness, 0, 100) / 100.0;
+        // The keeb software stream is brightness = global * per-zone only. The
+        // firmware-brightness level (keeb Settings slider) dims the firmware animation,
+        // not the software stream; the knob drives global brightness while streaming
+        // (see SyncFromDevice), so it never multiplies into this stream (masterMul 1).
         var nowTicks = DateTime.UtcNow.Ticks;
 
         var structure = KeebZoneSupport.BuildStructure(hubId);
         var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settings);
         Nexus.Service.Lighting.Zones.SegmentFrameComposer.EnsureBuffers(structure, ref _segmentBuffers);
         var touched = Nexus.Service.Lighting.Zones.SegmentFrameComposer.Compose(
-            structure, zones, devices, disabled, prefs, globalBrightness, fwMaster, nowTicks, _identify, _segmentBuffers);
+            structure, zones, devices, disabled, prefs, globalBrightness, 1.0, nowTicks, _identify, _segmentBuffers);
 
         if (touched[KeebZoneSupport.KeysSegment])
             _hub.WriteKeyboard(_segmentBuffers[KeebZoneSupport.KeysSegment]);

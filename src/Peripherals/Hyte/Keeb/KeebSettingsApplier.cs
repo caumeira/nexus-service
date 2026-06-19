@@ -1,4 +1,5 @@
 using System;
+using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Sockets;
@@ -16,16 +17,19 @@ namespace Nexus.Service.Peripherals.Hyte.Keeb;
 /// Desired-state model: we always write the COMPLETE state from settings.json.
 /// The one exception is device-initiated changes the host can't otherwise see -
 /// the firmware-mode rotary cycles the effect and moves the brightness byte
-/// without a host callback - which <see cref="SyncFromDevice"/> reads back into
-/// the keeb master brightness so the panel and software stream follow the knob.
-/// FirmwareLighting.Brightness is that master: it both dims the firmware
-/// animation (the byte) and multiplies the software stream (the frame writer).
+/// without a host callback - which <see cref="SyncFromDevice"/> reads back.
+/// FirmwareLighting.Brightness dims only the firmware animation (the byte). The
+/// knob therefore drives the firmware animation brightness when it is showing,
+/// and the system-wide GlobalBrightness while a software effect streams (the
+/// firmware byte is irrelevant to the stream then) - so turning the knob always
+/// changes what is actually visible without the firmware level fighting the stream.
 /// </summary>
 public sealed class KeebSettingsApplier
 {
     private readonly KeebHub _hub;
     private readonly IConfigStore _store;
     private readonly MultiplexHub _panel;
+    private readonly LightingEngine _engine;
     // Serializes a host settings write (store mutate + byte write) against the
     // device read-back, so the poll can't read a pre-write byte and clobber the
     // value a Settings-slider write just stored before its byte reaches the device.
@@ -37,11 +41,12 @@ public sealed class KeebSettingsApplier
     private int _lastBrightByte = -1;
     private int _lastAnimByte = -1;
 
-    public KeebSettingsApplier(KeebHub hub, IConfigStore store, MultiplexHub panel)
+    public KeebSettingsApplier(KeebHub hub, IConfigStore store, MultiplexHub panel, LightingEngine engine)
     {
         _hub = hub;
         _store = store;
         _panel = panel;
+        _engine = engine;
     }
 
     /// <summary>Build the page from current settings and write it. No-op (false) when disconnected.</summary>
@@ -117,6 +122,7 @@ public sealed class KeebSettingsApplier
             _lastBrightByte = brightByte;
             if (!animChanged && !brightChanged) return false;
 
+            var streaming = _engine.CurrentEffectName != "none";
             effect = KeebSettingsCodec.AnimationModeName((byte)animByte);
             brightness = KeebSettingsCodec.BrightnessPercentFromByte((byte)brightByte);
             _store.Update(s =>
@@ -127,10 +133,27 @@ public sealed class KeebSettingsApplier
                     s.Keeb.FirmwareLighting.AnimationMode = effect;
                     changed = true;
                 }
-                if (brightChanged && s.Keeb.FirmwareLighting.Brightness != brightness)
+                if (brightChanged)
                 {
-                    s.Keeb.FirmwareLighting.Brightness = brightness;
-                    changed = true;
+                    if (streaming)
+                    {
+                        // A software effect is showing, so the firmware byte is irrelevant
+                        // to the stream; the knob drives system-wide GlobalBrightness, which
+                        // every writer applies. The firmware level (keeb Settings) is left
+                        // alone - it only governs the firmware animation.
+                        var g = Math.Clamp(brightness / 100f, 0f, 1f);
+                        if (Math.Abs(s.Lighting.GlobalBrightness - g) > 0.0001f)
+                        {
+                            s.Lighting.GlobalBrightness = g;
+                            changed = true;
+                        }
+                    }
+                    else if (s.Keeb.FirmwareLighting.Brightness != brightness)
+                    {
+                        // Firmware animation is showing: the byte is its brightness.
+                        s.Keeb.FirmwareLighting.Brightness = brightness;
+                        changed = true;
+                    }
                 }
             });
         }
