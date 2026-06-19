@@ -172,3 +172,12 @@ The canonical version lives in the `VERSION` file at the repo root (e.g. `3.0.0`
 ## Third-party
 
 OpenRGB (GPLv2) ships as a child process, source published at [`hello-nexus/openrgb-headless`](https://github.com/hello-nexus/openrgb-headless). A minimal LGPL-only ffmpeg build (`scripts/build-ffmpeg-minimal.sh`) ships alongside it. All bundled third-party components, including LibreHardwareMonitor, PawnIO, and dfu-util, are detailed with license info in [`THIRD-PARTY.md`](THIRD-PARTY.md).
+
+## License
+
+`nexus-service` is licensed under the **GNU Affero General Public License v3.0**
+(AGPL-3.0); see [`LICENSE`](LICENSE) for the full text. Bundled third-party
+components retain their own licenses (OpenRGB ships as a separate child process
+under GPLv2; see the Third-party section above and [`THIRD-PARTY.md`](THIRD-PARTY.md)).
+
+Copyright (C) 2026 Hello Nexus
