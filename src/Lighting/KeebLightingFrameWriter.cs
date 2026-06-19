@@ -21,12 +21,6 @@ namespace Nexus.Service.Lighting;
 public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 {
     private const int TickPeriodMs = 33; // 30 Hz, matches the engine + NP50 writer.
-    // While streaming, read the firmware brightness byte every Nth tick (~130 ms)
-    // so a knob turn follows the software stream promptly. The knob moves the byte
-    // with no host event, and the connection worker only polls every 1 s. The read
-    // fits inside the 33 ms tick budget so it drops no frames, and runs only while
-    // streaming - so it never arms a settings read over a live firmware animation.
-    private const int KnobReadEveryTicks = 4;
 
     private readonly LightingEngine _engine;
     private readonly KeebHub _hub;
@@ -36,7 +30,6 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private bool _wasStreaming;
-    private int _knobPollTicks;
 
     private RgbColor[][] _segmentBuffers = Array.Empty<RgbColor[]>();
 
@@ -99,20 +92,20 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         {
             if (_wasStreaming)
             {
+                // Stream stopped: re-assert the firmware settings, which also flips
+                // the rotary back to firmware mode (Apply reads CurrentEffectName).
                 _wasStreaming = false;
                 _applier.Apply();
             }
             return;
         }
-        _wasStreaming = true;
-
-        // Read the knob before composing so a turn drives global brightness this
-        // frame (SyncFromDevice maps the knob to global while streaming) instead of
-        // waiting on the 1 s connection-worker poll.
-        if (++_knobPollTicks >= KnobReadEveryTicks)
+        if (!_wasStreaming)
         {
-            _knobPollTicks = 0;
-            _applier.SyncFromDevice();
+            // Stream started: write the settings page so the rotary goes to software
+            // mode - the brightness knob now sends turn-events (handled by
+            // KeebInputWorker) instead of the firmware acting on it over the stream.
+            _wasStreaming = true;
+            _applier.Apply();
         }
 
         var devices = _engine.Devices;

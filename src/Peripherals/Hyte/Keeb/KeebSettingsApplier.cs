@@ -55,7 +55,12 @@ public sealed class KeebSettingsApplier
         if (!_hub.IsConnected) return false;
         try
         {
-            var page = KeebSettingsCodec.BuildSettingsPage(_store.Load().Keeb);
+            // Rotary goes to software mode while a software effect streams, so the
+            // brightness knob drives global brightness via host events instead of the
+            // firmware acting on it (which flashed the firmware animation through the
+            // stream). Firmware mode otherwise, so the knob/volume work natively.
+            var softwareRotary = _engine.CurrentEffectName != "none";
+            var page = KeebSettingsCodec.BuildSettingsPage(_store.Load().Keeb, softwareRotary);
             return _hub.WriteSettings(page);
         }
         catch (Exception ex)
@@ -122,9 +127,12 @@ public sealed class KeebSettingsApplier
             _lastBrightByte = brightByte;
             if (!animChanged && !brightChanged) return false;
 
-            var streaming = _engine.CurrentEffectName != "none";
             effect = KeebSettingsCodec.AnimationModeName((byte)animByte);
             brightness = KeebSettingsCodec.BrightnessPercentFromByte((byte)brightByte);
+            // Only reached in firmware rotary mode (no software effect): the byte is
+            // the firmware animation brightness. While streaming the rotary is in
+            // software mode, so the knob sends events (KeebInputWorker) and the byte
+            // doesn't move - the connection worker doesn't poll then either.
             _store.Update(s =>
             {
                 if (animChanged && effect is not null
@@ -133,27 +141,10 @@ public sealed class KeebSettingsApplier
                     s.Keeb.FirmwareLighting.AnimationMode = effect;
                     changed = true;
                 }
-                if (brightChanged)
+                if (brightChanged && s.Keeb.FirmwareLighting.Brightness != brightness)
                 {
-                    if (streaming)
-                    {
-                        // A software effect is showing, so the firmware byte is irrelevant
-                        // to the stream; the knob drives system-wide GlobalBrightness, which
-                        // every writer applies. The firmware level (keeb Settings) is left
-                        // alone - it only governs the firmware animation.
-                        var g = Math.Clamp(brightness / 100f, 0f, 1f);
-                        if (Math.Abs(s.Lighting.GlobalBrightness - g) > 0.0001f)
-                        {
-                            s.Lighting.GlobalBrightness = g;
-                            changed = true;
-                        }
-                    }
-                    else if (s.Keeb.FirmwareLighting.Brightness != brightness)
-                    {
-                        // Firmware animation is showing: the byte is its brightness.
-                        s.Keeb.FirmwareLighting.Brightness = brightness;
-                        changed = true;
-                    }
+                    s.Keeb.FirmwareLighting.Brightness = brightness;
+                    changed = true;
                 }
             });
         }
