@@ -356,6 +356,7 @@ public static class NexusServiceCollectionExtensions
         // shared identify-flash state.
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Keeb.KeebHub>();
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Keeb.KeebSettingsApplier>();
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Keeb.KeebReactiveRenderer>();
         services.AddSingleton<Nexus.Service.Lighting.KeebLightingDeviceProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>());
