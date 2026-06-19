@@ -3,7 +3,7 @@ namespace Nexus.Service.Models.Cooling;
 /// <summary>
 /// Single source of truth for the <see cref="FanChannel.Mode"/> wire string.
 /// The cooling routes, all fan-control providers, and the panel decode the
-/// same set of values — keeping them as named constants here prevents a
+/// same set of values - keeping them as named constants here prevents a
 /// stray typo (e.g. "manual" vs "Manual") from silently downgrading the UI
 /// to BIOS Control.
 ///
@@ -11,7 +11,7 @@ namespace Nexus.Service.Models.Cooling;
 /// </summary>
 public static class FanModes
 {
-    /// <summary>Fan is BIOS-controlled — nexus is not driving its PWM.</summary>
+    /// <summary>Fan is BIOS-controlled - nexus is not driving its PWM.</summary>
     public const string Auto = "Auto";
 
     /// <summary>User-set fixed duty (no curve attached).</summary>

@@ -99,7 +99,7 @@ public sealed class HelperClientLoop
     }
 
     /// <summary>
-    /// SHGetKnownFolderPath rather than UserProfile + "Downloads" — the
+    /// SHGetKnownFolderPath rather than UserProfile + "Downloads" - the
     /// Downloads folder can be relocated via folder Properties → Location.
     /// </summary>
     private static string ResolveDownloadsDir()

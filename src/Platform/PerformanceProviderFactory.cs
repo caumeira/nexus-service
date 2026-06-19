@@ -5,7 +5,7 @@ namespace Nexus.Service.Platform;
 /// directly in Program.cs because its impl needs the shared LhmComputer;
 /// macOS and Linux are dependency-free so a plain static factory is fine.
 /// The target OS is fixed per published RID, so the impl is a compile-time
-/// pick — the other platform's provider file isn't compiled into the binary.
+/// pick - the other platform's provider file isn't compiled into the binary.
 /// </summary>
 public static class PerformanceProviderFactory
 {

@@ -20,8 +20,8 @@ internal partial class ExternalToolsJsonContext : JsonSerializerContext;
 
 /// <summary>
 /// Generic "device shows up → fetch its sidecar executable → run it" manager
-/// (Linear NEX-13). One singleton resolves a tool's binary on disk — fetching it
-/// from <c>assets.hellonexus.com</c> on first use, hash-pinned, and caching it —
+/// (Linear NEX-13). One singleton resolves a tool's binary on disk - fetching it
+/// from <c>assets.hellonexus.com</c> on first use, hash-pinned, and caching it -
 /// then launches and tracks the process (single-instance per <c>ToolId</c>,
 /// terminated on service shutdown). Generic over the app's driver manifest block;
 /// no consuming app is named here.
@@ -34,7 +34,7 @@ public sealed class ExternalToolManager : IHostedService
 {
     /// <summary>Dev-only escape hatch: set to "1" to allow an unverified glob match
     /// when no manifest and no hash-pinned <c>bundled.json</c> are available. Off in
-    /// shipping builds — every resolved binary is hash-pinned.</summary>
+    /// shipping builds - every resolved binary is hash-pinned.</summary>
     private const string AllowUnverifiedEnv = "NEXUS_TOOLS_ALLOW_UNVERIFIED";
 
     private readonly HttpClient _http;
@@ -162,7 +162,7 @@ public sealed class ExternalToolManager : IHostedService
                 return;
             }
 
-            // Adopt an instance left by a prior service run — a crash / hard-kill
+            // Adopt an instance left by a prior service run - a crash / hard-kill
             // skips StopAsync, so the previous driver process can still be alive.
             // Adopting (instead of spawning a duplicate) keeps exactly one driver
             // across restarts, and the next graceful stop still terminates it.
@@ -279,7 +279,7 @@ public sealed class ExternalToolManager : IHostedService
                 return StartInUserSession(spec, path);
 
             // System session: launch directly in the service's own (LocalSystem,
-            // Session 0) context so the tool runs pre-login. No "runas" verb —
+            // Session 0) context so the tool runs pre-login. No "runas" verb -
             // LocalSystem is already maximally privileged.
             var psi = new ProcessStartInfo
             {
@@ -305,14 +305,14 @@ public sealed class ExternalToolManager : IHostedService
 #if WINDOWS
         // Detached cross-session launch via the scheduled-task helper. No handle is
         // retained (schtasks detaches), so a user-session tool's status falls back to
-        // NotRunning — image-name tracking is a follow-up. The default System session
+        // NotRunning - image-name tracking is a follow-up. The default System session
         // does not use this path.
         Nexus.Service.Lifecycle.UserHelperBootstrapper.RunInUserSession(
             $"\"{path}\"", $"tools-{spec.ToolId}", "NexusTool");
         ServiceLog.Info($"[tools] launched {spec.ToolId} in user session (schtasks)");
         return null;
 #else
-        // Non-Windows has no Session-0/desktop split — launch directly.
+        // Non-Windows has no Session-0/desktop split - launch directly.
         var psi = new ProcessStartInfo
         {
             FileName = path,

@@ -24,7 +24,7 @@ public interface INp50Transport : IDisposable
 
     /// <summary>
     /// Drop any unread bytes sitting in the OS input buffer. Called before
-    /// each request to guard against a previous read that didn't drain — if
+    /// each request to guard against a previous read that didn't drain - if
     /// PollHubInfo's 20-byte read happens to leave 4 bytes behind, the next
     /// command's response would otherwise be parsed off-by-4.
     /// </summary>

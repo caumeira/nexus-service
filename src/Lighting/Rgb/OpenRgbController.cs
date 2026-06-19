@@ -237,7 +237,7 @@ public sealed class OpenRgbController : IRgbController
             return;
         }
 
-        // Acquire BEFORE the try block — if WaitAsync throws (canceled/disposed)
+        // Acquire BEFORE the try block - if WaitAsync throws (canceled/disposed)
         // we must NOT call Release on a semaphore we never acquired.
         await _writeLock.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -407,7 +407,7 @@ public sealed class OpenRgbController : IRgbController
 
             if (packetId == OpenRgbProtocol.PacketId.DeviceListUpdated)
             {
-                // Async device-list change notification — fire event and try again.
+                // Async device-list change notification - fire event and try again.
                 try
                 { DeviceListChanged?.Invoke(); }
                 catch { }
@@ -419,7 +419,7 @@ public sealed class OpenRgbController : IRgbController
                 return (packetId, body);
             }
 
-            // Some other unexpected packet — log once and try the next one.
+            // Some other unexpected packet - log once and try the next one.
             // Don't tear down the connection: a single stale packet from a previous
             // request shouldn't kill the session.
             Console.Error.WriteLine(

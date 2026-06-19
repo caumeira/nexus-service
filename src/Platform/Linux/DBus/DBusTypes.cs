@@ -16,7 +16,7 @@ public enum DBusMessageType : byte
 }
 
 /// <summary>
-/// A raw D-Bus message — header + body. Little-endian encoding only.
+/// A raw D-Bus message - header + body. Little-endian encoding only.
 /// Body bytes are stored pre-marshalled; use <see cref="DBusWriter"/> to build them
 /// and <see cref="DBusReader"/> to parse them.
 /// </summary>
@@ -407,7 +407,7 @@ public sealed class DBusReader
                 _pos += 1 + gLen + 1;
                 break;
             default:
-                // Fallback — can't safely skip complex types without a type parser. Drop to end.
+                // Fallback - can't safely skip complex types without a type parser. Drop to end.
                 _pos = _data.Length;
                 break;
         }
@@ -522,7 +522,7 @@ public sealed class DBusReader
                 return items;
             }
             default:
-                _pos = _data.Length; // unknown — bail safely
+                _pos = _data.Length; // unknown - bail safely
                 return null;
         }
     }

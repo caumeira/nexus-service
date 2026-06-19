@@ -8,7 +8,7 @@ namespace Nexus.Service.Lighting.Smart;
 /// Per-brand behavior for a network light family (Hue today; Nanoleaf, WLED,
 /// LIFX, … next). One driver instance handles every device of its brand. The
 /// brand-neutral plumbing (provider, registry, frame writer, throttle, routes,
-/// settings) lives in the Smart namespace and calls into this contract — adding
+/// settings) lives in the Smart namespace and calls into this contract - adding
 /// a brand is implementing this interface + registering it in DI.
 /// </summary>
 public interface ILightDriver
@@ -39,11 +39,11 @@ public interface ILightDriver
 
     /// <summary>Key identifying the shared controller this device's sends are
     /// rate-limited against. Devices returning the same key share one rate
-    /// budget — e.g. all bulbs on a Hue bridge return the bridge host so they
+    /// budget - e.g. all bulbs on a Hue bridge return the bridge host so they
     /// can't collectively flood it. Per-device controllers return their own id.</summary>
     string RateLimitKey(SmartLight dev);
 
-    /// <summary>Cheap reachability probe — is the controller answering right now?
+    /// <summary>Cheap reachability probe - is the controller answering right now?
     /// Drives accurate online status, instead of inferring it from send failures
     /// (which flip false under streaming load and never recover).</summary>
     Task<bool> PingAsync(SmartLight dev, CancellationToken ct);
@@ -52,7 +52,7 @@ public interface ILightDriver
 /// <summary>
 /// Optional capability for drivers that stream effect frames over a dedicated
 /// low-latency session (all of a controller's lights in one batch/packet) rather
-/// than per-light commands — e.g. Hue Entertainment (DTLS UDP). The frame writer
+/// than per-light commands - e.g. Hue Entertainment (DTLS UDP). The frame writer
 /// accumulates a color per device each tick, flushes once, and ends the session
 /// when the effect stops.
 /// </summary>

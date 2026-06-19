@@ -17,8 +17,8 @@ namespace Nexus.Service.Tests.Integration;
 
 /// <summary>
 /// Gallery routes through the real pipeline: source CRUD + items/file reads,
-/// the stubbed native-picker route, exclusion round-trips, and — critically
-/// — the auth tiers: item reads are panel-reachable, while pick and source mutations
+/// the stubbed native-picker route, exclusion round-trips, and - critically
+/// - the auth tiers: item reads are panel-reachable, while pick and source mutations
 /// (host-filesystem surface) must reject a paired panel session.
 /// </summary>
 [Collection("NexusHost")]

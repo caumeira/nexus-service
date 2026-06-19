@@ -10,7 +10,7 @@ namespace Nexus.Service.Lighting;
 
 /// <summary>
 /// Surfaces the HYTE CNVS as a single standalone <see cref="LightingDevice"/>
-/// card on the lighting page — NOT a parent-with-child layout like
+/// card on the lighting page - NOT a parent-with-child layout like
 /// <see cref="Np50LightingDeviceProvider"/> uses for the multi-zone hubs.
 /// CNVS is one physical mat with one 50-LED strip, so it renders as a
 /// plain "HYTE CNVS" card alongside motherboard ARGB strips and GPU,
@@ -56,11 +56,11 @@ public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILight
     {
         var resp = new GetLightingDevicesResponse { IsInit = true };
         if (!_hub.IsConnected) return resp;
-        // CNVS is a single physical mat with one 50-LED strip — render as
+        // CNVS is a single physical mat with one 50-LED strip - render as
         // a standalone card "HYTE CNVS", NOT a parent header with a child
         // zone (which is the NP50 / MiniHub pattern because those have
-        // multiple distinct LED channels). Id matches DeviceId verbatim —
-        // no ":mat" suffix — since there's only one zone to address.
+        // multiple distinct LED channels). Id matches DeviceId verbatim -
+        // no ":mat" suffix - since there's only one zone to address.
         var id = _hub.DeviceId;
         var settings = _store.Load();
         resp.Devices.Add(BuildCard(
@@ -104,7 +104,7 @@ public sealed class CnvsLightingDeviceProvider : ILightingDeviceProvider, ILight
             CanvasX = layout?.X ?? defX, CanvasY = layout?.Y ?? defY,
             CanvasW = layout?.W ?? defW, CanvasH = layout?.H ?? defH,
             CanvasRotation = ((((layout?.Rotation ?? 0) % 360) + 360) % 360),
-            // No ParentDeviceId / ZoneIndex / counts override — CNVS is a
+            // No ParentDeviceId / ZoneIndex / counts override - CNVS is a
             // top-level standalone card, not a child of a multi-zone hub.
             ZoneType = "linear", ZoneResizable = false,
         };

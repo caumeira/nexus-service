@@ -7,7 +7,7 @@ namespace Nexus.Service.Cooling;
 /// <summary>
 /// Shared curve-binding lookup used by the Linux fan providers (hwmon,
 /// liquidctl, NVIDIA) so a curve-driven fan reports <see cref="Nexus.Service.Models.Cooling.FanModes.Curve"/>
-/// the same way <see cref="WindowsFanControlProvider"/> does — the sidebar dot +
+/// the same way <see cref="WindowsFanControlProvider"/> does - the sidebar dot +
 /// Cooling-view restoration rely on every provider agreeing. Centralized here
 /// instead of re-rolling the same two-loop scan in each provider.
 /// </summary>

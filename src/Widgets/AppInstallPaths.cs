@@ -18,11 +18,11 @@ public static class AppInstallPaths
 {
     public enum Source
     {
-        /// <summary><c>widgets-dev/</c> - unpacked local copies authors symlink for iteration.</summary>
+        /// <summary><c>apps-dev/</c> - unpacked local copies authors symlink for iteration.</summary>
         Dev,
-        /// <summary><c>widgets/</c> in the user profile.</summary>
+        /// <summary><c>apps/</c> in the user profile.</summary>
         User,
-        /// <summary><c>widgets/</c> next to the service binary.</summary>
+        /// <summary><c>apps/</c> next to the service binary.</summary>
         Bundled,
     }
 
@@ -38,11 +38,11 @@ public static class AppInstallPaths
         var appData = ResolveAppData();
         if (!string.IsNullOrEmpty(appData))
         {
-            roots.Add(new Root(Path.Combine(appData, "widgets-dev"), Source.Dev));
-            roots.Add(new Root(Path.Combine(appData, "widgets"), Source.User));
+            roots.Add(new Root(Path.Combine(appData, "apps-dev"), Source.Dev));
+            roots.Add(new Root(Path.Combine(appData, "apps"), Source.User));
         }
         var bundled = string.IsNullOrEmpty(baseDir) ? AppContext.BaseDirectory : baseDir;
-        roots.Add(new Root(Path.Combine(bundled, "widgets"), Source.Bundled));
+        roots.Add(new Root(Path.Combine(bundled, "apps"), Source.Bundled));
         return roots;
     }
 

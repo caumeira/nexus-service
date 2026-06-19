@@ -34,7 +34,7 @@ public class CorsConfigTests
     // real ASP.NET Core matcher. IsOriginAllowed is the authoritative allow/deny
     // decision (the middleware only emits Access-Control-Allow-Origin when it is
     // true); AllowedOrigin is informational and, in this code path, echoes the
-    // request origin regardless — so deny is asserted via IsOriginAllowed.
+    // request origin regardless - so deny is asserted via IsOriginAllowed.
     private static async Task<bool> IsOriginAllowed(
         string[] allowedOrigins, bool debugLoopbackWildcard, string requestOrigin)
     {
@@ -66,7 +66,7 @@ public class CorsConfigTests
     }
 
     [Theory]
-    [InlineData("https://hellonexus.com.attacker.com")] // suffix attack — the ASUS bug
+    [InlineData("https://hellonexus.com.attacker.com")] // suffix attack - the ASUS bug
     [InlineData("https://hellonexus.com.evil.com")]
     [InlineData("https://evilhellonexus.com")]          // prefix attack
     [InlineData("https://hellonexus.com.au")]           // extension attack

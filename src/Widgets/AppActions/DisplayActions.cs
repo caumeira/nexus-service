@@ -50,7 +50,7 @@ public static class DisplayActions
         });
     }
 
-    /// <summary>Convenience list of all action names this module owns —
+    /// <summary>Convenience list of all action names this module owns -
     /// used by tests and the documented allowlist for the bundled
     /// displays widget.</summary>
     public static IReadOnlyList<string> AllActions => new[]

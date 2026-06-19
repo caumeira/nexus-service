@@ -19,7 +19,7 @@ namespace Nexus.Service.Tests.Integration;
 /// <summary>
 /// Phone→PC transfer routes through the real pipeline: multipart uploads land
 /// in the configured inbox with sanitized/uniquified names, clipboard text
-/// reaches the (stubbed) clipboard provider, and the auth tiers hold — both
+/// reaches the (stubbed) clipboard provider, and the auth tiers hold - both
 /// endpoints are panel-reachable for a paired phone session and locked for
 /// anonymous callers.
 /// </summary>
@@ -259,7 +259,7 @@ public sealed class TransferRoutesTests : IDisposable
     }
 }
 
-/// <summary>Pure sanitization rules — no host needed.</summary>
+/// <summary>Pure sanitization rules - no host needed.</summary>
 public sealed class TransferInboxNameTests
 {
     // Only cross-platform invariants here: control chars and '/' are replaced

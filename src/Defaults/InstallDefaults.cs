@@ -23,7 +23,7 @@ public static class InstallDefaults
     private static readonly Lazy<InstallDefaultsDocument> _doc = new(Load);
 
     /// <summary>
-    /// Singleton instance loaded from the embedded JSON. Treat as immutable —
+    /// Singleton instance loaded from the embedded JSON. Treat as immutable -
     /// mutating any nested property poisons every subsequent reader. The
     /// /defaults and /defaults/snapshot routes serialize this directly; if a
     /// caller ever needs to mutate, project to a new <see cref="InstallDefaultsDocument"/> first.
@@ -86,7 +86,7 @@ public sealed class InstallDefaultsDocument
 }
 
 // ThemeSettings, MonitoringSettings, PanelSettings, OverlaySettings and the
-// PanelLayouts* seed types live in Persistence/SharedSettings.cs — same POCOs
+// PanelLayouts* seed types live in Persistence/SharedSettings.cs - same POCOs
 // are reused by NexusSettings so the install-defaults shape and the live profile
 // shape stay in lockstep.
 

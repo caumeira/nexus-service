@@ -10,7 +10,7 @@ public static partial class DevicesRoutes
     /// <summary>
     /// Smart (network) light discovery + pairing + management. Per-device
     /// power/brightness/hue/saturation/identify reuse the existing
-    /// /devices/lighting-devices/* routes — the composite provider routes those
+    /// /devices/lighting-devices/* routes - the composite provider routes those
     /// by id prefix, so smart lights are first-class there with no extra routes.
     /// </summary>
     private static void MapSmartLightsEndpoints(WebApplication app)
@@ -46,7 +46,7 @@ public static partial class DevicesRoutes
             return result;
         });
 
-        // Enable/disable a paired light without unpairing — it stays listed but
+        // Enable/disable a paired light without unpairing - it stays listed but
         // leaves the lighting canvas/effects when disabled.
         app.MapPost("/smart-lights/enable", (EnableSmartLightBody body, SmartLightProvider p, Nexus.Service.Sockets.MultiplexHub hub) =>
         {

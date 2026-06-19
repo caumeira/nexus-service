@@ -7,12 +7,12 @@ namespace Nexus.Service.Sensors;
 
 /// <summary>
 /// Cross-platform read interface for system sensor data. Implementations are
-/// expected to be cheap and synchronous — controllers call these on every
+/// expected to be cheap and synchronous - controllers call these on every
 /// HTTP request. Heavy work (LibreHardwareMonitor, top, etc.) should run in a
 /// background sampling loop and serve cached values from these methods.
 ///
 /// All methods return empty collections / placeholder strings rather than null
-/// or throw — the SPA should always get well-formed JSON.
+/// or throw - the SPA should always get well-formed JSON.
 /// </summary>
 public interface ISensorProvider
 {

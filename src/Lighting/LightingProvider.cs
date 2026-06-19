@@ -841,7 +841,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
         // Deploy shim DLLs into System32/SysWOW64. Idempotent and guarded by
         // an elevation check; skipped on macOS/Linux (NotApplicable).
-        var shimResult = ChromaShimInstaller.EnsureInstalled();
+        var shimResult = GameSyncShimInstaller.EnsureInstalled();
         switch (shimResult)
         {
             case ChromaShimInstallResult.Installed:

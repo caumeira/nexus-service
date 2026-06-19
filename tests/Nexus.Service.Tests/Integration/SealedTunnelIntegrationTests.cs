@@ -13,12 +13,12 @@ namespace Nexus.Service.Tests.Integration;
 
 /// <summary>
 /// Drives the inbound sealed LAN tunnel (<c>/secure-tunnel</c>) over a real
-/// TestServer WebSocket — the Phase 2 oracle. Proves end-to-end that:
+/// TestServer WebSocket - the Phase 2 oracle. Proves end-to-end that:
 ///   • the HTTP leg dispatches a sealed REST request through the real pipeline
 ///     and seals the response (rid_http);
 ///   • the runtime leg bridges a sealed multiplex `sub` into the hub (rid);
 ///   • an unknown rid / killswitch-off connection gets {"e":"no-host"};
-///   • the session token never rides the wire — the client sends only the
+///   • the session token never rides the wire - the client sends only the
 ///     128-bit HKDF rid and AEAD ciphertext, and possession is what the decrypt
 ///     proves (a wrong-key request is silently dropped, no response).
 /// </summary>
@@ -77,7 +77,7 @@ public sealed class SealedTunnelIntegrationTests : IClassFixture<NexusAppFactory
         using var ws = await OpenTunnelAsync(ct);
         var ctrl = await SendHelloAsync(ws, ridHttp, connSalt, ct);
         Assert.Contains("peer-up", ctrl);
-        // The token never appears on the wire — only the derived rid.
+        // The token never appears on the wire - only the derived rid.
         Assert.DoesNotContain(token, ctrl);
 
         var req = new RelayHttpRequest { Id = 7, Method = "GET", Path = "/ping" };

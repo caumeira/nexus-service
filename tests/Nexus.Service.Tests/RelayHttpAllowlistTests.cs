@@ -39,10 +39,10 @@ public class RelayHttpAllowlistTests
     [InlineData("GET", "/pawnio")]                   // off-allowlist
     [InlineData("GET", "/")]                          // SPA shell
     [InlineData("GET", "/panelX")]                   // not a /panel segment boundary
-    [InlineData("POST", "/system/open-path")]        // opens arbitrary local files — LAN-only
-    [InlineData("POST", "/system/power/shutdown")]   // destructive — LAN-only
-    [InlineData("POST", "/system/power/restart")]    // destructive — LAN-only
-    [InlineData("POST", "/system/power/logout")]     // strands a remote user — LAN-only
+    [InlineData("POST", "/system/open-path")]        // opens arbitrary local files - LAN-only
+    [InlineData("POST", "/system/power/shutdown")]   // destructive - LAN-only
+    [InlineData("POST", "/system/power/restart")]    // destructive - LAN-only
+    [InlineData("POST", "/system/power/logout")]     // strands a remote user - LAN-only
     public void Rejects_SocketHighBandwidthAndOffAllowlist(string method, string path)
         => Assert.False(RelayHttpAllowlist.IsAllowed(method, path));
 

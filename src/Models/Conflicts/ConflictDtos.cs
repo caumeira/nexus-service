@@ -42,7 +42,7 @@ public sealed class KillConflictResponse
 /// <summary>
 /// WebSocket push frame on topic "conflicts". Sent each time the detected
 /// set changes (add, remove, or pid shift). The list is the full current
-/// snapshot — clients overwrite rather than diff.
+/// snapshot - clients overwrite rather than diff.
 /// </summary>
 public sealed class ConflictsFrame
 {

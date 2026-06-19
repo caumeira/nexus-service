@@ -56,11 +56,11 @@ public static class ColorMath
         static double Expand(double c) => c > 0.04045 ? Math.Pow((c + 0.055) / 1.055, 2.4) : c / 12.92;
     }
 
-    /// <summary>Perceptual value (max channel) in [0,1] — used to drive a light's
+    /// <summary>Perceptual value (max channel) in [0,1] - used to drive a light's
     /// dimming from the streamed pixel so dark frames dim the lamp.</summary>
     public static float Value(byte r, byte g, byte b) => Math.Max(r, Math.Max(g, b)) / 255f;
 
-    /// <summary>8-bit sRGB → HSV with h,s,v in [0,1] — inverse of
+    /// <summary>8-bit sRGB → HSV with h,s,v in [0,1] - inverse of
     /// <see cref="HsvToRgb"/>, for drivers whose state API takes hue/sat
     /// (Nanoleaf) rather than RGB.</summary>
     public static (float h, float s, float v) RgbToHsv(byte r, byte g, byte b)

@@ -14,12 +14,12 @@ public sealed record TransferAttentionNotice(string Title, string Text, string? 
 /// <summary>
 /// Destination folder + safe-write helper for phone→PC transfers. Resolution
 /// order: explicit settings override → the interactive user's Downloads/Nexus
-/// (helper-reported on Windows — the Session-0 service can't resolve per-user
+/// (helper-reported on Windows - the Session-0 service can't resolve per-user
 /// known folders itself) → CommonApplicationData/Nexus/inbox.
 /// </summary>
 public sealed class TransferInbox
 {
-    /// <summary>Per-request cap for /transfer/items — phone videos routinely exceed the global 100 MB Kestrel limit.</summary>
+    /// <summary>Per-request cap for /transfer/items - phone videos routinely exceed the global 100 MB Kestrel limit.</summary>
     public const long MaxUploadBytes = 2L * 1024 * 1024 * 1024;
     public const int MaxClipboardChars = 1024 * 1024;
 
@@ -114,7 +114,7 @@ public sealed class TransferInbox
                     // for the real content atomically.
                     using (new FileStream(dest, FileMode.CreateNew, FileAccess.Write)) { }
                 }
-                // Name taken concurrently — take the next free one.
+                // Name taken concurrently - take the next free one.
                 catch (IOException) when (attempt < 50)
                 {
                     continue;
@@ -159,7 +159,7 @@ public sealed class TransferInbox
 
     internal static string SanitizeFileName(string? raw)
     {
-        // GetFileName strips directory components — and with them any ../ traversal.
+        // GetFileName strips directory components - and with them any ../ traversal.
         // '\' is normalized first: sender-supplied names may use Windows separators
         // even when the service runs on a platform where '\' is a legal name char.
         var name = Path.GetFileName((raw ?? "").Trim().Replace('\\', '/'));

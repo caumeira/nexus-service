@@ -8,7 +8,7 @@ namespace Nexus.Service.Platform.Linux;
 /// Shared sysfs/file helpers for the Linux providers (serial discovery, hwmon
 /// fan control, backlight brightness). Centralizes the read/parse/write
 /// boilerplate so each provider doesn't re-roll it. Every method swallows IO
-/// errors — a sysfs node can vanish or be permission-gated mid-access — and
+/// errors - a sysfs node can vanish or be permission-gated mid-access - and
 /// returns null / false rather than throwing.
 /// </summary>
 internal static class LinuxSysfs
@@ -37,7 +37,7 @@ internal static class LinuxSysfs
 
     /// <summary>
     /// Resolve a sysfs symlink (e.g. <c>hwmonN/device</c>) to its target's leaf
-    /// name — a reboot-stable, unique identifier such as <c>nct6775.656</c> or a
+    /// name - a reboot-stable, unique identifier such as <c>nct6775.656</c> or a
     /// PCI BDF, unlike the volatile <c>hwmonN</c> index. Returns null if it isn't
     /// a link or can't be read.
     /// </summary>

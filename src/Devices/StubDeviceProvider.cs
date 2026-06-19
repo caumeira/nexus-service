@@ -65,7 +65,7 @@ public sealed class StubDeviceProvider : IDeviceProvider, ILightingDeviceProvide
     public GetCnvsSettingsResponse SetCnvs(SetCnvsSettingsBody body)
     {
         // Push to the firmware FIRST so we don't persist a UI state the
-        // device rejected. If the device is offline, persist anyway — the
+        // device rejected. If the device is offline, persist anyway - the
         // settings.json copy is what the next launch / hot-plug reconciler
         // would re-apply.
         var hwOk = _cnvs?.WriteSettings(

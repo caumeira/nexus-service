@@ -11,7 +11,7 @@ namespace Nexus.Service.Cooling;
 /// is guarded: a box without the NVIDIA driver throws <c>DllNotFoundException</c>
 /// on first call (caught → <see cref="Available"/> false), and an older driver
 /// missing a <c>_v2</c> symbol throws <c>EntryPointNotFoundException</c> (also
-/// caught). Blittable P/Invoke only — AOT-safe.
+/// caught). Blittable P/Invoke only - AOT-safe.
 /// </summary>
 internal static unsafe partial class Nvml
 {
@@ -36,7 +36,7 @@ internal static unsafe partial class Nvml
     }
 
     // Initialised once and never paired with nvmlShutdown: this is a long-lived
-    // daemon, the driver refcounts, and the OS reclaims on exit — tearing NVML
+    // daemon, the driver refcounts, and the OS reclaims on exit - tearing NVML
     // down while a concurrent Read() is mid-call would be worse. Intentional.
     private static bool TryInit()
     {
@@ -70,7 +70,7 @@ internal static unsafe partial class Nvml
                 list.Add(new GpuInfo((int)i, ReadName(dev), temp, fans));
             }
         }
-        catch { /* driver removed mid-read — return what we have */ }
+        catch { /* driver removed mid-read - return what we have */ }
         return list;
     }
 
@@ -104,7 +104,7 @@ internal static unsafe partial class Nvml
     }
 
     // Tach RPM via the versioned-struct API (driver R520+). Returns 0 when the
-    // driver lacks the symbol (EntryPointNotFound) or the call fails — the duty
+    // driver lacks the symbol (EntryPointNotFound) or the call fails - the duty
     // % is still reported. NVML_STRUCT_VERSION = sizeof | (version << 24).
     private static int FanRpm(IntPtr dev, uint fan)
     {

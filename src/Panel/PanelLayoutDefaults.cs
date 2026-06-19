@@ -36,7 +36,7 @@ public static class PanelLayoutDefaults
         {
             LayoutSchemaVersion = src.LayoutSchemaVersion,
             // Caller's surface argument wins regardless of what the JSON
-            // entry's surface field says — guards against a hand-edit mistake
+            // entry's surface field says - guards against a hand-edit mistake
             // that would otherwise tag a `phone` layout as `y70`.
             Surface = surface,
             Pages = new List<PanelPageDto>

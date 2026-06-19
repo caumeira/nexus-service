@@ -13,7 +13,7 @@ namespace Nexus.Service.Tests.SmartLights;
 ///   NEXUS_HUE_LIVE=&lt;bridge-ip&gt; dotnet test --filter "Category=Manual"
 /// Category=Manual keeps them out of the CI gate; they also self-skip when the
 /// env var is absent. Everything here works WITHOUT pressing the bridge button
-/// except a successful pair — pre-press pairing is expected to return the
+/// except a successful pair - pre-press pairing is expected to return the
 /// link-button error, which is what we assert.
 /// </summary>
 [Trait("Category", "Manual")]

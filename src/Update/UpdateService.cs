@@ -21,10 +21,11 @@ namespace Nexus.Service.Update;
 /// - Never blocks startup. All polling + installs are fire-and-forget or
 ///   background tasks. Every poll failure is swallowed into lastCheckError.
 /// - One install at a time (gate via Interlocked + CancellationTokenSource).
-/// - AutoUpdateDisabled=false: poller stages a download+verify; the installer
-///   is NOT launched until the user triggers POST /update/start (or on the
-///   next startup when a staged installer is pending).
-/// - AutoUpdateDisabled=true: poller detects only, no background download.
+/// - UpdateMode "notify": detect only; no background download.
+/// - UpdateMode "download": stage a download+verify; installer not launched
+///   until the user triggers POST /update/start.
+/// - UpdateMode "always": stage a download+verify on detection; apply on the
+///   next restart via ApplyPendingOnStartup (never launches mid-session).
 /// </summary>
 public sealed class UpdateService : BackgroundService
 {
@@ -43,6 +44,19 @@ public sealed class UpdateService : BackgroundService
     private volatile UpdateStatusResponse _status = new() { CurrentVersion = BuildInfo.Version };
     // Progress DTO - read by routes during an active install.
     private volatile UpdateProgressResponse _progress = new();
+
+    // Set when ApplyPendingOnStartup confirms the version advanced. Cleared
+    // after the first GET /update/status read or after 60 seconds.
+    private volatile string _justUpdatedTo = "";
+    private long _justUpdatedToSetAtTicks;
+    private const long JustUpdatedToTimeoutTicks = 60L * TimeSpan.TicksPerSecond;
+
+#if WINDOWS
+    // Set by ApplyPendingOnStartup when the marker requested a dashboard reopen.
+    // Drained on the next helper connect (the helper may not be registered yet
+    // when ApplyPendingOnStartup runs at service startup).
+    private volatile bool _pendingOpenDashboard;
+#endif
 
     // Gate: 0 = idle, 1 = in progress.
     private int _installing;
@@ -70,11 +84,57 @@ public sealed class UpdateService : BackgroundService
         _lifetime = lifetime;
 #if WINDOWS
         _helperRegistry = helperRegistry;
+        _helperRegistry.Connected += _ =>
+        {
+            if (_pendingOpenDashboard)
+            {
+                _pendingOpenDashboard = false;
+                SendOpenDashboard();
+            }
+        };
 #endif
     }
 
     /// <summary>Current status snapshot for GET /update/status.</summary>
-    public UpdateStatusResponse Status => _status;
+    public UpdateStatusResponse Status
+    {
+        get
+        {
+            var snap = _status;
+            var justUpdated = Interlocked.Exchange(ref _justUpdatedTo, "");
+            if (justUpdated == "")
+            {
+                return snap;
+            }
+
+            // Ticks were written before the volatile string; the exchange above
+            // guarantees _justUpdatedToSetAtTicks is visible.
+            var elapsed = DateTime.UtcNow.Ticks - Volatile.Read(ref _justUpdatedToSetAtTicks);
+            if (elapsed < JustUpdatedToTimeoutTicks)
+            {
+                return SnapWithJustUpdatedTo(snap, justUpdated);
+            }
+            return snap;
+        }
+    }
+
+    private static UpdateStatusResponse SnapWithJustUpdatedTo(UpdateStatusResponse snap, string justUpdated)
+    {
+        return new UpdateStatusResponse
+        {
+            CurrentVersion = snap.CurrentVersion,
+            LatestVersion = snap.LatestVersion,
+            UpdateAvailable = snap.UpdateAvailable,
+            Channel = snap.Channel,
+            UpdateMode = snap.UpdateMode,
+            ReleaseNotes = snap.ReleaseNotes,
+            LastCheckedUnix = snap.LastCheckedUnix,
+            LastCheckError = snap.LastCheckError,
+            State = snap.State,
+            UpdateReady = snap.UpdateReady,
+            JustUpdatedTo = justUpdated,
+        };
+    }
 
     /// <summary>Current progress snapshot for GET /update/progress.</summary>
     public UpdateProgressResponse Progress => _progress;
@@ -115,17 +175,14 @@ public sealed class UpdateService : BackgroundService
 
     /// <summary>
     /// Applies or diagnoses a staged install marker on startup.
-    /// "pending": re-verifies and launches the staged installer, then stops the service.
-    /// "attempted": the prior launch did not advance the version; clears the marker and sets failed state.
-    /// No-op when AutoUpdateDisabled or no marker exists.
+    /// Success (version advanced): sets JustUpdatedTo and reopens dashboard for all modes.
+    /// Pending + always mode: re-verifies and launches the staged installer, then stops the service.
+    /// Pending + other modes: no-op (notify/download wait for an explicit user trigger).
+    /// Attempted but version did not advance: boot-loop guard; clears marker and sets failed state.
     /// </summary>
     private void ApplyPendingOnStartup(CancellationToken ct)
     {
         var s = _store.Load();
-        if (s.Update.AutoUpdateDisabled)
-        {
-            return;
-        }
 
         var marker = StagedInstallMarkerStore.Read();
         if (marker is null)
@@ -136,15 +193,33 @@ public sealed class UpdateService : BackgroundService
         // Current version is at or beyond the marker's target: install succeeded.
         if (!VersionCompare.IsNewer(marker.Version, BuildInfo.Version))
         {
+            // Ticks written before the volatile string so any reader that observes
+            // the non-empty string sees the already-committed ticks value.
+            Volatile.Write(ref _justUpdatedToSetAtTicks, DateTime.UtcNow.Ticks);
+            _justUpdatedTo = BuildInfo.Version;
             StagedInstallMarkerStore.Delete();
+
+            if (marker.ReopenDashboard)
+            {
+#if WINDOWS
+                // Set the flag first so a helper that connects after this point
+                // drains it via the Connected handler.
+                _pendingOpenDashboard = true;
+#endif
+                SendOpenDashboard();
+            }
             return;
         }
 
         // Marker names a version newer than what is running.
         if (marker.State == StagedInstallMarkerStore.StatePending)
         {
-            // Downloaded and verified but not yet launched. Apply it now.
-            ApplyPendingInstall(marker, s, ct);
+            if (s.Update.UpdateMode == "always")
+            {
+                // Downloaded and verified but not yet launched. Apply it now.
+                ApplyPendingInstall(marker, s, ct);
+            }
+            // notify/download: staged installer waits for POST /update/start.
             return;
         }
 
@@ -159,7 +234,7 @@ public sealed class UpdateService : BackgroundService
             LatestVersion = marker.Version,
             UpdateAvailable = true,
             Channel = string.IsNullOrEmpty(s.Update.UpdateChannel) ? "production" : s.Update.UpdateChannel,
-            AutoUpdateDisabled = s.Update.AutoUpdateDisabled,
+            UpdateMode = s.Update.UpdateMode,
             ReleaseNotes = "",
             LastCheckedUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
             LastCheckError = $"Install of {marker.Version} did not complete.",
@@ -188,12 +263,14 @@ public sealed class UpdateService : BackgroundService
             UpdateIntegrity.VerifyAsync(marker.InstallerPath, marker.Sha256, ct).GetAwaiter().GetResult();
 
             // Flip to "attempted" before launching so a crash here is not retried.
+            // Always-mode auto-apply sets reopen so the dashboard opens after the install.
             StagedInstallMarkerStore.Write(new StagedInstallMarker
             {
                 Version = marker.Version,
                 InstallerPath = marker.InstallerPath,
                 Sha256 = marker.Sha256,
                 State = StagedInstallMarkerStore.StateAttempted,
+                ReopenDashboard = marker.ReopenDashboard || s.Update.UpdateMode == "always",
             });
 
             _status = new UpdateStatusResponse
@@ -202,7 +279,7 @@ public sealed class UpdateService : BackgroundService
                 LatestVersion = marker.Version,
                 UpdateAvailable = true,
                 Channel = channel,
-                AutoUpdateDisabled = s.Update.AutoUpdateDisabled,
+                UpdateMode = s.Update.UpdateMode,
                 ReleaseNotes = "",
                 LastCheckedUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 LastCheckError = "",
@@ -230,7 +307,7 @@ public sealed class UpdateService : BackgroundService
                 LatestVersion = marker.Version,
                 UpdateAvailable = true,
                 Channel = channel,
-                AutoUpdateDisabled = s.Update.AutoUpdateDisabled,
+                UpdateMode = s.Update.UpdateMode,
                 ReleaseNotes = "",
                 LastCheckedUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 LastCheckError = $"Auto-apply failed: {ex.GetType().Name}: {ex.Message}",
@@ -273,7 +350,7 @@ public sealed class UpdateService : BackgroundService
     /// When a staged installer is already ready, skips the download and goes
     /// straight to re-verify + launch.
     /// </summary>
-    public (bool started, string reason) StartUpdate(string? requiredVersion)
+    public (bool started, string reason) StartUpdate(string? requiredVersion, bool reopenAfter = false)
     {
         if (_flasher.IsFlashing)
         {
@@ -312,11 +389,11 @@ public sealed class UpdateService : BackgroundService
         // If we already have a staged installer, use the fast path.
         if (_updateReady && _stagedInstallerPath is not null)
         {
-            _ = Task.Run(() => RunLaunchStagedAsync(_latestManifest, _stagedInstallerPath, cts.Token));
+            _ = Task.Run(() => RunLaunchStagedAsync(_latestManifest, _stagedInstallerPath, reopenAfter, cts.Token));
         }
         else
         {
-            _ = Task.Run(() => RunInstallAsync(_latestManifest, launchAfterVerify: true, cts.Token));
+            _ = Task.Run(() => RunInstallAsync(_latestManifest, launchAfterVerify: true, reopenAfter, cts.Token));
         }
 
         return (true, "");
@@ -342,13 +419,14 @@ public sealed class UpdateService : BackgroundService
             var snapshot = _store.Load();
             var isNewer = manifest is not null && VersionCompare.IsNewer(manifest.Version, BuildInfo.Version);
 
+            var mode = snapshot.Update.UpdateMode;
             _status = new UpdateStatusResponse
             {
                 CurrentVersion = BuildInfo.Version,
                 LatestVersion = manifest?.Version ?? BuildInfo.Version,
                 UpdateAvailable = isNewer,
                 Channel = channel,
-                AutoUpdateDisabled = snapshot.Update.AutoUpdateDisabled,
+                UpdateMode = mode,
                 ReleaseNotes = manifest?.Notes ?? "",
                 LastCheckedUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 LastCheckError = "",
@@ -356,16 +434,20 @@ public sealed class UpdateService : BackgroundService
                 UpdateReady = _updateReady,
             };
 
-            // When auto-update is on and a newer version is available, start
-            // a background download+verify only - do NOT launch or stop yet.
-            if (isNewer && !snapshot.Update.AutoUpdateDisabled && manifest is not null && !_updateReady)
+            // "download" stages a download+verify but does not install.
+            // "always" downloads, verifies, and installs automatically.
+            // "notify" only detects; no background download.
+            // Both "download" and "always" auto-stage (download+verify) but never
+            // launch mid-session. "always" applies on the next restart via
+            // ApplyPendingOnStartup; "download" waits for POST /update/start.
+            if (isNewer && (mode is "download" or "always") && manifest is not null && !_updateReady)
             {
                 if (Interlocked.CompareExchange(ref _installing, 1, 0) == 0)
                 {
                     var cts = new CancellationTokenSource();
                     _installCts = cts;
-                    _ = Task.Run(() => RunInstallAsync(manifest, launchAfterVerify: false, cts.Token));
-                    Console.Error.WriteLine($"[update] auto-staging download for {manifest.Version}");
+                    _ = Task.Run(() => RunInstallAsync(manifest, launchAfterVerify: false, reopenAfter: false, cts.Token));
+                    Console.Error.WriteLine($"[update] auto-staging download for {manifest.Version} (mode={mode})");
                 }
             }
         }
@@ -382,7 +464,7 @@ public sealed class UpdateService : BackgroundService
                 LatestVersion = _latestManifest?.Version ?? BuildInfo.Version,
                 UpdateAvailable = _latestManifest is not null && VersionCompare.IsNewer(_latestManifest.Version, BuildInfo.Version),
                 Channel = channel,
-                AutoUpdateDisabled = snapshot.Update.AutoUpdateDisabled,
+                UpdateMode = snapshot.Update.UpdateMode,
                 ReleaseNotes = _latestManifest?.Notes ?? "",
                 LastCheckedUnix = DateTimeOffset.UtcNow.ToUnixTimeSeconds(),
                 LastCheckError = $"{ex.GetType().Name}: {ex.Message}",
@@ -401,7 +483,7 @@ public sealed class UpdateService : BackgroundService
             LatestVersion = _latestManifest?.Version ?? BuildInfo.Version,
             UpdateAvailable = _latestManifest is not null && VersionCompare.IsNewer(_latestManifest.Version, BuildInfo.Version),
             Channel = channel,
-            AutoUpdateDisabled = s.Update.AutoUpdateDisabled,
+            UpdateMode = s.Update.UpdateMode,
             ReleaseNotes = _latestManifest?.Notes ?? "",
             LastCheckedUnix = _status.LastCheckedUnix,
             LastCheckError = "",
@@ -427,7 +509,7 @@ public sealed class UpdateService : BackgroundService
     /// Re-verify the staged installer and launch it. Called when the user
     /// triggers POST /update/start and a staged installer is already ready.
     /// </summary>
-    private async Task RunLaunchStagedAsync(UpdateManifest manifest, string installerPath, CancellationToken ct)
+    private async Task RunLaunchStagedAsync(UpdateManifest manifest, string installerPath, bool reopenAfter, CancellationToken ct)
     {
         try
         {
@@ -438,22 +520,20 @@ public sealed class UpdateService : BackgroundService
                 // Staged file is gone; fall through to a full re-download.
                 _updateReady = false;
                 _stagedInstallerPath = null;
-                await RunInstallAsync(manifest, launchAfterVerify: true, ct).ConfigureAwait(false);
+                await RunInstallAsync(manifest, launchAfterVerify: true, reopenAfter, ct).ConfigureAwait(false);
                 return;
             }
 
             await UpdateIntegrity.VerifyAsync(installerPath, manifest.Sha256!, ct).ConfigureAwait(false);
 
 #if WINDOWS
-            SetProgress("launching", 100, "Launching installer...", manifest.Version);
-            UpdateStatusState("installing");
-
             StagedInstallMarkerStore.Write(new StagedInstallMarker
             {
                 Version = manifest.Version,
                 InstallerPath = installerPath,
                 Sha256 = manifest.Sha256 ?? "",
                 State = StagedInstallMarkerStore.StateAttempted,
+                ReopenDashboard = reopenAfter,
             });
 
             var launched = UpdateInstaller.LaunchViaSchtasks(installerPath, manifest.Version);
@@ -462,6 +542,12 @@ public sealed class UpdateService : BackgroundService
                 throw new InvalidOperationException("schtasks /Run did not succeed.");
             }
 
+            // Installer is running detached now; only here signal the UI to expect
+            // a restart. A failed launch above never reaches "launching", so the UI
+            // shows "failed" rather than waiting to reconnect to a service that
+            // never stopped.
+            SetProgress("launching", 100, "Launching installer...", manifest.Version);
+            UpdateStatusState("installing");
             SetProgress("installing", 100, "Installing...", manifest.Version);
             _lifetime.StopApplication();
 #else
@@ -491,7 +577,7 @@ public sealed class UpdateService : BackgroundService
     /// is true, also write the marker and launch via schtasks + StopApplication.
     /// When false, set <c>_updateReady</c> and send the tray notification.
     /// </summary>
-    private async Task RunInstallAsync(UpdateManifest manifest, bool launchAfterVerify, CancellationToken ct)
+    private async Task RunInstallAsync(UpdateManifest manifest, bool launchAfterVerify, bool reopenAfter, CancellationToken ct)
     {
         try
         {
@@ -548,16 +634,13 @@ public sealed class UpdateService : BackgroundService
             }
 
 #if WINDOWS
-            // Phase: launching (point of no return - installer is verified)
-            SetProgress("launching", 100, "Launching installer...", manifest.Version);
-            UpdateStatusState("installing");
-
             StagedInstallMarkerStore.Write(new StagedInstallMarker
             {
                 Version = manifest.Version,
                 InstallerPath = installerPath,
                 Sha256 = manifest.Sha256 ?? "",
                 State = StagedInstallMarkerStore.StateAttempted,
+                ReopenDashboard = reopenAfter,
             });
 
             var launched = UpdateInstaller.LaunchViaSchtasks(installerPath, manifest.Version);
@@ -566,6 +649,10 @@ public sealed class UpdateService : BackgroundService
                 throw new InvalidOperationException("schtasks /Run did not succeed.");
             }
 
+            // Point of no return: installer running detached. Only now signal the UI
+            // to expect a restart; a failed launch above goes to "failed" instead.
+            SetProgress("launching", 100, "Launching installer...", manifest.Version);
+            UpdateStatusState("installing");
             SetProgress("installing", 100, "Installing...", manifest.Version);
             _lifetime.StopApplication();
 #else
@@ -594,6 +681,23 @@ public sealed class UpdateService : BackgroundService
     private static void TryDeleteStagedFile(string path)
     {
         try { File.Delete(path); } catch { }
+    }
+
+    private void SendOpenDashboard()
+    {
+#if WINDOWS
+        try
+        {
+            var conn = _helperRegistry.GetAny();
+            if (conn is null)
+            {
+                return;
+            }
+            _pendingOpenDashboard = false;
+            TrayCommands.OpenDashboardAsync(_helperRegistry).GetAwaiter().GetResult();
+        }
+        catch { /* notification is non-critical */ }
+#endif
     }
 
     private void SetProgress(string phase, double percent, string message, string version)
@@ -632,7 +736,7 @@ public sealed class UpdateService : BackgroundService
             LatestVersion = _status.LatestVersion,
             UpdateAvailable = _status.UpdateAvailable,
             Channel = _status.Channel,
-            AutoUpdateDisabled = _status.AutoUpdateDisabled,
+            UpdateMode = _status.UpdateMode,
             ReleaseNotes = _status.ReleaseNotes,
             LastCheckedUnix = _status.LastCheckedUnix,
             LastCheckError = _status.LastCheckError,
@@ -649,7 +753,7 @@ public sealed class UpdateService : BackgroundService
             LatestVersion = _status.LatestVersion,
             UpdateAvailable = _status.UpdateAvailable,
             Channel = _status.Channel,
-            AutoUpdateDisabled = _status.AutoUpdateDisabled,
+            UpdateMode = _status.UpdateMode,
             ReleaseNotes = _status.ReleaseNotes,
             LastCheckedUnix = _status.LastCheckedUnix,
             LastCheckError = _status.LastCheckError,

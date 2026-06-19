@@ -17,7 +17,7 @@ namespace Nexus.Service.Platform.Linux;
 ///
 /// Windows-tray parity additions: surfaces a desktop notification when a phone
 /// pairing request needs attention, and re-publishes the tray after the session
-/// bus drops and reconnects (logout/relogin, bus restart) — the SNI registration
+/// bus drops and reconnects (logout/relogin, bus restart) - the SNI registration
 /// dies with the old connection otherwise.
 /// </summary>
 public sealed class LinuxTrayService : IHostedService
@@ -75,7 +75,7 @@ public sealed class LinuxTrayService : IHostedService
         return Task.CompletedTask;
     }
 
-    // Session bus came back — the old SNI registration died with it, so rebuild
+    // Session bus came back - the old SNI registration died with it, so rebuild
     // the tray host on the fresh connection. Fire-and-forget.
     private void OnReconnected() => _ = ReRegisterAsync();
 
@@ -95,7 +95,7 @@ public sealed class LinuxTrayService : IHostedService
     }
 
     // Push the OS accent to the dashboard whenever it changes, so "system"
-    // accent tracks the desktop live — the parity gap with light/dark, which
+    // accent tracks the desktop live - the parity gap with light/dark, which
     // already follows the OS via the browser's prefers-color-scheme query. The
     // XDG portal emits SettingChanged on any appearance change; we re-read the
     // accent and broadcast only when it actually moved.
@@ -144,7 +144,7 @@ public sealed class LinuxTrayService : IHostedService
         => LinuxNotify.Send("Nexus pairing request",
             $"{(string.IsNullOrWhiteSpace(notice.DeviceLabel) ? "A device" : notice.DeviceLabel)} wants to pair.");
 
-    // Transfer landed with no dashboard subscribed to the WS toast — the Linux
+    // Transfer landed with no dashboard subscribed to the WS toast - the Linux
     // analog of the Windows tray balloon / macOS banner. notify-send has no
     // click action, so name the inbox folder in the body.
     private void OnTransferAttention(TransferAttentionNotice notice)

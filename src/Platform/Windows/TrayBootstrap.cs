@@ -47,7 +47,7 @@ internal static class TrayBootstrap
                 store.Update(s => s.Panel.AutoLaunch = !s.Panel.AutoLaunch);
             },
             // Tray checkmark reflects actual kiosk-window state via FindWindow,
-            // not the persisted setting — that way a dead/crashed overlay
+            // not the persisted setting - that way a dead/crashed overlay
             // shows unchecked even if AutoLaunch is still true.
             isPanelRunning: () => panelLauncher.IsRunning);
 
@@ -94,7 +94,7 @@ internal static class TrayBootstrap
         // Surface a tray balloon when a phone pair request arrives with no
         // dashboard open. Interactive mode hosts the tray in-process, so the
         // notification calls TrayIcon directly (service mode routes the same
-        // events down the helper pipe — see WireHelperPipe).
+        // events down the helper pipe - see WireHelperPipe).
         var pairing = app.Services.GetRequiredService<PanelPhonePairingService>();
         pairing.PairRequestNeedsAttention += notice =>
         {
@@ -123,7 +123,7 @@ internal static class TrayBootstrap
     // helper's existence (it always runs so providers like screen-time stay
     // alive); we push the visibility flip down the pipe and let the helper
     // hide/show its NotifyIcon in place. Also wires the "Shut down" item back
-    // through the helper-pipe — the service's SCM DACL only grants
+    // through the helper-pipe - the service's SCM DACL only grants
     // Authenticated Users QUERY_STATUS + START, not STOP, so the helper
     // can't sc.exe-stop us itself.
     public static void WireHelperPipe(WebApplication app)
@@ -158,7 +158,7 @@ internal static class TrayBootstrap
             catch (Exception ex) { Console.Error.WriteLine($"[pair-notify] dismiss failed: {ex.Message}"); }
         };
 
-        // Same dashboard-closed gate, transfer flavor — pushed down the pipe
+        // Same dashboard-closed gate, transfer flavor - pushed down the pipe
         // because Session 0 can't draw UI.
         var inbox = app.Services.GetRequiredService<Nexus.Service.Transfer.TransferInbox>();
         inbox.TransferNeedsAttention += notice =>

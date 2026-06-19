@@ -16,9 +16,9 @@ namespace Nexus.Service.Relay;
 /// calls (device list, layout, controls) can't reach the PC's local HTTP, so
 /// they are tunneled over the relay's <c>rid_http</c> channel as sealed JSON
 /// request frames. <see cref="RelayHttpTunnelLink"/> decrypts each one and hands
-/// it here; we run it straight through the service's OWN endpoint pipeline —
+/// it here; we run it straight through the service's OWN endpoint pipeline -
 /// the exact same routing, CORS, security-header, and route handlers the LAN
-/// path uses — and capture the status + body to seal back.
+/// path uses - and capture the status + body to seal back.
 ///
 /// Authorization model. The relay session is ALREADY authenticated end-to-end
 /// (only a holder of the session token can derive <c>rid_http</c> and the AEAD
@@ -26,9 +26,9 @@ namespace Nexus.Service.Relay;
 /// dispatched authorized as that session's phone-session id WITHOUT the phone
 /// re-presenting its bearer/cookie. Two pieces of per-request server-side state
 /// carry that decision into the pipeline:
-///   • <c>HttpContext.Items["PhoneSessionId"]</c> — the session the request acts as.
+///   • <c>HttpContext.Items["PhoneSessionId"]</c> - the session the request acts as.
 ///   • <c>HttpContext.Items[<see cref="TrustedRelayDispatchKey"/>]</c> set to the
-///     identity sentinel <see cref="TrustedMarker"/> — proof the request entered
+///     identity sentinel <see cref="TrustedMarker"/> - proof the request entered
 ///     in-process from THIS dispatcher.
 /// <see cref="PathAuthMiddleware"/> honors the marker (skips token validation and
 /// the CSRF / panel-allow checks, still enforcing the remote-control killswitch).
@@ -36,7 +36,7 @@ namespace Nexus.Service.Relay;
 /// and is never populated from request headers/body/query, a network caller can
 /// NOT inject either key; only this dispatcher sets them. The marker is compared
 /// by reference identity against a private sentinel, so even guessing the key is
-/// insufficient — the value object is unreachable outside this assembly.
+/// insufficient - the value object is unreachable outside this assembly.
 ///
 /// AOT-safe: no reflection, source-generated JSON only, in-box types only.
 /// </summary>
@@ -50,7 +50,7 @@ public sealed class RelayHttpDispatcher
     public const string TrustedRelayDispatchKey = "Nexus.TrustedRelayDispatch";
 
     /// <summary>
-    /// Path the synthetic priming request targets — matches no route, so it
+    /// Path the synthetic priming request targets - matches no route, so it
     /// 404s harmlessly while letting the capture middleware record the pipeline.
     /// </summary>
     public const string PrimePath = "/__nexus_relay_http_prime__";
@@ -94,7 +94,7 @@ public sealed class RelayHttpDispatcher
     /// authorized as <paramref name="phoneSessionId"/>. Enforces the path
     /// allowlist and body caps first (off-allowlist ⇒ 403, oversized ⇒ 413),
     /// then runs the real handlers and captures the response. Never throws for
-    /// an application-level failure — a handler fault surfaces as a 500 in the
+    /// an application-level failure - a handler fault surfaces as a 500 in the
     /// returned response so the tunnel can always reply.
     /// </summary>
     public async Task<RelayHttpResponse> DispatchAsync(
@@ -160,7 +160,7 @@ public sealed class RelayHttpDispatcher
             // request reports it can have one via IHttpRequestBodyDetectionFeature.
             // A bare DefaultHttpContext has no such feature, so the binder treats
             // every body-bound POST over the tunnel as "no body" and 400s (the
-            // bound parameter resolves null → required-body-missing) — which is
+            // bound parameter resolves null → required-body-missing) - which is
             // why relayed lighting effects, volume, etc. silently did nothing
             // while bodyless/route-param POSTs (cooling presets) worked. Declare
             // the body so binding reads it.
@@ -188,7 +188,7 @@ public sealed class RelayHttpDispatcher
         var contentType = ctx.Response.ContentType;
         var bytes = responseBody.ToArray();
 
-        // Text (JSON/HTML/...) rides as a plain UTF-8 string — the original wire
+        // Text (JSON/HTML/...) rides as a plain UTF-8 string - the original wire
         // shape, so a panel that predates the Base64 flag still parses it. Only
         // binary (thumbnails, icons), which a UTF-8 round-trip through the JSON
         // frame would corrupt, is base64'd + flagged; updated panels decode it.
@@ -216,7 +216,7 @@ public sealed class RelayHttpDispatcher
     }
 
     // Text rides as a plain UTF-8 string (backward-compatible); anything else is
-    // treated as binary and base64'd. Null/empty ⇒ text — the panel's binary
+    // treated as binary and base64'd. Null/empty ⇒ text - the panel's binary
     // routes always set an image/* content type.
     private static bool IsTextContentType(string? contentType)
     {

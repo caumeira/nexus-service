@@ -69,8 +69,8 @@ public static class LightingDevicesCatalog
                 Vendor = vendor,
                 Model = model,
                 Category = CategoryFromController(d.Controller, d.Kind),
-                VendorId = d.Vid ?? "—",
-                ProductId = d.Pid ?? "—",
+                VendorId = d.Vid ?? "-",
+                ProductId = d.Pid ?? "-",
                 Capabilities = new List<string> { d.Kind ?? "generic" },
             });
         }

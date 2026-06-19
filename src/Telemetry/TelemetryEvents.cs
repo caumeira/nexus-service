@@ -1,7 +1,7 @@
 namespace Nexus.Service.Telemetry;
 
 /// <summary>
-/// Canonical event names. Add one line here and reference it at the call site —
+/// Canonical event names. Add one line here and reference it at the call site -
 /// never a raw string literal (keeps the taxonomy greppable and typo-proof).
 /// snake_case to match PostHog conventions.
 /// </summary>

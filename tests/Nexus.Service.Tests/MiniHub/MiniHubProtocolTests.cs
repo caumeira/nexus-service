@@ -5,11 +5,11 @@ namespace Nexus.Service.Tests.MiniHub;
 
 /// <summary>
 /// Wire-protocol coverage for the IBP MiniHub. Reference for every
-/// behaviour pinned below is HYTE's shipping nexus-control-service —
+/// behaviour pinned below is HYTE's shipping nexus-control-service -
 /// specifically <c>LightDancing/Hardware/Devices/HYTE/Hub/IBPMiniHubController.cs</c>
 /// (the working production agent against the same firmware). Where
 /// <c>hyte-refs/hyte-documents/firmware-protocol/MiniHub/main.md</c>
-/// disagrees with the shipping code, the code wins — that's what the
+/// disagrees with the shipping code, the code wins - that's what the
 /// hardware actually accepts.
 /// </summary>
 public class MiniHubProtocolTests
@@ -69,7 +69,7 @@ public class MiniHubProtocolTests
         // Reference: LightDancing/Hardware/Devices/Components/MiniHubLedStrip.cs:59
         // writes `new byte[] { color.G, color.R, color.B }`. The firmware spec
         // doc (firmware-protocol/MiniHub/main.md:73) claims R G B but is
-        // demonstrably wrong — the shipping reference agent emits GRB.
+        // demonstrably wrong - the shipping reference agent emits GRB.
         var leds = new[]
         {
             new RgbColor(R: 0x11, G: 0x22, B: 0x33),
@@ -107,7 +107,7 @@ public class MiniHubProtocolTests
         // Channel 4 ("big" output) caps at 100 LEDs; channels 1-3 cap at 50.
         // Anything past the cap is silently dropped. The buffer length is
         // fixed (157 / 307) and the in-cap LEDs fill it exactly, so there
-        // is no trailing byte to inspect — the proof of clamping is that
+        // is no trailing byte to inspect - the proof of clamping is that
         // every byte we DID write matches the supplied colour and the
         // buffer stays at the documented length.
         var tooManyCh1 = new RgbColor[200];
@@ -134,7 +134,7 @@ public class MiniHubProtocolTests
     {
         // Whatever the firmware actually does with bytes past `declaredCount`,
         // we want them deterministically zero. New-byte[] gives us that by
-        // default — this test guards against any future refactor that
+        // default - this test guards against any future refactor that
         // accidentally introduces uninitialized rented buffers.
         var leds = new[] { new RgbColor(0x10, 0x20, 0x30) };
         var buf = MiniHubProtocol.BuildLightingStream(channel: 4, leds);
@@ -169,7 +169,7 @@ public class MiniHubProtocolTests
     public void BuildSetFanSpeed_matches_HYTE_reference_7_byte_frame()
     {
         // HYTE's shipping IBPMiniHubController.SetFanSpeed (line 324) writes
-        // only `FF DD 04 00 <p1> 00 <p2>` — 7 bytes total — even though the
+        // only `FF DD 04 00 <p1> 00 <p2>` - 7 bytes total - even though the
         // spec doc shows an 11-byte frame. The firmware ignores the trailing
         // channel-3/4 bytes and the shipping agent never sends them.
         Assert.Equal(
@@ -220,7 +220,7 @@ public class MiniHubProtocolTests
     public void TryParseFanSpeeds_returns_zero_rpm_for_period_byte_0()
     {
         // Period 0 = no tach signal (port empty / fan stalled / no tach wire).
-        // HYTE's reference also gates this — division by zero would be int.MaxValue.
+        // HYTE's reference also gates this - division by zero would be int.MaxValue.
         var response = new byte[] { 0xFF, 0xDD, 0x06, 0x01, 0x00, 0x00, 0x02, 0x00, 0x00 };
         Assert.True(MiniHubProtocol.TryParseFanSpeeds(response, out var rpm1, out var rpm2));
         Assert.Equal(0, rpm1);

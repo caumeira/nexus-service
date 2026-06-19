@@ -50,7 +50,7 @@ public sealed class ChromaShimState
 /// Alienware LightFX, and Logitech LED) into System32 and SysWOW64.
 ///
 /// Shim DLLs are produced by the nexus-gamesync component and staged
-/// under Bundled/win-x64/chroma/x64/ and x86/ before the service publish.
+/// under Bundled/win-x64/gamesync/x64/ and x86/ before the service publish.
 /// Ten files total:
 ///   x64: RzChromaSDK64.dll, RzChromatic64.dll, LightFX.dll,
 ///        LogitechLedEnginesWrapper.dll, LogitechLed.dll  -> System32
@@ -62,13 +62,13 @@ public sealed class ChromaShimState
 /// ours and is never overwritten. Conflict is per-file: a real vendor DLL
 /// in one slot does not block installing unrelated slots.
 /// </summary>
-public static class ChromaShimInstaller
+public static class GameSyncShimInstaller
 {
     internal const string OurCompanyName = "Nexus";
 
     // Source paths inside the publish output directory.
-    private static string BundleX64Dir => Path.Combine(AppContext.BaseDirectory, "chroma", "x64");
-    private static string BundleX86Dir => Path.Combine(AppContext.BaseDirectory, "chroma", "x86");
+    private static string BundleX64Dir => Path.Combine(AppContext.BaseDirectory, "gamesync", "x64");
+    private static string BundleX86Dir => Path.Combine(AppContext.BaseDirectory, "gamesync", "x86");
 
     // x64 pair -> System32
     internal static readonly string[] X64Names = { "RzChromaSDK64.dll", "RzChromatic64.dll", "LightFX.dll", "LogitechLedEnginesWrapper.dll", "LogitechLed.dll" };

@@ -14,7 +14,7 @@ namespace Nexus.Service.QSeries;
 /// without waiting for the device to re-enumerate over USB.
 ///
 /// File layout: <c>%ProgramData%\Nexus\qseries-transports.json</c>. Written
-/// atomically via <see cref="AtomicJsonFile"/> — a power loss mid-write
+/// atomically via <see cref="AtomicJsonFile"/> - a power loss mid-write
 /// leaves either the previous file or the new file intact, never a
 /// half-written one.
 ///
@@ -49,7 +49,7 @@ public sealed class QSeriesTransportStore
 
     /// <summary>
     /// Read the store from disk. Missing file, empty file, or unparseable
-    /// JSON all return an empty dictionary — the watcher treats "no
+    /// JSON all return an empty dictionary - the watcher treats "no
     /// records" identically to "fresh install", which is the correct
     /// fail-soft behavior here (worst case: one extra USB-bootstrap on
     /// the next attach).

@@ -11,13 +11,13 @@ namespace Nexus.Service.Auth;
 /// hellonexus.com, which fetches the per-installation token from /pair (itself
 /// loopback-only) and then drives the service from the browser.
 ///
-/// Matching is EXACT full-origin string equality (via <c>WithOrigins</c>) —
-/// never substring / prefix / suffix — so a look-alike host such as
+/// Matching is EXACT full-origin string equality (via <c>WithOrigins</c>) -
+/// never substring / prefix / suffix - so a look-alike host such as
 /// <c>https://hellonexus.com.attacker.com</c> is rejected. This is the exact
 /// class of bug behind the ASUS DriverHub RCE (CVE-2025-3462/3463), where a
 /// substring origin check let <c>driverhub.asus.com.attacker.com</c> through.
 /// Do not replace <see cref="AddNexusCors"/>'s <c>WithOrigins</c> with a
-/// <c>SetIsOriginAllowed</c> substring/Contains/EndsWith predicate — see
+/// <c>SetIsOriginAllowed</c> substring/Contains/EndsWith predicate - see
 /// CorsConfigTests for the regression guard.
 /// </summary>
 public static class CorsConfig

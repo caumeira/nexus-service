@@ -330,12 +330,12 @@ public sealed class LinuxTrayHost : IDisposable
     /// <summary>
     /// A browser launcher: the binary, any args before the URL, and whether to
     /// pass the URL as a Chromium <c>--app=&lt;url&gt;</c> flag (a clean chromeless
-    /// app window — no tabs/URL bar, just native window controls) versus a normal
+    /// app window - no tabs/URL bar, just native window controls) versus a normal
     /// positional URL argument.
     /// </summary>
     private readonly record struct Launcher(string Path, string[] PreArgs, bool AppMode);
 
-    // Both flatpak export roots — user (~/.local/share/flatpak) is checked before
+    // Both flatpak export roots - user (~/.local/share/flatpak) is checked before
     // system (/var/lib/flatpak) since a CLI install without root lands in user.
     private static readonly string UserFlatpakBin = Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -346,7 +346,7 @@ public sealed class LinuxTrayHost : IDisposable
     {
         var list = new List<Launcher>();
         // Chromium-family in --app mode FIRST: opens the dashboard as a clean,
-        // chromeless window — the closest Linux equivalent to the Windows/macOS
+        // chromeless window - the closest Linux equivalent to the Windows/macOS
         // embedded panel (no native WebView host exists on Linux yet). Probe
         // order shared with the panel kiosk host.
         foreach (var path in LinuxBrowsers.ChromiumFamily())
@@ -385,7 +385,7 @@ public sealed class LinuxTrayHost : IDisposable
                 {
                     args.Add(url);
                 }
-                // A root daemon must launch the browser as the session user —
+                // A root daemon must launch the browser as the session user -
                 // Chromium refuses to run as root. Pass-through as a --user run.
                 var (spawnFile, spawnArgs) = LinuxSession.WrapSpawnAsSessionUser(l.Path, args);
                 var psi = new ProcessStartInfo

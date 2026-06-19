@@ -20,7 +20,7 @@ namespace Nexus.Service.Sensors;
 /// critical path, the ctor schedules Open() on the thread pool and returns
 /// immediately. <see cref="Update"/> no-ops until Open() finishes, so any
 /// /sensors or /cooling/* request issued in the warmup window returns empty
-/// data instead of blocking — the dashboard hydrates on its next poll. The
+/// data instead of blocking - the dashboard hydrates on its next poll. The
 /// background open also matches AutoRestoreOnStart's 4 s delay and
 /// CurveEngine's 3 s delay so they consume real channel sets when they fire.
 /// </summary>
@@ -66,7 +66,7 @@ public sealed class LhmComputer : IDisposable
     /// Completes when the background <see cref="Computer.Open"/> has finished
     /// (or failed). Consumers that need fully-enumerated hardware before they
     /// read sensor / hardware-name data should await this. Completes even if
-    /// Open() threw — callers should still handle empty Hardware collections.
+    /// Open() threw - callers should still handle empty Hardware collections.
     /// </summary>
     public Task OpenTask => _openTask;
 
@@ -77,7 +77,7 @@ public sealed class LhmComputer : IDisposable
     /// from multiple callers (MonitoringBroadcaster, CurveEngine, HTTP handlers)
     /// into at most one hardware iteration per interval.
     /// Returns immediately if the background <see cref="Computer.Open"/> hasn't
-    /// finished yet — callers see an empty <see cref="Computer.Hardware"/>
+    /// finished yet - callers see an empty <see cref="Computer.Hardware"/>
     /// collection and degrade to "no sensors" until warmup completes.
     /// </summary>
     public void Update(TimeSpan? minInterval = null)

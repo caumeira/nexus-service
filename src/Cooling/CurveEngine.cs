@@ -84,7 +84,7 @@ public sealed class CurveEngine : BackgroundService
         try
         {
             _fans.ReleaseAll();
-            Console.Error.WriteLine("[curve-engine] shutdown — all fans released to BIOS");
+            Console.Error.WriteLine("[curve-engine] shutdown - all fans released to BIOS");
         }
         catch { /* swallow */ }
     }

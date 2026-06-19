@@ -29,7 +29,7 @@ internal static class CanvasGridLayout
 
         var cellW = availW / cols;
         var cellH = availH / rows;
-        // Card sized as a fraction of the cell — no floor so high-N grids can shrink
+        // Card sized as a fraction of the cell - no floor so high-N grids can shrink
         // cards arbitrarily without spilling out of their cell. MaxCard caps low-N from
         // ballooning to canvas-size.
         var cardW = Math.Min(MaxCardW, cellW * 0.92f);
@@ -42,7 +42,7 @@ internal static class CanvasGridLayout
         var x = Pad + col * cellW + (cellW - cardW) * 0.5f;
         var y = Pad + row * cellH + (cellH - cardH) * 0.5f;
 
-        // Defensive clamp — the min-card floors can push a card slightly past the cell edge at very high counts.
+        // Defensive clamp - the min-card floors can push a card slightly past the cell edge at very high counts.
         if (x + cardW > CanvasW - Pad) x = CanvasW - Pad - cardW;
         if (y + cardH > CanvasH - Pad) y = CanvasH - Pad - cardH;
         if (x < Pad) x = Pad;

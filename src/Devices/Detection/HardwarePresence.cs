@@ -4,13 +4,13 @@ namespace Nexus.Service.Devices.Detection;
 
 /// <summary>
 /// Single source of truth for "is this device on the USB bus right now," used to
-/// gate per-device background workers so they don't poll — and log — for hardware
+/// gate per-device background workers so they don't poll - and log - for hardware
 /// that isn't attached. On a host with none of a given device, its worker would
 /// otherwise re-run discovery every 2-3 s and emit a status line each tick.
 ///
 /// Descriptor-queried, not a fixed device list: a query is a vendor id plus an
 /// optional product-id set, matched against the live enumeration. A third-party
-/// app's worker gates through the same call with its cert-granted VID/PIDs — the
+/// app's worker gates through the same call with its cert-granted VID/PIDs - the
 /// enumeration "expands" for free because presence is a filter over whatever is on
 /// the bus, not a hard-coded table. See plans/third-party-app-sdk.md
 /// (PluginProcessSupervisor) for the intended plugin hook.

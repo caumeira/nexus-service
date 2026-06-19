@@ -18,7 +18,7 @@ public interface IDfuFlashTarget
     string FirmwareType { get; }
 
     /// <summary>
-    /// True if this physical device can be flashed with the given catalog key —
+    /// True if this physical device can be flashed with the given catalog key -
     /// i.e. the key belongs to this device's family (CNVS handles all cnvs-*,
     /// Q-series handles q60/q80, Y70 handles y70-*). Lets dev mode flash a
     /// sibling-variant image through the connected device.

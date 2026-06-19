@@ -20,7 +20,7 @@ namespace Nexus.Service.Cooling;
 /// Unlike the MiniHub, each port is written independently
 /// (<c>FF CC 02 &lt;ch&gt; &lt;duty&gt; &lt;en&gt;</c>), so a per-port write
 /// touches only that port. The hub has no onboard-curve handoff command, so
-/// "release" just drops the channel from software control — the port holds
+/// "release" just drops the channel from software control - the port holds
 /// its last commanded duty.
 /// </summary>
 public sealed class SmartHubCoolingProvider : IFanControlProvider, ICoolingProvider
@@ -30,7 +30,7 @@ public sealed class SmartHubCoolingProvider : IFanControlProvider, ICoolingProvi
     private readonly SmartHubHub _hub;
 
     // Channels the user has placed under software control. The hub has no
-    // per-port mode flag to query back, so we track it here — same reason as
+    // per-port mode flag to query back, so we track it here - same reason as
     // MiniHubCoolingProvider: without it GetFanChannels would report "Auto"
     // for a freshly Manual-clicked channel and the panel would snap back to
     // BIOS on the next cooling broadcast. Guarded by _ctrlLock: REST handlers,
@@ -79,7 +79,7 @@ public sealed class SmartHubCoolingProvider : IFanControlProvider, ICoolingProvi
 
     public IReadOnlyList<TemperatureSource> GetTemperatureSources()
     {
-        // The Smart Hub firmware exposes no temperature probes — its tach +
+        // The Smart Hub firmware exposes no temperature probes - its tach +
         // PWM are all the cooling-relevant data it surfaces.
         return Array.Empty<TemperatureSource>();
     }
@@ -174,7 +174,7 @@ public sealed class SmartHubCoolingProvider : IFanControlProvider, ICoolingProvi
 
     // A port is shown only when a fan has shown a live tach this connection.
     // The firmware's "enabled" flag is useless for presence (0x01 for every
-    // port, fan or not — bench-verified on fw 1.0.0.1); SeenFan latches so a
+    // port, fan or not - bench-verified on fw 1.0.0.1); SeenFan latches so a
     // fan parked at 0% duty doesn't vanish off the cooling page.
     private static bool IsPopulated(SmartHubFanChannel fan) => fan.Rpm > 0 || fan.SeenFan;
 

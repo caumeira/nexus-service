@@ -20,9 +20,9 @@ namespace Nexus.Service.Tests;
 
 /// <summary>
 /// In-process integration for the REST-over-relay dispatcher. Stands up a real
-/// <see cref="WebApplication"/> wired exactly like Program.cs at the auth seam —
+/// <see cref="WebApplication"/> wired exactly like Program.cs at the auth seam -
 /// the capture middleware first, then <c>UseRouting</c> + <c>UseNexusPathAuth</c>
-/// + mapped routes — primes the pipeline the same way, and drives requests
+/// + mapped routes - primes the pipeline the same way, and drives requests
 /// through <see cref="RelayHttpDispatcher.DispatchAsync"/> (what the rid_http
 /// relay link calls). Proves the dispatch runs the service's OWN handlers and
 /// that the trusted in-process marker authorizes a protected panel route as the
@@ -34,7 +34,7 @@ public sealed class RelayHttpDispatcherTests
     private const string ProtectedRoute = "/panel/probe";
     private const string ProtectedBody = "panel-probe-ok";
     private const string BinaryRoute = "/panel/blob";
-    // Includes 0xC3 0x28 — an invalid UTF-8 sequence a string round-trip would
+    // Includes 0xC3 0x28 - an invalid UTF-8 sequence a string round-trip would
     // mangle into U+FFFD; the byte-for-byte assert proves binary survives.
     private static readonly byte[] BinaryProbe = { 0x00, 0xFF, 0xC3, 0x28, 0x80, 0x01, 0xFE, 0x7F };
 
@@ -58,7 +58,7 @@ public sealed class RelayHttpDispatcherTests
 
         var app = builder.Build();
 
-        // Capture middleware FIRST — identical to Program.cs.
+        // Capture middleware FIRST - identical to Program.cs.
         var dispatcher = app.Services.GetRequiredService<RelayHttpDispatcher>();
         app.Use(async (ctx, next) =>
         {
@@ -74,7 +74,7 @@ public sealed class RelayHttpDispatcherTests
 
         // A protected panel route (.AllowPanel) that requires a phone-session.
         app.MapGet(ProtectedRoute, () => Results.Text(ProtectedBody)).AllowPanel();
-        // A protected POST that BINDS a JSON body — mirrors /lighting/animate/
+        // A protected POST that BINDS a JSON body - mirrors /lighting/animate/
         // headless-start, /system/volume, etc. (the real control commands).
         // Echoes the bound field so the test can prove the body survived the
         // tunnel's synthetic HttpContext and reached minimal-API model binding.
@@ -87,7 +87,7 @@ public sealed class RelayHttpDispatcherTests
 
         // Start the host first: WebApplication only appends the endpoint-execution
         // terminal to the built pipeline once started, so the capture must prime
-        // after StartAsync — exactly the ApplicationStarted hook Program.cs uses.
+        // after StartAsync - exactly the ApplicationStarted hook Program.cs uses.
         await app.StartAsync();
 
         var primeCtx = new DefaultHttpContext { RequestServices = app.Services };
@@ -141,7 +141,7 @@ public sealed class RelayHttpDispatcherTests
         Assert.Equal(7, resp.Id);
         Assert.Equal(StatusCodes.Status200OK, resp.Status);
         // Text rides as a plain string (NOT base64) so a panel predating the
-        // Base64 flag still parses it — the backward-compat contract.
+        // Base64 flag still parses it - the backward-compat contract.
         Assert.False(resp.Base64, "text response must ride as a plain UTF-8 string");
         Assert.Equal("pong", DecodeText(resp));
     }
@@ -174,7 +174,7 @@ public sealed class RelayHttpDispatcherTests
         await using var app = await BuildAppAsync(store, hub);
         var dispatcher = app.Services.GetRequiredService<RelayHttpDispatcher>();
 
-        // No bearer / cookie / token anywhere — the only thing authorizing this
+        // No bearer / cookie / token anywhere - the only thing authorizing this
         // is the in-process trusted-relay marker the dispatcher sets, proving the
         // relay session's authentication is honored without the phone re-presenting
         // its credential.
@@ -191,7 +191,7 @@ public sealed class RelayHttpDispatcherTests
     public async Task Tunneled_ProtectedRoute_WithoutTrustedMarker_Is401()
     {
         // Drive the SAME protected route through the real pipeline as a plain
-        // request (no trusted marker, no token). It must 401 — proving the route
+        // request (no trusted marker, no token). It must 401 - proving the route
         // is actually protected and the success above is solely the marker.
         var store = StoreWithSession();
         var hub = new MultiplexHub();
@@ -216,7 +216,7 @@ public sealed class RelayHttpDispatcherTests
     {
         // A relayed POST whose handler binds a JSON body (lighting effect, volume,
         // ...). The synthetic HttpContext must report it can have a body or minimal-
-        // API binding skips the body and 400s the required parameter as missing —
+        // API binding skips the body and 400s the required parameter as missing -
         // the regression that silently broke every body-bound control over relay.
         var store = StoreWithSession();
         var hub = new MultiplexHub();
@@ -288,7 +288,7 @@ public sealed class RelayHttpDispatcherTests
     {
         // End-to-end over the wire: RelayConnectionService registers a SECOND host
         // link on rid_http, a client peers up there, sends a sealed HTTP request,
-        // and the sealed reply carries the REAL authorized panel response —
+        // and the sealed reply carries the REAL authorized panel response -
         // proving the rid_http leg + sealed framing + in-process authorized
         // dispatch all line up.
         const string token = "test-session-token-0123456789";

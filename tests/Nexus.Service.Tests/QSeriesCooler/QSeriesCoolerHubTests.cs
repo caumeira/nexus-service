@@ -9,7 +9,7 @@ namespace Nexus.Service.Tests.QSeriesCooler;
 
 /// <summary>
 /// End-to-end-on-the-wire coverage for <see cref="QSeriesCoolerHub.WriteLighting"/>
-/// using a fake transport — proves the lighting path actually emits serial bytes
+/// using a fake transport - proves the lighting path actually emits serial bytes
 /// (software-control once per connect, then all 4 port frames), not a stub.
 /// </summary>
 public class QSeriesCoolerHubTests

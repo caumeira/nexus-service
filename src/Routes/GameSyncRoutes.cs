@@ -137,7 +137,7 @@ public static class GameSyncRoutes
             (ILightingProvider l, LightingEngine engine, ILightingDeviceProvider deviceProvider) =>
             {
                 var active = l.GetSync() == "gamesync";
-                var shimState = ChromaShimInstaller.GetState();
+                var shimState = GameSyncShimInstaller.GetState();
                 var deviceList = deviceProvider.GetAll();
                 // Build id->name lookup from the canonical device registry.
                 var nameById = new System.Collections.Generic.Dictionary<string, string>(

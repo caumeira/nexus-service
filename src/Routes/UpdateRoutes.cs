@@ -30,7 +30,7 @@ public static class UpdateRoutes
         // Start a download+verify+install sequence.
         app.MapPost("/update/start", (UpdateStartRequest? body, UpdateService svc) =>
         {
-            var (started, reason) = svc.StartUpdate(body?.Version);
+            var (started, reason) = svc.StartUpdate(body?.Version, body?.ReopenAfter ?? false);
             if (started)
             {
                 return Results.Json(

@@ -8,7 +8,7 @@ namespace Nexus.Service.Platform.Linux;
 
 /// <summary>
 /// Linux implementation of IPerformanceProvider. Reads CPU ticks from /proc/stat
-/// and memory from /proc/meminfo — both pure-syscall reads, no subprocesses.
+/// and memory from /proc/meminfo - both pure-syscall reads, no subprocesses.
 /// GPU sampling is deliberately skipped here (covered by LinuxSensorProvider via
 /// nvidia-smi) because this provider is called on the monitoring hot path.
 /// </summary>

@@ -1,4 +1,4 @@
-// Nexus local service — Minimal API host for Native AOT.
+// Nexus local service - Minimal API host for Native AOT.
 //
 // Default bind: http://localhost:9400.
 // Override with the first command-line arg:
@@ -24,7 +24,7 @@ using Nexus.Service.Sockets;
 // Linux screen-mirror capture helper: the root daemon re-invokes itself as the
 // session user (setpriv) for this, because the xdg-desktop-portal ScreenCast
 // portal rejects a root caller (can't read its /proc). Must be the very first
-// thing — its stdout (fd 1) carries the raw RGB frame stream, so nothing else
+// thing - its stdout (fd 1) carries the raw RGB frame stream, so nothing else
 // (not even a boot-timer line) may write to stdout before it takes over.
 #if LINUX
 if (args.Length > 0
@@ -52,14 +52,14 @@ args = cliArgs;
 // Integration-test host marker. The WebApplicationFactory fixture
 // (tests/.../Integration/NexusAppFactory) sets NEXUS_TEST_HOST=1 before the
 // entry point runs so the in-process test host skips machine-mutating boot
-// side effects — single-instance mutex, HTTPS cert provisioning, GPU/profile
-// init, orphan-process cleanup, OS protocol-handler registration — and the
+// side effects - single-instance mutex, HTTPS cert provisioning, GPU/profile
+// init, orphan-process cleanup, OS protocol-handler registration - and the
 // platform GUI/service host, falling through to a plain app.Run() that the
 // factory intercepts. Production (env unset) takes the original path unchanged.
 var testHost = Environment.GetEnvironmentVariable("NEXUS_TEST_HOST") == "1";
 
 // Root system daemon (full hardware access) adopts the active user's session
-// env — D-Bus, runtime dir, config home, display — so the tray, MPRIS media,
+// env - D-Bus, runtime dir, config home, display - so the tray, MPRIS media,
 // volume, and dashboard launcher keep working. No-op for a --user install.
 // Done FIRST so HOME/XDG_* are correct before anything (e.g. the service log)
 // resolves a path from them.
@@ -76,7 +76,7 @@ var url = ServiceLaunchIntent.ResolveServiceUrl(args);
 var servicePort = ServiceLaunchIntent.ResolveServicePort(url);
 Nexus.Service.Lifecycle.BootTimer.Mark("after URL resolve");
 
-// Single-instance guard — if another nexus-service is already running,
+// Single-instance guard - if another nexus-service is already running,
 // open or focus the dashboard window instead of spawning a second service.
 // When relaunching elevated, retry for up to 10s while the parent shuts down.
 // Skipped under SCM: the service controller already enforces single-instance.
@@ -151,7 +151,7 @@ var exeDir = AppContext.BaseDirectory;
 // SPA bundle on a running install without elevating into Program Files
 // (which on the Q60 bench rig triggers a USB perturbation that degrades
 // the device's WebView GPU state). The override is a sibling of the
-// installer payload, not a merge — it fully shadows the bundled wwwroot
+// installer payload, not a merge - it fully shadows the bundled wwwroot
 // when present, so the dev push must contain a full SPA build.
 static string ResolveWebRoot(string exeDir)
 {
@@ -179,7 +179,7 @@ var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
 });
 Nexus.Service.Lifecycle.BootTimer.Mark("after WebApplication.CreateSlimBuilder");
 // Logging policy: the service's own diagnostics go through Console/ServiceLog, so
-// the only ILogger output is framework noise. Drop it to Warning — in particular
+// the only ILogger output is framework noise. Drop it to Warning - in particular
 // Microsoft.AspNetCore.Hosting.Diagnostics' per-request "Request starting/finished"
 // Information lines, which otherwise flood service.log on every internal API call.
 // Keep Microsoft.Hosting.Lifetime at Information for the useful "Now listening" /
@@ -284,7 +284,7 @@ Nexus.Service.Lifecycle.BootTimer.Mark("after MdnsAdvertiser register");
 var app = builder.Build();
 Nexus.Service.Lifecycle.BootTimer.Mark("after builder.Build()");
 
-// Connect the session D-Bus once here — single-threaded, BEFORE hosted services
+// Connect the session D-Bus once here - single-threaded, BEFORE hosted services
 // (curve engine etc.) start. A root daemon drops euid for this socket connect
 // (LinuxSession.ConnectAsSessionUser); doing it now keeps that process-wide euid
 // window from racing a concurrent root pwm write. Idempotent + best-effort.
@@ -311,7 +311,7 @@ if (!testHost)
 
 // Middleware pipeline
 //
-// REST-over-relay capture middleware — MUST be first. The off-LAN panel tunnels
+// REST-over-relay capture middleware - MUST be first. The off-LAN panel tunnels
 // its REST calls over the relay (rid_http); RelayHttpDispatcher re-enters this
 // exact pipeline in-process to serve them. As the very first middleware, the
 // `next` we close over is the complete downstream chain (security headers,
@@ -354,7 +354,7 @@ app.UseRouting();
 // (https://hellonexus.com) to a loopback address (http://localhost:9400) behind
 // a preflight that must be answered with Access-Control-Allow-Private-Network.
 // ASP.NET's CORS middleware doesn't emit it, so echo it for our allowlisted
-// origins — this is what lets the hosted web app detect and drive a local Nexus
+// origins - this is what lets the hosted web app detect and drive a local Nexus
 // from the desktop browser. Only set for an allowed Origin on a PNA preflight.
 var pnaAllowedOrigins = new HashSet<string>(allowedOrigins, StringComparer.OrdinalIgnoreCase);
 app.Use(async (ctx, next) =>
@@ -455,7 +455,7 @@ if (!testHost)
     Nexus.Service.Lighting.Rgb.OpenRgbProcessManager.CleanupOrphans();
     Nexus.Service.Lifecycle.BootTimer.Mark("after OpenRgbProcessManager.CleanupOrphans");
 
-    // Register nexus:// protocol handler (idempotent — safe on every launch)
+    // Register nexus:// protocol handler (idempotent - safe on every launch)
     Nexus.Service.Platform.ProtocolHandler.Register();
     Nexus.Service.Lifecycle.BootTimer.Mark("after ProtocolHandler.Register");
 }
@@ -531,7 +531,7 @@ static void OpenExistingServiceWindow(int servicePort)
 static void OpenInAppMode(string url)
 {
     // Find Chrome or Edge and launch with --app=URL for a chromeless window
-    // (no address bar, no tabs) — similar to msedge.exe --app on Windows.
+    // (no address bar, no tabs) - similar to msedge.exe --app on Windows.
     // Fall back to the default browser if neither is installed.
     try
     {
@@ -581,6 +581,6 @@ static void OpenInAppMode(string url)
 }
 
 // Exposes the implicit top-level Program type to the test assembly so
-// WebApplicationFactory<Program> can host the app in-process. No members — the
+// WebApplicationFactory<Program> can host the app in-process. No members - the
 // entry point is the top-level statements above. See Integration/NexusAppFactory.
 public partial class Program { }

@@ -83,7 +83,7 @@ public sealed class AppInstaller
 
         // Compute the user widgets dir from the install paths enumerator;
         // it's the entry whose Source is User. (On every supported OS that
-        // path is `<appdata>/Nexus/widgets/`.)
+        // path is `<appdata>/Nexus/apps/`.)
         string? userRoot = null;
         foreach (var root in AppInstallPaths.Enumerate())
         {

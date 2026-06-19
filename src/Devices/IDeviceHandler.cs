@@ -4,7 +4,7 @@ namespace Nexus.Service.Devices;
 
 /// <summary>
 /// Defines a modular device handler. Each supported device type implements this interface.
-/// Handlers are self-contained — removing a handler file and its DI registration
+/// Handlers are self-contained - removing a handler file and its DI registration
 /// has zero impact on the rest of the application.
 /// </summary>
 public interface IDeviceHandler
@@ -28,7 +28,7 @@ public interface IDeviceHandler
     string GetFirmwareVersion();
 
     /// <summary>
-    /// Firmware-catalog key — the bundled-.hex directory name used to look up
+    /// Firmware-catalog key - the bundled-.hex directory name used to look up
     /// the available firmware version. Defaults to <see cref="Id"/>. Handlers
     /// that cover several firmware variants under one id (Q-series → "q60" /
     /// "q80") override this with the connected variant so the right image is

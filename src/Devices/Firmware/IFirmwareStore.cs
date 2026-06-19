@@ -9,7 +9,7 @@ namespace Nexus.Service.Devices.Firmware;
 /// <c>&lt;firmware-root&gt;/&lt;deviceType&gt;/</c> directory layout, atomic
 /// manifest read/write, and HTTP downloads with SHA-256 validation.
 ///
-/// Not opinionated about bundled-fallback vs cache vs remote precedence —
+/// Not opinionated about bundled-fallback vs cache vs remote precedence -
 /// that combination lives in per-device "firmware source" classes
 /// (e.g. <c>Np50FirmwareSource</c>) that use this store as a building block.
 /// </summary>

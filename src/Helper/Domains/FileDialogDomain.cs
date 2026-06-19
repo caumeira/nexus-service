@@ -26,7 +26,7 @@ namespace Nexus.Service.Helper.Domains
     /// <summary>
     /// Service-side facade for the native file/folder picker. The Session-0
     /// LocalSystem service cannot show UI, so IFileOpenDialog runs in the
-    /// user-session helper. The timeout is deliberately long — the user may
+    /// user-session helper. The timeout is deliberately long - the user may
     /// browse for a while; the caller's CancellationToken (request abort)
     /// stops the wait early, though an already-shown dialog stays open until
     /// the user closes it.

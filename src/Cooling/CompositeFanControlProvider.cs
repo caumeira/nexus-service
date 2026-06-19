@@ -20,7 +20,7 @@ namespace Nexus.Service.Cooling;
 /// MiniHub, each extra source owns its own prefix (<c>liquidctl:</c>,
 /// <c>nvidia:</c>); everything else goes to the motherboard provider.
 ///
-/// Calibration only runs against the motherboard side — hub / USB-cooler / GPU
+/// Calibration only runs against the motherboard side - hub / USB-cooler / GPU
 /// fans report stable duty and don't benefit from the ramp/hold dance.
 /// </summary>
 public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingProvider
@@ -94,8 +94,8 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
         return _motherboard.ReadTemperature(sensorId);
     }
 
-    // The single fan-write chokepoint: every duty that reaches hardware — from a
-    // curve apply, a direct speed call, or a plugin-guided write — is clamped to
+    // The single fan-write chokepoint: every duty that reaches hardware - from a
+    // curve apply, a direct speed call, or a plugin-guided write - is clamped to
     // [0,100] here, so no caller can drive a fan out of range.
     public int SetFanSpeed(string channelId, int dutyPercent)
         => Route(channelId).SetFanSpeed(channelId, CoolingSafety.ClampDuty(dutyPercent));

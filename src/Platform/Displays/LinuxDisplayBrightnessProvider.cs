@@ -15,7 +15,7 @@ namespace Nexus.Service.Platform.Displays;
 /// internal/laptop panels through the kernel backlight sysfs
 /// (<c>/sys/class/backlight/*/{brightness,max_brightness}</c>), and external
 /// monitors through DDC/CI over i2c-dev (<c>/dev/i2c-*</c>, slave 0x37,
-/// VCP 0x10) — the same MCCS protocol the Windows/macOS providers speak, just
+/// VCP 0x10) - the same MCCS protocol the Windows/macOS providers speak, just
 /// over the Linux i2c char device. AOT-safe: sysfs file IO + blittable libc
 /// P/Invoke. Needs read access to <c>/dev/i2c-*</c> (i2c group) for external
 /// monitors; backlight write needs access to the backlight sysfs node (udev).
@@ -105,7 +105,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
                 WriteMode = DisplayBrightnessWriteModes.Immediate,
             };
         }
-        // DDC writes are slow (~50ms round trip) — coalesce slider drags.
+        // DDC writes are slow (~50ms round trip) - coalesce slider drags.
         return new DisplayBrightnessWritePolicy
         {
             ControlPath = DisplayBrightnessControlPaths.DdcCi,
@@ -282,7 +282,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
             Span<byte> reply = stackalloc byte[11];
 
             // DDC/CI over i2c is noisy: a busy bus or back-to-back exchanges can
-            // return a short/garbled reply (confirmed on a Dell U2415 — rapid
+            // return a short/garbled reply (confirmed on a Dell U2415 - rapid
             // reads intermittently NAK). Retry the request a few times, spaced.
             for (var attempt = 0; attempt < DdcReadAttempts; attempt++)
             {
@@ -362,7 +362,7 @@ public sealed partial class LinuxDisplayBrightnessProvider : IDisplayBrightnessP
         var c1 = Letter((id >> 10) & 0x1F);
         var c2 = Letter((id >> 5) & 0x1F);
         var c3 = Letter(id & 0x1F);
-        // Invalid/blank PNP IDs decode to non-letters — don't ship garbage.
+        // Invalid/blank PNP IDs decode to non-letters - don't ship garbage.
         var mfg = c1 is >= 'A' and <= 'Z' && c2 is >= 'A' and <= 'Z' && c3 is >= 'A' and <= 'Z'
             ? new string(new[] { c1, c2, c3 })
             : "";

@@ -11,7 +11,7 @@ namespace Nexus.Service.Platform.Windows;
 
 /// <summary>
 /// Native IFileOpenDialog (the modern common item dialog) for the user-session
-/// helper. Raw vtable indirection like <see cref="Activity.WindowsVolumeProvider"/> —
+/// helper. Raw vtable indirection like <see cref="Activity.WindowsVolumeProvider"/> -
 /// IntPtr + function pointers, no ComWrappers or reflection marshalling, so it
 /// is fully NativeAOT-safe. The dialog runs on a dedicated STA thread
 /// (IFileDialog::Show pumps its own modal loop there); one dialog at a time.
@@ -29,7 +29,7 @@ public static unsafe class NativeFileDialog
     private const uint FosFileMustExist = 0x1000;
     private const uint FosPickFolders = 0x20;
 
-    // HRESULT_FROM_WIN32(ERROR_CANCELLED) — the user closed the dialog.
+    // HRESULT_FROM_WIN32(ERROR_CANCELLED) - the user closed the dialog.
     private const int HrCancelled = unchecked((int)0x800704C7);
     private const uint SigdnFilesysPath = 0x80058000;
     private const int ClsCtxInprocServer = 0x1;
@@ -104,7 +104,7 @@ public static unsafe class NativeFileDialog
 
                     // Own the dialog to the Nexus app window when it exists so
                     // it opens centered OVER the app (z-order tied to it), and
-                    // nudge it to the foreground either way — the helper is a
+                    // nudge it to the foreground either way - the helper is a
                     // background process, so an unowned Show lands behind
                     // whatever the user is looking at.
                     var owner = TrayIcon.FindExistingNexusAppWindow();

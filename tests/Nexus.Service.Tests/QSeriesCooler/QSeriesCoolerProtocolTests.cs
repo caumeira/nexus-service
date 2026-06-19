@@ -6,7 +6,7 @@ namespace Nexus.Service.Tests.QSeriesCooler;
 
 /// <summary>
 /// Wire-protocol coverage for the HYTE Q-series cooler RGB path. Reference is
-/// HYTE's shipping nexus-control-service —
+/// HYTE's shipping nexus-control-service -
 /// <c>LightDancing/Hardware/Devices/HYTE/Cooler/PQSeriesDeviceBase.SendToHardware</c>:
 /// software RGB control (FF DD 03 00) then 4 per-port LED streams
 /// <c>FF EE 01 &lt;port&gt; 01 68 00</c> + GRB triples, each PadListWithZeros(90).

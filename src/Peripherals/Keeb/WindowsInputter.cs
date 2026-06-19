@@ -7,7 +7,7 @@ namespace Nexus.Service.Peripherals.Keeb;
 
 /// <summary>
 /// Windows keyboard input injection via SendInput P/Invoke.
-/// AOT-safe — no NuGet packages, no WinRT/COM dependencies.
+/// AOT-safe - no NuGet packages, no WinRT/COM dependencies.
 /// </summary>
 public sealed class WindowsInputter : IInputterProvider
 {

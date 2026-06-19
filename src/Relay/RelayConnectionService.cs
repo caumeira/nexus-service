@@ -24,7 +24,7 @@ namespace Nexus.Service.Relay;
 /// <see cref="ClientWebSocket"/> per paired phone session to the relay
 /// (<see cref="RelayUrl"/>), registers as that session's <c>host</c> via the
 /// rid derived from the session's relay root, and bridges relayed frames into
-/// the shared <see cref="MultiplexHub"/> tagged with the session id — so the
+/// the shared <see cref="MultiplexHub"/> tagged with the session id - so the
 /// Pair Remote killswitch (KickAll / KickPhoneSessions) closes a relayed
 /// session exactly like a LAN one.
 ///
@@ -131,13 +131,13 @@ public sealed class RelayConnectionService : BackgroundService
 
         // Pick the latency-nearest regional relay (and publish its tag for the QR)
         // BEFORE subscribing to change signals and bringing links up, so the first
-        // reconcile already targets the resolved Endpoint — no Reconcile can race
+        // reconcile already targets the resolved Endpoint - no Reconcile can race
         // on the pre-selection (legacy) Endpoint and strand links there. Best-
         // effort: any failure leaves the legacy default. Runs after StartAsync
         // (BackgroundService), so this directory call never delays boot.
         // (A pair QR minted inside the brief selection window carries no r= and
         // would target the default relay; the token expires + regenerates, so it
-        // self-heals — not worth per-token dual-homing for a sub-second window
+        // self-heals - not worth per-token dual-homing for a sub-second window
         // that only opens right after a service restart.)
         await SelectRelayAsync(stoppingToken).ConfigureAwait(false);
 
@@ -172,7 +172,7 @@ public sealed class RelayConnectionService : BackgroundService
                 && !string.IsNullOrEmpty(dir.Nearest)
                 && dir.Regions.TryGetValue(dir.Nearest, out var url)
                 && Uri.TryCreate(url, UriKind.Absolute, out var uri)
-                // Refuse anything but wss:// — a compromised directory must not be
+                // Refuse anything but wss:// - a compromised directory must not be
                 // able to downgrade the relay transport to plaintext ws:// (the
                 // payloads stay E2E-sealed, but rid/traffic metadata would leak).
                 && string.Equals(uri.Scheme, Uri.UriSchemeWss, StringComparison.Ordinal))
@@ -337,7 +337,7 @@ public sealed class RelayConnectionService : BackgroundService
     // NO cloud relay in the middle. The phone connects to /secure-tunnel and sends
     // a CLIENT hello {role:"client", rid, salt}; this service IS the host, so it
     // matches the rid to a paired session, sends the client a peer-up, and runs the
-    // same runtime (multiplex) or HTTP leg the cloud path runs — the frames just
+    // same runtime (multiplex) or HTTP leg the cloud path runs - the frames just
     // arrive on this accepted socket directly. The session token never crosses the
     // wire: the 128-bit HKDF rid proves which session, the per-connection AEAD key
     // proves possession. Same trust model as the relay, minus the broker.
@@ -381,7 +381,7 @@ public sealed class RelayConnectionService : BackgroundService
 
         var aeadKey = RelayCrypto.DeriveAeadKey(relayRoot, connSalt);
 
-        // Promote the client to OPEN — mirrors the relay's peer-up. The web client
+        // Promote the client to OPEN - mirrors the relay's peer-up. The web client
         // sends no sealed frame until it sees this.
         await SendControlAsync(socket, PeerUpFrame, ct).ConfigureAwait(false);
 
@@ -800,7 +800,7 @@ public sealed class RelayConnectionService : BackgroundService
                 catch { return null; }
                 if (connSalt.Length != RelayCrypto.ConnSaltLength)
                     return null;
-                // claimKey = DeriveAeadKey(pairRoot, connSalt) — identical to the
+                // claimKey = DeriveAeadKey(pairRoot, connSalt) - identical to the
                 // runtime AEAD derivation, just keyed off the pairRoot.
                 return RelayCrypto.DeriveAeadKey(_root, connSalt);
             }
@@ -815,7 +815,7 @@ public sealed class RelayConnectionService : BackgroundService
         /// (dir=1, counter 0): claim-ok with the new session token on success,
         /// claim-err otherwise. A decrypt failure ends the link with no reply (the
         /// peer doesn't hold the token; possession is what the AEAD decrypt proves)
-        /// — neither consumes the token. Returns true when ClaimCore ran (the token
+        /// - neither consumes the token. Returns true when ClaimCore ran (the token
         /// is now spent / decided, so the link is one-shot done); false on a
         /// decrypt / wrong-direction / malformed-request path where the token is
         /// still outstanding and the phone may retry on a fresh peer-up.
@@ -884,7 +884,7 @@ public sealed class RelayConnectionService : BackgroundService
         /// Seal one host→client reply (counter 0) and write it as a single BINARY
         /// relay frame. Sent on <see cref="CancellationToken.None"/> on purpose: a
         /// successful claim consumes the pair token, which fires the
-        /// token-changed reconcile that CANCELS this link's token — but the phone
+        /// token-changed reconcile that CANCELS this link's token - but the phone
         /// is still waiting for its claim-ok, so the terminal reply must complete
         /// regardless. The link ends immediately after either way.
         /// </summary>
@@ -905,7 +905,7 @@ public sealed class RelayConnectionService : BackgroundService
         /// derive the per-connection AEAD key and then loop reading sealed BINARY
         /// request frames (dir=2). Each decrypts to a <see cref="RelayHttpRequest"/>
         /// that we DISPATCH through the service's own endpoint pipeline, authorized
-        /// as this session's phone-session id (no phone bearer needed — the relay
+        /// as this session's phone-session id (no phone bearer needed - the relay
         /// session is already authenticated). The sealed <see cref="RelayHttpResponse"/>
         /// (dir=1) echoes the request id so the panel can multiplex concurrent
         /// fetches. A peer-down ends the channel; the host socket stays open for

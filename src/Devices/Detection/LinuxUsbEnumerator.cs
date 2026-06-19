@@ -8,7 +8,7 @@ namespace Nexus.Service.Devices.Detection;
 /// <summary>
 /// Linux USB enumeration via sysfs. Walks /sys/bus/usb/devices/* reading
 /// idVendor, idProduct, product, manufacturer, serial, busnum, devnum, speed,
-/// and bDeviceClass. Pure file reads — no subprocesses, no libusb dependency.
+/// and bDeviceClass. Pure file reads - no subprocesses, no libusb dependency.
 /// </summary>
 public sealed class LinuxUsbEnumerator : IUsbEnumerator
 {
@@ -30,7 +30,7 @@ public sealed class LinuxUsbEnumerator : IUsbEnumerator
             foreach (var dir in Directory.EnumerateDirectories(root))
             {
                 // sysfs USB node names:
-                //   "usbN"          → a root hub (skip — we surface the hub via its child entry below)
+                //   "usbN"          → a root hub (skip - we surface the hub via its child entry below)
                 //   "N-M"           → a physical device
                 //   "N-M:C.I"       → an interface of a device (skip; parent already covers it)
                 var name = Path.GetFileName(dir);

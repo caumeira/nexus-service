@@ -4,7 +4,7 @@ namespace Nexus.Service.Platform.Clipboard;
 
 /// <summary>
 /// Sets the OS clipboard text. Used by the deck "type text" action, which sets
-/// the clipboard then injects a paste keystroke — the only Unicode-reliable
+/// the clipboard then injects a paste keystroke - the only Unicode-reliable
 /// cross-platform way to insert arbitrary text. Returns false when the platform
 /// clipboard tool is unavailable.
 /// </summary>

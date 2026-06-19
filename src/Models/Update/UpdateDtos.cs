@@ -11,7 +11,7 @@ public sealed class UpdateStatusResponse
     public bool UpdateAvailable { get; set; }
     /// <summary>"production" or "beta"</summary>
     public string Channel { get; set; } = "production";
-    public bool AutoUpdateDisabled { get; set; }
+    public string UpdateMode { get; set; } = "always";
     public string ReleaseNotes { get; set; } = "";
     public long LastCheckedUnix { get; set; }
     public string LastCheckError { get; set; } = "";
@@ -19,6 +19,11 @@ public sealed class UpdateStatusResponse
     public string State { get; set; } = "idle";
     [System.Text.Json.Serialization.JsonPropertyName("updateReady")]
     public bool UpdateReady { get; set; }
+    /// <summary>
+    /// Non-empty on the first GET /update/status after a successful update.
+    /// Contains the new version string. Empty after the first read or 60s.
+    /// </summary>
+    public string JustUpdatedTo { get; set; } = "";
 }
 
 /// <summary>GET /update/progress response.</summary>
@@ -47,4 +52,6 @@ public sealed class UpdateStartRequest
 {
     /// <summary>Optional: require this version to be the one that installs.</summary>
     public string? Version { get; set; }
+    /// <summary>When true, the dashboard is reopened after the install completes.</summary>
+    public bool ReopenAfter { get; set; }
 }

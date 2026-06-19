@@ -10,20 +10,20 @@ namespace Nexus.Service.Cooling;
 
 /// <summary>
 /// Bridges the HYTE MiniHub into the cooling subsystem. The MiniHub has
-/// only two physical fan ports — port 1 (1 fan) and port 2 (up to 3
+/// only two physical fan ports - port 1 (1 fan) and port 2 (up to 3
 /// daisy-chained fans sharing one tach + one PWM). We surface one
 /// <see cref="FanChannel"/> per populated port, mirroring HYTE's own
 /// MinihubComponent shape. Empty ports never appear on the cooling page.
 ///
 /// Channel IDs:
 /// <code>
-///   minihub:&lt;serial&gt;:port1   — port 1 PWM / tach
-///   minihub:&lt;serial&gt;:port2   — port 2 PWM / tach (shared across daisy chain)
+///   minihub:&lt;serial&gt;:port1   - port 1 PWM / tach
+///   minihub:&lt;serial&gt;:port2   - port 2 PWM / tach (shared across daisy chain)
 /// </code>
 ///
 /// Both ports are set in a single firmware command, so any per-port write
 /// re-sends the cached "other port" duty. The hub firmware clamps duties
-/// below 10% to 0%, so a curve emitting 0% still pins to 10% — there is no
+/// below 10% to 0%, so a curve emitting 0% still pins to 10% - there is no
 /// firmware-supported "stop" speed.
 /// </summary>
 public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvider
@@ -35,13 +35,13 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
 
     // Channels the user has placed under software control (Manual mode or
     // curve-bound). Tracked here because the MiniHub firmware only has a
-    // hub-level Software/Motherboard mode switch — there is no per-port
+    // hub-level Software/Motherboard mode switch - there is no per-port
     // "Manual" flag we can query back. Without this, GetFanChannels would
     // return Mode="Auto" for a freshly Manual-clicked channel, and the
     // panel's refreshCoolingConfig would snap the UI back to BIOS the
     // moment the next cooling-topic broadcast fires (the panel decides
     // Manual vs BIOS purely from FanChannel.Mode + saved curves output
-    // list — see CoolingView.refreshCoolingConfig).
+    // list - see CoolingView.refreshCoolingConfig).
     private readonly HashSet<string> _softwareControlled = new();
 
     public MiniHubCoolingProvider(MiniHubHub hub)
@@ -98,7 +98,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
 
     public IReadOnlyList<TemperatureSource> GetTemperatureSources()
     {
-        // The MiniHub firmware does not expose temperature probes — its
+        // The MiniHub firmware does not expose temperature probes - its
         // tach + PWM are all the cooling-relevant data it surfaces.
         return Array.Empty<TemperatureSource>();
     }
@@ -214,7 +214,7 @@ public sealed class MiniHubCoolingProvider : IFanControlProvider, ICoolingProvid
         // Respect a user-pinned non-Software fan mode. When the user picked
         // BIOS on a MiniHub fan via PUT /devices/minihub/cooling-mode, the curve
         // engine's next DriveFanSpeed would call SetFanControlMode(Software)
-        // below and silently flip the hub back — the user hears the fan drop to
+        // below and silently flip the hub back - the user hears the fan drop to
         // BIOS PWM then speed back up as the next tick re-asserts Software. Drop
         // the write entirely when pinned to Motherboard.
         var pinned = _hub.DesiredFanControlMode;

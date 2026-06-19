@@ -38,7 +38,7 @@ public sealed class PanelSettings
     /// the Y70 reconnects). Surfaced as "Show Panel" in the UI.</summary>
     public bool AutoLaunch { get; set; }
     /// <summary>When true, the overlay keeps the Y70 panel monitor exclusive to
-    /// the kiosk — foreign windows that land on it are relocated back to a
+    /// the kiosk - foreign windows that land on it are relocated back to a
     /// normal monitor. Default on. Surfaced as "Keep panel clear of other
     /// windows" under Panel settings.</summary>
     public bool ReserveMonitor { get; set; } = true;
@@ -77,7 +77,7 @@ public sealed class OverlaySettings
     public List<OverlayWidgetDto> Layout { get; set; } = new();
 }
 
-// Layout seed types — used by install-defaults to define starter widget sets
+// Layout seed types - used by install-defaults to define starter widget sets
 // per surface. Live PanelDeviceRecord.Layout and PanelSettings.DashboardLayout
 // use the richer PanelLayoutDto with ids + per-instance widget config.
 
@@ -108,7 +108,7 @@ public sealed class PanelLayoutWidget
 
 // GET /preferences response. Mirrors PreferencesPatch shape so the SPA reads
 // and writes through the same nested keys. CoolingPrefs is a slim projection
-// of CoolingSettings (only the prefs surface — the full cooling view has its
+// of CoolingSettings (only the prefs surface - the full cooling view has its
 // own endpoints).
 public sealed class Preferences
 {
@@ -193,14 +193,14 @@ public sealed class MonitoringSettingsPatch
 
 public sealed class UpdatePrefs
 {
-    public bool AutoUpdateDisabled { get; set; }
+    public string UpdateMode { get; set; } = "always";
     public string UpdateChannel { get; set; } = "production";
     public string LastDismissedUpdateVersion { get; set; } = "";
 }
 
 public sealed class UpdatePrefsPatch
 {
-    public bool? AutoUpdateDisabled { get; set; }
+    public string? UpdateMode { get; set; }
     public string? UpdateChannel { get; set; }
     public string? LastDismissedUpdateVersion { get; set; }
 }
@@ -209,7 +209,7 @@ public sealed class CoolingPrefsPatch
 {
     public List<string>? FanChannelOrder { get; set; }
     // The two sensor-id fields reuse `string?` for both "field omitted" and
-    // "reset to auto" — null on the wire means the client did not send it
+    // "reset to auto" - null on the wire means the client did not send it
     // (handler preserves the stored value); an empty string means the user
     // explicitly cleared their pinned choice (handler stores null). Do not
     // collapse these into a single semantic without updating ProfileRoutes.

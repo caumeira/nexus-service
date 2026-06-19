@@ -28,7 +28,7 @@ internal static class GoveePackets
     public static string RazerModeBase64(bool enable) => Convert.ToBase64String(BuildRazerMode(enable));
 
     /// <summary>One realtime color frame: the device spreads
-    /// <paramref name="count"/> colors over the strip — when count equals the
+    /// <paramref name="count"/> colors over the strip - when count equals the
     /// device's IC/segment count this is true per-segment control. RGB triplets
     /// are scaled by <paramref name="scale01"/> (brightness baked into color).
     /// <paramref name="gradient"/> = device blends between colors instead of

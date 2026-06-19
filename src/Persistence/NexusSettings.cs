@@ -7,7 +7,7 @@ namespace Nexus.Service.Persistence;
 /// Root settings document persisted to disk. Every controller that needs to remember
 /// state across restarts reads/writes through IConfigStore, which mutates this object.
 ///
-/// New fields are SAFE to add — JSON deserialization tolerates missing keys via the
+/// New fields are SAFE to add - JSON deserialization tolerates missing keys via the
 /// default values on each property. Renamed or deleted fields are NOT safe; bump
 /// SchemaVersion and write a migration in JsonConfigStore.Load() if you do that.
 /// </summary>
@@ -18,7 +18,7 @@ public sealed class NexusSettings
     /// a migration in <c>JsonConfigStore.Load()</c>. Lives as a constant so
     /// tests and tooling can reference "current" without bit-rotting.
     /// </summary>
-    public const int CurrentSchemaVersion = 6;
+    public const int CurrentSchemaVersion = 7;
 
     /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
@@ -46,7 +46,7 @@ public sealed class NexusSettings
     /// <summary>User-overridden display name for this host PC. Empty means "fall back to Environment.MachineName". Surfaced in the panel tray header and in the QR/claim payload paired phones see. NOT profile-scoped: a host has one name regardless of which profile is active.</summary>
     public string HostDisplayName { get; set; } = "";
 
-    /// <summary>Folder where phone→PC transfers land. Empty means auto-resolve (interactive user's Downloads/Nexus, falling back to CommonApplicationData/Nexus/inbox — see <see cref="Nexus.Service.Transfer.TransferInbox"/>). NOT profile-scoped.</summary>
+    /// <summary>Folder where phone→PC transfers land. Empty means auto-resolve (interactive user's Downloads/Nexus, falling back to CommonApplicationData/Nexus/inbox - see <see cref="Nexus.Service.Transfer.TransferInbox"/>). NOT profile-scoped.</summary>
     public string TransferInboxPath { get; set; } = "";
 
     /// <summary>Profile id designated as the source for any category currently in <c>SharedCategories</c>. When a category is shared, switching profiles still loads its values from this profile, and edits to that category save back here. NOT profile-scoped: this routing decision is workstation-level and survives profile switches. Null means no Primary; shared categories then fall back to the active profile.</summary>
@@ -61,7 +61,7 @@ public sealed class NexusSettings
 }
 
 /// <summary>
-/// Paired network ("smart") lights — Philips Hue and (later) Nanoleaf, WLED,
+/// Paired network ("smart") lights - Philips Hue and (later) Nanoleaf, WLED,
 /// LIFX, etc. Each entry is one controllable light surfaced as a
 /// <see cref="Nexus.Service.Models.Devices.LightingDevice"/> card alongside the
 /// USB / serial RGB devices. Discovery + pairing populate this list; the
@@ -602,7 +602,7 @@ public sealed class PanelPhoneSessionToken
     /// <see cref="Name"/>, it is never overwritten by a user rename, so the
     /// session list can show the original class alongside a custom name. Set from
     /// the client-detected label when present, else the UA descriptor. Empty for
-    /// sessions claimed before this field existed — those fall back to the UA.
+    /// sessions claimed before this field existed - those fall back to the UA.
     /// </summary>
     public string DeviceType { get; set; } = "";
     public string UserAgent { get; set; } = "";
@@ -615,7 +615,7 @@ public sealed class PanelPhoneSessionToken
     /// there is no usable client IP/UA and so <see cref="DeviceFingerprint"/> is
     /// empty: re-pairing the same device replaces its prior session instead of
     /// accumulating duplicates. Empty for legacy sessions and for clients that
-    /// do not send one — those fall back to fingerprint-only dedup.
+    /// do not send one - those fall back to fingerprint-only dedup.
     /// </summary>
     public string DeviceId { get; set; } = "";
     public long CreatedAt { get; set; }
@@ -637,7 +637,7 @@ public sealed class PanelPhoneSessionToken
     /// client can recover the per-session E2E key without the token. The
     /// browser client re-derives the same root from the token it holds, so the
     /// relay (a dumb byte-forwarder) never sees either. Empty for sessions
-    /// claimed before the relay feature shipped — those simply can't relay
+    /// claimed before the relay feature shipped - those simply can't relay
     /// until they re-pair, which is the correct fail-closed behavior.
     /// </summary>
     public string RelayKey { get; set; } = "";
@@ -658,10 +658,10 @@ public sealed class RgbaColor
 public sealed class UpdateSettings
 {
     /// <summary>
-    /// When true, the poller detects updates but never auto-downloads or installs.
-    /// A manual POST /update/start is still allowed.
+    /// Auto-update behavior: "notify" (detect only), "download" (stage but don't install),
+    /// "always" (download and install automatically). Default "always".
     /// </summary>
-    public bool AutoUpdateDisabled { get; set; }
+    public string UpdateMode { get; set; } = "always";
 
     /// <summary>"production" or "beta". Production maps to the GitHub latest-release
     /// endpoint (excludes prereleases); beta picks the newest release regardless of
@@ -673,4 +673,12 @@ public sealed class UpdateSettings
     /// Prevents the popup from re-appearing for the same version after dismissal.
     /// </summary>
     public string LastDismissedUpdateVersion { get; set; } = "";
+
+    /// <summary>
+    /// Pre-v7 field. Read during schema migration only; the v7 migration maps
+    /// true to UpdateMode "notify" and then this field is dropped on the next
+    /// write (WhenWritingNull).
+    /// </summary>
+    [System.Text.Json.Serialization.JsonPropertyName("autoUpdateDisabled")]
+    public bool? LegacyAutoUpdateDisabled { get; set; }
 }

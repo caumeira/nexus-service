@@ -14,7 +14,7 @@ namespace Nexus.Service.Lighting.Smart.Drivers.Govee;
 
 /// <summary>
 /// UDP transport for the Govee LAN API. One socket per process bound to the
-/// fixed listen port — devices send every reply (scan and devStatus) to the
+/// fixed listen port - devices send every reply (scan and devStatus) to the
 /// client's IP at that port regardless of the request's source port, so all
 /// sends go out of the same socket and one receive loop dispatches replies:
 /// scan replies to the active scan collectors, devStatus replies to the
@@ -67,7 +67,7 @@ public sealed class GoveeLanClient : IDisposable
             // best-effort coexistence (platform-dependent for UDP unicast); if
             // another LAN controller app (OpenRGB/SignalRGB) owns the port,
             // fall back to an ephemeral one: control keeps working, but scan
-            // and status replies are lost — log loudly so "no devices found"
+            // and status replies are lost - log loudly so "no devices found"
             // is diagnosable.
             sock.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.ReuseAddress, true);
             try
@@ -76,7 +76,7 @@ public sealed class GoveeLanClient : IDisposable
             }
             catch (SocketException ex)
             {
-                ServiceLog.Warn($"[govee-lan] cannot bind UDP :{_listenPort} ({ex.SocketErrorCode}) — another app owns it; discovery/status replies unavailable");
+                ServiceLog.Warn($"[govee-lan] cannot bind UDP :{_listenPort} ({ex.SocketErrorCode}) - another app owns it; discovery/status replies unavailable");
                 sock.Bind(new IPEndPoint(IPAddress.Any, 0));
             }
             try { sock.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Broadcast, true); } catch { }
@@ -212,7 +212,7 @@ public sealed class GoveeLanClient : IDisposable
         }
     }
 
-    /// <summary>Unicast scan probe of one host — confirms LAN Control is
+    /// <summary>Unicast scan probe of one host - confirms LAN Control is
     /// enabled and yields the SKU. Works where multicast is filtered.</summary>
     public async Task<GoveeDeviceInfo?> ProbeAsync(string host, int timeoutMs, CancellationToken ct)
     {

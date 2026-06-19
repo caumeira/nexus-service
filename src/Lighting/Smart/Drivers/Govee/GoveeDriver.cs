@@ -10,7 +10,7 @@ namespace Nexus.Service.Lighting.Smart.Drivers.Govee;
 
 /// <summary>
 /// Govee driver (Wi-Fi devices with "LAN Control" enabled in the Govee Home
-/// app — there is no token pairing). Discovery via multicast scan, control via
+/// app - there is no token pairing). Discovery via multicast scan, control via
 /// UDP JSON, realtime per-segment streaming via the binary razer/DreamView
 /// command on RGBIC models. The LAN API exposes no capability metadata, so
 /// the realtime segment count comes from a per-SKU table captured at pair
@@ -25,7 +25,7 @@ public sealed class GoveeDriver : ILightDriver
     private const int ProbeTimeoutMs = 2000;
     // Devices drop out of razer mode after ~1 min without frames AND on any
     // power cycle, with no feedback either way, and the enable is fire-and-forget
-    // UDP — a single re-arm lost while the strip wakes from a power-off strands it
+    // UDP - a single re-arm lost while the strip wakes from a power-off strands it
     // in its native scene. Re-arm every couple seconds so a dropped enable
     // self-heals in ~2s instead of waiting out the revert window.
     private const int RazerRearmMs = 2_000;
@@ -74,12 +74,12 @@ public sealed class GoveeDriver : ILightDriver
     public async Task<PairResult> PairAsync(DiscoveredLight target, CancellationToken ct)
     {
         // The streaming/control paths need an IPv4 literal (raw UDP, no DNS
-        // per frame) — resolve a user-typed hostname once, here.
+        // per frame) - resolve a user-typed hostname once, here.
         var host = await LanHost.ResolveIpv4Async(target.Host, ct).ConfigureAwait(false);
         if (host is null)
             return new PairResult { Ok = false, Error = "host-not-found" };
 
-        // No token exchange — "pairing" verifies the device actually answers on
+        // No token exchange - "pairing" verifies the device actually answers on
         // the LAN (i.e. LAN Control is on) and captures its SKU capabilities.
         GoveeDeviceInfo? info = null;
         try { info = await _client.ProbeAsync(host, ProbeTimeoutMs, ct).ConfigureAwait(false); }
@@ -187,7 +187,7 @@ public sealed class GoveeDriver : ILightDriver
             return;
         }
 
-        // Static path — leave realtime mode first so colorwc shows again.
+        // Static path - leave realtime mode first so colorwc shows again.
         if (_razerArmedAt.TryRemove(dev.Id, out _))
             await _client.RazerAsync(dev.Host, GoveePackets.RazerModeBase64(enable: false), ct).ConfigureAwait(false);
 
@@ -204,7 +204,7 @@ public sealed class GoveeDriver : ILightDriver
 
     public async Task IdentifyAsync(SmartLight dev, CancellationToken ct)
     {
-        // No identify command in the LAN API — blink by toggling power, then
+        // No identify command in the LAN API - blink by toggling power, then
         // restore the state the device reported before the blink.
         var status = await _client.StatusAsync(dev.Host, 1500, ct).ConfigureAwait(false);
         var wasOn = status?.OnOff != 0;

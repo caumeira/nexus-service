@@ -67,7 +67,7 @@ public static class ScreentimeActions
         });
     }
 
-    /// <summary>"3h 12m" / "12m" / "0m" — same formatter the legacy widget used.</summary>
+    /// <summary>"3h 12m" / "12m" / "0m" - same formatter the legacy widget used.</summary>
     private static string FormatHm(long totalMs)
     {
         var totalMin = (int)Math.Round(totalMs / 60000.0);

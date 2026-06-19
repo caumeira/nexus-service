@@ -6,7 +6,7 @@ namespace Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 
 /// <summary>
 /// Pure builders + parsers for the HYTE Q-series (Q60 / Q80 "THICC" AIO)
-/// cooler-controller serial protocol — the STM32 controller that the bundled
+/// cooler-controller serial protocol - the STM32 controller that the bundled
 /// <c>q60/*.hex</c> / <c>q80/*.hex</c> images flash. This is NOT the Android
 /// LCD panel (that's the ADB-based <c>src/QSeries/</c> stack); the cooler
 /// controller enumerates as a separate USB-CDC virtual COM port

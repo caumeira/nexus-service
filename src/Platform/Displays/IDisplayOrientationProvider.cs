@@ -17,7 +17,7 @@ public interface IDisplayOrientationProvider
 
     /// <summary>
     /// Apply the requested orientation to the monitor with the given stable
-    /// display id (GET /displays id space — promoted-monitor panels). Unlike
+    /// display id (GET /displays id space - promoted-monitor panels). Unlike
     /// the Y70 variant, an absent display IS an error: the caller targeted a
     /// specific monitor.
     /// </summary>

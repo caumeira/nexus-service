@@ -69,7 +69,7 @@ public static class TrayIcon
     /// Raised on WM_DISPLAYCHANGE (monitor plug/unplug, resolution or
     /// arrangement change). The tray's hidden top-level window receives the
     /// system broadcast, making it the helper's display-change signal source.
-    /// Fired on the message-pump thread — subscribers must not block.
+    /// Fired on the message-pump thread - subscribers must not block.
     /// </summary>
     public static event Action? DisplayChanged;
 
@@ -459,7 +459,7 @@ public static class TrayIcon
                     // A balloon was clicked. NIN_BALLOONUSERCLICK carries no
                     // identity, so routing state lives in _noticeFolderPath:
                     // transfer notices open their inbox folder, everything
-                    // else (pairing) opens the dashboard — whose snapshot
+                    // else (pairing) opens the dashboard - whose snapshot
                     // provider replays a pending pair request so the
                     // Allow/Deny modal pops once the WebSocket subscribes.
                     string? folder;
@@ -714,7 +714,7 @@ public static class TrayIcon
     /// <summary>
     /// Show a native tray balloon for an incoming phone pair request. Runs
     /// in the user session (the helper process in service mode, or the
-    /// interactive host) — the only place a notification can surface.
+    /// interactive host) - the only place a notification can surface.
     /// Clicking the balloon routes through NIN_BALLOONUSERCLICK to
     /// <see cref="OpenLocalWindow"/>. Best-effort: a no-op when the tray icon
     /// isn't currently shown, since the balloon needs the icon to anchor to
@@ -731,7 +731,7 @@ public static class TrayIcon
 
     /// <summary>
     /// Dismiss the pairing balloon once the request is resolved. Only clears
-    /// when a pairing balloon owns the slot — every resolution fires this, and
+    /// when a pairing balloon owns the slot - every resolution fires this, and
     /// it must not blank a live transfer notice.
     /// </summary>
     public static void ClearPairBalloon()
@@ -748,13 +748,13 @@ public static class TrayIcon
     /// <summary>
     /// Generic one-shot balloon (incoming transfers, future notices). Same
     /// best-effort semantics as <see cref="ShowPairBalloon"/>: no-op while the
-    /// tray icon is hidden — and while a pairing balloon is pending, which is
+    /// tray icon is hidden - and while a pairing balloon is pending, which is
     /// time-sensitive and must not lose its click routing to a notice.
     /// </summary>
     public static void ShowNoticeBalloon(string title, string text, string? folderPath)
     {
         var folder = string.IsNullOrEmpty(folderPath) ? null : folderPath;
-        // The click hint is appended here, not by the notice producer — other
+        // The click hint is appended here, not by the notice producer - other
         // platforms' notifications (macOS osascript) have no click action.
         if (folder is not null)
         {
@@ -1112,8 +1112,8 @@ public static class TrayIcon
     }
 
     // Full modern NOTIFYICONDATAW. The balloon fields (szInfo/szInfoTitle/
-    // dwInfoFlags) only marshal correctly when the struct — and the cbSize
-    // derived from it via Marshal.SizeOf — covers them. The extra fields are
+    // dwInfoFlags) only marshal correctly when the struct - and the cbSize
+    // derived from it via Marshal.SizeOf - covers them. The extra fields are
     // inert for the existing NIM_ADD/DELETE/icon-only paths.
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct NOTIFYICONDATA

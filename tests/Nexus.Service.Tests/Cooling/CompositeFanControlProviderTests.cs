@@ -16,7 +16,7 @@ public class CompositeFanControlProviderTests
 {
     // Regression guard: Extras() must iterate _extras (the platform sources), NOT
     // itself. A self-call recursed infinitely and stack-overflowed the live app on
-    // the first GetFanChannels — invisible to other tests because they never build
+    // the first GetFanChannels - invisible to other tests because they never build
     // and enumerate the real composite.
     [Fact]
     public void GetFanChannels_aggregates_all_sources_without_recursing()

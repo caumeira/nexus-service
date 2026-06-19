@@ -16,15 +16,15 @@ namespace Nexus.Service.Telemetry;
 /// Attaches a system profile to the anonymous telemetry person (PostHog
 /// <c>$set</c>): the same hardware shown under System Specs (cpu / gpu / ram /
 /// motherboard / storage / …) plus the recognized devices currently connected
-/// — both the Nexus/HYTE devices we drive AND named USB peripherals we merely
+/// - both the Nexus/HYTE devices we drive AND named USB peripherals we merely
 /// identify, in a single <c>devices</c> list. No PII (no serials, no machine
 /// name).
 ///
-/// Lifecycle: warms up (30 s cadence) until the first ready snapshot lands —
-/// device connection + USB enumeration aren't instant at boot — then settles to
+/// Lifecycle: warms up (30 s cadence) until the first ready snapshot lands -
+/// device connection + USB enumeration aren't instant at boot - then settles to
 /// a 15-min re-check. Each send is deduped: a <c>$identify</c> only goes out
 /// when the profile actually changed, so unchanged refreshes cost zero events.
-/// Gated by the same opt-out — nothing is gathered or sent while opted out.
+/// Gated by the same opt-out - nothing is gathered or sent while opted out.
 /// </summary>
 internal sealed class SystemProfileService : BackgroundService
 {
@@ -68,13 +68,13 @@ internal sealed class SystemProfileService : BackgroundService
         }
     }
 
-    /// <returns>True once "settled" — a ready snapshot was processed, or the user
-    /// opted out — so the caller can drop to the slow cadence. False means
+    /// <returns>True once "settled" - a ready snapshot was processed, or the user
+    /// opted out - so the caller can drop to the slow cadence. False means
     /// not-ready-yet; retry soon.</returns>
     private async Task<bool> SendAsync(CancellationToken ct)
     {
         if (!_store.Load().Telemetry.CollectAnonymousData)
-            return true; // opted out — re-check slowly, don't gather.
+            return true; // opted out - re-check slowly, don't gather.
 
         var specs = await _specs.GetAsync(ct).ConfigureAwait(false);
 
@@ -94,7 +94,7 @@ internal sealed class SystemProfileService : BackgroundService
             .ToArray();
 
         // Devices + enumeration aren't ready instantly at boot. Don't send an
-        // empty snapshot — wait for the next warmup tick.
+        // empty snapshot - wait for the next warmup tick.
         if (string.IsNullOrWhiteSpace(specs.Processor) && devices.Length == 0)
             return false;
 
@@ -148,7 +148,7 @@ internal sealed class SystemProfileService : BackgroundService
 
     // Sum the capacity of each drive in "1.82 TB Model + 931 GB Model" (reported
     // in GiB to match the storage string). Each drive segment leads with its
-    // capacity, so take only the FIRST figure per segment — a model name that
+    // capacity, so take only the FIRST figure per segment - a model name that
     // embeds a size (e.g. "WD Blue SN570 1TB") must not be double-counted.
     internal static int? ParseStorageGb(string storage)
     {

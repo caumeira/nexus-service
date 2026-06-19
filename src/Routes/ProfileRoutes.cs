@@ -63,12 +63,12 @@ public static class ProfileRoutes
                     Ui = s.Ui,
                     Update = new UpdatePrefs
                     {
-                        AutoUpdateDisabled = s.Update.AutoUpdateDisabled,
+                        UpdateMode = s.Update.UpdateMode,
                         UpdateChannel = s.Update.UpdateChannel,
                         LastDismissedUpdateVersion = s.Update.LastDismissedUpdateVersion,
                     },
                 };
-                // Profile switches swap the entire prefs block — everyone refetches via the broadcast.
+                // Profile switches swap the entire prefs block - everyone refetches via the broadcast.
                 PanelTopics.BroadcastPrefs(hub);
                 PanelTopics.BroadcastLighting(hub);
                 PanelTopics.BroadcastCooling(hub);
@@ -175,7 +175,7 @@ public static class ProfileRoutes
                 Ui = s.Ui,
                 Update = new UpdatePrefs
                 {
-                    AutoUpdateDisabled = s.Update.AutoUpdateDisabled,
+                    UpdateMode = s.Update.UpdateMode,
                     UpdateChannel = s.Update.UpdateChannel,
                     LastDismissedUpdateVersion = s.Update.LastDismissedUpdateVersion,
                 },
@@ -401,7 +401,7 @@ public static class ProfileRoutes
                     if (overlay.Monitor.HasValue)
                     {
                         // -1 (primary) or any non-negative index. Don't clamp to a
-                        // max here — the overlay host validates against the
+                        // max here - the overlay host validates against the
                         // enumerated monitor count and falls back to primary if
                         // the index is out of range.
                         var v = overlay.Monitor.Value;
@@ -434,7 +434,7 @@ public static class ProfileRoutes
                 }
                 if (body.Update is { } update)
                 {
-                    if (update.AutoUpdateDisabled.HasValue) s.Update.AutoUpdateDisabled = update.AutoUpdateDisabled.Value;
+                    if (update.UpdateMode is "notify" or "download" or "always") s.Update.UpdateMode = update.UpdateMode;
                     if (update.UpdateChannel is not null) s.Update.UpdateChannel = update.UpdateChannel;
                     if (update.LastDismissedUpdateVersion is not null) s.Update.LastDismissedUpdateVersion = update.LastDismissedUpdateVersion;
                 }

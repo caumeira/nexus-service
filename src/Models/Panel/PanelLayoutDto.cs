@@ -62,7 +62,7 @@ public sealed class PanelWidgetDto
     public bool IsImmersive { get; set; }
 
     /// <summary>
-    /// Per-instance widget config. Values are raw JSON — widget code reads
+    /// Per-instance widget config. Values are raw JSON - widget code reads
     /// scalars directly (string / number / bool) or structured shapes (arrays,
     /// objects) declared by the widget itself. Same wire shape native panel
     /// widgets and marketplace widgets both write to.

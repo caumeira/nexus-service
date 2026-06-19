@@ -17,12 +17,12 @@ namespace Nexus.Service.Cooling;
 /// reboots and hot-plugs:
 /// </para>
 /// <code>
-///   np50:&lt;serial&gt;:port&lt;N&gt;:dev&lt;M&gt;   — one of the daisy-chained Nexus Link fans
-///   np50:&lt;serial&gt;:legacy            — the single legacy 4-pin PWM channel
+///   np50:&lt;serial&gt;:port&lt;N&gt;:dev&lt;M&gt;   - one of the daisy-chained Nexus Link fans
+///   np50:&lt;serial&gt;:legacy            - the single legacy 4-pin PWM channel
 /// </code>
 ///
 /// <para>
-/// All writes are batched at the port level — the spec only accepts
+/// All writes are batched at the port level - the spec only accepts
 /// per-port "set all fan speeds" frames, not individual fan addressing. We
 /// keep a per-port pending-write cache so a curve engine call for "fan N"
 /// updates only that fan's slot in the next port-level write.
@@ -53,7 +53,7 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
     private string _lastConnectedSerial = "";
 
     // Channels under user-set software control. Used to surface Mode="Manual"
-    // back to the panel — without it the panel snaps a freshly Manual-clicked
+    // back to the panel - without it the panel snaps a freshly Manual-clicked
     // hub fan back to BIOS on the next cooling-topic refresh (see
     // CoolingView.refreshCoolingConfig which derives Manual purely from
     // FanChannel.Mode for channels not bound to a curve).
@@ -93,7 +93,7 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
         {
             foreach (var fan in port.Devices)
             {
-                // Only FP12 is a real fan. LS10/LS30 are light strips —
+                // Only FP12 is a real fan. LS10/LS30 are light strips -
                 // they carry a temp probe (surfaced as a sensor below) but
                 // no fan blade and no RPM, so they don't belong here.
                 if (!IsFanModule(fan.Model)) continue;

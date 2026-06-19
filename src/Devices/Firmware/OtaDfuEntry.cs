@@ -11,12 +11,12 @@ namespace Nexus.Service.Devices.Firmware;
 ///
 ///   1. Write the OTA product key (<c>FF DC 06 …</c>) into the boot-flag region.
 ///   2. Verify it stuck via the <c>FF DC 07</c> readback (retry like the legacy).
-///   3. Write the DFU magic (<c>FF AA 09 08 07 06 05</c>) — the device reboots
+///   3. Write the DFU magic (<c>FF AA 09 08 07 06 05</c>) - the device reboots
 ///      into its DFU bootloader and re-enumerates as VID 3402 / PID 0A00.
 ///
 /// Caller is responsible for turning LEDs off first and for waiting on the
 /// DFU re-enumeration afterwards. This step is destructive to the running
-/// application (the device leaves normal mode) — only invoke it as part of a
+/// application (the device leaves normal mode) - only invoke it as part of a
 /// confirmed flash.
 /// </summary>
 public static class OtaDfuEntry

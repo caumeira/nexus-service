@@ -113,7 +113,7 @@ public static class LightingRoutes
         {
             // Math.Clamp(NaN, ...) returns NaN, which would propagate through
             // RgbBridge.OnFrame and zero every LED. Treat a non-finite payload
-            // as "no change requested" — fall back to the documented default.
+            // as "no change requested" - fall back to the documented default.
             var safe = float.IsFinite(body.Value) ? body.Value : 1.0f;
             var clamped = Math.Clamp(safe, 0f, 1f);
             store.Update(s => s.Lighting.GlobalBrightness = clamped);

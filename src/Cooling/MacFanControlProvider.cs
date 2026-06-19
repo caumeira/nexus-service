@@ -70,7 +70,7 @@ public sealed class MacFanControlProvider : IFanControlProvider, ICoolingProvide
     public IReadOnlyList<TemperatureSource> GetTemperatureSources()
     {
         var sources = new List<TemperatureSource>();
-        // Same disconnected-channel gate as the Linux/Windows providers — an SMC
+        // Same disconnected-channel gate as the Linux/Windows providers - an SMC
         // die key that reads 0 (sensor absent on this Mac) shouldn't become a
         // curve input. See TemperatureSourceFilter.
         var cpu = Average(CpuTempKeys);

@@ -32,7 +32,7 @@ public interface IFanControlProvider
 
     /// <summary>Engine-driven duty write (curve engine). Drives the hardware
     /// the same way as <see cref="SetFanSpeed"/> but does NOT record to
-    /// Cooling.ManualSpeeds — those entries are reserved for explicit user
+    /// Cooling.ManualSpeeds - those entries are reserved for explicit user
     /// overrides. Otherwise the curve engine's per-tick writes would pollute
     /// the override dict and trip preset-derivation logic.</summary>
     void DriveFanSpeed(string channelId, int dutyPercent);

@@ -294,7 +294,7 @@ public sealed class WindowsDisplayBrightnessProvider : IDisplayBrightnessProvide
     }
 
     // Identity resolution (stable id, EDID parsing) lives in
-    // WindowsDisplayIdentity — shared with the topology provider.
+    // WindowsDisplayIdentity - shared with the topology provider.
 
     // -- P/Invoke -----------------------------------------------------------
 

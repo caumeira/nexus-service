@@ -51,14 +51,14 @@ if (-not (Test-Path (Join-Path $PublishDir "Nexus.exe"))) {
 # component (build.bat for x64, build32.bat for x86) and must exist before packaging.
 $shimX64 = @("RzChromaSDK64.dll", "RzChromatic64.dll", "LightFX.dll", "LogitechLedEnginesWrapper.dll", "LogitechLed.dll")
 $shimX86 = @("RzChromaSDK.dll", "RzChromatic.dll", "LightFX.dll", "LogitechLedEnginesWrapper.dll", "LogitechLed.dll")
-$shimX64Dir = Join-Path $PublishDir "chroma\x64"
-$shimX86Dir = Join-Path $PublishDir "chroma\x86"
+$shimX64Dir = Join-Path $PublishDir "gamesync\x64"
+$shimX86Dir = Join-Path $PublishDir "gamesync\x86"
 $missingShims = @()
 foreach ($dll in $shimX64) {
-    if (-not (Test-Path (Join-Path $shimX64Dir $dll))) { $missingShims += "chroma\x64\$dll" }
+    if (-not (Test-Path (Join-Path $shimX64Dir $dll))) { $missingShims += "gamesync\x64\$dll" }
 }
 foreach ($dll in $shimX86) {
-    if (-not (Test-Path (Join-Path $shimX86Dir $dll))) { $missingShims += "chroma\x86\$dll" }
+    if (-not (Test-Path (Join-Path $shimX86Dir $dll))) { $missingShims += "gamesync\x86\$dll" }
 }
 if ($missingShims.Count -gt 0) {
     throw "Game Sync shim DLLs missing from publish dir ($PublishDir):`n  $($missingShims -join "`n  ")`nRun nexus-gamesync build.bat (x64) and build32.bat (x86) first, then re-publish."

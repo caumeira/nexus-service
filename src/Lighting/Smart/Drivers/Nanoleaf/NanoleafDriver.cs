@@ -29,7 +29,7 @@ public sealed class NanoleafDriver : ILightDriver, IDisposable
     // Official extControl ceiling is 10 Hz; Shapes-era firmware drops packets
     // spaced closer than ~50 ms.
     private const int StreamIntervalMs = 100;
-    // A controller reboot drops extControl silently (UDP gives no feedback) —
+    // A controller reboot drops extControl silently (UDP gives no feedback) -
     // re-issue the idempotent enable periodically so streaming self-heals.
     private const int StreamRearmMs = 30_000;
     // Layout parts that never emit light: rhythm module, Shapes controller,
@@ -43,11 +43,11 @@ public sealed class NanoleafDriver : ILightDriver, IDisposable
     private readonly int _streamPort;
     private readonly Socket _udp = new(AddressFamily.InterNetwork, SocketType.Dgram, ProtocolType.Udp);
     // Parsed Extra payloads, keyed by device id and invalidated when the raw
-    // string changes (re-pair) — PlanFrames/SendAsync run per tick.
+    // string changes (re-pair) - PlanFrames/SendAsync run per tick.
     private readonly ConcurrentDictionary<string, (string Raw, NanoleafExtra Parsed)> _extras = new();
     // Devices in extControl mode → TickCount64 of the last enable (entered on
     // the first zone frame, re-armed periodically, exited by the first static
-    // send — a hue/sat state PUT leaves extControl).
+    // send - a hue/sat state PUT leaves extControl).
     private readonly ConcurrentDictionary<string, long> _streamArmedAt = new();
 
     public NanoleafDriver(NanoleafClient client, LanDiscovery lan, IConfigStore store,
@@ -72,7 +72,7 @@ public sealed class NanoleafDriver : ILightDriver, IDisposable
         var hosts = await _lan.MdnsHostsAsync(MdnsService, 2000, ct).ConfigureAwait(false);
 
         // The info endpoint is token-gated, so an unpaired controller can't be
-        // probed for its serial — map already-paired hosts back to their
+        // probed for its serial - map already-paired hosts back to their
         // identity so the UI can mark them as paired.
         var paired = new Dictionary<string, SmartLightConfig>(StringComparer.OrdinalIgnoreCase);
         foreach (var cfg in _store.Load().SmartLights.Devices)
@@ -94,7 +94,7 @@ public sealed class NanoleafDriver : ILightDriver, IDisposable
 
     public async Task<PairResult> PairAsync(DiscoveredLight target, CancellationToken ct)
     {
-        // The UDP streaming path needs an IPv4 literal (no DNS per frame) —
+        // The UDP streaming path needs an IPv4 literal (no DNS per frame) -
         // resolve a user-typed hostname once, here.
         var host = await LanHost.ResolveIpv4Async(target.Host, ct).ConfigureAwait(false);
         if (host is null)
@@ -205,7 +205,7 @@ public sealed class NanoleafDriver : ILightDriver, IDisposable
             if (!_streamArmedAt.TryGetValue(dev.Id, out var armedAt) || now - armedAt > StreamRearmMs)
             {
                 // Streamed colors are still multiplied by the device's
-                // brightness state — pin it to 100 and carry brightness in the
+                // brightness state - pin it to 100 and carry brightness in the
                 // packed RGB instead.
                 await _client.PutStateAsync(dev.Host, extra.Port, token, new NanoleafStateWrite
                 {
@@ -227,7 +227,7 @@ public sealed class NanoleafDriver : ILightDriver, IDisposable
         if (!frame.On || v <= 0f)
         {
             // Black with On=true would clamp to brightness 1 (dimly lit
-            // panels) — translate it to off like a lamp would behave.
+            // panels) - translate it to off like a lamp would behave.
             write.On = new NanoleafBoolValue { Value = false };
         }
         else
@@ -265,7 +265,7 @@ public sealed class NanoleafDriver : ILightDriver, IDisposable
         var token = SecretProtector.Unprotect(dev.Token);
         if (extra is null || string.IsNullOrEmpty(token)) return;
         try { await _client.IdentifyAsync(dev.Host, extra.Port, token, ct).ConfigureAwait(false); }
-        catch { /* not supported on Essentials — non-fatal */ }
+        catch { /* not supported on Essentials - non-fatal */ }
     }
 
     public async Task<bool> PingAsync(SmartLight dev, CancellationToken ct)

@@ -8,7 +8,7 @@ namespace Nexus.Service.Common.ExternalTools;
 /// </summary>
 public enum ToolStatus
 {
-    /// <summary>No matching hardware on the bus — nothing to run.</summary>
+    /// <summary>No matching hardware on the bus - nothing to run.</summary>
     NoDevice,
     /// <summary>Hardware present (or resolvable) but the tool isn't running.</summary>
     NotRunning,
@@ -22,7 +22,7 @@ public enum ToolStatus
 public enum ToolSession
 {
     /// <summary>
-    /// Launch in the service's own context — LocalSystem, Session 0 — so the tool
+    /// Launch in the service's own context - LocalSystem, Session 0 - so the tool
     /// runs before any user logs in. The driver process handle is retained.
     /// </summary>
     System,
@@ -77,7 +77,7 @@ public sealed class ToolVersion
     [JsonPropertyName("url")]
     public string? Url { get; set; }
 
-    /// <summary>Lowercase hex SHA-256 of the binary. Required — the trust pin.</summary>
+    /// <summary>Lowercase hex SHA-256 of the binary. Required - the trust pin.</summary>
     [JsonPropertyName("sha256")]
     public string Sha256 { get; set; } = "";
 

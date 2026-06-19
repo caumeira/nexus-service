@@ -10,7 +10,7 @@ namespace Nexus.Service.Telemetry;
 /// Default <see cref="ITelemetry"/>: a bounded in-memory queue. Capture()
 /// enqueues and returns immediately; <see cref="TelemetryFlushService"/> drains
 /// and sends. The queue is capped so a sink outage or a burst can never grow
-/// memory — oldest events shed first (telemetry is best-effort, never
+/// memory - oldest events shed first (telemetry is best-effort, never
 /// back-pressure). The opt-out is honored at the source: while disabled,
 /// Capture() is a no-op and the queue is cleared.
 /// </summary>
@@ -68,7 +68,7 @@ internal sealed class TelemetryClient : ITelemetry, IDisposable
     public List<TelemetryEvent> DrainBatch(int max)
     {
         // Clamp: Capture enqueues then increments as two steps, so a concurrent
-        // drain/clear can drive _count transiently negative — never seed a List
+        // drain/clear can drive _count transiently negative - never seed a List
         // with a negative capacity.
         var batch = new List<TelemetryEvent>(Math.Clamp(Volatile.Read(ref _count), 0, max));
         while (batch.Count < max && _queue.TryDequeue(out var e))

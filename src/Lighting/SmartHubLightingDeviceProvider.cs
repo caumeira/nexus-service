@@ -279,7 +279,7 @@ public sealed class SmartHubLightingDeviceProvider : ILightingDeviceProvider, IL
         return frame;
     }
 
-    /// <summary>Default canvas slots for the four Smart Hub ARGB ports — a single row of four cards, same shape as the MiniHub default layout.</summary>
+    /// <summary>Default canvas slots for the four Smart Hub ARGB ports - a single row of four cards, same shape as the MiniHub default layout.</summary>
     internal static (float x, float y, float w, float h) DefaultSmartHubLayout(int slot)
     {
         const float Y = 463f;

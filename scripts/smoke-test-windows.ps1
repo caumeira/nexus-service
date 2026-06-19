@@ -1,4 +1,4 @@
-# Quick smoke test for Windows — runs service, hits key endpoints, reports results.
+# Quick smoke test for Windows - runs service, hits key endpoints, reports results.
 # Usage: powershell -File smoke-test-windows.ps1
 
 $ErrorActionPreference = "SilentlyContinue"

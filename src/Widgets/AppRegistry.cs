@@ -102,8 +102,8 @@ public sealed class AppRegistry
                     manifest.DefaultSize = manifest.Sizes[0];
                 }
 
-                // A `driver` block — which lets the host fetch and run a native
-                // executable — is honored only for a bundled app (one shipped in
+                // A `driver` block - which lets the host fetch and run a native
+                // executable - is honored only for a bundled app (one shipped in
                 // the trusted build / OEM image). A user- or dev-installed app
                 // cannot grant itself a host-run driver; the widget facet still
                 // loads, only the driver block is dropped. (When app signing lands

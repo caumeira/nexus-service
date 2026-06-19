@@ -66,19 +66,19 @@ public static class ServiceLog
         }
     }
 
-    /// <summary>Routine status (lifecycle, connect, discovery) — logged at INF.</summary>
+    /// <summary>Routine status (lifecycle, connect, discovery) - logged at INF.</summary>
     public static void Info(string message) => Write("INF", message, isError: false);
 
-    /// <summary>A handled anomaly worth surfacing but not a failure — logged at WRN.</summary>
+    /// <summary>A handled anomaly worth surfacing but not a failure - logged at WRN.</summary>
     public static void Warn(string message) => Write("WRN", message, isError: false);
 
-    /// <summary>A real failure — logged at ERR (same destination as Console.Error).</summary>
+    /// <summary>A real failure - logged at ERR (same destination as Console.Error).</summary>
     public static void Error(string message) => Write("ERR", message, isError: true);
 
     private static void Write(string level, string message, bool isError)
     {
         // Mirror to the ORIGINAL console stream (not the tee), then write the file
-        // line ourselves with the explicit level — otherwise the tee would re-stamp
+        // line ourselves with the explicit level - otherwise the tee would re-stamp
         // it from the stream and double-prefix. Before Initialize, fall back to the
         // current Console (no file yet).
         var console = isError ? _originalError ?? Console.Error : _originalOut ?? Console.Out;

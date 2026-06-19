@@ -281,7 +281,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
                 frame.X = layout?.X ?? defX; frame.Y = layout?.Y ?? defY;
                 frame.W = layout?.W ?? defW; frame.H = layout?.H ?? defH; frame.Rotation = rot;
                 // Re-paired devices can change their zone geometry without
-                // changing the count — re-apply the sample map both ways
+                // changing the count - re-apply the sample map both ways
                 // (fresh UVs, or back to the grid when UVs disappeared).
                 ApplySampleMap(frame, plan);
             }
@@ -474,7 +474,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         foreach (var d in _drivers.Values) if (d is ISessionStreamer ss) ss.StopAll();
     }
 
-    /// <summary>Push each device's static (manual) color — used when an effect
+    /// <summary>Push each device's static (manual) color - used when an effect
     /// stops so lamps return to their configured color rather than freezing on
     /// the last effect frame.</summary>
     public void RestoreStatic()
@@ -504,7 +504,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
     private void PushStaticFrom(string id, NexusSettings s)
     {
         // Control can run before BuildFrames populated the cache (e.g. right
-        // after pairing) — resolve a snapshot so SubmitFrame has a device.
+        // after pairing) - resolve a snapshot so SubmitFrame has a device.
         if (!_cache.TryGetValue(id, out var dev))
         {
             dev = Resolve(id);
@@ -521,11 +521,11 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
 
         // A device whose realtime mode lapses without a stream
         // (plan.StaticNeedsStreaming, e.g. Govee) can't hold a single-color
-        // command while a built-in scene runs — only a per-segment frame takes
+        // command while a built-in scene runs - only a per-segment frame takes
         // over. Send a solid zoned frame and mark it for the writer's keep-alive.
         // Devices that hold a manual color (bulbs, Nanoleaf) get the single path.
         byte[]? zones = null;
-        // Prefer the cached plan (BuildFrames) — PlanFrames allocates a sample
+        // Prefer the cached plan (BuildFrames) - PlanFrames allocates a sample
         // map, and this runs every writer tick for a streamed-static device.
         var plan = _plans.TryGetValue(id, out var cachedPlan) ? cachedPlan : DriverForId(id)?.PlanFrames(dev);
         if (on && plan is { StaticNeedsStreaming: true, LedCount: > 1 })
@@ -569,8 +569,8 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         return resp;
     }
 
-    // Probe reachability ONCE per (brand, host) — a transient streaming 429
-    // doesn't strand a whole bridge's lights — then sync _online and broadcast
+    // Probe reachability ONCE per (brand, host) - a transient streaming 429
+    // doesn't strand a whole bridge's lights - then sync _online and broadcast
     // once on any transition. Brand-neutral: each driver's PingAsync is the
     // active liveness check its transport allows (Govee UDP devStatus, Hue/
     // Nanoleaf HTTP). Hue lights share their bridge's host, so the probe is

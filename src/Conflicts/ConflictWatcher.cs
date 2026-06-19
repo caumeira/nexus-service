@@ -58,7 +58,7 @@ public sealed class ConflictWatcher : BackgroundService
 
     /// <summary>
     /// Resolve the catalog entry matching a given id (case-insensitive).
-    /// Returns null when the id is unknown — used by ConflictRoutes to
+    /// Returns null when the id is unknown - used by ConflictRoutes to
     /// validate the kill payload before terminating anything.
     /// </summary>
     public static ConflictAppDefinition? FindById(string id)
@@ -89,7 +89,7 @@ public sealed class ConflictWatcher : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Initial delay to let the rest of the service finish boot — DI'd
+        // Initial delay to let the rest of the service finish boot - DI'd
         // dependencies (OpenRGB manager) may not have started their own work
         // yet, and a noisy first scan would race with the same processes we
         // are trying to ignore.
@@ -118,7 +118,7 @@ public sealed class ConflictWatcher : BackgroundService
 
         // Quick equality check: ids only. Pids shift across reboots but we
         // don't need to republish every poll just because the OS recycled a
-        // pid — only when the set of detected apps changes.
+        // pid - only when the set of detected apps changes.
         var ids = new string[detected.Count];
         for (int i = 0; i < detected.Count; i++)
             ids[i] = detected[i].Id;
@@ -188,7 +188,7 @@ public sealed class ConflictWatcher : BackgroundService
     /// Walk every running process exactly once and group by ProcessName so
     /// matching against the catalog is O(catalog × hits) instead of
     /// O(catalog × procs). OrdinalIgnoreCase matches how .NET casefolds
-    /// Windows executable names. macOS returns an empty index — the catalog is
+    /// Windows executable names. macOS returns an empty index - the catalog is
     /// Windows-only (see the #if MACOS arm).
     /// </summary>
     private static Dictionary<string, List<(int Pid, string? Path)>> BuildProcessNameIndex()
@@ -198,7 +198,7 @@ public sealed class ConflictWatcher : BackgroundService
 #if MACOS
         // Every catalog entry is Windows hardware-control software, and a bare
         // process-name match collides with macOS's own always-running
-        // "ControlCenter" system process — surfacing a phantom "MSI Control
+        // "ControlCenter" system process - surfacing a phantom "MSI Control
         // Center" conflict. No catalog entry applies on macOS, so never scan:
         // the empty index makes DetectRunningConflicts report nothing.
         return index;
@@ -263,7 +263,7 @@ public sealed class ConflictWatcher : BackgroundService
         {
             // MainModule access is denied for cross-session / elevated
             // processes. We can't prove the binary is ours, so let the
-            // warning fire — even if the suspect is in fact our headless
+            // warning fire - even if the suspect is in fact our headless
             // OpenRGB.
             return false;
         }

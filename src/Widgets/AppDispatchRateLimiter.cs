@@ -7,7 +7,7 @@ namespace Nexus.Service.Widgets;
 /// Per-widget sliding-window rate limit on <c>/apps-api/dispatch</c>.
 /// Control actions drive real hardware (DDC brightness, fan duty, media
 /// transport); a runaway worker loop could hammer them. Each widget is capped
-/// to a small number of dispatches per second — generous for interactive use,
+/// to a small number of dispatches per second - generous for interactive use,
 /// but a hard ceiling on a flood. The single safety net now that the SDK is the
 /// only widget path (the declarative tier is gone).
 /// </summary>

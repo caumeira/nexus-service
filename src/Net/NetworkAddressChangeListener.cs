@@ -17,7 +17,7 @@ namespace Nexus.Service.Net;
 /// <c>GET /panel/phone/pair-qr</c>, which re-reads the current address.
 ///
 /// <see cref="NetworkChange.NetworkAddressChanged"/> fires in bursts (one per
-/// interface address add/remove), so the broadcast is debounced — a burst
+/// interface address add/remove), so the broadcast is debounced - a burst
 /// coalesces into a single nudge a short beat after the last event, by which
 /// point the new address has settled. The timer coalesces events; it is not a
 /// sleep papering over a race.
@@ -40,7 +40,7 @@ public sealed class NetworkAddressChangeListener : BackgroundService
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        // Subscribe and return — the OS raises the event on its own thread; the
+        // Subscribe and return - the OS raises the event on its own thread; the
         // handler just (re)arms the debounce timer. Nothing here blocks startup.
         _handler = (_, _) => _debounce.Change(DebounceWindow, Timeout.InfiniteTimeSpan);
         NetworkChange.NetworkAddressChanged += _handler;

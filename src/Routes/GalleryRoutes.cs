@@ -39,7 +39,7 @@ public static class GalleryRoutes
         {
             // IsValidId is load-bearing here, not hygiene: the static-asset
             // auth lane is method-blind, so "DELETE /gallery/sources/x.json"
-            // reaches this handler unauthenticated — the dot-rejecting id
+            // reaches this handler unauthenticated - the dot-rejecting id
             // check is what turns it into a 404.
             if (!MediaLibrary.IsValidId(id) || !lib.RemoveSource(id))
             {
@@ -65,7 +65,7 @@ public static class GalleryRoutes
         }).AllowPanel();
 
         // Hide a folder item / clear a source's exclusion list. References
-        // only — nothing on disk is ever touched.
+        // only - nothing on disk is ever touched.
         app.MapPost("/gallery/sources/{id}/exclude", (string id, GalleryExcludeBody body, GalleryLibrary lib, MultiplexHub hub) =>
         {
             if (!MediaLibrary.IsValidId(id) || !lib.ExcludeItem(id, body.ItemId))
@@ -89,7 +89,7 @@ public static class GalleryRoutes
         });
 
         // Native OS file/folder picker on the host PC. Desktop-tier only and
-        // deliberately NOT relayed — the dialog opens on the host's screen.
+        // deliberately NOT relayed - the dialog opens on the host's screen.
         // RequestAborted flows in so closing the page abandons the wait (and
         // kills the dialog child process on macOS/Linux).
         app.MapPost("/gallery/pick", async (GalleryPickBody body, IGalleryDialogPicker picker, HttpContext ctx) =>

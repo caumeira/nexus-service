@@ -20,7 +20,7 @@ public interface IGalleryDialogPicker
 
 /// <summary>
 /// Opens the OS-native file/folder picker on the host PC and returns the
-/// chosen absolute paths. The dialog always appears on the host machine —
+/// chosen absolute paths. The dialog always appears on the host machine -
 /// browsers never expose real filesystem paths, so a remote dashboard
 /// triggering this sees the dialog open on the PC. One dialog at a time.
 ///
@@ -103,7 +103,7 @@ public sealed class GalleryDialogPicker : IGalleryDialogPicker
     {
         // osascript exits non-zero on user cancel ("User canceled. (-128)");
         // ShellExecutor surfaces that as empty stdout, which maps to Cancelled.
-        // "tell me to activate" fronts the chooser — without it the dialog can
+        // "tell me to activate" fronts the chooser - without it the dialog can
         // open behind the Nexus window.
         var script = folder
             ? "tell me to activate\n"
