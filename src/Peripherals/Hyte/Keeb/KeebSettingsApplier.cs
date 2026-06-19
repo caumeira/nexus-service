@@ -20,8 +20,8 @@ namespace Nexus.Service.Peripherals.Hyte.Keeb;
 /// FirmwareLighting.Brightness dims only the firmware animation (the byte), so
 /// when the firmware animation is showing the knob drives it directly. While a
 /// software effect streams the firmware animation is suppressed; the knob's byte
-/// DELTA then nudges system-wide GlobalBrightness via <see cref="NudgeGlobalFromKnob"/>
-/// (a relative encoder), without mirroring the absolute byte onto global.
+/// DELTA then nudges system-wide GlobalBrightness via <see cref="TrackKnobAndEaseGlobal"/>
+/// (a relative encoder, eased), without mirroring the absolute byte onto global.
 /// </summary>
 public sealed class KeebSettingsApplier
 {
@@ -37,9 +37,19 @@ public sealed class KeebSettingsApplier
     // Touched only under _gate.
     private int _lastBrightByte = -1;
     private int _lastAnimByte = -1;
-    // Reference brightness percent for the streaming knob delta (NudgeGlobalFromKnob);
-    // -1 until ResetKnobBaseline + the first read establish it. Touched under _gate.
+    // Streaming knob -> global state, all under _gate. The knob's byte DELTA accumulates
+    // into _knobTargetGlobal; the stored global eases toward it each tick so the dimming
+    // glides instead of stepping with the coarse poll, and a single misread is low-passed
+    // rather than snapping global. Easing runs only for a window after the last move, so
+    // it doesn't fight the lighting-page slider once the knob is idle.
+    private const int KnobGlitchMaxPct = 25;     // a delta this big in one poll is a misread
+    private const float KnobEaseFactor = 0.3f;   // per-tick fraction of the gap to the target
+    private const int KnobEaseActiveTicks = 20;  // keep easing this many ticks past the last move
+    private const int KnobBroadcastEveryTicks = 3;
     private int _lastKnobPct = -1;
+    private float _knobTargetGlobal;
+    private int _knobActiveTicks;
+    private int _knobBroadcastTicks;
 
     public KeebSettingsApplier(KeebHub hub, IConfigStore store, MultiplexHub panel)
     {
@@ -65,49 +75,70 @@ public sealed class KeebSettingsApplier
     }
 
     /// <summary>
-    /// Reset the knob delta baseline. The frame writer calls this when a software
-    /// effect starts streaming, so the first <see cref="NudgeGlobalFromKnob"/> after
-    /// that establishes the reference byte rather than applying a spurious jump.
+    /// Re-reference the knob delta and seed the ease target from the current global.
+    /// The frame writer calls this when a software effect starts streaming, so the
+    /// first read establishes the baseline rather than applying a spurious jump.
     /// </summary>
     public void ResetKnobBaseline()
     {
-        lock (_gate) { _lastKnobPct = -1; }
+        lock (_gate)
+        {
+            _lastKnobPct = -1;
+            _knobTargetGlobal = Math.Clamp(_store.Load().Lighting.GlobalBrightness, 0f, 1f);
+            _knobActiveTicks = 0;
+        }
     }
 
     /// <summary>
-    /// While a software effect streams, read the firmware brightness byte and apply
-    /// its CHANGE since the last read to the system-wide GlobalBrightness - the knob
-    /// nudges the software master up/down like a relative encoder. The absolute byte
-    /// is never mirrored onto global (that made the firmware value and global fight to
-    /// match, which bounced); only the delta moves. The firmware byte saturates at
-    /// 0/100, so a knob pinned at an extreme stops producing delta until reversed.
+    /// Per-frame-tick knob -> global while a software effect streams. On <paramref
+    /// name="readByte"/> ticks it reads the firmware brightness byte and accumulates its
+    /// CHANGE since the last read into a target (the knob is a relative encoder; the
+    /// absolute byte is never mirrored onto global). Every tick it eases the stored
+    /// global toward that target, so the dimming glides instead of stepping with the
+    /// coarse poll and a single misread is low-passed rather than snapping global.
+    /// The firmware byte saturates at 0/100, so a knob pinned at an extreme stops
+    /// producing delta until reversed.
     /// </summary>
-    public void NudgeGlobalFromKnob()
+    public void TrackKnobAndEaseGlobal(bool readByte)
     {
         if (!_hub.IsConnected) return;
-        float? applied = null;
+        var broadcast = false;
         lock (_gate)
         {
-            var raw = _hub.ReadSettings();
-            if (raw is null) return;
-            var brightIndex = (OperatingSystem.IsWindows() ? 3 : 2) + 1;
-            if (raw.Length <= brightIndex) return;
-            var pct = KeebSettingsCodec.BrightnessPercentFromByte(raw[brightIndex]);
-            if (_lastKnobPct < 0) { _lastKnobPct = pct; return; }
-            var delta = pct - _lastKnobPct;
-            _lastKnobPct = pct;
-            if (delta == 0) return;
-            _store.Update(s =>
+            if (readByte)
             {
-                applied = Math.Clamp(s.Lighting.GlobalBrightness + delta / 100f, 0f, 1f);
-                s.Lighting.GlobalBrightness = applied.Value;
-            });
+                var raw = _hub.ReadSettings();
+                var brightIndex = (OperatingSystem.IsWindows() ? 3 : 2) + 1;
+                if (raw is not null && raw.Length > brightIndex)
+                {
+                    var pct = KeebSettingsCodec.BrightnessPercentFromByte(raw[brightIndex]);
+                    if (_lastKnobPct < 0)
+                    {
+                        _lastKnobPct = pct;
+                    }
+                    else
+                    {
+                        var delta = pct - _lastKnobPct;
+                        _lastKnobPct = pct;
+                        if (delta != 0 && Math.Abs(delta) <= KnobGlitchMaxPct)
+                        {
+                            _knobTargetGlobal = Math.Clamp(_knobTargetGlobal + delta / 100f, 0f, 1f);
+                            _knobActiveTicks = KnobEaseActiveTicks;
+                        }
+                    }
+                }
+            }
+            if (_knobActiveTicks <= 0) return;
+            _knobActiveTicks--;
+            var cur = _store.Load().Lighting.GlobalBrightness;
+            var next = cur + (_knobTargetGlobal - cur) * KnobEaseFactor;
+            if (Math.Abs(_knobTargetGlobal - next) < 0.004f) next = _knobTargetGlobal;
+            if (Math.Abs(next - cur) <= 0.0008f) return;
+            _store.Update(s => s.Lighting.GlobalBrightness = next);
+            broadcast = ++_knobBroadcastTicks >= KnobBroadcastEveryTicks;
+            if (broadcast) _knobBroadcastTicks = 0;
         }
-        if (applied is not null)
-        {
-            ServiceLog.Info($"[keeb] knob delta -> global {(int)(applied * 100)}%");
-            PanelTopics.BroadcastLighting(_panel);
-        }
+        if (broadcast) PanelTopics.BroadcastLighting(_panel);
     }
 
     /// <summary>

@@ -21,7 +21,7 @@ namespace Nexus.Service.Lighting;
 public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 {
     private const int TickPeriodMs = 33; // 30 Hz, matches the engine + NP50 writer.
-    private const int KnobReadEveryTicks = 4; // ~130 ms knob poll while streaming.
+    private const int KnobReadEveryTicks = 2; // ~66 ms knob byte read; ease runs every tick.
 
     private readonly LightingEngine _engine;
     private readonly KeebHub _hub;
@@ -108,14 +108,12 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
             _applier.ResetKnobBaseline();
         }
 
-        // Read the brightness byte every Nth tick and apply its CHANGE to global
-        // brightness - the knob acts as a relative dimmer over the stream. The read
-        // fits the 33 ms tick budget so it drops no frames.
-        if (++_knobPollTicks >= KnobReadEveryTicks)
-        {
-            _knobPollTicks = 0;
-            _applier.NudgeGlobalFromKnob();
-        }
+        // Track the knob each tick: read its byte every Nth tick for the delta, ease
+        // global toward the accumulated target every tick so the dimming glides
+        // instead of stepping with the coarse poll. The read fits the 33 ms budget.
+        var readByte = ++_knobPollTicks >= KnobReadEveryTicks;
+        if (readByte) _knobPollTicks = 0;
+        _applier.TrackKnobAndEaseGlobal(readByte);
 
         var devices = _engine.Devices;
         if (devices.Length == 0) return;
