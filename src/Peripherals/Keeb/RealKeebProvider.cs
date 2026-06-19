@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Models.Common;
 using Nexus.Service.Models.Peripherals.Keeb;
 using Nexus.Service.Peripherals.Hyte.Keeb;
@@ -25,12 +26,14 @@ public sealed class RealKeebProvider : IKeebProvider
     private readonly IConfigStore _store;
     private readonly KeebHub _hub;
     private readonly KeebSettingsApplier _applier;
+    private readonly LightingEngine _engine;
 
-    public RealKeebProvider(IConfigStore store, KeebHub hub, KeebSettingsApplier applier)
+    public RealKeebProvider(IConfigStore store, KeebHub hub, KeebSettingsApplier applier, LightingEngine engine)
     {
         _store = store;
         _hub = hub;
         _applier = applier;
+        _engine = engine;
     }
 
     public KeyboardState GetState(int layer) => new()
@@ -104,10 +107,14 @@ public sealed class RealKeebProvider : IKeebProvider
     public void SetFirmwareLighting(SetFirmwareLightingBody body)
     {
         var brightness = Math.Clamp(body.Brightness, 0, 100);
-        // Brightness is the keeb master: the byte dims the firmware animation and
-        // the frame writer multiplies FirmwareLighting.Brightness into the software
-        // stream. Gated store-mutate + 0x06 write so the read-back poll can't clobber
-        // it mid-write; firmware applies brightness live with no mode re-init.
+        // While a software effect streams, the firmware animation is suppressed and
+        // the frame writer multiplies FirmwareLighting.Brightness into the stream, so
+        // writing the 0x06 page now would only flash the firmware animation through
+        // the live stream (and a brightness drag flashes repeatedly). Update the
+        // master and let the composer apply it; the frame writer writes the page when
+        // streaming stops. With no effect, write it so the firmware animation reflects
+        // the change immediately.
+        var streaming = _engine.CurrentEffectName != "none";
         _applier.ApplyGated(s =>
         {
             s.Keeb.FirmwareLighting.AnimationMode = body.AnimationMode;
@@ -115,7 +122,7 @@ public sealed class RealKeebProvider : IKeebProvider
             s.Keeb.FirmwareLighting.Direction = body.Direction;
             s.Keeb.FirmwareLighting.KeyIndicator = body.KeyIndicator;
             s.Keeb.FirmwareLighting.Brightness = brightness;
-        });
+        }, writeDevice: !streaming);
     }
 
     public void SetPassiveLighting(SetPassiveLightingBody body)

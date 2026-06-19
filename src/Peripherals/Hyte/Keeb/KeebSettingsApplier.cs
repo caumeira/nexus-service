@@ -30,6 +30,12 @@ public sealed class KeebSettingsApplier
     // device read-back, so the poll can't read a pre-write byte and clobber the
     // value a Settings-slider write just stored before its byte reaches the device.
     private readonly object _gate = new();
+    // Last device bytes SyncFromDevice saw. It adopts a byte only when it changes,
+    // so a redundant read can't re-apply the same value and bounce the brightness,
+    // and a host-set master we deliberately didn't write to the device (streaming)
+    // isn't reverted by reading the unchanged knob byte back. Touched only under _gate.
+    private int _lastBrightByte = -1;
+    private int _lastAnimByte = -1;
 
     public KeebSettingsApplier(KeebHub hub, IConfigStore store, MultiplexHub panel)
     {
@@ -55,16 +61,19 @@ public sealed class KeebSettingsApplier
     }
 
     /// <summary>
-    /// Mutate the persisted keeb state and write the full page to the device as one
-    /// gated step, so the read-back poll can't interleave between the store mutate
-    /// and the byte write. Used by every host-initiated settings change.
+    /// Mutate the persisted keeb state and (when <paramref name="writeDevice"/>)
+    /// write the full page to the device, as one gated step so the read-back poll
+    /// can't interleave between the store mutate and the byte write. Callers pass
+    /// writeDevice=false while a software effect streams: the 0x06 page write would
+    /// flash the firmware animation through the live stream, and the frame writer
+    /// re-writes the page when streaming stops anyway.
     /// </summary>
-    public bool ApplyGated(Action<NexusSettings> mutate)
+    public bool ApplyGated(Action<NexusSettings> mutate, bool writeDevice = true)
     {
         lock (_gate)
         {
             _store.Update(mutate);
-            return Apply();
+            return writeDevice && Apply();
         }
     }
 
@@ -96,17 +105,29 @@ public sealed class KeebSettingsApplier
             var brightIndex = animIndex + 1;
             if (raw.Length <= brightIndex) return false;
 
-            effect = KeebSettingsCodec.AnimationModeName(raw[animIndex]);
-            brightness = KeebSettingsCodec.BrightnessPercentFromByte(raw[brightIndex]);
+            int animByte = raw[animIndex];
+            int brightByte = raw[brightIndex];
+            // Adopt only what the device actually changed since the last read. An
+            // unchanged byte is skipped, so two pollers reading the same value never
+            // fight, and a host-set master (written to the store but not the device
+            // while streaming) survives reading back the unchanged knob byte.
+            var animChanged = animByte != _lastAnimByte;
+            var brightChanged = brightByte != _lastBrightByte;
+            _lastAnimByte = animByte;
+            _lastBrightByte = brightByte;
+            if (!animChanged && !brightChanged) return false;
+
+            effect = KeebSettingsCodec.AnimationModeName((byte)animByte);
+            brightness = KeebSettingsCodec.BrightnessPercentFromByte((byte)brightByte);
             _store.Update(s =>
             {
-                if (effect is not null
+                if (animChanged && effect is not null
                     && !string.Equals(s.Keeb.FirmwareLighting.AnimationMode, effect, StringComparison.OrdinalIgnoreCase))
                 {
                     s.Keeb.FirmwareLighting.AnimationMode = effect;
                     changed = true;
                 }
-                if (s.Keeb.FirmwareLighting.Brightness != brightness)
+                if (brightChanged && s.Keeb.FirmwareLighting.Brightness != brightness)
                 {
                     s.Keeb.FirmwareLighting.Brightness = brightness;
                     changed = true;
