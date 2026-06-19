@@ -13,6 +13,10 @@ using Nexus.Service.Helper.Domains;
 
 namespace Nexus.Service.Update;
 
+// Flag file written before launching the installer so the helper, on its next
+// startup, opens the dashboard once the overlay is ready - replacing the racy
+// boot-time IPC approach. Path: %ProgramData%\Nexus\reopen-dashboard.flag
+
 /// <summary>
 /// Singleton update engine. Implements IHostedService so it polls on a
 /// background timer. Holds mutable status and progress DTOs the routes read.
@@ -30,6 +34,11 @@ namespace Nexus.Service.Update;
 public sealed class UpdateService : BackgroundService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromHours(4);
+
+    private static readonly string ReopenFlagPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "Nexus",
+        "reopen-dashboard.flag");
 
     private readonly IUpdateSource _source;
     private readonly UpdateDownloader _downloader;
@@ -50,13 +59,6 @@ public sealed class UpdateService : BackgroundService
     private volatile string _justUpdatedTo = "";
     private long _justUpdatedToSetAtTicks;
     private const long JustUpdatedToTimeoutTicks = 60L * TimeSpan.TicksPerSecond;
-
-#if WINDOWS
-    // Set by ApplyPendingOnStartup when the marker requested a dashboard reopen.
-    // Drained on the next helper connect (the helper may not be registered yet
-    // when ApplyPendingOnStartup runs at service startup).
-    private volatile bool _pendingOpenDashboard;
-#endif
 
     // Gate: 0 = idle, 1 = in progress.
     private int _installing;
@@ -84,14 +86,6 @@ public sealed class UpdateService : BackgroundService
         _lifetime = lifetime;
 #if WINDOWS
         _helperRegistry = helperRegistry;
-        _helperRegistry.Connected += _ =>
-        {
-            if (_pendingOpenDashboard)
-            {
-                _pendingOpenDashboard = false;
-                SendOpenDashboard();
-            }
-        };
 #endif
     }
 
@@ -175,7 +169,8 @@ public sealed class UpdateService : BackgroundService
 
     /// <summary>
     /// Applies or diagnoses a staged install marker on startup.
-    /// Success (version advanced): sets JustUpdatedTo and reopens dashboard for all modes.
+    /// Success (version advanced): sets JustUpdatedTo and deletes the marker. Dashboard reopen
+    /// is handled by the helper reading the flag file written before the installer was launched.
     /// Pending + always mode: re-verifies and launches the staged installer, then stops the service.
     /// Pending + other modes: no-op (notify/download wait for an explicit user trigger).
     /// Attempted but version did not advance: boot-loop guard; clears marker and sets failed state.
@@ -198,16 +193,6 @@ public sealed class UpdateService : BackgroundService
             Volatile.Write(ref _justUpdatedToSetAtTicks, DateTime.UtcNow.Ticks);
             _justUpdatedTo = BuildInfo.Version;
             StagedInstallMarkerStore.Delete();
-
-            if (marker.ReopenDashboard)
-            {
-#if WINDOWS
-                // Set the flag first so a helper that connects after this point
-                // drains it via the Connected handler.
-                _pendingOpenDashboard = true;
-#endif
-                SendOpenDashboard();
-            }
             return;
         }
 
@@ -262,16 +247,22 @@ public sealed class UpdateService : BackgroundService
             // path); re-verify before launching to detect staged-file tampering.
             UpdateIntegrity.VerifyAsync(marker.InstallerPath, marker.Sha256, ct).GetAwaiter().GetResult();
 
+            var reopenDashboard = marker.ReopenDashboard || s.Update.UpdateMode == "always";
+
             // Flip to "attempted" before launching so a crash here is not retried.
-            // Always-mode auto-apply sets reopen so the dashboard opens after the install.
             StagedInstallMarkerStore.Write(new StagedInstallMarker
             {
                 Version = marker.Version,
                 InstallerPath = marker.InstallerPath,
                 Sha256 = marker.Sha256,
                 State = StagedInstallMarkerStore.StateAttempted,
-                ReopenDashboard = marker.ReopenDashboard || s.Update.UpdateMode == "always",
+                ReopenDashboard = reopenDashboard,
             });
+
+            if (reopenDashboard)
+            {
+                WriteFlagFile();
+            }
 
             _status = new UpdateStatusResponse
             {
@@ -536,6 +527,20 @@ public sealed class UpdateService : BackgroundService
                 ReopenDashboard = reopenAfter,
             });
 
+            if (reopenAfter)
+            {
+                WriteFlagFile();
+            }
+
+            try
+            {
+                await TrayCommands.ShowUpdaterWindowAsync(
+                    _helperRegistry,
+                    fromVersion: BuildInfo.Version,
+                    toVersion: manifest.Version).ConfigureAwait(false);
+            }
+            catch { /* non-critical; installer proceeds regardless */ }
+
             var launched = UpdateInstaller.LaunchViaSchtasks(installerPath, manifest.Version);
             if (!launched)
             {
@@ -643,6 +648,20 @@ public sealed class UpdateService : BackgroundService
                 ReopenDashboard = reopenAfter,
             });
 
+            if (reopenAfter)
+            {
+                WriteFlagFile();
+            }
+
+            try
+            {
+                await TrayCommands.ShowUpdaterWindowAsync(
+                    _helperRegistry,
+                    fromVersion: BuildInfo.Version,
+                    toVersion: manifest.Version).ConfigureAwait(false);
+            }
+            catch { /* non-critical; installer proceeds regardless */ }
+
             var launched = UpdateInstaller.LaunchViaSchtasks(installerPath, manifest.Version);
             if (!launched)
             {
@@ -683,21 +702,34 @@ public sealed class UpdateService : BackgroundService
         try { File.Delete(path); } catch { }
     }
 
-    private void SendOpenDashboard()
+    private static void WriteFlagFile()
     {
-#if WINDOWS
         try
         {
-            var conn = _helperRegistry.GetAny();
-            if (conn is null)
+            var dir = Path.GetDirectoryName(ReopenFlagPath);
+            if (dir is not null)
             {
-                return;
+                Directory.CreateDirectory(dir);
             }
-            _pendingOpenDashboard = false;
-            TrayCommands.OpenDashboardAsync(_helperRegistry).GetAwaiter().GetResult();
+            File.WriteAllText(ReopenFlagPath, "");
+            // Grant BUILTIN\Users (S-1-5-32-545) Modify so the user-session
+            // helper can delete this LocalSystem-written flag after reopening.
+            // Without it the delete fails and the dashboard reopens on every
+            // later helper start. icacls is a no-op / throws off Windows (caught).
+            var psi = new System.Diagnostics.ProcessStartInfo("icacls.exe")
+            {
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            };
+            psi.ArgumentList.Add(ReopenFlagPath);
+            psi.ArgumentList.Add("/grant");
+            psi.ArgumentList.Add("*S-1-5-32-545:(M)");
+            using var icacls = System.Diagnostics.Process.Start(psi);
+            icacls?.WaitForExit(5000);
         }
-        catch { /* notification is non-critical */ }
-#endif
+        catch { /* best-effort */ }
     }
 
     private void SetProgress(string phase, double percent, string message, string version)

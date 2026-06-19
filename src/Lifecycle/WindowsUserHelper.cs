@@ -2,8 +2,10 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Helper;
@@ -31,6 +33,12 @@ internal static class WindowsUserHelper
 {
     private const int DefaultPort = 9400;
     private const string SessionMutexName = @"Local\NexusHelper";
+    private const uint WM_CLOSE = 0x0010;
+    private const string UpdaterWindowTitle = "Nexus Updater";
+    private static readonly string ReopenFlagPath = Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "Nexus",
+        "reopen-dashboard.flag");
 
     private static readonly CancellationTokenSource s_exit = new();
 
@@ -105,6 +113,22 @@ internal static class WindowsUserHelper
 
         Platform.Windows.TrayIcon.SetVisible(true);
 
+        // If a reopen flag was written before the installer launched, open
+        // the dashboard now that the helper owns the tray, and close any
+        // updater window that mshta may still be showing.
+        if (File.Exists(ReopenFlagPath))
+        {
+            _ = Task.Run(() =>
+            {
+                // Open the dashboard FIRST: it is the goal and must not be
+                // blocked by the flag delete, which throws when the helper
+                // (user session) cannot remove the LocalSystem-written flag.
+                try { Platform.Windows.TrayIcon.OpenLocalWindow(); } catch { /* best-effort */ }
+                try { CloseUpdaterWindow(); } catch { /* best-effort */ }
+                try { File.Delete(ReopenFlagPath); } catch { /* service grants the user delete; ignore if it fails */ }
+            });
+        }
+
         // Watchdog: only exits the helper when the service is uninstalled.
         // Transient stopped states are fine; the pipe client handles them.
         var watchdog = new Thread(WatchdogLoop) { IsBackground = true };
@@ -129,7 +153,8 @@ internal static class WindowsUserHelper
             Platform.Windows.TrayIcon.ClearPairBalloon,
             Platform.Windows.TrayIcon.ShowNoticeBalloon,
             Platform.Windows.TrayIcon.ShowUpdateReadyBalloon,
-            () => Platform.Windows.TrayIcon.OpenLocalWindow()).Register(handlerRegistry);
+            () => Platform.Windows.TrayIcon.OpenLocalWindow(),
+            ShowUpdaterWindow).Register(handlerRegistry);
         // Runs in the user session, so this set lands on the clipboard the
         // user actually pastes from (the service's Session-0 one is invisible).
         new ClipboardHandler(new Platform.Clipboard.WindowsClipboardProvider().SetText).Register(handlerRegistry);
@@ -294,6 +319,110 @@ internal static class WindowsUserHelper
         catch { return ServiceState.Other; }
     }
 
+    // HTA caption is a known constant so the helper can close it by title.
+    // The HTA content is English-only; HTA files cannot use the service i18n bundle.
+    private static void ShowUpdaterWindow(string fromVersion, string toVersion)
+    {
+        try
+        {
+            var from = HtmlEscape(fromVersion);
+            var to = HtmlEscape(toVersion);
+            // Verbatim string (not a raw/interpolated literal): doubled quotes,
+            // single braces, and __FROM__/__TO__ placeholders substituted below.
+            // Avoids interpolated-raw-string parsing differences across compilers.
+            var hta = @"<html>
+<head>
+<hta:application
+  id=""nexusUpdater""
+  applicationname=""Nexus Updater""
+  caption=""yes""
+  border=""thin""
+  sysmenu=""no""
+  maximizebutton=""no""
+  minimizebutton=""no""
+  showintaskbar=""yes""
+  singleinstance=""yes""
+  scroll=""no"" />
+<title>Nexus Updater</title>
+<style>
+* { margin:0; padding:0; box-sizing:border-box; }
+body { background:#1a1a1f; color:#e2e2e6; font-family:'Segoe UI',sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; }
+.card { background:#25252d; border-radius:10px; padding:32px 36px; width:340px; text-align:center; }
+h1 { font-size:18px; font-weight:600; margin-bottom:8px; }
+.ver { font-size:13px; color:#a0a0a8; margin-bottom:24px; }
+.bar-track { background:#3a3a45; border-radius:4px; height:6px; overflow:hidden; margin-bottom:20px; }
+.bar-fill { height:100%; width:40%; background:#6c6cff; border-radius:4px; animation:slide 1.4s ease-in-out infinite; }
+@keyframes slide { 0%{transform:translateX(-100%)} 100%{transform:translateX(350%)} }
+.note { font-size:12px; color:#7a7a88; line-height:1.5; }
+</style>
+</head>
+<body>
+<div class=""card"">
+  <h1>Updating Nexus</h1>
+  <div class=""ver"">__FROM__ &#x2192; __TO__</div>
+  <div class=""bar-track""><div class=""bar-fill""></div></div>
+  <div class=""note"">This takes about a minute. Nexus will reopen automatically.</div>
+</div>
+<script language=""VBScript"">
+Sub Window_OnLoad
+  window.resizeTo 380, 230
+  window.moveTo (screen.availWidth - 380) / 2, (screen.availHeight - 230) / 2
+End Sub
+</script>
+<script language=""JavaScript"">
+setTimeout(function() { window.close(); }, 300000);
+</script>
+</body>
+</html>".Replace("__FROM__", from).Replace("__TO__", to);
+            var htaPath = Path.Combine(Path.GetTempPath(), "nexus-updating.hta");
+            File.WriteAllText(htaPath, hta, Encoding.UTF8);
+            // Full path: the helper's spawned environment may not have System32
+            // on PATH, so a bare "mshta.exe" Start can fail silently.
+            var mshta = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "mshta.exe");
+            var psi = new ProcessStartInfo(mshta, $"\"{htaPath}\"")
+            {
+                UseShellExecute = true,
+                CreateNoWindow = false,
+            };
+            var proc = Process.Start(psi);
+            Diag($"ShowUpdaterWindow: mshta started pid={proc?.Id.ToString() ?? "null"} hta={htaPath}");
+            // mshta spawns the window behind the dashboard. Poll for it (it
+            // appears a moment after launch) and force it topmost + foreground
+            // so it is visible over everything during the install.
+            _ = Task.Run(() =>
+            {
+                for (int i = 0; i < 50; i++)
+                {
+                    var hwnd = FindWindowW(null, UpdaterWindowTitle);
+                    if (hwnd != IntPtr.Zero)
+                    {
+                        SetWindowPos(hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
+                        SetForegroundWindow(hwnd);
+                        return;
+                    }
+                    Thread.Sleep(100);
+                }
+            });
+        }
+        catch (Exception ex) { Diag($"ShowUpdaterWindow failed: {ex.Message}"); }
+    }
+
+    private static string HtmlEscape(string s) =>
+        s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
+
+    private static void CloseUpdaterWindow()
+    {
+        try
+        {
+            var hwnd = FindWindowW(null, UpdaterWindowTitle);
+            if (hwnd != IntPtr.Zero)
+            {
+                PostMessageW(hwnd, WM_CLOSE, IntPtr.Zero, IntPtr.Zero);
+            }
+        }
+        catch { /* best-effort */ }
+    }
+
     // Win32 plumbing for the cross-process overlay marshaler wake. Lives
     // here rather than in a shared file because this is the only consumer.
     private const string OverlayMarshalerClassName = "Nexus.Overlay.Marshaler";
@@ -307,6 +436,15 @@ internal static class WindowsUserHelper
 
     [DllImport("user32.dll", SetLastError = true)]
     private static extern bool PostMessageW(IntPtr hWnd, uint Msg, IntPtr wParam, IntPtr lParam);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int X, int Y, int cx, int cy, uint uFlags);
+
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    private static readonly IntPtr HwndTopmost = new(-1);
+    private const uint SwpNoSize = 0x0001, SwpNoMove = 0x0002, SwpShowWindow = 0x0040;
 
     private static void Diag(string msg)
     {
