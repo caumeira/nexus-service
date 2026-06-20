@@ -349,7 +349,7 @@ public sealed class PanelPhonePairingService
     public PanelPhoneClaimResponse Claim(string pairToken, string? deviceId, HttpContext context)
         => Claim(pairToken, deviceId, deviceName: "", context);
 
-    public PanelPhoneClaimResponse Claim(string pairToken, string? deviceId, string? deviceName, HttpContext context)
+    public PanelPhoneClaimResponse Claim(string pairToken, string? deviceId, string? deviceName, HttpContext context, bool supportsSasApproval = false)
     {
         var userAgent = context.Request.Headers["User-Agent"].ToString();
         var remoteAddress = context.Connection.RemoteIpAddress?.ToString() ?? "";
@@ -368,10 +368,27 @@ public sealed class PanelPhonePairingService
             remoteAddress: remoteAddress,
             deviceId: effectiveDeviceId,
             overRelay: false,
-            claimedOverHttps: context.Request.IsHttps);
+            claimedOverHttps: context.Request.IsHttps,
+            supportsSasApproval: supportsSasApproval);
 
         if (!result.Ok)
+        {
             return new PanelPhoneClaimResponse { Paired = false, Error = result.Error };
+        }
+
+        if (result.NeedsApproval)
+        {
+            return new PanelPhoneClaimResponse
+            {
+                Paired = false,
+                NeedsApproval = true,
+                RequestId = result.RequestId,
+                Sas = result.Sas,
+                SpkiFingerprint = result.Spki,
+                MachineName = result.MachineName,
+                ExpiresAt = result.ExpiresAt,
+            };
+        }
 
         return new PanelPhoneClaimResponse
         {
@@ -389,9 +406,41 @@ public sealed class PanelPhonePairingService
     /// error sentinels.
     /// </summary>
     public readonly record struct ClaimResult(
-        bool Ok, string SessionToken, string MachineName, string Spki, string Error)
+        bool Ok, string SessionToken, string MachineName, string Spki, string Error,
+        bool NeedsApproval, string RequestId, string Sas, long ExpiresAt)
     {
-        public static ClaimResult Fail(string error) => new(false, "", "", "", error);
+        public static ClaimResult Fail(string error) => new(false, "", "", "", error, false, "", "", 0);
+    }
+
+    private bool AlreadyPaired(string deviceId, string fingerprint)
+    {
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var sessions = _store.Load().Auth?.PanelPhoneSessions;
+        if (sessions is null)
+        {
+            return false;
+        }
+        foreach (var session in sessions)
+        {
+            var lastSeen = session.LastSeenAt > 0 ? session.LastSeenAt : session.CreatedAt;
+            var idleLimit = session.ClaimedOverHttps ? SessionIdleMs : HttpSessionIdleMs;
+            if (lastSeen <= 0 || now - lastSeen > idleLimit)
+            {
+                continue;
+            }
+            if (!string.IsNullOrEmpty(deviceId) &&
+                string.Equals(session.DeviceId, deviceId, StringComparison.Ordinal))
+            {
+                return true;
+            }
+            if (string.IsNullOrEmpty(deviceId) &&
+                !string.IsNullOrEmpty(fingerprint) &&
+                string.Equals(GetSessionFingerprint(session), fingerprint, StringComparison.Ordinal))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     /// <summary>
@@ -418,7 +467,8 @@ public sealed class PanelPhonePairingService
         string remoteAddress,
         string deviceId,
         bool overRelay,
-        bool claimedOverHttps)
+        bool claimedOverHttps,
+        bool supportsSasApproval = false)
     {
         if (!GetRemoteControlEnabled())
             return ClaimResult.Fail("remote-disabled");
@@ -443,7 +493,83 @@ public sealed class PanelPhonePairingService
         // down the pair rendezvous (and, once the session below is persisted,
         // brings up that session's runtime rendezvous on the next reconcile).
         if (consumed)
+        {
             RaisePairTokensChanged();
+        }
+
+        // SAS gate: new device on LAN HTTPS with opt-in flag.
+        var normalizedDeviceIdForGate = NormalizeDeviceId(deviceId);
+        var fingerprintForGate = overRelay ? "" : BuildDeviceFingerprint(userAgent, remoteAddress);
+        if (!overRelay &&
+            claimedOverHttps &&
+            supportsSasApproval &&
+            !AlreadyPaired(normalizedDeviceIdForGate, fingerprintForGate))
+        {
+            var nowMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+            var expires = nowMs + PairCodeTtlSeconds * 1000L;
+            var nonce = RandomNumberGenerator.GetBytes(16);
+            var requestId = CreateToken(16);
+            var sas = ComputeSas(string.Empty, nonce, SpkiFingerprint);
+            var deviceLabel = string.IsNullOrWhiteSpace(deviceName) ? DescribeDevice(userAgent) : deviceName.Trim();
+            if (deviceLabel.Length > 64)
+            {
+                deviceLabel = deviceLabel[..64];
+            }
+            var normalizedRemote = NormalizeRemoteAddress(remoteAddress);
+
+            string? supersededRequestId = null;
+            lock (_pairCodeLock)
+            {
+                if (_pairCode is { RequestId: { Length: > 0 } prior } && _pairCode.ExpiresAt > nowMs)
+                {
+                    supersededRequestId = prior;
+                }
+
+                _pairCode = new PairCodeState
+                {
+                    Code = string.Empty,
+                    Nonce = nonce,
+                    ExpiresAt = expires,
+                    RequestId = requestId,
+                    Sas = sas,
+                    PhoneRemoteAddress = normalizedRemote,
+                    PhoneUserAgent = userAgent,
+                    ClaimedOverHttps = true,
+                };
+            }
+
+            if (supersededRequestId is not null)
+            {
+                PublishPairCodeFrame(new PanelPhonePairCodeRequestFrame
+                {
+                    Kind = "cancelled",
+                    RequestId = supersededRequestId,
+                    Reason = "host-started-new-code",
+                });
+            }
+
+            PublishPairCodeFrame(new PanelPhonePairCodeRequestFrame
+            {
+                Kind = "request",
+                RequestId = requestId,
+                Sas = sas,
+                DeviceLabel = deviceLabel,
+                RemoteAddress = normalizedRemote,
+                UserAgent = userAgent,
+                ExpiresAt = expires,
+            });
+
+            return new ClaimResult(
+                Ok: true,
+                SessionToken: "",
+                MachineName: NormalizeMachineName(MachineName),
+                Spki: SpkiFingerprint,
+                Error: "",
+                NeedsApproval: true,
+                RequestId: requestId,
+                Sas: sas,
+                ExpiresAt: expires);
+        }
 
         var sessionToken = CreateToken(32);
         var hash = HashToken(sessionToken);
@@ -502,7 +628,11 @@ public sealed class PanelPhonePairingService
             SessionToken: sessionToken,
             MachineName: NormalizeMachineName(MachineName),
             Spki: SpkiFingerprint,
-            Error: "");
+            Error: "",
+            NeedsApproval: false,
+            RequestId: "",
+            Sas: "",
+            ExpiresAt: 0);
     }
 
     /// <summary>

@@ -29,7 +29,7 @@ public static class PanelRoutes
 
         app.MapPost("/panel/phone/claim", (HttpContext ctx, PanelPhoneClaimBody body, PanelPhonePairingService pairing) =>
         {
-            var result = pairing.Claim(body.PairToken, body.DeviceId, body.DeviceName, ctx);
+            var result = pairing.Claim(body.PairToken, body.DeviceId, body.DeviceName, ctx, body.SupportsSasApproval);
             if (result.Paired && !string.IsNullOrWhiteSpace(result.Token))
             {
                 ctx.Response.Cookies.Append(
@@ -45,9 +45,11 @@ public static class PanelRoutes
                     });
             }
 
-            return result.Paired
-                ? Results.Ok(result)
-                : Results.BadRequest(result);
+            if (result.Paired || result.NeedsApproval)
+            {
+                return Results.Ok(result);
+            }
+            return Results.BadRequest(result);
         });
 
         app.MapGet("/panel/phone/service-info", (PanelPhonePairingService pairing) =>

@@ -34,6 +34,14 @@ public sealed class PanelPhoneClaimBody
     /// UA-derived descriptor; blank/missing falls back to it.
     /// </summary>
     public string DeviceName { get; set; } = "";
+
+    /// <summary>
+    /// When true and the device is not already paired, the claim returns
+    /// NeedsApproval=true with SAS fields instead of a token; the phone
+    /// then polls /pair-code/confirm for host approval.
+    /// False (or absent) keeps the legacy direct-mint behavior.
+    /// </summary>
+    public bool SupportsSasApproval { get; set; }
 }
 
 public sealed class PanelPhoneClaimResponse
@@ -42,6 +50,16 @@ public sealed class PanelPhoneClaimResponse
     public string Token { get; set; } = "";
     public string MachineName { get; set; } = "";
     public string Error { get; set; } = "";
+    /// <summary>True when the claim is gated on host approval via the SAS flow.</summary>
+    public bool NeedsApproval { get; set; }
+    /// <summary>Pending request id; present when NeedsApproval is true.</summary>
+    public string? RequestId { get; set; }
+    /// <summary>6-digit SAS for the user to compare on both screens; present when NeedsApproval is true.</summary>
+    public string? Sas { get; set; }
+    /// <summary>SPKI fingerprint the SAS is bound to; present when NeedsApproval is true.</summary>
+    public string? SpkiFingerprint { get; set; }
+    /// <summary>Unix-ms expiry of the pending request; present when NeedsApproval is true.</summary>
+    public long ExpiresAt { get; set; }
 }
 
 public sealed class PanelPhoneServiceInfoResponse

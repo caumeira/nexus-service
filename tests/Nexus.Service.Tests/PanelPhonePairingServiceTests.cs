@@ -801,6 +801,129 @@ public class PanelPhonePairingServiceTests
         Assert.Equal(0, attentions);
     }
 
+    // -- QR SAS approval gate tests --------------------------------------
+
+    [Fact]
+    public void ClaimCore_NewDevice_HttpsSupportsSas_ReturnsSasGate()
+    {
+        var hub = new Nexus.Service.Sockets.MultiplexHub();
+        var service = new PanelPhonePairingService(new InMemoryConfigStore(), hub)
+        {
+            PublicLinkHost = "",
+            SpkiFingerprint = "fp-stub",
+        };
+        using var sub = hub.AddTestSubscription(Nexus.Service.Sockets.PanelTopics.PairCodeRequest);
+
+        var result = service.ClaimCore(
+            PairTokenFrom(service.CreatePairQr()),
+            deviceName: "iPhone",
+            userAgent: NativeIosUserAgent,
+            remoteAddress: "192.168.1.50",
+            deviceId: "device-uuid-new",
+            overRelay: false,
+            claimedOverHttps: true,
+            supportsSasApproval: true);
+
+        Assert.True(result.Ok);
+        Assert.True(result.NeedsApproval);
+        Assert.Equal("", result.SessionToken);
+        Assert.False(string.IsNullOrEmpty(result.RequestId));
+        Assert.Equal(6, result.Sas.Length);
+        Assert.All(result.Sas, c => Assert.InRange(c, '0', '9'));
+        Assert.Equal("fp-stub", result.Spki);
+        Assert.True(result.ExpiresAt > DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+        Assert.Equal(0, service.GetSessions(0).AuthorizedCount);
+        Assert.True(hub.TryGetTopicSnapshot(Nexus.Service.Sockets.PanelTopics.PairCodeRequest, out _));
+    }
+
+    [Fact]
+    public void ClaimCore_AlreadyPairedDevice_HttpsSupportsSas_DirectToken()
+    {
+        var store = new InMemoryConfigStore();
+        var service = new PanelPhonePairingService(store, new Nexus.Service.Sockets.MultiplexHub())
+        {
+            PublicLinkHost = "",
+            SpkiFingerprint = "fp-stub",
+        };
+
+        // Seed a live session for device-uuid-A via a relay claim (no fingerprint).
+        var first = service.ClaimCore(
+            PairTokenFrom(service.CreatePairQr()),
+            deviceName: "iPhone",
+            userAgent: NativeIosUserAgent,
+            remoteAddress: "",
+            deviceId: "device-uuid-A",
+            overRelay: true,
+            claimedOverHttps: false);
+        Assert.True(first.Ok);
+        Assert.False(first.NeedsApproval);
+
+        // Same deviceId over HTTPS with SAS opt-in: already paired -> direct mint.
+        var second = service.ClaimCore(
+            PairTokenFrom(service.CreatePairQr()),
+            deviceName: "iPhone",
+            userAgent: NativeIosUserAgent,
+            remoteAddress: "192.168.1.50",
+            deviceId: "device-uuid-A",
+            overRelay: false,
+            claimedOverHttps: true,
+            supportsSasApproval: true);
+
+        Assert.True(second.Ok);
+        Assert.False(second.NeedsApproval);
+        Assert.False(string.IsNullOrEmpty(second.SessionToken));
+    }
+
+    [Fact]
+    public void ClaimCore_SupportsSasFalse_OldClient_DirectToken()
+    {
+        var store = new InMemoryConfigStore();
+        var service = new PanelPhonePairingService(store, new Nexus.Service.Sockets.MultiplexHub())
+        {
+            PublicLinkHost = "",
+            SpkiFingerprint = "fp-stub",
+        };
+
+        var result = service.ClaimCore(
+            PairTokenFrom(service.CreatePairQr()),
+            deviceName: "iPhone",
+            userAgent: NativeIosUserAgent,
+            remoteAddress: "192.168.1.50",
+            deviceId: "device-uuid-legacy",
+            overRelay: false,
+            claimedOverHttps: true,
+            supportsSasApproval: false);
+
+        Assert.True(result.Ok);
+        Assert.False(result.NeedsApproval);
+        Assert.False(string.IsNullOrEmpty(result.SessionToken));
+    }
+
+    [Fact]
+    public void ClaimCore_OverRelay_SupportsSasTrue_DirectToken()
+    {
+        var store = new InMemoryConfigStore();
+        var service = new PanelPhonePairingService(store, new Nexus.Service.Sockets.MultiplexHub())
+        {
+            PublicLinkHost = "",
+            SpkiFingerprint = "fp-stub",
+        };
+
+        var result = service.ClaimCore(
+            PairTokenFrom(service.CreatePairQr()),
+            deviceName: "iPhone",
+            userAgent: "",
+            remoteAddress: "",
+            deviceId: "device-uuid-relay",
+            overRelay: true,
+            claimedOverHttps: false,
+            supportsSasApproval: true);
+
+        Assert.True(result.Ok);
+        Assert.False(result.NeedsApproval);
+        Assert.False(string.IsNullOrEmpty(result.SessionToken));
+    }
+
     private static PanelPhonePairingService NewServiceWithHub(Nexus.Service.Sockets.MultiplexHub hub)
     {
         return new PanelPhonePairingService(new InMemoryConfigStore(), hub)
