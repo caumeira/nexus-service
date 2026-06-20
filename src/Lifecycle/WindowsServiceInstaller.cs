@@ -206,19 +206,11 @@ internal static class WindowsServiceInstaller
             try { CreateStartMenuShortcut(installedExe); }
             catch (Exception ex) { Log($"WARN Start Menu shortcut failed: {ex.Message}"); }
 
-            // 7a. Enable tray autostart by default. Writes HKCU\Run\Nexus for
-            // the user running the installer. When invoked via Inno (elevated
-            // user account), HKCU resolves to the real user. When invoked via
-            // a SYSTEM-context test fixture, it writes to SYSTEM's profile
-            // which is harmless. The user can opt out later via the tray menu
-            // "Start at logon" toggle (also HKCU-writable, no admin needed).
-            try
-            {
-                var startup = new WindowsStartupProvider();
-                startup.SetEnabled(true, installedExe, arguments: string.Empty);
-                Log("tray autostart enabled (HKCU\\Run\\Nexus)");
-            }
-            catch (Exception ex) { Log($"WARN tray autostart write failed: {ex.Message}"); }
+            // Tray autostart (HKCU\Run\Nexus) is enabled by the user-session
+            // helper on first run, not here. An OTA reinstall runs the installer
+            // as SYSTEM, so an install-time Registry.CurrentUser write lands in
+            // SYSTEM's hive (S-1-5-18), never the user's. The helper writes it
+            // in user context instead - see WindowsStartupProvider.EnsureHelperAutostart.
 
             // 8. Start the service.
             Log("starting NexusService");

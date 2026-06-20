@@ -71,6 +71,41 @@ public sealed class WindowsStartupProvider : IStartupProvider
     }
 
 #if WINDOWS
+    /// <summary>
+    /// Ensure the helper's tray-autostart Run key is present, written in the
+    /// calling user's hive. Called from the user-session helper, where HKCU is
+    /// the real user (not LocalSystem), so the key lands in the right place.
+    /// Autostart is on by default and has no user-facing opt-out today; the
+    /// service spawns the helper regardless, so this just keeps the sign-in
+    /// autostart entry present and pointed at the current exe.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static void EnsureHelperAutostart(string exePath)
+    {
+        if (string.IsNullOrEmpty(exePath)) return;
+        new WindowsStartupProvider().SetEnabled(true, exePath, string.Empty);
+    }
+
+    /// <summary>
+    /// Delete the autostart Run key from LocalSystem's own hive (S-1-5-18). An
+    /// older SYSTEM-context installer wrote it there via Registry.CurrentUser,
+    /// where it never triggers a sign-in launch and points at a possibly-removed
+    /// path. Guarded on the LocalSystem SID so a dev/console run as a real user
+    /// never scrubs a legitimate key. Self-heals already-affected installs.
+    /// </summary>
+    [SupportedOSPlatform("windows")]
+    public static void ScrubSystemHiveAutostart()
+    {
+        try
+        {
+            using var id = System.Security.Principal.WindowsIdentity.GetCurrent();
+            if (!id.IsSystem) return;
+            using var key = Registry.CurrentUser.OpenSubKey(HkcuRunKey, writable: true);
+            key?.DeleteValue(ValueName, throwOnMissingValue: false);
+        }
+        catch { }
+    }
+
     [SupportedOSPlatform("windows")]
     private static void RunSchtasks(params string[] args)
     {

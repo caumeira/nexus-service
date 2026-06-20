@@ -273,6 +273,9 @@ internal static class TrayBootstrap
             {
                 Console.WriteLine("[nexus-service] startup window suppressed (LocalSystem session 0 has no interactive desktop)");
 #if WINDOWS
+                // Scrub a stray autostart Run key from LocalSystem's own hive
+                // (older SYSTEM-context installs misfiled it there); self-heals.
+                Nexus.Service.Lifecycle.WindowsStartupProvider.ScrubSystemHiveAutostart();
                 // Always launch the user-session helper. Its lifetime is decoupled
                 // from any pref - the helper hosts the tray icon, screen-time
                 // poller, media/brightness providers, etc.

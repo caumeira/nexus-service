@@ -82,6 +82,11 @@ internal static class WindowsUserHelper
             return 0;
         }
 
+        // Ensure tray autostart in the user's hive. HKCU here is the real user
+        // (the helper runs in the user's session), so the Run key lands in the
+        // right place; the SYSTEM-context installer no longer writes it.
+        WindowsStartupProvider.EnsureHelperAutostart(Environment.ProcessPath ?? string.Empty);
+
         // Pipe client to the service. Reconnects with backoff on drop.
         // Outbound is shared with the helper-side providers (screen-time
         // poller, media pusher, etc.) so they can emit envelopes without
