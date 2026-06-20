@@ -32,6 +32,7 @@ public static class SegmentFrameComposer
         IReadOnlyList<string> disabled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         float globalBrightness,
+        double masterMul,
         long nowTicks,
         Np50IdentifyTracker? identify,
         RgbColor[][] segmentBuffers)
@@ -55,7 +56,10 @@ public static class SegmentFrameComposer
                 continue;
             }
 
-            var mul = ComputeBrightnessMul(zone.Id, disabled, prefs, globalBrightness);
+            // Device-wide master (the keeb firmware-brightness level, set by the
+            // knob and the Settings slider) multiplies the per-zone software level,
+            // so they compose instead of fighting: effective = global * master * zone.
+            var mul = ComputeBrightnessMul(zone.Id, disabled, prefs, globalBrightness) * masterMul;
             var identifying = false;
             var identifyOn = false;
             if (identify is not null && identify.TryGetActive(zone.Id, nowTicks, out var startTicks))

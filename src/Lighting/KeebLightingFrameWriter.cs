@@ -21,25 +21,32 @@ namespace Nexus.Service.Lighting;
 public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 {
     private const int TickPeriodMs = 33; // 30 Hz, matches the engine + NP50 writer.
+    private const int KnobReadEveryTicks = 2; // ~66 ms knob byte read; ease runs every tick.
 
     private readonly LightingEngine _engine;
     private readonly KeebHub _hub;
     private readonly IConfigStore _store;
     private readonly Np50IdentifyTracker _identify;
     private readonly KeebSettingsApplier _applier;
+    private readonly KeebReactiveRenderer _renderer;
     private CancellationTokenSource? _cts;
     private Task? _loop;
     private bool _wasStreaming;
+    private int _knobPollTicks;
+
+    // Reused per-tick scratch buffer for reactive-only frames (base = black).
+    private readonly RgbColor[] _reactiveKeyBuf = new RgbColor[KeebLayout.KeyLedCount];
 
     private RgbColor[][] _segmentBuffers = Array.Empty<RgbColor[]>();
 
-    public KeebLightingFrameWriter(LightingEngine engine, KeebHub hub, IConfigStore store, Np50IdentifyTracker identify, KeebSettingsApplier applier)
+    public KeebLightingFrameWriter(LightingEngine engine, KeebHub hub, IConfigStore store, Np50IdentifyTracker identify, KeebSettingsApplier applier, KeebReactiveRenderer renderer)
     {
         _engine = engine;
         _hub = hub;
         _store = store;
         _identify = identify;
         _applier = applier;
+        _renderer = renderer;
     }
 
     public Task StartAsync(CancellationToken cancellationToken)
@@ -83,12 +90,15 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
     {
         if (!_hub.IsConnected) return;
 
-        // Firmware/software arbitration: stream only while a software effect is
-        // active. When it stops, re-assert the persisted firmware settings once
-        // so the onboard animation (which streaming suppressed) comes back -
-        // matching the panel's "firmware lighting applies when nexus isn't
-        // actively driving the LEDs".
-        if (_engine.CurrentEffectName == "none")
+        var settings = _store.Load();
+        var keeb = settings.Keeb.FirmwareLighting;
+        var keyReactive = keeb.KeyReactive;
+        var softwareEffect = _engine.CurrentEffectName != "none";
+
+        // Firmware/software arbitration: stream only while a software effect is active
+        // or key-reactive is enabled. When neither applies, re-assert the persisted
+        // firmware settings once so the onboard animation comes back.
+        if (!softwareEffect && !keyReactive)
         {
             if (_wasStreaming)
             {
@@ -97,7 +107,44 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
             }
             return;
         }
-        _wasStreaming = true;
+
+        if (!_wasStreaming)
+        {
+            _wasStreaming = true;
+            _applier.ResetKnobBaseline();
+        }
+
+        // Read the knob byte every Nth tick and set global = byte/100 on a change.
+        var readByte = ++_knobPollTicks >= KnobReadEveryTicks;
+        if (readByte) _knobPollTicks = 0;
+        _applier.PollKnobToGlobal(readByte);
+
+        // Configure renderer from settings snapshot before calling Render().
+        var reactiveColor = new RgbColor(keeb.KeyReactiveColor.R, keeb.KeyReactiveColor.G, keeb.KeyReactiveColor.B);
+        _renderer.Configure(keyReactive, keeb.KeyReactiveMode, reactiveColor);
+        var reactive = keyReactive ? _renderer.Render() : null;
+
+        if (softwareEffect)
+        {
+            TickSoftwareEffect(settings, reactive, keeb.KeyReactiveMask);
+        }
+        else
+        {
+            // Key-reactive only (no software effect): stream base=black + reactive overlay, keys segment only.
+            TickReactiveOnly(reactive);
+        }
+    }
+
+    private void TickSoftwareEffect(NexusSettings settings, RgbColor?[]? reactive, bool mask)
+    {
+        var disabled = settings.Devices.DisabledLightingDevices;
+        var prefs = settings.Devices.LightingDevicePrefs;
+        var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
+        // The keeb software stream is brightness = global * per-zone only. The
+        // firmware-brightness level (keeb Settings slider) dims the firmware animation,
+        // not the software stream; the knob drives global brightness while streaming
+        // (see SyncFromDevice), so it never multiplies into this stream (masterMul 1).
+        var nowTicks = DateTime.UtcNow.Ticks;
 
         var devices = _engine.Devices;
         if (devices.Length == 0) return;
@@ -105,21 +152,60 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         var hubId = _hub.DeviceId;
         if (string.IsNullOrEmpty(hubId)) return;
 
-        var settings = _store.Load();
-        var disabled = settings.Devices.DisabledLightingDevices;
-        var prefs = settings.Devices.LightingDevicePrefs;
-        var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
-        var nowTicks = DateTime.UtcNow.Ticks;
-
         var structure = KeebZoneSupport.BuildStructure(hubId);
         var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settings);
         Nexus.Service.Lighting.Zones.SegmentFrameComposer.EnsureBuffers(structure, ref _segmentBuffers);
         var touched = Nexus.Service.Lighting.Zones.SegmentFrameComposer.Compose(
-            structure, zones, devices, disabled, prefs, globalBrightness, nowTicks, _identify, _segmentBuffers);
+            structure, zones, devices, disabled, prefs, globalBrightness, 1.0, nowTicks, _identify, _segmentBuffers);
 
         if (touched[KeebZoneSupport.KeysSegment])
+        {
+            if (reactive != null)
+            {
+                ApplyReactive(_segmentBuffers[KeebZoneSupport.KeysSegment], reactive, mask);
+            }
             _hub.WriteKeyboard(_segmentBuffers[KeebZoneSupport.KeysSegment]);
+        }
         if (touched[KeebZoneSupport.UnderglowSegment])
+        {
             _hub.WriteSurround(_segmentBuffers[KeebZoneSupport.UnderglowSegment]);
+        }
+    }
+
+    private void TickReactiveOnly(RgbColor?[]? reactive)
+    {
+        if (reactive == null) return;
+
+        // No software effect = no base to reveal, so mask is a no-op here: always paint the
+        // reactive color on black (matches HYTE's reactive-only path, which ignores mask).
+        // Mask only means something with a software effect as the base (TickSoftwareEffect).
+        Array.Clear(_reactiveKeyBuf, 0, _reactiveKeyBuf.Length);
+        ApplyReactive(_reactiveKeyBuf, reactive, mask: false);
+        _hub.WriteKeyboard(_reactiveKeyBuf);
+    }
+
+    private static void ApplyReactive(RgbColor[] keyBuf, RgbColor?[] reactive, bool mask)
+    {
+        for (var i = 0; i < keyBuf.Length && i < reactive.Length; i++)
+        {
+            if (reactive[i] is { } overlayColor)
+            {
+                if (!mask)
+                {
+                    // Non-mask: reacting key shows reactive color.
+                    keyBuf[i] = overlayColor;
+                }
+                // Mask: reacting key keeps base color (keyBuf[i] unchanged).
+            }
+            else
+            {
+                if (mask)
+                {
+                    // Mask: non-reacting key goes black.
+                    keyBuf[i] = default;
+                }
+                // Non-mask: non-reacting key keeps base color (keyBuf[i] unchanged).
+            }
+        }
     }
 }

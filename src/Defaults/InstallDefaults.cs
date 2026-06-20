@@ -166,12 +166,15 @@ public sealed class KeebDefaults
 public sealed class KeebFirmwareLightingDefaults
 {
     public string AnimationMode { get; set; } = "Static";
-    public string Speed { get; set; } = "Medium";
+    // Speed/KeyReactiveMode must be values the panel dropdowns list, or the
+    // control renders blank. "Standard" (not the synonym "Medium") and a real
+    // reactive mode (not "Off" - on/off is the separate KeyReactive flag).
+    public string Speed { get; set; } = "Standard";
     public string Direction { get; set; } = "Forward";
     public int Brightness { get; set; } = 80;
     public bool KeyReactive { get; set; }
     public bool KeyReactiveMask { get; set; }
-    public string KeyReactiveMode { get; set; } = "Off";
+    public string KeyReactiveMode { get; set; } = "SingleKey";
 }
 
 public sealed class CoolingDefaults

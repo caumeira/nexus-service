@@ -24,13 +24,15 @@ public sealed class KeebInputWorker : BackgroundService
     private readonly IHidEnumerator _hid;
     private readonly KeebHub _hub;
     private readonly KeebSettingsApplier _applier;
+    private readonly KeebReactiveRenderer _renderer;
     private IHidDevice? _reader;
 
-    public KeebInputWorker(IHidEnumerator hid, KeebHub hub, KeebSettingsApplier applier)
+    public KeebInputWorker(IHidEnumerator hid, KeebHub hub, KeebSettingsApplier applier, KeebReactiveRenderer renderer)
     {
         _hid = hid;
         _hub = hub;
         _applier = applier;
+        _renderer = renderer;
     }
 
     protected override Task ExecuteAsync(CancellationToken stoppingToken)
@@ -90,7 +92,7 @@ public sealed class KeebInputWorker : BackgroundService
         switch (ev.Kind)
         {
             case KeebProtocol.KeebInputKind.KeyMatrix:
-                ServiceLog.Info($"[keeb-input] key matrix row={ev.Row} col={ev.Column}");
+                _renderer.IngestKeyPress(ev.Row, ev.Column);
                 break;
             case KeebProtocol.KeebInputKind.ScrollUp:
             case KeebProtocol.KeebInputKind.ScrollDown:
@@ -114,11 +116,19 @@ public sealed class KeebInputWorker : BackgroundService
 
     private bool OpenReader()
     {
-        var info = KeebHub.FindVendorInterface(_hid);
+        // The key-matrix / rotary callbacks (0x05 0xFA ...) arrive on the keeb's FF02/F0
+        // vendor collection (8-byte input reports), NOT the FF11/F0 settings collection
+        // (feature reports) the hub uses, and NOT the 0001/02 mouse collection that also
+        // carries 8-byte inputs. Reading the settings collection (as we did) yields no
+        // callbacks - which is why key-reactive and software-mode knob events never fired.
+        var infos = _hid.Find(KeebProtocol.VendorId, KeebProtocol.ProductId);
+        HidDeviceInfo? info = null;
+        foreach (var i in infos)
+            if (i.UsagePage == 0xFF02 && i.Usage == 0xF0) { info = i; break; }
         if (info is null) return false;
         _reader = _hid.Open(info.Path, forInput: true);
         if (_reader is null) return false;
-        ServiceLog.Info($"[keeb-input] reader opened on {info.Path}");
+        ServiceLog.Info($"[keeb-input] reader opened on {info.Path} (usage={info.UsagePage:X4}/{info.Usage:X2} in={info.InputReportByteLength})");
         return true;
     }
 

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Models.Common;
 using Nexus.Service.Models.Peripherals.Keeb;
 using Nexus.Service.Peripherals.Hyte.Keeb;
@@ -25,12 +26,14 @@ public sealed class RealKeebProvider : IKeebProvider
     private readonly IConfigStore _store;
     private readonly KeebHub _hub;
     private readonly KeebSettingsApplier _applier;
+    private readonly LightingEngine _engine;
 
-    public RealKeebProvider(IConfigStore store, KeebHub hub, KeebSettingsApplier applier)
+    public RealKeebProvider(IConfigStore store, KeebHub hub, KeebSettingsApplier applier, LightingEngine engine)
     {
         _store = store;
         _hub = hub;
         _applier = applier;
+        _engine = engine;
     }
 
     public KeyboardState GetState(int layer) => new()
@@ -57,16 +60,25 @@ public sealed class RealKeebProvider : IKeebProvider
             RotaryRight = k.RotaryRight,
             RotarySensitivity = k.RotarySensitivity,
             AnimationMode = k.FirmwareLighting.AnimationMode,
-            Speed = k.FirmwareLighting.Speed,
+            Speed = NormalizeSpeed(k.FirmwareLighting.Speed),
             Direction = k.FirmwareLighting.Direction,
             Brightness = k.FirmwareLighting.Brightness,
             KeyIndicator = k.FirmwareLighting.KeyIndicator,
             KeyReactive = k.FirmwareLighting.KeyReactive,
             KeyReactiveMask = k.FirmwareLighting.KeyReactiveMask,
-            KeyReactiveMode = k.FirmwareLighting.KeyReactiveMode,
+            KeyReactiveMode = NormalizeReactiveMode(k.FirmwareLighting.KeyReactiveMode),
             KeyReactiveColor = ToRgba(k.FirmwareLighting.KeyReactiveColor),
         };
     }
+
+    // The panel dropdowns only list canonical values; map legacy persisted ones
+    // so the control isn't blank. "Medium" is the old synonym for "Standard"
+    // (same speed byte); "Off" was a non-mode default (on/off is KeyReactive).
+    private static string NormalizeSpeed(string s) =>
+        string.Equals(s, "Medium", StringComparison.OrdinalIgnoreCase) ? "Standard" : s;
+
+    private static string NormalizeReactiveMode(string m) =>
+        string.Equals(m, "Off", StringComparison.OrdinalIgnoreCase) ? "SingleKey" : m;
 
     public string[] GetRotaryFunctions() => KeebSettingsCodec.RotaryFunctions;
 
@@ -95,22 +107,22 @@ public sealed class RealKeebProvider : IKeebProvider
     public void SetFirmwareLighting(SetFirmwareLightingBody body)
     {
         var brightness = Math.Clamp(body.Brightness, 0, 100);
-        _store.Update(s =>
+        // While a software effect streams, the firmware animation is suppressed and
+        // the frame writer multiplies FirmwareLighting.Brightness into the stream, so
+        // writing the 0x06 page now would only flash the firmware animation through
+        // the live stream (and a brightness drag flashes repeatedly). Update the
+        // master and let the composer apply it; the frame writer writes the page when
+        // streaming stops. With no effect, write it so the firmware animation reflects
+        // the change immediately.
+        var streaming = _engine.CurrentEffectName != "none";
+        _applier.ApplyGated(s =>
         {
             s.Keeb.FirmwareLighting.AnimationMode = body.AnimationMode;
             s.Keeb.FirmwareLighting.Speed = body.Speed;
             s.Keeb.FirmwareLighting.Direction = body.Direction;
             s.Keeb.FirmwareLighting.KeyIndicator = body.KeyIndicator;
-            // Mirror brightness onto FirmwareLighting + both keeb zone prefs so it
-            // dims the firmware animation and a software effect alike. The read-back
-            // (KeebSettingsApplier.SyncFromDevice) writes the same fields, so both
-            // paths share this helper and can't drift.
-            KeebSettingsApplier.ApplyBrightnessToSettings(s, _hub.DeviceId, brightness);
-        });
-        // A single 0x06 settings write applies effect/speed/direction/brightness
-        // live - the firmware dims the running animation from the brightness byte
-        // with no mode re-init (verified on the bench).
-        _applier.Apply();
+            s.Keeb.FirmwareLighting.Brightness = brightness;
+        }, writeDevice: !streaming);
     }
 
     public void SetPassiveLighting(SetPassiveLightingBody body)

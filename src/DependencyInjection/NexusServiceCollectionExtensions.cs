@@ -89,7 +89,7 @@ public static class NexusServiceCollectionExtensions
         // embedding a stale LAN address until its TTL. Off the critical path -
         // it only subscribes to NetworkChange.NetworkAddressChanged.
         services.AddHostedService<Nexus.Service.Net.NetworkAddressChangeListener>();
-        // One-time hardware/specs snapshot to service.log after discovery
+        // One-time hardware/specs snapshot to nexus-service.log after discovery
         // settles, so a tester's log opens with the full detected picture.
         // Off the critical path; see StartupDiagnosticsDumpService.ExecuteAsync.
         services.AddHostedService<Nexus.Service.Diagnostics.StartupDiagnosticsDumpService>();
@@ -356,6 +356,7 @@ public static class NexusServiceCollectionExtensions
         // shared identify-flash state.
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Keeb.KeebHub>();
         services.AddSingleton<Nexus.Service.Peripherals.Hyte.Keeb.KeebSettingsApplier>();
+        services.AddSingleton<Nexus.Service.Peripherals.Hyte.Keeb.KeebReactiveRenderer>();
         services.AddSingleton<Nexus.Service.Lighting.KeebLightingDeviceProvider>();
         services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>());
@@ -367,6 +368,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Keeb.KeebHub>(),
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Keeb.KeebSettingsApplier>(),
             sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
+            sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>(),
             sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Keeb.KeebInputWorker>();
 
@@ -889,6 +891,13 @@ public static class NexusServiceCollectionExtensions
             services.AddHostedService(sp =>
                 sp.GetRequiredService<Nexus.Service.QSeries.QSeriesPortWatcher>());
         }
+
+        services.AddSingleton<Nexus.Service.Panel.UsbPhoneWatcher>(
+            sp => new Nexus.Service.Panel.UsbPhoneWatcher(
+                servicePort,
+                sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>()));
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Panel.UsbPhoneWatcher>());
 
         services.AddSingleton<Nexus.Service.Panel.PanelKioskLauncher>();
         services.AddSingleton<Nexus.Service.Panel.PanelOverlayHostLauncher>();

@@ -161,7 +161,7 @@ public static class KeebSettingsCodec
             page[14 + i * 3] = c.B;
         }
 
-        // Rotary: firmware mode handles volume/brightness/etc. natively. Right
+        // Firmware mode: the firmware acts on volume/brightness/etc. natively. Right
         // encoder at 37..40, left at 41..44 (legacy ScrollWheel byte order).
         page[36] = RotaryModeFirmware;
         WriteRotaryCode(page, 37, s.RotaryRight);

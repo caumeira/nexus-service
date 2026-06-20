@@ -80,9 +80,9 @@ docs/
   network-transport.md# REST + WebSocket inventory + cadence
   ws-topic-rbac.md    # who may subscribe to which WS topics
 Bundled/
-  win-x64/            # openrgb (built, not committed), ffmpeg, pawnio, dfu-util + dfu-driver, gamesync/ (game-sync shims from nexus-gamesync: Razer Chroma, Alienware LightFX, Logitech; 5 x64 + 5 x86 DLLs; built, not committed)
-  osx-arm64/          # openrgb (built, not committed), ffmpeg
-  linux-x64/          # openrgb (built, not committed)
+  win-x64/            # openrgb (built, not committed), ffmpeg, pawnio, dfu-util + dfu-driver, gamesync/ (game-sync shims from nexus-gamesync: Razer Chroma, Alienware LightFX, Logitech; 5 x64 + 5 x86 DLLs; built, not committed), adb (Android platform-tools, committed)
+  osx-arm64/          # openrgb (built, not committed), ffmpeg, adb (Android platform-tools, committed)
+  linux-x64/          # openrgb (built, not committed), adb (Android platform-tools, committed)
   macos/  linux/      # tray/status icons, helpers, app icons
 installer/
   Nexus.iss           # Inno Setup script

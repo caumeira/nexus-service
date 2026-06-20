@@ -199,12 +199,12 @@
     "rotarySensitivity": "Balanced",
     "firmwareLighting": {
       "animationMode": "Static",
-      "speed": "Medium",
+      "speed": "Standard",
       "direction": "Forward",
       "brightness": 80,
       "keyReactive": false,
       "keyReactiveMask": false,
-      "keyReactiveMode": "Off"
+      "keyReactiveMode": "SingleKey"
     }
   },
 

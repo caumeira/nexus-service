@@ -11,7 +11,7 @@ namespace Nexus.Service.Routes;
 
 /// <summary>
 /// Tester-facing diagnostics surface. <c>/diagnostics/open-logs</c> reveals the
-/// Nexus logs folder (service.log, plus desktop-host.log on Windows) in the OS
+/// Nexus logs folder (nexus-service.log, plus desktop-host.log on Windows) in the OS
 /// file manager so a tester can attach them to a bug report. Loopback-only: it
 /// acts on the local machine, so a paired phone or LAN caller has no business
 /// reaching it.

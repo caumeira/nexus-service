@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Lighting;
+using Nexus.Service.Lighting.Engine;
 
 namespace Nexus.Service.Peripherals.Hyte.Keeb;
 
@@ -22,14 +23,16 @@ public sealed class KeebConnectionWorker : BackgroundService
     private readonly KeebHub _hub;
     private readonly KeebSettingsApplier _applier;
     private readonly HardwarePresence _presence;
+    private readonly LightingEngine _engine;
     private readonly KeebLightingDeviceProvider? _lighting;
     private bool _lastConnected;
 
-    public KeebConnectionWorker(KeebHub hub, KeebSettingsApplier applier, HardwarePresence presence, KeebLightingDeviceProvider? lighting = null)
+    public KeebConnectionWorker(KeebHub hub, KeebSettingsApplier applier, HardwarePresence presence, LightingEngine engine, KeebLightingDeviceProvider? lighting = null)
     {
         _hub = hub;
         _applier = applier;
         _presence = presence;
+        _engine = engine;
         _lighting = lighting;
     }
 
@@ -75,12 +78,12 @@ public sealed class KeebConnectionWorker : BackgroundService
             _lighting?.OnConnectionChanged();
             return;
         }
-        // While connected, poll the device's firmware effect + brightness each tick
-        // so the panel and software stream follow a hardware-side change. In FIRMWARE
-        // rotary mode the middle button cycles the effect and the knob moves the
-        // brightness byte with NO host callback (the EP2 roller callbacks, hyte-refs
-        // Keeb/9-callback.md, only fire in SOFTWARE rotary mode), so a periodic
-        // settings read is the only way to observe either.
-        if (connected) _applier.SyncFromDevice();
+        // While connected and the firmware animation is showing, poll the device's
+        // effect + brightness each tick so the panel follows a hardware-side change
+        // (middle button cycles the effect, the knob moves the brightness byte, both
+        // with NO host callback in firmware rotary mode). While a software effect
+        // streams, the frame writer is the sole reader on a faster cadence - a second
+        // reader here would race it and bounce the brightness mid-knob-turn.
+        if (connected && _engine.CurrentEffectName == "none") _applier.SyncFromDevice();
     }
 }
