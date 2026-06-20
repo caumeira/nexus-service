@@ -47,21 +47,24 @@ if (-not (Test-Path (Join-Path $PublishDir "Nexus.exe"))) {
     throw "AOT publish not found at $PublishDir. Run dotnet publish first."
 }
 
-# Verify Game Sync shim DLLs are present. They are produced by the nexus-gamesync
-# component (build.bat for x64, build32.bat for x86) and must exist before packaging.
+# Game Sync shim DLLs (produced by the nexus-gamesync component) ship under
+# tools\gamesync\, where GameSyncShimInstaller stages them at enable-time. They
+# are optional: when absent, the release builds fine and Game Sync stays inactive
+# (the runtime tolerates a missing bundle). Warn rather than fail, so cutting a
+# release does not require the MSVC shim build.
 $shimX64 = @("RzChromaSDK64.dll", "RzChromatic64.dll", "LightFX.dll", "LogitechLedEnginesWrapper.dll", "LogitechLed.dll")
 $shimX86 = @("RzChromaSDK.dll", "RzChromatic.dll", "LightFX.dll", "LogitechLedEnginesWrapper.dll", "LogitechLed.dll")
-$shimX64Dir = Join-Path $PublishDir "gamesync\x64"
-$shimX86Dir = Join-Path $PublishDir "gamesync\x86"
+$shimX64Dir = Join-Path $PublishDir "tools\gamesync\x64"
+$shimX86Dir = Join-Path $PublishDir "tools\gamesync\x86"
 $missingShims = @()
 foreach ($dll in $shimX64) {
-    if (-not (Test-Path (Join-Path $shimX64Dir $dll))) { $missingShims += "gamesync\x64\$dll" }
+    if (-not (Test-Path (Join-Path $shimX64Dir $dll))) { $missingShims += "tools\gamesync\x64\$dll" }
 }
 foreach ($dll in $shimX86) {
-    if (-not (Test-Path (Join-Path $shimX86Dir $dll))) { $missingShims += "gamesync\x86\$dll" }
+    if (-not (Test-Path (Join-Path $shimX86Dir $dll))) { $missingShims += "tools\gamesync\x86\$dll" }
 }
 if ($missingShims.Count -gt 0) {
-    throw "Game Sync shim DLLs missing from publish dir ($PublishDir):`n  $($missingShims -join "`n  ")`nRun nexus-gamesync build.bat (x64) and build32.bat (x86) first, then re-publish."
+    Write-Warning "Game Sync shim DLLs not bundled; the release ships with Game Sync inactive. Missing:`n  $($missingShims -join "`n  ")`nTo include them, build nexus-gamesync (build.bat + build32.bat) and re-publish."
 }
 
 # Strip any leftover macOS AppleDouble files from the publish dir (they slip in
