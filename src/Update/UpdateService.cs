@@ -560,12 +560,18 @@ public sealed class UpdateService : BackgroundService
         catch (OperationCanceledException)
         {
             SetProgressFailed("Install cancelled.", manifest.Version);
+#if WINDOWS
+            try { _ = TrayCommands.CloseUpdaterWindowAsync(_helperRegistry); } catch { }
+#endif
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[update] staged launch failed: {ex.GetType().Name}: {ex.Message}");
             SetProgressFailed($"{ex.GetType().Name}: {ex.Message}", manifest.Version);
             UpdateStatusState("failed");
+#if WINDOWS
+            try { _ = TrayCommands.CloseUpdaterWindowAsync(_helperRegistry); } catch { }
+#endif
         }
         finally
         {
@@ -682,12 +688,18 @@ public sealed class UpdateService : BackgroundService
         catch (OperationCanceledException)
         {
             SetProgressFailed("Install cancelled.", manifest.Version);
+#if WINDOWS
+            try { _ = TrayCommands.CloseUpdaterWindowAsync(_helperRegistry); } catch { }
+#endif
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[update] install failed: {ex.GetType().Name}: {ex.Message}");
             SetProgressFailed($"{ex.GetType().Name}: {ex.Message}", manifest.Version);
             UpdateStatusState("failed");
+#if WINDOWS
+            try { _ = TrayCommands.CloseUpdaterWindowAsync(_helperRegistry); } catch { }
+#endif
         }
         finally
         {

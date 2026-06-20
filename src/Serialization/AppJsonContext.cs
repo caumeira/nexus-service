@@ -633,6 +633,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TrayUpdateReadyPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TrayOpenDashboardPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TrayShowUpdaterWindowPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.TrayCloseUpdaterWindowPayload))]
 // Clipboard
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ClipboardSetTextPayload))]
 // Screen-time

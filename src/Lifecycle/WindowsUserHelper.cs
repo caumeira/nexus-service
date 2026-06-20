@@ -118,9 +118,16 @@ internal static class WindowsUserHelper
 
         Platform.Windows.TrayIcon.SetVisible(true);
 
+        // Close any updater splash from a prior install attempt (whether
+        // succeeded, failed, or interrupted). Must run unconditionally so a
+        // stale splash from a failed install is also dismissed.
+        _ = Task.Run(() =>
+        {
+            try { CloseUpdaterWindow(); } catch { /* best-effort */ }
+        });
+
         // If a reopen flag was written before the installer launched, open
-        // the dashboard now that the helper owns the tray, and close any
-        // updater window that mshta may still be showing.
+        // the dashboard now that the helper owns the tray.
         if (File.Exists(ReopenFlagPath))
         {
             _ = Task.Run(() =>
@@ -129,7 +136,6 @@ internal static class WindowsUserHelper
                 // blocked by the flag delete, which throws when the helper
                 // (user session) cannot remove the LocalSystem-written flag.
                 try { Platform.Windows.TrayIcon.OpenLocalWindow(); } catch { /* best-effort */ }
-                try { CloseUpdaterWindow(); } catch { /* best-effort */ }
                 try { File.Delete(ReopenFlagPath); } catch { /* service grants the user delete; ignore if it fails */ }
             });
         }
@@ -159,7 +165,8 @@ internal static class WindowsUserHelper
             Platform.Windows.TrayIcon.ShowNoticeBalloon,
             Platform.Windows.TrayIcon.ShowUpdateReadyBalloon,
             () => Platform.Windows.TrayIcon.OpenLocalWindow(),
-            ShowUpdaterWindow).Register(handlerRegistry);
+            ShowUpdaterWindow,
+            CloseUpdaterWindow).Register(handlerRegistry);
         // Runs in the user session, so this set lands on the clipboard the
         // user actually pastes from (the service's Session-0 one is invisible).
         new ClipboardHandler(new Platform.Clipboard.WindowsClipboardProvider().SetText).Register(handlerRegistry);
@@ -330,6 +337,13 @@ internal static class WindowsUserHelper
     {
         try
         {
+            // Close the dashboard before the splash appears so the user
+            // never sees them overlap. The later service-shutdown path also
+            // calls CloseAppWindow; that second call is a harmless no-op
+            // because FindExistingNexusAppWindow returns Zero once the
+            // window is already gone.
+            try { Platform.Windows.TrayIcon.CloseAppWindow(); } catch { /* best-effort */ }
+
             var from = HtmlEscape(fromVersion);
             var to = HtmlEscape(toVersion);
             // Verbatim string (not a raw/interpolated literal): doubled quotes,
