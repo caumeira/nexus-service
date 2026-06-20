@@ -280,6 +280,13 @@ public sealed class OpenRgbProcessManager : IDisposable
                 _proc = proc;
                 _startedUtc = DateTime.UtcNow;
 
+#if WINDOWS
+                // Tie the headless server's lifetime to ours: an abrupt Nexus.exe
+                // exit reaps it via the kill-job instead of orphaning it (it would
+                // otherwise keep openrgb\*.dll locked against an OTA file swap).
+                Nexus.Service.Lifecycle.ChildProcessJob.Assign(proc);
+#endif
+
                 // Drain stdout/stderr so the OS pipe buffers don't fill up
                 _ = Task.Run(() => DrainStreamAsync(proc.StandardOutput, "stdout"));
                 _ = Task.Run(() => DrainStreamAsync(proc.StandardError, "stderr"));

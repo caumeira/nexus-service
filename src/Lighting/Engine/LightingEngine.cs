@@ -44,7 +44,7 @@ public sealed class LightingEngine : IDisposable
         {
             var old = _currentEffect;
             _currentEffect = null;
-            _cts?.Cancel();
+            try { _cts?.Cancel(); } catch (ObjectDisposedException) { }
             try
             { old?.Dispose(); }
             catch { }
@@ -386,5 +386,5 @@ public sealed class LightingEngine : IDisposable
         OnFrame?.Invoke(new ReadOnlyMemory<byte>(_frameBuffer, 0, pos));
     }
 
-    public void Dispose() { Stop(); _cts?.Dispose(); }
+    public void Dispose() { Stop(); try { _cts?.Dispose(); } catch { } _cts = null; }
 }
