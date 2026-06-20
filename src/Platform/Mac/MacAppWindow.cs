@@ -152,6 +152,11 @@ internal static class MacAppWindow
                 // WKUIDelegate: target="_blank" / window.open -> open in the default
                 // browser. Encoding: id return, self, _cmd, 4 object args.
                 AddMethod(targetClass, "webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, IntPtr, IntPtr, IntPtr>)&CreateWebViewImpl, "@@:@@@@");
+                // WKUIDelegate: <input type=file> -> NSOpenPanel. Without this
+                // WKWebView silently discards file-chooser activation. Block
+                // must be invoked exactly once; omitting the call permanently
+                // wedges the input element in WKWebView.
+                AddMethod(targetClass, "webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, IntPtr, IntPtr, void>)&RunOpenPanelImpl, "v@:@@@@?");
                 objc_registerClassPair(targetClass);
             }
 
@@ -350,6 +355,68 @@ internal static class MacAppWindow
         }
         catch { }
         return IntPtr.Zero; // nil: do not create an in-app sub-view
+    }
+
+    // WKUIDelegate -webView:runOpenPanelWithParameters:initiatedByFrame:completionHandler:
+    // Presents an NSOpenPanel for <input type=file>. completionHandler must be
+    // called exactly once on every code path; WKWebView permanently wedges the
+    // input element if the block is never invoked (or invoked twice).
+    // arm64 block ABI: invoke fn ptr sits at byte offset 16 (isa 8 + flags 4 +
+    // reserved 4); signature is (block, NSArray*|nil) -> void.
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static unsafe void RunOpenPanelImpl(IntPtr self, IntPtr cmd, IntPtr webView, IntPtr openPanelParams, IntPtr frameInfo, IntPtr completionHandler)
+    {
+        IntPtr panel = IntPtr.Zero;
+        try
+        {
+            panel = MsgSend(ClassGet("NSOpenPanel"), SelRegister("openPanel"));
+            if (panel == IntPtr.Zero)
+            {
+                InvokeCompletionHandler(completionHandler, IntPtr.Zero);
+                return;
+            }
+
+            MsgSendVoidBool(panel, SelRegister("setCanChooseFiles:"), true);
+            MsgSendVoidBool(panel, SelRegister("setCanChooseDirectories:"), false);
+
+            // Mirror the page's [multiple] attribute so the picker matches what
+            // the web author requested.
+            bool multi = false;
+            if (openPanelParams != IntPtr.Zero)
+            {
+                multi = MsgSend_RetBool(openPanelParams, SelRegister("allowsMultipleSelection"));
+            }
+
+            MsgSendVoidBool(panel, SelRegister("setAllowsMultipleSelection:"), multi);
+
+            // NSModalResponseOK == 1. runModal blocks on the main thread until
+            // the user picks or cancels; safe here because AppKit calls this
+            // delegate method on the main thread.
+            long response = (long)MsgSend(panel, SelRegister("runModal"));
+            const long NSModalResponseOK = 1;
+            IntPtr urls = response == NSModalResponseOK
+                ? MsgSend(panel, SelRegister("URLs"))
+                : IntPtr.Zero;
+
+            InvokeCompletionHandler(completionHandler, urls);
+        }
+        catch
+        {
+            // Always invoke the block, even on an unexpected fault.
+            try { InvokeCompletionHandler(completionHandler, IntPtr.Zero); } catch { }
+        }
+    }
+
+    // Invoke a WKWebView-supplied completion block with an NSArray* (or nil).
+    // arm64 Objective-C block layout: isa (8) + flags (4) + reserved (4) +
+    // invoke ptr (8) starting at offset 16.
+    private static unsafe void InvokeCompletionHandler(IntPtr block, IntPtr nsArray)
+    {
+        if (block == IntPtr.Zero) return;
+        IntPtr invokePtr = *(IntPtr*)(block + 16);
+        if (invokePtr == IntPtr.Zero) return;
+        var fn = (delegate* unmanaged[Cdecl]<IntPtr, IntPtr, void>)invokePtr;
+        fn(block, nsArray);
     }
 
     // Push the three system traffic-light buttons in from the top-left corner by
@@ -1000,6 +1067,11 @@ internal static class MacAppWindow
     // +numberWithBool: -> NSNumber (BOOL in w2 on arm64).
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern IntPtr MsgSendRetBool(IntPtr receiver, IntPtr sel, [MarshalAs(UnmanagedType.I1)] bool arg1);
+
+    // No-arg selector that returns BOOL (e.g. -allowsMultipleSelection).
+    [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private static extern bool MsgSend_RetBool(IntPtr receiver, IntPtr sel);
 
     // performSelector:withObject:afterDelay: -> (SEL, id, NSTimeInterval=double).
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
