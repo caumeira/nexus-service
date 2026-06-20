@@ -63,6 +63,11 @@ namespace Nexus.Service.Helper.Domains
         public string ToVersion { get; set; } = "";
     }
 
+    /// <summary>Payload for <c>trayIcon.closeUpdaterWindow</c>. Service-to-helper. No fields required.</summary>
+    public sealed class TrayCloseUpdaterWindowPayload
+    {
+    }
+
     // JSON source-gen registration lives in src/Serialization/AppJsonContext.cs
     // (see note in LifecycleDomain.cs).
 
@@ -134,6 +139,17 @@ namespace Nexus.Service.Helper.Domains
                 payloadType: AppJsonContext.Default.TrayShowUpdaterWindowPayload,
                 ct: ct);
         }
+
+        public static Task CloseUpdaterWindowAsync(HelperRegistry registry, CancellationToken ct = default)
+        {
+            var conn = registry.GetAny();
+            if (conn is null) return Task.CompletedTask;
+            return conn.SendAsync(
+                type: "trayIcon.closeUpdaterWindow",
+                payload: new TrayCloseUpdaterWindowPayload(),
+                payloadType: AppJsonContext.Default.TrayCloseUpdaterWindowPayload,
+                ct: ct);
+        }
     }
 
     [SupportedOSPlatform("windows")]
@@ -146,6 +162,7 @@ namespace Nexus.Service.Helper.Domains
         private readonly Action<string> _showUpdateReady;
         private readonly Action _openDashboard;
         private readonly Action<string, string> _showUpdaterWindow;
+        private readonly Action _closeUpdaterWindow;
         // Deduplicates balloon: skip if the version was already notified.
         private string? _notifiedVersion;
 
@@ -156,7 +173,8 @@ namespace Nexus.Service.Helper.Domains
             Action<string, string, string?> showNotice,
             Action<string> showUpdateReady,
             Action openDashboard,
-            Action<string, string> showUpdaterWindow)
+            Action<string, string> showUpdaterWindow,
+            Action closeUpdaterWindow)
         {
             _setVisible = setVisible;
             _showPairNotice = showPairNotice;
@@ -165,6 +183,7 @@ namespace Nexus.Service.Helper.Domains
             _showUpdateReady = showUpdateReady;
             _openDashboard = openDashboard;
             _showUpdaterWindow = showUpdaterWindow;
+            _closeUpdaterWindow = closeUpdaterWindow;
         }
 
         public void Register(HelperHandlerRegistry registry)
@@ -226,6 +245,12 @@ namespace Nexus.Service.Helper.Domains
                 {
                     _showUpdaterWindow(p.FromVersion ?? "", p.ToVersion ?? "");
                 }
+                return Task.FromResult(env.Ok());
+            });
+
+            registry.Register("trayIcon.closeUpdaterWindow", (env, _) =>
+            {
+                _closeUpdaterWindow();
                 return Task.FromResult(env.Ok());
             });
         }
