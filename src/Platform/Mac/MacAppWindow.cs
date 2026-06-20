@@ -149,6 +149,9 @@ internal static class MacAppWindow
                 // OS accent change (distributed notification) → re-push the accent.
                 AddMethod(targetClass, "accentChanged:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&AccentChangedImpl, "v@:@");
                 AddMethod(targetClass, "pushAccentNow:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, void>)&PushAccentNowImpl, "v@:@");
+                // WKUIDelegate: target="_blank" / window.open -> open in the default
+                // browser. Encoding: id return, self, _cmd, 4 object args.
+                AddMethod(targetClass, "webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:", (IntPtr)(delegate* unmanaged[Cdecl]<IntPtr, IntPtr, IntPtr, IntPtr, IntPtr, IntPtr, IntPtr>)&CreateWebViewImpl, "@@:@@@@");
                 objc_registerClassPair(targetClass);
             }
 
@@ -322,6 +325,31 @@ internal static class MacAppWindow
     private static void PushAccentNowImpl(IntPtr self, IntPtr cmd, IntPtr arg)
     {
         try { SyncWebViewAppearanceToOs(); PushSystemAccent(); } catch { }
+    }
+
+    // WKUIDelegate -webView:createWebViewWithConfiguration:forNavigationAction:windowFeatures:
+    // Fires for target="_blank" links and window.open. WKWebView has no tabs, so
+    // returning nil would silently drop the click; instead hand the URL to the
+    // default browser (matches the Windows shell's NewWindowRequested handling).
+    [UnmanagedCallersOnly(CallConvs = new[] { typeof(CallConvCdecl) })]
+    private static IntPtr CreateWebViewImpl(IntPtr self, IntPtr cmd, IntPtr webView, IntPtr configuration, IntPtr navigationAction, IntPtr windowFeatures)
+    {
+        try
+        {
+            IntPtr request = navigationAction == IntPtr.Zero ? IntPtr.Zero : MsgSend(navigationAction, SelRegister("request"));
+            IntPtr url = request == IntPtr.Zero ? IntPtr.Zero : MsgSend(request, SelRegister("URL"));
+            if (url != IntPtr.Zero)
+            {
+                string? scheme = NsStringToString(MsgSend(url, SelRegister("scheme")))?.ToLowerInvariant();
+                if (scheme == "http" || scheme == "https")
+                {
+                    IntPtr ws = MsgSend(ClassGet("NSWorkspace"), SelRegister("sharedWorkspace"));
+                    if (ws != IntPtr.Zero) MsgSend(ws, SelRegister("openURL:"), url);
+                }
+            }
+        }
+        catch { }
+        return IntPtr.Zero; // nil: do not create an in-app sub-view
     }
 
     // Push the three system traffic-light buttons in from the top-left corner by
@@ -536,6 +564,11 @@ internal static class MacAppWindow
 
         // NSViewWidthSizable (2) | NSViewHeightSizable (16) = 18
         MsgSendVoidLong(webView, SelRegister("setAutoresizingMask:"), 18);
+
+        // Route target="_blank" / window.open to the default browser (the web
+        // view has no tabs/sub-windows). _targetObj implements the WKUIDelegate
+        // createWebView callback.
+        MsgSend(webView, SelRegister("setUIDelegate:"), _targetObj);
 
         // ── Container + drag strip ──────────────────────────────────────────
         // The window's content view is a plain NSView holding the WKWebView
