@@ -5,21 +5,23 @@ namespace Nexus.Service.Platform;
 
 /// <summary>
 /// Routes Console.Out and Console.Error through a TextWriter that also writes
-/// to a rotating service.log file under per-platform LocalAppData. Captures the
-/// existing 170+ Console.Error.WriteLine call sites without touching them, so
+/// to a rotating nexus-service.log file under per-platform LocalAppData. Captures
+/// the existing 170+ Console.Error.WriteLine call sites without touching them, so
 /// crash context survives off the user's machine without provider-by-provider
 /// migration to ILogger&lt;T&gt;.
 ///
-/// Rotation: on every service start the previous run's service.log is archived
-/// to service-&lt;timestamp&gt;.log and a fresh service.log is begun, so each run
-/// has its own log instead of accumulating across restarts. The newest
+/// Each fresh log opens with a "Nexus &lt;version&gt;" header line.
+///
+/// Rotation: on every service start the previous run's nexus-service.log is
+/// archived to nexus-service-&lt;timestamp&gt;.log and a fresh nexus-service.log is
+/// begun, so each run has its own log instead of accumulating across restarts. The newest
 /// <see cref="MaxRotatedLogs"/> archives are kept; older ones are deleted. Best
 /// effort, not audit logging.
 /// </summary>
 public static class ServiceLog
 {
     /// <summary>Number of timestamped, rotated-out logs kept; older ones are deleted.</summary>
-    public const int MaxRotatedLogs = 3;
+    public const int MaxRotatedLogs = 10;
 
     private static readonly object Lock = new();
     private static StreamWriter? _writer;
@@ -34,7 +36,7 @@ public static class ServiceLog
     public static string? LogFilePath => _path;
 
     /// <summary>
-    /// Directory holding service.log (and desktop-host.log on Windows). Resolves
+    /// Directory holding nexus-service.log (and desktop-host.log on Windows). Resolves
     /// even before <see cref="Initialize"/> runs, so the open-logs endpoint works
     /// regardless of init order.
     /// </summary>
@@ -47,12 +49,15 @@ public static class ServiceLog
         {
             var dir = ResolveLogsDir();
             Directory.CreateDirectory(dir);
-            _path = Path.Combine(dir, "service.log");
+            _path = Path.Combine(dir, "nexus-service.log");
             RotatePreviousRun(_path);
             _writer = new StreamWriter(new FileStream(_path, FileMode.Append, FileAccess.Write, FileShare.Read))
             {
                 AutoFlush = true,
             };
+            // First line of every fresh log records the build, so a shipped log
+            // is self-identifying without cross-referencing the install.
+            _writer.WriteLine($"{DateTime.UtcNow:yyyy-MM-ddTHH:mm:ss.fffZ} INF Nexus {BuildInfo.Version}");
 
             _originalOut = Console.Out;
             _originalError = Console.Error;
@@ -122,10 +127,10 @@ public static class ServiceLog
             if (new FileInfo(path).Length == 0)
                 return;
 
-            // Archive the previous run to service-<localtimestamp>.log so each run
-            // gets its own log; names sort chronologically. Keep newest MaxRotatedLogs.
+            // Archive the previous run to nexus-service-<localtimestamp>.log so each
+            // run gets its own log; names sort chronologically. Keep newest MaxRotatedLogs.
             var dir = Path.GetDirectoryName(path)!;
-            var rotated = Path.Combine(dir, $"service-{DateTime.Now:yyyyMMdd-HHmmss}.log");
+            var rotated = Path.Combine(dir, $"nexus-service-{DateTime.Now:yyyyMMdd-HHmmss}.log");
             if (File.Exists(rotated))
                 File.Delete(rotated);
             File.Move(path, rotated);
@@ -140,7 +145,7 @@ public static class ServiceLog
         {
             // The yyyyMMdd-HHmmss stamp makes the names sort oldest-first by
             // ordinal, so delete everything before the last MaxRotatedLogs.
-            var rotated = Directory.GetFiles(dir, "service-*.log");
+            var rotated = Directory.GetFiles(dir, "nexus-service-*.log");
             if (rotated.Length <= MaxRotatedLogs)
                 return;
             Array.Sort(rotated, StringComparer.Ordinal);

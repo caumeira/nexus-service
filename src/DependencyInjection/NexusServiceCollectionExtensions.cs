@@ -89,7 +89,7 @@ public static class NexusServiceCollectionExtensions
         // embedding a stale LAN address until its TTL. Off the critical path -
         // it only subscribes to NetworkChange.NetworkAddressChanged.
         services.AddHostedService<Nexus.Service.Net.NetworkAddressChangeListener>();
-        // One-time hardware/specs snapshot to service.log after discovery
+        // One-time hardware/specs snapshot to nexus-service.log after discovery
         // settles, so a tester's log opens with the full detected picture.
         // Off the critical path; see StartupDiagnosticsDumpService.ExecuteAsync.
         services.AddHostedService<Nexus.Service.Diagnostics.StartupDiagnosticsDumpService>();

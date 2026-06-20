@@ -67,7 +67,7 @@ var testHost = Environment.GetEnvironmentVariable("NEXUS_TEST_HOST") == "1";
 Nexus.Service.Platform.Linux.LinuxSession.AdoptActiveSessionEnv();
 #endif
 
-// Capture stdout / stderr to a rotating service.log file before anything else
+// Capture stdout / stderr to a rotating nexus-service.log file before anything else
 // writes to the console. Doesn't change Console behaviour - just tees output.
 Nexus.Service.Platform.ServiceLog.Initialize();
 Nexus.Service.Lifecycle.BootTimer.Mark("after ServiceLog.Initialize");
@@ -181,7 +181,7 @@ Nexus.Service.Lifecycle.BootTimer.Mark("after WebApplication.CreateSlimBuilder")
 // Logging policy: the service's own diagnostics go through Console/ServiceLog, so
 // the only ILogger output is framework noise. Drop it to Warning - in particular
 // Microsoft.AspNetCore.Hosting.Diagnostics' per-request "Request starting/finished"
-// Information lines, which otherwise flood service.log on every internal API call.
+// Information lines, which otherwise flood nexus-service.log on every internal API call.
 // Keep Microsoft.Hosting.Lifetime at Information for the useful "Now listening" /
 // "Application started/stopping" boot markers.
 builder.Logging.AddFilter("Microsoft", LogLevel.Warning);

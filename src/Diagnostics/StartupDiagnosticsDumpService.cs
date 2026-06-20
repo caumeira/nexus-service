@@ -13,7 +13,7 @@ namespace Nexus.Service.Diagnostics;
 
 /// <summary>
 /// Writes a one-time hardware/specs snapshot to the service log shortly after
-/// startup, so a tester's service.log opens with the full picture of what Nexus
+/// startup, so a tester's nexus-service.log opens with the full picture of what Nexus
 /// detected - system specs plus every device, monitor, RGB and cooling
 /// component as read at boot. Diagnostics only; never on the boot critical path.
 ///

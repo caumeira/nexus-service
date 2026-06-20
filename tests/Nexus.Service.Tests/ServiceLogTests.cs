@@ -5,7 +5,7 @@ using Xunit;
 namespace Nexus.Service.Tests;
 
 /// <summary>
-/// ServiceLog tees Console.Out / Console.Error to a rotating service.log
+/// ServiceLog tees Console.Out / Console.Error to a rotating nexus-service.log
 /// under per-platform LocalAppData. We only smoke-test that it doesn't throw
 /// and that subsequent Console.WriteLine reaches the resolved file. Full
 /// rotation behaviour is hard to assert deterministically without a 5 MB

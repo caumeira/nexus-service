@@ -6,7 +6,7 @@ using Nexus.Service.Platform;
 namespace Nexus.Service.Diagnostics;
 
 /// <summary>
-/// Opens the Nexus logs folder (service.log, plus desktop-host.log on Windows)
+/// Opens the Nexus logs folder (nexus-service.log, plus desktop-host.log on Windows)
 /// in the OS file manager. Must run in a context that owns a desktop: on Windows
 /// the LocalSystem service is in Session 0 and cannot show a window, so it
 /// delegates here over the helper pipe (<c>diagnostics.openLogs</c>) and the
