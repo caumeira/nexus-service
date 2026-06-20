@@ -34,13 +34,13 @@ public static class FfmpegResolver
         string[] candidates = OperatingSystem.IsWindows()
             ? new[]
             {
-                System.IO.Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffmpeg.exe"),
+                System.IO.Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg", "ffmpeg.exe"),
                 System.IO.Path.Combine(AppContext.BaseDirectory, "ffmpeg.exe"),
                 "ffmpeg.exe",
             }
             : new[]
             {
-                System.IO.Path.Combine(AppContext.BaseDirectory, "ffmpeg", "ffmpeg"),
+                System.IO.Path.Combine(AppContext.BaseDirectory, "tools", "ffmpeg", "ffmpeg"),
                 "/opt/homebrew/bin/ffmpeg",
                 "/usr/local/bin/ffmpeg",
                 "/usr/bin/ffmpeg",

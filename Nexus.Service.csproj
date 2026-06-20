@@ -320,7 +320,7 @@
 
   <ItemGroup Condition="($([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))) AND Exists('Bundled\win-x64\bench')">
     <Content Include="Bundled\win-x64\bench\**\*.*">
-      <Link>bench\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <Link>tools\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
@@ -400,7 +400,7 @@
        Absence is tolerated at build time so Mac/CI builds are unaffected. -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\gamesync')">
     <Content Include="Bundled\win-x64\gamesync\**\*.*" Exclude="Bundled\win-x64\gamesync\**\.gitkeep">
-      <Link>gamesync\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <Link>tools\gamesync\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
@@ -414,7 +414,7 @@
        brick-risky cross-variant / downgrade paths, not flashing itself). -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\dfu-util')">
     <Content Include="Bundled\win-x64\dfu-util\**\*.*">
-      <Link>dfu-util\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <Link>tools\dfu-util\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
@@ -427,7 +427,7 @@
        opens the device). -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\dfu-driver')">
     <Content Include="Bundled\win-x64\dfu-driver\**\*.*">
-      <Link>dfu-driver\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <Link>tools\dfu-driver\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
@@ -442,21 +442,21 @@
        Binaries are not committed; run the build script before publish. -->
   <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\ffmpeg')">
     <Content Include="Bundled\win-x64\ffmpeg\**\*.*">
-      <Link>ffmpeg\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <Link>tools\ffmpeg\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
   <ItemGroup Condition="($([MSBuild]::IsOSPlatform('OSX')) OR $(RuntimeIdentifier.StartsWith('osx'))) AND Exists('Bundled/osx-arm64/ffmpeg')">
     <Content Include="Bundled/osx-arm64/ffmpeg/**/*.*">
-      <Link>ffmpeg/%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <Link>tools/ffmpeg/%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
   <ItemGroup Condition="($([MSBuild]::IsOSPlatform('Linux')) OR $(RuntimeIdentifier.StartsWith('linux'))) AND Exists('Bundled/linux-x64/ffmpeg')">
     <Content Include="Bundled/linux-x64/ffmpeg/**/*.*">
-      <Link>ffmpeg/%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <Link>tools/ffmpeg/%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
@@ -468,23 +468,23 @@
        runs on a host with no Android SDK. Slimmed to adb + its direct deps
        (Windows: AdbWinApi/AdbWinUsbApi/libwinpthread; macOS thinned to arm64);
        fastboot and the other tools are dropped. -->
-  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))) AND Exists('Bundled\win-x64\adb')">
+  <ItemGroup Condition="$([MSBuild]::IsOSPlatform('Windows')) AND Exists('Bundled\win-x64\adb')">
     <Content Include="Bundled\win-x64\adb\**\*.*">
-      <Link>adb\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <Link>tools\adb\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
   <ItemGroup Condition="($([MSBuild]::IsOSPlatform('OSX')) OR $(RuntimeIdentifier.StartsWith('osx'))) AND Exists('Bundled/osx-arm64/adb')">
     <Content Include="Bundled/osx-arm64/adb/**/*.*">
-      <Link>adb/%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <Link>tools/adb/%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
   </ItemGroup>
   <ItemGroup Condition="($([MSBuild]::IsOSPlatform('Linux')) OR $(RuntimeIdentifier.StartsWith('linux'))) AND Exists('Bundled/linux-x64/adb')">
     <Content Include="Bundled/linux-x64/adb/**/*.*">
-      <Link>adb/%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <Link>tools/adb/%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>
