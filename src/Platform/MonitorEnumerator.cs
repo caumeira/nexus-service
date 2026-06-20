@@ -110,9 +110,15 @@ public static class MonitorEnumerator
         var monitors = new List<ScreenSyncMonitor>();
         try
         {
+            var ffmpeg = FfmpegResolver.Path;
+            if (ffmpeg is null)
+            {
+                Console.Error.WriteLine("[monitor-enum] ffmpeg not found; cannot list avfoundation screens");
+                return monitors;
+            }
             var psi = new ProcessStartInfo
             {
-                FileName = "/usr/local/bin/ffmpeg",
+                FileName = ffmpeg,
                 RedirectStandardError = true,
                 RedirectStandardOutput = true,
                 UseShellExecute = false,

@@ -95,10 +95,11 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// <summary>
     /// Service-owned OpenRGB config directory, kept separate from any
     /// user-installed OpenRGB. <c>%ProgramData%\Nexus\openrgb-config</c> on
-    /// Windows. On Linux <see cref="Environment.SpecialFolder.CommonApplicationData"/>
+    /// Windows. On Linux and macOS <see cref="Environment.SpecialFolder.CommonApplicationData"/>
     /// resolves to <c>/usr/share</c>, which is root-owned (and read-only on
     /// immutable distros like Bazzite), so headless OpenRGB couldn't write its
-    /// config there - use the per-user XDG config dir instead.
+    /// config there - use the per-user XDG config dir (Linux) / Application
+    /// Support dir (macOS) instead.
     /// </summary>
     public static string ResolveConfigDir()
     {
@@ -111,6 +112,15 @@ public sealed class OpenRgbProcessManager : IDisposable
                 var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
                 baseDir = string.IsNullOrEmpty(home) ? Path.GetTempPath() : Path.Combine(home, ".config");
             }
+        }
+        else if (OperatingSystem.IsMacOS())
+        {
+            // CommonApplicationData is /usr/share on macOS too (root-owned);
+            // OpenRGB-headless can't write its config there, so use the per-user
+            // Application Support dir.
+            baseDir = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
+            if (string.IsNullOrEmpty(baseDir))
+                baseDir = Path.GetTempPath();
         }
         else
         {
