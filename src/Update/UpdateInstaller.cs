@@ -16,6 +16,31 @@ namespace Nexus.Service.Update;
 /// </summary>
 public static class UpdateInstaller
 {
+    // Platform-agnostic so it is unit-tested off-Windows; the install path that
+    // consumes it is Windows-only below.
+    internal static bool IsValidVersionTag(string v)
+    {
+        // Accept a "v"-prefixed semver tag: a dotted-numeric core ("v3.0.1",
+        // legacy "v80") plus an optional "-beta.N" / "-rc.N" prerelease suffix
+        // ("v3.0.1-beta.1"). The charset is limited to digits, ASCII letters,
+        // '.', and '-' - none are path separators, so the version stays safe to
+        // embed in the staged .cmd / log file paths and the schtask name.
+        if (string.IsNullOrEmpty(v) || v[0] != 'v' || v.Length < 2)
+        {
+            return false;
+        }
+
+        bool hasDigit = false;
+        for (int i = 1; i < v.Length; i++)
+        {
+            char c = v[i];
+            if (char.IsAsciiDigit(c)) { hasDigit = true; }
+            else if (c != '.' && c != '-' && !char.IsAsciiLetter(c)) { return false; }
+        }
+
+        return hasDigit;
+    }
+
 #if WINDOWS
     private const string TaskPrefix = "NexusOtaInstall";
 
@@ -109,27 +134,6 @@ public static class UpdateInstaller
         {
             Console.Error.WriteLine($"[ota-install] CleanOrphanedTasks failed: {ex.Message}");
         }
-    }
-
-    private static bool IsValidVersionTag(string v)
-    {
-        // Accept a "v"-prefixed dotted-numeric tag (semver "v3.0.1" or the legacy
-        // "v80"). Only digits and dots after the "v", so it stays safe to embed in
-        // the staged .cmd / log file paths (no separators, no path traversal).
-        if (string.IsNullOrEmpty(v) || v[0] != 'v' || v.Length < 2)
-        {
-            return false;
-        }
-
-        bool hasDigit = false;
-        for (int i = 1; i < v.Length; i++)
-        {
-            char c = v[i];
-            if (char.IsAsciiDigit(c)) { hasDigit = true; }
-            else if (c != '.') { return false; }
-        }
-
-        return hasDigit;
     }
 
     private static bool Schtasks(params string[] args)
