@@ -43,7 +43,10 @@ public sealed class UsbPhoneWatcher : BackgroundService
         0x12D1, // Huawei
         0x0BB4, // HTC
         0x0B05, // Asus
-        0x0E8D, // MediaTek
+        // 0x0E8D (MediaTek) intentionally excluded: it is the Q-series panel's
+        // own ADB-interface VID, so including it would make the presence gate
+        // fire on a Q-series host with no phone attached. Q-series is owned by
+        // QSeriesPortWatcher; a MediaTek-based phone still presents its OEM VID.
     };
 
     private const string PanelPackage = "com.hellonexus.panel";
