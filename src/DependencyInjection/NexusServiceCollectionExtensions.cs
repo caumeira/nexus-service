@@ -892,6 +892,13 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.QSeries.QSeriesPortWatcher>());
         }
 
+        services.AddSingleton<Nexus.Service.Panel.UsbPhoneWatcher>(
+            sp => new Nexus.Service.Panel.UsbPhoneWatcher(
+                servicePort,
+                sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>()));
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Panel.UsbPhoneWatcher>());
+
         services.AddSingleton<Nexus.Service.Panel.PanelKioskLauncher>();
         services.AddSingleton<Nexus.Service.Panel.PanelOverlayHostLauncher>();
         // IOverlayHost picks the right impl per OS. Mac spawns the Swift
