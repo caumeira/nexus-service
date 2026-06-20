@@ -34,9 +34,12 @@ script's legacy `..\..\aot` default no longer exists:
 powershell -File installer\build-installer.ps1 -PublishDir "$env:ProgramFiles\Nexus"
 ```
 
-Output: `installer\output\Nexus-Setup.exe` (~19 MB compressed), with a copy
-dropped at `%USERPROFILE%\nexus\Nexus-Setup.exe`. Releases are published as a
-monotonic `vNN` tag on `hello-nexus/nexus-releases` via `gh release create`.
+Output: `installer\output\Nexus-Setup.exe` (~19 MB compressed) plus a
+`SHA256SUMS` next to it, with copies of both dropped at `%USERPROFILE%\nexus\`.
+Releases are published as a semver `vX.Y.Z` tag (matching `VERSION`) on
+`hello-nexus/nexus-releases` via `gh release create`, and must carry the
+`SHA256SUMS` asset - the OTA updater requires the published hash to auto-stage a
+release.
 
 Optional flags:
 - `-PublishDir <path>`  the AOT publish dir to wrap (pass `$env:ProgramFiles\Nexus`)

@@ -32,12 +32,19 @@ public sealed class VersionCompareTests
         Assert.Equal(expected, VersionCompare.IsNewer(candidate, current));
     }
 
-    // --- IsNewer: pre-release suffix ignored ---
+    // --- IsNewer: prerelease precedence (a prerelease ranks below its release) ---
 
     [Theory]
-    [InlineData("v3.0.1-rc1", "v3.0.0", true)]
-    [InlineData("v3.0.0-beta", "v3.0.0", false)]
-    public void IsNewer_ignores_prerelease_suffix(string candidate, string current, bool expected)
+    [InlineData("v3.1.0", "v3.1.0-beta.3", true)]        // stable IS newer than its prerelease
+    [InlineData("v3.1.0-beta.3", "v3.1.0", false)]       // prerelease is NOT newer than its release
+    [InlineData("v3.1.0-beta.2", "v3.1.0-beta.1", true)] // later beta is newer
+    [InlineData("v3.1.0-beta.1", "v3.1.0-beta.2", false)]
+    [InlineData("v3.1.0-beta.10", "v3.1.0-beta.9", true)] // numeric identifier compare, not lexical
+    [InlineData("v3.1.0-beta.1", "v3.1.0-beta.1", false)] // equal
+    [InlineData("v3.2.0-beta.1", "v3.1.0", true)]         // higher base wins regardless of suffix
+    [InlineData("v3.0.1-rc1", "v3.0.0", true)]            // higher base, suffix irrelevant
+    [InlineData("v3.0.0-beta", "v3.0.0", false)]          // prerelease below its release
+    public void IsNewer_applies_prerelease_precedence(string candidate, string current, bool expected)
     {
         Assert.Equal(expected, VersionCompare.IsNewer(candidate, current));
     }
