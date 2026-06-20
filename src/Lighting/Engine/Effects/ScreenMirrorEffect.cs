@@ -282,6 +282,10 @@ public sealed class ScreenMirrorEffect : IEffect
         psi.ArgumentList.Add("-");
         _proc = Process.Start(psi) ?? throw new InvalidOperationException("null");
         FfmpegTracker.Track(_proc.Id);
+#if WINDOWS
+        // Reap with us on an abrupt exit instead of leaving an orphaned ffmpeg.
+        Nexus.Service.Lifecycle.ChildProcessJob.Assign(_proc);
+#endif
         _ = Task.Run(async () => { try { while (!_cts!.IsCancellationRequested && !_proc.HasExited) { if (await _proc.StandardError.ReadLineAsync() is null) { break; } } } catch { } });
         _readerTask = Task.Run(() => ReaderLoopAsync(w, h, _cts.Token));
     }

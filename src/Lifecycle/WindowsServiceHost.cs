@@ -179,6 +179,12 @@ internal static class WindowsServiceHost
         {
             s_stoppedEvent.Set();
         }
+
+        // SCM now has a clean STOPPED. Exit immediately rather than returning to
+        // the dispatcher and unwinding the host (DisposeAsync) or blocking on a
+        // lingering foreground thread. A clean stop means no failure-action
+        // restart, and the process death reaps every child via its kill-job.
+        Environment.Exit(s_appExitCode);
     }
 
     [UnmanagedCallersOnly(CallConvs = new[] { typeof(System.Runtime.CompilerServices.CallConvStdcall) })]

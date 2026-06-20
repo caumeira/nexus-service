@@ -332,46 +332,65 @@ internal static class WindowsUserHelper
             // Avoids interpolated-raw-string parsing differences across compilers.
             var hta = @"<html>
 <head>
+<meta http-equiv=""X-UA-Compatible"" content=""IE=edge"" />
 <hta:application
   id=""nexusUpdater""
   applicationname=""Nexus Updater""
-  caption=""yes""
-  border=""thin""
+  caption=""no""
+  border=""none""
+  innerborder=""no""
   sysmenu=""no""
   maximizebutton=""no""
   minimizebutton=""no""
-  showintaskbar=""yes""
+  showintaskbar=""no""
   singleinstance=""yes""
+  contextmenu=""no""
+  selection=""no""
   scroll=""no"" />
 <title>Nexus Updater</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
-body { background:#1a1a1f; color:#e2e2e6; font-family:'Segoe UI',sans-serif; display:flex; align-items:center; justify-content:center; height:100vh; }
-.card { background:#25252d; border-radius:10px; padding:32px 36px; width:340px; text-align:center; }
-h1 { font-size:18px; font-weight:600; margin-bottom:8px; }
-.ver { font-size:13px; color:#a0a0a8; margin-bottom:24px; }
-.bar-track { background:#3a3a45; border-radius:4px; height:6px; overflow:hidden; margin-bottom:20px; }
-.bar-fill { height:100%; width:40%; background:#6c6cff; border-radius:4px; animation:slide 1.4s ease-in-out infinite; }
-@keyframes slide { 0%{transform:translateX(-100%)} 100%{transform:translateX(350%)} }
-.note { font-size:12px; color:#7a7a88; line-height:1.5; }
+html, body { height:100%; overflow:hidden; }
+body { font-family:'Segoe UI',sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; }
+body.dark { background:#1c1c22; color:#e8e8ec; }
+body.dark .ver { color:#9a9aa4; }
+body.dark .track { background:#34343f; }
+body.dark .base { background:#4d4dae; }
+body.dark .shine { background:#aaaaff; }
+body.dark .note { color:#74747f; }
+body.light { background:#f4f4f6; color:#1c1c22; }
+body.light .ver { color:#70707a; }
+body.light .track { background:#e1e1e8; }
+body.light .base { background:#6c6cff; }
+body.light .shine { background:#b9b9ff; }
+body.light .note { color:#9a9aa4; }
+.title { font-size:17px; font-weight:600; }
+.ver { font-size:12px; margin-top:7px; margin-bottom:24px; }
+.track { position:relative; width:230px; height:5px; border-radius:99px; overflow:hidden; }
+.base { position:absolute; top:0; left:0; height:100%; width:100%; }
+.shine { position:absolute; top:0; left:-45%; height:100%; width:45%; }
+.note { font-size:11px; margin-top:22px; }
 </style>
 </head>
-<body>
-<div class=""card"">
-  <h1>Updating Nexus</h1>
+<body class=""dark"">
+  <script language=""JavaScript"">
+    try { if ((new ActiveXObject(""WScript.Shell"")).RegRead(""HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\\AppsUseLightTheme"") == 1) { document.body.className = ""light""; } } catch (e) {}
+  </script>
+  <div class=""title"">Updating Nexus</div>
   <div class=""ver"">__FROM__ &#x2192; __TO__</div>
-  <div class=""bar-track""><div class=""bar-fill""></div></div>
-  <div class=""note"">This takes about a minute. Nexus will reopen automatically.</div>
-</div>
-<script language=""VBScript"">
-Sub Window_OnLoad
-  window.resizeTo 380, 230
-  window.moveTo (screen.availWidth - 380) / 2, (screen.availHeight - 230) / 2
-End Sub
-</script>
-<script language=""JavaScript"">
-setTimeout(function() { window.close(); }, 300000);
-</script>
+  <div class=""track""><div class=""base""></div><div id=""shine"" class=""shine""></div></div>
+  <div class=""note"">Nexus will reopen automatically.</div>
+  <script language=""JavaScript"">
+    var p = -45;
+    setInterval(function(){ p += 2; if (p >= 100) { p = -45; } document.getElementById(""shine"").style.left = p + ""%""; }, 16);
+    setTimeout(function(){ window.close(); }, 300000);
+  </script>
+  <script language=""VBScript"">
+    Sub Window_OnLoad
+      window.resizeTo 300, 158
+      window.moveTo (screen.availWidth - 300) / 2, (screen.availHeight - 158) / 2
+    End Sub
+  </script>
 </body>
 </html>".Replace("__FROM__", from).Replace("__TO__", to);
             var htaPath = Path.Combine(Path.GetTempPath(), "nexus-updating.hta");

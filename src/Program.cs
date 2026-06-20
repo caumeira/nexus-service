@@ -494,10 +494,26 @@ return Nexus.Service.Platform.Mac.MacAppBootstrap.Run(app, servicePort);
 #if WINDOWS
 if (serviceMode)
 {
-    Nexus.Service.Lifecycle.BootTimer.Mark("calling WindowsServiceHost.Run -> app.RunAsync");
+    Nexus.Service.Lifecycle.BootTimer.Mark("calling WindowsServiceHost.Run -> app.StartAsync");
     return Nexus.Service.Lifecycle.WindowsServiceHost.Run(args, async (_, ct) =>
     {
-        await app.RunAsync(ct).ConfigureAwait(false);
+        // Shutdown is process exit, not a graceful unwind. Start the host, wait
+        // for the SCM stop signal, persist the few things the OS won't, then
+        // return so WindowsServiceHost reports STOPPED and Environment.Exits.
+        // The OS reclaims sockets/serial/HID/GPU/file handles; the
+        // KILL_ON_JOB_CLOSE child job reaps OpenRGB/ffmpeg.
+        await app.StartAsync(CancellationToken.None).ConfigureAwait(false);
+        // Wake on either the SCM stop control (ct) or an in-process
+        // StopApplication. /service/stop, the tray "Shut down", factory-reset,
+        // and the GPU-change restart all stop via IHostApplicationLifetime, not
+        // the SCM, so the loop must observe ApplicationStopping too.
+        var lifetime = app.Services.GetRequiredService<IHostApplicationLifetime>();
+        using (var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, lifetime.ApplicationStopping))
+        {
+            try { await Task.Delay(System.Threading.Timeout.Infinite, linked.Token).ConfigureAwait(false); }
+            catch (OperationCanceledException) { }
+        }
+        FastServiceShutdown(app);
         return 0;
     });
 }
@@ -509,6 +525,64 @@ app.Run();
 return 0;
 
 // ── Local functions ─────────────────────────────────────────────────────────
+
+// Do only what the OS won't do on process exit, concurrently under one hard
+// cap: persist debounced settings + dirty profile, release fans (the hubs hold
+// the last commanded PWM with no failsafe), and reap the cross-session UI the
+// kill-job can't hold (overlay host + tray helper). A wedged hub or a
+// disconnected helper can't push the exit past the cap; everything else - the
+// sockets, serial, HID, GPU, OpenRGB - dies with the process.
+static void FastServiceShutdown(WebApplication app)
+{
+    var sp = app.Services;
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    var done = Task.WaitAll(new[]
+    {
+        Task.Run(() =>
+        {
+            try { sp.GetService<IConfigStore>()?.FlushNow(); } catch { }
+            try { sp.GetService<ProfileManager>()?.SaveActiveProfile(); } catch { }
+        }),
+        Task.Run(() => { try { sp.GetService<IFanControlProvider>()?.ReleaseAll(); } catch { } }),
+        Task.Run(() => FastWindowsUiTeardown(sp)),
+    }, millisecondsTimeout: 1500);
+    Console.Error.WriteLine($"[shutdown] fast teardown {(done ? "complete" : "TIMED OUT")} in {sw.ElapsedMilliseconds}ms");
+}
+
+#if WINDOWS
+// The overlay host and tray helper run in the user session (spawned cross-session
+// via schtasks), so the KILL_ON_JOB_CLOSE job can't hold them. Reap the overlay
+// directly and ask the helper to exit, briefly.
+static void FastWindowsUiTeardown(IServiceProvider sp)
+{
+    // Stop() latches the no-respawn flag, but it reaps the overlay by a PID file
+    // that the flaky cross-session schtasks spawn doesn't always write in time,
+    // so also reap any nexus-overlay by image name.
+    try { sp.GetService<Nexus.Service.Panel.PanelOverlayHostLauncher>()?.Stop(); } catch { }
+    try
+    {
+        foreach (var p in System.Diagnostics.Process.GetProcessesByName("nexus-overlay"))
+        {
+            try { p.Kill(entireProcessTree: true); } catch { }
+            try { p.Dispose(); } catch { }
+        }
+    }
+    catch { }
+    try
+    {
+        var registry = sp.GetService<Nexus.Service.Helper.HelperRegistry>();
+        if (registry is not null)
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(600));
+            Nexus.Service.Helper.Domains.LifecycleCommands
+                .SendShutdownAsync(registry, cts.Token).GetAwaiter().GetResult();
+        }
+    }
+    catch { }
+}
+#else
+static void FastWindowsUiTeardown(IServiceProvider sp) { }
+#endif
 
 static void OpenExistingServiceWindow(int servicePort)
 {

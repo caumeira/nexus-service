@@ -44,7 +44,6 @@ public sealed class UpdateService : BackgroundService
     private readonly UpdateDownloader _downloader;
     private readonly IConfigStore _store;
     private readonly FirmwareFlasher _flasher;
-    private readonly IHostApplicationLifetime _lifetime;
 #if WINDOWS
     private readonly HelperRegistry _helperRegistry;
 #endif
@@ -72,8 +71,7 @@ public sealed class UpdateService : BackgroundService
         IUpdateSource source,
         UpdateDownloader downloader,
         IConfigStore store,
-        FirmwareFlasher flasher,
-        IHostApplicationLifetime lifetime
+        FirmwareFlasher flasher
 #if WINDOWS
         , HelperRegistry helperRegistry
 #endif
@@ -83,7 +81,6 @@ public sealed class UpdateService : BackgroundService
         _downloader = downloader;
         _store = store;
         _flasher = flasher;
-        _lifetime = lifetime;
 #if WINDOWS
         _helperRegistry = helperRegistry;
 #endif
@@ -284,7 +281,9 @@ public sealed class UpdateService : BackgroundService
                 throw new InvalidOperationException("schtasks /Run did not succeed.");
             }
 
-            _lifetime.StopApplication();
+            // Don't self-stop: the installer's `net stop` owns the stop. If the
+            // installer can't proceed, the service keeps running the old version
+            // instead of being left dead.
         }
         catch (Exception ex)
         {
@@ -550,11 +549,10 @@ public sealed class UpdateService : BackgroundService
             // Installer is running detached now; only here signal the UI to expect
             // a restart. A failed launch above never reaches "launching", so the UI
             // shows "failed" rather than waiting to reconnect to a service that
-            // never stopped.
+            // never stopped. The installer's `net stop` does the actual stop.
             SetProgress("launching", 100, "Launching installer...", manifest.Version);
             UpdateStatusState("installing");
             SetProgress("installing", 100, "Installing...", manifest.Version);
-            _lifetime.StopApplication();
 #else
             throw new PlatformNotSupportedException("OTA install is Windows-only.");
 #endif
@@ -668,12 +666,13 @@ public sealed class UpdateService : BackgroundService
                 throw new InvalidOperationException("schtasks /Run did not succeed.");
             }
 
-            // Point of no return: installer running detached. Only now signal the UI
-            // to expect a restart; a failed launch above goes to "failed" instead.
+            // Installer running detached. Only now signal the UI to expect a
+            // restart; a failed launch above goes to "failed" instead. The
+            // installer's `net stop` does the actual stop - we don't self-stop, so
+            // an installer that can't proceed leaves the old version running.
             SetProgress("launching", 100, "Launching installer...", manifest.Version);
             UpdateStatusState("installing");
             SetProgress("installing", 100, "Installing...", manifest.Version);
-            _lifetime.StopApplication();
 #else
             // Non-Windows: update not supported; surface a clear error.
             throw new PlatformNotSupportedException("OTA install is Windows-only.");

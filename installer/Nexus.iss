@@ -123,26 +123,20 @@ procedure StopServiceIfRunning();
 var
   ResultCode: Integer;
 begin
-  // Best-effort stop before we overwrite or remove files. Order matters:
-  //   1. Ask the SCM to stop the service. This triggers a graceful
-  //      shutdown which itself should tear down any child OpenRGB /
-  //      overlay processes the service spawned.
-  //   2. Kill the umbrella Nexus.exe (service + tray + launcher all share
-  //      this image name).
-  //   3. Kill known sidecar EXEs by image name in case they were
-  //      orphaned (OpenRGB, nexus-overlay). /T also kills any descendants.
-  //   4. Sleep so the OS releases file handles before [Files] cleanup.
-  Exec(ExpandConstant('{sys}\sc.exe'), 'stop NexusService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(1500);
-  // Nexus.exe: no /T - taskkill /T descends into the matched process's tree,
-  // which (defensively) could include Inno's own helper if it's ever
-  // launched as a Nexus.exe descendant. /F alone covers every Nexus.exe
-  // instance we care about.
+  // Every process holding a payload file open must be gone before [Files], or
+  // Inno reboot-renames the locked file and that pending entry then blocks every
+  // later install. Order matters:
+  //   1. net stop (not sc stop) blocks until the service reports STOPPED. The
+  //      service shuts down in ~1s and reports a clean stop, so no failure-action
+  //      restart races us, and its job-owned OpenRGB / overlay are already gone.
+  //   2. Nexus.exe: the user-session helper shares this image and keeps
+  //      Nexus.exe locked even after the service stops. No /T (it descends into
+  //      the matched tree, which could catch Inno's own helper).
+  //   3. Sidecar taskkills are a belt in case a kill-job hadn't reaped them yet.
+  Exec(ExpandConstant('{sys}\net.exe'), 'stop NexusService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM Nexus.exe /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  // Sidecars are leaves in the process tree; /T is safe and useful.
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM OpenRGB.exe /F /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM nexus-overlay.exe /F /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Sleep(1500);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
