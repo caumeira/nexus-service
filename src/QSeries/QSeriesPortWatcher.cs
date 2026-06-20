@@ -617,6 +617,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             {
                 FileName = adbPath,
                 Arguments = arguments,
+                WorkingDirectory = Path.GetDirectoryName(adbPath) ?? string.Empty,
                 CreateNoWindow = true,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
@@ -670,6 +671,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             {
                 FileName = adbPath,
                 Arguments = "start-server",
+                WorkingDirectory = Path.GetDirectoryName(adbPath) ?? string.Empty,
                 CreateNoWindow = true,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,

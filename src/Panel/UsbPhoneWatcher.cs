@@ -311,6 +311,7 @@ public sealed class UsbPhoneWatcher : BackgroundService
             {
                 FileName = adbPath,
                 Arguments = "start-server",
+                WorkingDirectory = Path.GetDirectoryName(adbPath) ?? string.Empty,
                 CreateNoWindow = true,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
