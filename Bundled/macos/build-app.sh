@@ -27,7 +27,7 @@ cp "$STAGING/Nexus" "$APP/Contents/MacOS/"
 # marketplace widgets even though the publish tree has them.
 [ -d "$STAGING/widgets" ] && { rm -rf "$APP/Contents/MacOS/widgets"; cp -R "$STAGING/widgets" "$APP/Contents/MacOS/"; }
 [ -d "$STAGING/openrgb" ] && cp -R "$STAGING/openrgb" "$APP/Contents/MacOS/"
-[ -d "$STAGING/ffmpeg" ] && cp -R "$STAGING/ffmpeg" "$APP/Contents/MacOS/"
+[ -d "$STAGING/tools" ] && cp -R "$STAGING/tools" "$APP/Contents/MacOS/"
 [ -f "$STAGING/status-icon.png" ] && cp "$STAGING/status-icon.png" "$APP/Contents/MacOS/"
 [ -f "$STAGING/status-icon@2x.png" ] && cp "$STAGING/status-icon@2x.png" "$APP/Contents/MacOS/"
 
@@ -108,7 +108,7 @@ if [ -n "${NEXUS_MAC_SIGN_IDENTITY:-}" ]; then
     # delegate rejects the extension at activation.
     [ -n "${NEXUS_MAC_PROFILE:-}" ] && cp "$NEXUS_MAC_PROFILE" "$APP/Contents/embedded.provisionprofile"
     # Sign the main binary, not the bundle: data trees under Contents/MacOS
-    # (wwwroot, openrgb, ffmpeg) break whole-bundle resource sealing, and
+    # (wwwroot, openrgb, tools/) break whole-bundle resource sealing, and
     # sysextd validates the requesting process signature + entitlement, not
     # the outer seal. A stale partial seal must go or verification trips.
     rm -rf "$APP/Contents/_CodeSignature"

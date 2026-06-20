@@ -67,8 +67,8 @@ public static class GameSyncShimInstaller
     internal const string OurCompanyName = "Nexus";
 
     // Source paths inside the publish output directory.
-    private static string BundleX64Dir => Path.Combine(AppContext.BaseDirectory, "gamesync", "x64");
-    private static string BundleX86Dir => Path.Combine(AppContext.BaseDirectory, "gamesync", "x86");
+    private static string BundleX64Dir => Path.Combine(AppContext.BaseDirectory, "tools", "gamesync", "x64");
+    private static string BundleX86Dir => Path.Combine(AppContext.BaseDirectory, "tools", "gamesync", "x86");
 
     // x64 pair -> System32
     internal static readonly string[] X64Names = { "RzChromaSDK64.dll", "RzChromatic64.dll", "LightFX.dll", "LogitechLedEnginesWrapper.dll", "LogitechLed.dll" };

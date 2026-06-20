@@ -14,7 +14,7 @@ namespace Nexus.Service.Benchmarks.Providers;
 
 public sealed class ExternalToolBenchmarkProvider : IBenchmarkProvider
 {
-    private static string BenchDir => Path.Combine(AppContext.BaseDirectory, "bench");
+    private static string BenchDir => Path.Combine(AppContext.BaseDirectory, "tools");
 
     private readonly Dictionary<string, string> _collectedTools = new();
     public IReadOnlyDictionary<string, string> CollectedTools => _collectedTools;

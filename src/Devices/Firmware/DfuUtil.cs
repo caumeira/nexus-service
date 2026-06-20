@@ -44,7 +44,7 @@ public sealed class DfuUtil
     public static string ResolveDefaultPath()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            return Path.Combine(AppContext.BaseDirectory, "dfu-util", "dfu-util.exe");
+            return Path.Combine(AppContext.BaseDirectory, "tools", "dfu-util", "dfu-util.exe");
         // Linux/macOS: packaged or on PATH.
         return "dfu-util";
     }

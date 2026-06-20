@@ -3,7 +3,7 @@ namespace Nexus.Service.Panel;
 /// <summary>
 /// Resolves the adb executable shared by the USB-phone and Q-series watchers.
 /// Prefers the copy bundled next to the service exe (Bundled/{rid}/adb/ lands
-/// at {BaseDirectory}/adb/) so the service works on a host with no Android SDK;
+/// at {BaseDirectory}/tools/adb/) so the service works on a host with no Android SDK;
 /// falls back to PATH then the Android SDK platform-tools dir for dev boxes.
 /// </summary>
 internal static class AdbLocator
@@ -13,7 +13,7 @@ internal static class AdbLocator
         var exe = OperatingSystem.IsWindows() ? "adb.exe" : "adb";
 
         // 1. Bundled copy next to the service exe (the shipped path).
-        var bundled = Path.Combine(AppContext.BaseDirectory, "adb", exe);
+        var bundled = Path.Combine(AppContext.BaseDirectory, "tools", "adb", exe);
         if (File.Exists(bundled)) return bundled;
 
         // 2. PATH (build-pc convention + user platform-tools).

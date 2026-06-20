@@ -11,7 +11,7 @@ namespace Nexus.Service.Devices.Firmware;
 /// Installs the WinUSB driver bound to the DFU bootloader (VID 3402/PID 0A00)
 /// so dfu-util can open the device once it re-enumerates into DFU mode. Runs
 /// <c>pnputil /add-driver &lt;inf&gt; /install</c> against the bundled, signed
-/// <c>dfu-driver/DFU_Bootloader.inf</c>. Idempotent - re-adding an already
+/// <c>tools/dfu-driver/DFU_Bootloader.inf</c>. Idempotent - re-adding an already
 /// staged driver is a no-op. Windows-only; a no-op elsewhere (Linux uses a
 /// udev rule, macOS needs nothing - both deferred).
 /// </summary>
@@ -19,7 +19,7 @@ public sealed class WinUsbDriverInstaller
 {
     private bool _installedThisSession;
 
-    public string InfPath => Path.Combine(AppContext.BaseDirectory, "dfu-driver", "DFU_Bootloader.inf");
+    public string InfPath => Path.Combine(AppContext.BaseDirectory, "tools", "dfu-driver", "DFU_Bootloader.inf");
 
     /// <summary>
     /// Ensure the DFU WinUSB driver is staged. Best-effort: returns true if the
