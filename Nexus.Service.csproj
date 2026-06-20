@@ -290,6 +290,18 @@
            Text="linux publish requires PublishAot=true. Non-AOT Linux builds are not shipped. Drop any -p:PublishAot=false override and re-run." />
   </Target>
 
+  <!-- adb (Android platform-tools) is committed under Bundled/{rid}/adb/ and
+       copied next to the service exe; AdbLocator resolves it first. Fail
+       Publish if the per-RID bundle was deleted. -->
+  <Target Name="EnsureAdbBundle" BeforeTargets="Publish">
+    <Error Condition="$(RuntimeIdentifier.StartsWith('win')) AND !Exists('Bundled\win-x64\adb\adb.exe')"
+           Text="adb bundle missing at Bundled\win-x64\adb\adb.exe. Restore from platform-tools-latest-windows.zip (adb.exe + AdbWinApi.dll + AdbWinUsbApi.dll + libwinpthread-1.dll + NOTICE.txt)." />
+    <Error Condition="$(RuntimeIdentifier.StartsWith('osx')) AND !Exists('Bundled/osx-arm64/adb/adb')"
+           Text="adb bundle missing at Bundled/osx-arm64/adb/adb. Restore from platform-tools-latest-darwin.zip: lipo -thin arm64 adb." />
+    <Error Condition="$(RuntimeIdentifier.StartsWith('linux')) AND !Exists('Bundled/linux-x64/adb/adb')"
+           Text="adb bundle missing at Bundled/linux-x64/adb/adb. Restore from platform-tools-latest-linux.zip." />
+  </Target>
+
   <!-- Bench bundle: primesieve / clpeak / vkpeak / diskspd / stream.
        Windows-only; stream.exe is compiled on the host (see Bundled/win-x64/bench/stream/BUILD.md).
        Fails win Publish if any binary is missing; does not block macOS/Linux builds. -->
@@ -445,6 +457,34 @@
   <ItemGroup Condition="($([MSBuild]::IsOSPlatform('Linux')) OR $(RuntimeIdentifier.StartsWith('linux'))) AND Exists('Bundled/linux-x64/ffmpeg')">
     <Content Include="Bundled/linux-x64/ffmpeg/**/*.*">
       <Link>ffmpeg/%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!-- Bundle adb (Android platform-tools) per platform. The USB-phone and
+       Q-series watchers shell out to it via AdbLocator, which resolves this
+       bundled copy first. Committed (unlike openrgb/ffmpeg) so the service
+       runs on a host with no Android SDK. Slimmed to adb + its direct deps
+       (Windows: AdbWinApi/AdbWinUsbApi/libwinpthread; macOS thinned to arm64);
+       fastboot and the other tools are dropped. -->
+  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))) AND Exists('Bundled\win-x64\adb')">
+    <Content Include="Bundled\win-x64\adb\**\*.*">
+      <Link>adb\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('OSX')) OR $(RuntimeIdentifier.StartsWith('osx'))) AND Exists('Bundled/osx-arm64/adb')">
+    <Content Include="Bundled/osx-arm64/adb/**/*.*">
+      <Link>adb/%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('Linux')) OR $(RuntimeIdentifier.StartsWith('linux'))) AND Exists('Bundled/linux-x64/adb')">
+    <Content Include="Bundled/linux-x64/adb/**/*.*">
+      <Link>adb/%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
       <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
     </Content>

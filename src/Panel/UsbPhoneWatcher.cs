@@ -295,7 +295,7 @@ public sealed class UsbPhoneWatcher : BackgroundService
 
     private bool TryStartAdbServer()
     {
-        var adbPath = ResolveAdbPath();
+        var adbPath = AdbLocator.ResolveAdbPath();
         if (adbPath is null)
         {
             if (!_adbNotFoundLogged)
@@ -336,45 +336,6 @@ public sealed class UsbPhoneWatcher : BackgroundService
             ServiceLog.Info($"[usb-phone-watcher] adb start-server threw: {ex.GetType().Name}: {ex.Message}");
             return false;
         }
-    }
-
-    private static string? ResolveAdbPath()
-    {
-        var pathVar = Environment.GetEnvironmentVariable("PATH");
-        if (!string.IsNullOrEmpty(pathVar))
-        {
-            var exe = OperatingSystem.IsWindows() ? "adb.exe" : "adb";
-            foreach (var dir in pathVar.Split(Path.PathSeparator))
-            {
-                if (string.IsNullOrWhiteSpace(dir)) continue;
-                var candidate = Path.Combine(dir, exe);
-                if (File.Exists(candidate)) return candidate;
-            }
-        }
-
-        if (OperatingSystem.IsWindows())
-        {
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (!string.IsNullOrEmpty(localAppData))
-            {
-                var candidate = Path.Combine(localAppData, "Android", "Sdk", "platform-tools", "adb.exe");
-                if (File.Exists(candidate)) return candidate;
-            }
-        }
-        else
-        {
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            if (!string.IsNullOrEmpty(home))
-            {
-                var macCandidate = Path.Combine(home, "Library", "Android", "sdk", "platform-tools", "adb");
-                if (File.Exists(macCandidate)) return macCandidate;
-
-                var linuxCandidate = Path.Combine(home, "Android", "Sdk", "platform-tools", "adb");
-                if (File.Exists(linuxCandidate)) return linuxCandidate;
-            }
-        }
-
-        return null;
     }
 
     private static bool IsQSeriesModel(string? model)

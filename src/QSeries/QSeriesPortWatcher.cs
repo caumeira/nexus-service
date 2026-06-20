@@ -532,7 +532,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             return;
         }
 
-        var adbPath = ResolveAdbPath();
+        var adbPath = AdbLocator.ResolveAdbPath();
         if (adbPath is null)
         {
             ServiceLog.Info(
@@ -654,11 +654,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// <summary>
     /// Shell out to <c>adb start-server</c> when the server is down (kill-server,
     /// fresh boot, crash) - AdvancedSharpAdbClient won't spawn it. adb.exe resolved
-    /// from PATH, then the Android SDK platform-tools dir.
+    /// via <see cref="Nexus.Service.Panel.AdbLocator"/> (bundled copy, then PATH/SDK).
     /// </summary>
     private static bool TryStartAdbServer()
     {
-        var adbPath = ResolveAdbPath();
+        var adbPath = AdbLocator.ResolveAdbPath();
         if (adbPath is null)
         {
             ServiceLog.Info("[qseries-port-watcher] adb.exe not found in PATH or common locations; cannot start adb-server");
@@ -695,33 +695,6 @@ public sealed class QSeriesPortWatcher : BackgroundService
             ServiceLog.Info($"[qseries-port-watcher] adb start-server threw: {ex.GetType().Name}: {ex.Message}");
             return false;
         }
-    }
-
-    private static string? ResolveAdbPath()
-    {
-        // PATH first (build-pc convention + user platform-tools).
-        var pathVar = Environment.GetEnvironmentVariable("PATH");
-        if (!string.IsNullOrEmpty(pathVar))
-        {
-            var exe = OperatingSystem.IsWindows() ? "adb.exe" : "adb";
-            foreach (var dir in pathVar.Split(Path.PathSeparator))
-            {
-                if (string.IsNullOrWhiteSpace(dir)) continue;
-                var candidate = Path.Combine(dir, exe);
-                if (File.Exists(candidate)) return candidate;
-            }
-        }
-        // Then %LOCALAPPDATA%\Android\Sdk\platform-tools (Android Studio default).
-        if (OperatingSystem.IsWindows())
-        {
-            var localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            if (!string.IsNullOrEmpty(localAppData))
-            {
-                var androidSdk = Path.Combine(localAppData, "Android", "Sdk", "platform-tools", "adb.exe");
-                if (File.Exists(androidSdk)) return androidSdk;
-            }
-        }
-        return null;
     }
 
     /// <summary>qshell package/activity; matches its AndroidManifest.xml.</summary>
