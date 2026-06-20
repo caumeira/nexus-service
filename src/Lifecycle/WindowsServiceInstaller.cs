@@ -26,6 +26,16 @@ namespace Nexus.Service.Lifecycle;
 internal static class WindowsServiceInstaller
 {
     public const string ServiceName = "NexusService";
+
+    /// <summary>
+    /// Clears SCM restart failure-actions so the service is not restarted during
+    /// an OTA install/swap window. RunInstall re-sets them on the next boot.
+    /// </summary>
+    public static void SuspendFailureActionsForUpdate()
+    {
+        RunSc("failure", ServiceName, "reset=", "0", "actions=", "");
+    }
+
     public const string ServiceDisplayName = "Nexus Service";
     public const string ServiceDescription = "Nexus hardware monitoring and control";
     public const string InstallDirName = "Nexus";

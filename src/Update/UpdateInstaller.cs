@@ -1,6 +1,9 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+#if WINDOWS
+using Nexus.Service.Lifecycle;
+#endif
 
 namespace Nexus.Service.Update;
 
@@ -89,6 +92,14 @@ public static class UpdateInstaller
         if (!ran)
         {
             Console.Error.WriteLine($"[ota-install] schtasks /Run failed for {taskName}");
+        }
+        else
+        {
+            // Prevent SCM from restarting the old binary while the installer
+            // swaps Nexus.exe. RunInstall re-sets the failure actions on the
+            // next successful boot.
+            try { WindowsServiceInstaller.SuspendFailureActionsForUpdate(); }
+            catch (Exception ex) { Console.Error.WriteLine($"[ota-install] suspend failure-actions failed: {ex.Message}"); }
         }
 
         Console.Error.WriteLine($"[ota-install] scheduled task {taskName} triggered: {ran}");
