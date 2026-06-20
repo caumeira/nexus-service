@@ -98,10 +98,10 @@ public sealed class UsbPhoneWatcher : BackgroundService
 
     private async Task TickAsync(CancellationToken ct)
     {
-        // Don't touch adb unless a plausibly-Android device is on the USB bus.
-        // Avoids spawning / polling an adb-server on hosts with no phone attached.
-        // False negatives for unlisted OEMs are acceptable; the real check is
-        // the adb model + panel package query below.
+        // Skip adb only when USB enumeration is populated AND contains no Android OEM VID.
+        // An empty enumeration means the platform enumerator is unavailable (macOS
+        // system_profiler returns [] with a phone connected); blocking on empty would
+        // prevent the watcher from engaging on macOS entirely.
         var anyAndroidPresent = false;
         foreach (var vid in AndroidOemVendorIds)
         {
@@ -111,7 +111,7 @@ public sealed class UsbPhoneWatcher : BackgroundService
                 break;
             }
         }
-        if (!anyAndroidPresent)
+        if (!anyAndroidPresent && _presence.AnyUsbEnumerated())
         {
             return;
         }
@@ -168,8 +168,10 @@ public sealed class UsbPhoneWatcher : BackgroundService
         {
             if (string.IsNullOrEmpty(device.Serial)) continue;
             if (device.State != DeviceState.Online) continue;
-            // TCP transports (serial contains ':') are not USB.
+            // Not a USB phone: TCP transports (serial contains ':') and local
+            // emulators (serial "emulator-NNNN").
             if (device.Serial.Contains(':', StringComparison.Ordinal)) continue;
+            if (device.Serial.StartsWith("emulator-", StringComparison.Ordinal)) continue;
             if (IsQSeriesModel(device.Model)) continue;
 
             if (!await HasPanelAppAsync(device, ct)) continue;
