@@ -338,44 +338,45 @@ internal static class WindowsUserHelper
   applicationname=""Nexus Updater""
   caption=""no""
   border=""none""
-  innerborder=""no""
   sysmenu=""no""
   maximizebutton=""no""
   minimizebutton=""no""
   showintaskbar=""no""
   singleinstance=""yes""
-  contextmenu=""no""
-  selection=""no""
   scroll=""no"" />
 <title>Nexus Updater</title>
 <style>
 * { margin:0; padding:0; box-sizing:border-box; }
 html, body { height:100%; overflow:hidden; }
 body { font-family:'Segoe UI',sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-body.dark { background:#1c1c22; color:#e8e8ec; }
-body.dark .ver { color:#9a9aa4; }
-body.dark .track { background:#34343f; }
-body.dark .base { background:#4d4dae; }
-body.dark .shine { background:#aaaaff; }
-body.dark .note { color:#74747f; }
-body.light { background:#f4f4f6; color:#1c1c22; }
-body.light .ver { color:#70707a; }
-body.light .track { background:#e1e1e8; }
-body.light .base { background:#6c6cff; }
-body.light .shine { background:#b9b9ff; }
-body.light .note { color:#9a9aa4; }
-.title { font-size:17px; font-weight:600; }
-.ver { font-size:12px; margin-top:7px; margin-bottom:24px; }
-.track { position:relative; width:230px; height:5px; border-radius:99px; overflow:hidden; }
+body.dark { background:#202024; color:#e8e8ea; }
+body.dark .ver { color:#9a9a9e; }
+body.dark .track { background:#3a3a3e; }
+body.dark .base { background:#5a5a5e; }
+body.dark .shine { background:#a6a6aa; }
+body.dark .note { color:#76767a; }
+body.dark .mark { fill:#c2c2c6; }
+body.light { background:#f3f3f4; color:#202024; }
+body.light .ver { color:#6e6e72; }
+body.light .track { background:#dcdcde; }
+body.light .base { background:#bcbcc0; }
+body.light .shine { background:#86868a; }
+body.light .note { color:#9a9a9e; }
+body.light .mark { fill:#5a5a5e; }
+.mark { margin-bottom:12px; }
+.title { font-size:16px; font-weight:600; }
+.ver { font-size:12px; margin-top:6px; margin-bottom:20px; }
+.track { position:relative; width:220px; height:5px; border-radius:99px; overflow:hidden; }
 .base { position:absolute; top:0; left:0; height:100%; width:100%; }
 .shine { position:absolute; top:0; left:-45%; height:100%; width:45%; }
-.note { font-size:11px; margin-top:22px; }
+.note { font-size:11px; margin-top:18px; }
 </style>
 </head>
 <body class=""dark"">
   <script language=""JavaScript"">
     try { if ((new ActiveXObject(""WScript.Shell"")).RegRead(""HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize\\AppsUseLightTheme"") == 1) { document.body.className = ""light""; } } catch (e) {}
   </script>
+  <svg class=""mark"" width=""34"" height=""36"" viewBox=""0 0 706 741"" preserveAspectRatio=""xMidYMid meet""><g transform=""translate(-155.5,882.838615) scale(0.1,-0.1)""><path d=""M2955 8815 c-701 -98 -1238 -603 -1377 -1295 l-23 -115 0 -2285 0 -2285 23 -115 c244 -1226 1727 -1728 2634 -892 115 106 301 354 493 655 l87 138 -33 42 c-30 39 -248 304 -363 443 -28 33 -103 124 -166 202 -63 78 -117 142 -120 142 -4 0 -69 -84 -146 -187 -78 -104 -210 -280 -294 -392 -190 -255 -249 -305 -407 -346 -244 -64 -520 113 -573 368 -7 36 -10 708 -8 2257 l3 2205 22 54 c102 248 352 363 591 271 110 -42 152 -85 415 -416 122 -155 322 -404 444 -555 121 -151 283 -350 358 -444 76 -93 208 -255 294 -360 87 -104 222 -271 301 -370 79 -99 169 -210 199 -246 31 -36 153 -184 271 -329 118 -144 241 -295 273 -334 33 -39 79 -97 104 -128 57 -72 47 -74 140 28 375 412 437 928 166 1398 -51 89 -77 123 -363 465 -107 129 -303 366 -435 526 -132 160 -285 345 -340 412 -55 66 -156 190 -225 274 -240 295 -554 653 -696 794 -322 319 -808 482 -1249 420z""/><path d=""M6850 8815 c-454 -64 -782 -260 -1065 -638 -147 -196 -362 -551 -347 -570 94 -119 408 -507 446 -552 29 -33 91 -108 140 -167 l87 -108 103 143 c209 291 454 614 502 661 246 244 644 129 752 -217 21 -66 32 -4305 12 -4412 -43 -220 -207 -366 -412 -365 -141 1 -224 58 -372 252 -310 410 -638 829 -858 1098 -16 19 -117 145 -226 280 -108 134 -242 299 -297 366 -55 66 -149 183 -210 260 -60 76 -155 193 -210 260 -55 66 -143 173 -195 238 -81 101 -320 392 -439 535 l-36 44 -109 -119 c-477 -520 -484 -1066 -23 -1612 139 -163 739 -912 1068 -1332 85 -107 185 -233 224 -280 38 -47 135 -168 215 -270 198 -254 316 -393 397 -471 755 -728 1978 -490 2451 477 68 139 100 236 139 421 21 99 33 4479 13 4658 -99 882 -907 1537 -1750 1420z""/></g></svg>
   <div class=""title"">Updating Nexus</div>
   <div class=""ver"">__FROM__ &#x2192; __TO__</div>
   <div class=""track""><div class=""base""></div><div id=""shine"" class=""shine""></div></div>
@@ -384,12 +385,6 @@ body.light .note { color:#9a9aa4; }
     var p = -45;
     setInterval(function(){ p += 2; if (p >= 100) { p = -45; } document.getElementById(""shine"").style.left = p + ""%""; }, 16);
     setTimeout(function(){ window.close(); }, 300000);
-  </script>
-  <script language=""VBScript"">
-    Sub Window_OnLoad
-      window.resizeTo 300, 158
-      window.moveTo (screen.availWidth - 300) / 2, (screen.availHeight - 158) / 2
-    End Sub
   </script>
 </body>
 </html>".Replace("__FROM__", from).Replace("__TO__", to);
@@ -415,7 +410,16 @@ body.light .note { color:#9a9aa4; }
                     var hwnd = FindWindowW(null, UpdaterWindowTitle);
                     if (hwnd != IntPtr.Zero)
                     {
-                        SetWindowPos(hwnd, HwndTopmost, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpShowWindow);
+                        // mshta ignores caption="no" on Win11 and forces a title bar.
+                        // Strip the caption/border, then resize: the resize re-flows
+                        // the body into the reclaimed client area (no white gap) and
+                        // centers the now-borderless window, topmost.
+                        var style = GetWindowLong(hwnd, GwlStyle);
+                        SetWindowLong(hwnd, GwlStyle, style & ~WsChrome);
+                        const int w = 330, h = 220;
+                        var x = (GetSystemMetrics(SmCxScreen) - w) / 2;
+                        var y = (GetSystemMetrics(SmCyScreen) - h) / 2;
+                        SetWindowPos(hwnd, HwndTopmost, x, y, w, h, SwpFrameChanged | SwpShowWindow);
                         SetForegroundWindow(hwnd);
                         return;
                     }
@@ -462,8 +466,21 @@ body.light .note { color:#9a9aa4; }
     [DllImport("user32.dll")]
     private static extern bool SetForegroundWindow(IntPtr hWnd);
 
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll")]
+    private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
+
     private static readonly IntPtr HwndTopmost = new(-1);
-    private const uint SwpNoSize = 0x0001, SwpNoMove = 0x0002, SwpShowWindow = 0x0040;
+    private const uint SwpShowWindow = 0x0040, SwpFrameChanged = 0x0020;
+    private const int GwlStyle = -16;
+    // WS_CAPTION | WS_THICKFRAME | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX
+    private const int WsChrome = 0x00C00000 | 0x00040000 | 0x00080000 | 0x00020000 | 0x00010000;
+    private const int SmCxScreen = 0, SmCyScreen = 1;
 
     private static void Diag(string msg)
     {
