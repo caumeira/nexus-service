@@ -18,7 +18,7 @@ namespace Nexus.Service.Panel;
 
 public sealed class UsbPhoneWatcher : BackgroundService
 {
-    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(1.5);
 
     // Q-series model strings owned by QSeriesPortWatcher; skip those serials.
     private static readonly HashSet<string> QSeriesModels = new(StringComparer.OrdinalIgnoreCase)
@@ -60,6 +60,8 @@ public sealed class UsbPhoneWatcher : BackgroundService
     private readonly Dictionary<string, bool> _reverseAppliedBySerial = new(StringComparer.Ordinal);
     private readonly HashSet<string> _reverseRefreshedThisRun = new(StringComparer.Ordinal);
     private readonly HashSet<string> _launchedThisRun = new(StringComparer.Ordinal);
+    // Serials confirmed to have the panel app; skips the per-tick pm-list shell.
+    private readonly HashSet<string> _panelAppConfirmedBySerial = new(StringComparer.Ordinal);
 
     // Each logged once per run to suppress repeated noise on a phone-less host.
     private bool _adbNotFoundLogged;
@@ -76,7 +78,7 @@ public sealed class UsbPhoneWatcher : BackgroundService
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
-        try { await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken); }
+        try { await Task.Delay(TimeSpan.FromSeconds(0.5), stoppingToken); }
         catch (TaskCanceledException) { return; }
 
         while (!stoppingToken.IsCancellationRequested)
@@ -174,7 +176,11 @@ public sealed class UsbPhoneWatcher : BackgroundService
             if (device.Serial.StartsWith("emulator-", StringComparison.Ordinal)) continue;
             if (IsQSeriesModel(device.Model)) continue;
 
-            if (!await HasPanelAppAsync(device, ct)) continue;
+            if (!_panelAppConfirmedBySerial.Contains(device.Serial))
+            {
+                if (!await HasPanelAppAsync(device, ct)) continue;
+                _panelAppConfirmedBySerial.Add(device.Serial);
+            }
 
             seenSerials.Add(device.Serial);
 
@@ -193,6 +199,10 @@ public sealed class UsbPhoneWatcher : BackgroundService
         foreach (var key in _launchedThisRun.Where(k => !seenSerials.Contains(k)).ToList())
         {
             _launchedThisRun.Remove(key);
+        }
+        foreach (var key in _panelAppConfirmedBySerial.Where(k => !seenSerials.Contains(k)).ToList())
+        {
+            _panelAppConfirmedBySerial.Remove(key);
         }
     }
 
