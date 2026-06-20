@@ -924,6 +924,109 @@ public class PanelPhonePairingServiceTests
         Assert.False(string.IsNullOrEmpty(result.SessionToken));
     }
 
+    [Fact]
+    public void QrSasApproval_MintsSingleSessionWithDeviceId_AndSkipsApprovalOnReScan()
+    {
+        var store = new InMemoryConfigStore();
+        var service = new PanelPhonePairingService(store, new Nexus.Service.Sockets.MultiplexHub())
+        {
+            PublicLinkHost = "",
+            SpkiFingerprint = "fp-stub",
+        };
+
+        // First claim: new device over HTTPS with SAS opt-in.
+        var claim = service.ClaimCore(
+            PairTokenFrom(service.CreatePairQr()),
+            deviceName: "iPhone",
+            userAgent: NativeIosUserAgent,
+            remoteAddress: "192.168.1.50",
+            deviceId: "device-uuid-X",
+            overRelay: false,
+            claimedOverHttps: true,
+            supportsSasApproval: true);
+
+        Assert.True(claim.Ok);
+        Assert.True(claim.NeedsApproval);
+        Assert.Equal("", claim.SessionToken);
+
+        // Host approves.
+        var host = service.HostDecisionPairCode(claim.RequestId, approved: true);
+        Assert.Equal("approved", host.Status);
+
+        // Phone confirms -> token minted.
+        var confirm = service.ConfirmPairCode(claim.RequestId, approved: true, NewContext(NativeIosUserAgent, "192.168.1.50", isHttps: true));
+        Assert.Equal("approved", confirm.Status);
+        Assert.False(string.IsNullOrEmpty(confirm.Token));
+
+        // Exactly one session, and it carries DeviceId.
+        var sessions = service.GetSessions(0);
+        Assert.Equal(1, sessions.AuthorizedCount);
+        var session = Assert.Single(sessions.Sessions);
+        var persisted = store.Load().Auth!.PanelPhoneSessions;
+        Assert.Equal(1, persisted.Count);
+        Assert.Equal("device-uuid-X", persisted[0].DeviceId);
+
+        // Second claim with the same deviceId: already paired -> fast-path, no approval modal.
+        var reScan = service.ClaimCore(
+            PairTokenFrom(service.CreatePairQr()),
+            deviceName: "iPhone",
+            userAgent: NativeIosUserAgent,
+            remoteAddress: "192.168.1.50",
+            deviceId: "device-uuid-X",
+            overRelay: false,
+            claimedOverHttps: true,
+            supportsSasApproval: true);
+
+        Assert.True(reScan.Ok);
+        Assert.False(reScan.NeedsApproval);
+        Assert.False(string.IsNullOrEmpty(reScan.SessionToken));
+
+        _ = session; // confirm the local binding is used
+    }
+
+    [Fact]
+    public void QrSasApproval_SupersedesInFlightWifiRequest()
+    {
+        var hub = new Nexus.Service.Sockets.MultiplexHub();
+        var service = new PanelPhonePairingService(new InMemoryConfigStore(), hub)
+        {
+            PublicLinkHost = "",
+            SpkiFingerprint = "fp-stub",
+            ServicePort = 9400,
+        };
+
+        // Start a manual Wi-Fi pair-code (host-initiated).
+        var start = service.StartPairCode();
+        var submit = service.SubmitPairCode(start.Code, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.True(submit.Accepted);
+        var wifiRequestId = submit.RequestId;
+
+        // A QR-SAS claim from a new device arrives while the Wi-Fi request is in flight.
+        var sasResult = service.ClaimCore(
+            PairTokenFrom(service.CreatePairQr()),
+            deviceName: "iPhone",
+            userAgent: NativeIosUserAgent,
+            remoteAddress: "192.168.1.50",
+            deviceId: "device-uuid-Y",
+            overRelay: false,
+            claimedOverHttps: true,
+            supportsSasApproval: true);
+
+        Assert.True(sasResult.Ok);
+        Assert.True(sasResult.NeedsApproval);
+        Assert.NotEqual(wifiRequestId, sasResult.RequestId);
+
+        // The prior Wi-Fi request is no longer the live _pairCode.
+        var priorCheck = service.ConfirmPairCode(wifiRequestId, approved: true, NewContext(NativeIosUserAgent, "192.168.1.77", isHttps: true));
+        Assert.Equal("unknown", priorCheck.Status);
+
+        // The new QR-SAS request is live: host approve + phone confirm work.
+        service.HostDecisionPairCode(sasResult.RequestId, approved: true);
+        var confirm = service.ConfirmPairCode(sasResult.RequestId, approved: true, NewContext(NativeIosUserAgent, "192.168.1.50", isHttps: true));
+        Assert.Equal("approved", confirm.Status);
+        Assert.False(string.IsNullOrEmpty(confirm.Token));
+    }
+
     private static PanelPhonePairingService NewServiceWithHub(Nexus.Service.Sockets.MultiplexHub hub)
     {
         return new PanelPhonePairingService(new InMemoryConfigStore(), hub)

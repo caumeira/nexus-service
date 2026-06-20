@@ -534,6 +534,7 @@ public sealed class PanelPhonePairingService
                     Sas = sas,
                     PhoneRemoteAddress = normalizedRemote,
                     PhoneUserAgent = userAgent,
+                    DeviceId = normalizedDeviceIdForGate,
                     ClaimedOverHttps = true,
                 };
             }
@@ -1785,11 +1786,17 @@ public sealed class PanelPhonePairingService
         var remoteAddress = state.PhoneRemoteAddress;
         var deviceFingerprint = BuildDeviceFingerprint(userAgent, remoteAddress);
         var claimedOverHttps = state.ClaimedOverHttps;
+        var deviceId = state.DeviceId;
 
         _store.Update(s =>
         {
             s.Auth ??= new AuthSettings();
             s.Auth.PanelPhoneSessions ??= new List<PanelPhoneSessionToken>();
+            if (!string.IsNullOrEmpty(deviceId))
+            {
+                s.Auth.PanelPhoneSessions.RemoveAll(session =>
+                    string.Equals(session.DeviceId, deviceId, StringComparison.Ordinal));
+            }
             if (!string.IsNullOrEmpty(deviceFingerprint))
             {
                 s.Auth.PanelPhoneSessions.RemoveAll(session =>
@@ -1808,6 +1815,7 @@ public sealed class PanelPhonePairingService
                 UserAgent = userAgent,
                 RemoteAddress = remoteAddress,
                 DeviceFingerprint = deviceFingerprint,
+                DeviceId = deviceId,
                 CreatedAt = nowMs,
                 LastSeenAt = nowMs,
                 ClaimedOverHttps = claimedOverHttps,
@@ -1906,6 +1914,7 @@ public sealed class PanelPhonePairingService
         public string Sas { get; set; } = "";
         public string PhoneRemoteAddress { get; set; } = "";
         public string PhoneUserAgent { get; set; } = "";
+        public string DeviceId { get; set; } = "";
         public bool ClaimedOverHttps { get; set; }
         public bool PhoneApproved { get; set; }
         public bool HostApproved { get; set; }
