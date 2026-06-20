@@ -140,8 +140,8 @@ public sealed class UpdateService : BackgroundService
         // Apply or diagnose a staged install marker from a prior run.
         ApplyPendingOnStartup(stoppingToken);
 
-        // If an apply was triggered on startup, ExecuteAsync won't return until
-        // StopApplication fires; fall through to the poll loop otherwise.
+        // ApplyPendingOnStartup no longer self-stops; fall through to the poll
+        // loop, which the installer's net stop cancels when an install proceeds.
         if (stoppingToken.IsCancellationRequested)
         {
             return;
@@ -577,7 +577,8 @@ public sealed class UpdateService : BackgroundService
 
     /// <summary>
     /// Download and verify the installer. When <paramref name="launchAfterVerify"/>
-    /// is true, also write the marker and launch via schtasks + StopApplication.
+    /// is true, also write the marker and launch via schtasks (the installer's
+    /// net stop stops the service).
     /// When false, set <c>_updateReady</c> and send the tray notification.
     /// </summary>
     private async Task RunInstallAsync(UpdateManifest manifest, bool launchAfterVerify, bool reopenAfter, CancellationToken ct)

@@ -526,6 +526,7 @@ return 0;
 
 // ── Local functions ─────────────────────────────────────────────────────────
 
+#if WINDOWS
 // Do only what the OS won't do on process exit, concurrently under one hard
 // cap: persist debounced settings + dirty profile, release fans (the hubs hold
 // the last commanded PWM with no failsafe), and reap the cross-session UI the
@@ -549,7 +550,6 @@ static void FastServiceShutdown(WebApplication app)
     Console.Error.WriteLine($"[shutdown] fast teardown {(done ? "complete" : "TIMED OUT")} in {sw.ElapsedMilliseconds}ms");
 }
 
-#if WINDOWS
 // The overlay host and tray helper run in the user session (spawned cross-session
 // via schtasks), so the KILL_ON_JOB_CLOSE job can't hold them. Reap the overlay
 // directly and ask the helper to exit, briefly.
@@ -580,8 +580,6 @@ static void FastWindowsUiTeardown(IServiceProvider sp)
     }
     catch { }
 }
-#else
-static void FastWindowsUiTeardown(IServiceProvider sp) { }
 #endif
 
 static void OpenExistingServiceWindow(int servicePort)
