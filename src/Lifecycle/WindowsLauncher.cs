@@ -1,8 +1,11 @@
 #if WINDOWS
 using System;
 using System.Diagnostics;
+using System.IO;
 using System.Runtime.Versioning;
+using System.Text.Json;
 using System.Threading;
+using Nexus.Service.Update;
 
 namespace Nexus.Service.Lifecycle;
 
@@ -26,8 +29,11 @@ namespace Nexus.Service.Lifecycle;
 ///            StopPending   -> a relaunch landed mid-shutdown; wait for STOPPED
 ///                             then start fresh, so we never open onto a dead
 ///                             port (the blank-dashboard bug).
-///            Stopped       -> StartService() directly (DACL grant; no UAC),
-///                             then open dashboard.
+///            Stopped       -> if a Pending always-mode update is staged, start
+///                             the service (which applies the install), then
+///                             wait for the install cycle to finish and open the
+///                             dashboard on the what's-new view. Otherwise start
+///                             the service and open the dashboard as usual.
 ///            Other         -> log the state and open the dashboard so the user
 ///                             sees the service-down banner; state is ambiguous
 ///                             so we don't try to start.
@@ -86,14 +92,32 @@ internal static class WindowsLauncher
 
             case ServiceState.Stopped:
                 Console.WriteLine("[launcher] service is stopped; starting unprivileged (DACL grant)");
+                // Check the marker before starting the service: ApplyPendingOnStartup
+                // deletes it once applied, so this read must happen while stopped.
+                // For a Pending always-mode marker, the service launches the NSIS
+                // installer on startup, which issues net stop then restarts. Opening
+                // the dashboard before that cycle completes would open against the
+                // old version and then lose the connection mid-session.
+                var pendingAlwaysInstall = IsPendingAlwaysModeInstall();
                 if (TryStartService())
                 {
                     EnsureHelperRunning();
-                    // sc.exe start returns when SCM accepts the request, and our
-                    // ServiceMain sets RUNNING as soon as we hand the web app off
-                    // to a worker thread - the port isn't actually bound yet. Wait
-                    // for /ping so the browser opens against a ready service.
-                    WaitForPing(TimeSpan.FromSeconds(15));
+                    if (pendingAlwaysInstall)
+                    {
+                        Console.WriteLine("[launcher] pending always-mode install detected; waiting for install cycle");
+                        WaitForState(ServiceState.Stopped, TimeSpan.FromSeconds(120));
+                        WaitForState(ServiceState.Running, TimeSpan.FromSeconds(60));
+                        WaitForPing(TimeSpan.FromSeconds(20));
+                        Console.WriteLine("[launcher] install cycle complete; opening dashboard");
+                    }
+                    else
+                    {
+                        // sc.exe start returns when SCM accepts the request, and our
+                        // ServiceMain sets RUNNING as soon as we hand the web app off
+                        // to a worker thread - the port isn't actually bound yet. Wait
+                        // for /ping so the browser opens against a ready service.
+                        WaitForPing(TimeSpan.FromSeconds(15));
+                    }
                     OpenDashboard();
                     return 0;
                 }
@@ -105,6 +129,45 @@ internal static class WindowsLauncher
                 Console.Error.WriteLine($"[launcher] unexpected service state: {state}");
                 OpenDashboard();
                 return 1;
+        }
+    }
+
+    // Returns true when a Pending always-mode update is ready to install on
+    // the next service start. Reads the marker and settings from disk directly
+    // because DI is not available in the pre-daemon launcher.
+    private static bool IsPendingAlwaysModeInstall()
+    {
+        try
+        {
+            var marker = StagedInstallMarkerStore.Read();
+            if (marker is null || marker.State != StagedInstallMarkerStore.StatePending)
+            {
+                return false;
+            }
+
+            var settingsPath = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                "Nexus",
+                "settings.json");
+
+            if (!File.Exists(settingsPath))
+            {
+                return false;
+            }
+
+            using var doc = JsonDocument.Parse(File.ReadAllText(settingsPath));
+            if (doc.RootElement.TryGetProperty("update", out var updateEl)
+                && updateEl.TryGetProperty("updateMode", out var modeEl)
+                && modeEl.GetString() == "always")
+            {
+                return true;
+            }
+
+            return false;
+        }
+        catch
+        {
+            return false;
         }
     }
 
