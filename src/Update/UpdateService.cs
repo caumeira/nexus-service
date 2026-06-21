@@ -53,8 +53,11 @@ public sealed class UpdateService : BackgroundService
     // Progress DTO - read by routes during an active install.
     private volatile UpdateProgressResponse _progress = new();
 
-    // Set when ApplyPendingOnStartup confirms the version advanced. Cleared
-    // after the first GET /update/status read or after 60 seconds.
+    // Set when ApplyPendingOnStartup confirms the version advanced. Returned by
+    // GET /update/status for 60 seconds, then cleared. Not cleared on read, so
+    // concurrent readers (the sidebar poll and the what's-new auto-opener) all
+    // see it; clearing on first read let the sidebar consume it and the
+    // auto-opener miss the post-update what's-new view.
     private volatile string _justUpdatedTo = "";
     private long _justUpdatedToSetAtTicks;
     private const long JustUpdatedToTimeoutTicks = 60L * TimeSpan.TicksPerSecond;
@@ -92,19 +95,21 @@ public sealed class UpdateService : BackgroundService
         get
         {
             var snap = _status;
-            var justUpdated = Interlocked.Exchange(ref _justUpdatedTo, "");
+            var justUpdated = Volatile.Read(ref _justUpdatedTo);
             if (justUpdated == "")
             {
                 return snap;
             }
 
-            // Ticks were written before the volatile string; the exchange above
-            // guarantees _justUpdatedToSetAtTicks is visible.
             var elapsed = DateTime.UtcNow.Ticks - Volatile.Read(ref _justUpdatedToSetAtTicks);
             if (elapsed < JustUpdatedToTimeoutTicks)
             {
                 return SnapWithJustUpdatedTo(snap, justUpdated);
             }
+
+            // Window elapsed: clear so later reads skip the timeout check. Guard
+            // against clobbering a newer value set between the read and here.
+            Interlocked.CompareExchange(ref _justUpdatedTo, "", justUpdated);
             return snap;
         }
     }
