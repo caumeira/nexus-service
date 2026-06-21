@@ -137,6 +137,9 @@ internal static class WindowsUserHelper
                 // (user session) cannot remove the LocalSystem-written flag.
                 try { Platform.Windows.TrayIcon.OpenLocalWindow(); } catch { /* best-effort */ }
                 try { File.Delete(ReopenFlagPath); } catch { /* service grants the user delete; ignore if it fails */ }
+                // Dashboard window appears after WebView2 init in the overlay
+                // process; nudge it foreground once visible so it opens on top.
+                try { NudgeDashboardToForeground(); } catch { /* best-effort */ }
             });
         }
 
@@ -465,9 +468,27 @@ body.light .mark { fill:#5a5a5e; }
         catch { /* best-effort */ }
     }
 
+    // Poll for the overlay dashboard HWND (created after WebView2 init in the
+    // overlay process) and call TryForeground so the helper, running in the
+    // background without the foreground lock, can still raise the window.
+    private static void NudgeDashboardToForeground()
+    {
+        for (var i = 0; i < 40; i++)
+        {
+            var hwnd = FindWindowW(OverlayDashboardClassName, null);
+            if (hwnd != IntPtr.Zero)
+            {
+                Platform.Windows.ForegroundNudge.TryForeground(hwnd);
+                return;
+            }
+            Thread.Sleep(100);
+        }
+    }
+
     // Win32 plumbing for the cross-process overlay marshaler wake. Lives
     // here rather than in a shared file because this is the only consumer.
     private const string OverlayMarshalerClassName = "Nexus.Overlay.Marshaler";
+    private const string OverlayDashboardClassName = "Nexus.Overlay.Dashboard";
     private const string OverlayPrefsChangedMessageName = "Nexus.Overlay.PrefsChanged";
 
     [DllImport("user32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
