@@ -631,6 +631,10 @@ public sealed class UpdateService : BackgroundService
                 });
                 UpdateStatusState("ready");
                 UpdateStatusUpdateReady(true);
+                // Auto-stage left _progress at an active "verifying"; clear it so
+                // a modal opened before a user-triggered install shows the notes
+                // view rather than a stale, stuck progress bar.
+                _progress = new UpdateProgressResponse { Version = manifest.Version };
 
 #if WINDOWS
                 try
