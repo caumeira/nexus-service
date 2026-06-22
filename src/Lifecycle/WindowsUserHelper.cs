@@ -336,7 +336,8 @@ internal static class WindowsUserHelper
 
     // HTA caption is a known constant so the helper can close it by title.
     // The HTA content is English-only; HTA files cannot use the service i18n bundle.
-    private static void ShowUpdaterWindow(string fromVersion, string toVersion)
+    [SupportedOSPlatform("windows")]
+    internal static void ShowUpdaterWindow(string fromVersion, string toVersion)
     {
         try
         {
@@ -368,7 +369,7 @@ internal static class WindowsUserHelper
   scroll=""no"" />
 <title>Nexus Updater</title>
 <style>
-* { margin:0; padding:0; box-sizing:border-box; }
+* { margin:0; padding:0; box-sizing:border-box; user-select:none; -ms-user-select:none; -webkit-user-select:none; }
 html, body { height:100%; overflow:hidden; }
 body { font-family:'Segoe UI',sans-serif; display:flex; flex-direction:column; align-items:center; justify-content:center; }
 body.dark { background:#202024; color:#e8e8ea; }
@@ -455,7 +456,8 @@ body.light .mark { fill:#5a5a5e; }
     private static string HtmlEscape(string s) =>
         s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;").Replace("\"", "&quot;");
 
-    private static void CloseUpdaterWindow()
+    [SupportedOSPlatform("windows")]
+    internal static void CloseUpdaterWindow()
     {
         try
         {
