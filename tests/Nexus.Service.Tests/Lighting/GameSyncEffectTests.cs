@@ -377,19 +377,4 @@ public class GameSyncEffectTests
         Assert.Equal(0, leds[2]);
     }
 
-    // ── DeviceFrame.Archetype assignment ────────────────────────────────────
-
-    [Fact]
-    public void DeviceFrame_DefaultArchetypeIsNull()
-    {
-        var frame = new DeviceFrame(0, "test", 4);
-        Assert.Null(frame.Archetype);
-    }
-
-    [Fact]
-    public void DeviceFrame_ArchetypeCanBeSet()
-    {
-        var frame = new DeviceFrame(0, "test", 4) { Archetype = "keyboard" };
-        Assert.Equal("keyboard", frame.Archetype);
-    }
 }

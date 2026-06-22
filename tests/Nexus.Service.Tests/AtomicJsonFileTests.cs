@@ -66,4 +66,17 @@ public class AtomicJsonFileTests : IDisposable
         })).ToArray();
         await Task.WhenAll(tasks);
     }
+
+    [Fact]
+    public void Write_consumes_orphan_tmp_left_by_a_crash()
+    {
+        var path = Path.Combine(_tempDir, "orphan.json");
+        File.WriteAllText(path, "old-good");
+        File.WriteAllText(path + ".tmp", "garbage-partial"); // simulate crash mid-write
+
+        AtomicJsonFile.Write(path, "new-good");
+
+        Assert.Equal("new-good", File.ReadAllText(path));
+        Assert.False(File.Exists(path + ".tmp"), "the orphan tmp must be consumed");
+    }
 }

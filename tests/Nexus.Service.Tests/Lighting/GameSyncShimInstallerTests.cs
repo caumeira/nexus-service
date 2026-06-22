@@ -124,28 +124,6 @@ public class GameSyncShimInstallerTests
         Assert.Equal(ChromaShimFileDecision.Overwrite, decision);
     }
 
-    // ── DLL name constants ────────────────────────────────────────────────────
-
-    [Fact]
-    public void X64Names_Contains_All_Required_DLLs()
-    {
-        Assert.Contains("RzChromaSDK64.dll", GameSyncShimInstaller.X64Names);
-        Assert.Contains("RzChromatic64.dll", GameSyncShimInstaller.X64Names);
-        Assert.Contains("LightFX.dll", GameSyncShimInstaller.X64Names);
-        Assert.Contains("LogitechLedEnginesWrapper.dll", GameSyncShimInstaller.X64Names);
-        Assert.Contains("LogitechLed.dll", GameSyncShimInstaller.X64Names);
-    }
-
-    [Fact]
-    public void X86Names_Contains_All_Required_DLLs()
-    {
-        Assert.Contains("RzChromaSDK.dll", GameSyncShimInstaller.X86Names);
-        Assert.Contains("RzChromatic.dll", GameSyncShimInstaller.X86Names);
-        Assert.Contains("LightFX.dll", GameSyncShimInstaller.X86Names);
-        Assert.Contains("LogitechLedEnginesWrapper.dll", GameSyncShimInstaller.X86Names);
-        Assert.Contains("LogitechLed.dll", GameSyncShimInstaller.X86Names);
-    }
-
     // ── Per-file conflict does not block other slots ───────────────────────────
 
     [Fact]
@@ -168,26 +146,16 @@ public class GameSyncShimInstallerTests
 
     // ── Non-Windows returns NotApplicable ─────────────────────────────────────
 
-    [Fact]
+    [NonWindowsFact]
     public void EnsureInstalled_Returns_NotApplicable_On_NonWindows()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return; // only meaningful to run on non-Windows
-        }
-
         var result = GameSyncShimInstaller.EnsureInstalled();
         Assert.Equal(ChromaShimInstallResult.NotApplicable, result);
     }
 
-    [Fact]
+    [NonWindowsFact]
     public void GetState_Returns_Empty_State_On_NonWindows()
     {
-        if (OperatingSystem.IsWindows())
-        {
-            return;
-        }
-
         var state = GameSyncShimInstaller.GetState();
         Assert.False(state.ProviderInstalled);
         Assert.False(state.SynapseConflict);

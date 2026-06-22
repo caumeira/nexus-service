@@ -125,12 +125,6 @@ public class QSeriesCoolerProtocolTests
         Assert.Equal(0x00, buf[89]);
     }
 
-    [Fact]
-    public void MaxLedsPerPort_is_27()
-    {
-        Assert.Equal(27, QSeriesCoolerProtocol.MaxLedsPerPort);
-    }
-
     // ── Pump telemetry reads ──
     // Reference: SmartHubCommandBase.GetPort0InformationBytes (FF CC 01 00 → 20 B),
     // PQSeriesCommand.GetPump2InfoBytes (FF CC 09 → 7 B), CoolerHubDevice

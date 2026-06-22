@@ -39,11 +39,10 @@ public class PeripheralCatalogTests
     [Fact]
     public void LightingDevicesCatalog_LoadsFromEmbeddedResource()
     {
-        // The refactored LightingDevicesCatalog loads from the openrgb-supported-devices.json
-        // resource. If the resource isn't embedded, the list is empty (not an exception).
-        // We accept 0 (missing resource in unit-test run) OR a populated list.
-        var list = LightingDevicesCatalog.All;
-        Assert.NotNull(list);
+        // LightingDevicesCatalog.All loads from the openrgb-supported-devices.json
+        // embedded resource; a missing resource yields an empty list, so a
+        // populated catalog is the proof the resource embedded and parsed.
+        Assert.NotEmpty(LightingDevicesCatalog.All);
     }
 
     [Fact]

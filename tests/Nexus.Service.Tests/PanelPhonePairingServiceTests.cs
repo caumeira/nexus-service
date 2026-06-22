@@ -963,8 +963,8 @@ public class PanelPhonePairingServiceTests
         Assert.Equal(1, sessions.AuthorizedCount);
         var session = Assert.Single(sessions.Sessions);
         var persisted = store.Load().Auth!.PanelPhoneSessions;
-        Assert.Equal(1, persisted.Count);
-        Assert.Equal("device-uuid-X", persisted[0].DeviceId);
+        var persistedSession = Assert.Single(persisted);
+        Assert.Equal("device-uuid-X", persistedSession.DeviceId);
 
         // Second claim with the same deviceId: already paired -> fast-path, no approval modal.
         var reScan = service.ClaimCore(

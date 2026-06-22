@@ -60,7 +60,9 @@ public sealed class UpdateService : BackgroundService
     // concurrent readers (the sidebar poll and the what's-new auto-opener) all
     // see it; clearing on first read let the sidebar consume it and the
     // auto-opener miss the post-update what's-new view.
-    private volatile string _justUpdatedTo = "";
+    // Accessed only via Volatile.Read/Write + Interlocked; no `volatile` keyword
+    // because passing a volatile field by ref to Interlocked is CS0420.
+    private string _justUpdatedTo = "";
     private long _justUpdatedToSetAtTicks;
     private const long JustUpdatedToTimeoutTicks = 60L * TimeSpan.TicksPerSecond;
 
@@ -201,10 +203,10 @@ public sealed class UpdateService : BackgroundService
         // Current version is at or beyond the marker's target: install succeeded.
         if (!VersionCompare.IsNewer(marker.Version, BuildInfo.Version))
         {
-            // Ticks written before the volatile string so any reader that observes
-            // the non-empty string sees the already-committed ticks value.
+            // Ticks written before the string so any reader that observes the
+            // non-empty string sees the already-committed ticks value.
             Volatile.Write(ref _justUpdatedToSetAtTicks, DateTime.UtcNow.Ticks);
-            _justUpdatedTo = BuildInfo.Version;
+            Volatile.Write(ref _justUpdatedTo, BuildInfo.Version);
             StagedInstallMarkerStore.Delete();
             return;
         }

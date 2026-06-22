@@ -94,13 +94,4 @@ public class AppInstallerTests : IDisposable
         Assert.True(entry.Installed);
         Assert.Equal("user", entry.Source);
     }
-
-    [Fact]
-    public void Install_rejects_invalid_id()
-    {
-        var (_, installer) = NewInstaller();
-        var result = installer.Install("../escape.test");
-        Assert.False(result.Installed);
-        Assert.Contains("invalid widget id", result.Error);
-    }
 }

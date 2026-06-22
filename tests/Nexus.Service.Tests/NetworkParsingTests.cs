@@ -4,156 +4,91 @@ using Nexus.Service.Models.Activity;
 namespace Nexus.Service.Tests;
 
 /// <summary>
-/// Tests for network provider parsing logic.
-/// The MacNetworkProvider parses nettop output and merges by process name.
-/// These tests validate the parsing and merging algorithms using sample data.
+/// Network provider parsing logic. <see cref="MacNetworkProvider.ParseNettop"/>
+/// parses nettop CSV output and merges by process name;
+/// <see cref="NetstatParser"/> derives internet-active PIDs from netstat output.
 /// </summary>
 public class NetworkParsingTests
 {
     [Fact]
-    public void ParseNettopLine_ExtractsFields()
+    public void ParseNettop_ExtractsFields()
     {
-        var line = "Chrome.12345,1024,512";
-        var parts = line.Split(',');
+        var result = MacNetworkProvider.ParseNettop("Chrome.12345,1024,512\n");
 
-        Assert.Equal("Chrome.12345", parts[0].Trim());
-        Assert.True(long.TryParse(parts[1].Trim(), out var bytesIn));
-        Assert.True(long.TryParse(parts[2].Trim(), out var bytesOut));
-        Assert.Equal(1024, bytesIn);
-        Assert.Equal(512, bytesOut);
+        var chrome = Assert.Single(result);
+        Assert.Equal("Chrome", chrome.Name);
+        Assert.Equal(1024, chrome.BytesIn);
+        Assert.Equal(512, chrome.BytesOut);
     }
 
     [Fact]
-    public void StripPidSuffix_RemovesPidFromProcessName()
+    public void ParseNettop_StripsPidSuffixFromProcessName()
     {
-        Assert.Equal("Chrome", StripPid("Chrome.12345"));
-        Assert.Equal("Safari", StripPid("Safari.67890"));
-        Assert.Equal("nexus-service", StripPid("nexus-service.999"));
+        var result = MacNetworkProvider.ParseNettop(
+            "Chrome.12345,1,0\nSafari.67890,1,0\nnexus-service.999,1,0\n");
+
+        Assert.Contains(result, e => e.Name == "Chrome");
+        Assert.Contains(result, e => e.Name == "Safari");
+        Assert.Contains(result, e => e.Name == "nexus-service");
     }
 
     [Fact]
-    public void StripPidSuffix_PreservesNamesWithoutPid()
+    public void ParseNettop_PreservesNamesWithoutNumericSuffix()
     {
-        Assert.Equal("kernel_task", StripPid("kernel_task"));
-        Assert.Equal("mDNSResponder", StripPid("mDNSResponder"));
+        var result = MacNetworkProvider.ParseNettop(
+            "kernel_task,1,0\ncom.apple.WebKit.Networking,1,0\nnode.js,1,0\n");
+
+        Assert.Contains(result, e => e.Name == "kernel_task");
+        Assert.Contains(result, e => e.Name == "com.apple.WebKit.Networking");
+        Assert.Contains(result, e => e.Name == "node.js");
     }
 
     [Fact]
-    public void StripPidSuffix_PreservesNamesWithNonNumericSuffix()
+    public void ParseNettop_CombinesBytesForSameProcess()
     {
-        Assert.Equal("com.apple.WebKit.Networking", StripPid("com.apple.WebKit.Networking"));
-        Assert.Equal("node.js", StripPid("node.js"));
-    }
+        var result = MacNetworkProvider.ParseNettop(
+            "Chrome.1,1000,500\nChrome.2,2000,300\nSafari.3,100,50\n");
 
-    [Fact]
-    public void MergeByName_CombinesBytesForSameProcess()
-    {
-        var entries = new[]
-        {
-            ("Chrome", 1000L, 500L),
-            ("Chrome", 2000L, 300L),
-            ("Safari", 100L, 50L),
-        };
-
-        var merged = MergeByName(entries);
-
-        Assert.Equal(2, merged.Count);
-        var chrome = merged.First(e => e.Name == "Chrome");
+        Assert.Equal(2, result.Count);
+        var chrome = result.First(e => e.Name == "Chrome");
         Assert.Equal(3000, chrome.BytesIn);
         Assert.Equal(800, chrome.BytesOut);
     }
 
     [Fact]
-    public void MergeByName_SortsByTotalDescending()
+    public void ParseNettop_SortsByTotalDescending()
     {
-        var entries = new[]
-        {
-            ("Slack", 100L, 50L),
-            ("Chrome", 5000L, 3000L),
-            ("Spotify", 2000L, 100L),
-        };
+        var result = MacNetworkProvider.ParseNettop(
+            "Slack.1,100,50\nChrome.2,5000,3000\nSpotify.3,2000,100\n");
 
-        var merged = MergeByName(entries);
-
-        Assert.Equal("Chrome", merged[0].Name);  // 8000 total
-        Assert.Equal("Spotify", merged[1].Name);  // 2100 total
-        Assert.Equal("Slack", merged[2].Name);     // 150 total
+        Assert.Equal("Chrome", result[0].Name);
+        Assert.Equal("Spotify", result[1].Name);
+        Assert.Equal("Slack", result[2].Name);
     }
 
     [Fact]
-    public void MergeByName_FiltersZeroTraffic()
+    public void ParseNettop_FiltersZeroTraffic()
     {
-        var entries = new[]
-        {
-            ("Chrome", 1000L, 500L),
-            ("IdleProcess", 0L, 0L),
-        };
+        var result = MacNetworkProvider.ParseNettop("Chrome.1,1000,500\nIdleProcess.2,0,0\n");
 
-        var merged = MergeByName(entries);
-
-        Assert.Single(merged);
-        Assert.Equal("Chrome", merged[0].Name);
+        var only = Assert.Single(result);
+        Assert.Equal("Chrome", only.Name);
     }
 
     [Fact]
-    public void ParseFullNettopOutput_HandlesMultipleLines()
+    public void ParseNettop_SkipsMalformedLines()
     {
-        var output = "Chrome.1234,10240,5120\nChrome.5678,2048,1024\nSafari.9999,512,256\n";
-        var result = ParseNettopOutput(output);
-
-        Assert.Equal(2, result.Count);
-        var chrome = result.First(r => r.Name == "Chrome");
-        Assert.Equal(12288, chrome.BytesIn);   // 10240 + 2048
-        Assert.Equal(6144, chrome.BytesOut);    // 5120 + 1024
-    }
-
-    [Fact]
-    public void ParseFullNettopOutput_SkipsMalformedLines()
-    {
-        var output = "Chrome.1234,10240,5120\nbadline\n,,,\nSafari.9999,512,256\n";
-        var result = ParseNettopOutput(output);
+        var result = MacNetworkProvider.ParseNettop(
+            "Chrome.1234,10240,5120\nbadline\n,,,\nSafari.9999,512,256\n");
 
         Assert.Equal(2, result.Count);
     }
 
     [Fact]
-    public void ParseFullNettopOutput_EmptyInput_ReturnsEmpty()
+    public void ParseNettop_EmptyInput_ReturnsEmpty()
     {
-        Assert.Empty(ParseNettopOutput(""));
-        Assert.Empty(ParseNettopOutput("   \n  \n"));
-    }
-
-    // --- Helpers matching MacNetworkProvider.Sample() logic ---
-
-    private static string StripPid(string rawName)
-    {
-        var dotIdx = rawName.LastIndexOf('.');
-        if (dotIdx > 0 && int.TryParse(rawName.AsSpan(dotIdx + 1), out _))
-            return rawName.Substring(0, dotIdx);
-        return rawName;
-    }
-
-    private static List<NetworkProcessInfo> MergeByName(IEnumerable<(string name, long bytesIn, long bytesOut)> entries)
-    {
-        var merged = new Dictionary<string, (long bytesIn, long bytesOut)>();
-        foreach (var (name, bytesIn, bytesOut) in entries)
-        {
-            if (merged.TryGetValue(name, out var prev))
-                merged[name] = (prev.bytesIn + bytesIn, prev.bytesOut + bytesOut);
-            else
-                merged[name] = (bytesIn, bytesOut);
-        }
-
-        return merged
-            .Where(kv => kv.Value.bytesIn + kv.Value.bytesOut > 0)
-            .OrderByDescending(kv => kv.Value.bytesIn + kv.Value.bytesOut)
-            .Select(kv => new NetworkProcessInfo
-            {
-                Name = kv.Key,
-                BytesIn = kv.Value.bytesIn,
-                BytesOut = kv.Value.bytesOut,
-            })
-            .ToList();
+        Assert.Empty(MacNetworkProvider.ParseNettop(""));
+        Assert.Empty(MacNetworkProvider.ParseNettop("   \n  \n"));
     }
 
     // --- NetstatParser (Windows) ---
@@ -239,39 +174,5 @@ public class NetworkParsingTests
 
         Assert.Single(pids);
         Assert.Contains(4242, pids);
-    }
-
-    private static List<NetworkProcessInfo> ParseNettopOutput(string output)
-    {
-        var merged = new Dictionary<string, (long bytesIn, long bytesOut)>();
-
-        foreach (var line in output.Split('\n'))
-        {
-            if (string.IsNullOrWhiteSpace(line)) continue;
-            var parts = line.Split(',');
-            if (parts.Length < 3) continue;
-
-            var rawName = parts[0].Trim();
-            var name = StripPid(rawName);
-            if (string.IsNullOrEmpty(name)) continue;
-            if (!long.TryParse(parts[1].Trim(), out var bytesIn)) continue;
-            if (!long.TryParse(parts[2].Trim(), out var bytesOut)) continue;
-
-            if (merged.TryGetValue(name, out var prev))
-                merged[name] = (prev.bytesIn + bytesIn, prev.bytesOut + bytesOut);
-            else
-                merged[name] = (bytesIn, bytesOut);
-        }
-
-        return merged
-            .Where(kv => kv.Value.bytesIn + kv.Value.bytesOut > 0)
-            .OrderByDescending(kv => kv.Value.bytesIn + kv.Value.bytesOut)
-            .Select(kv => new NetworkProcessInfo
-            {
-                Name = kv.Key,
-                BytesIn = kv.Value.bytesIn,
-                BytesOut = kv.Value.bytesOut,
-            })
-            .ToList();
     }
 }

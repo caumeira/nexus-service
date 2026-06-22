@@ -531,28 +531,6 @@ public class FanProfilesTests : IDisposable
     }
 
     [Fact]
-    public void FanOnSilentPreset_RewiredToUserCurve_FlipsToCustom()
-    {
-        // Same wire-DnD scenario, target = user curve. Covered by the
-        // earlier ReturnsCustomWhenUserCurveDrivesAFan test, restated here
-        // with the explicit silent-as-starting-state framing for the
-        // regression suite.
-        FanProfiles.Apply("silent", _fans, _store);
-        _store.Update(s =>
-        {
-            var silent = s.Cooling.Curves.First(c => c.Preset == "silent");
-            silent.Outputs.RemoveAll(o => o.Id == "fan2");
-            s.Cooling.Curves.Add(new CurveDocument
-            {
-                Id = "user-x",
-                Type = "Linear",
-                Outputs = new List<CurveOutputDocument> { new() { Id = "fan2", Type = "Fan" } },
-            });
-        });
-        Assert.Equal("custom", FanProfiles.DerivePresetFromCurves(_store, _fans));
-    }
-
-    [Fact]
     public void FanOnBalancedPreset_ReleasedToBios_WithUnresponsiveFan_FlipsToCustom()
     {
         // Combined scenario: an unresponsive fan is present (which the earlier

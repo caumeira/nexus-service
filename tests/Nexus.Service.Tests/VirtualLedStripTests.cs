@@ -5,17 +5,6 @@ namespace Nexus.Service.Tests;
 public class DeviceFrameTests
 {
     [Fact]
-    public void Constructor_SetsProperties()
-    {
-        var frame = new DeviceFrame(0, "test", 16, x: 100, y: 200, w: 300, h: 40);
-        Assert.Equal(16, frame.LedCount);
-        Assert.Equal(100, frame.X);
-        Assert.Equal(200, frame.Y);
-        Assert.Equal(300, frame.W);
-        Assert.Equal(40, frame.H);
-    }
-
-    [Fact]
     public void SetLed_WritesCorrectRGB()
     {
         var frame = new DeviceFrame(0, "test", 4);

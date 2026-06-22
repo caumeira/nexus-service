@@ -39,23 +39,6 @@ public class GsiConfigInstallerTests
     }
 
     [Fact]
-    public void RemoveIfPresent_ExistingFile_DeletesIt()
-    {
-        var cfgDir = Path.Combine(Path.GetTempPath(), Path.GetRandomFileName(), "game", "csgo", "cfg");
-        Directory.CreateDirectory(cfgDir);
-        var cfgPath = Path.Combine(cfgDir, "gamestate_integration_nexus.cfg");
-        File.WriteAllText(cfgPath, "test");
-
-        // RemoveIfPresent needs FindAppInstallDir to return something; since CS2 is not
-        // installed in the test environment, we test the file-delete logic directly.
-        Assert.True(File.Exists(cfgPath));
-        File.Delete(cfgPath);
-        Assert.False(File.Exists(cfgPath));
-
-        Directory.Delete(Path.GetDirectoryName(Path.GetDirectoryName(cfgDir)!)!, true);
-    }
-
-    [Fact]
     public void BuildCfg_TokenEmbeddedInBothUriAndAuthBlock()
     {
         var token = "unique_token_xyz";

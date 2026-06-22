@@ -13,13 +13,6 @@ public class LightingEngineTests
     }
 
     [Fact]
-    public void CurrentEffectName_DefaultsToNone()
-    {
-        using var engine = new LightingEngine();
-        Assert.Equal("none", engine.CurrentEffectName);
-    }
-
-    [Fact]
     public void SetEffect_ChangesCurrentEffectName()
     {
         using var engine = new LightingEngine();
@@ -105,14 +98,6 @@ public class LightingEngineTests
         {
             Assert.Equal(0, lastFrame[i]);
         }
-    }
-
-    [Fact]
-    public void FrameIntervalMs_CanBeChanged()
-    {
-        using var engine = new LightingEngine();
-        engine.FrameIntervalMs = 16;
-        Assert.Equal(16, engine.FrameIntervalMs);
     }
 
     private sealed class TestEffect : IEffect

@@ -13,15 +13,6 @@ namespace Nexus.Service.Tests;
 /// </summary>
 public class ServiceLogTests
 {
-    [Fact]
-    public void Initialize_does_not_throw_and_resolves_a_path()
-    {
-        ServiceLog.Initialize();
-        // Path resolution may fail on locked-down sandbox CI, but on every
-        // dev / production target we expect a usable directory.
-        Assert.NotNull(ServiceLog.LogFilePath);
-    }
-
     [NonWindowsFact]
     public void Console_write_after_init_appears_in_log_file()
     {

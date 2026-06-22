@@ -286,36 +286,4 @@ public class GameSyncGameScannerTests
         Assert.Equal(1, count);
     }
 
-    [Theory]
-    [InlineData(true, "gamesync", true)]
-    [InlineData(true, "rainbow", false)]
-    [InlineData(false, "gamesync", false)]
-    public void OnScanComplete_EnsureLogic_CallsEnsureOnlyWhenGsiGameAndGameSyncMode(
-        bool hasGsiGame, string activeMode, bool expectEnsure)
-    {
-        // Simulate the coordinator logic from LightingProvider.OnGameScanComplete
-        // without touching the real filesystem or GsiConfigInstaller.
-        var games = hasGsiGame
-            ? new List<DetectedGame> { new DetectedGame { Name = "CS2", Store = "steam", AppId = "730", EmitsGsi = true } }
-            : new List<DetectedGame>();
-
-        var ensureCalled = false;
-        var token = "tok";
-
-        // Replicate the guard logic inline so we test the exact condition.
-        if (string.Equals(activeMode, "gamesync", StringComparison.OrdinalIgnoreCase))
-        {
-            var hasGsi = false;
-            foreach (var g in games)
-            {
-                if (g.EmitsGsi) { hasGsi = true; break; }
-            }
-            if (hasGsi && token.Length > 0)
-            {
-                ensureCalled = true;
-            }
-        }
-
-        Assert.Equal(expectEnsure, ensureCalled);
-    }
 }

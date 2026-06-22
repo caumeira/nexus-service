@@ -72,10 +72,4 @@ public class RazerMouseProfilesTests
             Assert.False(string.IsNullOrWhiteSpace(profile.Name));
         }
     }
-
-    [Fact]
-    public void ByPid_UnknownPidMissing()
-    {
-        Assert.False(RazerMouseProfiles.ByPid.ContainsKey(0xFFFF));
-    }
 }

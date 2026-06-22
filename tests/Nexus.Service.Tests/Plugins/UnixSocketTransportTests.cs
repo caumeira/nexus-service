@@ -13,7 +13,9 @@ public class UnixSocketTransportTests
     [Fact]
     public async Task Accept_reports_kernel_attested_peer_pid_and_round_trips()
     {
-        // Unix-only; the Windows broker side is a named pipe.
+        // Unix-only; the Windows broker side is a named pipe. The runtime guard
+        // also tells the platform analyzer the unix-only calls below are unreachable
+        // on Windows (CA1416).
         if (OperatingSystem.IsWindows()) return;
 
         var dir = Path.Combine(Path.GetTempPath(), "nexus-uds-" + Guid.NewGuid().ToString("N")[..8]);

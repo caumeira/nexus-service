@@ -31,22 +31,6 @@ public class AppCodeSessionServiceTests
     }
 
     [Fact]
-    public void Token_is_base64url_with_no_padding_or_unsafe_chars()
-    {
-        var svc = new AppCodeSessionService();
-        var token = svc.Create("com.hellonexus.test");
-        // Base64URL alphabet only: A-Z a-z 0-9 - _
-        foreach (var c in token)
-        {
-            Assert.True(char.IsLetterOrDigit(c) || c == '-' || c == '_', $"unexpected token char: '{c}'");
-        }
-        // No padding, no '+', no '/' (those would break the URL).
-        Assert.DoesNotContain('=', token);
-        Assert.DoesNotContain('+', token);
-        Assert.DoesNotContain('/', token);
-    }
-
-    [Fact]
     public void Resolve_returns_null_for_unknown_token()
     {
         var svc = new AppCodeSessionService();

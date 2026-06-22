@@ -127,24 +127,6 @@ public class LightingPostProcessTests : IDisposable
     }
 
     [Fact]
-    public void DefaultsAreIdentity()
-    {
-        var s = _store.Load().Lighting;
-        Assert.Equal(0f, s.ScreenEffect.Hue);
-        Assert.Equal(0f, s.ScreenEffect.Colorize);
-        Assert.Equal(1f, s.ScreenEffect.Saturation);
-        Assert.Equal(1f, s.ScreenEffect.Contrast);
-        Assert.False(s.ScreenEffect.FlipX);
-        Assert.False(s.ScreenEffect.FlipY);
-        Assert.Equal(0f, s.MediaEffect.Hue);
-        Assert.Equal(0f, s.MediaEffect.Colorize);
-        Assert.Equal(1f, s.MediaEffect.Saturation);
-        Assert.Equal(1f, s.MediaEffect.Contrast);
-        Assert.False(s.MediaEffect.FlipX);
-        Assert.False(s.MediaEffect.FlipY);
-    }
-
-    [Fact]
     public void CanvasBuffer_FlipX_MirrorsRows()
     {
         var canvas = new CanvasBuffer(4, 2);

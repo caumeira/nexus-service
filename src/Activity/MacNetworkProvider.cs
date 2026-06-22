@@ -49,12 +49,16 @@ public sealed class MacNetworkProvider : BackgroundService, INetworkProvider
     private void Sample()
     {
         var output = ShellOut("/usr/bin/nettop", "-P", "-L", "1", "-J", "bytes_in,bytes_out", "-x");
-        if (string.IsNullOrEmpty(output))
-        {
-            _snapshot = Array.Empty<NetworkProcessInfo>();
-            return;
-        }
+        _snapshot = string.IsNullOrEmpty(output)
+            ? Array.Empty<NetworkProcessInfo>()
+            : ParseNettop(output);
+    }
 
+    // nettop -J bytes_in,bytes_out emits CSV lines "name.pid,bytes_in,bytes_out".
+    // Strips the trailing .pid, merges rows by process name, drops zero-traffic
+    // entries, and sorts by total bytes descending.
+    internal static List<NetworkProcessInfo> ParseNettop(string output)
+    {
         var merged = new Dictionary<string, (long bytesIn, long bytesOut)>();
 
         foreach (var line in output.Split('\n'))
@@ -87,7 +91,7 @@ public sealed class MacNetworkProvider : BackgroundService, INetworkProvider
                 merged[name] = (bytesIn, bytesOut);
         }
 
-        _snapshot = merged
+        return merged
             .Where(kv => kv.Value.bytesIn + kv.Value.bytesOut > 0)
             .OrderByDescending(kv => kv.Value.bytesIn + kv.Value.bytesOut)
             .Select(kv => new NetworkProcessInfo

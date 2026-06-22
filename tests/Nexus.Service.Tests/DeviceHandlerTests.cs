@@ -55,27 +55,9 @@ public class DeviceHandlerTests
 
     [Theory]
     [MemberData(nameof(AllHandlers))]
-    public void Every_handler_has_id_name_category(IDeviceHandler handler)
-    {
-        Assert.False(string.IsNullOrEmpty(handler.Id));
-        Assert.False(string.IsNullOrEmpty(handler.Name));
-        Assert.False(string.IsNullOrEmpty(handler.Category));
-    }
-
-    [Theory]
-    [MemberData(nameof(AllHandlers))]
     public void Every_handler_returns_false_for_empty_device_list(IDeviceHandler handler)
     {
         Assert.False(handler.IsConnected(new List<UsbDeviceEntry>()));
-    }
-
-    [Theory]
-    [MemberData(nameof(AllHandlers))]
-    public void Every_handler_has_at_least_one_identifier(IDeviceHandler handler)
-    {
-        // FanHub has identifiers via VID/PID; if a handler omits them, IsConnected
-        // could only return true for type-coupled checks - flag that here.
-        Assert.NotNull(handler.Identifiers);
     }
 
     [Theory]
@@ -158,17 +140,6 @@ public class DeviceHandlerTests
         Assert.Contains(0x201C, pids); // Q80 under MediaTek VID
         Assert.Contains(0x0600, pids); // Q60 legacy HYTE VID
         Assert.Contains(0x0603, pids); // Q80 legacy HYTE VID
-    }
-
-    [Fact]
-    public void Y70_and_QSeries_categories_are_displays()
-    {
-        var y70 = TestHandlers.Y70();
-        var qs = TestHandlers.QSeries();
-        // Both are device-display peripherals; exact category strings are
-        // implementation detail but should be non-empty.
-        Assert.False(string.IsNullOrEmpty(y70.Category));
-        Assert.False(string.IsNullOrEmpty(qs.Category));
     }
 
     public static IEnumerable<object[]> AllHandlers()

@@ -7,9 +7,8 @@ using Xunit;
 namespace Nexus.Service.Tests.Update;
 
 /// <summary>
-/// Tests for the boot-loop guard: <see cref="StagedInstallMarkerStore"/>
-/// read/write/delete, and the invariant that a marker naming a version the
-/// service is still running on is recognized as a failed install.
+/// Tests for <see cref="StagedInstallMarkerStore"/> read/write/delete and the
+/// AOT-safe round-trip of <see cref="StagedInstallMarker"/> (incl. State).
 /// </summary>
 public sealed class UpdateBootLoopGuardTests : IDisposable
 {
@@ -95,40 +94,6 @@ public sealed class UpdateBootLoopGuardTests : IDisposable
     }
 
     [Fact]
-    public void Guard_detects_failed_install()
-    {
-        // Simulate: marker written for vX before the install attempt,
-        // but current version is still < vX (install did not complete).
-        // Expected: marker is deleted, caller can detect the loop condition.
-        var targetVersion = "v3.1.0";
-        var currentVersion = "v3.0.0";
-
-        WriteMarkerDirect(new StagedInstallMarker
-        {
-            Version = targetVersion,
-            InstallerPath = "/path/to/Nexus-Setup-v3.1.0.exe",
-            Sha256 = "deadbeef",
-        });
-
-        Assert.True(File.Exists(MarkerPath));
-
-        var marker = ReadMarkerDirect();
-        Assert.NotNull(marker);
-
-        // The guard condition: marker names a version newer than current.
-        var isFailedInstall = VersionCompare.IsNewer(marker.Version, currentVersion)
-                           && !VersionCompare.IsNewer(marker.Version, targetVersion) // version still < marker
-                           && marker.Version == targetVersion;
-
-        Assert.True(isFailedInstall);
-
-        // The guard action: delete the marker.
-        DeleteMarkerDirect();
-
-        Assert.False(File.Exists(MarkerPath));
-    }
-
-    [Fact]
     public void Marker_pending_state_is_written_and_read_correctly()
     {
         var marker = new StagedInstallMarker
@@ -158,72 +123,6 @@ public sealed class UpdateBootLoopGuardTests : IDisposable
         var read = ReadMarkerDirect();
         Assert.NotNull(read);
         Assert.Equal(StagedInstallMarkerStore.StateAttempted, read.State);
-    }
-
-    [Fact]
-    public void Guard_branch_success_deletes_marker()
-    {
-        WriteMarkerDirect(new StagedInstallMarker
-        {
-            Version = "v3.0.1",
-            InstallerPath = "/x",
-            Sha256 = "y",
-            State = StagedInstallMarkerStore.StateAttempted,
-        });
-
-        var marker = ReadMarkerDirect();
-        Assert.NotNull(marker);
-
-        var isSuccess = !VersionCompare.IsNewer(marker.Version, "v3.1.0");
-        Assert.True(isSuccess);
-
-        DeleteMarkerDirect();
-        Assert.False(File.Exists(MarkerPath));
-    }
-
-    [Fact]
-    public void Guard_branch_attempted_still_old_version_is_failed()
-    {
-        var targetVersion = "v3.1.0";
-        var currentVersion = "v3.0.0";
-        WriteMarkerDirect(new StagedInstallMarker
-        {
-            Version = targetVersion,
-            InstallerPath = "/path/Nexus-Setup-v3.1.0.exe",
-            Sha256 = "abc",
-            State = StagedInstallMarkerStore.StateAttempted,
-        });
-
-        var marker = ReadMarkerDirect();
-        Assert.NotNull(marker);
-
-        var isFailedAttempt = marker.State == StagedInstallMarkerStore.StateAttempted
-                           && VersionCompare.IsNewer(marker.Version, currentVersion);
-        Assert.True(isFailedAttempt);
-
-        DeleteMarkerDirect();
-        Assert.False(File.Exists(MarkerPath));
-    }
-
-    [Fact]
-    public void Guard_branch_pending_newer_version_should_apply()
-    {
-        var targetVersion = "v3.1.0";
-        var currentVersion = "v3.0.0";
-        WriteMarkerDirect(new StagedInstallMarker
-        {
-            Version = targetVersion,
-            InstallerPath = "/path/Nexus-Setup-v3.1.0.exe",
-            Sha256 = "abc",
-            State = StagedInstallMarkerStore.StatePending,
-        });
-
-        var marker = ReadMarkerDirect();
-        Assert.NotNull(marker);
-
-        var shouldApply = marker.State == StagedInstallMarkerStore.StatePending
-                       && VersionCompare.IsNewer(marker.Version, currentVersion);
-        Assert.True(shouldApply);
     }
 
     // Direct file-system helpers that bypass the static StagingDir so tests
