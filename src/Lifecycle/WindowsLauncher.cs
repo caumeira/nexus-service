@@ -38,7 +38,7 @@ namespace Nexus.Service.Lifecycle;
 ///                             sees the service-down banner; state is ambiguous
 ///                             so we don't try to start.
 /// </summary>
-[SupportedOSPlatform("windows")]
+[SupportedOSPlatform("windows10.0.19041.0")]
 internal static class WindowsLauncher
 {
     private const int DefaultPort = 9400;
@@ -98,16 +98,18 @@ internal static class WindowsLauncher
                 // installer on startup, which issues net stop then restarts. Opening
                 // the dashboard before that cycle completes would open against the
                 // old version and then lose the connection mid-session.
-                var pendingAlwaysInstall = IsPendingAlwaysModeInstall();
+                var pendingVersion = ReadPendingAlwaysModeVersion();
                 if (TryStartService())
                 {
                     EnsureHelperRunning();
-                    if (pendingAlwaysInstall)
+                    if (pendingVersion is not null)
                     {
                         Console.WriteLine("[launcher] pending always-mode install detected; waiting for install cycle");
+                        WindowsUserHelper.ShowUpdaterWindow(BuildInfo.Version, pendingVersion);
                         WaitForState(ServiceState.Stopped, TimeSpan.FromSeconds(120));
                         WaitForState(ServiceState.Running, TimeSpan.FromSeconds(60));
                         WaitForPing(TimeSpan.FromSeconds(20));
+                        WindowsUserHelper.CloseUpdaterWindow();
                         Console.WriteLine("[launcher] install cycle complete; opening dashboard");
                     }
                     else
@@ -132,17 +134,18 @@ internal static class WindowsLauncher
         }
     }
 
-    // Returns true when a Pending always-mode update is ready to install on
-    // the next service start. Reads the marker and settings from disk directly
-    // because DI is not available in the pre-daemon launcher.
-    private static bool IsPendingAlwaysModeInstall()
+    // Returns the pending version string when a Pending always-mode update is
+    // ready to install on the next service start, null otherwise. Reads the
+    // marker and settings from disk directly because DI is not available in
+    // the pre-daemon launcher.
+    private static string? ReadPendingAlwaysModeVersion()
     {
         try
         {
             var marker = StagedInstallMarkerStore.Read();
             if (marker is null || marker.State != StagedInstallMarkerStore.StatePending)
             {
-                return false;
+                return null;
             }
 
             var settingsPath = Path.Combine(
@@ -152,7 +155,7 @@ internal static class WindowsLauncher
 
             if (!File.Exists(settingsPath))
             {
-                return false;
+                return null;
             }
 
             using var doc = JsonDocument.Parse(File.ReadAllText(settingsPath));
@@ -160,14 +163,14 @@ internal static class WindowsLauncher
                 && updateEl.TryGetProperty("updateMode", out var modeEl)
                 && modeEl.GetString() == "always")
             {
-                return true;
+                return marker.Version;
             }
 
-            return false;
+            return null;
         }
         catch
         {
-            return false;
+            return null;
         }
     }
 
