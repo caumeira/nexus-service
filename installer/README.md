@@ -44,6 +44,10 @@ release.
 Optional flags:
 - `-PublishDir <path>`  the AOT publish dir to wrap (pass `$env:ProgramFiles\Nexus`)
 - `-OpenOutput`         open Explorer at the resulting file
+- `-Sign`               Authenticode-sign the first-party binaries and the
+  installer via Azure Artifact Signing (see Code signing below); omit for a
+  fast unsigned dev build
+- `-SignToolPath` / `-DlibPath`  override the auto-probed signtool / dlib paths
 
 ### Keep it lean
 
@@ -71,6 +75,7 @@ intended (a new bundled feature) or junk; verify which.
   from `..\icon.ico` if you change the brand mark
 - `build-installer.ps1` - the build entry point, also strips macOS AppleDouble
   files from the publish dir (they slip in via scp from Mac dev machines)
+- `signing-metadata.json` - Artifact Signing account/profile/endpoint (non-secret)
 - `output\` - compiler output (gitignored)
 
 ## Install scope (per-user vs all-users)
@@ -90,18 +95,32 @@ always registered for the launching user via `/RU "{username}"`. Other users
 on a per-machine install can still launch the exe manually, but won't get
 auto-start unless they re-register the task themselves.
 
-## Code signing (TODO before shipping)
+## Code signing
 
-The current build is unsigned, so users see a SmartScreen "Windows protected
-your PC" prompt. Three things need an Authenticode signature:
+Pass `-Sign` to Authenticode-sign the release via **Azure Artifact Signing**
+(formerly "Trusted Signing"), under the **American Future Technology Corp**
+publisher identity. The script signs `Nexus.exe` and `nexus-overlay.exe` before
+Inno packages them, then `Nexus-Setup.exe` after Inno produces it but before the
+`SHA256SUMS` hash, so the published hash (and the OTA integrity check) covers the
+signed bytes. Bundled third-party binaries (`OpenRGB-headless.exe`, `adb.exe`)
+are launched by the signed service, never directly by the user, so they carry no
+mark-of-the-web and are left unsigned. `PawnIO.sys` is WHQL-signed by its author.
 
-1. `Nexus.exe` (signed before being bundled into the installer)
-2. `OpenRGB-headless.exe` (already shipped from the openrgb bundle)
-3. `Nexus-Setup.exe` (signed after Inno produces it)
+Account/profile/endpoint live in `signing-metadata.json` (non-secret). The signer
+authenticates with `DefaultAzureCredential`:
 
-EV cert (~$300-500/yr, USB token) eliminates SmartScreen warnings on day one.
-OV cert (~$60-200/yr) needs reputation to build before SmartScreen relents.
+- **CI** (`hello-nexus/nexus` `.github/workflows/ci.yml`): `azure/login` via OIDC
+  federated credentials (no stored secret), then `build-installer.ps1 -Sign`.
+- **Local / build-pc**: install the client tools once and provide the
+  service-principal env vars, then run with `-Sign`:
 
-`signtool sign /tr http://timestamp.digicert.com /td sha256 /fd sha256 /a Nexus-Setup.exe`
+  ```powershell
+  winget install -e --id Microsoft.Azure.ArtifactSigningClientTools
+  $env:AZURE_TENANT_ID="..."; $env:AZURE_CLIENT_ID="..."; $env:AZURE_CLIENT_SECRET="..."
+  powershell -File installer\build-installer.ps1 -PublishDir "$env:ProgramFiles\Nexus" -Sign
+  ```
 
-PawnIO.sys is already WHQL-signed by its author, no action needed.
+The client tools bundle a compatible signtool + `Azure.CodeSigning.Dlib.dll`; the
+dlib does **not** work with the 10.0.20348 Windows SDK. Certs are valid only 72h,
+so timestamping (`http://timestamp.acs.microsoft.com`, baked into the script) is
+mandatory: it keeps a signature valid after the cert rotates daily.

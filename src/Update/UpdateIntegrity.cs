@@ -13,16 +13,25 @@ namespace Nexus.Service.Update;
 /// </summary>
 public static class UpdateIntegrity
 {
-    // SHA-256 is always enforced. Authenticode chain verification is built
-    // but disabled until a Nexus code-signing certificate is deployed.
+    // SHA-256 is always enforced. Authenticode chain + durable-identity
+    // verification is built but stays disabled until a signed release has been
+    // verified end to end on Windows; flip this to true then. The non-enforced
+    // path still logs whether the durable-identity EKU is present, so a signed
+    // build can be confirmed before enforcement is turned on.
     // Trust boundary: SHA-256 from SHA256SUMS (author-published) detects
     // tampering of the staged file; it does not prove the release author's
-    // identity. Authenticode will provide that when AuthenticodeEnforced = true.
-    private const bool AuthenticodeEnforced = false;
+    // identity. The durable-identity EKU check provides that.
+    // static readonly, not const: a const false makes the `if (AuthenticodeEnforced)`
+    // branch compile-time unreachable (CS0162). This is a runtime deployment toggle.
+    private static readonly bool AuthenticodeEnforced = false;
 
 #if WINDOWS
-    /// <summary>Thumbprint allowlist for the Nexus signing certificate.</summary>
-    private static readonly string[] AllowedThumbprints = Array.Empty<string>();
+    // Artifact Signing renews the signing cert daily (72h validity), so its
+    // thumbprint and Subject DN are not durable. Microsoft embeds a per-identity
+    // "durable identity" EKU (prefix 1.3.6.1.4.1.311.97.) unique to a subscriber's
+    // identity validation; that is the stable value to pin. This is the EKU on the
+    // nexus-public certificate profile (American Future Technology Corp).
+    private const string DurableIdentityEku = "1.3.6.1.4.1.311.97.136769232.76527832.760955542.540107317";
 #endif
 
     private const int BufferSize = 81920;
@@ -30,7 +39,7 @@ public static class UpdateIntegrity
     /// <summary>
     /// Verifies the staged installer at <paramref name="path"/>. Always checks
     /// SHA-256. When <see cref="AuthenticodeEnforced"/> is true (Windows only),
-    /// also verifies the Authenticode chain and signer thumbprint.
+    /// also verifies the Authenticode chain and the durable-identity EKU.
     /// Throws <see cref="InvalidDataException"/> on any failure.
     /// </summary>
     public static async Task VerifyAsync(string path, string expectedSha256, CancellationToken ct)
@@ -62,8 +71,16 @@ public static class UpdateIntegrity
             // Log Authenticode state without blocking when not enforced.
             try
             {
-                var thumbprint = GetSignerThumbprint(path);
-                Console.Error.WriteLine($"[update-integrity] Authenticode thumbprint: {thumbprint ?? "(not signed)"}");
+                using var cert = GetSignerCertificate(path);
+                if (cert is null)
+                {
+                    Console.Error.WriteLine("[update-integrity] Authenticode: (not signed)");
+                }
+                else
+                {
+                    Console.Error.WriteLine(
+                        $"[update-integrity] Authenticode thumbprint {cert.Thumbprint}; durable-identity EKU present: {HasDurableIdentityEku(cert)}");
+                }
             }
             catch (Exception ex)
             {
@@ -85,44 +102,146 @@ public static class UpdateIntegrity
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
     private static void VerifyAuthenticode(string path)
     {
-        var thumbprint = GetSignerThumbprint(path);
-        if (thumbprint is null)
-        {
-            throw new InvalidDataException($"{Path.GetFileName(path)} is not Authenticode-signed.");
-        }
+        using var cert = GetSignerCertificate(path)
+            ?? throw new InvalidDataException($"{Path.GetFileName(path)} is not Authenticode-signed.");
 
-        var matched = false;
-        foreach (var allowed in AllowedThumbprints)
-        {
-            if (string.Equals(thumbprint, allowed, StringComparison.OrdinalIgnoreCase))
-            {
-                matched = true;
-                break;
-            }
-        }
-
-        if (!matched)
+        if (!HasDurableIdentityEku(cert))
         {
             throw new InvalidDataException(
-                $"Authenticode thumbprint {thumbprint} is not in the Nexus allowlist.");
+                $"{Path.GetFileName(path)} signer lacks the Nexus durable-identity EKU {DurableIdentityEku}.");
         }
 
         VerifyTrustChain(path);
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]
-    private static string? GetSignerThumbprint(string path)
+    private static unsafe System.Security.Cryptography.X509Certificates.X509Certificate2? GetSignerCertificate(string path)
     {
+        // Extract the Authenticode signer cert from the file's embedded PKCS#7 via
+        // crypt32, then materialize it with X509CertificateLoader.
+        // (X509Certificate.CreateFromSignedFile is obsolete: SYSLIB0057.)
+        var hStore = IntPtr.Zero;
+        var hMsg = IntPtr.Zero;
+        var pInfo = IntPtr.Zero;
+        var pCert = IntPtr.Zero;
         try
         {
-            var cert = System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(path);
-            using var x509 = new System.Security.Cryptography.X509Certificates.X509Certificate2(cert);
-            return x509.Thumbprint;
+            if (!CryptQueryObject(CertQueryObjectFile, path,
+                    CertQueryContentPkcs7SignedEmbed, CertQueryFormatBinary,
+                    0, out _, out _, out _, out hStore, out hMsg, out _))
+            {
+                return null;
+            }
+
+            uint cb = 0;
+            if (!CryptMsgGetParam(hMsg, CmsgSignerCertInfoParam, 0, IntPtr.Zero, ref cb) || cb == 0)
+            {
+                return null;
+            }
+
+            pInfo = System.Runtime.InteropServices.Marshal.AllocHGlobal((int)cb);
+            if (!CryptMsgGetParam(hMsg, CmsgSignerCertInfoParam, 0, pInfo, ref cb))
+            {
+                return null;
+            }
+
+            pCert = CertFindCertificateInStore(hStore, X509AsnEncoding | Pkcs7AsnEncoding,
+                0, CertFindSubjectCert, pInfo, IntPtr.Zero);
+            if (pCert == IntPtr.Zero)
+            {
+                return null;
+            }
+
+            var ctx = (CertContext*)pCert;
+            var len = (int)ctx->cbCertEncoded;
+            var raw = new byte[len];
+            System.Runtime.InteropServices.Marshal.Copy(ctx->pbCertEncoded, raw, 0, len);
+            return System.Security.Cryptography.X509Certificates.X509CertificateLoader.LoadCertificate(raw);
         }
         catch
         {
             return null;
         }
+        finally
+        {
+            if (pCert != IntPtr.Zero) { CertFreeCertificateContext(pCert); }
+            if (pInfo != IntPtr.Zero) { System.Runtime.InteropServices.Marshal.FreeHGlobal(pInfo); }
+            if (hMsg != IntPtr.Zero) { CryptMsgClose(hMsg); }
+            if (hStore != IntPtr.Zero) { CertCloseStore(hStore, 0); }
+        }
+    }
+
+    // crypt32 interop for extracting the Authenticode signer certificate.
+    private const uint CertQueryObjectFile = 0x1;
+    private const uint CertQueryContentPkcs7SignedEmbed = 0x400;
+    private const uint CertQueryFormatBinary = 0x2;
+    private const uint CmsgSignerCertInfoParam = 7;
+    private const uint X509AsnEncoding = 0x1;
+    private const uint Pkcs7AsnEncoding = 0x10000;
+    private const uint CertFindSubjectCert = 0xB0000;
+
+    [System.Runtime.InteropServices.StructLayout(System.Runtime.InteropServices.LayoutKind.Sequential)]
+    private struct CertContext
+    {
+        public uint dwCertEncodingType;
+        public IntPtr pbCertEncoded;
+        public uint cbCertEncoded;
+        public IntPtr pCertInfo;
+        public IntPtr hCertStore;
+    }
+
+    [System.Runtime.InteropServices.DllImport("crypt32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static extern bool CryptQueryObject(
+        uint dwObjectType,
+        [System.Runtime.InteropServices.MarshalAs(System.Runtime.InteropServices.UnmanagedType.LPWStr)] string pvObject,
+        uint dwExpectedContentTypeFlags,
+        uint dwExpectedFormatTypeFlags,
+        uint dwFlags,
+        out uint pdwMsgAndCertEncodingType,
+        out uint pdwContentType,
+        out uint pdwFormatType,
+        out IntPtr phCertStore,
+        out IntPtr phMsg,
+        out IntPtr ppvContext);
+
+    [System.Runtime.InteropServices.DllImport("crypt32.dll", SetLastError = true)]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static extern bool CryptMsgGetParam(IntPtr hCryptMsg, uint dwParamType, uint dwIndex, IntPtr pvData, ref uint pcbData);
+
+    [System.Runtime.InteropServices.DllImport("crypt32.dll", SetLastError = true)]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static extern bool CryptMsgClose(IntPtr hCryptMsg);
+
+    [System.Runtime.InteropServices.DllImport("crypt32.dll", SetLastError = true)]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static extern IntPtr CertFindCertificateInStore(IntPtr hCertStore, uint dwCertEncodingType, uint dwFindFlags, uint dwFindType, IntPtr pvFindPara, IntPtr pPrevCertContext);
+
+    [System.Runtime.InteropServices.DllImport("crypt32.dll", SetLastError = true)]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static extern bool CertFreeCertificateContext(IntPtr pCertContext);
+
+    [System.Runtime.InteropServices.DllImport("crypt32.dll", SetLastError = true)]
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static extern bool CertCloseStore(IntPtr hCertStore, uint dwFlags);
+
+    [System.Runtime.Versioning.SupportedOSPlatform("windows")]
+    private static bool HasDurableIdentityEku(System.Security.Cryptography.X509Certificates.X509Certificate2 cert)
+    {
+        foreach (var ext in cert.Extensions)
+        {
+            if (ext is System.Security.Cryptography.X509Certificates.X509EnhancedKeyUsageExtension eku)
+            {
+                foreach (var oid in eku.EnhancedKeyUsages)
+                {
+                    if (string.Equals(oid.Value, DurableIdentityEku, StringComparison.Ordinal))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 
     [System.Runtime.Versioning.SupportedOSPlatform("windows")]

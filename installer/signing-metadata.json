@@ -1,0 +1,5 @@
+{
+  "Endpoint": "https://wus3.codesigning.azure.net/",
+  "CodeSigningAccountName": "hellonexus",
+  "CertificateProfileName": "nexus-public"
+}

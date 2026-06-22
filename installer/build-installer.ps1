@@ -17,7 +17,10 @@
 
 param(
     [string]$PublishDir = "",
-    [switch]$OpenOutput
+    [switch]$OpenOutput,
+    [switch]$Sign,
+    [string]$SignToolPath = "",
+    [string]$DlibPath = ""
 )
 
 if ([string]::IsNullOrEmpty($PublishDir)) {
@@ -31,6 +34,78 @@ if ([string]::IsNullOrEmpty($PublishDir)) {
 $ErrorActionPreference = "Stop"
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $iss = Join-Path $scriptDir "Nexus.iss"
+
+# Artifact Signing (Azure, formerly "Trusted Signing"). Enabled with -Sign.
+# signtool + the Artifact Signing dlib sign each PE against the nexus-public
+# certificate profile (account/profile/endpoint in signing-metadata.json).
+# Auth is ambient DefaultAzureCredential: the service-principal env vars
+# AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET (EnvironmentCredential)
+# locally, or `az login` (OIDC, AzureCliCredential) in CI. Certs are valid only
+# 72h, so /tr timestamping is mandatory: it keeps a signature valid after the
+# cert rotates.
+$signMetadata = Join-Path $scriptDir "signing-metadata.json"
+
+function Resolve-SignTool {
+    if ($SignToolPath -and (Test-Path $SignToolPath)) { return $SignToolPath }
+    # The dlib does not work with the 10.0.20348 Windows SDK; take the newest
+    # other x64 signtool from the installed Windows Kits.
+    $kitRoots = @(
+        "${env:ProgramFiles(x86)}\Windows Kits\10\bin",
+        "$env:ProgramFiles\Windows Kits\10\bin"
+    )
+    $cands = foreach ($r in $kitRoots) {
+        if (Test-Path $r) {
+            Get-ChildItem $r -Directory -ErrorAction SilentlyContinue |
+                Where-Object { $_.Name -match '^10\.\d+\.\d+\.\d+$' -and $_.Name -notlike '10.0.20348.*' } |
+                ForEach-Object { Join-Path $_.FullName "x64\signtool.exe" } |
+                Where-Object { Test-Path $_ }
+        }
+    }
+    $best = $cands | Sort-Object {
+        [version](Split-Path (Split-Path (Split-Path $_ -Parent) -Parent) -Leaf)
+    } -Descending | Select-Object -First 1
+    if (-not $best) {
+        throw "signtool.exe (Windows SDK >= 10.0.22000, not 20348) not found. Install the Windows SDK or pass -SignToolPath."
+    }
+    return $best
+}
+
+function Resolve-Dlib {
+    if ($DlibPath -and (Test-Path $DlibPath)) { return $DlibPath }
+    $roots = @(
+        "$env:ProgramFiles\Microsoft Artifact Signing Client Tools",
+        "${env:ProgramFiles(x86)}\Microsoft Artifact Signing Client Tools",
+        (Join-Path $scriptDir "signing-tools")
+    )
+    foreach ($r in $roots) {
+        if (Test-Path $r) {
+            $hits = @(Get-ChildItem $r -Recurse -Filter "Azure.CodeSigning.Dlib.dll" -ErrorAction SilentlyContinue)
+            if ($hits.Count -gt 0) {
+                # Prefer the x64 dlib (this signtool is x64); fall back to whatever
+                # the install layout provides rather than throwing.
+                $x64 = $hits | Where-Object { $_.FullName -match '\\x64\\' } | Select-Object -First 1
+                if ($x64) { return $x64.FullName }
+                return $hits[0].FullName
+            }
+        }
+    }
+    throw "Azure.CodeSigning.Dlib.dll (x64) not found. Install Microsoft.Azure.ArtifactSigningClientTools (winget) or pass -DlibPath."
+}
+
+function Invoke-NexusSigning {
+    param([string[]]$Files)
+    $targets = @($Files | Where-Object { $_ -and (Test-Path $_) })
+    if ($targets.Count -eq 0) { return }
+    if (-not (Test-Path $signMetadata)) { throw "Missing signing metadata: $signMetadata" }
+    $st = Resolve-SignTool
+    $dlib = Resolve-Dlib
+    Write-Host "Signing $($targets.Count) file(s): $st"
+    foreach ($f in $targets) {
+        & $st sign /v /fd SHA256 /tr "http://timestamp.acs.microsoft.com" /td SHA256 `
+            /dlib $dlib /dmdf $signMetadata $f
+        if ($LASTEXITCODE -ne 0) { throw "signtool failed (exit $LASTEXITCODE) on $f" }
+    }
+}
 
 # Probe standard Inno Setup 6 install locations: per-user (winget default),
 # then both Program Files variants (machine-wide / Chocolatey on CI).
@@ -108,6 +183,17 @@ if ((Test-Path $assetsDir) -and (Test-Path $indexHtml)) {
     Write-Host "wwwroot clean: $($all.Count) bundles, 0 orphaned."
 }
 
+# Sign first-party executables before Inno packages them, so the binaries the
+# user runs after install are signed (third-party bundles - OpenRGB, adb - are
+# launched by the signed service, never directly by the user, so they carry no
+# mark-of-the-web and are left unsigned).
+if ($Sign) {
+    $firstParty = @(Join-Path $PublishDir "Nexus.exe")
+    $firstParty += Get-ChildItem $PublishDir -Recurse -Filter "nexus-overlay.exe" -ErrorAction SilentlyContinue |
+        ForEach-Object { $_.FullName }
+    Invoke-NexusSigning $firstParty
+}
+
 Push-Location $scriptDir
 try {
     & $iscc /DPublishDir="$PublishDir" Nexus.iss
@@ -117,6 +203,11 @@ try {
 }
 
 $out = Join-Path $scriptDir "output\Nexus-Setup.exe"
+
+# Sign the installer before the drop copy and the hash, so SHA256SUMS (and the
+# OTA integrity check that reads it) covers the signed bytes.
+if ($Sign) { Invoke-NexusSigning @($out) }
+
 $dropDir = (Resolve-Path (Join-Path $scriptDir "..\..")).Path
 $drop    = Join-Path $dropDir "Nexus-Setup.exe"
 Copy-Item $out $drop -Force
