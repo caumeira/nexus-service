@@ -91,7 +91,11 @@ Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 ; Programs, and starts the service. It is idempotent so re-running this
 ; installer is safe.
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--install"; Flags: runhidden waituntilterminated; StatusMsg: "Installing Nexus service..."
-Filename: "http://localhost:9400/"; Flags: shellexec nowait skipifsilent; StatusMsg: "Opening dashboard..."
+; Open the dashboard as the chromeless --app window (overlay WebView2, Edge --app
+; fallback), the same as the tray's "Open dashboard". runasoriginaluser drops the
+; installer's elevation so it launches in the user session, like the tray's
+; schtasks path; without it the window would spawn elevated/in the wrong session.
+Filename: "{app}\{#MyAppExeName}"; Parameters: "--open-app"; Flags: nowait skipifsilent runasoriginaluser; StatusMsg: "Opening dashboard..."
 
 [UninstallRun]
 ; Mirrors install: --uninstall stops + deletes the service, removes the
