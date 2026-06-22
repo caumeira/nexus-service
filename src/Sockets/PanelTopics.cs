@@ -52,6 +52,22 @@ public static class PanelTopics
     /// </summary>
     public const string Transfer = "transfer";
 
+    /// <summary>
+    /// OTA update status changed (an update became available or finished
+    /// staging). Subscribers refetch GET /update/status so the sidebar banner
+    /// shows on detection instead of waiting out the dashboard's 60s poll.
+    /// </summary>
+    public const string Update = "update";
+
+    public static void BroadcastUpdate(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(Update))
+            return;
+        var frame = new Models.Update.UpdateStatusChangedFrame { Revision = Now() };
+        var env = WsEnvelope.Build(Update, frame, AppJsonContext.Default.UpdateStatusChangedFrame);
+        _ = hub.BroadcastTopicAsync(Update, env);
+    }
+
     public static void BroadcastPrefs(MultiplexHub hub)
     {
         if (!hub.TopicHasSubscribers(Prefs))

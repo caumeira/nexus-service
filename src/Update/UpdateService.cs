@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Models.Update;
 using Nexus.Service.Persistence;
+using Nexus.Service.Sockets;
 #if WINDOWS
 using Nexus.Service.Helper;
 using Nexus.Service.Helper.Domains;
@@ -44,6 +45,7 @@ public sealed class UpdateService : BackgroundService
     private readonly UpdateDownloader _downloader;
     private readonly IConfigStore _store;
     private readonly FirmwareFlasher _flasher;
+    private readonly MultiplexHub _hub;
 #if WINDOWS
     private readonly HelperRegistry _helperRegistry;
 #endif
@@ -70,11 +72,19 @@ public sealed class UpdateService : BackgroundService
     private volatile bool _updateReady;
     private volatile string? _stagedInstallerPath;
 
+    // Last (updateAvailable, updateReady) pushed over the WS. The status-changed
+    // broadcast fires only on the rising edge of either, keeping the 4h poll off
+    // the wire when the state is unchanged.
+    private bool _broadcastUpdateAvailable;
+    private bool _broadcastUpdateReady;
+    private readonly object _broadcastLock = new();
+
     public UpdateService(
         IUpdateSource source,
         UpdateDownloader downloader,
         IConfigStore store,
-        FirmwareFlasher flasher
+        FirmwareFlasher flasher,
+        MultiplexHub hub
 #if WINDOWS
         , HelperRegistry helperRegistry
 #endif
@@ -84,6 +94,7 @@ public sealed class UpdateService : BackgroundService
         _downloader = downloader;
         _store = store;
         _flasher = flasher;
+        _hub = hub;
 #if WINDOWS
         _helperRegistry = helperRegistry;
 #endif
@@ -445,6 +456,11 @@ public sealed class UpdateService : BackgroundService
                     Console.Error.WriteLine($"[update] auto-staging download for {manifest.Version} (mode={mode})");
                 }
             }
+
+            // Push on the availability rising edge so the sidebar banner appears
+            // immediately in notify mode; download/always also fire here, then
+            // again from RunInstallAsync once the staged installer is ready.
+            NotifyStatusChanged();
         }
         catch (OperationCanceledException)
         {
@@ -648,6 +664,9 @@ public sealed class UpdateService : BackgroundService
                 }
                 catch { /* notification is non-critical */ }
 #endif
+                // Staging finished: push so a download/always dashboard surfaces
+                // the banner now, alongside the tray "update ready" notification.
+                NotifyStatusChanged();
                 Console.Error.WriteLine($"[update] download staged for {manifest.Version}; awaiting user trigger");
                 return;
             }
@@ -796,6 +815,28 @@ public sealed class UpdateService : BackgroundService
             State = state,
             UpdateReady = _updateReady,
         };
+    }
+
+    /// <summary>
+    /// Push an update-status-changed frame on the rising edge of updateAvailable
+    /// or updateReady so subscribed dashboards refetch GET /update/status and
+    /// surface the banner on detection. Both signals falling re-arms the rise.
+    /// </summary>
+    private void NotifyStatusChanged()
+    {
+        var snap = _status;
+        bool fire;
+        lock (_broadcastLock)
+        {
+            fire = (snap.UpdateAvailable && !_broadcastUpdateAvailable)
+                || (snap.UpdateReady && !_broadcastUpdateReady);
+            _broadcastUpdateAvailable = snap.UpdateAvailable;
+            _broadcastUpdateReady = snap.UpdateReady;
+        }
+        if (fire)
+        {
+            PanelTopics.BroadcastUpdate(_hub);
+        }
     }
 
     private void UpdateStatusUpdateReady(bool ready)

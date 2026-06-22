@@ -55,3 +55,14 @@ public sealed class UpdateStartRequest
     /// <summary>When true, the dashboard is reopened after the install completes.</summary>
     public bool ReopenAfter { get; set; }
 }
+
+/// <summary>
+/// Multiplex frame: the OTA status transitioned to update-available or
+/// update-ready. Subscribers refetch <c>GET /update/status</c> so the sidebar
+/// banner appears the moment the service detects/stages an update, without
+/// waiting out the 60s poll. <c>Revision</c> is unix-ms.
+/// </summary>
+public sealed class UpdateStatusChangedFrame
+{
+    public long Revision { get; set; }
+}
