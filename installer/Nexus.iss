@@ -19,8 +19,15 @@
 ; Inno then removes the install dir on top of that.
 
 #define MyAppName "Nexus"
-#define MyAppVersion "0.1.0"
-#define MyAppPublisher "Nexus Nexus"
+; Versions come from build-installer.ps1 (read from the VERSION file). The
+; fallbacks only apply to a bare ISCC run with no /D overrides.
+#ifndef MyAppVersion
+  #define MyAppVersion "0.0.0"
+#endif
+#ifndef MyAppVersionInfo
+  #define MyAppVersionInfo "0.0.0.0"
+#endif
+#define MyAppPublisher "Nexus"
 #define MyAppURL "https://hellonexus.com"
 #define MyAppExeName "Nexus.exe"
 #ifndef PublishDir
@@ -31,6 +38,7 @@
 AppId={{8F2E3A4D-9C5B-4E7A-B1F8-3C2A5E9D0F12}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+VersionInfoVersion={#MyAppVersionInfo}
 AppPublisher={#MyAppPublisher}
 AppPublisherURL={#MyAppURL}
 AppSupportURL={#MyAppURL}

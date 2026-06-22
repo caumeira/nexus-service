@@ -194,9 +194,17 @@ if ($Sign) {
     Invoke-NexusSigning $firstParty
 }
 
+# Drive the installer's displayed version from the VERSION file so Nexus-Setup.exe
+# reports the real product version (e.g. 3.0.0-beta.1) instead of a stale literal.
+# VersionInfoVersion (the Details-tab File version) must be 4-part numeric, so the
+# -beta.N suffix rides only on AppVersion.
+$verFull = (Get-Content (Join-Path $scriptDir "..\VERSION") -Raw).Trim()
+$verNumeric = ($verFull -split '-')[0]
+$verInfo = "$verNumeric.0"
+
 Push-Location $scriptDir
 try {
-    & $iscc /DPublishDir="$PublishDir" Nexus.iss
+    & $iscc /DPublishDir="$PublishDir" /DMyAppVersion="$verFull" /DMyAppVersionInfo="$verInfo" Nexus.iss
     if ($LASTEXITCODE -ne 0) { throw "ISCC compile failed (exit $LASTEXITCODE)" }
 } finally {
     Pop-Location
