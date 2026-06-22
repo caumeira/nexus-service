@@ -63,7 +63,9 @@ internal static class CommandLineEntry
         if (args.Length > 0 && (
                 args[0].StartsWith("nexus://restart-service", StringComparison.OrdinalIgnoreCase)
                 || args[0].StartsWith("nexus://start-admin", StringComparison.OrdinalIgnoreCase)))
+        {
             return WindowsServiceInstaller.RunStartService();
+        }
 #endif
         return null;
     }

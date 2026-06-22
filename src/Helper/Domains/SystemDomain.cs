@@ -7,120 +7,119 @@ using System.Threading.Tasks;
 using Nexus.Service.Platform.Windows;
 using Nexus.Service.Serialization;
 
-namespace Nexus.Service.Helper.Domains
+namespace Nexus.Service.Helper.Domains;
+
+public sealed class OpenSettingsPayload { }
+
+public sealed class OpenUrlPayload
 {
-    public sealed class OpenSettingsPayload { }
+    public string Url { get; set; } = "";
+}
 
-    public sealed class OpenUrlPayload
+public sealed class OpenFilePayload
+{
+    public string Path { get; set; } = "";
+}
+
+[SupportedOSPlatform("windows")]
+public static class SystemCommands
+{
+    public const string OpenSettingsType = "system.openSettings";
+    public const string OpenUrlType = "system.openUrl";
+    public const string OpenFileType = "system.openFile";
+
+    public static Task OpenSettingsAsync(HelperRegistry registry, CancellationToken ct = default)
     {
-        public string Url { get; set; } = "";
+        var conn = registry.GetAny();
+        if (conn is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return conn.SendAsync(
+            type: OpenSettingsType,
+            payload: new OpenSettingsPayload(),
+            payloadType: AppJsonContext.Default.OpenSettingsPayload,
+            ct: ct);
     }
 
-    public sealed class OpenFilePayload
+    public static Task OpenUrlAsync(HelperRegistry registry, string url, CancellationToken ct = default)
     {
-        public string Path { get; set; } = "";
+        var conn = registry.GetAny();
+        if (conn is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        return conn.SendAsync(
+            type: OpenUrlType,
+            payload: new OpenUrlPayload { Url = url },
+            payloadType: AppJsonContext.Default.OpenUrlPayload,
+            ct: ct);
     }
 
-    [SupportedOSPlatform("windows")]
-    public static class SystemCommands
+    public static Task OpenFileAsync(HelperRegistry registry, string path, CancellationToken ct = default)
     {
-        public const string OpenSettingsType = "system.openSettings";
-        public const string OpenUrlType = "system.openUrl";
-        public const string OpenFileType = "system.openFile";
-
-        public static Task OpenSettingsAsync(HelperRegistry registry, CancellationToken ct = default)
+        var conn = registry.GetAny();
+        if (conn is null)
         {
-            var conn = registry.GetAny();
-            if (conn is null)
-            {
-                return Task.CompletedTask;
-            }
-
-            return conn.SendAsync(
-                type: OpenSettingsType,
-                payload: new OpenSettingsPayload(),
-                payloadType: AppJsonContext.Default.OpenSettingsPayload,
-                ct: ct);
+            return Task.CompletedTask;
         }
 
-        public static Task OpenUrlAsync(HelperRegistry registry, string url, CancellationToken ct = default)
-        {
-            var conn = registry.GetAny();
-            if (conn is null)
-            {
-                return Task.CompletedTask;
-            }
-
-            return conn.SendAsync(
-                type: OpenUrlType,
-                payload: new OpenUrlPayload { Url = url },
-                payloadType: AppJsonContext.Default.OpenUrlPayload,
-                ct: ct);
-        }
-
-        public static Task OpenFileAsync(HelperRegistry registry, string path, CancellationToken ct = default)
-        {
-            var conn = registry.GetAny();
-            if (conn is null)
-            {
-                return Task.CompletedTask;
-            }
-
-            return conn.SendAsync(
-                type: OpenFileType,
-                payload: new OpenFilePayload { Path = path },
-                payloadType: AppJsonContext.Default.OpenFilePayload,
-                ct: ct);
-        }
+        return conn.SendAsync(
+            type: OpenFileType,
+            payload: new OpenFilePayload { Path = path },
+            payloadType: AppJsonContext.Default.OpenFilePayload,
+            ct: ct);
     }
+}
 
-    [SupportedOSPlatform("windows")]
-    public sealed class SystemHandler
+[SupportedOSPlatform("windows")]
+public sealed class SystemHandler
+{
+    public void Register(HelperHandlerRegistry registry)
     {
-        public void Register(HelperHandlerRegistry registry)
+        registry.Register(SystemCommands.OpenSettingsType, (env, _) =>
         {
-            registry.Register(SystemCommands.OpenSettingsType, (env, _) =>
+            try
             {
-                try
-                {
-                    ForegroundNudge.OpenSettingsOverApp();
-                }
-                catch { }
-                return Task.FromResult(env.Ok());
-            });
+                ForegroundNudge.OpenSettingsOverApp();
+            }
+            catch { }
+            return Task.FromResult(env.Ok());
+        });
 
-            registry.Register(SystemCommands.OpenUrlType, (env, _) =>
+        registry.Register(SystemCommands.OpenUrlType, (env, _) =>
+        {
+            try
             {
-                try
+                var payload = env.Payload is null
+                    ? new OpenUrlPayload()
+                    : JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.OpenUrlPayload) ?? new OpenUrlPayload();
+                if (!string.IsNullOrWhiteSpace(payload.Url))
                 {
-                    var payload = env.Payload is null
-                        ? new OpenUrlPayload()
-                        : JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.OpenUrlPayload) ?? new OpenUrlPayload();
-                    if (!string.IsNullOrWhiteSpace(payload.Url))
-                    {
-                        ForegroundNudge.OpenUrlOverApp(payload.Url);
-                    }
+                    ForegroundNudge.OpenUrlOverApp(payload.Url);
                 }
-                catch { }
-                return Task.FromResult(env.Ok());
-            });
+            }
+            catch { }
+            return Task.FromResult(env.Ok());
+        });
 
-            registry.Register(SystemCommands.OpenFileType, (env, _) =>
+        registry.Register(SystemCommands.OpenFileType, (env, _) =>
+        {
+            try
             {
-                try
+                var payload = env.Payload is null
+                    ? new OpenFilePayload()
+                    : JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.OpenFilePayload) ?? new OpenFilePayload();
+                if (!string.IsNullOrWhiteSpace(payload.Path))
                 {
-                    var payload = env.Payload is null
-                        ? new OpenFilePayload()
-                        : JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.OpenFilePayload) ?? new OpenFilePayload();
-                    if (!string.IsNullOrWhiteSpace(payload.Path))
-                    {
-                        ForegroundNudge.OpenFileOverApp(payload.Path);
-                    }
+                    ForegroundNudge.OpenFileOverApp(payload.Path);
                 }
-                catch { }
-                return Task.FromResult(env.Ok());
-            });
-        }
+            }
+            catch { }
+            return Task.FromResult(env.Ok());
+        });
     }
 }
 #endif

@@ -26,7 +26,8 @@ public sealed class DxgiScreenCapture : IDisposable
         {
             using var factory = DXGI.CreateDXGIFactory1<IDXGIFactory1>();
             factory.EnumAdapters1(0u, out var adapter);
-            D3D11.D3D11CreateDevice(adapter, DriverType.Unknown, DeviceCreationFlags.BgraSupport, null, out _device, out _, out _context);
+            // null feature-levels = let D3D pick its default set; the binding's param isn't nullable-annotated.
+            D3D11.D3D11CreateDevice(adapter, DriverType.Unknown, DeviceCreationFlags.BgraSupport, null!, out _device, out _, out _context);
             if (_device is null || _context is null) { adapter.Dispose(); return false; }
             adapter.EnumOutputs(outputIndex, out var output);
             adapter.Dispose();

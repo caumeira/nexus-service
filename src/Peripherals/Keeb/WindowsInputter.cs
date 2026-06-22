@@ -66,7 +66,9 @@ public sealed class WindowsInputter : IInputterProvider
         // Function keys: F1..F24
         if (key.StartsWith('F') && key.Length >= 2 && key.Length <= 3
             && int.TryParse(key.AsSpan(1), out var fn) && fn >= 1 && fn <= 24)
+        {
             return (ushort)(0x70 + fn - 1); // VK_F1 = 0x70
+        }
 
         return key switch
         {
@@ -125,7 +127,7 @@ public sealed class WindowsInputter : IInputterProvider
         public uint dwFlags;
         public uint time;
         public IntPtr dwExtraInfo;
-        private IntPtr _pad1, _pad2; // union padding to match MOUSEINPUT size
+        private readonly IntPtr _pad1, _pad2; // union padding to match MOUSEINPUT size
     }
 
     [DllImport("user32.dll", SetLastError = true)]

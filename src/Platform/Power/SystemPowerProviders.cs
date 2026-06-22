@@ -31,7 +31,9 @@ public sealed class WindowsSystemPowerProvider : ISystemPowerProvider
         // uses. Fall back to a direct call (works if ever run interactively).
         if (Nexus.Service.Lifecycle.UserHelperBootstrapper.RunInUserSession(
                 "rundll32.exe user32.dll,LockWorkStation", "lock", "NexusLock"))
+        {
             return true;
+        }
 #endif
         return LockWorkStation();
     }

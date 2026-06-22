@@ -6,254 +6,253 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Serialization;
 
-namespace Nexus.Service.Helper.Domains
+namespace Nexus.Service.Helper.Domains;
+
+/// <summary>
+/// Payload for <c>trayIcon.setVisible</c>. Service-to-helper. The
+/// service pushes the persisted <c>ShowWindowsTrayIcon</c> setting on
+/// every connect so the helper settles to the configured value within
+/// ~1 s of bootstrap.
+/// </summary>
+public sealed class TraySetVisiblePayload
 {
-    /// <summary>
-    /// Payload for <c>trayIcon.setVisible</c>. Service-to-helper. The
-    /// service pushes the persisted <c>ShowWindowsTrayIcon</c> setting on
-    /// every connect so the helper settles to the configured value within
-    /// ~1 s of bootstrap.
-    /// </summary>
-    public sealed class TraySetVisiblePayload
+    public bool Visible { get; set; }
+}
+
+/// <summary>
+/// Payload for <c>trayIcon.pairNotice</c>. Service-to-helper. The service
+/// raises this when a phone submits a pair request and no dashboard is
+/// open to surface the Allow/Deny modal. <see cref="Show"/> true pops a
+/// tray balloon (click → opens the dashboard); false dismisses it once
+/// the request is resolved.
+/// </summary>
+public sealed class TrayPairNoticePayload
+{
+    public bool Show { get; set; }
+    public string DeviceLabel { get; set; } = "";
+}
+
+/// <summary>
+/// Payload for <c>trayIcon.notice</c>. Service-to-helper. Generic one-shot
+/// balloon (first user: incoming phone→PC transfers landing while no
+/// dashboard is open). When <see cref="FolderPath"/> is set, clicking the
+/// balloon opens that folder in Explorer instead of the dashboard.
+/// </summary>
+public sealed class TrayNoticePayload
+{
+    public string Title { get; set; } = "";
+    public string Text { get; set; } = "";
+    public string FolderPath { get; set; } = "";
+}
+
+/// <summary>Payload for <c>trayIcon.updateReady</c>. Service-to-helper.</summary>
+public sealed class TrayUpdateReadyPayload
+{
+    public string Version { get; set; } = "";
+}
+
+/// <summary>Payload for <c>trayIcon.openDashboard</c>. Service-to-helper. No fields required.</summary>
+public sealed class TrayOpenDashboardPayload
+{
+}
+
+/// <summary>Payload for <c>trayIcon.showUpdaterWindow</c>. Service-to-helper.</summary>
+public sealed class TrayShowUpdaterWindowPayload
+{
+    public string FromVersion { get; set; } = "";
+    public string ToVersion { get; set; } = "";
+}
+
+/// <summary>Payload for <c>trayIcon.closeUpdaterWindow</c>. Service-to-helper. No fields required.</summary>
+public sealed class TrayCloseUpdaterWindowPayload
+{
+}
+
+// JSON source-gen registration lives in src/Serialization/AppJsonContext.cs
+// (see note in LifecycleDomain.cs).
+
+[SupportedOSPlatform("windows")]
+public static class TrayCommands
+{
+    public static Task SetVisibleAsync(HelperRegistry registry, bool visible, CancellationToken ct = default)
     {
-        public bool Visible { get; set; }
+        var conn = registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "trayIcon.setVisible",
+            payload: new TraySetVisiblePayload { Visible = visible },
+            payloadType: AppJsonContext.Default.TraySetVisiblePayload,
+            ct: ct);
     }
 
-    /// <summary>
-    /// Payload for <c>trayIcon.pairNotice</c>. Service-to-helper. The service
-    /// raises this when a phone submits a pair request and no dashboard is
-    /// open to surface the Allow/Deny modal. <see cref="Show"/> true pops a
-    /// tray balloon (click → opens the dashboard); false dismisses it once
-    /// the request is resolved.
-    /// </summary>
-    public sealed class TrayPairNoticePayload
+    public static Task PairNoticeAsync(HelperRegistry registry, bool show, string deviceLabel, CancellationToken ct = default)
     {
-        public bool Show { get; set; }
-        public string DeviceLabel { get; set; } = "";
+        var conn = registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "trayIcon.pairNotice",
+            payload: new TrayPairNoticePayload { Show = show, DeviceLabel = deviceLabel ?? "" },
+            payloadType: AppJsonContext.Default.TrayPairNoticePayload,
+            ct: ct);
     }
 
-    /// <summary>
-    /// Payload for <c>trayIcon.notice</c>. Service-to-helper. Generic one-shot
-    /// balloon (first user: incoming phone→PC transfers landing while no
-    /// dashboard is open). When <see cref="FolderPath"/> is set, clicking the
-    /// balloon opens that folder in Explorer instead of the dashboard.
-    /// </summary>
-    public sealed class TrayNoticePayload
+    public static Task NoticeAsync(HelperRegistry registry, string title, string text, string? folderPath, CancellationToken ct = default)
     {
-        public string Title { get; set; } = "";
-        public string Text { get; set; } = "";
-        public string FolderPath { get; set; } = "";
+        var conn = registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "trayIcon.notice",
+            payload: new TrayNoticePayload { Title = title, Text = text, FolderPath = folderPath ?? "" },
+            payloadType: AppJsonContext.Default.TrayNoticePayload,
+            ct: ct);
     }
 
-    /// <summary>Payload for <c>trayIcon.updateReady</c>. Service-to-helper.</summary>
-    public sealed class TrayUpdateReadyPayload
+    public static Task UpdateReadyAsync(HelperRegistry registry, string version, CancellationToken ct = default)
     {
-        public string Version { get; set; } = "";
+        var conn = registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "trayIcon.updateReady",
+            payload: new TrayUpdateReadyPayload { Version = version },
+            payloadType: AppJsonContext.Default.TrayUpdateReadyPayload,
+            ct: ct);
     }
 
-    /// <summary>Payload for <c>trayIcon.openDashboard</c>. Service-to-helper. No fields required.</summary>
-    public sealed class TrayOpenDashboardPayload
+    public static Task OpenDashboardAsync(HelperRegistry registry, CancellationToken ct = default)
     {
+        var conn = registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "trayIcon.openDashboard",
+            payload: new TrayOpenDashboardPayload(),
+            payloadType: AppJsonContext.Default.TrayOpenDashboardPayload,
+            ct: ct);
     }
 
-    /// <summary>Payload for <c>trayIcon.showUpdaterWindow</c>. Service-to-helper.</summary>
-    public sealed class TrayShowUpdaterWindowPayload
+    public static Task ShowUpdaterWindowAsync(HelperRegistry registry, string fromVersion, string toVersion, CancellationToken ct = default)
     {
-        public string FromVersion { get; set; } = "";
-        public string ToVersion { get; set; } = "";
+        var conn = registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "trayIcon.showUpdaterWindow",
+            payload: new TrayShowUpdaterWindowPayload { FromVersion = fromVersion, ToVersion = toVersion },
+            payloadType: AppJsonContext.Default.TrayShowUpdaterWindowPayload,
+            ct: ct);
     }
 
-    /// <summary>Payload for <c>trayIcon.closeUpdaterWindow</c>. Service-to-helper. No fields required.</summary>
-    public sealed class TrayCloseUpdaterWindowPayload
+    public static Task CloseUpdaterWindowAsync(HelperRegistry registry, CancellationToken ct = default)
     {
+        var conn = registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "trayIcon.closeUpdaterWindow",
+            payload: new TrayCloseUpdaterWindowPayload(),
+            payloadType: AppJsonContext.Default.TrayCloseUpdaterWindowPayload,
+            ct: ct);
+    }
+}
+
+[SupportedOSPlatform("windows")]
+public sealed class TrayHandler
+{
+    private readonly Action<bool> _setVisible;
+    private readonly Action<string> _showPairNotice;
+    private readonly Action _dismissPairNotice;
+    private readonly Action<string, string, string?> _showNotice;
+    private readonly Action<string> _showUpdateReady;
+    private readonly Action _openDashboard;
+    private readonly Action<string, string> _showUpdaterWindow;
+    private readonly Action _closeUpdaterWindow;
+    // Deduplicates balloon: skip if the version was already notified.
+    private string? _notifiedVersion;
+
+    public TrayHandler(
+        Action<bool> setVisible,
+        Action<string> showPairNotice,
+        Action dismissPairNotice,
+        Action<string, string, string?> showNotice,
+        Action<string> showUpdateReady,
+        Action openDashboard,
+        Action<string, string> showUpdaterWindow,
+        Action closeUpdaterWindow)
+    {
+        _setVisible = setVisible;
+        _showPairNotice = showPairNotice;
+        _dismissPairNotice = dismissPairNotice;
+        _showNotice = showNotice;
+        _showUpdateReady = showUpdateReady;
+        _openDashboard = openDashboard;
+        _showUpdaterWindow = showUpdaterWindow;
+        _closeUpdaterWindow = closeUpdaterWindow;
     }
 
-    // JSON source-gen registration lives in src/Serialization/AppJsonContext.cs
-    // (see note in LifecycleDomain.cs).
-
-    [SupportedOSPlatform("windows")]
-    public static class TrayCommands
+    public void Register(HelperHandlerRegistry registry)
     {
-        public static Task SetVisibleAsync(HelperRegistry registry, bool visible, CancellationToken ct = default)
+        registry.Register("trayIcon.setVisible", (env, _) =>
         {
-            var conn = registry.GetAny();
-            if (conn is null) return Task.CompletedTask;
-            return conn.SendAsync(
-                type: "trayIcon.setVisible",
-                payload: new TraySetVisiblePayload { Visible = visible },
-                payloadType: AppJsonContext.Default.TraySetVisiblePayload,
-                ct: ct);
-        }
+            if (env.Payload is null) return Task.FromResult(env.Ok());
+            var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TraySetVisiblePayload);
+            _setVisible(p?.Visible ?? false);
+            return Task.FromResult(env.Ok());
+        });
 
-        public static Task PairNoticeAsync(HelperRegistry registry, bool show, string deviceLabel, CancellationToken ct = default)
+        registry.Register("trayIcon.pairNotice", (env, _) =>
         {
-            var conn = registry.GetAny();
-            if (conn is null) return Task.CompletedTask;
-            return conn.SendAsync(
-                type: "trayIcon.pairNotice",
-                payload: new TrayPairNoticePayload { Show = show, DeviceLabel = deviceLabel ?? "" },
-                payloadType: AppJsonContext.Default.TrayPairNoticePayload,
-                ct: ct);
-        }
-
-        public static Task NoticeAsync(HelperRegistry registry, string title, string text, string? folderPath, CancellationToken ct = default)
-        {
-            var conn = registry.GetAny();
-            if (conn is null) return Task.CompletedTask;
-            return conn.SendAsync(
-                type: "trayIcon.notice",
-                payload: new TrayNoticePayload { Title = title, Text = text, FolderPath = folderPath ?? "" },
-                payloadType: AppJsonContext.Default.TrayNoticePayload,
-                ct: ct);
-        }
-
-        public static Task UpdateReadyAsync(HelperRegistry registry, string version, CancellationToken ct = default)
-        {
-            var conn = registry.GetAny();
-            if (conn is null) return Task.CompletedTask;
-            return conn.SendAsync(
-                type: "trayIcon.updateReady",
-                payload: new TrayUpdateReadyPayload { Version = version },
-                payloadType: AppJsonContext.Default.TrayUpdateReadyPayload,
-                ct: ct);
-        }
-
-        public static Task OpenDashboardAsync(HelperRegistry registry, CancellationToken ct = default)
-        {
-            var conn = registry.GetAny();
-            if (conn is null) return Task.CompletedTask;
-            return conn.SendAsync(
-                type: "trayIcon.openDashboard",
-                payload: new TrayOpenDashboardPayload(),
-                payloadType: AppJsonContext.Default.TrayOpenDashboardPayload,
-                ct: ct);
-        }
-
-        public static Task ShowUpdaterWindowAsync(HelperRegistry registry, string fromVersion, string toVersion, CancellationToken ct = default)
-        {
-            var conn = registry.GetAny();
-            if (conn is null) return Task.CompletedTask;
-            return conn.SendAsync(
-                type: "trayIcon.showUpdaterWindow",
-                payload: new TrayShowUpdaterWindowPayload { FromVersion = fromVersion, ToVersion = toVersion },
-                payloadType: AppJsonContext.Default.TrayShowUpdaterWindowPayload,
-                ct: ct);
-        }
-
-        public static Task CloseUpdaterWindowAsync(HelperRegistry registry, CancellationToken ct = default)
-        {
-            var conn = registry.GetAny();
-            if (conn is null) return Task.CompletedTask;
-            return conn.SendAsync(
-                type: "trayIcon.closeUpdaterWindow",
-                payload: new TrayCloseUpdaterWindowPayload(),
-                payloadType: AppJsonContext.Default.TrayCloseUpdaterWindowPayload,
-                ct: ct);
-        }
-    }
-
-    [SupportedOSPlatform("windows")]
-    public sealed class TrayHandler
-    {
-        private readonly Action<bool> _setVisible;
-        private readonly Action<string> _showPairNotice;
-        private readonly Action _dismissPairNotice;
-        private readonly Action<string, string, string?> _showNotice;
-        private readonly Action<string> _showUpdateReady;
-        private readonly Action _openDashboard;
-        private readonly Action<string, string> _showUpdaterWindow;
-        private readonly Action _closeUpdaterWindow;
-        // Deduplicates balloon: skip if the version was already notified.
-        private string? _notifiedVersion;
-
-        public TrayHandler(
-            Action<bool> setVisible,
-            Action<string> showPairNotice,
-            Action dismissPairNotice,
-            Action<string, string, string?> showNotice,
-            Action<string> showUpdateReady,
-            Action openDashboard,
-            Action<string, string> showUpdaterWindow,
-            Action closeUpdaterWindow)
-        {
-            _setVisible = setVisible;
-            _showPairNotice = showPairNotice;
-            _dismissPairNotice = dismissPairNotice;
-            _showNotice = showNotice;
-            _showUpdateReady = showUpdateReady;
-            _openDashboard = openDashboard;
-            _showUpdaterWindow = showUpdaterWindow;
-            _closeUpdaterWindow = closeUpdaterWindow;
-        }
-
-        public void Register(HelperHandlerRegistry registry)
-        {
-            registry.Register("trayIcon.setVisible", (env, _) =>
+            if (env.Payload is null) return Task.FromResult(env.Ok());
+            var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TrayPairNoticePayload);
+            if (p is not null)
             {
-                if (env.Payload is null) return Task.FromResult(env.Ok());
-                var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TraySetVisiblePayload);
-                _setVisible(p?.Visible ?? false);
-                return Task.FromResult(env.Ok());
-            });
+                if (p.Show) _showPairNotice(p.DeviceLabel ?? "");
+                else _dismissPairNotice();
+            }
+            return Task.FromResult(env.Ok());
+        });
 
-            registry.Register("trayIcon.pairNotice", (env, _) =>
+        registry.Register("trayIcon.notice", (env, _) =>
+        {
+            if (env.Payload is null) return Task.FromResult(env.Ok());
+            var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TrayNoticePayload);
+            if (p is not null)
             {
-                if (env.Payload is null) return Task.FromResult(env.Ok());
-                var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TrayPairNoticePayload);
-                if (p is not null)
-                {
-                    if (p.Show) _showPairNotice(p.DeviceLabel ?? "");
-                    else _dismissPairNotice();
-                }
-                return Task.FromResult(env.Ok());
-            });
+                _showNotice(p.Title ?? "", p.Text ?? "", string.IsNullOrEmpty(p.FolderPath) ? null : p.FolderPath);
+            }
+            return Task.FromResult(env.Ok());
+        });
 
-            registry.Register("trayIcon.notice", (env, _) =>
+        registry.Register("trayIcon.updateReady", (env, _) =>
+        {
+            if (env.Payload is null) return Task.FromResult(env.Ok());
+            var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TrayUpdateReadyPayload);
+            if (p is not null && !string.IsNullOrEmpty(p.Version) && p.Version != _notifiedVersion)
             {
-                if (env.Payload is null) return Task.FromResult(env.Ok());
-                var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TrayNoticePayload);
-                if (p is not null)
-                {
-                    _showNotice(p.Title ?? "", p.Text ?? "", string.IsNullOrEmpty(p.FolderPath) ? null : p.FolderPath);
-                }
-                return Task.FromResult(env.Ok());
-            });
+                _notifiedVersion = p.Version;
+                _showUpdateReady(p.Version);
+            }
+            return Task.FromResult(env.Ok());
+        });
 
-            registry.Register("trayIcon.updateReady", (env, _) =>
-            {
-                if (env.Payload is null) return Task.FromResult(env.Ok());
-                var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TrayUpdateReadyPayload);
-                if (p is not null && !string.IsNullOrEmpty(p.Version) && p.Version != _notifiedVersion)
-                {
-                    _notifiedVersion = p.Version;
-                    _showUpdateReady(p.Version);
-                }
-                return Task.FromResult(env.Ok());
-            });
+        registry.Register("trayIcon.openDashboard", (env, _) =>
+        {
+            _openDashboard();
+            return Task.FromResult(env.Ok());
+        });
 
-            registry.Register("trayIcon.openDashboard", (env, _) =>
+        registry.Register("trayIcon.showUpdaterWindow", (env, _) =>
+        {
+            if (env.Payload is null) return Task.FromResult(env.Ok());
+            var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TrayShowUpdaterWindowPayload);
+            if (p is not null)
             {
-                _openDashboard();
-                return Task.FromResult(env.Ok());
-            });
+                _showUpdaterWindow(p.FromVersion ?? "", p.ToVersion ?? "");
+            }
+            return Task.FromResult(env.Ok());
+        });
 
-            registry.Register("trayIcon.showUpdaterWindow", (env, _) =>
-            {
-                if (env.Payload is null) return Task.FromResult(env.Ok());
-                var p = JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.TrayShowUpdaterWindowPayload);
-                if (p is not null)
-                {
-                    _showUpdaterWindow(p.FromVersion ?? "", p.ToVersion ?? "");
-                }
-                return Task.FromResult(env.Ok());
-            });
-
-            registry.Register("trayIcon.closeUpdaterWindow", (env, _) =>
-            {
-                _closeUpdaterWindow();
-                return Task.FromResult(env.Ok());
-            });
-        }
+        registry.Register("trayIcon.closeUpdaterWindow", (env, _) =>
+        {
+            _closeUpdaterWindow();
+            return Task.FromResult(env.Ok());
+        });
     }
 }
 #endif
