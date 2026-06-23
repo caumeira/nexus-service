@@ -103,23 +103,27 @@ public sealed class TryxPanoramaHub : IDisposable
     public bool SetBrightness(int brightness)
     {
         var clamped = Math.Clamp(brightness, 0, 100);
-        byte[] frame;
-        if (State.CurrentMediaIsCustom)
-        {
-            frame = TryxPanoramaProtocol.BuildConfigCustom(clamped, State.CurrentMedia);
-        }
-        else if (!string.IsNullOrEmpty(State.CurrentMedia))
-        {
-            frame = TryxPanoramaProtocol.BuildConfigPreset(clamped, State.CurrentMedia);
-        }
-        else
-        {
-            // No media/preset on record - nothing to drive the id block.
-            return false;
-        }
+        EnsureSelection();
+        var frame = State.CurrentMediaIsCustom
+            ? TryxPanoramaProtocol.BuildConfigCustom(clamped, State.CurrentMedia)
+            : TryxPanoramaProtocol.BuildConfigPreset(clamped, State.CurrentMedia);
         var ok = SendOnly(frame);
         if (ok) State.Brightness = clamped;
         return ok;
+    }
+
+    // Brightness/fan ride the full config, which the device ignores without an id
+    // block. With nothing chosen yet (e.g. right after a service restart, before
+    // any selection), default to the first preset so the control still applies.
+    private const string DefaultSelectionId = "Pre-set 1: Cooling delivery";
+
+    private void EnsureSelection()
+    {
+        if (string.IsNullOrEmpty(State.CurrentMedia))
+        {
+            State.CurrentMedia = DefaultSelectionId;
+            State.CurrentMediaIsCustom = false;
+        }
     }
 
     public bool SetPreset(string presetId)
@@ -135,25 +139,16 @@ public sealed class TryxPanoramaHub : IDisposable
 
     public bool SetFanSmart(int[][]? curve)
     {
-        byte[] frame;
-        if (State.CurrentMediaIsCustom)
-        {
-            frame = TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, State.CurrentMedia, curve);
-        }
-        else if (!string.IsNullOrEmpty(State.CurrentMedia))
-        {
-            frame = TryxPanoramaProtocol.BuildConfigPreset(State.Brightness, State.CurrentMedia, curve);
-        }
-        else
-        {
-            return false;
-        }
+        EnsureSelection();
+        var frame = State.CurrentMediaIsCustom
+            ? TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, State.CurrentMedia, curve)
+            : TryxPanoramaProtocol.BuildConfigPreset(State.Brightness, State.CurrentMedia, curve);
         return SendOnly(frame);
     }
 
     public bool SetFanFixed(int percent)
     {
-        if (string.IsNullOrEmpty(State.CurrentMedia)) return false;
+        EnsureSelection();
         return SendOnly(TryxPanoramaProtocol.BuildConfigFanFixed(
             State.Brightness, State.CurrentMedia, State.CurrentMediaIsCustom, Math.Clamp(percent, 0, 100)));
     }
