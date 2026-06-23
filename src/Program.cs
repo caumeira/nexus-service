@@ -408,6 +408,7 @@ app.MapPanelEndpoints();
 app.MapOverlayEndpoints();
 app.MapAppEndpoints();
 app.MapConflictEndpoints();
+app.MapTryxEndpoints();
 app.MapUpdateEndpoints();
 app.MapWebSocketEndpoints();
 Nexus.Service.Lifecycle.BootTimer.Mark("after route mapping");

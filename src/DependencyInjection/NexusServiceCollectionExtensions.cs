@@ -578,6 +578,26 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp =>
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Y70Display.Y70DisplayHeartbeatWorker>());
 
+        // Tryx Panorama AIO: CDC-ACM serial + ADB composite device.
+        // Windows and Linux have real port discovery; other platforms stub.
+#if WINDOWS
+        services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.ITryxPanoramaPanelDiscovery,
+                              Nexus.Service.Peripherals.Tryx.Panorama.WindowsTryxPanoramaPortDiscovery>();
+#elif LINUX
+        services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.ITryxPanoramaPanelDiscovery,
+                              Nexus.Service.Peripherals.Tryx.Panorama.LinuxTryxPanoramaPortDiscovery>();
+#else
+        services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.ITryxPanoramaPanelDiscovery,
+                              Nexus.Service.Peripherals.Tryx.Panorama.StubTryxPanoramaPortDiscovery>();
+#endif
+        services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaHub>(sp =>
+            new Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaHub(
+                sp.GetRequiredService<Nexus.Service.Peripherals.Tryx.Panorama.ITryxPanoramaPanelDiscovery>(),
+                port => new Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaSerialTransport(port.PortName, port.Serial)));
+        services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaHeartbeatWorker>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaHeartbeatWorker>());
+
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Devices.Detection.WindowsUsbEnumerator>();
         services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>
@@ -858,6 +878,7 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Widgets.AppActions.MediaActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.CoolingActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.LightingActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.TryxActions.RegisterAll(registry);
             return registry;
         });
         services.AddSingleton<Nexus.Service.Widgets.AppDispatchRateLimiter>();

@@ -350,6 +350,7 @@ public static class AppRoutes
             Name = entry.Manifest.Name,
             Version = entry.Manifest.Version,
             Description = entry.Manifest.Description,
+            Category = entry.Manifest.Category,
             IconUrl = iconUrl,
             Surfaces = new List<string>(entry.Manifest.Surfaces),
             Runtime = entry.Manifest.Runtime,

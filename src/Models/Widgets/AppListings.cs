@@ -13,6 +13,7 @@ public sealed class AppInstalledListing
     public string Name { get; set; } = "";
     public string Version { get; set; } = "";
     public string? Description { get; set; }
+    public string? Category { get; set; } // "device" -> listed under Devices
     public string? IconUrl { get; set; }
     public List<string> Surfaces { get; set; } = new();
     public string? Runtime { get; set; } // "sdk"

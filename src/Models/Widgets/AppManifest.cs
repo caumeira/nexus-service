@@ -27,6 +27,13 @@ public sealed class AppManifest
     [JsonPropertyName("description")]
     public string? Description { get; set; }
 
+    /// <summary>
+    /// Optional nav categorization. <c>"device"</c> lists the app under Devices
+    /// (its page surface becomes the device page) instead of Apps.
+    /// </summary>
+    [JsonPropertyName("category")]
+    public string? Category { get; set; }
+
     [JsonPropertyName("author")]
     public AppManifestAuthor? Author { get; set; }
 

@@ -57,7 +57,6 @@ public sealed class NexusSettings
 
     /// <summary>OTA self-update settings. NOT profile-scoped: workstation-level.</summary>
     public UpdateSettings Update { get; set; } = new();
-
 }
 
 /// <summary>

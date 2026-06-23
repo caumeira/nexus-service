@@ -99,6 +99,14 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.QSeriesFirmwareCurveRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.QSeriesCurvePointDto))]
 
+// Tryx Panorama device surface
+[JsonSerializable(typeof(Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaState))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxStatusResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxMediaImportResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxPresetListResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxMediaListResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxPresetItem))]
+
 // Fan control
 [JsonSerializable(typeof(FanChannel))]
 [JsonSerializable(typeof(List<FanChannel>))]
