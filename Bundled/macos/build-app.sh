@@ -48,7 +48,13 @@ bash "$SCRIPT_DIR/camera-helper/build.sh" "$APP/Contents/MacOS"
 
 # Embed the CMIO camera extension. Activation additionally requires the app
 # to be signed with a real identity and installed in /Applications.
-bash "$SCRIPT_DIR/camera-extension/build-extension.sh" "$APP/Contents/Library/SystemExtensions"
+# NEXUS_SKIP_CAMERA_EXTENSION builds a notarizable bundle without the extension
+# (the extension needs xcodebuild provisioning that headless CI can't do yet).
+if [ -z "${NEXUS_SKIP_CAMERA_EXTENSION:-}" ]; then
+    bash "$SCRIPT_DIR/camera-extension/build-extension.sh" "$APP/Contents/Library/SystemExtensions"
+else
+    echo "Skipping camera system extension (NEXUS_SKIP_CAMERA_EXTENSION set)"
+fi
 
 # Native dylibs (libe_sqlite3, libglfw, etc) are dlopen'd at runtime from
 # AppContext.BaseDirectory. Publish drops them at the staging root next to
@@ -89,6 +95,38 @@ fi
 
 # Ensure the binary is executable
 chmod +x "$APP/Contents/MacOS/Nexus"
+
+# Only Mach-O code may live directly under Contents/MacOS. codesign treats any
+# data file there (html, fonts, png, README) as unsigned nested code and the
+# bundle seal fails notarization. Relocate every data item (and the openrgb/adb
+# child-process dirs) into Contents/Resources and symlink it back where the
+# service resolves it (AppContext.BaseDirectory is Contents/MacOS).
+# Relocate a data item only when it exists, so absent items leave no dangling
+# symlink (a broken link breaks xattr/codesign over the bundle).
+relocate_to_resources() {
+    local item="$1"
+    local src="$APP/Contents/MacOS/$item"
+    [ -L "$src" ] && return 0
+    if [ -e "$src" ]; then
+        rm -rf "$APP/Contents/Resources/$item"
+        mv "$src" "$APP/Contents/Resources/$item"
+        ln -s "../Resources/$item" "$src"
+    fi
+    return 0
+}
+mkdir -p "$APP/Contents/Resources"
+# wwwroot is often populated AFTER this script (BuildWeb=false). Always provide
+# Resources/wwwroot + the symlink so a later copy into MacOS/wwwroot lands in
+# Resources and the bundle still seals.
+if [ -d "$APP/Contents/MacOS/wwwroot" ] && [ ! -L "$APP/Contents/MacOS/wwwroot" ]; then
+    rm -rf "$APP/Contents/Resources/wwwroot"
+    mv "$APP/Contents/MacOS/wwwroot" "$APP/Contents/Resources/wwwroot"
+fi
+mkdir -p "$APP/Contents/Resources/wwwroot"
+[ -L "$APP/Contents/MacOS/wwwroot" ] || ln -s "../Resources/wwwroot" "$APP/Contents/MacOS/wwwroot"
+for _item in widgets openrgb tools status-icon.png "status-icon@2x.png"; do
+    relocate_to_resources "$_item"
+done
 
 # Remove extended attributes that would trigger Gatekeeper quarantine warnings
 xattr -cr "$APP" 2>/dev/null || true
