@@ -185,6 +185,14 @@ public sealed class AppManifestCapabilities
     [JsonPropertyName("dispatch")]
     public List<string> Dispatch { get; set; } = new();
 
+    /// <summary>
+    /// Service routes the app may upload files to via the host-mediated MediaImport
+    /// component. The host validates an upload's path against this allowlist before
+    /// posting; the worker cannot upload to a path not listed here.
+    /// </summary>
+    [JsonPropertyName("mediaImport")]
+    public List<string> MediaImport { get; set; } = new();
+
     [JsonPropertyName("config")]
     public bool Config { get; set; } = true;
 
