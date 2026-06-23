@@ -135,7 +135,11 @@ bash scripts/fetch-ffmpeg.sh all    # or: mac | win | linux
   ```
 
 - **macOS** - `Bundled/macos/build-app.sh` wraps the publish output into
-  `Nexus.app`; the final `Nexus.dmg` packaging has no in-repo script yet.
+  `Nexus.app`, relocating data out of `Contents/MacOS` into `Contents/Resources`
+  (symlinked back) so the bundle can be sealed. `Bundled/macos/sign-notarize.sh`
+  then deep-signs it with a Developer ID identity, packages `Nexus.dmg`,
+  notarizes via `notarytool`, and staples. Set `NEXUS_SKIP_CAMERA_EXTENSION=1`
+  to omit the camera system extension (CI, which can't provision it headlessly).
 
 ## Test
 
