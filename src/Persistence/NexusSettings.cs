@@ -675,6 +675,14 @@ public sealed class UpdateSettings
     public string LastDismissedUpdateVersion { get; set; } = "";
 
     /// <summary>
+    /// Version string of the build that last ran. Used to detect a new-build
+    /// first run (OTA or fresh install) so UpdateChannel can be derived from
+    /// the build's prerelease status instead of erasing a manual channel choice
+    /// on every restart.
+    /// </summary>
+    public string LastRunVersion { get; set; } = "";
+
+    /// <summary>
     /// Pre-v7 field. Read during schema migration only; the v7 migration maps
     /// true to UpdateMode "notify" and then this field is dropped on the next
     /// write (WhenWritingNull).

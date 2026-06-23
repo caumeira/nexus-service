@@ -23,6 +23,17 @@ public static class VersionCompare
     }
 
     /// <summary>
+    /// Returns true when <paramref name="version"/> is a valid semver string
+    /// carrying a prerelease suffix (e.g. "v3.1.0-beta.1", "v3.0.0-rc.2").
+    /// Unparseable strings return false.
+    /// </summary>
+    public static bool IsPrerelease(string version)
+    {
+        if (!TryParse(version, out var v)) return false;
+        return v.Pre.Length > 0;
+    }
+
+    /// <summary>
     /// Parses the numeric core of "v{major}.{minor}.{patch}" (leading v/V
     /// optional, prerelease suffix accepted but not surfaced here). Returns
     /// false on garbage input. <see cref="IsNewer"/> applies full prerelease

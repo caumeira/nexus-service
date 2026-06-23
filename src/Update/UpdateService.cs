@@ -155,6 +155,9 @@ public sealed class UpdateService : BackgroundService
         try { UpdateInstaller.CleanOrphanedTasks(); } catch { }
 #endif
 
+        // Align UpdateChannel with the running build when the version changed.
+        SyncChannelToVersion();
+
         // Apply or diagnose a staged install marker from a prior run.
         ApplyPendingOnStartup(stoppingToken);
 
@@ -180,6 +183,51 @@ public sealed class UpdateService : BackgroundService
             }
         }
         while (await WaitAsync(timer, stoppingToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// Derives the correct UpdateChannel from the running build's version when
+    /// the version has changed since the last run. A prerelease build sets "beta";
+    /// a stable build sets "production". No-ops when the version is unchanged,
+    /// preserving a manual channel choice across restarts of the same build.
+    /// </summary>
+    private void SyncChannelToVersion()
+    {
+        var s = _store.Load();
+        var (channel, changed) = ResolveChannelForBuild(
+            s.Update.LastRunVersion,
+            BuildInfo.Version,
+            s.Update.UpdateChannel);
+
+        if (!changed)
+        {
+            return;
+        }
+
+        _store.Update(settings =>
+        {
+            settings.Update.UpdateChannel = channel;
+            settings.Update.LastRunVersion = BuildInfo.Version;
+        });
+    }
+
+    /// <summary>
+    /// Pure channel-derivation logic: given the persisted last-run version, the
+    /// current build version, and the current channel, returns the channel that
+    /// should be active and whether the settings need to be written.
+    /// </summary>
+    internal static (string channel, bool changed) ResolveChannelForBuild(
+        string lastRunVersion,
+        string buildVersion,
+        string currentChannel)
+    {
+        if (string.Equals(lastRunVersion, buildVersion, StringComparison.Ordinal))
+        {
+            return (currentChannel, false);
+        }
+
+        var channel = VersionCompare.IsPrerelease(buildVersion) ? "beta" : "production";
+        return (channel, true);
     }
 
     /// <summary>

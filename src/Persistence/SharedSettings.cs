@@ -196,6 +196,7 @@ public sealed class UpdatePrefs
     public string UpdateMode { get; set; } = "always";
     public string UpdateChannel { get; set; } = "production";
     public string LastDismissedUpdateVersion { get; set; } = "";
+    public string LastRunVersion { get; set; } = "";
 }
 
 public sealed class UpdatePrefsPatch
@@ -203,6 +204,7 @@ public sealed class UpdatePrefsPatch
     public string? UpdateMode { get; set; }
     public string? UpdateChannel { get; set; }
     public string? LastDismissedUpdateVersion { get; set; }
+    public string? LastRunVersion { get; set; }
 }
 
 public sealed class CoolingPrefsPatch
