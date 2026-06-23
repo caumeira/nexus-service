@@ -45,8 +45,7 @@ public sealed class GitHubReleaseProvider : IUpdateSource
 
         if (release is null) return null;
 
-        var asset = release.Assets.FirstOrDefault(a =>
-            string.Equals(a.Name, "Nexus-Setup.exe", StringComparison.OrdinalIgnoreCase));
+        var asset = SelectInstallerAsset(release.Assets);
         if (asset is null) return null;
 
         var (sha256, fromSumsFile) = await ResolveHashAsync(client, release, asset, ct);
@@ -95,7 +94,7 @@ public sealed class GitHubReleaseProvider : IUpdateSource
             try
             {
                 var text = await client.GetStringAsync(sumsAsset.BrowserDownloadUrl, ct);
-                var hash = ParseSha256Sums(text, "Nexus-Setup.exe");
+                var hash = ParseSha256Sums(text, asset.Name ?? "");
                 if (!string.IsNullOrEmpty(hash))
                 {
                     return (hash, true);
@@ -116,6 +115,17 @@ public sealed class GitHubReleaseProvider : IUpdateSource
 
         return (null, false);
     }
+
+    /// <summary>
+    /// Selects the Windows installer asset. One Nexus-Setup*.exe per release,
+    /// so a prefix match resolves the versioned name (Nexus-Setup-3.0.0.exe)
+    /// and the legacy bare Nexus-Setup.exe.
+    /// </summary>
+    public static GitHubReleaseAsset? SelectInstallerAsset(IEnumerable<GitHubReleaseAsset> assets) =>
+        assets.FirstOrDefault(a =>
+            a.Name is not null
+            && a.Name.StartsWith("Nexus-Setup", StringComparison.OrdinalIgnoreCase)
+            && a.Name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase));
 
     /// <summary>
     /// Parses a SHA256SUMS file of the form "{hash}  {filename}" per line.
