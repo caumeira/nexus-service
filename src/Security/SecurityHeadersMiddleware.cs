@@ -38,6 +38,7 @@ internal static class SecurityHeadersMiddleware
         "img-src 'self' data: blob: " +
         "https://*.steamstatic.com https://media.steampowered.com " +
         "https://cdn.discordapp.com https://media.discordapp.net; " +
+        "media-src 'self' data: blob:; " +
         "connect-src 'self' ws: wss:; " +
         "frame-ancestors 'self'; " +
         "base-uri 'self'; " +
