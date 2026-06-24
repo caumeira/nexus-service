@@ -147,7 +147,7 @@ begin
   //   3. Sidecar taskkills are a belt in case a kill-job hadn't reaped them yet.
   Exec(ExpandConstant('{sys}\net.exe'), 'stop NexusService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM Nexus.exe /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
-  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM OpenRGB.exe /F /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM OpenRGB-headless.exe /F /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM nexus-overlay.exe /F /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 

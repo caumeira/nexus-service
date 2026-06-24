@@ -270,7 +270,7 @@ internal static class WindowsServiceInstaller
         // Without this the service "comes back" on the next boot.
         Log("killing tray / sidecar processes");
         KillSiblingProcesses("Nexus.exe");
-        KillSiblingProcesses("OpenRGB.exe");
+        KillSiblingProcesses("OpenRGB-headless.exe");
         KillSiblingProcesses("nexus-overlay.exe");
 
         Log("deleting NexusService");
