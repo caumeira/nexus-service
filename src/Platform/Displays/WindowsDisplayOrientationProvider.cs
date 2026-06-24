@@ -25,7 +25,7 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
         {
             // Not an error: the Y70 simply is not attached. The persisted
             // orientation will be re-applied when it next connects.
-            return (true, "");
+            return (true, "y70 panel not attached");
         }
         return ApplyToAdapter(device, orientation);
     }
@@ -58,12 +58,13 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
         {
             return (false, "EnumDisplaySettings failed");
         }
-        if (devMode.dmDisplayOrientation == dmdo) return (true, "");
+        var fromOrientation = devMode.dmDisplayOrientation;
+        if (fromOrientation == dmdo) return (true, $"already {orientation}");
 
         // Rotating between landscape <-> portrait flips the active resolution
         // axes. Failing to swap dmPelsWidth/dmPelsHeight makes Windows reject
         // the call with DISP_CHANGE_BADMODE.
-        var fromPortrait = devMode.dmDisplayOrientation == DMDO_90 || devMode.dmDisplayOrientation == DMDO_270;
+        var fromPortrait = fromOrientation == DMDO_90 || fromOrientation == DMDO_270;
         var toPortrait = dmdo == DMDO_90 || dmdo == DMDO_270;
         if (fromPortrait != toPortrait)
         {
@@ -75,7 +76,7 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
         var rc = ChangeDisplaySettingsExW(device, ref devMode, IntPtr.Zero, CDS_UPDATEREGISTRY, IntPtr.Zero);
         return rc switch
         {
-            DISP_CHANGE_SUCCESSFUL => (true, ""),
+            DISP_CHANGE_SUCCESSFUL => (true, $"applied {orientation} from={fromOrientation} set={devMode.dmPelsWidth}x{devMode.dmPelsHeight}"),
             DISP_CHANGE_RESTART    => (true, "restart required"),
             DISP_CHANGE_BADMODE    => (false, "mode not supported"),
             DISP_CHANGE_BADFLAGS   => (false, "bad flags"),

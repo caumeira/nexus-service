@@ -18,13 +18,9 @@ public sealed class Y70Handler : IDeviceHandler
 
     public string Id => "y70";
 
-    // Variant-aware label once the controller reports which panel is attached.
-    public string Name => _hub.Variant switch
-    {
-        Y70DisplayProtocol.VariantInfinite => "Y70 Touch Infinite",
-        Y70DisplayProtocol.VariantTruly => "Y70 Touch Truly",
-        _ => "Y70 Touch",
-    };
+    // Every panel variant surfaces under the family name; the specific variant
+    // (Touch / Infinite / Truly) is carried by FirmwareType for OTA, not the label.
+    public string Name => "Y70 Touch";
 
     public string Category => "display";
 

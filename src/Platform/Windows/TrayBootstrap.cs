@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.Versioning;
+using System.Threading.Tasks;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.Extensions.DependencyInjection;
 using Nexus.Service.Panel;
@@ -186,12 +187,13 @@ internal static class TrayBootstrap
         // ChangeDisplaySettingsEx call runs in the helper (user session, where
         // it can see the monitors); a no-op when Windows is already in the
         // target orientation.
-        helperRegistry.Connected += conn =>
+        helperRegistry.Connected += async conn =>
         {
             try
             {
                 var orientation = trayStore.Load().Y70.Orientation;
-                _ = OrientationCommands.SetAsync(helperRegistry, orientation);
+                var res = await OrientationCommands.SetAsync(helperRegistry, orientation);
+                ServiceLog.Info($"[y70-sync] orientation re-assert requested='{orientation}' ok={res.Ok} detail='{res.Error}'");
             }
             catch (Exception ex) { Console.Error.WriteLine($"[y70-sync] initial orientation failed: {ex.Message}"); }
         };
