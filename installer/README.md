@@ -37,7 +37,7 @@ powershell -File installer\build-installer.ps1 -PublishDir "$env:ProgramFiles\Ne
 Output: `installer\output\Nexus-Setup.exe` (~19 MB compressed) plus a
 `SHA256SUMS` next to it, with copies of both dropped at `%USERPROFILE%\nexus\`.
 Releases are published as a semver `vX.Y.Z` tag (matching `VERSION`) on
-`hello-nexus/nexus-releases` via `gh release create`, and must carry the
+`hello-nexus/nexus` via `gh release create`, and must carry the
 `SHA256SUMS` asset - the OTA updater requires the published hash to auto-stage a
 release.
 

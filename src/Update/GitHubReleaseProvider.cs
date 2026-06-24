@@ -23,8 +23,9 @@ namespace Nexus.Service.Update;
 /// </summary>
 public sealed class GitHubReleaseProvider : IUpdateSource
 {
-    // Configurable so a test repo or provider swap is a one-line change.
-    public const string DefaultOwnerRepo = "hello-nexus/nexus-releases";
+    // Releases are published to the public hello-nexus/nexus repo. Configurable
+    // so a test repo or provider swap is a one-line change.
+    public const string DefaultOwnerRepo = "hello-nexus/nexus";
 
     private readonly IHttpClientFactory _http;
     private readonly string _ownerRepo;
