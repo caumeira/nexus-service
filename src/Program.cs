@@ -29,7 +29,9 @@ using Nexus.Service.Sockets;
 #if LINUX
 if (args.Length > 0
     && args[0] == Nexus.Service.Lighting.Capture.LinuxScreenCastHelper.Verb)
+{
     return Nexus.Service.Lighting.Capture.LinuxScreenCastHelper.Run(args);
+}
 #endif
 
 Nexus.Service.Lifecycle.BootTimer.Mark("process entry");
