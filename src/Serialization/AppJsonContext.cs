@@ -715,6 +715,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(AppProxyResponse))]
 [JsonSerializable(typeof(AppDispatchRequest))]
 [JsonSerializable(typeof(AppDispatchResponse))]
+[JsonSerializable(typeof(AppInstallStatusDto))]
+[JsonSerializable(typeof(AppInstallTriggerDto))]
 
 // OTA self-update routes + GitHub provider DTOs
 [JsonSerializable(typeof(UpdateStatusResponse))]

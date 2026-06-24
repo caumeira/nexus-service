@@ -33,6 +33,14 @@ public enum ToolSession
     User,
 }
 
+/// <summary>Install medium a tool targets: a process on this host, or an APK
+/// pushed to an adb-connected device. Selects the <see cref="IToolInstallStrategy"/>.</summary>
+public enum ToolTarget
+{
+    HostExe,
+    AndroidAdb,
+}
+
 /// <summary>Process-launch options carried in an <see cref="ExternalToolSpec"/>.</summary>
 public sealed record ToolLaunchOptions(bool Hidden = true, ToolSession Session = ToolSession.System);
 
@@ -48,7 +56,9 @@ public sealed record ExternalToolSpec(
     string DownloadUrlBase,
     string FilePattern,
     ToolLaunchOptions Launch,
-    string? PreloadDir = null);
+    string? PreloadDir = null,
+    ToolTarget Target = ToolTarget.HostExe,
+    string? Package = null);
 
 /// <summary>
 /// Remote tool manifest hosted on <c>assets.hellonexus.com</c>. Same shape as the
@@ -84,6 +94,10 @@ public sealed class ToolVersion
     /// <summary>Expected size in bytes. Pre-check before hashing.</summary>
     [JsonPropertyName("size")]
     public long Size { get; set; }
+
+    /// <summary>Android versionCode for the APK. Used by AndroidAdbInstallStrategy to skip downgrades.</summary>
+    [JsonPropertyName("versionCode")]
+    public int? VersionCode { get; set; }
 }
 
 /// <summary>

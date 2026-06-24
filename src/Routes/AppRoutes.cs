@@ -147,7 +147,16 @@ public static class AppRoutes
 
             try
             {
-                var result = await handler(services, body.Args, ctx.RequestAborted);
+                // Inject the caller's app id so self-referential actions (e.g. app.*)
+                // can look up their own manifest block without a second argument channel.
+                // AppIds.IsValid has already verified the id contains only [a-z0-9.-],
+                // so wrapping it in quotes produces valid JSON without escaping.
+                var enrichedArgs = new Dictionary<string, System.Text.Json.JsonElement>(
+                    body.Args ?? new Dictionary<string, System.Text.Json.JsonElement>(),
+                    StringComparer.Ordinal);
+                using var appIdDoc = System.Text.Json.JsonDocument.Parse($"\"{body.AppId}\"");
+                enrichedArgs["__appId"] = appIdDoc.RootElement.Clone();
+                var result = await handler(services, enrichedArgs, ctx.RequestAborted);
                 return Results.Json(new AppDispatchResponse { Ok = true, Result = result },
                     AppJsonContext.Default.AppDispatchResponse);
             }

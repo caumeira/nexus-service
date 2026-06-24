@@ -107,6 +107,54 @@ public class ExternalToolManagerTests : IDisposable
     }
 
     [Fact]
+    public async Task LaunchAsync_routes_to_strategy_matching_target()
+    {
+        var fake = new FakeStrategy(ToolTarget.AndroidAdb);
+        var mgr = new ExternalToolManager(
+            new IToolInstallStrategy[] { new HostExeInstallStrategy(), fake },
+            new HttpClient(new ExplodingHandler()), _root);
+
+        await mgr.LaunchAsync(Spec() with { Target = ToolTarget.AndroidAdb });
+
+        Assert.Equal(1, fake.LaunchCount);
+    }
+
+    [Fact]
+    public async Task LaunchAsync_with_unrouted_target_is_noop()
+    {
+        // Only the host-exe strategy is registered; an adb-targeted spec must not throw.
+        var mgr = new ExternalToolManager(new HttpClient(new ExplodingHandler()), _root);
+
+        await mgr.LaunchAsync(Spec() with { Target = ToolTarget.AndroidAdb });
+
+        Assert.Equal(ToolStatus.NotRunning, mgr.GetStatus("test-tool"));
+    }
+
+    [Fact]
+    public void GetStatus_surfaces_owning_strategy_status()
+    {
+        var fake = new FakeStrategy(ToolTarget.AndroidAdb, ToolStatus.Running);
+        var mgr = new ExternalToolManager(
+            new IToolInstallStrategy[] { new HostExeInstallStrategy(), fake },
+            new HttpClient(new ExplodingHandler()), _root);
+
+        Assert.Equal(ToolStatus.Running, mgr.GetStatus("test-tool"));
+    }
+
+    [Fact]
+    public void Terminate_fans_out_to_every_strategy()
+    {
+        var fake = new FakeStrategy(ToolTarget.AndroidAdb);
+        var mgr = new ExternalToolManager(
+            new IToolInstallStrategy[] { new HostExeInstallStrategy(), fake },
+            new HttpClient(new ExplodingHandler()), _root);
+
+        mgr.Terminate("test-tool");
+
+        Assert.Equal(1, fake.TerminateCount);
+    }
+
+    [Fact]
     public async Task LaunchAsync_runs_then_single_instances_then_terminates()
     {
         // The launch path uses a real long-running child; gate to Unix where we can
@@ -228,5 +276,26 @@ public class ExternalToolManagerTests : IDisposable
             CallCount++;
             throw new InvalidOperationException("network should not be touched on this path");
         }
+    }
+
+    private sealed class FakeStrategy : IToolInstallStrategy
+    {
+        private readonly ToolStatus _status;
+        public FakeStrategy(ToolTarget target, ToolStatus status = ToolStatus.NotRunning)
+        {
+            Target = target;
+            _status = status;
+        }
+        public ToolTarget Target { get; }
+        public int LaunchCount { get; private set; }
+        public int TerminateCount { get; private set; }
+        public Task LaunchAsync(ExternalToolSpec spec, IToolResolver resolver, CancellationToken ct)
+        {
+            LaunchCount++;
+            return Task.CompletedTask;
+        }
+        public ToolStatus GetStatus(string toolId) => _status;
+        public void Terminate(string toolId) => TerminateCount++;
+        public void TerminateAll() { }
     }
 }

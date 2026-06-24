@@ -11,12 +11,12 @@ namespace Nexus.Service.Devices.Firmware;
 
 /// <summary>
 /// Orchestrates a full firmware flash, encoding the sequence proven on hardware
-/// (CNVS, 2026-05-28): ensure WinUSB driver → in-app DFU entry (hub writes key +
-/// magic, releases its COM port) → wait for the bootloader to enumerate as
-/// 3402:0a00 → dfu-util download at 0x0800C000 → readback-verify → flag-erase
-/// (0xFF @ 0x0801FFF0) + leave. One flash at a time; progress lives in
-/// <see cref="Status"/> so the UI survives navigation, and <see cref="IsFlashing"/>
-/// blocks app shutdown.
+/// (CNVS, 2026-05-28): ensure WinUSB driver -> in-app DFU entry (hub writes key +
+/// magic, releases its COM port) -> wait for the bootloader to enumerate as
+/// 3402:0a00 -> dfu-util download at 0x0800C000 -> readback-verify -> flag-erase
+/// (0xFF @ 0x0801FFF0) + leave. One flash at a time via <see cref="FlashGate"/>;
+/// progress lives in <see cref="Status"/> so the UI survives navigation, and
+/// <see cref="IsFlashing"/> blocks app shutdown.
 /// </summary>
 public sealed class FirmwareFlasher
 {
@@ -25,21 +25,22 @@ public sealed class FirmwareFlasher
     private readonly WinUsbDriverInstaller _winusb;
     private readonly DfuUtil _dfu;
     private readonly PluginProviderRegistry _registry;
-    private readonly object _gate = new();
-    private volatile bool _flashing;
+    private readonly FlashGate _flashGate;
 
     public FirmwareFlasher(
         BundledFirmwareCatalog catalog,
         IEnumerable<IDfuFlashTarget> targets,
         WinUsbDriverInstaller winusb,
         DfuUtil dfu,
-        PluginProviderRegistry registry)
+        PluginProviderRegistry registry,
+        FlashGate flashGate)
     {
         _catalog = catalog;
         _targets = targets.ToList();
         _winusb = winusb;
         _dfu = dfu;
         _registry = registry;
+        _flashGate = flashGate;
     }
 
     // First-party DFU targets (static DI) + any plugin targets (registry snapshot,
@@ -47,8 +48,11 @@ public sealed class FirmwareFlasher
     // target only reaches here once the cert grants it (Phase 3).
     private IEnumerable<IDfuFlashTarget> AllTargets => _targets.Concat(_registry.DfuTargets);
 
-    public FlashStatusDto Status { get; } = new();
-    public bool IsFlashing => _flashing;
+    /// <summary>Shared status object; also written by ApkFlasher.</summary>
+    public FlashStatusDto Status => _flashGate.Status;
+
+    /// <summary>True while either a DFU flash or an APK flash is running.</summary>
+    public bool IsFlashing => _flashGate.IsFlashing;
 
     /// <summary>
     /// Every image the connected device for <paramref name="connectedFirmwareType"/>
@@ -78,39 +82,53 @@ public sealed class FirmwareFlasher
     /// </summary>
     public bool TryStart(string deviceType, string version, out string error)
     {
-        lock (_gate)
+        if (string.IsNullOrWhiteSpace(deviceType) || string.IsNullOrWhiteSpace(version))
         {
-            if (_flashing) { error = "A firmware update is already in progress."; return false; }
-            if (string.IsNullOrWhiteSpace(deviceType) || string.IsNullOrWhiteSpace(version))
-            { error = "deviceType and version are required."; return false; }
-            if (!_catalog.GetAvailableVersions(deviceType).Contains(version))
-            { error = $"No bundled firmware for {deviceType} {version}."; return false; }
-            var target = AllTargets.FirstOrDefault(t => t.IsConnected && t.CanFlash(deviceType));
-            if (target is null) { error = $"No connected device can flash {deviceType}."; return false; }
+            error = "deviceType and version are required.";
+            return false;
+        }
+        if (!_catalog.GetAvailableVersions(deviceType).Contains(version))
+        {
+            error = $"No bundled firmware for {deviceType} {version}.";
+            return false;
+        }
+        var target = AllTargets.FirstOrDefault(t => t.IsConnected && t.CanFlash(deviceType));
+        if (target is null)
+        {
+            error = $"No connected device can flash {deviceType}.";
+            return false;
+        }
 
 #if !DEV_TOOLS
-            // Release builds permit upgrades only: the connected variant's latest
-            // bundled image. Cross-variant and downgrade / re-flash are dev-tools-
-            // only (brick risk) and gated out of release - see the DEV_TOOLS define.
-            if (deviceType != target.FirmwareType)
-            { error = "Cross-variant flashing is not permitted in this build."; return false; }
-            if (version != _catalog.GetLatestVersion(deviceType))
-            { error = "Only the latest firmware version can be installed."; return false; }
+        // Release builds permit upgrades only: the connected variant's latest
+        // bundled image. Cross-variant and downgrade / re-flash are dev-tools-
+        // only (brick risk) and gated out of release - see the DEV_TOOLS define.
+        if (deviceType != target.FirmwareType)
+        {
+            error = "Cross-variant flashing is not permitted in this build.";
+            return false;
+        }
+        if (version != _catalog.GetLatestVersion(deviceType))
+        {
+            error = "Only the latest firmware version can be installed.";
+            return false;
+        }
 #endif
 
-            _flashing = true;
-            Status.Active = true;
-            Status.DeviceType = deviceType;
-            Status.Version = version;
-            Status.Phase = "preparing";
-            Status.Percent = 0;
-            Status.Message = "Preparing…";
-            Status.Success = false;
-            Status.Error = "";
-            error = "";
-            _ = Task.Run(() => RunAsync(deviceType, version, target));
-            return true;
+        if (!_flashGate.TryAcquire(out error))
+        {
+            return false;
         }
+
+        Status.DeviceType = deviceType;
+        Status.Version = version;
+        Status.Phase = "preparing";
+        Status.Percent = 0;
+        Status.Message = "Preparing…";
+        Status.Success = false;
+        Status.Error = "";
+        _ = Task.Run(() => RunAsync(deviceType, version, target));
+        return true;
     }
 
     private async Task RunAsync(string deviceType, string version, IDfuFlashTarget target)
@@ -187,8 +205,7 @@ public sealed class FirmwareFlasher
         finally
         {
             TryDelete(binPath); TryDelete(flagPath); TryDelete(readbackPath);
-            Status.Active = false;
-            _flashing = false;
+            _flashGate.Release();
         }
     }
 
@@ -205,7 +222,9 @@ public sealed class FirmwareFlasher
             // can't tell which board dfu-util will target, and flashing the
             // wrong one bricks it. Fail loudly rather than gamble.
             if (count > 1)
+            {
                 return $"{count} devices are in DFU mode; refusing to flash an ambiguous target. Disconnect all but one and retry.";
+            }
             await Task.Delay(1000);
         }
         return "Device did not appear in update mode (DFU).";

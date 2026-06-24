@@ -466,7 +466,11 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHub>());
         services.AddSingleton<Nexus.Service.Devices.Firmware.IDfuFlashTarget>(sp =>
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Y70Display.Y70DisplayHub>());
+        // Shared one-at-a-time flash gate: owns the mutex, IsFlashing flag, and Status
+        // object that both FirmwareFlasher and ApkFlasher write to.
+        services.AddSingleton<Nexus.Service.Devices.Firmware.FlashGate>();
         services.AddSingleton<Nexus.Service.Devices.Firmware.FirmwareFlasher>();
+        services.AddSingleton<Nexus.Service.Devices.Firmware.ApkFlasher>();
 
         // NP50 hub: serial port discovery + transport factory + singleton hub +
         // 2-second heartbeat poller. Windows and Linux have real port discovery;
@@ -858,13 +862,20 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Widgets.AppActions.MediaActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.CoolingActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.LightingActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.AppInstallActions.RegisterAll(registry);
             return registry;
         });
         services.AddSingleton<Nexus.Service.Widgets.AppDispatchRateLimiter>();
 
-        // Generic external-tool manager (NEX-13): fetches + runs a device's sidecar
-        // executable. Hosted so its StopAsync kills every tracked tool process on
-        // service shutdown.
+        // Generic external-tool manager (NEX-13): fetches + installs a device's
+        // sidecar payload, routed to a per-target strategy. Hosted so its StopAsync
+        // tears down every tracked tool on service shutdown.
+        services.AddSingleton<Nexus.Service.Common.ExternalTools.IAdbDeviceRegistry,
+            Nexus.Service.Common.ExternalTools.AdbDeviceRegistry>();
+        services.AddSingleton<Nexus.Service.Common.ExternalTools.IToolInstallStrategy,
+            Nexus.Service.Common.ExternalTools.HostExeInstallStrategy>();
+        services.AddSingleton<Nexus.Service.Common.ExternalTools.IToolInstallStrategy,
+            Nexus.Service.Common.ExternalTools.AndroidAdbInstallStrategy>();
         services.AddSingleton<Nexus.Service.Common.ExternalTools.ExternalToolManager>();
         services.AddHostedService(sp =>
             sp.GetRequiredService<Nexus.Service.Common.ExternalTools.ExternalToolManager>());
@@ -887,7 +898,8 @@ public static class NexusServiceCollectionExtensions
                 sp => new Nexus.Service.QSeries.QSeriesPortWatcher(
                     servicePort,
                     sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
-                    sp.GetRequiredService<Nexus.Service.Panel.PanelDeviceRegistry>()));
+                    sp.GetRequiredService<Nexus.Service.Panel.PanelDeviceRegistry>(),
+                    sp.GetRequiredService<Nexus.Service.Common.ExternalTools.IAdbDeviceRegistry>()));
             services.AddHostedService(sp =>
                 sp.GetRequiredService<Nexus.Service.QSeries.QSeriesPortWatcher>());
         }
