@@ -97,11 +97,11 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "--install"; Flags: runhidden wai
 ; schtasks path; without it the window would spawn elevated/in the wrong session.
 Filename: "{app}\{#MyAppExeName}"; Parameters: "--open-app"; Flags: nowait skipifsilent runasoriginaluser; StatusMsg: "Opening dashboard..."
 
-[UninstallRun]
-; Mirrors install: --uninstall stops + deletes the service, removes the
-; firewall rule, Add/Remove reg key, and Start Menu shortcut. Inno's
-; built-in uninstall then removes the install dir.
-Filename: "{app}\{#MyAppExeName}"; Parameters: "--uninstall"; Flags: runhidden waituntilterminated; RunOnceId: "NexusUninstall"
+; NOTE: --uninstall is intentionally NOT run from [UninstallRun]. Running the
+; payload {app}\Nexus.exe leaves its file handle held a moment past the
+; uninstaller's delete attempt, so Nexus.exe is queued for delete-on-reboot,
+; which makes Windows report "previous program not completed" and blocks every
+; reinstall. CurUninstallStepChanged runs it from a {tmp} copy instead.
 
 [Code]
 // Win32 imports used to lift the wizard above other windows after an
@@ -158,7 +158,22 @@ begin
 end;
 
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+  TmpExe: String;
 begin
   if CurUninstallStep = usUninstall then
+  begin
     StopServiceIfRunning();
+    // Run --uninstall (stop+delete service, firewall rule, registry) from a
+    // COPY in {tmp}, never the payload {app}\Nexus.exe. Running the payload exe
+    // would re-lock Nexus.exe and leave its handle held past Inno's delete, so
+    // Nexus.exe gets queued for delete-on-reboot and blocks every reinstall.
+    // Keep {app} as the working dir so a sidecar DLL still resolves if loaded.
+    TmpExe := ExpandConstant('{tmp}\nexus-uninst.exe');
+    if FileCopy(ExpandConstant('{app}\{#MyAppExeName}'), TmpExe, False) then
+      Exec(TmpExe, '--uninstall', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode)
+    else
+      Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--uninstall', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  end;
 end;
