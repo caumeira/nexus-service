@@ -180,7 +180,7 @@ public sealed class KeebFirmwareLightingDefaults
 public sealed class CoolingDefaults
 {
     public double GlobalSpeedModifier { get; set; } = 1.0;
-    public string ActivePreset { get; set; } = "silent";
+    public string ActivePreset { get; set; } = "off";
     public Dictionary<string, CoolingPresetDefault> Presets { get; set; } = new();
     public CoolingDeviceLayoutSize DeviceLayoutSize { get; set; } = new();
 }

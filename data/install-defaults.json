@@ -210,7 +210,7 @@
 
   "cooling": {
     "globalSpeedModifier": 1.0,
-    "activePreset": "silent",
+    "activePreset": "off",
     "presets": {
       "silent":      { "responseTime": 3.0, "minTemp": 45, "maxTemp": 85, "minSpeed": 20, "maxSpeed": 70  },
       "balanced":    { "responseTime": 1.5, "minTemp": 35, "maxTemp": 75, "minSpeed": 30, "maxSpeed": 90  },

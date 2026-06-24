@@ -40,10 +40,10 @@ public class FanProfilesTests : IDisposable
     }
 
     [Fact]
-    public void DefaultActivePresetIsSilent()
+    public void DefaultActivePresetIsOff()
     {
         var settings = _store.Load();
-        Assert.Equal("silent", settings.Cooling.ActivePreset);
+        Assert.Equal("off", settings.Cooling.ActivePreset);
     }
 
     [Fact]
