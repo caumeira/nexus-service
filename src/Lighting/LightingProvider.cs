@@ -39,6 +39,12 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     private readonly GameSyncGameScanner? _scanner;
     private readonly IBeatsProvider? _beats;
 
+    // Serializes audio-capture reconcile so two near-simultaneous effect
+    // transitions can't interleave the read of the live effect with the
+    // start/stop; the last reconcile to acquire reads the committed effect
+    // and wins.
+    private readonly object _audioCaptureLock = new();
+
     // Live-reactive post-process holders shared between the effect and the
     // /lighting/{mode}/effect endpoint. The endpoint mutates the fields; the
     // effect reads them each frame. Kept here so values survive across
@@ -69,7 +75,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         _mediaPP.Set(s.MediaEffect.Hue, s.MediaEffect.Colorize, s.MediaEffect.Saturation, s.MediaEffect.Contrast, s.MediaEffect.FlipX, s.MediaEffect.FlipY);
 
         _engine.OnFrame += frame => _ = _hub.BroadcastBinaryAsync(frame);
-        _engine.OnEffectChanged += name => ReconcileAudioCapture(name);
+        _engine.OnEffectChanged += ReconcileAudioCapture;
         WireScanner(_scanner);
     }
 
@@ -96,29 +102,35 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public void SetSync(string sync) => _store.Update(s => s.Lighting.Sync = sync);
 
-    private void ReconcileAudioCapture(string activeEffect)
+    // Audio capture runs only while Music Reactive is on and the live engine
+    // effect is audio-reactive. The effect is read inside the lock (not from a
+    // captured argument) so concurrent transitions resolve to the last committed
+    // effect; the engine is already "none" during StopAll, so capture stops
+    // without consulting the not-yet-persisted Sync.
+    public void ReconcileAudioCapture()
     {
         if (_beats is null)
         {
             return;
         }
-        if (_store.Load().Lighting.MusicReactive && ShaderLibrary.IsAudioEffect(activeEffect))
+        lock (_audioCaptureLock)
         {
-            _beats.Start();
-        }
-        else
-        {
-            _beats.Stop();
+            if (_store.Load().Lighting.MusicReactive && ShaderLibrary.IsAudioEffect(_engine.CurrentEffectName))
+            {
+                _beats.Start();
+            }
+            else
+            {
+                _beats.Stop();
+            }
         }
     }
 
     public void SetMusicReactive(bool enabled)
     {
         _store.Update(s => s.Lighting.MusicReactive = enabled);
-        ReconcileAudioCapture(GetSync());
+        ReconcileAudioCapture();
     }
-
-    public void ReconcileAudioCapture() => ReconcileAudioCapture(GetSync());
 
     public void StopAll()
     {
