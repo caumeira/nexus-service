@@ -62,8 +62,7 @@ public sealed class WinUsbDriverInstaller
             // (reboot) are also treated as success - a previously-staged driver
             // still binds.
             Console.Error.WriteLine($"[winusb] pnputil exit={proc.ExitCode}: {stdout.Trim()} {stderr.Trim()}");
-            _installedThisSession = proc.ExitCode is 0 or 259 or 3010
-                || stdout.Contains("already", StringComparison.OrdinalIgnoreCase);
+            _installedThisSession = proc.ExitCode is 0 or 259 or 3010;
             // Even on a non-zero we may have an older copy already bound; let the
             // flasher proceed and surface a clear dfu-util error if it can't open.
             return true;

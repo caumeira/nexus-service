@@ -56,11 +56,11 @@ public sealed class WindowsInputter : IInputterProvider
         if (string.IsNullOrEmpty(key)) return 0;
 
         // Letters: KeyA..KeyZ
-        if (key.StartsWith("Key") && key.Length == 4)
+        if (key.StartsWith("Key", StringComparison.Ordinal) && key.Length == 4)
             return (ushort)key[3]; // A-Z map to their ASCII values
 
         // Digits: Digit0..Digit9
-        if (key.StartsWith("Digit") && key.Length == 6)
+        if (key.StartsWith("Digit", StringComparison.Ordinal) && key.Length == 6)
             return (ushort)('0' + (key[5] - '0'));
 
         // Function keys: F1..F24
