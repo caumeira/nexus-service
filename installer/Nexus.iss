@@ -157,23 +157,54 @@ begin
   Result := '';
 end;
 
+// Set by the uninstall-time prompt below; when true the --uninstall is run
+// with --purge, which additionally wipes %ProgramData%\Nexus\ (settings,
+// profiles, logs, OTA downloads, installed apps, WebView2 caches). Default off
+// so a normal uninstall keeps user data and a reinstall restores the setup.
+var
+  PurgeUserData: Boolean;
+
+function InitializeUninstall(): Boolean;
+begin
+  Result := True;
+  // Default off (No is the default button): a normal uninstall keeps user data
+  // so a reinstall restores the setup. Answering Yes runs --uninstall --purge,
+  // which also wipes %ProgramData%\Nexus\ (settings, profiles, logs, downloads,
+  // installed apps, caches).
+  PurgeUserData :=
+    MsgBox('Also delete all Nexus data on this PC?' + #13#10 + #13#10 +
+      'This permanently erases:' + #13#10 +
+      '     - All settings and profiles' + #13#10 +
+      '     - Installed apps and widget layouts' + #13#10 +
+      '     - Paired devices and remote sessions' + #13#10 +
+      '     - Screen-time history and imported media' + #13#10 +
+      '     - Logs, downloads and caches' + #13#10 + #13#10 +
+      'This can''t be undone. Choose No to keep your data for a future reinstall.',
+      mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
+end;
+
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
   ResultCode: Integer;
   TmpExe: String;
+  UninstArgs: String;
 begin
   if CurUninstallStep = usUninstall then
   begin
     StopServiceIfRunning();
-    // Run --uninstall (stop+delete service, firewall rule, registry) from a
-    // COPY in {tmp}, never the payload {app}\Nexus.exe. Running the payload exe
-    // would re-lock Nexus.exe and leave its handle held past Inno's delete, so
-    // Nexus.exe gets queued for delete-on-reboot and blocks every reinstall.
-    // Keep {app} as the working dir so a sidecar DLL still resolves if loaded.
+    // --uninstall stops+deletes the service, firewall rule, registry; --purge
+    // (from the checkbox above) additionally wipes %ProgramData%\Nexus\. Run it
+    // from a COPY in {tmp}, never the payload {app}\Nexus.exe. Running the
+    // payload exe would re-lock Nexus.exe and leave its handle held past Inno's
+    // delete, so Nexus.exe gets queued for delete-on-reboot and blocks every
+    // reinstall. Keep {app} as the working dir so a sidecar DLL still resolves.
+    UninstArgs := '--uninstall';
+    if PurgeUserData then
+      UninstArgs := UninstArgs + ' --purge';
     TmpExe := ExpandConstant('{tmp}\nexus-uninst.exe');
     if FileCopy(ExpandConstant('{app}\{#MyAppExeName}'), TmpExe, False) then
-      Exec(TmpExe, '--uninstall', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode)
+      Exec(TmpExe, UninstArgs, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode)
     else
-      Exec(ExpandConstant('{app}\{#MyAppExeName}'), '--uninstall', ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
+      Exec(ExpandConstant('{app}\{#MyAppExeName}'), UninstArgs, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode);
   end;
 end;
