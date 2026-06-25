@@ -36,6 +36,7 @@ public sealed class BenchmarkRunner
     private readonly object _lock = new();
     private readonly IBenchmarkProvider _provider;
     private readonly ISensorProvider _sensors;
+    private readonly SystemSpecsCollector _specs;
     private readonly MultiplexHub _hub;
     private Task? _task;
     private CancellationTokenSource? _cts;
@@ -45,10 +46,11 @@ public sealed class BenchmarkRunner
     public string CurrentRunId { get; private set; } = "";
     public BenchmarkResult? Result { get; private set; }
 
-    public BenchmarkRunner(IBenchmarkProvider provider, ISensorProvider sensors, MultiplexHub hub)
+    public BenchmarkRunner(IBenchmarkProvider provider, ISensorProvider sensors, SystemSpecsCollector specs, MultiplexHub hub)
     {
         _provider = provider;
         _sensors = sensors;
+        _specs = specs;
         _hub = hub;
     }
 
@@ -116,7 +118,7 @@ public sealed class BenchmarkRunner
         var started = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var subs = new System.Collections.Generic.List<BenchmarkSubScore>();
         var progressReporter = new Progress<BenchmarkPhaseProgress>(p => PushFrame(runId, p, subs));
-        var hardware = CollectHardware();
+        var hardware = await CollectHardwareAsync(ct);
 
         try
         {
@@ -211,8 +213,22 @@ public sealed class BenchmarkRunner
         }
     }
 
-    private HardwareIdentity CollectHardware()
+    private async Task<HardwareIdentity> CollectHardwareAsync(CancellationToken ct)
     {
+        // RuntimeInformation.OSDescription reports the kernel version, which on
+        // Windows 11 is "Microsoft Windows 10.0.<build>" (major.minor stays 10.0;
+        // only build >= 22000 means 11), so it reads as Windows 10. Reuse the
+        // specs collector's WMI Caption ("Windows 11 Pro (10.0.22631)") instead,
+        // matching what /system/specs and the panel widget already show.
+        string os = RuntimeInformation.OSDescription;
+        try
+        {
+            var specs = await _specs.GetAsync(ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(specs.OsBuild))
+                os = specs.OsBuild;
+        }
+        catch { /* fall back to OSDescription */ }
+
         try
         {
             // RamModel carries brand + part number (e.g. "Corsair
@@ -230,7 +246,7 @@ public sealed class BenchmarkRunner
                 RamModel = ramBrand,
                 StorageModel = storageBrand,
                 LogicalCores = Environment.ProcessorCount,
-                Os = RuntimeInformation.OSDescription,
+                Os = os,
                 Architecture = RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(),
             };
         }
