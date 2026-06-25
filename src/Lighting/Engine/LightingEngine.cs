@@ -19,6 +19,7 @@ public sealed class LightingEngine : IDisposable
 
     public int FrameIntervalMs { get; set; } = 33;
     public event Action<ReadOnlyMemory<byte>>? OnFrame;
+    public event Action<string>? OnEffectChanged;
     public string CurrentEffectName => _currentEffect?.Name ?? "none";
     public IEffect? CurrentEffect => _currentEffect;
     public DeviceFrame[] Devices => _devices;
@@ -36,6 +37,8 @@ public sealed class LightingEngine : IDisposable
             if (_loopTask is null || _loopTask.IsCompleted)
             { _cts = new CancellationTokenSource(); _loopTask = Task.Run(() => RunLoopAsync(_cts.Token)); }
         }
+        // Handler may start/stop an audio-capture subprocess; must not run under the engine lock.
+        OnEffectChanged?.Invoke(effect.Name);
     }
 
     public void Stop()
@@ -58,6 +61,8 @@ public sealed class LightingEngine : IDisposable
             { SerializeAndBroadcast(); }
             catch { }
         }
+        // Handler may start/stop an audio-capture subprocess; must not run under the engine lock.
+        OnEffectChanged?.Invoke("none");
     }
 
     private async Task RunLoopAsync(CancellationToken ct)

@@ -160,7 +160,7 @@
     "speedEnabled": false,
     "frameRate": 60,
     "scaleRatio": 1.0,
-    "musicReactive": false,
+    "musicReactive": true,
     "staticColor": { "r": 255, "g": 0, "b": 0 },
     "animate": {
       "effect": "plasma",

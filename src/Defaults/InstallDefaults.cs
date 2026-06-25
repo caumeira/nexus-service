@@ -97,7 +97,7 @@ public sealed class LightingDefaults
     public bool SpeedEnabled { get; set; }
     public int FrameRate { get; set; } = 60;
     public double ScaleRatio { get; set; } = 1.0;
-    public bool MusicReactive { get; set; }
+    public bool MusicReactive { get; set; } = true;
     public LightingStaticColor StaticColor { get; set; } = new();
     public LightingAnimateDefaults Animate { get; set; } = new();
     public LightingPostProcess PostProcess { get; set; } = new();

@@ -55,23 +55,13 @@ public static class LightingRoutes
             }
             return Results.File(bytes, "image/bmp");
         }).AllowPanel();
-        // Music reactive toggle: starts/stops the audio capture pipeline. When
-        // off, AudioState stays at zero and every shader reverts to its idle
-        // animation. One pipe in: this is the only switch the user flips.
+        // Music reactive toggle: persists the flag and starts/stops audio capture
+        // only when the active effect is audio-reactive.
         app.MapPost("/lighting/music-reactive", (Models.Lighting.MusicReactiveBody body,
-            Nexus.Service.Activity.IBeatsProvider beats,
-            Nexus.Service.Persistence.IConfigStore store,
+            ILightingProvider l,
             MultiplexHub hub) =>
         {
-            store.Update(s => s.Lighting.MusicReactive = body.Enabled);
-            if (body.Enabled)
-            {
-                beats.Start();
-            }
-            else
-            {
-                beats.Stop();
-            }
+            l.SetMusicReactive(body.Enabled);
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
