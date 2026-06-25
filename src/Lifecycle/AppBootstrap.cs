@@ -160,13 +160,12 @@ internal static class AppBootstrap
         { if (topic == PanelTopics.Lighting && !muxHub.TopicHasSubscribers(PanelTopics.Lighting)) smartLights.StopReachabilityPolling(); };
         if (muxHub.TopicHasSubscribers(PanelTopics.Lighting)) smartLights.StartReachabilityPolling();
 
-        // Auto-resume Music Reactive capture if the user had it on before a restart.
-        var store = app.Services.GetRequiredService<IConfigStore>();
-        BootTimer.Mark("WireBeatsAndPresence: IConfigStore resolved");
-        if (store.Load().Lighting.MusicReactive)
-        {
-            beatsProvider.Start();
-            BootTimer.Mark("WireBeatsAndPresence: beatsProvider.Start (MusicReactive=true)");
-        }
+        // Resolve ILightingProvider to force its construction (wires OnEffectChanged),
+        // then reconcile capture: start only when MusicReactive is on and an audio-reactive
+        // effect is active.
+        var lighting = app.Services.GetRequiredService<ILightingProvider>();
+        BootTimer.Mark("WireBeatsAndPresence: ILightingProvider resolved");
+        lighting.ReconcileAudioCapture();
+        BootTimer.Mark("WireBeatsAndPresence: ReconcileAudioCapture called");
     }
 }

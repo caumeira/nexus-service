@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Nexus.Service.Activity;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Engine.Effects;
@@ -36,6 +37,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     private readonly IMonitorEnumerator _monitors;
     private readonly IScreenFrameSource? _frameSource;
     private readonly GameSyncGameScanner? _scanner;
+    private readonly IBeatsProvider? _beats;
 
     // Live-reactive post-process holders shared between the effect and the
     // /lighting/{mode}/effect endpoint. The endpoint mutates the fields; the
@@ -49,7 +51,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     // frames that arrive while the effect is already running are not dropped.
     private GameSyncEffect? _gameSyncEffect;
 
-    public LightingProvider(IConfigStore store, LightingEngine engine, LightingOutputHub hub, GpuContext gpu, MediaLibrary media, IMonitorEnumerator monitors, IScreenFrameSource? frameSource = null, RgbBridge? rgb = null, GameSyncGameScanner? scanner = null)
+    public LightingProvider(IConfigStore store, LightingEngine engine, LightingOutputHub hub, GpuContext gpu, MediaLibrary media, IMonitorEnumerator monitors, IScreenFrameSource? frameSource = null, RgbBridge? rgb = null, GameSyncGameScanner? scanner = null, IBeatsProvider? beats = null)
     {
         _store = store;
         _engine = engine;
@@ -60,12 +62,14 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         _monitors = monitors;
         _frameSource = frameSource;
         _scanner = scanner;
+        _beats = beats;
 
         var s = _store.Load().Lighting;
         _screenPP.Set(s.ScreenEffect.Hue, s.ScreenEffect.Colorize, s.ScreenEffect.Saturation, s.ScreenEffect.Contrast, s.ScreenEffect.FlipX, s.ScreenEffect.FlipY, s.ScreenEffect.Reactive, s.ScreenEffect.Reactivity, s.ScreenEffect.Intensity);
         _mediaPP.Set(s.MediaEffect.Hue, s.MediaEffect.Colorize, s.MediaEffect.Saturation, s.MediaEffect.Contrast, s.MediaEffect.FlipX, s.MediaEffect.FlipY);
 
         _engine.OnFrame += frame => _ = _hub.BroadcastBinaryAsync(frame);
+        _engine.OnEffectChanged += name => ReconcileAudioCapture(name);
         WireScanner(_scanner);
     }
 
@@ -91,6 +95,30 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     public string GetSync() => _engine.CurrentEffectName == "none" ? _store.Load().Lighting.Sync : _engine.CurrentEffectName;
 
     public void SetSync(string sync) => _store.Update(s => s.Lighting.Sync = sync);
+
+    private void ReconcileAudioCapture(string activeEffect)
+    {
+        if (_beats is null)
+        {
+            return;
+        }
+        if (_store.Load().Lighting.MusicReactive && ShaderLibrary.IsAudioEffect(activeEffect))
+        {
+            _beats.Start();
+        }
+        else
+        {
+            _beats.Stop();
+        }
+    }
+
+    public void SetMusicReactive(bool enabled)
+    {
+        _store.Update(s => s.Lighting.MusicReactive = enabled);
+        ReconcileAudioCapture(GetSync());
+    }
+
+    public void ReconcileAudioCapture() => ReconcileAudioCapture(GetSync());
 
     public void StopAll()
     {
