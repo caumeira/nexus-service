@@ -568,7 +568,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SetAudioDefaultBody))]
 [JsonSerializable(typeof(GetAllShortcutsResponse))]
 [JsonSerializable(typeof(GetShortcutResponse))]
-[JsonSerializable(typeof(MusicResult))]
 
 // Lifecycle
 [JsonSerializable(typeof(SetWillStartParams))]

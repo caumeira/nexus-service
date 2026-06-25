@@ -3,7 +3,6 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Lighting.Engine;
-using Nexus.Service.Models.Activity;
 
 namespace Nexus.Service.Activity;
 
@@ -30,7 +29,7 @@ public sealed class WasapiLoopbackBeatsProvider : IBeatsProvider
     private Thread? _captureThread;
     private bool _running;
 
-    public event Action<MusicResult>? OnBeat;
+    public event Action? OnBeat;
 
     public void Start()
     {
@@ -144,10 +143,10 @@ public sealed class WasapiLoopbackBeatsProvider : IBeatsProvider
                     // (shaders track volume changes with nothing playing).
                     if (now - lastPacketTick > silenceTimeoutMs)
                     {
-                        var result = _analyser.Analyse(silenceWindow, cap.GetPeak());
+                        _analyser.Analyse(silenceWindow, cap.GetPeak());
                         totalAnalyses++;
                         try
-                        { OnBeat?.Invoke(result); }
+                        { OnBeat?.Invoke(); }
                         catch { /* swallow subscriber errors */ }
                         lastPacketTick = now - 50;   // pace the synthetic rate
                     }
@@ -174,10 +173,10 @@ public sealed class WasapiLoopbackBeatsProvider : IBeatsProvider
                         window[written++] = mono;
                         if (written >= window.Length)
                         {
-                            var result = _analyser.Analyse(window, cap.GetPeak());
+                            _analyser.Analyse(window, cap.GetPeak());
                             totalAnalyses++;
                             try
-                            { OnBeat?.Invoke(result); }
+                            { OnBeat?.Invoke(); }
                             catch { /* swallow subscriber errors */ }
                             written = 0;
                         }

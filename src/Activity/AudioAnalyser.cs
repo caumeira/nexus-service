@@ -1,6 +1,5 @@
 using System;
 using Nexus.Service.Lighting.Engine;
-using Nexus.Service.Models.Activity;
 
 namespace Nexus.Service.Activity;
 
@@ -10,11 +9,9 @@ namespace Nexus.Service.Activity;
 /// <see cref="WasapiLoopbackBeatsProvider"/> on Windows via WASAPI loopback).
 ///
 /// Call <see cref="Analyse"/> with a mono float32 window of exactly
-/// <see cref="WindowSize"/> samples at <see cref="SampleRate"/>. Returns the
-/// legacy <see cref="MusicResult"/> for the existing /api/music beats WS
-/// topic and also publishes richer audio features (level / bass / mid / high
-/// / beat / 16-band spectrum) to <see cref="AudioState"/> so shaders can read
-/// them as uniforms.
+/// <see cref="WindowSize"/> samples at <see cref="SampleRate"/>. It publishes
+/// audio features (level / bass / mid / high / beat / 16-band spectrum) to
+/// <see cref="AudioState"/> so shaders can read them as uniforms.
 ///
 /// State (rolling averages, smoothed spectrum, beat envelope) is kept on this
 /// instance. One analyser per capture source - they should not be shared
@@ -58,14 +55,9 @@ public sealed class AudioAnalyser
         }
     }
 
-    // Rolling exponential averages per band - used by the legacy
-    // time-domain beat detector.
+    // Rolling exponential average of bass energy; drives the time-domain
+    // bass-beat detector that feeds AudioState.Beat.
     private float _avgBass;
-    private float _avgSnare;
-    private float _avgHigh;
-    private int _bassBeatCount;
-    private int _snareBeatCount;
-    private int _highBeatCount;
 
     private readonly float[] _fftRe = new float[FftSize];
     private readonly float[] _fftIm = new float[FftSize];
@@ -86,11 +78,9 @@ public sealed class AudioAnalyser
     /// the OS shows the user (and survives loopback going silent). When null,
     /// volume falls back to the in-window peak of <paramref name="samples"/>.
     /// </param>
-    public MusicResult Analyse(float[] samples, float? externalPeak = null)
+    public void Analyse(float[] samples, float? externalPeak = null)
     {
         float bassEnergy = 0;
-        float snareEnergy = 0;
-        float highEnergy = 0;
         float internalPeak = 0;
 
         for (int i = 1; i < samples.Length; i++)
@@ -104,33 +94,15 @@ public sealed class AudioAnalyser
             {
                 bassEnergy += abs;
             }
-            snareEnergy += delta * delta;
-            if ((s >= 0 && prev < 0) || (s < 0 && prev >= 0))
-            {
-                highEnergy += delta;
-            }
         }
 
         float n = samples.Length;
         bassEnergy /= n;
-        snareEnergy /= n;
-        highEnergy /= n;
 
         const float alpha = 0.1f;
         _avgBass = _avgBass * (1 - alpha) + bassEnergy * alpha;
-        _avgSnare = _avgSnare * (1 - alpha) + snareEnergy * alpha;
-        _avgHigh = _avgHigh * (1 - alpha) + highEnergy * alpha;
 
         bool bassBeat = _avgBass > 0.0001f && bassEnergy / _avgBass > BeatThreshold;
-        bool snareBeat = _avgSnare > 0.0001f && snareEnergy / _avgSnare > BeatThreshold;
-        bool highBeat = _avgHigh > 0.0001f && highEnergy / _avgHigh > BeatThreshold;
-
-        if (bassBeat)
-            _bassBeatCount++;
-        if (snareBeat)
-            _snareBeatCount++;
-        if (highBeat)
-            _highBeatCount++;
 
         // Calibrated peak, then perceptual curve so quiet content still moves
         // shaders and loud content doesn't pin at 1.0. The 1.003 multiplier
@@ -140,32 +112,12 @@ public sealed class AudioAnalyser
         else if (peak > 1f) peak = 1f;
         float volume = peak <= 0f ? 0f : MathF.Min(MathF.Pow(peak, 0.15f) * 1.003f, 1f);
 
-        float dynamic = MathF.Min(
-            (bassEnergy / MathF.Max(_avgBass, 0.0001f) +
-             snareEnergy / MathF.Max(_avgSnare, 0.0001f) +
-             highEnergy / MathF.Max(_avgHigh, 0.0001f)) / 3f / BeatThreshold,
-            1f);
-
         PublishAudioState(samples, volume, bassBeat);
-
-        return new MusicResult
-        {
-            BassBeatCount = _bassBeatCount,
-            BassIntensity = MathF.Min(bassEnergy / MathF.Max(_avgBass, 0.0001f) / BeatThreshold, 1f),
-            SnareBeatCount = _snareBeatCount,
-            SnareIntensity = MathF.Min(snareEnergy / MathF.Max(_avgSnare, 0.0001f) / BeatThreshold, 1f),
-            HighBeatCount = _highBeatCount,
-            HighIntensity = MathF.Min(highEnergy / MathF.Max(_avgHigh, 0.0001f) / BeatThreshold, 1f),
-            KickBeatCount = _bassBeatCount,
-            KickIntensity = MathF.Min(bassEnergy / MathF.Max(_avgBass, 0.0001f) / BeatThreshold, 1f),
-            MusicDynamic = dynamic,
-            Volume = volume,
-        };
     }
 
     public void Reset()
     {
-        _avgBass = _avgSnare = _avgHigh = 0;
+        _avgBass = 0;
         _smoothLevel = _smoothBass = _smoothMid = _smoothHigh = _beatEnvelope = 0;
         Array.Clear(_smoothSpectrum);
         AudioState.Reset();

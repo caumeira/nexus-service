@@ -4,7 +4,6 @@ using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Lighting.Engine;
-using Nexus.Service.Models.Activity;
 
 namespace Nexus.Service.Activity;
 
@@ -42,7 +41,7 @@ public sealed class MacAudioBeatsProvider : IBeatsProvider
     private Task? _captureTask;
     private bool _running;
 
-    public event Action<MusicResult>? OnBeat;
+    public event Action? OnBeat;
 
     public void Start()
     {
@@ -159,8 +158,8 @@ public sealed class MacAudioBeatsProvider : IBeatsProvider
 
                 Buffer.BlockCopy(buffer, 0, samples, 0, WindowBytes);
 
-                var result = _analyser.Analyse(samples);
-                try { OnBeat?.Invoke(result); } catch { /* swallow subscriber errors */ }
+                _analyser.Analyse(samples);
+                try { OnBeat?.Invoke(); } catch { /* swallow subscriber errors */ }
             }
         }
         catch (OperationCanceledException) { /* shutdown */ }
