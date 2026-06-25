@@ -12,7 +12,7 @@ namespace Nexus.Service.Routes;
 
 /// <summary>
 /// Tester-facing diagnostics surface. <c>/diagnostics/open-logs</c> reveals the
-/// Nexus logs folder (nexus-service.log, plus desktop-host.log on Windows) in the OS
+/// Nexus logs folder (nexus-service.log plus the other nexus-*.log files) in the OS
 /// file manager so a tester can attach them to a bug report. <c>/diagnostics/client-mem</c>
 /// ingests a renderer/host memory sample and writes it through <see cref="ServiceLog"/>,
 /// so a WebView2 renderer's growth is visible in the same log a tester submits

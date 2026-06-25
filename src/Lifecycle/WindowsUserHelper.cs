@@ -527,12 +527,14 @@ body.light .mark { fill:#5a5a5e; }
     private static void Diag(string msg)
     {
         // File-based diagnostics: helper runs in the user session so
-        // stdout/stderr go nowhere visible. Public dir is writable by
-        // all user processes without needing prior dir setup.
+        // stdout/stderr go nowhere visible. Co-located with nexus-service.log
+        // under the canonical logs dir; the user session owns the file it creates.
         try
         {
+            var dir = Nexus.Service.Platform.ServiceLog.LogsDirectory;
+            System.IO.Directory.CreateDirectory(dir);
             using var fs = new System.IO.FileStream(
-                @"C:\Users\Public\nexus-helper-debug.log",
+                System.IO.Path.Combine(dir, "nexus-helper.log"),
                 System.IO.FileMode.Append,
                 System.IO.FileAccess.Write,
                 System.IO.FileShare.ReadWrite);

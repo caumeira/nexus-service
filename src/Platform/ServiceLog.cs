@@ -21,7 +21,7 @@ namespace Nexus.Service.Platform;
 public static class ServiceLog
 {
     /// <summary>Number of timestamped, rotated-out logs kept; older ones are deleted.</summary>
-    public const int MaxRotatedLogs = 10;
+    public const int MaxRotatedLogs = 5;
 
     private static readonly object Lock = new();
     private static StreamWriter? _writer;
@@ -36,7 +36,7 @@ public static class ServiceLog
     public static string? LogFilePath => _path;
 
     /// <summary>
-    /// Directory holding nexus-service.log (and desktop-host.log on Windows). Resolves
+    /// Directory holding nexus-service.log (and nexus-overlay.log on Windows). Resolves
     /// even before <see cref="Initialize"/> runs, so the open-logs endpoint works
     /// regardless of init order.
     /// </summary>
