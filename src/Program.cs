@@ -457,6 +457,10 @@ if (!testHost)
     Nexus.Service.Lighting.Rgb.OpenRgbProcessManager.CleanupOrphans();
     Nexus.Service.Lifecycle.BootTimer.Mark("after OpenRgbProcessManager.CleanupOrphans");
 
+    // Lock the SDK-app roots so a non-admin user can't plant a widget the
+    // service serves (prod / LocalSystem only; no-op for an interactive dev run).
+    Nexus.Service.Widgets.AppInstallPaths.SecureUserRoots();
+
     // Register nexus:// protocol handler (idempotent - safe on every launch)
     Nexus.Service.Platform.ProtocolHandler.Register();
     Nexus.Service.Lifecycle.BootTimer.Mark("after ProtocolHandler.Register");

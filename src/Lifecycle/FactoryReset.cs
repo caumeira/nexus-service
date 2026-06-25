@@ -61,16 +61,18 @@ internal static class FactoryReset
         {
             var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
             // %ProgramData%\Nexus: settings, profiles, screentime.db, media,
-            // logs, firmware, https cert, qseries, ffmpeg-pids, volume.log,
-            // DesktopWebView2, openrgb-config. Preserve PawnIO\ (kernel driver).
+            // logs (nexus-service/overlay/tray/helper/volume/gpu/pawnio), firmware,
+            // https cert, qseries, ffmpeg-pids, DesktopWebView2, openrgb-config.
+            // Preserve PawnIO\ (kernel driver).
             roots.Add(new Root(System.IO.Path.Combine(programData, "Nexus"), new[] { "PawnIO" }));
             // Per-user data the daemon can't reach via GetFolderPath: it runs as
-            // LocalSystem, so ApplicationData / LocalApplicationData resolve to
-            // the SYSTEM profile. Widgets ("apps") the daemon installs land under
-            // the system profile's Roaming\Nexus; dashboard-bounds.json (written
-            // by the user-session overlay) lands in a real user's Local\Nexus.
-            // WindowsUserProfiles() returns BOTH every C:\Users\* profile AND the
-            // system profile, so each one's AppData\{Local,Roaming,LocalLow}\Nexus
+            // LocalSystem, so LocalApplicationData resolves to the SYSTEM profile.
+            // dashboard-bounds.json (written by the user-session overlay) lands in
+            // a real user's Local\Nexus; current SDK-app installs go to
+            // %ProgramData%\Nexus\apps (wiped above), but older installs may
+            // linger in a profile's Roaming\Nexus. WindowsUserProfiles() returns
+            // BOTH every C:\Users\* profile AND the system profile, so each one's
+            // AppData\{Local,Roaming,LocalLow}\Nexus
             // gets wiped.
             foreach (var profile in WindowsUserProfiles())
             {

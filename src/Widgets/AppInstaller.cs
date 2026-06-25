@@ -82,8 +82,8 @@ public sealed class AppInstaller
         }
 
         // Compute the user widgets dir from the install paths enumerator;
-        // it's the entry whose Source is User. (On every supported OS that
-        // path is `<appdata>/Nexus/apps/`.)
+        // it's the entry whose Source is User. (Windows: %ProgramData%\Nexus\apps;
+        // the per-user data dir on macOS/Linux.)
         string? userRoot = null;
         foreach (var root in AppInstallPaths.Enumerate())
         {
@@ -100,6 +100,8 @@ public sealed class AppInstaller
 
         try
         {
+            // Lock the root ACL before writing into it (prod / LocalSystem only).
+            AppInstallPaths.SecureUserRoots();
             Directory.CreateDirectory(userRoot);
             var dest = Path.Combine(userRoot, id);
             // Wipe existing dest so the copy is atomic-ish (only one widget
