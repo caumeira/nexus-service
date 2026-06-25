@@ -28,6 +28,11 @@ internal static class SecurityHeadersMiddleware
     //
     // frame-ancestors 'self' (not 'none') so PanelEmbedFrame.tsx can iframe
     // /panel?simulator=1 for the Y70/panel device popup. Same-origin only.
+    //
+    // connect-src must list the cloud API origin (api.hellonexus.com): the SPA
+    // fetches the benchmark leaderboard + System Builder catalog directly from
+    // it (VITE_API_URL in build:service), cross-origin from the service-served
+    // http://localhost:9400 shell, so 'self' does not cover it.
     private const string ContentSecurityPolicy =
         "default-src 'self'; " +
         "script-src 'self' 'unsafe-inline' blob:; " +
@@ -38,7 +43,7 @@ internal static class SecurityHeadersMiddleware
         "img-src 'self' data: blob: " +
         "https://*.steamstatic.com https://media.steampowered.com " +
         "https://cdn.discordapp.com https://media.discordapp.net; " +
-        "connect-src 'self' ws: wss:; " +
+        "connect-src 'self' ws: wss: https://api.hellonexus.com; " +
         "frame-ancestors 'self'; " +
         "base-uri 'self'; " +
         "object-src 'none'";
