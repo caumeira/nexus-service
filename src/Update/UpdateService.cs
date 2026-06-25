@@ -73,6 +73,10 @@ public sealed class UpdateService : BackgroundService
     private volatile UpdateManifest? _latestManifest;
     private volatile bool _updateReady;
     private volatile string? _stagedInstallerPath;
+    // Version the staged installer is for. A newer manifest supersedes it, so the
+    // auto-stage guard re-stages instead of leaving the queued install on the old
+    // version.
+    private volatile string? _stagedVersion;
 
     // Last (updateAvailable, updateReady) pushed over the WS. The status-changed
     // broadcast fires only on the rising edge of either, keeping the 4h poll off
@@ -496,10 +500,27 @@ public sealed class UpdateService : BackgroundService
             // Both "download" and "always" auto-stage (download+verify) but never
             // launch mid-session. "always" applies on the next restart via
             // ApplyPendingOnStartup; "download" waits for POST /update/start.
-            if (isNewer && (mode is "download" or "always") && manifest is not null && !_updateReady)
+            // Re-stage when the latest version differs from what's already
+            // staged: a release published while an update was queued supersedes
+            // it, so the staged installer + marker must follow the new version.
+            var alreadyStaged = _updateReady
+                && string.Equals(_stagedVersion, manifest?.Version, StringComparison.OrdinalIgnoreCase);
+            if (isNewer && (mode is "download" or "always") && manifest is not null && !alreadyStaged)
             {
                 if (Interlocked.CompareExchange(ref _installing, 1, 0) == 0)
                 {
+                    if (_updateReady)
+                    {
+                        // A previous version is staged but superseded; the download
+                        // below prunes its installer, so drop the ready state + its
+                        // marker now. Status reverts to "available" until the new
+                        // version finishes staging - never "ready" with no file.
+                        _updateReady = false;
+                        _stagedInstallerPath = null;
+                        _stagedVersion = null;
+                        StagedInstallMarkerStore.Delete();
+                        UpdateStatusUpdateReady(false);
+                    }
                     var cts = new CancellationTokenSource();
                     _installCts = cts;
                     _ = Task.Run(() => RunInstallAsync(manifest, launchAfterVerify: false, reopenAfter: false, cts.Token));
@@ -581,6 +602,7 @@ public sealed class UpdateService : BackgroundService
                 // Staged file is gone; fall through to a full re-download.
                 _updateReady = false;
                 _stagedInstallerPath = null;
+                _stagedVersion = null;
                 await RunInstallAsync(manifest, launchAfterVerify: true, reopenAfter, ct).ConfigureAwait(false);
                 return;
             }
@@ -692,6 +714,7 @@ public sealed class UpdateService : BackgroundService
 
                 // Stage only: signal ready, write pending marker, send tray notification.
                 _stagedInstallerPath = installerPath;
+                _stagedVersion = manifest.Version;
                 _updateReady = true;
                 StagedInstallMarkerStore.Write(new StagedInstallMarker
                 {

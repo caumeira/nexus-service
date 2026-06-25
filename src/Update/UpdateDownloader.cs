@@ -56,6 +56,13 @@ public sealed class UpdateDownloader
         var finalPath = Path.Combine(StagingDir, fileName);
         var tmpPath = finalPath + ".tmp";
 
+        // Keep only the installer for the version being staged. Each installer is
+        // tens of MB and a new release supersedes any queued one, so a stale
+        // installer must not survive (it would also leave a marker/path pointing
+        // at an old version). Runs before the valid-skip below so re-staging the
+        // same version still reuses its file.
+        PruneStaleInstallers(StagingDir, fileName);
+
         // Skip re-download if the staged file is already valid.
         if (File.Exists(finalPath) && await IsValidAsync(finalPath, manifest.Sha256, manifest.AssetSize, ct))
         {
@@ -151,6 +158,30 @@ public sealed class UpdateDownloader
         try
         {
             if (File.Exists(path)) File.Delete(path);
+        }
+        catch { }
+    }
+
+    /// <summary>
+    /// Deletes every <c>Nexus-Setup-*</c> file (installers and any partial
+    /// <c>.tmp</c>) in <paramref name="stagingDir"/> except
+    /// <paramref name="keepFileName"/>, capping the staging dir at the single
+    /// installer being staged. Marker / run-ota / log files use other prefixes
+    /// and are left in place.
+    /// </summary>
+    internal static void PruneStaleInstallers(string stagingDir, string keepFileName)
+    {
+        try
+        {
+            foreach (var f in Directory.EnumerateFiles(stagingDir))
+            {
+                var name = Path.GetFileName(f);
+                if (name.StartsWith("Nexus-Setup-", StringComparison.OrdinalIgnoreCase)
+                    && !string.Equals(name, keepFileName, StringComparison.OrdinalIgnoreCase))
+                {
+                    TryDelete(f);
+                }
+            }
         }
         catch { }
     }
