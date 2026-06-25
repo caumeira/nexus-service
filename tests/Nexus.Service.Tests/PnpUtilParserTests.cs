@@ -201,4 +201,32 @@ public class PnpUtilParserTests
         Assert.Single(devices);
         Assert.Equal(0x046D, devices[0].VendorId);
     }
+
+    [Fact]
+    public void Parse_LocalizedLabels_StillExtractsVidPidAndName()
+    {
+        // On non-English Windows pnputil localizes the field LABELS but never
+        // the Instance ID value or the DEVPKEY_* property names. Regression: a
+        // Japanese host returned an empty list, which silently disabled every
+        // USB-presence gate (the Q-series panel watcher never ran, so the Q80
+        // could not install qshell). Labels here are Japanese; the device is
+        // the real Q80 cooler (VID_3402&PID_0403).
+        const string localized =
+            "インスタンス ID:        USB\\VID_3402&PID_0403\\205532914132\n" +
+            "デバイスの説明:     USB シリアル デバイス\n" +
+            "クラス名:                Ports\n" +
+            "ドライバー名:            usbser.inf\n" +
+            "プロパティ:\n" +
+            "    DEVPKEY_Device_BusReportedDeviceDesc [String]:\n" +
+            "        HYTE Q80\n" +
+            "    DEVPKEY_Device_LocationInfo [String]:\n" +
+            "        Port_#0003.Hub_#0001\n" +
+            "\n";
+        var devices = PnpUtilParser.Parse(localized);
+        Assert.Single(devices);
+        Assert.Equal(0x3402, devices[0].VendorId);
+        Assert.Equal(0x0403, devices[0].ProductId);
+        Assert.Equal("HYTE Q80", devices[0].Name);
+        Assert.Equal("Port_#0003.Hub_#0001", devices[0].Location);
+    }
 }

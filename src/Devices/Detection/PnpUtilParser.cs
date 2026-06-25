@@ -14,6 +14,16 @@ namespace Nexus.Service.Devices.Detection;
 ///
 /// pnputil reports only currently-attached devices.
 ///
+/// Locale-independent: pnputil renders its field LABELS ("Instance ID:",
+/// "Properties:") in the OS UI language, so matching English labels finds
+/// nothing on non-English Windows (a Japanese host returned an empty list,
+/// which silently disabled every USB-presence gate). The Instance ID is
+/// instead identified by its VALUE (always `USB\VID_...`, never localized) and
+/// the device name + location come from the canonical, untranslated
+/// `DEVPKEY_*` property names. The localized Device Description / Class /
+/// Manufacturer / Driver labels are still read as a best-effort fallback that
+/// only fills on English hosts; the bus-reported name covers the rest.
+///
 /// Output is ~500 KB - 2 MB of text with 10k-25k lines. Walks the text by
 /// index and materialises strings only for the values stored
 /// (~O(device count)), avoiding the GC pressure of a full <c>Split('\n')</c>.
@@ -34,7 +44,7 @@ internal static class PnpUtilParser
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         // Top-level header fields we care about. Parsed from the indent-0
-        // "Instance ID:" / "Device Description:" / etc. lines.
+        // lines: the Instance ID by value, the rest by (English) label.
         string instanceId = "";
         string deviceDescription = "";
         string manufacturer = "";
@@ -43,7 +53,6 @@ internal static class PnpUtilParser
         string busReported = "";
         string locationInfo = "";
 
-        bool inProperties = false;
         WantedProp currentProp = WantedProp.None;
 
         var span = output.AsSpan();
@@ -60,15 +69,18 @@ internal static class PnpUtilParser
                 }
                 instanceId = deviceDescription = manufacturer = className = driverName =
                     busReported = locationInfo = "";
-                inProperties = false;
                 currentProp = WantedProp.None;
                 continue;
             }
 
-            // Top-level labels (no leading whitespace) are block fields like
-            // "Instance ID:<spaces>value". "Properties:" opens the property list.
+            // Top-level fields (no leading whitespace): "Label:<spaces>value".
+            // The label is localized, so the Instance ID is taken from its value
+            // (the only top-level value that starts `USB\`), not its label. The
+            // remaining labels are matched in English as a best-effort fallback.
             if (!char.IsWhiteSpace(line[0]))
             {
+                currentProp = WantedProp.None;
+
                 var colon = line.IndexOf(':');
                 if (colon <= 0)
                 {
@@ -78,15 +90,9 @@ internal static class PnpUtilParser
                 var key = line.Slice(0, colon).Trim();
                 var value = line.Slice(colon + 1).Trim();
 
-                if (key.Equals("Properties", StringComparison.OrdinalIgnoreCase))
-                {
-                    inProperties = true;
-                    currentProp = WantedProp.None;
-                    continue;
-                }
-
                 // Only allocate strings for the fields we actually use downstream.
-                if (key.Equals("Instance ID", StringComparison.OrdinalIgnoreCase))
+                if (instanceId.Length == 0
+                    && value.StartsWith(@"USB\", StringComparison.OrdinalIgnoreCase))
                 {
                     instanceId = value.ToString();
                 }
@@ -109,12 +115,8 @@ internal static class PnpUtilParser
                 continue;
             }
 
-            if (!inProperties)
-            {
-                continue;
-            }
-
-            // Inside Properties: alternating indent levels.
+            // Indented lines belong to the Properties block (the only indented
+            // content). Keyed on canonical DEVPKEY_* names, which are not localized.
             //   4-space:  "    DEVPKEY_Device_BusReportedDeviceDesc [String]:"
             //   8-space:  "        Corsair Gaming M65 Pro RGB Mouse"
             var trimmed = line.TrimStart();
