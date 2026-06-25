@@ -92,10 +92,10 @@ internal static class AppBootstrap
         };
     }
 
-    // BeatsProvider start/stop tracks the "beats" topic subscriber count.
-    // OnBeat fans out to two topics: "beats" (raw MusicResult) and "audio"
-    // (the full level/bass/mid/high/beat/spectrum snapshot). Phone-presence
-    // is wired here too because it shares the same hub.
+    // BeatsProvider.OnBeat fires each analysis window while capture runs; when
+    // the "audio" topic has subscribers it broadcasts the latest
+    // level/bass/mid/high/beat/spectrum snapshot. Phone-presence is wired here
+    // too because it shares the same hub.
     public static void WireBeatsAndPresence(WebApplication app)
     {
         BootTimer.Mark("WireBeatsAndPresence: resolve IBeatsProvider");
@@ -103,13 +103,8 @@ internal static class AppBootstrap
         BootTimer.Mark("WireBeatsAndPresence: IBeatsProvider resolved");
         var muxHub = app.Services.GetRequiredService<MultiplexHub>();
         BootTimer.Mark("WireBeatsAndPresence: MultiplexHub resolved");
-        beatsProvider.OnBeat += result =>
+        beatsProvider.OnBeat += () =>
         {
-            if (muxHub.TopicHasSubscribers("beats"))
-            {
-                var env = WsEnvelope.Build("beats", result, AppJsonContext.Default.MusicResult);
-                _ = muxHub.BroadcastTopicAsync("beats", env);
-            }
             if (muxHub.TopicHasSubscribers("audio"))
             {
                 var snap = new Nexus.Service.Models.Lighting.AudioStateSnapshot
@@ -125,8 +120,6 @@ internal static class AppBootstrap
                 _ = muxHub.BroadcastTopicAsync("audio", audioEnv);
             }
         };
-        muxHub.OnTopicFirstSubscriber += topic => { if (topic == "beats") beatsProvider.Start(); };
-        muxHub.OnTopicLastUnsubscriber += topic => { if (topic == "beats" && !muxHub.TopicHasSubscribers("beats")) beatsProvider.Stop(); };
 
         // Phone presence: when the first phone subscribes (or the last leaves)
         // the dashboard's connected-count needs to refresh. Reuse the existing

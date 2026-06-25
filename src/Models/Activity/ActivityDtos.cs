@@ -185,18 +185,3 @@ public class NetworkProcessInfo
     public long BytesOut { get; set; }
 }
 
-// ----- Beats -----
-
-public class MusicResult
-{
-    public int BassBeatCount { get; set; }
-    public float BassIntensity { get; set; }
-    public int SnareBeatCount { get; set; }
-    public float SnareIntensity { get; set; }
-    public int HighBeatCount { get; set; }
-    public float HighIntensity { get; set; }
-    public int KickBeatCount { get; set; }
-    public float KickIntensity { get; set; }
-    public float MusicDynamic { get; set; }
-    public float Volume { get; set; }
-}
