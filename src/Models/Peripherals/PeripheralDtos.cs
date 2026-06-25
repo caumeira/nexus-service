@@ -77,6 +77,12 @@ public sealed class SupportedDeviceDto
     public string VendorId { get; set; } = "";
     public string ProductId { get; set; } = "";
     public List<string> Capabilities { get; set; } = new();
+
+    /// <summary>
+    /// Which integration drives this device: "nexus" (first-party native driver)
+    /// or "openrgb" (the bundled OpenRGB engine). The UI shows a per-row source icon.
+    /// </summary>
+    public string Source { get; set; } = "openrgb";
 }
 
 public sealed class GetPeripheralsResponse

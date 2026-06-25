@@ -57,12 +57,23 @@ public static class LightingDevicesCatalog
 
         if (file?.Devices is null)
         {
-            return new List<SupportedDeviceDto>();
+            return new List<SupportedDeviceDto>(FirstPartyDevices);
         }
 
-        var result = new List<SupportedDeviceDto>(file.Devices.Count);
+        // First-party HYTE devices lead the list with correct model/category and a
+        // "nexus" source. The bundled OpenRGB fork registers the same hardware under
+        // its own HYTE* controllers (e.g. the "HYTE Nexus" detector groups the THICC
+        // Q60 and Nexus Portal NP50 into one mislabeled row), so those are skipped
+        // below to avoid duplicate, wrongly-typed entries.
+        var result = new List<SupportedDeviceDto>(FirstPartyDevices.Count + file.Devices.Count);
+        result.AddRange(FirstPartyDevices);
+
         foreach (var d in file.Devices)
         {
+            if ((d.Controller ?? "").StartsWith("HYTE", System.StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
             var (vendor, model) = SplitVendorModel(d.Name);
             result.Add(new SupportedDeviceDto
             {
@@ -72,10 +83,38 @@ public static class LightingDevicesCatalog
                 VendorId = d.Vid ?? "-",
                 ProductId = d.Pid ?? "-",
                 Capabilities = new List<string> { d.Kind ?? "generic" },
+                Source = "openrgb",
             });
         }
         return result;
     }
+
+    /// <summary>
+    /// HYTE devices Nexus drives natively (VID 0x3402). Curated so they carry the
+    /// correct model, category, and VID/PID independent of how the OpenRGB fork
+    /// happens to register them. PIDs from src/Peripherals/Hyte/*.
+    /// </summary>
+    private static readonly IReadOnlyList<SupportedDeviceDto> FirstPartyDevices = new List<SupportedDeviceDto>
+    {
+        Hyte("THICC Q60",         "aio",      "0x0400"),
+        Hyte("Q80",               "aio",      "0x0403"),
+        Hyte("Nexus Portal NP50", "light",    "0x0901"),
+        Hyte("CNVS",              "mousemat", "0x0B00"),
+        Hyte("Keeb TKL",          "keyboard", "0x0300"),
+        Hyte("Smart Hub",         "light",    "0x0904"),
+        Hyte("MiniHub",           "light",    "0x0900"),
+    };
+
+    private static SupportedDeviceDto Hyte(string model, string category, string pid) => new()
+    {
+        Vendor = "HYTE",
+        Model = model,
+        Category = category,
+        VendorId = "0x3402",
+        ProductId = pid,
+        Capabilities = new List<string> { "rgb" },
+        Source = "nexus",
+    };
 
     private static (string vendor, string model) SplitVendorModel(string name)
     {
@@ -114,7 +153,7 @@ public static class LightingDevicesCatalog
             return "monitor";
         if (c.Contains("Motherboard") || c.Contains("Aura") || c.Contains("MysticLight") || c.Contains("Fusion") || c.Contains("Polychrome"))
             return "motherboard";
-        if (c.Contains("Case") || c.Contains("Nexus"))
+        if (c.Contains("Case"))
             return "case";
         if (c.Contains("Gamepad"))
             return "gamepad";

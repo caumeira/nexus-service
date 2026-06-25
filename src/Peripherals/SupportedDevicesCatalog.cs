@@ -128,14 +128,16 @@ public static class SupportedDevicesCatalog
         Headset("HyperX", "Cloud II Wireless",           "0x03F0", "0x018B", Caps("battery")),
     };
 
+    // These peripherals are driven by Nexus's native protocol stack (not OpenRGB),
+    // so every row is sourced "nexus".
     private static SupportedDeviceDto Mouse(string vendor, string model, string vid, string pid, List<string> caps) =>
-        new() { Vendor = vendor, Model = model, Category = "mouse", VendorId = vid, ProductId = pid, Capabilities = caps };
+        new() { Vendor = vendor, Model = model, Category = "mouse", VendorId = vid, ProductId = pid, Capabilities = caps, Source = "nexus" };
 
     private static SupportedDeviceDto Keyboard(string vendor, string model, string vid, string pid, List<string> caps) =>
-        new() { Vendor = vendor, Model = model, Category = "keyboard", VendorId = vid, ProductId = pid, Capabilities = caps };
+        new() { Vendor = vendor, Model = model, Category = "keyboard", VendorId = vid, ProductId = pid, Capabilities = caps, Source = "nexus" };
 
     private static SupportedDeviceDto Headset(string vendor, string model, string vid, string pid, List<string> caps) =>
-        new() { Vendor = vendor, Model = model, Category = "headset", VendorId = vid, ProductId = pid, Capabilities = caps };
+        new() { Vendor = vendor, Model = model, Category = "headset", VendorId = vid, ProductId = pid, Capabilities = caps, Source = "nexus" };
 
     private static List<string> Caps(params string[] values) => new(values);
 }
