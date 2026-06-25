@@ -310,28 +310,12 @@ internal static class WindowsUserHelper
 
     private static ServiceState QueryServiceState()
     {
-        try
+        return WindowsServiceInstaller.QueryCurrentServiceState(WindowsServiceInstaller.ServiceName) switch
         {
-            var psi = new ProcessStartInfo("sc.exe")
-            {
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            psi.ArgumentList.Add("query");
-            psi.ArgumentList.Add(WindowsServiceInstaller.ServiceName);
-            using var p = Process.Start(psi);
-            if (p is null) return ServiceState.Other;
-            var output = p.StandardOutput.ReadToEnd();
-            p.WaitForExit(5000);
-            // sc query returns 1060 / "service does not exist" when not installed.
-            if (p.ExitCode != 0) return ServiceState.NotInstalled;
-            return output.Contains("RUNNING", StringComparison.OrdinalIgnoreCase)
-                ? ServiceState.Running
-                : ServiceState.Other;
-        }
-        catch { return ServiceState.Other; }
+            0 => ServiceState.NotInstalled,
+            4 => ServiceState.Running,
+            _ => ServiceState.Other,
+        };
     }
 
     // HTA caption is a known constant so the helper can close it by title.

@@ -456,6 +456,76 @@ internal static class WindowsServiceInstaller
         }
     }
 
+    // SERVICE_STATUS_PROCESS.dwCurrentState values (locale-neutral numeric codes from QueryServiceStatusEx).
+    private const uint SERVICE_STOPPED = 1;
+
+    private const uint SC_MANAGER_CONNECT = 0x0001;
+    private const uint SERVICE_QUERY_STATUS = 0x0004;
+    private const int SC_STATUS_PROCESS_INFO = 0;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SERVICE_STATUS_PROCESS
+    {
+        public uint dwServiceType;
+        public uint dwCurrentState;
+        public uint dwControlsAccepted;
+        public uint dwWin32ExitCode;
+        public uint dwServiceSpecificExitCode;
+        public uint dwCheckPoint;
+        public uint dwWaitHint;
+        public uint dwProcessId;
+        public uint dwServiceFlags;
+    }
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr OpenSCManager(string? lpMachineName, string? lpDatabaseName, uint dwDesiredAccess);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr OpenService(IntPtr hSCManager, string lpServiceName, uint dwDesiredAccess);
+
+    // InfoLevel 0 = SC_STATUS_PROCESS_INFO; returns SERVICE_STATUS_PROCESS.
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool QueryServiceStatusEx(IntPtr hService, int InfoLevel,
+        out SERVICE_STATUS_PROCESS lpBuffer, uint cbBufSize, out uint pcbBytesNeeded);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool CloseServiceHandle(IntPtr hSCObject);
+
+    // sc.exe STATE output is locale-sensitive; QueryServiceStatusEx returns a
+    // numeric dwCurrentState (1=STOPPED, 2=START_PENDING, 3=STOP_PENDING, 4=RUNNING).
+    // Returns 0 when the service handle cannot be opened (not installed or access denied).
+    internal static uint QueryCurrentServiceState(string serviceName)
+    {
+        var hScm = OpenSCManager(null, null, SC_MANAGER_CONNECT);
+        if (hScm == IntPtr.Zero)
+        {
+            return 0;
+        }
+        try
+        {
+            var hSvc = OpenService(hScm, serviceName, SERVICE_QUERY_STATUS);
+            if (hSvc == IntPtr.Zero)
+            {
+                return 0;
+            }
+            try
+            {
+                return QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, out var status,
+                    (uint)Marshal.SizeOf<SERVICE_STATUS_PROCESS>(), out _)
+                    ? status.dwCurrentState
+                    : 0u;
+            }
+            finally
+            {
+                CloseServiceHandle(hSvc);
+            }
+        }
+        finally
+        {
+            CloseServiceHandle(hScm);
+        }
+    }
+
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern bool MoveFileEx(string lpExistingFileName, string? lpNewFileName, uint dwFlags);
     private const uint MOVEFILE_DELAY_UNTIL_REBOOT = 0x4;
@@ -513,9 +583,12 @@ internal static class WindowsServiceInstaller
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            var status = RunScCaptureOutput("query", ServiceName);
-            if (string.IsNullOrEmpty(status)) return; // already deleted
-            if (status.Contains("STOPPED", StringComparison.OrdinalIgnoreCase)) return;
+            var state = QueryCurrentServiceState(ServiceName);
+            // state == 0: handle can't be opened (service deleted); treat as stopped.
+            if (state == 0 || state == SERVICE_STOPPED)
+            {
+                return;
+            }
             Thread.Sleep(500);
         }
     }

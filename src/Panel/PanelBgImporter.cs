@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text.RegularExpressions;
 using System.Threading;
@@ -248,9 +249,9 @@ public static class PanelBgImporter
             return 0;
         }
 
-        var hours = double.Parse(m.Groups[1].Value);
-        var minutes = double.Parse(m.Groups[2].Value);
-        var seconds = double.Parse(m.Groups[3].Value);
+        var hours = double.Parse(m.Groups[1].Value, CultureInfo.InvariantCulture);
+        var minutes = double.Parse(m.Groups[2].Value, CultureInfo.InvariantCulture);
+        var seconds = double.Parse(m.Groups[3].Value, CultureInfo.InvariantCulture);
         return hours * 3600 + minutes * 60 + seconds;
     }
 
