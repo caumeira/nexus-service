@@ -253,14 +253,24 @@ public class LianLiProtocolTests
     }
 
     [Fact]
+    public void LianLiSettings_default_fan_count_is_4_per_port()
+    {
+        var s = new Nexus.Service.Persistence.LianLiSettings();
+        Assert.Equal(4, s.Port0Fans);
+        Assert.Equal(4, s.Port1Fans);
+        Assert.Equal(4, s.Port2Fans);
+        Assert.Equal(4, s.Port3Fans);
+    }
+
+    [Fact]
     public void LianLiSettings_SetFans_writes_per_port()
     {
         var s = new Nexus.Service.Persistence.LianLiSettings();
         s.SetFans(0, 4);
         s.SetFans(2, 3);
         Assert.Equal(4, s.Port0Fans);
-        Assert.Equal(0, s.Port1Fans);
+        Assert.Equal(4, s.Port1Fans);
         Assert.Equal(3, s.Port2Fans);
-        Assert.Equal(0, s.Port3Fans);
+        Assert.Equal(4, s.Port3Fans);
     }
 }

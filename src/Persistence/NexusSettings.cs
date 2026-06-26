@@ -545,10 +545,10 @@ public sealed class CnvsSettings
 
 public sealed class LianLiSettings
 {
-    public int Port0Fans { get; set; }
-    public int Port1Fans { get; set; }
-    public int Port2Fans { get; set; }
-    public int Port3Fans { get; set; }
+    public int Port0Fans { get; set; } = 4;
+    public int Port1Fans { get; set; } = 4;
+    public int Port2Fans { get; set; } = 4;
+    public int Port3Fans { get; set; } = 4;
 
     public int GetFans(int port) => port switch
     {

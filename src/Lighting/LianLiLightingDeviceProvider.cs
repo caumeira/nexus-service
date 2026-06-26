@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Mappings;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Peripherals.LianLi;
 using Nexus.Service.Persistence;
@@ -15,7 +16,7 @@ namespace Nexus.Service.Lighting;
 /// channels). Fan counts come from persisted <see cref="LianLiSettings"/>;
 /// the frame writer streams at 30 Hz.
 /// </summary>
-public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor
+public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource
 {
     private readonly LianLiHub _hub;
     private readonly IConfigStore _store;
@@ -72,7 +73,6 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
         var disabled = settings.Devices.DisabledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var layouts = settings.Lighting.DeviceLayouts;
-        var zoneLedCounts = settings.Devices.ZoneLedCounts;
         var lianLi = settings.Devices.LianLi;
 
         var slot = 0;
@@ -91,7 +91,7 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
                 zoneIndex: slot++,
                 parentDeviceId: hubId,
                 deviceKey: DeviceKeyComputer.ForFirstParty(LianLiProtocol.VendorId, LianLiProtocol.ProductId, $"port{p}inner"),
-                disabled, prefs, layouts, zoneLedCounts));
+                disabled, prefs, layouts));
 
             resp.Devices.Add(BuildZone(
                 id: $"{hubId}:port{p}:outer",
@@ -100,7 +100,7 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
                 zoneIndex: slot++,
                 parentDeviceId: hubId,
                 deviceKey: DeviceKeyComputer.ForFirstParty(LianLiProtocol.VendorId, LianLiProtocol.ProductId, $"port{p}outer"),
-                disabled, prefs, layouts, zoneLedCounts));
+                disabled, prefs, layouts));
         }
         return resp;
     }
@@ -115,8 +115,7 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
         string deviceKey,
         IReadOnlyList<string> disabled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
-        IReadOnlyDictionary<string, DeviceLayout> layouts,
-        IReadOnlyDictionary<string, int> zoneLedCounts)
+        IReadOnlyDictionary<string, DeviceLayout> layouts)
     {
         var isOn = true;
         for (var i = 0; i < disabled.Count; i++)
@@ -136,11 +135,6 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
             hue = pref.Hue;
             saturation = pref.Saturation;
         }
-        var effectiveLedCount = firmwareLedCount;
-        if (zoneLedCounts.TryGetValue(id, out var persisted))
-        {
-            effectiveLedCount = Math.Clamp(persisted, 0, firmwareLedCount);
-        }
         var (defX, defY, defW, defH) = DefaultLayout(zoneIndex);
         layouts.TryGetValue(id, out var layout);
         return new LightingDevice
@@ -154,7 +148,7 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
             Brightness = brightness,
             Hue = hue,
             Saturation = saturation,
-            LedCount = effectiveLedCount,
+            LedCount = firmwareLedCount,
             CanvasX = layout?.X ?? defX,
             CanvasY = layout?.Y ?? defY,
             CanvasW = layout?.W ?? defW,
@@ -163,7 +157,7 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
             ParentDeviceId = parentDeviceId,
             ZoneIndex = zoneIndex,
             ZoneType = "linear",
-            ZoneResizable = true,
+            ZoneResizable = false,
         };
     }
 
@@ -236,6 +230,92 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
 
     public void Identify(string id, int durationMs) => _identify.Schedule(id, durationMs);
 
+    // ── IDeviceStructureSource ──
+
+    public IReadOnlyList<DeviceStructure> GetStructures()
+    {
+        if (!_hub.IsConnected || string.IsNullOrEmpty(_hub.DeviceId))
+        {
+            return Array.Empty<DeviceStructure>();
+        }
+        var hubId = _hub.DeviceId;
+        var lianLi = _store.Load().Devices.LianLi;
+        var structures = new List<DeviceStructure>();
+
+        for (var p = 0; p < LianLiProtocol.PortCount; p++)
+        {
+            var fans = ClampFans(lianLi.GetFans(p));
+            if (fans <= 0) continue;
+
+            AddZoneStructure(structures, hubId, p, "inner",
+                $"Lian Li - Port {p} Inner Ring", $"Port {p} Inner Ring",
+                fans * LianLiProtocol.InnerLedsPerFan, fans);
+
+            AddZoneStructure(structures, hubId, p, "outer",
+                $"Lian Li - Port {p} Outer Ring", $"Port {p} Outer Ring",
+                fans * LianLiProtocol.OuterLedsPerFan, fans);
+        }
+        return structures;
+    }
+
+    private static void AddZoneStructure(
+        List<DeviceStructure> list, string hubId, int port, string channel,
+        string name, string rawName, int ledCount, int fans)
+    {
+        var id = $"{hubId}:port{port}:{channel}";
+        var key = DeviceKeyComputer.ForFirstParty(
+            LianLiProtocol.VendorId, LianLiProtocol.ProductId, $"port{port}{channel}");
+        var (defaultU, defaultV) = BuildFanClumpUV(fans);
+        var structure = new DeviceStructure
+        {
+            DeviceId = id,
+            Name = name,
+            DeviceKey = key,
+        };
+        // One ring per fan; fans laid out side by side along u.
+        structure.Segments.Add(new StructureSegment
+        {
+            Index = 0,
+            Name = rawName,
+            LedCount = ledCount,
+            FrameLedCount = ledCount,
+            Resizable = false,
+            ZoneType = "linear",
+            DefaultU = defaultU,
+            DefaultV = defaultV,
+        });
+        structure.DefaultZones.Add(new DefaultZoneDef
+        {
+            Id = id,
+            Name = name,
+            RawName = rawName,
+            DeviceKey = key,
+            LegacyZoneIndex = -1,
+            Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = ledCount } },
+        });
+        list.Add(structure);
+    }
+
+    private static (float[] u, float[] v) BuildFanClumpUV(int fans)
+    {
+        var ledCount = fans * LianLiProtocol.LedsPerFanPerChannel;
+        var u = new float[ledCount];
+        var v = new float[ledCount];
+        for (var f = 0; f < fans; f++)
+        {
+            var centerU = (f + 0.5f) / fans;
+            for (var i = 0; i < LianLiProtocol.LedsPerFanPerChannel; i++)
+            {
+                var angle = (i / (double)LianLiProtocol.LedsPerFanPerChannel) * 2.0 * Math.PI;
+                u[f * LianLiProtocol.LedsPerFanPerChannel + i] =
+                    centerU + (0.40f / fans) * (float)Math.Cos(angle);
+                v[f * LianLiProtocol.LedsPerFanPerChannel + i] =
+                    0.5f + 0.40f * (float)Math.Sin(angle);
+            }
+        }
+        return (u, v);
+    }
+
     // ── ILightingFrameContributor ──
 
     public IReadOnlyList<DeviceFrame> BuildFrames(int startingIndex)
@@ -247,7 +327,6 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
         var idx = startingIndex;
         var settings = _store.Load();
         var layouts = settings.Lighting.DeviceLayouts;
-        var zoneLedCounts = settings.Devices.ZoneLedCounts;
         var lianLi = settings.Devices.LianLi;
 
         var slot = 0;
@@ -258,11 +337,11 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
 
             frames.Add(BuildOrReuseFrame(
                 $"{hubId}:port{p}:inner", fans * LianLiProtocol.InnerLedsPerFan,
-                slot++, layouts, zoneLedCounts, ref idx));
+                slot++, layouts, ref idx));
 
             frames.Add(BuildOrReuseFrame(
                 $"{hubId}:port{p}:outer", fans * LianLiProtocol.OuterLedsPerFan,
-                slot++, layouts, zoneLedCounts, ref idx));
+                slot++, layouts, ref idx));
         }
 
         if (_frameCache.Count > frames.Count)
@@ -291,14 +370,8 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
     private DeviceFrame BuildOrReuseFrame(
         string id, int firmwareLedCount, int zoneIndex,
         IReadOnlyDictionary<string, DeviceLayout> layouts,
-        IReadOnlyDictionary<string, int> zoneLedCounts,
         ref int idx)
     {
-        var effectiveLedCount = firmwareLedCount;
-        if (zoneLedCounts.TryGetValue(id, out var persisted))
-        {
-            effectiveLedCount = Math.Clamp(persisted, 0, firmwareLedCount);
-        }
         var (defX, defY, defW, defH) = DefaultLayout(zoneIndex);
         layouts.TryGetValue(id, out var layout);
         var rot = ((((layout?.Rotation ?? 0) % 360) + 360) % 360);
@@ -306,7 +379,7 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
 
         if (_frameCache.TryGetValue(id, out var existing)
             && existing.Index == thisIdx
-            && existing.LedCount == effectiveLedCount)
+            && existing.LedCount == firmwareLedCount)
         {
             existing.X = layout?.X ?? defX;
             existing.Y = layout?.Y ?? defY;
@@ -319,7 +392,7 @@ public sealed class LianLiLightingDeviceProvider : ILightingDeviceProvider, ILig
         var frame = new DeviceFrame(
             index: thisIdx,
             id: id,
-            ledCount: effectiveLedCount,
+            ledCount: firmwareLedCount,
             x: layout?.X ?? defX,
             y: layout?.Y ?? defY,
             w: layout?.W ?? defW,
