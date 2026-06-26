@@ -642,7 +642,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             ["u_topMeters"] = 1f, ["u_bottomBars"] = 1f, ["u_bottomCount"] = 64f,
             ["u_bottomScale"] = 0.07f, ["u_colorMode"] = 1f, ["u_hueCycle"] = 0f,
             ["u_beatColor"] = 0f, ["u_bgLevel"] = 0f, ["u_flash"] = 0f,
-            ["u_beatPulse"] = 0.3f, ["u_audioBoost"] = 1f,
+            ["u_beatPulse"] = 0.3f,
         },
         // Tunnels + flowy + abstract backgrounds. Slot 0 must match the frontend
         // EFFECTS defaults and PARAM_VARIATIONS slot 0.

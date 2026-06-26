@@ -35,10 +35,13 @@ public static class AudioState
     public static readonly float[] Spectrum64 = new float[Spectrum64Bins];
     public static int Spectrum64Length => Spectrum64Bins;
 
-    /// <summary>16-band x 16-frame history packed as 256 floats. Layout: index = frame*16 + band, frame 0 newest.</summary>
+    /// <summary>Per-band history; SpecHist[frame*HistBands + band], frame 0 newest.</summary>
     public const int HistFrames = 16;
     public const int HistBands = 16;
     public static readonly float[] SpecHist = new float[HistFrames * HistBands];
+    // u_specHist is uploaded as a vec4[]; 4 floats pack per vec4, so
+    // HistFrames*HistBands must stay a multiple of 4 or the upload truncates.
+    public const int SpecHistVec4Count = HistFrames * HistBands / 4;
 
     public static float BassPeak;
     public static float MidPeak;

@@ -232,7 +232,7 @@ public sealed class ShaderEffect : IEffect
                 {
                     fixed (float* p = Nexus.Service.Lighting.Engine.AudioState.SpecHist)
                     {
-                        gl.Uniform4(_uSpecHist, (uint)(Nexus.Service.Lighting.Engine.AudioState.HistFrames * Nexus.Service.Lighting.Engine.AudioState.HistBands / 4), p);
+                        gl.Uniform4(_uSpecHist, (uint)Nexus.Service.Lighting.Engine.AudioState.SpecHistVec4Count, p);
                     }
                 }
             }
