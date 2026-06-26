@@ -32,6 +32,8 @@ public sealed class AudioAnalyser
         1, 3, 5, 7, 10, 14, 19, 26, 34, 45, 59, 76, 97, 125, 156, 196, FftBins,
     };
 
+    private static readonly int[] _bandEdges64 = new int[65];
+
     private static readonly float[] _cosTable = new float[FftSize];
     private static readonly float[] _sinTable = new float[FftSize];
     private static readonly int[] _bitReverse = new int[FftSize];
@@ -53,6 +55,24 @@ public sealed class AudioAnalyser
             _bitReverse[i] = j;
             _hannWindow[i] = 0.5f * (1f - MathF.Cos(2f * MathF.PI * i / (FftSize - 1)));
         }
+
+        int prev = 1;
+        for (int i = 0; i <= 64; i++)
+        {
+            int e = (int)MathF.Round(MathF.Pow(FftBins, i / 64f));
+            if (e <= prev)
+            {
+                e = prev + (i == 0 ? 0 : 1);
+            }
+            if (e > FftBins)
+            {
+                e = FftBins;
+            }
+            _bandEdges64[i] = e;
+            prev = e;
+        }
+        _bandEdges64[0] = 1;
+        _bandEdges64[64] = FftBins;
     }
 
     // Rolling exponential average of bass energy; drives the time-domain
@@ -62,6 +82,7 @@ public sealed class AudioAnalyser
     private readonly float[] _fftRe = new float[FftSize];
     private readonly float[] _fftIm = new float[FftSize];
     private readonly float[] _smoothSpectrum = new float[16];
+    private readonly float[] _smoothSpectrum64 = new float[64];
     private float _smoothLevel;
     private float _smoothBass;
     private float _smoothMid;
@@ -120,6 +141,7 @@ public sealed class AudioAnalyser
         _avgBass = 0;
         _smoothLevel = _smoothBass = _smoothMid = _smoothHigh = _beatEnvelope = 0;
         Array.Clear(_smoothSpectrum);
+        Array.Clear(_smoothSpectrum64);
         AudioState.Reset();
     }
 
@@ -162,6 +184,27 @@ public sealed class AudioAnalyser
             AudioState.Spectrum[b] = next;
         }
 
+        for (int b = 0; b < 64; b++)
+        {
+            int start = _bandEdges64[b];
+            int end = _bandEdges64[b + 1];
+            int width = Math.Max(end - start, 1);
+            float sum64 = 0f;
+            for (int k = start; k < start + width; k++)
+            {
+                float re = _fftRe[k];
+                float im = _fftIm[k];
+                sum64 += MathF.Sqrt(re * re + im * im);
+            }
+            float avg64 = sum64 / width;
+            float norm64 = MathF.Min(MathF.Log10(1f + avg64 * 3f), 1f);
+            float cur64 = _smoothSpectrum64[b];
+            _smoothSpectrum64[b] = norm64 > cur64
+                ? cur64 + (norm64 - cur64) * 0.55f
+                : cur64 + (norm64 - cur64) * 0.18f;
+            AudioState.Spectrum64[b] = _smoothSpectrum64[b];
+        }
+
         float bassAgg = (_smoothSpectrum[0] + _smoothSpectrum[1] + _smoothSpectrum[2]) / 3f;
         float midAgg = (_smoothSpectrum[3] + _smoothSpectrum[4] + _smoothSpectrum[5] +
                         _smoothSpectrum[6] + _smoothSpectrum[7] + _smoothSpectrum[8]) / 6f;
@@ -176,13 +219,26 @@ public sealed class AudioAnalyser
 
         _beatEnvelope *= 0.78f;
         if (bassBeat)
+        {
             _beatEnvelope = 1f;
+        }
 
         AudioState.Level = _smoothLevel;
         AudioState.Bass = _smoothBass;
         AudioState.Mid = _smoothMid;
         AudioState.High = _smoothHigh;
         AudioState.Beat = _beatEnvelope;
+
+        AudioState.BassPeak = MathF.Max(AudioState.BassPeak * 0.90f, AudioState.Bass);
+        AudioState.MidPeak = MathF.Max(AudioState.MidPeak * 0.90f, AudioState.Mid);
+        AudioState.HighPeak = MathF.Max(AudioState.HighPeak * 0.90f, AudioState.High);
+
+        Array.Copy(AudioState.SpecHist, 0, AudioState.SpecHist, AudioState.HistBands,
+                   (AudioState.HistFrames - 1) * AudioState.HistBands);
+        for (int b = 0; b < 16; b++)
+        {
+            AudioState.SpecHist[b] = _smoothSpectrum[b];
+        }
     }
 
     private static void Fft(float[] re, float[] im)
