@@ -70,8 +70,19 @@ public sealed class UpdateService : BackgroundService
     private int _installing;
     private CancellationTokenSource? _installCts;
 
+    // A background auto-stage (download/always) holds _installing while it
+    // downloads. A user trigger arriving in that window sets this so the stage
+    // launches the installer when it finishes, instead of being rejected.
+    private volatile bool _launchAfterStage;
+    private volatile bool _launchAfterStageReopen;
+
     private volatile UpdateManifest? _latestManifest;
     private volatile bool _updateReady;
+
+    // Set once a check reaches the source (network/DNS up). Gates the cold-boot
+    // short-retry so a transient boot-time DNS failure isn't stranded until the
+    // next PollInterval.
+    private volatile bool _hadSuccessfulCheck;
     private volatile string? _stagedInstallerPath;
     // Version the staged installer is for. A newer manifest supersedes it, so the
     // auto-stage guard re-stages instead of leaving the queued install on the old
@@ -185,8 +196,52 @@ public sealed class UpdateService : BackgroundService
             {
                 Console.Error.WriteLine($"[update] poll iteration failed: {ex.GetType().Name}: {ex.Message}");
             }
+
+            if (!_hadSuccessfulCheck
+                && !await RetryUntilFirstCheckAsync(stoppingToken).ConfigureAwait(false))
+            {
+                return;
+            }
         }
         while (await WaitAsync(timer, stoppingToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// The startup check can fire before the network/DNS stack is up on a cold
+    /// boot, failing to resolve api.github.com. Retry on a short capped backoff
+    /// until a check reaches the source, so a transient boot failure isn't
+    /// stranded until the next PollInterval. Returns false if cancelled.
+    /// </summary>
+    private async Task<bool> RetryUntilFirstCheckAsync(CancellationToken ct)
+    {
+        // Cold-boot DNS comes up within seconds; cap the fast-retry window (~10
+        // min of 15s->120s backoff) so a box that is genuinely offline falls
+        // back to the normal 4h cadence instead of polling (and logging) forever.
+        const int maxAttempts = 8;
+        var delaySeconds = 15;
+        for (var attempt = 0; attempt < maxAttempts && !_hadSuccessfulCheck && !ct.IsCancellationRequested; attempt++)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+
+            try
+            {
+                await PollAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[update] poll iteration failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            delaySeconds = Math.Min(delaySeconds * 2, 120);
+        }
+        return !ct.IsCancellationRequested;
     }
 
     /// <summary>
@@ -440,6 +495,17 @@ public sealed class UpdateService : BackgroundService
 
         if (Interlocked.CompareExchange(ref _installing, 1, 0) != 0)
         {
+            // A background auto-stage holds the lock and nothing is staged yet:
+            // adopt it so this trigger launches once staging finishes, rather
+            // than rejecting the user mid-download. A click in the sub-ms window
+            // where staging is flipping _updateReady true is acked but not
+            // launched; status reverts to "ready" and the user re-triggers.
+            if (!_updateReady && _progress.Active)
+            {
+                _launchAfterStageReopen = reopenAfter;
+                _launchAfterStage = true;
+                return (true, "");
+            }
             return (false, "An install is already in progress.");
         }
 
@@ -473,6 +539,7 @@ public sealed class UpdateService : BackgroundService
         try
         {
             var manifest = await _source.GetLatestAsync(channel, ct).ConfigureAwait(false);
+            _hadSuccessfulCheck = true;
 
             _latestManifest = manifest;
 
@@ -669,6 +736,8 @@ public sealed class UpdateService : BackgroundService
         finally
         {
             Interlocked.Exchange(ref _installing, 0);
+            _launchAfterStage = false;
+            _launchAfterStageReopen = false;
             _installCts?.Dispose();
             _installCts = null;
         }
@@ -701,7 +770,8 @@ public sealed class UpdateService : BackgroundService
             SetProgress("verifying", 99, "Verifying installer...", manifest.Version);
             await UpdateIntegrity.VerifyAsync(installerPath, manifest.Sha256!, ct).ConfigureAwait(false);
 
-            if (!launchAfterVerify)
+            var adopted = _launchAfterStage;
+            if (!launchAfterVerify && !adopted)
             {
                 if (!manifest.Sha256IsFromSumsFile)
                 {
@@ -742,6 +812,12 @@ public sealed class UpdateService : BackgroundService
                 NotifyStatusChanged();
                 Console.Error.WriteLine($"[update] download staged for {manifest.Version}; awaiting user trigger");
                 return;
+            }
+
+            // A user trigger adopted this background stage: honor its reopen intent.
+            if (adopted)
+            {
+                reopenAfter = reopenAfter || _launchAfterStageReopen;
             }
 
 #if WINDOWS
@@ -805,6 +881,8 @@ public sealed class UpdateService : BackgroundService
         finally
         {
             Interlocked.Exchange(ref _installing, 0);
+            _launchAfterStage = false;
+            _launchAfterStageReopen = false;
             _installCts?.Dispose();
             _installCts = null;
         }
