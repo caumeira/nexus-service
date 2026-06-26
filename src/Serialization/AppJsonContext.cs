@@ -90,6 +90,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFwSettingResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFwSettingRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFirmwareControlRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.SmartHubCompositionResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.SmartHubCompositionRequest))]
 
 // Q-series cooler device surface
 [JsonSerializable(typeof(Nexus.Service.Routes.QSeriesCoolerStateResponse))]
@@ -756,7 +758,10 @@ namespace Nexus.Service.Serialization;
 // Lian Li Uni Hub SL-Infinity.
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiStateResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiFanCountRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiCompositionResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiCompositionRequest))]
 [JsonSerializable(typeof(int[]))]
+[JsonSerializable(typeof(bool[]))]
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

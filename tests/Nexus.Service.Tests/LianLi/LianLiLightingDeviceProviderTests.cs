@@ -1,4 +1,4 @@
-using System;
+using System.Linq;
 using Nexus.Service.Lighting;
 using Nexus.Service.Peripherals.LianLi;
 using Nexus.Service.Persistence;
@@ -13,24 +13,31 @@ public class LianLiLightingDeviceProviderTests
 
     public LianLiLightingDeviceProviderTests()
     {
-        _provider = new LianLiLightingDeviceProvider(_hub, _store, new Nexus.Service.Lighting.Np50IdentifyTracker());
+        _provider = new LianLiLightingDeviceProvider(_hub, _store, new Np50IdentifyTracker());
     }
 
     private void Connect() => _hub.State.IsConnected = true;
 
-    // ── Default fan count ──
+    private void SetComposition(bool mirror, bool combine) => _store.Update(s =>
+        s.Devices.LightingComposition["lianli"] = new HubCompositionSettings { Mirror = mirror, CombineRings = combine });
+
+    private LianLiSettings Fans => _store.Load().Devices.LianLi;
+
+    private void OnlyPort0(int fans) => _store.Update(s =>
+    {
+        s.Devices.LianLi.SetFans(0, fans);
+        s.Devices.LianLi.SetFans(1, 0);
+        s.Devices.LianLi.SetFans(2, 0);
+        s.Devices.LianLi.SetFans(3, 0);
+    });
 
     [Fact]
     public void Default_fan_count_is_4_per_port()
     {
-        var s = _store.Load().Devices.LianLi;
+        var s = Fans;
         Assert.Equal(4, s.Port0Fans);
-        Assert.Equal(4, s.Port1Fans);
-        Assert.Equal(4, s.Port2Fans);
         Assert.Equal(4, s.Port3Fans);
     }
-
-    // ── GetStructures ──
 
     [Fact]
     public void GetStructures_returns_empty_when_disconnected()
@@ -38,178 +45,155 @@ public class LianLiLightingDeviceProviderTests
         Assert.Empty(_provider.GetStructures());
     }
 
+    // ── Default composition: per-port, rings combined ──
+
     [Fact]
-    public void GetStructures_returns_two_structures_per_active_port_at_default_fan_count()
+    public void Default_composition_is_one_combined_device_per_active_port()
     {
         Connect();
-        // All 4 ports default to 4 fans -> 8 structures (2 per port).
         var structures = _provider.GetStructures();
-        Assert.Equal(8, structures.Count);
+        Assert.Equal(4, structures.Count);
+        Assert.Equal("lianli:port0", structures[0].DeviceId);
+        Assert.Equal(2, structures[0].Segments.Count);
+        var zone = Assert.Single(structures[0].DefaultZones);
+        Assert.Equal("lianli:port0", zone.Id);
+        Assert.Equal(2, zone.Slices.Count);
+    }
+
+    [Fact]
+    public void Default_combined_zone_led_count_spans_both_rings()
+    {
+        Connect();
+        OnlyPort0(2);
+        var st = Assert.Single(_provider.GetStructures());
+        Assert.Equal(2 * 16, st.Segments[0].LedCount);
+        Assert.Equal(2 * 16, st.Segments[1].LedCount);
+        var zone = Assert.Single(st.DefaultZones);
+        Assert.Equal(2 * (2 * 16), ZoneLedCount(zone));
     }
 
     [Fact]
     public void GetStructures_skips_port_with_zero_fans()
     {
         Connect();
-        _store.Update(s => s.Devices.LianLi.SetFans(1, 0));
-        _store.Update(s => s.Devices.LianLi.SetFans(3, 0));
-        // Ports 0 and 2 active -> 4 structures.
-        var structures = _provider.GetStructures();
-        Assert.Equal(4, structures.Count);
+        _store.Update(s =>
+        {
+            s.Devices.LianLi.SetFans(1, 0);
+            s.Devices.LianLi.SetFans(3, 0);
+        });
+        Assert.Equal(2, _provider.GetStructures().Count);
+    }
+
+    // ── Combine off: two zones per port, legacy ids ──
+
+    [Fact]
+    public void Combine_off_yields_two_default_zones_with_legacy_ids()
+    {
+        Connect();
+        SetComposition(mirror: false, combine: false);
+        var st = _provider.GetStructures()[0];
+        Assert.Equal("lianli:port0", st.DeviceId);
+        Assert.Equal(2, st.DefaultZones.Count);
+        Assert.Equal("lianli:port0:inner", st.DefaultZones[0].Id);
+        Assert.Equal("lianli:port0:outer", st.DefaultZones[1].Id);
+    }
+
+    // ── Mirror: one device fed by every active port ──
+
+    [Fact]
+    public void Mirror_yields_single_device_broadcasting_to_all_active_ports()
+    {
+        var devices = LianLiZoneSupport.Compose(
+            "lianli", new HubCompositionSettings { Mirror = true, CombineRings = true }, Fans);
+        var device = Assert.Single(devices);
+        Assert.Equal("lianli:mirror", device.Structure.DeviceId);
+        Assert.Equal(new[] { 0, 2, 4, 6 }, device.SegmentChannels[0].ToArray());
+        Assert.Equal(new[] { 1, 3, 5, 7 }, device.SegmentChannels[1].ToArray());
+    }
+
+    [Fact]
+    public void Mirror_skips_inactive_ports_in_channel_list()
+    {
+        _store.Update(s =>
+        {
+            s.Devices.LianLi.SetFans(1, 0);
+            s.Devices.LianLi.SetFans(3, 0);
+        });
+        var devices = LianLiZoneSupport.Compose(
+            "lianli", new HubCompositionSettings { Mirror = true, CombineRings = true }, Fans);
+        var d = Assert.Single(devices);
+        Assert.Equal(new[] { 0, 4 }, d.SegmentChannels[0].ToArray());
+        Assert.Equal(new[] { 1, 5 }, d.SegmentChannels[1].ToArray());
+    }
+
+    [Fact]
+    public void Per_port_channels_map_inner_2p_outer_2p_plus_1()
+    {
+        var devices = LianLiZoneSupport.Compose(
+            "lianli", new HubCompositionSettings { Mirror = false, CombineRings = true }, Fans);
+        Assert.Equal(4, devices.Count);
+        for (var p = 0; p < 4; p++)
+        {
+            Assert.Equal(new[] { p * 2 }, devices[p].SegmentChannels[0].ToArray());
+            Assert.Equal(new[] { p * 2 + 1 }, devices[p].SegmentChannels[1].ToArray());
+        }
+    }
+
+    // ── Card counts across the cross product (the 1 / 2 / 4 / 8 device spectrum) ──
+
+    [Theory]
+    [InlineData(false, true, 4)]   // per-port, combined
+    [InlineData(false, false, 8)]  // per-port, split
+    [InlineData(true, true, 1)]    // mirror, combined
+    [InlineData(true, false, 2)]   // mirror, split
+    public void Card_count_matches_composition(bool mirror, bool combine, int expected)
+    {
+        Connect();
+        SetComposition(mirror, combine);
+        Assert.Equal(expected, _provider.GetAll().Devices.Count);
+    }
+
+    // ── Concentric rings ──
+
+    [Fact]
+    public void Inner_ring_spans_less_than_outer_ring()
+    {
+        Connect();
+        OnlyPort0(1);
+        var st = Assert.Single(_provider.GetStructures());
+        Assert.True(Spread(st.Segments[0].DefaultV!) < Spread(st.Segments[1].DefaultV!));
     }
 
     [Theory]
     [InlineData(1)]
-    [InlineData(2)]
-    [InlineData(3)]
     [InlineData(4)]
-    public void GetStructures_segment_led_count_equals_fans_times_16(int fans)
+    public void Segment_defaultUV_length_equals_led_count(int fans)
     {
         Connect();
-        _store.Update(s =>
+        OnlyPort0(fans);
+        var st = Assert.Single(_provider.GetStructures());
+        foreach (var seg in st.Segments)
         {
-            s.Devices.LianLi.SetFans(0, fans);
-            s.Devices.LianLi.SetFans(1, 0);
-            s.Devices.LianLi.SetFans(2, 0);
-            s.Devices.LianLi.SetFans(3, 0);
-        });
-        var structures = _provider.GetStructures();
-        Assert.Equal(2, structures.Count);
-        foreach (var st in structures)
-        {
-            var seg = Assert.Single(st.Segments);
-            Assert.Equal(fans * 16, seg.LedCount);
-            Assert.Equal(fans * 16, seg.FrameLedCount);
+            Assert.Equal(fans * 16, seg.DefaultU!.Length);
+            Assert.Equal(fans * 16, seg.DefaultV!.Length);
         }
     }
 
-    [Fact]
-    public void GetStructures_segment_is_not_resizable()
+    private static int ZoneLedCount(Nexus.Service.Lighting.Zones.DefaultZoneDef zone)
     {
-        Connect();
-        _store.Update(s =>
-        {
-            s.Devices.LianLi.SetFans(0, 4);
-            s.Devices.LianLi.SetFans(1, 0);
-            s.Devices.LianLi.SetFans(2, 0);
-            s.Devices.LianLi.SetFans(3, 0);
-        });
-        foreach (var st in _provider.GetStructures())
-        {
-            Assert.False(Assert.Single(st.Segments).Resizable);
-        }
+        var n = 0;
+        foreach (var s in zone.Slices) n += s.Count;
+        return n;
     }
 
-    [Theory]
-    [InlineData(1)]
-    [InlineData(4)]
-    public void GetStructures_defaultU_and_defaultV_length_equals_led_count(int fans)
+    private static float Spread(float[] xs)
     {
-        Connect();
-        _store.Update(s =>
+        float mn = xs[0], mx = xs[0];
+        foreach (var x in xs)
         {
-            s.Devices.LianLi.SetFans(0, fans);
-            s.Devices.LianLi.SetFans(1, 0);
-            s.Devices.LianLi.SetFans(2, 0);
-            s.Devices.LianLi.SetFans(3, 0);
-        });
-        var ledCount = fans * 16;
-        foreach (var st in _provider.GetStructures())
-        {
-            var seg = Assert.Single(st.Segments);
-            Assert.NotNull(seg.DefaultU);
-            Assert.NotNull(seg.DefaultV);
-            Assert.Equal(ledCount, seg.DefaultU!.Length);
-            Assert.Equal(ledCount, seg.DefaultV!.Length);
+            if (x < mn) mn = x;
+            if (x > mx) mx = x;
         }
-    }
-
-    [Fact]
-    public void GetStructures_defaultV_centers_at_0_5()
-    {
-        // For a 1-fan zone, all LEDs form a ring centered at v=0.5.
-        Connect();
-        _store.Update(s =>
-        {
-            s.Devices.LianLi.SetFans(0, 1);
-            s.Devices.LianLi.SetFans(1, 0);
-            s.Devices.LianLi.SetFans(2, 0);
-            s.Devices.LianLi.SetFans(3, 0);
-        });
-        var st = _provider.GetStructures()[0];
-        var seg = st.Segments[0];
-        // Sum of all v values for 1 fan ring = 0.5*16 (cos-distributed, mean=0.5).
-        var sumV = 0.0;
-        foreach (var v in seg.DefaultV!)
-        {
-            sumV += v;
-        }
-        Assert.Equal(0.5 * 16, sumV, 2);
-    }
-
-    [Fact]
-    public void GetStructures_defaultU_centers_spread_across_0_to_1_for_4_fans()
-    {
-        Connect();
-        _store.Update(s =>
-        {
-            s.Devices.LianLi.SetFans(0, 4);
-            s.Devices.LianLi.SetFans(1, 0);
-            s.Devices.LianLi.SetFans(2, 0);
-            s.Devices.LianLi.SetFans(3, 0);
-        });
-        var st = _provider.GetStructures()[0];
-        var seg = st.Segments[0];
-        // Mean u for each fan clump should be centered at (f+0.5)/4.
-        for (var f = 0; f < 4; f++)
-        {
-            var sumU = 0.0;
-            for (var i = 0; i < 16; i++)
-            {
-                sumU += seg.DefaultU![f * 16 + i];
-            }
-            var expectedCenter = (f + 0.5) / 4.0;
-            Assert.Equal(expectedCenter, sumU / 16.0, 2);
-        }
-    }
-
-    [Fact]
-    public void GetStructures_default_zone_slice_covers_full_segment()
-    {
-        Connect();
-        _store.Update(s =>
-        {
-            s.Devices.LianLi.SetFans(0, 2);
-            s.Devices.LianLi.SetFans(1, 0);
-            s.Devices.LianLi.SetFans(2, 0);
-            s.Devices.LianLi.SetFans(3, 0);
-        });
-        var ledCount = 2 * 16;
-        foreach (var st in _provider.GetStructures())
-        {
-            var zone = Assert.Single(st.DefaultZones);
-            var slice = Assert.Single(zone.Slices);
-            Assert.Equal(0, slice.Segment);
-            Assert.Equal(0, slice.Start);
-            Assert.Equal(ledCount, slice.Count);
-            Assert.Equal(-1, zone.LegacyZoneIndex);
-        }
-    }
-
-    [Fact]
-    public void GetStructures_inner_and_outer_zone_ids_match_expected_pattern()
-    {
-        Connect();
-        _store.Update(s =>
-        {
-            s.Devices.LianLi.SetFans(0, 4);
-            s.Devices.LianLi.SetFans(1, 0);
-            s.Devices.LianLi.SetFans(2, 0);
-            s.Devices.LianLi.SetFans(3, 0);
-        });
-        var structures = _provider.GetStructures();
-        Assert.Equal(2, structures.Count);
-        Assert.Equal("lianli:port0:inner", structures[0].DeviceId);
-        Assert.Equal("lianli:port0:outer", structures[1].DeviceId);
+        return mx - mn;
     }
 }

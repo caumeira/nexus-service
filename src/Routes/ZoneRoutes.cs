@@ -19,6 +19,7 @@ public static partial class DevicesRoutes
     {
         app.MapGet("/devices/lighting-devices/{deviceId}/structure", (string deviceId,
             ZoneTopology topology,
+            System.Collections.Generic.IEnumerable<IComposableHubSource> composables,
             Nexus.Service.Persistence.IConfigStore store) =>
         {
             var structure = topology.FindStructure(deviceId);
@@ -35,6 +36,7 @@ public static partial class DevicesRoutes
                 Name = structure.Name,
                 DeviceKey = structure.DeviceKey,
                 IsDefaultPartition = zones.Count == 0 || zones[0].IsDefault,
+                HubComposition = DescribeHubComposition(composables, deviceId),
             };
             foreach (var seg in structure.Segments)
             {
@@ -283,5 +285,28 @@ public static partial class DevicesRoutes
     {
         settings.Devices.DeviceLedOverrides.Remove(deviceId);
         settings.Devices.DeviceAspectRatios.Remove(deviceId);
+    }
+
+    /// <summary>First composable hub that owns <paramref name="deviceId"/>, mapped to the editor DTO; null when none does.</summary>
+    private static Nexus.Service.Models.Devices.HubCompositionDto? DescribeHubComposition(
+        System.Collections.Generic.IEnumerable<IComposableHubSource> composables, string deviceId)
+    {
+        foreach (var hub in composables)
+        {
+            var info = hub.DescribeComposition(deviceId);
+            if (info is null) continue;
+            return new Nexus.Service.Models.Devices.HubCompositionDto
+            {
+                HubId = info.HubId,
+                HubKind = info.HubKind,
+                PortCount = info.PortCount,
+                HasRingsAxis = info.HasRingsAxis,
+                HasPortToggle = info.HasPortToggle,
+                Mirror = info.Mirror,
+                CombineRings = info.CombineRings,
+                ActivePorts = info.ActivePorts,
+            };
+        }
+        return null;
     }
 }

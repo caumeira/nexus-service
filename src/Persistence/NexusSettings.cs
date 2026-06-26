@@ -459,6 +459,14 @@ public sealed class DevicesSettings
     public CnvsSettings Cnvs { get; set; } = new();
     public LianLiSettings LianLi { get; set; } = new();
     /// <summary>
+    /// Per-hub channel composition (mirror ports / combine rings), keyed by hub
+    /// id ("lianli", "smarthub:{serial}"). Absent key = the hub's default
+    /// composition. Orthogonal to <see cref="ZonePartitions"/>: composition sets
+    /// the device set and each device's default partition; the user still
+    /// re-zones on top.
+    /// </summary>
+    public Dictionary<string, HubCompositionSettings> LightingComposition { get; set; } = new();
+    /// <summary>
     /// Community / file mapping applied per device, keyed by lighting-device
     /// id. The full artifact is embedded so applied mappings keep working
     /// with the registry unreachable or gone. User deltas
@@ -569,6 +577,19 @@ public sealed class LianLiSettings
             case 3: Port3Fans = qty; break;
         }
     }
+}
+
+/// <summary>
+/// How a multi-channel lighting hub's physical channels collapse into logical
+/// devices. <see cref="Mirror"/> broadcasts one device to every active port;
+/// <see cref="CombineRings"/> (ring hubs only) makes a port's inner+outer rings
+/// one device (its 1-zone default partition) instead of two. Both are starting
+/// points - the user re-zones each device on top.
+/// </summary>
+public sealed class HubCompositionSettings
+{
+    public bool Mirror { get; set; }
+    public bool CombineRings { get; set; }
 }
 
 public sealed class AuthSettings

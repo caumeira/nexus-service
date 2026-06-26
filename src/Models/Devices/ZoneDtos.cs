@@ -31,6 +31,22 @@ public sealed class DeviceStructureResponse : ApiResponse
     public List<StructureSegmentDto> Segments { get; set; } = new();
     public List<StructureZoneDto> Zones { get; set; } = new();
     public bool IsDefaultPartition { get; set; }
+    /// <summary>Present when the device belongs to a composable hub (mirror / combine rings); drives the LED-map editor's composition panel.</summary>
+    public HubCompositionDto? HubComposition { get; set; }
+}
+
+/// <summary>Composition capability + state for a composable hub, embedded in the structure response.</summary>
+public sealed class HubCompositionDto
+{
+    public string HubId { get; set; } = "";
+    /// <summary>"lianli" | "smarthub" - selects the web setter endpoint.</summary>
+    public string HubKind { get; set; } = "";
+    public int PortCount { get; set; }
+    public bool HasRingsAxis { get; set; }
+    public bool HasPortToggle { get; set; }
+    public bool Mirror { get; set; }
+    public bool CombineRings { get; set; }
+    public bool[] ActivePorts { get; set; } = System.Array.Empty<bool>();
 }
 
 // ----- /devices/lighting-devices/{deviceId}/zones -----

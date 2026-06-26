@@ -22,7 +22,8 @@ namespace Nexus.Service.Lighting;
 /// and the user declares the count (zones are resizable up to
 /// <see cref="SmartHubProtocol.MaxLedsPerPort"/> via the lighting page).
 /// </summary>
-public sealed class SmartHubLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource
+public sealed class SmartHubLightingDeviceProvider :
+    ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource, IComposableHubSource
 {
     private readonly SmartHubHub _hub;
     private readonly IConfigStore _store;
@@ -51,7 +52,53 @@ public sealed class SmartHubLightingDeviceProvider : ILightingDeviceProvider, IL
     private string BuildSignature()
     {
         if (!_hub.IsConnected) return "disconnected";
-        return _hub.DeviceId;
+        return _hub.DeviceId + (ReadMirror(_store.Load(), _hub.DeviceId) ? "|m" : "");
+    }
+
+    /// <summary>The four ARGB ports collapse into one mirror device when set; default off.</summary>
+    internal static bool ReadMirror(NexusSettings settings, string hubId)
+        => settings.Devices.LightingComposition.TryGetValue(hubId, out var c) && c is not null && c.Mirror;
+
+    internal static string MirrorId(string hubId) => $"{hubId}:mirror";
+
+    private static int MirrorLedCount(SmartHubHub hub, IReadOnlyDictionary<string, int> counts)
+    {
+        if (counts.TryGetValue(MirrorId(hub.DeviceId), out var persisted))
+        {
+            return Math.Max(0, persisted);
+        }
+        var max = 0;
+        foreach (var port in hub.State.Ports)
+        {
+            var c = counts.TryGetValue($"{hub.DeviceId}:port{port.Channel}", out var pc)
+                ? Math.Max(0, pc)
+                : port.LedCount;
+            if (c > max) max = c;
+        }
+        return max;
+    }
+
+    // ── IComposableHubSource ──
+
+    public HubCompositionInfo? DescribeComposition(string deviceId)
+    {
+        var hubId = _hub.DeviceId;
+        if (!_hub.IsConnected || string.IsNullOrEmpty(hubId)) return null;
+        if (deviceId != hubId && !deviceId.StartsWith(hubId + ":", StringComparison.Ordinal)) return null;
+
+        var active = new bool[SmartHubProtocol.ArgbPortCount];
+        for (var i = 0; i < active.Length; i++) active[i] = true;
+        return new HubCompositionInfo
+        {
+            HubId = hubId,
+            HubKind = "smarthub",
+            PortCount = SmartHubProtocol.ArgbPortCount,
+            HasRingsAxis = false,
+            HasPortToggle = false,
+            Mirror = ReadMirror(_store.Load(), hubId),
+            CombineRings = false,
+            ActivePorts = active,
+        };
     }
 
     public GetLightingDevicesResponse GetAll()
@@ -65,6 +112,15 @@ public sealed class SmartHubLightingDeviceProvider : ILightingDeviceProvider, IL
         var layouts = settings.Lighting.DeviceLayouts;
         var counts = settings.Devices.ZoneLedCounts;
         var slot = 0;
+
+        if (ReadMirror(settings, hubId))
+        {
+            resp.Devices.Add(BuildZone(
+                id: MirrorId(hubId), name: $"{SmartHubHub.ProductName} - All Ports (ARGB)",
+                firmwareLedCount: MirrorLedCount(_hub, counts), zoneIndex: 0, parentDeviceId: hubId,
+                disabled, prefs, layouts, counts));
+            return resp;
+        }
 
         foreach (var port in _hub.State.Ports)
         {
@@ -88,8 +144,17 @@ public sealed class SmartHubLightingDeviceProvider : ILightingDeviceProvider, IL
         var hubId = _hub.DeviceId;
         var settings = _store.Load();
         var counts = settings.Devices.ZoneLedCounts;
-        var structures = new List<DeviceStructure>(_hub.State.Ports.Length);
 
+        if (ReadMirror(settings, hubId))
+        {
+            return new[]
+            {
+                BuildStructure(MirrorId(hubId), $"{SmartHubHub.ProductName} - All Ports (ARGB)",
+                    "All Ports", "mirror", MirrorLedCount(_hub, counts)),
+            };
+        }
+
+        var structures = new List<DeviceStructure>(_hub.State.Ports.Length);
         foreach (var port in _hub.State.Ports)
         {
             var portId = $"{hubId}:port{port.Channel}";
@@ -98,34 +163,35 @@ public sealed class SmartHubLightingDeviceProvider : ILightingDeviceProvider, IL
             {
                 effectiveLedCount = Math.Max(0, persisted);
             }
-            var structure = new DeviceStructure
-            {
-                DeviceId = portId,
-                Name = $"{SmartHubHub.ProductName} - Port {port.Channel} (ARGB)",
-                DeviceKey = DeviceKeyComputer.ForFirstParty(
-                    SmartHubProtocol.VendorId, SmartHubProtocol.ProductId, $"port{port.Channel}"),
-            };
-            structure.Segments.Add(new StructureSegment
-            {
-                Index = 0,
-                Name = $"Port {port.Channel}",
-                LedCount = effectiveLedCount,
-                FrameLedCount = effectiveLedCount,
-                Resizable = true,
-                ZoneType = "linear",
-            });
-            structure.DefaultZones.Add(new DefaultZoneDef
-            {
-                Id = portId,
-                Name = $"{SmartHubHub.ProductName} - Port {port.Channel} (ARGB)",
-                RawName = $"Port {port.Channel}",
-                DeviceKey = structure.DeviceKey,
-                LegacyZoneIndex = -1,
-                Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = effectiveLedCount } },
-            });
-            structures.Add(structure);
+            structures.Add(BuildStructure(portId, $"{SmartHubHub.ProductName} - Port {port.Channel} (ARGB)",
+                $"Port {port.Channel}", $"port{port.Channel}", effectiveLedCount));
         }
         return structures;
+    }
+
+    private static DeviceStructure BuildStructure(string id, string name, string rawName, string keySlug, int ledCount)
+    {
+        var key = DeviceKeyComputer.ForFirstParty(SmartHubProtocol.VendorId, SmartHubProtocol.ProductId, keySlug);
+        var structure = new DeviceStructure { DeviceId = id, Name = name, DeviceKey = key };
+        structure.Segments.Add(new StructureSegment
+        {
+            Index = 0,
+            Name = rawName,
+            LedCount = ledCount,
+            FrameLedCount = ledCount,
+            Resizable = true,
+            ZoneType = "linear",
+        });
+        structure.DefaultZones.Add(new DefaultZoneDef
+        {
+            Id = id,
+            Name = name,
+            RawName = rawName,
+            DeviceKey = key,
+            LegacyZoneIndex = -1,
+            Slices = { new ZoneSlice { Segment = 0, Start = 0, Count = ledCount } },
+        });
+        return structure;
     }
 
     private static LightingDevice BuildZone(
@@ -229,9 +295,16 @@ public sealed class SmartHubLightingDeviceProvider : ILightingDeviceProvider, IL
         var counts = settings.Devices.ZoneLedCounts;
         var slot = 0;
 
-        foreach (var port in _hub.State.Ports)
+        if (ReadMirror(settings, hubId))
         {
-            frames.Add(BuildOrReuseFrame($"{hubId}:port{port.Channel}", port.LedCount, slot++, layouts, counts, ref idx));
+            frames.Add(BuildOrReuseFrame(MirrorId(hubId), MirrorLedCount(_hub, counts), 0, layouts, counts, ref idx));
+        }
+        else
+        {
+            foreach (var port in _hub.State.Ports)
+            {
+                frames.Add(BuildOrReuseFrame($"{hubId}:port{port.Channel}", port.LedCount, slot++, layouts, counts, ref idx));
+            }
         }
 
         if (_frameCache.Count > frames.Count)

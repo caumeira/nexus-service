@@ -1,5 +1,8 @@
 using System;
+using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
+using Nexus.Service.Lighting;
+using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models;
 using Nexus.Service.Peripherals.Hyte.SmartHub;
 using Nexus.Service.Persistence;
@@ -94,6 +97,76 @@ public static partial class DevicesRoutes
             store.Update(s => s.Devices.SmartHubFirmwareControl = body.Enabled);
             return Results.Ok(ApiResponse.Ok());
         });
+
+        // GET /devices/smarthub/composition - mirror state (no rings axis, ports fixed).
+        app.MapGet("/devices/smarthub/composition", (SmartHubHub hub, IConfigStore store) =>
+        {
+            return Results.Ok(new SmartHubCompositionResponse
+            {
+                Connected = hub.IsConnected,
+                Mirror = SmartHubLightingDeviceProvider.ReadMirror(store.Load(), hub.DeviceId),
+                PortCount = SmartHubProtocol.ArgbPortCount,
+            });
+        });
+
+        // PUT /devices/smarthub/composition - toggle mirror. Collapsing the four
+        // ports into one device (or back) drops the per-zone state of whichever
+        // ids disappear.
+        app.MapPut("/devices/smarthub/composition", (
+            SmartHubCompositionRequest body,
+            SmartHubHub hub,
+            IConfigStore store,
+            SmartHubLightingDeviceProvider lighting,
+            Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
+            Nexus.Service.Sockets.MultiplexHub mux) =>
+        {
+            var hubId = hub.DeviceId;
+            if (!hub.IsConnected || string.IsNullOrEmpty(hubId))
+                return Results.Conflict(new { error = "SmartHub not connected" });
+
+            var oldIds = SmartHubZoneIds(store.Load(), hub);
+            store.Update(s =>
+            {
+                var cur = s.Devices.LightingComposition.TryGetValue(hubId, out var c) && c is not null
+                    ? c
+                    : new HubCompositionSettings();
+                s.Devices.LightingComposition[hubId] = new HubCompositionSettings
+                {
+                    Mirror = body.Mirror ?? cur.Mirror,
+                    CombineRings = false,
+                };
+                var newIds = new HashSet<string>(SmartHubZoneIds(s, hub));
+                var orphaned = new List<string>();
+                foreach (var id in oldIds)
+                {
+                    if (!newIds.Contains(id)) orphaned.Add(id);
+                }
+                ZoneStateDrop.Drop(s, orphaned);
+            });
+
+            lighting.OnHubStateUpdated();
+            bridge?.RequestTopologyRefresh();
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(mux);
+            return Results.Ok(ApiResponse.Ok());
+        });
+    }
+
+    private static List<string> SmartHubZoneIds(NexusSettings settings, SmartHubHub hub)
+    {
+        var hubId = hub.DeviceId;
+        var ids = new List<string>();
+        if (SmartHubLightingDeviceProvider.ReadMirror(settings, hubId))
+        {
+            ids.Add(SmartHubLightingDeviceProvider.MirrorId(hubId));
+        }
+        else
+        {
+            foreach (var port in hub.State.Ports)
+            {
+                ids.Add($"{hubId}:port{port.Channel}");
+            }
+        }
+        return ids;
     }
 }
 
@@ -144,4 +217,18 @@ public sealed class SmartHubFwSettingRequest
 public sealed class SmartHubFirmwareControlRequest
 {
     public bool Enabled { get; set; }
+}
+
+/// <summary>Shape returned by GET /devices/smarthub/composition.</summary>
+public sealed class SmartHubCompositionResponse
+{
+    public bool Connected { get; set; }
+    public bool Mirror { get; set; }
+    public int PortCount { get; set; }
+}
+
+/// <summary>Body for PUT /devices/smarthub/composition.</summary>
+public sealed class SmartHubCompositionRequest
+{
+    public bool? Mirror { get; set; }
 }

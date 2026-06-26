@@ -29,6 +29,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<SegmentLedOverride>))]
 [JsonSerializable(typeof(Dictionary<string, List<SegmentLedOverride>>))]
 [JsonSerializable(typeof(Dictionary<string, float>))]
+// Per-hub channel composition (mirror / combine rings).
+[JsonSerializable(typeof(HubCompositionSettings))]
+[JsonSerializable(typeof(Dictionary<string, HubCompositionSettings>))]
 [JsonSerializable(typeof(ProfileManifest))]
 [JsonSerializable(typeof(ProfileExport))]
 // Shared POCOs nested under NexusSettings root - picked up transitively but
