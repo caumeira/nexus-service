@@ -82,6 +82,7 @@ internal static class ShaderLibrary
     public static string PrismWave => Get("prismwave");
     public static string CrystalTunnel => Get("crystaltunnel");
     public static string RibbonFlow => Get("ribbonflow");
+    public static string BeatBuilder => Get("beatbuilder");
 
     /// <summary>Internal shader for the Screen Mirror Reactive sub-mode. Not user-selectable.</summary>
     internal static string ReactiveGlow => Get("reactiveglow");
@@ -116,6 +117,7 @@ internal static class ShaderLibrary
         // Audio-reactive set; mirrors AudioEffectKeys below, keep in sync.
         "spectrumbars", "spectrumradial", "scope", "basspulse",
         "beatstrobe", "harmonicstar", "audiotunnel", "bassbloom",
+        "beatbuilder",
     };
 
     // Mirrors the audio-reactive block of AllEffectKeys above; keep the two in sync.
@@ -123,6 +125,7 @@ internal static class ShaderLibrary
     {
         "spectrumbars", "spectrumradial", "scope", "basspulse",
         "beatstrobe", "harmonicstar", "audiotunnel", "bassbloom",
+        "beatbuilder",
     };
 
     public static bool IsAudioEffect(string key) => AudioEffectKeys.Contains(key);

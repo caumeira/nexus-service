@@ -542,6 +542,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "harmonicstar" => new(0.60f, 0.30f, 55f, 1.15f, 1.10f, 1f),
         "audiotunnel" => new(0.45f, 0.35f, 60f, 1.15f, 1.10f, 1f),
         "bassbloom" => new(0.85f, 0.35f, 45f, 1.15f, 1.10f, 1f),
+        "beatbuilder" => new(0.00f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         // Tunnels + flowy + abstract backgrounds. Mirror SIGNATURES in lightingTemplates.ts.
         "ringtunnel" => new(0.50f, 0.40f, 65f, 1.20f, 1.10f, 1f),
         "vortextunnel" => new(0.72f, 0.30f, 55f, 1.15f, 1.10f, 1f),
@@ -634,6 +635,15 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "harmonicstar" => new() { ["u_points"] = 12f, ["u_core"] = 0.1f, ["u_flare"] = 1.0f },
         "audiotunnel" => new() { ["u_ringDensity"] = 6f, ["u_twist"] = 0.8f, ["u_neon"] = 1.0f },
         "bassbloom" => new() { ["u_petals"] = 7f, ["u_shimmer"] = 1.0f, ["u_bloomSize"] = 0.4f },
+        "beatbuilder" => new()
+        {
+            ["u_centerStyle"] = 3f, ["u_barCount"] = 48f, ["u_barWidth"] = 0.85f,
+            ["u_centerGain"] = 1.2f, ["u_centerFloor"] = 0.04f, ["u_centerSize"] = 0.9f,
+            ["u_topMeters"] = 1f, ["u_bottomBars"] = 1f, ["u_bottomCount"] = 64f,
+            ["u_bottomScale"] = 0.07f, ["u_colorMode"] = 1f, ["u_hueCycle"] = 0f,
+            ["u_beatColor"] = 0f, ["u_bgLevel"] = 0f, ["u_flash"] = 0f,
+            ["u_beatPulse"] = 0.3f,
+        },
         // Tunnels + flowy + abstract backgrounds. Slot 0 must match the frontend
         // EFFECTS defaults and PARAM_VARIATIONS slot 0.
         "ringtunnel" => new() { ["u_rings"] = 2f, ["u_zoom"] = 1.0f, ["u_neon"] = 1.0f },
@@ -720,6 +730,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             "harmonicstar" => ShaderLibrary.Get("harmonicstar"),
             "audiotunnel" => ShaderLibrary.Get("audiotunnel"),
             "bassbloom" => ShaderLibrary.Get("bassbloom"),
+            "beatbuilder" => ShaderLibrary.BeatBuilder,
             "bubbles" => ShaderLibrary.Bubbles,
             "silkwave" => ShaderLibrary.SilkWave,
             "prismwave" => ShaderLibrary.PrismWave,

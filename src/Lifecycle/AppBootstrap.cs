@@ -115,6 +115,7 @@ internal static class AppBootstrap
                     High = AudioState.High,
                     Beat = AudioState.Beat,
                     Spectrum = new List<float>(AudioState.Spectrum),
+                    Spectrum64 = new List<float>(AudioState.Spectrum64),
                 };
                 var audioEnv = WsEnvelope.Build("audio", snap, AppJsonContext.Default.AudioStateSnapshot);
                 _ = muxHub.BroadcastTopicAsync("audio", audioEnv);

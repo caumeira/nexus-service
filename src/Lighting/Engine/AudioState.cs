@@ -31,6 +31,22 @@ public static class AudioState
 
     public static int SpectrumLength => SpectrumBins;
 
+    public const int Spectrum64Bins = 64;
+    public static readonly float[] Spectrum64 = new float[Spectrum64Bins];
+    public static int Spectrum64Length => Spectrum64Bins;
+
+    /// <summary>Per-band history; SpecHist[frame*HistBands + band], frame 0 newest.</summary>
+    public const int HistFrames = 16;
+    public const int HistBands = 16;
+    public static readonly float[] SpecHist = new float[HistFrames * HistBands];
+    // u_specHist is uploaded as a vec4[]; 4 floats pack per vec4, so
+    // HistFrames*HistBands must stay a multiple of 4 or the upload truncates.
+    public const int SpecHistVec4Count = HistFrames * HistBands / 4;
+
+    public static float BassPeak;
+    public static float MidPeak;
+    public static float HighPeak;
+
     public static void Reset()
     {
         Level = 0;
@@ -39,5 +55,10 @@ public static class AudioState
         High = 0;
         Beat = 0;
         Array.Clear(Spectrum);
+        Array.Clear(Spectrum64);
+        Array.Clear(SpecHist);
+        BassPeak = 0;
+        MidPeak = 0;
+        HighPeak = 0;
     }
 }
