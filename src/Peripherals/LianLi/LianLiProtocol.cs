@@ -1,0 +1,227 @@
+using System;
+
+namespace Nexus.Service.Peripherals.LianLi;
+
+/// <summary>
+/// Pure static byte-level builders and parsers for the Lian Li Uni Hub SL-Infinity
+/// HID protocol. No IO here; the hub owns the transport.
+/// All reports start with report id 0xE0 on HID interface MI_01
+/// (UsagePage 0xFF72, Usage 0xA1).
+/// Color order on the wire is R, B, G (green and blue are swapped vs RGB).
+/// </summary>
+public static class LianLiProtocol
+{
+    public const int VendorId = 0x0CF2;
+    public const int ProductId = 0xA102;
+    public const int VendorUsagePage = 0xFF72;
+    public const int VendorUsage = 0xA1;
+
+    public const int FeatureReportSize = 7;
+    public const int OutputReportSize = 353;
+    public const int InputReportSize = 65;
+
+    public const byte ReportId = 0xE0;
+
+    /// <summary>Physical fan ports on the hub.</summary>
+    public const int PortCount = 4;
+
+    /// <summary>Fans a single port group can daisy-chain.</summary>
+    public const int MaxFansPerPort = 4;
+
+    /// <summary>RGB channels: 2 per port (inner=even index, outer=odd index), indexed 0..7.</summary>
+    public const int ChannelCount = 8;
+
+    // Each SL-Infinity fan exposes 16 LEDs on its inner (spinner) channel and 16
+    // on its outer (edge) channel - one fan = two channels, 16 LEDs each. The
+    // firmware addresses LEDs in 16-per-fan blocks (OpenRGB
+    // UNIHUB_SLINF_CHAN_LED_COUNT = 0x10*6; fan_idx = leds_count/16 - 1).
+    public const int LedsPerFanPerChannel = 16;
+
+    /// <summary>Inner-ring (spinner) LED count per fan.</summary>
+    public const int InnerLedsPerFan = LedsPerFanPerChannel;
+
+    /// <summary>Outer-ring (edge) LED count per fan.</summary>
+    public const int OuterLedsPerFan = LedsPerFanPerChannel;
+
+    /// <summary>Scale down R+G+B if their sum exceeds this value.</summary>
+    public const int EnergyCapSum = 460;
+
+    /// <summary>Direct/static color mode (host-driven frame delivery). UNIHUB_SLINF_LED_MODE_STATIC_COLOR.</summary>
+    public const byte EffectStatic = 0x01;
+
+    public const byte SpeedDefault = 0x00;
+    public const byte DirectionDefault = 0x00;
+    /// <summary>UNIHUB_SLINF_LED_BRIGHTNESS_100 (full). 0x00=full..0x03=25%; 0x08=off.</summary>
+    public const byte BrightnessDefault = 0x00;
+
+    /// <summary>
+    /// Set number of fans on a port group (g=0..3).
+    /// Command: E0 10 60 (g+1) (qty 0..4) 00 00
+    /// </summary>
+    public static byte[] BuildSetQuantity(int group, int qty)
+    {
+        return new byte[]
+        {
+            ReportId, 0x10, 0x60,
+            (byte)(group + 1),
+            (byte)Math.Clamp(qty, 0, 4),
+            0x00, 0x00
+        };
+    }
+
+    /// <summary>
+    /// Commit effect for channel ch (0..7). Feature report.
+    /// E0 (0x10|ch) effect speed dir brightness 00. Follows the color push;
+    /// STATIC_COLOR displays the streamed per-LED data.
+    /// </summary>
+    public static byte[] BuildEffectCommit(int ch, byte effect, byte speed, byte dir, byte brightness)
+    {
+        return new byte[]
+        {
+            ReportId,
+            (byte)(0x10 | (ch & 0x0F)),
+            effect, speed, dir, brightness,
+            0x00
+        };
+    }
+
+    /// <summary>
+    /// Frame latch, sent once after all channels commit. Feature report.
+    /// E0 60 00 01 00 00 00.
+    /// </summary>
+    public static byte[] BuildFrameLatch()
+    {
+        return new byte[] { ReportId, 0x60, 0x00, 0x01, 0x00, 0x00, 0x00 };
+    }
+
+    /// <summary>
+    /// Set port ch (0..3) to manual/host mode.
+    /// Re-assert before every duty write; the port silently reverts to PWM-sync otherwise.
+    /// Selector: 0x10 left-shifted by ch (ch0=0x10, ch1=0x20, ch2=0x40, ch3=0x80).
+    /// Command: E0 10 62 (0x10 shl ch) 00 00 00
+    /// </summary>
+    public static byte[] BuildManualMode(int ch)
+    {
+        return new byte[]
+        {
+            ReportId, 0x10, 0x62,
+            (byte)(0x10 << ch),
+            0x00, 0x00, 0x00
+        };
+    }
+
+    /// <summary>
+    /// Release port ch (0..3) back to motherboard PWM sync.
+    /// Selector: 0x11 left-shifted by ch.
+    /// Command: E0 10 62 (0x11 shl ch) 00 00 00
+    /// </summary>
+    public static byte[] BuildReleaseMode(int ch)
+    {
+        return new byte[]
+        {
+            ReportId, 0x10, 0x62,
+            (byte)(0x11 << ch),
+            0x00, 0x00, 0x00
+        };
+    }
+
+    /// <summary>
+    /// Set fan duty on port ch (0..3).
+    /// Command: E0 (0x20+ch) 00 DutyByte(duty) 00 00 00
+    /// </summary>
+    public static byte[] BuildSetSpeed(int ch, int duty)
+    {
+        return new byte[]
+        {
+            ReportId,
+            (byte)(0x20 + ch),
+            0x00,
+            DutyByte(duty),
+            0x00, 0x00, 0x00
+        };
+    }
+
+    /// <summary>
+    /// Feature report that primes the device to return RPM telemetry on the next input report read.
+    /// Command: E0 50 00 00 00 00 00
+    /// </summary>
+    public static byte[] BuildRpmPrimer()
+    {
+        return new byte[] { ReportId, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00 };
+    }
+
+    /// <summary>
+    /// Build the output report for RGB channel ch (0..7).
+    /// Wire color order is R, B, G (blue and green are swapped vs RGB).
+    /// Each LED is capped by <see cref="EnergyCapSum"/> before encoding.
+    /// <paramref name="leds"/> may be shorter than the channel capacity;
+    /// remaining bytes are zeroed.
+    /// </summary>
+    public static byte[] BuildColorData(int ch, ReadOnlySpan<byte> leds)
+    {
+        var report = new byte[OutputReportSize];
+        WriteColorData(report, ch, leds);
+        return report;
+    }
+
+    /// <summary>
+    /// Fill <paramref name="report"/> (must be <see cref="OutputReportSize"/> bytes)
+    /// with the RGB output report for channel ch. Trailing bytes past the supplied
+    /// LEDs are zeroed so a reused buffer never leaks a previous frame's tail.
+    /// </summary>
+    public static void WriteColorData(Span<byte> report, int ch, ReadOnlySpan<byte> leds)
+    {
+        report.Clear();
+        report[0] = ReportId;
+        report[1] = (byte)(0x30 | (ch & 0x0F));
+
+        var dst = 2;
+        var src = 0;
+        while (src + 2 < leds.Length && dst + 2 < OutputReportSize)
+        {
+            var r = leds[src];
+            var g = leds[src + 1];
+            var b = leds[src + 2];
+            ApplyEnergyCap(ref r, ref g, ref b);
+            report[dst]     = r;
+            report[dst + 1] = b;
+            report[dst + 2] = g;
+            dst += 3;
+            src += 3;
+        }
+    }
+
+    /// <summary>
+    /// Decode RPM for port ch (0..3) from an input report.
+    /// Layout: buf[1 + ch*2] = high byte, buf[2 + ch*2] = low byte (big-endian).
+    /// RPM lags a duty change by roughly 8-10 seconds due to fan inertia.
+    /// </summary>
+    public static int DecodeRpm(ReadOnlySpan<byte> buf, int ch)
+    {
+        var offset = 1 + ch * 2;
+        if (offset + 1 >= buf.Length) return 0;
+        var rpm = (buf[offset] << 8) | buf[offset + 1];
+        return rpm <= 6000 ? rpm : -1;
+    }
+
+    /// <summary>
+    /// Convert duty percent to the hub's duty byte.
+    /// From L-Connect decompiled source: 0->1 (minimum spin), 1..9->10 (firmware minimum), 10..100->raw.
+    /// </summary>
+    public static byte DutyByte(int duty)
+    {
+        if (duty <= 0) return 1;
+        if (duty < 10) return 10;
+        return (byte)Math.Clamp(duty, 10, 100);
+    }
+
+    private static void ApplyEnergyCap(ref byte r, ref byte g, ref byte b)
+    {
+        var sum = r + g + b;
+        if (sum <= EnergyCapSum) return;
+        var scale = (double)EnergyCapSum / sum;
+        r = (byte)(r * scale);
+        g = (byte)(g * scale);
+        b = (byte)(b * scale);
+    }
+}

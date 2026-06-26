@@ -3,6 +3,7 @@ using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Benchmarks;
+using Nexus.Service.Models.Sensors;
 using Nexus.Service.Sensors;
 using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
@@ -36,6 +37,7 @@ public sealed class BenchmarkRunner
     private readonly object _lock = new();
     private readonly IBenchmarkProvider _provider;
     private readonly ISensorProvider _sensors;
+    private readonly SystemSpecsCollector _specs;
     private readonly MultiplexHub _hub;
     private Task? _task;
     private CancellationTokenSource? _cts;
@@ -45,10 +47,11 @@ public sealed class BenchmarkRunner
     public string CurrentRunId { get; private set; } = "";
     public BenchmarkResult? Result { get; private set; }
 
-    public BenchmarkRunner(IBenchmarkProvider provider, ISensorProvider sensors, MultiplexHub hub)
+    public BenchmarkRunner(IBenchmarkProvider provider, ISensorProvider sensors, SystemSpecsCollector specs, MultiplexHub hub)
     {
         _provider = provider;
         _sensors = sensors;
+        _specs = specs;
         _hub = hub;
     }
 
@@ -116,7 +119,7 @@ public sealed class BenchmarkRunner
         var started = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         var subs = new System.Collections.Generic.List<BenchmarkSubScore>();
         var progressReporter = new Progress<BenchmarkPhaseProgress>(p => PushFrame(runId, p, subs));
-        var hardware = CollectHardware();
+        var hardware = await CollectHardwareAsync(ct);
 
         try
         {
@@ -211,8 +214,22 @@ public sealed class BenchmarkRunner
         }
     }
 
-    private HardwareIdentity CollectHardware()
+    private async Task<HardwareIdentity> CollectHardwareAsync(CancellationToken ct)
     {
+        // RuntimeInformation.OSDescription reports the kernel version, which on
+        // Windows 11 is "Microsoft Windows 10.0.<build>" (major.minor stays 10.0;
+        // only build >= 22000 means 11), so it reads as Windows 10. Reuse the
+        // specs collector's WMI Caption ("Windows 11 Pro (10.0.22631)") instead,
+        // matching what /system/specs and the panel widget already show.
+        string os = RuntimeInformation.OSDescription;
+        try
+        {
+            var specs = await _specs.GetAsync(ct).ConfigureAwait(false);
+            if (!string.IsNullOrWhiteSpace(specs.OsBuild))
+                os = specs.OsBuild;
+        }
+        catch { /* fall back to OSDescription */ }
+
         try
         {
             // RamModel carries brand + part number (e.g. "Corsair
@@ -225,12 +242,12 @@ public sealed class BenchmarkRunner
             return new HardwareIdentity
             {
                 CpuModel = _sensors.GetCpuModel() ?? "",
-                GpuModels = new System.Collections.Generic.List<string>(_sensors.GetGpuModels()),
+                GpuModels = SelectReportedGpus(_sensors.GetGpus()),
                 RamBytes = ramBytes,
                 RamModel = ramBrand,
                 StorageModel = storageBrand,
                 LogicalCores = Environment.ProcessorCount,
-                Os = RuntimeInformation.OSDescription,
+                Os = os,
                 Architecture = RuntimeInformation.OSArchitecture.ToString().ToLowerInvariant(),
             };
         }
@@ -238,6 +255,29 @@ public sealed class BenchmarkRunner
         {
             return new HardwareIdentity { LogicalCores = Environment.ProcessorCount };
         }
+    }
+
+    /// <summary>
+    /// Report only the card the GPU benchmark targets: the dedicated GPU when
+    /// one is present, otherwise the integrated adapter. clpeak enumerates every
+    /// OpenCL device and the GPU sub-score keeps the max, so the dedicated card
+    /// is always the one measured. Mirrors the client's primary-GPU default
+    /// (first discrete, else first) using the provider's authoritative
+    /// <see cref="GpuReadout.Integrated"/> flag - the WMI/LHM signal, not clpeak's
+    /// device name (AMD reports a codename like "gfx1036"). With two discrete GPUs
+    /// the first is reported, which need not be clpeak's max.
+    /// </summary>
+    internal static System.Collections.Generic.List<string> SelectReportedGpus(
+        System.Collections.Generic.IReadOnlyList<GpuReadout> gpus)
+    {
+        if (gpus.Count == 0)
+            return new System.Collections.Generic.List<string>();
+        foreach (var g in gpus)
+        {
+            if (!g.Integrated)
+                return new System.Collections.Generic.List<string> { g.Name };
+        }
+        return new System.Collections.Generic.List<string> { gpus[0].Name };
     }
 
     /// <summary>

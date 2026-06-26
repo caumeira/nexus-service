@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Nexus.Service.Benchmarks;
 using Nexus.Service.Benchmarks.Providers;
 using Nexus.Service.Models.Benchmarks;
+using Nexus.Service.Models.Sensors;
 
 namespace Nexus.Service.Tests;
 
@@ -146,5 +147,45 @@ Triad:          54321.0     0.009055     0.009055     0.009055";
     {
         double result = ExternalToolBenchmarkProvider.ParsePrimesPerSec("some unrelated output");
         Assert.Equal(0, result);
+    }
+
+    private static GpuReadout Gpu(string name, bool integrated) => new() { Name = name, Integrated = integrated };
+
+    [Fact]
+    public void SelectReportedGpus_IntegratedPlusDiscrete_ReportsDiscrete()
+    {
+        var result = BenchmarkRunner.SelectReportedGpus(new List<GpuReadout>
+        {
+            Gpu("AMD Radeon(TM) Graphics", integrated: true),
+            Gpu("NVIDIA GeForce RTX 5080", integrated: false),
+        });
+        Assert.Equal(new List<string> { "NVIDIA GeForce RTX 5080" }, result);
+    }
+
+    [Fact]
+    public void SelectReportedGpus_DiscreteListedFirst_StillReportsDiscrete()
+    {
+        var result = BenchmarkRunner.SelectReportedGpus(new List<GpuReadout>
+        {
+            Gpu("NVIDIA GeForce RTX 5080", integrated: false),
+            Gpu("Intel(R) UHD Graphics 770", integrated: true),
+        });
+        Assert.Equal(new List<string> { "NVIDIA GeForce RTX 5080" }, result);
+    }
+
+    [Fact]
+    public void SelectReportedGpus_OnlyIntegrated_ReportsIntegrated()
+    {
+        var result = BenchmarkRunner.SelectReportedGpus(new List<GpuReadout>
+        {
+            Gpu("Intel(R) UHD Graphics 770", integrated: true),
+        });
+        Assert.Equal(new List<string> { "Intel(R) UHD Graphics 770" }, result);
+    }
+
+    [Fact]
+    public void SelectReportedGpus_Empty_ReturnsEmpty()
+    {
+        Assert.Empty(BenchmarkRunner.SelectReportedGpus(new List<GpuReadout>()));
     }
 }

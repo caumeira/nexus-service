@@ -48,6 +48,17 @@ public sealed partial class LinuxHidDevice : IHidDevice
         }
     }
 
+    public bool SetOutputReport(ReadOnlySpan<byte> report)
+    {
+        if (_fd < 0 || report.Length == 0) return false;
+        var buf = report.ToArray();
+        unsafe
+        {
+            fixed (byte* p = buf)
+                return ioctl(_fd, HidIocSOutput(buf.Length), (nint)p) >= 0;
+        }
+    }
+
     public bool GetFeature(Span<byte> buffer)
     {
         if (_fd < 0 || buffer.Length == 0) return false;
@@ -58,6 +69,22 @@ public sealed partial class LinuxHidDevice : IHidDevice
         {
             fixed (byte* p = buf)
                 rc = ioctl(_fd, HidIocGFeature(buf.Length), (nint)p);
+        }
+        if (rc < 0) return false;
+        buf.AsSpan().CopyTo(buffer);
+        return true;
+    }
+
+    public bool GetInputReport(Span<byte> buffer)
+    {
+        if (_fd < 0 || buffer.Length == 0) return false;
+        var buf = new byte[buffer.Length];
+        buf[0] = buffer[0]; // report id preset on input
+        int rc;
+        unsafe
+        {
+            fixed (byte* p = buf)
+                rc = ioctl(_fd, HidIocGInput(buf.Length), (nint)p);
         }
         if (rc < 0) return false;
         buf.AsSpan().CopyTo(buffer);
@@ -115,8 +142,12 @@ public sealed partial class LinuxHidDevice : IHidDevice
     // ── hidraw ioctl numbers ──
     // _IOC(dir,type,nr,size) = (dir<<30)|(size<<16)|(type<<8)|nr ; type 'H' = 0x48.
     // HIDIOCSFEATURE(len) = _IOWR('H', 0x06, len) ; HIDIOCGFEATURE(len) = _IOWR('H', 0x07, len).
+    // HIDIOCGINPUT(len) = _IOWR('H', 0x0A, len) ; 0x0B is HIDIOCSOUTPUT.
     private static nuint HidIocSFeature(int len) => IowrH(0x06, len);
     private static nuint HidIocGFeature(int len) => IowrH(0x07, len);
+    private static nuint HidIocGInput(int len) => IowrH(0x0A, len);
+    // HIDIOCSOUTPUT(len) = _IOWR('H', 0x0B, len) - SET_REPORT(Output) via control.
+    private static nuint HidIocSOutput(int len) => IowrH(0x0B, len);
 
     private static nuint IowrH(int nr, int len)
         => (nuint)(0xC0000000u | (((uint)len & 0x3FFF) << 16) | (0x48u << 8) | (uint)nr);
