@@ -90,8 +90,8 @@ public class NexusServiceCollectionExtensionsTests
         var sp = Build();
         Assert.NotNull(sp!.GetRequiredService<DeviceManager>());
         var handlers = sp.GetServices<IDeviceHandler>().ToArray();
-        // CNVS, QSeries (Q60+Q80 collapsed), Y70, Keeb, FanHub, NP50, SmartHub
-        Assert.Equal(7, handlers.Length);
+        // CNVS, QSeries (Q60+Q80 collapsed), Y70, Keeb, FanHub, NP50, SmartHub, LianLi
+        Assert.Equal(8, handlers.Length);
     }
 
     [Fact]

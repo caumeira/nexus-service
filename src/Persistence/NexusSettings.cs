@@ -457,6 +457,7 @@ public sealed class DevicesSettings
     /// </summary>
     public Dictionary<string, int> ZoneLedCounts { get; set; } = new();
     public CnvsSettings Cnvs { get; set; } = new();
+    public LianLiSettings LianLi { get; set; } = new();
     /// <summary>
     /// Community / file mapping applied per device, keyed by lighting-device
     /// id. The full artifact is embedded so applied mappings keep working
@@ -540,6 +541,34 @@ public sealed class CnvsSettings
 {
     public bool PlayAnimation { get; set; } = InstallDefaults.Cnvs.PlayAnimation;
     public bool PlayWhenPCOff { get; set; } = InstallDefaults.Cnvs.PlayWhenPCOff;
+}
+
+public sealed class LianLiSettings
+{
+    public int Port0Fans { get; set; }
+    public int Port1Fans { get; set; }
+    public int Port2Fans { get; set; }
+    public int Port3Fans { get; set; }
+
+    public int GetFans(int port) => port switch
+    {
+        0 => Port0Fans,
+        1 => Port1Fans,
+        2 => Port2Fans,
+        3 => Port3Fans,
+        _ => 0,
+    };
+
+    public void SetFans(int port, int qty)
+    {
+        switch (port)
+        {
+            case 0: Port0Fans = qty; break;
+            case 1: Port1Fans = qty; break;
+            case 2: Port2Fans = qty; break;
+            case 3: Port3Fans = qty; break;
+        }
+    }
 }
 
 public sealed class AuthSettings

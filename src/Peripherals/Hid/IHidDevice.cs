@@ -21,8 +21,23 @@ public interface IHidDevice : IDisposable
     /// <summary>Reads a feature report into the provided buffer. Byte 0 is report ID on input.</summary>
     bool GetFeature(Span<byte> buffer);
 
+    /// <summary>
+    /// Reads an input report via the control path (IOCTL_HID_GET_INPUT_REPORT on Windows).
+    /// Byte 0 is report ID on input. Use after a feature-report primer that triggers the device
+    /// to latch telemetry into the input report; differs from <see cref="Read"/> which is interrupt-IN.
+    /// </summary>
+    bool GetInputReport(Span<byte> buffer);
+
     /// <summary>Writes an output report (interrupt OUT). Byte 0 is report ID.</summary>
     bool Write(ReadOnlySpan<byte> report);
+
+    /// <summary>
+    /// Sends an output report via the control path (HidD_SetOutputReport /
+    /// SET_REPORT(Output)), not the interrupt OUT pipe. Byte 0 is report ID.
+    /// Some vendor protocols (Lian Li RGB) only accept their color stream this
+    /// way; a plain interrupt-OUT <see cref="Write"/> corrupts the payload.
+    /// </summary>
+    bool SetOutputReport(ReadOnlySpan<byte> report);
 
     /// <summary>
     /// Reads an input report (interrupt IN), waiting up to <paramref name="timeoutMs"/>.

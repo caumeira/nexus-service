@@ -72,11 +72,31 @@ public sealed class WindowsHidDevice : IHidDevice
         return ok;
     }
 
+    public bool GetInputReport(Span<byte> buffer)
+    {
+        if (_handle == IntPtr.Zero) return false;
+        var buf = new byte[buffer.Length];
+        buf[0] = buffer[0]; // report id must be preset on input
+        var ok = NativeApi.HidD_GetInputReport(_handle, buf, (uint)buf.Length);
+        if (ok)
+        {
+            buf.AsSpan().CopyTo(buffer);
+        }
+        return ok;
+    }
+
     public bool Write(ReadOnlySpan<byte> report)
     {
         if (_handle == IntPtr.Zero) return false;
         var buf = report.ToArray();
         return NativeApi.WriteFile(_handle, buf, (uint)buf.Length, out _, IntPtr.Zero);
+    }
+
+    public bool SetOutputReport(ReadOnlySpan<byte> report)
+    {
+        if (_handle == IntPtr.Zero) return false;
+        var buf = report.ToArray();
+        return NativeApi.HidD_SetOutputReport(_handle, buf, (uint)buf.Length);
     }
 
     public int Read(Span<byte> buffer, int timeoutMs)

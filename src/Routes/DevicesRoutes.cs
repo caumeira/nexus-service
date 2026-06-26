@@ -26,6 +26,7 @@ public static partial class DevicesRoutes
         MapMiniHubEndpoints(app);
         MapQSeriesCoolerEndpoints(app);
         MapFirmwareEndpoints(app);
+        MapLianLiEndpoints(app);
     }
 
     /// <summary>

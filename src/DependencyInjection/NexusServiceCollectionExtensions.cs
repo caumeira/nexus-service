@@ -140,7 +140,9 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
-                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>())));
+                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.LianLiCoolingProvider.IsLianLiId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #elif MACOS
         services.AddSingleton<MacFanControlProvider>();
@@ -152,7 +154,9 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
-                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>())));
+                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.LianLiCoolingProvider.IsLianLiId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #elif LINUX
         // hwmon (motherboard + AMD GPU via amdgpu) + liquidctl USB coolers
@@ -172,7 +176,9 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 LinuxLiquidctlProvider.IsLiquidctlId, sp.GetRequiredService<LinuxLiquidctlProvider>()),
             new CompositeFanControlProvider.FanSource(
-                LinuxNvidiaFanProvider.IsNvidiaId, sp.GetRequiredService<LinuxNvidiaFanProvider>())));
+                LinuxNvidiaFanProvider.IsNvidiaId, sp.GetRequiredService<LinuxNvidiaFanProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.LianLiCoolingProvider.IsLianLiId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #else
         services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
@@ -183,7 +189,9 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
-                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>())));
+                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.LianLiCoolingProvider.IsLianLiId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #endif
         services.AddSingleton<Np50CoolingProvider>();
@@ -372,6 +380,16 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Keeb.KeebInputWorker>();
 
+        // Lian Li Uni Hub SL-Infinity: HID connection worker + lighting + cooling.
+        services.AddSingleton<Nexus.Service.Peripherals.LianLi.LianLiHub>();
+        services.AddSingleton<Nexus.Service.Cooling.LianLiCoolingProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.LianLiLightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.LianLiLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingFrameWriter>());
+        services.AddHostedService<Nexus.Service.Peripherals.LianLi.LianLiConnectionWorker>();
+
         // Smart (network) lights - Philips Hue, Nanoleaf, Govee today; WLED /
         // LIFX / Twinkly / WiZ / Yeelight / Elgato next. One brand-neutral
         // provider + frame writer + send throttle; per-brand behavior is an
@@ -417,6 +435,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
@@ -431,6 +450,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
@@ -443,6 +463,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.FanHubHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Np50Handler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.SmartHubHandler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.LianLiHandler>();
 
         // Read-only catalog of firmware images embedded in this build. Backs
         // the Firmware Updates page's "available version" column.

@@ -753,6 +753,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Webcam.WebcamStartRequest))]
 [JsonSerializable(typeof(Nexus.Service.Models.Webcam.WebcamStatusResponse))]
 
+// Lian Li Uni Hub SL-Infinity.
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiStateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiFanCountRequest))]
+[JsonSerializable(typeof(int[]))]
+
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

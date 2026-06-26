@@ -271,7 +271,15 @@ public sealed class WindowsHidEnumerator : IHidEnumerator
 
         [DllImport("hid.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool HidD_SetOutputReport(IntPtr handle, byte[] buffer, uint bufferLength);
+
+        [DllImport("hid.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool HidD_GetFeature(IntPtr handle, byte[] buffer, uint bufferLength);
+
+        [DllImport("hid.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool HidD_GetInputReport(IntPtr handle, byte[] buffer, uint bufferLength);
 
         [DllImport("hid.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
