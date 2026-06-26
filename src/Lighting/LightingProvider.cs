@@ -637,10 +637,10 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "bassbloom" => new() { ["u_petals"] = 7f, ["u_shimmer"] = 1.0f, ["u_bloomSize"] = 0.4f },
         "beatbuilder" => new()
         {
-            ["u_centerStyle"] = 3f, ["u_barCount"] = 48f, ["u_barWidth"] = 0.85f,
+            ["u_centerStyle"] = 0f, ["u_barCount"] = 48f, ["u_barWidth"] = 0.85f,
             ["u_centerGain"] = 1.2f, ["u_centerFloor"] = 0.04f, ["u_centerSize"] = 0.9f,
-            ["u_topMeters"] = 1f, ["u_bottomBars"] = 1f, ["u_bottomCount"] = 64f,
-            ["u_bottomScale"] = 0.07f, ["u_colorMode"] = 1f, ["u_hueCycle"] = 0f,
+            ["u_topMeters"] = 1f, ["u_topHeight"] = 0.085f, ["u_cornerFills"] = 1f,
+            ["u_bottomBars"] = 1f, ["u_bottomScale"] = 0.07f, ["u_colorMode"] = 1f,
             ["u_beatColor"] = 0f, ["u_bgLevel"] = 0f, ["u_flash"] = 0f,
             ["u_beatPulse"] = 0.3f,
         },
