@@ -24,13 +24,14 @@ uniform float u_centerFloor;  // noise gate
 uniform float u_centerSize;   // vertical half-height of the center region
 // ---- Top band meters ----
 uniform float u_topMeters;    // 0/1
-// ---- Bottom bars ----
+uniform float u_topHeight;    // top strip height fraction; also sizes the corner squares
+// ---- Fan corner fills (top-right) ----
+uniform float u_cornerFills;  // 0/1: square radial gauge + square level fill, anchored top-right
+// ---- Bottom bars (count + width track the center bars) ----
 uniform float u_bottomBars;   // 0/1
-uniform float u_bottomCount;  // bar density
 uniform float u_bottomScale;  // strip height fraction
 // ---- Color & style ----
 uniform float u_colorMode;    // 0 Solid, 1 Rainbow
-uniform float u_hueCycle;     // auto hue rotation speed (0 = off)
 uniform float u_beatColor;    // hue jump on beat
 uniform float u_bgLevel;      // background brightness floor
 uniform float u_flash;        // full-frame beat strobe amount (0 = off)
@@ -72,7 +73,7 @@ vec3 hueRGB(float h) { return hsv2rgb(vec3(fract(h), 1.0, 1.0)); }
 // defines the desired range - no separate spread/second-hue controls.
 vec3 colorFor(float colorT) {
     int mode = int(u_colorMode + 0.5);
-    float base = u_hue + u_time * u_hueCycle * 0.05 + u_beatColor * u_audioBeat * 0.35;
+    float base = u_hue + u_beatColor * u_audioBeat * 0.35;
     if (mode >= 1) {
         return hueRGB(base + clamp(colorT, 0.0, 1.0));
     }
@@ -163,25 +164,54 @@ void main() {
         float Bm = clamp(u_bottomScale, 0.02, 0.25);
         if (uv.y > 1.0 - Bm) {
             float mfx = abs(uv.x * 2.0 - 1.0);            // mirror around center
-            float bars = clamp(u_bottomCount, 16.0, 96.0);
+            float bars = clamp(u_barCount, 8.0, 96.0);   // count tracks the center bars
             float bi = floor(mfx * bars);
             float pos = (bi + 0.5) / bars;
             float mag = clamp(magAt(pos), 0.0, 1.0);
             float within = fract(mfx * bars) * 2.0 - 1.0;
-            float wmask = step(abs(within), 0.82);
+            float wmask = step(abs(within), clamp(u_barWidth, 0.1, 1.0));   // width tracks too
             // Full-height bars within the strip; magnitude drives brightness.
             col = colorFor(pos) * wmask * (0.12 + 0.95 * mag);
         }
     }
 
-    // ---- Top band meters: bass | mid | high, fill-to-current with peak ghost ----
-    if (u_topMeters > 0.5) {
-        float Tm = 0.085;
-        if (uv.y < Tm) {
-            float seg = floor(uv.x * 3.0);
+    // ---- Top strip: band meters (left) + fan corner fills (top-right) ----
+    // The corner reserves a strip-height square for a clockwise radial gauge
+    // (fan RGB) plus a vertical level fill to its left; the band meters shrink
+    // to the remaining width so the two never overlap.
+    float Tm = clamp(u_topHeight, 0.04, 0.25);
+    if (uv.y < Tm && (u_topMeters > 0.5 || u_cornerFills > 0.5)) {
+        // Corner squares: side = strip height in pixels, so sq (in uv.x) = Tm/aspect.
+        // The radial gauge anchors the corner, the level square sits to its left,
+        // and the band meters shrink to the remaining width.
+        float sq = Tm / aspect;
+        float cg = 0.012;                         // gap between elements
+        float cornerW = (u_cornerFills > 0.5) ? (2.0 * sq + 2.0 * cg) : 0.0;
+        float metersR = max(1.0 - cornerW, 0.0);  // band meters span [0, metersR]
+
+        if (u_cornerFills > 0.5 && uv.x >= metersR) {
+            col = vec3(0.0);                       // reserve the corner: clear behind
+            float vx0 = metersR + cg;             // vertical square spans [vx0, vx0+sq]
+            if (uv.x >= vx0 && uv.x < vx0 + sq) {
+                float up = (Tm - uv.y) / Tm;       // 0 at strip bottom -> 1 at top
+                col = colorFor(up) * step(up, clamp(u_audioLevel * bz, 0.0, 1.0));
+            } else if (uv.x >= 1.0 - sq) {
+                // Radial fill bounded by a square: a clockwise wedge from the top
+                // that lights the whole square at full level. The angle uses
+                // aspect-corrected offsets so the sweep stays circular.
+                vec2 rc = vec2(1.0 - sq * 0.5, Tm * 0.5);
+                vec2 rd = vec2((uv.x - rc.x) * aspect, uv.y - rc.y);
+                float ta = fract(atan(rd.x, -rd.y) / 6.2831853);  // clockwise from top
+                float lit = step(ta, clamp(u_audioLevel * bz, 0.0, 1.0));
+                col = colorFor(ta) * (0.12 + 0.88 * lit);          // dim track + bright fill
+            }
+            // gaps between the squares stay black (reserved corner)
+        } else if (u_topMeters > 0.5 && uv.x < metersR) {
+            float mx = uv.x / max(metersR, 0.001);
+            float seg = floor(mx * 3.0);
             float cur = seg < 0.5 ? u_audioBass : (seg < 1.5 ? u_audioMid : u_audioHigh);
             float pk  = seg < 0.5 ? u_bassPeak  : (seg < 1.5 ? u_midPeak  : u_highPeak);
-            float within = fract(uv.x * 3.0);
+            float within = fract(mx * 3.0);
             float ghost = step(within, pk) * 0.35;
             float bright = step(within, cur * bz);
             float gap = step(0.02, within) * step(within, 0.98);
