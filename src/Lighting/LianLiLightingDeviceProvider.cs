@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Peripherals.LianLi;
@@ -18,7 +19,7 @@ namespace Nexus.Service.Lighting;
 /// scatters them back to the inner/outer channels each port drives.
 /// </summary>
 public sealed class LianLiLightingDeviceProvider :
-    ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource, IComposableHubSource
+    ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource, IComposableHubSource, IOpenRgbDeviceOwner
 {
     private readonly LianLiHub _hub;
     private readonly IConfigStore _store;
@@ -35,6 +36,15 @@ public sealed class LianLiLightingDeviceProvider :
     }
 
     public bool IsConnected => _hub.IsConnected;
+
+    /// <summary>
+    /// The Lian Li Uni Hub exposes both USB HID (used here) and USB CDC (used by
+    /// OpenRGB). Both interfaces reach the same physical LEDs, so when OpenRGB
+    /// enumerates the hub we must prevent the bridge from seeding engine frames for
+    /// it - otherwise OpenRGB's push overwrites our first-party black/brightness frames.
+    /// </summary>
+    public bool OwnsOpenRgbDevice(RgbDevice device) =>
+        IsConnected && device.Name.Contains("Lian Li Uni Hub", StringComparison.OrdinalIgnoreCase);
 
     public event Action? DevicesChanged;
 

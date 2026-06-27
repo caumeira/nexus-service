@@ -125,6 +125,10 @@ public sealed class RgbBridge : IDisposable
 
     private readonly IReadOnlyList<ILightingFrameContributor> _frameContributors;
     private readonly Nexus.Service.Lighting.Mappings.ContributorFrameLayouts _contributorLayouts;
+    // Contributors that also implement IOpenRgbDeviceOwner. Cached at construction;
+    // used in RefreshDevicesAsync to skip seeding engine frames for devices these
+    // providers drive directly so OpenRGB never pushes conflicting colors to hardware.
+    private readonly IReadOnlyList<Nexus.Service.Lighting.IOpenRgbDeviceOwner> _deviceOwners;
 
     public RgbBridge(OpenRgbProcessManager proc, IRgbController controller, LightingEngine engine, IConfigStore store, IUsbEnumerator usb,
         IEnumerable<ILightingFrameContributor>? frameContributors = null,
@@ -139,6 +143,15 @@ public sealed class RgbBridge : IDisposable
         _frameContributors = frameContributors is null
             ? Array.Empty<ILightingFrameContributor>()
             : new List<ILightingFrameContributor>(frameContributors);
+        var owners = new List<Nexus.Service.Lighting.IOpenRgbDeviceOwner>();
+        foreach (var c in _frameContributors)
+        {
+            if (c is Nexus.Service.Lighting.IOpenRgbDeviceOwner owner)
+            {
+                owners.Add(owner);
+            }
+        }
+        _deviceOwners = owners;
         // Re-run the device refresh whenever a contributor's topology changes
         // (e.g. NP50 hot-plug or LS10 added/removed on a port) so its frames
         // appear/disappear from the engine without a polling step.
@@ -683,6 +696,7 @@ public sealed class RgbBridge : IDisposable
             for (int i = 0; i < devices.Count; i++)
             {
                 var d = devices[i];
+                if (IsOwnedByFirstParty(d)) continue;
                 var baseId = d.StableId;
                 var isSplitMotherboard = OpenRgbZoneSupport.IsSplitMotherboard(d);
                 var structure = OpenRgbZoneSupport.BuildStructure(d, settingsSnapshot);
@@ -861,6 +875,18 @@ public sealed class RgbBridge : IDisposable
         Nexus.Service.Lighting.Mappings.LedLayoutResolver.ApplyToFrame(frame, resolved);
         frame.Archetype = ArchetypeForDevice(physicalDevice);
         framesList.Add(frame);
+    }
+
+    private bool IsOwnedByFirstParty(RgbDevice d)
+    {
+        for (int i = 0; i < _deviceOwners.Count; i++)
+        {
+            if (_deviceOwners[i].OwnsOpenRgbDevice(d))
+            {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static string? ArchetypeForDevice(RgbDevice d) => OpenRgbZoneSupport.OpenRgbTypeName(d.Type) switch

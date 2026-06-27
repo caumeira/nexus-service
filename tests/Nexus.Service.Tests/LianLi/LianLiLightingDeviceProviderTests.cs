@@ -179,6 +179,34 @@ public class LianLiLightingDeviceProviderTests
         }
     }
 
+    // ── IOpenRgbDeviceOwner ──
+
+    [Fact]
+    public void OwnsOpenRgbDevice_false_when_disconnected()
+    {
+        var device = new Nexus.Service.Lighting.Rgb.RgbDevice { Name = "Lian Li Uni Hub SL-Infinity" };
+        Assert.False(_provider.OwnsOpenRgbDevice(device));
+    }
+
+    [Fact]
+    public void OwnsOpenRgbDevice_false_when_name_does_not_match()
+    {
+        Connect();
+        var device = new Nexus.Service.Lighting.Rgb.RgbDevice { Name = "HYTE NP50" };
+        Assert.False(_provider.OwnsOpenRgbDevice(device));
+    }
+
+    [Theory]
+    [InlineData("Lian Li Uni Hub")]
+    [InlineData("Lian Li Uni Hub SL-Infinity")]
+    [InlineData("lian li uni hub Controller")]
+    public void OwnsOpenRgbDevice_true_when_connected_and_name_matches(string name)
+    {
+        Connect();
+        var device = new Nexus.Service.Lighting.Rgb.RgbDevice { Name = name };
+        Assert.True(_provider.OwnsOpenRgbDevice(device));
+    }
+
     private static int ZoneLedCount(Nexus.Service.Lighting.Zones.DefaultZoneDef zone)
     {
         var n = 0;
