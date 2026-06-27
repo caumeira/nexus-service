@@ -66,6 +66,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Dictionary<string, List<Nexus.Service.Lighting.Mappings.MappingGroup>>))]
 [JsonSerializable(typeof(LianLiLightingSettings))]
 [JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(LayoutPreset))]
+[JsonSerializable(typeof(List<LayoutPreset>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

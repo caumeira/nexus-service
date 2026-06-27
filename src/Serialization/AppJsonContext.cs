@@ -384,7 +384,17 @@ namespace Nexus.Service.Serialization;
 
 // Devices
 [JsonSerializable(typeof(Nexus.Service.Persistence.DeviceLayout))]
+[JsonSerializable(typeof(Dictionary<string, Nexus.Service.Persistence.DeviceLayout>))]
 [JsonSerializable(typeof(SaveDeviceLayoutBody))]
+[JsonSerializable(typeof(LayoutPresetDto))]
+[JsonSerializable(typeof(List<LayoutPresetDto>))]
+[JsonSerializable(typeof(LayoutPresetsResponse))]
+[JsonSerializable(typeof(CreateLayoutPresetBody))]
+[JsonSerializable(typeof(CreateLayoutPresetResponse))]
+[JsonSerializable(typeof(UpdateLayoutPresetBody))]
+[JsonSerializable(typeof(SetActivePresetBody))]
+[JsonSerializable(typeof(DeletePresetResponse))]
+[JsonSerializable(typeof(BatchApplyLayoutsBody))]
 [JsonSerializable(typeof(DeviceListItem))]
 [JsonSerializable(typeof(List<DeviceListItem>))]
 [JsonSerializable(typeof(UsbDeviceDetail))]

@@ -170,6 +170,10 @@ public sealed class LightingSettings
     public int FrameRate { get; set; } = InstallDefaults.Lighting.FrameRate;
     public double ScaleRatio { get; set; } = InstallDefaults.Lighting.ScaleRatio;
     public Dictionary<string, DeviceLayout> DeviceLayouts { get; set; } = new();
+    // Named snapshots of DeviceLayouts. Capped by the route layer.
+    public List<LayoutPreset> LayoutPresets { get; set; } = new();
+    // Preset the live DeviceLayouts was last loaded from; null = none selected.
+    public string? ActiveLayoutPresetId { get; set; }
     public string LastMediaId { get; set; } = "";
     public AnimateSettings Animate { get; set; } = new();
     /// <summary>Last static colour the user picked (r,g,b 0..255).</summary>
@@ -259,6 +263,13 @@ public sealed class DeviceLayout
     public float W { get; set; } = InstallDefaults.Cooling.DeviceLayoutSize.W;
     public float H { get; set; } = InstallDefaults.Cooling.DeviceLayoutSize.H;
     public int Rotation { get; set; }
+}
+
+public sealed class LayoutPreset
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public Dictionary<string, DeviceLayout> Layouts { get; set; } = new();
 }
 
 public sealed class KeebSettings

@@ -6,6 +6,63 @@ namespace Nexus.Service.Routes;
 
 public static partial class DevicesRoutes
 {
+    // Mirrors a layouts map into the live engine frames. Devices absent from the
+    // map fall back to provider-computed defaults (same behavior as DELETE /layouts).
+    private static void MirrorLayoutsToEngine(
+        Dictionary<string, Nexus.Service.Persistence.DeviceLayout> layouts,
+        ILightingDeviceProvider lightingProvider,
+        Nexus.Service.Lighting.Engine.LightingEngine engine)
+    {
+        var fresh = lightingProvider.GetAll();
+        foreach (var frame in engine.Devices)
+        {
+            if (layouts.TryGetValue(frame.Id, out var layout))
+            {
+                frame.X = layout.X;
+                frame.Y = layout.Y;
+                frame.W = layout.W;
+                frame.H = layout.H;
+                frame.Rotation = layout.Rotation;
+            }
+            else
+            {
+                foreach (var freshDev in fresh.Devices)
+                {
+                    if (freshDev.Id == frame.Id)
+                    {
+                        frame.X = freshDev.CanvasX;
+                        frame.Y = freshDev.CanvasY;
+                        frame.W = freshDev.CanvasW;
+                        frame.H = freshDev.CanvasH;
+                        frame.Rotation = freshDev.CanvasRotation;
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    private static LayoutPresetDto ToDto(Nexus.Service.Persistence.LayoutPreset p) =>
+        new() { Id = p.Id, Name = p.Name, Layouts = p.Layouts };
+
+    private static Dictionary<string, Nexus.Service.Persistence.DeviceLayout> DeepCopyLayouts(
+        Dictionary<string, Nexus.Service.Persistence.DeviceLayout> source)
+    {
+        var copy = new Dictionary<string, Nexus.Service.Persistence.DeviceLayout>(source.Count);
+        foreach (var kv in source)
+        {
+            copy[kv.Key] = new Nexus.Service.Persistence.DeviceLayout
+            {
+                X = kv.Value.X,
+                Y = kv.Value.Y,
+                W = kv.Value.W,
+                H = kv.Value.H,
+                Rotation = kv.Value.Rotation,
+            };
+        }
+        return copy;
+    }
+
     private static void MapLightingDevicesEndpoints(WebApplication app)
     {
         app.MapGet("/devices/lighting-devices/all", (ILightingDeviceProvider ld) =>
@@ -26,15 +83,9 @@ public static partial class DevicesRoutes
             return ApiResponse.Ok();
         });
 
-        // Reset every device frame's persisted layout (canvas X/Y/W/H/rotation)
-        // back to the provider-computed defaults. The lighting providers
-        // re-emit defaults on the next GetAll() since DeviceLayouts is empty;
-        // we also mirror those defaults into the live engine frames so running
-        // effects start sampling from the new rectangles on the next tick
-        // (otherwise BuildOrReuseFrame's existing-frame-wins logic would keep
-        // the pre-reset coordinates in memory). Same pattern POST /layout
-        // uses to push a single user-drag into the engine. The lighting-topic
-        // broadcast nudges all connected SPAs to refetch.
+        // Reset every device frame's persisted layout back to provider-computed
+        // defaults. Does NOT clear ActiveLayoutPresetId so the toolbar keeps
+        // showing the selected preset name after a reset.
         app.MapDelete("/devices/lighting-devices/layouts", (
             Nexus.Service.Persistence.IConfigStore store,
             Nexus.Service.Sockets.MultiplexHub hub,
@@ -45,24 +96,174 @@ public static partial class DevicesRoutes
             {
                 s.Lighting.DeviceLayouts.Clear();
             });
-            var fresh = lightingProvider.GetAll();
-            foreach (var freshDev in fresh.Devices)
-            {
-                foreach (var frame in engine.Devices)
-                {
-                    if (frame.Id == freshDev.Id)
-                    {
-                        frame.X = freshDev.CanvasX;
-                        frame.Y = freshDev.CanvasY;
-                        frame.W = freshDev.CanvasW;
-                        frame.H = freshDev.CanvasH;
-                        frame.Rotation = freshDev.CanvasRotation;
-                        break;
-                    }
-                }
-            }
+            MirrorLayoutsToEngine(new Dictionary<string, Nexus.Service.Persistence.DeviceLayout>(), lightingProvider, engine);
             Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
+        });
+
+        // Batch-replace DeviceLayouts and mirror to engine. Used by undo/redo and preset load.
+        app.MapPost("/devices/lighting-devices/layouts", (
+            BatchApplyLayoutsBody body,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Sockets.MultiplexHub hub,
+            ILightingDeviceProvider lightingProvider,
+            Nexus.Service.Lighting.Engine.LightingEngine engine) =>
+        {
+            store.Update(s =>
+            {
+                s.Lighting.DeviceLayouts.Clear();
+                foreach (var kv in body.Layouts)
+                {
+                    s.Lighting.DeviceLayouts[kv.Key] = kv.Value;
+                }
+            });
+            MirrorLayoutsToEngine(body.Layouts, lightingProvider, engine);
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            return ApiResponse.Ok();
+        });
+
+        app.MapGet("/devices/lighting-devices/layout-presets", (
+            Nexus.Service.Persistence.IConfigStore store) =>
+        {
+            var s = store.Load();
+            return Results.Json(
+                new LayoutPresetsResponse
+                {
+                    Presets = s.Lighting.LayoutPresets.ConvertAll(ToDto),
+                    ActiveId = s.Lighting.ActiveLayoutPresetId,
+                },
+                Nexus.Service.Serialization.AppJsonContext.Default.LayoutPresetsResponse);
+        });
+
+        app.MapPost("/devices/lighting-devices/layout-presets", (
+            CreateLayoutPresetBody body,
+            Nexus.Service.Persistence.IConfigStore store) =>
+        {
+            bool capped = false;
+            Nexus.Service.Persistence.LayoutPreset? created = null;
+            store.Update(s =>
+            {
+                if (s.Lighting.LayoutPresets.Count >= 10)
+                {
+                    capped = true;
+                    return;
+                }
+                var id = Guid.NewGuid().ToString("n");
+                created = new Nexus.Service.Persistence.LayoutPreset
+                {
+                    Id = id,
+                    Name = body.Name,
+                    Layouts = DeepCopyLayouts(s.Lighting.DeviceLayouts),
+                };
+                s.Lighting.LayoutPresets.Add(created);
+                s.Lighting.ActiveLayoutPresetId = id;
+            });
+            if (capped)
+            {
+                return Results.Json(
+                    ApiResponse.Fail("Layout preset cap of 10 reached"),
+                    Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
+                    statusCode: 400);
+            }
+            return Results.Json(
+                new CreateLayoutPresetResponse { Preset = ToDto(created!), ActiveId = created!.Id },
+                Nexus.Service.Serialization.AppJsonContext.Default.CreateLayoutPresetResponse);
+        });
+
+        app.MapPut("/devices/lighting-devices/layout-presets/active", (
+            SetActivePresetBody body,
+            Nexus.Service.Persistence.IConfigStore store) =>
+        {
+            store.Update(s =>
+            {
+                s.Lighting.ActiveLayoutPresetId = body.Id;
+            });
+            return ApiResponse.Ok();
+        });
+
+        app.MapPut("/devices/lighting-devices/layout-presets/{id}", (
+            string id,
+            UpdateLayoutPresetBody body,
+            Nexus.Service.Persistence.IConfigStore store) =>
+        {
+            var s = store.Load();
+            var preset = s.Lighting.LayoutPresets.Find(p => p.Id == id);
+            if (preset is null)
+            {
+                return Results.Json(
+                    ApiResponse.Fail("Layout preset not found"),
+                    Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
+                    statusCode: 404);
+            }
+
+            store.Update(settings =>
+            {
+                var p = settings.Lighting.LayoutPresets.Find(x => x.Id == id);
+                if (p is null)
+                {
+                    return;
+                }
+                if (!string.IsNullOrEmpty(body.Name))
+                {
+                    p.Name = body.Name;
+                }
+                if (body.SaveCurrent)
+                {
+                    p.Layouts = DeepCopyLayouts(settings.Lighting.DeviceLayouts);
+                }
+            });
+            return Results.Json(ApiResponse.Ok(), Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse);
+        });
+
+        app.MapDelete("/devices/lighting-devices/layout-presets/{id}", (
+            string id,
+            Nexus.Service.Persistence.IConfigStore store) =>
+        {
+            string? activeId = null;
+            store.Update(s =>
+            {
+                s.Lighting.LayoutPresets.RemoveAll(p => p.Id == id);
+                if (s.Lighting.ActiveLayoutPresetId == id)
+                {
+                    s.Lighting.ActiveLayoutPresetId = null;
+                }
+                activeId = s.Lighting.ActiveLayoutPresetId;
+            });
+            return Results.Json(
+                new DeletePresetResponse { ActiveId = activeId },
+                Nexus.Service.Serialization.AppJsonContext.Default.DeletePresetResponse);
+        });
+
+        app.MapPost("/devices/lighting-devices/layout-presets/{id}/activate", (
+            string id,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Sockets.MultiplexHub hub,
+            ILightingDeviceProvider lightingProvider,
+            Nexus.Service.Lighting.Engine.LightingEngine engine) =>
+        {
+            var s = store.Load();
+            var preset = s.Lighting.LayoutPresets.Find(p => p.Id == id);
+            if (preset is null)
+            {
+                return Results.Json(
+                    ApiResponse.Fail("Layout preset not found"),
+                    Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse,
+                    statusCode: 404);
+            }
+
+            var layouts = new Dictionary<string, Nexus.Service.Persistence.DeviceLayout>(preset.Layouts);
+            store.Update(settings =>
+            {
+                settings.Lighting.DeviceLayouts.Clear();
+                foreach (var kv in layouts)
+                {
+                    settings.Lighting.DeviceLayouts[kv.Key] = kv.Value;
+                }
+                settings.Lighting.ActiveLayoutPresetId = id;
+            });
+            MirrorLayoutsToEngine(layouts, lightingProvider, engine);
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
+            return Results.Json(ApiResponse.Ok(), Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse);
         });
 
         app.MapPost("/devices/lighting-devices/power", (SetLightingDevicePowerBody body, ILightingDeviceProvider ld) =>
