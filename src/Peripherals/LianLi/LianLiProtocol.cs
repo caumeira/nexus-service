@@ -49,6 +49,14 @@ public static class LianLiProtocol
     /// <summary>Direct/static color mode (host-driven frame delivery). UNIHUB_SLINF_LED_MODE_STATIC_COLOR.</summary>
     public const byte EffectStatic = 0x01;
 
+    /// <summary>
+    /// Gap between the manual-mode write and the duty write on a fan port. The
+    /// firmware drops a duty byte that arrives before the mode transition
+    /// settles. uni-sync (the reference Lian Li Uni controller) uses 200 ms here
+    /// ("Avoid Race Condition").
+    /// </summary>
+    public const int FanCommandSettleMs = 200;
+
     public const byte SpeedDefault = 0x00;
     public const byte DirectionDefault = 0x00;
     /// <summary>UNIHUB_SLINF_LED_BRIGHTNESS_100 (full). 0x00=full..0x03=25%; 0x08=off.</summary>
@@ -70,9 +78,9 @@ public static class LianLiProtocol
     }
 
     /// <summary>
-    /// Commit effect for channel ch (0..7). Feature report.
-    /// E0 (0x10|ch) effect speed dir brightness 00. Follows the color push;
-    /// STATIC_COLOR displays the streamed per-LED data.
+    /// Commit an effect on channel ch (0..7): E0 (0x10|ch) effect speed dir
+    /// brightness 00. STATIC_COLOR (0x01) latches the streamed per-LED frame;
+    /// firmware modes animate on-chip from this single commit.
     /// </summary>
     public static byte[] BuildEffectCommit(int ch, byte effect, byte speed, byte dir, byte brightness)
     {
@@ -205,14 +213,15 @@ public static class LianLiProtocol
     }
 
     /// <summary>
-    /// Convert duty percent to the hub's duty byte.
-    /// From L-Connect decompiled source: 0->1 (minimum spin), 1..9->10 (firmware minimum), 10..100->raw.
+    /// Convert duty percent to the hub's duty byte for SL-Infinity (PID 0xA102):
+    /// (200 + 19*d)/21 over d=0..100, giving byte 9..100. From uni-sync
+    /// devices/mod.rs (speed_200_2100); the 200..2100 range is the fan's RPM span.
+    /// Written as byte 3 of E0 (0x20+ch) 00 &lt;B&gt;.
     /// </summary>
     public static byte DutyByte(int duty)
     {
-        if (duty <= 0) return 1;
-        if (duty < 10) return 10;
-        return (byte)Math.Clamp(duty, 10, 100);
+        var d = Math.Clamp(duty, 0, 100);
+        return (byte)((200 + 19 * d) / 21);
     }
 
     private static void ApplyEnergyCap(ref byte r, ref byte g, ref byte b)

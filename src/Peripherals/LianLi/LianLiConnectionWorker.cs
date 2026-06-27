@@ -1,10 +1,14 @@
 using System;
+using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Cooling;
 using Nexus.Service.Lighting;
 using Nexus.Service.Peripherals.Hid;
+using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
+using Nexus.Service.Platform.Windows;
 
 namespace Nexus.Service.Peripherals.LianLi;
 
@@ -17,12 +21,16 @@ public sealed class LianLiConnectionWorker : BackgroundService
     private readonly IHidEnumerator _hid;
     private readonly LianLiHub _hub;
     private readonly LianLiLightingDeviceProvider _lighting;
+    private readonly LianLiCoolingProvider _cooling;
+    private readonly IConfigStore _store;
 
-    public LianLiConnectionWorker(IHidEnumerator hid, LianLiHub hub, LianLiLightingDeviceProvider lighting)
+    public LianLiConnectionWorker(IHidEnumerator hid, LianLiHub hub, LianLiLightingDeviceProvider lighting, LianLiCoolingProvider cooling, IConfigStore store)
     {
         _hid = hid;
         _hub = hub;
         _lighting = lighting;
+        _cooling = cooling;
+        _store = store;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -35,6 +43,11 @@ public sealed class LianLiConnectionWorker : BackgroundService
                 if (device != null)
                 {
                     _hub.Attach(device);
+                    if (OperatingSystem.IsWindows() && _store.Load().Devices.LianLi.StopConflictingApps)
+                    {
+                        // Watcher stopped first so it cannot restart the main service.
+                        StopLConnectServices();
+                    }
                     ServiceLog.Info("[lianli] connected");
                     _lighting.OnHubStateUpdated();
                     try
@@ -45,6 +58,7 @@ public sealed class LianLiConnectionWorker : BackgroundService
                             if (_hub.ReadRpm())
                             {
                                 failures = 0;
+                                _cooling.ReassertControl();
                             }
                             else
                             {
@@ -81,6 +95,25 @@ public sealed class LianLiConnectionWorker : BackgroundService
                 ServiceLog.Error($"[lianli] worker error: {ex.Message}");
                 await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
             }
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void StopLConnectServices()
+    {
+        var watcherResult = WindowsServiceController.StopService("LConnectServiceWatcher");
+        var mainResult = WindowsServiceController.StopService("LConnectService");
+        if (watcherResult == ServiceStopResult.NotFound && mainResult == ServiceStopResult.NotFound)
+        {
+            return;
+        }
+        if (watcherResult == ServiceStopResult.Failed || mainResult == ServiceStopResult.Failed)
+        {
+            ServiceLog.Warn($"[lianli] L-Connect stop: watcher={watcherResult} main={mainResult}");
+        }
+        else
+        {
+            ServiceLog.Info("[lianli] stopped LConnectServiceWatcher and LConnectService");
         }
     }
 

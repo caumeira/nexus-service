@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
+using Nexus.Service.Cooling;
 using Nexus.Service.Lighting;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models;
+using Nexus.Service.Models.Cooling;
 using Nexus.Service.Peripherals.LianLi;
 using Nexus.Service.Persistence;
 using Nexus.Service.Serialization;
@@ -155,6 +157,123 @@ public static partial class DevicesRoutes
             Nexus.Service.Sockets.PanelTopics.BroadcastLighting(mux);
             return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
         });
+
+        // GET /devices/lianli/lighting - current settings + mode catalog.
+        app.MapGet("/devices/lianli/lighting", (LianLiHub hub, IConfigStore store) =>
+        {
+            var s = store.Load();
+            var ls = s.Devices.LianLiLighting;
+            var catalog = new LianLiModeInfoDto[LianLiLightingModes.Catalog.Length];
+            for (var i = 0; i < LianLiLightingModes.Catalog.Length; i++)
+            {
+                var m = LianLiLightingModes.Catalog[i];
+                catalog[i] = new LianLiModeInfoDto
+                {
+                    Key = m.Key,
+                    Label = m.Label,
+                    HasSpeed = m.HasSpeed,
+                    HasDirection = m.HasDirection,
+                    HasBrightness = m.HasBrightness,
+                    ColorsMin = m.ColorsMin,
+                    ColorsMax = m.ColorsMax,
+                };
+            }
+            return Results.Json(new LianLiLightingResponse
+            {
+                Mode = ls.Mode,
+                Speed = ls.Speed,
+                Direction = ls.Direction,
+                Brightness = ls.Brightness,
+                Colors = ls.Colors.ToArray(),
+                Modes = catalog,
+            }, AppJsonContext.Default.LianLiLightingResponse);
+        });
+
+        // PUT /devices/lianli/lighting - patch mode/speed/direction/brightness/colors.
+        app.MapPut("/devices/lianli/lighting", (
+            LianLiLightingRequest body,
+            IConfigStore store,
+            Nexus.Service.Sockets.MultiplexHub mux) =>
+        {
+            if (body.Mode != null && LianLiLightingModes.Find(body.Mode) == null)
+            {
+                return Results.BadRequest(ApiResponse.Fail("unknown mode key"));
+            }
+            store.Update(s =>
+            {
+                var ls = s.Devices.LianLiLighting;
+                if (body.Mode != null) ls.Mode = body.Mode;
+                if (body.Speed.HasValue) ls.Speed = Math.Clamp(body.Speed.Value, 0, 4);
+                if (body.Direction.HasValue) ls.Direction = Math.Clamp(body.Direction.Value, 0, 1);
+                if (body.Brightness.HasValue) ls.Brightness = Math.Clamp(body.Brightness.Value, 0, 4);
+                if (body.Colors != null)
+                {
+                    var modeKey = ls.Mode;
+                    var modeInfo = LianLiLightingModes.Find(modeKey);
+                    var maxColors = modeInfo?.ColorsMax ?? 0;
+                    var count = Math.Min(body.Colors.Length, maxColors);
+                    ls.Colors = new List<string>(count);
+                    for (var i = 0; i < count; i++)
+                    {
+                        ls.Colors.Add(body.Colors[i]);
+                    }
+                }
+            });
+            Nexus.Service.Sockets.PanelTopics.BroadcastLighting(mux);
+            return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
+        });
+
+        // GET /devices/lianli/cooling - per-port mode and duty.
+        app.MapGet("/devices/lianli/cooling", (LianLiHub hub, LianLiCoolingProvider cooling) =>
+        {
+            var ports = new LianLiCoolingPortDto[LianLiProtocol.PortCount];
+            var channels = hub.IsConnected ? cooling.GetFanChannels() : Array.Empty<FanChannel>();
+            for (var p = 0; p < LianLiProtocol.PortCount; p++)
+            {
+                var mode = "Auto";
+                var duty = 0;
+                foreach (var ch in channels)
+                {
+                    if (ch.Id == $"lianli:port{p}")
+                    {
+                        mode = ch.Mode == FanModes.Manual ? "Manual" : "Auto";
+                        duty = ch.DutyPercent;
+                        break;
+                    }
+                }
+                ports[p] = new LianLiCoolingPortDto { Port = p, Mode = mode, DutyPercent = duty };
+            }
+            return Results.Json(new LianLiCoolingResponse { Ports = ports }, AppJsonContext.Default.LianLiCoolingResponse);
+        });
+
+        // PUT /devices/lianli/cooling - set one port to Manual (with duty) or Auto.
+        app.MapPut("/devices/lianli/cooling", (
+            LianLiCoolingRequest body,
+            IFanControlProvider fans,
+            IConfigStore store,
+            Nexus.Service.Sockets.MultiplexHub mux) =>
+        {
+            if (body.Port < 0 || body.Port >= LianLiProtocol.PortCount)
+            {
+                return Results.BadRequest(ApiResponse.Fail("port must be 0..3"));
+            }
+            var channelId = $"lianli:port{body.Port}";
+            if (body.Mode == "Manual")
+            {
+                var duty = Math.Clamp(body.DutyPercent ?? 50, 0, 100);
+                FanProfiles.DetachFanFromCurves(channelId, store);
+                fans.SetFanSpeed(channelId, duty);
+                store.Update(s => s.Cooling.ManualSpeeds[channelId] = duty);
+            }
+            else
+            {
+                FanProfiles.DetachFanFromCurves(channelId, store);
+                fans.ReleaseFan(channelId);
+                store.Update(s => s.Cooling.ManualSpeeds.Remove(channelId));
+            }
+            Nexus.Service.Sockets.PanelTopics.BroadcastCooling(mux);
+            return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
+        });
     }
 }
 
@@ -190,4 +309,53 @@ public sealed class LianLiCompositionRequest
     public bool? CombineRings { get; set; }
     /// <summary>Per-port on/off; index = port. True restores fans to max, false sets 0.</summary>
     public bool[]? Ports { get; set; }
+}
+
+public sealed class LianLiModeInfoDto
+{
+    public string Key { get; set; } = "";
+    public string Label { get; set; } = "";
+    public bool HasSpeed { get; set; }
+    public bool HasDirection { get; set; }
+    public bool HasBrightness { get; set; }
+    public int ColorsMin { get; set; }
+    public int ColorsMax { get; set; }
+}
+
+public sealed class LianLiLightingResponse
+{
+    public string Mode { get; set; } = "";
+    public int Speed { get; set; }
+    public int Direction { get; set; }
+    public int Brightness { get; set; }
+    public string[] Colors { get; set; } = Array.Empty<string>();
+    public LianLiModeInfoDto[] Modes { get; set; } = Array.Empty<LianLiModeInfoDto>();
+}
+
+public sealed class LianLiLightingRequest
+{
+    public string? Mode { get; set; }
+    public int? Speed { get; set; }
+    public int? Direction { get; set; }
+    public int? Brightness { get; set; }
+    public string[]? Colors { get; set; }
+}
+
+public sealed class LianLiCoolingPortDto
+{
+    public int Port { get; set; }
+    public string Mode { get; set; } = "Auto";
+    public int DutyPercent { get; set; }
+}
+
+public sealed class LianLiCoolingResponse
+{
+    public LianLiCoolingPortDto[] Ports { get; set; } = Array.Empty<LianLiCoolingPortDto>();
+}
+
+public sealed class LianLiCoolingRequest
+{
+    public int Port { get; set; }
+    public string Mode { get; set; } = "Auto";
+    public int? DutyPercent { get; set; }
 }

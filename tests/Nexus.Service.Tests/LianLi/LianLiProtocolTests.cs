@@ -107,11 +107,11 @@ public class LianLiProtocolTests
     }
 
     [Theory]
-    [InlineData(0, 1)]
-    [InlineData(5, 10)]
-    [InlineData(9, 10)]
-    [InlineData(10, 10)]
-    [InlineData(50, 50)]
+    [InlineData(0, 9)]
+    [InlineData(5, 14)]
+    [InlineData(9, 17)]
+    [InlineData(10, 18)]
+    [InlineData(50, 54)]
     [InlineData(100, 100)]
     public void BuildSetSpeed_duty_byte_encoding(int duty, int expectedByte)
     {
@@ -132,12 +132,12 @@ public class LianLiProtocolTests
     // ── DutyByte ──
 
     [Theory]
-    [InlineData(0, 1)]
-    [InlineData(-5, 1)]
+    [InlineData(0, 9)]
+    [InlineData(-5, 9)]
     [InlineData(1, 10)]
-    [InlineData(9, 10)]
-    [InlineData(10, 10)]
-    [InlineData(50, 50)]
+    [InlineData(9, 17)]
+    [InlineData(10, 18)]
+    [InlineData(50, 54)]
     [InlineData(100, 100)]
     public void DutyByte_mapping(int duty, int expected)
     {

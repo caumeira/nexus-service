@@ -458,6 +458,7 @@ public sealed class DevicesSettings
     public Dictionary<string, int> ZoneLedCounts { get; set; } = new();
     public CnvsSettings Cnvs { get; set; } = new();
     public LianLiSettings LianLi { get; set; } = new();
+    public LianLiLightingSettings LianLiLighting { get; set; } = new();
     /// <summary>
     /// Per-hub channel composition (mirror ports / combine rings), keyed by hub
     /// id ("lianli", "smarthub:{serial}"). Absent key = the hub's default
@@ -557,6 +558,8 @@ public sealed class LianLiSettings
     public int Port1Fans { get; set; } = 4;
     public int Port2Fans { get; set; } = 4;
     public int Port3Fans { get; set; } = 4;
+    /// <summary>When true, LConnectService and LConnectServiceWatcher are stopped when Nexus attaches the hub.</summary>
+    public bool StopConflictingApps { get; set; } = true;
 
     public int GetFans(int port) => port switch
     {
@@ -577,6 +580,15 @@ public sealed class LianLiSettings
             case 3: Port3Fans = qty; break;
         }
     }
+}
+
+public sealed class LianLiLightingSettings
+{
+    public string Mode { get; set; } = "rainbowWave";
+    public int Speed { get; set; } = 2;
+    public int Direction { get; set; } = 0;
+    public int Brightness { get; set; } = 4;
+    public List<string> Colors { get; set; } = new();
 }
 
 /// <summary>

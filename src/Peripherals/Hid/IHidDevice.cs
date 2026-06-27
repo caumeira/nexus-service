@@ -34,8 +34,7 @@ public interface IHidDevice : IDisposable
     /// <summary>
     /// Sends an output report via the control path (HidD_SetOutputReport /
     /// SET_REPORT(Output)), not the interrupt OUT pipe. Byte 0 is report ID.
-    /// Some vendor protocols (Lian Li RGB) only accept their color stream this
-    /// way; a plain interrupt-OUT <see cref="Write"/> corrupts the payload.
+    /// For vendor reports a device rejects on the interrupt-OUT pipe.
     /// </summary>
     bool SetOutputReport(ReadOnlySpan<byte> report);
 

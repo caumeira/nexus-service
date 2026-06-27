@@ -166,12 +166,60 @@ public sealed class LianLiCoolingProvider : IFanControlProvider, ICoolingProvide
             return;
         }
         if (!TryParsePort(channelId, out var port)) return;
+        bool wasControlled;
         lock (_ctrlLock)
         {
+            wasControlled = _softwareControlled.Contains(channelId);
             _softwareControlled.Add(channelId);
             _pendingDuty[port] = dutyPercent;
         }
-        _hub.SetSpeed(port, dutyPercent);
+        // SetSpeed re-enters manual mode (mode write + settle + duty write): use it
+        // only on the first write to take the port off mobo PWM. Subsequent writes
+        // use SetDuty (duty write only) so re-entry does not reset the fan to default.
+        var ok = wasControlled
+            ? _hub.SetDuty(port, dutyPercent)
+            : _hub.SetSpeed(port, dutyPercent);
+        if (!ok)
+        {
+            ServiceLog.Warn($"[lianli-cooling] {(wasControlled ? "SetDuty" : "SetSpeed")} port {port} duty {dutyPercent} returned false");
+        }
+    }
+
+    public void ReassertControl()
+    {
+        if (!_hub.IsConnected) return;
+        int[] ports;
+        int[] duties;
+        lock (_ctrlLock)
+        {
+            if (_softwareControlled.Count == 0) return;
+            ports = new int[_softwareControlled.Count];
+            duties = new int[_softwareControlled.Count];
+            var idx = 0;
+            foreach (var id in _softwareControlled)
+            {
+                if (TryParsePort(id, out var p))
+                {
+                    ports[idx] = p;
+                    duties[idx] = _pendingDuty[p];
+                    idx++;
+                }
+            }
+            if (idx < ports.Length)
+            {
+                Array.Resize(ref ports, idx);
+                Array.Resize(ref duties, idx);
+            }
+        }
+        for (var i = 0; i < ports.Length; i++)
+        {
+            // Speed-only refresh - SetSpeed re-enters manual mode, which resets
+            // the fan to its default each tick and prevents the duty from taking.
+            if (!_hub.SetDuty(ports[i], duties[i]))
+            {
+                ServiceLog.Warn($"[lianli-cooling] ReassertControl port {ports[i]} duty {duties[i]} returned false");
+            }
+        }
     }
 
     private static bool TryParsePort(string channelId, out int port)
