@@ -774,6 +774,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiLightingRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiModeInfoDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiModeInfoDto[]))]
+// Corsair iCUE LINK System Hub.
+[JsonSerializable(typeof(Nexus.Service.Routes.CorsairStateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.CorsairDeviceDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.CorsairDeviceDto[]))]
+[JsonSerializable(typeof(Nexus.Service.Routes.CorsairSettingsRequest))]
 [JsonSerializable(typeof(int[]))]
 [JsonSerializable(typeof(bool[]))]
 

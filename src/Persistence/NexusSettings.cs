@@ -470,6 +470,7 @@ public sealed class DevicesSettings
     public CnvsSettings Cnvs { get; set; } = new();
     public LianLiSettings LianLi { get; set; } = new();
     public LianLiLightingSettings LianLiLighting { get; set; } = new();
+    public CorsairSettings Corsair { get; set; } = new();
     /// <summary>
     /// Per-hub channel composition (mirror ports / combine rings), keyed by hub
     /// id ("lianli", "smarthub:{serial}"). Absent key = the hub's default
@@ -600,6 +601,12 @@ public sealed class LianLiLightingSettings
     public int Direction { get; set; } = 0;
     public int Brightness { get; set; } = 4;
     public List<string> Colors { get; set; } = new();
+}
+
+public sealed class CorsairSettings
+{
+    /// <summary>When true, Corsair iCUE is stopped when Nexus attaches the iCUE LINK hub (both apps co-drive the hub and fight every write).</summary>
+    public bool StopConflictingApps { get; set; } = true;
 }
 
 /// <summary>
