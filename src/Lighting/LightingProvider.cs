@@ -287,6 +287,13 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, int slot, bool skipCache = false)
     {
+        // Shader thumbnails are GPU-rendered; with no usable GPU the render is a
+        // no-op and the frame stays black, so skip it and let the caller 404 -
+        // the UI shows a placeholder instead of a grid of black tiles.
+        if (!_gpu.Available)
+        {
+            return null;
+        }
         var name = (key ?? "").ToLowerInvariant();
         var defaults = DefaultParamsFor(name);
         if (defaults is null)
