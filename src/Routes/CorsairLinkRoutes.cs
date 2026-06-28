@@ -30,6 +30,7 @@ public static partial class DevicesRoutes
                     HasTemperature = d.HasTemperature,
                     Rpm = d.Rpm,
                     TempC = float.IsNaN(d.TempC) ? null : d.TempC,
+                    Serial = d.Serial,
                 });
             }
             return Results.Json(new CorsairStateResponse
@@ -76,6 +77,8 @@ public sealed class CorsairDeviceDto
     public bool HasTemperature { get; set; }
     public int Rpm { get; set; }
     public float? TempC { get; set; }
+    /// <summary>Hub-assigned device serial; disambiguates otherwise-identical fans.</summary>
+    public string Serial { get; set; } = "";
 }
 
 public sealed class CorsairSettingsRequest

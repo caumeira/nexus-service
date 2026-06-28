@@ -333,6 +333,12 @@ public sealed class WindowsHidEnumerator : IHidEnumerator
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern unsafe bool ReadFileOverlapped(IntPtr handle, byte* buffer, uint toRead, IntPtr read, NativeOverlapped* overlapped);
 
+        // Overlapped WriteFile: a FILE_FLAG_OVERLAPPED handle rejects a synchronous
+        // WriteFile, so a forInput device must issue its output reports overlapped.
+        [DllImport("kernel32.dll", SetLastError = true, EntryPoint = "WriteFile")]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern unsafe bool WriteFileOverlapped(IntPtr handle, byte* buffer, uint toWrite, IntPtr written, NativeOverlapped* overlapped);
+
         [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode, EntryPoint = "CreateEventW")]
         public static extern IntPtr CreateEventW(IntPtr attributes, [MarshalAs(UnmanagedType.Bool)] bool manualReset, [MarshalAs(UnmanagedType.Bool)] bool initialState, string? name);
 

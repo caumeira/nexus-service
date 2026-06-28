@@ -66,6 +66,7 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
 
                 if (!_hub.Initialize())
                 {
+                    ServiceLog.Warn("[corsair] initialize failed, retrying");
                     _hub.Detach();
                     await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
                     continue;

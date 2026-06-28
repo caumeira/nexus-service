@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using Nexus.Service.Peripherals.Hid;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.CorsairLink;
 
@@ -18,6 +19,9 @@ public sealed class CorsairLinkHub : IDisposable
 
     private readonly object _lock = new();
     private readonly byte[] _write = new byte[CorsairLinkProtocol.WriteBufferLength];
+    // _readRaw receives the full interrupt-IN report (report-id byte at [0]); _read
+    // holds it stripped of that byte, the layout the parsers are calibrated to.
+    private readonly byte[] _readRaw = new byte[CorsairLinkProtocol.WriteBufferLength];
     private readonly byte[] _read = new byte[CorsairLinkProtocol.ReportLength];
     // Color stream scratch: 6-byte inner header + the concatenated RGB. 8192 caps
     // the chain at ~2728 LEDs, far above a full 24-device chain; SendColors drops
@@ -77,6 +81,7 @@ public sealed class CorsairLinkHub : IDisposable
             if (_device == null) return false;
 
             var fw = Transfer(CorsairLinkProtocol.CmdGetFirmware);
+            ServiceLog.Info($"[corsair-diag] fw transfer n={fw} head={DiagHex(_read, 12)}");
             if (fw >= 8)
             {
                 State.Firmware = $"{_read[4]}.{_read[5]}.{_read[6] | (_read[7] << 8)}";
@@ -234,6 +239,14 @@ public sealed class CorsairLinkHub : IDisposable
         return copy;
     }
 
+    private static string DiagHex(byte[] b, int count)
+    {
+        var n = Math.Min(count, b.Length);
+        var sb = new System.Text.StringBuilder(n * 3);
+        for (var i = 0; i < n; i++) sb.Append(b[i].ToString("X2")).Append(' ');
+        return sb.ToString().TrimEnd();
+    }
+
     // close -> open -> write(inner) -> close. Inner = [len_lo, len_hi, 0, 0,
     // dataType(2), data]. Success when response[3]==0; retry the write only.
     private bool WriteEndpointLocked(byte mode, ReadOnlySpan<byte> dataType, ReadOnlySpan<byte> data, int retries)
@@ -255,8 +268,10 @@ public sealed class CorsairLinkHub : IDisposable
         Transfer(CorsairLinkProtocol.CmdCloseEndpoint, m);
         Transfer(CorsairLinkProtocol.CmdOpenEndpoint, m);
         var ok = false;
+        var attempts = 0;
         for (var attempt = 0; attempt < Math.Max(1, retries); attempt++)
         {
+            attempts++;
             var n = Transfer(CorsairLinkProtocol.CmdWrite, frame);
             if (n >= 4 && _read[3] == 0x00)
             {
@@ -265,6 +280,7 @@ public sealed class CorsairLinkHub : IDisposable
             }
             Thread.Sleep(CorsairLinkProtocol.SpeedSetRetryDelayMs);
         }
+        ServiceLog.Info($"[corsair-diag] write 0x{mode:X2} ok={ok} attempts={attempts} inHead={DiagHex(_write, 24)} respHead={DiagHex(_read, 8)}");
         Transfer(CorsairLinkProtocol.CmdCloseEndpoint, m);
         return ok;
     }
@@ -282,7 +298,12 @@ public sealed class CorsairLinkHub : IDisposable
         off += command.Length;
         if (!payload.IsEmpty) payload.CopyTo(_write.AsSpan(off));
         if (!_device.Write(_write)) return -1;
-        return _device.Read(_read, ReadTimeoutMs);
+        var n = _device.Read(_readRaw, ReadTimeoutMs);
+        if (n <= 0) return n;
+        // Windows ReadFile returns the report with the report-id byte at [0]; hidapi
+        // (which the parsers mirror) drops it. Strip it and report the stripped length.
+        _readRaw.AsSpan(1, CorsairLinkProtocol.ReportLength).CopyTo(_read);
+        return n - 1;
     }
 
     public void Dispose()
