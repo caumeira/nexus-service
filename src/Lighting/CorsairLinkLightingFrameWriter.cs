@@ -6,7 +6,6 @@ using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Peripherals.CorsairLink;
 using Nexus.Service.Persistence;
-using Nexus.Service.Platform;
 using RgbColor = Nexus.Service.Peripherals.Hyte.Np50.RgbColor;
 
 namespace Nexus.Service.Lighting;
@@ -37,7 +36,6 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
 
     // Scratch buffer for the concatenated wire frame; resized on demand.
     private byte[] _wireBuf = Array.Empty<byte>();
-    private int _diagTick;
 
     public CorsairLinkLightingFrameWriter(
         LightingEngine engine, CorsairLinkHub hub, IConfigStore store, Np50IdentifyTracker identify)
@@ -133,15 +131,6 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
                 _wireBuf[wireOffset + 2] = c.B;
                 wireOffset += 3;
             }
-        }
-
-        if (++_diagTick % 30 == 0 && wireOffset >= 3)
-        {
-            DeviceFrame? m = null;
-            foreach (var f in devices) { if (f.Id == "corsair:ch1") { m = f; break; } }
-            var mc = m is not null && m.LedBytes.Length >= 3 ? $"({m.LedBytes[0]},{m.LedBytes[1]},{m.LedBytes[2]})" : "NO-MATCH";
-            var ids = string.Join(",", System.Linq.Enumerable.Select(devices, d => d.Id));
-            ServiceLog.Info($"[corsair-diag] frame engineDevs={devices.Length} composedLED0=({_wireBuf[0]},{_wireBuf[1]},{_wireBuf[2]}) ch1EngineFrame={mc} ids=[{ids}]");
         }
 
         _hub.SendColors(new ReadOnlySpan<byte>(_wireBuf, 0, wireOffset));

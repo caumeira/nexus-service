@@ -17,6 +17,11 @@ public sealed class CorsairLinkHub : IDisposable
 {
     private const int ReadTimeoutMs = 250;
 
+    // Drain reads pull reports the hub has already queued, so they return at once
+    // or the queue is empty; a short timeout caps how long a no-ack write holds
+    // _lock (shared with the 30Hz SendColors) while realigning the stream.
+    private const int ResyncReadTimeoutMs = 50;
+
     private readonly object _lock = new();
     private readonly byte[] _write = new byte[CorsairLinkProtocol.WriteBufferLength];
     // _readRaw receives the full interrupt-IN report (report-id byte at [0]); _read
@@ -30,7 +35,9 @@ public sealed class CorsairLinkHub : IDisposable
 
     private IHidDevice? _device;
     private bool _softwareMode;
-    private bool _colorOpen;
+    // Streaming is primed (Initialize ran, hub connected). Not a live "endpoint is
+    // open" mirror: SendColors re-opens the color endpoint each frame.
+    private bool _colorPrimed;
     private bool _disposed;
 
     public string DeviceId => "corsair";
@@ -45,7 +52,7 @@ public sealed class CorsairLinkHub : IDisposable
         {
             _device = device;
             _softwareMode = false;
-            _colorOpen = false;
+            _colorPrimed = false;
         }
     }
 
@@ -65,7 +72,7 @@ public sealed class CorsairLinkHub : IDisposable
             State.Firmware = "";
             State.Devices = Array.Empty<CorsairLinkDevice>();
             _softwareMode = false;
-            _colorOpen = false;
+            _colorPrimed = false;
         }
     }
 
@@ -81,7 +88,6 @@ public sealed class CorsairLinkHub : IDisposable
             if (_device == null) return false;
 
             var fw = Transfer(CorsairLinkProtocol.CmdGetFirmware);
-            ServiceLog.Info($"[corsair-diag] fw transfer n={fw} head={DiagHex(_read, 12)}");
             if (fw >= 8)
             {
                 State.Firmware = $"{_read[4]}.{_read[5]}.{_read[6] | (_read[7] << 8)}";
@@ -95,14 +101,14 @@ public sealed class CorsairLinkHub : IDisposable
 
             if (!RefreshLocked()) return false;
 
-            // The color endpoint is opened once and stays open for the connected
-            // lifetime; the firmware keeps it open while Poll/SetDuties cycle the
-            // data endpoints (0x36/0x17/0x21/0x18) under the same lock, matching
-            // OpenLinkHub's setColorEndpoint-once design.
+            // Prime the color endpoint and mark streaming live. SendColors re-opens
+            // it per frame, because Poll/SetDuties close+open the data endpoints
+            // (0x36/0x17/0x21/0x18) under the same lock and the hub has one shared
+            // endpoint slot, so it cannot stay open across a telemetry cycle.
             Span<byte> mode = stackalloc byte[] { CorsairLinkProtocol.ModeSetColor };
             Transfer(CorsairLinkProtocol.CmdCloseEndpoint, mode);
             Transfer(CorsairLinkProtocol.CmdOpenColorEndpoint, mode);
-            _colorOpen = true;
+            _colorPrimed = true;
 
             State.IsConnected = true;
             return true;
@@ -139,21 +145,30 @@ public sealed class CorsairLinkHub : IDisposable
                 payload[o + 3] = 0x00;
             }
             return WriteEndpointLocked(CorsairLinkProtocol.ModeSetSpeed,
-                CorsairLinkProtocol.DataSetSpeed, payload.Slice(0, 1 + count * 4),
-                retries: CorsairLinkProtocol.SpeedSetRetries);
+                CorsairLinkProtocol.DataSetSpeed, payload.Slice(0, 1 + count * 4));
         }
     }
 
     /// <summary>
     /// Stream one frame of per-LED color. <paramref name="rgb"/> is every RGB
-    /// device's LEDs concatenated in channel order, 3 bytes (R,G,B) each. The
-    /// color endpoint must already be open (Initialize did this).
+    /// device's LEDs concatenated in channel order, 3 bytes (R,G,B) each. Re-opens
+    /// the color endpoint per call (the telemetry path closes the shared slot).
     /// </summary>
     public bool SendColors(ReadOnlySpan<byte> rgb)
     {
         lock (_lock)
         {
-            if (_device == null || !_colorOpen) return false;
+            if (_device == null || !_colorPrimed) return false;
+
+            // Poll/SetDuties close+open the data endpoints under this same lock,
+            // which closes the single shared endpoint slot. Re-open the color
+            // endpoint per frame (OpenLinkHub's writeColor pattern) so streaming
+            // survives the telemetry/cooling cycling instead of writing into a
+            // closed endpoint (which freezes the LEDs at their firmware default).
+            Span<byte> mode = stackalloc byte[] { CorsairLinkProtocol.ModeSetColor };
+            Transfer(CorsairLinkProtocol.CmdCloseEndpoint, mode);
+            Transfer(CorsairLinkProtocol.CmdOpenColorEndpoint, mode);
+
             var len = 6 + rgb.Length;
             if (len > _colorInner.Length) return false;
 
@@ -184,7 +199,7 @@ public sealed class CorsairLinkHub : IDisposable
 
     private bool RefreshLocked()
     {
-        var devResp = ReadEndpointLocked(CorsairLinkProtocol.ModeGetDevices);
+        var devResp = ReadEndpointLocked(CorsairLinkProtocol.ModeGetDevices, CorsairLinkProtocol.DataGetDevices);
         if (devResp == null) return false;
         var discovered = CorsairLinkProtocol.ParseDevices(devResp);
 
@@ -193,9 +208,9 @@ public sealed class CorsairLinkHub : IDisposable
         Array.Fill(speeds, -1);
         Array.Fill(temps, float.NaN);
 
-        var spResp = ReadEndpointLocked(CorsairLinkProtocol.ModeGetSpeeds);
+        var spResp = ReadEndpointLocked(CorsairLinkProtocol.ModeGetSpeeds, CorsairLinkProtocol.DataGetSpeeds);
         if (spResp != null) CorsairLinkProtocol.ParseSpeeds(spResp, speeds);
-        var tpResp = ReadEndpointLocked(CorsairLinkProtocol.ModeGetTemperatures);
+        var tpResp = ReadEndpointLocked(CorsairLinkProtocol.ModeGetTemperatures, CorsairLinkProtocol.DataGetTemperatures);
         if (tpResp != null) CorsairLinkProtocol.ParseTemperatures(tpResp, temps);
 
         var list = new List<CorsairLinkDevice>(discovered.Count);
@@ -224,14 +239,15 @@ public sealed class CorsairLinkHub : IDisposable
 
     // close -> open -> read one endpoint; returns a copy of the response (the
     // shared _read buffer is clobbered by the trailing close), or null on failure.
-    private byte[]? ReadEndpointLocked(byte mode)
+    private byte[]? ReadEndpointLocked(byte mode, ReadOnlySpan<byte> dataType)
     {
         Span<byte> m = stackalloc byte[] { mode };
         Transfer(CorsairLinkProtocol.CmdCloseEndpoint, m);
         Transfer(CorsairLinkProtocol.CmdOpenEndpoint, m);
         var n = Transfer(CorsairLinkProtocol.CmdRead, m);
+        n = ResyncToDataType(n, dataType);
         byte[]? copy = null;
-        if (n > 0)
+        if (n > 0 && _read[4] == dataType[0] && _read[5] == dataType[1])
         {
             copy = _read.AsSpan(0, CorsairLinkProtocol.ReportLength).ToArray();
         }
@@ -239,17 +255,36 @@ public sealed class CorsairLinkHub : IDisposable
         return copy;
     }
 
-    private static string DiagHex(byte[] b, int count)
+    // The matching response echoes its data-type at [4:6]; a mismatch is a stale
+    // report queued by an earlier command. Drain with bare reads (no new command)
+    // until it matches or the budget runs out. Mirrors OpenRGB's waitForDataType.
+    private int ResyncToDataType(int n, ReadOnlySpan<byte> dataType)
     {
-        var n = Math.Min(count, b.Length);
-        var sb = new System.Text.StringBuilder(n * 3);
-        for (var i = 0; i < n; i++) sb.Append(b[i].ToString("X2")).Append(' ');
-        return sb.ToString().TrimEnd();
+        var tries = 0;
+        while (n > 0 && (_read[4] != dataType[0] || _read[5] != dataType[1])
+               && tries < CorsairLinkProtocol.ReadResyncTries)
+        {
+            n = ReadStrippedLocked();
+            tries++;
+        }
+        return n;
+    }
+
+    // Bare interrupt-IN read with no command write, report-id stripped like Transfer.
+    private int ReadStrippedLocked()
+    {
+        if (_device == null) return -1;
+        var n = _device.Read(_readRaw, ResyncReadTimeoutMs);
+        if (n <= 0) return n;
+        _readRaw.AsSpan(1, CorsairLinkProtocol.ReportLength).CopyTo(_read);
+        return n - 1;
     }
 
     // close -> open -> write(inner) -> close. Inner = [len_lo, len_hi, 0, 0,
-    // dataType(2), data]. Success when response[3]==0; retry the write only.
-    private bool WriteEndpointLocked(byte mode, ReadOnlySpan<byte> dataType, ReadOnlySpan<byte> data, int retries)
+    // dataType(2), data]. The hub applies a speed set on delivery and returns no
+    // matchable ack, so success is not gated on the response; the trailing drain
+    // realigns the shared response stream for the next telemetry read.
+    private bool WriteEndpointLocked(byte mode, ReadOnlySpan<byte> dataType, ReadOnlySpan<byte> data)
     {
         Span<byte> m = stackalloc byte[] { mode };
         var len = 6 + data.Length;
@@ -267,22 +302,11 @@ public sealed class CorsairLinkHub : IDisposable
 
         Transfer(CorsairLinkProtocol.CmdCloseEndpoint, m);
         Transfer(CorsairLinkProtocol.CmdOpenEndpoint, m);
-        var ok = false;
-        var attempts = 0;
-        for (var attempt = 0; attempt < Math.Max(1, retries); attempt++)
-        {
-            attempts++;
-            var n = Transfer(CorsairLinkProtocol.CmdWrite, frame);
-            if (n >= 4 && _read[3] == 0x00)
-            {
-                ok = true;
-                break;
-            }
-            Thread.Sleep(CorsairLinkProtocol.SpeedSetRetryDelayMs);
-        }
-        ServiceLog.Info($"[corsair-diag] write 0x{mode:X2} ok={ok} attempts={attempts} inHead={DiagHex(_write, 24)} respHead={DiagHex(_read, 8)}");
+        var n = Transfer(CorsairLinkProtocol.CmdWrite, frame);
+        if (n < 0) return false;
+        ResyncToDataType(n, dataType);
         Transfer(CorsairLinkProtocol.CmdCloseEndpoint, m);
-        return ok;
+        return true;
     }
 
     private int Transfer(ReadOnlySpan<byte> command) => Transfer(command, default);

@@ -61,16 +61,19 @@ public static class CorsairLinkProtocol
     public const byte ModeSetSpeed = 0x18;
     public const byte ModeSetColor = 0x22;
 
-    // Data-type tags: the first 2 bytes of a write payload, echoed at response[4:6].
+    // Data-type tags echoed at response[4:6]. A read must match the expected tag
+    // there or it is a stale queued report from a prior command; re-read to resync.
+    public static ReadOnlySpan<byte> DataGetDevices => new byte[] { 0x21, 0x00 };
+    public static ReadOnlySpan<byte> DataGetTemperatures => new byte[] { 0x10, 0x00 };
+    public static ReadOnlySpan<byte> DataGetSpeeds => new byte[] { 0x25, 0x00 };
     public static ReadOnlySpan<byte> DataSetSpeed => new byte[] { 0x07, 0x00 };
     public static ReadOnlySpan<byte> DataSetColor => new byte[] { 0x12, 0x00 };
 
+    /// <summary>Re-reads to drain stale queued responses until the data-type matches.</summary>
+    public const int ReadResyncTries = 5;
+
     /// <summary>Firmware needs this settle after entering software mode before any other command.</summary>
     public const int SoftwareModeSettleMs = 500;
-
-    /// <summary>response[3]!=0 means a speed set was rejected; OpenLinkHub retries this many times.</summary>
-    public const int SpeedSetRetries = 20;
-    public const int SpeedSetRetryDelayMs = 100;
 
     /// <summary>A daisy-chained device discovered by <see cref="ParseDevices"/>.</summary>
     public readonly struct DiscoveredDevice
