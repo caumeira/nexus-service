@@ -179,7 +179,15 @@ public sealed class CorsairLinkHub : IDisposable
             _colorInner[3] = 0x00;
             _colorInner[4] = CorsairLinkProtocol.DataSetColor[0];
             _colorInner[5] = CorsairLinkProtocol.DataSetColor[1];
-            rgb.CopyTo(_colorInner.AsSpan(6));
+            // The firmware treats a per-LED (0,0,0) as "no change" and holds the
+            // LED's prior/default color, so a black LED stays lit instead of going
+            // dark. Floor every channel to 1 (imperceptible) so each LED always
+            // receives a definite value and a black frame reads as off.
+            var dst = _colorInner.AsSpan(6, rgb.Length);
+            for (var i = 0; i < dst.Length; i++)
+            {
+                dst[i] = rgb[i] == 0 ? (byte)1 : rgb[i];
+            }
 
             var offset = 0;
             var first = true;
