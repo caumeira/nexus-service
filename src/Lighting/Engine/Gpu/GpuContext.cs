@@ -191,7 +191,18 @@ public sealed class GpuContext : IDisposable
         _eglUsed = true;
         _gl = GL.GetApi(new EglNativeContext());
 #else
-        // Windows: hidden GLFW window owns the context.
+        // Windows: hidden GLFW window owns the context. With no usable GPU (no
+        // dGPU + an "F"-SKU CPU with no iGPU, or only a virtual/indirect
+        // display), GLFW context creation fail-fasts inside native code
+        // (0xc0000409) - which a managed catch can't intercept, so it kills the
+        // whole process. A removed card's driver stays registered, so DXGI still
+        // enumerates it as a ghost adapter; probe D3D11CreateDevice (the ghost
+        // fails it) and bail to the CPU shader fallback before touching GLFW.
+        if (!Nexus.Service.Sensors.GpuAdapterLuids.HasUsableHardwareGpu())
+        {
+            throw new InvalidOperationException(
+                "no usable GPU adapter present; using CPU shader fallback");
+        }
         Log("[gpu] Register GLFW platform");
         // Silk.NET normally registers the GLFW backend via module initializer,
         // but AOT strips that path - we have to register it explicitly or
