@@ -1,11 +1,9 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
-using Nexus.Service.Cooling;
 using Nexus.Service.Lighting;
 using Nexus.Service.Lighting.Zones;
 using Nexus.Service.Models;
-using Nexus.Service.Models.Cooling;
 using Nexus.Service.Peripherals.LianLi;
 using Nexus.Service.Persistence;
 using Nexus.Service.Serialization;
@@ -223,57 +221,6 @@ public static partial class DevicesRoutes
             return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
         });
 
-        // GET /devices/lianli/cooling - per-port mode and duty.
-        app.MapGet("/devices/lianli/cooling", (LianLiHub hub, LianLiCoolingProvider cooling) =>
-        {
-            var ports = new LianLiCoolingPortDto[LianLiProtocol.PortCount];
-            var channels = hub.IsConnected ? cooling.GetFanChannels() : Array.Empty<FanChannel>();
-            for (var p = 0; p < LianLiProtocol.PortCount; p++)
-            {
-                var mode = "Auto";
-                var duty = 0;
-                foreach (var ch in channels)
-                {
-                    if (ch.Id == $"lianli:port{p}")
-                    {
-                        mode = ch.Mode == FanModes.Manual ? "Manual" : "Auto";
-                        duty = ch.DutyPercent;
-                        break;
-                    }
-                }
-                ports[p] = new LianLiCoolingPortDto { Port = p, Mode = mode, DutyPercent = duty };
-            }
-            return Results.Json(new LianLiCoolingResponse { Ports = ports }, AppJsonContext.Default.LianLiCoolingResponse);
-        });
-
-        // PUT /devices/lianli/cooling - set one port to Manual (with duty) or Auto.
-        app.MapPut("/devices/lianli/cooling", (
-            LianLiCoolingRequest body,
-            IFanControlProvider fans,
-            IConfigStore store,
-            Nexus.Service.Sockets.MultiplexHub mux) =>
-        {
-            if (body.Port < 0 || body.Port >= LianLiProtocol.PortCount)
-            {
-                return Results.BadRequest(ApiResponse.Fail("port must be 0..3"));
-            }
-            var channelId = $"lianli:port{body.Port}";
-            if (body.Mode == "Manual")
-            {
-                var duty = Math.Clamp(body.DutyPercent ?? 50, 0, 100);
-                FanProfiles.DetachFanFromCurves(channelId, store);
-                fans.SetFanSpeed(channelId, duty);
-                store.Update(s => s.Cooling.ManualSpeeds[channelId] = duty);
-            }
-            else
-            {
-                FanProfiles.DetachFanFromCurves(channelId, store);
-                fans.ReleaseFan(channelId);
-                store.Update(s => s.Cooling.ManualSpeeds.Remove(channelId));
-            }
-            Nexus.Service.Sockets.PanelTopics.BroadcastCooling(mux);
-            return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
-        });
     }
 }
 
@@ -341,21 +288,3 @@ public sealed class LianLiLightingRequest
     public string[]? Colors { get; set; }
 }
 
-public sealed class LianLiCoolingPortDto
-{
-    public int Port { get; set; }
-    public string Mode { get; set; } = "Auto";
-    public int DutyPercent { get; set; }
-}
-
-public sealed class LianLiCoolingResponse
-{
-    public LianLiCoolingPortDto[] Ports { get; set; } = Array.Empty<LianLiCoolingPortDto>();
-}
-
-public sealed class LianLiCoolingRequest
-{
-    public int Port { get; set; }
-    public string Mode { get; set; } = "Auto";
-    public int? DutyPercent { get; set; }
-}

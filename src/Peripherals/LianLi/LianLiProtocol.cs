@@ -16,7 +16,6 @@ public static class LianLiProtocol
     public const int VendorUsagePage = 0xFF72;
     public const int VendorUsage = 0xA1;
 
-    public const int FeatureReportSize = 7;
     public const int OutputReportSize = 353;
     public const int InputReportSize = 65;
 
@@ -28,20 +27,11 @@ public static class LianLiProtocol
     /// <summary>Fans a single port group can daisy-chain.</summary>
     public const int MaxFansPerPort = 4;
 
-    /// <summary>RGB channels: 2 per port (inner=even index, outer=odd index), indexed 0..7.</summary>
-    public const int ChannelCount = 8;
-
     // Each SL-Infinity fan exposes 16 LEDs on its inner (spinner) channel and 16
     // on its outer (edge) channel - one fan = two channels, 16 LEDs each. The
     // firmware addresses LEDs in 16-per-fan blocks (OpenRGB
     // UNIHUB_SLINF_CHAN_LED_COUNT = 0x10*6; fan_idx = leds_count/16 - 1).
     public const int LedsPerFanPerChannel = 16;
-
-    /// <summary>Inner-ring (spinner) LED count per fan.</summary>
-    public const int InnerLedsPerFan = LedsPerFanPerChannel;
-
-    /// <summary>Outer-ring (edge) LED count per fan.</summary>
-    public const int OuterLedsPerFan = LedsPerFanPerChannel;
 
     /// <summary>Scale down R+G+B if their sum exceeds this value.</summary>
     public const int EnergyCapSum = 460;
@@ -94,17 +84,9 @@ public static class LianLiProtocol
     }
 
     /// <summary>
-    /// Frame latch, sent once after all channels commit. Feature report.
-    /// E0 60 00 01 00 00 00.
-    /// </summary>
-    public static byte[] BuildFrameLatch()
-    {
-        return new byte[] { ReportId, 0x60, 0x00, 0x01, 0x00, 0x00, 0x00 };
-    }
-
-    /// <summary>
-    /// Set port ch (0..3) to manual/host mode.
-    /// Re-assert before every duty write; the port silently reverts to PWM-sync otherwise.
+    /// Set port ch (0..3) to manual/host mode. The port holds the mode once set;
+    /// re-entering resets the fan to its default RPM. Refresh duty via BuildSetSpeed;
+    /// revert to motherboard PWM-sync via BuildReleaseMode.
     /// Selector: 0x10 left-shifted by ch (ch0=0x10, ch1=0x20, ch2=0x40, ch3=0x80).
     /// Command: E0 10 62 (0x10 shl ch) 00 00 00
     /// </summary>
@@ -156,20 +138,6 @@ public static class LianLiProtocol
     public static byte[] BuildRpmPrimer()
     {
         return new byte[] { ReportId, 0x50, 0x00, 0x00, 0x00, 0x00, 0x00 };
-    }
-
-    /// <summary>
-    /// Build the output report for RGB channel ch (0..7).
-    /// Wire color order is R, B, G (blue and green are swapped vs RGB).
-    /// Each LED is capped by <see cref="EnergyCapSum"/> before encoding.
-    /// <paramref name="leds"/> may be shorter than the channel capacity;
-    /// remaining bytes are zeroed.
-    /// </summary>
-    public static byte[] BuildColorData(int ch, ReadOnlySpan<byte> leds)
-    {
-        var report = new byte[OutputReportSize];
-        WriteColorData(report, ch, leds);
-        return report;
     }
 
     /// <summary>

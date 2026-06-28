@@ -15,12 +15,8 @@ public class LianLiProtocolTests
         Assert.Equal(0xFF72, LianLiProtocol.VendorUsagePage);
         Assert.Equal(0xA1, LianLiProtocol.VendorUsage);
         Assert.Equal(4, LianLiProtocol.PortCount);
-        Assert.Equal(8, LianLiProtocol.ChannelCount);
-        Assert.Equal(16, LianLiProtocol.InnerLedsPerFan);
-        Assert.Equal(16, LianLiProtocol.OuterLedsPerFan);
         Assert.Equal(16, LianLiProtocol.LedsPerFanPerChannel);
         Assert.Equal(4, LianLiProtocol.MaxFansPerPort);
-        Assert.Equal(7, LianLiProtocol.FeatureReportSize);
         Assert.Equal(353, LianLiProtocol.OutputReportSize);
         Assert.Equal(65, LianLiProtocol.InputReportSize);
         Assert.Equal(0xE0, LianLiProtocol.ReportId);
@@ -54,16 +50,6 @@ public class LianLiProtocolTests
         Assert.Equal(0xE0, report[0]);
         Assert.Equal(0x13, report[1]); // 0x10 | ch
         Assert.Equal(0x01, report[2]); // STATIC_COLOR
-    }
-
-    // ── BuildFrameLatch ──
-
-    [Fact]
-    public void BuildFrameLatch_is_E0_60_00_01_00_00_00()
-    {
-        Assert.Equal(
-            new byte[] { 0xE0, 0x60, 0x00, 0x01, 0x00, 0x00, 0x00 },
-            LianLiProtocol.BuildFrameLatch());
     }
 
     // ── BuildManualMode ──
@@ -182,52 +168,48 @@ public class LianLiProtocolTests
         Assert.Equal(0, LianLiProtocol.DecodeRpm(buf, 0));
     }
 
-    // ── BuildColorData ──
+    // ── WriteColorData ──
 
     [Fact]
-    public void BuildColorData_length_is_OutputReportSize()
+    public void WriteColorData_report_id_and_channel_nibble()
     {
-        Assert.Equal(LianLiProtocol.OutputReportSize, LianLiProtocol.BuildColorData(0, ReadOnlySpan<byte>.Empty).Length);
-    }
-
-    [Fact]
-    public void BuildColorData_report_id_and_channel_nibble()
-    {
-        var report = LianLiProtocol.BuildColorData(5, ReadOnlySpan<byte>.Empty);
+        var report = new byte[LianLiProtocol.OutputReportSize];
+        LianLiProtocol.WriteColorData(report, 5, ReadOnlySpan<byte>.Empty);
         Assert.Equal(0xE0, report[0]);
         Assert.Equal(0x35, report[1]);
     }
 
     [Fact]
-    public void BuildColorData_swaps_green_and_blue()
+    public void WriteColorData_swaps_green_and_blue()
     {
         // Input: R=0x10, G=0x20, B=0x30. Wire order: R, B, G.
         byte[] leds = { 0x10, 0x20, 0x30 };
-        var report = LianLiProtocol.BuildColorData(0, leds);
+        var report = new byte[LianLiProtocol.OutputReportSize];
+        LianLiProtocol.WriteColorData(report, 0, leds);
         Assert.Equal(0x10, report[2]); // R unchanged
         Assert.Equal(0x30, report[3]); // B in wire-G slot
         Assert.Equal(0x20, report[4]); // G in wire-B slot
     }
 
     [Fact]
-    public void BuildColorData_energy_cap_scales_proportionally()
+    public void WriteColorData_energy_cap_scales_proportionally()
     {
         // R=200, G=200, B=200 -> sum=600 > 460; should be scaled down.
         byte[] leds = { 200, 200, 200 };
-        var report = LianLiProtocol.BuildColorData(0, leds);
-        // All three bytes must be equal (proportional scaling).
+        var report = new byte[LianLiProtocol.OutputReportSize];
+        LianLiProtocol.WriteColorData(report, 0, leds);
         Assert.Equal(report[2], report[3]);
         Assert.Equal(report[2], report[4]);
-        // Each must be less than 200.
         Assert.True(report[2] < 200);
     }
 
     [Fact]
-    public void BuildColorData_no_cap_below_limit()
+    public void WriteColorData_no_cap_below_limit()
     {
         // R=100, G=100, B=100 -> sum=300 < 460; no capping.
         byte[] leds = { 100, 100, 100 };
-        var report = LianLiProtocol.BuildColorData(0, leds);
+        var report = new byte[LianLiProtocol.OutputReportSize];
+        LianLiProtocol.WriteColorData(report, 0, leds);
         Assert.Equal(100, report[2]);
         Assert.Equal(100, report[3]);
         Assert.Equal(100, report[4]);

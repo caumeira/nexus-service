@@ -774,10 +774,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiLightingRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiModeInfoDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiModeInfoDto[]))]
-[JsonSerializable(typeof(Nexus.Service.Routes.LianLiCoolingResponse))]
-[JsonSerializable(typeof(Nexus.Service.Routes.LianLiCoolingRequest))]
-[JsonSerializable(typeof(Nexus.Service.Routes.LianLiCoolingPortDto))]
-[JsonSerializable(typeof(Nexus.Service.Routes.LianLiCoolingPortDto[]))]
 [JsonSerializable(typeof(int[]))]
 [JsonSerializable(typeof(bool[]))]
 

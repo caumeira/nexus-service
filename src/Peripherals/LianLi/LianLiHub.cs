@@ -45,15 +45,6 @@ public sealed class LianLiHub : IDisposable
         }
     }
 
-    public bool SetManualMode(int port)
-    {
-        lock (_lock)
-        {
-            if (_device == null) return false;
-            return _device.SetFeature(LianLiProtocol.BuildManualMode(port));
-        }
-    }
-
     public bool SetReleaseMode(int port)
     {
         lock (_lock)
@@ -171,15 +162,6 @@ public sealed class LianLiHub : IDisposable
         {
             if (_device == null) return false;
             return WriteCommand(LianLiProtocol.BuildEffectCommit(ch, effect, speed, dir, brightness));
-        }
-    }
-
-    public bool SendFrameLatch()
-    {
-        lock (_lock)
-        {
-            if (_device == null) return false;
-            return _device.SetFeature(LianLiProtocol.BuildFrameLatch());
         }
     }
 
