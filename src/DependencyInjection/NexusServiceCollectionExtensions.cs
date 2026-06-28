@@ -226,6 +226,10 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IObsProvider, ObsProvider>();
         services.AddSingleton<ISteamProvider, SteamProvider>();
         services.AddSingleton<IDiscordProvider, DiscordProvider>();
+        services.AddSingleton<Nexus.Service.Integrations.HomeAssistant.HomeAssistantClient>();
+        services.AddSingleton<Nexus.Service.Integrations.HomeAssistant.HomeAssistantHub>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Integrations.HomeAssistant.HomeAssistantHub>());
 
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
         {

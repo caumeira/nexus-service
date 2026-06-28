@@ -14,6 +14,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(ObsSettings))]
 [JsonSerializable(typeof(SteamSettings))]
 [JsonSerializable(typeof(DiscordSettings))]
+[JsonSerializable(typeof(HomeAssistantSettings))]
 [JsonSerializable(typeof(PanelPhoneSessionToken))]
 [JsonSerializable(typeof(List<PanelPhoneSessionToken>))]
 [JsonSerializable(typeof(LedPositionOverride))]

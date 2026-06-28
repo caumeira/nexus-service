@@ -21,6 +21,7 @@ public static partial class DevicesRoutes
         MapZoneEndpoints(app);
         MapMappingEndpoints(app);
         MapSmartLightsEndpoints(app);
+        MapHomeAssistantEndpoints(app);
         MapNp50Endpoints(app);
         MapSmartHubEndpoints(app);
         MapMiniHubEndpoints(app);
