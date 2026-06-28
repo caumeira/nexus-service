@@ -317,6 +317,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             _qshellFirstSeenThisRun.Remove(key);
         }
+        // Re-pin the default HOME on a re-attach (a reboot drops the pin on Android 11).
+        foreach (var key in _homePinnedThisRun.Where(k => !seenSerials.Contains(k)).ToList())
+        {
+            _homePinnedThisRun.Remove(key);
+        }
         // Re-arm the grace anchor on detach. _escalationRebootedThisRun is
         // deliberately NOT cleared here - like _lastQshellRebootBySerial it must
         // survive our reboot's re-enumeration so a still-stranded panel isn't rebooted
@@ -740,6 +745,16 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private readonly HashSet<string> _qshellFirstSeenThisRun = new(StringComparer.Ordinal);
 
     /// <summary>
+    /// Serials whose default HOME has been re-pinned to qshell this run. The
+    /// install-time <c>set-home-activity</c> (ApkFlasher) does not survive a panel
+    /// cold boot on Android 11, so the panel comes up on the launcher chooser; the
+    /// per-tick am-start masks it but never restores the default. Re-assert the pin
+    /// once per attach, after qshell is confirmed installed, so the next cold boot
+    /// resolves HOME without the chooser. Cleared on detach so a reboot re-pins.
+    /// </summary>
+    private readonly HashSet<string> _homePinnedThisRun = new(StringComparer.Ordinal);
+
+    /// <summary>
     /// Last adb transport id per serial. A change (same serial) is the reliable reseat
     /// signal the 10 s poll otherwise misses; see TickAsync.
     /// </summary>
@@ -830,6 +845,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         if (focusReceiver.ToString().Contains(QshellFocusMarker, StringComparison.Ordinal))
         {
             _qshellMissingBySerial.Remove(device.Serial);
+            await ReassertQshellHomeAsync(device, ct);
             return;
         }
 
@@ -849,9 +865,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
             var startOut = startReceiver.ToString().Trim();
             // "Activity class {...} does not exist" => qshell is not installed yet.
             if (startOut.Contains("does not exist", StringComparison.OrdinalIgnoreCase))
+            {
                 _qshellMissingBySerial.Add(device.Serial);
+            }
             else
+            {
                 _qshellMissingBySerial.Remove(device.Serial);
+                await ReassertQshellHomeAsync(device, ct);
+            }
             ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: qshell not in foreground, ran am start ({startOut})");
         }
@@ -859,6 +880,32 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: am start qshell failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Re-pin qshell as the panel's default HOME (<c>cmd package
+    /// set-home-activity</c>), once per attach. See <see cref="_homePinnedThisRun"/>
+    /// for why the install-time pin is insufficient. Caller must have confirmed
+    /// qshell is installed.
+    /// </summary>
+    private async Task ReassertQshellHomeAsync(DeviceData device, CancellationToken ct)
+    {
+        if (!_homePinnedThisRun.Add(device.Serial)) return;
+        var receiver = new ConsoleOutputReceiver();
+        try
+        {
+            await _client.ExecuteShellCommandAsync(
+                device, $"cmd package set-home-activity {QshellComponent}", receiver, ct);
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {device.Serial}: re-pinned default HOME to qshell ({receiver.ToString().Trim()})");
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            // Drop the flag so the next tick retries.
+            _homePinnedThisRun.Remove(device.Serial);
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {device.Serial}: set-home-activity failed: {ex.GetType().Name}");
         }
     }
 
