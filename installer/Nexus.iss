@@ -199,25 +199,34 @@ var
   ResultCode: Integer;
   TmpExe: String;
   UninstArgs: String;
+  Btns: TArrayOfString;
 begin
   if CurUninstallStep = usUninstall then
   begin
     StopServiceIfRunning();
     // Ask here, not in InitializeUninstall: by usUninstall the uninstall
-    // progress form exists, so the MsgBox parents to it and shows on top. A
-    // MsgBox in InitializeUninstall has no parent window and can hide behind
-    // other windows (looked like "no prompt"). Default No (MB_DEFBUTTON2) keeps
-    // user data; Yes adds --purge, which wipes %ProgramData%\Nexus\.
+    // progress form exists, so the dialog parents to it and shows on top. A
+    // dialog in InitializeUninstall has no parent window and can hide behind
+    // other windows (looked like "no prompt"). TaskDialogMsgBox lets the buttons
+    // say what they do. The instruction is a "Keep?" question, not "Remove?", on
+    // purpose: if the TaskDialog API is ever unavailable, TaskDialogMsgBox falls
+    // back to a plain Yes/No MsgBox that ignores the custom labels, and only the
+    // "Keep?" wording keeps Yes=keep / No=remove reading correctly there too.
+    // "Keep my data" is the first/default button so Enter never wipes data;
+    // "Remove all data" (the No button) adds --purge, clearing %ProgramData%\Nexus\.
     UninstArgs := '--uninstall';
-    if MsgBox('Also delete all Nexus data on this PC?' + #13#10 + #13#10 +
-        'This permanently erases:' + #13#10 +
+    SetArrayLength(Btns, 2);
+    Btns[0] := 'Keep my data';     // Yes -> keep (default)
+    Btns[1] := 'Remove all data';  // No  -> purge
+    if TaskDialogMsgBox('Keep your Nexus data?',
+        'Removing it permanently erases:' + #13#10 +
         '     - All settings and profiles' + #13#10 +
         '     - Installed apps and widget layouts' + #13#10 +
         '     - Paired devices and remote sessions' + #13#10 +
         '     - Screen-time history and imported media' + #13#10 +
         '     - Logs, downloads and caches' + #13#10 + #13#10 +
-        'This can''t be undone. Choose No to keep your data for a future reinstall.',
-        mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+        'This can''t be undone.',
+        mbConfirmation, MB_YESNO, Btns, 0) = IDNO then
       UninstArgs := UninstArgs + ' --purge';
     TmpExe := ExpandConstant('{tmp}\nexus-uninst.exe');
     if FileCopy(ExpandConstant('{app}\{#MyAppExeName}'), TmpExe, False) then
