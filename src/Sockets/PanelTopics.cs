@@ -1,4 +1,5 @@
 using System;
+using Nexus.Service.Integrations.HomeAssistant;
 using Nexus.Service.Models.Panel;
 using Nexus.Service.Serialization;
 
@@ -222,6 +223,23 @@ public static class PanelTopics
     /// </summary>
     public static ReadOnlyMemory<byte> BuildPairCodeRequestEnvelope(PanelPhonePairCodeRequestFrame frame)
         => WsEnvelope.Build(PairCodeRequest, frame, AppJsonContext.Default.PanelPhonePairCodeRequestFrame);
+
+    /// <summary>
+    /// Home Assistant entity cache changed. Subscribers refetch
+    /// GET /home-assistant/entities.
+    /// </summary>
+    public const string HomeAssistant = "homeAssistant";
+
+    public static void BroadcastHomeAssistant(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(HomeAssistant))
+        {
+            return;
+        }
+        var frame = new HomeAssistantChangedFrame { Revision = Now() };
+        var env = WsEnvelope.Build(HomeAssistant, frame, AppJsonContext.Default.HomeAssistantChangedFrame);
+        _ = hub.BroadcastTopicAsync(HomeAssistant, env);
+    }
 
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 }

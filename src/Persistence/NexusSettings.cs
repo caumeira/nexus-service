@@ -39,6 +39,7 @@ public sealed class NexusSettings
     public ObsSettings Obs { get; set; } = new();
     public SteamSettings Steam { get; set; } = new();
     public DiscordSettings Discord { get; set; } = new();
+    public HomeAssistantSettings HomeAssistant { get; set; } = new();
     public TelemetrySettings Telemetry { get; set; } = new();
     /// <summary>Registered panel devices keyed by opaque deviceId. Each record carries the per-device layout + theme overrides + capabilities. NOT profile-scoped: device identity is hardware-level and survives profile switches.</summary>
     public Dictionary<string, Nexus.Service.Models.Panel.PanelDeviceRecord> PanelDevices { get; set; } = new();
@@ -133,6 +134,14 @@ public sealed class DiscordSettings
 {
     public string ClientId { get; set; } = "";
     public string ClientSecret { get; set; } = "";
+}
+
+public sealed class HomeAssistantSettings
+{
+    public string Url { get; set; } = "";
+    /// <summary>Wrapped via SecretProtector on Windows; plaintext on macOS/Linux.</summary>
+    public string Token { get; set; } = "";
+    public bool Enabled { get; set; } = true;
 }
 
 /// <summary>

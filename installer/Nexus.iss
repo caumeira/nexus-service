@@ -12,7 +12,11 @@
 ;     NexusService (LocalSystem, Automatic, depend=PawnIO), grant
 ;     SERVICE_START to Authenticated Users via DACL, install PawnIO,
 ;     write Add/Remove Programs reg, open the firewall, start the service.
-;   - Drops a Start Menu shortcut to the dashboard.
+;   - Drops a Start Menu .lnk to Nexus.exe so Windows search finds it. The
+;     .lnk is created natively by [Icons] (no PowerShell dependency); --install
+;     re-asserts it and removes the legacy http:// .url shortcuts.
+;   - Optionally drops a desktop icon (a checkbox on the directory page, checked
+;     by default; see DesktopIconChecked in [Code]).
 ;
 ; Uninstall calls Nexus.exe --uninstall which mirrors the install: stop
 ; service, sc delete, remove firewall rule + Add/Remove reg + shortcut.
@@ -82,7 +86,17 @@ UninstalledMost=%1 uninstall complete.%n%nA few files were still in use and will
 Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion
 
 [Icons]
-Name: "{group}\Open {#MyAppName} Dashboard"; Filename: "http://localhost:9400/"; IconFilename: "{app}\{#MyAppExeName}"
+; Launch shortcut -> Nexus.exe (no args; routes through WindowsLauncher.Run to
+; start/recover the service and open the dashboard). A .lnk to the exe is what
+; Windows Start search indexes - the previous http:// .url never surfaced.
+; Inno writes the Start-menu copy natively (no PowerShell dependency); --install
+; re-asserts the same {group}\Nexus.lnk and clears the legacy .url shortcuts.
+Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Comment: "Open the Nexus dashboard"
+; Desktop icon gated on the "Create a desktop shortcut" checkbox rendered on the
+; directory page (DesktopIconChecked in [Code]). A [Tasks] entry would instead
+; add a separate "Select Additional Tasks" wizard page. The check is also false
+; for a silent install (WizardSilent), so an OTA never recreates a deleted icon.
+Name: "{commondesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; WorkingDir: "{app}"; Comment: "Open the Nexus dashboard"; Check: DesktopIconChecked
 Name: "{group}\{cm:UninstallProgram,{#MyAppName}}"; Filename: "{uninstallexe}"
 
 [Run]
@@ -126,9 +140,32 @@ begin
   end;
 end;
 
+var
+  DesktopShortcutCheck: TNewCheckBox;
+
+function DesktopIconChecked(): Boolean;
+begin
+  // False for a silent install (and so for OTA) - a background update must never
+  // recreate a desktop icon the user deleted; otherwise follow the dir-page box.
+  Result := (not WizardSilent()) and DesktopShortcutCheck.Checked;
+end;
+
 procedure InitializeWizard();
 begin
   BringWizardToFront();
+
+  // Render the "Create a desktop shortcut" option on the directory page itself
+  // (a [Tasks] entry would instead add a separate Select Additional Tasks page).
+  DesktopShortcutCheck := TNewCheckBox.Create(WizardForm);
+  DesktopShortcutCheck.Parent := WizardForm.SelectDirPage;
+  DesktopShortcutCheck.Left := WizardForm.DirEdit.Left;
+  // Anchor below the disk-space label (the lowest control on the page) so the
+  // box never overlaps it, regardless of DPI or the label wrapping to two lines.
+  DesktopShortcutCheck.Top := WizardForm.DiskSpaceLabel.Top + WizardForm.DiskSpaceLabel.Height + ScaleY(16);
+  DesktopShortcutCheck.Width := WizardForm.SelectDirPage.Width - DesktopShortcutCheck.Left;
+  DesktopShortcutCheck.Height := ScaleY(17);
+  DesktopShortcutCheck.Caption := ExpandConstant('{cm:CreateDesktopIcon}');
+  DesktopShortcutCheck.Checked := True;
 end;
 
 procedure StopServiceIfRunning();
@@ -162,25 +199,34 @@ var
   ResultCode: Integer;
   TmpExe: String;
   UninstArgs: String;
+  Btns: TArrayOfString;
 begin
   if CurUninstallStep = usUninstall then
   begin
     StopServiceIfRunning();
     // Ask here, not in InitializeUninstall: by usUninstall the uninstall
-    // progress form exists, so the MsgBox parents to it and shows on top. A
-    // MsgBox in InitializeUninstall has no parent window and can hide behind
-    // other windows (looked like "no prompt"). Default No (MB_DEFBUTTON2) keeps
-    // user data; Yes adds --purge, which wipes %ProgramData%\Nexus\.
+    // progress form exists, so the dialog parents to it and shows on top. A
+    // dialog in InitializeUninstall has no parent window and can hide behind
+    // other windows (looked like "no prompt"). TaskDialogMsgBox lets the buttons
+    // say what they do. The instruction is a "Keep?" question, not "Remove?", on
+    // purpose: if the TaskDialog API is ever unavailable, TaskDialogMsgBox falls
+    // back to a plain Yes/No MsgBox that ignores the custom labels, and only the
+    // "Keep?" wording keeps Yes=keep / No=remove reading correctly there too.
+    // "Keep my data" is the first/default button so Enter never wipes data;
+    // "Remove all data" (the No button) adds --purge, clearing %ProgramData%\Nexus\.
     UninstArgs := '--uninstall';
-    if MsgBox('Also delete all Nexus data on this PC?' + #13#10 + #13#10 +
-        'This permanently erases:' + #13#10 +
+    SetArrayLength(Btns, 2);
+    Btns[0] := 'Keep my data';     // Yes -> keep (default)
+    Btns[1] := 'Remove all data';  // No  -> purge
+    if TaskDialogMsgBox('Keep your Nexus data?',
+        'Removing it permanently erases:' + #13#10 +
         '     - All settings and profiles' + #13#10 +
         '     - Installed apps and widget layouts' + #13#10 +
         '     - Paired devices and remote sessions' + #13#10 +
         '     - Screen-time history and imported media' + #13#10 +
         '     - Logs, downloads and caches' + #13#10 + #13#10 +
-        'This can''t be undone. Choose No to keep your data for a future reinstall.',
-        mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+        'This can''t be undone.',
+        mbConfirmation, MB_YESNO, Btns, 0) = IDNO then
       UninstArgs := UninstArgs + ' --purge';
     TmpExe := ExpandConstant('{tmp}\nexus-uninst.exe');
     if FileCopy(ExpandConstant('{app}\{#MyAppExeName}'), TmpExe, False) then
