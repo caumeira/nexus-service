@@ -424,15 +424,48 @@ internal static class WindowsServiceInstaller
 
     private static void CreateStartMenuShortcut(string targetExe)
     {
-        // Drop a .url shortcut to the dashboard. Avoids the COM ShellLink
-        // approach for AOT safety.
+        // A .lnk to Nexus.exe, not a .url to the dashboard URL: Windows Start
+        // search only indexes .lnk shortcuts that point at an executable, so a
+        // .url never surfaces when the user types "Nexus". Targeting the exe
+        // with no args routes through WindowsLauncher.Run (start/recover the
+        // service, then open the dashboard) - the same path as double-clicking
+        // Nexus.exe.
+        //
+        // On a normal install the Inno [Icons] entry already wrote this same
+        // {group}\Nexus.lnk natively (no PowerShell), so this method's job there
+        // is just the .url cleanup below. The WScript.Shell write runs only when
+        // the .lnk is absent - i.e. a bare-EXE self-install
+        // (WindowsLauncher.NotInstalled -> RunInstall), where Inno never runs.
+        // Built in a child powershell.exe to keep the COM IShellLink out of this
+        // AOT binary; on hardened hosts where it fails the Inno copy still stands.
         var startMenu = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu);
         var dir = Path.Combine(startMenu, "Programs", "Nexus");
         Directory.CreateDirectory(dir);
-        var lnk = Path.Combine(dir, "Nexus Dashboard.url");
-        var content = $"[InternetShortcut]\r\nURL=http://localhost:{DefaultPort}/\r\nIconFile={targetExe}\r\nIconIndex=0\r\n";
-        File.WriteAllText(lnk, content);
+
+        // Remove the pre-3.x dashboard .url shortcuts (this method's and Inno's)
+        // so an upgrade doesn't leave a stale, unsearchable duplicate.
+        foreach (var stale in Directory.GetFiles(dir, "*.url"))
+        {
+            try { File.Delete(stale); } catch { /* best-effort */ }
+        }
+
+        var lnk = Path.Combine(dir, "Nexus.lnk");
+        if (File.Exists(lnk)) return; // Inno already wrote it; nothing to do but the .url cleanup above.
+
+        var workingDir = Path.GetDirectoryName(targetExe) ?? string.Empty;
+        var script =
+            "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('" + PsQuote(lnk) + "');" +
+            "$s.TargetPath='" + PsQuote(targetExe) + "';" +
+            "$s.WorkingDirectory='" + PsQuote(workingDir) + "';" +
+            "$s.IconLocation='" + PsQuote(targetExe) + ",0';" +
+            "$s.Description='Open the Nexus dashboard';" +
+            "$s.Save()";
+        var (code, _) = RunCli("powershell.exe", new[] { "-NoProfile", "-NonInteractive", "-Command", script });
+        if (code != 0) Log($"WARN Start Menu .lnk creation returned exit {code}");
     }
+
+    // Single-quoted PowerShell string literal escaping (double the quote).
+    private static string PsQuote(string s) => s.Replace("'", "''");
 
     private static void DeleteShortcut(string installDir)
     {
