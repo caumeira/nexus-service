@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using Nexus.Service.Activity;
+using Nexus.Service.Integrations.HomeAssistant;
 using Nexus.Service.Helper;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Activity;
@@ -764,6 +765,16 @@ namespace Nexus.Service.Serialization;
 // Phone-as-webcam control surface.
 [JsonSerializable(typeof(Nexus.Service.Models.Webcam.WebcamStartRequest))]
 [JsonSerializable(typeof(Nexus.Service.Models.Webcam.WebcamStatusResponse))]
+
+// Home Assistant integration.
+[JsonSerializable(typeof(HaEntityDto))]
+[JsonSerializable(typeof(List<HaEntityDto>))]
+[JsonSerializable(typeof(HaConfigResponse))]
+[JsonSerializable(typeof(HaConfigBody))]
+[JsonSerializable(typeof(HaConfigSetResponse))]
+[JsonSerializable(typeof(HaEntitiesResponse))]
+[JsonSerializable(typeof(HaSetEntityBody))]
+[JsonSerializable(typeof(HomeAssistantChangedFrame))]
 
 // Lian Li Uni Hub SL-Infinity.
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiStateResponse))]
