@@ -152,7 +152,7 @@ public sealed class HomeAssistantSettings
 /// </summary>
 public sealed class UiSettings
 {
-    public bool DisableConflictAlerts { get; set; }
+    public bool ShowConflictAlerts { get; set; } = true;
 }
 
 /// <summary>
@@ -161,7 +161,7 @@ public sealed class UiSettings
 /// </summary>
 public sealed class UiSettingsPatch
 {
-    public bool? DisableConflictAlerts { get; set; }
+    public bool? ShowConflictAlerts { get; set; }
 }
 
 public sealed class LightingSettings
