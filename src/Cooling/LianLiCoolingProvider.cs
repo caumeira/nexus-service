@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Cooling;
 using Nexus.Service.Peripherals.LianLi;
+using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 
 namespace Nexus.Service.Cooling;
@@ -15,6 +16,7 @@ namespace Nexus.Service.Cooling;
 public sealed class LianLiCoolingProvider : IFanControlProvider, ICoolingProvider
 {
     private readonly LianLiHub _hub;
+    private readonly IConfigStore _store;
 
     // _pendingDuty/_softwareControlled are read on HTTP threads (GetFanChannels,
     // GetAll) and mutated by the curve worker (DriveFanSpeed) plus HTTP setters;
@@ -23,9 +25,10 @@ public sealed class LianLiCoolingProvider : IFanControlProvider, ICoolingProvide
     private readonly int[] _pendingDuty = new int[LianLiProtocol.PortCount];
     private readonly HashSet<string> _softwareControlled = new(StringComparer.Ordinal);
 
-    public LianLiCoolingProvider(LianLiHub hub)
+    public LianLiCoolingProvider(LianLiHub hub, IConfigStore store)
     {
         _hub = hub;
+        _store = store;
     }
 
     // ── IFanControlProvider ──
@@ -33,12 +36,15 @@ public sealed class LianLiCoolingProvider : IFanControlProvider, ICoolingProvide
     public IReadOnlyList<FanChannel> GetFanChannels()
     {
         if (!_hub.IsConnected) return Array.Empty<FanChannel>();
+        var lianli = _store.Load().Devices.LianLi;
         var result = new List<FanChannel>(LianLiProtocol.PortCount);
         var deviceId = _hub.DeviceId;
         var modelLabel = _hub.ModelName.Length > 0 ? _hub.ModelName : "SL-Infinity";
         var deviceLabel = $"Lian Li {modelLabel}";
         for (var p = 0; p < LianLiProtocol.PortCount; p++)
         {
+            // A port with no fans set on the device page is an empty header, not a controllable channel.
+            if (lianli.GetFans(p) <= 0) continue;
             var id = $"lianli:port{p}";
             var rpm = _hub.State.Rpm[p];
             int duty;
@@ -126,11 +132,14 @@ public sealed class LianLiCoolingProvider : IFanControlProvider, ICoolingProvide
     public IReadOnlyList<CoolingComponent> GetAll()
     {
         if (!_hub.IsConnected) return Array.Empty<CoolingComponent>();
+        var lianli = _store.Load().Devices.LianLi;
         var deviceId = _hub.DeviceId;
         var modelLabel = _hub.ModelName.Length > 0 ? _hub.ModelName : "SL-Infinity";
         var devices = new List<CoolingDevice>(LianLiProtocol.PortCount);
         for (var p = 0; p < LianLiProtocol.PortCount; p++)
         {
+            // Only ports with fans are surfaced (matches GetFanChannels).
+            if (lianli.GetFans(p) <= 0) continue;
             var rpm = _hub.State.Rpm[p];
             int duty;
             lock (_ctrlLock) duty = _pendingDuty[p];
