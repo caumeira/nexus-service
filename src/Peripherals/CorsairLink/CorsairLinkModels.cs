@@ -55,7 +55,7 @@ public static class CorsairLinkModels
         [(7, 3)] = new() { Name = "iCUE LINK H170i", LedCount = 20, Class = CorsairLinkClass.Aio, HasSpeed = true, HasTemperature = true },
         [(9, 0)] = new() { Name = "iCUE LINK XC7 Elite", LedCount = 24, Class = CorsairLinkClass.CpuBlock, HasTemperature = true },
         [(9, 1)] = new() { Name = "iCUE LINK XC7 Elite", LedCount = 24, Class = CorsairLinkClass.CpuBlock, HasTemperature = true },
-        [(10, 0)] = new() { Name = "iCUE LINK XG3 Hybrid", LedCount = 0, Class = CorsairLinkClass.GpuBlock, HasSpeed = true },
+        [(10, 0)] = new() { Name = "iCUE LINK XG3 Hybrid", LedCount = 22, Class = CorsairLinkClass.GpuBlock, HasSpeed = true },
         [(12, 0)] = new() { Name = "iCUE LINK XD5 Elite", LedCount = 22, Class = CorsairLinkClass.Pump, HasSpeed = true, HasTemperature = true },
         [(13, 0)] = new() { Name = "iCUE LINK XG7 RGB", LedCount = 16, Class = CorsairLinkClass.GpuBlock },
         [(14, 0)] = new() { Name = "iCUE LINK XD5 Elite LCD", LedCount = 22, Class = CorsairLinkClass.Pump, HasSpeed = true, HasTemperature = true },
@@ -69,7 +69,7 @@ public static class CorsairLinkModels
         [(17, 5)] = new() { Name = "iCUE LINK Titan 360", LedCount = 20, Class = CorsairLinkClass.Aio, HasSpeed = true, HasTemperature = true },
         [(19, 0)] = new() { Name = "iCUE LINK RX", LedCount = 0, Class = CorsairLinkClass.Fan, HasSpeed = true },
         [(25, 0)] = new() { Name = "iCUE LINK XD6 Elite", LedCount = 22, Class = CorsairLinkClass.Pump, HasSpeed = true, HasTemperature = true },
-        [(27, 0)] = new() { Name = "iCUE Commander Duo", LedCount = 0, Class = CorsairLinkClass.Adapter, HasTemperature = true },
+        [(27, 0)] = new() { Name = "iCUE Commander Duo", LedCount = 0, Class = CorsairLinkClass.Adapter, HasSpeed = true, HasTemperature = true },
     };
 
     public static CorsairLinkModel Lookup(int type, int model)

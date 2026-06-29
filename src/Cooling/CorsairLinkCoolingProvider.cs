@@ -22,6 +22,14 @@ public sealed class CorsairLinkCoolingProvider : IFanControlProvider, ICoolingPr
 {
     private const int DefaultFanDuty = 50;
     private const int DefaultPumpDuty = 70;
+    // Pump/AIO min-duty floors mirror OpenLinkHub (lsh.go): a manual write floors
+    // any pump at 50; a curve write floors a standard AIO at 70, a Titan AIO at 31,
+    // and a standalone pump (XD5/XD6 etc.) at 30. Fans are never floored.
+    private const int PumpManualFloor = 50;
+    private const int AioCurveFloor = 70;
+    private const int TitanAioCurveFloor = 31;
+    private const int PumpCurveFloor = 30;
+    private const int TitanAioType = 17;
 
     private readonly CorsairLinkHub _hub;
 
@@ -107,14 +115,14 @@ public sealed class CorsairLinkCoolingProvider : IFanControlProvider, ICoolingPr
 
     public int SetFanSpeed(string channelId, int dutyPercent)
     {
-        var clamped = Math.Clamp(dutyPercent, 0, 100);
+        var clamped = ApplyPumpFloor(channelId, Math.Clamp(dutyPercent, 0, 100), curve: false);
         ApplyChannelWrite(channelId, clamped);
         return clamped;
     }
 
     public void DriveFanSpeed(string channelId, int dutyPercent)
     {
-        ApplyChannelWrite(channelId, Math.Clamp(dutyPercent, 0, 100));
+        ApplyChannelWrite(channelId, ApplyPumpFloor(channelId, Math.Clamp(dutyPercent, 0, 100), curve: true));
     }
 
     public void ReleaseFan(string channelId)
@@ -236,6 +244,23 @@ public sealed class CorsairLinkCoolingProvider : IFanControlProvider, ICoolingPr
 
     private static int DefaultDutyFor(CorsairLinkDevice d) =>
         d.Class is CorsairLinkClass.Pump or CorsairLinkClass.Aio ? DefaultPumpDuty : DefaultFanDuty;
+
+    // Raise a pump/AIO duty to its safe minimum so a liquid cooler never runs too
+    // slow. Fans pass through unchanged. curve=false is a manual user write.
+    private int ApplyPumpFloor(string channelId, int duty, bool curve)
+    {
+        if (!_hub.IsConnected || !TryParseChannel(channelId, out var ch)) return duty;
+        foreach (var d in _hub.State.Devices)
+        {
+            if (d.Channel != ch) continue;
+            if (d.Class is not (CorsairLinkClass.Pump or CorsairLinkClass.Aio)) return duty;
+            var floor = !curve ? PumpManualFloor
+                : d.Class == CorsairLinkClass.Aio ? (d.Type == TitanAioType ? TitanAioCurveFloor : AioCurveFloor)
+                : PumpCurveFloor;
+            return Math.Max(duty, floor);
+        }
+        return duty;
+    }
 
     private static bool TryParseChannel(string channelId, out int channel)
     {
