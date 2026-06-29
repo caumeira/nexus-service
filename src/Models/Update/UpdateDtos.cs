@@ -24,6 +24,8 @@ public sealed class UpdateStatusResponse
     /// Contains the new version string. Empty after the first read or 60s.
     /// </summary>
     public string JustUpdatedTo { get; set; } = "";
+    /// <summary>Unix seconds when the latest release was published on GitHub. 0 when unknown.</summary>
+    public long PublishedAtUnix { get; set; }
 }
 
 /// <summary>GET /update/progress response.</summary>
