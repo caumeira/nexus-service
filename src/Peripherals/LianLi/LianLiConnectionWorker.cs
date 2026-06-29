@@ -39,10 +39,10 @@ public sealed class LianLiConnectionWorker : BackgroundService
         {
             try
             {
-                var device = FindAndOpen();
+                var device = FindAndOpen(out var profile);
                 if (device != null)
                 {
-                    _hub.Attach(device);
+                    _hub.Attach(device, profile);
                     if (OperatingSystem.IsWindows() && _store.Load().Devices.LianLi.StopConflictingApps)
                     {
                         // Watcher stopped first so it cannot restart the main service.
@@ -117,17 +117,23 @@ public sealed class LianLiConnectionWorker : BackgroundService
         }
     }
 
-    private IHidDevice? FindAndOpen()
+    private IHidDevice? FindAndOpen(out LianLiFanProfile profile)
     {
-        var infos = _hid.Find(LianLiProtocol.VendorId, LianLiProtocol.ProductId);
-        foreach (var info in infos)
+        foreach (var pid in LianLiFanProfiles.AllProductIds)
         {
-            if (info.UsagePage == LianLiProtocol.VendorUsagePage
-                && info.Usage == LianLiProtocol.VendorUsage)
+            var infos = _hid.Find(LianLiProtocol.VendorId, pid);
+            foreach (var info in infos)
             {
-                return _hid.Open(info.Path);
+                if (info.UsagePage == LianLiProtocol.VendorUsagePage
+                    && info.Usage == LianLiProtocol.VendorUsage)
+                {
+                    if (!LianLiFanProfiles.TryGet(pid, out profile)) continue;
+                    var device = _hid.Open(info.Path);
+                    if (device != null) return device;
+                }
             }
         }
+        profile = default;
         return null;
     }
 }

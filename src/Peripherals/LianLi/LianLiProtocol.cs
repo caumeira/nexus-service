@@ -12,6 +12,7 @@ namespace Nexus.Service.Peripherals.LianLi;
 public static class LianLiProtocol
 {
     public const int VendorId = 0x0CF2;
+    /// <summary>SL-Infinity PID. Used as the DeviceKey in LianLiZoneSupport for lighting community mappings.</summary>
     public const int ProductId = 0xA102;
     public const int VendorUsagePage = 0xFF72;
     public const int VendorUsage = 0xA1;
@@ -40,10 +41,9 @@ public static class LianLiProtocol
     public const byte EffectStatic = 0x01;
 
     /// <summary>
-    /// Gap between the manual-mode write and the duty write on a fan port. The
-    /// firmware drops a duty byte that arrives before the mode transition
-    /// settles. uni-sync (the reference Lian Li Uni controller) uses 200 ms here
-    /// ("Avoid Race Condition").
+    /// Minimum gap between manual-mode and duty writes; firmware drops the duty
+    /// byte if it arrives before the mode-transition settles.
+    /// Source: FanControl.LianLi / L-Connect 3.
     /// </summary>
     public const int FanCommandSettleMs = 200;
 
@@ -84,17 +84,15 @@ public static class LianLiProtocol
     }
 
     /// <summary>
-    /// Set port ch (0..3) to manual/host mode. The port holds the mode once set;
-    /// re-entering resets the fan to its default RPM. Refresh duty via BuildSetSpeed;
-    /// revert to motherboard PWM-sync via BuildReleaseMode.
-    /// Selector: 0x10 left-shifted by ch (ch0=0x10, ch1=0x20, ch2=0x40, ch3=0x80).
-    /// Command: E0 10 62 (0x10 shl ch) 00 00 00
+    /// Set port ch (0..3) to manual/host mode. Re-entering resets the fan to its
+    /// default RPM. Selector: 0x10 left-shifted by ch.
+    /// Command: E0 10 &lt;manualRegister&gt; (0x10 shl ch) 00 00 00
     /// </summary>
-    public static byte[] BuildManualMode(int ch)
+    public static byte[] BuildManualMode(int ch, byte manualRegister)
     {
         return new byte[]
         {
-            ReportId, 0x10, 0x62,
+            ReportId, 0x10, manualRegister,
             (byte)(0x10 << ch),
             0x00, 0x00, 0x00
         };
@@ -102,14 +100,14 @@ public static class LianLiProtocol
 
     /// <summary>
     /// Release port ch (0..3) back to motherboard PWM sync.
-    /// Selector: 0x11 left-shifted by ch.
-    /// Command: E0 10 62 (0x11 shl ch) 00 00 00
+    /// Selector: 0x11 left-shifted by ch (sync bit set vs manual-mode's 0x10).
+    /// Command: E0 10 &lt;manualRegister&gt; (0x11 shl ch) 00 00 00
     /// </summary>
-    public static byte[] BuildReleaseMode(int ch)
+    public static byte[] BuildReleaseMode(int ch, byte manualRegister)
     {
         return new byte[]
         {
-            ReportId, 0x10, 0x62,
+            ReportId, 0x10, manualRegister,
             (byte)(0x11 << ch),
             0x00, 0x00, 0x00
         };
@@ -117,16 +115,16 @@ public static class LianLiProtocol
 
     /// <summary>
     /// Set fan duty on port ch (0..3).
-    /// Command: E0 (0x20+ch) 00 DutyByte(duty) 00 00 00
+    /// Command: E0 (0x20|ch) 00 DutyByte(duty, flooredDuty) 00 00 00
     /// </summary>
-    public static byte[] BuildSetSpeed(int ch, int duty)
+    public static byte[] BuildSetSpeed(int ch, int duty, bool flooredDuty)
     {
         return new byte[]
         {
             ReportId,
-            (byte)(0x20 + ch),
+            (byte)(0x20 | ch),
             0x00,
-            DutyByte(duty),
+            DutyByte(duty, flooredDuty),
             0x00, 0x00, 0x00
         };
     }
@@ -169,27 +167,29 @@ public static class LianLiProtocol
 
     /// <summary>
     /// Decode RPM for port ch (0..3) from an input report.
-    /// Layout: buf[1 + ch*2] = high byte, buf[2 + ch*2] = low byte (big-endian).
-    /// RPM lags a duty change by roughly 8-10 seconds due to fan inertia.
+    /// Layout: buf[rpmOffset + ch*2] = high byte, buf[rpmOffset + ch*2 + 1] = low byte (big-endian).
+    /// rpmOffset is 1 for most families, 2 for Uni SL v2 / Uni AL v2.
     /// </summary>
-    public static int DecodeRpm(ReadOnlySpan<byte> buf, int ch)
+    public static int DecodeRpm(ReadOnlySpan<byte> buf, int ch, int rpmOffset)
     {
-        var offset = 1 + ch * 2;
+        var offset = rpmOffset + ch * 2;
         if (offset + 1 >= buf.Length) return 0;
         var rpm = (buf[offset] << 8) | buf[offset + 1];
         return rpm <= 6000 ? rpm : -1;
     }
 
     /// <summary>
-    /// Convert duty percent to the hub's duty byte for SL-Infinity (PID 0xA102):
-    /// (200 + 19*d)/21 over d=0..100, giving byte 9..100. From uni-sync
-    /// devices/mod.rs (speed_200_2100); the 200..2100 range is the fan's RPM span.
-    /// Written as byte 3 of E0 (0x20+ch) 00 &lt;B&gt;.
+    /// Floored families clamp to a minimum to prevent firmware fan stall.
+    /// Source: FanControl.LianLi / L-Connect 3.
     /// </summary>
-    public static byte DutyByte(int duty)
+    public static byte DutyByte(int duty, bool flooredDuty)
     {
-        var d = Math.Clamp(duty, 0, 100);
-        return (byte)((200 + 19 * d) / 21);
+        if (flooredDuty)
+        {
+            if (duty <= 0) return 1;
+            return (byte)Math.Clamp(duty, 10, 100);
+        }
+        return (byte)Math.Clamp(duty, 0, 100);
     }
 
     private static void ApplyEnergyCap(ref byte r, ref byte g, ref byte b)

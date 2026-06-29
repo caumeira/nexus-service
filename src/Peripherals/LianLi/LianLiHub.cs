@@ -9,6 +9,8 @@ public sealed class LianLiHub : IDisposable
     private readonly object _lock = new();
     private readonly byte[] _colorReport = new byte[LianLiProtocol.OutputReportSize];
     private IHidDevice? _device;
+    private LianLiFanProfile _profile;
+    private volatile string _modelName = "";
     private bool _disposed;
 
     public string DeviceId => "lianli";
@@ -17,11 +19,16 @@ public sealed class LianLiHub : IDisposable
 
     public bool IsConnected => State.IsConnected;
 
-    public void Attach(IHidDevice device)
+    /// <summary>Short model name for the attached device, or empty when not connected.</summary>
+    public string ModelName => _modelName;
+
+    public void Attach(IHidDevice device, LianLiFanProfile profile)
     {
         lock (_lock)
         {
             _device = device;
+            _profile = profile;
+            _modelName = profile.ModelName ?? "";
             State.IsConnected = true;
         }
     }
@@ -32,6 +39,7 @@ public sealed class LianLiHub : IDisposable
         {
             _device?.Dispose();
             _device = null;
+            _modelName = "";
             State.IsConnected = false;
         }
     }
@@ -50,7 +58,7 @@ public sealed class LianLiHub : IDisposable
         lock (_lock)
         {
             if (_device == null) return false;
-            return _device.SetFeature(LianLiProtocol.BuildReleaseMode(port));
+            return _device.SetFeature(LianLiProtocol.BuildReleaseMode(port, _profile.ManualRegister));
         }
     }
 
@@ -59,16 +67,11 @@ public sealed class LianLiHub : IDisposable
         lock (_lock)
         {
             if (_device == null) return false;
-            // Manual-mode write, settle, then the duty write - the sequence and
-            // the inter-command gap mirror uni-sync (the reference Lian Li Uni
-            // controller) for PID 0xA102. The firmware drops the duty if it
-            // arrives before the mode transition settles: the fan detaches from
-            // mobo PWM but idles at its default, ignoring duty. Both commands go
-            // interrupt-OUT; WriteFile needs the full OutputReportSize, so the
-            // 7-byte commands pad into the scratch buffer.
-            if (!WriteCommand(LianLiProtocol.BuildManualMode(port))) return false;
+            // Mode write then duty write: firmware drops the duty byte if it arrives
+            // before the manual-mode transition settles (FanControl.LianLi / L-Connect 3).
+            if (!_device.SetFeature(LianLiProtocol.BuildManualMode(port, _profile.ManualRegister))) return false;
             Thread.Sleep(LianLiProtocol.FanCommandSettleMs);
-            if (!WriteCommand(LianLiProtocol.BuildSetSpeed(port, duty))) return false;
+            if (!_device.SetFeature(LianLiProtocol.BuildSetSpeed(port, duty, _profile.FlooredDuty))) return false;
             State.Duty[port] = duty;
             return true;
         }
@@ -87,7 +90,7 @@ public sealed class LianLiHub : IDisposable
         lock (_lock)
         {
             if (_device == null) return false;
-            if (!WriteCommand(LianLiProtocol.BuildSetSpeed(port, duty))) return false;
+            if (!_device.SetFeature(LianLiProtocol.BuildSetSpeed(port, duty, _profile.FlooredDuty))) return false;
             State.Duty[port] = duty;
             return true;
         }
@@ -176,7 +179,7 @@ public sealed class LianLiHub : IDisposable
             if (!_device.GetInputReport(buf)) return false;
             for (var i = 0; i < LianLiProtocol.PortCount; i++)
             {
-                var rpm = LianLiProtocol.DecodeRpm(buf, i);
+                var rpm = LianLiProtocol.DecodeRpm(buf, i, _profile.RpmOffset);
                 if (rpm >= 0)
                 {
                     State.Rpm[i] = rpm;
