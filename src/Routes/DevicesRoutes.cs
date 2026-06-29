@@ -28,6 +28,7 @@ public static partial class DevicesRoutes
         MapQSeriesCoolerEndpoints(app);
         MapFirmwareEndpoints(app);
         MapLianLiEndpoints(app);
+        MapLianLiTlEndpoints(app);
         MapCorsairEndpoints(app);
     }
 
