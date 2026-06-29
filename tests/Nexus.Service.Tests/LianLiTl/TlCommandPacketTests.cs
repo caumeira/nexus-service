@@ -1,5 +1,5 @@
 using System;
-using Nexus.Service.Peripherals.LianLiTl;
+using Nexus.Service.Peripherals.LianLiCp;
 
 namespace Nexus.Service.Tests.LianLiTl;
 

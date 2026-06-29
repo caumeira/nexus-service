@@ -1,8 +1,8 @@
 using System;
 
-namespace Nexus.Service.Peripherals.LianLiTl;
+namespace Nexus.Service.Peripherals.LianLiCp;
 
-// Wire format from L-Connect / FanControl.LianLi:
+// Byte facts from L-Connect / FanControl.LianLi:
 // [0x01, cmd, 0x00, pktNo_hi, pktNo_lo, payloadLen, payload...] zero-padded to 64 bytes.
 // pktNo is always 0 for host-originated commands.
 internal static class CommandPacket

@@ -7,19 +7,19 @@ using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Peripherals.LianLiCp;
 using Nexus.Service.Platform;
 
-namespace Nexus.Service.Peripherals.LianLiTl;
+namespace Nexus.Service.Peripherals.Galahad2;
 
-public sealed class TlFanConnectionWorker : BackgroundService
+public sealed class Galahad2ConnectionWorker : BackgroundService
 {
     private const int ConnectPollMs = 5000;
     private const int RpmPollMs = 2000;
     private const int MaxConsecutiveFailures = 3;
 
     private readonly IHidEnumerator _hid;
-    private readonly TlFanHub _hub;
-    private readonly LianLiTlCoolingProvider _cooling;
+    private readonly Galahad2Hub _hub;
+    private readonly Galahad2CoolingProvider _cooling;
 
-    public TlFanConnectionWorker(IHidEnumerator hid, TlFanHub hub, LianLiTlCoolingProvider cooling)
+    public Galahad2ConnectionWorker(IHidEnumerator hid, Galahad2Hub hub, Galahad2CoolingProvider cooling)
     {
         _hid = hid;
         _hub = hub;
@@ -39,11 +39,11 @@ public sealed class TlFanConnectionWorker : BackgroundService
                     bool started = false;
                     try
                     {
-                        if (_hub.DiscoverFans())
+                        if (_hub.Connect())
                         {
                             started = true;
                             // untested - verification pending
-                            ServiceLog.Info("[lianli-tl] connected");
+                            ServiceLog.Info("[lianli-aio] connected");
                             int failures = 0;
                             while (!stoppingToken.IsCancellationRequested)
                             {
@@ -70,11 +70,11 @@ public sealed class TlFanConnectionWorker : BackgroundService
                     }
                     finally
                     {
-                        // Detach always runs when Attach was called, even if DiscoverFans throws.
+                        // Detach always runs when Attach was called, even if Connect throws.
                         _hub.Detach();
                         if (started)
                         {
-                            ServiceLog.Info("[lianli-tl] disconnected");
+                            ServiceLog.Info("[lianli-aio] disconnected");
                         }
                     }
                 }
@@ -89,7 +89,7 @@ public sealed class TlFanConnectionWorker : BackgroundService
             }
             catch (Exception ex)
             {
-                ServiceLog.Error($"[lianli-tl] worker error: {ex.Message}");
+                ServiceLog.Error($"[lianli-aio] worker error: {ex.Message}");
                 await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
             }
         }
@@ -97,28 +97,27 @@ public sealed class TlFanConnectionWorker : BackgroundService
 
     private IHidDevice? FindAndOpen()
     {
-        var infos = _hid.Find(TlFanProtocol.VendorId, TlFanProtocol.ProductId);
-
-        // Select the interface that supports both output (Write) and input (Read).
-        // If multiple qualify, prefer the one with the largest InputReportByteLength.
-        // Verification pending: no hardware available to confirm interface selection.
+        int[] pids = { Galahad2Protocol.ProductIdPerformance, Galahad2Protocol.ProductIdRegular };
         HidDeviceInfo? best = null;
-        foreach (var info in infos)
+        foreach (int pid in pids)
         {
-            if (info.OutputReportByteLength < CommandPacket.Length || info.InputReportByteLength <= 0)
+            var infos = _hid.Find(Galahad2Protocol.VendorId, pid);
+            foreach (var info in infos)
             {
-                continue;
-            }
-            if (best == null || info.InputReportByteLength > best.InputReportByteLength)
-            {
-                best = info;
+                if (info.OutputReportByteLength < CommandPacket.Length || info.InputReportByteLength <= 0)
+                {
+                    continue;
+                }
+                if (best == null || info.InputReportByteLength > best.InputReportByteLength)
+                {
+                    best = info;
+                }
             }
         }
         if (best == null)
         {
             return null;
         }
-
         // forInput=true for overlapped I/O so Read honors its timeout on Windows.
         return _hid.Open(best.Path, forInput: true);
     }

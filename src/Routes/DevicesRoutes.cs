@@ -29,6 +29,7 @@ public static partial class DevicesRoutes
         MapFirmwareEndpoints(app);
         MapLianLiEndpoints(app);
         MapLianLiTlEndpoints(app);
+        MapGalahad2Endpoints(app);
         MapCorsairEndpoints(app);
     }
 

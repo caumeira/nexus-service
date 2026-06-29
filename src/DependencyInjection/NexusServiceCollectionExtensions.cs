@@ -146,6 +146,8 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.LianLiTlCoolingProvider.IsLianLiTlId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiTlCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.Galahad2CoolingProvider.IsGalahad2Id, sp.GetRequiredService<Nexus.Service.Cooling.Galahad2CoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.CorsairLinkCoolingProvider.IsCorsairId, sp.GetRequiredService<Nexus.Service.Cooling.CorsairLinkCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #elif MACOS
@@ -163,6 +165,8 @@ public static class NexusServiceCollectionExtensions
                 Nexus.Service.Cooling.LianLiCoolingProvider.IsLianLiId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.LianLiTlCoolingProvider.IsLianLiTlId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiTlCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.Galahad2CoolingProvider.IsGalahad2Id, sp.GetRequiredService<Nexus.Service.Cooling.Galahad2CoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.CorsairLinkCoolingProvider.IsCorsairId, sp.GetRequiredService<Nexus.Service.Cooling.CorsairLinkCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
@@ -190,6 +194,8 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.LianLiTlCoolingProvider.IsLianLiTlId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiTlCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.Galahad2CoolingProvider.IsGalahad2Id, sp.GetRequiredService<Nexus.Service.Cooling.Galahad2CoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.CorsairLinkCoolingProvider.IsCorsairId, sp.GetRequiredService<Nexus.Service.Cooling.CorsairLinkCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #else
@@ -206,6 +212,8 @@ public static class NexusServiceCollectionExtensions
                 Nexus.Service.Cooling.LianLiCoolingProvider.IsLianLiId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.LianLiTlCoolingProvider.IsLianLiTlId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiTlCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.Galahad2CoolingProvider.IsGalahad2Id, sp.GetRequiredService<Nexus.Service.Cooling.Galahad2CoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
                 Nexus.Service.Cooling.CorsairLinkCoolingProvider.IsCorsairId, sp.GetRequiredService<Nexus.Service.Cooling.CorsairLinkCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
@@ -421,6 +429,11 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Cooling.LianLiTlCoolingProvider>();
         services.AddHostedService<Nexus.Service.Peripherals.LianLiTl.TlFanConnectionWorker>();
 
+        // Lian Li Galahad II Trinity AIO: hub + cooling provider + connection worker.
+        services.AddSingleton<Nexus.Service.Peripherals.Galahad2.Galahad2Hub>();
+        services.AddSingleton<Nexus.Service.Cooling.Galahad2CoolingProvider>();
+        services.AddHostedService<Nexus.Service.Peripherals.Galahad2.Galahad2ConnectionWorker>();
+
         // Corsair iCUE LINK System Hub: HID connection worker + lighting + cooling.
         // Auto-detects the daisy chain; no composition (each device is one fixed zone).
         services.AddSingleton<Nexus.Service.Peripherals.CorsairLink.CorsairLinkHub>();
@@ -511,6 +524,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.SmartHubHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.LianLiHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.LianLiTlHandler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Galahad2Handler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.CorsairLinkHandler>();
 
         // Read-only catalog of firmware images embedded in this build. Backs

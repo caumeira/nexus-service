@@ -789,6 +789,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiTlStateResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiTlFanDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiTlFanDto[]))]
+// Lian Li Galahad II Trinity AIO.
+[JsonSerializable(typeof(Nexus.Service.Routes.Galahad2StateResponse))]
 // Corsair iCUE LINK System Hub.
 [JsonSerializable(typeof(Nexus.Service.Routes.CorsairStateResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.CorsairDeviceDto))]

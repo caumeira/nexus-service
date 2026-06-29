@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Nexus.Service.Peripherals.Hid;
+using Nexus.Service.Peripherals.LianLiCp;
 using Nexus.Service.Peripherals.LianLiTl;
 
 namespace Nexus.Service.Tests.LianLiTl;
