@@ -32,10 +32,10 @@ public sealed class CorsairLinkModel
 /// <summary>
 /// Maps the (type, model) bytes the hub returns in its device enumeration to a
 /// human name, LED count, and capability class. Table merged from OpenLinkHub
-/// (database/external/lsh.json) and OpenRGB (CorsairICueLinkProtocol.h). LED
-/// counts are the static per-model values both projects use for known devices;
-/// the hub's dynamic LED-count read returns 0 for these, so the table is
-/// authoritative.
+/// (database/external/lsh.json) and OpenRGB (CorsairICueLinkProtocol.h). A nonzero
+/// LedCount is the fixed per-model value (QX 34, LX 18, ...); a LedCount of 0 means
+/// the count is variable (adapters, strips, Commander Duo) and CorsairLinkHub
+/// resolves it at runtime from the hub's getLeds read.
 /// </summary>
 public static class CorsairLinkModels
 {

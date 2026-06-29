@@ -17,6 +17,9 @@ public sealed class CorsairLinkDevice
     public bool HasTemperature { get; init; }
     public string Serial { get; init; } = "";
 
+    /// <summary>Physical hub port: 0 for channels 1..12, 1 for channels 13..24.</summary>
+    public int PortId { get; init; }
+
     /// <summary>Last RPM read; -1 = no data.</summary>
     public int Rpm { get; set; } = -1;
 
@@ -38,4 +41,7 @@ public sealed class CorsairLinkState
 
     /// <summary>Auto-detected devices in channel order. Replaced wholesale on each topology refresh.</summary>
     public IReadOnlyList<CorsairLinkDevice> Devices { get; set; } = Array.Empty<CorsairLinkDevice>();
+
+    /// <summary>True when a pump-LCD device (type 6 or 14) is present in the chain.</summary>
+    public bool HasLcd { get; set; }
 }

@@ -18,6 +18,18 @@ public class CorsairLinkProtocolTests
         Assert.Equal(3, CorsairLinkProtocol.HeaderSize);
     }
 
+    [Theory]
+    [InlineData(3, 6, 0)]    // fw3, ch6 -> port 0
+    [InlineData(3, 12, 0)]   // fw3, ch12 -> port 0 (fw >=2 boundary is 13)
+    [InlineData(3, 13, 1)]   // fw3, ch13 -> port 1
+    [InlineData(1, 6, 0)]    // fw1, ch6 -> port 0
+    [InlineData(1, 7, 1)]    // fw1, ch7 -> port 1 (fw <2 boundary drops to 7)
+    [InlineData(0, 7, 1)]    // fw unread (0) takes the <2 path
+    public void PortIdForChannel_splits_by_firmware(int firmwareMajor, int channel, int expected)
+    {
+        Assert.Equal(expected, CorsairLinkProtocol.PortIdForChannel(channel, firmwareMajor));
+    }
+
     // Captured live from the Y70 hub (firmware 3.2.571, 3x iCUE LINK QX RGB).
     // getSpeeds response prefix: header[0..3], dataType 25 00, amount=0x1A,
     // then 3-byte sensors [status, lo, hi]. s0 reserved (status 1); fans at 1/2/3.
@@ -138,10 +150,70 @@ public class CorsairLinkProtocolTests
     [Fact]
     public void Models_lookup_unknown_model_of_known_type_uses_base()
     {
-        // A new QX revision (type 1, unmapped model) still resolves as a QX fan.
         var m = CorsairLinkModels.Lookup(1, 9);
         Assert.Equal(CorsairLinkClass.Fan, m.Class);
         Assert.Equal(34, m.LedCount);
+    }
+
+    [Fact]
+    public void ParseLeds_decodes_connected_channels()
+    {
+        // channels=3; channel 1: connected (status=2), 16 LEDs; channel 2: not connected (status=0).
+        var buf = BuildLedsResponse(new (bool connected, int numLeds)[]
+        {
+            (true, 16),
+            (false, 0),
+            (true, 8),
+        });
+        var counts = new int[CorsairLinkProtocol.SensorArrayLength];
+        CorsairLinkProtocol.ParseLeds(buf, counts);
+
+        Assert.Equal(16, counts[1]);
+        Assert.Equal(0, counts[2]);
+        Assert.Equal(8, counts[3]);
+    }
+
+    [Fact]
+    public void ParseLeds_caps_at_MaxDynamicLeds()
+    {
+        var buf = BuildLedsResponse(new (bool connected, int numLeds)[] { (true, 200) });
+        var counts = new int[CorsairLinkProtocol.SensorArrayLength];
+        CorsairLinkProtocol.ParseLeds(buf, counts);
+
+        Assert.Equal(CorsairLinkProtocol.MaxDynamicLeds, counts[1]);
+    }
+
+    [Fact]
+    public void ParseLeds_leaves_disconnected_slots_at_zero()
+    {
+        var buf = BuildLedsResponse(new (bool connected, int numLeds)[] { (false, 12) });
+        var counts = new int[CorsairLinkProtocol.SensorArrayLength];
+        Array.Fill(counts, -1);
+        CorsairLinkProtocol.ParseLeds(buf, counts);
+
+        Assert.Equal(-1, counts[1]);  // not overwritten by disconnected slot
+    }
+
+    private static byte[] BuildLedsResponse(IReadOnlyList<(bool connected, int numLeds)> channels)
+    {
+        // Layout: header[0..5] + count=channels[6] + slots[7..]; each slot is 4 bytes.
+        // Slot for channel i starts at data[i*4] where data = resp[7:].
+        // Slot 0 (the hub slot) is reserved; slots 1..N correspond to channel indices.
+        // connected = u16le == 2; numLEDs = u16le.
+        var slotCount = channels.Count;
+        var data = new byte[7 + (slotCount + 1) * 4];
+        data[6] = (byte)slotCount;
+        for (var i = 0; i < slotCount; i++)
+        {
+            var (connected, numLeds) = channels[i];
+            var off = 7 + (i + 1) * 4;  // 1-based slot index
+            var status = (ushort)(connected ? 2 : 0);
+            data[off]     = (byte)(status & 0xFF);
+            data[off + 1] = (byte)((status >> 8) & 0xFF);
+            data[off + 2] = (byte)(numLeds & 0xFF);
+            data[off + 3] = (byte)((numLeds >> 8) & 0xFF);
+        }
+        return data;
     }
 
     private static byte[] BuildDevicesResponse(IReadOnlyList<(int type, int model, string serial)> devices)

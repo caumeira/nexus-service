@@ -41,6 +41,14 @@ public static class CorsairLinkProtocol
     /// <summary>Speed/temperature sensor arrays are 1-based by channel; size for index 0..MaxChannels.</summary>
     public const int SensorArrayLength = MaxChannels + 1;
 
+    /// <summary>
+    /// Physical hub port (0 or 1) for a daisy-chain channel. The split boundary is
+    /// firmware-gated: channel >=13 is port 1 on fw major >=2, and the boundary drops
+    /// to >=7 on fw major &lt;2 (lsh.go:3978-3986). Drives the per-port LED-power cap.
+    /// </summary>
+    public static int PortIdForChannel(int channel, int firmwareMajor) =>
+        (channel >= 13 || (firmwareMajor < 2 && channel >= 7)) ? 1 : 0;
+
     // Commands (placed at write-buffer offset 3). ReadOnlySpan<byte> over a
     // constant array compiles to a static RVA blob (no per-call allocation).
     public static ReadOnlySpan<byte> CmdGetFirmware => new byte[] { 0x02, 0x13 };
@@ -56,10 +64,14 @@ public static class CorsairLinkProtocol
 
     // Endpoint (mode) addresses, passed as the payload of close/open/read.
     public const byte ModeGetDevices = 0x36;
+    public const byte ModeGetLeds = 0x20;
     public const byte ModeGetTemperatures = 0x21;
     public const byte ModeGetSpeeds = 0x17;
     public const byte ModeSetSpeed = 0x18;
     public const byte ModeSetColor = 0x22;
+
+    /// <summary>Dynamic LED count read caps reported values to this maximum (OpenLinkHub lsh.go:4904).</summary>
+    public const int MaxDynamicLeds = 50;
 
     // Data-type tags echoed at response[4:6]. A read must match the expected tag
     // there or it is a stale queued report from a prior command; re-read to resync.
@@ -165,6 +177,28 @@ public static class CorsairLinkProtocol
             var status = data[off];
             var raw = (short)(data[off + 1] | (data[off + 2] << 8));
             tempByChannel[i] = status == 0 ? raw / 10f : float.NaN;
+        }
+    }
+
+    /// <summary>
+    /// Fill <paramref name="ledCountByChannel"/> from a <see cref="ModeGetLeds"/> read.
+    /// channels=resp[6]; for each 1-based channel i: connected = u16le(data[i*4:i*4+2]) == 2;
+    /// numLEDs = u16le(data[i*4+2:i*4+4]), capped at <see cref="MaxDynamicLeds"/>.
+    /// Disconnected channels and channels reporting 0 LEDs are left untouched.
+    /// </summary>
+    public static void ParseLeds(ReadOnlySpan<byte> resp, int[] ledCountByChannel)
+    {
+        if (resp.Length < 7) return;
+        int channels = resp[6];
+        var data = resp.Slice(7);
+        for (var i = 1; i <= channels && i < ledCountByChannel.Length; i++)
+        {
+            var baseOff = i * 4;
+            if (baseOff + 3 >= data.Length) break;
+            var connected = (data[baseOff] | (data[baseOff + 1] << 8)) == 2;
+            if (!connected) continue;
+            var numLEDs = data[baseOff + 2] | (data[baseOff + 3] << 8);
+            if (numLEDs > 0) ledCountByChannel[i] = Math.Min(numLEDs, MaxDynamicLeds);
         }
     }
 }

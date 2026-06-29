@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -98,8 +99,11 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var nowTicks = DateTime.UtcNow.Ticks;
 
-        // Count total LEDs to size the wire buffer.
         var hubDevices = _hub.State.Devices;
+        var hubHasLcd = _hub.State.HasLcd;
+        var portCap = ComputePortCapFactor(hubDevices);
+        var effectiveBrightness = Math.Min(globalBrightness, portCap);
+
         var totalLeds = 0;
         foreach (var dev in hubDevices)
         {
@@ -119,10 +123,14 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
             var zones = ZoneResolution.Resolve(structure, settings);
             SegmentFrameComposer.EnsureBuffers(structure, ref _segBuf);
             SegmentFrameComposer.Compose(
-                structure, zones, devices, disabled, prefs, globalBrightness, 1.0, nowTicks, _identify, _segBuf);
+                structure, zones, devices, disabled, prefs, effectiveBrightness, 1.0, nowTicks, _identify, _segBuf);
 
             // Segment 0 holds all LEDs for this device; copy as R,G,B (no swap).
             var buf = _segBuf[0];
+            if (dev.Class == CorsairLinkClass.Aio && hubHasLcd)
+            {
+                ApplyAioInnerRingBlank(buf);
+            }
             for (var i = 0; i < buf.Length; i++)
             {
                 var c = buf[i];
@@ -134,5 +142,50 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
         }
 
         _hub.SendColors(new ReadOnlySpan<byte>(_wireBuf, 0, wireOffset));
+    }
+
+    /// <summary>
+    /// Computes the most restrictive brightness cap across both hub ports.
+    /// Per-port LED totals above 238/340/442 trigger 0.66/0.33/0.10 reductions
+    /// to stay within port power limits (OpenLinkHub lsh.go:582-605).
+    /// Channels 1..12 belong to port 0; channels 13..24 to port 1 (lsh.go:3978).
+    /// </summary>
+    internal static float ComputePortCapFactor(IReadOnlyList<CorsairLinkDevice> devices)
+    {
+        var port0 = 0;
+        var port1 = 0;
+        foreach (var d in devices)
+        {
+            if (d.LedCount <= 0) continue;
+            if (d.PortId == 0)
+            {
+                port0 += d.LedCount;
+            }
+            else
+            {
+                port1 += d.LedCount;
+            }
+        }
+        return Math.Min(StageFactor(port0), StageFactor(port1));
+    }
+
+    private static float StageFactor(int portLeds)
+    {
+        if (portLeds > 442) return 0.10f;
+        if (portLeds > 340) return 0.33f;
+        if (portLeds > 238) return 0.66f;
+        return 1.0f;
+    }
+
+    /// <summary>
+    /// Zeros the AIO pump inner-ring LEDs (indices 16..19) when a pump LCD is present on the
+    /// chain, matching OpenLinkHub (lsh.go:5485).
+    /// </summary>
+    internal static void ApplyAioInnerRingBlank(RgbColor[] segment)
+    {
+        for (var i = 16; i < 20 && i < segment.Length; i++)
+        {
+            segment[i] = default;
+        }
     }
 }

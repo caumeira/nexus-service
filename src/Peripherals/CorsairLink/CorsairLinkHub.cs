@@ -35,6 +35,9 @@ public sealed class CorsairLinkHub : IDisposable
 
     private IHidDevice? _device;
     private bool _softwareMode;
+    // Firmware major byte from getFirmware; gates the LED port-power split
+    // (channel >=13 on fw >=2, >=7 on fw <2, lsh.go:3982).
+    private int _firmwareMajor;
     // Streaming is primed (Initialize ran, hub connected). Not a live "endpoint is
     // open" mirror: SendColors re-opens the color endpoint each frame.
     private bool _colorPrimed;
@@ -52,6 +55,7 @@ public sealed class CorsairLinkHub : IDisposable
         {
             _device = device;
             _softwareMode = false;
+            _firmwareMajor = 0;
             _colorPrimed = false;
         }
     }
@@ -91,6 +95,7 @@ public sealed class CorsairLinkHub : IDisposable
             if (fw >= 8)
             {
                 State.Firmware = $"{_read[4]}.{_read[5]}.{_read[6] | (_read[7] << 8)}";
+                _firmwareMajor = _read[4];
             }
 
             Transfer(CorsairLinkProtocol.CmdSoftwareMode);
@@ -108,6 +113,9 @@ public sealed class CorsairLinkHub : IDisposable
             Span<byte> mode = stackalloc byte[] { CorsairLinkProtocol.ModeSetColor };
             Transfer(CorsairLinkProtocol.CmdCloseEndpoint, mode);
             Transfer(CorsairLinkProtocol.CmdOpenColorEndpoint, mode);
+            // Mixed QX+RX chains drop QX lighting without a 40 ms settle after the
+            // first color endpoint open (OpenLinkHub lsh.go:4454).
+            Thread.Sleep(40);
             _colorPrimed = true;
 
             State.IsConnected = true;
@@ -211,6 +219,14 @@ public sealed class CorsairLinkHub : IDisposable
         if (devResp == null) return false;
         var discovered = CorsairLinkProtocol.ParseDevices(devResp);
 
+        // Resolve dynamic LED counts for variable-LED devices (adapters, Commander Duo).
+        var ledCounts = new int[CorsairLinkProtocol.SensorArrayLength];
+        var ledsResp = ReadEndpointRawLocked(CorsairLinkProtocol.ModeGetLeds);
+        if (ledsResp != null)
+        {
+            CorsairLinkProtocol.ParseLeds(ledsResp, ledCounts);
+        }
+
         var speeds = new int[CorsairLinkProtocol.SensorArrayLength];
         var temps = new float[CorsairLinkProtocol.SensorArrayLength];
         Array.Fill(speeds, -1);
@@ -221,10 +237,13 @@ public sealed class CorsairLinkHub : IDisposable
         var tpResp = ReadEndpointLocked(CorsairLinkProtocol.ModeGetTemperatures, CorsairLinkProtocol.DataGetTemperatures);
         if (tpResp != null) CorsairLinkProtocol.ParseTemperatures(tpResp, temps);
 
+        var hasLcd = false;
         var list = new List<CorsairLinkDevice>(discovered.Count);
         foreach (var d in discovered)
         {
             var meta = CorsairLinkModels.Lookup(d.Type, d.Model);
+            if (d.Type == 6 || d.Type == 14) hasLcd = true;
+            var dynamicLeds = d.Channel < ledCounts.Length ? ledCounts[d.Channel] : 0;
             var dev = new CorsairLinkDevice
             {
                 Channel = d.Channel,
@@ -232,17 +251,33 @@ public sealed class CorsairLinkHub : IDisposable
                 Model = d.Model,
                 Name = meta.Name,
                 Class = meta.Class,
-                LedCount = meta.LedCount,
+                LedCount = meta.LedCount > 0 ? meta.LedCount : dynamicLeds,
                 HasSpeed = meta.HasSpeed,
                 HasTemperature = meta.HasTemperature,
                 Serial = d.Serial,
+                PortId = CorsairLinkProtocol.PortIdForChannel(d.Channel, _firmwareMajor),
                 Rpm = d.Channel < speeds.Length ? speeds[d.Channel] : -1,
                 TempC = d.Channel < temps.Length ? temps[d.Channel] : float.NaN,
             };
             list.Add(dev);
         }
         State.Devices = list;
+        State.HasLcd = hasLcd;
         return true;
+    }
+
+    // close -> open -> read without dataType validation; for endpoints whose response
+    // tag is undocumented (ModeGetLeds). Returns a copy or null on failure.
+    private byte[]? ReadEndpointRawLocked(byte mode)
+    {
+        Span<byte> m = stackalloc byte[] { mode };
+        Transfer(CorsairLinkProtocol.CmdCloseEndpoint, m);
+        Transfer(CorsairLinkProtocol.CmdOpenEndpoint, m);
+        var n = Transfer(CorsairLinkProtocol.CmdRead, m);
+        byte[]? copy = null;
+        if (n > 0) copy = _read.AsSpan(0, CorsairLinkProtocol.ReportLength).ToArray();
+        Transfer(CorsairLinkProtocol.CmdCloseEndpoint, m);
+        return copy;
     }
 
     // close -> open -> read one endpoint; returns a copy of the response (the
