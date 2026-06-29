@@ -72,7 +72,23 @@ public sealed class CompositeFanControlProvider : IFanControlProvider, ICoolingP
         combined.AddRange(_miniHub.GetFanChannels());
         foreach (var e in Extras())
             combined.AddRange(e.Provider.GetFanChannels());
+        foreach (var ch in combined)
+            InferPumpKind(ch);
         return combined;
+    }
+
+    // A generic provider (motherboard) surfaces an AIO pump head as an ordinary
+    // channel without classifying it; a hardware-reported name containing "pump"
+    // marks it a pump. Runs on the hardware name, before the route overlays a
+    // user rename, so renaming a fan to "pump" does not flip its kind.
+    private static void InferPumpKind(FanChannel ch)
+    {
+        if (ch.Kind == FanKinds.Fan
+            && !string.IsNullOrEmpty(ch.Name)
+            && ch.Name.Contains("pump", StringComparison.OrdinalIgnoreCase))
+        {
+            ch.Kind = FanKinds.Pump;
+        }
     }
 
     public IReadOnlyList<TemperatureSource> GetTemperatureSources()

@@ -692,6 +692,49 @@ public class FanProfilesTests : IDisposable
         Assert.Equal(d.MaxSpeed, pts[^1].Speed);
     }
 
+    [Fact]
+    public void ApplySilent_ExcludesPump_AndPreservesItsCurve()
+    {
+        var fans = new FakeFanProvider(
+            channels: new List<FanChannel>
+            {
+                new() { Id = "fan1", Name = "Fan 1" },
+                new() { Id = "pump1", Name = "AIO Pump", Kind = FanKinds.Pump },
+            },
+            temps: new List<TemperatureSource> { new() { Id = "cpu", Category = "CPU" } });
+        _store.Update(s => s.Cooling.Curves.Add(new CurveDocument
+        {
+            Id = "pump-curve",
+            Outputs = new List<CurveOutputDocument> { new() { Id = "pump1", Type = "Fan" } },
+        }));
+
+        FanProfiles.Apply("silent", fans, _store);
+
+        var s = _store.Load();
+        var preset = s.Cooling.Curves.First(c => c.Preset == "silent");
+        Assert.Contains(preset.Outputs, o => o.Id == "fan1");
+        Assert.DoesNotContain(preset.Outputs, o => o.Id == "pump1");
+        // The pump's own curve attachment is left intact.
+        var pumpCurve = s.Cooling.Curves.First(c => c.Id == "pump-curve");
+        Assert.Contains(pumpCurve.Outputs, o => o.Id == "pump1");
+    }
+
+    [Fact]
+    public void DerivePresetFromCurves_IgnoresPump_KeepsPresetSelected()
+    {
+        // A pump is present but never joins the preset curve; the chip must
+        // still derive as the active preset from the fans alone.
+        var fans = new FakeFanProvider(
+            channels: new List<FanChannel>
+            {
+                new() { Id = "fan1", Classification = "Controllable" },
+                new() { Id = "pump1", Kind = FanKinds.Pump, Classification = "Controllable" },
+            },
+            temps: new List<TemperatureSource> { new() { Id = "cpu", Category = "CPU" } });
+        FanProfiles.Apply("silent", fans, _store);
+        Assert.Equal("silent", FanProfiles.DerivePresetFromCurves(_store, fans));
+    }
+
     private sealed class FakeFanProvider : IFanControlProvider
     {
         private readonly List<FanChannel> _channels;

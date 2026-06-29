@@ -46,6 +46,10 @@ public static class FanProfiles
         var temps = fans.GetTemperatureSources();
         var inputSensor = PreferredInput(temps);
         var fanIds = channels.Select(c => c.Id).ToHashSet();
+        // Pumps are excluded from the Silent/Balanced/Turbo presets: applying a
+        // preset must not retarget a pump head's speed. They keep whatever drives
+        // them (own curve, manual, or BIOS).
+        var pumpIds = channels.Where(c => c.Kind == FanKinds.Pump).Select(c => c.Id).ToHashSet();
 
         store.Update(s =>
         {
@@ -62,12 +66,13 @@ public static class FanProfiles
                 case "turbo":
                     {
                         var presetCurve = EnsurePresetCurve(s.Cooling.Curves, canonical, inputSensor);
-                        // Detach all fans from non-preset curves so the preset curve owns them.
+                        // Detach fans (not pumps) from non-preset curves so the preset
+                        // curve owns them; a pump on its own curve stays attached.
                         foreach (var curve in s.Cooling.Curves)
                         {
                             if (curve.Preset is null && curve.Id != presetCurve.Id)
                             {
-                                curve.Outputs.RemoveAll(o => fanIds.Contains(o.Id));
+                                curve.Outputs.RemoveAll(o => fanIds.Contains(o.Id) && !pumpIds.Contains(o.Id));
                             }
                             else if (curve.Preset is not null && curve.Id != presetCurve.Id)
                             {
@@ -76,6 +81,7 @@ public static class FanProfiles
                             }
                         }
                         presetCurve.Outputs = channels
+                            .Where(c => !pumpIds.Contains(c.Id))
                             .Select(c => new CurveOutputDocument { Id = c.Id, Type = "Fan" })
                             .ToList();
                         s.Cooling.ActivePreset = canonical;
@@ -154,8 +160,11 @@ public static class FanProfiles
     public static string DerivePresetFromCurves(IConfigStore store, IFanControlProvider fans)
     {
         var channels = fans.GetFanChannels();
+        // Pumps never join a preset curve (Apply excludes them), so they must be
+        // excluded here too - otherwise their absence from the preset curve would
+        // fail the "all fans on the preset" check and force "custom".
         var fanIds = channels
-            .Where(c => c.Classification != "Unresponsive")
+            .Where(c => c.Classification != "Unresponsive" && c.Kind != FanKinds.Pump)
             .Select(c => c.Id)
             .ToHashSet();
         if (fanIds.Count == 0) return "custom";
