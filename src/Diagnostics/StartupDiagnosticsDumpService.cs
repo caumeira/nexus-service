@@ -100,6 +100,23 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
 
         try
         {
+            // The raw USB enumeration behind the Devices > Connected devices list
+            // (GET /devices/usb/all): a device with no Nexus handler is absent from
+            // the managed list above but appears here. Same fields/order as the UI.
+            var usb = _devices.GetUsbDevices()
+                .OrderBy(u => u.Name, StringComparer.OrdinalIgnoreCase)
+                .ToList();
+            Emit($"usb ({usb.Count} device(s)):");
+            foreach (var u in usb)
+            {
+                var pid = u.ProductId.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? u.ProductId[2..] : u.ProductId;
+                Emit($"  - {Dash(u.Name)} | {Dash(u.Manufacturer)} | {u.VendorId}:{pid} | {Dash(u.Class)} | {Dash(u.Serial)}");
+            }
+        }
+        catch (Exception ex) { Emit($"usb read failed: {ex.Message}"); }
+
+        try
+        {
             var monitors = _monitors.Enumerate();
             Emit($"monitors ({monitors.Count}):");
             foreach (var m in monitors)
@@ -130,4 +147,6 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
     }
 
     private static void Emit(string line) => ServiceLog.Info($"{Tag} {line}");
+
+    private static string Dash(string value) => string.IsNullOrEmpty(value) ? "-" : value;
 }
