@@ -33,9 +33,16 @@ public sealed class TryxPresetListResponse
     public List<TryxPresetItem> Presets { get; set; } = new();
 }
 
+public sealed class TryxMediaItem
+{
+    public string Name { get; set; } = "";
+    public string? Thumb { get; set; }
+    public double DurationSec { get; set; }
+}
+
 public sealed class TryxMediaListResponse
 {
-    public List<string> Media { get; set; } = new();
+    public List<TryxMediaItem> Media { get; set; } = new();
 }
 
 /// <summary>

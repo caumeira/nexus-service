@@ -106,6 +106,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.TryxPresetListResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.TryxMediaListResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.TryxPresetItem))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxMediaItem))]
 
 // Fan control
 [JsonSerializable(typeof(FanChannel))]

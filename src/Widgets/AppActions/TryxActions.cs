@@ -2,7 +2,6 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
-using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
@@ -114,10 +113,29 @@ public static class TryxActions
         registry.Register("tryx.listMedia", (services, _, _) =>
         {
             var hub = services.GetRequiredService<TryxPanoramaHub>();
-            var resp = new TryxMediaListResponse { Media = ListMediaFiles(hub) };
+            var names = ListMediaFiles(hub);
+            var resp = new TryxMediaListResponse();
+            foreach (var name in names)
+            {
+                resp.Media.Add(new TryxMediaItem
+                {
+                    Name = name,
+                    Thumb = TryxThumbnailCache.ReadDataUrl(name),
+                    DurationSec = TryxThumbnailCache.ReadDuration(name),
+                });
+            }
             var json = JsonSerializer.Serialize(resp, AppJsonContext.Default.TryxMediaListResponse);
             using var doc = JsonDocument.Parse(json);
             return Task.FromResult<JsonElement?>(doc.RootElement.Clone());
+        });
+
+        registry.Register("tryx.selectMedia", (services, args, _) =>
+        {
+            var hub = services.GetRequiredService<TryxPanoramaHub>();
+            var name = Str(args, "name");
+            if (string.IsNullOrEmpty(name))
+                return Task.FromResult<JsonElement?>(Ack(false, "missing name"));
+            return Task.FromResult<JsonElement?>(Ack(hub.SelectCustomMedia(name!)));
         });
 
         registry.Register("tryx.deleteMedia", (services, args, _) =>
@@ -126,8 +144,7 @@ public static class TryxActions
             var name = Str(args, "name");
             if (string.IsNullOrEmpty(name))
                 return Task.FromResult<JsonElement?>(Ack(false, "missing name"));
-            var sanitized = SanitizeFileName(name!);
-            if (string.IsNullOrEmpty(sanitized))
+            if (!TryxThumbnailCache.IsSafeDeviceName(name!))
                 return Task.FromResult<JsonElement?>(Ack(false, "invalid name"));
             var adbSerial = hub.State.AdbSerial;
             if (string.IsNullOrEmpty(adbSerial))
@@ -140,7 +157,7 @@ public static class TryxActions
                 using var p = Process.Start(new ProcessStartInfo
                 {
                     FileName = adbPath,
-                    Arguments = $"-s {adbSerial} shell rm /sdcard/pcMedia/{sanitized}",
+                    Arguments = $"-s {adbSerial} shell rm /sdcard/pcMedia/{name}",
                     WorkingDirectory = Path.GetDirectoryName(adbPath) ?? string.Empty,
                     CreateNoWindow = true,
                     UseShellExecute = false,
@@ -149,6 +166,10 @@ public static class TryxActions
                 });
                 if (p is null) return Task.FromResult<JsonElement?>(Ack(false, "failed to start adb"));
                 p.WaitForExit(8_000);
+                if (p.ExitCode == 0)
+                {
+                    TryxThumbnailCache.Delete(name!);
+                }
                 return Task.FromResult<JsonElement?>(Ack(p.ExitCode == 0));
             }
             catch (Exception ex)
@@ -209,17 +230,4 @@ public static class TryxActions
         return result.ToArray();
     }
 
-    private static string SanitizeFileName(string name)
-    {
-        var sb = new StringBuilder(name.Length);
-        foreach (var c in name)
-        {
-            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.')
-            {
-                sb.Append(c);
-            }
-        }
-        return sb.ToString();
-    }
 }

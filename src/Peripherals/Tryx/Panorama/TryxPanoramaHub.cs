@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
-using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Panel;
@@ -183,7 +182,7 @@ public sealed class TryxPanoramaHub : IDisposable
         }
 
         // Name the on-device file after the user's source, not the temp upload path.
-        var deviceFileName = SanitizeFileName(Path.GetFileNameWithoutExtension(sourceName)) + ".mp4";
+        var deviceFileName = TryxThumbnailCache.DeviceFileName(sourceName);
         var tempOutput = Path.Combine(Path.GetTempPath(), $"nexus-tryx-out-{Guid.NewGuid()}.mp4");
 
         _importInProgress = true;
@@ -204,6 +203,15 @@ public sealed class TryxPanoramaHub : IDisposable
             }
             var fileSize = fileInfo.Length;
             var localMd5 = ComputeMd5(tempOutput);
+
+            try { TryxThumbnailCache.Write(ffmpegPath, tempOutput, deviceFileName); }
+            catch { /* best effort */ }
+            try
+            {
+                var dur = TryxThumbnailCache.ProbeDuration(ffmpegPath, tempOutput);
+                TryxThumbnailCache.WriteDuration(deviceFileName, dur);
+            }
+            catch { /* best effort */ }
 
             // Send transport frame.
             if (!SendOnly(TryxPanoramaProtocol.BuildTransport(fileSize, deviceFileName)))
@@ -284,6 +292,18 @@ public sealed class TryxPanoramaHub : IDisposable
             _importInProgress = false;
             try { File.Delete(tempOutput); } catch { /* best effort */ }
         }
+    }
+
+    /// <summary>Selects an already-on-device custom file without re-pushing it.</summary>
+    public bool SelectCustomMedia(string deviceFileName)
+    {
+        if (!TryxThumbnailCache.IsSafeDeviceName(deviceFileName)) return false;
+        if (!SendOnly(TryxPanoramaProtocol.BuildWaterBlockScreen(true))) return false;
+        if (!SendOnly(TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, deviceFileName))) return false;
+        State.CurrentMedia = deviceFileName;
+        State.CurrentMediaIsCustom = true;
+        State.ScreenEnabled = true;
+        return true;
     }
 
     public void Dispose()
@@ -442,24 +462,4 @@ public sealed class TryxPanoramaHub : IDisposable
         return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
     }
 
-    private static string SanitizeFileName(string name)
-    {
-        var sb = new StringBuilder(name.Length);
-        foreach (var c in name)
-        {
-            if ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') ||
-                (c >= '0' && c <= '9') || c == '_' || c == '-' || c == '.')
-            {
-                sb.Append(c);
-            }
-            else
-            {
-                sb.Append('_');
-            }
-        }
-        var result = sb.ToString();
-        if (result.Length > 60) result = result.Substring(0, 60);
-        if (string.IsNullOrEmpty(result)) result = "media";
-        return result;
-    }
 }
