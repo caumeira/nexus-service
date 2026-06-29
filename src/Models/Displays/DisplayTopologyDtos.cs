@@ -15,7 +15,11 @@ public sealed class RawDisplayInfo
 {
     /// <summary>Stable id, byte-identical to the id space of GET /displays.</summary>
     public string Id { get; set; } = "";
-    /// <summary>OS display number (Windows \\.\DISPLAYn); 0 = unknown.</summary>
+    /// <summary>
+    /// The monitor number Windows Settings shows (DISPLAYCONFIG source id + 1
+    /// on Windows); 0 = unknown. Falls back to the GDI \\.\DISPLAYn ordinal
+    /// when DISPLAYCONFIG can't resolve the adapter.
+    /// </summary>
     public int Number { get; set; }
     public string Name { get; set; } = "";
     public string Manufacturer { get; set; } = "";
