@@ -67,7 +67,7 @@ public static class ProfileSharing
                 target.Cooling.PreferredGpuId = source.Cooling.PreferredGpuId;
                 target.Panel.DashboardLayout = source.Panel.DashboardLayout;
                 target.Overlay = source.Overlay;
-                target.Ui.DisableConflictAlerts = source.Ui.DisableConflictAlerts;
+                target.Ui.ShowConflictAlerts = source.Ui.ShowConflictAlerts;
                 break;
         }
     }
@@ -94,7 +94,7 @@ public static class ProfileSharing
                 target.Cooling.PreferredGpuId = null;
                 target.Panel.DashboardLayout = null;
                 target.Overlay = new OverlaySettings();
-                target.Ui.DisableConflictAlerts = false;
+                target.Ui.ShowConflictAlerts = true;
                 break;
         }
     }
