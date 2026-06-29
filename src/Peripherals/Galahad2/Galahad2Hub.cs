@@ -20,18 +20,22 @@ public sealed class Galahad2Hub : IDisposable
     // Both volatile so readers outside _lock see the latest value.
     private volatile bool _isConnected;
     private volatile Galahad2Snapshot _snapshot = Galahad2Snapshot.Empty;
+    private volatile int _productId;
 
     public bool IsConnected => _isConnected;
 
     // Callers must read this reference once and use it for all field accesses.
     public Galahad2Snapshot Snapshot => _snapshot;
 
-    public void Attach(IHidDevice device)
+    public int ConnectedProductId => _productId;
+
+    public void Attach(IHidDevice device, int productId = 0)
     {
         lock (_lock)
         {
             _device?.Dispose();
             _device = device;
+            _productId = productId;
         }
     }
 
@@ -100,6 +104,20 @@ public sealed class Galahad2Hub : IDisposable
         }
     }
 
+    // Encodes before acquiring _lock so the payload allocation stays off the critical path.
+    public bool SendLighting(byte ring, byte mode, byte brightness, byte speed, byte direction, ReadOnlySpan<byte> colors)
+    {
+        var packet = Galahad2Protocol.EncodeLighting(ring, mode, brightness, speed, direction, colors);
+        lock (_lock)
+        {
+            if (_device == null)
+            {
+                return false;
+            }
+            return _device.Write(packet);
+        }
+    }
+
     // Polls RPM: Write + Read both inside _lock so no I/O interleaves on the HID pipe.
     // Returns false only when the device appears disconnected (Read returns negative).
     public bool PollRpm()
@@ -147,6 +165,7 @@ public sealed class Galahad2Hub : IDisposable
         {
             _isConnected = false;
             _snapshot = Galahad2Snapshot.Empty;
+            _productId = 0;
             _device?.Dispose();
             _device = null;
         }

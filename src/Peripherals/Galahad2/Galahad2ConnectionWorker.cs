@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Cooling;
+using Nexus.Service.Lighting;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Peripherals.LianLiCp;
 using Nexus.Service.Platform;
@@ -17,12 +18,14 @@ public sealed class Galahad2ConnectionWorker : BackgroundService
 
     private readonly IHidEnumerator _hid;
     private readonly Galahad2Hub _hub;
+    private readonly Galahad2LightingDeviceProvider _lighting;
     private readonly Galahad2CoolingProvider _cooling;
 
-    public Galahad2ConnectionWorker(IHidEnumerator hid, Galahad2Hub hub, Galahad2CoolingProvider cooling)
+    public Galahad2ConnectionWorker(IHidEnumerator hid, Galahad2Hub hub, Galahad2LightingDeviceProvider lighting, Galahad2CoolingProvider cooling)
     {
         _hid = hid;
         _hub = hub;
+        _lighting = lighting;
         _cooling = cooling;
     }
 
@@ -32,18 +35,18 @@ public sealed class Galahad2ConnectionWorker : BackgroundService
         {
             try
             {
-                var device = FindAndOpen();
+                var device = FindAndOpen(out var pid);
                 if (device != null)
                 {
-                    _hub.Attach(device);
+                    _hub.Attach(device, pid);
                     bool started = false;
                     try
                     {
                         if (_hub.Connect())
                         {
                             started = true;
-                            // untested - verification pending
                             ServiceLog.Info("[lianli-aio] connected");
+                            _lighting.OnHubStateUpdated();
                             int failures = 0;
                             while (!stoppingToken.IsCancellationRequested)
                             {
@@ -60,6 +63,7 @@ public sealed class Galahad2ConnectionWorker : BackgroundService
                                         break;
                                     }
                                 }
+                                _lighting.OnHubStateUpdated();
                                 await Task.Delay(RpmPollMs, stoppingToken).ConfigureAwait(false);
                             }
                         }
@@ -76,6 +80,7 @@ public sealed class Galahad2ConnectionWorker : BackgroundService
                         {
                             ServiceLog.Info("[lianli-aio] disconnected");
                         }
+                        _lighting.OnHubStateUpdated();
                     }
                 }
                 else
@@ -95,13 +100,14 @@ public sealed class Galahad2ConnectionWorker : BackgroundService
         }
     }
 
-    private IHidDevice? FindAndOpen()
+    private IHidDevice? FindAndOpen(out int productId)
     {
+        productId = 0;
         int[] pids = { Galahad2Protocol.ProductIdPerformance, Galahad2Protocol.ProductIdRegular };
         HidDeviceInfo? best = null;
-        foreach (int pid in pids)
+        foreach (int tryPid in pids)
         {
-            var infos = _hid.Find(Galahad2Protocol.VendorId, pid);
+            var infos = _hid.Find(Galahad2Protocol.VendorId, tryPid);
             foreach (var info in infos)
             {
                 if (info.OutputReportByteLength < CommandPacket.Length || info.InputReportByteLength <= 0)
@@ -118,6 +124,7 @@ public sealed class Galahad2ConnectionWorker : BackgroundService
         {
             return null;
         }
+        productId = best.ProductId;
         // forInput=true for overlapped I/O so Read honors its timeout on Windows.
         return _hid.Open(best.Path, forInput: true);
     }

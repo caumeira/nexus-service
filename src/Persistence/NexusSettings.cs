@@ -480,6 +480,7 @@ public sealed class DevicesSettings
     public LianLiSettings LianLi { get; set; } = new();
     public LianLiLightingSettings LianLiLighting { get; set; } = new();
     public StrimerLightingSettings StrimerLighting { get; set; } = new();
+    public Galahad2LightingSettings Galahad2Lighting { get; set; } = new();
     public CorsairSettings Corsair { get; set; } = new();
     /// <summary>
     /// Per-hub channel composition (mirror ports / combine rings), keyed by hub
@@ -619,6 +620,17 @@ public sealed class StrimerLightingSettings
     public int Speed { get; set; } = 2;
     public int Direction { get; set; } = 0;
     public int Brightness { get; set; } = 4;
+    public List<string> Colors { get; set; } = new();
+}
+
+public sealed class Galahad2LightingSettings
+{
+    public string Mode { get; set; } = "canvas";
+    public int Speed { get; set; } = 2;
+    public int Direction { get; set; } = 0;
+    public int Brightness { get; set; } = 4;
+    public string InnerColor { get; set; } = "#FFFFFF";
+    public string OuterColor { get; set; } = "#FFFFFF";
     public List<string> Colors { get; set; } = new();
 }
 

@@ -34,6 +34,30 @@ internal static class Galahad2Protocol
     public static byte[] EncodeHandshakeRequest() =>
         CommandPacket.Build(CmdHandshake);
 
+    private const byte CmdRgbControl = 0x83;
+    // Declared payload length for RGB packets; matches 0x13 from the wire.
+    private const int RgbPayloadLength = 19;
+
+    // Payload layout from OpenRGB LianLiGAIITrinityController.cpp:
+    // [ring, mode, brightness, speed, R0,G0,B0, R1,G1,B1, R2,G2,B2, R3,G3,B3, direction].
+    // Color order is R,G,B (no swap). Ring: inner=0, outer=1, both=2.
+    // colors span carries up to 4*(R,G,B) = 12 bytes; extra slots stay zero.
+    public static byte[] EncodeLighting(byte ring, byte mode, byte brightness, byte speed, byte direction, ReadOnlySpan<byte> colors)
+    {
+        var payload = new byte[RgbPayloadLength];
+        payload[0] = ring;
+        payload[1] = mode;
+        payload[2] = brightness;
+        payload[3] = speed;
+        var colorBytes = Math.Min(colors.Length, 12);
+        for (var i = 0; i < colorBytes; i++)
+        {
+            payload[4 + i] = colors[i];
+        }
+        payload[16] = direction;
+        return CommandPacket.Build(CmdRgbControl, payload);
+    }
+
     // Reply payload (4 bytes): [fanRpm_hi, fanRpm_lo, pumpRpm_hi, pumpRpm_lo] (BE16 each).
     // Returns null when the payload is too short to decode.
     public static Galahad2Reading? DecodeHandshake(ReadOnlySpan<byte> packet)
