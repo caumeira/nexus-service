@@ -785,6 +785,16 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiLightingRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiModeInfoDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiModeInfoDto[]))]
+// Lian Li Uni Fan TL hub.
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiTlStateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiTlFanDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiTlFanDto[]))]
+// Lian Li Galahad II Trinity AIO.
+[JsonSerializable(typeof(Nexus.Service.Routes.Galahad2StateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Galahad2LightingResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Galahad2LightingRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Galahad2ModeInfoDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Galahad2ModeInfoDto[]))]
 // Corsair iCUE LINK System Hub.
 [JsonSerializable(typeof(Nexus.Service.Routes.CorsairStateResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.CorsairDeviceDto))]
@@ -792,6 +802,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.CorsairSettingsRequest))]
 [JsonSerializable(typeof(int[]))]
 [JsonSerializable(typeof(bool[]))]
+// Lian Li Strimer Plus.
+[JsonSerializable(typeof(Nexus.Service.Routes.StrimerLightingResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.StrimerLightingRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.StrimerModeInfoDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.StrimerModeInfoDto[]))]
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

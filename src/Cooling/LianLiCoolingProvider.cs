@@ -35,6 +35,8 @@ public sealed class LianLiCoolingProvider : IFanControlProvider, ICoolingProvide
         if (!_hub.IsConnected) return Array.Empty<FanChannel>();
         var result = new List<FanChannel>(LianLiProtocol.PortCount);
         var deviceId = _hub.DeviceId;
+        var modelLabel = _hub.ModelName.Length > 0 ? _hub.ModelName : "SL-Infinity";
+        var deviceLabel = $"Lian Li {modelLabel}";
         for (var p = 0; p < LianLiProtocol.PortCount; p++)
         {
             var id = $"lianli:port{p}";
@@ -49,12 +51,12 @@ public sealed class LianLiCoolingProvider : IFanControlProvider, ICoolingProvide
             result.Add(new FanChannel
             {
                 Id = id,
-                Name = $"Uni Hub SL-Infinity Port {p}",
+                Name = $"{modelLabel} Port {p}",
                 DutyPercent = duty,
                 Rpm = rpm >= 0 ? rpm : 0,
                 Mode = sw ? FanModes.Manual : FanModes.Auto,
                 DeviceId = deviceId,
-                DeviceName = "Lian Li Uni Hub SL-Infinity",
+                DeviceName = deviceLabel,
                 PortLabel = $"Port {p}",
                 FanModel = null,
                 Orientation = null,
@@ -125,6 +127,7 @@ public sealed class LianLiCoolingProvider : IFanControlProvider, ICoolingProvide
     {
         if (!_hub.IsConnected) return Array.Empty<CoolingComponent>();
         var deviceId = _hub.DeviceId;
+        var modelLabel = _hub.ModelName.Length > 0 ? _hub.ModelName : "SL-Infinity";
         var devices = new List<CoolingDevice>(LianLiProtocol.PortCount);
         for (var p = 0; p < LianLiProtocol.PortCount; p++)
         {
@@ -134,7 +137,7 @@ public sealed class LianLiCoolingProvider : IFanControlProvider, ICoolingProvide
             devices.Add(new CoolingDevice
             {
                 Id = $"lianli:port{p}",
-                Name = $"Uni Hub SL-Infinity Port {p}",
+                Name = $"{modelLabel} Port {p}",
                 Type = "Fan",
                 Rpm = rpm >= 0 ? rpm : 0,
                 Pwm = duty,
@@ -145,7 +148,7 @@ public sealed class LianLiCoolingProvider : IFanControlProvider, ICoolingProvide
             new CoolingComponent
             {
                 Id = deviceId,
-                Name = "Lian Li Uni Hub SL-Infinity",
+                Name = $"Lian Li {modelLabel}",
                 Type = "LianLiHub",
                 Devices = devices,
             },

@@ -8,8 +8,8 @@ This is the engine of [Nexus](https://hellonexus.com). The other repos are clien
 
 - **Sensors / monitoring** - CPU, GPU, RAM, network, disk, fan, temp, FPS, battery (laptop), media sessions. LibreHardwareMonitor on Windows, IOKit on macOS, sysfs/hwmon on Linux.
 - **Cooling** - fan curves, pump speed, AIO control. Per-device drivers under `Cooling/` + `QSeries/`.
-- **Lighting** - RGB control via a bundled [headless OpenRGB child process](https://github.com/hello-nexus/openrgb-headless), plus first-party HYTE peripheral protocols. Effects engine, screen sync, audio sync, anime mode, game sync (drive your own hardware from a game's lighting: Razer Chroma, Alienware LightFX, and Logitech capture via bundled shims, plus CS2 Game State Integration).
-- **Peripherals** - DPI / polling / battery / sleep for supported mice and keyboards (`Peripherals/`).
+- **Lighting** - RGB control via a bundled [headless OpenRGB child process](https://github.com/hello-nexus/openrgb-headless), plus first-party HYTE and Lian Li peripheral protocols. Effects engine, screen sync, audio sync, anime mode, game sync (drive your own hardware from a game's lighting: Razer Chroma, Alienware LightFX, and Logitech capture via bundled shims, plus CS2 Game State Integration).
+- **Peripherals** - DPI / polling / battery / sleep for supported mice and keyboards, plus first-party USB device-hub drivers (the Lian Li Uni fan family, Galahad II AIO, and Strimer RGB controllers) (`Peripherals/`).
 - **Panel runtimes** - pair + serve the React panel UIs for the HYTE Y70/Y80 secondary touch panel, mobile companion (`/panel/phone`), and Q-Series on-device screens.
 - **Apps / widgets** - host for the `nexus.app/1` SDK apps shipped in [`nexus-apps`](https://github.com/hello-nexus/nexus-apps), with sensor bindings and a sandboxed Web Worker runtime. Legacy `nexus.widget/2` manifests still load.
 - **Activity** - screen-time, app detection, Steam / Discord / OBS integrations, shortcuts.
@@ -59,7 +59,7 @@ src/
   Sensors/            # LibreHardwareMonitor (Win), IOKit (Mac), sysfs (Linux)
   Cooling/  QSeries/  # fan/pump drivers
   Lighting/           # OpenRGB bridge, HYTE protocols, effects, screen+audio sync
-  Peripherals/        # mouse/keyboard drivers
+  Peripherals/        # mouse/keyboard + first-party USB hub drivers (Lian Li Uni/AIO/Strimer)
   Panel/              # /panel/* pairing + token endpoints
   Widgets/            # nexus.app/1 app host (manifest loader, data sources, worker sandbox)
   Activity/           # screentime, app detection

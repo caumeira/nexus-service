@@ -27,7 +27,10 @@ public class LianLiLightingModesTests
         Assert.Contains("meteor", keys);
         Assert.Contains("voice", keys);
         Assert.Contains("groove", keys);
-        Assert.Equal(15, keys.Length);
+        Assert.Contains("stackMultiColor", keys);
+        Assert.Contains("render", keys);
+        Assert.Contains("tunnel", keys);
+        Assert.Equal(18, keys.Length);
     }
 
     [Fact]
@@ -54,7 +57,10 @@ public class LianLiLightingModesTests
     [InlineData("colorCycle",    0x23)]
     [InlineData("meteor",        0x24)]
     [InlineData("voice",         0x26)]
-    [InlineData("groove",        0x27)]
+    [InlineData("groove",          0x27)]
+    [InlineData("stackMultiColor", 0x21)]
+    [InlineData("render",          0x28)]
+    [InlineData("tunnel",          0x29)]
     public void Find_returns_correct_effect_byte(string key, byte expected)
     {
         var m = LianLiLightingModes.Find(key);
@@ -157,5 +163,19 @@ public class LianLiLightingModesTests
         var m = LianLiLightingModes.Find(key);
         Assert.NotNull(m);
         Assert.True(m!.HasDirection);
+    }
+
+    [Theory]
+    [InlineData("stackMultiColor", true, true, 0)]
+    [InlineData("render",          true, true, 4)]
+    [InlineData("tunnel",          true, true, 4)]
+    public void New_modes_have_correct_properties(string key, bool hasSpeed, bool hasDirection, int colorsMax)
+    {
+        var m = LianLiLightingModes.Find(key);
+        Assert.NotNull(m);
+        Assert.Equal(hasSpeed,     m!.HasSpeed);
+        Assert.Equal(hasDirection, m.HasDirection);
+        Assert.True(m.HasBrightness);
+        Assert.Equal(colorsMax,    m.ColorsMax);
     }
 }

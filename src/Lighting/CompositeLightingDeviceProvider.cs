@@ -26,6 +26,8 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     private readonly KeebLightingDeviceProvider _keeb;
     private readonly LianLiLightingDeviceProvider _lianLi;
     private readonly CorsairLinkLightingDeviceProvider _corsair;
+    private readonly StrimerLightingDeviceProvider _strimer;
+    private readonly Galahad2LightingDeviceProvider _galahad2;
     private readonly Nexus.Service.Lighting.Smart.SmartLightProvider _smart;
     private readonly IConfigStore _store;
     private readonly LightingEngine _engine;
@@ -40,25 +42,29 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         KeebLightingDeviceProvider keeb,
         LianLiLightingDeviceProvider lianLi,
         CorsairLinkLightingDeviceProvider corsair,
+        StrimerLightingDeviceProvider strimer,
+        Galahad2LightingDeviceProvider galahad2,
         Nexus.Service.Lighting.Smart.SmartLightProvider smart,
         IConfigStore store,
         LightingEngine engine)
     {
-        _openRgb = openRgb;
-        _np50 = np50;
-        _miniHub = miniHub;
+        _openRgb  = openRgb;
+        _np50     = np50;
+        _miniHub  = miniHub;
         _smartHub = smartHub;
-        _cnvs = cnvs;
-        _qseries = qseries;
-        _keeb = keeb;
-        _lianLi = lianLi;
-        _corsair = corsair;
-        _smart = smart;
-        _store = store;
-        _engine = engine;
+        _cnvs     = cnvs;
+        _qseries  = qseries;
+        _keeb     = keeb;
+        _lianLi   = lianLi;
+        _corsair  = corsair;
+        _strimer  = strimer;
+        _galahad2 = galahad2;
+        _smart    = smart;
+        _store    = store;
+        _engine   = engine;
     }
 
-    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected || _lianLi.IsConnected || _corsair.IsConnected || _smart.IsConnected;
+    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected || _lianLi.IsConnected || _corsair.IsConnected || _strimer.IsConnected || _galahad2.IsConnected || _smart.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
     {
@@ -131,6 +137,17 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
                 rgb.Devices.RemoveAll(d =>
                     d.Name.Contains("iCUE Link", StringComparison.OrdinalIgnoreCase));
             }
+            if (_strimer.IsConnected)
+            {
+                rgb.Devices.RemoveAll(d =>
+                    d.Name.Contains("Lian Li Strimer", StringComparison.OrdinalIgnoreCase));
+            }
+            if (_galahad2.IsConnected)
+            {
+                // OpenRGB names this device "Lian Li GAII Trinity".
+                rgb.Devices.RemoveAll(d =>
+                    d.Name.Contains("GAII", StringComparison.OrdinalIgnoreCase));
+            }
         }
 
         var hub = _np50.GetAll();
@@ -180,6 +197,18 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         {
             rgb.IsInit = rgb.IsInit || corsair.IsInit;
             rgb.Devices.AddRange(corsair.Devices);
+        }
+        var strimer = _strimer.GetAll();
+        if (strimer.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || strimer.IsInit;
+            rgb.Devices.AddRange(strimer.Devices);
+        }
+        var galahad2 = _galahad2.GetAll();
+        if (galahad2.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || galahad2.IsInit;
+            rgb.Devices.AddRange(galahad2.Devices);
         }
         var smartLights = _smart.GetAll();
         if (smartLights.Devices.Count > 0)
@@ -238,38 +267,44 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     {
         // Per-id routing: split the ids and dispatch each batch to its owner.
         // Keeps each provider's "I own these ids" invariants intact.
-        var rgbIds = new List<string>(ids.Count);
-        var np50Ids = new List<string>(ids.Count);
-        var miniIds = new List<string>(ids.Count);
-        var smartIds = new List<string>(ids.Count);
-        var cnvsIds = new List<string>(ids.Count);
-        var qseriesIds = new List<string>(ids.Count);
-        var keebIds = new List<string>(ids.Count);
-        var lianLiIds = new List<string>(ids.Count);
-        var corsairIds = new List<string>(ids.Count);
+        var rgbIds        = new List<string>(ids.Count);
+        var np50Ids       = new List<string>(ids.Count);
+        var miniIds       = new List<string>(ids.Count);
+        var smartIds      = new List<string>(ids.Count);
+        var cnvsIds       = new List<string>(ids.Count);
+        var qseriesIds    = new List<string>(ids.Count);
+        var keebIds       = new List<string>(ids.Count);
+        var lianLiIds     = new List<string>(ids.Count);
+        var corsairIds    = new List<string>(ids.Count);
+        var strimerIds    = new List<string>(ids.Count);
+        var galahad2Ids   = new List<string>(ids.Count);
         var smartLightIds = new List<string>(ids.Count);
         foreach (var id in ids)
         {
-            if (IsNp50Id(id)) np50Ids.Add(id);
-            else if (IsMiniHubId(id)) miniIds.Add(id);
-            else if (IsSmartHubId(id)) smartIds.Add(id);
-            else if (IsCnvsId(id)) cnvsIds.Add(id);
-            else if (IsQSeriesId(id)) qseriesIds.Add(id);
-            else if (IsKeebId(id)) keebIds.Add(id);
-            else if (IsLianLiId(id)) lianLiIds.Add(id);
-            else if (IsCorsairId(id)) corsairIds.Add(id);
-            else if (_smart.Owns(id)) smartLightIds.Add(id);
-            else rgbIds.Add(id);
+            if (IsNp50Id(id))           np50Ids.Add(id);
+            else if (IsMiniHubId(id))   miniIds.Add(id);
+            else if (IsSmartHubId(id))  smartIds.Add(id);
+            else if (IsCnvsId(id))      cnvsIds.Add(id);
+            else if (IsQSeriesId(id))   qseriesIds.Add(id);
+            else if (IsKeebId(id))      keebIds.Add(id);
+            else if (IsLianLiId(id))    lianLiIds.Add(id);
+            else if (IsCorsairId(id))   corsairIds.Add(id);
+            else if (IsStrimerId(id))   strimerIds.Add(id);
+            else if (IsGalahad2Id(id))  galahad2Ids.Add(id);
+            else if (_smart.Owns(id))   smartLightIds.Add(id);
+            else                        rgbIds.Add(id);
         }
-        if (rgbIds.Count > 0) _openRgb.SetDisabled(rgbIds);
-        if (np50Ids.Count > 0) _np50.SetDisabled(np50Ids);
-        if (miniIds.Count > 0) _miniHub.SetDisabled(miniIds);
-        if (smartIds.Count > 0) _smartHub.SetDisabled(smartIds);
-        if (cnvsIds.Count > 0) _cnvs.SetDisabled(cnvsIds);
-        if (qseriesIds.Count > 0) _qseries.SetDisabled(qseriesIds);
-        if (keebIds.Count > 0) _keeb.SetDisabled(keebIds);
-        if (lianLiIds.Count > 0) _lianLi.SetDisabled(lianLiIds);
-        if (corsairIds.Count > 0) _corsair.SetDisabled(corsairIds);
+        if (rgbIds.Count > 0)        _openRgb.SetDisabled(rgbIds);
+        if (np50Ids.Count > 0)       _np50.SetDisabled(np50Ids);
+        if (miniIds.Count > 0)       _miniHub.SetDisabled(miniIds);
+        if (smartIds.Count > 0)      _smartHub.SetDisabled(smartIds);
+        if (cnvsIds.Count > 0)       _cnvs.SetDisabled(cnvsIds);
+        if (qseriesIds.Count > 0)    _qseries.SetDisabled(qseriesIds);
+        if (keebIds.Count > 0)       _keeb.SetDisabled(keebIds);
+        if (lianLiIds.Count > 0)     _lianLi.SetDisabled(lianLiIds);
+        if (corsairIds.Count > 0)    _corsair.SetDisabled(corsairIds);
+        if (strimerIds.Count > 0)    _strimer.SetDisabled(strimerIds);
+        if (galahad2Ids.Count > 0)   _galahad2.SetDisabled(galahad2Ids);
         if (smartLightIds.Count > 0) _smart.SetDisabled(smartLightIds);
     }
 
@@ -281,15 +316,17 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     public void Identify(string id, int durationMs) { Pick(id).Identify(id, durationMs); }
 
     private ILightingDeviceProvider Pick(string id)
-        => IsNp50Id(id) ? _np50
-        : IsMiniHubId(id) ? _miniHub
-        : IsSmartHubId(id) ? _smartHub
-        : IsCnvsId(id) ? _cnvs
-        : IsQSeriesId(id) ? _qseries
-        : IsKeebId(id) ? _keeb
-        : IsLianLiId(id) ? _lianLi
-        : IsCorsairId(id) ? _corsair
-        : _smart.Owns(id) ? _smart
+        => IsNp50Id(id)      ? _np50
+        : IsMiniHubId(id)    ? _miniHub
+        : IsSmartHubId(id)   ? _smartHub
+        : IsCnvsId(id)       ? _cnvs
+        : IsQSeriesId(id)    ? _qseries
+        : IsKeebId(id)       ? _keeb
+        : IsLianLiId(id)     ? _lianLi
+        : IsCorsairId(id)    ? _corsair
+        : IsStrimerId(id)    ? _strimer
+        : IsGalahad2Id(id)   ? _galahad2
+        : _smart.Owns(id)    ? _smart
         : _openRgb;
 
     private static bool IsNp50Id(string id) =>
@@ -315,4 +352,10 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
 
     private static bool IsCorsairId(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("corsair:", StringComparison.Ordinal);
+
+    private static bool IsStrimerId(string id) =>
+        !string.IsNullOrEmpty(id) && id.StartsWith("strimer:", StringComparison.Ordinal);
+
+    private static bool IsGalahad2Id(string id) =>
+        !string.IsNullOrEmpty(id) && id.StartsWith("lianli-aio:", StringComparison.Ordinal);
 }

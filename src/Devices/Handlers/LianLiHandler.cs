@@ -11,16 +11,29 @@ public sealed class LianLiHandler : IDeviceHandler
     public LianLiHandler(LianLiHub hub)
     {
         _hub = hub;
+        var pids = LianLiFanProfiles.AllProductIds;
+        var ids = new UsbId[pids.Length];
+        for (var i = 0; i < pids.Length; i++)
+        {
+            ids[i] = new UsbId(LianLiProtocol.VendorId, pids[i]);
+        }
+        Identifiers = ids;
     }
 
     public string Id => "lianli";
-    public string Name => "Lian Li Uni Hub SL-Infinity";
+
+    public string Name
+    {
+        get
+        {
+            var model = _hub.ModelName;
+            return string.IsNullOrEmpty(model) ? "Lian Li Uni Fan" : $"Lian Li {model}";
+        }
+    }
+
     public string Category => "hub";
 
-    public IReadOnlyList<UsbId> Identifiers { get; } = new[]
-    {
-        new UsbId(LianLiProtocol.VendorId, LianLiProtocol.ProductId),
-    };
+    public IReadOnlyList<UsbId> Identifiers { get; }
 
     public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices)
     {
