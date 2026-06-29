@@ -29,6 +29,7 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
     private readonly CorsairLinkHub _hub;
     private readonly CorsairLinkLightingDeviceProvider _lighting;
     private readonly CorsairLinkCoolingProvider _cooling;
+    private readonly CorsairLinkLcd _lcd;
     private readonly IConfigStore _store;
 
     public CorsairLinkConnectionWorker(
@@ -36,12 +37,14 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
         CorsairLinkHub hub,
         CorsairLinkLightingDeviceProvider lighting,
         CorsairLinkCoolingProvider cooling,
+        CorsairLinkLcd lcd,
         IConfigStore store)
     {
         _hid = hid;
         _hub = hub;
         _lighting = lighting;
         _cooling = cooling;
+        _lcd = lcd;
         _store = store;
     }
 
@@ -73,6 +76,10 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
                 }
 
                 ServiceLog.Info($"[corsair] connected fw={_hub.State.Firmware} devices={_hub.State.Devices.Count}");
+                if (_hub.State.HasLcd)
+                {
+                    _lcd.DiscoverAndAttach(_hub.State.Devices, _hid);
+                }
                 _lighting.OnHubStateUpdated();
                 _cooling.ReassertControl();
                 try
@@ -96,6 +103,7 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
                 }
                 finally
                 {
+                    _lcd.Detach();
                     _hub.Detach();
                     ServiceLog.Info("[corsair] disconnected");
                     _lighting.OnHubStateUpdated();

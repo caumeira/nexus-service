@@ -638,6 +638,11 @@ public sealed class CorsairSettings
 {
     /// <summary>When true, Corsair iCUE is stopped when Nexus attaches the iCUE LINK hub (both apps co-drive the hub and fight every write).</summary>
     public bool StopConflictingApps { get; set; } = true;
+    public string? LcdSelectedMediaId { get; set; }
+    /// <summary>LCD brightness 0-100. 0 = display off, 100 = maximum.</summary>
+    public byte LcdBrightness { get; set; } = 100;
+    /// <summary>LCD rotation: 0 = 0 deg, 1 = 90 deg, 2 = 180 deg, 3 = 270 deg.</summary>
+    public byte LcdRotation { get; set; }
 }
 
 /// <summary>

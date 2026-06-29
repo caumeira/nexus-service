@@ -453,6 +453,9 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Lighting.CorsairLinkLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.CorsairLinkLightingFrameWriter>());
         services.AddHostedService<Nexus.Service.Peripherals.CorsairLink.CorsairLinkConnectionWorker>();
+        services.AddSingleton<Nexus.Service.Peripherals.CorsairLink.CorsairLinkLcd>();
+        services.AddSingleton<Nexus.Service.Peripherals.CorsairLink.CorsairLinkLcdMediaLibrary>();
+        services.AddHostedService<Nexus.Service.Peripherals.CorsairLink.CorsairLinkLcdWorker>();
 
         // Lian Li Strimer Plus: HID connection worker + lighting.
         services.AddSingleton<Nexus.Service.Peripherals.Strimer.StrimerHub>();

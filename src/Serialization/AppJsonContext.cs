@@ -800,6 +800,13 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.CorsairDeviceDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.CorsairDeviceDto[]))]
 [JsonSerializable(typeof(Nexus.Service.Routes.CorsairSettingsRequest))]
+// Corsair iCUE LINK LCD.
+[JsonSerializable(typeof(Nexus.Service.Peripherals.CorsairLink.LcdMediaItem))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.CorsairLink.LcdMediaItem[]))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LcdMediaListResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LcdUploadResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LcdSettingsRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LcdStateResponse))]
 [JsonSerializable(typeof(int[]))]
 [JsonSerializable(typeof(bool[]))]
 // Lian Li Strimer Plus.
