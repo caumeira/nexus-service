@@ -38,6 +38,7 @@ public static class UpdateRoutes
                     AppJsonContext.Default.UpdateStartResponse);
             }
 
+            Console.Error.WriteLine($"[update] start rejected: {reason}");
             return Results.Json(
                 new UpdateStartResponse { Error = true, Started = false, Msg = reason },
                 AppJsonContext.Default.UpdateStartResponse,

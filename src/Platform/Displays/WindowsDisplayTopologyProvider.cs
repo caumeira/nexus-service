@@ -26,6 +26,7 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
         var results = new List<RawDisplayInfo>();
         var previousContext = TrySetPerMonitorAwareV2();
         var touchMonitors = EnumerateTouchMonitors();
+        var settingsNumbers = WindowsDisplayConfig.SourceNumbersByGdiName();
         try
         {
             bool Cb(IntPtr hMonitor, IntPtr _, IntPtr __, IntPtr ___)
@@ -44,7 +45,12 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
                     var entry = new RawDisplayInfo
                     {
                         Id = id,
-                        Number = WindowsDisplayIdentity.AdapterNumber(info.szDevice),
+                        // Prefer the DISPLAYCONFIG source number Windows Settings
+                        // shows; fall back to the GDI \\.\DISPLAYn ordinal when
+                        // QueryDisplayConfig didn't resolve this adapter.
+                        Number = settingsNumbers.TryGetValue(info.szDevice, out var num)
+                            ? num
+                            : WindowsDisplayIdentity.AdapterNumber(info.szDevice),
                         Name = name,
                         Manufacturer = manufacturer,
                         Model = model,

@@ -7,12 +7,15 @@ using Nexus.Service.QSeries;
 namespace Nexus.Service.Serialization;
 
 [JsonSerializable(typeof(NexusSettings))]
+[JsonSerializable(typeof(LianLiSettings))]
+[JsonSerializable(typeof(CorsairSettings))]
 [JsonSerializable(typeof(FirmwareManifest))]
 [JsonSerializable(typeof(FirmwareFile))]
 [JsonSerializable(typeof(AuthSettings))]
 [JsonSerializable(typeof(ObsSettings))]
 [JsonSerializable(typeof(SteamSettings))]
 [JsonSerializable(typeof(DiscordSettings))]
+[JsonSerializable(typeof(HomeAssistantSettings))]
 [JsonSerializable(typeof(PanelPhoneSessionToken))]
 [JsonSerializable(typeof(List<PanelPhoneSessionToken>))]
 [JsonSerializable(typeof(LedPositionOverride))]
@@ -28,6 +31,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<SegmentLedOverride>))]
 [JsonSerializable(typeof(Dictionary<string, List<SegmentLedOverride>>))]
 [JsonSerializable(typeof(Dictionary<string, float>))]
+// Per-hub channel composition (mirror / combine rings).
+[JsonSerializable(typeof(HubCompositionSettings))]
+[JsonSerializable(typeof(Dictionary<string, HubCompositionSettings>))]
 [JsonSerializable(typeof(ProfileManifest))]
 [JsonSerializable(typeof(ProfileExport))]
 // Shared POCOs nested under NexusSettings root - picked up transitively but
@@ -60,6 +66,12 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Lighting.Mappings.MappingGroup))]
 [JsonSerializable(typeof(List<Nexus.Service.Lighting.Mappings.MappingGroup>))]
 [JsonSerializable(typeof(Dictionary<string, List<Nexus.Service.Lighting.Mappings.MappingGroup>>))]
+[JsonSerializable(typeof(LianLiLightingSettings))]
+[JsonSerializable(typeof(StrimerLightingSettings))]
+[JsonSerializable(typeof(Galahad2LightingSettings))]
+[JsonSerializable(typeof(List<string>))]
+[JsonSerializable(typeof(LayoutPreset))]
+[JsonSerializable(typeof(List<LayoutPreset>))]
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,

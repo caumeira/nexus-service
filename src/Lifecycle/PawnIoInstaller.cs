@@ -361,8 +361,7 @@ public static class PawnIoInstaller
     }
 
     private static string LogPath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "Nexus", "pawnio-install.log");
+        Nexus.Service.Platform.ServiceLog.LogsDirectory, "nexus-pawnio.log");
 
     private static void Log(string msg)
     {

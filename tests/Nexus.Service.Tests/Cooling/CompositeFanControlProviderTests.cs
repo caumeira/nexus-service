@@ -41,9 +41,50 @@ public class CompositeFanControlProviderTests
         Assert.Contains("plugin:aaa:fan0", ids);  // registry plugin source
     }
 
+    // A generic provider surfacing an AIO pump head by name (e.g. a Tryx pump
+    // wired to a mobo header) is reclassified as a pump; a normal fan and a
+    // channel a provider already typed are left alone.
+    [Fact]
+    public void GetFanChannels_infers_pump_kind_from_hardware_name()
+    {
+        var noPorts = new NoPorts();
+        var np50 = new Np50CoolingProvider(new Np50Hub(noPorts, _ => null!));
+        var miniHub = new MiniHubCoolingProvider(new MiniHubHub(noPorts, _ => null!));
+
+        var motherboard = new NamedFans(
+            new FanChannel { Id = "mb:fan0", Name = "CPU Fan" },
+            new FanChannel { Id = "mb:fan1", Name = "AIO Pump" },
+            new FanChannel { Id = "mb:fan2", Name = "water pump 2" });
+
+        var composite = new CompositeFanControlProvider(
+            motherboard, np50, miniHub, new PluginProviderRegistry());
+
+        var channels = composite.GetFanChannels().ToDictionary(c => c.Id);
+
+        Assert.Equal(FanKinds.Fan, channels["mb:fan0"].Kind);
+        Assert.Equal(FanKinds.Pump, channels["mb:fan1"].Kind);
+        Assert.Equal(FanKinds.Pump, channels["mb:fan2"].Kind);
+    }
+
     private sealed class NoPorts : INp50PortDiscovery
     {
         public IReadOnlyList<Np50PortInfo> Discover() => Array.Empty<Np50PortInfo>();
+    }
+
+    private sealed class NamedFans : IFanControlProvider
+    {
+        private readonly FanChannel[] _channels;
+        public NamedFans(params FanChannel[] channels) => _channels = channels;
+        public IReadOnlyList<FanChannel> GetFanChannels() => _channels;
+        public IReadOnlyList<TemperatureSource> GetTemperatureSources() => Array.Empty<TemperatureSource>();
+        public float? ReadTemperature(string sensorId) => null;
+        public int SetFanSpeed(string channelId, int dutyPercent) => dutyPercent;
+        public void DriveFanSpeed(string channelId, int dutyPercent) { }
+        public void ReleaseFan(string channelId) { }
+        public void ReleaseAll() { }
+        public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(
+            IReadOnlyList<string> fanIds, IProgress<FanCalibrationProgress> progress, CancellationToken ct)
+            => Task.FromResult<IReadOnlyList<FanCalibration>>(Array.Empty<FanCalibration>());
     }
 
     private sealed class FakeFans : IFanControlProvider

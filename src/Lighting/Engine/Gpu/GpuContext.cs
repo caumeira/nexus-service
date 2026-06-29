@@ -77,31 +77,10 @@ public sealed class GpuContext : IDisposable
     public GL Gl => _gl ?? throw new InvalidOperationException("GpuContext not initialized");
     public bool Available => _initTried && !_failed && !_disposed;
 
-    private static readonly string LogPath = System.IO.Path.Combine(LogDir(), "gpu.log");
-
-    // CommonApplicationData resolves to /usr/share on Linux, which is read-only
-    // on immutable distros (Bazzite/rpm-ostree) and unwritable by a user-session
-    // process, so gpu.log vanishes there. On Linux prefer the session user's XDG
-    // state dir (LinuxSession adopts XDG_STATE_HOME/HOME into the daemon's env),
-    // then ~/.local/state, then /tmp as a guaranteed-writable last resort.
-    private static string LogDir()
-    {
-        if (OperatingSystem.IsLinux())
-        {
-            var state = Environment.GetEnvironmentVariable("XDG_STATE_HOME");
-            if (string.IsNullOrEmpty(state))
-            {
-                var home = Environment.GetEnvironmentVariable("HOME");
-                if (!string.IsNullOrEmpty(home))
-                    state = System.IO.Path.Combine(home, ".local", "state");
-            }
-            return string.IsNullOrEmpty(state)
-                ? System.IO.Path.Combine(System.IO.Path.GetTempPath(), "nexus")
-                : System.IO.Path.Combine(state, "nexus");
-        }
-        return System.IO.Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Nexus");
-    }
+    // Co-located with nexus-service.log; ServiceLog.LogsDirectory resolves the
+    // writable per-OS logs dir (HOME-based on Linux, so the old /usr/share
+    // read-only concern doesn't apply).
+    private static readonly string LogPath = System.IO.Path.Combine(ServiceLog.LogsDirectory, "nexus-gpu.log");
 
     public static void Log(string line)
     {
@@ -112,7 +91,7 @@ public sealed class GpuContext : IDisposable
         }
         catch { }
         // These are GL init/shader traces, not failures - INF, not ERR. Full
-        // detail still lands in the dedicated gpu.log above.
+        // detail still lands in the dedicated nexus-gpu.log above.
         ServiceLog.Info(line);
     }
 
@@ -212,7 +191,18 @@ public sealed class GpuContext : IDisposable
         _eglUsed = true;
         _gl = GL.GetApi(new EglNativeContext());
 #else
-        // Windows: hidden GLFW window owns the context.
+        // Windows: hidden GLFW window owns the context. With no usable GPU (no
+        // dGPU + an "F"-SKU CPU with no iGPU, or only a virtual/indirect
+        // display), GLFW context creation fail-fasts inside native code
+        // (0xc0000409) - which a managed catch can't intercept, so it kills the
+        // whole process. A removed card's driver stays registered, so DXGI still
+        // enumerates it as a ghost adapter; probe D3D11CreateDevice (the ghost
+        // fails it) and bail to the CPU shader fallback before touching GLFW.
+        if (!Nexus.Service.Sensors.GpuAdapterLuids.HasUsableHardwareGpu())
+        {
+            throw new InvalidOperationException(
+                "no usable GPU adapter present; using CPU shader fallback");
+        }
         Log("[gpu] Register GLFW platform");
         // Silk.NET normally registers the GLFW backend via module initializer,
         // but AOT strips that path - we have to register it explicitly or

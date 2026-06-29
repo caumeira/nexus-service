@@ -129,6 +129,14 @@ public sealed class AppManifestDriver
 
     [JsonPropertyName("launch")]
     public AppManifestDriverLaunch? Launch { get; set; }
+
+    /// <summary>Install medium: "host-exe" (default) or "android-adb".</summary>
+    [JsonPropertyName("target")]
+    public string? Target { get; set; }
+
+    /// <summary>Android package name for android-adb installs.</summary>
+    [JsonPropertyName("package")]
+    public string? Package { get; set; }
 }
 
 public sealed class AppManifestDriverMatch

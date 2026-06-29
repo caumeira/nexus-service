@@ -91,7 +91,7 @@ public static class ProtocolHandler
 
         // Detect dev mode: ProcessPath is the dotnet host, not our binary.
         // In that case, launch via `dotnet <dll>` instead of the bare exe.
-        var isDotnetHost = exePath.EndsWith("/dotnet") || exePath.EndsWith("/dotnet.exe");
+        var isDotnetHost = exePath.EndsWith("/dotnet", StringComparison.Ordinal) || exePath.EndsWith("/dotnet.exe", StringComparison.Ordinal);
         string launchCommand;
         if (isDotnetHost)
         {

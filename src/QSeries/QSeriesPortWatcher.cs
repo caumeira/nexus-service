@@ -11,6 +11,7 @@ using AdvancedSharpAdbClient.DeviceCommands;
 using AdvancedSharpAdbClient.Models;
 using AdvancedSharpAdbClient.Receivers;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Common.ExternalTools;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Models.Panel;
 using Nexus.Service.Panel;
@@ -91,6 +92,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly PanelDeviceRegistry _panelDevices;
 
+    private readonly IAdbDeviceRegistry? _deviceRegistry;
+
+    // Registry is keyed by package name, so one panel per host is tracked; null when unregistered.
+    private string? _registeredSerial;
+
     /// <summary>Serials with an applied reverse, so the steady-state path stays quiet.</summary>
     private readonly Dictionary<string, bool> _reverseAppliedBySerial = new(StringComparer.Ordinal);
 
@@ -108,7 +114,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private readonly HashSet<string> _lanIpUnavailableLogged = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// In-memory mirror of the on-disk transport store (USB serial → promoted TCP
+    /// In-memory mirror of the on-disk transport store (USB serial -> promoted TCP
     /// transport). Mutated in place, never reassigned, so readonly.
     /// </summary>
     private readonly Dictionary<string, QSeriesTransportRecord> _promoted;
@@ -131,15 +137,16 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _lastRecoveryByInstanceId = new(StringComparer.Ordinal);
 
-    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices)
-        : this(servicePort, presence, panelDevices, new QSeriesTransportStore()) { }
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, IAdbDeviceRegistry? deviceRegistry = null)
+        : this(servicePort, presence, panelDevices, new QSeriesTransportStore(), deviceRegistry) { }
 
     /// <summary>Test seam: inject a store pointing at a tmp path.</summary>
-    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, QSeriesTransportStore transportStore)
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, QSeriesTransportStore transportStore, IAdbDeviceRegistry? deviceRegistry = null)
     {
         _servicePort = servicePort;
         _presence = presence;
         _panelDevices = panelDevices;
+        _deviceRegistry = deviceRegistry;
         _localSpec = $"tcp:{servicePort}";
         _remoteSpec = $"tcp:{servicePort}";
         _client = new AdbClient();
@@ -268,6 +275,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
             seenSerials.Add(device.Serial);
 
+            // An in-flight APK install owns the USB-FFS transport. Running the
+            // per-tick adb passes (reverse, am start, clock, reboot) concurrently
+            // races the install stream and fails it; skip them until it finishes.
+            if (_deviceRegistry?.TryGet(QshellPackage)?.InstallInProgress == true) continue;
+
             // A reseat re-enumerates with the same serial but a new transport id. The
             // 10 s poll often misses the brief offline window, so a transport-id change
             // is the reliable reseat signal: on change, reboot to reset the degraded
@@ -284,6 +296,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
             await EnsureReverseAsync(device, ct);
             await EnsureQshellForegroundAsync(device, ct);
+            RegisterDeviceTarget(device.Serial);
             await SyncDeviceClockAsync(device, ct);
             await TryEscalateRebootAsync(device, ct);
         }
@@ -304,6 +317,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             _qshellFirstSeenThisRun.Remove(key);
         }
+        // Re-pin the default HOME on a re-attach (a reboot drops the pin on Android 11).
+        foreach (var key in _homePinnedThisRun.Where(k => !seenSerials.Contains(k)).ToList())
+        {
+            _homePinnedThisRun.Remove(key);
+        }
         // Re-arm the grace anchor on detach. _escalationRebootedThisRun is
         // deliberately NOT cleared here - like _lastQshellRebootBySerial it must
         // survive our reboot's re-enumeration so a still-stranded panel isn't rebooted
@@ -323,6 +341,11 @@ public sealed class QSeriesPortWatcher : BackgroundService
         foreach (var key in _lastClockSyncBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
         {
             _lastClockSyncBySerial.Remove(key);
+        }
+
+        if (_registeredSerial is not null && !seenSerials.Contains(_registeredSerial))
+        {
+            UnregisterDeviceTarget();
         }
     }
 
@@ -699,11 +722,13 @@ public sealed class QSeriesPortWatcher : BackgroundService
         }
     }
 
+    private const string QshellPackage = "com.hellonexus.qshell";
+
     /// <summary>qshell package/activity; matches its AndroidManifest.xml.</summary>
-    private const string QshellComponent = "com.hellonexus.qshell/.MainActivity";
+    private const string QshellComponent = QshellPackage + "/.MainActivity";
 
     /// <summary>Substring of <c>dumpsys window mCurrentFocus</c> when qshell owns focus.</summary>
-    private const string QshellFocusMarker = "com.hellonexus.qshell";
+    private const string QshellFocusMarker = QshellPackage;
 
     /// <summary>
     /// Last <c>am start</c> time per serial. Throttles re-launch; the foreground
@@ -718,6 +743,16 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// on its own, so this run no longer force-stops it. Cleared on detach.
     /// </summary>
     private readonly HashSet<string> _qshellFirstSeenThisRun = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Serials whose default HOME has been re-pinned to qshell this run. The
+    /// install-time <c>set-home-activity</c> (ApkFlasher) does not survive a panel
+    /// cold boot on Android 11, so the panel comes up on the launcher chooser; the
+    /// per-tick am-start masks it but never restores the default. Re-assert the pin
+    /// once per attach, after qshell is confirmed installed, so the next cold boot
+    /// resolves HOME without the chooser. Cleared on detach so a reboot re-pins.
+    /// </summary>
+    private readonly HashSet<string> _homePinnedThisRun = new(StringComparer.Ordinal);
 
     /// <summary>
     /// Last adb transport id per serial. A change (same serial) is the reliable reseat
@@ -762,6 +797,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly HashSet<string> _escalationRebootedThisRun = new(StringComparer.Ordinal);
 
+    /// <summary>
+    /// Serials whose last am-start reported the qshell activity does not exist:
+    /// qshell is not installed (a pre-upgrade panel still on the OEM launcher).
+    /// Suppresses the escalation reboot - an absent qshell is the expected
+    /// pre-install state, not a USB-FFS wedge a reboot could clear.
+    /// </summary>
+    private readonly HashSet<string> _qshellMissingBySerial = new(StringComparer.Ordinal);
+
     /// <summary>Re-push the host clock to the panel this often; covers RTC drift
     /// without spamming set-time every tick.</summary>
     private static readonly TimeSpan ClockSyncInterval = TimeSpan.FromMinutes(30);
@@ -801,6 +844,8 @@ public sealed class QSeriesPortWatcher : BackgroundService
         }
         if (focusReceiver.ToString().Contains(QshellFocusMarker, StringComparison.Ordinal))
         {
+            _qshellMissingBySerial.Remove(device.Serial);
+            await ReassertQshellHomeAsync(device, ct);
             return;
         }
 
@@ -817,13 +862,50 @@ public sealed class QSeriesPortWatcher : BackgroundService
         try
         {
             await _client.ExecuteShellCommandAsync(device, $"am start -n {QshellComponent}", startReceiver, ct);
+            var startOut = startReceiver.ToString().Trim();
+            // "Activity class {...} does not exist" => qshell is not installed yet.
+            if (startOut.Contains("does not exist", StringComparison.OrdinalIgnoreCase))
+            {
+                _qshellMissingBySerial.Add(device.Serial);
+            }
+            else
+            {
+                _qshellMissingBySerial.Remove(device.Serial);
+                await ReassertQshellHomeAsync(device, ct);
+            }
             ServiceLog.Info(
-                $"[qseries-port-watcher] {device.Serial}: qshell not in foreground, ran am start ({startReceiver.ToString().Trim()})");
+                $"[qseries-port-watcher] {device.Serial}: qshell not in foreground, ran am start ({startOut})");
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: am start qshell failed: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Re-pin qshell as the panel's default HOME (<c>cmd package
+    /// set-home-activity</c>), once per attach. See <see cref="_homePinnedThisRun"/>
+    /// for why the install-time pin is insufficient. Caller must have confirmed
+    /// qshell is installed.
+    /// </summary>
+    private async Task ReassertQshellHomeAsync(DeviceData device, CancellationToken ct)
+    {
+        if (!_homePinnedThisRun.Add(device.Serial)) return;
+        var receiver = new ConsoleOutputReceiver();
+        try
+        {
+            await _client.ExecuteShellCommandAsync(
+                device, $"cmd package set-home-activity {QshellComponent}", receiver, ct);
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {device.Serial}: re-pinned default HOME to qshell ({receiver.ToString().Trim()})");
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            // Drop the flag so the next tick retries.
+            _homePinnedThisRun.Remove(device.Serial);
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {device.Serial}: set-home-activity failed: {ex.GetType().Name}");
         }
     }
 
@@ -940,9 +1022,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private async Task TryEscalateRebootAsync(DeviceData device, CancellationToken ct)
     {
-        // No anchor → not seen this run yet; nothing to escalate.
+        // No anchor -> not seen this run yet; nothing to escalate.
         if (!_firstSeenAtBySerial.TryGetValue(device.Serial, out var firstSeenAt)) return;
         if (_escalationRebootedThisRun.Contains(device.Serial)) return;
+        // An in-flight adb install holds the transport; a reboot here would abort it.
+        if (_deviceRegistry?.TryGet(QshellPackage)?.InstallInProgress == true) return;
+        // qshell is not installed (pre-upgrade panel on the OEM launcher): a panel
+        // running the OEM is the expected pre-install state, not a wedge to reboot.
+        if (_qshellMissingBySerial.Contains(device.Serial)) return;
 
         var now = DateTimeOffset.UtcNow;
         var sinceFirstSeen = now - firstSeenAt;
@@ -994,6 +1081,22 @@ public sealed class QSeriesPortWatcher : BackgroundService
             .Select(d => (long?)d.LastSeenAt)
             .FirstOrDefault();
 
+    private void RegisterDeviceTarget(string serial)
+    {
+        if (_deviceRegistry is null) return;
+        if (_registeredSerial == serial) return;
+        var target = new QSeriesAdbDeviceTarget(serial, _client);
+        _deviceRegistry.Register(target);
+        _registeredSerial = serial;
+    }
+
+    private void UnregisterDeviceTarget()
+    {
+        if (_deviceRegistry is null || _registeredSerial is null) return;
+        _deviceRegistry.Unregister(QshellPackage);
+        _registeredSerial = null;
+    }
+
     private async Task EnsureReverseAsync(DeviceData device, CancellationToken ct)
     {
         // First sighting this run: remove + re-add the reverse to clear a soft wedge
@@ -1037,6 +1140,54 @@ public sealed class QSeriesPortWatcher : BackgroundService
             _reverseAppliedBySerial.Remove(device.Serial);
             ServiceLog.Info(
                 $"[qseries-port-watcher] reverse apply failed for {device.Serial}: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    private sealed class QSeriesAdbDeviceTarget : IAdbDeviceTarget
+    {
+        private readonly string _serial;
+        private readonly AdbClient _client;
+
+        public QSeriesAdbDeviceTarget(string serial, AdbClient client)
+        {
+            _serial = serial;
+            _client = client;
+        }
+
+        public string Serial => _serial;
+        public string Package => QshellPackage;
+        public bool InstallInProgress { get; set; }
+
+        public async Task<string> ShellAsync(string command, CancellationToken ct)
+        {
+            IEnumerable<DeviceData> devices;
+            try
+            {
+                devices = await _client.GetDevicesAsync(ct);
+            }
+            catch
+            {
+                return string.Empty;
+            }
+
+            DeviceData? found = null;
+            foreach (var d in devices)
+            {
+                if (string.Equals(d.Serial, _serial, StringComparison.Ordinal))
+                {
+                    found = d;
+                    break;
+                }
+            }
+
+            if (found is null || string.IsNullOrEmpty(found.Value.Serial))
+            {
+                return string.Empty;
+            }
+
+            var receiver = new ConsoleOutputReceiver();
+            await _client.ExecuteShellCommandAsync(found.Value, command, receiver, ct);
+            return receiver.ToString();
         }
     }
 }

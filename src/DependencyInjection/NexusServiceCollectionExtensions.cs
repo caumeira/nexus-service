@@ -140,7 +140,15 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
-                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>())));
+                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.LianLiCoolingProvider.IsLianLiId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.LianLiTlCoolingProvider.IsLianLiTlId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiTlCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.Galahad2CoolingProvider.IsGalahad2Id, sp.GetRequiredService<Nexus.Service.Cooling.Galahad2CoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.CorsairLinkCoolingProvider.IsCorsairId, sp.GetRequiredService<Nexus.Service.Cooling.CorsairLinkCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #elif MACOS
         services.AddSingleton<MacFanControlProvider>();
@@ -152,7 +160,15 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
-                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>())));
+                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.LianLiCoolingProvider.IsLianLiId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.LianLiTlCoolingProvider.IsLianLiTlId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiTlCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.Galahad2CoolingProvider.IsGalahad2Id, sp.GetRequiredService<Nexus.Service.Cooling.Galahad2CoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.CorsairLinkCoolingProvider.IsCorsairId, sp.GetRequiredService<Nexus.Service.Cooling.CorsairLinkCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #elif LINUX
         // hwmon (motherboard + AMD GPU via amdgpu) + liquidctl USB coolers
@@ -172,7 +188,15 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 LinuxLiquidctlProvider.IsLiquidctlId, sp.GetRequiredService<LinuxLiquidctlProvider>()),
             new CompositeFanControlProvider.FanSource(
-                LinuxNvidiaFanProvider.IsNvidiaId, sp.GetRequiredService<LinuxNvidiaFanProvider>())));
+                LinuxNvidiaFanProvider.IsNvidiaId, sp.GetRequiredService<LinuxNvidiaFanProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.LianLiCoolingProvider.IsLianLiId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.LianLiTlCoolingProvider.IsLianLiTlId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiTlCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.Galahad2CoolingProvider.IsGalahad2Id, sp.GetRequiredService<Nexus.Service.Cooling.Galahad2CoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.CorsairLinkCoolingProvider.IsCorsairId, sp.GetRequiredService<Nexus.Service.Cooling.CorsairLinkCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #else
         services.AddSingleton<IFanControlProvider>(sp => new CompositeFanControlProvider(
@@ -183,7 +207,15 @@ public static class NexusServiceCollectionExtensions
             new CompositeFanControlProvider.FanSource(
                 SmartHubCoolingProvider.IsSmartHubId, sp.GetRequiredService<SmartHubCoolingProvider>()),
             new CompositeFanControlProvider.FanSource(
-                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>())));
+                QSeriesCoolerCoolingProvider.IsQSeriesId, sp.GetRequiredService<QSeriesCoolerCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.LianLiCoolingProvider.IsLianLiId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.LianLiTlCoolingProvider.IsLianLiTlId, sp.GetRequiredService<Nexus.Service.Cooling.LianLiTlCoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.Galahad2CoolingProvider.IsGalahad2Id, sp.GetRequiredService<Nexus.Service.Cooling.Galahad2CoolingProvider>()),
+            new CompositeFanControlProvider.FanSource(
+                Nexus.Service.Cooling.CorsairLinkCoolingProvider.IsCorsairId, sp.GetRequiredService<Nexus.Service.Cooling.CorsairLinkCoolingProvider>())));
         services.AddSingleton<ICoolingProvider>(sp => (ICoolingProvider)sp.GetRequiredService<IFanControlProvider>());
 #endif
         services.AddSingleton<Np50CoolingProvider>();
@@ -218,6 +250,10 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IObsProvider, ObsProvider>();
         services.AddSingleton<ISteamProvider, SteamProvider>();
         services.AddSingleton<IDiscordProvider, DiscordProvider>();
+        services.AddSingleton<Nexus.Service.Integrations.HomeAssistant.HomeAssistantClient>();
+        services.AddSingleton<Nexus.Service.Integrations.HomeAssistant.HomeAssistantHub>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Integrations.HomeAssistant.HomeAssistantHub>());
 
         if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS() || OperatingSystem.IsLinux())
         {
@@ -326,6 +362,8 @@ public static class NexusServiceCollectionExtensions
             sp => sp.GetRequiredService<Nexus.Service.Lighting.SmartHubLightingDeviceProvider>());
         services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
             sp => sp.GetRequiredService<Nexus.Service.Lighting.SmartHubLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IComposableHubSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.SmartHubLightingDeviceProvider>());
         services.AddSingleton<Nexus.Service.Lighting.SmartHubLightingFrameWriter>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.SmartHubLightingFrameWriter>());
 
@@ -372,6 +410,64 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Keeb.KeebInputWorker>();
 
+        // Lian Li Uni Hub SL-Infinity: HID connection worker + lighting + cooling.
+        services.AddSingleton<Nexus.Service.Peripherals.LianLi.LianLiHub>();
+        services.AddSingleton<Nexus.Service.Cooling.LianLiCoolingProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.LianLiLightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IComposableHubSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.LianLiLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingFrameWriter>());
+        services.AddHostedService<Nexus.Service.Peripherals.LianLi.LianLiConnectionWorker>();
+
+        // Lian Li Uni Fan TL: hub + cooling provider + connection worker.
+        services.AddSingleton<Nexus.Service.Peripherals.LianLiTl.TlFanHub>();
+        services.AddSingleton<Nexus.Service.Cooling.LianLiTlCoolingProvider>();
+        services.AddHostedService<Nexus.Service.Peripherals.LianLiTl.TlFanConnectionWorker>();
+
+        // Lian Li Galahad II Trinity AIO: hub + cooling provider + lighting + connection worker.
+        services.AddSingleton<Nexus.Service.Peripherals.Galahad2.Galahad2Hub>();
+        services.AddSingleton<Nexus.Service.Cooling.Galahad2CoolingProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.Galahad2LightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.Galahad2LightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.Galahad2LightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Galahad2LightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.Galahad2LightingFrameWriter>());
+        services.AddHostedService<Nexus.Service.Peripherals.Galahad2.Galahad2ConnectionWorker>();
+
+        // Corsair iCUE LINK System Hub: HID connection worker + lighting + cooling.
+        // Auto-detects the daisy chain; no composition (each device is one fixed zone).
+        services.AddSingleton<Nexus.Service.Peripherals.CorsairLink.CorsairLinkHub>();
+        services.AddSingleton<Nexus.Service.Cooling.CorsairLinkCoolingProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.CorsairLinkLightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.CorsairLinkLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.CorsairLinkLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.CorsairLinkLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.CorsairLinkLightingFrameWriter>());
+        services.AddHostedService<Nexus.Service.Peripherals.CorsairLink.CorsairLinkConnectionWorker>();
+        services.AddSingleton<Nexus.Service.Peripherals.CorsairLink.CorsairLinkLcd>();
+        services.AddSingleton<Nexus.Service.Peripherals.CorsairLink.CorsairLinkLcdMediaLibrary>();
+        services.AddHostedService<Nexus.Service.Peripherals.CorsairLink.CorsairLinkLcdWorker>();
+
+        // Lian Li Strimer Plus: HID connection worker + lighting.
+        services.AddSingleton<Nexus.Service.Peripherals.Strimer.StrimerHub>();
+        services.AddSingleton<Nexus.Service.Lighting.StrimerLightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.StrimerLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.StrimerLightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.StrimerLightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.StrimerLightingFrameWriter>());
+        services.AddHostedService<Nexus.Service.Peripherals.Strimer.StrimerConnectionWorker>();
+
         // Smart (network) lights - Philips Hue, Nanoleaf, Govee today; WLED /
         // LIFX / Twinkly / WiZ / Yeelight / Elgato next. One brand-neutral
         // provider + frame writer + send throttle; per-brand behavior is an
@@ -417,6 +513,10 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.CorsairLinkLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.StrimerLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.Galahad2LightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
@@ -431,6 +531,10 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.CnvsLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.CorsairLinkLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.StrimerLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.Galahad2LightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Smart.SmartLightProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>()));
@@ -443,6 +547,11 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.FanHubHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Np50Handler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.SmartHubHandler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.LianLiHandler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.LianLiTlHandler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Galahad2Handler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.CorsairLinkHandler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.StrimerHandler>();
 
         // Read-only catalog of firmware images embedded in this build. Backs
         // the Firmware Updates page's "available version" column.
@@ -466,7 +575,11 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.QSeriesCooler.QSeriesCoolerHub>());
         services.AddSingleton<Nexus.Service.Devices.Firmware.IDfuFlashTarget>(sp =>
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Y70Display.Y70DisplayHub>());
+        // Shared one-at-a-time flash gate: owns the mutex, IsFlashing flag, and Status
+        // object that both FirmwareFlasher and ApkFlasher write to.
+        services.AddSingleton<Nexus.Service.Devices.Firmware.FlashGate>();
         services.AddSingleton<Nexus.Service.Devices.Firmware.FirmwareFlasher>();
+        services.AddSingleton<Nexus.Service.Devices.Firmware.ApkFlasher>();
 
         // NP50 hub: serial port discovery + transport factory + singleton hub +
         // 2-second heartbeat poller. Windows and Linux have real port discovery;
@@ -879,13 +992,20 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Widgets.AppActions.CoolingActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.LightingActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.TryxActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.AppInstallActions.RegisterAll(registry);
             return registry;
         });
         services.AddSingleton<Nexus.Service.Widgets.AppDispatchRateLimiter>();
 
-        // Generic external-tool manager (NEX-13): fetches + runs a device's sidecar
-        // executable. Hosted so its StopAsync kills every tracked tool process on
-        // service shutdown.
+        // Generic external-tool manager (NEX-13): fetches + installs a device's
+        // sidecar payload, routed to a per-target strategy. Hosted so its StopAsync
+        // tears down every tracked tool on service shutdown.
+        services.AddSingleton<Nexus.Service.Common.ExternalTools.IAdbDeviceRegistry,
+            Nexus.Service.Common.ExternalTools.AdbDeviceRegistry>();
+        services.AddSingleton<Nexus.Service.Common.ExternalTools.IToolInstallStrategy,
+            Nexus.Service.Common.ExternalTools.HostExeInstallStrategy>();
+        services.AddSingleton<Nexus.Service.Common.ExternalTools.IToolInstallStrategy,
+            Nexus.Service.Common.ExternalTools.AndroidAdbInstallStrategy>();
         services.AddSingleton<Nexus.Service.Common.ExternalTools.ExternalToolManager>();
         services.AddHostedService(sp =>
             sp.GetRequiredService<Nexus.Service.Common.ExternalTools.ExternalToolManager>());
@@ -908,7 +1028,8 @@ public static class NexusServiceCollectionExtensions
                 sp => new Nexus.Service.QSeries.QSeriesPortWatcher(
                     servicePort,
                     sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
-                    sp.GetRequiredService<Nexus.Service.Panel.PanelDeviceRegistry>()));
+                    sp.GetRequiredService<Nexus.Service.Panel.PanelDeviceRegistry>(),
+                    sp.GetRequiredService<Nexus.Service.Common.ExternalTools.IAdbDeviceRegistry>()));
             services.AddHostedService(sp =>
                 sp.GetRequiredService<Nexus.Service.QSeries.QSeriesPortWatcher>());
         }

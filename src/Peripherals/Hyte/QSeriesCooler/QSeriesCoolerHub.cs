@@ -250,18 +250,8 @@ public sealed class QSeriesCoolerHub : IDisposable, IDfuFlashTarget
                 State.ControlMode = QSeriesCoolerProtocol.ControlModeOf(buf);
                 State.TurboOn = QSeriesCoolerProtocol.TurboOnOf(buf);
 
-                if (Variant == QSeriesCoolerProtocol.VariantQ80)
-                {
-                    transport.DiscardInput();
-                    transport.Write(QSeriesCoolerProtocol.BuildGetPump2Info());
-                    var buf2 = new byte[QSeriesCoolerProtocol.Pump2ResponseLength];
-                    var n2 = transport.Read(buf2, TelemetryReadTimeoutMs);
-                    if (QSeriesCoolerProtocol.TryParsePump2Rpm(buf2.AsSpan(0, n2), out var pump2))
-                    {
-                        State.Pump2Rpm = pump2;
-                        State.HasPump2 = pump2 > 0;
-                    }
-                }
+                // Q80 has a single pump, same as Q60 - the second-pump port is
+                // not queried, so HasPump2 stays false and no Pump 2 is shown.
 
                 // Radiator fans on the Type-M channel (FF CC 01 02).
                 transport.DiscardInput();

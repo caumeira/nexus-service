@@ -8,8 +8,8 @@ This is the engine of [Nexus](https://hellonexus.com). The other repos are clien
 
 - **Sensors / monitoring** - CPU, GPU, RAM, network, disk, fan, temp, FPS, battery (laptop), media sessions. LibreHardwareMonitor on Windows, IOKit on macOS, sysfs/hwmon on Linux.
 - **Cooling** - fan curves, pump speed, AIO control. Per-device drivers under `Cooling/` + `QSeries/`.
-- **Lighting** - RGB control via a bundled [headless OpenRGB child process](https://github.com/hello-nexus/openrgb-headless), plus first-party HYTE peripheral protocols. Effects engine, screen sync, audio sync, anime mode, game sync (drive your own hardware from a game's lighting: Razer Chroma, Alienware LightFX, and Logitech capture via bundled shims, plus CS2 Game State Integration).
-- **Peripherals** - DPI / polling / battery / sleep for supported mice and keyboards (`Peripherals/`).
+- **Lighting** - RGB control via a bundled [headless OpenRGB child process](https://github.com/hello-nexus/openrgb-headless), plus first-party HYTE and Lian Li peripheral protocols. Effects engine, screen sync, audio sync, anime mode, game sync (drive your own hardware from a game's lighting: Razer Chroma, Alienware LightFX, and Logitech capture via bundled shims, plus CS2 Game State Integration).
+- **Peripherals** - DPI / polling / battery / sleep for supported mice and keyboards, plus first-party USB device-hub drivers (the Lian Li Uni fan family, Galahad II AIO, and Strimer RGB controllers) (`Peripherals/`).
 - **Tryx Panorama AIO screen** - drive the Panorama cooler's screen (custom video upload + transcode, presets, brightness, fan) over CDC-ACM serial + ADB (`Peripherals/Tryx/`); host actions back the downloadable `com.hellonexus.tryx` device-app, which uploads media via `POST /tryx/media`.
 - **Panel runtimes** - pair + serve the React panel UIs for the HYTE Y70/Y80 secondary touch panel, mobile companion (`/panel/phone`), and Q-Series on-device screens.
 - **Apps / widgets** - host for the `nexus.app/1` SDK apps shipped in [`nexus-apps`](https://github.com/hello-nexus/nexus-apps), with sensor bindings and a sandboxed Web Worker runtime. Legacy `nexus.widget/2` manifests still load.
@@ -60,11 +60,13 @@ src/
   Sensors/            # LibreHardwareMonitor (Win), IOKit (Mac), sysfs (Linux)
   Cooling/  QSeries/  # fan/pump drivers
   Lighting/           # OpenRGB bridge, HYTE protocols, effects, screen+audio sync
-  Peripherals/        # mouse/keyboard drivers; Tryx/ = Panorama AIO screen (serial + ADB)
+  Peripherals/        # mouse/keyboard + USB hub drivers (Lian Li Uni/AIO/Strimer); Tryx/ = Panorama AIO screen (serial + ADB)
   Panel/              # /panel/* pairing + token endpoints
   Widgets/            # nexus.app/1 app host (manifest loader, data sources, worker sandbox)
   Activity/           # screentime, app detection
   Discord/ Steam/ Obs/# third-party integrations
+  Integrations/
+    HomeAssistant/    # Home Assistant: REST+WS client, entity cache, broadcast (GET/POST /home-assistant/*)
   Media/              # media session state (GSMTC on Windows)
   Fps/                # FPS capture
   Relay/              # off-LAN relay client for the phone panel
@@ -136,7 +138,11 @@ bash scripts/fetch-ffmpeg.sh all    # or: mac | win | linux
   ```
 
 - **macOS** - `Bundled/macos/build-app.sh` wraps the publish output into
-  `Nexus.app`; the final `Nexus.dmg` packaging has no in-repo script yet.
+  `Nexus.app`, relocating data out of `Contents/MacOS` into `Contents/Resources`
+  (symlinked back) so the bundle can be sealed. `Bundled/macos/sign-notarize.sh`
+  then deep-signs it with a Developer ID identity, packages `Nexus.dmg`,
+  notarizes via `notarytool`, and staples. Set `NEXUS_SKIP_CAMERA_EXTENSION=1`
+  to omit the camera system extension (CI, which can't provision it headlessly).
 
 ## Test
 
@@ -166,7 +172,7 @@ dotnet run -c Release -p:BuildWeb=false \
 
 ## Releases
 
-Installer artifacts are published to [`hello-nexus/nexus-releases`](https://github.com/hello-nexus/nexus-releases) under semver tags (`v3.0.0`, `v3.1.0`, ...): `Nexus-Setup.exe` (Windows) and `Nexus.dmg` (macOS), alongside the mobile app builds from the wrapper repos. The download links on hellonexus.com point at `/releases/latest/download/<asset>`. Each release also carries a `SHA256SUMS` text asset containing the hex-encoded SHA-256 hash of `Nexus-Setup.exe`; the OTA engine uses this for integrity verification before installing.
+Installer artifacts are published to [`hello-nexus/nexus`](https://github.com/hello-nexus/nexus) under semver tags (`v3.0.0`, `v3.1.0`, ...): `Nexus-Setup.exe` (Windows) and `Nexus.dmg` (macOS), alongside the mobile app builds from the wrapper repos. The download links on hellonexus.com point at `/releases/latest/download/<asset>`. Each release also carries a `SHA256SUMS` text asset containing the hex-encoded SHA-256 hash of `Nexus-Setup.exe`; the OTA engine uses this for integrity verification before installing.
 
 The canonical version lives in the `VERSION` file at the repo root (e.g. `3.0.0`). The build stamps `"v" + <VERSION content>` into `BuildInfo.Version` at compile time via the `SetGitVersion` MSBuild target.
 

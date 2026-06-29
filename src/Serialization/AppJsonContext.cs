@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
 using Nexus.Service.Activity;
+using Nexus.Service.Integrations.HomeAssistant;
 using Nexus.Service.Helper;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Activity;
@@ -90,6 +91,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFwSettingResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFwSettingRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.SmartHubFirmwareControlRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.SmartHubCompositionResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.SmartHubCompositionRequest))]
 
 // Q-series cooler device surface
 [JsonSerializable(typeof(Nexus.Service.Routes.QSeriesCoolerStateResponse))]
@@ -129,6 +132,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(StartupModeDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.TelemetryConsentBody))]
 [JsonSerializable(typeof(Nexus.Service.Routes.TelemetryConsentDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.ClientMemBody))]
 [JsonSerializable(typeof(FanCalibration))]
 [JsonSerializable(typeof(List<FanCalibration>))]
 [JsonSerializable(typeof(FanCalibrationPoint))]
@@ -390,7 +394,17 @@ namespace Nexus.Service.Serialization;
 
 // Devices
 [JsonSerializable(typeof(Nexus.Service.Persistence.DeviceLayout))]
+[JsonSerializable(typeof(Dictionary<string, Nexus.Service.Persistence.DeviceLayout>))]
 [JsonSerializable(typeof(SaveDeviceLayoutBody))]
+[JsonSerializable(typeof(LayoutPresetDto))]
+[JsonSerializable(typeof(List<LayoutPresetDto>))]
+[JsonSerializable(typeof(LayoutPresetsResponse))]
+[JsonSerializable(typeof(CreateLayoutPresetBody))]
+[JsonSerializable(typeof(CreateLayoutPresetResponse))]
+[JsonSerializable(typeof(UpdateLayoutPresetBody))]
+[JsonSerializable(typeof(SetActivePresetBody))]
+[JsonSerializable(typeof(DeletePresetResponse))]
+[JsonSerializable(typeof(BatchApplyLayoutsBody))]
 [JsonSerializable(typeof(DeviceListItem))]
 [JsonSerializable(typeof(List<DeviceListItem>))]
 [JsonSerializable(typeof(UsbDeviceDetail))]
@@ -576,7 +590,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SetAudioDefaultBody))]
 [JsonSerializable(typeof(GetAllShortcutsResponse))]
 [JsonSerializable(typeof(GetShortcutResponse))]
-[JsonSerializable(typeof(MusicResult))]
 
 // Lifecycle
 [JsonSerializable(typeof(SetWillStartParams))]
@@ -724,6 +737,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(AppProxyResponse))]
 [JsonSerializable(typeof(AppDispatchRequest))]
 [JsonSerializable(typeof(AppDispatchResponse))]
+[JsonSerializable(typeof(AppInstallStatusDto))]
+[JsonSerializable(typeof(AppInstallTriggerDto))]
 
 // OTA self-update routes + GitHub provider DTOs
 [JsonSerializable(typeof(UpdateStatusResponse))]
@@ -759,6 +774,55 @@ namespace Nexus.Service.Serialization;
 // Phone-as-webcam control surface.
 [JsonSerializable(typeof(Nexus.Service.Models.Webcam.WebcamStartRequest))]
 [JsonSerializable(typeof(Nexus.Service.Models.Webcam.WebcamStatusResponse))]
+
+// Home Assistant integration.
+[JsonSerializable(typeof(HaEntityDto))]
+[JsonSerializable(typeof(List<HaEntityDto>))]
+[JsonSerializable(typeof(HaConfigResponse))]
+[JsonSerializable(typeof(HaConfigBody))]
+[JsonSerializable(typeof(HaConfigSetResponse))]
+[JsonSerializable(typeof(HaEntitiesResponse))]
+[JsonSerializable(typeof(HaSetEntityBody))]
+[JsonSerializable(typeof(HomeAssistantChangedFrame))]
+
+// Lian Li Uni Hub SL-Infinity.
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiStateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiFanCountRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiCompositionResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiCompositionRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiLightingResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiLightingRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiModeInfoDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiModeInfoDto[]))]
+// Lian Li Uni Fan TL hub.
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiTlStateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiTlFanDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LianLiTlFanDto[]))]
+// Lian Li Galahad II Trinity AIO.
+[JsonSerializable(typeof(Nexus.Service.Routes.Galahad2StateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Galahad2LightingResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Galahad2LightingRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Galahad2ModeInfoDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Galahad2ModeInfoDto[]))]
+// Corsair iCUE LINK System Hub.
+[JsonSerializable(typeof(Nexus.Service.Routes.CorsairStateResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.CorsairDeviceDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.CorsairDeviceDto[]))]
+[JsonSerializable(typeof(Nexus.Service.Routes.CorsairSettingsRequest))]
+// Corsair iCUE LINK LCD.
+[JsonSerializable(typeof(Nexus.Service.Peripherals.CorsairLink.LcdMediaItem))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.CorsairLink.LcdMediaItem[]))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LcdMediaListResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LcdUploadResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LcdSettingsRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.LcdStateResponse))]
+[JsonSerializable(typeof(int[]))]
+[JsonSerializable(typeof(bool[]))]
+// Lian Li Strimer Plus.
+[JsonSerializable(typeof(Nexus.Service.Routes.StrimerLightingResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.StrimerLightingRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.StrimerModeInfoDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.StrimerModeInfoDto[]))]
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

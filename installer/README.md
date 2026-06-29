@@ -3,14 +3,17 @@
 Builds `Nexus-Setup.exe`, the single signed executable end users download
 to install Nexus. Wraps the AOT publish output in an Inno Setup 6 wizard
 that lays files into `C:\Program Files\Nexus\`, installs the PawnIO kernel
-driver, registers the `NexusService` scheduled task (At Logon, elevated),
-starts the service, and opens the dashboard in the browser.
+driver, registers and starts the `NexusService` Windows service (LocalSystem,
+automatic start), drops a searchable Start Menu shortcut (and, if the
+directory-page checkbox is left ticked, a desktop shortcut), and opens the
+dashboard. Uninstall offers to keep or remove the per-machine data under
+`%ProgramData%\Nexus\`.
 
 This is **not part of the regular AOT publish cycle**. The dev loop stays:
 
 ```
 dotnet publish ...
-schtasks /Run /TN NexusService
+sc start NexusService
 ```
 
 The installer is built explicitly when shipping a release.
@@ -37,7 +40,7 @@ powershell -File installer\build-installer.ps1 -PublishDir "$env:ProgramFiles\Ne
 Output: `installer\output\Nexus-Setup.exe` (~19 MB compressed) plus a
 `SHA256SUMS` next to it, with copies of both dropped at `%USERPROFILE%\nexus\`.
 Releases are published as a semver `vX.Y.Z` tag (matching `VERSION`) on
-`hello-nexus/nexus-releases` via `gh release create`, and must carry the
+`hello-nexus/nexus` via `gh release create`, and must carry the
 `SHA256SUMS` asset - the OTA updater requires the published hash to auto-stage a
 release.
 
@@ -78,22 +81,17 @@ intended (a new bundled feature) or junk; verify which.
 - `signing-metadata.json` - Artifact Signing account/profile/endpoint (non-secret)
 - `output\` - compiler output (gitignored)
 
-## Install scope (per-user vs all-users)
+## Install scope
 
-Default is per-user (`%LOCALAPPDATA%\Programs\Nexus`). The directory page
-includes a single "Install for all users on this PC" checkbox that flips the
-target to `C:\Program Files\Nexus` when checked. No extra wizard pages.
+Machine-scope only. Files go to `C:\Program Files\Nexus` (`{commonpf64}`) and
+`NexusService` runs as **LocalSystem**, shared by every account on the PC, so
+there is no per-user option (the previous schtask-era per-user install is gone).
+The wizard always requires UAC: both the PawnIO kernel driver and the service
+registration are machine-wide.
 
-UAC is required either way because the PawnIO kernel driver install is
-machine-wide (Windows has no per-user kernel drivers). The win of per-user is
-that *future binary updates* can rewrite the exe without UAC. The all-users
-choice exists for shared-PC scenarios where every Windows account on the
-machine needs a single shared install.
-
-The autostart scheduled task (`NexusService`, At Logon, elevated) is
-always registered for the launching user via `/RU "{username}"`. Other users
-on a per-machine install can still launch the exe manually, but won't get
-auto-start unless they re-register the task themselves.
+The service registers with **automatic** start, so it runs from boot for all
+users with no per-user autostart entry. The directory page is the only wizard
+page; it carries a "Create a desktop shortcut" checkbox (ticked by default).
 
 ## Code signing
 

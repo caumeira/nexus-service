@@ -15,17 +15,18 @@ public static class UpdateIntegrity
 {
     // SHA-256 is always enforced. Authenticode chain + durable-identity
     // verification is built but stays disabled until a signed release has been
-    // verified end to end on Windows; flip this to true then. The non-enforced
-    // path still logs whether the durable-identity EKU is present, so a signed
-    // build can be confirmed before enforcement is turned on.
+    // verified end to end on Windows; flip AuthenticodeEnforced to true then. The
+    // non-enforced path still logs whether the durable-identity EKU is present, so
+    // a signed build can be confirmed before enforcement is turned on.
     // Trust boundary: SHA-256 from SHA256SUMS (author-published) detects
     // tampering of the staged file; it does not prove the release author's
     // identity. The durable-identity EKU check provides that.
+
+#if WINDOWS
     // static readonly, not const: a const false makes the `if (AuthenticodeEnforced)`
     // branch compile-time unreachable (CS0162). This is a runtime deployment toggle.
     private static readonly bool AuthenticodeEnforced = false;
 
-#if WINDOWS
     // Artifact Signing renews the signing cert daily (72h validity), so its
     // thumbprint and Subject DN are not durable. Microsoft embeds a per-identity
     // "durable identity" EKU (prefix 1.3.6.1.4.1.311.97.) unique to a subscriber's
@@ -38,7 +39,7 @@ public static class UpdateIntegrity
 
     /// <summary>
     /// Verifies the staged installer at <paramref name="path"/>. Always checks
-    /// SHA-256. When <see cref="AuthenticodeEnforced"/> is true (Windows only),
+    /// SHA-256. When Authenticode enforcement is enabled (Windows only),
     /// also verifies the Authenticode chain and the durable-identity EKU.
     /// Throws <see cref="InvalidDataException"/> on any failure.
     /// </summary>

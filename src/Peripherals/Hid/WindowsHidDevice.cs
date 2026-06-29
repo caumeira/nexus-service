@@ -19,9 +19,12 @@ public sealed class WindowsHidDevice : IHidDevice
     private const uint WAIT_TIMEOUT = 0x102;
     private const uint INFINITE = 0xFFFFFFFF;
 
+    private const int WriteTimeoutMs = 1000;
+
     private IntPtr _handle;
     private readonly bool _overlapped;
-    private readonly IntPtr _readEvent; // manual-reset completion event; only set when overlapped
+    private readonly IntPtr _readEvent;  // manual-reset completion event; only set when overlapped
+    private readonly IntPtr _writeEvent; // separate completion event for overlapped writes
     private readonly byte[] _readBuf;   // reused per read, sized to the input report length
     public int VendorId { get; }
     public int ProductId { get; }
@@ -49,6 +52,7 @@ public sealed class WindowsHidDevice : IHidDevice
         if (overlapped)
         {
             _readEvent = NativeApi.CreateEventW(IntPtr.Zero, true, false, null);
+            _writeEvent = NativeApi.CreateEventW(IntPtr.Zero, true, false, null);
         }
     }
 
@@ -72,11 +76,64 @@ public sealed class WindowsHidDevice : IHidDevice
         return ok;
     }
 
+    public bool GetInputReport(Span<byte> buffer)
+    {
+        if (_handle == IntPtr.Zero) return false;
+        var buf = new byte[buffer.Length];
+        buf[0] = buffer[0]; // report id must be preset on input
+        var ok = NativeApi.HidD_GetInputReport(_handle, buf, (uint)buf.Length);
+        if (ok)
+        {
+            buf.AsSpan().CopyTo(buffer);
+        }
+        return ok;
+    }
+
     public bool Write(ReadOnlySpan<byte> report)
     {
         if (_handle == IntPtr.Zero) return false;
         var buf = report.ToArray();
-        return NativeApi.WriteFile(_handle, buf, (uint)buf.Length, out _, IntPtr.Zero);
+        if (!_overlapped)
+        {
+            return NativeApi.WriteFile(_handle, buf, (uint)buf.Length, out _, IntPtr.Zero);
+        }
+        return WriteOverlapped(buf);
+    }
+
+    // A FILE_FLAG_OVERLAPPED handle (opened forInput for interrupt-IN reads) rejects a
+    // synchronous WriteFile, so the output report must be issued overlapped and waited on.
+    private unsafe bool WriteOverlapped(byte[] buf)
+    {
+        fixed (byte* pbuf = buf)
+        {
+            var ov = default(NativeOverlapped);
+            ov.EventHandle = _writeEvent;
+            NativeApi.ResetEvent(_writeEvent);
+
+            if (!NativeApi.WriteFileOverlapped(_handle, pbuf, (uint)buf.Length, IntPtr.Zero, &ov))
+            {
+                var err = Marshal.GetLastWin32Error();
+                if (err != ERROR_IO_PENDING) return false;
+
+                var wait = NativeApi.WaitForSingleObject(_writeEvent, WriteTimeoutMs);
+                if (wait != WAIT_OBJECT_0)
+                {
+                    NativeApi.CancelIo(_handle);
+                    NativeApi.GetOverlappedResult(_handle, &ov, out _, true);
+                    return false;
+                }
+            }
+
+            if (!NativeApi.GetOverlappedResult(_handle, &ov, out var transferred, false)) return false;
+            return transferred > 0;
+        }
+    }
+
+    public bool SetOutputReport(ReadOnlySpan<byte> report)
+    {
+        if (_handle == IntPtr.Zero) return false;
+        var buf = report.ToArray();
+        return NativeApi.HidD_SetOutputReport(_handle, buf, (uint)buf.Length);
     }
 
     public int Read(Span<byte> buffer, int timeoutMs)
@@ -150,6 +207,10 @@ public sealed class WindowsHidDevice : IHidDevice
         if (_readEvent != IntPtr.Zero)
         {
             NativeApi.CloseHandle(_readEvent);
+        }
+        if (_writeEvent != IntPtr.Zero)
+        {
+            NativeApi.CloseHandle(_writeEvent);
         }
     }
 }

@@ -3,7 +3,6 @@ using System.Diagnostics;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
-using Nexus.Service.Models.Activity;
 using Nexus.Service.Platform;
 
 namespace Nexus.Service.Activity;
@@ -34,7 +33,7 @@ public sealed class BeatsProvider : IBeatsProvider
     private Task? _captureTask;
     private bool _running;
 
-    public event Action<MusicResult>? OnBeat;
+    public event Action? OnBeat;
 
     public void Start()
     {
@@ -180,9 +179,9 @@ public sealed class BeatsProvider : IBeatsProvider
 
                 Buffer.BlockCopy(buffer, 0, samples, 0, WindowBytes);
 
-                var result = _analyser.Analyse(samples);
+                _analyser.Analyse(samples);
                 try
-                { OnBeat?.Invoke(result); }
+                { OnBeat?.Invoke(); }
                 catch { /* swallow subscriber errors */ }
             }
         }

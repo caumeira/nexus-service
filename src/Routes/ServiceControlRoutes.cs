@@ -141,10 +141,14 @@ internal static class ServiceControlRoutes
 
     private static bool ReadAutoStart()
     {
-        var (code, output) = RunSc("qc", ServiceName);
-        if (code != 0) return false;
-        // sc qc emits a START_TYPE line, e.g. "  START_TYPE  : 2 AUTO_START".
-        return output.Contains("AUTO_START", StringComparison.OrdinalIgnoreCase);
+#if WINDOWS
+        // Registry Start DWORD is locale-neutral: 2=auto, 3=demand, 4=disabled.
+        using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+            @"SYSTEM\CurrentControlSet\Services\" + ServiceName);
+        return key?.GetValue("Start") is int start && start == 2;
+#else
+        return false;
+#endif
     }
 
     private static bool WriteAutoStart(bool enable)

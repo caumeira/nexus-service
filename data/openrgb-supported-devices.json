@@ -1,5 +1,5 @@
 {
-  "count": 1906,
+  "count": 1935,
   "devices": [
     {
       "name": "Bloody B820R",
@@ -850,6 +850,13 @@
     },
     {
       "name": "ASUS ROG Gladius III",
+      "vid": "0x0B05",
+      "pid": null,
+      "controller": "AsusAuraUSBController",
+      "kind": "hid"
+    },
+    {
+      "name": "ASUS ROG Gladius III Core",
       "vid": "0x0B05",
       "pid": null,
       "controller": "AsusAuraUSBController",
@@ -1732,6 +1739,13 @@
     },
     {
       "name": "iGame GeForce RTX 5060 Ti Ultra W DUO OC",
+      "vid": null,
+      "pid": null,
+      "controller": "ColorfulGPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "iGame GeForce RTX 5060 Ultra W OC",
       "vid": null,
       "pid": null,
       "controller": "ColorfulGPUController",
@@ -3103,6 +3117,13 @@
       "kind": "i2c"
     },
     {
+      "name": "ASUS ROG ASTRAL GeForce RTX 5090",
+      "vid": null,
+      "pid": null,
+      "controller": "ENESMBusController",
+      "kind": "i2c"
+    },
+    {
       "name": "ASUS ROG ASTRAL GeForce RTX 5090 OC",
       "vid": null,
       "pid": null,
@@ -3839,6 +3860,13 @@
     },
     {
       "name": "ASUS TUF GeForce RTX 5070 Gaming OC",
+      "vid": null,
+      "pid": null,
+      "controller": "ENESMBusController",
+      "kind": "i2c"
+    },
+    {
+      "name": "ASUS TUF GeForce RTX 5070 Ti Gaming BTF White OC",
       "vid": null,
       "pid": null,
       "controller": "ENESMBusController",
@@ -4909,6 +4937,13 @@
       "kind": "hid"
     },
     {
+      "name": "Fnatic Streak65",
+      "vid": "0x2F0E",
+      "pid": "0x0105",
+      "controller": "FnaticStreakController",
+      "kind": "hid"
+    },
+    {
       "name": "Fnatic miniStreak",
       "vid": "0x2F0E",
       "pid": "0x0102",
@@ -5175,6 +5210,13 @@
       "kind": "hid"
     },
     {
+      "name": "Gigabyte Aorus Waterforce X II 360",
+      "vid": "0x0414",
+      "pid": "0x7A5E",
+      "controller": "GigabyteCastor3Controller",
+      "kind": "hid"
+    },
+    {
       "name": "Gigabyte AORUS GeForce RTX 5080 MASTER",
       "vid": null,
       "pid": null,
@@ -5190,6 +5232,13 @@
     },
     {
       "name": "Gigabyte AORUS GeForce RTX 5080 XTREME WATERFORCE",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusion2BlackwellGPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "Gigabyte AORUS GeForce RTX 5090 D V2 MASTER ICE",
       "vid": null,
       "pid": null,
       "controller": "GigabyteRGBFusion2BlackwellGPUController",
@@ -5232,6 +5281,13 @@
     },
     {
       "name": "Gigabyte GeForce RTX 5070 Eagle OC",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusion2BlackwellGPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "Gigabyte GeForce RTX 5070 Eagle OC ICE",
       "vid": null,
       "pid": null,
       "controller": "GigabyteRGBFusion2BlackwellGPUController",
@@ -5757,6 +5813,13 @@
     },
     {
       "name": "Gigabyte Radeon RX 6700 XT GAMING OC 12G",
+      "vid": null,
+      "pid": null,
+      "controller": "GigabyteRGBFusion2GPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "Gigabyte Radeon RX 6800 XT GAMING OC",
       "vid": null,
       "pid": null,
       "controller": "GigabyteRGBFusion2GPUController",
@@ -6491,6 +6554,13 @@
       "kind": "hid"
     },
     {
+      "name": "HyperX Eve 1800 (HP)",
+      "vid": "0x03F0",
+      "pid": "0x08C2",
+      "controller": "HyperXKeyboardController",
+      "kind": "hid"
+    },
+    {
       "name": "HyperX Origins 2 65 (HP)",
       "vid": "0x03F0",
       "pid": "0x0CC2",
@@ -7198,13 +7268,6 @@
       "kind": "hid"
     },
     {
-      "name": "Logitech G502 X Plus (wired)",
-      "vid": "0x046D",
-      "pid": "0xC095",
-      "controller": "LogitechController",
-      "kind": "hid"
-    },
-    {
       "name": "Logitech G512",
       "vid": "0x046D",
       "pid": "0xC342",
@@ -7439,6 +7502,55 @@
       "name": "Logitech G935 Gaming Headset",
       "vid": "0x046D",
       "pid": "0x0A87",
+      "controller": "LogitechController",
+      "kind": "hid"
+    },
+    {
+      "name": "Logitech HID++ 2.0 G502 X Plus (wired)",
+      "vid": "0x046D",
+      "pid": "0xC095",
+      "controller": "LogitechController",
+      "kind": "hid"
+    },
+    {
+      "name": "Logitech HID++ 2.0 G502 X Plus (wireless)",
+      "vid": "0x046D",
+      "pid": "0x4099",
+      "controller": "LogitechController",
+      "kind": "hid"
+    },
+    {
+      "name": "Logitech HID++ 2.0 G515 LS TKL (wired)",
+      "vid": "0x046D",
+      "pid": "0xC355",
+      "controller": "LogitechController",
+      "kind": "hid"
+    },
+    {
+      "name": "Logitech HID++ 2.0 G515 LS TKL (wireless)",
+      "vid": "0x046D",
+      "pid": "0x40B4",
+      "controller": "LogitechController",
+      "kind": "hid"
+    },
+    {
+      "name": "Logitech HID++ 2.0 G522 Lightspeed (dongle)",
+      "vid": "0x046D",
+      "pid": "0x0B18",
+      "controller": "LogitechController",
+      "kind": "hid"
+    },
+    {
+      "name": "Logitech HID++ 2.0 G522 Lightspeed (wired)",
+      "vid": "0x046D",
+      "pid": "0x0B19",
+      "controller": "LogitechController",
+      "kind": "hid"
+    },
+    {
+      "name": "Logitech HID++ 2.0 Lightspeed Receiver (C547)",
+      "vid": "0x046D",
+      "pid": "0xC547",
       "controller": "LogitechController",
       "kind": "hid"
     },
@@ -8329,6 +8441,27 @@
       "vid": "0x1462",
       "pid": "0x1601",
       "controller": "MSIKeyboardController",
+      "kind": "hid"
+    },
+    {
+      "name": "MSI Laptop Keyboard",
+      "vid": "0x1038",
+      "pid": "0x1122",
+      "controller": "MSILaptopController",
+      "kind": "hid"
+    },
+    {
+      "name": "MSI Laptop Lightbar",
+      "vid": "0x1038",
+      "pid": "0x1161",
+      "controller": "MSILaptopController",
+      "kind": "hid"
+    },
+    {
+      "name": "MSI Monitor (Gaming Controller)",
+      "vid": "0x1462",
+      "pid": "0x3FA4",
+      "controller": "MSIMonitorController",
       "kind": "hid"
     },
     {
@@ -10103,6 +10236,20 @@
       "kind": "i2c"
     },
     {
+      "name": "Keychron Q1 HE",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
+      "name": "Keychron Q2",
+      "vid": null,
+      "pid": null,
+      "controller": "QMKController",
+      "kind": "hid"
+    },
+    {
       "name": "QMK OpenRGB Devices",
       "vid": null,
       "pid": null,
@@ -10370,6 +10517,20 @@
     },
     {
       "name": "Razer Blackwidow V4 75% (Wired)",
+      "vid": null,
+      "pid": null,
+      "controller": "RazerController",
+      "kind": "hid"
+    },
+    {
+      "name": "Razer Blackwidow V4 Low Profile TKL (Wired)",
+      "vid": null,
+      "pid": null,
+      "controller": "RazerController",
+      "kind": "hid"
+    },
+    {
+      "name": "Razer Blackwidow V4 Low Profile TKL (Wireless)",
       "vid": null,
       "pid": null,
       "controller": "RazerController",
@@ -11489,6 +11650,34 @@
       "kind": "hid"
     },
     {
+      "name": "RTL9209",
+      "vid": null,
+      "pid": null,
+      "controller": "RealtekARGBController",
+      "kind": "hid"
+    },
+    {
+      "name": "RTL9201",
+      "vid": "0x0BDA",
+      "pid": "0x9201",
+      "controller": "RealtekBridgeController",
+      "kind": "hid"
+    },
+    {
+      "name": "RTL9210",
+      "vid": "0x0BDA",
+      "pid": "0x9210",
+      "controller": "RealtekBridgeController",
+      "kind": "hid"
+    },
+    {
+      "name": "RTL9220",
+      "vid": "0x0BDA",
+      "pid": "0x9220",
+      "controller": "RealtekBridgeController",
+      "kind": "hid"
+    },
+    {
       "name": "Red Square Keyrox TKL",
       "vid": "0x1A2C",
       "pid": "0x1511",
@@ -11562,6 +11751,13 @@
       "name": "Redragon M908 Impact",
       "vid": "0x04D9",
       "pid": "0xFC4D",
+      "controller": "RedragonController",
+      "kind": "hid"
+    },
+    {
+      "name": "Redragon M921 Azzinoth",
+      "vid": "0x04D9",
+      "pid": "0xFC40",
       "controller": "RedragonController",
       "kind": "hid"
     },
@@ -12336,7 +12532,7 @@
       "kind": "hid"
     },
     {
-      "name": "SteelSeries Apex Pro TKL Gen 3",
+      "name": "SteelSeries Apex Pro TKL Gen 3 Wired",
       "vid": "0x1038",
       "pid": "0x1642",
       "controller": "SteelSeriesController",
@@ -13205,6 +13401,13 @@
     },
     {
       "name": "ZOTAC GAMING GeForce RTX 5080 AMP Extreme INFINITY",
+      "vid": null,
+      "pid": null,
+      "controller": "ZotacBlackwellGPUController",
+      "kind": "i2c"
+    },
+    {
+      "name": "ZOTAC GAMING GeForce RTX 5090 SOLID OC",
       "vid": null,
       "pid": null,
       "controller": "ZotacBlackwellGPUController",

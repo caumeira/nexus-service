@@ -84,7 +84,7 @@ public sealed class MacMediaProvider : IMediaProvider
                 "  tell application \"Spotify\" to return artwork url of current track\n" +
                 "end if").Trim();
 
-            if (!string.IsNullOrEmpty(url) && url.StartsWith("http"))
+            if (!string.IsNullOrEmpty(url) && url.StartsWith("http", StringComparison.Ordinal))
             {
                 return DownloadBytes(url);
             }

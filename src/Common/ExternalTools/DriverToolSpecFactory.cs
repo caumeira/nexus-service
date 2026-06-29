@@ -36,6 +36,9 @@ public static class DriverToolSpecFactory
             : ToolSession.System;
         var hidden = driver.Launch?.Hidden ?? true;
         var manifestBase = driver.ManifestUrlBase.TrimEnd('/');
+        var target = string.Equals(driver.Target, "android-adb", StringComparison.OrdinalIgnoreCase)
+            ? ToolTarget.AndroidAdb
+            : ToolTarget.HostExe;
 
         return new ExternalToolSpec(
             ToolId: driver.ToolId,
@@ -44,9 +47,9 @@ public static class DriverToolSpecFactory
             DownloadUrlBase: $"{manifestBase}/{variant}",
             FilePattern: driver.FilePattern,
             Launch: new ToolLaunchOptions(hidden, session),
-            // An OEM image may ship the binary preloaded under the app bundle at
-            // drivers/<variant>/ (with a bundled.json pin) so first boot is offline.
-            PreloadDir: Path.Combine(appBundleDir, "drivers", variant));
+            PreloadDir: Path.Combine(appBundleDir, "drivers", variant),
+            Target: target,
+            Package: driver.Package);
     }
 
     /// <summary>Return the variant name for the first matching device on the bus, or null.</summary>

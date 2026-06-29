@@ -57,4 +57,10 @@ public interface ILightingProvider
     /// shader in place (so the hardware follows a commit from any surface).
     /// </summary>
     void SaveAnimateTemplates(System.Collections.Generic.Dictionary<string, Nexus.Service.Persistence.AnimateEffectTemplates> templates);
+
+    /// <summary>Persist the MusicReactive flag and reconcile audio capture against the active effect.</summary>
+    void SetMusicReactive(bool enabled);
+
+    /// <summary>Start or stop audio capture based on the current MusicReactive setting and active effect.</summary>
+    void ReconcileAudioCapture();
 }

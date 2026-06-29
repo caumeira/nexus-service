@@ -430,7 +430,7 @@ public static class ProfileRoutes
                 }
                 if (body.Ui is { } ui)
                 {
-                    if (ui.DisableConflictAlerts.HasValue) s.Ui.DisableConflictAlerts = ui.DisableConflictAlerts.Value;
+                    if (ui.ShowConflictAlerts.HasValue) s.Ui.ShowConflictAlerts = ui.ShowConflictAlerts.Value;
                 }
                 if (body.Update is { } update)
                 {

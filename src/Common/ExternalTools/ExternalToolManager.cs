@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Concurrent;
-using System.Diagnostics;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
@@ -19,18 +19,18 @@ namespace Nexus.Service.Common.ExternalTools;
 internal partial class ExternalToolsJsonContext : JsonSerializerContext;
 
 /// <summary>
-/// Generic "device shows up → fetch its sidecar executable → run it" manager
-/// (Linear NEX-13). One singleton resolves a tool's binary on disk - fetching it
+/// Generic "device shows up -> fetch its sidecar payload -> install/run it" manager
+/// (Linear NEX-13). One singleton resolves a tool's artifact on disk - fetching it
 /// from <c>assets.hellonexus.com</c> on first use, hash-pinned, and caching it -
-/// then launches and tracks the process (single-instance per <c>ToolId</c>,
-/// terminated on service shutdown). Generic over the app's driver manifest block;
-/// no consuming app is named here.
+/// then routes install/launch to the <see cref="IToolInstallStrategy"/> for the
+/// spec's <see cref="ExternalToolSpec.Target"/>. Generic over the app's driver
+/// manifest block; no consuming app is named here.
 ///
 /// Trust: a tool runs only when a bundled app declares it (the <c>driver</c>
 /// manifest block, gated by install source in the registry); this class is the
 /// actuator, not the gate.
 /// </summary>
-public sealed class ExternalToolManager : IHostedService
+public sealed class ExternalToolManager : IHostedService, IToolResolver
 {
     /// <summary>Dev-only escape hatch: set to "1" to allow an unverified glob match
     /// when no manifest and no hash-pinned <c>bundled.json</c> are available. Off in
@@ -39,18 +39,23 @@ public sealed class ExternalToolManager : IHostedService
 
     private readonly HttpClient _http;
     private readonly string _root;
-    private readonly ConcurrentDictionary<string, Process> _running = new(StringComparer.Ordinal);
-    private readonly ConcurrentDictionary<string, byte> _failed = new(StringComparer.Ordinal);
+    private readonly IReadOnlyDictionary<ToolTarget, IToolInstallStrategy> _strategies;
     private readonly ConcurrentDictionary<string, Task<string?>> _resolving = new(StringComparer.Ordinal);
-    private readonly SemaphoreSlim _launchGate = new(1, 1);
 
-    public ExternalToolManager() : this(new HttpClient { Timeout = TimeSpan.FromMinutes(5) }, ResolveDefaultRoot()) { }
+    public ExternalToolManager(IEnumerable<IToolInstallStrategy> strategies)
+        : this(strategies, new HttpClient { Timeout = TimeSpan.FromMinutes(5) }, ResolveDefaultRoot()) { }
 
-    /// <summary>Test seam: inject an <see cref="HttpClient"/> and a temp cache root.</summary>
+    /// <summary>Test seam: inject an <see cref="HttpClient"/> and a temp cache root;
+    /// defaults to the host-exe strategy.</summary>
     public ExternalToolManager(HttpClient http, string root)
+        : this(new IToolInstallStrategy[] { new HostExeInstallStrategy() }, http, root) { }
+
+    public ExternalToolManager(IEnumerable<IToolInstallStrategy> strategies, HttpClient http, string root)
     {
         _http = http ?? throw new ArgumentNullException(nameof(http));
         _root = root ?? throw new ArgumentNullException(nameof(root));
+        _strategies = (strategies ?? throw new ArgumentNullException(nameof(strategies)))
+            .ToDictionary(s => s.Target);
     }
 
     public Task StartAsync(CancellationToken cancellationToken) => Task.CompletedTask;
@@ -139,87 +144,61 @@ public sealed class ExternalToolManager : IHostedService
         return await JsonSerializer.DeserializeAsync(stream, ExternalToolsJsonContext.Default.ToolManifest, ct);
     }
 
+    /// <summary>Fetch the remote manifest and return its latest version entry
+    /// (includes <see cref="ToolVersion.VersionCode"/>), without downloading the
+    /// payload. Returns null when the manifest is unavailable.</summary>
+    public async Task<ToolVersion?> GetLatestAsync(ExternalToolSpec spec, CancellationToken ct = default)
+    {
+        try
+        {
+            var manifest = await FetchManifestAsync(spec.ManifestUrl, ct);
+            if (manifest is null) return null;
+            return manifest.Versions.TryGetValue(manifest.LatestVersion, out var v) ? v : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Fetch the remote manifest and return the latest version string,
+    /// or null when unavailable.</summary>
+    public async Task<string?> GetLatestVersionAsync(ExternalToolSpec spec, CancellationToken ct = default)
+    {
+        var v = await GetLatestAsync(spec, ct);
+        return v?.Version;
+    }
+
     // ── Launch / lifecycle ───────────────────────────────────────────────────────
 
     /// <summary>
-    /// Resolve and launch the tool, single-instance per <c>ToolId</c>. A second call
-    /// while the process is alive is a no-op. The auto-launch worker and the manual
-    /// dispatch both funnel through here so a hot-plug + a user click can't
-    /// double-spawn.
+    /// Resolve and run the tool on its target medium, routed by
+    /// <see cref="ExternalToolSpec.Target"/>. Single-instance and process tracking
+    /// are the strategy's responsibility. A spec whose target has no registered
+    /// strategy is a no-op.
     /// </summary>
-    public async Task LaunchAsync(ExternalToolSpec spec, CancellationToken ct = default)
+    public Task LaunchAsync(ExternalToolSpec spec, CancellationToken ct = default)
     {
-        await _launchGate.WaitAsync(ct);
-        try
+        if (!_strategies.TryGetValue(spec.Target, out var strategy))
         {
-            if (IsRunning(spec.ToolId)) return;
-
-            var path = await ResolveAsync(spec, ct);
-            if (path is null)
-            {
-                _failed[spec.ToolId] = 1;
-                ServiceLog.Warn($"[tools] {spec.ToolId}: no binary resolved; not launched");
-                return;
-            }
-
-            // Adopt an instance left by a prior service run - a crash / hard-kill
-            // skips StopAsync, so the previous driver process can still be alive.
-            // Adopting (instead of spawning a duplicate) keeps exactly one driver
-            // across restarts, and the next graceful stop still terminates it.
-            var existing = FindRunningByImage(path);
-            if (existing is not null)
-            {
-                _failed.TryRemove(spec.ToolId, out _);
-                _running[spec.ToolId] = existing;
-                ServiceLog.Info($"[tools] {spec.ToolId}: adopted already-running {Path.GetFileName(path)} pid={existing.Id}");
-                return;
-            }
-
-            var proc = StartProcess(spec, path);
-            if (proc is null)
-            {
-                _failed[spec.ToolId] = 1;
-            }
-            else
-            {
-                _failed.TryRemove(spec.ToolId, out _);
-                _running[spec.ToolId] = proc;
-            }
+            ServiceLog.Warn($"[tools] {spec.ToolId}: no install strategy for target {spec.Target}; not launched");
+            return Task.CompletedTask;
         }
-        finally
-        {
-            _launchGate.Release();
-        }
+        return strategy.LaunchAsync(spec, this, ct);
     }
 
-    /// <summary>Kill a single tool's process (tree) if running.</summary>
+    /// <summary>Tear down a single tool on whichever strategy owns it.</summary>
     public void Terminate(string toolId)
     {
-        if (!_running.TryRemove(toolId, out var proc)) return;
-        try
-        {
-            if (!proc.HasExited)
-            {
-                proc.Kill(entireProcessTree: true);
-                proc.WaitForExit(3000);
-            }
-            ServiceLog.Info($"[tools] terminated {toolId}");
-        }
-        catch (Exception ex)
-        {
-            ServiceLog.Warn($"[tools] terminate {toolId}: {ex.GetType().Name}: {ex.Message}");
-        }
-        finally
-        {
-            try { proc.Dispose(); } catch { /* ignore */ }
-        }
+        foreach (var strategy in _strategies.Values)
+            strategy.Terminate(toolId);
     }
 
-    /// <summary>Kill every tracked tool process. Called from <see cref="StopAsync"/>.</summary>
+    /// <summary>Tear down every tracked tool. Called from <see cref="StopAsync"/>.</summary>
     public void TerminateAll()
     {
-        foreach (var id in _running.Keys.ToArray())
-            Terminate(id);
+        foreach (var strategy in _strategies.Values)
+            strategy.TerminateAll();
     }
 
     /// <summary>
@@ -229,99 +208,13 @@ public sealed class ExternalToolManager : IHostedService
     /// </summary>
     public ToolStatus GetStatus(string toolId, bool? devicePresent = null)
     {
-        if (IsRunning(toolId)) return ToolStatus.Running;
-        if (_failed.ContainsKey(toolId)) return ToolStatus.Failed;
+        foreach (var strategy in _strategies.Values)
+        {
+            var status = strategy.GetStatus(toolId);
+            if (status is ToolStatus.Running or ToolStatus.Failed) return status;
+        }
         if (devicePresent == false) return ToolStatus.NoDevice;
         return ToolStatus.NotRunning;
-    }
-
-    /// <summary>
-    /// Find a process already running the resolved binary (by image name), to adopt
-    /// across a service restart rather than double-spawn. Returns the first match;
-    /// extra handles are disposed (the processes are left alone).
-    /// </summary>
-    private static Process? FindRunningByImage(string path)
-    {
-        var name = Path.GetFileNameWithoutExtension(path);
-        if (string.IsNullOrEmpty(name)) return null;
-        try
-        {
-            var matches = Process.GetProcessesByName(name);
-            if (matches.Length == 0) return null;
-            for (var i = 1; i < matches.Length; i++) matches[i].Dispose();
-            return matches[0];
-        }
-        catch
-        {
-            return null;
-        }
-    }
-
-    private bool IsRunning(string toolId)
-    {
-        if (_running.TryGetValue(toolId, out var proc))
-        {
-            try { if (!proc.HasExited) return true; }
-            catch { /* fall through to cleanup */ }
-            if (_running.TryRemove(toolId, out var dead))
-            {
-                try { dead.Dispose(); } catch { /* ignore */ }
-            }
-        }
-        return false;
-    }
-
-    private Process? StartProcess(ExternalToolSpec spec, string path)
-    {
-        try
-        {
-            if (spec.Launch.Session == ToolSession.User)
-                return StartInUserSession(spec, path);
-
-            // System session: launch directly in the service's own (LocalSystem,
-            // Session 0) context so the tool runs pre-login. No "runas" verb -
-            // LocalSystem is already maximally privileged.
-            var psi = new ProcessStartInfo
-            {
-                FileName = path,
-                UseShellExecute = false,
-                CreateNoWindow = spec.Launch.Hidden,
-                WindowStyle = spec.Launch.Hidden ? ProcessWindowStyle.Hidden : ProcessWindowStyle.Normal,
-                WorkingDirectory = Path.GetDirectoryName(path) ?? "",
-            };
-            var proc = Process.Start(psi);
-            ServiceLog.Info($"[tools] launched {spec.ToolId} ({Path.GetFileName(path)}) pid={proc?.Id}");
-            return proc;
-        }
-        catch (Exception ex)
-        {
-            ServiceLog.Error($"[tools] launch {spec.ToolId} failed: {ex.GetType().Name}: {ex.Message}");
-            return null;
-        }
-    }
-
-    private Process? StartInUserSession(ExternalToolSpec spec, string path)
-    {
-#if WINDOWS
-        // Detached cross-session launch via the scheduled-task helper. No handle is
-        // retained (schtasks detaches), so a user-session tool's status falls back to
-        // NotRunning - image-name tracking is a follow-up. The default System session
-        // does not use this path.
-        Nexus.Service.Lifecycle.UserHelperBootstrapper.RunInUserSession(
-            $"\"{path}\"", $"tools-{spec.ToolId}", "NexusTool");
-        ServiceLog.Info($"[tools] launched {spec.ToolId} in user session (schtasks)");
-        return null;
-#else
-        // Non-Windows has no Session-0/desktop split - launch directly.
-        var psi = new ProcessStartInfo
-        {
-            FileName = path,
-            UseShellExecute = false,
-            CreateNoWindow = spec.Launch.Hidden,
-            WorkingDirectory = Path.GetDirectoryName(path) ?? "",
-        };
-        return Process.Start(psi);
-#endif
     }
 
     // ── Helpers ──────────────────────────────────────────────────────────────────

@@ -1,6 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Runtime.Versioning;
+using System.Security.AccessControl;
+using System.Security.Principal;
 
 namespace Nexus.Service.Widgets;
 
@@ -50,8 +53,12 @@ public static class AppInstallPaths
     {
         if (OperatingSystem.IsWindows())
         {
-            var appData = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-            return string.IsNullOrEmpty(appData) ? "" : Path.Combine(appData, "Nexus");
+            // Machine-wide under %ProgramData%, next to logs/settings, so the
+            // LocalSystem daemon installs once for every user instead of burying
+            // apps in the SYSTEM profile's Roaming. ProgramData is user-writable
+            // by default, so SecureUserRoots() locks apps/ + apps-dev/ in prod.
+            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
+            return string.IsNullOrEmpty(programData) ? "" : Path.Combine(programData, "Nexus");
         }
         if (OperatingSystem.IsMacOS())
         {
@@ -63,5 +70,49 @@ public static class AppInstallPaths
         if (!string.IsNullOrEmpty(xdg)) return Path.Combine(xdg, "Nexus");
         var linHome = Environment.GetEnvironmentVariable("HOME") ?? "";
         return string.IsNullOrEmpty(linHome) ? "" : Path.Combine(linHome, ".local", "share", "Nexus");
+    }
+
+    /// <summary>
+    /// Lock the user app roots (<c>apps/</c>, <c>apps-dev/</c>) so a non-admin
+    /// local user can't plant a widget the service then discovers and serves.
+    /// %ProgramData% is user-writable by default and app bundles execute (in the
+    /// SDK sandbox), so the dir must be writable only by SYSTEM + Administrators.
+    /// No-op unless running as the LocalSystem daemon: a dev running the service
+    /// interactively keeps the roots writable for apps-dev symlink iteration.
+    /// Best-effort; never blocks startup.
+    /// </summary>
+    public static void SecureUserRoots()
+    {
+        if (!OperatingSystem.IsWindows())
+            return;
+        try
+        {
+            if (!WindowsIdentity.GetCurrent().IsSystem)
+                return;
+            var appData = ResolveAppData();
+            if (string.IsNullOrEmpty(appData))
+                return;
+            SecureDir(Path.Combine(appData, "apps"));
+            SecureDir(Path.Combine(appData, "apps-dev"));
+        }
+        catch { /* never block startup on an ACL failure */ }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static void SecureDir(string dir)
+    {
+        var info = Directory.CreateDirectory(dir);
+        var sec = new DirectorySecurity();
+        // Drop inherited ACEs (ProgramData grants Users create-file) and set an
+        // explicit protected ACL: only SYSTEM + Administrators may write.
+        sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
+        const InheritanceFlags inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
+        void Allow(WellKnownSidType sid, FileSystemRights rights) =>
+            sec.AddAccessRule(new FileSystemAccessRule(
+                new SecurityIdentifier(sid, null), rights, inherit, PropagationFlags.None, AccessControlType.Allow));
+        Allow(WellKnownSidType.LocalSystemSid, FileSystemRights.FullControl);
+        Allow(WellKnownSidType.BuiltinAdministratorsSid, FileSystemRights.FullControl);
+        Allow(WellKnownSidType.BuiltinUsersSid, FileSystemRights.ReadAndExecute);
+        info.SetAccessControl(sec);
     }
 }

@@ -362,14 +362,14 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
         var lastColon = channelId.LastIndexOf(':');
         if (lastColon < 0) return false;
         var devSegment = channelId.AsSpan(lastColon + 1);
-        if (!devSegment.StartsWith("dev")) return false;
+        if (!devSegment.StartsWith("dev", StringComparison.Ordinal)) return false;
         if (!int.TryParse(devSegment.Slice(3), out dev)) return false;
 
         var middle = channelId.AsSpan(0, lastColon);
         var prevColon = middle.LastIndexOf(':');
         if (prevColon < 0) return false;
         var portSegment = middle.Slice(prevColon + 1);
-        if (!portSegment.StartsWith("port")) return false;
+        if (!portSegment.StartsWith("port", StringComparison.Ordinal)) return false;
         if (!int.TryParse(portSegment.Slice(4), out port)) return false;
         return true;
     }

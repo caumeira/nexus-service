@@ -29,7 +29,9 @@ using Nexus.Service.Sockets;
 #if LINUX
 if (args.Length > 0
     && args[0] == Nexus.Service.Lighting.Capture.LinuxScreenCastHelper.Verb)
+{
     return Nexus.Service.Lighting.Capture.LinuxScreenCastHelper.Run(args);
+}
 #endif
 
 Nexus.Service.Lifecycle.BootTimer.Mark("process entry");
@@ -455,6 +457,10 @@ if (!testHost)
     Nexus.Service.Lifecycle.BootTimer.Mark("after PanelOverlayHostLauncher.CleanupOrphans");
     Nexus.Service.Lighting.Rgb.OpenRgbProcessManager.CleanupOrphans();
     Nexus.Service.Lifecycle.BootTimer.Mark("after OpenRgbProcessManager.CleanupOrphans");
+
+    // Lock the SDK-app roots so a non-admin user can't plant a widget the
+    // service serves (prod / LocalSystem only; no-op for an interactive dev run).
+    Nexus.Service.Widgets.AppInstallPaths.SecureUserRoots();
 
     // Register nexus:// protocol handler (idempotent - safe on every launch)
     Nexus.Service.Platform.ProtocolHandler.Register();

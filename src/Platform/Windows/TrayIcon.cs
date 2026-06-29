@@ -387,12 +387,15 @@ public static class TrayIcon
 
     private static void DiagFile(string msg)
     {
-        // Direct FileStream write to a known absolute path. C:\Users\Public
-        // is world-writable, no env-var resolution needed.
+        // Co-located with nexus-service.log under the canonical logs dir, which
+        // both LocalSystem and the user-session helper can write (each owns the
+        // file it creates).
         try
         {
+            var dir = Nexus.Service.Platform.ServiceLog.LogsDirectory;
+            System.IO.Directory.CreateDirectory(dir);
             using var fs = new System.IO.FileStream(
-                @"C:\Users\Public\nexus-tray-debug.log",
+                System.IO.Path.Combine(dir, "nexus-tray.log"),
                 System.IO.FileMode.Append,
                 System.IO.FileAccess.Write,
                 System.IO.FileShare.ReadWrite);

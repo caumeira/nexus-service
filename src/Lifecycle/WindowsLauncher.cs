@@ -186,35 +186,15 @@ internal static class WindowsLauncher
 
     private static ServiceState QueryServiceState()
     {
-        // sc.exe rather than P/Invoke: AOT-safe, one spawn per launcher run.
-        var psi = new ProcessStartInfo("sc.exe")
+        return WindowsServiceInstaller.QueryCurrentServiceState(WindowsServiceInstaller.ServiceName) switch
         {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
+            0 => ServiceState.NotInstalled,
+            1 => ServiceState.Stopped,
+            2 => ServiceState.StartPending,
+            3 => ServiceState.StopPending,
+            4 => ServiceState.Running,
+            _ => ServiceState.Other,
         };
-        psi.ArgumentList.Add("query");
-        psi.ArgumentList.Add(WindowsServiceInstaller.ServiceName);
-        try
-        {
-            using var p = Process.Start(psi);
-            if (p is null) return ServiceState.NotInstalled;
-            var output = p.StandardOutput.ReadToEnd();
-            p.WaitForExit(5000);
-            // sc query returns 1060 / "service does not exist" when not installed.
-            if (p.ExitCode != 0) return ServiceState.NotInstalled;
-            // Parse STATE line. Example: "        STATE              : 4  RUNNING"
-            if (output.Contains("RUNNING", StringComparison.OrdinalIgnoreCase)) return ServiceState.Running;
-            if (output.Contains("START_PENDING", StringComparison.OrdinalIgnoreCase)) return ServiceState.StartPending;
-            if (output.Contains("STOP_PENDING", StringComparison.OrdinalIgnoreCase)) return ServiceState.StopPending;
-            if (output.Contains("STOPPED", StringComparison.OrdinalIgnoreCase)) return ServiceState.Stopped;
-            return ServiceState.Other;
-        }
-        catch
-        {
-            return ServiceState.NotInstalled;
-        }
     }
 
     private static bool TryStartService()

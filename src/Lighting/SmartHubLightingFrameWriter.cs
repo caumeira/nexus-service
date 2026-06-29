@@ -84,12 +84,15 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
         var nowTicks = DateTime.UtcNow.Ticks;
 
         var hubId = _hub.DeviceId;
+        var mirror = SmartHubLightingDeviceProvider.ReadMirror(settings, hubId);
         // Push every port every tick - even ports with zero declared LEDs get
         // a zero-length frame, which the hub honours by keeping the strip dark
-        // and stops it falling back to the firmware animation.
+        // and stops it falling back to the firmware animation. When mirrored,
+        // every port streams the one mirror device's frame.
         for (var channel = 1; channel <= SmartHubProtocol.ArgbPortCount; channel++)
         {
-            TryPushZone(devices, $"{hubId}:port{channel}", channel, disabled, prefs, globalBrightness, nowTicks);
+            var id = mirror ? SmartHubLightingDeviceProvider.MirrorId(hubId) : $"{hubId}:port{channel}";
+            TryPushZone(devices, id, channel, disabled, prefs, globalBrightness, nowTicks);
         }
     }
 

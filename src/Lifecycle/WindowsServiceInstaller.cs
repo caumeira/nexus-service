@@ -270,7 +270,7 @@ internal static class WindowsServiceInstaller
         // Without this the service "comes back" on the next boot.
         Log("killing tray / sidecar processes");
         KillSiblingProcesses("Nexus.exe");
-        KillSiblingProcesses("OpenRGB.exe");
+        KillSiblingProcesses("OpenRGB-headless.exe");
         KillSiblingProcesses("nexus-overlay.exe");
 
         Log("deleting NexusService");
@@ -424,15 +424,48 @@ internal static class WindowsServiceInstaller
 
     private static void CreateStartMenuShortcut(string targetExe)
     {
-        // Drop a .url shortcut to the dashboard. Avoids the COM ShellLink
-        // approach for AOT safety.
+        // A .lnk to Nexus.exe, not a .url to the dashboard URL: Windows Start
+        // search only indexes .lnk shortcuts that point at an executable, so a
+        // .url never surfaces when the user types "Nexus". Targeting the exe
+        // with no args routes through WindowsLauncher.Run (start/recover the
+        // service, then open the dashboard) - the same path as double-clicking
+        // Nexus.exe.
+        //
+        // On a normal install the Inno [Icons] entry already wrote this same
+        // {group}\Nexus.lnk natively (no PowerShell), so this method's job there
+        // is just the .url cleanup below. The WScript.Shell write runs only when
+        // the .lnk is absent - i.e. a bare-EXE self-install
+        // (WindowsLauncher.NotInstalled -> RunInstall), where Inno never runs.
+        // Built in a child powershell.exe to keep the COM IShellLink out of this
+        // AOT binary; on hardened hosts where it fails the Inno copy still stands.
         var startMenu = Environment.GetFolderPath(Environment.SpecialFolder.CommonStartMenu);
         var dir = Path.Combine(startMenu, "Programs", "Nexus");
         Directory.CreateDirectory(dir);
-        var lnk = Path.Combine(dir, "Nexus Dashboard.url");
-        var content = $"[InternetShortcut]\r\nURL=http://localhost:{DefaultPort}/\r\nIconFile={targetExe}\r\nIconIndex=0\r\n";
-        File.WriteAllText(lnk, content);
+
+        // Remove the pre-3.x dashboard .url shortcuts (this method's and Inno's)
+        // so an upgrade doesn't leave a stale, unsearchable duplicate.
+        foreach (var stale in Directory.GetFiles(dir, "*.url"))
+        {
+            try { File.Delete(stale); } catch { /* best-effort */ }
+        }
+
+        var lnk = Path.Combine(dir, "Nexus.lnk");
+        if (File.Exists(lnk)) return; // Inno already wrote it; nothing to do but the .url cleanup above.
+
+        var workingDir = Path.GetDirectoryName(targetExe) ?? string.Empty;
+        var script =
+            "$s=(New-Object -ComObject WScript.Shell).CreateShortcut('" + PsQuote(lnk) + "');" +
+            "$s.TargetPath='" + PsQuote(targetExe) + "';" +
+            "$s.WorkingDirectory='" + PsQuote(workingDir) + "';" +
+            "$s.IconLocation='" + PsQuote(targetExe) + ",0';" +
+            "$s.Description='Open the Nexus dashboard';" +
+            "$s.Save()";
+        var (code, _) = RunCli("powershell.exe", new[] { "-NoProfile", "-NonInteractive", "-Command", script });
+        if (code != 0) Log($"WARN Start Menu .lnk creation returned exit {code}");
     }
+
+    // Single-quoted PowerShell string literal escaping (double the quote).
+    private static string PsQuote(string s) => s.Replace("'", "''");
 
     private static void DeleteShortcut(string installDir)
     {
@@ -453,6 +486,76 @@ internal static class WindowsServiceInstaller
             // Skip our own .git, obj, bin if present.
             if (file.Contains($"{Path.DirectorySeparatorChar}.git{Path.DirectorySeparatorChar}", StringComparison.Ordinal)) continue;
             File.Copy(file, file.Replace(source, target), overwrite: true);
+        }
+    }
+
+    // SERVICE_STATUS_PROCESS.dwCurrentState values (locale-neutral numeric codes from QueryServiceStatusEx).
+    private const uint SERVICE_STOPPED = 1;
+
+    private const uint SC_MANAGER_CONNECT = 0x0001;
+    private const uint SERVICE_QUERY_STATUS = 0x0004;
+    private const int SC_STATUS_PROCESS_INFO = 0;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct SERVICE_STATUS_PROCESS
+    {
+        public uint dwServiceType;
+        public uint dwCurrentState;
+        public uint dwControlsAccepted;
+        public uint dwWin32ExitCode;
+        public uint dwServiceSpecificExitCode;
+        public uint dwCheckPoint;
+        public uint dwWaitHint;
+        public uint dwProcessId;
+        public uint dwServiceFlags;
+    }
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr OpenSCManager(string? lpMachineName, string? lpDatabaseName, uint dwDesiredAccess);
+
+    [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr OpenService(IntPtr hSCManager, string lpServiceName, uint dwDesiredAccess);
+
+    // InfoLevel 0 = SC_STATUS_PROCESS_INFO; returns SERVICE_STATUS_PROCESS.
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool QueryServiceStatusEx(IntPtr hService, int InfoLevel,
+        out SERVICE_STATUS_PROCESS lpBuffer, uint cbBufSize, out uint pcbBytesNeeded);
+
+    [DllImport("advapi32.dll", SetLastError = true)]
+    private static extern bool CloseServiceHandle(IntPtr hSCObject);
+
+    // sc.exe STATE output is locale-sensitive; QueryServiceStatusEx returns a
+    // numeric dwCurrentState (1=STOPPED, 2=START_PENDING, 3=STOP_PENDING, 4=RUNNING).
+    // Returns 0 when the service handle cannot be opened (not installed or access denied).
+    internal static uint QueryCurrentServiceState(string serviceName)
+    {
+        var hScm = OpenSCManager(null, null, SC_MANAGER_CONNECT);
+        if (hScm == IntPtr.Zero)
+        {
+            return 0;
+        }
+        try
+        {
+            var hSvc = OpenService(hScm, serviceName, SERVICE_QUERY_STATUS);
+            if (hSvc == IntPtr.Zero)
+            {
+                return 0;
+            }
+            try
+            {
+                return QueryServiceStatusEx(hSvc, SC_STATUS_PROCESS_INFO, out var status,
+                    (uint)Marshal.SizeOf<SERVICE_STATUS_PROCESS>(), out _)
+                    ? status.dwCurrentState
+                    : 0u;
+            }
+            finally
+            {
+                CloseServiceHandle(hSvc);
+            }
+        }
+        finally
+        {
+            CloseServiceHandle(hScm);
         }
     }
 
@@ -513,9 +616,12 @@ internal static class WindowsServiceInstaller
         var deadline = DateTime.UtcNow + timeout;
         while (DateTime.UtcNow < deadline)
         {
-            var status = RunScCaptureOutput("query", ServiceName);
-            if (string.IsNullOrEmpty(status)) return; // already deleted
-            if (status.Contains("STOPPED", StringComparison.OrdinalIgnoreCase)) return;
+            var state = QueryCurrentServiceState(ServiceName);
+            // state == 0: handle can't be opened (service deleted); treat as stopped.
+            if (state == 0 || state == SERVICE_STOPPED)
+            {
+                return;
+            }
             Thread.Sleep(500);
         }
     }

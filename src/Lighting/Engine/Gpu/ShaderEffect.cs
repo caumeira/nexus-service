@@ -43,6 +43,11 @@ public sealed class ShaderEffect : IEffect
     private int _uAudioBeat = -1;
     private int _uAudioBoost = -1;
     private int _uSpectrum = -1;
+    private int _uSpectrum64 = -1;
+    private int _uSpecHist = -1;
+    private int _uBassPeak = -1;
+    private int _uMidPeak = -1;
+    private int _uHighPeak = -1;
     private readonly System.Collections.Generic.Dictionary<string, int> _uniformCache = new();
     private bool _compiled;
     private bool _failed;
@@ -211,6 +216,38 @@ public sealed class ShaderEffect : IEffect
                     }
                 }
             }
+            if (_uSpectrum64 >= 0)
+            {
+                unsafe
+                {
+                    fixed (float* p = Nexus.Service.Lighting.Engine.AudioState.Spectrum64)
+                    {
+                        gl.Uniform1(_uSpectrum64, (uint)Nexus.Service.Lighting.Engine.AudioState.Spectrum64Length, p);
+                    }
+                }
+            }
+            if (_uSpecHist >= 0)
+            {
+                unsafe
+                {
+                    fixed (float* p = Nexus.Service.Lighting.Engine.AudioState.SpecHist)
+                    {
+                        gl.Uniform4(_uSpecHist, (uint)Nexus.Service.Lighting.Engine.AudioState.SpecHistVec4Count, p);
+                    }
+                }
+            }
+            if (_uBassPeak >= 0)
+            {
+                gl.Uniform1(_uBassPeak, Nexus.Service.Lighting.Engine.AudioState.BassPeak);
+            }
+            if (_uMidPeak >= 0)
+            {
+                gl.Uniform1(_uMidPeak, Nexus.Service.Lighting.Engine.AudioState.MidPeak);
+            }
+            if (_uHighPeak >= 0)
+            {
+                gl.Uniform1(_uHighPeak, Nexus.Service.Lighting.Engine.AudioState.HighPeak);
+            }
             if (ExtraParams is not null)
             {
                 foreach (var kv in ExtraParams)
@@ -314,6 +351,19 @@ public sealed class ShaderEffect : IEffect
         {
             _uSpectrum = gl.GetUniformLocation(prog, "u_spectrum");
         }
+        _uSpectrum64 = gl.GetUniformLocation(prog, "u_spectrum64[0]");
+        if (_uSpectrum64 < 0)
+        {
+            _uSpectrum64 = gl.GetUniformLocation(prog, "u_spectrum64");
+        }
+        _uSpecHist = gl.GetUniformLocation(prog, "u_specHist[0]");
+        if (_uSpecHist < 0)
+        {
+            _uSpecHist = gl.GetUniformLocation(prog, "u_specHist");
+        }
+        _uBassPeak = gl.GetUniformLocation(prog, "u_bassPeak");
+        _uMidPeak = gl.GetUniformLocation(prog, "u_midPeak");
+        _uHighPeak = gl.GetUniformLocation(prog, "u_highPeak");
     }
 
     private static uint CompileShader(GL gl, ShaderType type, string src)

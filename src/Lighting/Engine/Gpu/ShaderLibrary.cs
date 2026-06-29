@@ -82,6 +82,7 @@ internal static class ShaderLibrary
     public static string PrismWave => Get("prismwave");
     public static string CrystalTunnel => Get("crystaltunnel");
     public static string RibbonFlow => Get("ribbonflow");
+    public static string BeatBuilder => Get("beatbuilder");
 
     /// <summary>Internal shader for the Screen Mirror Reactive sub-mode. Not user-selectable.</summary>
     internal static string ReactiveGlow => Get("reactiveglow");
@@ -113,12 +114,21 @@ internal static class ShaderLibrary
         "ringtunnel", "vortextunnel", "helixtunnel", "boxtunnel",
         "meshgradient", "tide", "vapor", "satinflow",
         "ridgeline", "chevron", "terrace", "harlequin", "mosaic",
-        // Audio-reactive set - all react to u_audioLevel / u_audioBass /
-        // u_audioMid / u_audioHigh / u_audioBeat / u_spectrum and all
-        // have an always-on idle animation for when no audio is captured.
+        // Audio-reactive set; mirrors AudioEffectKeys below, keep in sync.
         "spectrumbars", "spectrumradial", "scope", "basspulse",
         "beatstrobe", "harmonicstar", "audiotunnel", "bassbloom",
+        "beatbuilder",
     };
+
+    // Mirrors the audio-reactive block of AllEffectKeys above; keep the two in sync.
+    public static readonly HashSet<string> AudioEffectKeys = new(System.StringComparer.Ordinal)
+    {
+        "spectrumbars", "spectrumradial", "scope", "basspulse",
+        "beatstrobe", "harmonicstar", "audiotunnel", "bassbloom",
+        "beatbuilder",
+    };
+
+    public static bool IsAudioEffect(string key) => AudioEffectKeys.Contains(key);
 
     private static string LoadRaw(string resourceName)
     {

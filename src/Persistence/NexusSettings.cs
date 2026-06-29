@@ -39,6 +39,7 @@ public sealed class NexusSettings
     public ObsSettings Obs { get; set; } = new();
     public SteamSettings Steam { get; set; } = new();
     public DiscordSettings Discord { get; set; } = new();
+    public HomeAssistantSettings HomeAssistant { get; set; } = new();
     public TelemetrySettings Telemetry { get; set; } = new();
     /// <summary>Registered panel devices keyed by opaque deviceId. Each record carries the per-device layout + theme overrides + capabilities. NOT profile-scoped: device identity is hardware-level and survives profile switches.</summary>
     public Dictionary<string, Nexus.Service.Models.Panel.PanelDeviceRecord> PanelDevices { get; set; } = new();
@@ -134,6 +135,14 @@ public sealed class DiscordSettings
     public string ClientSecret { get; set; } = "";
 }
 
+public sealed class HomeAssistantSettings
+{
+    public string Url { get; set; } = "";
+    /// <summary>Wrapped via SecretProtector on Windows; plaintext on macOS/Linux.</summary>
+    public string Token { get; set; } = "";
+    public bool Enabled { get; set; } = true;
+}
+
 /// <summary>
 /// UI-only residual state that has no install-defaults equivalent. Everything
 /// that mirrors install-defaults.json now lives on NexusSettings root in
@@ -142,7 +151,7 @@ public sealed class DiscordSettings
 /// </summary>
 public sealed class UiSettings
 {
-    public bool DisableConflictAlerts { get; set; }
+    public bool ShowConflictAlerts { get; set; } = true;
 }
 
 /// <summary>
@@ -151,7 +160,7 @@ public sealed class UiSettings
 /// </summary>
 public sealed class UiSettingsPatch
 {
-    public bool? DisableConflictAlerts { get; set; }
+    public bool? ShowConflictAlerts { get; set; }
 }
 
 public sealed class LightingSettings
@@ -169,6 +178,10 @@ public sealed class LightingSettings
     public int FrameRate { get; set; } = InstallDefaults.Lighting.FrameRate;
     public double ScaleRatio { get; set; } = InstallDefaults.Lighting.ScaleRatio;
     public Dictionary<string, DeviceLayout> DeviceLayouts { get; set; } = new();
+    // Named snapshots of DeviceLayouts. Capped by the route layer.
+    public List<LayoutPreset> LayoutPresets { get; set; } = new();
+    // Preset the live DeviceLayouts was last loaded from; null = none selected.
+    public string? ActiveLayoutPresetId { get; set; }
     public string LastMediaId { get; set; } = "";
     public AnimateSettings Animate { get; set; } = new();
     /// <summary>Last static colour the user picked (r,g,b 0..255).</summary>
@@ -258,6 +271,13 @@ public sealed class DeviceLayout
     public float W { get; set; } = InstallDefaults.Cooling.DeviceLayoutSize.W;
     public float H { get; set; } = InstallDefaults.Cooling.DeviceLayoutSize.H;
     public int Rotation { get; set; }
+}
+
+public sealed class LayoutPreset
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public Dictionary<string, DeviceLayout> Layouts { get; set; } = new();
 }
 
 public sealed class KeebSettings
@@ -456,6 +476,19 @@ public sealed class DevicesSettings
     /// </summary>
     public Dictionary<string, int> ZoneLedCounts { get; set; } = new();
     public CnvsSettings Cnvs { get; set; } = new();
+    public LianLiSettings LianLi { get; set; } = new();
+    public LianLiLightingSettings LianLiLighting { get; set; } = new();
+    public StrimerLightingSettings StrimerLighting { get; set; } = new();
+    public Galahad2LightingSettings Galahad2Lighting { get; set; } = new();
+    public CorsairSettings Corsair { get; set; } = new();
+    /// <summary>
+    /// Per-hub channel composition (mirror ports / combine rings), keyed by hub
+    /// id ("lianli", "smarthub:{serial}"). Absent key = the hub's default
+    /// composition. Orthogonal to <see cref="ZonePartitions"/>: composition sets
+    /// the device set and each device's default partition; the user still
+    /// re-zones on top.
+    /// </summary>
+    public Dictionary<string, HubCompositionSettings> LightingComposition { get; set; } = new();
     /// <summary>
     /// Community / file mapping applied per device, keyed by lighting-device
     /// id. The full artifact is embedded so applied mappings keep working
@@ -539,6 +572,89 @@ public sealed class CnvsSettings
 {
     public bool PlayAnimation { get; set; } = InstallDefaults.Cnvs.PlayAnimation;
     public bool PlayWhenPCOff { get; set; } = InstallDefaults.Cnvs.PlayWhenPCOff;
+}
+
+public sealed class LianLiSettings
+{
+    public int Port0Fans { get; set; } = 4;
+    public int Port1Fans { get; set; } = 4;
+    public int Port2Fans { get; set; } = 4;
+    public int Port3Fans { get; set; } = 4;
+    /// <summary>When true, LConnectService and LConnectServiceWatcher are stopped when Nexus attaches the hub.</summary>
+    public bool StopConflictingApps { get; set; } = true;
+
+    public int GetFans(int port) => port switch
+    {
+        0 => Port0Fans,
+        1 => Port1Fans,
+        2 => Port2Fans,
+        3 => Port3Fans,
+        _ => 0,
+    };
+
+    public void SetFans(int port, int qty)
+    {
+        switch (port)
+        {
+            case 0: Port0Fans = qty; break;
+            case 1: Port1Fans = qty; break;
+            case 2: Port2Fans = qty; break;
+            case 3: Port3Fans = qty; break;
+        }
+    }
+}
+
+public sealed class LianLiLightingSettings
+{
+    public string Mode { get; set; } = "rainbowWave";
+    public int Speed { get; set; } = 2;
+    public int Direction { get; set; } = 0;
+    public int Brightness { get; set; } = 4;
+    public List<string> Colors { get; set; } = new();
+}
+
+public sealed class StrimerLightingSettings
+{
+    public string Mode { get; set; } = "rainbow";
+    public int Speed { get; set; } = 2;
+    public int Direction { get; set; } = 0;
+    public int Brightness { get; set; } = 4;
+    public List<string> Colors { get; set; } = new();
+}
+
+public sealed class Galahad2LightingSettings
+{
+    public string Mode { get; set; } = "canvas";
+    public int Speed { get; set; } = 2;
+    public int Direction { get; set; } = 0;
+    public int Brightness { get; set; } = 4;
+    public string InnerColor { get; set; } = "#FFFFFF";
+    public string OuterColor { get; set; } = "#FFFFFF";
+    public List<string> Colors { get; set; } = new();
+}
+
+public sealed class CorsairSettings
+{
+    /// <summary>When true, Corsair iCUE is stopped when Nexus attaches the iCUE LINK hub (both apps co-drive the hub and fight every write).</summary>
+    public bool StopConflictingApps { get; set; } = true;
+    public string? LcdSelectedMediaId { get; set; }
+    /// <summary>LCD brightness 0-100. 0 = display off, 100 = maximum.</summary>
+    public byte LcdBrightness { get; set; } = 100;
+    /// <summary>LCD rotation: 0 = 0 deg, 1 = 90 deg, 2 = 180 deg, 3 = 270 deg.</summary>
+    public byte LcdRotation { get; set; }
+}
+
+/// <summary>
+/// How a multi-channel lighting hub's physical channels collapse into logical
+/// devices. <see cref="Mirror"/> broadcasts one device to every active port;
+/// <see cref="CombineRings"/> (ring hubs only) makes a port's inner+outer rings
+/// one device (its 1-zone default partition) instead of two. Both are starting
+/// points - the user re-zones each device on top.
+/// </summary>
+public sealed class HubCompositionSettings
+{
+    public bool Mirror { get; set; }
+    public bool CombineRings { get; set; }
 }
 
 public sealed class AuthSettings
@@ -672,6 +788,14 @@ public sealed class UpdateSettings
     /// Prevents the popup from re-appearing for the same version after dismissal.
     /// </summary>
     public string LastDismissedUpdateVersion { get; set; } = "";
+
+    /// <summary>
+    /// Version string of the build that last ran. Used to detect a new-build
+    /// first run (OTA or fresh install) so UpdateChannel can be derived from
+    /// the build's prerelease status instead of erasing a manual channel choice
+    /// on every restart.
+    /// </summary>
+    public string LastRunVersion { get; set; } = "";
 
     /// <summary>
     /// Pre-v7 field. Read during schema migration only; the v7 migration maps

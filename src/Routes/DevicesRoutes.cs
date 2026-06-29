@@ -21,11 +21,18 @@ public static partial class DevicesRoutes
         MapZoneEndpoints(app);
         MapMappingEndpoints(app);
         MapSmartLightsEndpoints(app);
+        MapHomeAssistantEndpoints(app);
         MapNp50Endpoints(app);
         MapSmartHubEndpoints(app);
         MapMiniHubEndpoints(app);
         MapQSeriesCoolerEndpoints(app);
         MapFirmwareEndpoints(app);
+        MapLianLiEndpoints(app);
+        MapLianLiTlEndpoints(app);
+        MapGalahad2Endpoints(app);
+        MapCorsairEndpoints(app);
+        MapCorsairLcdEndpoints(app);
+        MapStrimerEndpoints(app);
     }
 
     /// <summary>

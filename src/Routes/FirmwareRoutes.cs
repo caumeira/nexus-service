@@ -1,6 +1,8 @@
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Microsoft.AspNetCore.Http;
+using Nexus.Service.Common.ExternalTools;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Models.Devices;
@@ -23,7 +25,13 @@ public static partial class DevicesRoutes
         // image are returned - no blank rows for devices we can't offer an
         // update for. CurrentVersion may still be empty when the device hasn't
         // reported its version yet; UpdateAvailable stays false in that case.
-        app.MapGet("/devices/firmware/status", (DeviceManager dm, BundledFirmwareCatalog catalog, FirmwareFlasher flasher) =>
+        app.MapGet("/devices/firmware/status", async (
+            DeviceManager dm,
+            BundledFirmwareCatalog catalog,
+            FirmwareFlasher flasher,
+            ApkFlasher apkFlasher,
+            IAdbDeviceRegistry adbRegistry,
+            CancellationToken ct) =>
         {
             var result = new List<FirmwareStatusItem>();
             foreach (var d in dm.GetAll())
@@ -54,22 +62,93 @@ public static partial class DevicesRoutes
 #endif
                 });
             }
+
+            // Panel app entry: qshell APK on the connected Q-series display.
+            var panelDevice = adbRegistry.TryGet("com.hellonexus.qshell");
+            if (panelDevice is not null)
+            {
+                var qhandler = dm.GetAll().FirstOrDefault(d => d.Id == "qseries");
+                var panelName = qhandler?.Name switch
+                {
+                    "Q60" => "Q60 Panel App",
+                    "Q80" => "Q80 Panel App",
+                    _ => "Q-series Panel App",
+                };
+                try
+                {
+                    var dumpsys = await panelDevice.ShellAsync("dumpsys package com.hellonexus.qshell", ct);
+                    var currentVersion = AdbHelpers.ParseVersionName(dumpsys) ?? "";
+                    var installedCode = AdbHelpers.ParseVersionCode(dumpsys);
+                    var latestEntry = await apkFlasher.GetLatestCachedAsync(ct);
+                    var availableVersion = latestEntry?.Version ?? "";
+                    // installedCode is -1 when qshell is absent (a 2.0->3.0 panel still on the
+                    // OEM launcher): offer the first install. Otherwise gate on a newer build.
+                    var updateAvailable = latestEntry?.VersionCode is int pub && (installedCode < 0 || pub > installedCode);
+                    result.Add(new FirmwareStatusItem
+                    {
+                        DeviceType = ApkFlasher.DeviceTypeKey,
+                        FirmwareType = ApkFlasher.DeviceTypeKey,
+                        Name = panelName,
+                        Category = "display",
+                        CurrentVersion = currentVersion,
+                        AvailableVersion = availableVersion,
+                        UpdateAvailable = updateAvailable,
+                        AvailableVersions = string.IsNullOrEmpty(availableVersion) ? new() : new() { availableVersion },
+                        DevImages = new(),
+                    });
+                }
+                catch
+                {
+                    // Device read or manifest fetch failed; omit entry rather than showing stale data.
+                }
+            }
+
             return result;
         });
 
         // Start a flash (async). Body: { deviceType: <catalog key>, version }.
         // deviceType is the firmware-catalog key (the connected variant), i.e.
         // FirmwareStatusItem.FirmwareType - NOT the display id.
-        app.MapPost("/devices/firmware/flash", (FlashRequest body, FirmwareFlasher flasher) =>
+        app.MapPost("/devices/firmware/flash", (FlashRequest body, FirmwareFlasher flasher, ApkFlasher apkFlasher) =>
         {
+            if (body.DeviceType == ApkFlasher.DeviceTypeKey)
+            {
+                if (apkFlasher.TryStart(body.DeviceType, body.Version, out var apkError))
+                {
+                    return Results.Json(new FlashStartResponse { Started = true }, AppJsonContext.Default.FlashStartResponse);
+                }
+                return Results.Json(new FlashStartResponse { Error = true, Msg = apkError, Started = false },
+                    AppJsonContext.Default.FlashStartResponse, statusCode: StatusCodes.Status409Conflict);
+            }
+
             if (flasher.TryStart(body.DeviceType, body.Version, out var error))
+            {
                 return Results.Json(new FlashStartResponse { Started = true }, AppJsonContext.Default.FlashStartResponse);
+            }
             return Results.Json(new FlashStartResponse { Error = true, Msg = error, Started = false },
                 AppJsonContext.Default.FlashStartResponse, statusCode: StatusCodes.Status409Conflict);
         });
 
         // Poll flash progress. Global server-side state, so it survives the UI
-        // navigating between tabs.
+        // navigating between tabs. Both FirmwareFlasher and ApkFlasher write
+        // to the same FlashGate.Status object, so this endpoint covers both.
         app.MapGet("/devices/firmware/flash/status", (FirmwareFlasher flasher) => flasher.Status);
+
+#if DEV_TOOLS
+        // Revert the panel home launcher back to the OEM (com.companyname.thiccapp).
+        // Does not uninstall qshell; the switch is instant and lossless.
+        app.MapPost("/devices/firmware/panel-app/revert-home", async (ApkFlasher apkFlasher, CancellationToken ct) =>
+        {
+            var error = await apkFlasher.RevertPanelHomeAsync(ct);
+            if (error is null)
+            {
+                return Results.Json(new FlashStartResponse { Started = true }, AppJsonContext.Default.FlashStartResponse);
+            }
+            return Results.Json(
+                new FlashStartResponse { Error = true, Msg = error, Started = false },
+                AppJsonContext.Default.FlashStartResponse,
+                statusCode: StatusCodes.Status409Conflict);
+        });
+#endif
     }
 }

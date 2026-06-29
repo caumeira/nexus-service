@@ -13,6 +13,15 @@ public sealed class WindowsShortcutsProvider : IShortcutsProvider
 {
     private static readonly TimeSpan AppListCacheTtl = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan IconCacheTtl = TimeSpan.FromHours(1);
+    // An app with no extractable icon (no Start-Menu .lnk match / no UWP logo)
+    // otherwise re-spawns powershell.exe on every GetIcon, since nothing is
+    // cached to short-circuit it - a panel scrolling past icon-less apps keeps
+    // the helper busy and the browser's connection pool full. Cache the empty
+    // result too, but briefly: a miss also covers a transient extraction failure
+    // (e.g. a powershell timeout while the box is benchmark-pegged), so the short
+    // TTL bounds how long a real icon can be hidden after one load-induced miss
+    // while still absorbing a scroll's worth of repeat views.
+    private static readonly TimeSpan NegativeIconCacheTtl = TimeSpan.FromMinutes(2);
 
     private List<Shortcut>? _appCache;
     private DateTime _appCacheExpiry;
@@ -89,28 +98,28 @@ public sealed class WindowsShortcutsProvider : IShortcutsProvider
         var shortcut = GetById(targetId);
         if (shortcut is null) return Array.Empty<byte>();
 
+        byte[] iconBytes;
         try
         {
-            byte[] iconBytes;
-            if (shortcut.Id.Contains('!'))
-                iconBytes = ExtractUwpIcon(shortcut.Id);
-            else
-                iconBytes = ExtractWin32Icon(shortcut);
-
-            if (iconBytes.Length > 0)
-            {
-                lock (_iconLock)
-                {
-                    _iconCache[targetId] = (iconBytes, DateTime.UtcNow + IconCacheTtl);
-                }
-            }
-
-            return iconBytes;
+            iconBytes = shortcut.Id.Contains('!')
+                ? ExtractUwpIcon(shortcut.Id)
+                : ExtractWin32Icon(shortcut);
         }
         catch
         {
-            return Array.Empty<byte>();
+            iconBytes = Array.Empty<byte>();
         }
+
+        // Cache the outcome either way: a hit for the icon's full TTL, a miss
+        // (empty bytes, incl. a thrown extraction) briefly so it isn't re-run on
+        // every view.
+        lock (_iconLock)
+        {
+            var ttl = iconBytes.Length > 0 ? IconCacheTtl : NegativeIconCacheTtl;
+            _iconCache[targetId] = (iconBytes, DateTime.UtcNow + ttl);
+        }
+
+        return iconBytes;
     }
 
     public bool Launch(string targetId)

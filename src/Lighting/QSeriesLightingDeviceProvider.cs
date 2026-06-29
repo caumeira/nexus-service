@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Nexus.Service.Devices;            // ILightingDeviceProvider
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Lighting.Rgb;
 using Nexus.Service.Models.Devices;
 using Nexus.Service.Peripherals.Hyte.QSeriesCooler;
 using Nexus.Service.Persistence;
@@ -19,7 +20,7 @@ namespace Nexus.Service.Lighting;
 /// channel); see the hub's WriteLighting for the multi-port streaming + the
 /// on-device LED-topology caveat.
 /// </summary>
-public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor
+public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor, IOpenRgbDeviceOwner
 {
     private readonly QSeriesCoolerHub _hub;
     private readonly IConfigStore _store;
@@ -45,6 +46,9 @@ public sealed class QSeriesLightingDeviceProvider : ILightingDeviceProvider, ILi
     /// </summary>
     public string? OwnedOpenRgbDeviceId =>
         _hub.IsConnected && !string.IsNullOrEmpty(_hub.PortName) ? $"openrgb-l-{_hub.PortName}" : null;
+
+    public bool OwnsOpenRgbDevice(RgbDevice device) =>
+        OwnedOpenRgbDeviceId is { } id && string.Equals(device.StableId, id, StringComparison.OrdinalIgnoreCase);
 
     public event Action? DevicesChanged;
 

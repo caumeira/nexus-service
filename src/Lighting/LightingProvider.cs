@@ -1,5 +1,6 @@
 using System;
 using System.Threading.Tasks;
+using Nexus.Service.Activity;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting.Engine;
 using Nexus.Service.Lighting.Engine.Effects;
@@ -36,6 +37,13 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     private readonly IMonitorEnumerator _monitors;
     private readonly IScreenFrameSource? _frameSource;
     private readonly GameSyncGameScanner? _scanner;
+    private readonly IBeatsProvider? _beats;
+
+    // Serializes audio-capture reconcile so two near-simultaneous effect
+    // transitions can't interleave the read of the live effect with the
+    // start/stop; the last reconcile to acquire reads the committed effect
+    // and wins.
+    private readonly object _audioCaptureLock = new();
 
     // Live-reactive post-process holders shared between the effect and the
     // /lighting/{mode}/effect endpoint. The endpoint mutates the fields; the
@@ -49,7 +57,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     // frames that arrive while the effect is already running are not dropped.
     private GameSyncEffect? _gameSyncEffect;
 
-    public LightingProvider(IConfigStore store, LightingEngine engine, LightingOutputHub hub, GpuContext gpu, MediaLibrary media, IMonitorEnumerator monitors, IScreenFrameSource? frameSource = null, RgbBridge? rgb = null, GameSyncGameScanner? scanner = null)
+    public LightingProvider(IConfigStore store, LightingEngine engine, LightingOutputHub hub, GpuContext gpu, MediaLibrary media, IMonitorEnumerator monitors, IScreenFrameSource? frameSource = null, RgbBridge? rgb = null, GameSyncGameScanner? scanner = null, IBeatsProvider? beats = null)
     {
         _store = store;
         _engine = engine;
@@ -60,12 +68,14 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         _monitors = monitors;
         _frameSource = frameSource;
         _scanner = scanner;
+        _beats = beats;
 
         var s = _store.Load().Lighting;
         _screenPP.Set(s.ScreenEffect.Hue, s.ScreenEffect.Colorize, s.ScreenEffect.Saturation, s.ScreenEffect.Contrast, s.ScreenEffect.FlipX, s.ScreenEffect.FlipY, s.ScreenEffect.Reactive, s.ScreenEffect.Reactivity, s.ScreenEffect.Intensity);
         _mediaPP.Set(s.MediaEffect.Hue, s.MediaEffect.Colorize, s.MediaEffect.Saturation, s.MediaEffect.Contrast, s.MediaEffect.FlipX, s.MediaEffect.FlipY);
 
         _engine.OnFrame += frame => _ = _hub.BroadcastBinaryAsync(frame);
+        _engine.OnEffectChanged += ReconcileAudioCapture;
         WireScanner(_scanner);
     }
 
@@ -91,6 +101,36 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     public string GetSync() => _engine.CurrentEffectName == "none" ? _store.Load().Lighting.Sync : _engine.CurrentEffectName;
 
     public void SetSync(string sync) => _store.Update(s => s.Lighting.Sync = sync);
+
+    // Audio capture runs only while Music Reactive is on and the live engine
+    // effect is audio-reactive. The effect is read inside the lock (not from a
+    // captured argument) so concurrent transitions resolve to the last committed
+    // effect; the engine is already "none" during StopAll, so capture stops
+    // without consulting the not-yet-persisted Sync.
+    public void ReconcileAudioCapture()
+    {
+        if (_beats is null)
+        {
+            return;
+        }
+        lock (_audioCaptureLock)
+        {
+            if (_store.Load().Lighting.MusicReactive && ShaderLibrary.IsAudioEffect(_engine.CurrentEffectName))
+            {
+                _beats.Start();
+            }
+            else
+            {
+                _beats.Stop();
+            }
+        }
+    }
+
+    public void SetMusicReactive(bool enabled)
+    {
+        _store.Update(s => s.Lighting.MusicReactive = enabled);
+        ReconcileAudioCapture();
+    }
 
     public void StopAll()
     {
@@ -247,6 +287,13 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     public (byte[] Bytes, string Tag)? CaptureAnimateThumbnail(string key, int slot, bool skipCache = false)
     {
+        // Shader thumbnails are GPU-rendered; with no usable GPU the render is a
+        // no-op and the frame stays black, so skip it and let the caller 404 -
+        // the UI shows a placeholder instead of a grid of black tiles.
+        if (!_gpu.Available)
+        {
+            return null;
+        }
         var name = (key ?? "").ToLowerInvariant();
         var defaults = DefaultParamsFor(name);
         if (defaults is null)
@@ -502,6 +549,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "harmonicstar" => new(0.60f, 0.30f, 55f, 1.15f, 1.10f, 1f),
         "audiotunnel" => new(0.45f, 0.35f, 60f, 1.15f, 1.10f, 1f),
         "bassbloom" => new(0.85f, 0.35f, 45f, 1.15f, 1.10f, 1f),
+        "beatbuilder" => new(0.00f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         // Tunnels + flowy + abstract backgrounds. Mirror SIGNATURES in lightingTemplates.ts.
         "ringtunnel" => new(0.50f, 0.40f, 65f, 1.20f, 1.10f, 1f),
         "vortextunnel" => new(0.72f, 0.30f, 55f, 1.15f, 1.10f, 1f),
@@ -594,6 +642,15 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         "harmonicstar" => new() { ["u_points"] = 12f, ["u_core"] = 0.1f, ["u_flare"] = 1.0f },
         "audiotunnel" => new() { ["u_ringDensity"] = 6f, ["u_twist"] = 0.8f, ["u_neon"] = 1.0f },
         "bassbloom" => new() { ["u_petals"] = 7f, ["u_shimmer"] = 1.0f, ["u_bloomSize"] = 0.4f },
+        "beatbuilder" => new()
+        {
+            ["u_centerStyle"] = 0f, ["u_barCount"] = 48f, ["u_barWidth"] = 0.85f,
+            ["u_centerGain"] = 1.2f, ["u_centerFloor"] = 0.04f, ["u_centerSize"] = 0.9f,
+            ["u_topMeters"] = 1f, ["u_topHeight"] = 0.085f, ["u_cornerFills"] = 1f,
+            ["u_bottomBars"] = 1f, ["u_bottomScale"] = 0.07f, ["u_colorMode"] = 1f,
+            ["u_beatColor"] = 0f, ["u_bgLevel"] = 0f, ["u_flash"] = 0f,
+            ["u_beatPulse"] = 0.3f,
+        },
         // Tunnels + flowy + abstract backgrounds. Slot 0 must match the frontend
         // EFFECTS defaults and PARAM_VARIATIONS slot 0.
         "ringtunnel" => new() { ["u_rings"] = 2f, ["u_zoom"] = 1.0f, ["u_neon"] = 1.0f },
@@ -680,6 +737,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             "harmonicstar" => ShaderLibrary.Get("harmonicstar"),
             "audiotunnel" => ShaderLibrary.Get("audiotunnel"),
             "bassbloom" => ShaderLibrary.Get("bassbloom"),
+            "beatbuilder" => ShaderLibrary.BeatBuilder,
             "bubbles" => ShaderLibrary.Bubbles,
             "silkwave" => ShaderLibrary.SilkWave,
             "prismwave" => ShaderLibrary.PrismWave,

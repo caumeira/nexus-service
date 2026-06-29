@@ -234,6 +234,58 @@ public class SaveDeviceLayoutBody
     public int Rotation { get; set; }
 }
 
+// ----- /devices/lighting-devices/layout-presets -----
+
+public sealed class LayoutPresetDto
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public Dictionary<string, Nexus.Service.Persistence.DeviceLayout> Layouts { get; set; } = new();
+}
+
+public sealed class LayoutPresetsResponse
+{
+    public List<LayoutPresetDto> Presets { get; set; } = new();
+    // Always serialize; null = no preset selected. WhenWritingNull would omit it.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.Never)]
+    public string? ActiveId { get; set; }
+}
+
+public sealed class CreateLayoutPresetBody
+{
+    public string Name { get; set; } = "";
+}
+
+public sealed class CreateLayoutPresetResponse
+{
+    public LayoutPresetDto? Preset { get; set; }
+    public string? ActiveId { get; set; }
+}
+
+public sealed class UpdateLayoutPresetBody
+{
+    public string? Name { get; set; }
+    public bool SaveCurrent { get; set; }
+}
+
+public sealed class SetActivePresetBody
+{
+    public string? Id { get; set; }
+}
+
+public sealed class DeletePresetResponse
+{
+    // Always serialize; null = no preset selected. WhenWritingNull would omit it.
+    [System.Text.Json.Serialization.JsonIgnore(Condition = System.Text.Json.Serialization.JsonIgnoreCondition.Never)]
+    public string? ActiveId { get; set; }
+}
+
+// Batch-apply a full layouts map (used by undo/redo and preset load on the client).
+public sealed class BatchApplyLayoutsBody
+{
+    public Dictionary<string, Nexus.Service.Persistence.DeviceLayout> Layouts { get; set; } = new();
+}
+
 // ----- /devices/lighting-devices/{id}/led-map -----
 
 public sealed class LedMapResponse

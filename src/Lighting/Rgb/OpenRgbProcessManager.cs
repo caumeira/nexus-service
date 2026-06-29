@@ -141,9 +141,13 @@ public sealed class OpenRgbProcessManager : IDisposable
     /// apply - two stacks could hold the HID handle and fight over the LEDs - so
     /// the detector MUST be disabled here. Names match the
     /// <c>REGISTER_*_DETECTOR</c> strings in nexus-rgb/openrgb-headless verbatim
-    /// (HYTEKeyboardControllerDetect.cpp → "HYTE Keeb TKL").
+    /// (HYTEKeyboardControllerDetect.cpp -> "HYTE Keeb TKL";
+    /// LianLiControllerDetect.cpp -> "Lian Li Uni Hub - SL Infinity";
+    /// CorsairICueLinkControllerDetect.cpp -> "Corsair iCUE Link System Hub").
+    /// Unknown names in this list are ignored, so disabling the iCUE Link detector
+    /// is a safe no-op on bundled builds that predate that controller.
     /// </summary>
-    private static readonly string[] DisabledDetectors = { "HYTE Keeb TKL" };
+    private static readonly string[] DisabledDetectors = { "HYTE Keeb TKL", "Lian Li Uni Hub - SL Infinity", "Corsair iCUE Link System Hub" };
 
     /// <summary>
     /// Merge our detector denylist into the OpenRGB config's

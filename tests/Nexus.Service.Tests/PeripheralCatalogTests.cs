@@ -54,4 +54,29 @@ public class PeripheralCatalogTests
             Assert.False(string.IsNullOrWhiteSpace(d.Model));
         }
     }
+
+    [Fact]
+    public void LightingDevicesCatalog_InjectsFirstPartyHyteDevices()
+    {
+        var hyte = LightingDevicesCatalog.All.Where(d => d.Vendor == "HYTE").ToList();
+        Assert.Contains(hyte, d => d.Model == "THICC Q60");
+        Assert.Contains(hyte, d => d.Model == "Nexus Portal NP50");
+        // The OpenRGB fork's own HYTE rows are suppressed, so every HYTE row is first-party.
+        Assert.All(hyte, d => Assert.Equal("nexus", d.Source));
+    }
+
+    [Fact]
+    public void LightingDevicesCatalog_DropsMislabeledNexusCaseRow()
+    {
+        // The OpenRGB "HYTE Nexus" detector previously surfaced as model "Nexus"
+        // typed "case"; the curated first-party list replaces it.
+        Assert.DoesNotContain(LightingDevicesCatalog.All, d => d.Vendor == "HYTE" && d.Model == "Nexus");
+        Assert.DoesNotContain(LightingDevicesCatalog.All, d => d.Vendor == "HYTE" && d.Category == "case");
+    }
+
+    [Fact]
+    public void LightingDevicesCatalog_EverySourceIsKnown()
+    {
+        Assert.All(LightingDevicesCatalog.All, d => Assert.Contains(d.Source, new[] { "nexus", "openrgb" }));
+    }
 }

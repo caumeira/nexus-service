@@ -35,6 +35,8 @@ internal sealed class MockHidDevice : IHidDevice
     }
 
     public bool Write(ReadOnlySpan<byte> report) => true;
+    public bool SetOutputReport(ReadOnlySpan<byte> report) => true;
+    public bool GetInputReport(Span<byte> buffer) => false;
     public int Read(Span<byte> buffer, int timeoutMs) => 0;
     public void Dispose() { }
 }

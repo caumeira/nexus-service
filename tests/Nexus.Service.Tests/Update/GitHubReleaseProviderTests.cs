@@ -70,4 +70,45 @@ public sealed class GitHubReleaseProviderTests
         var hash = GitHubReleaseProvider.ParseSha256Sums(content, "Nexus-Setup.exe");
         Assert.Equal(Hash64, hash);
     }
+
+    [Fact]
+    public void ParseSha256Sums_versioned_filename_returns_hash()
+    {
+        var content = $"{Hash64}  Nexus-Setup-3.0.0-beta.2.exe\n";
+        var hash = GitHubReleaseProvider.ParseSha256Sums(content, "Nexus-Setup-3.0.0-beta.2.exe");
+        Assert.Equal(Hash64, hash);
+    }
+
+    // Installer asset selection
+
+    private static GitHubReleaseAsset Asset(string name) => new() { Name = name };
+
+    [Fact]
+    public void SelectInstallerAsset_matches_versioned_name()
+    {
+        var assets = new[] { Asset("SHA256SUMS"), Asset("Nexus-Setup-3.0.0-beta.2.exe") };
+        var picked = GitHubReleaseProvider.SelectInstallerAsset(assets);
+        Assert.Equal("Nexus-Setup-3.0.0-beta.2.exe", picked?.Name);
+    }
+
+    [Fact]
+    public void SelectInstallerAsset_matches_legacy_bare_name()
+    {
+        var assets = new[] { Asset("Nexus-Setup.exe"), Asset("Nexus.dmg") };
+        var picked = GitHubReleaseProvider.SelectInstallerAsset(assets);
+        Assert.Equal("Nexus-Setup.exe", picked?.Name);
+    }
+
+    [Fact]
+    public void SelectInstallerAsset_ignores_dmg_tarball_and_sums()
+    {
+        var assets = new[] { Asset("Nexus-3.0.0.dmg"), Asset("Nexus-Linux-x64-3.0.0.tar.gz"), Asset("SHA256SUMS") };
+        Assert.Null(GitHubReleaseProvider.SelectInstallerAsset(assets));
+    }
+
+    [Fact]
+    public void SelectInstallerAsset_null_when_no_installer()
+    {
+        Assert.Null(GitHubReleaseProvider.SelectInstallerAsset(System.Array.Empty<GitHubReleaseAsset>()));
+    }
 }

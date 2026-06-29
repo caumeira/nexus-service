@@ -51,6 +51,6 @@ public interface IBeatsProvider : IDisposable
     /// <summary>Stop capturing. Idempotent.</summary>
     void Stop();
 
-    /// <summary>Raised each analysis window (~50ms) with the latest beat metrics.</summary>
-    event Action<MusicResult>? OnBeat;
+    /// <summary>Raised each analysis window (~50ms) after AudioState is refreshed.</summary>
+    event Action? OnBeat;
 }

@@ -70,9 +70,24 @@ public sealed class UpdateService : BackgroundService
     private int _installing;
     private CancellationTokenSource? _installCts;
 
+    // A background auto-stage (download/always) holds _installing while it
+    // downloads. A user trigger arriving in that window sets this so the stage
+    // launches the installer when it finishes, instead of being rejected.
+    private volatile bool _launchAfterStage;
+    private volatile bool _launchAfterStageReopen;
+
     private volatile UpdateManifest? _latestManifest;
     private volatile bool _updateReady;
+
+    // Set once a check reaches the source (network/DNS up). Gates the cold-boot
+    // short-retry so a transient boot-time DNS failure isn't stranded until the
+    // next PollInterval.
+    private volatile bool _hadSuccessfulCheck;
     private volatile string? _stagedInstallerPath;
+    // Version the staged installer is for. A newer manifest supersedes it, so the
+    // auto-stage guard re-stages instead of leaving the queued install on the old
+    // version.
+    private volatile string? _stagedVersion;
 
     // Last (updateAvailable, updateReady) pushed over the WS. The status-changed
     // broadcast fires only on the rising edge of either, keeping the 4h poll off
@@ -155,6 +170,9 @@ public sealed class UpdateService : BackgroundService
         try { UpdateInstaller.CleanOrphanedTasks(); } catch { }
 #endif
 
+        // Align UpdateChannel with the running build when the version changed.
+        SyncChannelToVersion();
+
         // Apply or diagnose a staged install marker from a prior run.
         ApplyPendingOnStartup(stoppingToken);
 
@@ -178,8 +196,97 @@ public sealed class UpdateService : BackgroundService
             {
                 Console.Error.WriteLine($"[update] poll iteration failed: {ex.GetType().Name}: {ex.Message}");
             }
+
+            if (!_hadSuccessfulCheck
+                && !await RetryUntilFirstCheckAsync(stoppingToken).ConfigureAwait(false))
+            {
+                return;
+            }
         }
         while (await WaitAsync(timer, stoppingToken).ConfigureAwait(false));
+    }
+
+    /// <summary>
+    /// The startup check can fire before the network/DNS stack is up on a cold
+    /// boot, failing to resolve api.github.com. Retry on a short capped backoff
+    /// until a check reaches the source, so a transient boot failure isn't
+    /// stranded until the next PollInterval. Returns false if cancelled.
+    /// </summary>
+    private async Task<bool> RetryUntilFirstCheckAsync(CancellationToken ct)
+    {
+        // Cold-boot DNS comes up within seconds; cap the fast-retry window (~10
+        // min of 15s->120s backoff) so a box that is genuinely offline falls
+        // back to the normal 4h cadence instead of polling (and logging) forever.
+        const int maxAttempts = 8;
+        var delaySeconds = 15;
+        for (var attempt = 0; attempt < maxAttempts && !_hadSuccessfulCheck && !ct.IsCancellationRequested; attempt++)
+        {
+            try
+            {
+                await Task.Delay(TimeSpan.FromSeconds(delaySeconds), ct).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return false;
+            }
+
+            try
+            {
+                await PollAsync(ct).ConfigureAwait(false);
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[update] poll iteration failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            delaySeconds = Math.Min(delaySeconds * 2, 120);
+        }
+        return !ct.IsCancellationRequested;
+    }
+
+    /// <summary>
+    /// Derives the correct UpdateChannel from the running build's version when
+    /// the version has changed since the last run. A prerelease build sets "beta";
+    /// a stable build sets "production". No-ops when the version is unchanged,
+    /// preserving a manual channel choice across restarts of the same build.
+    /// </summary>
+    private void SyncChannelToVersion()
+    {
+        var s = _store.Load();
+        var (channel, changed) = ResolveChannelForBuild(
+            s.Update.LastRunVersion,
+            BuildInfo.Version,
+            s.Update.UpdateChannel);
+
+        if (!changed)
+        {
+            return;
+        }
+
+        _store.Update(settings =>
+        {
+            settings.Update.UpdateChannel = channel;
+            settings.Update.LastRunVersion = BuildInfo.Version;
+        });
+    }
+
+    /// <summary>
+    /// Pure channel-derivation logic: given the persisted last-run version, the
+    /// current build version, and the current channel, returns the channel that
+    /// should be active and whether the settings need to be written.
+    /// </summary>
+    internal static (string channel, bool changed) ResolveChannelForBuild(
+        string lastRunVersion,
+        string buildVersion,
+        string currentChannel)
+    {
+        if (string.Equals(lastRunVersion, buildVersion, StringComparison.Ordinal))
+        {
+            return (currentChannel, false);
+        }
+
+        var channel = VersionCompare.IsPrerelease(buildVersion) ? "beta" : "production";
+        return (channel, true);
     }
 
     /// <summary>
@@ -388,6 +495,17 @@ public sealed class UpdateService : BackgroundService
 
         if (Interlocked.CompareExchange(ref _installing, 1, 0) != 0)
         {
+            // A background auto-stage holds the lock and nothing is staged yet:
+            // adopt it so this trigger launches once staging finishes, rather
+            // than rejecting the user mid-download. A click in the sub-ms window
+            // where staging is flipping _updateReady true is acked but not
+            // launched; status reverts to "ready" and the user re-triggers.
+            if (!_updateReady && _progress.Active)
+            {
+                _launchAfterStageReopen = reopenAfter;
+                _launchAfterStage = true;
+                return (true, "");
+            }
             return (false, "An install is already in progress.");
         }
 
@@ -421,6 +539,7 @@ public sealed class UpdateService : BackgroundService
         try
         {
             var manifest = await _source.GetLatestAsync(channel, ct).ConfigureAwait(false);
+            _hadSuccessfulCheck = true;
 
             _latestManifest = manifest;
 
@@ -448,10 +567,27 @@ public sealed class UpdateService : BackgroundService
             // Both "download" and "always" auto-stage (download+verify) but never
             // launch mid-session. "always" applies on the next restart via
             // ApplyPendingOnStartup; "download" waits for POST /update/start.
-            if (isNewer && (mode is "download" or "always") && manifest is not null && !_updateReady)
+            // Re-stage when the latest version differs from what's already
+            // staged: a release published while an update was queued supersedes
+            // it, so the staged installer + marker must follow the new version.
+            var alreadyStaged = _updateReady
+                && string.Equals(_stagedVersion, manifest?.Version, StringComparison.OrdinalIgnoreCase);
+            if (isNewer && (mode is "download" or "always") && manifest is not null && !alreadyStaged)
             {
                 if (Interlocked.CompareExchange(ref _installing, 1, 0) == 0)
                 {
+                    if (_updateReady)
+                    {
+                        // A previous version is staged but superseded; the download
+                        // below prunes its installer, so drop the ready state + its
+                        // marker now. Status reverts to "available" until the new
+                        // version finishes staging - never "ready" with no file.
+                        _updateReady = false;
+                        _stagedInstallerPath = null;
+                        _stagedVersion = null;
+                        StagedInstallMarkerStore.Delete();
+                        UpdateStatusUpdateReady(false);
+                    }
                     var cts = new CancellationTokenSource();
                     _installCts = cts;
                     _ = Task.Run(() => RunInstallAsync(manifest, launchAfterVerify: false, reopenAfter: false, cts.Token));
@@ -533,6 +669,7 @@ public sealed class UpdateService : BackgroundService
                 // Staged file is gone; fall through to a full re-download.
                 _updateReady = false;
                 _stagedInstallerPath = null;
+                _stagedVersion = null;
                 await RunInstallAsync(manifest, launchAfterVerify: true, reopenAfter, ct).ConfigureAwait(false);
                 return;
             }
@@ -599,6 +736,8 @@ public sealed class UpdateService : BackgroundService
         finally
         {
             Interlocked.Exchange(ref _installing, 0);
+            _launchAfterStage = false;
+            _launchAfterStageReopen = false;
             _installCts?.Dispose();
             _installCts = null;
         }
@@ -631,7 +770,8 @@ public sealed class UpdateService : BackgroundService
             SetProgress("verifying", 99, "Verifying installer...", manifest.Version);
             await UpdateIntegrity.VerifyAsync(installerPath, manifest.Sha256!, ct).ConfigureAwait(false);
 
-            if (!launchAfterVerify)
+            var adopted = _launchAfterStage;
+            if (!launchAfterVerify && !adopted)
             {
                 if (!manifest.Sha256IsFromSumsFile)
                 {
@@ -644,6 +784,7 @@ public sealed class UpdateService : BackgroundService
 
                 // Stage only: signal ready, write pending marker, send tray notification.
                 _stagedInstallerPath = installerPath;
+                _stagedVersion = manifest.Version;
                 _updateReady = true;
                 StagedInstallMarkerStore.Write(new StagedInstallMarker
                 {
@@ -671,6 +812,12 @@ public sealed class UpdateService : BackgroundService
                 NotifyStatusChanged();
                 Console.Error.WriteLine($"[update] download staged for {manifest.Version}; awaiting user trigger");
                 return;
+            }
+
+            // A user trigger adopted this background stage: honor its reopen intent.
+            if (adopted)
+            {
+                reopenAfter = reopenAfter || _launchAfterStageReopen;
             }
 
 #if WINDOWS
@@ -734,6 +881,8 @@ public sealed class UpdateService : BackgroundService
         finally
         {
             Interlocked.Exchange(ref _installing, 0);
+            _launchAfterStage = false;
+            _launchAfterStageReopen = false;
             _installCts?.Dispose();
             _installCts = null;
         }
