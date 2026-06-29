@@ -118,9 +118,9 @@ Filename: "{app}\{#MyAppExeName}"; Parameters: "--open-app"; Flags: nowait skipi
 ; reinstall. CurUninstallStepChanged runs it from a {tmp} copy instead.
 
 [Code]
-// Win32 imports used to lift the wizard above other windows after an
-// elevated relaunch. Without this, Windows' foreground-lock can leave
-// the wizard behind the user's existing windows (Explorer, browser,
+// Win32 imports used to lift the wizard (and the uninstaller) above other
+// windows after an elevated relaunch. Without this, Windows' foreground-lock
+// can leave the window behind the user's existing windows (Explorer, browser,
 // etc.) which makes the install look like it stalled.
 function SetForegroundWindow(hWnd: Integer): Boolean;
   external 'SetForegroundWindow@user32.dll stdcall';
@@ -128,20 +128,31 @@ function ShowWindow(hWnd: Integer; nCmdShow: Integer): Boolean;
   external 'ShowWindow@user32.dll stdcall';
 function AllowSetForegroundWindow(dwProcessId: DWORD): Boolean;
   external 'AllowSetForegroundWindow@user32.dll stdcall';
+function SetWindowPos(hWnd, hWndInsertAfter, X, Y, cx, cy: Integer; uFlags: Cardinal): Boolean;
+  external 'SetWindowPos@user32.dll stdcall';
+
+procedure ForceWindowToFront(Wnd: Integer);
+begin
+  if Wnd = 0 then exit;
+  ShowWindow(Wnd, 5); // SW_SHOW
+  // A freshly-elevated process loses SetForegroundWindow to the foreground-lock,
+  // so first lift the Z-order with a TOPMOST/NOTOPMOST toggle (Z-order isn't
+  // gated by the lock), then claim focus. The flag bits hold position+size and
+  // just restack and show the window.
+  SetWindowPos(Wnd, -1, 0, 0, 0, 0, $43); // HWND_TOPMOST
+  SetWindowPos(Wnd, -2, 0, 0, 0, 0, $43); // HWND_NOTOPMOST
+  AllowSetForegroundWindow($FFFFFFFF);     // ASFW_ANY
+  SetForegroundWindow(Wnd);
+end;
 
 procedure BringWizardToFront();
 begin
-  if WizardForm <> nil then
-  begin
-    AllowSetForegroundWindow($FFFFFFFF); // ASFW_ANY
-    ShowWindow(WizardForm.Handle, 9);    // SW_RESTORE
-    WizardForm.BringToFront();
-    SetForegroundWindow(WizardForm.Handle);
-  end;
+  if WizardForm <> nil then ForceWindowToFront(WizardForm.Handle);
 end;
 
 var
   DesktopShortcutCheck: TNewCheckBox;
+  FrontAsserted: Boolean;
 
 function DesktopIconChecked(): Boolean;
 begin
@@ -159,13 +170,25 @@ begin
   DesktopShortcutCheck := TNewCheckBox.Create(WizardForm);
   DesktopShortcutCheck.Parent := WizardForm.SelectDirPage;
   DesktopShortcutCheck.Left := WizardForm.DirEdit.Left;
-  // Anchor below the disk-space label (the lowest control on the page) so the
-  // box never overlaps it, regardless of DPI or the label wrapping to two lines.
-  DesktopShortcutCheck.Top := WizardForm.DiskSpaceLabel.Top + WizardForm.DiskSpaceLabel.Height + ScaleY(16);
   DesktopShortcutCheck.Width := WizardForm.SelectDirPage.Width - DesktopShortcutCheck.Left;
   DesktopShortcutCheck.Height := ScaleY(17);
+  // Sit just above the disk-space label (the page's bottom control), in the empty
+  // gap below the path edit. Anchoring *below* DiskSpaceLabel pushed the box off
+  // the visible page; going up from it keeps it on-screen and clear of the label.
+  DesktopShortcutCheck.Top := WizardForm.DiskSpaceLabel.Top - DesktopShortcutCheck.Height - ScaleY(12);
   DesktopShortcutCheck.Caption := ExpandConstant('{cm:CreateDesktopIcon}');
   DesktopShortcutCheck.Checked := True;
+end;
+
+procedure CurPageChanged(CurPageID: Integer);
+begin
+  // InitializeWizard runs before the wizard is visible, so SetForegroundWindow
+  // there can no-op; re-assert front once the first page is actually on screen.
+  if not FrontAsserted then
+  begin
+    BringWizardToFront();
+    FrontAsserted := True;
+  end;
 end;
 
 procedure StopServiceIfRunning();
@@ -204,6 +227,9 @@ begin
   if CurUninstallStep = usUninstall then
   begin
     StopServiceIfRunning();
+    // Lift the uninstall progress form (and so the data-wipe dialog parented to
+    // it) above the user's other windows, same foreground-lock fix as the wizard.
+    ForceWindowToFront(UninstallProgressForm.Handle);
     // Ask here, not in InitializeUninstall: by usUninstall the uninstall
     // progress form exists, so the dialog parents to it and shows on top. A
     // dialog in InitializeUninstall has no parent window and can hide behind
