@@ -798,6 +798,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.CorsairSettingsRequest))]
 [JsonSerializable(typeof(int[]))]
 [JsonSerializable(typeof(bool[]))]
+// Lian Li Strimer Plus.
+[JsonSerializable(typeof(Nexus.Service.Routes.StrimerLightingResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.StrimerLightingRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.StrimerModeInfoDto))]
+[JsonSerializable(typeof(Nexus.Service.Routes.StrimerModeInfoDto[]))]
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

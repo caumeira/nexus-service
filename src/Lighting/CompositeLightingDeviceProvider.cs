@@ -26,6 +26,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     private readonly KeebLightingDeviceProvider _keeb;
     private readonly LianLiLightingDeviceProvider _lianLi;
     private readonly CorsairLinkLightingDeviceProvider _corsair;
+    private readonly StrimerLightingDeviceProvider _strimer;
     private readonly Nexus.Service.Lighting.Smart.SmartLightProvider _smart;
     private readonly IConfigStore _store;
     private readonly LightingEngine _engine;
@@ -40,6 +41,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         KeebLightingDeviceProvider keeb,
         LianLiLightingDeviceProvider lianLi,
         CorsairLinkLightingDeviceProvider corsair,
+        StrimerLightingDeviceProvider strimer,
         Nexus.Service.Lighting.Smart.SmartLightProvider smart,
         IConfigStore store,
         LightingEngine engine)
@@ -53,12 +55,13 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         _keeb = keeb;
         _lianLi = lianLi;
         _corsair = corsair;
+        _strimer = strimer;
         _smart = smart;
         _store = store;
         _engine = engine;
     }
 
-    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected || _lianLi.IsConnected || _corsair.IsConnected || _smart.IsConnected;
+    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected || _lianLi.IsConnected || _corsair.IsConnected || _strimer.IsConnected || _smart.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
     {
@@ -131,6 +134,11 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
                 rgb.Devices.RemoveAll(d =>
                     d.Name.Contains("iCUE Link", StringComparison.OrdinalIgnoreCase));
             }
+            if (_strimer.IsConnected)
+            {
+                rgb.Devices.RemoveAll(d =>
+                    d.Name.Contains("Lian Li Strimer", StringComparison.OrdinalIgnoreCase));
+            }
         }
 
         var hub = _np50.GetAll();
@@ -180,6 +188,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         {
             rgb.IsInit = rgb.IsInit || corsair.IsInit;
             rgb.Devices.AddRange(corsair.Devices);
+        }
+        var strimer = _strimer.GetAll();
+        if (strimer.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || strimer.IsInit;
+            rgb.Devices.AddRange(strimer.Devices);
         }
         var smartLights = _smart.GetAll();
         if (smartLights.Devices.Count > 0)
@@ -247,6 +261,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         var keebIds = new List<string>(ids.Count);
         var lianLiIds = new List<string>(ids.Count);
         var corsairIds = new List<string>(ids.Count);
+        var strimerIds = new List<string>(ids.Count);
         var smartLightIds = new List<string>(ids.Count);
         foreach (var id in ids)
         {
@@ -258,6 +273,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
             else if (IsKeebId(id)) keebIds.Add(id);
             else if (IsLianLiId(id)) lianLiIds.Add(id);
             else if (IsCorsairId(id)) corsairIds.Add(id);
+            else if (IsStrimerId(id)) strimerIds.Add(id);
             else if (_smart.Owns(id)) smartLightIds.Add(id);
             else rgbIds.Add(id);
         }
@@ -270,6 +286,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         if (keebIds.Count > 0) _keeb.SetDisabled(keebIds);
         if (lianLiIds.Count > 0) _lianLi.SetDisabled(lianLiIds);
         if (corsairIds.Count > 0) _corsair.SetDisabled(corsairIds);
+        if (strimerIds.Count > 0) _strimer.SetDisabled(strimerIds);
         if (smartLightIds.Count > 0) _smart.SetDisabled(smartLightIds);
     }
 
@@ -289,6 +306,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         : IsKeebId(id) ? _keeb
         : IsLianLiId(id) ? _lianLi
         : IsCorsairId(id) ? _corsair
+        : IsStrimerId(id) ? _strimer
         : _smart.Owns(id) ? _smart
         : _openRgb;
 
@@ -315,4 +333,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
 
     private static bool IsCorsairId(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("corsair:", StringComparison.Ordinal);
+
+    private static bool IsStrimerId(string id) =>
+        !string.IsNullOrEmpty(id) && id.StartsWith("strimer:", StringComparison.Ordinal);
 }

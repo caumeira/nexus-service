@@ -31,6 +31,7 @@ public static partial class DevicesRoutes
         MapLianLiTlEndpoints(app);
         MapGalahad2Endpoints(app);
         MapCorsairEndpoints(app);
+        MapStrimerEndpoints(app);
     }
 
     /// <summary>
