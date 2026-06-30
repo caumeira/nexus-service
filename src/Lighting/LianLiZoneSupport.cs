@@ -8,13 +8,13 @@ using Nexus.Service.Persistence;
 namespace Nexus.Service.Lighting;
 
 /// <summary>
-/// Channel composition for the Lian Li Uni Hub SL-Infinity. The hub drives 4
-/// ports, each a pair of physical channels (inner ring = 2p, outer ring =
-/// 2p+1), 16 LEDs per fan per channel. Composition turns those channels into a
-/// configurable set of partitionable devices:
+/// Channel composition for the Lian Li Uni Hub. The hub drives 4 ports, each a
+/// pair of physical channels (inner ring = 2p, outer ring = 2p+1), 16 LEDs per
+/// fan per channel. Composition turns those channels into a configurable set of
+/// partitionable devices:
 ///
-///   - Mirror off: one device per active port (a port has fans &gt; 0).
-///   - Mirror on:  one device whose segments broadcast to every active port.
+///   - One device per active port (a port has fans &gt; 0); the device set and
+///     LED counts follow the per-port fan counts set on the device page.
 ///   - Combine on: a device's inner+outer rings are one zone (1-card default).
 ///   - Combine off: inner and outer are two zones (the legacy 2-card default,
 ///                  keeping the `:inner` / `:outer` ids so prior edits survive).
@@ -33,11 +33,16 @@ public static class LianLiZoneSupport
     private const float InnerRadius = 0.24f;
     private const float OuterRadius = 0.42f;
 
-    /// <summary>The hub's default composition when the user has set none: per-port, rings combined.</summary>
+    /// <summary>
+    /// The hub's composition. Lian Li never mirrors, so Mirror is forced false
+    /// even if a prior build persisted it; only CombineRings carries over,
+    /// defaulting to combined.
+    /// </summary>
     public static HubCompositionSettings ReadComposition(NexusSettings settings, string hubId)
-        => settings.Devices.LightingComposition.TryGetValue(hubId, out var c) && c is not null
-            ? c
-            : new HubCompositionSettings { Mirror = false, CombineRings = true };
+    {
+        settings.Devices.LightingComposition.TryGetValue(hubId, out var c);
+        return new HubCompositionSettings { Mirror = false, CombineRings = c?.CombineRings ?? true };
+    }
 
     public static int ClampFans(int fans) => Math.Clamp(fans, 0, LianLiProtocol.MaxFansPerPort);
 
@@ -89,26 +94,6 @@ public static class LianLiZoneSupport
         var devices = new List<ComposedDevice>();
         if (active.Count == 0)
         {
-            return devices;
-        }
-
-        if (comp.Mirror)
-        {
-            // One device fed by every active port. Fan count = the most-populated
-            // active port so no port is left under-driven.
-            var mirrorFans = 1;
-            foreach (var p in active)
-            {
-                mirrorFans = Math.Max(mirrorFans, ClampFans(fans.GetFans(p)));
-            }
-            var inner = new List<int>(active.Count);
-            var outer = new List<int>(active.Count);
-            foreach (var p in active)
-            {
-                inner.Add(p * 2);
-                outer.Add(p * 2 + 1);
-            }
-            devices.Add(BuildDevice(hubId, "mirror", "All Fans", mirrorFans, comp.CombineRings, inner, outer));
             return devices;
         }
 

@@ -95,6 +95,7 @@ public sealed class SmartHubLightingDeviceProvider :
             PortCount = SmartHubProtocol.ArgbPortCount,
             HasRingsAxis = false,
             HasPortToggle = false,
+            HasMirror = true,
             Mirror = ReadMirror(_store.Load(), hubId),
             CombineRings = false,
             ActivePorts = active,

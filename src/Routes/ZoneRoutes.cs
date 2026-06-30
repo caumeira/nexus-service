@@ -302,6 +302,7 @@ public static partial class DevicesRoutes
                 PortCount = info.PortCount,
                 HasRingsAxis = info.HasRingsAxis,
                 HasPortToggle = info.HasPortToggle,
+                HasMirror = info.HasMirror,
                 Mirror = info.Mirror,
                 CombineRings = info.CombineRings,
                 ActivePorts = info.ActivePorts,

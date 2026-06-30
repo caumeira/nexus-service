@@ -18,8 +18,8 @@ public class LianLiLightingDeviceProviderTests
 
     private void Connect() => _hub.State.IsConnected = true;
 
-    private void SetComposition(bool mirror, bool combine) => _store.Update(s =>
-        s.Devices.LightingComposition["lianli"] = new HubCompositionSettings { Mirror = mirror, CombineRings = combine });
+    private void SetCombine(bool combine) => _store.Update(s =>
+        s.Devices.LightingComposition["lianli"] = new HubCompositionSettings { Mirror = false, CombineRings = combine });
 
     private LianLiSettings Fans => _store.Load().Devices.LianLi;
 
@@ -90,7 +90,7 @@ public class LianLiLightingDeviceProviderTests
     public void Combine_off_yields_two_default_zones_with_legacy_ids()
     {
         Connect();
-        SetComposition(mirror: false, combine: false);
+        SetCombine(false);
         var st = _provider.GetStructures()[0];
         Assert.Equal("lianli:port0", st.DeviceId);
         Assert.Equal(2, st.DefaultZones.Count);
@@ -98,32 +98,16 @@ public class LianLiLightingDeviceProviderTests
         Assert.Equal("lianli:port0:outer", st.DefaultZones[1].Id);
     }
 
-    // ── Mirror: one device fed by every active port ──
+    // ── Mirror removed: Compose ignores the (legacy) mirror flag ──
 
     [Fact]
-    public void Mirror_yields_single_device_broadcasting_to_all_active_ports()
+    public void Compose_ignores_mirror_and_yields_per_port()
     {
         var devices = LianLiZoneSupport.Compose(
             "lianli", new HubCompositionSettings { Mirror = true, CombineRings = true }, Fans);
-        var device = Assert.Single(devices);
-        Assert.Equal("lianli:mirror", device.Structure.DeviceId);
-        Assert.Equal(new[] { 0, 2, 4, 6 }, device.SegmentChannels[0].ToArray());
-        Assert.Equal(new[] { 1, 3, 5, 7 }, device.SegmentChannels[1].ToArray());
-    }
-
-    [Fact]
-    public void Mirror_skips_inactive_ports_in_channel_list()
-    {
-        _store.Update(s =>
-        {
-            s.Devices.LianLi.SetFans(1, 0);
-            s.Devices.LianLi.SetFans(3, 0);
-        });
-        var devices = LianLiZoneSupport.Compose(
-            "lianli", new HubCompositionSettings { Mirror = true, CombineRings = true }, Fans);
-        var d = Assert.Single(devices);
-        Assert.Equal(new[] { 0, 4 }, d.SegmentChannels[0].ToArray());
-        Assert.Equal(new[] { 1, 5 }, d.SegmentChannels[1].ToArray());
+        Assert.Equal(4, devices.Count);
+        Assert.DoesNotContain(devices, d => d.Structure.DeviceId == "lianli:mirror");
+        Assert.Equal("lianli:port0", devices[0].Structure.DeviceId);
     }
 
     [Fact]
@@ -142,15 +126,28 @@ public class LianLiLightingDeviceProviderTests
     // ── Card counts across the cross product (the 1 / 2 / 4 / 8 device spectrum) ──
 
     [Theory]
-    [InlineData(false, true, 4)]   // per-port, combined
-    [InlineData(false, false, 8)]  // per-port, split
-    [InlineData(true, true, 1)]    // mirror, combined
-    [InlineData(true, false, 2)]   // mirror, split
-    public void Card_count_matches_composition(bool mirror, bool combine, int expected)
+    [InlineData(true, 4)]   // combined: one card per active port
+    [InlineData(false, 8)]  // split: inner + outer per active port
+    public void Card_count_matches_combine(bool combine, int expected)
     {
         Connect();
-        SetComposition(mirror, combine);
+        SetCombine(combine);
         Assert.Equal(expected, _provider.GetAll().Devices.Count);
+    }
+
+    // ── Composition capability flags surfaced to the LED-map editor ──
+
+    [Fact]
+    public void DescribeComposition_lianli_hides_mirror_and_ports_keeps_rings()
+    {
+        Connect();
+        var info = _provider.DescribeComposition("lianli");
+        Assert.NotNull(info);
+        Assert.Equal("lianli", info!.HubKind);
+        Assert.True(info.HasRingsAxis);
+        Assert.False(info.HasPortToggle);
+        Assert.False(info.HasMirror);
+        Assert.False(info.Mirror);
     }
 
     // ── Concentric rings ──

@@ -231,8 +231,9 @@ public sealed class LianLiLightingDeviceProvider :
             HubKind = "lianli",
             PortCount = LianLiProtocol.PortCount,
             HasRingsAxis = true,
-            HasPortToggle = true,
-            Mirror = comp.Mirror,
+            HasPortToggle = false,
+            HasMirror = false,
+            Mirror = false,
             CombineRings = comp.CombineRings,
             ActivePorts = active,
         };

@@ -44,6 +44,7 @@ public sealed class HubCompositionDto
     public int PortCount { get; set; }
     public bool HasRingsAxis { get; set; }
     public bool HasPortToggle { get; set; }
+    public bool HasMirror { get; set; }
     public bool Mirror { get; set; }
     public bool CombineRings { get; set; }
     public bool[] ActivePorts { get; set; } = System.Array.Empty<bool>();

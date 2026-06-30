@@ -36,6 +36,8 @@ public sealed class HubCompositionInfo
     public bool HasRingsAxis { get; set; }
     /// <summary>Ports can be individually enabled/disabled (the port chips apply).</summary>
     public bool HasPortToggle { get; set; }
+    /// <summary>Hub supports mirror-all-ports broadcast (the mirror toggle applies).</summary>
+    public bool HasMirror { get; set; }
     public bool Mirror { get; set; }
     public bool CombineRings { get; set; }
     /// <summary>Length <see cref="PortCount"/>; which ports currently contribute a device.</summary>

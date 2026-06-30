@@ -85,11 +85,12 @@ public static partial class DevicesRoutes
             }, AppJsonContext.Default.LianLiCompositionResponse);
         });
 
-        // PUT /devices/lianli/composition - patch mirror / combine rings / per-port
-        // on-off (a port toggle maps to fan count 0 vs max). Recomposing the device
-        // set drops the per-zone state of devices that disappear; a mirror/combine
-        // change clears the affected devices' custom partitions so zone resolution
-        // uses the new default zones (a stale partition desyncs zone ids from the cards).
+        // PUT /devices/lianli/composition - patch combine-rings (and, for back-
+        // compat, per-port on-off mapping to fan count 0 vs max; Lian Li never
+        // mirrors, so any mirror in the body is ignored). Recomposing the device
+        // set drops the per-zone state of devices that disappear; a combine change
+        // clears the affected devices' custom partitions so zone resolution uses
+        // the new default zones (a stale partition desyncs zone ids from the cards).
         app.MapPut("/devices/lianli/composition", (
             LianLiCompositionRequest body,
             LianLiHub hub,
@@ -104,12 +105,11 @@ public static partial class DevicesRoutes
             store.Update(s =>
             {
                 var comp = LianLiZoneSupport.ReadComposition(s, hubId);
-                var nextMirror = body.Mirror ?? comp.Mirror;
                 var nextCombine = body.CombineRings ?? comp.CombineRings;
-                var structural = nextMirror != comp.Mirror || nextCombine != comp.CombineRings;
+                var structural = nextCombine != comp.CombineRings;
                 s.Devices.LightingComposition[hubId] = new HubCompositionSettings
                 {
-                    Mirror = nextMirror,
+                    Mirror = false,
                     CombineRings = nextCombine,
                 };
                 if (body.Ports is not null)
@@ -252,7 +252,6 @@ public sealed class LianLiCompositionResponse
 /// <summary>Body for PUT /devices/lianli/composition; each field is a patch (null = unchanged).</summary>
 public sealed class LianLiCompositionRequest
 {
-    public bool? Mirror { get; set; }
     public bool? CombineRings { get; set; }
     /// <summary>Per-port on/off; index = port. True restores fans to max, false sets 0.</summary>
     public bool[]? Ports { get; set; }
