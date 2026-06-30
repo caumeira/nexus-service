@@ -188,8 +188,25 @@ case "$TARGET" in
       --enable-indev=avfoundation
       --pkg-config-flags=--static
     )
-    # libx264 from Homebrew (brew install x264).
-    export PKG_CONFIG_PATH="$(brew --prefix x264)/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
+    # libx264 built static from source into a private prefix. Homebrew's x264
+    # ships a .dylib the macOS linker prefers over the .a, leaving the binary
+    # with a runtime dependency on /opt/homebrew/opt/x264 that no end-user Mac
+    # has (dyld: libx264.*.dylib not loaded). Building a static-only prefix
+    # forces a self-contained binary - same reason the win path cross-builds it.
+    MAC_X264_PREFIX="${BUILD_ROOT}/x264-mac/${RID}"
+    if [[ ! -f "${MAC_X264_PREFIX}/lib/libx264.a" ]]; then
+      echo "[ffmpeg] building static libx264 for ${RID}..."
+      DEPS_WORK="${BUILD_ROOT}/x264-src"
+      mkdir -p "${DEPS_WORK}"
+      cd "${DEPS_WORK}"
+      [[ -d x264 ]] || git clone --depth 1 --branch stable https://code.videolan.org/videolan/x264.git
+      cd x264
+      ./configure --enable-static --disable-cli --disable-opencl --prefix="${MAC_X264_PREFIX}"
+      make -j"$(sysctl -n hw.ncpu)"
+      make install
+      cd "${SRC_DIR}"
+    fi
+    export PKG_CONFIG_PATH="${MAC_X264_PREFIX}/lib/pkgconfig:${PKG_CONFIG_PATH:-}"
     ;;
   win)
     RID="win-x64"
@@ -244,7 +261,7 @@ case "$TARGET" in
       DEPS_WORK="${BUILD_ROOT}/mingw-deps"
       mkdir -p "${DEPS_WORK}"
       cd "${DEPS_WORK}"
-      [[ -d x264 ]] || git clone --depth 1 https://code.videolan.org/videolan/x264.git
+      [[ -d x264 ]] || git clone --depth 1 --branch stable https://code.videolan.org/videolan/x264.git
       cd x264
       ./configure --host=x86_64-w64-mingw32 --cross-prefix=x86_64-w64-mingw32- \
         --prefix="${MINGW_ROOT}" --enable-static --disable-cli --disable-opencl

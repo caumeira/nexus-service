@@ -464,6 +464,20 @@
     </Content>
   </ItemGroup>
 
+  <!-- Hard-fail the publish if ffmpeg is missing, instead of silently shipping a
+       release that cannot import media / screen-mirror / capture beats. The
+       Content blocks above are Exists()-gated, so without this a missing bundle
+       is invisible until a user hits it. CI builds ffmpeg per RID (see the
+       umbrella build.yml); locally run scripts/build-ffmpeg-minimal.sh first. -->
+  <Target Name="EnsureFfmpegBundle" BeforeTargets="Publish">
+    <Error Condition="$(RuntimeIdentifier.StartsWith('win')) AND !Exists('Bundled\win-x64\ffmpeg\ffmpeg.exe')"
+           Text="ffmpeg bundle missing at Bundled\win-x64\ffmpeg\ffmpeg.exe. Build it: bash scripts/build-ffmpeg-minimal.sh win (needs mingw-w64), then copy build/ffmpeg/out/win-x64/ into Bundled\win-x64\ffmpeg\." />
+    <Error Condition="$(RuntimeIdentifier.StartsWith('osx')) AND !Exists('Bundled/osx-arm64/ffmpeg/ffmpeg')"
+           Text="ffmpeg bundle missing at Bundled/osx-arm64/ffmpeg/ffmpeg. Build it: bash scripts/build-ffmpeg-minimal.sh mac (needs brew x264 nasm), then copy build/ffmpeg/out/osx-arm64/ into Bundled/osx-arm64/ffmpeg/." />
+    <Error Condition="$(RuntimeIdentifier.StartsWith('linux')) AND !Exists('Bundled/linux-x64/ffmpeg/ffmpeg')"
+           Text="ffmpeg bundle missing at Bundled/linux-x64/ffmpeg/ffmpeg. Build it: bash scripts/build-ffmpeg-minimal.sh linux (needs nasm libx264-dev libpulse-dev), then copy build/ffmpeg/out/linux-x64/ into Bundled/linux-x64/ffmpeg/." />
+  </Target>
+
   <!-- Bundle adb (Android platform-tools) per platform. The USB-phone and
        Q-series watchers shell out to it via AdbLocator, which resolves this
        bundled copy first. Committed (unlike openrgb/ffmpeg) so the service
