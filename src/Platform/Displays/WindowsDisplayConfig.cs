@@ -7,16 +7,16 @@ namespace Nexus.Service.Platform.Displays;
 
 /// <summary>
 /// Maps each active GDI adapter name (\\.\DISPLAYn) to the monitor number the
-/// Windows Settings display page shows. Since Win10/11 Settings numbers by
-/// DISPLAYCONFIG source id + 1, not the \\.\DISPLAYn ordinal - the GDI
-/// namespace keeps stale slots for detached outputs, so the two diverge.
+/// Windows Settings display page shows. Settings ranks the DISPLAYCONFIG
+/// sources globally, not by the \\.\DISPLAYn ordinal - the GDI namespace keeps
+/// stale slots for detached outputs, so the two diverge.
 /// </summary>
 internal static class WindowsDisplayConfig
 {
     /// <summary>
-    /// gdi device name (\\.\DISPLAYn) -> Settings monitor number (sourceId + 1).
-    /// Empty when QueryDisplayConfig is unavailable / fails, so callers fall
-    /// back to the GDI ordinal.
+    /// gdi device name (\\.\DISPLAYn) -> Settings monitor number (1-based global
+    /// source rank). Empty when QueryDisplayConfig is unavailable / fails, so
+    /// callers fall back to the GDI ordinal.
     /// </summary>
     internal static IReadOnlyDictionary<string, int> SourceNumbersByGdiName()
     {
@@ -32,15 +32,31 @@ internal static class WindowsDisplayConfig
             if (QueryDisplayConfig(QDC_ONLY_ACTIVE_PATHS, ref pathCount, paths, ref modeCount, modes, IntPtr.Zero) != 0)
                 return map;
 
+            // Settings numbers displays globally across adapters; sourceInfo.id
+            // is per-adapter (a second adapter - e.g. a USB virtual display -
+            // restarts at 0), so id + 1 collides. Rank the distinct sources by
+            // adapter first-seen order then source id, 1-based. Clones share a
+            // source id and so share a number, matching Settings.
+            var adapterRank = new Dictionary<long, int>();
+            var sources = new List<(long Adapter, uint SourceId, string Name)>();
+            var seen = new HashSet<(long, uint)>();
             for (var i = 0; i < pathCount; i++)
             {
                 var src = paths[i].sourceInfo;
                 var name = GdiNameForSource(src.adapterId, src.id);
                 if (string.IsNullOrEmpty(name)) continue;
-                // sourceInfo.id is 0-based; Settings labels it id + 1. Clones
-                // share a source id and so share a number, matching Settings.
-                map[name] = (int)src.id + 1;
+                var adapter = ((long)src.adapterId.HighPart << 32) | src.adapterId.LowPart;
+                if (!seen.Add((adapter, src.id))) continue;
+                if (!adapterRank.ContainsKey(adapter)) adapterRank[adapter] = adapterRank.Count;
+                sources.Add((adapter, src.id, name));
             }
+            sources.Sort((a, b) =>
+            {
+                var byAdapter = adapterRank[a.Adapter].CompareTo(adapterRank[b.Adapter]);
+                return byAdapter != 0 ? byAdapter : a.SourceId.CompareTo(b.SourceId);
+            });
+            for (var i = 0; i < sources.Count; i++)
+                map[sources[i].Name] = i + 1;
         }
         catch (Exception ex)
         {
