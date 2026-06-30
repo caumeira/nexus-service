@@ -266,17 +266,26 @@ public static class MediaImporter
         }
     }
 
+    // IDs become directory names, file names, ffmpeg arguments, and URL path
+    // segments, so they must stay ASCII and path-safe whatever language the
+    // source filename is in. Anything outside [A-Za-z0-9_-] - non-ASCII letters
+    // (kanji, accented Latin) included, which char.IsLetterOrDigit would keep -
+    // collapses to '_'. The result is pure ASCII, so the 64-char cap can never
+    // split a surrogate pair.
     internal static string SanitizeId(string id)
     {
-        var chars = id.ToCharArray();
-        for (int i = 0; i < chars.Length; i++)
+        var sb = new System.Text.StringBuilder(Math.Min(id.Length, 64));
+        foreach (var ch in id)
         {
-            if (!char.IsLetterOrDigit(chars[i]) && chars[i] != '-' && chars[i] != '_')
+            if (sb.Length >= 64)
             {
-                chars[i] = '_';
+                break;
             }
+            bool ascii = ch is (>= 'A' and <= 'Z') or (>= 'a' and <= 'z')
+                or (>= '0' and <= '9') or '-' or '_';
+            sb.Append(ascii ? ch : '_');
         }
-        return new string(chars).Substring(0, Math.Min(chars.Length, 64));
+        return sb.ToString();
     }
 
     public readonly record struct ImportResult(MediaItem? Item, string? Error)
