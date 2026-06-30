@@ -1,12 +1,16 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Models.Sensors;
 using Nexus.Service.Panel;
 using Nexus.Service.Platform;
+using Nexus.Service.Sensors;
 
 namespace Nexus.Service.Peripherals.Tryx.Panorama;
 
@@ -24,19 +28,30 @@ public sealed class TryxPanoramaHub : IDisposable
 {
     private readonly ITryxPanoramaPanelDiscovery _discovery;
     private readonly Func<TryxPanoramaPortInfo, ITryxPanoramaTransport> _transportFactory;
+    private readonly ISensorProvider _sensors;
     private readonly object _lock = new();
     private ITryxPanoramaTransport? _transport;
     private bool _disposed;
     // Paused during an import so the heartbeat's STATE-all frames don't interleave
     // the transport->transported handshake on the shared serial port.
     private volatile bool _importInProgress;
+    private TryxOverlayConfig _overlay = new()
+    {
+        Stats = ["CPU Temperature"],
+        Color = "#ffffff",
+        Align = "Center",
+        Filter = null,
+        Opacity = 100,
+    };
 
     public TryxPanoramaHub(
         ITryxPanoramaPanelDiscovery discovery,
-        Func<TryxPanoramaPortInfo, ITryxPanoramaTransport> transportFactory)
+        Func<TryxPanoramaPortInfo, ITryxPanoramaTransport> transportFactory,
+        ISensorProvider sensors)
     {
         _discovery = discovery;
         _transportFactory = transportFactory;
+        _sensors = sensors;
     }
 
     public TryxPanoramaState State { get; } = new();
@@ -90,7 +105,7 @@ public sealed class TryxPanoramaHub : IDisposable
         => SendOnly(TryxPanoramaProtocol.BuildConn());
 
     public bool SendStateAll()
-        => SendOnly(TryxPanoramaProtocol.BuildStateAll());
+        => SendOnly(TryxPanoramaProtocol.BuildStateAll(BuildLiveSensorJson()));
 
     public bool SetEnabled(bool enable)
     {
@@ -104,8 +119,8 @@ public sealed class TryxPanoramaHub : IDisposable
         var clamped = Math.Clamp(brightness, 0, 100);
         EnsureSelection();
         var frame = State.CurrentMediaIsCustom
-            ? TryxPanoramaProtocol.BuildConfigCustom(clamped, State.CurrentMedia)
-            : TryxPanoramaProtocol.BuildConfigPreset(clamped, State.CurrentMedia);
+            ? TryxPanoramaProtocol.BuildConfigCustom(clamped, State.CurrentMedia, _overlay)
+            : TryxPanoramaProtocol.BuildConfigPreset(clamped, State.CurrentMedia, _overlay);
         var ok = SendOnly(frame);
         if (ok) State.Brightness = clamped;
         return ok;
@@ -127,7 +142,7 @@ public sealed class TryxPanoramaHub : IDisposable
 
     public bool SetPreset(string presetId)
     {
-        var ok = SendOnly(TryxPanoramaProtocol.BuildConfigPreset(State.Brightness, presetId));
+        var ok = SendOnly(TryxPanoramaProtocol.BuildConfigPreset(State.Brightness, presetId, _overlay));
         if (ok)
         {
             State.CurrentMedia = presetId;
@@ -140,8 +155,8 @@ public sealed class TryxPanoramaHub : IDisposable
     {
         EnsureSelection();
         var frame = State.CurrentMediaIsCustom
-            ? TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, State.CurrentMedia, curve)
-            : TryxPanoramaProtocol.BuildConfigPreset(State.Brightness, State.CurrentMedia, curve);
+            ? TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, State.CurrentMedia, _overlay, curve)
+            : TryxPanoramaProtocol.BuildConfigPreset(State.Brightness, State.CurrentMedia, _overlay, curve);
         return SendOnly(frame);
     }
 
@@ -149,7 +164,21 @@ public sealed class TryxPanoramaHub : IDisposable
     {
         EnsureSelection();
         return SendOnly(TryxPanoramaProtocol.BuildConfigFanFixed(
-            State.Brightness, State.CurrentMedia, State.CurrentMediaIsCustom, Math.Clamp(percent, 0, 100)));
+            State.Brightness, State.CurrentMedia, State.CurrentMediaIsCustom, _overlay, Math.Clamp(percent, 0, 100)));
+    }
+
+    /// <summary>
+    /// Updates the overlay config and re-applies the current media config so the
+    /// new display labels and styling take effect immediately.
+    /// </summary>
+    public bool SetOverlay(TryxOverlayConfig overlay)
+    {
+        _overlay = overlay;
+        EnsureSelection();
+        var frame = State.CurrentMediaIsCustom
+            ? TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, State.CurrentMedia, _overlay)
+            : TryxPanoramaProtocol.BuildConfigPreset(State.Brightness, State.CurrentMedia, _overlay);
+        return SendOnly(frame);
     }
 
     public async Task<bool> ImportAndPlayVideoAsync(
@@ -273,7 +302,7 @@ public sealed class TryxPanoramaHub : IDisposable
             // gap matching nx_e2e.ps1 send cadence (waterBlockScreen -> config)
             await Task.Delay(400, ct);
 
-            if (!SendOnly(TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, deviceFileName)))
+            if (!SendOnly(TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, deviceFileName, _overlay)))
             {
                 Console.Error.WriteLine("[tryx] config frame failed");
                 return false;
@@ -357,7 +386,7 @@ public sealed class TryxPanoramaHub : IDisposable
     {
         if (!TryxThumbnailCache.IsSafeDeviceName(deviceFileName)) return false;
         if (!SendOnly(TryxPanoramaProtocol.BuildWaterBlockScreen(true))) return false;
-        if (!SendOnly(TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, deviceFileName))) return false;
+        if (!SendOnly(TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, deviceFileName, _overlay))) return false;
         State.CurrentMedia = deviceFileName;
         State.CurrentMediaIsCustom = true;
         State.ScreenEnabled = true;
@@ -372,6 +401,100 @@ public sealed class TryxPanoramaHub : IDisposable
     }
 
     // ── Internals ──
+
+    /// <summary>
+    /// Builds the STATE-all sensor JSON from live ISensorProvider reads.
+    /// Sensor name patterns match LHM's naming conventions (Windows path);
+    /// Mac/Linux providers return subsets - missing sensors produce 0.
+    /// </summary>
+    private string BuildLiveSensorJson()
+    {
+        var cpuSensors = _sensors.GetCpuSensors();
+        var gpuSensors = GetPrimaryGpuSensors();
+        var memSensors = _sensors.GetMemorySensors();
+        var moboSensors = _sensors.GetMotherboardSensors();
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
+        var cpuTemp = RoundSensor(cpuSensors, "Temperature", "Package");
+        var cpuLoad = RoundSensor(cpuSensors, "Load", "CPU Total");
+        var cpuClock = RoundSensor(cpuSensors, "Clock", "Average");
+        var cpuPower = RoundSensor(cpuSensors, "Power", "Package");
+        var cpuVoltage = RoundSensor(cpuSensors, "Voltage", "VCore");
+
+        var gpuTemp = RoundSensor(gpuSensors, "Temperature", "Core");
+        var gpuLoad = RoundSensor(gpuSensors, "Load", "Core");
+        var gpuClock = RoundSensor(gpuSensors, "Clock", "Core");
+        var gpuPower = RoundSensor(gpuSensors, "Power", null);
+        var gpuVoltage = RoundSensor(gpuSensors, "Voltage", "Core");
+
+        // Memory Used/Available are Data type in GB; convert to integer GB.
+        var memUsed = (int)Math.Round(FindSensor(memSensors, "Data", "Used")?.Value ?? 0f);
+        var memAvail = (int)Math.Round(FindSensor(memSensors, "Data", "Available")?.Value ?? 0f);
+        var memTotal = memUsed + memAvail;
+        var memLoad = RoundSensor(memSensors, "Load", null);
+
+        var moboTemp = RoundSensor(moboSensors, "Temperature", null);
+        var pchTemp = RoundSensor(moboSensors, "Temperature", "PCH");
+
+        var sb = new StringBuilder(512);
+        sb.Append("{\"network\":{\"upload\":0,\"download\":0},");
+        sb.Append("\"memory\":{\"total\":").Append(memTotal)
+          .Append(",\"used\":").Append(memUsed)
+          .Append(",\"load\":").Append(memLoad)
+          .Append(",\"temperature\":0,\"speed\":0},");
+        sb.Append("\"cpu\":{\"load\":").Append(cpuLoad)
+          .Append(",\"usage\":").Append(cpuLoad)
+          .Append(",\"temperature\":").Append(cpuTemp)
+          .Append(",\"speedAverage\":").Append(cpuClock)
+          .Append(",\"power\":").Append(cpuPower)
+          .Append(",\"voltage\":").Append(cpuVoltage).Append("},");
+        sb.Append("\"gpu\":{\"load\":").Append(gpuLoad)
+          .Append(",\"temperature\":").Append(gpuTemp)
+          .Append(",\"fan\":0,\"speed\":").Append(gpuClock)
+          .Append(",\"power\":").Append(gpuPower)
+          .Append(",\"voltage\":").Append(gpuVoltage).Append("},");
+        sb.Append("\"disk\":{\"total\":0,\"used\":0,\"load\":0,\"activity\":0,\"temperature\":0,\"readSpeed\":0,\"writeSpeed\":0},");
+        sb.Append("\"fans\":[{\"onBoard\":true,\"type\":\"Fan\",\"name\":\"Fan CPU\",\"value\":0}],");
+        sb.Append("\"motherboard\":{\"temperature\":").Append(moboTemp)
+          .Append(",\"pchTemperature\":").Append(pchTemp).Append("},");
+        sb.Append("\"timestamp\":").Append(ts).Append('}');
+        return sb.ToString();
+    }
+
+    private IReadOnlyList<HardwareSensor> GetPrimaryGpuSensors()
+    {
+        // Match MonitoringBroadcaster: discrete-first ordering; use the first discrete GPU.
+        var gpus = _sensors.GetGpus();
+        for (var i = 0; i < gpus.Count; i++)
+        {
+            if (!gpus[i].Integrated)
+            {
+                return gpus[i].Sensors;
+            }
+        }
+        return gpus.Count > 0 ? gpus[0].Sensors : Array.Empty<HardwareSensor>();
+    }
+
+    private static int RoundSensor(IReadOnlyList<HardwareSensor> sensors, string type, string? nameContains)
+        => (int)Math.Round(FindSensor(sensors, type, nameContains)?.Value ?? 0f);
+
+    private static HardwareSensor? FindSensor(IReadOnlyList<HardwareSensor> sensors, string type, string? nameContains)
+    {
+        for (var i = 0; i < sensors.Count; i++)
+        {
+            var s = sensors[i];
+            if (!string.Equals(s.Type, type, StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (nameContains is null ||
+                s.Name.Contains(nameContains, StringComparison.OrdinalIgnoreCase))
+            {
+                return s;
+            }
+        }
+        return null;
+    }
 
     private bool SendOnly(byte[] request)
     {

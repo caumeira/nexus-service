@@ -28,15 +28,15 @@ public static class TryxPanoramaProtocol
         new[] { 65, 55 }, new[] { 80, 70 }, new[] { 90, 100 }, new[] { 100, 100 },
     };
 
-    // Zero-filled sensor payload; real sensors are a follow-on if needed.
-    private const string SensorJson =
+    private const string ZeroSensorJson =
         "{\"network\":{\"upload\":0,\"download\":0}," +
         "\"memory\":{\"total\":0,\"used\":0,\"load\":0,\"temperature\":0,\"speed\":0}," +
-        "\"cpu\":{\"load\":0,\"temperature\":0,\"speedAverage\":0,\"power\":0,\"voltage\":0}," +
+        "\"cpu\":{\"load\":0,\"usage\":0,\"temperature\":0,\"speedAverage\":0,\"power\":0,\"voltage\":0}," +
         "\"gpu\":{\"load\":0,\"temperature\":0,\"fan\":0,\"speed\":0,\"power\":0,\"voltage\":0}," +
         "\"disk\":{\"total\":0,\"used\":0,\"load\":0,\"activity\":0,\"temperature\":0,\"readSpeed\":0,\"writeSpeed\":0}," +
         "\"fans\":[{\"onBoard\":true,\"type\":\"Fan\",\"name\":\"Fan CPU\",\"value\":0}]," +
-        "\"motherboard\":{\"temperature\":0}}";
+        "\"motherboard\":{\"temperature\":0,\"pchTemperature\":0}," +
+        "\"timestamp\":0}";
 
     public static string GetModelName(int pid)
     {
@@ -117,8 +117,8 @@ public static class TryxPanoramaProtocol
     public static byte[] BuildConn()
         => BuildFrame("POST", "conn", "{}");
 
-    public static byte[] BuildStateAll()
-        => BuildFrame("STATE", "all", SensorJson);
+    public static byte[] BuildStateAll(string? sensorJson = null)
+        => BuildFrame("STATE", "all", sensorJson ?? ZeroSensorJson);
 
     public static byte[] BuildTransport(long fileSize, string fileName)
     {
@@ -138,32 +138,55 @@ public static class TryxPanoramaProtocol
         return BuildFrame("POST", "waterBlockScreen", json);
     }
 
-    public static byte[] BuildConfigCustom(int brightness, string mediaFileName, int[][]? fanSmartMode = null)
+    public static byte[] BuildConfigCustom(int brightness, string mediaFileName, TryxOverlayConfig overlay, int[][]? fanSmartMode = null)
         => BuildConfig(brightness,
-            BuildIdObject("Customization", mediaFileName),
+            BuildIdObject("Customization", mediaFileName, overlay),
             BuildFanLcd("Smart Mode", fanSmartMode ?? DefaultSmartCurve, 40));
 
-    public static byte[] BuildConfigPreset(int brightness, string presetId, int[][]? fanSmartMode = null)
+    public static byte[] BuildConfigPreset(int brightness, string presetId, TryxOverlayConfig overlay, int[][]? fanSmartMode = null)
         => BuildConfig(brightness,
-            BuildIdObject(presetId, null),
+            BuildIdObject(presetId, null, overlay),
             BuildFanLcd("Smart Mode", fanSmartMode ?? DefaultSmartCurve, 40));
 
-    public static byte[] BuildConfigFanFixed(int brightness, string currentId, bool isCustom, int fixedPercent)
+    public static byte[] BuildConfigFanFixed(int brightness, string currentId, bool isCustom, TryxOverlayConfig overlay, int fixedPercent)
         => BuildConfig(brightness,
-            isCustom ? BuildIdObject("Customization", currentId) : BuildIdObject(currentId, null),
+            isCustom ? BuildIdObject("Customization", currentId, overlay) : BuildIdObject(currentId, null, overlay),
             BuildFanLcd("Fixed Mode", DefaultSmartCurve, fixedPercent));
 
     // waterBlockScreen.id is ALWAYS the nested object the home UI expects; a bare
     // string is silently ignored (preset selection failed until this was nested).
     // media = the pcMedia filename for "Customization", empty for a preset (the
     // device maps the preset name to its own bundled clip).
-    private static string BuildIdObject(string id, string? mediaFileName)
+    private static string BuildIdObject(string id, string? mediaFileName, TryxOverlayConfig overlay)
     {
         var media = mediaFileName is null ? "[]" : "[\"" + EscapeJson(mediaFileName) + "\"]";
+        var filterValue = overlay.Filter is null ? "null" : "\"" + EscapeJson(overlay.Filter) + "\"";
+        var settings = "{\"color\":\"" + EscapeJson(overlay.Color) + "\",\"align\":\"" + EscapeJson(overlay.Align) +
+                       "\",\"filter\":{\"value\":" + filterValue + ",\"opacity\":" + overlay.Opacity + "},\"badges\":[]}";
+        var sysinfoDisplay = BuildSysinfoDisplay(overlay.Stats);
         return "{\"id\":\"" + EscapeJson(id) + "\",\"screenMode\":\"Full Screen\",\"playMode\":\"Single\"," +
                "\"ratio\":\"2:1\",\"media\":" + media +
-               ",\"settings\":{\"color\":\"#000000\",\"align\":\"Left\",\"filter\":{\"value\":null,\"opacity\":100},\"badges\":[]}," +
-               "\"sysinfoDisplay\":[]}";
+               ",\"settings\":" + settings +
+               ",\"sysinfoDisplay\":" + sysinfoDisplay + "}";
+    }
+
+    private static string BuildSysinfoDisplay(string[] stats)
+    {
+        if (stats.Length == 0)
+        {
+            return "[]";
+        }
+        var sb = new System.Text.StringBuilder("[");
+        for (var i = 0; i < stats.Length; i++)
+        {
+            if (i > 0)
+            {
+                sb.Append(',');
+            }
+            sb.Append('"').Append(EscapeJson(stats[i])).Append('"');
+        }
+        sb.Append(']');
+        return sb.ToString();
     }
 
     private static string BuildFanLcd(string mode, int[][] smartCurve, int fixedPercent)
