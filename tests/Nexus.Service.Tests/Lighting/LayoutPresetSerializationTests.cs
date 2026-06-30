@@ -31,6 +31,7 @@ public sealed class LayoutPresetSerializationTests
                         {
                             ["openrgb-0"] = new() { X = 10, Y = 20, W = 80, H = 40, Rotation = 90 },
                         },
+                        DisabledDevices = new List<string> { "dev-off-1", "dev-off-2" },
                     },
                     new LayoutPreset
                     {
@@ -61,10 +62,37 @@ public sealed class LayoutPresetSerializationTests
         Assert.Equal(80f, layout0.W);
         Assert.Equal(40f, layout0.H);
         Assert.Equal(90, layout0.Rotation);
+        Assert.Equal(new List<string> { "dev-off-1", "dev-off-2" }, a.DisabledDevices);
 
         var b = loaded.Lighting.LayoutPresets[1];
         Assert.Equal("preset-b", b.Id);
         Assert.Equal("Work", b.Name);
+        Assert.Null(b.DisabledDevices);
+    }
+
+    [Fact]
+    public void DisabledDevices_defaults_to_null_when_field_absent_in_json()
+    {
+        const string json = """
+        {
+          "schemaVersion": 7,
+          "lighting": {
+            "layoutPresets": [
+              {
+                "id": "p1",
+                "name": "Old Preset",
+                "layouts": {}
+              }
+            ]
+          }
+        }
+        """;
+
+        var loaded = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.NexusSettings);
+
+        Assert.NotNull(loaded);
+        Assert.Single(loaded.Lighting.LayoutPresets);
+        Assert.Null(loaded.Lighting.LayoutPresets[0].DisabledDevices);
     }
 
     [Fact]
