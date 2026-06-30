@@ -41,6 +41,16 @@ public class OpenRgbZoneCardsTests
         },
     };
 
+    private static RgbDevice PhantomDevice() => new()
+    {
+        Index = 4,
+        Name = "Philips amBX",
+        Type = 11,
+        LedCount = 0,
+        Serial = "PH01",
+        Zones = new() { new RgbZone { Name = "All", ZoneType = 0, LedCount = 0 } },
+    };
+
     private static RgbDevice OneLedLight() => new()
     {
         Index = 2,
@@ -102,6 +112,19 @@ public class OpenRgbZoneCardsTests
         Assert.False(card.ZoneResizable);
         Assert.Equal("openrgb-s-MS01", card.DeviceId);
         Assert.True(card.ZoneCustomizable);
+    }
+
+    [Fact]
+    public void Zero_led_whole_device_card_is_dropped()
+    {
+        var resp = OpenRgbZoneSupport.BuildCards(new[] { PhantomDevice(), Mouse() }, new NexusSettings(), isInit: true);
+        Assert.Single(resp.Devices);
+        Assert.Equal("openrgb-s-MS01", resp.Devices[0].Id);
+        // Dropped phantom must not consume slot 0: the surviving Mouse keeps the
+        // same default layout it gets when emitted alone.
+        var soloMouse = OpenRgbZoneSupport.BuildCards(new[] { Mouse() }, new NexusSettings(), isInit: true).Devices[0];
+        Assert.Equal(soloMouse.CanvasX, resp.Devices[0].CanvasX);
+        Assert.Equal(soloMouse.CanvasY, resp.Devices[0].CanvasY);
     }
 
     [Fact]

@@ -132,6 +132,13 @@ public static class OpenRgbZoneSupport
 
             if (isDefault && !isSplitMotherboard)
             {
+                // OpenRGB false-positive detectors register a controller with no
+                // readable LED zones; nexus cannot drive it, so drop the whole-device
+                // card rather than surfacing a phantom the user never owned. Non-split
+                // whole devices are never resizable, so a zero count means nothing to drive.
+                if (d.LedCount <= 0)
+                    continue;
+
                 prefs.TryGetValue(baseId, out var pref);
                 layouts.TryGetValue(baseId, out var layout);
                 var (dx, dy, dw, dh) = OpenRgbLightingDeviceProvider.DefaultCardLayout(cardSlot);
