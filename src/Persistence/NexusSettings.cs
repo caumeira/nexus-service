@@ -279,6 +279,10 @@ public sealed class LayoutPreset
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
     public Dictionary<string, DeviceLayout> Layouts { get; set; } = new();
+    // Per-device power captured at save time: ids that are off. Null on a
+    // preset saved before per-preset power existed - activate then leaves the
+    // global disabled list untouched (old behavior) instead of wiping it.
+    public List<string>? DisabledDevices { get; set; }
 }
 
 public sealed class KeebSettings

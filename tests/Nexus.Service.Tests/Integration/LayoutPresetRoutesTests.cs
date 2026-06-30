@@ -302,4 +302,104 @@ public sealed class LayoutPresetRoutesTests : IDisposable
             null);
         Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
     }
+
+    // ---- power state capture and restore ----
+
+    [Fact]
+    public async Task Create_captures_disabled_devices_into_preset()
+    {
+        Store.Update(s =>
+        {
+            s.Devices.DisabledLightingDevices = new List<string> { "dev-a", "dev-b" };
+        });
+
+        var res = await _client.PostAsync(
+            "/devices/lighting-devices/layout-presets",
+            Json("""{"name":"WithPower"}"""));
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var stored = Store.Load();
+        var preset = stored.Lighting.LayoutPresets[0];
+        Assert.Equal(new List<string> { "dev-a", "dev-b" }, preset.DisabledDevices);
+    }
+
+    [Fact]
+    public async Task SaveCurrent_captures_disabled_devices_into_preset()
+    {
+        Store.Update(s =>
+        {
+            s.Devices.DisabledLightingDevices = new List<string> { "dev-x" };
+        });
+        var createRes = await _client.PostAsync(
+            "/devices/lighting-devices/layout-presets",
+            Json("""{"name":"P"}"""));
+        using var createDoc = JsonDocument.Parse(await createRes.Content.ReadAsStringAsync());
+        var id = createDoc.RootElement.GetProperty("preset").GetProperty("id").GetString()!;
+
+        Store.Update(s =>
+        {
+            s.Devices.DisabledLightingDevices = new List<string> { "dev-y", "dev-z" };
+        });
+
+        var putRes = await _client.PutAsync(
+            $"/devices/lighting-devices/layout-presets/{id}",
+            Json("""{"saveCurrent":true}"""));
+        Assert.Equal(HttpStatusCode.OK, putRes.StatusCode);
+
+        var stored = Store.Load();
+        var preset = stored.Lighting.LayoutPresets.Find(p => p.Id == id)!;
+        Assert.Equal(new List<string> { "dev-y", "dev-z" }, preset.DisabledDevices);
+    }
+
+    [Fact]
+    public async Task Activate_restores_disabled_devices_from_preset()
+    {
+        Store.Update(s =>
+        {
+            s.Devices.DisabledLightingDevices = new List<string> { "dev-a" };
+        });
+        var createRes = await _client.PostAsync(
+            "/devices/lighting-devices/layout-presets",
+            Json("""{"name":"P1"}"""));
+        using var createDoc = JsonDocument.Parse(await createRes.Content.ReadAsStringAsync());
+        var id = createDoc.RootElement.GetProperty("preset").GetProperty("id").GetString()!;
+
+        // Change global disabled list after the preset was saved.
+        Store.Update(s =>
+        {
+            s.Devices.DisabledLightingDevices = new List<string> { "dev-b" };
+        });
+
+        var res = await _client.PostAsync(
+            $"/devices/lighting-devices/layout-presets/{id}/activate",
+            null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var stored = Store.Load();
+        Assert.Equal(new List<string> { "dev-a" }, stored.Devices.DisabledLightingDevices);
+    }
+
+    [Fact]
+    public async Task Activate_legacy_preset_without_power_leaves_global_disabled_untouched()
+    {
+        // A preset saved before per-preset power has DisabledDevices = null;
+        // activating it must not wipe the user's current global disabled list.
+        Store.Update(s =>
+        {
+            s.Lighting.LayoutPresets.Add(new Nexus.Service.Persistence.LayoutPreset
+            {
+                Id = "legacy",
+                Name = "Legacy",
+            });
+            s.Devices.DisabledLightingDevices = new List<string> { "dev-b" };
+        });
+
+        var res = await _client.PostAsync(
+            "/devices/lighting-devices/layout-presets/legacy/activate",
+            null);
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+        var stored = Store.Load();
+        Assert.Equal(new List<string> { "dev-b" }, stored.Devices.DisabledLightingDevices);
+    }
 }

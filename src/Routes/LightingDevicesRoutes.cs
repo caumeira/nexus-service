@@ -154,6 +154,7 @@ public static partial class DevicesRoutes
                     Id = id,
                     Name = body.Name,
                     Layouts = DeepCopyLayouts(s.Lighting.DeviceLayouts),
+                    DisabledDevices = new List<string>(s.Devices.DisabledLightingDevices),
                 };
                 s.Lighting.LayoutPresets.Add(created);
                 s.Lighting.ActiveLayoutPresetId = id;
@@ -210,6 +211,7 @@ public static partial class DevicesRoutes
                 if (body.SaveCurrent)
                 {
                     p.Layouts = DeepCopyLayouts(settings.Lighting.DeviceLayouts);
+                    p.DisabledDevices = new List<string>(settings.Devices.DisabledLightingDevices);
                 }
             });
             return Results.Json(ApiResponse.Ok(), Nexus.Service.Serialization.AppJsonContext.Default.ApiResponse);
@@ -252,6 +254,7 @@ public static partial class DevicesRoutes
             }
 
             var layouts = new Dictionary<string, Nexus.Service.Persistence.DeviceLayout>(preset.Layouts);
+            var disabled = preset.DisabledDevices is null ? null : new List<string>(preset.DisabledDevices);
             store.Update(settings =>
             {
                 settings.Lighting.DeviceLayouts.Clear();
@@ -260,6 +263,10 @@ public static partial class DevicesRoutes
                     settings.Lighting.DeviceLayouts[kv.Key] = kv.Value;
                 }
                 settings.Lighting.ActiveLayoutPresetId = id;
+                if (disabled is not null)
+                {
+                    settings.Devices.DisabledLightingDevices = new List<string>(disabled);
+                }
             });
             MirrorLayoutsToEngine(layouts, lightingProvider, engine);
             Nexus.Service.Sockets.PanelTopics.BroadcastLighting(hub);
