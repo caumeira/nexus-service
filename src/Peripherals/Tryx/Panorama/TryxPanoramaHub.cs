@@ -686,14 +686,18 @@ public sealed class TryxPanoramaHub : IDisposable
                 RedirectStandardError = true,
             });
             if (p is null) return;
+            // Drain both pipes concurrently before waiting; a child that fills the
+            // OS pipe buffer would otherwise deadlock against a read-after-wait.
+            var outTask = p.StandardOutput.ReadToEndAsync();
+            var errTask = p.StandardError.ReadToEndAsync();
             if (!p.WaitForExit(timeoutMs))
             {
                 try { p.Kill(true); } catch { /* best effort */ }
                 stderr = "timed out";
                 return;
             }
-            stdout = p.StandardOutput.ReadToEnd();
-            stderr = p.StandardError.ReadToEnd();
+            stdout = outTask.GetAwaiter().GetResult();
+            stderr = errTask.GetAwaiter().GetResult();
         }
         catch (Exception ex)
         {

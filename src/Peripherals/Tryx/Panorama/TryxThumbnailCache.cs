@@ -63,7 +63,7 @@ public static class TryxThumbnailCache
     }
 
     /// <summary>Extracts one frame from <paramref name="sourceMp4"/> into the cache
-    /// as a 320-px-wide JPEG. Best-effort: exceptions are swallowed.</summary>
+    /// as a downscaled JPEG. Best-effort: exceptions are swallowed.</summary>
     public static void Write(string ffmpegPath, string sourceMp4, string deviceFileName)
     {
         if (!IsSafeDeviceName(deviceFileName)) return;
@@ -95,7 +95,7 @@ public static class TryxThumbnailCache
         catch { /* best effort */ }
     }
 
-    // 512 KiB cap keeps inline data-URLs from bloating the action response.
+    // Caps inline data-URL size so thumbnails don't bloat the action response.
     private const int MaxThumbBytes = 512 * 1024;
 
     /// <summary>Returns a data-URL for the cached thumbnail, or null if absent or
