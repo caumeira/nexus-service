@@ -177,6 +177,36 @@ public static class TryxActions
                 return Task.FromResult<JsonElement?>(Ack(false, ex.Message));
             }
         });
+
+        registry.Register("tryx.setOverlay", (services, args, _) =>
+        {
+            var hub = services.GetRequiredService<TryxPanoramaHub>();
+            var stats = new List<string>();
+            if (args != null && args.TryGetValue("stats", out var statsEl)
+                && statsEl.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var s in statsEl.EnumerateArray())
+                {
+                    if (s.ValueKind != JsonValueKind.String) continue;
+                    var v = s.GetString();
+                    if (!string.IsNullOrWhiteSpace(v)) stats.Add(v!);
+                    if (stats.Count >= 3) break;
+                }
+            }
+            var color = Str(args, "color");
+            var align = Str(args, "align");
+            var filter = Str(args, "filter");
+            var opacity = Num(args, "opacity");
+            var cfg = new TryxOverlayConfig
+            {
+                Stats = stats.ToArray(),
+                Color = string.IsNullOrWhiteSpace(color) ? "#ffffff" : color!,
+                Align = string.IsNullOrWhiteSpace(align) ? "Center" : align!,
+                Filter = string.IsNullOrWhiteSpace(filter) ? null : filter,
+                Opacity = opacity is null ? 100 : (int)Math.Clamp(opacity.Value, 0, 100),
+            };
+            return Task.FromResult<JsonElement?>(Ack(hub.SetOverlay(cfg)));
+        });
     }
 
     private static List<string> ListMediaFiles(TryxPanoramaHub hub)
@@ -203,7 +233,16 @@ public static class TryxActions
             foreach (var line in p.StandardOutput.ReadToEnd().Split('\n'))
             {
                 var trimmed = line.Trim();
-                if (!string.IsNullOrEmpty(trimmed)) files.Add(trimmed);
+                if (trimmed.Length == 0) continue;
+                // The panel's pcMedia dir is shared with any tool that ever drove
+                // it (e.g. Kanali), which leaves non-video files behind. The app
+                // only plays video, so list video files only.
+                var lower = trimmed.ToLowerInvariant();
+                if (lower.EndsWith(".mp4") || lower.EndsWith(".mov") || lower.EndsWith(".webm")
+                    || lower.EndsWith(".mkv") || lower.EndsWith(".m4v") || lower.EndsWith(".avi"))
+                {
+                    files.Add(trimmed);
+                }
             }
         }
         catch { /* adb unavailable */ }
