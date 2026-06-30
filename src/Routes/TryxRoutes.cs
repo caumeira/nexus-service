@@ -9,10 +9,18 @@ using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Routes;
 
+public sealed class TryxOverlaySnapshot
+{
+    public string[] Stats { get; set; } = [];
+    public string Color { get; set; } = "";
+    public string Align { get; set; } = "";
+}
+
 public sealed class TryxStatusResponse
 {
     public bool Connected { get; set; }
     public TryxPanoramaState? State { get; set; }
+    public TryxOverlaySnapshot? Overlay { get; set; }
 }
 
 public sealed class TryxMediaImportResponse

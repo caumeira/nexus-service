@@ -32,6 +32,7 @@ public sealed class NexusSettings
     public KeebSettings Keeb { get; set; } = new();
     public CoolingSettings Cooling { get; set; } = new();
     public Y70Settings Y70 { get; set; } = new();
+    public TryxSettings Tryx { get; set; } = new();
     public DevicesSettings Devices { get; set; } = new();
     public SmartLightsSettings SmartLights { get; set; } = new();
     public UiSettings Ui { get; set; } = new();
@@ -443,6 +444,19 @@ public sealed class Y70Settings
     public string Orientation { get; set; } = InstallDefaults.Y70.Orientation;
     public int Brightness { get; set; } = InstallDefaults.Y70.Brightness;
     public bool ScreenOff { get; set; } = InstallDefaults.Y70.ScreenOff;
+}
+
+public sealed class TryxSettings
+{
+    public string[] OverlayStats { get; set; } = ["CPU Temperature"];
+    public string OverlayColor { get; set; } = "#ffffff";
+    public string OverlayAlign { get; set; } = "Center";
+    public string? OverlayFilter { get; set; }
+    public int OverlayOpacity { get; set; } = 100;
+    /// <summary>Last-selected preset id or custom filename, re-applied on connect.</summary>
+    public string CurrentMedia { get; set; } = "";
+    public bool CurrentMediaIsCustom { get; set; }
+    public int Brightness { get; set; } = 100;
 }
 
 public sealed class DevicesSettings

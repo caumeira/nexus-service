@@ -707,7 +707,8 @@ public static class NexusServiceCollectionExtensions
             new Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaHub(
                 sp.GetRequiredService<Nexus.Service.Peripherals.Tryx.Panorama.ITryxPanoramaPanelDiscovery>(),
                 port => new Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaSerialTransport(port.PortName, port.Serial),
-                sp.GetRequiredService<Nexus.Service.Sensors.ISensorProvider>()));
+                sp.GetRequiredService<Nexus.Service.Sensors.ISensorProvider>(),
+                sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>()));
         services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaHeartbeatWorker>();
         services.AddHostedService(sp =>
             sp.GetRequiredService<Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaHeartbeatWorker>());

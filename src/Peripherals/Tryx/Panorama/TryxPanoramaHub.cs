@@ -9,6 +9,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Panel;
+using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 
@@ -29,29 +30,38 @@ public sealed class TryxPanoramaHub : IDisposable
     private readonly ITryxPanoramaPanelDiscovery _discovery;
     private readonly Func<TryxPanoramaPortInfo, ITryxPanoramaTransport> _transportFactory;
     private readonly ISensorProvider _sensors;
+    private readonly IConfigStore _configStore;
     private readonly object _lock = new();
     private ITryxPanoramaTransport? _transport;
     private bool _disposed;
     // Paused during an import so the heartbeat's STATE-all frames don't interleave
     // the transport->transported handshake on the shared serial port.
     private volatile bool _importInProgress;
-    private TryxOverlayConfig _overlay = new()
-    {
-        Stats = ["CPU Temperature"],
-        Color = "#ffffff",
-        Align = "Center",
-        Filter = null,
-        Opacity = 100,
-    };
+    private TryxOverlayConfig _overlay;
 
     public TryxPanoramaHub(
         ITryxPanoramaPanelDiscovery discovery,
         Func<TryxPanoramaPortInfo, ITryxPanoramaTransport> transportFactory,
-        ISensorProvider sensors)
+        ISensorProvider sensors,
+        IConfigStore configStore)
     {
         _discovery = discovery;
         _transportFactory = transportFactory;
         _sensors = sensors;
+        _configStore = configStore;
+
+        var saved = configStore.Load().Tryx;
+        _overlay = new TryxOverlayConfig
+        {
+            Stats = saved.OverlayStats,
+            Color = saved.OverlayColor,
+            Align = saved.OverlayAlign,
+            Filter = saved.OverlayFilter,
+            Opacity = saved.OverlayOpacity,
+        };
+        State.CurrentMedia = saved.CurrentMedia;
+        State.CurrentMediaIsCustom = saved.CurrentMediaIsCustom;
+        State.Brightness = saved.Brightness;
     }
 
     public TryxPanoramaState State { get; } = new();
@@ -60,6 +70,8 @@ public sealed class TryxPanoramaHub : IDisposable
     public bool ImportInProgress => _importInProgress;
 
     public bool IsConnected => _transport is { IsOpen: true };
+
+    public TryxOverlayConfig Overlay => _overlay;
 
     public bool EnsureConnected()
     {
@@ -81,6 +93,7 @@ public sealed class TryxPanoramaHub : IDisposable
                     State.ModelName = TryxPanoramaProtocol.GetModelName(port.ProductId);
                     State.LastConnectedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     ServiceLog.Info($"[tryx] connected to {port.PortName} (serial={port.Serial}, adb={port.AdbSerial})");
+                    ApplyInitialConfig(t);
                     return true;
                 }
                 catch (Exception ex)
@@ -89,6 +102,29 @@ public sealed class TryxPanoramaHub : IDisposable
                 }
             }
             return false;
+        }
+    }
+
+    // Sends the persisted config on fresh connect so the overlay is restored
+    // without requiring a dashboard interaction. Called only from inside the
+    // EnsureConnected lock after _transport is set; uses the transport reference
+    // directly to avoid re-entering EnsureConnected.
+    private void ApplyInitialConfig(ITryxPanoramaTransport transport)
+    {
+        if (string.IsNullOrEmpty(State.CurrentMedia))
+        {
+            return;
+        }
+        try
+        {
+            var frame = State.CurrentMediaIsCustom
+                ? TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, State.CurrentMedia, _overlay)
+                : TryxPanoramaProtocol.BuildConfigPreset(State.Brightness, State.CurrentMedia, _overlay);
+            transport.Write(frame);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[tryx] initial config apply failed: {ex.GetType().Name}: {ex.Message}");
         }
     }
 
@@ -122,7 +158,11 @@ public sealed class TryxPanoramaHub : IDisposable
             ? TryxPanoramaProtocol.BuildConfigCustom(clamped, State.CurrentMedia, _overlay)
             : TryxPanoramaProtocol.BuildConfigPreset(clamped, State.CurrentMedia, _overlay);
         var ok = SendOnly(frame);
-        if (ok) State.Brightness = clamped;
+        if (ok)
+        {
+            State.Brightness = clamped;
+            _configStore.Update(s => s.Tryx.Brightness = clamped);
+        }
         return ok;
     }
 
@@ -147,6 +187,7 @@ public sealed class TryxPanoramaHub : IDisposable
         {
             State.CurrentMedia = presetId;
             State.CurrentMediaIsCustom = false;
+            _configStore.Update(s => { s.Tryx.CurrentMedia = presetId; s.Tryx.CurrentMediaIsCustom = false; });
         }
         return ok;
     }
@@ -174,6 +215,14 @@ public sealed class TryxPanoramaHub : IDisposable
     public bool SetOverlay(TryxOverlayConfig overlay)
     {
         _overlay = overlay;
+        _configStore.Update(s =>
+        {
+            s.Tryx.OverlayStats = overlay.Stats;
+            s.Tryx.OverlayColor = overlay.Color;
+            s.Tryx.OverlayAlign = overlay.Align;
+            s.Tryx.OverlayFilter = overlay.Filter;
+            s.Tryx.OverlayOpacity = overlay.Opacity;
+        });
         EnsureSelection();
         var frame = State.CurrentMediaIsCustom
             ? TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, State.CurrentMedia, _overlay)
@@ -315,6 +364,7 @@ public sealed class TryxPanoramaHub : IDisposable
             State.CurrentMedia = deviceFileName;
             State.CurrentMediaIsCustom = true;
             State.ScreenEnabled = true;
+            _configStore.Update(s => { s.Tryx.CurrentMedia = deviceFileName; s.Tryx.CurrentMediaIsCustom = true; });
             return true;
         }
         finally
@@ -390,6 +440,7 @@ public sealed class TryxPanoramaHub : IDisposable
         State.CurrentMedia = deviceFileName;
         State.CurrentMediaIsCustom = true;
         State.ScreenEnabled = true;
+        _configStore.Update(s => { s.Tryx.CurrentMedia = deviceFileName; s.Tryx.CurrentMediaIsCustom = true; });
         return true;
     }
 
@@ -407,6 +458,8 @@ public sealed class TryxPanoramaHub : IDisposable
     /// Sensor name patterns match LHM's naming conventions (Windows path);
     /// Mac/Linux providers return subsets - missing sensors produce 0.
     /// </summary>
+    internal string BuildLiveSensorJsonForTest() => BuildLiveSensorJson();
+
     private string BuildLiveSensorJson()
     {
         var cpuSensors = _sensors.GetCpuSensors();
@@ -421,17 +474,28 @@ public sealed class TryxPanoramaHub : IDisposable
         var cpuPower = RoundSensor(cpuSensors, "Power", "Package");
         var cpuVoltage = RoundSensor(cpuSensors, "Voltage", "VCore");
 
-        var gpuTemp = RoundSensor(gpuSensors, "Temperature", "Core");
+        // "Core" matches "GPU Core" on NVIDIA/AMD; fall back to first Temperature
+        // sensor for GPUs that name the die temperature differently.
+        var gpuTemp = (int)Math.Round(
+            (FindSensor(gpuSensors, "Temperature", "Core")
+             ?? FindSensor(gpuSensors, "Temperature", null))?.Value ?? 0f);
         var gpuLoad = RoundSensor(gpuSensors, "Load", "Core");
         var gpuClock = RoundSensor(gpuSensors, "Clock", "Core");
         var gpuPower = RoundSensor(gpuSensors, "Power", null);
-        var gpuVoltage = RoundSensor(gpuSensors, "Voltage", "Core");
+        var gpuVoltage = (int)Math.Round(
+            (FindSensor(gpuSensors, "Voltage", "Core")
+             ?? FindSensor(gpuSensors, "Voltage", null))?.Value ?? 0f);
 
         // Memory Used/Available are Data type in GB; convert to integer GB.
         var memUsed = (int)Math.Round(FindSensor(memSensors, "Data", "Used")?.Value ?? 0f);
         var memAvail = (int)Math.Round(FindSensor(memSensors, "Data", "Available")?.Value ?? 0f);
         var memTotal = memUsed + memAvail;
         var memLoad = RoundSensor(memSensors, "Load", null);
+        // AMD exposes RAM clock as "Memory" under CPU Clock sensors; Intel/other
+        // may expose it under motherboard sensors. Fall back to 0 when unavailable.
+        var memClock = (int)Math.Round(
+            (FindSensor(cpuSensors, "Clock", "Memory")
+             ?? FindSensor(moboSensors, "Clock", "Memory"))?.Value ?? 0f);
 
         var moboTemp = RoundSensor(moboSensors, "Temperature", null);
         var pchTemp = RoundSensor(moboSensors, "Temperature", "PCH");
@@ -441,7 +505,7 @@ public sealed class TryxPanoramaHub : IDisposable
         sb.Append("\"memory\":{\"total\":").Append(memTotal)
           .Append(",\"used\":").Append(memUsed)
           .Append(",\"load\":").Append(memLoad)
-          .Append(",\"temperature\":0,\"speed\":0},");
+          .Append(",\"temperature\":0,\"speed\":").Append(memClock).Append("},");
         sb.Append("\"cpu\":{\"load\":").Append(cpuLoad)
           .Append(",\"usage\":").Append(cpuLoad)
           .Append(",\"temperature\":").Append(cpuTemp)

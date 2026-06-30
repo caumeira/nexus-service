@@ -7,6 +7,7 @@ using Nexus.Service.QSeries;
 namespace Nexus.Service.Serialization;
 
 [JsonSerializable(typeof(NexusSettings))]
+[JsonSerializable(typeof(TryxSettings))]
 [JsonSerializable(typeof(LianLiSettings))]
 [JsonSerializable(typeof(CorsairSettings))]
 [JsonSerializable(typeof(FirmwareManifest))]

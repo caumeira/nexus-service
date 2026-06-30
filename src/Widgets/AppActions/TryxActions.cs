@@ -37,7 +37,18 @@ public static class TryxActions
         registry.Register("tryx.status", (services, _, _) =>
         {
             var hub = services.GetRequiredService<TryxPanoramaHub>();
-            var resp = new TryxStatusResponse { Connected = hub.IsConnected, State = hub.State };
+            var ov = hub.Overlay;
+            var resp = new TryxStatusResponse
+            {
+                Connected = hub.IsConnected,
+                State = hub.State,
+                Overlay = new TryxOverlaySnapshot
+                {
+                    Stats = ov.Stats,
+                    Color = ov.Color,
+                    Align = ov.Align,
+                },
+            };
             var json = JsonSerializer.Serialize(resp, AppJsonContext.Default.TryxStatusResponse);
             using var doc = JsonDocument.Parse(json);
             return Task.FromResult<JsonElement?>(doc.RootElement.Clone());
