@@ -470,7 +470,8 @@ public sealed class TryxPanoramaHub : IDisposable
 
         var cpuTemp = RoundSensor(cpuSensors, "Temperature", "Package");
         var cpuLoad = RoundSensor(cpuSensors, "Load", "CPU Total");
-        var cpuClock = MaxClock(cpuSensors, "Core");
+        var cpuClock = RoundSensor(cpuSensors, "Clock", "Core Max");
+        if (cpuClock == 0) cpuClock = MaxClock(cpuSensors, "Core");
         var cpuPower = RoundSensor(cpuSensors, "Power", "Package");
         var cpuVoltage = RoundSensor(cpuSensors, "Voltage", "VCore");
 
@@ -542,9 +543,7 @@ public sealed class TryxPanoramaHub : IDisposable
     private static int RoundSensor(IReadOnlyList<HardwareSensor> sensors, string type, string? nameContains)
         => (int)Math.Round(FindSensor(sensors, type, nameContains)?.Value ?? 0f);
 
-    // LHM exposes one Clock sensor per core (P-Core #n / E-Core #n / Core #n) with
-    // no aggregate; cores park independently, so the headline frequency is the
-    // fastest core's current clock, not any single fixed core.
+    // Cores park independently; max is the headline clock across all matching sensors.
     private static int MaxClock(IReadOnlyList<HardwareSensor> sensors, string nameContains)
     {
         var max = 0f;

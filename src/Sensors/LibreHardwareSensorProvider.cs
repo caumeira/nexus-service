@@ -44,9 +44,14 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
     public IReadOnlyList<HardwareSensor> GetCpuSensors()
     {
         _lhm.Update(TimeSpan.FromMilliseconds(100));
-        return FindHardware(HardwareType.Cpu)
-            .SelectMany(hw => MapSensors(hw))
-            .ToList();
+        var result = new List<HardwareSensor>();
+        foreach (var hw in FindHardware(HardwareType.Cpu))
+        {
+            var mapped = MapSensors(hw);
+            result.AddRange(mapped);
+            CpuClockAggregates.Append(hw.Identifier.ToString(), hw.Name, mapped, result);
+        }
+        return result;
     }
 
     public (bool Healthy, float DistanceToTJMax) GetCpuHealth()
