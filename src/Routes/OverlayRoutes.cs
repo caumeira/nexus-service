@@ -101,6 +101,7 @@ public static class OverlayRoutes
                 if (body.Monitor.HasValue) entry.Monitor = body.Monitor.Value;
                 if (body.Col.HasValue) entry.Col = body.Col.Value;
                 if (body.Row.HasValue) entry.Row = body.Row.Value;
+                if (body.Locked.HasValue) entry.Locked = body.Locked.Value;
                 if (body.Config is not null) entry.Config = body.Config;
                 updated = entry;
             });
@@ -111,6 +112,18 @@ public static class OverlayRoutes
             pm.MarkDirty();
             PanelTopics.BroadcastPrefs(hub);
             return Results.Json(updated, AppJsonContext.Default.OverlayWidgetDto);
+        }).AllowPanel();
+
+        app.MapPost("/overlay/widgets/lock", (OverlayLockAllBody body, IConfigStore store, ProfileManager pm, MultiplexHub hub) =>
+        {
+            store.Update(s =>
+            {
+                foreach (var entry in s.Overlay.Layout)
+                    entry.Locked = body.Locked;
+            });
+            pm.MarkDirty();
+            PanelTopics.BroadcastPrefs(hub);
+            return Results.Ok(ApiResponse.Ok(body.Locked ? "locked" : "unlocked"));
         }).AllowPanel();
 
         app.MapDelete("/overlay/widgets/{id}", (string id, IConfigStore store, ProfileManager pm, MultiplexHub hub) =>

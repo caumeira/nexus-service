@@ -29,6 +29,10 @@ public sealed class OverlayWidgetDto
     /// as <see cref="Col"/>.</summary>
     public double Row { get; set; }
 
+    /// <summary>When true the SPA blocks drag/edit/resize of this widget until
+    /// the user unlocks it. Inner widget controls stay live.</summary>
+    public bool Locked { get; set; }
+
     public Dictionary<string, System.Text.Json.JsonElement>? Config { get; set; }
 }
 
@@ -57,5 +61,16 @@ public sealed class OverlayWidgetPatch
     public int? Monitor { get; set; }
     public double? Col { get; set; }
     public double? Row { get; set; }
+    public bool? Locked { get; set; }
     public Dictionary<string, System.Text.Json.JsonElement>? Config { get; set; }
+}
+
+/// <summary>
+/// POST /overlay/widgets/lock body. Sets <see cref="OverlayWidgetDto.Locked"/>
+/// on every widget in one shot so "Lock all" / "Unlock all" land atomically
+/// with a single prefs broadcast.
+/// </summary>
+public sealed class OverlayLockAllBody
+{
+    public bool Locked { get; set; }
 }

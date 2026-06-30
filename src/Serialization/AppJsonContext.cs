@@ -190,6 +190,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.OverlayWidgetDto))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.OverlayWidgetCreateBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.OverlayWidgetPatch))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.OverlayLockAllBody))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Panel.OverlayWidgetDto>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.LightingChangedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.CoolingChangedFrame))]

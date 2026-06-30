@@ -157,6 +157,7 @@ public sealed class UpdateService : BackgroundService
             State = snap.State,
             UpdateReady = snap.UpdateReady,
             JustUpdatedTo = justUpdated,
+            PublishedAtUnix = snap.PublishedAtUnix,
         };
     }
 
@@ -559,6 +560,7 @@ public sealed class UpdateService : BackgroundService
                 LastCheckError = "",
                 State = _installing == 1 ? GetInstallStateString() : (_updateReady ? "ready" : "idle"),
                 UpdateReady = _updateReady,
+                PublishedAtUnix = manifest?.PublishedAt?.ToUnixTimeSeconds() ?? 0,
             };
 
             // "download" stages a download+verify but does not install.
@@ -619,6 +621,7 @@ public sealed class UpdateService : BackgroundService
                 LastCheckError = $"{ex.GetType().Name}: {ex.Message}",
                 State = _installing == 1 ? GetInstallStateString() : (_updateReady ? "ready" : "idle"),
                 UpdateReady = _updateReady,
+                PublishedAtUnix = _latestManifest?.PublishedAt?.ToUnixTimeSeconds() ?? 0,
             };
             Console.Error.WriteLine($"[update] check failed: {ex.GetType().Name}: {ex.Message}");
         }
@@ -638,6 +641,7 @@ public sealed class UpdateService : BackgroundService
             LastCheckError = "",
             State = "checking",
             UpdateReady = _updateReady,
+            PublishedAtUnix = _latestManifest?.PublishedAt?.ToUnixTimeSeconds() ?? 0,
         };
     }
 
@@ -965,6 +969,7 @@ public sealed class UpdateService : BackgroundService
             LastCheckError = _status.LastCheckError,
             State = state,
             UpdateReady = _updateReady,
+            PublishedAtUnix = _status.PublishedAtUnix,
         };
     }
 
@@ -1004,6 +1009,7 @@ public sealed class UpdateService : BackgroundService
             LastCheckError = _status.LastCheckError,
             State = _status.State,
             UpdateReady = ready,
+            PublishedAtUnix = _status.PublishedAtUnix,
         };
     }
 }
