@@ -54,6 +54,38 @@ public static class TryxRoutes
 {
     public static void MapTryxEndpoints(this WebApplication app)
     {
+        app.MapGet("/tryx/media/file", async (string? name, TryxPanoramaHub hub, CancellationToken ct) =>
+        {
+            if (string.IsNullOrEmpty(name) || !TryxThumbnailCache.IsSafeDeviceName(name))
+            {
+                return Results.NotFound();
+            }
+
+            if (TryxMediaStore.Exists(name))
+            {
+                return Results.File(TryxMediaStore.Path(name), "video/mp4", enableRangeProcessing: true);
+            }
+
+            if (!hub.IsConnected || string.IsNullOrEmpty(hub.State.AdbSerial))
+            {
+                return Results.NotFound();
+            }
+
+            try
+            {
+                var pulled = await hub.EnsureLocalCopyAsync(name, ct);
+                if (!pulled)
+                {
+                    return Results.NotFound();
+                }
+                return Results.File(TryxMediaStore.Path(name), "video/mp4", enableRangeProcessing: true);
+            }
+            catch (Exception)
+            {
+                return Results.NotFound();
+            }
+        }).DisableAntiforgery();
+
         app.MapPost("/tryx/media", async (HttpContext ctx, TryxPanoramaHub hub) =>
         {
             if (!ctx.Request.HasFormContentType)

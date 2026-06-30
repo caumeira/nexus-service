@@ -282,6 +282,7 @@ public sealed class TryxPanoramaHub : IDisposable
             // settle gap after config before reporting success (nx_e2e.ps1 cadence)
             await Task.Delay(800, ct);
 
+            TryxMediaStore.SaveCopy(tempOutput, deviceFileName);
             State.CurrentMedia = deviceFileName;
             State.CurrentMediaIsCustom = true;
             State.ScreenEnabled = true;
@@ -291,6 +292,63 @@ public sealed class TryxPanoramaHub : IDisposable
         {
             _importInProgress = false;
             try { File.Delete(tempOutput); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>Ensures a local copy of <paramref name="deviceFileName"/> exists in the media store,
+    /// pulling from the device via adb if necessary. Holds the import-pause for the duration
+    /// of the pull so the heartbeat does not issue concurrent adb commands.</summary>
+    public Task<bool> EnsureLocalCopyAsync(string deviceFileName, CancellationToken ct)
+    {
+        if (TryxMediaStore.Exists(deviceFileName))
+        {
+            return Task.FromResult(true);
+        }
+
+        var adbSerial = State.AdbSerial;
+        if (string.IsNullOrEmpty(adbSerial))
+        {
+            return Task.FromResult(false);
+        }
+
+        var adbPath = AdbLocator.ResolveAdbPath();
+        if (adbPath is null)
+        {
+            return Task.FromResult(false);
+        }
+
+        ct.ThrowIfCancellationRequested();
+
+        var destPath = TryxMediaStore.Path(deviceFileName);
+        _importInProgress = true;
+        try
+        {
+            Directory.CreateDirectory(TryxMediaStore.StoreDir);
+            RunAdb(adbPath, $"-s {adbSerial} pull /sdcard/pcMedia/{deviceFileName} \"{destPath}\"",
+                60_000, out _, out _);
+
+            if (!File.Exists(destPath))
+            {
+                return Task.FromResult(false);
+            }
+
+            var ffmpegPath = FfmpegResolver.Path;
+            if (ffmpegPath is not null && !File.Exists(TryxThumbnailCache.ThumbPath(deviceFileName)))
+            {
+                try { TryxThumbnailCache.Write(ffmpegPath, destPath, deviceFileName); } catch { }
+                try
+                {
+                    var dur = TryxThumbnailCache.ProbeDuration(ffmpegPath, destPath);
+                    TryxThumbnailCache.WriteDuration(deviceFileName, dur);
+                }
+                catch { }
+            }
+
+            return Task.FromResult(true);
+        }
+        finally
+        {
+            _importInProgress = false;
         }
     }
 
