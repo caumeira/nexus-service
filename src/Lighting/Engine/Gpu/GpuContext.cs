@@ -51,6 +51,17 @@ public sealed class GpuContext : IDisposable
     private readonly ManualResetEventSlim _initDone = new(false);
     private Exception? _initError;
 
+    // Per-attempt init budget. The auto-cycle sets this tight so a stalled
+    // driver trips fast (the waiter gives up and the caller advances to the
+    // next GPU preference class); default matches the historical eager budget.
+    public TimeSpan InitTimeout { get; set; } = TimeSpan.FromSeconds(10);
+
+    // GpuPreference class the auto-cycle set for the current attempt
+    // (0 auto / 1 power-saving-integrated / 2 high-performance-discrete). Read
+    // by the Windows init for the diagnostic force-fail marker and surfaced in
+    // the GL-context log line so a capture shows which card the context bound.
+    public static volatile int ActivePreferenceClass;
+
     // Per-thread reusable completion handle used by Invoke(). Invoke blocks the
     // caller until its work runs, so at most one outstanding per thread -- safe
     // to reuse without pooling. Avoids allocating a fresh MRE (~60 bytes +
@@ -109,9 +120,12 @@ public sealed class GpuContext : IDisposable
 
         _glThread = new Thread(GlThreadMain) { IsBackground = true, Name = "nexus-gl" };
         _glThread.Start();
-        if (!_initDone.Wait(TimeSpan.FromSeconds(10)))
+        if (!_initDone.Wait(InitTimeout))
         {
-            Log("[gpu] context init timed out, falling back to CPU");
+            // The nexus-gl thread is still wedged in native init; it stays a
+            // background thread and dies with the process. There is no CPU
+            // shader fallback, so the auto-cycle advances to another GPU.
+            Log($"[gpu] context init timed out after {InitTimeout.TotalSeconds:0.#}s");
             _failed = true;
             return;
         }
@@ -191,17 +205,17 @@ public sealed class GpuContext : IDisposable
         _eglUsed = true;
         _gl = GL.GetApi(new EglNativeContext());
 #else
-        // Windows: hidden GLFW window owns the context. With no usable GPU (no
-        // dGPU + an "F"-SKU CPU with no iGPU, or only a virtual/indirect
+        // Windows: a hidden GLFW window owns the WGL context. With no usable GPU
+        // (no dGPU + an "F"-SKU CPU with no iGPU, or only a virtual/indirect
         // display), GLFW context creation fail-fasts inside native code
         // (0xc0000409) - which a managed catch can't intercept, so it kills the
         // whole process. A removed card's driver stays registered, so DXGI still
         // enumerates it as a ghost adapter; probe D3D11CreateDevice (the ghost
-        // fails it) and bail to the CPU shader fallback before touching GLFW.
+        // fails it) and throw before touching GLFW so init fails cleanly. There
+        // is no CPU shader fallback - shader effects just don't render.
         if (!Nexus.Service.Sensors.GpuAdapterLuids.HasUsableHardwareGpu())
         {
-            throw new InvalidOperationException(
-                "no usable GPU adapter present; using CPU shader fallback");
+            throw new InvalidOperationException("no usable GPU adapter present");
         }
         Log("[gpu] Register GLFW platform");
         // Silk.NET normally registers the GLFW backend via module initializer,
@@ -229,6 +243,16 @@ public sealed class GpuContext : IDisposable
         _gl = _window.CreateOpenGL();
 #endif
         Log("[gpu] GL ready");
+        try
+        {
+            // Which physical card the context bound to - the proof the
+            // GpuPreference class steered selection, and a diagnostic on a
+            // customer capture.
+            Log($"[gpu] GL context on renderer='{_gl!.GetStringS(StringName.Renderer)}' "
+                + $"vendor='{_gl.GetStringS(StringName.Vendor)}' "
+                + $"version='{_gl.GetStringS(StringName.Version)}' pref-class={ActivePreferenceClass}");
+        }
+        catch (Exception ex) { Log($"[gpu] GL renderer query failed: {ex.Message}"); }
 
         _fboTex = _gl.GenTexture();
         _gl.BindTexture(TextureTarget.Texture2D, _fboTex);
