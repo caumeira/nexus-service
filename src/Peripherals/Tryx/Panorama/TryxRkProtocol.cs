@@ -5,16 +5,41 @@ using System.Text;
 
 namespace Nexus.Service.Peripherals.Tryx.Panorama;
 
+/// <summary>One overlay stat line: the raw stat label and its formatted value string.</summary>
+public readonly record struct TryxOverlayLine(string Label, string Value);
+
 /// <summary>
 /// Hand-rolled protobuf writer for the RK-firmware Panorama (VID 0x391A, "RK PANO").
 /// A frame is ASCII "TRYX" followed by a little-endian uint32 payload length, followed
 /// by the protobuf body; tags are (fieldNumber &lt;&lt; 3) | wireType varints. Camera-verified
-/// against the physical panel. Only the heartbeat and brightness commands are decoded;
-/// the rest of the schema is unknown, so this class exposes nothing else.
+/// against the physical panel. The heartbeat, brightness, and overlay layout commands
+/// are decoded; the rest of the schema is unknown, so this class exposes nothing else.
 /// </summary>
 public static class TryxRkProtocol
 {
     private static readonly byte[] FrameMagic = Encoding.ASCII.GetBytes("TRYX");
+
+    // Camera-verified: widget f7=19 and font "roboto-regular" are required-present.
+    // Widget f6 selects the text's horizontal alignment WITHIN the widget box:
+    // 1 = left, 2 = center, 3 = right (Kanali's own sysinfo overlay uses 1/left).
+    private const int OverlayWidgetF7 = 19;
+    private const string OverlayFontName = "roboto-regular";
+    private const int OverlayAlignLeftF6 = 1;
+    private const int OverlayAlignCenterF6 = 2;
+    private const int OverlayAlignRightF6 = 3;
+
+    // Widgets span the full content width; f6 places the text left/center/right
+    // within it. Coordinate space is approx 2240x1080 (camera-verified). The stat
+    // block is centered vertically for any 1/2/3 line count.
+    private const int OverlayInsetX = 60;
+    private const int OverlayContentWidth = 2120;
+    private const int OverlayPanelHeight = 1080;
+    private const int OverlayLineStepY = 250;
+    private const int OverlayValueLabelOffsetY = 150;
+    private const int OverlayValueWidgetHeight = 220;
+    private const int OverlayLabelWidgetHeight = 160;
+    private const int OverlayValueFontSize = 130;
+    private const int OverlayLabelFontSize = 52;
 
     /// <summary>
     /// Session keep-alive. The panel drops the screen to standby after about 10
@@ -59,6 +84,76 @@ public static class TryxRkProtocol
         WriteLengthDelimited(payload, fieldNumber: 200, configBlock.ToArray());
 
         return WrapFrame(payload);
+    }
+
+    /// <summary>
+    /// Sensor/text overlay layout. Field 201 nests a repeated field 1 per widget:
+    /// f1=widgetId, f2=x, f3=y, f4=w, f5=h, f6/f7 fixed, then a repeated field 8 per
+    /// text element (f1=elemId, f2=1 flag, f8=font, f9=fontSize, f10=RGB color,
+    /// f11=text). Each stat line renders as two stacked widgets, a large value and a
+    /// small label below it. An empty <paramref name="lines"/> list sends a field 201
+    /// with zero widgets, which clears the overlay.
+    /// </summary>
+    public static byte[] BuildOverlay(IReadOnlyList<TryxOverlayLine> lines, int colorRgb, string align)
+    {
+        var alignF6 = align switch
+        {
+            "Right" => OverlayAlignRightF6,
+            "Center" => OverlayAlignCenterF6,
+            _ => OverlayAlignLeftF6,
+        };
+
+        // Center the whole stack vertically. A line's value sits at lineY and its
+        // label OverlayValueLabelOffsetY below; the block spans the first value to
+        // the last label plus the label height.
+        var blockHeight = (lines.Count - 1) * OverlayLineStepY
+            + OverlayValueLabelOffsetY + OverlayLabelWidgetHeight;
+        var firstLineY = Math.Max(0, (OverlayPanelHeight - blockHeight) / 2);
+
+        var f201Body = new List<byte>();
+        for (var i = 0; i < lines.Count; i++)
+        {
+            var lineY = firstLineY + i * OverlayLineStepY;
+            var widgetIdBase = i * 2;
+            AppendOverlayWidget(
+                f201Body, widgetIdBase, OverlayInsetX, lineY,
+                OverlayContentWidth, OverlayValueWidgetHeight, alignF6,
+                OverlayValueFontSize, colorRgb, lines[i].Value);
+            AppendOverlayWidget(
+                f201Body, widgetIdBase + 1, OverlayInsetX, lineY + OverlayValueLabelOffsetY,
+                OverlayContentWidth, OverlayLabelWidgetHeight, alignF6,
+                OverlayLabelFontSize, colorRgb, lines[i].Label.ToUpperInvariant());
+        }
+
+        var payload = new List<byte>();
+        WriteLengthDelimited(payload, fieldNumber: 1, Array.Empty<byte>());
+        WriteLengthDelimited(payload, fieldNumber: 201, f201Body.ToArray());
+
+        return WrapFrame(payload);
+    }
+
+    private static void AppendOverlayWidget(
+        List<byte> f201Body, int widgetId, int x, int y, int w, int h, int alignF6, int fontSize, int colorRgb, string text)
+    {
+        var elem = new List<byte>();
+        WriteVarintField(elem, fieldNumber: 1, (ulong)widgetId);
+        WriteVarintField(elem, fieldNumber: 2, 1);
+        WriteLengthDelimited(elem, fieldNumber: 8, Encoding.UTF8.GetBytes(OverlayFontName));
+        WriteVarintField(elem, fieldNumber: 9, (ulong)fontSize);
+        WriteVarintField(elem, fieldNumber: 10, (ulong)colorRgb);
+        WriteLengthDelimited(elem, fieldNumber: 11, Encoding.UTF8.GetBytes(text));
+
+        var widget = new List<byte>();
+        WriteVarintField(widget, fieldNumber: 1, (ulong)widgetId);
+        WriteVarintField(widget, fieldNumber: 2, (ulong)x);
+        WriteVarintField(widget, fieldNumber: 3, (ulong)y);
+        WriteVarintField(widget, fieldNumber: 4, (ulong)w);
+        WriteVarintField(widget, fieldNumber: 5, (ulong)h);
+        WriteVarintField(widget, fieldNumber: 6, (ulong)alignF6);
+        WriteVarintField(widget, fieldNumber: 7, OverlayWidgetF7);
+        WriteLengthDelimited(widget, fieldNumber: 8, elem.ToArray());
+
+        WriteLengthDelimited(f201Body, fieldNumber: 1, widget.ToArray());
     }
 
     private static byte[] WrapFrame(List<byte> payload)

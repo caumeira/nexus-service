@@ -162,10 +162,16 @@ public class TryxPanoramaHubTests
     }
 
     [Fact]
-    public void SetOverlay_is_not_yet_implemented_for_rk_firmware()
+    public void SetOverlay_persists_and_writes_an_rk_overlay_frame()
     {
         var store = new InMemoryConfigStore();
-        var hub = BuildHub(configStore: store);
+        var recording = new RecordingTransport();
+        var hub = BuildHub(
+            discovery: new StubDiscovery(),
+            transportFactory: _ => recording,
+            configStore: store);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
         var overlay = new TryxOverlayConfig
         {
             Stats = ["CPU Temperature", "GPU Temperature"],
@@ -177,8 +183,10 @@ public class TryxPanoramaHubTests
 
         var ok = hub.SetOverlay(overlay);
 
-        Assert.False(ok);
-        Assert.Equal("#ffffff", store.Load().Tryx.OverlayColor);
+        Assert.True(ok);
+        Assert.Equal("#00ff00", store.Load().Tryx.OverlayColor);
+        Assert.Equal("Left", store.Load().Tryx.OverlayAlign);
+        Assert.Single(recording.Writes);
     }
 
     [Fact]
@@ -235,7 +243,9 @@ public class TryxPanoramaHubTests
     public void EnsureConnected_sends_persisted_brightness_as_rk_frame()
     {
         var store = new InMemoryConfigStore();
-        store.Update(s => s.Tryx.Brightness = 80);
+        // Empty overlay stats keep ApplyInitialConfig's write to just the brightness
+        // frame; the overlay-frame write on connect is covered separately below.
+        store.Update(s => { s.Tryx.Brightness = 80; s.Tryx.OverlayStats = []; });
 
         var recording = new RecordingTransport();
         var hub = BuildHub(
@@ -248,10 +258,27 @@ public class TryxPanoramaHubTests
         Assert.Equal(TryxRkProtocol.BuildConfig(true, 80), Assert.Single(recording.Writes));
     }
 
+    [Fact]
+    public void EnsureConnected_also_sends_the_overlay_frame_when_stats_are_configured()
+    {
+        var store = new InMemoryConfigStore();
+        store.Update(s => s.Tryx.OverlayStats = ["CPU Temperature"]);
+
+        var recording = new RecordingTransport();
+        var hub = BuildHub(
+            discovery: new StubDiscovery(),
+            transportFactory: _ => recording,
+            configStore: store);
+
+        hub.EnsureConnected();
+
+        Assert.Equal(2, recording.Writes.Count);
+    }
+
     // ── Task 2: tryx.status overlay ──
 
     [Fact]
-    public void Overlay_getter_is_unchanged_by_the_not_yet_implemented_setter()
+    public void Overlay_getter_reflects_the_setter()
     {
         var hub = BuildHub();
         var ov = new TryxOverlayConfig
@@ -261,10 +288,11 @@ public class TryxPanoramaHubTests
             Align = "Center",
         };
 
-        var ok = hub.SetOverlay(ov);
+        hub.SetOverlay(ov);
 
-        Assert.False(ok);
-        Assert.NotEqual("#aabbcc", hub.Overlay.Color);
+        Assert.Equal("#aabbcc", hub.Overlay.Color);
+        Assert.Equal("Center", hub.Overlay.Align);
+        Assert.Equal(new[] { "CPU Temperature" }, hub.Overlay.Stats);
     }
 
     [Fact]

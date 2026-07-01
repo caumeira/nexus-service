@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using System.Text;
 using System.Threading;
@@ -112,6 +113,11 @@ public sealed class TryxPanoramaHub : IDisposable
         try
         {
             transport.Write(TryxRkProtocol.BuildConfig(State.ScreenEnabled, State.Brightness));
+            if (_overlay.Stats.Length > 0)
+            {
+                transport.Write(TryxRkProtocol.BuildOverlay(
+                    BuildOverlayLines(), ParseHexColorRgb(_overlay.Color), _overlay.Align));
+            }
         }
         catch (Exception ex)
         {
@@ -131,9 +137,15 @@ public sealed class TryxPanoramaHub : IDisposable
     public bool SendConn()
         => SendOnly(TryxRkProtocol.BuildHeartbeat());
 
-    // The RK sensor/overlay protobuf schema is not decoded yet, so there is no
-    // known frame to send here; the heartbeat alone keeps the screen awake.
-    public bool SendStateAll() => true;
+    public bool SendStateAll()
+    {
+        if (_overlay.Stats.Length == 0)
+        {
+            return true;
+        }
+        return SendOnly(TryxRkProtocol.BuildOverlay(
+            BuildOverlayLines(), ParseHexColorRgb(_overlay.Color), _overlay.Align));
+    }
 
     public bool SetEnabled(bool enable)
     {
@@ -176,8 +188,21 @@ public sealed class TryxPanoramaHub : IDisposable
 
     public bool SetOverlay(TryxOverlayConfig overlay)
     {
-        ServiceLog.Warn("[tryx] SetOverlay not yet implemented for RK firmware");
-        return false;
+        _overlay.Stats = overlay.Stats;
+        _overlay.Color = overlay.Color;
+        _overlay.Align = overlay.Align;
+        _overlay.Filter = overlay.Filter;
+        _overlay.Opacity = overlay.Opacity;
+        _configStore.Update(s =>
+        {
+            s.Tryx.OverlayStats = overlay.Stats;
+            s.Tryx.OverlayColor = overlay.Color;
+            s.Tryx.OverlayAlign = overlay.Align;
+            s.Tryx.OverlayFilter = overlay.Filter;
+            s.Tryx.OverlayOpacity = overlay.Opacity;
+        });
+        return SendOnly(TryxRkProtocol.BuildOverlay(
+            BuildOverlayLines(), ParseHexColorRgb(overlay.Color), overlay.Align));
     }
 
     public Task<bool> ImportAndPlayVideoAsync(
@@ -273,13 +298,34 @@ public sealed class TryxPanoramaHub : IDisposable
     /// </summary>
     internal string BuildLiveSensorJsonForTest() => BuildLiveSensorJson();
 
-    private string BuildLiveSensorJson()
+    /// <summary>Sensor values read for the STATE-all JSON and the overlay stat mapper,
+    /// so both consume the same derivation instead of duplicating sensor lookups.</summary>
+    private readonly struct TryxSensorReadout
+    {
+        public int CpuTemp { get; init; }
+        public int CpuLoad { get; init; }
+        public int CpuClock { get; init; }
+        public int CpuPower { get; init; }
+        public int CpuVoltage { get; init; }
+        public int GpuTemp { get; init; }
+        public int GpuLoad { get; init; }
+        public int GpuClock { get; init; }
+        public int GpuPower { get; init; }
+        public int GpuVoltage { get; init; }
+        public int MemTotal { get; init; }
+        public int MemUsed { get; init; }
+        public int MemLoad { get; init; }
+        public int MemClock { get; init; }
+        public int MoboTemp { get; init; }
+        public int PchTemp { get; init; }
+    }
+
+    private TryxSensorReadout ReadSensors()
     {
         var cpuSensors = _sensors.GetCpuSensors();
         var gpuSensors = GetPrimaryGpuSensors();
         var memSensors = _sensors.GetMemorySensors();
         var moboSensors = _sensors.GetMotherboardSensors();
-        var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 
         var cpuTemp = RoundSensor(cpuSensors, "Temperature", "Package");
         var cpuLoad = RoundSensor(cpuSensors, "Load", "CPU Total");
@@ -314,29 +360,102 @@ public sealed class TryxPanoramaHub : IDisposable
         var moboTemp = RoundSensor(moboSensors, "Temperature", null);
         var pchTemp = RoundSensor(moboSensors, "Temperature", "PCH");
 
+        return new TryxSensorReadout
+        {
+            CpuTemp = cpuTemp,
+            CpuLoad = cpuLoad,
+            CpuClock = cpuClock,
+            CpuPower = cpuPower,
+            CpuVoltage = cpuVoltage,
+            GpuTemp = gpuTemp,
+            GpuLoad = gpuLoad,
+            GpuClock = gpuClock,
+            GpuPower = gpuPower,
+            GpuVoltage = gpuVoltage,
+            MemTotal = memTotal,
+            MemUsed = memUsed,
+            MemLoad = memLoad,
+            MemClock = memClock,
+            MoboTemp = moboTemp,
+            PchTemp = pchTemp,
+        };
+    }
+
+    private string BuildLiveSensorJson()
+    {
+        var r = ReadSensors();
+        var ts = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+
         var sb = new StringBuilder(512);
         sb.Append("{\"network\":{\"upload\":0,\"download\":0},");
-        sb.Append("\"memory\":{\"total\":").Append(memTotal)
-          .Append(",\"used\":").Append(memUsed)
-          .Append(",\"load\":").Append(memLoad)
-          .Append(",\"temperature\":0,\"speed\":").Append(memClock).Append("},");
-        sb.Append("\"cpu\":{\"load\":").Append(cpuLoad)
-          .Append(",\"usage\":").Append(cpuLoad)
-          .Append(",\"temperature\":").Append(cpuTemp)
-          .Append(",\"speedAverage\":").Append(cpuClock)
-          .Append(",\"power\":").Append(cpuPower)
-          .Append(",\"voltage\":").Append(cpuVoltage).Append("},");
-        sb.Append("\"gpu\":{\"load\":").Append(gpuLoad)
-          .Append(",\"temperature\":").Append(gpuTemp)
-          .Append(",\"fan\":0,\"speed\":").Append(gpuClock)
-          .Append(",\"power\":").Append(gpuPower)
-          .Append(",\"voltage\":").Append(gpuVoltage).Append("},");
+        sb.Append("\"memory\":{\"total\":").Append(r.MemTotal)
+          .Append(",\"used\":").Append(r.MemUsed)
+          .Append(",\"load\":").Append(r.MemLoad)
+          .Append(",\"temperature\":0,\"speed\":").Append(r.MemClock).Append("},");
+        sb.Append("\"cpu\":{\"load\":").Append(r.CpuLoad)
+          .Append(",\"usage\":").Append(r.CpuLoad)
+          .Append(",\"temperature\":").Append(r.CpuTemp)
+          .Append(",\"speedAverage\":").Append(r.CpuClock)
+          .Append(",\"power\":").Append(r.CpuPower)
+          .Append(",\"voltage\":").Append(r.CpuVoltage).Append("},");
+        sb.Append("\"gpu\":{\"load\":").Append(r.GpuLoad)
+          .Append(",\"temperature\":").Append(r.GpuTemp)
+          .Append(",\"fan\":0,\"speed\":").Append(r.GpuClock)
+          .Append(",\"power\":").Append(r.GpuPower)
+          .Append(",\"voltage\":").Append(r.GpuVoltage).Append("},");
         sb.Append("\"disk\":{\"total\":0,\"used\":0,\"load\":0,\"activity\":0,\"temperature\":0,\"readSpeed\":0,\"writeSpeed\":0},");
         sb.Append("\"fans\":[{\"onBoard\":true,\"type\":\"Fan\",\"name\":\"Fan CPU\",\"value\":0}],");
-        sb.Append("\"motherboard\":{\"temperature\":").Append(moboTemp)
-          .Append(",\"pchTemperature\":").Append(pchTemp).Append("},");
+        sb.Append("\"motherboard\":{\"temperature\":").Append(r.MoboTemp)
+          .Append(",\"pchTemperature\":").Append(r.PchTemp).Append("},");
         sb.Append("\"timestamp\":").Append(ts).Append('}');
         return sb.ToString();
+    }
+
+    /// <summary>Maps a dashboard stat label to its overlay value string; unmapped
+    /// labels are skipped. "Date&amp;Time" reads the local clock, not a sensor.</summary>
+    private static TryxOverlayLine? MapOverlayStat(string stat, in TryxSensorReadout r) => stat switch
+    {
+        "CPU Temperature" => new TryxOverlayLine(stat, $"{r.CpuTemp}°C"),
+        "CPU Frequency" => new TryxOverlayLine(stat, $"{r.CpuClock}MHZ"),
+        "CPU Usage" => new TryxOverlayLine(stat, $"{r.CpuLoad}%"),
+        "CPU Voltage" => new TryxOverlayLine(stat, $"{r.CpuVoltage}V"),
+        "GPU Temperature" => new TryxOverlayLine(stat, $"{r.GpuTemp}°C"),
+        "GPU Frequency" => new TryxOverlayLine(stat, $"{r.GpuClock}MHZ"),
+        "GPU Usage" => new TryxOverlayLine(stat, $"{r.GpuLoad}%"),
+        "GPU Voltage" => new TryxOverlayLine(stat, $"{r.GpuVoltage}V"),
+        "Motherboard Temperature" => new TryxOverlayLine(stat, $"{r.MoboTemp}°C"),
+        "Memory Frequency" => new TryxOverlayLine(stat, $"{r.MemClock}MHZ"),
+        "Memory Utilization" => new TryxOverlayLine(stat, $"{r.MemLoad}%"),
+        "Date&Time" => new TryxOverlayLine(stat, DateTime.Now.ToString("HH:mm")),
+        _ => null,
+    };
+
+    private List<TryxOverlayLine> BuildOverlayLines()
+    {
+        var r = ReadSensors();
+        var lines = new List<TryxOverlayLine>(_overlay.Stats.Length);
+        foreach (var stat in _overlay.Stats)
+        {
+            var line = MapOverlayStat(stat, in r);
+            if (line is { } value)
+            {
+                lines.Add(value);
+            }
+        }
+        return lines;
+    }
+
+    private static int ParseHexColorRgb(string hex)
+    {
+        var s = hex.TrimStart('#');
+        if (s.Length < 6)
+        {
+            return 0;
+        }
+        if (!byte.TryParse(s.AsSpan(0, 2), NumberStyles.HexNumber, null, out var r)) { r = 0; }
+        if (!byte.TryParse(s.AsSpan(2, 2), NumberStyles.HexNumber, null, out var g)) { g = 0; }
+        if (!byte.TryParse(s.AsSpan(4, 2), NumberStyles.HexNumber, null, out var b)) { b = 0; }
+        return (r << 16) | (g << 8) | b;
     }
 
     private IReadOnlyList<HardwareSensor> GetPrimaryGpuSensors()
