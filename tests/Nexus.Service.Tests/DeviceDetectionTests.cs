@@ -31,12 +31,14 @@ public class DeviceDetectionTests
         TestHandlers.FanHub(),
     };
 
+    private static DeviceControlGate NewGate() => new(new InMemoryConfigStore());
+
     // ---- DeviceManager with empty USB list shows all devices as disconnected ----
 
     [Fact]
     public void GetAll_WithEmptyUsbList_AllDevicesDisconnected()
     {
-        var manager = new DeviceManager(AllHandlers, new StubUsbEnumerator(), new PluginProviderRegistry());
+        var manager = new DeviceManager(AllHandlers, new StubUsbEnumerator(), new PluginProviderRegistry(), NewGate());
 
         var items = manager.GetAll();
 
@@ -51,7 +53,7 @@ public class DeviceDetectionTests
         var enumerator = new FixedUsbEnumerator(
             new UsbDeviceEntry { VendorId = 0x3402, ProductId = 0x0600, Name = "Q60" }
         );
-        var manager = new DeviceManager(AllHandlers, enumerator, new PluginProviderRegistry());
+        var manager = new DeviceManager(AllHandlers, enumerator, new PluginProviderRegistry(), NewGate());
 
         var items = manager.GetAll();
 
@@ -67,7 +69,7 @@ public class DeviceDetectionTests
     {
         var manager = new DeviceManager(
             new IDeviceHandler[] { TestHandlers.QSeries() },
-            new StubUsbEnumerator(), new PluginProviderRegistry()
+            new StubUsbEnumerator(), new PluginProviderRegistry(), NewGate()
         );
 
         var items = manager.GetAll();
@@ -81,7 +83,7 @@ public class DeviceDetectionTests
     {
         var manager = new DeviceManager(
             Enumerable.Empty<IDeviceHandler>(),
-            new StubUsbEnumerator(), new PluginProviderRegistry()
+            new StubUsbEnumerator(), new PluginProviderRegistry(), NewGate()
         );
 
         var items = manager.GetAll();
@@ -94,7 +96,7 @@ public class DeviceDetectionTests
     {
         var manager = new DeviceManager(
             new IDeviceHandler[] { TestHandlers.Cnvs(), TestHandlers.FanHub() },
-            new StubUsbEnumerator(), new PluginProviderRegistry()
+            new StubUsbEnumerator(), new PluginProviderRegistry(), NewGate()
         );
 
         var items = manager.GetAll();

@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Cooling;
+using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
@@ -38,17 +39,19 @@ public sealed class SmartHubHeartbeatWorker : BackgroundService
     private readonly HardwarePresence _presence;
     private readonly IConfigStore _config;
     private readonly SmartHubCoolingProvider _cooling;
+    private readonly DeviceControlGate _gate;
     private bool? _animationStateAsserted; // null = not yet asserted (e.g. fresh connect)
     private bool _initialDutyAsserted;
     private int _tickCount;
     private const int TraceEveryNTicks = 15; // every ~30 s with the 2 s timer
 
-    public SmartHubHeartbeatWorker(SmartHubHub hub, HardwarePresence presence, IConfigStore config, SmartHubCoolingProvider cooling)
+    public SmartHubHeartbeatWorker(SmartHubHub hub, HardwarePresence presence, IConfigStore config, SmartHubCoolingProvider cooling, DeviceControlGate gate)
     {
         _hub = hub;
         _presence = presence;
         _config = config;
         _cooling = cooling;
+        _gate = gate;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -66,6 +69,12 @@ public sealed class SmartHubHeartbeatWorker : BackgroundService
 
     public void Tick()
     {
+        if (!_gate.IsEnabled(SmartHubHub.DeviceType))
+        {
+            if (_hub.IsConnected) _hub.Disconnect();
+            return;
+        }
+
         // Skip silently when disconnected and no SmartHub is on the bus; stay live
         // while connected so an unplug is still handled.
         if (!_hub.IsConnected && !_presence.UsbPresent(SmartHubProtocol.VendorId, SmartHubProtocol.ProductId))

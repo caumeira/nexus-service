@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Nexus.Service.Activity;
 using Nexus.Service.Conflicts;
 using Nexus.Service.Cooling;
+using Nexus.Service.Devices;
 using Nexus.Service.Lighting;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Persistence;
@@ -31,6 +32,7 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
     private readonly CorsairLinkCoolingProvider _cooling;
     private readonly CorsairLinkLcd _lcd;
     private readonly IConfigStore _store;
+    private readonly DeviceControlGate _gate;
 
     public CorsairLinkConnectionWorker(
         IHidEnumerator hid,
@@ -38,7 +40,8 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
         CorsairLinkLightingDeviceProvider lighting,
         CorsairLinkCoolingProvider cooling,
         CorsairLinkLcd lcd,
-        IConfigStore store)
+        IConfigStore store,
+        DeviceControlGate gate)
     {
         _hid = hid;
         _hub = hub;
@@ -46,6 +49,7 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
         _cooling = cooling;
         _lcd = lcd;
         _store = store;
+        _gate = gate;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -54,6 +58,12 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
         {
             try
             {
+                if (!_gate.IsEnabled("corsair"))
+                {
+                    await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 var device = FindAndOpen();
                 if (device == null)
                 {
@@ -85,7 +95,7 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
                 try
                 {
                     var failures = 0;
-                    while (!stoppingToken.IsCancellationRequested)
+                    while (!stoppingToken.IsCancellationRequested && _gate.IsEnabled("corsair"))
                     {
                         if (_hub.Poll())
                         {

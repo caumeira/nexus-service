@@ -15,12 +15,14 @@ public sealed class DeviceManager
     private readonly IReadOnlyList<IDeviceHandler> _handlers;
     private readonly IUsbEnumerator _enumerator;
     private readonly PluginProviderRegistry _registry;
+    private readonly DeviceControlGate _gate;
 
-    public DeviceManager(IEnumerable<IDeviceHandler> handlers, IUsbEnumerator enumerator, PluginProviderRegistry registry)
+    public DeviceManager(IEnumerable<IDeviceHandler> handlers, IUsbEnumerator enumerator, PluginProviderRegistry registry, DeviceControlGate gate)
     {
         _handlers = handlers.ToList();
         _enumerator = enumerator;
         _registry = registry;
+        _gate = gate;
     }
 
     // First-party handlers (static DI) + any plugin handlers (registry snapshot,
@@ -33,6 +35,9 @@ public sealed class DeviceManager
     public List<DeviceListItem> GetAll()
     {
         var usbDevices = _enumerator.Enumerate();
+        // Only first-party handlers have a gate-honoring connection worker; the
+        // on/off switch is a no-op for plugin handlers, so don't advertise it.
+        var firstParty = new HashSet<IDeviceHandler>(_handlers);
         return AllHandlers.Select(h => new DeviceListItem
         {
             Id = h.Id,
@@ -41,6 +46,8 @@ public sealed class DeviceManager
             Connected = h.IsConnected(usbDevices),
             FirmwareVersion = h.GetFirmwareVersion(),
             FirmwareType = h.FirmwareType,
+            SupportsNexusControl = firstParty.Contains(h),
+            NexusControlEnabled = _gate.IsEnabled(h.Id),
         }).ToList();
     }
 

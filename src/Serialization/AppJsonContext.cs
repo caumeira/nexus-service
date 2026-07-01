@@ -111,6 +111,14 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.TryxMediaListResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.TryxPresetItem))]
 [JsonSerializable(typeof(Nexus.Service.Routes.TryxMediaItem))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxAckResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxEnableRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxBrightnessRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxFanRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxPresetRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxMediaSelectRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxMediaDeleteRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxOverlayRequest))]
 
 // Fan control
 [JsonSerializable(typeof(FanChannel))]
@@ -409,6 +417,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(BatchApplyLayoutsBody))]
 [JsonSerializable(typeof(DeviceListItem))]
 [JsonSerializable(typeof(List<DeviceListItem>))]
+[JsonSerializable(typeof(DeviceControlRequest))]
 [JsonSerializable(typeof(UsbDeviceDetail))]
 [JsonSerializable(typeof(List<UsbDeviceDetail>))]
 [JsonSerializable(typeof(FirmwareStatusItem))]

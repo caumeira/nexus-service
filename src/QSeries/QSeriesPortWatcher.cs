@@ -12,6 +12,7 @@ using AdvancedSharpAdbClient.Models;
 using AdvancedSharpAdbClient.Receivers;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Common.ExternalTools;
+using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Models.Panel;
 using Nexus.Service.Panel;
@@ -84,6 +85,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private readonly AdbClient _client;
     private readonly QSeriesTransportStore _transportStore;
     private readonly HardwarePresence _presence;
+    private readonly DeviceControlGate _gate;
 
     /// <summary>
     /// Panel registry, read-only here, to check whether the Q-series panel has
@@ -137,15 +139,16 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _lastRecoveryByInstanceId = new(StringComparer.Ordinal);
 
-    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, IAdbDeviceRegistry? deviceRegistry = null)
-        : this(servicePort, presence, panelDevices, new QSeriesTransportStore(), deviceRegistry) { }
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, IAdbDeviceRegistry? deviceRegistry = null)
+        : this(servicePort, presence, panelDevices, gate, new QSeriesTransportStore(), deviceRegistry) { }
 
     /// <summary>Test seam: inject a store pointing at a tmp path.</summary>
-    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, QSeriesTransportStore transportStore, IAdbDeviceRegistry? deviceRegistry = null)
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, QSeriesTransportStore transportStore, IAdbDeviceRegistry? deviceRegistry = null)
     {
         _servicePort = servicePort;
         _presence = presence;
         _panelDevices = panelDevices;
+        _gate = gate;
         _deviceRegistry = deviceRegistry;
         _localSpec = $"tcp:{servicePort}";
         _remoteSpec = $"tcp:{servicePort}";
@@ -183,6 +186,15 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     private async Task TickAsync(CancellationToken ct)
     {
+        // Nexus Control off skips the whole pass: no reverse-tunnel or am-start
+        // churn. Existing reverse forwards are left alone rather than torn down,
+        // since a proactive adb teardown call risks the USB-FFS wedge documented
+        // for this device class.
+        if (!_gate.IsEnabled("qseries"))
+        {
+            return;
+        }
+
         // Don't probe adb unless a Q-series unit is plausibly attached: its cooler
         // (VID_3402&PID_0400/0403) or the panel's MediaTek adb interface (VID_0E8D)
         // on USB, or a TCP-promoted device we still maintain. Otherwise

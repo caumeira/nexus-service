@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices;
 
 namespace Nexus.Service.Peripherals.Tryx.Panorama;
 
@@ -13,10 +14,12 @@ namespace Nexus.Service.Peripherals.Tryx.Panorama;
 public sealed class TryxPanoramaHeartbeatWorker : BackgroundService
 {
     private readonly TryxPanoramaHub _hub;
+    private readonly DeviceControlGate _gate;
 
-    public TryxPanoramaHeartbeatWorker(TryxPanoramaHub hub)
+    public TryxPanoramaHeartbeatWorker(TryxPanoramaHub hub, DeviceControlGate gate)
     {
         _hub = hub;
+        _gate = gate;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -40,6 +43,14 @@ public sealed class TryxPanoramaHeartbeatWorker : BackgroundService
 
     private void Tick()
     {
+        // Nexus Control gate takes priority: a toggled-off device must go fully
+        // silent (transport closed), not just stop sending new commands.
+        if (!_gate.IsEnabled("tryx"))
+        {
+            if (_hub.IsConnected) _hub.Disconnect();
+            return;
+        }
+
         if (!_hub.EnsureConnected()) return;
         _hub.SendConn();
         // Skip the sensor push during an import so it can't land between the

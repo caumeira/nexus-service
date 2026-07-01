@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Lighting;
 using Nexus.Service.Sockets;
@@ -32,17 +33,19 @@ public sealed class Np50HeartbeatWorker : BackgroundService
     private readonly Np50Hub _hub;
     private readonly HardwarePresence _presence;
     private readonly MultiplexHub _wsHub;
+    private readonly DeviceControlGate _gate;
     private readonly Np50LightingDeviceProvider? _lighting;
     private string _lastBroadcastFwVersion = "";
     private bool _lastConnected;
     private byte _lastWarningSummary;
     private long _lastModeAssertMs;
 
-    public Np50HeartbeatWorker(Np50Hub hub, HardwarePresence presence, MultiplexHub wsHub, Np50LightingDeviceProvider? lighting = null)
+    public Np50HeartbeatWorker(Np50Hub hub, HardwarePresence presence, MultiplexHub wsHub, DeviceControlGate gate, Np50LightingDeviceProvider? lighting = null)
     {
         _hub = hub;
         _presence = presence;
         _wsHub = wsHub;
+        _gate = gate;
         _lighting = lighting;
     }
 
@@ -73,6 +76,12 @@ public sealed class Np50HeartbeatWorker : BackgroundService
     /// <summary>One poll cycle. Public so tests / debug routes can step manually.</summary>
     public void Tick()
     {
+        if (!_gate.IsEnabled("np50"))
+        {
+            if (_hub.IsConnected) _hub.Disconnect();
+            return;
+        }
+
         // Skip silently when disconnected and no NP50 is on the bus; stay live
         // while connected so the heartbeat keeps software control and an unplug
         // is still broadcast.

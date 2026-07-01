@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Platform;
 
@@ -17,11 +18,13 @@ public sealed class Y70DisplayHeartbeatWorker : BackgroundService
 {
     private readonly Y70DisplayHub _hub;
     private readonly HardwarePresence _presence;
+    private readonly DeviceControlGate _gate;
 
-    public Y70DisplayHeartbeatWorker(Y70DisplayHub hub, HardwarePresence presence)
+    public Y70DisplayHeartbeatWorker(Y70DisplayHub hub, HardwarePresence presence, DeviceControlGate gate)
     {
         _hub = hub;
         _presence = presence;
+        _gate = gate;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -39,6 +42,12 @@ public sealed class Y70DisplayHeartbeatWorker : BackgroundService
 
     public void Tick()
     {
+        if (!_gate.IsEnabled("y70"))
+        {
+            if (_hub.IsConnected) _hub.Disconnect();
+            return;
+        }
+
         // Skip silently when disconnected and no Y70 display controller is on the
         // bus. The monitor channel can't identify a Y70 (no EDID vendor), so the
         // serial controller's VID/PID is the gate; stay live while connected.

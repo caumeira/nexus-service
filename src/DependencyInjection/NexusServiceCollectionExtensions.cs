@@ -407,6 +407,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Keeb.KeebSettingsApplier>(),
             sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
             sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>(),
+            sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>(),
             sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Keeb.KeebInputWorker>();
 
@@ -552,6 +553,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Galahad2Handler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.CorsairLinkHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.StrimerHandler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.TryxHandler>();
 
         // Read-only catalog of firmware images embedded in this build. Backs
         // the Firmware Updates page's "available version" column.
@@ -738,6 +740,7 @@ public static class NexusServiceCollectionExtensions
         // used to gate per-device heartbeat workers so they stay silent on hosts
         // where their hardware isn't attached.
         services.AddSingleton<Nexus.Service.Devices.Detection.HardwarePresence>();
+        services.AddSingleton<Nexus.Service.Devices.DeviceControlGate>();
         services.AddSingleton<DeviceManager>();
         services.AddSingleton<Nexus.Service.Devices.DeviceBroadcaster>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Devices.DeviceBroadcaster>());
@@ -993,7 +996,6 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Widgets.AppActions.MediaActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.CoolingActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.LightingActions.RegisterAll(registry);
-            Nexus.Service.Widgets.AppActions.TryxActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.AppInstallActions.RegisterAll(registry);
             return registry;
         });
@@ -1031,6 +1033,7 @@ public static class NexusServiceCollectionExtensions
                     servicePort,
                     sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
                     sp.GetRequiredService<Nexus.Service.Panel.PanelDeviceRegistry>(),
+                    sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>(),
                     sp.GetRequiredService<Nexus.Service.Common.ExternalTools.IAdbDeviceRegistry>()));
             services.AddHostedService(sp =>
                 sp.GetRequiredService<Nexus.Service.QSeries.QSeriesPortWatcher>());

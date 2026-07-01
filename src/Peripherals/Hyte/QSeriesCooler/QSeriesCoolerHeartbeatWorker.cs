@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Platform;
 
@@ -27,13 +28,15 @@ public sealed class QSeriesCoolerHeartbeatWorker : BackgroundService
 
     private readonly QSeriesCoolerHub _hub;
     private readonly HardwarePresence _presence;
+    private readonly DeviceControlGate _gate;
     private readonly Nexus.Service.Lighting.QSeriesLightingDeviceProvider? _lighting;
     private bool _firstTick = true;
 
-    public QSeriesCoolerHeartbeatWorker(QSeriesCoolerHub hub, HardwarePresence presence, Nexus.Service.Lighting.QSeriesLightingDeviceProvider? lighting = null)
+    public QSeriesCoolerHeartbeatWorker(QSeriesCoolerHub hub, HardwarePresence presence, DeviceControlGate gate, Nexus.Service.Lighting.QSeriesLightingDeviceProvider? lighting = null)
     {
         _hub = hub;
         _presence = presence;
+        _gate = gate;
         _lighting = lighting;
     }
 
@@ -55,6 +58,14 @@ public sealed class QSeriesCoolerHeartbeatWorker : BackgroundService
 
     public void Tick()
     {
+        // Nexus Control gate takes priority over the first-tick race-and-hold:
+        // a device toggled off must never be claimed, even transiently.
+        if (!_gate.IsEnabled("qseries"))
+        {
+            if (_hub.IsConnected) _hub.Disconnect();
+            return;
+        }
+
         // First tick stays ungated so the race-and-hold above isn't delayed by a
         // cold USB-enumeration scan. After that, skip silently when disconnected
         // and no Q-series cooler is on the bus.

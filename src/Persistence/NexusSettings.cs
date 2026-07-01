@@ -466,6 +466,8 @@ public sealed class TryxSettings
 public sealed class DevicesSettings
 {
     public List<string> DisabledLightingDevices { get; set; } = new();
+    /// <summary>Handler ids with Nexus Control off. Absent id means the device is controlled (default on).</summary>
+    public List<string> NexusControlDisabled { get; set; } = new();
     public Dictionary<string, LightingDevicePreference> LightingDevicePrefs { get; set; } = new();
     /// <summary>LEGACY (pre-v6, per-card key). Read only by the one-time schema migration that moves entries into <see cref="DeviceLedOverrides"/>; empty afterward. Do not write.</summary>
     public Dictionary<string, List<LedPositionOverride>> LedMapOverrides { get; set; } = new();

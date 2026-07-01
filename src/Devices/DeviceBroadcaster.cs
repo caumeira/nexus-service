@@ -26,6 +26,7 @@ public sealed class DeviceBroadcaster : BackgroundService
     private readonly DeviceManager _manager;
     private readonly MultiplexHub _hub;
     private string _lastFingerprint = "";
+    private readonly object _fingerprintLock = new();
 
     public DeviceBroadcaster(DeviceManager manager, MultiplexHub hub)
     {
@@ -61,7 +62,8 @@ public sealed class DeviceBroadcaster : BackgroundService
         }
     }
 
-    private void BroadcastNow()
+    /// <summary>Force an immediate fingerprint check and broadcast. Routes that mutate device state call this so subscribers refetch without waiting out the poll cadence.</summary>
+    public void BroadcastNow()
     {
         List<DeviceListItem> curated;
         List<UsbDeviceDetail> usb;
@@ -75,10 +77,15 @@ public sealed class DeviceBroadcaster : BackgroundService
             return;
         }
 
+        // Called from both the poll loop and the /devices/control route thread,
+        // so guard the dedup fingerprint against a torn read/write.
         var fingerprint = ComputeFingerprint(curated, usb);
-        if (fingerprint == _lastFingerprint)
-            return;
-        _lastFingerprint = fingerprint;
+        lock (_fingerprintLock)
+        {
+            if (fingerprint == _lastFingerprint)
+                return;
+            _lastFingerprint = fingerprint;
+        }
 
         var frame = new Models.Panel.DevicesChangedFrame
         {
@@ -94,7 +101,7 @@ public sealed class DeviceBroadcaster : BackgroundService
         sb.Append("c:");
         foreach (var d in curated.OrderBy(d => d.Id, StringComparer.Ordinal))
         {
-            sb.Append(d.Id).Append(d.Connected ? '1' : '0').Append(d.FirmwareVersion ?? "").Append(';');
+            sb.Append(d.Id).Append(d.Connected ? '1' : '0').Append(d.NexusControlEnabled ? '1' : '0').Append(d.FirmwareVersion ?? "").Append(';');
         }
         sb.Append("|u:");
         foreach (var d in usb.OrderBy(d => d.HardwareId ?? "", StringComparer.Ordinal))

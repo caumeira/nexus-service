@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices;
 using Nexus.Service.Lighting;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Platform;
@@ -16,13 +17,15 @@ public sealed class StrimerConnectionWorker : BackgroundService
     private readonly IHidEnumerator _hid;
     private readonly StrimerHub _hub;
     private readonly StrimerLightingDeviceProvider _lighting;
+    private readonly DeviceControlGate _gate;
     private bool _firstAttach;
 
-    public StrimerConnectionWorker(IHidEnumerator hid, StrimerHub hub, StrimerLightingDeviceProvider lighting)
+    public StrimerConnectionWorker(IHidEnumerator hid, StrimerHub hub, StrimerLightingDeviceProvider lighting, DeviceControlGate gate)
     {
         _hid = hid;
         _hub = hub;
         _lighting = lighting;
+        _gate = gate;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -31,6 +34,12 @@ public sealed class StrimerConnectionWorker : BackgroundService
         {
             try
             {
+                if (!_gate.IsEnabled("strimer"))
+                {
+                    await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 var device = FindAndOpen();
                 if (device != null)
                 {
@@ -44,7 +53,7 @@ public sealed class StrimerConnectionWorker : BackgroundService
                     _lighting.OnHubStateUpdated();
                     try
                     {
-                        while (!stoppingToken.IsCancellationRequested)
+                        while (!stoppingToken.IsCancellationRequested && _gate.IsEnabled("strimer"))
                         {
                             await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
                             if (_hub.ConsecutiveWriteFailures >= MaxConsecutiveFailures)

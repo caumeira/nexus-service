@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Platform;
 
@@ -19,15 +20,17 @@ public sealed class MiniHubHeartbeatWorker : BackgroundService
 {
     private readonly MiniHubHub _hub;
     private readonly HardwarePresence _presence;
+    private readonly DeviceControlGate _gate;
     private bool _rgbModeAsserted;
     private bool _fanModeAsserted;
     private int _tickCount;
     private const int TraceEveryNTicks = 15; // every ~30 s with the 2 s timer
 
-    public MiniHubHeartbeatWorker(MiniHubHub hub, HardwarePresence presence)
+    public MiniHubHeartbeatWorker(MiniHubHub hub, HardwarePresence presence, DeviceControlGate gate)
     {
         _hub = hub;
         _presence = presence;
+        _gate = gate;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -45,6 +48,12 @@ public sealed class MiniHubHeartbeatWorker : BackgroundService
 
     public void Tick()
     {
+        if (!_gate.IsEnabled("fan-hub"))
+        {
+            if (_hub.IsConnected) _hub.Disconnect();
+            return;
+        }
+
         // Skip silently when the hub isn't connected and no MiniHub is on the bus:
         // no discovery, no log, until one actually appears. Stay live while
         // connected so an unplug is still noticed and handled below.

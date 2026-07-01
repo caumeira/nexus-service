@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Cooling;
+using Nexus.Service.Devices;
 using Nexus.Service.Lighting;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Persistence;
@@ -23,14 +24,16 @@ public sealed class LianLiConnectionWorker : BackgroundService
     private readonly LianLiLightingDeviceProvider _lighting;
     private readonly LianLiCoolingProvider _cooling;
     private readonly IConfigStore _store;
+    private readonly DeviceControlGate _gate;
 
-    public LianLiConnectionWorker(IHidEnumerator hid, LianLiHub hub, LianLiLightingDeviceProvider lighting, LianLiCoolingProvider cooling, IConfigStore store)
+    public LianLiConnectionWorker(IHidEnumerator hid, LianLiHub hub, LianLiLightingDeviceProvider lighting, LianLiCoolingProvider cooling, IConfigStore store, DeviceControlGate gate)
     {
         _hid = hid;
         _hub = hub;
         _lighting = lighting;
         _cooling = cooling;
         _store = store;
+        _gate = gate;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -39,6 +42,12 @@ public sealed class LianLiConnectionWorker : BackgroundService
         {
             try
             {
+                if (!_gate.IsEnabled("lianli"))
+                {
+                    await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 var device = FindAndOpen(out var profile);
                 if (device != null)
                 {
@@ -53,7 +62,7 @@ public sealed class LianLiConnectionWorker : BackgroundService
                     try
                     {
                         var failures = 0;
-                        while (!stoppingToken.IsCancellationRequested)
+                        while (!stoppingToken.IsCancellationRequested && _gate.IsEnabled("lianli"))
                         {
                             if (_hub.ReadRpm())
                             {

@@ -1,4 +1,5 @@
 using Nexus.Service.Devices;
+using Nexus.Service.Models.Devices;
 
 namespace Nexus.Service.Routes;
 
@@ -11,5 +12,18 @@ public static partial class DevicesRoutes
 
         // Raw USB device list - every device the OS reports, with full details
         app.MapGet("/devices/usb/all", (DeviceManager dm) => dm.GetUsbDevices());
+
+        // Toggle Nexus Control for one handler id. Off keeps the device detectable
+        // (USB enumeration still sees it) but stops Nexus from claiming its port.
+        app.MapPost("/devices/control", (
+            DeviceControlRequest body,
+            DeviceControlGate gate,
+            DeviceManager dm,
+            Nexus.Service.Devices.DeviceBroadcaster broadcaster) =>
+        {
+            gate.SetEnabled(body.Id, body.Enabled);
+            broadcaster.BroadcastNow();
+            return dm.GetAll();
+        });
     }
 }

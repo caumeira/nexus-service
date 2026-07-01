@@ -1,9 +1,11 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Globalization;
 using System.IO;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Nexus.Service.Panel;
 using Nexus.Service.Peripherals.Tryx.Panorama;
 using Nexus.Service.Serialization;
 
@@ -53,15 +55,231 @@ public sealed class TryxMediaListResponse
     public List<TryxMediaItem> Media { get; set; } = new();
 }
 
+/// <summary>Generic ack body for Tryx control routes.</summary>
+public sealed class TryxAckResponse
+{
+    public bool Ok { get; set; }
+    public string? Msg { get; set; }
+}
+
+public sealed class TryxEnableRequest
+{
+    public bool Enable { get; set; }
+}
+
+public sealed class TryxBrightnessRequest
+{
+    public int Value { get; set; }
+}
+
+public sealed class TryxFanRequest
+{
+    public string Mode { get; set; } = "";
+    public int? Fixed { get; set; }
+    public int[][]? Curve { get; set; }
+}
+
+public sealed class TryxPresetRequest
+{
+    public string Id { get; set; } = "";
+}
+
+public sealed class TryxMediaSelectRequest
+{
+    public string Name { get; set; } = "";
+}
+
+public sealed class TryxMediaDeleteRequest
+{
+    public string Name { get; set; } = "";
+}
+
+public sealed class TryxOverlayRequest
+{
+    public string[] Stats { get; set; } = [];
+    public string Color { get; set; } = "";
+    public string Align { get; set; } = "";
+    public string? Filter { get; set; }
+    public int? Opacity { get; set; }
+}
+
 /// <summary>
-/// The Tryx control surface rides the SDK dispatch path (see TryxActions); the only
-/// route is the media upload, which the host-mediated MediaImport component posts to
-/// (a sandboxed app cannot upload a file or reach loopback itself).
+/// First-party Tryx Panorama control routes. Calls into the shared
+/// <see cref="TryxPanoramaHub"/> singleton; the dashboard device page talks to
+/// these directly (no SDK dispatch layer).
 /// </summary>
 public static class TryxRoutes
 {
+    // Fixed preset set; the device cannot enumerate its presets over serial.
+    // Matches Kanali's waterBlockScreenList; Id is sent verbatim to waterBlockScreen.
+    private static readonly (string Id, string Name)[] KnownPresets =
+    {
+        ("Pre-set 1: Cooling delivery", "Cooling delivery"),
+        ("Pre-set 2: Migration", "Migration"),
+        ("Pre-set 3: Quantum time capsule", "Quantum time capsule"),
+        ("Pre-set 4: Exo-Ecologies", "Exo-Ecologies"),
+        ("Pre-set 5: Racing", "Racing"),
+        ("Pre-set 6: Shuttle", "Shuttle"),
+        ("Pre-set 7: Gift of TRYX", "Gift of TRYX"),
+    };
+
     public static void MapTryxEndpoints(this WebApplication app)
     {
+        app.MapGet("/tryx/status", (TryxPanoramaHub hub) =>
+        {
+            var ov = hub.Overlay;
+            var resp = new TryxStatusResponse
+            {
+                Connected = hub.IsConnected,
+                State = hub.State,
+                Overlay = new TryxOverlaySnapshot
+                {
+                    Stats = ov.Stats,
+                    Color = ov.Color,
+                    Align = ov.Align,
+                },
+            };
+            return Results.Json(resp, AppJsonContext.Default.TryxStatusResponse);
+        });
+
+        app.MapPost("/tryx/enable", (TryxEnableRequest body, TryxPanoramaHub hub) =>
+        {
+            var ok = hub.SetEnabled(body.Enable);
+            return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
+        });
+
+        app.MapPost("/tryx/brightness", (TryxBrightnessRequest body, TryxPanoramaHub hub) =>
+        {
+            if (body.Value < 0 || body.Value > 100)
+            {
+                return Results.Json(
+                    new TryxAckResponse { Ok = false, Msg = "value must be 0..100" },
+                    AppJsonContext.Default.TryxAckResponse);
+            }
+            var ok = hub.SetBrightness(body.Value);
+            return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
+        });
+
+        app.MapPost("/tryx/fan", (TryxFanRequest body, TryxPanoramaHub hub) =>
+        {
+            if (body.Mode == "fixed")
+            {
+                var pct = body.Fixed ?? 40;
+                var ok = hub.SetFanFixed(Math.Clamp(pct, 0, 100));
+                return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
+            }
+            if (body.Mode == "smart")
+            {
+                var curve = body.Curve;
+                if (curve is { Length: > 0 })
+                {
+                    foreach (var pt in curve)
+                    {
+                        if (pt is not { Length: 2 })
+                        {
+                            return Results.Json(
+                                new TryxAckResponse { Ok = false, Msg = "invalid curve; expected [[temp,duty],...]" },
+                                AppJsonContext.Default.TryxAckResponse);
+                        }
+                    }
+                }
+                var ok = hub.SetFanSmart(curve is { Length: > 0 } ? curve : null);
+                return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
+            }
+            return Results.Json(
+                new TryxAckResponse { Ok = false, Msg = "mode must be 'smart' or 'fixed'" },
+                AppJsonContext.Default.TryxAckResponse);
+        });
+
+        app.MapGet("/tryx/presets", () =>
+        {
+            var resp = new TryxPresetListResponse();
+            foreach (var (id, name) in KnownPresets)
+            {
+                resp.Presets.Add(new TryxPresetItem { Id = id, Name = name });
+            }
+            return Results.Json(resp, AppJsonContext.Default.TryxPresetListResponse);
+        });
+
+        app.MapPost("/tryx/preset", (TryxPresetRequest body, TryxPanoramaHub hub) =>
+        {
+            if (string.IsNullOrEmpty(body.Id))
+            {
+                return Results.Json(
+                    new TryxAckResponse { Ok = false, Msg = "missing id" },
+                    AppJsonContext.Default.TryxAckResponse);
+            }
+            var ok = hub.SetPreset(body.Id);
+            return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
+        });
+
+        app.MapGet("/tryx/media", (TryxPanoramaHub hub) =>
+        {
+            var names = ListMediaFiles(hub);
+            var resp = new TryxMediaListResponse();
+            foreach (var name in names)
+            {
+                resp.Media.Add(new TryxMediaItem
+                {
+                    Name = name,
+                    Thumb = TryxThumbnailCache.ReadDataUrl(name),
+                    DurationSec = TryxThumbnailCache.ReadDuration(name),
+                });
+            }
+            return Results.Json(resp, AppJsonContext.Default.TryxMediaListResponse);
+        });
+
+        app.MapPost("/tryx/media/select", (TryxMediaSelectRequest body, TryxPanoramaHub hub) =>
+        {
+            if (string.IsNullOrEmpty(body.Name))
+            {
+                return Results.Json(
+                    new TryxAckResponse { Ok = false, Msg = "missing name" },
+                    AppJsonContext.Default.TryxAckResponse);
+            }
+            var ok = hub.SelectCustomMedia(body.Name);
+            return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
+        });
+
+        app.MapPost("/tryx/media/delete", (TryxMediaDeleteRequest body, TryxPanoramaHub hub) =>
+        {
+            if (string.IsNullOrEmpty(body.Name))
+            {
+                return Results.Json(
+                    new TryxAckResponse { Ok = false, Msg = "missing name" },
+                    AppJsonContext.Default.TryxAckResponse);
+            }
+            if (!TryxThumbnailCache.IsSafeDeviceName(body.Name))
+            {
+                return Results.Json(
+                    new TryxAckResponse { Ok = false, Msg = "invalid name" },
+                    AppJsonContext.Default.TryxAckResponse);
+            }
+            var ack = DeleteMediaFile(hub, body.Name);
+            return Results.Json(ack, AppJsonContext.Default.TryxAckResponse);
+        });
+
+        app.MapPost("/tryx/overlay", (TryxOverlayRequest body, TryxPanoramaHub hub) =>
+        {
+            var stats = new List<string>();
+            foreach (var s in body.Stats ?? [])
+            {
+                if (string.IsNullOrWhiteSpace(s)) continue;
+                stats.Add(s);
+                if (stats.Count >= 3) break;
+            }
+            var cfg = new TryxOverlayConfig
+            {
+                Stats = stats.ToArray(),
+                Color = string.IsNullOrWhiteSpace(body.Color) ? "#ffffff" : body.Color,
+                Align = string.IsNullOrWhiteSpace(body.Align) ? "Center" : body.Align,
+                Filter = string.IsNullOrWhiteSpace(body.Filter) ? null : body.Filter,
+                Opacity = body.Opacity is null ? 100 : Math.Clamp(body.Opacity.Value, 0, 100),
+            };
+            var ok = hub.SetOverlay(cfg);
+            return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
+        });
+
         app.MapGet("/tryx/media/file", async (string? name, TryxPanoramaHub hub, CancellationToken ct) =>
         {
             if (string.IsNullOrEmpty(name) || !TryxThumbnailCache.IsSafeDeviceName(name))
@@ -165,4 +383,85 @@ public static class TryxRoutes
 
     private static int ParseInt(string raw, int fallback)
         => int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) && v > 0 ? v : fallback;
+
+    private static List<string> ListMediaFiles(TryxPanoramaHub hub)
+    {
+        var files = new List<string>();
+        var adbSerial = hub.State.AdbSerial;
+        if (string.IsNullOrEmpty(adbSerial)) return files;
+        var adbPath = AdbLocator.ResolveAdbPath();
+        if (adbPath is null) return files;
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo
+            {
+                FileName = adbPath,
+                Arguments = $"-s {adbSerial} shell ls /sdcard/pcMedia/",
+                WorkingDirectory = Path.GetDirectoryName(adbPath) ?? string.Empty,
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            if (p is null) return files;
+            p.WaitForExit(8_000);
+            foreach (var line in p.StandardOutput.ReadToEnd().Split('\n'))
+            {
+                var trimmed = line.Trim();
+                if (trimmed.Length == 0) continue;
+                // The panel's pcMedia dir is shared with any tool that ever drove
+                // it (e.g. Kanali), which leaves non-video files behind. The app
+                // only plays video, so list video files only.
+                var lower = trimmed.ToLowerInvariant();
+                if (lower.EndsWith(".mp4") || lower.EndsWith(".mov") || lower.EndsWith(".webm")
+                    || lower.EndsWith(".mkv") || lower.EndsWith(".m4v") || lower.EndsWith(".avi"))
+                {
+                    files.Add(trimmed);
+                }
+            }
+        }
+        catch { /* adb unavailable */ }
+        return files;
+    }
+
+    private static TryxAckResponse DeleteMediaFile(TryxPanoramaHub hub, string name)
+    {
+        var adbSerial = hub.State.AdbSerial;
+        if (string.IsNullOrEmpty(adbSerial))
+        {
+            return new TryxAckResponse { Ok = false, Msg = "no adb serial" };
+        }
+        var adbPath = AdbLocator.ResolveAdbPath();
+        if (adbPath is null)
+        {
+            return new TryxAckResponse { Ok = false, Msg = "adb not found" };
+        }
+        try
+        {
+            using var p = Process.Start(new ProcessStartInfo
+            {
+                FileName = adbPath,
+                Arguments = $"-s {adbSerial} shell rm /sdcard/pcMedia/{name}",
+                WorkingDirectory = Path.GetDirectoryName(adbPath) ?? string.Empty,
+                CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+            });
+            if (p is null)
+            {
+                return new TryxAckResponse { Ok = false, Msg = "failed to start adb" };
+            }
+            p.WaitForExit(8_000);
+            if (p.ExitCode == 0)
+            {
+                TryxThumbnailCache.Delete(name);
+            }
+            return new TryxAckResponse { Ok = p.ExitCode == 0 };
+        }
+        catch (Exception ex)
+        {
+            return new TryxAckResponse { Ok = false, Msg = ex.Message };
+        }
+    }
 }

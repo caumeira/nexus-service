@@ -3,6 +3,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Cooling;
+using Nexus.Service.Devices;
 using Nexus.Service.Lighting;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Peripherals.LianLiCp;
@@ -20,13 +21,15 @@ public sealed class Galahad2ConnectionWorker : BackgroundService
     private readonly Galahad2Hub _hub;
     private readonly Galahad2LightingDeviceProvider _lighting;
     private readonly Galahad2CoolingProvider _cooling;
+    private readonly DeviceControlGate _gate;
 
-    public Galahad2ConnectionWorker(IHidEnumerator hid, Galahad2Hub hub, Galahad2LightingDeviceProvider lighting, Galahad2CoolingProvider cooling)
+    public Galahad2ConnectionWorker(IHidEnumerator hid, Galahad2Hub hub, Galahad2LightingDeviceProvider lighting, Galahad2CoolingProvider cooling, DeviceControlGate gate)
     {
         _hid = hid;
         _hub = hub;
         _lighting = lighting;
         _cooling = cooling;
+        _gate = gate;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -35,6 +38,12 @@ public sealed class Galahad2ConnectionWorker : BackgroundService
         {
             try
             {
+                if (!_gate.IsEnabled("lianli-aio"))
+                {
+                    await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
+                    continue;
+                }
+
                 var device = FindAndOpen(out var pid);
                 if (device != null)
                 {
@@ -48,7 +57,7 @@ public sealed class Galahad2ConnectionWorker : BackgroundService
                             ServiceLog.Info("[lianli-aio] connected");
                             _lighting.OnHubStateUpdated();
                             int failures = 0;
-                            while (!stoppingToken.IsCancellationRequested)
+                            while (!stoppingToken.IsCancellationRequested && _gate.IsEnabled("lianli-aio"))
                             {
                                 if (_hub.PollRpm())
                                 {

@@ -3,15 +3,12 @@ using System.Collections.Generic;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
-using Microsoft.Extensions.DependencyInjection;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Panel;
 using Nexus.Service.Persistence;
 using Nexus.Service.Peripherals.Tryx.Panorama;
 using Nexus.Service.Routes;
 using Nexus.Service.Sensors;
-using Nexus.Service.Widgets;
-using Nexus.Service.Widgets.AppActions;
 using Xunit;
 
 namespace Nexus.Service.Tests;
@@ -281,7 +278,7 @@ public class TryxPanoramaHubTests
     }
 
     [Fact]
-    public async Task TryxStatus_action_includes_overlay_snapshot()
+    public void Hub_overlay_reflects_persisted_settings()
     {
         var store = new InMemoryConfigStore();
         store.Update(s =>
@@ -291,26 +288,12 @@ public class TryxPanoramaHubTests
             s.Tryx.OverlayAlign = "Right";
         });
         var hub = BuildHub(configStore: store);
-        var services = new ServiceCollection();
-        services.AddSingleton(hub);
-        var sp = services.BuildServiceProvider();
 
-        var registry = new AppActionRegistry();
-        TryxActions.RegisterAll(registry);
-        Assert.True(registry.TryGet("tryx.status", out var handler));
-        var result = await handler(sp, null, CancellationToken.None);
-
-        Assert.NotNull(result);
-        var doc = JsonDocument.Parse(result!.Value.GetRawText());
-        var root = doc.RootElement;
-
-        Assert.True(root.TryGetProperty("overlay", out var overlayEl));
-        Assert.Equal("#112233", overlayEl.GetProperty("color").GetString());
-        Assert.Equal("Right", overlayEl.GetProperty("align").GetString());
-        var statsEl = overlayEl.GetProperty("stats");
-        Assert.Equal(2, statsEl.GetArrayLength());
-        Assert.Equal("GPU Temperature", statsEl[0].GetString());
-        Assert.Equal("CPU Usage", statsEl[1].GetString());
+        Assert.Equal("#112233", hub.Overlay.Color);
+        Assert.Equal("Right", hub.Overlay.Align);
+        Assert.Equal(2, hub.Overlay.Stats.Length);
+        Assert.Equal("GPU Temperature", hub.Overlay.Stats[0]);
+        Assert.Equal("CPU Usage", hub.Overlay.Stats[1]);
     }
 
     // ── Task 3: Sensor mapping ──

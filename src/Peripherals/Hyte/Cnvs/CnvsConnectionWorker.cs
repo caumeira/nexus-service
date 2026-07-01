@@ -2,6 +2,7 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Lighting;
 using Nexus.Service.Persistence;
@@ -38,13 +39,15 @@ public sealed class CnvsConnectionWorker : BackgroundService
     // a USB connect (see CnvsHub.WriteSettings doc for the invariant).
     private readonly IConfigStore _store;
     private readonly HardwarePresence _presence;
+    private readonly DeviceControlGate _gate;
     private bool _firstTick = true;
 
-    public CnvsConnectionWorker(CnvsHub hub, IConfigStore store, HardwarePresence presence, CnvsLightingDeviceProvider? lighting = null)
+    public CnvsConnectionWorker(CnvsHub hub, IConfigStore store, HardwarePresence presence, DeviceControlGate gate, CnvsLightingDeviceProvider? lighting = null)
     {
         _hub = hub;
         _store = store;
         _presence = presence;
+        _gate = gate;
         _lighting = lighting;
     }
 
@@ -72,6 +75,14 @@ public sealed class CnvsConnectionWorker : BackgroundService
 
     private void Tick()
     {
+        // Nexus Control gate takes priority over the first-tick race-and-hold:
+        // a device toggled off must never be claimed, even transiently.
+        if (!_gate.IsEnabled("cnvs"))
+        {
+            if (_hub.IsConnected) _hub.Disconnect();
+            return;
+        }
+
         // First tick stays ungated so the race-and-hold isn't delayed by a cold
         // USB-enumeration scan. After that, skip silently when disconnected and no
         // CNVS is on the bus.

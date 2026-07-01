@@ -13,6 +13,17 @@ public sealed class DeviceListItem
     public string FirmwareVersion { get; set; } = "";
     /// <summary>Firmware-catalog key for available-version lookup. Equals Id for most devices; the connected variant ("q60"/"q80") for Q-series.</summary>
     public string FirmwareType { get; set; } = "";
+    /// <summary>True when Nexus is allowed to claim/control this device. False means Nexus still detects it but never opens its port/handle.</summary>
+    public bool NexusControlEnabled { get; set; } = true;
+    /// <summary>True only for first-party handlers whose connection worker honors the gate. Plugin-contributed handlers manage their own hardware, so the on/off switch does not apply and the UI hides it.</summary>
+    public bool SupportsNexusControl { get; set; }
+}
+
+/// <summary>Body for POST /devices/control.</summary>
+public sealed class DeviceControlRequest
+{
+    public string Id { get; set; } = "";
+    public bool Enabled { get; set; }
 }
 
 // ----- /devices/firmware/status - current vs bundled-available firmware -----
