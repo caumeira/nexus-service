@@ -51,6 +51,13 @@ public sealed class RgbDevice
     /// </summary>
     public string StableId => _stableId ??= BuildStableId();
 
+    /// <summary>
+    /// True when StableId derives from serial or location, so it identifies the
+    /// same physical device across a subprocess bounce. False when it falls back
+    /// to the index, which OpenRGB reuses across re-enumeration.
+    /// </summary>
+    public bool HasStableHardwareId => !string.IsNullOrEmpty(Serial) || !string.IsNullOrEmpty(Location);
+
     private string BuildStableId()
     {
         if (!string.IsNullOrEmpty(Serial))

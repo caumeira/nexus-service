@@ -90,6 +90,13 @@ public sealed class RgbBridge : IDisposable
     private Action? _deviceListHandler;
     private IReadOnlyList<RgbDevice> _devices = Array.Empty<RgbDevice>();
     private HashSet<int> _directModeApplied = new();
+    // StableIds seen drivable (LedCount > 0) on a settled, post-hold commit. A
+    // device that ever settles drivable stays shown even if a later fetch
+    // glitches it to 0 LEDs; a device only ever seen non-drivable stays hidden.
+    // Only serial/location ids latch - the index fallback is reused across
+    // bounces. Survives a subprocess bounce (same real hardware re-enumerates);
+    // cleared only on Deactivate. Guarded by _lock.
+    private readonly HashSet<string> _drivableLatched = new(StringComparer.Ordinal);
     private CancellationTokenSource? _refreshCts;
     private Task? _shutdownTask;
     private long _lastConnectAttemptTicks; // DateTime.UtcNow.Ticks; updated via Interlocked
@@ -176,6 +183,22 @@ public sealed class RgbBridge : IDisposable
             lock (_lock)
             {
                 return _devices;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Snapshot of the StableIds latched drivable (see <c>_drivableLatched</c>).
+    /// Consulted by card emission so a device that settled drivable is never
+    /// hidden by a later transient 0-LED fetch.
+    /// </summary>
+    public IReadOnlySet<string> DrivableIds
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return new HashSet<string>(_drivableLatched, StringComparer.Ordinal);
             }
         }
     }
@@ -279,6 +302,7 @@ public sealed class RgbBridge : IDisposable
             _refreshCts = null;
             _devices = Array.Empty<RgbDevice>();
             _directModeApplied = new();
+            _drivableLatched.Clear();
         }
 
         if (frameHandler is not null)
@@ -669,6 +693,17 @@ public sealed class RgbBridge : IDisposable
                     if (rescanStarted != 0)
                     {
                         Interlocked.Exchange(ref _rescanStartedTicks, 0);
+                    }
+                    // Settled list is authoritative: latch every drivable device
+                    // so a later transient 0-LED fetch can't hide it. Only
+                    // hardware-id devices latch; index-only ids can be reassigned
+                    // to a different controller across a bounce.
+                    foreach (var d in finalList)
+                    {
+                        if (d.LedCount > 0 && d.HasStableHardwareId)
+                        {
+                            _drivableLatched.Add(d.StableId);
+                        }
                     }
                 }
                 _devices = finalList;

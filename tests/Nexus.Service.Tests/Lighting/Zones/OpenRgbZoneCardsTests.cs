@@ -128,6 +128,24 @@ public class OpenRgbZoneCardsTests
     }
 
     [Fact]
+    public void Zero_led_device_stays_shown_when_latched_drivable()
+    {
+        // A device that settled drivable is latched by StableId; a later fetch
+        // that transiently reports 0 LEDs must not hide it. The hide errs toward
+        // showing real hardware, never toward hiding it.
+        var flapped = Mouse();
+        flapped.LedCount = 0;
+
+        var dropped = OpenRgbZoneSupport.BuildCards(new[] { flapped }, new NexusSettings(), isInit: true);
+        Assert.Empty(dropped.Devices);
+
+        var latched = new HashSet<string> { "openrgb-s-MS01" };
+        var shown = OpenRgbZoneSupport.BuildCards(new[] { flapped }, new NexusSettings(), isInit: true, latched);
+        Assert.Single(shown.Devices);
+        Assert.Equal("openrgb-s-MS01", shown.Devices[0].Id);
+    }
+
+    [Fact]
     public void One_led_device_is_not_zone_customizable()
     {
         var resp = OpenRgbZoneSupport.BuildCards(new[] { OneLedLight() }, new NexusSettings(), isInit: true);

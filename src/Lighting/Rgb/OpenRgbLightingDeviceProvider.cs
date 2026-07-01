@@ -38,7 +38,7 @@ public sealed class OpenRgbLightingDeviceProvider : ILightingDeviceProvider, IDe
     public bool IsConnected => _bridge.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
-        => OpenRgbZoneSupport.BuildCards(_bridge.Devices, _store.Load(), _bridge.IsConnected);
+        => OpenRgbZoneSupport.BuildCards(_bridge.Devices, _store.Load(), _bridge.IsConnected, _bridge.DrivableIds);
 
     // ── IDeviceStructureSource ──
 
