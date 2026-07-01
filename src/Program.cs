@@ -301,8 +301,8 @@ if (app.Services.GetService(typeof(Nexus.Service.Platform.Linux.DBus.DBusConnect
 
 if (!testHost)
 {
-    Nexus.Service.Lifecycle.AppBootstrap.EagerInitGpu(app);
-    Nexus.Service.Lifecycle.BootTimer.Mark("after EagerInitGpu");
+    Nexus.Service.Lifecycle.AppBootstrap.ScheduleGpuWarmup(app);
+    Nexus.Service.Lifecycle.BootTimer.Mark("after ScheduleGpuWarmup (deferred to ApplicationStarted)");
     Nexus.Service.Lifecycle.AppBootstrap.InitializeProfiles(app);
     Nexus.Service.Lifecycle.BootTimer.Mark("after InitializeProfiles");
     Nexus.Service.Lifecycle.AppBootstrap.WireBeatsAndPresence(app);
