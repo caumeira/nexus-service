@@ -64,6 +64,32 @@ public class DeviceDetectionTests
 
     // ---- Handler modularity - DeviceManager works with any subset of handlers ----
 
+    // ---- Tryx recognized by its current 391A:1011 firmware, not legacy 18D1 ----
+
+    [Fact]
+    public void Tryx_IsConnected_ForCurrentRkFirmware()
+    {
+        var handler = new TryxHandler();
+        var devices = new List<UsbDeviceEntry>
+        {
+            new() { VendorId = 0x391A, ProductId = 0x1011, Name = "PANO" },
+        };
+
+        Assert.True(handler.IsConnected(devices));
+    }
+
+    [Fact]
+    public void Tryx_NotConnected_ForRetiredLegacy18D1Firmware()
+    {
+        var handler = new TryxHandler();
+        var devices = new List<UsbDeviceEntry>
+        {
+            new() { VendorId = 0x18D1, ProductId = 0x2D03, Name = "cm01" },
+        };
+
+        Assert.False(handler.IsConnected(devices));
+    }
+
     [Fact]
     public void GetAll_WithSingleHandler_ReturnsOnlyThatDevice()
     {

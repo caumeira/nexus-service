@@ -4,7 +4,9 @@ using Nexus.Service.Peripherals.Tryx.Panorama;
 
 namespace Nexus.Service.Devices.Handlers;
 
-/// <summary>Tryx Panorama AIO screen, controlled over CDC-ACM serial + ADB.</summary>
+/// <summary>Tryx Panorama AIO screen. Current firmware enumerates as 391A:1011
+/// ("RK PANO"); control over its raw-USB-bulk interface is not yet implemented,
+/// so this handler reports presence only.</summary>
 public sealed class TryxHandler : IDeviceHandler
 {
     public string Id => "tryx";
@@ -13,7 +15,7 @@ public sealed class TryxHandler : IDeviceHandler
 
     public IReadOnlyList<UsbId> Identifiers { get; } = new[]
     {
-        new UsbId(TryxPanoramaProtocol.VendorId, TryxPanoramaProtocol.ProductIdPanorama),
+        new UsbId(TryxPanoramaProtocol.VendorIdRk, TryxPanoramaProtocol.ProductIdPanoramaRk),
     };
 
     public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices) =>

@@ -13,8 +13,19 @@ namespace Nexus.Service.Peripherals.Tryx.Panorama;
 /// </summary>
 public static class TryxPanoramaProtocol
 {
+    // Legacy serial+adb firmware id (Google's shared accessory+ADB composite),
+    // still used by the CDC-serial hub/discovery in this namespace. Retired for
+    // device recognition (see the handler): it is Google's VID, so other Android
+    // AIO screens like Deepcool's also present it and read as a false Tryx.
     public const int VendorId = 0x18D1;
     public const int ProductIdPanorama = 0x2D03;
+
+    // Current firmware: a Rockchip AIO screen, Tryx-unique vendor id. Windows binds
+    // its default Class-07 descriptor to usbprint.inf (enumerates as "RK PANO");
+    // control is raw USB bulk (libusbK) against the sibling 391A:0006 node, not
+    // serial/adb, so the CDC-serial hub does not reach it.
+    public const int VendorIdRk = 0x391A;
+    public const int ProductIdPanoramaRk = 0x1011;
 
     public static readonly int[] KnownProductIds = { ProductIdPanorama };
 
