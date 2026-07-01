@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Globalization;
 using System.IO;
-using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -34,10 +32,10 @@ public sealed class TryxPanoramaHub : IDisposable
     private readonly object _lock = new();
     private ITryxPanoramaTransport? _transport;
     private bool _disposed;
-    // Paused during an import so the heartbeat's STATE-all frames don't interleave
-    // the transport->transported handshake on the shared serial port.
+    // Set while EnsureLocalCopyAsync holds the adb pull, so the heartbeat does not
+    // issue a concurrent adb command against the same device.
     private volatile bool _importInProgress;
-    private TryxOverlayConfig _overlay;
+    private readonly TryxOverlayConfig _overlay;
 
     public TryxPanoramaHub(
         ITryxPanoramaPanelDiscovery discovery,
@@ -105,22 +103,15 @@ public sealed class TryxPanoramaHub : IDisposable
         }
     }
 
-    // Sends the persisted config on fresh connect so the overlay is restored
+    // Sends the persisted brightness on fresh connect so the panel picks it up
     // without requiring a dashboard interaction. Called only from inside the
     // EnsureConnected lock after _transport is set; uses the transport reference
     // directly to avoid re-entering EnsureConnected.
     private void ApplyInitialConfig(ITryxPanoramaTransport transport)
     {
-        if (string.IsNullOrEmpty(State.CurrentMedia))
-        {
-            return;
-        }
         try
         {
-            var frame = State.CurrentMediaIsCustom
-                ? TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, State.CurrentMedia, _overlay)
-                : TryxPanoramaProtocol.BuildConfigPreset(State.Brightness, State.CurrentMedia, _overlay);
-            transport.Write(frame);
+            transport.Write(TryxRkProtocol.BuildBrightness(State.Brightness));
         }
         catch (Exception ex)
         {
@@ -138,26 +129,22 @@ public sealed class TryxPanoramaHub : IDisposable
     }
 
     public bool SendConn()
-        => SendOnly(TryxPanoramaProtocol.BuildConn());
+        => SendOnly(TryxRkProtocol.BuildHeartbeat());
 
-    public bool SendStateAll()
-        => SendOnly(TryxPanoramaProtocol.BuildStateAll(BuildLiveSensorJson()));
+    // The RK sensor/overlay protobuf schema is not decoded yet, so there is no
+    // known frame to send here; the heartbeat alone keeps the screen awake.
+    public bool SendStateAll() => true;
 
     public bool SetEnabled(bool enable)
     {
-        var ok = SendOnly(TryxPanoramaProtocol.BuildWaterBlockScreen(enable));
-        if (ok) State.ScreenEnabled = enable;
-        return ok;
+        ServiceLog.Warn("[tryx] SetEnabled not yet implemented for RK firmware");
+        return false;
     }
 
     public bool SetBrightness(int brightness)
     {
         var clamped = Math.Clamp(brightness, 0, 100);
-        EnsureSelection();
-        var frame = State.CurrentMediaIsCustom
-            ? TryxPanoramaProtocol.BuildConfigCustom(clamped, State.CurrentMedia, _overlay)
-            : TryxPanoramaProtocol.BuildConfigPreset(clamped, State.CurrentMedia, _overlay);
-        var ok = SendOnly(frame);
+        var ok = SendOnly(TryxRkProtocol.BuildBrightness(clamped));
         if (ok)
         {
             State.Brightness = clamped;
@@ -166,212 +153,35 @@ public sealed class TryxPanoramaHub : IDisposable
         return ok;
     }
 
-    // Brightness/fan ride the full config, which the device ignores without an id
-    // block. With nothing chosen yet (e.g. right after a service restart, before
-    // any selection), default to the first preset so the control still applies.
-    private const string DefaultSelectionId = "Pre-set 1: Cooling delivery";
-
-    private void EnsureSelection()
-    {
-        if (string.IsNullOrEmpty(State.CurrentMedia))
-        {
-            State.CurrentMedia = DefaultSelectionId;
-            State.CurrentMediaIsCustom = false;
-        }
-    }
-
     public bool SetPreset(string presetId)
     {
-        var ok = SendOnly(TryxPanoramaProtocol.BuildConfigPreset(State.Brightness, presetId, _overlay));
-        if (ok)
-        {
-            State.CurrentMedia = presetId;
-            State.CurrentMediaIsCustom = false;
-            _configStore.Update(s => { s.Tryx.CurrentMedia = presetId; s.Tryx.CurrentMediaIsCustom = false; });
-        }
-        return ok;
+        ServiceLog.Warn("[tryx] SetPreset not yet implemented for RK firmware");
+        return false;
     }
 
     public bool SetFanSmart(int[][]? curve)
     {
-        EnsureSelection();
-        var frame = State.CurrentMediaIsCustom
-            ? TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, State.CurrentMedia, _overlay, curve)
-            : TryxPanoramaProtocol.BuildConfigPreset(State.Brightness, State.CurrentMedia, _overlay, curve);
-        return SendOnly(frame);
+        ServiceLog.Warn("[tryx] SetFanSmart not yet implemented for RK firmware");
+        return false;
     }
 
     public bool SetFanFixed(int percent)
     {
-        EnsureSelection();
-        return SendOnly(TryxPanoramaProtocol.BuildConfigFanFixed(
-            State.Brightness, State.CurrentMedia, State.CurrentMediaIsCustom, _overlay, Math.Clamp(percent, 0, 100)));
+        ServiceLog.Warn("[tryx] SetFanFixed not yet implemented for RK firmware");
+        return false;
     }
 
-    /// <summary>
-    /// Updates the overlay config and re-applies the current media config so the
-    /// new display labels and styling take effect immediately.
-    /// </summary>
     public bool SetOverlay(TryxOverlayConfig overlay)
     {
-        _overlay = overlay;
-        _configStore.Update(s =>
-        {
-            s.Tryx.OverlayStats = overlay.Stats;
-            s.Tryx.OverlayColor = overlay.Color;
-            s.Tryx.OverlayAlign = overlay.Align;
-            s.Tryx.OverlayFilter = overlay.Filter;
-            s.Tryx.OverlayOpacity = overlay.Opacity;
-        });
-        EnsureSelection();
-        var frame = State.CurrentMediaIsCustom
-            ? TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, State.CurrentMedia, _overlay)
-            : TryxPanoramaProtocol.BuildConfigPreset(State.Brightness, State.CurrentMedia, _overlay);
-        return SendOnly(frame);
+        ServiceLog.Warn("[tryx] SetOverlay not yet implemented for RK firmware");
+        return false;
     }
 
-    public async Task<bool> ImportAndPlayVideoAsync(
+    public Task<bool> ImportAndPlayVideoAsync(
         string localPath, string sourceName, TryxVideoCrop? crop, int targetWidth, int targetHeight, CancellationToken ct)
     {
-        var adbPath = AdbLocator.ResolveAdbPath();
-        if (adbPath is null)
-        {
-            Console.Error.WriteLine("[tryx] adb not found; cannot push video");
-            return false;
-        }
-
-        var adbSerial = State.AdbSerial;
-        if (string.IsNullOrEmpty(adbSerial))
-        {
-            adbSerial = RescanAdbSerial(adbPath);
-            if (string.IsNullOrEmpty(adbSerial))
-            {
-                Console.Error.WriteLine("[tryx] no ADB serial found for Panorama device");
-                return false;
-            }
-            State.AdbSerial = adbSerial;
-        }
-
-        var ffmpegPath = FfmpegResolver.Path;
-        if (ffmpegPath is null)
-        {
-            Console.Error.WriteLine("[tryx] ffmpeg not found; cannot transcode");
-            return false;
-        }
-
-        // Name the on-device file after the user's source, not the temp upload path.
-        var deviceFileName = TryxThumbnailCache.DeviceFileName(sourceName);
-        var tempOutput = Path.Combine(Path.GetTempPath(), $"nexus-tryx-out-{Guid.NewGuid()}.mp4");
-
-        _importInProgress = true;
-        try
-        {
-            // Transcode to device-compatible format.
-            if (!await TranscodeAsync(ffmpegPath, localPath, tempOutput, crop, targetWidth, targetHeight, ct))
-            {
-                Console.Error.WriteLine("[tryx] transcode failed");
-                return false;
-            }
-
-            var fileInfo = new FileInfo(tempOutput);
-            if (!fileInfo.Exists)
-            {
-                Console.Error.WriteLine("[tryx] transcoded file not found");
-                return false;
-            }
-            var fileSize = fileInfo.Length;
-            var localMd5 = ComputeMd5(tempOutput);
-
-            try { TryxThumbnailCache.Write(ffmpegPath, tempOutput, deviceFileName); }
-            catch { /* best effort */ }
-            try
-            {
-                var dur = TryxThumbnailCache.ProbeDuration(ffmpegPath, tempOutput);
-                TryxThumbnailCache.WriteDuration(deviceFileName, dur);
-            }
-            catch { /* best effort */ }
-
-            // Send transport frame.
-            if (!SendOnly(TryxPanoramaProtocol.BuildTransport(fileSize, deviceFileName)))
-            {
-                Console.Error.WriteLine("[tryx] transport frame failed");
-                return false;
-            }
-
-            // Push + MD5 verify, up to 4 attempts.
-            var pushed = false;
-            for (var attempt = 1; attempt <= 4 && !pushed; attempt++)
-            {
-                ct.ThrowIfCancellationRequested();
-
-                RunAdb(adbPath, $"-s {adbSerial} push \"{tempOutput}\" /sdcard/pcMedia/{deviceFileName}",
-                    60_000, out var pushOut, out var pushErr);
-
-                RunAdb(adbPath, $"-s {adbSerial} shell md5sum /sdcard/pcMedia/{deviceFileName}",
-                    10_000, out var md5Out, out _);
-
-                var deviceMd5 = md5Out.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries) is { Length: > 0 } parts
-                    ? parts[0]
-                    : "";
-
-                if (string.Equals(localMd5, deviceMd5, StringComparison.OrdinalIgnoreCase))
-                {
-                    pushed = true;
-                }
-                else
-                {
-                    Console.Error.WriteLine($"[tryx] md5 mismatch on attempt {attempt}: local={localMd5} device={deviceMd5}");
-                }
-            }
-
-            if (!pushed)
-            {
-                Console.Error.WriteLine("[tryx] push failed after 4 attempts");
-                return false;
-            }
-
-            // gap matching nx_e2e.ps1 send cadence (push -> transported)
-            await Task.Delay(200, ct);
-
-            if (!SendOnly(TryxPanoramaProtocol.BuildTransported(localMd5, deviceFileName)))
-            {
-                Console.Error.WriteLine("[tryx] transported frame failed");
-                return false;
-            }
-
-            // gap matching nx_e2e.ps1 send cadence (transported -> waterBlockScreen)
-            await Task.Delay(400, ct);
-
-            if (!SendOnly(TryxPanoramaProtocol.BuildWaterBlockScreen(true)))
-            {
-                Console.Error.WriteLine("[tryx] waterBlockScreen frame failed");
-                return false;
-            }
-
-            // gap matching nx_e2e.ps1 send cadence (waterBlockScreen -> config)
-            await Task.Delay(400, ct);
-
-            if (!SendOnly(TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, deviceFileName, _overlay)))
-            {
-                Console.Error.WriteLine("[tryx] config frame failed");
-                return false;
-            }
-
-            // settle gap after config before reporting success (nx_e2e.ps1 cadence)
-            await Task.Delay(800, ct);
-
-            TryxMediaStore.SaveCopy(tempOutput, deviceFileName);
-            State.CurrentMedia = deviceFileName;
-            State.CurrentMediaIsCustom = true;
-            State.ScreenEnabled = true;
-            _configStore.Update(s => { s.Tryx.CurrentMedia = deviceFileName; s.Tryx.CurrentMediaIsCustom = true; });
-            return true;
-        }
-        finally
-        {
-            _importInProgress = false;
-            try { File.Delete(tempOutput); } catch { /* best effort */ }
-        }
+        ServiceLog.Warn("[tryx] ImportAndPlayVideoAsync not yet implemented for RK firmware");
+        return Task.FromResult(false);
     }
 
     /// <summary>Ensures a local copy of <paramref name="deviceFileName"/> exists in the media store,
@@ -593,79 +403,14 @@ public sealed class TryxPanoramaHub : IDisposable
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"[tryx] write failed: {ex.GetType().Name}: {ex.Message}");
+            // The transport already retried a transient write on the held handle,
+            // so reaching here is a persistent failure (e.g. the panel was
+            // unplugged). Drop the transport so the next EnsureConnected rediscovers
+            // and reopens - the retry-on-the-handle above is what prevents the old
+            // reopen-on-every-transient-failure churn.
+            ServiceLog.Error($"[tryx] write failed: {ex.GetType().Name}: {ex.Message}");
             Disconnect();
             return false;
-        }
-    }
-
-    private static async Task<bool> TranscodeAsync(
-        string ffmpegPath, string input, string output, TryxVideoCrop? crop,
-        int targetWidth, int targetHeight, CancellationToken ct)
-    {
-        var tw = Math.Clamp(targetWidth, 16, 4096);
-        var th = Math.Clamp(targetHeight, 16, 4096);
-        string vf;
-        if (crop is { } c && c.W > 0.001 && c.H > 0.001)
-        {
-            // Apply the dashboard cropper's normalized rectangle, then scale to the
-            // target; the crop already matches the target aspect so no pad is needed.
-            // Invariant culture: ffmpeg expects '.' decimals regardless of host locale.
-            // No setsar: the bundled ffmpeg omits that filter, and the panel renders the
-            // decoded pixel grid to its screen regardless of the sample aspect ratio.
-            string x = Clamp01(c.X).ToString("0.######", CultureInfo.InvariantCulture);
-            string y = Clamp01(c.Y).ToString("0.######", CultureInfo.InvariantCulture);
-            string w = Clamp01(c.W).ToString("0.######", CultureInfo.InvariantCulture);
-            string h = Clamp01(c.H).ToString("0.######", CultureInfo.InvariantCulture);
-            vf = $"crop=iw*{w}:ih*{h}:iw*{x}:ih*{y},scale={tw}:{th}";
-        }
-        else
-        {
-            // No crop: preserve aspect and letterbox-pad to the target.
-            vf = $"scale={tw}:{th}:force_original_aspect_ratio=decrease,pad={tw}:{th}:(ow-iw)/2:(oh-ih)/2";
-        }
-        // Encode params from the validated nx_e2e.ps1 recipe: the panel's HW H.264
-        // decoder needs High@L3.2, yuv420p, NO B-frames, ref=1, timescale 90000.
-        var args =
-            "-nostdin -hide_banner -loglevel error -nostats " +
-            $"-i \"{input}\" " +
-            $"-vf \"{vf}\" " +
-            "-pix_fmt yuv420p -an -c:v libx264 -profile:v high -level 3.2 " +
-            "-x264-params \"ref=1:bframes=0:slices=4:sliced-threads=1:keyint=12:keyint_min=1:me=dia:subme=1:trellis=0:weightp=1:mbtree=0:8x8dct=1:cabac=1:deblock=1,0,0:analyse=0x3,0x3\" " +
-            "-video_track_timescale 90000 " +
-            $"-y \"{output}\"";
-
-        using var p = new Process();
-        p.StartInfo = new ProcessStartInfo
-        {
-            FileName = ffmpegPath,
-            Arguments = args,
-            CreateNoWindow = true,
-            UseShellExecute = false,
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-        };
-        p.Start();
-        // Drain stdout+stderr: a redirected stream that is never read deadlocks the
-        // child once the OS pipe buffer fills (ffmpeg writes enough to hang there).
-        var stdoutTask = p.StandardOutput.ReadToEndAsync();
-        var stderrTask = p.StandardError.ReadToEndAsync();
-        try
-        {
-            await p.WaitForExitAsync(ct);
-            var err = await stderrTask;
-            await stdoutTask;
-            if (p.ExitCode != 0)
-            {
-                var tail = err.Length > 400 ? err.Substring(err.Length - 400) : err;
-                ServiceLog.Error($"[tryx] ffmpeg exit {p.ExitCode}: {tail.Replace('\r', ' ').Replace('\n', ' ')}");
-            }
-            return p.ExitCode == 0;
-        }
-        catch (OperationCanceledException)
-        {
-            try { p.Kill(true); } catch { /* best effort */ }
-            throw;
         }
     }
 
@@ -703,30 +448,6 @@ public sealed class TryxPanoramaHub : IDisposable
         {
             stderr = $"{ex.GetType().Name}: {ex.Message}";
         }
-    }
-
-    private static string RescanAdbSerial(string adbPath)
-    {
-        RunAdb(adbPath, "devices -l", 5_000, out var output, out _);
-        foreach (var line in output.Split('\n'))
-        {
-            if (line.IndexOf("product:cm01", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                line.IndexOf("model:cm01", StringComparison.OrdinalIgnoreCase) >= 0)
-            {
-                var parts = line.Trim().Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
-                if (parts.Length > 0) return parts[0];
-            }
-        }
-        return "";
-    }
-
-    private static double Clamp01(double v) => v < 0 ? 0 : v > 1 ? 1 : v;
-
-    private static string ComputeMd5(string filePath)
-    {
-        var bytes = File.ReadAllBytes(filePath);
-        var hash = MD5.HashData(bytes);
-        return BitConverter.ToString(hash).Replace("-", "").ToLowerInvariant();
     }
 
 }

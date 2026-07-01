@@ -693,11 +693,12 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp =>
             sp.GetRequiredService<Nexus.Service.Peripherals.Hyte.Y70Display.Y70DisplayHeartbeatWorker>());
 
-        // Tryx Panorama AIO: CDC-ACM serial + ADB composite device.
-        // Windows and Linux have real port discovery; other platforms stub.
+        // Tryx Panorama AIO: current firmware enumerates as a Windows usbprint
+        // device (VID 0x391A, "RK PANO"); Linux/other platforms still see the
+        // legacy CDC-ACM serial + ADB composite identity.
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.ITryxPanoramaPanelDiscovery,
-                              Nexus.Service.Peripherals.Tryx.Panorama.WindowsTryxPanoramaPortDiscovery>();
+                              Nexus.Service.Peripherals.Tryx.Panorama.WindowsTryxPrinterDiscovery>();
 #elif LINUX
         services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.ITryxPanoramaPanelDiscovery,
                               Nexus.Service.Peripherals.Tryx.Panorama.LinuxTryxPanoramaPortDiscovery>();
@@ -708,7 +709,11 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaHub>(sp =>
             new Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaHub(
                 sp.GetRequiredService<Nexus.Service.Peripherals.Tryx.Panorama.ITryxPanoramaPanelDiscovery>(),
+#if WINDOWS
+                port => new Nexus.Service.Peripherals.Tryx.Panorama.WindowsTryxPrinterTransport(port.PortName, port.Serial),
+#else
                 port => new Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaSerialTransport(port.PortName, port.Serial),
+#endif
                 sp.GetRequiredService<Nexus.Service.Sensors.ISensorProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>()));
         services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaHeartbeatWorker>();

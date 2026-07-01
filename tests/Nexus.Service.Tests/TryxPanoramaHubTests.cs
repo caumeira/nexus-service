@@ -162,7 +162,7 @@ public class TryxPanoramaHubTests
     }
 
     [Fact]
-    public void SetOverlay_persists_to_config_store()
+    public void SetOverlay_is_not_yet_implemented_for_rk_firmware()
     {
         var store = new InMemoryConfigStore();
         var hub = BuildHub(configStore: store);
@@ -175,18 +175,14 @@ public class TryxPanoramaHubTests
             Opacity = 80,
         };
 
-        hub.SetOverlay(overlay);
+        var ok = hub.SetOverlay(overlay);
 
-        var saved = store.Load().Tryx;
-        Assert.Equal(new[] { "CPU Temperature", "GPU Temperature" }, saved.OverlayStats);
-        Assert.Equal("#00ff00", saved.OverlayColor);
-        Assert.Equal("Left", saved.OverlayAlign);
-        Assert.Equal("blur", saved.OverlayFilter);
-        Assert.Equal(80, saved.OverlayOpacity);
+        Assert.False(ok);
+        Assert.Equal("#ffffff", store.Load().Tryx.OverlayColor);
     }
 
     [Fact]
-    public void SetPreset_persists_media_selection()
+    public void SetPreset_is_not_yet_implemented_for_rk_firmware()
     {
         var store = new InMemoryConfigStore();
         var recording = new RecordingTransport();
@@ -196,11 +192,10 @@ public class TryxPanoramaHubTests
             configStore: store);
         hub.EnsureConnected();
 
-        hub.SetPreset("Pre-set 3: Quantum time capsule");
+        var ok = hub.SetPreset("Pre-set 3: Quantum time capsule");
 
-        var saved = store.Load().Tryx;
-        Assert.Equal("Pre-set 3: Quantum time capsule", saved.CurrentMedia);
-        Assert.False(saved.CurrentMediaIsCustom);
+        Assert.False(ok);
+        Assert.Equal("", store.Load().Tryx.CurrentMedia);
     }
 
     [Fact]
@@ -213,7 +208,6 @@ public class TryxPanoramaHubTests
             transportFactory: _ => recording,
             configStore: store);
         hub.EnsureConnected();
-        hub.SetPreset("Pre-set 1: Cooling delivery");
 
         hub.SetBrightness(55);
 
@@ -221,31 +215,28 @@ public class TryxPanoramaHubTests
     }
 
     [Fact]
-    public void EnsureConnected_sends_config_when_current_media_is_persisted()
+    public void SetBrightness_writes_rk_brightness_frame()
     {
         var store = new InMemoryConfigStore();
-        store.Update(s =>
-        {
-            s.Tryx.CurrentMedia = "Pre-set 2: Migration";
-            s.Tryx.CurrentMediaIsCustom = false;
-            s.Tryx.Brightness = 80;
-        });
-
         var recording = new RecordingTransport();
         var hub = BuildHub(
             discovery: new StubDiscovery(),
             transportFactory: _ => recording,
             configStore: store);
-
         hub.EnsureConnected();
+        recording.Writes.Clear();
 
-        Assert.True(recording.Writes.Count > 0);
+        hub.SetBrightness(42);
+
+        Assert.Equal(TryxRkProtocol.BuildBrightness(42), Assert.Single(recording.Writes));
     }
 
     [Fact]
-    public void EnsureConnected_skips_config_when_no_media_persisted()
+    public void EnsureConnected_sends_persisted_brightness_as_rk_frame()
     {
         var store = new InMemoryConfigStore();
+        store.Update(s => s.Tryx.Brightness = 80);
+
         var recording = new RecordingTransport();
         var hub = BuildHub(
             discovery: new StubDiscovery(),
@@ -254,13 +245,13 @@ public class TryxPanoramaHubTests
 
         hub.EnsureConnected();
 
-        Assert.Empty(recording.Writes);
+        Assert.Equal(TryxRkProtocol.BuildBrightness(80), Assert.Single(recording.Writes));
     }
 
     // ── Task 2: tryx.status overlay ──
 
     [Fact]
-    public void Overlay_getter_reflects_current_in_memory_overlay()
+    public void Overlay_getter_is_unchanged_by_the_not_yet_implemented_setter()
     {
         var hub = BuildHub();
         var ov = new TryxOverlayConfig
@@ -269,12 +260,11 @@ public class TryxPanoramaHubTests
             Color = "#aabbcc",
             Align = "Center",
         };
-        hub.SetOverlay(ov);
 
-        Assert.Equal("#aabbcc", hub.Overlay.Color);
-        Assert.Equal("Center", hub.Overlay.Align);
-        Assert.Single(hub.Overlay.Stats);
-        Assert.Equal("CPU Temperature", hub.Overlay.Stats[0]);
+        var ok = hub.SetOverlay(ov);
+
+        Assert.False(ok);
+        Assert.NotEqual("#aabbcc", hub.Overlay.Color);
     }
 
     [Fact]
