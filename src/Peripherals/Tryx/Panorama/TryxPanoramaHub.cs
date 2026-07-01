@@ -111,7 +111,7 @@ public sealed class TryxPanoramaHub : IDisposable
     {
         try
         {
-            transport.Write(TryxRkProtocol.BuildBrightness(State.Brightness));
+            transport.Write(TryxRkProtocol.BuildConfig(State.ScreenEnabled, State.Brightness));
         }
         catch (Exception ex)
         {
@@ -137,14 +137,17 @@ public sealed class TryxPanoramaHub : IDisposable
 
     public bool SetEnabled(bool enable)
     {
-        ServiceLog.Warn("[tryx] SetEnabled not yet implemented for RK firmware");
-        return false;
+        // Screen on/off rides the same f200.f5 config as brightness (f5.f1 = enable);
+        // carry the current brightness so turning the screen back on restores it.
+        var ok = SendOnly(TryxRkProtocol.BuildConfig(enable, State.Brightness));
+        if (ok) State.ScreenEnabled = enable;
+        return ok;
     }
 
     public bool SetBrightness(int brightness)
     {
         var clamped = Math.Clamp(brightness, 0, 100);
-        var ok = SendOnly(TryxRkProtocol.BuildBrightness(clamped));
+        var ok = SendOnly(TryxRkProtocol.BuildConfig(State.ScreenEnabled, clamped));
         if (ok)
         {
             State.Brightness = clamped;

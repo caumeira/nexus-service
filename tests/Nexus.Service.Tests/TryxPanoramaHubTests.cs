@@ -228,7 +228,7 @@ public class TryxPanoramaHubTests
 
         hub.SetBrightness(42);
 
-        Assert.Equal(TryxRkProtocol.BuildBrightness(42), Assert.Single(recording.Writes));
+        Assert.Equal(TryxRkProtocol.BuildConfig(true, 42), Assert.Single(recording.Writes));
     }
 
     [Fact]
@@ -245,7 +245,7 @@ public class TryxPanoramaHubTests
 
         hub.EnsureConnected();
 
-        Assert.Equal(TryxRkProtocol.BuildBrightness(80), Assert.Single(recording.Writes));
+        Assert.Equal(TryxRkProtocol.BuildConfig(true, 80), Assert.Single(recording.Writes));
     }
 
     // ── Task 2: tryx.status overlay ──

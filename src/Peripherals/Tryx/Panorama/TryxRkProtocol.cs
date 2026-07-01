@@ -34,24 +34,29 @@ public static class TryxRkProtocol
     }
 
     /// <summary>
-    /// Minimal brightness write, camera-verified not to disturb the currently
-    /// playing media or any other panel state. Field 200 nests field 5, which
-    /// carries field 1 (a fixed selector) and field 2 (the brightness percent).
+    /// Minimal screen + brightness write, camera-verified not to disturb the
+    /// currently playing media or any other panel state. Field 200 nests field 5:
+    /// field 1 = screen-enable (present/1 = on; omitted = screen off/black), field
+    /// 2 = brightness percent. Setting brightness carries the current screen state;
+    /// toggling the screen carries the current brightness.
     /// </summary>
-    public static byte[] BuildBrightness(int brightnessPercent)
+    public static byte[] BuildConfig(bool screenOn, int brightnessPercent)
     {
         var clamped = Math.Clamp(brightnessPercent, 0, 100);
 
         var selector = new List<byte>();
-        WriteVarintField(selector, fieldNumber: 1, 1);
+        if (screenOn)
+        {
+            WriteVarintField(selector, fieldNumber: 1, 1);
+        }
         WriteVarintField(selector, fieldNumber: 2, (ulong)clamped);
 
-        var brightnessBlock = new List<byte>();
-        WriteLengthDelimited(brightnessBlock, fieldNumber: 5, selector.ToArray());
+        var configBlock = new List<byte>();
+        WriteLengthDelimited(configBlock, fieldNumber: 5, selector.ToArray());
 
         var payload = new List<byte>();
         WriteLengthDelimited(payload, fieldNumber: 1, Array.Empty<byte>());
-        WriteLengthDelimited(payload, fieldNumber: 200, brightnessBlock.ToArray());
+        WriteLengthDelimited(payload, fieldNumber: 200, configBlock.ToArray());
 
         return WrapFrame(payload);
     }

@@ -24,29 +24,31 @@ public class TryxRkProtocolTests
     }
 
     [Fact]
-    public void BuildBrightness_100_matches_camera_verified_frame()
+    public void BuildConfig_screenOn_100_matches_camera_verified_frame()
     {
+        // screen on -> f5 carries f1:1 (0x08 0x01) before f2:brightness.
         byte[] expected =
         {
             0x54, 0x52, 0x59, 0x58, 0x0b, 0x00, 0x00, 0x00,
             0x0a, 0x00, 0xc2, 0x0c, 0x06, 0x2a, 0x04, 0x08, 0x01, 0x10, 0x64,
         };
 
-        var actual = TryxRkProtocol.BuildBrightness(100);
+        var actual = TryxRkProtocol.BuildConfig(screenOn: true, 100);
 
         Assert.Equal(expected, actual);
     }
 
     [Fact]
-    public void BuildBrightness_10_matches_camera_verified_frame()
+    public void BuildConfig_screenOff_50_matches_camera_verified_frame()
     {
+        // screen off -> f5 omits f1; carries only f2:50 (0x10 0x32).
         byte[] expected =
         {
-            0x54, 0x52, 0x59, 0x58, 0x0b, 0x00, 0x00, 0x00,
-            0x0a, 0x00, 0xc2, 0x0c, 0x06, 0x2a, 0x04, 0x08, 0x01, 0x10, 0x0a,
+            0x54, 0x52, 0x59, 0x58, 0x09, 0x00, 0x00, 0x00,
+            0x0a, 0x00, 0xc2, 0x0c, 0x04, 0x2a, 0x02, 0x10, 0x32,
         };
 
-        var actual = TryxRkProtocol.BuildBrightness(10);
+        var actual = TryxRkProtocol.BuildConfig(screenOn: false, 50);
 
         Assert.Equal(expected, actual);
     }
@@ -55,11 +57,11 @@ public class TryxRkProtocolTests
     [InlineData(-5, 0)]
     [InlineData(0, 0)]
     [InlineData(150, 100)]
-    public void BuildBrightness_clamps_out_of_range_values(int input, int clamped)
+    public void BuildConfig_clamps_out_of_range_values(int input, int clamped)
     {
-        var expected = TryxRkProtocol.BuildBrightness(clamped);
+        var expected = TryxRkProtocol.BuildConfig(screenOn: true, clamped);
 
-        var actual = TryxRkProtocol.BuildBrightness(input);
+        var actual = TryxRkProtocol.BuildConfig(screenOn: true, input);
 
         Assert.Equal(expected, actual);
     }
