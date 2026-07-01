@@ -110,17 +110,32 @@ public sealed class TryxOverlayRequest
 /// </summary>
 public static class TryxRoutes
 {
-    // Fixed preset set; the device cannot enumerate its presets over serial.
-    // Matches Kanali's waterBlockScreenList; Id is sent verbatim to waterBlockScreen.
+    // The panel's built-in wallpapers, ordered so index N maps to default_{N+1}
+    // (TryxRkProtocol.PresetMediaFile). Names mirror Kanali's catalog for the RK
+    // firmware; the panel cannot enumerate them, so this list is the source of truth.
     private static readonly (string Id, string Name)[] KnownPresets =
     {
-        ("Pre-set 1: Cooling delivery", "Cooling delivery"),
-        ("Pre-set 2: Migration", "Migration"),
-        ("Pre-set 3: Quantum time capsule", "Quantum time capsule"),
-        ("Pre-set 4: Exo-Ecologies", "Exo-Ecologies"),
-        ("Pre-set 5: Racing", "Racing"),
-        ("Pre-set 6: Shuttle", "Shuttle"),
-        ("Pre-set 7: Gift of TRYX", "Gift of TRYX"),
+        ("default_01", "Sally"),
+        ("default_02", "Otterly Dissapointed"),
+        ("default_03", "BFFs"),
+        ("default_04", "Lazybara"),
+        ("default_05", "Scarlet Panda"),
+        ("default_06", "B00/CHI"),
+        ("default_07", "BOOCHI Graffiti"),
+        ("default_08", "Stomp It!"),
+        ("default_09", "Metamorphosis"),
+        ("default_10", "Evolution"),
+        ("default_11", "D.C.I.Bubbles"),
+        ("default_12", "Sleepless"),
+        ("default_13", "Rover"),
+        ("default_14", "Drowsy"),
+        ("default_15", "PinkEmpress"),
+        ("default_16", "Dancing King Boochi"),
+        ("default_17", "Eyes 1"),
+        ("default_18", "Eyes 2"),
+        ("default_19", "Eyes 3"),
+        ("default_20", "Eyes 4"),
+        ("default_21", "Eyes 5"),
     };
 
     public static void MapTryxEndpoints(this WebApplication app)
@@ -209,7 +224,14 @@ public static class TryxRoutes
                     new TryxAckResponse { Ok = false, Msg = "missing id" },
                     AppJsonContext.Default.TryxAckResponse);
             }
-            var ok = hub.SetPreset(body.Id);
+            var index = Array.FindIndex(KnownPresets, p => p.Id == body.Id);
+            if (index < 0)
+            {
+                return Results.Json(
+                    new TryxAckResponse { Ok = false, Msg = "unknown preset" },
+                    AppJsonContext.Default.TryxAckResponse);
+            }
+            var ok = hub.SetPreset(TryxRkProtocol.PresetMediaFile(index + 1));
             return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
         });
 
