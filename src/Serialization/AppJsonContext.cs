@@ -268,6 +268,17 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayAssignmentsResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayRotationBody))]
 
+// Weather
+[JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherSnapshot))]
+[JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherHourlyForecast))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Weather.WeatherHourlyForecast>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherDailyForecast))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Weather.WeatherDailyForecast>))]
+[JsonSerializable(typeof(Nexus.Service.Platform.Weather.IpLocation))]
+[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoResponse))]
+[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoCurrent))]
+[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoHourly))]
+[JsonSerializable(typeof(Nexus.Service.Platform.Weather.OpenMeteoDaily))]
 [JsonSerializable(typeof(Nexus.Service.Models.Profiles.ListProfilesResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Profiles.ProfileResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Profiles.SwitchProfileResponse))]

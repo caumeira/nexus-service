@@ -46,7 +46,7 @@ public static class RelayHttpAllowlist
         "/gallery/items",
         "/y70",
         "/qseries",
-        "/api", // /api/steam, /api/obs, /api/discord, /api/media, /api/screentime
+        "/api", // /api/steam, /api/obs, /api/discord, /api/weather, /api/media, /api/screentime
         "/ping",
         "/ready",
         "/hardware",

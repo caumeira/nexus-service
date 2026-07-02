@@ -752,6 +752,12 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
+    public static IServiceCollection AddNexusWeather(this IServiceCollection services)
+    {
+        services.AddSingleton<Nexus.Service.Platform.Weather.IWeatherProvider, Nexus.Service.Platform.Weather.OpenMeteoWeatherProvider>();
+        return services;
+    }
+
     public static IServiceCollection AddNexusPeripherals(this IServiceCollection services)
     {
 #if WINDOWS

@@ -35,6 +35,7 @@ public class NexusServiceCollectionExtensionsTests
             .AddNexusActivity()
             .AddNexusNetwork()
             .AddNexusLifecycle()
+            .AddNexusWeather()
             .AddNexusPanel(servicePort: 9400)
             .AddNexusLinuxDBus()
             // Registers HelperRegistry, which the Windows providers
