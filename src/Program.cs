@@ -275,6 +275,8 @@ builder.Services.AddNexusHelper();
 Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusHelper");
 builder.Services.AddNexusUpdate();
 Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusUpdate");
+builder.Services.AddNexusCloud();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusCloud");
 
 // mDNS / Bonjour advertiser for the iOS companion app's Wi-Fi discovery.
 // Reads HttpsPort + SpkiFingerprint + MachineName off PanelPhonePairingService
@@ -412,6 +414,7 @@ app.MapAppEndpoints();
 app.MapConflictEndpoints();
 app.MapTryxEndpoints();
 app.MapUpdateEndpoints();
+app.MapCloudEndpoints();
 app.MapWebSocketEndpoints();
 Nexus.Service.Lifecycle.BootTimer.Mark("after route mapping");
 
@@ -550,6 +553,7 @@ static void FastServiceShutdown(WebApplication app)
         {
             try { sp.GetService<IConfigStore>()?.FlushNow(); } catch { }
             try { sp.GetService<ProfileManager>()?.SaveActiveProfile(); } catch { }
+            try { sp.GetService<Nexus.Service.Cloud.CloudProfileSyncService>()?.FlushPendingSyncBlocking(TimeSpan.FromMilliseconds(1000)); } catch { }
         }),
         Task.Run(() => { try { sp.GetService<IFanControlProvider>()?.ReleaseAll(); } catch { } }),
         Task.Run(() => FastWindowsUiTeardown(sp)),

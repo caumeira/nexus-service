@@ -13,7 +13,7 @@ namespace Nexus.Service.Persistence;
 public sealed class ProfileManager : IDisposable
 {
 
-    private const int MaxProfiles = 5;
+    internal const int MaxProfiles = 5;
     private readonly IConfigStore _store;
     private readonly string _dataDir;
     private readonly object _lock = new();
@@ -320,6 +320,182 @@ public sealed class ProfileManager : IDisposable
 
         var wrapper = new ProfileExport { Name = name, Settings = data };
         return JsonSerializer.Serialize(wrapper, PersistenceJsonContext.Default.ProfileExport);
+    }
+
+    /// <summary>Same payload ExportProfileJson serializes, returned as an object so callers (CloudProfileSyncService) can hash/transmit it without a round-trip through JSON text.</summary>
+    public ProfileExport? ExportProfileForSync(string profileId)
+    {
+        var data = ExportProfile(profileId);
+        if (data is null)
+        {
+            return null;
+        }
+
+        string name;
+        lock (_lock)
+        {
+            name = _manifest.Profiles.FirstOrDefault(p => p.Id == profileId)?.Name ?? "Default";
+        }
+
+        return new ProfileExport { Name = name, Settings = data };
+    }
+
+    /// <summary>
+    /// Create-or-overwrite a profile under a caller-supplied id (the cloud
+    /// profileId), instead of generating a new one. Used only by the cloud
+    /// profile-sync pull path so a profile pulled from the account keeps the
+    /// same id on every machine. Throws when creating would exceed
+    /// <see cref="MaxProfiles"/>; overwriting an existing id never counts
+    /// against the cap. If the overwritten id is the active profile, the
+    /// in-memory settings and engines are re-baselined the same way a profile
+    /// switch is, so a stale in-memory copy can't clobber the pulled file on
+    /// the next flush.
+    /// </summary>
+    internal ProfileEntry ImportProfileWithId(string id, string name, NexusSettings data)
+    {
+        var trimmedName = string.IsNullOrWhiteSpace(name) ? "Imported" : name.Trim();
+        bool reactivate;
+        ProfileEntry entry;
+        lock (_lock)
+        {
+            data.Auth = null;
+            data.PrimaryProfileId = null;
+            data.SharedCategories = new List<string>();
+
+            var existing = _manifest.Profiles.FirstOrDefault(p => p.Id == id);
+            var now = DateTimeOffset.UtcNow.ToString("o");
+            if (existing is null)
+            {
+                if (_manifest.Profiles.Count >= MaxProfiles)
+                {
+                    throw new InvalidOperationException("Maximum number of profiles reached.");
+                }
+                entry = new ProfileEntry { Id = id, Name = trimmedName, CreatedAt = now, UpdatedAt = now };
+                _manifest.Profiles.Add(entry);
+            }
+            else
+            {
+                existing.Name = trimmedName;
+                existing.UpdatedAt = now;
+                entry = existing;
+            }
+
+            var json = JsonSerializer.Serialize(data, PersistenceJsonContext.Default.NexusSettings);
+            WriteAtomic(ProfileFilePath(id), json);
+            SaveManifest();
+
+            reactivate = id == _manifest.ActiveProfileId;
+            if (reactivate)
+            {
+                LoadProfileIntoSettings(id);
+                _dirty = false;
+            }
+        }
+
+        if (reactivate)
+        {
+            OnProfileSwitched?.Invoke();
+        }
+
+        return entry;
+    }
+
+    /// <summary>
+    /// Copies profiles.json and every profile-*.json into a fresh timestamped
+    /// directory under profiles-archive/, without touching the live library.
+    /// Safety net before <see cref="ReplaceLibrary"/> discards the current
+    /// library on a cloud account switch. Flushes the active profile first so
+    /// the archive reflects the latest in-memory edits.
+    /// </summary>
+    internal string ArchiveLibrary()
+    {
+        lock (_lock)
+        {
+            FlushActiveProfile();
+
+            var archiveDir = Path.Combine(_dataDir, "profiles-archive", DateTime.UtcNow.ToString("yyyyMMdd-HHmmss"));
+            Directory.CreateDirectory(archiveDir);
+
+            var manifestPath = ManifestPath();
+            if (File.Exists(manifestPath))
+            {
+                File.Copy(manifestPath, Path.Combine(archiveDir, Path.GetFileName(manifestPath)), overwrite: true);
+            }
+            foreach (var entry in _manifest.Profiles)
+            {
+                var src = ProfileFilePath(entry.Id);
+                if (File.Exists(src))
+                {
+                    File.Copy(src, Path.Combine(archiveDir, Path.GetFileName(src)), overwrite: true);
+                }
+            }
+            return archiveDir;
+        }
+    }
+
+    /// <summary>
+    /// Wholesale library replace: deletes every current profile file and
+    /// manifest entry, then writes the given set (ids preserved) as the new
+    /// library. Used only for a cloud account switch pulling in the incoming
+    /// account's profiles - callers must archive first via
+    /// <see cref="ArchiveLibrary"/>. An empty set falls back to a fresh
+    /// Default profile so the service never ends up with zero profiles.
+    /// PrimaryProfileId/SharedCategories are reset since they may reference
+    /// profile ids that no longer exist.
+    /// </summary>
+    internal void ReplaceLibrary(IReadOnlyList<(string Id, string Name, NexusSettings Data)> profiles)
+    {
+        lock (_lock)
+        {
+            foreach (var entry in _manifest.Profiles)
+            {
+                var path = ProfileFilePath(entry.Id);
+                try
+                {
+                    if (File.Exists(path))
+                    {
+                        File.Delete(path);
+                    }
+                }
+                catch { }
+            }
+
+            _manifest = new ProfileManifest();
+
+            if (profiles.Count == 0)
+            {
+                var def = CreateDefaultProfile();
+                _manifest.Profiles.Add(def);
+                _manifest.ActiveProfileId = def.Id;
+                SaveManifest();
+                SaveProfileFile(def.Id);
+            }
+            else
+            {
+                foreach (var (id, name, data) in profiles.Take(MaxProfiles))
+                {
+                    data.Auth = null;
+                    data.PrimaryProfileId = null;
+                    data.SharedCategories = new List<string>();
+                    var now = DateTimeOffset.UtcNow.ToString("o");
+                    _manifest.Profiles.Add(new ProfileEntry { Id = id, Name = name, CreatedAt = now, UpdatedAt = now });
+                    var json = JsonSerializer.Serialize(data, PersistenceJsonContext.Default.NexusSettings);
+                    WriteAtomic(ProfileFilePath(id), json);
+                }
+                _manifest.ActiveProfileId = _manifest.Profiles[0].Id;
+                SaveManifest();
+                LoadProfileIntoSettings(_manifest.ActiveProfileId);
+            }
+
+            _store.Update(s =>
+            {
+                s.PrimaryProfileId = _manifest.ActiveProfileId;
+                s.SharedCategories = new List<string>();
+            });
+            _dirty = false;
+        }
+
+        OnProfileSwitched?.Invoke();
     }
 
     public ProfileEntry ImportProfile(string name, NexusSettings data)
