@@ -35,6 +35,10 @@ public static class ProfileRoutes
                 var entry = pm.CreateProfile(body.Name);
                 return Results.Ok(new ProfileResponse { Profile = entry });
             }
+            catch (ProfileNameConflictException)
+            {
+                return Results.Conflict(ApiResponse.Fail("profile_name_taken"));
+            }
             catch (InvalidOperationException ex)
             {
                 return Results.BadRequest(ApiResponse.Fail(ex.Message));
@@ -94,6 +98,10 @@ public static class ProfileRoutes
                 var entry = manifest.Profiles.Find(p => p.Id == id);
                 return Results.Ok(new ProfileResponse { Profile = entry });
             }
+            catch (ProfileNameConflictException)
+            {
+                return Results.Conflict(ApiResponse.Fail("profile_name_taken"));
+            }
             catch (InvalidOperationException ex)
             {
                 return Results.BadRequest(ApiResponse.Fail(ex.Message));
@@ -145,6 +153,10 @@ public static class ProfileRoutes
             {
                 var entry = pm.ImportProfileJson(json);
                 return Results.Ok(new ProfileResponse { Profile = entry });
+            }
+            catch (ProfileNameConflictException)
+            {
+                return Results.Conflict(ApiResponse.Fail("profile_name_taken"));
             }
             catch (InvalidOperationException ex)
             {

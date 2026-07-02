@@ -168,4 +168,57 @@ public sealed class ProfileManagerCloudTests : IDisposable
         Assert.Equal("Default", manifest.Profiles[0].Name);
         Assert.Equal(manifest.Profiles[0].Id, manifest.ActiveProfileId);
     }
+
+    [Fact]
+    public void ImportProfileWithId_auto_suffixes_when_colliding_with_a_different_local_profile()
+    {
+        _profiles.CreateProfile("Gaming");
+
+        var entry = _profiles.ImportProfileWithId("cloud-1", "Gaming", new NexusSettings());
+
+        Assert.Equal("Gaming (2)", entry.Name);
+    }
+
+    [Fact]
+    public void ImportProfileWithId_picks_the_first_free_suffix_number()
+    {
+        _profiles.CreateProfile("Gaming");
+        _profiles.CreateProfile("Gaming (2)");
+
+        var entry = _profiles.ImportProfileWithId("cloud-1", "Gaming", new NexusSettings());
+
+        Assert.Equal("Gaming (3)", entry.Name);
+    }
+
+    [Fact]
+    public void ReplaceLibrary_dedupes_duplicate_names_within_the_incoming_set_by_ascending_id()
+    {
+        // cloud-a sorts before cloud-b (ordinal), so it keeps the plain name
+        // even though it is second in the input list.
+        _profiles.ReplaceLibrary(new List<(string, string, NexusSettings)>
+        {
+            ("cloud-b", "Default", new NexusSettings()),
+            ("cloud-a", "Default", new NexusSettings()),
+        });
+
+        var manifest = _profiles.GetManifest();
+        Assert.Equal("Default", manifest.Profiles.Single(p => p.Id == "cloud-a").Name);
+        Assert.Equal("Default (2)", manifest.Profiles.Single(p => p.Id == "cloud-b").Name);
+    }
+
+    [Fact]
+    public void ReplaceLibrary_within_set_dedupe_picks_the_first_free_suffix_number()
+    {
+        _profiles.ReplaceLibrary(new List<(string, string, NexusSettings)>
+        {
+            ("cloud-a", "Default", new NexusSettings()),
+            ("cloud-b", "Default (2)", new NexusSettings()),
+            ("cloud-c", "Default", new NexusSettings()),
+        });
+
+        var manifest = _profiles.GetManifest();
+        Assert.Equal("Default", manifest.Profiles.Single(p => p.Id == "cloud-a").Name);
+        Assert.Equal("Default (2)", manifest.Profiles.Single(p => p.Id == "cloud-b").Name);
+        Assert.Equal("Default (3)", manifest.Profiles.Single(p => p.Id == "cloud-c").Name);
+    }
 }

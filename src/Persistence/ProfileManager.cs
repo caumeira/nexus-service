@@ -10,6 +10,15 @@ using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Persistence;
 
+/// <summary>Thrown by CreateProfile/RenameProfile/ImportProfile when the target name (trimmed, case-insensitive) collides with a different profile.</summary>
+public sealed class ProfileNameConflictException : Exception
+{
+    public ProfileNameConflictException(string name)
+        : base($"A profile named '{name}' already exists.")
+    {
+    }
+}
+
 public sealed class ProfileManager : IDisposable
 {
 
@@ -131,10 +140,7 @@ public sealed class ProfileManager : IDisposable
             {
                 throw new InvalidOperationException("Name is required.");
             }
-            if (_manifest.Profiles.Any(p => string.Equals(p.Name, trimmed, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new InvalidOperationException("A profile with this name already exists.");
-            }
+            EnsureNameAvailable(trimmed, excludeProfileId: null);
 
             FlushActiveProfile();
 
@@ -165,11 +171,9 @@ public sealed class ProfileManager : IDisposable
             {
                 throw new InvalidOperationException("Name is required.");
             }
-            if (_manifest.Profiles.Any(p => p.Id != profileId
-                && string.Equals(p.Name, trimmed, StringComparison.OrdinalIgnoreCase)))
-            {
-                throw new InvalidOperationException("A profile with this name already exists.");
-            }
+            // Excludes the profile's own id, so renaming to its current name
+            // (any casing) never conflicts with itself.
+            EnsureNameAvailable(trimmed, profileId);
 
             entry.Name = trimmed;
             entry.UpdatedAt = DateTimeOffset.UtcNow.ToString("o");
@@ -349,7 +353,10 @@ public sealed class ProfileManager : IDisposable
     /// against the cap. If the overwritten id is the active profile, the
     /// in-memory settings and engines are re-baselined the same way a profile
     /// switch is, so a stale in-memory copy can't clobber the pulled file on
-    /// the next flush.
+    /// the next flush. A name colliding with a different local profile is
+    /// auto-suffixed ("(2)", "(3)", ...) rather than rejected, since a sync
+    /// pull must not fail the sync loop; the suffixed name pushes back on the
+    /// profile's next sync.
     /// </summary>
     internal ProfileEntry ImportProfileWithId(string id, string name, NexusSettings data)
     {
@@ -364,18 +371,21 @@ public sealed class ProfileManager : IDisposable
 
             var existing = _manifest.Profiles.FirstOrDefault(p => p.Id == id);
             var now = DateTimeOffset.UtcNow.ToString("o");
+            var uniqueName = NextAvailableName(trimmedName, candidate =>
+                _manifest.Profiles.Any(p => p.Id != id && string.Equals(p.Name, candidate, StringComparison.OrdinalIgnoreCase)));
+
             if (existing is null)
             {
                 if (_manifest.Profiles.Count >= MaxProfiles)
                 {
                     throw new InvalidOperationException("Maximum number of profiles reached.");
                 }
-                entry = new ProfileEntry { Id = id, Name = trimmedName, CreatedAt = now, UpdatedAt = now };
+                entry = new ProfileEntry { Id = id, Name = uniqueName, CreatedAt = now, UpdatedAt = now };
                 _manifest.Profiles.Add(entry);
             }
             else
             {
-                existing.Name = trimmedName;
+                existing.Name = uniqueName;
                 existing.UpdatedAt = now;
                 entry = existing;
             }
@@ -472,13 +482,32 @@ public sealed class ProfileManager : IDisposable
             }
             else
             {
-                foreach (var (id, name, data) in profiles.Take(MaxProfiles))
+                var limited = profiles.Take(MaxProfiles).ToList();
+
+                // Dedupe names within the incoming set itself: a cloud
+                // library can already contain two rows with the same name.
+                // Names are assigned in ascending profileId (ordinal) order
+                // so the lower id always keeps the plain name and higher ids
+                // get " (2)", " (3)", ... - deterministic regardless of the
+                // caller's list order.
+                var uniqueNames = new Dictionary<string, string>();
+                var takenNames = new List<string>();
+                foreach (var p in limited.OrderBy(p => p.Id, StringComparer.Ordinal))
+                {
+                    var trimmed = string.IsNullOrWhiteSpace(p.Name) ? "Imported" : p.Name.Trim();
+                    var unique = NextAvailableName(trimmed, name =>
+                        takenNames.Any(n => string.Equals(n, name, StringComparison.OrdinalIgnoreCase)));
+                    takenNames.Add(unique);
+                    uniqueNames[p.Id] = unique;
+                }
+
+                foreach (var (id, _, data) in limited)
                 {
                     data.Auth = null;
                     data.PrimaryProfileId = null;
                     data.SharedCategories = new List<string>();
                     var now = DateTimeOffset.UtcNow.ToString("o");
-                    _manifest.Profiles.Add(new ProfileEntry { Id = id, Name = name, CreatedAt = now, UpdatedAt = now });
+                    _manifest.Profiles.Add(new ProfileEntry { Id = id, Name = uniqueNames[id], CreatedAt = now, UpdatedAt = now });
                     var json = JsonSerializer.Serialize(data, PersistenceJsonContext.Default.NexusSettings);
                     WriteAtomic(ProfileFilePath(id), json);
                 }
@@ -516,19 +545,11 @@ public sealed class ProfileManager : IDisposable
             {
                 trimmed = "Imported";
             }
-            // Auto-suffix on collision instead of throwing - imports come
-            // from arbitrary files and the user shouldn't have to rename
-            // before clicking import.
-            var unique = trimmed;
-            var suffix = 2;
-            while (_manifest.Profiles.Any(p => string.Equals(p.Name, unique, StringComparison.OrdinalIgnoreCase)))
-            {
-                unique = $"{trimmed} ({suffix++})";
-            }
+            EnsureNameAvailable(trimmed, excludeProfileId: null);
 
             var id = Guid.NewGuid().ToString("N")[..8];
             var now = DateTimeOffset.UtcNow.ToString("o");
-            var entry = new ProfileEntry { Id = id, Name = unique, CreatedAt = now, UpdatedAt = now };
+            var entry = new ProfileEntry { Id = id, Name = trimmed, CreatedAt = now, UpdatedAt = now };
 
             var filePath = ProfileFilePath(id);
             var json = JsonSerializer.Serialize(data, PersistenceJsonContext.Default.NexusSettings);
@@ -561,6 +582,33 @@ public sealed class ProfileManager : IDisposable
         _flushTimer?.Dispose();
         lock (_lock)
         { FlushActiveProfile(); }
+    }
+
+    /// <summary>Throws <see cref="ProfileNameConflictException"/> when trimmedName (case-insensitive) is already used by a profile other than excludeProfileId.</summary>
+    private void EnsureNameAvailable(string trimmedName, string? excludeProfileId)
+    {
+        if (_manifest.Profiles.Any(p => p.Id != excludeProfileId
+            && string.Equals(p.Name, trimmedName, StringComparison.OrdinalIgnoreCase)))
+        {
+            throw new ProfileNameConflictException(trimmedName);
+        }
+    }
+
+    /// <summary>Returns baseName, or the first "baseName (N)" variant (N starting at 2) for which isTaken returns false.</summary>
+    private static string NextAvailableName(string baseName, Func<string, bool> isTaken)
+    {
+        if (!isTaken(baseName))
+        {
+            return baseName;
+        }
+        var suffix = 2;
+        string candidate;
+        do
+        {
+            candidate = $"{baseName} ({suffix})";
+            suffix++;
+        } while (isTaken(candidate));
+        return candidate;
     }
 
     private ProfileEntry CreateDefaultProfile()
