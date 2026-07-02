@@ -24,6 +24,12 @@ public sealed class CloudAccountsResponse : ApiResponse
     public string? ActiveAccountId { get; set; }
 }
 
+/// <summary>Failure envelope carrying a retryAt hint (username_cooldown and similar upstream cooldown errors). The dashboard reads result.body.retryAt.</summary>
+public sealed class CloudFailureResponse : ApiResponse
+{
+    public string? RetryAt { get; set; }
+}
+
 public sealed class CloudRegisterBody
 {
     public string Email { get; set; } = "";

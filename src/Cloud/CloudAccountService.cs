@@ -19,6 +19,9 @@ public sealed class CloudActionResult
     public int StatusCode { get; init; }
     public string? ErrorCode { get; init; }
     public string? ErrorMessage { get; init; }
+
+    /// <summary>ISO timestamp from the upstream error body's retryAt field (e.g. username_cooldown). Null unless the server sent one.</summary>
+    public string? ErrorRetryAt { get; init; }
     public bool Offline { get; init; }
 
     public static CloudActionResult Ok() => new() { Success = true, StatusCode = 200 };
@@ -32,6 +35,7 @@ public sealed class CloudActionResult
         StatusCode = result.StatusCode,
         ErrorCode = result.ErrorCode,
         ErrorMessage = result.ErrorMessage,
+        ErrorRetryAt = result.ErrorRetryAt,
         Offline = result.Offline,
     };
 }

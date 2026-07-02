@@ -7,9 +7,11 @@ namespace Nexus.Service.Tests.Cloud;
 /// In-memory ICloudApiClient double. Each method delegates to a public Func
 /// field defaulting to a network error, so a test only wires up the calls it
 /// actually exercises. Call counters let ordering/retry tests assert how many
-/// times each endpoint was hit.
+/// times each endpoint was hit. Public (not internal) so Integration/ tests
+/// can register it in NexusAppFactory's DI container as a swapped-in
+/// ICloudApiClient.
 /// </summary>
-internal sealed class FakeCloudApiClient : ICloudApiClient
+public sealed class FakeCloudApiClient : ICloudApiClient
 {
     public int RegisterCalls;
     public int LoginCalls;

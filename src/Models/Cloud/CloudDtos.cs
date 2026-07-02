@@ -154,9 +154,10 @@ public sealed class CloudAvatarUploadResponse
     public string Small { get; set; } = "";
 }
 
-/// <summary>Error body shape assumed for non-2xx cloud responses: a stable machine code (e.g. "email_unverified", "invalid_credentials") plus a human message.</summary>
+/// <summary>Error body shape assumed for non-2xx cloud responses: a stable machine code (e.g. "email_unverified", "invalid_credentials") plus a human message. RetryAt (ISO timestamp) is set for cooldown errors like username_cooldown.</summary>
 public sealed class CloudErrorBody
 {
     public string? Code { get; set; }
     public string? Message { get; set; }
+    public string? RetryAt { get; set; }
 }

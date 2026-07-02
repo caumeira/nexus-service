@@ -301,6 +301,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudAccountSummaryDto))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Cloud.CloudAccountSummaryDto>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudAccountsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudFailureResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudRegisterBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudLoginBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Cloud.CloudLoginResponse))]
