@@ -52,7 +52,14 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
         }
         // isAsync matches FILE_FLAG_OVERLAPPED so a concurrent write and the background
         // read complete as overlapped I/O. The stream owns and frees the handle.
-        _stream = new FileStream(handle, FileAccess.ReadWrite, bufferSize: 4096, isAsync: true);
+        // bufferSize MUST be <= 1: a larger value wraps the stream in FileStream's
+        // buffered strategy, which serializes reads and writes under one semaphore,
+        // so the drain's parked read blocks every write until the panel happens to
+        // push data. The starved panel then misses its keep-alives and re-enumerates
+        // on its ~70s watchdog - the disconnect/reconnect loop (bench 2026-07-02:
+        // with 4096 a write after a parked read hangs ~45-60s then the panel resets;
+        // with 1 the same sequence runs clean).
+        _stream = new FileStream(handle, FileAccess.ReadWrite, bufferSize: 1, isAsync: true);
         // The kernel cancels pending overlapped I/O when the issuing thread exits.
         // A pool-issued read parked between panel replies died on thread-pool
         // retirement (ERROR_OPERATION_ABORTED), the drain stopped, and the undrained
