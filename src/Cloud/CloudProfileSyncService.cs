@@ -157,7 +157,7 @@ public sealed class CloudProfileSyncService : BackgroundService
             Name = conflict.Name,
             BaseRevision = conflict.CloudRevision,
             Payload = localExport,
-            InstallId = ResolveStableInstallId(),
+            InstallId = _accounts.ResolveStableInstallId(),
         };
         var result = await _accounts.WithAuthAsync(accountId, token => _api.PutProfileAsync(token, profileId, request, ct), ct).ConfigureAwait(false);
 
@@ -334,10 +334,11 @@ public sealed class CloudProfileSyncService : BackgroundService
         }
 
         // A prior HandleSwitchAsync for this account never completed (offline/
-        // error abort) - the local library still belongs to _pendingSwitchFrom.
-        // Retry the wholesale switch instead of running an incremental pass,
-        // which would misread "no sync record yet" as "push these as new
-        // profiles" and upload the outgoing account's library under this one.
+        // error abort) - the local library still belongs to the outgoing
+        // account (pending.From). Retry the wholesale switch instead of
+        // running an incremental pass, which would misread "no sync record
+        // yet" as "push these as new profiles" and upload the outgoing
+        // account's library under this one.
         if (_pendingSwitch is { } pending && pending.To == accountId)
         {
             await HandleSwitchAsync(pending.From, accountId, ct).ConfigureAwait(false);
@@ -499,7 +500,7 @@ public sealed class CloudProfileSyncService : BackgroundService
             Name = name,
             BaseRevision = baseRevision,
             Payload = payload,
-            InstallId = ResolveStableInstallId(),
+            InstallId = _accounts.ResolveStableInstallId(),
         };
         var result = await _accounts.WithAuthAsync(accountId, token => _api.PutProfileAsync(token, profileId, request, ct), ct).ConfigureAwait(false);
 
@@ -835,24 +836,5 @@ public sealed class CloudProfileSyncService : BackgroundService
         var json = JsonSerializer.Serialize(payload, PersistenceJsonContext.Default.ProfileExport);
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(json));
         return Convert.ToHexString(bytes);
-    }
-
-    /// <summary>
-    /// Same install id anonymous telemetry uses (Telemetry.InstallId), generated
-    /// here without the anonymous-data opt-out gate: an authenticated cloud
-    /// account attaches a device via an explicit opt-in (login), a separate
-    /// consent from the anonymous fleet heartbeat. See
-    /// plans/account-system.md "installId privacy invariant".
-    /// </summary>
-    private string ResolveStableInstallId()
-    {
-        var id = _store.Load().Telemetry.InstallId;
-        if (!string.IsNullOrEmpty(id))
-        {
-            return id;
-        }
-        var generated = Guid.NewGuid().ToString("N");
-        _store.Update(s => s.Telemetry.InstallId = generated);
-        return generated;
     }
 }

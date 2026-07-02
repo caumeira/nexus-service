@@ -112,7 +112,7 @@ public sealed class CloudDeviceReporter : BackgroundService
             return false;
         }
 
-        var installId = ResolveStableInstallId();
+        var installId = _accounts.ResolveStableInstallId();
         var specsMap = ToSpecsMap(specs);
         var hash = HashSpecs(specsMap);
         if (hash == _lastReportedHash && accountId == _lastReportedAccountId)
@@ -172,17 +172,5 @@ public sealed class CloudDeviceReporter : BackgroundService
         {
             return "";
         }
-    }
-
-    private string ResolveStableInstallId()
-    {
-        var id = _store.Load().Telemetry.InstallId;
-        if (!string.IsNullOrEmpty(id))
-        {
-            return id;
-        }
-        var generated = Guid.NewGuid().ToString("N");
-        _store.Update(s => s.Telemetry.InstallId = generated);
-        return generated;
     }
 }

@@ -15,6 +15,7 @@ This is the engine of [Nexus](https://hellonexus.com). The other repos are clien
 - **Apps / widgets** - host for the `nexus.app/1` SDK apps shipped in [`nexus-apps`](https://github.com/hello-nexus/nexus-apps), with sensor bindings and a sandboxed Web Worker runtime. Legacy `nexus.widget/2` manifests still load.
 - **Activity** - screen-time, app detection, Steam / Discord / OBS integrations, shortcuts.
 - **Remote access** - relay client so the phone panel keeps working away from the LAN (nearest regional relay picked via the cloud API).
+- **Cloud accounts** - optional Nexus account (email/password); the service holds the tokens and syncs one account-wide profile library across machines (debounced push, pull on login, revision-based conflict resolution) and reports device specs, all through local `/cloud/*` routes (desktop-bearer only, never exposed to a paired phone).
 - **Webcam** - phone-as-webcam: the mobile companion streams its camera into an OS virtual camera device (`Webcam/`, per-OS backends).
 - **Pairing + auth** - local TLS on `:9443` with SPKI-pinned client sessions (the mobile apps and the dashboard), 6-digit pair codes with SAS verification, host-side approval.
 - **Tray + lifecycle** - Windows service install / scheduled-task launcher / system tray. macOS launchd. Linux root systemd daemon that adopts the login session for tray and media. Single-instance, self-elevation when needed.
