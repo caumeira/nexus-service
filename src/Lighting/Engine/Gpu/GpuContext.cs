@@ -56,11 +56,10 @@ public sealed class GpuContext : IDisposable
     // next GPU preference class); default matches the historical eager budget.
     public TimeSpan InitTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
-    // GpuPreference class the auto-cycle set for the current attempt
-    // (0 auto / 1 power-saving-integrated / 2 high-performance-discrete). Read
-    // by the Windows init for the diagnostic force-fail marker and surfaced in
-    // the GL-context log line so a capture shows which card the context bound.
-    public static volatile int ActivePreferenceClass;
+    // GL_RENDERER of the bound context (which physical card was selected), set
+    // once init succeeds. Null until then.
+    public string? Renderer { get; private set; }
+
 
     // Per-thread reusable completion handle used by Invoke(). Invoke blocks the
     // caller until its work runs, so at most one outstanding per thread -- safe
@@ -248,9 +247,10 @@ public sealed class GpuContext : IDisposable
             // Which physical card the context bound to - the proof the
             // GpuPreference class steered selection, and a diagnostic on a
             // customer capture.
-            Log($"[gpu] GL context on renderer='{_gl!.GetStringS(StringName.Renderer)}' "
+            Renderer = _gl!.GetStringS(StringName.Renderer);
+            Log($"[gpu] GL context on renderer='{Renderer}' "
                 + $"vendor='{_gl.GetStringS(StringName.Vendor)}' "
-                + $"version='{_gl.GetStringS(StringName.Version)}' pref-class={ActivePreferenceClass}");
+                + $"version='{_gl.GetStringS(StringName.Version)}'");
         }
         catch (Exception ex) { Log($"[gpu] GL renderer query failed: {ex.Message}"); }
 
