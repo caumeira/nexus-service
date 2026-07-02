@@ -348,6 +348,30 @@ public sealed class CloudProfileSyncService : BackgroundService
         var syncMap = _store.Load().Auth?.CloudAccounts.FirstOrDefault(a => a.AccountId == accountId)?.ProfileSync
             ?? new Dictionary<string, CloudProfileSyncRecord>();
 
+        // First login on a fresh install: nothing has ever synced for this
+        // account on this machine (syncMap empty), the account already has a
+        // cloud library, and the only local profile is the untouched
+        // bootstrap Default ProfileManager.Initialize created before login.
+        // The regular per-profile loop below would read "local exists, cloud
+        // missing, no record" for that id and Push it as a brand new profile,
+        // duplicating "Default" on the account. Adopt the cloud library
+        // wholesale instead, exactly like an account switch.
+        if (syncMap.Count == 0 && cloudRows.Count > 0 && localProfiles.Count == 1
+            && localProfiles[0].Name == "Default")
+        {
+            var bootstrapExport = _profiles.ExportProfileForSync(localProfiles[0].Id);
+            if (bootstrapExport?.Settings is not null && IsPristineDefaultContent(bootstrapExport.Settings))
+            {
+                var pulled = await PullCloudProfilesAsync(accountId, cloudRows, ct).ConfigureAwait(false);
+                if (pulled is not null)
+                {
+                    ReplaceLocalLibrary(accountId, cloudRows, pulled);
+                    _state = "idle";
+                }
+                return;
+            }
+        }
+
         var ids = new HashSet<string>(localProfiles.Select(p => p.Id), StringComparer.Ordinal);
         ids.UnionWith(cloudRows.Select(r => r.ProfileId));
 
@@ -636,58 +660,17 @@ public sealed class CloudProfileSyncService : BackgroundService
             }
             var cloudRows = listResult.Value ?? new List<CloudProfileSummaryDto>();
 
-            var pulled = new List<(string Id, string Name, NexusSettings Data, string Hash)>();
-            foreach (var row in cloudRows.Take(ProfileManager.MaxProfiles))
+            var pulled = await PullCloudProfilesAsync(toAccountId, cloudRows, ct).ConfigureAwait(false);
+            if (pulled is null)
             {
-                ct.ThrowIfCancellationRequested();
-                var profileResult = await _accounts.WithAuthAsync(toAccountId, token => _api.GetProfileAsync(token, row.ProfileId, ct), ct).ConfigureAwait(false);
-                if (!profileResult.Success || profileResult.Value?.Payload?.Settings is null)
-                {
-                    _state = profileResult.Offline ? "offline" : "error";
-                    return;
-                }
-                // Hash BEFORE handing the object to ReplaceLibrary, which strips
-                // Auth/PrimaryProfileId/SharedCategories in place - the cloud
-                // payload should already arrive stripped, but hashing first
-                // avoids relying on that mutation ordering for correctness.
-                var hash = HashPayload(profileResult.Value.Payload);
-                pulled.Add((row.ProfileId, row.Name, profileResult.Value.Payload.Settings!, hash));
+                return;
             }
 
             // The incoming library is fully and successfully retrieved - safe
             // to touch local state now.
             await FlushAccountAsync(fromAccountId, ct).ConfigureAwait(false);
-            _profiles.ArchiveLibrary();
-            _profiles.ReplaceLibrary(pulled.Select(p => (p.Id, p.Name, p.Data)).ToList());
+            ReplaceLocalLibrary(toAccountId, cloudRows, pulled);
 
-            var now = _clock.GetUtcNow();
-            _store.Update(s =>
-            {
-                var rec = s.Auth?.CloudAccounts.FirstOrDefault(a => a.AccountId == toAccountId);
-                if (rec is null)
-                {
-                    return;
-                }
-                rec.ProfileSync.Clear();
-                foreach (var match in pulled)
-                {
-                    rec.ProfileSync[match.Id] = new CloudProfileSyncRecord
-                    {
-                        Revision = cloudRows.First(r => r.ProfileId == match.Id).Revision,
-                        LastSyncedAt = now.ToString("o"),
-                        LastSyncedHash = match.Hash,
-                    };
-                }
-            });
-
-            _dirtySince.Clear();
-            _conflicts.Clear();
-            lock (_overCapWarned)
-            {
-                _overCapWarned.Clear();
-            }
-            _lastSyncAt = now.ToString("o");
-            _accounts.MarkSynced(toAccountId, now);
             _pendingSwitch = null;
             _state = "idle";
         }
@@ -696,6 +679,90 @@ public sealed class CloudProfileSyncService : BackgroundService
             Console.Error.WriteLine($"[cloud-sync] account switch failed: {ex.GetType().Name}: {ex.Message}");
             _state = "error";
         }
+    }
+
+    /// <summary>Fetches every payload for the given cloud rows. Returns null (and sets _state to "offline"/"error") on any single failure - a partial pull must never be applied, so callers only touch the local library after a non-null result.</summary>
+    private async Task<List<(string Id, string Name, NexusSettings Data, string Hash)>?> PullCloudProfilesAsync(
+        string accountId, List<CloudProfileSummaryDto> cloudRows, CancellationToken ct)
+    {
+        var pulled = new List<(string Id, string Name, NexusSettings Data, string Hash)>();
+        foreach (var row in cloudRows.Take(ProfileManager.MaxProfiles))
+        {
+            ct.ThrowIfCancellationRequested();
+            var profileResult = await _accounts.WithAuthAsync(accountId, token => _api.GetProfileAsync(token, row.ProfileId, ct), ct).ConfigureAwait(false);
+            if (!profileResult.Success || profileResult.Value?.Payload?.Settings is null)
+            {
+                _state = profileResult.Offline ? "offline" : "error";
+                return null;
+            }
+            // Hash BEFORE handing the object to ReplaceLibrary, which strips
+            // Auth/PrimaryProfileId/SharedCategories in place - the cloud
+            // payload should already arrive stripped, but hashing first
+            // avoids relying on that mutation ordering for correctness.
+            var hash = HashPayload(profileResult.Value.Payload);
+            pulled.Add((row.ProfileId, row.Name, profileResult.Value.Payload.Settings!, hash));
+        }
+        return pulled;
+    }
+
+    /// <summary>Archives the current local library then replaces it wholesale with the already-pulled cloud rows, updates per-profile sync bookkeeping, and resets in-flight dirty/conflict tracking. Shared by the account-switch handler and the first-login pristine-bootstrap-Default fast path.</summary>
+    private void ReplaceLocalLibrary(
+        string accountId, List<CloudProfileSummaryDto> cloudRows, List<(string Id, string Name, NexusSettings Data, string Hash)> pulled)
+    {
+        _profiles.ArchiveLibrary();
+        _profiles.ReplaceLibrary(pulled.Select(p => (p.Id, p.Name, p.Data)).ToList());
+
+        var now = _clock.GetUtcNow();
+        _store.Update(s =>
+        {
+            var rec = s.Auth?.CloudAccounts.FirstOrDefault(a => a.AccountId == accountId);
+            if (rec is null)
+            {
+                return;
+            }
+            rec.ProfileSync.Clear();
+            foreach (var match in pulled)
+            {
+                rec.ProfileSync[match.Id] = new CloudProfileSyncRecord
+                {
+                    Revision = cloudRows.First(r => r.ProfileId == match.Id).Revision,
+                    LastSyncedAt = now.ToString("o"),
+                    LastSyncedHash = match.Hash,
+                };
+            }
+        });
+
+        _dirtySince.Clear();
+        _conflicts.Clear();
+        lock (_overCapWarned)
+        {
+            _overCapWarned.Clear();
+        }
+        _lastSyncAt = now.ToString("o");
+        _accounts.MarkSynced(accountId, now);
+    }
+
+    /// <summary>
+    /// True when settings' profile-scoped content (Lighting, Cooling, Theme,
+    /// and the Dashboard-relevant fields per ProfileSharing.All - the same
+    /// set LoadProfileIntoSettings round-trips on switch/pull) is identical
+    /// to a freshly constructed NexusSettings. Hardware-bound fields (Keeb,
+    /// Y70, Devices, PanelDevices) are excluded since those vary by machine
+    /// even on a profile the user never touched.
+    /// </summary>
+    private static bool IsPristineDefaultContent(NexusSettings settings)
+    {
+        var fresh = new NexusSettings();
+        var candidateProjection = new NexusSettings();
+        var freshProjection = new NexusSettings();
+        foreach (var category in ProfileSharing.All)
+        {
+            ProfileSharing.ApplyCategory(candidateProjection, settings, category);
+            ProfileSharing.ApplyCategory(freshProjection, fresh, category);
+        }
+        var candidateJson = JsonSerializer.Serialize(candidateProjection, PersistenceJsonContext.Default.NexusSettings);
+        var freshJson = JsonSerializer.Serialize(freshProjection, PersistenceJsonContext.Default.NexusSettings);
+        return candidateJson == freshJson;
     }
 
     // ── shared helpers ───────────────────────────────────────────────────
