@@ -77,6 +77,10 @@ public sealed class TryxPanoramaHub : IDisposable
     /// the panel's media-list push arrives or when disconnected.</summary>
     public IReadOnlyList<string> AvailableMediaIds => _transport?.AvailableMediaIds ?? Array.Empty<string>();
 
+    /// <summary>Filenames the panel reported it has stored (device truth), or empty if it
+    /// has not pushed its list this session (it does so only on a cold boot / re-enumeration).</summary>
+    public IReadOnlyList<string> AvailableMediaFilenames => _transport?.AvailableMediaFilenames ?? Array.Empty<string>();
+
     public bool EnsureConnected()
     {
         if (_disposed) return false;
@@ -368,8 +372,18 @@ public sealed class TryxPanoramaHub : IDisposable
     public Task<List<TryxCloudMaterial>> GetCloudCatalogAsync(CancellationToken ct)
         => _cloud.GetCatalogAsync("PANO_1011", ct);
 
+    /// <summary>Whether cloud material <paramref name="id"/> is on the panel. The panel is the
+    /// source of truth when it has reported its media list (a "download_{id}." file); otherwise
+    /// falls back to our persisted record, so a fresh install self-heals once the panel lists it.</summary>
     public bool IsCloudInstalled(int id)
-        => _configStore.Load().Tryx.InstalledCloudIds.Contains(id);
+    {
+        var prefix = $"download_{id}.";
+        foreach (var name in AvailableMediaFilenames)
+        {
+            if (name.StartsWith(prefix, StringComparison.Ordinal)) return true;
+        }
+        return _configStore.Load().Tryx.InstalledCloudIds.Contains(id);
+    }
 
     public Task<System.IO.Stream?> OpenCloudCoverAsync(int id, CancellationToken ct)
         => _cloud.OpenCoverAsync(id, ct);
@@ -562,12 +576,12 @@ public sealed class TryxPanoramaHub : IDisposable
         }
     }
 
-    /// <summary>Selects an already-on-device custom file without re-pushing it.</summary>
+    /// <summary>Selects an already-on-device custom file without re-pushing it. The RK
+    /// firmware selects any on-panel media (preset or custom) with the same f200 config.</summary>
     public bool SelectCustomMedia(string deviceFileName)
     {
         if (!TryxThumbnailCache.IsSafeDeviceName(deviceFileName)) return false;
-        if (!SendOnly(TryxPanoramaProtocol.BuildWaterBlockScreen(true))) return false;
-        if (!SendOnly(TryxPanoramaProtocol.BuildConfigCustom(State.Brightness, deviceFileName, _overlay))) return false;
+        if (!SendReliable(TryxRkProtocol.BuildPreset(deviceFileName, screenOn: true, State.Brightness))) return false;
         State.CurrentMedia = deviceFileName;
         State.CurrentMediaIsCustom = true;
         State.ScreenEnabled = true;

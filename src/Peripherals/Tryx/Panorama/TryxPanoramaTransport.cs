@@ -27,4 +27,8 @@ public interface ITryxPanoramaTransport : IDisposable
     /// stored on device. Empty when the transport has not received or does not
     /// support the media-list push (see <see cref="TryxMediaList"/>).</summary>
     IReadOnlyList<string> AvailableMediaIds => Array.Empty<string>();
+
+    /// <summary>All media filenames the panel last reported it has stored (preset,
+    /// download, and custom), or empty if it has not pushed its list this session.</summary>
+    IReadOnlyList<string> AvailableMediaFilenames => Array.Empty<string>();
 }

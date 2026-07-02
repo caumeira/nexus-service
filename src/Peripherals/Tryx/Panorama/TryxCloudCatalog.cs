@@ -114,11 +114,17 @@ public sealed class TryxCloudCatalog
         }).ToList();
     }
 
-    /// <summary>Opens the CDN cover image for a material seen in a prior catalog fetch,
-    /// or null if unknown/unreachable. Caller owns the returned stream.</summary>
+    /// <summary>Opens the CDN cover image for a material, or null if unknown/unreachable.
+    /// Caller owns the returned stream. On a cold cache (fresh service start) the catalog is
+    /// fetched first so a cover request that arrives before any catalog load still resolves.</summary>
     public async Task<Stream?> OpenCoverAsync(int id, CancellationToken ct)
     {
-        if (!CoverUrls.TryGetValue(id, out var url)) return null;
+        if (!CoverUrls.TryGetValue(id, out var url))
+        {
+            try { await GetCatalogAsync("PANO_1011", ct).ConfigureAwait(false); }
+            catch { /* offline; nothing to serve */ }
+            if (!CoverUrls.TryGetValue(id, out url)) return null;
+        }
         var resp = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode)
         {

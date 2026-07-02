@@ -30,6 +30,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     private readonly Thread _drainThread;
     private bool _disposed;
     private volatile IReadOnlyList<string> _availableMediaIds = Array.Empty<string>();
+    private volatile IReadOnlyList<string> _availableMediaFilenames = Array.Empty<string>();
 
     public WindowsTryxPrinterTransport(string devicePath, string serial)
     {
@@ -75,6 +76,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     public string Serial { get; }
     public string PortName { get; }
     public IReadOnlyList<string> AvailableMediaIds => _availableMediaIds;
+    public IReadOnlyList<string> AvailableMediaFilenames => _availableMediaFilenames;
 
     public void Write(ReadOnlySpan<byte> data)
     {
@@ -123,6 +125,9 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
                 if (presets.Count > 0)
                 {
                     _availableMediaIds = presets;
+                    var all = TryxMediaList.ParseMediaFilenames(buffer.AsSpan(0, read));
+                    _availableMediaFilenames = all;
+                    ServiceLog.Info($"[tryx] panel media list ({all.Count}): {string.Join(", ", all)}");
                 }
             }
             catch (Exception ex)

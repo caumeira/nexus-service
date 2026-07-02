@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
@@ -147,6 +148,25 @@ public static class TryxThumbnailCache
         catch { /* best effort */ }
         try { File.Delete(DurPath(deviceFileName)); }
         catch { /* best effort */ }
+    }
+
+    /// <summary>Device filenames of uploaded custom media, i.e. every cached thumbnail.
+    /// The RK firmware exposes no adb, so this cache is the record of custom uploads.</summary>
+    public static List<string> ListCustomMedia()
+    {
+        var names = new List<string>();
+        try
+        {
+            if (!Directory.Exists(CacheDir)) return names;
+            foreach (var path in Directory.EnumerateFiles(CacheDir, "*.jpg"))
+            {
+                var name = Path.GetFileNameWithoutExtension(path);
+                if (IsSafeDeviceName(name)) names.Add(name);
+            }
+        }
+        catch { /* best effort */ }
+        names.Sort(StringComparer.Ordinal);
+        return names;
     }
 
     // HH:MM:SS.ss from ffmpeg -i stderr when ffprobe is absent.

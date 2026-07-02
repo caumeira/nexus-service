@@ -221,6 +221,11 @@
     <EmbeddedResource Include="data\install-defaults.json">
       <LogicalName>install-defaults.json</LogicalName>
     </EmbeddedResource>
+    <!-- Built-in Tryx Panorama preset cover thumbnails (default_01..06), served as
+         data URLs by /tryx/presets; the panel can't produce them. -->
+    <EmbeddedResource Include="src\Peripherals\Tryx\Panorama\PresetThumbs\*.jpg">
+      <LogicalName>tryx-preset-%(Filename).jpg</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!-- GLSL fragment shaders: one file per animate effect under

@@ -37,6 +37,8 @@ public sealed class TryxPresetItem
 {
     public string Id { get; set; } = "";
     public string Name { get; set; } = "";
+    /// <summary>Cover thumbnail as a base64 data URL, or null if none is bundled.</summary>
+    public string? Thumb { get; set; }
 }
 
 public sealed class TryxPresetListResponse
@@ -485,7 +487,7 @@ public static class TryxRoutes
             for (var i = 0; i < KnownPresets.Length && i < FallbackPresetCount; i++)
             {
                 var (id, name) = KnownPresets[i];
-                items.Add(new TryxPresetItem { Id = id, Name = name });
+                items.Add(new TryxPresetItem { Id = id, Name = name, Thumb = TryxPresetThumbs.DataUrl(id) });
             }
             return items;
         }
@@ -495,7 +497,7 @@ public static class TryxRoutes
         {
             if (available.Remove(id))
             {
-                items.Add(new TryxPresetItem { Id = id, Name = name });
+                items.Add(new TryxPresetItem { Id = id, Name = name, Thumb = TryxPresetThumbs.DataUrl(id) });
             }
         }
         // A panel-reported default_NN without a catalog name (added by a firmware or
@@ -512,14 +514,16 @@ public static class TryxRoutes
         unnamed.Sort(StringComparer.Ordinal);
         foreach (var id in unnamed)
         {
-            items.Add(new TryxPresetItem { Id = id, Name = id });
+            items.Add(new TryxPresetItem { Id = id, Name = id, Thumb = TryxPresetThumbs.DataUrl(id) });
         }
         return items;
     }
 
     private static List<string> ListMediaFiles(TryxPanoramaHub hub)
     {
-        var files = new List<string>();
+        // RK firmware pushes custom uploads over USB (no adb); the thumbnail cache is
+        // the record of them. The legacy adb path below stays for the old serial firmware.
+        var files = TryxThumbnailCache.ListCustomMedia();
         var adbSerial = hub.State.AdbSerial;
         if (string.IsNullOrEmpty(adbSerial)) return files;
         var adbPath = AdbLocator.ResolveAdbPath();
@@ -562,7 +566,10 @@ public static class TryxRoutes
         var adbSerial = hub.State.AdbSerial;
         if (string.IsNullOrEmpty(adbSerial))
         {
-            return new TryxAckResponse { Ok = false, Msg = "no adb serial" };
+            // RK firmware: no adb to remove the on-panel file, so drop the local record
+            // (thumbnail + duration); the entry leaves the library on the next refresh.
+            TryxThumbnailCache.Delete(name);
+            return new TryxAckResponse { Ok = true };
         }
         var adbPath = AdbLocator.ResolveAdbPath();
         if (adbPath is null)
