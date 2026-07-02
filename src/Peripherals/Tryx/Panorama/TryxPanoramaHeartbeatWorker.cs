@@ -52,13 +52,8 @@ public sealed class TryxPanoramaHeartbeatWorker : BackgroundService
         }
 
         if (!_hub.EnsureConnected()) return;
-        // A file transfer must not have a control frame land between its BEGIN/DATA/
-        // COMMIT frames; the receiving panel stays awake without a heartbeat.
-        if (_hub.TransferInProgress) return;
-        _hub.SendConn();
-        // Skip the sensor push during an import so it can't land between the
-        // transport/transported frames; SendConn alone keeps the screen awake.
-        if (!_hub.ImportInProgress) _hub.SendStateAll();
-        _hub.State.LastFrameMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        // The hub gates this against an in-flight file transfer so no control frame
+        // lands between the transfer's BEGIN/DATA/COMMIT frames.
+        _hub.SendHeartbeatTick();
     }
 }

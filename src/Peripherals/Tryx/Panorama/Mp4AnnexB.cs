@@ -64,7 +64,8 @@ public static class Mp4AnnexB
         var payload = FindBoxPayload(mp4, "avcC");
         var sps = new List<byte[]>();
         var pps = new List<byte[]>();
-        if (payload.IsEmpty) return (sps, pps, 4);
+        // Need at least the 5 fixed bytes + the numSPS byte before indexing them.
+        if (payload.Length < 6) return (sps, pps, 4);
 
         // AVCDecoderConfigurationRecord: [0]=version [1]=profile [2]=compat [3]=level
         // [4]=xxxxxx + lengthSizeMinusOne(2) [5]=xxx + numSPS(5), then per SPS [len:2][data].

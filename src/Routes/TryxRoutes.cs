@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Nexus.Service.Panel;
 using Nexus.Service.Peripherals.Tryx.Panorama;
+using Nexus.Service.Platform;
 using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Routes;
@@ -60,6 +61,24 @@ public sealed class TryxAckResponse
 {
     public bool Ok { get; set; }
     public string? Msg { get; set; }
+}
+
+public sealed class TryxCloudMaterialDto
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = "";
+    public string CoverUrl { get; set; } = "";
+    public bool Installed { get; set; }
+}
+
+public sealed class TryxCloudCatalogResponse
+{
+    public List<TryxCloudMaterialDto> Materials { get; set; } = new();
+}
+
+public sealed class TryxCloudInstallRequest
+{
+    public int Id { get; set; }
 }
 
 public sealed class TryxEnableRequest
@@ -196,6 +215,50 @@ public static class TryxRoutes
         {
             var resp = new TryxPresetListResponse { Presets = ResolveAvailablePresets(hub.AvailableMediaIds) };
             return Results.Json(resp, AppJsonContext.Default.TryxPresetListResponse);
+        });
+
+        app.MapGet("/tryx/cloud/catalog", async (TryxPanoramaHub hub, CancellationToken ct) =>
+        {
+            var resp = new TryxCloudCatalogResponse();
+            try
+            {
+                foreach (var m in await hub.GetCloudCatalogAsync(ct))
+                {
+                    resp.Materials.Add(new TryxCloudMaterialDto
+                    {
+                        Id = m.Id,
+                        Name = m.Name,
+                        // Covers stream through the service so the dashboard needs no
+                        // cross-origin image permission for the CDN.
+                        CoverUrl = $"/tryx/cloud/cover/{m.Id}",
+                        Installed = hub.IsCloudInstalled(m.Id),
+                    });
+                }
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Warn($"[tryx] cloud catalog fetch failed: {ex.GetType().Name}: {ex.Message}");
+            }
+            return Results.Json(resp, AppJsonContext.Default.TryxCloudCatalogResponse);
+        });
+
+        app.MapGet("/tryx/cloud/cover/{id:int}", async (int id, TryxPanoramaHub hub, CancellationToken ct) =>
+        {
+            try
+            {
+                var stream = await hub.OpenCloudCoverAsync(id, ct);
+                return stream is null ? Results.NotFound() : Results.Stream(stream, "image/jpeg");
+            }
+            catch (Exception)
+            {
+                return Results.NotFound();
+            }
+        });
+
+        app.MapPost("/tryx/cloud/install", async (TryxCloudInstallRequest body, TryxPanoramaHub hub, CancellationToken ct) =>
+        {
+            var (ok, msg) = await hub.InstallCloudMaterialAsync(body.Id, ct);
+            return Results.Json(new TryxAckResponse { Ok = ok, Msg = msg }, AppJsonContext.Default.TryxAckResponse);
         });
 
         app.MapPost("/tryx/preset", (TryxPresetRequest body, TryxPanoramaHub hub) =>

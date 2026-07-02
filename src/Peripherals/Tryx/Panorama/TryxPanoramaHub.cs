@@ -36,9 +36,6 @@ public sealed class TryxPanoramaHub : IDisposable
     // Set while EnsureLocalCopyAsync holds the adb pull, so the heartbeat does not
     // issue a concurrent adb command against the same device.
     private volatile bool _importInProgress;
-    // Set while a file transfer streams; the heartbeat skips the whole tick so no
-    // control frame lands between the BEGIN/DATA/COMMIT frames (Kanali sends none).
-    private volatile bool _transferInProgress;
     private readonly TryxOverlayConfig _overlay;
 
     public TryxPanoramaHub(
@@ -70,9 +67,6 @@ public sealed class TryxPanoramaHub : IDisposable
 
     /// <summary>True while an import holds the port; the heartbeat skips STATE-all then.</summary>
     public bool ImportInProgress => _importInProgress;
-
-    /// <summary>True while a file transfer streams; the heartbeat skips its whole tick.</summary>
-    public bool TransferInProgress => _transferInProgress;
 
     public bool IsConnected => _transport is { IsOpen: true };
 
@@ -147,6 +141,23 @@ public sealed class TryxPanoramaHub : IDisposable
 
     public bool SendConn()
         => SendOnly(TryxRkProtocol.BuildHeartbeat());
+
+    /// <summary>One heartbeat tick. Skips entirely if a file transfer holds the send gate,
+    /// so no control frame lands between the transfer's BEGIN/DATA/COMMIT frames.</summary>
+    public void SendHeartbeatTick()
+    {
+        if (!Monitor.TryEnter(_txGate)) return;
+        try
+        {
+            SendConn();
+            if (!_importInProgress) SendStateAll();
+            State.LastFrameMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        }
+        finally
+        {
+            Monitor.Exit(_txGate);
+        }
+    }
 
     public bool SendStateAll()
     {
@@ -230,13 +241,21 @@ public sealed class TryxPanoramaHub : IDisposable
     }
 
     // Panel surface is a fixed 2240x1080 2:1 display; every custom clip is transcoded to
-    // it. 60 fps + Main profile + no B-frames matches Kanali's MediaX output (the format
-    // the firmware decoder is known to accept).
+    // it. Main profile + no B-frames matches Kanali's MediaX output (the format the
+    // firmware decoder is known to accept).
     private const int PanelWidth = 2240;
     private const int PanelHeight = 1080;
     private const int PanelFps = 60;
+    private static readonly TimeSpan TranscodeTimeout = TimeSpan.FromMinutes(5);
 
-    private uint _transferSession = 600000;
+    private int _transferSession = 600000;
+    // Held for the whole BEGIN..COMMIT burst; the heartbeat acquires the same gate so
+    // no control frame lands mid-transfer (a per-frame transport lock is not enough).
+    private readonly object _txGate = new();
+    // Serializes imports so two concurrent uploads can't interleave transfers or race
+    // the transfer flag on the single shared transport.
+    private readonly SemaphoreSlim _importGate = new(1, 1);
+    private readonly TryxCloudCatalog _cloud = new();
 
     /// <summary>Transcodes <paramref name="localPath"/> to the panel's H.264 format, wraps it
     /// in the Tryx media container, streams it over the RK file-transfer protocol, and selects
@@ -254,6 +273,7 @@ public sealed class TryxPanoramaHub : IDisposable
 
         var deviceFileName = CustomMediaFileName(sourceName);
         var mp4Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nexus-tryx-{Guid.NewGuid():N}.mp4");
+        await _importGate.WaitAsync(ct).ConfigureAwait(false);
         try
         {
             if (!await TranscodeToPanelMp4Async(ffmpegPath, localPath, crop, mp4Path, ct))
@@ -262,9 +282,17 @@ public sealed class TryxPanoramaHub : IDisposable
             }
             // Bundled ffmpeg has only the mp4 muxer; extract the Annex-B stream ourselves.
             var mp4 = await File.ReadAllBytesAsync(mp4Path, ct);
-            var h264 = Mp4AnnexB.Convert(mp4);
+            byte[] h264;
+            try { h264 = Mp4AnnexB.Convert(mp4); }
+            catch (Exception ex)
+            {
+                ServiceLog.Error($"[tryx] MP4->Annex-B conversion failed: {ex.GetType().Name}: {ex.Message}");
+                return false;
+            }
             var frames = CountH264Frames(h264);
-            var id = unchecked((uint)sourceName.GetHashCode()) | 1u;
+            // Stable per-name id (GetHashCode is per-process randomized, which would give
+            // the same file a different container id across restarts).
+            var id = StableMediaId(deviceFileName);
             var container = TryxRkProtocol.WrapMediaContainer(h264, PanelFps, PanelWidth, PanelHeight, frames, id);
 
             if (!SendFileTransfer(deviceFileName, container, fileType: "media", ct))
@@ -289,12 +317,61 @@ public sealed class TryxPanoramaHub : IDisposable
         finally
         {
             try { File.Delete(mp4Path); } catch { /* best effort */ }
+            _importGate.Release();
         }
     }
 
-    /// <summary>Installs an already-local, panel-ready file (e.g. a decrypted cloud theme) by
-    /// streaming it over the file-transfer protocol and selecting it. The file must already be
-    /// the plain Tryx media container; <paramref name="deviceFileName"/> is the on-panel name.</summary>
+    /// <summary>Downloads a cloud wallpaper, decrypts it, and installs it. The decrypted asset
+    /// is the plain Tryx media container (validated by its magic before pushing, since the SM4
+    /// mode is inferred). Returns (ok, message).</summary>
+    public async Task<(bool Ok, string Msg)> InstallCloudMaterialAsync(int id, CancellationToken ct)
+    {
+        if (!EnsureConnected()) return (false, "Tryx Panorama not connected");
+        var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nexus-tryx-cloud-{id}-{Guid.NewGuid():N}.bin");
+        await _importGate.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            string installName;
+            try { installName = await _cloud.DownloadAndDecryptAsync(id, tmp, ct); }
+            catch (Exception ex)
+            {
+                ServiceLog.Error($"[tryx] cloud download/decrypt failed for {id}: {ex.GetType().Name}: {ex.Message}");
+                return (false, "download failed");
+            }
+            // The decrypt must yield the plain Tryx media container; a wrong SM4 mode/padding
+            // gives garbage, so gate the push on the container magic.
+            var head = new byte[64];
+            await using (var fs = File.OpenRead(tmp))
+            {
+                var n = await fs.ReadAsync(head, ct);
+                if (!Encoding.ASCII.GetString(head, 0, n).Contains("Tryx media header", StringComparison.Ordinal))
+                {
+                    ServiceLog.Error($"[tryx] cloud {id} decrypt not a media container (head={Convert.ToHexString(head[..Math.Min(n, 24)])})");
+                    return (false, "decrypt format error");
+                }
+            }
+            if (!await InstallLocalMediaAsync(tmp, installName, ct)) return (false, "install failed");
+            return (true, "");
+        }
+        finally
+        {
+            try { File.Delete(tmp); } catch { /* best effort */ }
+            _importGate.Release();
+        }
+    }
+
+    public Task<List<TryxCloudMaterial>> GetCloudCatalogAsync(CancellationToken ct)
+        => _cloud.GetCatalogAsync("PANO_1011", ct);
+
+    public bool IsCloudInstalled(int id)
+        => AvailableMediaIds.Contains($"download_{id}", StringComparer.Ordinal);
+
+    public Task<System.IO.Stream?> OpenCloudCoverAsync(int id, CancellationToken ct)
+        => _cloud.OpenCoverAsync(id, ct);
+
+    /// <summary>Installs an already-local, panel-ready file by streaming it over the file-transfer
+    /// protocol and selecting it. The file must already be the plain Tryx media container;
+    /// <paramref name="deviceFileName"/> is the on-panel name. Caller holds the import gate.</summary>
     public async Task<bool> InstallLocalMediaAsync(string localContainerPath, string deviceFileName, CancellationToken ct)
     {
         if (!TryxThumbnailCache.IsSafeDeviceName(deviceFileName)) return false;
@@ -306,6 +383,14 @@ public sealed class TryxPanoramaHub : IDisposable
         State.CurrentMediaIsCustom = false;
         _configStore.Update(s => { s.Tryx.CurrentMedia = deviceFileName; s.Tryx.CurrentMediaIsCustom = false; });
         return true;
+    }
+
+    // FNV-1a over the name: a process-stable 32-bit id for the media container header.
+    private static uint StableMediaId(string name)
+    {
+        uint h = 2166136261;
+        foreach (var c in name) { h = (h ^ c) * 16777619; }
+        return h | 1u;
     }
 
     // Device filename for a custom upload: sanitized stem + the panel's media suffix, matching
@@ -325,26 +410,33 @@ public sealed class TryxPanoramaHub : IDisposable
     }
 
     // Streams a full file: BEGIN (f400 name+size) -> DATA (f401 chunks) -> COMMIT (f402 type).
-    // Pauses the heartbeat for the burst (Kanali sends none mid-transfer; the receiving panel
-    // will not standby). A failed write aborts and drops the transport.
+    // Holds _txGate so the heartbeat skips its whole tick for the burst (Kanali sends none
+    // mid-transfer; the receiving panel will not standby). Any failure or cancellation drops
+    // the transport, because a partial transfer leaves the panel awaiting more chunks - a
+    // re-enumeration resyncs it, and a stray control frame into a half-open session is worse
+    // than a reconnect.
     private bool SendFileTransfer(string deviceFileName, byte[] payload, string fileType, CancellationToken ct)
     {
-        var session = unchecked(++_transferSession);
-        _transferInProgress = true;
-        try
+        var session = unchecked((uint)Interlocked.Increment(ref _transferSession));
+        lock (_txGate)
         {
-            if (!SendOnly(TryxRkProtocol.BuildFileBegin(session, deviceFileName, payload.Length))) return false;
-            for (var offset = 0; offset < payload.Length; offset += TryxRkProtocol.FileChunkSize)
+            var completed = false;
+            try
             {
-                ct.ThrowIfCancellationRequested();
-                var len = Math.Min(TryxRkProtocol.FileChunkSize, payload.Length - offset);
-                if (!SendOnly(TryxRkProtocol.BuildFileChunk(session, payload.AsSpan(offset, len)))) return false;
+                if (!SendOnly(TryxRkProtocol.BuildFileBegin(session, deviceFileName, payload.Length))) return false;
+                for (var offset = 0; offset < payload.Length; offset += TryxRkProtocol.FileChunkSize)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var len = Math.Min(TryxRkProtocol.FileChunkSize, payload.Length - offset);
+                    if (!SendOnly(TryxRkProtocol.BuildFileChunk(session, payload.AsSpan(offset, len)))) return false;
+                }
+                completed = SendOnly(TryxRkProtocol.BuildFileCommit(session, fileType));
+                return completed;
             }
-            return SendOnly(TryxRkProtocol.BuildFileCommit(session, fileType));
-        }
-        finally
-        {
-            _transferInProgress = false;
+            finally
+            {
+                if (!completed) Disconnect();
+            }
         }
     }
 
@@ -366,14 +458,27 @@ public sealed class TryxPanoramaHub : IDisposable
             RedirectStandardError = true,
         });
         if (p is null) return false;
-        var err = await p.StandardError.ReadToEndAsync(ct);
-        await p.WaitForExitAsync(ct);
-        if (p.ExitCode != 0 || !File.Exists(outputMp4) || new FileInfo(outputMp4).Length == 0)
+        // Bound the run and kill the child on cancel/timeout so it can't orphan (leaving
+        // the output file locked); WaitForExitAsync/ReadToEnd only observe, they don't kill.
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        timeoutCts.CancelAfter(TranscodeTimeout);
+        try
         {
-            ServiceLog.Error($"[tryx] transcode failed (exit {p.ExitCode}): {err.Trim()}");
+            var err = await p.StandardError.ReadToEndAsync(timeoutCts.Token);
+            await p.WaitForExitAsync(timeoutCts.Token);
+            if (p.ExitCode != 0 || !File.Exists(outputMp4) || new FileInfo(outputMp4).Length == 0)
+            {
+                ServiceLog.Error($"[tryx] transcode failed (exit {p.ExitCode}): {err.Trim()}");
+                return false;
+            }
+            return true;
+        }
+        catch (OperationCanceledException)
+        {
+            try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            ServiceLog.Error("[tryx] transcode cancelled or timed out");
             return false;
         }
-        return true;
     }
 
     private static string F(double v) => v.ToString("0.#####", CultureInfo.InvariantCulture);
@@ -384,7 +489,7 @@ public sealed class TryxPanoramaHub : IDisposable
     private static int CountH264Frames(ReadOnlySpan<byte> h264)
     {
         var frames = 0;
-        for (var i = 0; i + 4 < h264.Length; i++)
+        for (var i = 0; i + 3 < h264.Length; i++)
         {
             if (h264[i] == 0 && h264[i + 1] == 0 && h264[i + 2] == 1)
             {
