@@ -4,8 +4,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
-using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Tryx.Panorama;
 
@@ -27,7 +27,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     private readonly FileStream _stream;
     private readonly object _writeLock = new();
     private readonly CancellationTokenSource _drainCts = new();
-    private readonly Task _drainTask;
+    private readonly Thread _drainThread;
     private bool _disposed;
     private volatile IReadOnlyList<string> _availableMediaIds = Array.Empty<string>();
 
@@ -53,7 +53,17 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
         // isAsync matches FILE_FLAG_OVERLAPPED so a concurrent write and the background
         // read complete as overlapped I/O. The stream owns and frees the handle.
         _stream = new FileStream(handle, FileAccess.ReadWrite, bufferSize: 4096, isAsync: true);
-        _drainTask = Task.Run(() => DrainReadsAsync(_drainCts.Token));
+        // The kernel cancels pending overlapped I/O when the issuing thread exits.
+        // A pool-issued read parked between panel replies died on thread-pool
+        // retirement (ERROR_OPERATION_ABORTED), the drain stopped, and the undrained
+        // pipe reset the interface ~70s later - so reads are issued from a dedicated
+        // thread that blocks on each completion and therefore never exits mid-read.
+        _drainThread = new Thread(() => DrainReads(_drainCts.Token))
+        {
+            IsBackground = true,
+            Name = "tryx-drain",
+        };
+        _drainThread.Start();
     }
 
     public bool IsOpen => !_disposed && _stream.SafeFileHandle is { IsInvalid: false, IsClosed: false };
@@ -84,17 +94,19 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     // payload is discarded; the read completing is the only thing that matters. A
     // read error means the interface reset or the handle closed - stop, and the next
     // write failing lets the hub rebuild the transport (with a fresh drain loop).
-    private async Task DrainReadsAsync(CancellationToken ct)
+    private void DrainReads(CancellationToken ct)
     {
         var buffer = new byte[2048];
         while (!ct.IsCancellationRequested)
         {
             try
             {
-                var read = await _stream.ReadAsync(buffer, ct).ConfigureAwait(false);
+                // Blocking on the overlapped read keeps this thread (the issuer)
+                // alive for the read's whole lifetime; see the constructor comment.
+                var read = _stream.ReadAsync(buffer, 0, buffer.Length, ct).GetAwaiter().GetResult();
                 if (read == 0)
                 {
-                    await Task.Delay(50, ct).ConfigureAwait(false);
+                    Thread.Sleep(50);
                     continue;
                 }
                 // The panel pushes its stored-media list unprompted on this endpoint;
@@ -108,12 +120,14 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
                     _availableMediaIds = presets;
                 }
             }
-            catch (OperationCanceledException)
+            catch (Exception ex)
             {
-                return;
-            }
-            catch
-            {
+                // A silent drain death leaves the transport write-only and the panel
+                // resets its interface ~70s later, so any abnormal exit must be loud.
+                if (!ct.IsCancellationRequested)
+                {
+                    ServiceLog.Warn($"[tryx] drain loop exited: {ex.GetType().Name}: {ex.Message}");
+                }
                 return;
             }
         }
@@ -129,7 +143,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
         {
             _stream.Dispose();
         }
-        try { _drainTask.Wait(500); } catch { /* drain loop already faulted/cancelled */ }
+        _drainThread.Join(500);
         _drainCts.Dispose();
     }
 
