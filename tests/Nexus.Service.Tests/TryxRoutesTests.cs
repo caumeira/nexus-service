@@ -36,4 +36,16 @@ public class TryxRoutesTests
         Assert.Single(presets);
         Assert.Equal("default_01", presets[0].Id);
     }
+
+    [Fact]
+    public void ResolveAvailablePresets_lists_an_uncataloged_default_wallpaper_under_its_raw_id()
+    {
+        var presets = TryxRoutes.ResolveAvailablePresets(new[] { "default_01", "default_07" });
+
+        Assert.Equal(2, presets.Count);
+        Assert.Equal("default_01", presets[0].Id);
+        Assert.NotEqual("default_01", presets[0].Name);
+        Assert.Equal("default_07", presets[1].Id);
+        Assert.Equal("default_07", presets[1].Name);
+    }
 }

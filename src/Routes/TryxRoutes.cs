@@ -110,32 +110,18 @@ public sealed class TryxOverlayRequest
 /// </summary>
 public static class TryxRoutes
 {
-    // The panel's built-in wallpapers, ordered so index N maps to default_{N+1}
-    // (TryxRkProtocol.PresetMediaFile). Names mirror Kanali's catalog for the RK
-    // firmware; the panel cannot enumerate them, so this list is the source of truth.
+    // The Panorama's factory wallpapers: Kanali's RK PresetDefaultSet nameEn values
+    // for the 2240x1080 panel. Kanali ships a second PresetDefaultSet with 21
+    // "default_NN.mp4.h264_640x480" entries (Sally, Lazybara, ...) - that is a
+    // different product's screen; those names do not apply to the Panorama.
     private static readonly (string Id, string Name)[] KnownPresets =
     {
-        ("default_01", "Sally"),
-        ("default_02", "Otterly Dissapointed"),
-        ("default_03", "BFFs"),
-        ("default_04", "Lazybara"),
-        ("default_05", "Scarlet Panda"),
-        ("default_06", "B00/CHI"),
-        ("default_07", "BOOCHI Graffiti"),
-        ("default_08", "Stomp It!"),
-        ("default_09", "Metamorphosis"),
-        ("default_10", "Evolution"),
-        ("default_11", "D.C.I.Bubbles"),
-        ("default_12", "Sleepless"),
-        ("default_13", "Rover"),
-        ("default_14", "Drowsy"),
-        ("default_15", "PinkEmpress"),
-        ("default_16", "Dancing King Boochi"),
-        ("default_17", "Eyes 1"),
-        ("default_18", "Eyes 2"),
-        ("default_19", "Eyes 3"),
-        ("default_20", "Eyes 4"),
-        ("default_21", "Eyes 5"),
+        ("default_01", "Cooling delivery"),
+        ("default_02", "Migration"),
+        ("default_03", "Exo-Ecologie"),
+        ("default_04", "Cyber Bunker"),
+        ("default_05", "Edge of Dream"),
+        ("default_06", "Thermal Energy·Prohibited"),
     };
 
     public static void MapTryxEndpoints(this WebApplication app)
@@ -220,22 +206,25 @@ public static class TryxRoutes
                     new TryxAckResponse { Ok = false, Msg = "missing id" },
                     AppJsonContext.Default.TryxAckResponse);
             }
-            var index = Array.FindIndex(KnownPresets, p => p.Id == body.Id);
-            if (index < 0)
+            // The wallpaper number comes from the id itself (not a catalog index) so a
+            // panel-reported wallpaper outside KnownPresets is still selectable.
+            if (!body.Id.StartsWith("default_", StringComparison.Ordinal)
+                || !int.TryParse(body.Id.AsSpan("default_".Length), NumberStyles.None, CultureInfo.InvariantCulture, out var number)
+                || number < 1)
             {
                 return Results.Json(
                     new TryxAckResponse { Ok = false, Msg = "unknown preset" },
                     AppJsonContext.Default.TryxAckResponse);
             }
-            // Reject cloud-only presets not stored on this panel; selecting one is a
-            // silent no-op on the device. Mirrors the availability filter on GET.
+            // Reject wallpapers not stored on this panel; selecting one is a silent
+            // no-op on the device. Mirrors the availability filter on GET.
             if (!ResolveAvailablePresets(hub.AvailableMediaIds).Exists(p => p.Id == body.Id))
             {
                 return Results.Json(
                     new TryxAckResponse { Ok = false, Msg = "preset not installed on panel" },
                     AppJsonContext.Default.TryxAckResponse);
             }
-            var ok = hub.SetPreset(TryxRkProtocol.PresetMediaFile(index + 1));
+            var ok = hub.SetPreset(TryxRkProtocol.PresetMediaFile(number));
             return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
         });
 
@@ -432,10 +421,26 @@ public static class TryxRoutes
         var available = new HashSet<string>(availableMediaIds, StringComparer.Ordinal);
         foreach (var (id, name) in KnownPresets)
         {
-            if (available.Contains(id))
+            if (available.Remove(id))
             {
                 items.Add(new TryxPresetItem { Id = id, Name = name });
             }
+        }
+        // A panel-reported default_NN without a catalog name (added by a firmware or
+        // cloud update) stays selectable under its raw id rather than disappearing;
+        // non-wallpaper entries (start, screensaver) stay hidden.
+        var unnamed = new List<string>();
+        foreach (var id in available)
+        {
+            if (id.StartsWith("default_", StringComparison.Ordinal))
+            {
+                unnamed.Add(id);
+            }
+        }
+        unnamed.Sort(StringComparer.Ordinal);
+        foreach (var id in unnamed)
+        {
+            items.Add(new TryxPresetItem { Id = id, Name = id });
         }
         return items;
     }
