@@ -51,16 +51,15 @@ public sealed class GpuContext : IDisposable
     private readonly ManualResetEventSlim _initDone = new(false);
     private Exception? _initError;
 
-    // Per-attempt init budget. The auto-cycle sets this tight so a stalled
-    // driver trips fast (the waiter gives up and the caller advances to the
-    // next GPU preference class); default matches the historical eager budget.
+    // Per-attempt init budget: how long a caller waits for the nexus-gl thread
+    // to create the context before treating it as failed (a wedged driver never
+    // returns). Bounds both the in-process warmup and the --gpu-probe child.
     public TimeSpan InitTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
-    // GpuPreference class the auto-cycle set for the current attempt
-    // (0 auto / 1 power-saving-integrated / 2 high-performance-discrete). Read
-    // by the Windows init for the diagnostic force-fail marker and surfaced in
-    // the GL-context log line so a capture shows which card the context bound.
-    public static volatile int ActivePreferenceClass;
+    // GL_RENDERER of the bound context (which physical card was selected), set
+    // once init succeeds. Null until then.
+    public string? Renderer { get; private set; }
+
 
     // Per-thread reusable completion handle used by Invoke(). Invoke blocks the
     // caller until its work runs, so at most one outstanding per thread -- safe
@@ -124,7 +123,7 @@ public sealed class GpuContext : IDisposable
         {
             // The nexus-gl thread is still wedged in native init; it stays a
             // background thread and dies with the process. There is no CPU
-            // shader fallback, so the auto-cycle advances to another GPU.
+            // shader fallback - the GPU is simply reported unavailable.
             Log($"[gpu] context init timed out after {InitTimeout.TotalSeconds:0.#}s");
             _failed = true;
             return;
@@ -248,9 +247,10 @@ public sealed class GpuContext : IDisposable
             // Which physical card the context bound to - the proof the
             // GpuPreference class steered selection, and a diagnostic on a
             // customer capture.
-            Log($"[gpu] GL context on renderer='{_gl!.GetStringS(StringName.Renderer)}' "
+            Renderer = _gl!.GetStringS(StringName.Renderer);
+            Log($"[gpu] GL context on renderer='{Renderer}' "
                 + $"vendor='{_gl.GetStringS(StringName.Vendor)}' "
-                + $"version='{_gl.GetStringS(StringName.Version)}' pref-class={ActivePreferenceClass}");
+                + $"version='{_gl.GetStringS(StringName.Version)}'");
         }
         catch (Exception ex) { Log($"[gpu] GL renderer query failed: {ex.Message}"); }
 

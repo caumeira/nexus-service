@@ -19,10 +19,50 @@ internal static class AppBootstrap
     // GPU shader-engine warmup, kept OFF the startup-critical path: deferred to
     // ApplicationStarted (host bound, SCM told RUNNING) and run on a background
     // thread, so a stalled GL driver never blocks boot (the Error 1053 /
-    // installer-stall fix). On Windows in "auto" mode it also cycles across
-    // cards to find one whose context works. See GpuRenderAutoCycle.
+    // installer-stall fix). A hang leaves the GPU unavailable (shader effects
+    // don't render; static and firmware lighting still work); it never restarts
+    // the service. The real GL work runs on GpuContext's own nexus-gl thread.
     public static void ScheduleGpuWarmup(WebApplication app)
-        => Nexus.Service.Lighting.Engine.Gpu.GpuRenderAutoCycle.Schedule(app);
+    {
+        app.Lifetime.ApplicationStarted.Register(() =>
+        {
+            var thread = new Thread(() =>
+            {
+                var sw = System.Diagnostics.Stopwatch.StartNew();
+                GpuContext.Log("[gpu] warmup: starting (deferred, post-start)");
+                try
+                {
+                    var gpu = app.Services.GetRequiredService<GpuContext>();
+#if WINDOWS
+                    // Windows + "auto": pick a card that yields a working context
+                    // (prefer integrated, fall back to discrete) without ever
+                    // restarting - see GpuRenderSelect. A user-pinned card skips
+                    // this and inits directly on their choice.
+                    var choice = app.Services.GetService<Nexus.Service.Persistence.IConfigStore>()
+                        ?.Load().Lighting.RenderGpu ?? "auto";
+                    if (string.Equals(choice, "auto", StringComparison.OrdinalIgnoreCase))
+                    {
+                        Nexus.Service.Lighting.Engine.Gpu.GpuRenderSelect.SelectAndWarm(gpu, sw);
+                        return;
+                    }
+#endif
+                    lock (gpu.Lock)
+                    {
+                        gpu.EnsureInitializedLocked();
+                    }
+                    GpuContext.Log(gpu.Available
+                        ? $"[gpu] warmup: GPU shader engine ready in {sw.ElapsedMilliseconds}ms"
+                        : $"[gpu] warmup: GPU unavailable after {sw.ElapsedMilliseconds}ms (shader effects off; static/firmware lighting unaffected)");
+                }
+                catch (Exception ex)
+                {
+                    GpuContext.Log($"[gpu] warmup: threw after {sw.ElapsedMilliseconds}ms ({ex.GetType().Name}: {ex.Message})");
+                }
+            })
+            { IsBackground = true, Name = "nexus-gpu-warmup" };
+            thread.Start();
+        });
+    }
 
     // Creates Default profile if none exists, then wires the profile-switch
     // hook to release fan control, reset curve smoothing, and stop the

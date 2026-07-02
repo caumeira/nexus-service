@@ -19,36 +19,6 @@ namespace Nexus.Service.Lighting.Engine.Gpu;
 /// </summary>
 internal static class GpuRenderPreference
 {
-    // Write the per-exe DirectX GPU preference by class directly, bypassing the
-    // name->class lookup (the service enumerates no GPU sensors, so the
-    // auto-cycle works in classes: 0 = auto/clear, 1 = power-saving-integrated,
-    // 2 = high-performance-discrete). Restart-to-apply, same as Apply.
-    public static void ApplyClass(int gpuPreference)
-    {
-#if WINDOWS
-        try
-        {
-            var exe = Environment.ProcessPath;
-            if (string.IsNullOrEmpty(exe)) return;
-            using var key = Registry.Users.CreateSubKey(
-                @"S-1-5-18\Software\Microsoft\DirectX\UserGpuPreferences");
-            if (key is null) return;
-            if (gpuPreference != 1 && gpuPreference != 2)
-            {
-                key.DeleteValue(exe, throwOnMissingValue: false);
-                return;
-            }
-            key.SetValue(exe, $"GpuPreference={gpuPreference};", RegistryValueKind.String);
-        }
-        catch
-        {
-            // Best-effort: a registry failure must never break lighting.
-        }
-#else
-        _ = gpuPreference;
-#endif
-    }
-
     public static void Apply(string renderGpu, IReadOnlyList<GpuReadout> gpus)
     {
 #if WINDOWS
