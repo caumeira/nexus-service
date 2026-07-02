@@ -1115,6 +1115,22 @@ public static class NexusServiceCollectionExtensions
     }
 
     /// <summary>
+    /// Cloud accounts: token-holder client, profile sync, and device
+    /// reporting. Zero cost when logged out - CloudProfileSyncService and
+    /// CloudDeviceReporter both idle until CloudAccountService reports an
+    /// active account.
+    /// </summary>
+    public static IServiceCollection AddNexusCloud(this IServiceCollection services)
+    {
+        services.AddSingleton<Nexus.Service.Cloud.ICloudApiClient, Nexus.Service.Cloud.CloudApiClient>();
+        services.AddSingleton<Nexus.Service.Cloud.CloudAccountService>();
+        services.AddSingleton<Nexus.Service.Cloud.CloudProfileSyncService>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Cloud.CloudProfileSyncService>());
+        services.AddHostedService<Nexus.Service.Cloud.CloudDeviceReporter>();
+        return services;
+    }
+
+    /// <summary>
     /// Windows user-session helper IPC. The named-pipe server, registry, and
     /// typed command client. Other platforms run their providers natively in
     /// the user-context daemon, so no helper subsystem is registered.

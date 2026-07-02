@@ -151,7 +151,7 @@ public sealed class TryxPanoramaHub : IDisposable
     {
         // Screen on/off rides the same f200.f5 config as brightness (f5.f1 = enable);
         // carry the current brightness so turning the screen back on restores it.
-        var ok = SendOnly(TryxRkProtocol.BuildConfig(enable, State.Brightness));
+        var ok = SendReliable(TryxRkProtocol.BuildConfig(enable, State.Brightness));
         if (ok) State.ScreenEnabled = enable;
         return ok;
     }
@@ -159,7 +159,7 @@ public sealed class TryxPanoramaHub : IDisposable
     public bool SetBrightness(int brightness)
     {
         var clamped = Math.Clamp(brightness, 0, 100);
-        var ok = SendOnly(TryxRkProtocol.BuildConfig(State.ScreenEnabled, clamped));
+        var ok = SendReliable(TryxRkProtocol.BuildConfig(State.ScreenEnabled, clamped));
         if (ok)
         {
             State.Brightness = clamped;
@@ -168,10 +168,23 @@ public sealed class TryxPanoramaHub : IDisposable
         return ok;
     }
 
-    public bool SetPreset(string presetId)
+    /// <summary><paramref name="wallpaperMedia"/> is the panel's built-in wallpaper
+    /// filename (TryxRkProtocol.PresetMediaFile). Screen state and brightness ride
+    /// along so the panel keeps them.</summary>
+    public bool SetPreset(string wallpaperMedia)
     {
-        ServiceLog.Warn("[tryx] SetPreset not yet implemented for RK firmware");
-        return false;
+        var ok = SendReliable(TryxRkProtocol.BuildPreset(wallpaperMedia, State.ScreenEnabled, State.Brightness));
+        if (ok)
+        {
+            State.CurrentMedia = wallpaperMedia;
+            State.CurrentMediaIsCustom = false;
+            _configStore.Update(s =>
+            {
+                s.Tryx.CurrentMedia = wallpaperMedia;
+                s.Tryx.CurrentMediaIsCustom = false;
+            });
+        }
+        return ok;
     }
 
     public bool SetFanSmart(int[][]? curve)
@@ -201,7 +214,7 @@ public sealed class TryxPanoramaHub : IDisposable
             s.Tryx.OverlayFilter = overlay.Filter;
             s.Tryx.OverlayOpacity = overlay.Opacity;
         });
-        return SendOnly(TryxRkProtocol.BuildOverlay(
+        return SendReliable(TryxRkProtocol.BuildOverlay(
             BuildOverlayLines(), ParseHexColorRgb(overlay.Color), overlay.Align));
     }
 
@@ -534,6 +547,36 @@ public sealed class TryxPanoramaHub : IDisposable
             Disconnect();
             return false;
         }
+    }
+
+    // One-shot commands (preset / brightness / screen / overlay-set) must survive the
+    // panel's ~60s USB self-re-enumeration: a write that lands during the drop fails
+    // and releases the transport; once the device re-appears (~0.2-1s) a retry via
+    // EnsureConnected reopens it and succeeds. Without this a single user action that
+    // coincides with a re-enumeration silently no-ops (and can leave the panel mid-
+    // load). The 1 Hz heartbeat / overlay-refresh path uses SendOnly directly - it
+    // re-sends on the next tick, so it needs no retry here.
+    // After a re-enumeration drop the panel re-appears on the bus almost at once but
+    // is not write-ready for another ~0.2-1s (observed: "write failed" -> "connected"
+    // ~200ms later in the service log, and the reopen's config write can still fail
+    // past that). Presence alone is a false ready-signal, so settle a fixed span
+    // between resends rather than polling discovery. Six attempts span ~3s, longer
+    // than any single recovery window seen.
+    private const int SendMaxAttempts = 6;
+    private const int SendRetrySettleMs = 500;
+
+    private bool SendReliable(byte[] request)
+    {
+        for (var attempt = 0; attempt < SendMaxAttempts; attempt++)
+        {
+            if (attempt > 0)
+            {
+                if (_disposed) return false;
+                Thread.Sleep(SendRetrySettleMs);
+            }
+            if (SendOnly(request)) return true;
+        }
+        return false;
     }
 
     private static void RunAdb(string adbPath, string arguments, int timeoutMs, out string stdout, out string stderr)

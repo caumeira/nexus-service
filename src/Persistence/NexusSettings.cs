@@ -710,6 +710,51 @@ public sealed class AuthSettings
     /// expiry. The QR + manual pair-code flows are unaffected.
     /// </summary>
     public PairBroadcastSettings PairBroadcast { get; set; } = new();
+
+    /// <summary>Stored Nexus cloud accounts (register/login via /cloud/...). Refresh tokens live here; access tokens are memory-only. Workstation-level.</summary>
+    public List<CloudAccountRecord> CloudAccounts { get; set; } = new();
+
+    /// <summary>Id of the currently active cloud account, or null when logged out of all. Must match the <see cref="CloudAccountRecord.AccountId"/> of an entry in <see cref="CloudAccounts"/>.</summary>
+    public string? ActiveCloudAccountId { get; set; }
+}
+
+/// <summary>
+/// One stored Nexus cloud account/session on this machine. The service is the
+/// token holder: <see cref="RefreshToken"/> is the only credential persisted
+/// (access tokens are 15 min JWTs kept in memory only, re-derived via refresh
+/// on restart). <see cref="ProfileSync"/> tracks the last known-synced state
+/// per profile so a restart can resume without re-downloading unchanged data
+/// or mistaking a stale local copy for a fresh edit.
+/// </summary>
+public sealed class CloudAccountRecord
+{
+    public string AccountId { get; set; } = "";
+    public string Email { get; set; } = "";
+    public string Username { get; set; } = "";
+    public string AvatarLarge { get; set; } = "";
+    public string AvatarSmall { get; set; } = "";
+    public bool IsPrivate { get; set; }
+    public bool EmailVerified { get; set; }
+    public string RefreshToken { get; set; } = "";
+    public string CreatedAt { get; set; } = "";
+    public string LastSyncAt { get; set; } = "";
+
+    /// <summary>Per-profile sync bookkeeping, keyed by profileId (shared between local id and cloud id - pulled profiles adopt the cloud id).</summary>
+    public Dictionary<string, CloudProfileSyncRecord> ProfileSync { get; set; } = new();
+}
+
+/// <summary>
+/// Last known-synced state for one profile under one cloud account.
+/// <see cref="LastSyncedHash"/> is the SHA-256 of the exported profile payload
+/// at <see cref="Revision"/> - comparing it to the current local export is how
+/// <c>CloudSyncDecision</c> tells "clean" (matches) from "dirty" (differs)
+/// without persisting the full payload a second time.
+/// </summary>
+public sealed class CloudProfileSyncRecord
+{
+    public int Revision { get; set; }
+    public string LastSyncedAt { get; set; } = "";
+    public string LastSyncedHash { get; set; } = "";
 }
 
 public sealed class PairBroadcastSettings

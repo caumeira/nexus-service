@@ -3,6 +3,7 @@ using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 
 namespace Nexus.Service.Peripherals.Tryx.Panorama;
@@ -10,16 +11,22 @@ namespace Nexus.Service.Peripherals.Tryx.Panorama;
 /// <summary>
 /// <see cref="ITryxPanoramaTransport"/> for the RK-firmware Panorama (VID 0x391A),
 /// which binds to the Windows usbprint device class rather than CDC serial. Opened
-/// with CreateFileW against the usbprint device interface path; the protocol is
-/// write-only, so writes go straight through WriteFile with no read/response path.
-/// The handle is a <see cref="SafeFileHandle"/> so an in-flight WriteFile can't race
-/// a concurrent Dispose onto a recycled numeric handle, and a dropped reference
-/// still frees the kernel handle.
+/// with CreateFileW against the usbprint device interface path.
+/// The panel replies on its IN endpoint after writes; if the host never reads that
+/// endpoint the pipe backs up and the usbprint stack resets the interface, killing
+/// the write handle every few tens of seconds (observed: a write-only loop dies at
+/// 20-70s, a loop that also drains the reads survives indefinitely). So the handle
+/// is opened overlapped and a background loop continuously reads and discards the IN
+/// endpoint to keep the pipe alive. Those bytes carry nothing the caller needs.
+/// The handle is a <see cref="SafeFileHandle"/> owned by the <see cref="FileStream"/>
+/// so an in-flight write can't race a concurrent Dispose onto a recycled handle.
 /// </summary>
 public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
 {
-    private readonly SafeFileHandle _handle;
+    private readonly FileStream _stream;
     private readonly object _writeLock = new();
+    private readonly CancellationTokenSource _drainCts = new();
+    private readonly Task _drainTask;
     private bool _disposed;
 
     public WindowsTryxPrinterTransport(string devicePath, string serial)
@@ -27,23 +34,27 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
         ArgumentException.ThrowIfNullOrWhiteSpace(devicePath);
         Serial = serial ?? "";
         PortName = devicePath;
-        _handle = Native.CreateFileW(
+        var handle = Native.CreateFileW(
             devicePath,
             Native.GENERIC_READ | Native.GENERIC_WRITE,
             Native.FILE_SHARE_READ | Native.FILE_SHARE_WRITE,
             IntPtr.Zero,
             Native.OPEN_EXISTING,
-            0,
+            Native.FILE_FLAG_OVERLAPPED,
             IntPtr.Zero);
-        if (_handle.IsInvalid)
+        if (handle.IsInvalid)
         {
             var err = Marshal.GetLastWin32Error();
-            _handle.Dispose();
+            handle.Dispose();
             throw new IOException($"CreateFileW failed for {devicePath}: {err}");
         }
+        // isAsync matches FILE_FLAG_OVERLAPPED so a concurrent write and the background
+        // read complete as overlapped I/O. The stream owns and frees the handle.
+        _stream = new FileStream(handle, FileAccess.ReadWrite, bufferSize: 4096, isAsync: true);
+        _drainTask = Task.Run(() => DrainReadsAsync(_drainCts.Token));
     }
 
-    public bool IsOpen => !_disposed && !_handle.IsInvalid && !_handle.IsClosed;
+    public bool IsOpen => !_disposed && _stream.SafeFileHandle is { IsInvalid: false, IsClosed: false };
     public string Serial { get; }
     public string PortName { get; }
 
@@ -53,25 +64,44 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
         {
             throw new ObjectDisposedException(nameof(WindowsTryxPrinterTransport));
         }
+        var copy = data.ToArray();
         lock (_writeLock)
         {
-            var copy = data.ToArray();
-            // Retry a transient WriteFile on the same held handle rather than
-            // reopening. The usbprint stack occasionally returns ERROR_GEN_FAILURE
-            // under a busy multi-threaded caller; a short retry rides over it. A
-            // still-failing write throws so the hub can drop and rebuild (a real
-            // unplug), instead of the old reopen-on-every-failure churn.
-            int lastError = 0;
-            for (var attempt = 0; attempt < 4; attempt++)
+            // Async I/O on both directions: the handle is overlapped, so a sync Write
+            // would collide with the background ReadAsync and stall the drain. Block on
+            // the write task (the caller is a worker thread, no sync context to deadlock).
+            // A failing write throws so the hub drops and rebuilds the transport (a real
+            // unplug, or an interface reset the drain loop didn't prevent).
+            _stream.WriteAsync(copy, 0, copy.Length).GetAwaiter().GetResult();
+            _stream.FlushAsync().GetAwaiter().GetResult();
+        }
+    }
+
+    // Continuously drain the panel's IN endpoint so its pipe never backs up. The
+    // payload is discarded; the read completing is the only thing that matters. A
+    // read error means the interface reset or the handle closed - stop, and the next
+    // write failing lets the hub rebuild the transport (with a fresh drain loop).
+    private async Task DrainReadsAsync(CancellationToken ct)
+    {
+        var buffer = new byte[2048];
+        while (!ct.IsCancellationRequested)
+        {
+            try
             {
-                if (Native.WriteFile(_handle, copy, (uint)copy.Length, out _, IntPtr.Zero))
+                var read = await _stream.ReadAsync(buffer, ct).ConfigureAwait(false);
+                if (read == 0)
                 {
-                    return;
+                    await Task.Delay(50, ct).ConfigureAwait(false);
                 }
-                lastError = Marshal.GetLastWin32Error();
-                Thread.Sleep(15);
             }
-            throw new IOException($"WriteFile failed after retries: {lastError}");
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+            catch
+            {
+                return;
+            }
         }
     }
 
@@ -79,12 +109,14 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     {
         if (_disposed) return;
         _disposed = true;
-        // Serialize against an in-flight Write so CloseHandle can't recycle the
-        // handle mid-WriteFile.
+        _drainCts.Cancel();
+        // Serialize against an in-flight Write so the stream can't close mid-write.
         lock (_writeLock)
         {
-            _handle.Dispose();
+            _stream.Dispose();
         }
+        try { _drainTask.Wait(500); } catch { /* drain loop already faulted/cancelled */ }
+        _drainCts.Dispose();
     }
 
     private static class Native
@@ -94,15 +126,12 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
         public const uint FILE_SHARE_READ = 0x1;
         public const uint FILE_SHARE_WRITE = 0x2;
         public const uint OPEN_EXISTING = 3;
+        public const uint FILE_FLAG_OVERLAPPED = 0x40000000;
 
         [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true, EntryPoint = "CreateFileW")]
         public static extern SafeFileHandle CreateFileW(
             string fileName, uint desiredAccess, uint shareMode, IntPtr securityAttributes,
             uint creationDisposition, uint flags, IntPtr templateFile);
-
-        [DllImport("kernel32.dll", SetLastError = true)]
-        [return: MarshalAs(UnmanagedType.Bool)]
-        public static extern bool WriteFile(SafeFileHandle handle, byte[] buffer, uint toWrite, out uint written, IntPtr overlapped);
     }
 }
 #endif
