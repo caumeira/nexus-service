@@ -71,7 +71,35 @@ public sealed class CloudProfileSyncService : BackgroundService
         State = _state,
         LastSyncAt = _lastSyncAt,
         Conflicts = _conflicts.Values.ToList(),
+        Profiles = BuildProfileStatuses(),
     };
+
+    /// <summary>Local manifest entries for the active account joined with that account's per-profile ProfileSync records. A profile never synced yet reports the unsynced sentinel defaults. Empty when logged out.</summary>
+    private List<CloudSyncProfileDto> BuildProfileStatuses()
+    {
+        if (_accounts.ActiveAccountId is not { } accountId)
+        {
+            return new List<CloudSyncProfileDto>();
+        }
+
+        var syncMap = _store.Load().Auth?.CloudAccounts.FirstOrDefault(a => a.AccountId == accountId)?.ProfileSync;
+        var localProfiles = _profiles.GetManifest().Profiles;
+        var result = new List<CloudSyncProfileDto>(localProfiles.Count);
+        foreach (var entry in localProfiles)
+        {
+            CloudProfileSyncRecord? record = null;
+            syncMap?.TryGetValue(entry.Id, out record);
+            result.Add(new CloudSyncProfileDto
+            {
+                ProfileId = entry.Id,
+                Name = entry.Name,
+                LastSyncedAt = record?.LastSyncedAt ?? "",
+                Revision = record?.Revision ?? 0,
+            });
+        }
+        result.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.OrdinalIgnoreCase));
+        return result;
+    }
 
     /// <summary>Manual "sync now" trigger for POST /cloud/sync/now. No-op when logged out.</summary>
     public void TriggerNow()

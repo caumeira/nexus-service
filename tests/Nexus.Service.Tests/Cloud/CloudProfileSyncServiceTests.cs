@@ -250,6 +250,44 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         Assert.Equal(2, _store.Load().Auth!.CloudAccounts[0].ProfileSync[onlyId].Revision);
     }
 
+    // ── sync status profiles ─────────────────────────────────────────────
+
+    [Fact]
+    public void GetStatus_profiles_joins_local_manifest_with_sync_records_and_sorts_by_name()
+    {
+        SeedAccount("acct-1", "refresh-1");
+        var defaultId = _profiles.GetActiveEntry()!.Id; // "Default"
+        var zebraId = _profiles.CreateProfile("Zebra").Id;
+        var appleId = _profiles.CreateProfile("apple").Id;
+        _store.Update(s => s.Auth!.CloudAccounts[0].ProfileSync[appleId] = new CloudProfileSyncRecord
+        { Revision = 3, LastSyncedAt = "2026-01-01T00:00:00Z", LastSyncedHash = "h" });
+
+        var profiles = _sync.GetStatus().Profiles;
+
+        Assert.Equal(3, profiles.Count);
+        Assert.Equal(new[] { "apple", "Default", "Zebra" }, profiles.Select(p => p.Name)); // OrdinalIgnoreCase: apple < Default < Zebra.
+
+        var appleDto = profiles.Single(p => p.ProfileId == appleId);
+        Assert.Equal(3, appleDto.Revision);
+        Assert.Equal("2026-01-01T00:00:00Z", appleDto.LastSyncedAt);
+
+        var zebraDto = profiles.Single(p => p.ProfileId == zebraId);
+        Assert.Equal(0, zebraDto.Revision);
+        Assert.Equal("", zebraDto.LastSyncedAt);
+
+        var defaultDto = profiles.Single(p => p.ProfileId == defaultId);
+        Assert.Equal(0, defaultDto.Revision);
+        Assert.Equal("", defaultDto.LastSyncedAt);
+    }
+
+    [Fact]
+    public void GetStatus_profiles_empty_when_logged_out()
+    {
+        Assert.Null(_accounts.ActiveAccountId);
+
+        Assert.Empty(_sync.GetStatus().Profiles);
+    }
+
     // ── account switch (archive + wholesale replace) ────────────────────
 
     [Fact]
