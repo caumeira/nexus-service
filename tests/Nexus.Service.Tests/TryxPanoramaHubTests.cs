@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
@@ -190,7 +191,7 @@ public class TryxPanoramaHubTests
     }
 
     [Fact]
-    public void SetPreset_is_not_yet_implemented_for_rk_firmware()
+    public void SetPreset_writes_the_wallpaper_config_and_persists()
     {
         var store = new InMemoryConfigStore();
         var recording = new RecordingTransport();
@@ -199,11 +200,16 @@ public class TryxPanoramaHubTests
             transportFactory: _ => recording,
             configStore: store);
         hub.EnsureConnected();
+        recording.Writes.Clear();
 
-        var ok = hub.SetPreset("Pre-set 3: Quantum time capsule");
+        var media = TryxRkProtocol.PresetMediaFile(3);
+        var ok = hub.SetPreset(media);
 
-        Assert.False(ok);
-        Assert.Equal("", store.Load().Tryx.CurrentMedia);
+        Assert.True(ok);
+        Assert.Single(recording.Writes);
+        Assert.Contains(media, Encoding.UTF8.GetString(recording.Writes[0]));
+        Assert.Equal(media, store.Load().Tryx.CurrentMedia);
+        Assert.False(store.Load().Tryx.CurrentMediaIsCustom);
     }
 
     [Fact]

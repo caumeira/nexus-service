@@ -70,6 +70,32 @@ public class TryxRkProtocolTests
         Assert.Equal(expected, actual);
     }
 
+    [Fact]
+    public void BuildPreset_matches_the_captured_kanali_config()
+    {
+        // Byte-for-byte equal to Kanali's own preset-select config (USBPcap capture,
+        // default_02 wallpaper, screen on, brightness 26): f200 with f1=power-on,
+        // f2=standby, f3=wallpaper (nested f3), f5=screen+brightness.
+        var expected = Convert.FromHexString(
+            "545259587a0000000a00c20c750a240a2264656661756c745f706f7765726f" +
+            "6e2e6d70342e683236345f32323430783130383012260801122264656661756c" +
+            "745f7374616e6462792e6d70342e683236345f3232343078313038301a1f1a1d" +
+            "64656661756c745f30322e6d70342e683236345f3232343078313038302a0408" +
+            "01101a");
+
+        var actual = TryxRkProtocol.BuildPreset(
+            TryxRkProtocol.PresetMediaFile(2), screenOn: true, 26);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void PresetMediaFile_zero_pads_the_index()
+    {
+        Assert.Equal("default_02.mp4.h264_2240x1080", TryxRkProtocol.PresetMediaFile(2));
+        Assert.Equal("default_21.mp4.h264_2240x1080", TryxRkProtocol.PresetMediaFile(21));
+    }
+
     // BuildOverlay tests below assert structural properties of the hand-rolled
     // protobuf; they are not camera-verified reference frames like the tests above.
 
@@ -107,7 +133,8 @@ public class TryxRkProtocolTests
         var text = Encoding.UTF8.GetString(frame);
         Assert.Contains("roboto-regular", text);
         Assert.Contains("44°C", text);
-        Assert.Contains("CPU TEMPERATURE", text);
+        // Labels render in their given case; the builder no longer force-uppercases.
+        Assert.Contains("cpu temperature", text);
     }
 
     [Fact]

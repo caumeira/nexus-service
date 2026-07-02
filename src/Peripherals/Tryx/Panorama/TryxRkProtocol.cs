@@ -86,6 +86,59 @@ public static class TryxRkProtocol
         return WrapFrame(payload);
     }
 
+    // The panel's built-in wallpapers are named default_NN.mp4.h264_2240x1080; the
+    // power-on and standby clips are fixed. Camera/capture-verified: switching a
+    // preset is a field 200 config where f1=power-on media, f2=standby media (f1=1
+    // + name), f3=the active wallpaper (nested f3=name), f5=screen+brightness.
+    private const string PresetPowerOnMedia = "default_poweron.mp4.h264_2240x1080";
+    private const string PresetStandbyMedia = "default_standby.mp4.h264_2240x1080";
+
+    /// <summary>
+    /// Media filename for the 1-based preset index, e.g. 2 -> the string the panel
+    /// stores for its second built-in wallpaper.
+    /// </summary>
+    public static string PresetMediaFile(int presetNumber)
+        => $"default_{presetNumber:D2}.mp4.h264_2240x1080";
+
+    /// <summary>
+    /// Selects a built-in wallpaper. <paramref name="wallpaperMedia"/> is the active
+    /// clip (see <see cref="PresetMediaFile"/>); screen state and brightness ride
+    /// along in the same config so the panel keeps them.
+    /// </summary>
+    public static byte[] BuildPreset(string wallpaperMedia, bool screenOn, int brightnessPercent)
+    {
+        var clamped = Math.Clamp(brightnessPercent, 0, 100);
+
+        var powerOn = new List<byte>();
+        WriteLengthDelimited(powerOn, fieldNumber: 1, Encoding.UTF8.GetBytes(PresetPowerOnMedia));
+
+        var standby = new List<byte>();
+        WriteVarintField(standby, fieldNumber: 1, 1);
+        WriteLengthDelimited(standby, fieldNumber: 2, Encoding.UTF8.GetBytes(PresetStandbyMedia));
+
+        var wallpaper = new List<byte>();
+        WriteLengthDelimited(wallpaper, fieldNumber: 3, Encoding.UTF8.GetBytes(wallpaperMedia));
+
+        var selector = new List<byte>();
+        if (screenOn)
+        {
+            WriteVarintField(selector, fieldNumber: 1, 1);
+        }
+        WriteVarintField(selector, fieldNumber: 2, (ulong)clamped);
+
+        var configBlock = new List<byte>();
+        WriteLengthDelimited(configBlock, fieldNumber: 1, powerOn.ToArray());
+        WriteLengthDelimited(configBlock, fieldNumber: 2, standby.ToArray());
+        WriteLengthDelimited(configBlock, fieldNumber: 3, wallpaper.ToArray());
+        WriteLengthDelimited(configBlock, fieldNumber: 5, selector.ToArray());
+
+        var payload = new List<byte>();
+        WriteLengthDelimited(payload, fieldNumber: 1, Array.Empty<byte>());
+        WriteLengthDelimited(payload, fieldNumber: 200, configBlock.ToArray());
+
+        return WrapFrame(payload);
+    }
+
     /// <summary>
     /// Sensor/text overlay layout. Field 201 nests a repeated field 1 per widget:
     /// f1=widgetId, f2=x, f3=y, f4=w, f5=h, f6/f7 fixed, then a repeated field 8 per
@@ -122,7 +175,7 @@ public static class TryxRkProtocol
             AppendOverlayWidget(
                 f201Body, widgetIdBase + 1, OverlayInsetX, lineY + OverlayValueLabelOffsetY,
                 OverlayContentWidth, OverlayLabelWidgetHeight, alignF6,
-                OverlayLabelFontSize, colorRgb, lines[i].Label.ToUpperInvariant());
+                OverlayLabelFontSize, colorRgb, lines[i].Label);
         }
 
         var payload = new List<byte>();
