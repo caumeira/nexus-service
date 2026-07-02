@@ -22,4 +22,9 @@ public interface ITryxPanoramaTransport : IDisposable
     string Serial { get; }
     string PortName { get; }
     void Write(ReadOnlySpan<byte> data);
+
+    /// <summary>Wallpaper preset ids (e.g. "default_01") the panel reported it has
+    /// stored on device. Empty when the transport has not received or does not
+    /// support the media-list push (see <see cref="TryxMediaList"/>).</summary>
+    IReadOnlyList<string> AvailableMediaIds => Array.Empty<string>();
 }

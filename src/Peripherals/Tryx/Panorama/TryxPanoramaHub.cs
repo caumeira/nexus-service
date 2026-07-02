@@ -72,6 +72,11 @@ public sealed class TryxPanoramaHub : IDisposable
 
     public TryxOverlayConfig Overlay => _overlay;
 
+    /// <summary>Wallpaper preset ids the connected panel reported as on-device
+    /// (see <see cref="ITryxPanoramaTransport.AvailableMediaIds"/>); empty before
+    /// the panel's media-list push arrives or when disconnected.</summary>
+    public IReadOnlyList<string> AvailableMediaIds => _transport?.AvailableMediaIds ?? Array.Empty<string>();
+
     public bool EnsureConnected()
     {
         if (_disposed) return false;
