@@ -1,4 +1,5 @@
 using Nexus.Service.Cloud;
+using Nexus.Service.Cooling;
 using Nexus.Service.Models.Cloud;
 using Nexus.Service.Models.Profiles;
 using Nexus.Service.Persistence;
@@ -14,6 +15,7 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
     private readonly ProfileManager _profiles;
     private readonly FakeCloudApiClient _api;
     private readonly CloudAccountService _accounts;
+    private readonly StubCoolingProvider _fans;
     private readonly CloudProfileSyncService _sync;
     private readonly ManualTimeProvider _clock;
 
@@ -26,9 +28,10 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
         _profiles.Initialize();
 
         _api = new FakeCloudApiClient();
+        _fans = new StubCoolingProvider(_store);
         _clock = new ManualTimeProvider(DateTimeOffset.UtcNow);
         _accounts = new CloudAccountService(_api, _store, _clock);
-        _sync = new CloudProfileSyncService(_api, _accounts, _profiles, _store, _clock);
+        _sync = new CloudProfileSyncService(_api, _accounts, _profiles, _store, _fans, _clock);
     }
 
     public void Dispose()
@@ -498,6 +501,44 @@ public sealed class CloudProfileSyncServiceTests : IDisposable
 
         // Archived first, same safety net as an account switch.
         Assert.True(Directory.Exists(Path.Combine(_tempDir, "profiles-archive")));
+    }
+
+    [Fact]
+    public async Task RunSyncPass_first_login_treats_the_auto_restore_seeded_bootstrap_default_as_pristine()
+    {
+        // Reproduces AutoRestoreOnStart.RestoreCooling's real seeding call,
+        // which runs ~4s after boot and can complete before a user logs in.
+        FanProfiles.SeedDefaultPresetCurves(_fans, _store);
+        _store.FlushNow();
+        Assert.True(_store.Load().Cooling.CurvesSeeded);
+        Assert.Equal(3, _store.Load().Cooling.Curves.Count);
+
+        SeedAccount("acct-1", "refresh-1");
+        var bootstrapId = _profiles.GetActiveEntry()!.Id;
+
+        var cloudSettings = new NexusSettings();
+        cloudSettings.Lighting.GlobalBrightness = 0.77f;
+        _api.OnListProfiles = _ => CloudApiResult<List<CloudProfileSummaryDto>>.Ok(new List<CloudProfileSummaryDto>
+        {
+            new() { ProfileId = "cloud-default", Name = "Default", Revision = 3 },
+        });
+        _api.OnGetProfile = (_, profileId) => CloudApiResult<CloudProfileDto>.Ok(new CloudProfileDto
+        {
+            ProfileId = profileId,
+            Name = "Default",
+            Revision = 3,
+            Payload = new ProfileExport { Name = "Default", Settings = cloudSettings },
+        });
+
+        await _sync.RunSyncPassAsync("acct-1", CancellationToken.None);
+
+        // Adopted wholesale even though the seeded curves diverge from a
+        // blank NexusSettings - the seeded state is still pristine.
+        Assert.Equal(0, _api.PutProfileCalls);
+        var manifest = _profiles.GetManifest();
+        Assert.Single(manifest.Profiles);
+        Assert.Equal("cloud-default", manifest.Profiles[0].Id);
+        Assert.DoesNotContain(manifest.Profiles, p => p.Id == bootstrapId);
     }
 
     [Fact]

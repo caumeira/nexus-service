@@ -365,6 +365,31 @@ public sealed class CloudAccountServiceTests
     }
 
     [Fact]
+    public async Task UploadAvatarAsync_malformed_success_body_is_a_real_failure_not_an_empty_200_fail()
+    {
+        var (svc, api, _) = Make();
+        api.OnLogin = _ => CloudApiResult<CloudAuthSession>.Ok(new CloudAuthSession
+        {
+            AccessToken = "access-1",
+            RefreshToken = "refresh-1",
+            Account = Account("acct-1"),
+        });
+        await svc.LoginAsync("nicola@example.com", "password1", CancellationToken.None);
+
+        // The real HTTP client's ToResultAsync never builds Success=true with
+        // a null Value - but the type allows it via a direct object
+        // initializer, so this must not surface as a 200 with empty error
+        // fields.
+        api.OnUploadAvatar = (_, _, _) => new CloudApiResult<CloudAvatarUploadResponse> { Success = true, StatusCode = 200 };
+
+        var result = await svc.UploadAvatarAsync(new byte[] { 1, 2, 3 }, "image/png", CancellationToken.None);
+
+        Assert.False(result.Success);
+        Assert.Equal("invalid_response", result.ErrorCode);
+        Assert.False(string.IsNullOrEmpty(result.ErrorMessage));
+    }
+
+    [Fact]
     public async Task RefreshAsync_serializes_concurrent_calls_for_the_same_account()
     {
         var (svc, api, store) = Make();

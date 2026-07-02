@@ -450,11 +450,19 @@ public sealed class CloudAccountService
             return CloudApiResult<CloudAvatarDto>.Fail(401, "no_session", "Not logged in.");
         }
         var result = await WithAuthAsync(accountId, token => _api.UploadAvatarAsync(token, bytes, contentType, ct), ct).ConfigureAwait(false);
-        if (!result.Success || result.Value is null)
+        if (!result.Success)
         {
             return result.Offline
                 ? CloudApiResult<CloudAvatarDto>.NetworkError(result.ErrorMessage ?? "")
                 : CloudApiResult<CloudAvatarDto>.Fail(result.StatusCode, result.ErrorCode, result.ErrorMessage);
+        }
+        if (result.Value is null)
+        {
+            // ToResultAsync only builds a Success result from a non-null
+            // parsed body, so this is unreachable through the real HTTP
+            // client - kept as a real failure (not a 200 with an empty
+            // avatar) in case a future caller constructs the result directly.
+            return CloudApiResult<CloudAvatarDto>.Fail(result.StatusCode, "invalid_response", "Empty or malformed response body.");
         }
 
         var avatar = new CloudAvatarDto { Large = result.Value.Large, Small = result.Value.Small };

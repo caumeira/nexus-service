@@ -8,6 +8,7 @@ using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Cooling;
 using Nexus.Service.Models.Cloud;
 using Nexus.Service.Models.Profiles;
 using Nexus.Service.Persistence;
@@ -39,6 +40,7 @@ public sealed class CloudProfileSyncService : BackgroundService
     private readonly CloudAccountService _accounts;
     private readonly ProfileManager _profiles;
     private readonly IConfigStore _store;
+    private readonly IFanControlProvider _fans;
     private readonly TimeProvider _clock;
 
     private readonly SemaphoreSlim _syncGate = new(1, 1);
@@ -49,17 +51,18 @@ public sealed class CloudProfileSyncService : BackgroundService
     private volatile string _lastSyncAt = "";
     private volatile string? _syncedAccountId;
 
-    public CloudProfileSyncService(ICloudApiClient api, CloudAccountService accounts, ProfileManager profiles, IConfigStore store)
-        : this(api, accounts, profiles, store, TimeProvider.System)
+    public CloudProfileSyncService(ICloudApiClient api, CloudAccountService accounts, ProfileManager profiles, IConfigStore store, IFanControlProvider fans)
+        : this(api, accounts, profiles, store, fans, TimeProvider.System)
     {
     }
 
-    internal CloudProfileSyncService(ICloudApiClient api, CloudAccountService accounts, ProfileManager profiles, IConfigStore store, TimeProvider clock)
+    internal CloudProfileSyncService(ICloudApiClient api, CloudAccountService accounts, ProfileManager profiles, IConfigStore store, IFanControlProvider fans, TimeProvider clock)
     {
         _api = api;
         _accounts = accounts;
         _profiles = profiles;
         _store = store;
+        _fans = fans;
         _clock = clock;
     }
 
@@ -745,24 +748,56 @@ public sealed class CloudProfileSyncService : BackgroundService
     /// <summary>
     /// True when settings' profile-scoped content (Lighting, Cooling, Theme,
     /// and the Dashboard-relevant fields per ProfileSharing.All - the same
-    /// set LoadProfileIntoSettings round-trips on switch/pull) is identical
-    /// to a freshly constructed NexusSettings. Hardware-bound fields (Keeb,
-    /// Y70, Devices, PanelDevices) are excluded since those vary by machine
-    /// even on a profile the user never touched.
+    /// set LoadProfileIntoSettings round-trips on switch/pull) matches one of
+    /// the two legitimately pristine states of a bootstrap Default profile:
+    /// a blank NexusSettings, or one with the Silent/Balanced/Turbo curves
+    /// seeded by the same FanProfiles.SeedDefaultPresetCurves call
+    /// AutoRestoreOnStart makes ~4s after boot - login can race that delay.
+    /// Hardware-bound fields (Keeb, Y70, Devices, PanelDevices) are excluded
+    /// since those vary by machine even on a profile the user never touched.
     /// </summary>
-    private static bool IsPristineDefaultContent(NexusSettings settings)
+    private bool IsPristineDefaultContent(NexusSettings settings)
     {
-        var fresh = new NexusSettings();
-        var candidateProjection = new NexusSettings();
-        var freshProjection = new NexusSettings();
+        var candidateJson = ProfileScopedJson(settings);
+        foreach (var baseline in PristineBaselines())
+        {
+            if (candidateJson == ProfileScopedJson(baseline))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private IEnumerable<NexusSettings> PristineBaselines()
+    {
+        yield return new NexusSettings();
+
+        var scratch = new ScratchConfigStore();
+        FanProfiles.SeedDefaultPresetCurves(_fans, scratch);
+        yield return scratch.Settings;
+    }
+
+    private static string ProfileScopedJson(NexusSettings settings)
+    {
+        var projection = new NexusSettings();
         foreach (var category in ProfileSharing.All)
         {
-            ProfileSharing.ApplyCategory(candidateProjection, settings, category);
-            ProfileSharing.ApplyCategory(freshProjection, fresh, category);
+            ProfileSharing.ApplyCategory(projection, settings, category);
         }
-        var candidateJson = JsonSerializer.Serialize(candidateProjection, PersistenceJsonContext.Default.NexusSettings);
-        var freshJson = JsonSerializer.Serialize(freshProjection, PersistenceJsonContext.Default.NexusSettings);
-        return candidateJson == freshJson;
+        return JsonSerializer.Serialize(projection, PersistenceJsonContext.Default.NexusSettings);
+    }
+
+    /// <summary>Throwaway in-memory IConfigStore over one NexusSettings instance, used only to run FanProfiles.SeedDefaultPresetCurves for the pristine-baseline projection without touching the real settings file.</summary>
+    private sealed class ScratchConfigStore : IConfigStore
+    {
+        public NexusSettings Settings { get; } = new();
+        public string SettingsPath => ":memory:";
+        public NexusSettings Load() => Settings;
+        public void Update(Action<NexusSettings> mutator) => mutator(Settings);
+        public void FlushNow() { }
+        public void Reload() { }
+        public event Action? OnChanged { add { } remove { } }
     }
 
     // ── shared helpers ───────────────────────────────────────────────────
