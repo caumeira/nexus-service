@@ -206,13 +206,9 @@ public static class TryxRoutes
                 AppJsonContext.Default.TryxAckResponse);
         });
 
-        app.MapGet("/tryx/presets", () =>
+        app.MapGet("/tryx/presets", (TryxPanoramaHub hub) =>
         {
-            var resp = new TryxPresetListResponse();
-            foreach (var (id, name) in KnownPresets)
-            {
-                resp.Presets.Add(new TryxPresetItem { Id = id, Name = name });
-            }
+            var resp = new TryxPresetListResponse { Presets = ResolveAvailablePresets(hub.AvailableMediaIds) };
             return Results.Json(resp, AppJsonContext.Default.TryxPresetListResponse);
         });
 
@@ -229,6 +225,14 @@ public static class TryxRoutes
             {
                 return Results.Json(
                     new TryxAckResponse { Ok = false, Msg = "unknown preset" },
+                    AppJsonContext.Default.TryxAckResponse);
+            }
+            // Reject cloud-only presets not stored on this panel; selecting one is a
+            // silent no-op on the device. Mirrors the availability filter on GET.
+            if (!ResolveAvailablePresets(hub.AvailableMediaIds).Exists(p => p.Id == body.Id))
+            {
+                return Results.Json(
+                    new TryxAckResponse { Ok = false, Msg = "preset not installed on panel" },
                     AppJsonContext.Default.TryxAckResponse);
             }
             var ok = hub.SetPreset(TryxRkProtocol.PresetMediaFile(index + 1));
@@ -405,6 +409,36 @@ public static class TryxRoutes
 
     private static int ParseInt(string raw, int fallback)
         => int.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) && v > 0 ? v : fallback;
+
+    // The RK panel's stored-media list arrives asynchronously (pushed on connect,
+    // parsed by the transport's drain loop); before it arrives, or on a transport
+    // that never reports one, fall back to the panel's minimum factory set so the
+    // picker is never empty and never offers a cloud-only preset the panel lacks.
+    private const int FallbackPresetCount = 6;
+
+    internal static List<TryxPresetItem> ResolveAvailablePresets(IReadOnlyList<string> availableMediaIds)
+    {
+        var items = new List<TryxPresetItem>();
+        if (availableMediaIds.Count == 0)
+        {
+            for (var i = 0; i < KnownPresets.Length && i < FallbackPresetCount; i++)
+            {
+                var (id, name) = KnownPresets[i];
+                items.Add(new TryxPresetItem { Id = id, Name = name });
+            }
+            return items;
+        }
+
+        var available = new HashSet<string>(availableMediaIds, StringComparer.Ordinal);
+        foreach (var (id, name) in KnownPresets)
+        {
+            if (available.Contains(id))
+            {
+                items.Add(new TryxPresetItem { Id = id, Name = name });
+            }
+        }
+        return items;
+    }
 
     private static List<string> ListMediaFiles(TryxPanoramaHub hub)
     {

@@ -1,5 +1,6 @@
 #if WINDOWS
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
@@ -28,6 +29,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     private readonly CancellationTokenSource _drainCts = new();
     private readonly Task _drainTask;
     private bool _disposed;
+    private volatile IReadOnlyList<string> _availableMediaIds = Array.Empty<string>();
 
     public WindowsTryxPrinterTransport(string devicePath, string serial)
     {
@@ -57,6 +59,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     public bool IsOpen => !_disposed && _stream.SafeFileHandle is { IsInvalid: false, IsClosed: false };
     public string Serial { get; }
     public string PortName { get; }
+    public IReadOnlyList<string> AvailableMediaIds => _availableMediaIds;
 
     public void Write(ReadOnlySpan<byte> data)
     {
@@ -92,6 +95,17 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
                 if (read == 0)
                 {
                     await Task.Delay(50, ct).ConfigureAwait(false);
+                    continue;
+                }
+                // The panel pushes its stored-media list unprompted on this endpoint;
+                // other reads (heartbeat acks, sensor replies) don't parse as one, so
+                // a stale non-empty list is never overwritten by an unrelated read.
+                // Assumes the list lands in a single read; a payload split across two
+                // reads only parses the fragment carrying the "/userdata/default/" marker.
+                var presets = TryxMediaList.ParsePresetIds(buffer.AsSpan(0, read));
+                if (presets.Count > 0)
+                {
+                    _availableMediaIds = presets;
                 }
             }
             catch (OperationCanceledException)

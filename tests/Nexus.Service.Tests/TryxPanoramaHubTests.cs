@@ -24,6 +24,7 @@ public class TryxPanoramaHubTests
         public string Serial => "test-serial";
         public string PortName => "COM1";
         public List<byte[]> Writes { get; } = new();
+        public IReadOnlyList<string> AvailableMediaIds { get; set; } = Array.Empty<string>();
         public void Write(ReadOnlySpan<byte> data) => Writes.Add(data.ToArray());
         public void Dispose() { }
     }
@@ -279,6 +280,42 @@ public class TryxPanoramaHubTests
         hub.EnsureConnected();
 
         Assert.Equal(2, recording.Writes.Count);
+    }
+
+    // ── Preset availability ──
+
+    [Fact]
+    public void AvailableMediaIds_reflects_the_connected_transport()
+    {
+        var recording = new RecordingTransport { AvailableMediaIds = new[] { "default_01", "default_02" } };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording);
+        hub.EnsureConnected();
+
+        var presets = TryxRoutes.ResolveAvailablePresets(hub.AvailableMediaIds);
+
+        Assert.Equal(2, presets.Count);
+        Assert.Equal("default_01", presets[0].Id);
+        Assert.Equal("default_02", presets[1].Id);
+    }
+
+    [Fact]
+    public void AvailableMediaIds_falls_back_to_the_first_six_before_the_panel_reports_any()
+    {
+        var recording = new RecordingTransport();
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording);
+        hub.EnsureConnected();
+
+        var presets = TryxRoutes.ResolveAvailablePresets(hub.AvailableMediaIds);
+
+        Assert.Equal(6, presets.Count);
+    }
+
+    [Fact]
+    public void AvailableMediaIds_is_empty_when_disconnected()
+    {
+        var hub = BuildHub();
+
+        Assert.Empty(hub.AvailableMediaIds);
     }
 
     // ── Task 2: tryx.status overlay ──
