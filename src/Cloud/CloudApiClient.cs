@@ -156,7 +156,9 @@ public sealed class CloudApiClient : ICloudApiClient
             using var form = new MultipartFormDataContent();
             using var imageContent = new ByteArrayContent(bytes);
             imageContent.Headers.ContentType = MediaTypeHeaderValue.Parse(contentType);
-            form.Add(imageContent, "avatar", "avatar");
+            // Field name must be "file": nexus-api's FileInterceptor('file')
+            // rejects any other multipart field with 400 "Unexpected field".
+            form.Add(imageContent, "file", "avatar.png");
             using var res = await client.PostAsync(_baseUrl + "/account/avatar", form, ct).ConfigureAwait(false);
             return await ToResultAsync(res, AppJsonContext.Default.CloudAvatarUploadResponse, ct).ConfigureAwait(false);
         }

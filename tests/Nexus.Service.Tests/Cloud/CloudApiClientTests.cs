@@ -60,4 +60,48 @@ public sealed class CloudApiClientTests
             catch { }
         }
     }
+
+    [Fact]
+    public async Task Avatar_upload_posts_multipart_field_named_file()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var requestTask = Task.Run(async () =>
+        {
+            using var accepted = await listener.AcceptTcpClientAsync();
+            using var stream = accepted.GetStream();
+            var buffer = new byte[16384];
+            var request = new System.Text.StringBuilder();
+            // Read until the terminal multipart boundary; a single read is not
+            // guaranteed to capture headers and body in one segment.
+            while (!request.ToString().Contains("--\r\n"))
+            {
+                var read = await stream.ReadAsync(buffer);
+                if (read == 0)
+                {
+                    break;
+                }
+                request.Append(System.Text.Encoding.UTF8.GetString(buffer, 0, read));
+            }
+            var response = "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: 2\r\nConnection: close\r\n\r\n{}";
+            await stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(response));
+            return request.ToString();
+        });
+
+        try
+        {
+            var client = new CloudApiClient(new SingleClientFactory(), $"http://127.0.0.1:{port}", TimeSpan.FromSeconds(5));
+
+            await client.UploadAvatarAsync("token", new byte[] { 1, 2, 3 }, "image/png", CancellationToken.None);
+
+            var request = await requestTask;
+            // nexus-api's FileInterceptor('file') 400s any other field name.
+            Assert.Contains("name=\"file\"", request);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
 }
