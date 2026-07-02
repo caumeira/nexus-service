@@ -206,8 +206,9 @@ public static class TryxRoutes
                     new TryxAckResponse { Ok = false, Msg = "missing id" },
                     AppJsonContext.Default.TryxAckResponse);
             }
-            // The wallpaper number comes from the id itself (not a catalog index) so a
-            // panel-reported wallpaper outside KnownPresets is still selectable.
+            // The wallpaper file derives from the id itself (not a catalog index) so a
+            // panel-reported wallpaper outside KnownPresets is still selectable; the
+            // parse only validates the default_NN shape.
             if (!body.Id.StartsWith("default_", StringComparison.Ordinal)
                 || !int.TryParse(body.Id.AsSpan("default_".Length), NumberStyles.None, CultureInfo.InvariantCulture, out var number)
                 || number < 1)
@@ -224,7 +225,7 @@ public static class TryxRoutes
                     new TryxAckResponse { Ok = false, Msg = "preset not installed on panel" },
                     AppJsonContext.Default.TryxAckResponse);
             }
-            var ok = hub.SetPreset(TryxRkProtocol.PresetMediaFile(number));
+            var ok = hub.SetPreset(TryxRkProtocol.PresetMediaFile(body.Id));
             return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
         });
 

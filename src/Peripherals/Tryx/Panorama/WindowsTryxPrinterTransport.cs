@@ -56,9 +56,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
         // buffered strategy, which serializes reads and writes under one semaphore,
         // so the drain's parked read blocks every write until the panel happens to
         // push data. The starved panel then misses its keep-alives and re-enumerates
-        // on its ~70s watchdog - the disconnect/reconnect loop (bench 2026-07-02:
-        // with 4096 a write after a parked read hangs ~45-60s then the panel resets;
-        // with 1 the same sequence runs clean).
+        // on its ~70s watchdog - the disconnect/reconnect loop.
         _stream = new FileStream(handle, FileAccess.ReadWrite, bufferSize: 1, isAsync: true);
         // The kernel cancels pending overlapped I/O when the issuing thread exits.
         // A pool-issued read parked between panel replies died on thread-pool
@@ -131,9 +129,12 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
             {
                 // A silent drain death leaves the transport write-only and the panel
                 // resets its interface ~70s later, so any abnormal exit must be loud.
+                // A throw from the log write itself would be unhandled on this
+                // dedicated thread and kill the process - swallow it.
                 if (!ct.IsCancellationRequested)
                 {
-                    ServiceLog.Warn($"[tryx] drain loop exited: {ex.GetType().Name}: {ex.Message}");
+                    try { ServiceLog.Warn($"[tryx] drain loop exited: {ex.GetType().Name}: {ex.Message}"); }
+                    catch { /* logging failure must not end the process */ }
                 }
                 return;
             }

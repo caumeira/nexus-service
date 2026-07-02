@@ -98,7 +98,15 @@ public static class TryxRkProtocol
     /// stores for its second built-in wallpaper.
     /// </summary>
     public static string PresetMediaFile(int presetNumber)
-        => $"default_{presetNumber:D2}.mp4.h264_2240x1080";
+        => PresetMediaFile($"default_{presetNumber:D2}");
+
+    /// <summary>
+    /// Media filename for a preset id as the panel reports it. Preserves the id
+    /// verbatim so a panel-reported name outside the default_NN padding round-trips
+    /// to the exact file the panel stores.
+    /// </summary>
+    public static string PresetMediaFile(string presetId)
+        => $"{presetId}.mp4.h264_2240x1080";
 
     /// <summary>
     /// Selects a built-in wallpaper. <paramref name="wallpaperMedia"/> is the active

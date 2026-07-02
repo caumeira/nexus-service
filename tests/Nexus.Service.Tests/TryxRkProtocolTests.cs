@@ -96,6 +96,12 @@ public class TryxRkProtocolTests
         Assert.Equal("default_21.mp4.h264_2240x1080", TryxRkProtocol.PresetMediaFile(21));
     }
 
+    [Fact]
+    public void PresetMediaFile_preserves_a_panel_reported_id_verbatim()
+    {
+        Assert.Equal("default_007.mp4.h264_2240x1080", TryxRkProtocol.PresetMediaFile("default_007"));
+    }
+
     // BuildOverlay tests below assert structural properties of the hand-rolled
     // protobuf; they are not camera-verified reference frames like the tests above.
 
