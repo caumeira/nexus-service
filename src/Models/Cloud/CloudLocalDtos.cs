@@ -102,12 +102,21 @@ public sealed class CloudSyncConflictDto
     public string UpdatedByInstallId { get; set; } = "";
 }
 
+public sealed class CloudSyncProfileDto
+{
+    public string ProfileId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string LastSyncedAt { get; set; } = "";
+    public int Revision { get; set; }
+}
+
 public sealed class CloudSyncStatusResponse : ApiResponse
 {
     /// <summary>"idle" | "syncing" | "dirty" | "offline" | "error"</summary>
     public string State { get; set; } = "idle";
     public string LastSyncAt { get; set; } = "";
     public List<CloudSyncConflictDto> Conflicts { get; set; } = new();
+    public List<CloudSyncProfileDto> Profiles { get; set; } = new();
 }
 
 public sealed class CloudSyncResolveBody
