@@ -97,7 +97,10 @@ public sealed class CloudApiClientTests
 
             var request = await requestTask;
             // nexus-api's FileInterceptor('file') 400s any other field name.
-            Assert.Contains("name=\"file\"", request);
+            // .NET quotes the disposition name only when it is not a simple
+            // token, so accept both forms; the trailing delimiter keeps a
+            // filename=... parameter from ever matching.
+            Assert.Matches("name=\"?file\"?;", request);
         }
         finally
         {
