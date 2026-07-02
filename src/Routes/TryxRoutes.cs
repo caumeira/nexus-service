@@ -257,8 +257,16 @@ public static class TryxRoutes
 
         app.MapPost("/tryx/cloud/install", async (TryxCloudInstallRequest body, TryxPanoramaHub hub, CancellationToken ct) =>
         {
-            var (ok, msg) = await hub.InstallCloudMaterialAsync(body.Id, ct);
-            return Results.Json(new TryxAckResponse { Ok = ok, Msg = msg }, AppJsonContext.Default.TryxAckResponse);
+            try
+            {
+                var (ok, msg) = await hub.InstallCloudMaterialAsync(body.Id, ct);
+                return Results.Json(new TryxAckResponse { Ok = ok, Msg = msg }, AppJsonContext.Default.TryxAckResponse);
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Warn($"[tryx] cloud install {body.Id} failed: {ex.GetType().Name}: {ex.Message}");
+                return Results.Json(new TryxAckResponse { Ok = false, Msg = "install failed" }, AppJsonContext.Default.TryxAckResponse);
+            }
         });
 
         app.MapPost("/tryx/preset", (TryxPresetRequest body, TryxPanoramaHub hub) =>

@@ -120,7 +120,11 @@ public sealed class TryxCloudCatalog
     {
         if (!CoverUrls.TryGetValue(id, out var url)) return null;
         var resp = await Http.GetAsync(url, HttpCompletionOption.ResponseHeadersRead, ct).ConfigureAwait(false);
-        if (!resp.IsSuccessStatusCode) return null;
+        if (!resp.IsSuccessStatusCode)
+        {
+            resp.Dispose();
+            return null;
+        }
         return await resp.Content.ReadAsStreamAsync(ct).ConfigureAwait(false);
     }
 
@@ -140,9 +144,10 @@ public sealed class TryxCloudCatalog
         return Convert.FromHexString(hex ?? throw new InvalidOperationException("Tryx cloud API returned no SM4 key."));
     }
 
-    /// <summary>Downloads the SM4-encrypted asset and decrypts it to
-    /// <paramref name="destPath"/>. Returns the install file name the panel
-    /// protocol expects.</summary>
+    /// <summary>Downloads the SM4-encrypted asset and decrypts it to <paramref name="destPath"/>
+    /// as a raw H.264 Annex-B stream. Returns the install file name the panel protocol expects.
+    /// Wire format (decoded live): the asset is a 16-byte IV followed by SM4-CBC ciphertext of
+    /// the H.264, keyed by /app-sm/get-sm4-key; PKCS7-padded.</summary>
     public async Task<string> DownloadAndDecryptAsync(int id, string destPath, CancellationToken ct)
     {
         var url = await GetDownloadUrlAsync(id, ct).ConfigureAwait(false);
@@ -151,8 +156,14 @@ public sealed class TryxCloudCatalog
         using var resp = await Http.GetAsync(url, ct).ConfigureAwait(false);
         resp.EnsureSuccessStatusCode();
         var encrypted = await resp.Content.ReadAsByteArrayAsync(ct).ConfigureAwait(false);
+        if (encrypted.Length <= 16)
+        {
+            throw new InvalidOperationException("Tryx cloud asset too small to contain an IV.");
+        }
 
-        var plain = Sm4.DecryptEcb(key, encrypted);
+        var iv = encrypted[..16];
+        var body = encrypted[16..];
+        var plain = Sm4.DecryptCbc(key, iv, body);
         await File.WriteAllBytesAsync(destPath, plain, ct).ConfigureAwait(false);
 
         return InstallFileName(id);
@@ -165,19 +176,22 @@ public sealed class TryxCloudCatalog
     private static async Task<TOut?> SendAsync<TOut>(
         string path, string plaintextJson, JsonTypeInfo<TryxCloudEnvelope<TOut>> envelopeInfo, CancellationToken ct)
     {
+        // The server's SM2 gateway wants the ciphertext hex as the RAW request body, not a
+        // JSON-quoted string (Kanali's bundled axios sends the string as-is; a quoted body is
+        // rejected with a 500). The 200 response is likewise raw hex, not a JSON scalar.
         var cipherHex = "04" + Sm2.Encrypt(plaintextJson, RequestPublicKeyHex);
-        var requestBody = JsonSerializer.Serialize(cipherHex, TryxCloudJsonContext.Default.String);
 
-        using var content = new StringContent(requestBody, Encoding.UTF8, "application/json");
+        using var content = new StringContent(cipherHex, Encoding.UTF8, "application/json");
         using var resp = await Http.PostAsync(BaseUrl + path, content, ct).ConfigureAwait(false);
         var responseBody = await resp.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
         if (!resp.IsSuccessStatusCode)
         {
             var bodyHead = responseBody.Length > 300 ? responseBody[..300] : responseBody;
-            Platform.ServiceLog.Warn($"[tryx] cloud {path} -> {(int)resp.StatusCode}; reqlen={requestBody.Length} body={bodyHead}");
+            Platform.ServiceLog.Warn($"[tryx] cloud {path} -> {(int)resp.StatusCode}; body={bodyHead}");
             resp.EnsureSuccessStatusCode();
         }
-        var responseHex = JsonSerializer.Deserialize(responseBody, TryxCloudJsonContext.Default.String);
+        // Tolerate a quoted or unquoted hex response.
+        var responseHex = responseBody.Trim().Trim('"');
         if (string.IsNullOrEmpty(responseHex))
         {
             throw new InvalidOperationException($"Tryx cloud API returned an empty response for {path}.");

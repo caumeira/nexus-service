@@ -461,6 +461,9 @@ public sealed class TryxSettings
     public string CurrentMedia { get; set; } = "";
     public bool CurrentMediaIsCustom { get; set; }
     public int Brightness { get; set; } = 100;
+    /// <summary>Cloud material ids installed on the panel; drives the catalog's installed
+    /// badge (the panel's media-list push reports only built-in presets, not downloads).</summary>
+    public List<int> InstalledCloudIds { get; set; } = new();
 }
 
 public sealed class DevicesSettings

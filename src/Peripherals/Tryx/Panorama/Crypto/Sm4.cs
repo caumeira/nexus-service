@@ -203,6 +203,14 @@ public static class Sm4
         {
             throw new CryptographicException("Invalid SM4 PKCS7 padding.");
         }
+        // Every pad byte must equal padLen, not just the last one.
+        for (var i = data.Length - padLen; i < data.Length; i++)
+        {
+            if (data[i] != padLen)
+            {
+                throw new CryptographicException("Invalid SM4 PKCS7 padding.");
+            }
+        }
         return data[..^padLen];
     }
 }

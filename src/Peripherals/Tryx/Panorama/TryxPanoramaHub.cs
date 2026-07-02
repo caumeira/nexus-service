@@ -338,19 +338,24 @@ public sealed class TryxPanoramaHub : IDisposable
                 ServiceLog.Error($"[tryx] cloud download/decrypt failed for {id}: {ex.GetType().Name}: {ex.Message}");
                 return (false, "download failed");
             }
-            // The decrypt must yield the plain Tryx media container; a wrong SM4 mode/padding
-            // gives garbage, so gate the push on the container magic.
-            var head = new byte[64];
+            // A correct SM4-CBC decrypt yields a raw H.264 Annex-B stream (start code
+            // 00 00 00 01 then an SPS); a wrong key/mode gives garbage, so gate the push on it.
+            var head = new byte[16];
+            int n;
             await using (var fs = File.OpenRead(tmp))
             {
-                var n = await fs.ReadAsync(head, ct);
-                if (!Encoding.ASCII.GetString(head, 0, n).Contains("Tryx media header", StringComparison.Ordinal))
-                {
-                    ServiceLog.Error($"[tryx] cloud {id} decrypt not a media container (head={Convert.ToHexString(head[..Math.Min(n, 24)])})");
-                    return (false, "decrypt format error");
-                }
+                n = await fs.ReadAsync(head, ct);
+            }
+            if (n < 5 || head[0] != 0x00 || head[1] != 0x00 || head[2] != 0x00 || head[3] != 0x01)
+            {
+                ServiceLog.Error($"[tryx] cloud {id} decrypt not H.264 (head={Convert.ToHexString(head[..Math.Min(n, 16)])})");
+                return (false, "decrypt format error");
             }
             if (!await InstallLocalMediaAsync(tmp, installName, ct)) return (false, "install failed");
+            _configStore.Update(s =>
+            {
+                if (!s.Tryx.InstalledCloudIds.Contains(id)) s.Tryx.InstalledCloudIds.Add(id);
+            });
             return (true, "");
         }
         finally
@@ -364,7 +369,7 @@ public sealed class TryxPanoramaHub : IDisposable
         => _cloud.GetCatalogAsync("PANO_1011", ct);
 
     public bool IsCloudInstalled(int id)
-        => AvailableMediaIds.Contains($"download_{id}", StringComparer.Ordinal);
+        => _configStore.Load().Tryx.InstalledCloudIds.Contains(id);
 
     public Task<System.IO.Stream?> OpenCloudCoverAsync(int id, CancellationToken ct)
         => _cloud.OpenCoverAsync(id, ct);
@@ -800,6 +805,11 @@ public sealed class TryxPanoramaHub : IDisposable
 
     private bool SendOnly(byte[] request)
     {
+        // Every device write serializes on _txGate (reentrant), so a route-initiated control
+        // frame (brightness/preset/overlay) cannot land between a transfer's BEGIN/DATA/COMMIT
+        // frames - the transfer holds _txGate for its whole burst and this re-enters it.
+        lock (_txGate)
+        {
         if (!EnsureConnected()) return false;
         var transport = _transport!;
         try
@@ -821,6 +831,7 @@ public sealed class TryxPanoramaHub : IDisposable
             ServiceLog.Error($"[tryx] write failed: {ex.GetType().Name}: {ex.Message}");
             Disconnect();
             return false;
+        }
         }
     }
 
