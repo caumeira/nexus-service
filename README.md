@@ -72,6 +72,7 @@ src/
   Relay/              # off-LAN relay client for the phone panel
   Discovery/          # mDNS/Bonjour advertising
   Auth/  Security/    # local pairing, SPKI pinning, token issuance
+  Cloud/              # Nexus cloud accounts: api.hellonexus.com client (NEXUS_API_BASE overrides the default base URL), profile sync, device reporting (/cloud/* routes, desktop-bearer only)
   Persistence/        # IConfigStore (per-OS app-data location)
   Net/                # local cert provisioning, loopback discovery
   Lifecycle/          # service install/uninstall, scheduled task, tray entry, CLI flags
