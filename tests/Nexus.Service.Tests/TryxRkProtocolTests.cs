@@ -102,6 +102,59 @@ public class TryxRkProtocolTests
         Assert.Equal("default_007.mp4.h264_2240x1080", TryxRkProtocol.PresetMediaFile("default_007"));
     }
 
+    [Fact]
+    public void BuildFileBegin_matches_the_captured_kanali_frame()
+    {
+        // USBPcap capture of a Kanali custom-video upload: f1{f2:sessionId} +
+        // f400{f1:fileName, f2:fileSize}. session 668387, size 2278333.
+        var expected = Convert.FromHexString(
+            "545259583a0000000a0410e3e5288219310a2a323032362d30372d30315f3232" +
+            "2d30342d32342d3233372e6d70342e683236345f3232343078313038301" +
+            "0bd878b01");
+
+        var actual = TryxRkProtocol.BuildFileBegin(
+            668387, "2026-07-01_22-04-24-237.mp4.h264_2240x1080", 2278333);
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void BuildFileCommit_matches_the_captured_kanali_frame()
+    {
+        // f1{f2:668387} + f402{f1:"media"}.
+        var expected = Convert.FromHexString("54525958100000000a0410e3e5289219070a056d65646961");
+
+        var actual = TryxRkProtocol.BuildFileCommit(668387, "media");
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
+    public void BuildFileChunk_wraps_the_payload_in_f401_under_the_session_envelope()
+    {
+        var chunk = new byte[] { 0xde, 0xad, 0xbe, 0xef };
+
+        var frame = TryxRkProtocol.BuildFileChunk(668387, chunk);
+
+        // f1{f2:668387} (0a04 10 e3e528) then f401 (tag 8a19) len 6: 0a04 deadbeef.
+        var expected = Convert.FromHexString("54525958" + "0f000000" + "0a0410e3e528" + "8a19060a04deadbeef");
+        Assert.Equal(expected, frame);
+    }
+
+    [Fact]
+    public void WrapMediaContainer_prefixes_the_header_and_appends_the_stream()
+    {
+        var h264 = new byte[] { 0x00, 0x00, 0x00, 0x01, 0x67, 0x11, 0x22 };
+
+        var c = TryxRkProtocol.WrapMediaContainer(h264, fps: 60, width: 2240, height: 1080, frameCount: 172, id: 1297631300);
+
+        var headerLen = System.Buffers.Binary.BinaryPrimitives.ReadUInt32LittleEndian(c);
+        var header = System.Text.Encoding.ASCII.GetString(c, 4, (int)headerLen);
+        Assert.Contains("Tryx media header v1, fps=60, size=2240x1080", header);
+        // The raw stream is appended verbatim after the header.
+        Assert.Equal(h264, c[(4 + (int)headerLen)..]);
+    }
+
     // BuildOverlay tests below assert structural properties of the hand-rolled
     // protobuf; they are not camera-verified reference frames like the tests above.
 

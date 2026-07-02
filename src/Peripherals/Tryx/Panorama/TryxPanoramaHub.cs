@@ -36,6 +36,9 @@ public sealed class TryxPanoramaHub : IDisposable
     // Set while EnsureLocalCopyAsync holds the adb pull, so the heartbeat does not
     // issue a concurrent adb command against the same device.
     private volatile bool _importInProgress;
+    // Set while a file transfer streams; the heartbeat skips the whole tick so no
+    // control frame lands between the BEGIN/DATA/COMMIT frames (Kanali sends none).
+    private volatile bool _transferInProgress;
     private readonly TryxOverlayConfig _overlay;
 
     public TryxPanoramaHub(
@@ -67,6 +70,9 @@ public sealed class TryxPanoramaHub : IDisposable
 
     /// <summary>True while an import holds the port; the heartbeat skips STATE-all then.</summary>
     public bool ImportInProgress => _importInProgress;
+
+    /// <summary>True while a file transfer streams; the heartbeat skips its whole tick.</summary>
+    public bool TransferInProgress => _transferInProgress;
 
     public bool IsConnected => _transport is { IsOpen: true };
 
@@ -223,11 +229,170 @@ public sealed class TryxPanoramaHub : IDisposable
             BuildOverlayLines(), ParseHexColorRgb(overlay.Color), overlay.Align));
     }
 
-    public Task<bool> ImportAndPlayVideoAsync(
+    // Panel surface is a fixed 2240x1080 2:1 display; every custom clip is transcoded to
+    // it. 60 fps + Main profile + no B-frames matches Kanali's MediaX output (the format
+    // the firmware decoder is known to accept).
+    private const int PanelWidth = 2240;
+    private const int PanelHeight = 1080;
+    private const int PanelFps = 60;
+
+    private uint _transferSession = 600000;
+
+    /// <summary>Transcodes <paramref name="localPath"/> to the panel's H.264 format, wraps it
+    /// in the Tryx media container, streams it over the RK file-transfer protocol, and selects
+    /// it. RK custom media is a directly playable "media" file (no encryption).</summary>
+    public async Task<bool> ImportAndPlayVideoAsync(
         string localPath, string sourceName, TryxVideoCrop? crop, int targetWidth, int targetHeight, CancellationToken ct)
     {
-        ServiceLog.Warn("[tryx] ImportAndPlayVideoAsync not yet implemented for RK firmware");
-        return Task.FromResult(false);
+        var ffmpegPath = FfmpegResolver.Path;
+        if (ffmpegPath is null)
+        {
+            ServiceLog.Error("[tryx] ffmpeg not found; cannot import video");
+            return false;
+        }
+        if (!EnsureConnected()) return false;
+
+        var deviceFileName = CustomMediaFileName(sourceName);
+        var mp4Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nexus-tryx-{Guid.NewGuid():N}.mp4");
+        try
+        {
+            if (!await TranscodeToPanelMp4Async(ffmpegPath, localPath, crop, mp4Path, ct))
+            {
+                return false;
+            }
+            // Bundled ffmpeg has only the mp4 muxer; extract the Annex-B stream ourselves.
+            var mp4 = await File.ReadAllBytesAsync(mp4Path, ct);
+            var h264 = Mp4AnnexB.Convert(mp4);
+            var frames = CountH264Frames(h264);
+            var id = unchecked((uint)sourceName.GetHashCode()) | 1u;
+            var container = TryxRkProtocol.WrapMediaContainer(h264, PanelFps, PanelWidth, PanelHeight, frames, id);
+
+            if (!SendFileTransfer(deviceFileName, container, fileType: "media", ct))
+            {
+                return false;
+            }
+            // Same f200 config that selects a built-in preset; wallpaper = the pushed file.
+            if (!SendReliable(TryxRkProtocol.BuildPreset(deviceFileName, State.ScreenEnabled, State.Brightness)))
+            {
+                return false;
+            }
+            State.CurrentMedia = deviceFileName;
+            State.CurrentMediaIsCustom = true;
+            State.ScreenEnabled = true;
+            _configStore.Update(s => { s.Tryx.CurrentMedia = deviceFileName; s.Tryx.CurrentMediaIsCustom = true; });
+
+            // Thumbnail/duration from the source so the media list can render the entry.
+            try { TryxThumbnailCache.Write(ffmpegPath, localPath, deviceFileName); } catch { }
+            try { TryxThumbnailCache.WriteDuration(deviceFileName, TryxThumbnailCache.ProbeDuration(ffmpegPath, localPath)); } catch { }
+            return true;
+        }
+        finally
+        {
+            try { File.Delete(mp4Path); } catch { /* best effort */ }
+        }
+    }
+
+    /// <summary>Installs an already-local, panel-ready file (e.g. a decrypted cloud theme) by
+    /// streaming it over the file-transfer protocol and selecting it. The file must already be
+    /// the plain Tryx media container; <paramref name="deviceFileName"/> is the on-panel name.</summary>
+    public async Task<bool> InstallLocalMediaAsync(string localContainerPath, string deviceFileName, CancellationToken ct)
+    {
+        if (!TryxThumbnailCache.IsSafeDeviceName(deviceFileName)) return false;
+        if (!EnsureConnected()) return false;
+        var bytes = await File.ReadAllBytesAsync(localContainerPath, ct);
+        if (!SendFileTransfer(deviceFileName, bytes, fileType: "media", ct)) return false;
+        if (!SendReliable(TryxRkProtocol.BuildPreset(deviceFileName, State.ScreenEnabled, State.Brightness))) return false;
+        State.CurrentMedia = deviceFileName;
+        State.CurrentMediaIsCustom = false;
+        _configStore.Update(s => { s.Tryx.CurrentMedia = deviceFileName; s.Tryx.CurrentMediaIsCustom = false; });
+        return true;
+    }
+
+    // Device filename for a custom upload: sanitized stem + the panel's media suffix, matching
+    // the built-in default_NN.mp4.h264_2240x1080 naming so the f200 select targets it.
+    private static string CustomMediaFileName(string sourceName)
+    {
+        var stem = System.IO.Path.GetFileNameWithoutExtension(sourceName);
+        var sb = new StringBuilder(stem.Length);
+        foreach (var c in stem)
+        {
+            sb.Append((c is >= 'a' and <= 'z' or >= 'A' and <= 'Z' or >= '0' and <= '9' or '_' or '-') ? c : '_');
+        }
+        var clean = sb.ToString();
+        if (clean.Length > 32) clean = clean.Substring(0, 32);
+        if (clean.Length == 0) clean = "custom";
+        return $"{clean}.mp4.h264_{PanelWidth}x{PanelHeight}";
+    }
+
+    // Streams a full file: BEGIN (f400 name+size) -> DATA (f401 chunks) -> COMMIT (f402 type).
+    // Pauses the heartbeat for the burst (Kanali sends none mid-transfer; the receiving panel
+    // will not standby). A failed write aborts and drops the transport.
+    private bool SendFileTransfer(string deviceFileName, byte[] payload, string fileType, CancellationToken ct)
+    {
+        var session = unchecked(++_transferSession);
+        _transferInProgress = true;
+        try
+        {
+            if (!SendOnly(TryxRkProtocol.BuildFileBegin(session, deviceFileName, payload.Length))) return false;
+            for (var offset = 0; offset < payload.Length; offset += TryxRkProtocol.FileChunkSize)
+            {
+                ct.ThrowIfCancellationRequested();
+                var len = Math.Min(TryxRkProtocol.FileChunkSize, payload.Length - offset);
+                if (!SendOnly(TryxRkProtocol.BuildFileChunk(session, payload.AsSpan(offset, len)))) return false;
+            }
+            return SendOnly(TryxRkProtocol.BuildFileCommit(session, fileType));
+        }
+        finally
+        {
+            _transferInProgress = false;
+        }
+    }
+
+    private async Task<bool> TranscodeToPanelMp4Async(
+        string ffmpegPath, string input, TryxVideoCrop? crop, string outputMp4, CancellationToken ct)
+    {
+        var vf = crop is { } c
+            ? $"crop=in_w*{F(c.W)}:in_h*{F(c.H)}:in_w*{F(c.X)}:in_h*{F(c.Y)},scale={PanelWidth}:{PanelHeight}"
+            : $"scale={PanelWidth}:{PanelHeight}";
+        var args = $"-nostdin -hide_banner -loglevel error -y -i \"{input}\" -an " +
+                   $"-vf \"{vf}\" -c:v libx264 -profile:v main -pix_fmt yuv420p " +
+                   $"-r {PanelFps} -bf 0 -g {PanelFps} -movflags +faststart \"{outputMp4}\"";
+        using var p = Process.Start(new ProcessStartInfo
+        {
+            FileName = ffmpegPath,
+            Arguments = args,
+            CreateNoWindow = true,
+            UseShellExecute = false,
+            RedirectStandardError = true,
+        });
+        if (p is null) return false;
+        var err = await p.StandardError.ReadToEndAsync(ct);
+        await p.WaitForExitAsync(ct);
+        if (p.ExitCode != 0 || !File.Exists(outputMp4) || new FileInfo(outputMp4).Length == 0)
+        {
+            ServiceLog.Error($"[tryx] transcode failed (exit {p.ExitCode}): {err.Trim()}");
+            return false;
+        }
+        return true;
+    }
+
+    private static string F(double v) => v.ToString("0.#####", CultureInfo.InvariantCulture);
+
+    // Counts H.264 access units by VCL NAL units (type 1 non-IDR, 5 IDR). x264 emits one
+    // slice per frame by default, so this equals the frame count; used for the container's
+    // frame-count header field.
+    private static int CountH264Frames(ReadOnlySpan<byte> h264)
+    {
+        var frames = 0;
+        for (var i = 0; i + 4 < h264.Length; i++)
+        {
+            if (h264[i] == 0 && h264[i + 1] == 0 && h264[i + 2] == 1)
+            {
+                var nalType = h264[i + 3] & 0x1f;
+                if (nalType is 1 or 5) frames++;
+            }
+        }
+        return frames;
     }
 
     /// <summary>Ensures a local copy of <paramref name="deviceFileName"/> exists in the media store,

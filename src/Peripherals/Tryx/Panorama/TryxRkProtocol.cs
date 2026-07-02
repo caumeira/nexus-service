@@ -217,6 +217,81 @@ public static class TryxRkProtocol
         WriteLengthDelimited(f201Body, fieldNumber: 1, widget.ToArray());
     }
 
+    // File transfer (custom media + cloud themes). Chunk payload size matches Kanali's
+    // capture; the panel reassembles by declared fileSize so the exact value is not
+    // load-bearing, but staying at Kanali's size avoids surprising the firmware.
+    public const int FileChunkSize = 65485;
+
+    /// <summary>Transfer BEGIN: f400{ f1:fileName, f2:fileSize }. All transfer frames
+    /// carry the session envelope f1{f2:sessionId} (control frames use an empty f1).</summary>
+    public static byte[] BuildFileBegin(uint sessionId, string fileName, long fileSize)
+    {
+        var begin = new List<byte>();
+        WriteLengthDelimited(begin, fieldNumber: 1, Encoding.UTF8.GetBytes(fileName));
+        WriteVarintField(begin, fieldNumber: 2, (ulong)fileSize);
+
+        var payload = SessionEnvelope(sessionId);
+        WriteLengthDelimited(payload, fieldNumber: 400, begin.ToArray());
+        return WrapFrame(payload);
+    }
+
+    /// <summary>Transfer DATA: f401{ f1:&lt;chunk&gt; }, repeated in order until the file is sent.</summary>
+    public static byte[] BuildFileChunk(uint sessionId, ReadOnlySpan<byte> chunk)
+    {
+        var block = new List<byte>();
+        WriteLengthDelimited(block, fieldNumber: 1, chunk.ToArray());
+
+        var payload = SessionEnvelope(sessionId);
+        WriteLengthDelimited(payload, fieldNumber: 401, block.ToArray());
+        return WrapFrame(payload);
+    }
+
+    /// <summary>Transfer COMMIT: f402{ f1:fileType }. fileType is "media" for a directly
+    /// playable file (custom video) or "tmp" for an encrypted file awaiting a decrypt job.</summary>
+    public static byte[] BuildFileCommit(uint sessionId, string fileType)
+    {
+        var block = new List<byte>();
+        WriteLengthDelimited(block, fieldNumber: 1, Encoding.ASCII.GetBytes(fileType));
+
+        var payload = SessionEnvelope(sessionId);
+        WriteLengthDelimited(payload, fieldNumber: 402, block.ToArray());
+        return WrapFrame(payload);
+    }
+
+    private static List<byte> SessionEnvelope(uint sessionId)
+    {
+        var f1 = new List<byte>();
+        WriteVarintField(f1, fieldNumber: 2, sessionId);
+        var payload = new List<byte>();
+        WriteLengthDelimited(payload, fieldNumber: 1, f1.ToArray());
+        return payload;
+    }
+
+    /// <summary>Wraps a raw H.264 Annex-B elementary stream in the "Tryx media" container the
+    /// panel expects: a little-endian uint32 header length, a protobuf header (f1=id,
+    /// f2=magic-string, f3=4, f4=1, f5=fps, f6=width, f7=height, f8=frameCount), then the
+    /// stream. Layout decoded from a Kanali capture (MediaX.dll MX_ConvertToH264Raw output).</summary>
+    public static byte[] WrapMediaContainer(
+        ReadOnlySpan<byte> h264AnnexB, int fps, int width, int height, int frameCount, uint id)
+    {
+        var hdr = new List<byte>();
+        WriteVarintField(hdr, fieldNumber: 1, id);
+        WriteLengthDelimited(hdr, fieldNumber: 2,
+            Encoding.ASCII.GetBytes($"Tryx media header v1, fps={fps}, size={width}x{height}"));
+        WriteVarintField(hdr, fieldNumber: 3, 4);
+        WriteVarintField(hdr, fieldNumber: 4, 1);
+        WriteVarintField(hdr, fieldNumber: 5, (ulong)fps);
+        WriteVarintField(hdr, fieldNumber: 6, (ulong)width);
+        WriteVarintField(hdr, fieldNumber: 7, (ulong)height);
+        WriteVarintField(hdr, fieldNumber: 8, (ulong)frameCount);
+
+        var result = new byte[4 + hdr.Count + h264AnnexB.Length];
+        BinaryPrimitives.WriteUInt32LittleEndian(result, (uint)hdr.Count);
+        hdr.CopyTo(result, 4);
+        h264AnnexB.CopyTo(result.AsSpan(4 + hdr.Count));
+        return result;
+    }
+
     private static byte[] WrapFrame(List<byte> payload)
     {
         var frame = new byte[FrameMagic.Length + 4 + payload.Count];
