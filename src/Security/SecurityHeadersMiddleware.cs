@@ -22,8 +22,9 @@ internal static class SecurityHeadersMiddleware
     // host-source matches against the URL's origin, not against inline.
     //
     // Image whitelist covers Steam (avatars/game icons/game headers from
-    // Valve CDNs) + Discord (avatars/guild icons/banners). Both are
-    // CDN-hosted URLs returned by the upstream APIs with no service-side
+    // Valve CDNs) + Discord (avatars/guild icons/banners) + usercontent.
+    // hellonexus.com (user-uploaded Nexus account avatars, R2-backed). All
+    // are CDN-hosted URLs returned by the upstream APIs with no service-side
     // proxy, so the browser fetches them directly.
     //
     // frame-ancestors 'self' (not 'none') so PanelEmbedFrame.tsx can iframe
@@ -42,7 +43,8 @@ internal static class SecurityHeadersMiddleware
         "font-src 'self' data: https://fonts.gstatic.com; " +
         "img-src 'self' data: blob: " +
         "https://*.steamstatic.com https://media.steampowered.com " +
-        "https://cdn.discordapp.com https://media.discordapp.net; " +
+        "https://cdn.discordapp.com https://media.discordapp.net " +
+        "https://usercontent.hellonexus.com; " +
         "media-src 'self' data: blob:; " +
         "connect-src 'self' ws: wss: https://api.hellonexus.com; " +
         "frame-ancestors 'self'; " +
