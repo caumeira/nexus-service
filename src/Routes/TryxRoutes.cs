@@ -279,23 +279,15 @@ public static class TryxRoutes
                     new TryxAckResponse { Ok = false, Msg = "missing id" },
                     AppJsonContext.Default.TryxAckResponse);
             }
-            // The wallpaper file derives from the id itself (not a catalog index) so a
-            // panel-reported wallpaper outside KnownPresets is still selectable; the
-            // parse only validates the default_NN shape.
-            if (!body.Id.StartsWith("default_", StringComparison.Ordinal)
-                || !int.TryParse(body.Id.AsSpan("default_".Length), NumberStyles.None, CultureInfo.InvariantCulture, out var number)
-                || number < 1)
+            // The id maps directly to the on-panel wallpaper filename, so any stored
+            // wallpaper is selectable: a built-in default_NN or an installed cloud
+            // download_NN. Selecting media the panel does not have is a silent no-op
+            // there, so no availability gate is needed (the panel's media list is only
+            // reported on a cold boot, which made the old gate reject valid picks).
+            if (!TryxThumbnailCache.IsSafeDeviceName(body.Id))
             {
                 return Results.Json(
                     new TryxAckResponse { Ok = false, Msg = "unknown preset" },
-                    AppJsonContext.Default.TryxAckResponse);
-            }
-            // Reject wallpapers not stored on this panel; selecting one is a silent
-            // no-op on the device. Mirrors the availability filter on GET.
-            if (!ResolveAvailablePresets(hub.AvailableMediaIds).Exists(p => p.Id == body.Id))
-            {
-                return Results.Json(
-                    new TryxAckResponse { Ok = false, Msg = "preset not installed on panel" },
                     AppJsonContext.Default.TryxAckResponse);
             }
             var ok = hub.SetPreset(TryxRkProtocol.PresetMediaFile(body.Id));
