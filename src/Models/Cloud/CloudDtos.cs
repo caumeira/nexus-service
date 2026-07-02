@@ -147,9 +147,11 @@ public sealed class CloudPutProfileResult
     public string? Name { get; set; }
 }
 
+/// <summary>nexus-api's POST /account/avatar returns {large, small} top-level, not nested under an "avatar" key.</summary>
 public sealed class CloudAvatarUploadResponse
 {
-    public CloudAvatarDto? Avatar { get; set; }
+    public string Large { get; set; } = "";
+    public string Small { get; set; } = "";
 }
 
 /// <summary>Error body shape assumed for non-2xx cloud responses: a stable machine code (e.g. "email_unverified", "invalid_credentials") plus a human message.</summary>

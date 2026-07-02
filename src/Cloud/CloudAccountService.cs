@@ -442,27 +442,32 @@ public sealed class CloudAccountService
         return result;
     }
 
-    public async Task<CloudApiResult<CloudAvatarUploadResponse>> UploadAvatarAsync(byte[] bytes, string contentType, CancellationToken ct)
+    public async Task<CloudApiResult<CloudAvatarDto>> UploadAvatarAsync(byte[] bytes, string contentType, CancellationToken ct)
     {
         var accountId = ActiveAccountId;
         if (accountId is null)
         {
-            return CloudApiResult<CloudAvatarUploadResponse>.Fail(401, "no_session", "Not logged in.");
+            return CloudApiResult<CloudAvatarDto>.Fail(401, "no_session", "Not logged in.");
         }
         var result = await WithAuthAsync(accountId, token => _api.UploadAvatarAsync(token, bytes, contentType, ct), ct).ConfigureAwait(false);
-        if (result.Success && result.Value?.Avatar is { } avatar)
+        if (!result.Success || result.Value is null)
         {
-            _store.Update(s =>
-            {
-                var rec = s.Auth?.CloudAccounts.FirstOrDefault(a => a.AccountId == accountId);
-                if (rec is not null)
-                {
-                    rec.AvatarLarge = avatar.Large;
-                    rec.AvatarSmall = avatar.Small;
-                }
-            });
+            return result.Offline
+                ? CloudApiResult<CloudAvatarDto>.NetworkError(result.ErrorMessage ?? "")
+                : CloudApiResult<CloudAvatarDto>.Fail(result.StatusCode, result.ErrorCode, result.ErrorMessage);
         }
-        return result;
+
+        var avatar = new CloudAvatarDto { Large = result.Value.Large, Small = result.Value.Small };
+        _store.Update(s =>
+        {
+            var rec = s.Auth?.CloudAccounts.FirstOrDefault(a => a.AccountId == accountId);
+            if (rec is not null)
+            {
+                rec.AvatarLarge = avatar.Large;
+                rec.AvatarSmall = avatar.Small;
+            }
+        });
+        return CloudApiResult<CloudAvatarDto>.Ok(avatar, result.StatusCode);
     }
 
     // ── recovery (device-code style polling) ────────────────────────────

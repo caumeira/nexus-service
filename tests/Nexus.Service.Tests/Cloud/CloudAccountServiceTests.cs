@@ -334,6 +334,37 @@ public sealed class CloudAccountServiceTests
     }
 
     [Fact]
+    public async Task UploadAvatarAsync_maps_top_level_wire_fields_and_persists_urls()
+    {
+        var (svc, api, store) = Make();
+        api.OnLogin = _ => CloudApiResult<CloudAuthSession>.Ok(new CloudAuthSession
+        {
+            AccessToken = "access-1",
+            RefreshToken = "refresh-1",
+            Account = Account("acct-1"),
+        });
+        await svc.LoginAsync("nicola@example.com", "password1", CancellationToken.None);
+
+        // nexus-api's POST /account/avatar returns {large, small} top-level,
+        // not nested under an "avatar" key - this is the real wire shape.
+        api.OnUploadAvatar = (_, _, _) => CloudApiResult<CloudAvatarUploadResponse>.Ok(new CloudAvatarUploadResponse
+        {
+            Large = "https://usercontent.hellonexus.com/avatars/acct-1/1-large.webp",
+            Small = "https://usercontent.hellonexus.com/avatars/acct-1/1-small.webp",
+        });
+
+        var result = await svc.UploadAvatarAsync(new byte[] { 1, 2, 3 }, "image/png", CancellationToken.None);
+
+        Assert.True(result.Success);
+        Assert.Equal("https://usercontent.hellonexus.com/avatars/acct-1/1-large.webp", result.Value!.Large);
+        Assert.Equal("https://usercontent.hellonexus.com/avatars/acct-1/1-small.webp", result.Value!.Small);
+
+        var rec = Assert.Single(store.Load().Auth!.CloudAccounts);
+        Assert.Equal("https://usercontent.hellonexus.com/avatars/acct-1/1-large.webp", rec.AvatarLarge);
+        Assert.Equal("https://usercontent.hellonexus.com/avatars/acct-1/1-small.webp", rec.AvatarSmall);
+    }
+
+    [Fact]
     public async Task RefreshAsync_serializes_concurrent_calls_for_the_same_account()
     {
         var (svc, api, store) = Make();

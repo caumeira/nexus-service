@@ -158,7 +158,7 @@ public static class CloudRoutes
             {
                 return CloudApiFailure(result.StatusCode, result.ErrorCode, result.ErrorMessage, result.Offline);
             }
-            return Results.Json(new CloudAvatarResponse { Avatar = result.Value?.Avatar }, AppJsonContext.Default.CloudAvatarResponse);
+            return Results.Json(new CloudAvatarResponse { Avatar = result.Value }, AppJsonContext.Default.CloudAvatarResponse);
         });
 
         app.MapGet("/cloud/sync/status", (CloudProfileSyncService sync) =>
