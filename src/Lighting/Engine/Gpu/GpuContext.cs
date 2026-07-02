@@ -51,9 +51,9 @@ public sealed class GpuContext : IDisposable
     private readonly ManualResetEventSlim _initDone = new(false);
     private Exception? _initError;
 
-    // Per-attempt init budget. The auto-cycle sets this tight so a stalled
-    // driver trips fast (the waiter gives up and the caller advances to the
-    // next GPU preference class); default matches the historical eager budget.
+    // Per-attempt init budget: how long a caller waits for the nexus-gl thread
+    // to create the context before treating it as failed (a wedged driver never
+    // returns). Bounds both the in-process warmup and the --gpu-probe child.
     public TimeSpan InitTimeout { get; set; } = TimeSpan.FromSeconds(10);
 
     // GL_RENDERER of the bound context (which physical card was selected), set
@@ -123,7 +123,7 @@ public sealed class GpuContext : IDisposable
         {
             // The nexus-gl thread is still wedged in native init; it stays a
             // background thread and dies with the process. There is no CPU
-            // shader fallback, so the auto-cycle advances to another GPU.
+            // shader fallback - the GPU is simply reported unavailable.
             Log($"[gpu] context init timed out after {InitTimeout.TotalSeconds:0.#}s");
             _failed = true;
             return;

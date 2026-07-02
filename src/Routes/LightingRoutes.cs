@@ -122,6 +122,11 @@ public static class LightingRoutes
             var value = string.IsNullOrWhiteSpace(body.Value) ? "auto" : body.Value.Trim();
             store.Update(s => s.Lighting.RenderGpu = value);
             GpuRenderPreference.Apply(value, sensors.GetGpus());
+#if WINDOWS
+            // Forget any auto-select decision so switching back to "auto"
+            // re-probes (recovers from a persisted "off" where no card worked).
+            GpuRenderSelect.ClearState();
+#endif
             return ApiResponse.Ok();
         }).LocalhostOnly();
         // Headless start endpoints

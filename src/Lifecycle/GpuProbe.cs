@@ -55,8 +55,10 @@ internal static class GpuProbe
 
         try
         {
+            // Uses GpuContext's default init budget; the parent's WaitForExit
+            // backstop is longer, so a working-but-slow card finishes here rather
+            // than being killed by the parent.
             var gpu = new Nexus.Service.Lighting.Engine.Gpu.GpuContext(160, 90);
-            gpu.InitTimeout = TimeSpan.FromSeconds(12);
             lock (gpu.Lock)
             {
                 gpu.EnsureInitializedLocked();

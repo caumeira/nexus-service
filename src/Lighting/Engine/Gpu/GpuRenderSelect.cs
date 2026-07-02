@@ -10,8 +10,9 @@ namespace Nexus.Service.Lighting.Engine.Gpu;
 /// <summary>
 /// Windows render-GPU selection for the deferred warmup, in "auto" mode on a
 /// multi-GPU machine. Prefers the integrated card (low power) and falls back to
-/// discrete only if integrated's GL context creation hangs - the case behind
-/// the customer whose Intel iGPU driver wedges context creation in session 0.
+/// discrete only if integrated's GL context creation hangs or crashes - the
+/// case behind the customer whose Intel iGPU driver wedges context creation in
+/// session 0.
 ///
 /// The "does this card hang?" test runs in a throwaway `--gpu-probe` subprocess:
 /// a hang there is killed by us on timeout, so it never wedges the service (and
@@ -19,9 +20,17 @@ namespace Nexus.Service.Lighting.Engine.Gpu;
 /// GpuPreference applies at context-creation time (verified: set-then-create
 /// binds the chosen card in the same process, no restart), once a probe confirms
 /// a card the service sets the preference and creates its own context directly
-/// on it. The decision is persisted, so later boots skip probing and go straight
-/// to the known-good card. There is no CPU fallback: if every card hangs the GPU
-/// stays off (shader effects don't render; static/firmware lighting is fine).
+/// on it. The decision is persisted, so later boots skip probing and init the
+/// remembered card directly (no probe cost in steady state).
+///
+/// A native fast-fail (0xc0000409) inside GL init cannot be caught by a managed
+/// timeout - it kills the process. A crash-guard marker is written before every
+/// direct init and cleared after it returns; if a boot finds the marker still
+/// present, the previous boot crashed initializing that card, so it is demoted
+/// and we re-probe rather than crash again (bounds a regressed card to one
+/// crash, not an SCM restart loop). There is no CPU fallback: if every card
+/// fails the GPU stays off (shader effects don't render; static/firmware
+/// lighting is fine) and the service stays up.
 /// </summary>
 internal static class GpuRenderSelect
 {
@@ -30,35 +39,49 @@ internal static class GpuRenderSelect
     private const string Discrete = "discrete";
     private const string Off = "off";
 
-    // A working context inits in well under a second; a wedged one never
-    // returns. A few seconds cleanly separates them, and the probe is a
-    // subprocess off the critical path, so this is not boot latency.
-    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(8);
+    // Parent's backstop wait for a probe child. Longer than the child's own init
+    // budget (GpuContext.InitTimeout, 10s) so a working-but-slow card finishes on
+    // its own and the parent only kills a truly wedged child.
+    private static readonly TimeSpan ProbeWait = TimeSpan.FromSeconds(13);
 
-    // class -> the card it selects on a hybrid box.
     private const int ClassIntegrated = 0; // clear pref: Windows' default is the iGPU on a hybrid box
     private const int ClassDiscrete = 2;   // high-performance
 
     public static void SelectAndWarm(GpuContext gpu, Stopwatch sw)
     {
-        // Only worth selecting when there's more than one card to choose. A
-        // single-GPU box has nothing to fall back to: init directly.
+        // A leftover crash-guard means the last boot's direct init of this card
+        // crashed (native fast-fail) - demote it so we don't crash again.
+        var crashed = ConsumeCrashGuard();
+
         var usable = Nexus.Service.Sensors.GpuAdapterLuids.Enumerate().Count(a => a.VendorId != 0x1414);
         if (usable <= 1)
         {
-            WarmDirect(gpu, sw, "single-gpu");
+            // Single card: nothing to fall back to. Probe it (isolates a
+            // hang/crash) then init; if it fails, off rather than crash-loop.
+            if (crashed != null)
+            {
+                GpuContext.Log("[gpu] select: sole GPU crashed init last boot; leaving GPU off");
+                SaveState(Off);
+                return;
+            }
+            if (ProbeCard(ClassIntegrated)) { WarmGuarded(gpu, sw, Integrated, ClassIntegrated, "single-gpu"); }
+            else { SaveState(Off); GpuContext.Log("[gpu] select: sole GPU probe failed; GPU off"); }
             return;
         }
 
         var state = LoadState();
+        if (crashed != null && crashed == state)
+        {
+            GpuContext.Log($"[gpu] select: {state} crashed init last boot; demoting and re-probing");
+            state = Unprobed;
+        }
 
-        // Remembered a working card: go straight to it, no probe. If it has
-        // since regressed (driver update / card removed) the direct init fails
-        // safe (GPU off this session, service still up) and we re-probe next boot.
+        // Remembered a working card: init it directly, no probe (fast steady
+        // state). A hang fails safe (GPU off this session) and re-probes next
+        // boot; a crash is caught by the crash-guard above.
         if (state == Integrated || state == Discrete)
         {
-            SetPref(state == Discrete ? ClassDiscrete : ClassIntegrated);
-            WarmDirect(gpu, sw, $"remembered:{state}");
+            WarmGuarded(gpu, sw, state, state == Discrete ? ClassDiscrete : ClassIntegrated, $"remembered:{state}");
             if (!gpu.Available)
             {
                 SaveState(Unprobed);
@@ -67,38 +90,30 @@ internal static class GpuRenderSelect
             return;
         }
 
-        // "off" is terminal (every card hung once). Stay off without re-probing
-        // each boot; a reinstall or the render-GPU picker resets it.
+        // Terminal: every card failed a prior probe. Don't re-probe each boot
+        // (two timeouts is slow); the render-GPU picker clears this to re-probe.
         if (state == Off)
         {
-            GpuContext.Log("[gpu] select: GPU rendering disabled by a prior probe (no card worked); leaving off");
+            GpuContext.Log("[gpu] select: GPU rendering disabled (no card produced a working context); pick a GPU to re-probe");
             return;
         }
 
-        // Unprobed (first run): probe integrated, then discrete, each isolated in
-        // a subprocess so a hang can't wedge us.
+        // Unprobed: probe integrated, then discrete, each isolated in a subprocess.
         GpuContext.Log("[gpu] select: probing GPUs (first run)");
-        if (ProbeCard(ClassIntegrated))
-        {
-            SaveState(Integrated);
-            SetPref(ClassIntegrated);
-            WarmDirect(gpu, sw, "probed:integrated");
-            return;
-        }
+        if (ProbeCard(ClassIntegrated)) { WarmGuarded(gpu, sw, Integrated, ClassIntegrated, "probed:integrated"); return; }
         GpuContext.Log("[gpu] select: integrated probe failed; trying discrete");
-        if (ProbeCard(ClassDiscrete))
-        {
-            SaveState(Discrete);
-            SetPref(ClassDiscrete);
-            WarmDirect(gpu, sw, "probed:discrete");
-            return;
-        }
+        if (ProbeCard(ClassDiscrete)) { WarmGuarded(gpu, sw, Discrete, ClassDiscrete, "probed:discrete"); return; }
         SaveState(Off);
         GpuContext.Log("[gpu] select: no GPU produced a working context; GPU rendering off (no CPU fallback)");
     }
 
-    private static void WarmDirect(GpuContext gpu, Stopwatch sw, string why)
+    // Set the pref, drop a crash-guard, init in-process, clear the guard. A
+    // native crash during init leaves the guard for the next boot to demote the
+    // card. Persists the state only once the context is actually available.
+    private static void WarmGuarded(GpuContext gpu, Stopwatch sw, string stateName, int cls, string why)
     {
+        SetPref(cls);
+        WriteCrashGuard(stateName);
         GpuContext.Log($"[gpu] warmup: init ({why})");
         try
         {
@@ -108,15 +123,18 @@ internal static class GpuRenderSelect
             }
         }
         catch (Exception ex) { GpuContext.Log($"[gpu] warmup threw: {ex.Message}"); }
+        ClearCrashGuard();
         GpuContext.Log(gpu.Available
             ? $"[gpu] warmup: GPU shader engine ready in {sw.ElapsedMilliseconds}ms on '{gpu.Renderer}'"
             : $"[gpu] warmup: GPU unavailable after {sw.ElapsedMilliseconds}ms (shader effects off; static/firmware lighting unaffected)");
+        if (gpu.Available) SaveState(stateName);
     }
 
-    // Spawn `Nexus.exe --gpu-probe --set-pref <cls>` and wait; kill on timeout
-    // (a wedged driver). True iff it exited 0 (a context bound). WorkingDirectory
-    // is pinned to the exe dir so the bundled GLFW native libs resolve (same
-    // loader-search gotcha as the bundled adb).
+    // Spawn `Nexus.exe --gpu-probe --set-pref <cls>` and wait; kill on timeout (a
+    // wedged driver). True iff it exited 0 (a context bound). Both output streams
+    // are drained concurrently so a chatty child can't fill a pipe buffer and
+    // deadlock. WorkingDirectory is pinned to the exe dir so the bundled GLFW
+    // native libs resolve (same loader-search gotcha as the bundled adb).
     private static bool ProbeCard(int cls)
     {
         try
@@ -137,14 +155,17 @@ internal static class GpuRenderSelect
             psi.ArgumentList.Add(cls.ToString());
             using var p = Process.Start(psi);
             if (p is null) return false;
-            if (!p.WaitForExit((int)ProbeTimeout.TotalMilliseconds))
+            // Drain both pipes concurrently to avoid a buffer-full deadlock.
+            var stdout = p.StandardOutput.ReadToEndAsync();
+            var stderr = p.StandardError.ReadToEndAsync();
+            if (!p.WaitForExit((int)ProbeWait.TotalMilliseconds))
             {
                 try { p.Kill(entireProcessTree: true); } catch { }
-                GpuContext.Log($"[gpu] select: probe class {cls} timed out ({ProbeTimeout.TotalSeconds:0}s); killed");
+                GpuContext.Log($"[gpu] select: probe class {cls} timed out ({ProbeWait.TotalSeconds:0}s); killed");
                 return false;
             }
             var ok = p.ExitCode == 0;
-            var tail = p.StandardOutput.ReadToEnd().Trim().Replace('\n', ' ').Replace('\r', ' ');
+            var tail = (stdout.Result + " " + stderr.Result).Trim().Replace('\n', ' ').Replace('\r', ' ');
             GpuContext.Log($"[gpu] select: probe class {cls} exit={p.ExitCode} [{tail}]");
             return ok;
         }
@@ -170,9 +191,11 @@ internal static class GpuRenderSelect
         catch { }
     }
 
-    private static string StatePath => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "Nexus", "gpu-render-state");
+    private static string DataDir => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Nexus");
+
+    private static string StatePath => Path.Combine(DataDir, "gpu-render-state");
+    private static string CrashGuardPath => Path.Combine(DataDir, "gpu-init-crashguard");
 
     private static string LoadState()
     {
@@ -184,10 +207,44 @@ internal static class GpuRenderSelect
     {
         try
         {
-            Directory.CreateDirectory(Path.GetDirectoryName(StatePath)!);
+            Directory.CreateDirectory(DataDir);
             File.WriteAllText(StatePath, state);
         }
         catch { }
+    }
+
+    /// Clears the persisted selection so the next auto boot re-probes. Called
+    /// when the user changes the render-GPU choice (so "off" is recoverable).
+    public static void ClearState()
+    {
+        try { if (File.Exists(StatePath)) File.Delete(StatePath); }
+        catch { }
+    }
+
+    private static void WriteCrashGuard(string card)
+    {
+        try { Directory.CreateDirectory(DataDir); File.WriteAllText(CrashGuardPath, card); }
+        catch { }
+    }
+
+    private static void ClearCrashGuard()
+    {
+        try { if (File.Exists(CrashGuardPath)) File.Delete(CrashGuardPath); }
+        catch { }
+    }
+
+    // Read + delete the crash-guard: non-null iff the last boot crashed during a
+    // direct init (the guard was written before init and never cleared).
+    private static string? ConsumeCrashGuard()
+    {
+        try
+        {
+            if (!File.Exists(CrashGuardPath)) return null;
+            var card = File.ReadAllText(CrashGuardPath).Trim();
+            File.Delete(CrashGuardPath);
+            return string.IsNullOrEmpty(card) ? null : card;
+        }
+        catch { return null; }
     }
 }
 #endif
