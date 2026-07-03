@@ -107,4 +107,81 @@ public class JsonConfigStoreMigrationTests : IDisposable
             store.Dispose();
         }
     }
+
+    [Fact]
+    public void Load_TryxOverlay_PredatingItemsFontSizeAlignAndDocked_DefaultsThem()
+    {
+        // A settings.json from before the sensor-item overlay fields shipped: only
+        // the original stats/color/align/opacity keys are present (the old
+        // "overlayStats" fixed-name array has no C# property anymore, so it is
+        // silently ignored rather than migrated).
+        var json = """
+        {
+          "schemaVersion": 7,
+          "tryx": {
+            "overlayStats": ["CPU Temperature"],
+            "overlayColor": "#ff0000",
+            "overlayAlign": "Right",
+            "overlayOpacity": 75
+          }
+        }
+        """;
+        File.WriteAllText(_settingsPath, json);
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.Equal("#ff0000", s.Tryx.OverlayColor);
+            Assert.Empty(s.Tryx.OverlayItems);
+            Assert.Equal("roboto-regular", s.Tryx.OverlayFont);
+            Assert.Equal(100, s.Tryx.OverlaySize);
+            Assert.False(s.Tryx.OverlayDocked);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Load_TryxOverlay_ItemsFontSizeAlignAndDocked_RoundTripThroughRealJson()
+    {
+        var json = """
+        {
+          "schemaVersion": 7,
+          "tryx": {
+            "overlayItems": [
+              { "sensorId": "s1", "device": "cpu", "label": "CPU Temp", "x": 0.03, "y": 0.1 },
+              { "sensorId": "s2", "device": "gpu", "label": "GPU Temp", "x": 0.5, "y": 0.6 }
+            ],
+            "overlayFont": "roboto-bold",
+            "overlaySize": 120,
+            "overlayAlign": "center",
+            "overlayDocked": true
+          }
+        }
+        """;
+        File.WriteAllText(_settingsPath, json);
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.Equal(2, s.Tryx.OverlayItems.Count);
+            Assert.Equal("s1", s.Tryx.OverlayItems[0].SensorId);
+            Assert.Equal("cpu", s.Tryx.OverlayItems[0].Device);
+            Assert.Equal("CPU Temp", s.Tryx.OverlayItems[0].Label);
+            Assert.Equal(0.03, s.Tryx.OverlayItems[0].X);
+            Assert.Equal(0.1, s.Tryx.OverlayItems[0].Y);
+            Assert.Equal("roboto-bold", s.Tryx.OverlayFont);
+            Assert.Equal(120, s.Tryx.OverlaySize);
+            Assert.Equal("center", s.Tryx.OverlayAlign);
+            Assert.True(s.Tryx.OverlayDocked);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
 }

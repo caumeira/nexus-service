@@ -174,7 +174,7 @@ public static class TryxPanoramaProtocol
         var filterValue = overlay.Filter is null ? "null" : "\"" + EscapeJson(overlay.Filter) + "\"";
         var settings = "{\"color\":\"" + EscapeJson(overlay.Color) + "\",\"align\":\"" + EscapeJson(overlay.Align) +
                        "\",\"filter\":{\"value\":" + filterValue + ",\"opacity\":" + overlay.Opacity + "},\"badges\":[]}";
-        var sysinfoDisplay = BuildSysinfoDisplay(overlay.Stats);
+        var sysinfoDisplay = BuildSysinfoDisplay(overlay.Items.ConvertAll(i => i.Label).ToArray());
         return "{\"id\":\"" + EscapeJson(id) + "\",\"screenMode\":\"Full Screen\",\"playMode\":\"Single\"," +
                "\"ratio\":\"2:1\",\"media\":" + media +
                ",\"settings\":" + settings +

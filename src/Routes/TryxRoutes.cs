@@ -12,11 +12,26 @@ using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Routes;
 
+/// <summary>One overlay item: a live sensor identity plus its normalized (0..1)
+/// justification anchor (top of the value text). Shared shape for the request
+/// body and the status snapshot.</summary>
+public sealed class TryxOverlayItem
+{
+    public string SensorId { get; set; } = "";
+    public string Device { get; set; } = "";
+    public string Label { get; set; } = "";
+    public double X { get; set; }
+    public double Y { get; set; }
+}
+
 public sealed class TryxOverlaySnapshot
 {
-    public string[] Stats { get; set; } = [];
+    public TryxOverlayItem[] Items { get; set; } = [];
+    public string Font { get; set; } = "";
+    public int Size { get; set; } = 100;
     public string Color { get; set; } = "";
     public string Align { get; set; } = "";
+    public bool Docked { get; set; }
 }
 
 public sealed class TryxStatusResponse
@@ -117,11 +132,12 @@ public sealed class TryxMediaDeleteRequest
 
 public sealed class TryxOverlayRequest
 {
-    public string[] Stats { get; set; } = [];
+    public TryxOverlayItem[] Items { get; set; } = [];
+    public string Font { get; set; } = "";
+    public int Size { get; set; } = 100;
     public string Color { get; set; } = "";
     public string Align { get; set; } = "";
-    public string? Filter { get; set; }
-    public int? Opacity { get; set; }
+    public bool Docked { get; set; }
 }
 
 /// <summary>
@@ -156,9 +172,12 @@ public static class TryxRoutes
                 State = hub.State,
                 Overlay = new TryxOverlaySnapshot
                 {
-                    Stats = ov.Stats,
+                    Items = BuildOverlayItems(ov),
+                    Font = ov.Font,
+                    Size = ov.Size,
                     Color = ov.Color,
                     Align = ov.Align,
+                    Docked = ov.Docked,
                 },
             };
             return Results.Json(resp, AppJsonContext.Default.TryxStatusResponse);
@@ -342,21 +361,7 @@ public static class TryxRoutes
 
         app.MapPost("/tryx/overlay", (TryxOverlayRequest body, TryxPanoramaHub hub) =>
         {
-            var stats = new List<string>();
-            foreach (var s in body.Stats ?? [])
-            {
-                if (string.IsNullOrWhiteSpace(s)) continue;
-                stats.Add(s);
-                if (stats.Count >= 3) break;
-            }
-            var cfg = new TryxOverlayConfig
-            {
-                Stats = stats.ToArray(),
-                Color = string.IsNullOrWhiteSpace(body.Color) ? "#ffffff" : body.Color,
-                Align = string.IsNullOrWhiteSpace(body.Align) ? "Center" : body.Align,
-                Filter = string.IsNullOrWhiteSpace(body.Filter) ? null : body.Filter,
-                Opacity = body.Opacity is null ? 100 : Math.Clamp(body.Opacity.Value, 0, 100),
-            };
+            var cfg = BuildOverlayConfigFromRequest(body, hub.Overlay);
             var ok = hub.SetOverlay(cfg);
             return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
         });
@@ -445,6 +450,62 @@ public static class TryxRoutes
                 try { File.Delete(tempInput); } catch { /* best effort */ }
             }
         }).DisableAntiforgery();
+    }
+
+    private static readonly HashSet<string> ValidOverlayAligns = new(StringComparer.Ordinal) { "left", "center", "right" };
+
+    /// <summary>Maps the fixed overlay wire contract (items/font/size/color/align/docked)
+    /// onto a <see cref="TryxOverlayConfig"/>, validating each field; Filter/Opacity are
+    /// not part of this contract, so <paramref name="current"/>'s values pass through
+    /// unchanged.</summary>
+    internal static TryxOverlayConfig BuildOverlayConfigFromRequest(TryxOverlayRequest body, TryxOverlayConfig current)
+    {
+        var items = new List<TryxOverlaySensorItem>();
+        foreach (var item in body.Items ?? [])
+        {
+            if (item is null || string.IsNullOrWhiteSpace(item.SensorId)) continue;
+            items.Add(new TryxOverlaySensorItem
+            {
+                SensorId = item.SensorId,
+                // A JSON body can carry an explicit null here despite the non-nullable
+                // C# type (System.Text.Json overrides the property initializer), which
+                // would otherwise throw downstream in AppendOverlayWidget's UTF8 encode.
+                Device = item.Device ?? "",
+                Label = item.Label ?? "",
+                X = Math.Clamp(item.X, 0.0, 1.0),
+                Y = Math.Clamp(item.Y, 0.0, 1.0),
+            });
+            if (items.Count >= 4) break;
+        }
+        return new TryxOverlayConfig
+        {
+            Items = items,
+            Color = string.IsNullOrWhiteSpace(body.Color) ? "#ffffff" : body.Color,
+            Align = ValidOverlayAligns.Contains(body.Align) ? body.Align : "left",
+            Filter = current.Filter,
+            Opacity = current.Opacity,
+            Font = TryxRkProtocol.IsValidOverlayFont(body.Font) ? body.Font : "roboto-regular",
+            Size = Math.Clamp(body.Size, 50, 150),
+            Docked = body.Docked,
+        };
+    }
+
+    internal static TryxOverlayItem[] BuildOverlayItems(TryxOverlayConfig overlay)
+    {
+        var items = new TryxOverlayItem[overlay.Items.Count];
+        for (var i = 0; i < overlay.Items.Count; i++)
+        {
+            var item = overlay.Items[i];
+            items[i] = new TryxOverlayItem
+            {
+                SensorId = item.SensorId,
+                Device = item.Device,
+                Label = item.Label,
+                X = item.X,
+                Y = item.Y,
+            };
+        }
+        return items;
     }
 
     private static TryxVideoCrop? ParseCrop(string raw)

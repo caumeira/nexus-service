@@ -85,7 +85,7 @@ public class TryxPanoramaProtocolTests
     {
         var overlay = new TryxOverlayConfig
         {
-            Stats = ["CPU Temperature"],
+            Items = [new TryxOverlaySensorItem { Label = "CPU Temperature" }],
             Color = "#ffffff",
             Align = "Center",
             Filter = null,
@@ -112,7 +112,7 @@ public class TryxPanoramaProtocolTests
     [Fact]
     public void BuildConfigCustom_with_empty_overlay_emits_empty_sysinfoDisplay()
     {
-        var overlay = new TryxOverlayConfig { Stats = [], Color = "#000000", Align = "Left" };
+        var overlay = new TryxOverlayConfig { Items = [], Color = "#000000", Align = "Left" };
         var frame = TryxPanoramaProtocol.BuildConfigCustom(100, "clip.mp4", overlay);
         var json = ExtractJson(frame);
         var doc = JsonDocument.Parse(json);
@@ -126,7 +126,12 @@ public class TryxPanoramaProtocolTests
     [Fact]
     public void BuildConfigFanFixed_threads_overlay_to_id_object()
     {
-        var overlay = new TryxOverlayConfig { Stats = ["GPU Temperature", "CPU Load"], Color = "#ff0000", Align = "Right" };
+        var overlay = new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { Label = "GPU Temperature" }, new TryxOverlaySensorItem { Label = "CPU Load" }],
+            Color = "#ff0000",
+            Align = "Right",
+        };
         var frame = TryxPanoramaProtocol.BuildConfigFanFixed(50, "myfile.mp4", isCustom: true, overlay, fixedPercent: 60);
         var json = ExtractJson(frame);
         var doc = JsonDocument.Parse(json);
@@ -140,7 +145,12 @@ public class TryxPanoramaProtocolTests
     [Fact]
     public void BuildSysinfoDisplay_survives_strings_needing_json_escaping()
     {
-        var overlay = new TryxOverlayConfig { Stats = ["CPU \"Package\"", "Temp\\C"], Color = "#000000", Align = "Left" };
+        var overlay = new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { Label = "CPU \"Package\"" }, new TryxOverlaySensorItem { Label = "Temp\\C" }],
+            Color = "#000000",
+            Align = "Left",
+        };
         var frame = TryxPanoramaProtocol.BuildConfigPreset(100, "Pre-set 1: Cooling delivery", overlay);
         var json = ExtractJson(frame);
         // Must parse without throwing - escaping is correct.

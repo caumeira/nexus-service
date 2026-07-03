@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
 using Nexus.Service.Platform;
 
@@ -78,6 +79,16 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     public IReadOnlyList<string> AvailableMediaIds => _availableMediaIds;
     public IReadOnlyList<string> AvailableMediaFilenames => _availableMediaFilenames;
 
+    // A write to a panel that has stopped draining its endpoint (mid re-enumeration,
+    // or firmware-wedged) parks in the usbprint stack for ~45-60s before it errors. That
+    // whole time it holds _writeLock and the hub's _txGate, so the 1 Hz keep-alive can't
+    // send - the panel then misses its ~10s standby / ~70s re-enum deadline and reboots,
+    // which stalls the next write in turn: a self-sustaining reboot loop that only a
+    // physical power-cycle broke. Bounding every write far under the keep-alive budget
+    // turns that hang into a fast failure: the hub drops the transport, the heartbeat
+    // resumes on the next tick, and the panel recovers on its own once it settles.
+    private const int WriteTimeoutMs = 2500;
+
     public void Write(ReadOnlySpan<byte> data)
     {
         if (_disposed)
@@ -88,12 +99,31 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
         lock (_writeLock)
         {
             // Async I/O on both directions: the handle is overlapped, so a sync Write
-            // would collide with the background ReadAsync and stall the drain. Block on
-            // the write task (the caller is a worker thread, no sync context to deadlock).
-            // A failing write throws so the hub drops and rebuilds the transport (a real
-            // unplug, or an interface reset the drain loop didn't prevent).
-            _stream.WriteAsync(copy, 0, copy.Length).GetAwaiter().GetResult();
-            _stream.FlushAsync().GetAwaiter().GetResult();
+            // would collide with the background ReadAsync and stall the drain. Bound the
+            // wait (the caller is a worker thread, no sync context to deadlock). A failing
+            // or timed-out write throws so the hub drops and rebuilds the transport.
+            AwaitBounded(_stream.WriteAsync(copy, 0, copy.Length), "write");
+            AwaitBounded(_stream.FlushAsync(), "flush");
+        }
+    }
+
+    // Blocks up to WriteTimeoutMs for the overlapped write/flush. On timeout the pending
+    // task is abandoned - its I/O aborts when the hub disposes the stream on the drop, and
+    // its exception is observed so it never surfaces as unobserved - and a TimeoutException
+    // is thrown so the hub rebuilds the transport instead of parking behind the stall.
+    private static void AwaitBounded(Task io, string what)
+    {
+        try
+        {
+            if (!io.Wait(WriteTimeoutMs))
+            {
+                _ = io.ContinueWith(static t => { _ = t.Exception; }, TaskScheduler.Default);
+                throw new TimeoutException($"Tryx panel {what} did not complete within {WriteTimeoutMs} ms");
+            }
+        }
+        catch (AggregateException ex) when (ex.InnerException is not null)
+        {
+            throw ex.InnerException;
         }
     }
 

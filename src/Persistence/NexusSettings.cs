@@ -450,13 +450,30 @@ public sealed class Y70Settings
     public bool ScreenOff { get; set; } = InstallDefaults.Y70.ScreenOff;
 }
 
+/// <summary>Persisted shape of one Tryx overlay item; see
+/// <see cref="Nexus.Service.Peripherals.Tryx.Panorama.TryxOverlaySensorItem"/> for the
+/// runtime equivalent.</summary>
+public sealed class TryxOverlaySensorItemSettings
+{
+    public string SensorId { get; set; } = "";
+    public string Device { get; set; } = "";
+    public string Label { get; set; } = "";
+    public double X { get; set; }
+    public double Y { get; set; }
+}
+
 public sealed class TryxSettings
 {
-    public string[] OverlayStats { get; set; } = ["CPU Temperature"];
+    public List<TryxOverlaySensorItemSettings> OverlayItems { get; set; } = new();
     public string OverlayColor { get; set; } = "#ffffff";
-    public string OverlayAlign { get; set; } = "Center";
+    /// <summary>"left", "center", or "right".</summary>
+    public string OverlayAlign { get; set; } = "left";
     public string? OverlayFilter { get; set; }
     public int OverlayOpacity { get; set; } = 100;
+    public string OverlayFont { get; set; } = "roboto-regular";
+    public int OverlaySize { get; set; } = 100;
+    /// <summary>Web-only UX state; the service never reads this for rendering.</summary>
+    public bool OverlayDocked { get; set; }
     /// <summary>Last-selected preset id or custom filename, re-applied on connect.</summary>
     public string CurrentMedia { get; set; } = "";
     public bool CurrentMediaIsCustom { get; set; }

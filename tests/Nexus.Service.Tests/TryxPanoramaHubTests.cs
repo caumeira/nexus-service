@@ -50,6 +50,9 @@ public class TryxPanoramaHubTests
         public IReadOnlyList<HardwareSensor> GpuSensors { get; init; } = Array.Empty<HardwareSensor>();
         public IReadOnlyList<HardwareSensor> MemorySensors { get; init; } = Array.Empty<HardwareSensor>();
         public IReadOnlyList<HardwareSensor> MotherboardSensors { get; init; } = Array.Empty<HardwareSensor>();
+        public IReadOnlyDictionary<string, StorageComponent> StorageComponents { get; init; } =
+            new Dictionary<string, StorageComponent>();
+        public List<HardwareComponent> Nics { get; init; } = new();
 
         public string GetCpuModel() => "TestCPU";
         public IReadOnlyList<HardwareSensor> GetCpuSensors() => CpuSensors;
@@ -75,14 +78,13 @@ public class TryxPanoramaHubTests
         public IReadOnlyList<HardwareSensor> GetMemorySensors() => MemorySensors;
         public string GetMemoryTotalFormatted() => "32 GB";
         public string GetRamBrandModel() => "";
-        public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents() =>
-            new Dictionary<string, StorageComponent>();
+        public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents() => StorageComponents;
         public IReadOnlyList<string> GetStoragePartitions() => Array.Empty<string>();
         public IReadOnlyList<StorageDriveInfo> GetStorageInfo() => Array.Empty<StorageDriveInfo>();
         public string GetStorageBrandModel() => "";
         public IReadOnlyList<HardwareSensor> GetMotherboardSensors() => MotherboardSensors;
         public string GetMotherboardModel() => "TestMobo";
-        public SensorExtras GetSensorExtras() => new();
+        public SensorExtras GetSensorExtras() => new() { Nics = Nics };
         public string GetOsVersion() => "TestOS";
         public void SetPollingRate(int pollingRate) { }
         public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
@@ -131,18 +133,56 @@ public class TryxPanoramaHubTests
         var store = new InMemoryConfigStore();
         store.Update(s =>
         {
-            s.Tryx.OverlayStats = ["GPU Temperature", "CPU Usage"];
+            s.Tryx.OverlayItems = [new TryxOverlaySensorItemSettings { SensorId = "s1", Device = "cpu", Label = "CPU Temp", X = 0.03, Y = 0.10 }];
             s.Tryx.OverlayColor = "#ff0000";
-            s.Tryx.OverlayAlign = "Right";
+            s.Tryx.OverlayAlign = "right";
             s.Tryx.OverlayOpacity = 75;
+            s.Tryx.OverlayDocked = true;
         });
 
         var hub = BuildHub(configStore: store);
 
-        Assert.Equal(new[] { "GPU Temperature", "CPU Usage" }, hub.Overlay.Stats);
+        Assert.Single(hub.Overlay.Items);
+        Assert.Equal("s1", hub.Overlay.Items[0].SensorId);
+        Assert.Equal("cpu", hub.Overlay.Items[0].Device);
+        Assert.Equal("CPU Temp", hub.Overlay.Items[0].Label);
+        Assert.Equal(0.03, hub.Overlay.Items[0].X);
+        Assert.Equal(0.10, hub.Overlay.Items[0].Y);
         Assert.Equal("#ff0000", hub.Overlay.Color);
-        Assert.Equal("Right", hub.Overlay.Align);
+        Assert.Equal("right", hub.Overlay.Align);
         Assert.Equal(75, hub.Overlay.Opacity);
+        Assert.True(hub.Overlay.Docked);
+    }
+
+    [Fact]
+    public void Constructor_loads_font_and_size_from_config_store()
+    {
+        var store = new InMemoryConfigStore();
+        store.Update(s =>
+        {
+            s.Tryx.OverlayFont = "roboto-bold";
+            s.Tryx.OverlaySize = 120;
+        });
+
+        var hub = BuildHub(configStore: store);
+
+        Assert.Equal("roboto-bold", hub.Overlay.Font);
+        Assert.Equal(120, hub.Overlay.Size);
+    }
+
+    [Fact]
+    public void Constructor_defaults_items_font_size_align_and_docked_on_a_settings_file_that_predates_them()
+    {
+        // An empty InMemoryConfigStore mirrors a settings.json written before this
+        // feature: no overlayItems/overlayFont/overlaySize/overlayDocked keys, only
+        // their C# defaults apply.
+        var hub = BuildHub(configStore: new InMemoryConfigStore());
+
+        Assert.Empty(hub.Overlay.Items);
+        Assert.Equal("roboto-regular", hub.Overlay.Font);
+        Assert.Equal(100, hub.Overlay.Size);
+        Assert.Equal("left", hub.Overlay.Align);
+        Assert.False(hub.Overlay.Docked);
     }
 
     [Fact]
@@ -176,19 +216,238 @@ public class TryxPanoramaHubTests
         recording.Writes.Clear();
         var overlay = new TryxOverlayConfig
         {
-            Stats = ["CPU Temperature", "GPU Temperature"],
+            Items =
+            [
+                new TryxOverlaySensorItem { SensorId = "s1", Device = "cpu", Label = "CPU Temp", X = 0.03, Y = 0.10 },
+                new TryxOverlaySensorItem { SensorId = "s2", Device = "gpu", Label = "GPU Temp", X = 0.50, Y = 0.60 },
+            ],
             Color = "#00ff00",
-            Align = "Left",
+            Align = "center",
             Filter = "blur",
             Opacity = 80,
+            Font = "roboto-bold",
+            Size = 120,
+            Docked = true,
         };
 
         var ok = hub.SetOverlay(overlay);
 
         Assert.True(ok);
         Assert.Equal("#00ff00", store.Load().Tryx.OverlayColor);
-        Assert.Equal("Left", store.Load().Tryx.OverlayAlign);
+        Assert.Equal("center", store.Load().Tryx.OverlayAlign);
+        Assert.Equal("roboto-bold", store.Load().Tryx.OverlayFont);
+        Assert.Equal(120, store.Load().Tryx.OverlaySize);
+        Assert.True(store.Load().Tryx.OverlayDocked);
+        Assert.Equal(2, store.Load().Tryx.OverlayItems.Count);
+        Assert.Equal("s1", store.Load().Tryx.OverlayItems[0].SensorId);
+        Assert.Equal("cpu", store.Load().Tryx.OverlayItems[0].Device);
+        Assert.Equal("CPU Temp", store.Load().Tryx.OverlayItems[0].Label);
+        Assert.Equal(0.03, store.Load().Tryx.OverlayItems[0].X);
+        Assert.Equal(0.10, store.Load().Tryx.OverlayItems[0].Y);
         Assert.Single(recording.Writes);
+    }
+
+    [Fact]
+    public void SetOverlay_writes_an_rk_frame_using_the_configured_position_font_size_and_align()
+    {
+        var store = new InMemoryConfigStore();
+        var recording = new RecordingTransport();
+        var sensors = new StubSensors { CpuSensors = [MakeSensor("Package", "Temperature", 0f)] };
+        var hub = BuildHub(
+            discovery: new StubDiscovery(),
+            transportFactory: _ => recording,
+            sensors: sensors,
+            configStore: store);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+        var overlay = new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "test/Package", Device = "cpu", Label = "CPU Temp", X = 0.03, Y = 0.10 }],
+            Color = "#ffffff",
+            Align = "right",
+            Font = "monospace",
+            Size = 50,
+        };
+
+        hub.SetOverlay(overlay);
+
+        var expected = TryxRkProtocol.BuildOverlay(
+            new[] { new TryxOverlayLine("CPU Temp", "0°C") },
+            new[] { (0.03, 0.10) }, colorRgb: 0xFFFFFF, fontName: "monospace", sizePercent: 50, align: "right");
+
+        Assert.Equal(expected, Assert.Single(recording.Writes));
+    }
+
+    [Theory]
+    [InlineData("Temperature", 45f, "45°C")]
+    [InlineData("Load", 18f, "18%")]
+    [InlineData("Clock", 4713f, "4713MHz")]
+    [InlineData("Frequency", 2400f, "2400MHz")]
+    [InlineData("Power", 65f, "65W")]
+    [InlineData("Fan", 1200f, "1200RPM")]
+    public void SetOverlay_formats_the_resolved_sensor_by_its_type(string type, float value, string expectedValueText)
+    {
+        var store = new InMemoryConfigStore();
+        var recording = new RecordingTransport();
+        var sensors = new StubSensors { CpuSensors = [MakeSensor("Package", type, value)] };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, sensors: sensors, configStore: store);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "test/Package", Device = "cpu", Label = "Stat" }],
+        });
+
+        var expected = TryxRkProtocol.BuildOverlay(
+            new[] { new TryxOverlayLine("Stat", expectedValueText) },
+            new[] { (0.0, 0.0) }, colorRgb: 0, fontName: "roboto-regular", sizePercent: 100, align: "left");
+        Assert.Equal(expected, Assert.Single(recording.Writes));
+    }
+
+    [Fact]
+    public void SetOverlay_formats_voltage_to_two_decimals()
+    {
+        var recording = new RecordingTransport();
+        var sensors = new StubSensors { CpuSensors = [MakeSensor("VCore", "Voltage", 1.2f)] };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, sensors: sensors);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "test/VCore", Device = "cpu", Label = "Stat" }],
+        });
+
+        Assert.Contains("1.20V", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
+    }
+
+    [Fact]
+    public void SetOverlay_formats_data_to_one_decimal_gb()
+    {
+        var recording = new RecordingTransport();
+        var sensors = new StubSensors { MemorySensors = [MakeSensor("Used", "Data", 12.34f)] };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, sensors: sensors);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "test/Used", Device = "memory", Label = "Stat" }],
+        });
+
+        Assert.Contains("12.3GB", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
+    }
+
+    [Fact]
+    public void SetOverlay_formats_smalldata_as_whole_megabytes_not_gigabytes()
+    {
+        // SmallData is LHM's type for GPU VRAM (used/total/free), reported in MB;
+        // formatting it as GB would render an 8192 MB card as "8192.0GB".
+        var recording = new RecordingTransport();
+        var sensors = new StubSensors { GpuSensors = [MakeSensor("GPU Memory Total", "SmallData", 8192f)] };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, sensors: sensors);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "test/GPU Memory Total", Device = "gpu", Label = "Stat" }],
+        });
+
+        var text = Encoding.UTF8.GetString(Assert.Single(recording.Writes));
+        Assert.Contains("8192MB", text);
+        Assert.DoesNotContain("GB", text);
+    }
+
+    [Fact]
+    public void SetOverlay_formats_throughput_to_one_decimal_mbps()
+    {
+        var recording = new RecordingTransport();
+        var nics = new List<HardwareComponent> { new() { Sensors = [MakeSensor("Download", "Throughput", 12.34f)] } };
+        var sensors = new StubSensors { Nics = nics };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, sensors: sensors);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "test/Download", Device = "network", Label = "Stat" }],
+        });
+
+        Assert.Contains("12.3MB/s", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
+    }
+
+    [Fact]
+    public void SetOverlay_resolves_a_storage_sensor_from_storage_components()
+    {
+        var recording = new RecordingTransport();
+        var components = new Dictionary<string, StorageComponent>
+        {
+            ["C"] = new() { Sensors = [MakeSensor("Temp", "Temperature", 40f)] },
+        };
+        var sensors = new StubSensors { StorageComponents = components };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, sensors: sensors);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "test/Temp", Device = "storage", Label = "Stat" }],
+        });
+
+        Assert.Contains("40°C", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
+    }
+
+    [Fact]
+    public void SetOverlay_falls_back_to_dashes_when_the_sensor_id_is_not_found()
+    {
+        var recording = new RecordingTransport();
+        var sensors = new StubSensors { CpuSensors = [MakeSensor("Package", "Temperature", 45f)] };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, sensors: sensors);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "does-not-exist", Device = "cpu", Label = "Stat" }],
+        });
+
+        Assert.Contains("--", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
+    }
+
+    [Fact]
+    public void SetOverlay_falls_back_to_dashes_for_an_unknown_device()
+    {
+        var recording = new RecordingTransport();
+        var sensors = new StubSensors { CpuSensors = [MakeSensor("Package", "Temperature", 45f)] };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, sensors: sensors);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "test/Package", Device = "battery", Label = "Stat" }],
+        });
+
+        Assert.Contains("--", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
+    }
+
+    [Fact]
+    public void SetOverlay_resolves_gpu_from_the_primary_discrete_gpu()
+    {
+        var recording = new RecordingTransport();
+        var sensors = new StubSensors { GpuSensors = [MakeSensor("Core", "Temperature", 70f)] };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, sensors: sensors);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "test/Core", Device = "gpu", Label = "Stat" }],
+        });
+
+        Assert.Contains("70°C", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
     }
 
     [Fact]
@@ -250,9 +509,9 @@ public class TryxPanoramaHubTests
     public void EnsureConnected_sends_persisted_brightness_as_rk_frame()
     {
         var store = new InMemoryConfigStore();
-        // Empty overlay stats keep ApplyInitialConfig's write to just the brightness
+        // Empty overlay items keep ApplyInitialConfig's write to just the brightness
         // frame; the overlay-frame write on connect is covered separately below.
-        store.Update(s => { s.Tryx.Brightness = 80; s.Tryx.OverlayStats = []; });
+        store.Update(s => { s.Tryx.Brightness = 80; s.Tryx.OverlayItems = []; });
 
         var recording = new RecordingTransport();
         var hub = BuildHub(
@@ -266,10 +525,10 @@ public class TryxPanoramaHubTests
     }
 
     [Fact]
-    public void EnsureConnected_also_sends_the_overlay_frame_when_stats_are_configured()
+    public void EnsureConnected_also_sends_the_overlay_frame_when_items_are_configured()
     {
         var store = new InMemoryConfigStore();
-        store.Update(s => s.Tryx.OverlayStats = ["CPU Temperature"]);
+        store.Update(s => s.Tryx.OverlayItems = [new TryxOverlaySensorItemSettings { SensorId = "s1", Device = "cpu", Label = "CPU Temp" }]);
 
         var recording = new RecordingTransport();
         var hub = BuildHub(
@@ -326,16 +585,17 @@ public class TryxPanoramaHubTests
         var hub = BuildHub();
         var ov = new TryxOverlayConfig
         {
-            Stats = ["CPU Temperature"],
+            Items = [new TryxOverlaySensorItem { SensorId = "s1", Device = "cpu", Label = "CPU Temp" }],
             Color = "#aabbcc",
-            Align = "Center",
+            Align = "center",
         };
 
         hub.SetOverlay(ov);
 
         Assert.Equal("#aabbcc", hub.Overlay.Color);
-        Assert.Equal("Center", hub.Overlay.Align);
-        Assert.Equal(new[] { "CPU Temperature" }, hub.Overlay.Stats);
+        Assert.Equal("center", hub.Overlay.Align);
+        Assert.Single(hub.Overlay.Items);
+        Assert.Equal("CPU Temp", hub.Overlay.Items[0].Label);
     }
 
     [Fact]
@@ -344,17 +604,21 @@ public class TryxPanoramaHubTests
         var store = new InMemoryConfigStore();
         store.Update(s =>
         {
-            s.Tryx.OverlayStats = ["GPU Temperature", "CPU Usage"];
+            s.Tryx.OverlayItems =
+            [
+                new TryxOverlaySensorItemSettings { SensorId = "s1", Device = "gpu", Label = "GPU Temp" },
+                new TryxOverlaySensorItemSettings { SensorId = "s2", Device = "cpu", Label = "CPU Usage" },
+            ];
             s.Tryx.OverlayColor = "#112233";
-            s.Tryx.OverlayAlign = "Right";
+            s.Tryx.OverlayAlign = "right";
         });
         var hub = BuildHub(configStore: store);
 
         Assert.Equal("#112233", hub.Overlay.Color);
-        Assert.Equal("Right", hub.Overlay.Align);
-        Assert.Equal(2, hub.Overlay.Stats.Length);
-        Assert.Equal("GPU Temperature", hub.Overlay.Stats[0]);
-        Assert.Equal("CPU Usage", hub.Overlay.Stats[1]);
+        Assert.Equal("right", hub.Overlay.Align);
+        Assert.Equal(2, hub.Overlay.Items.Count);
+        Assert.Equal("GPU Temp", hub.Overlay.Items[0].Label);
+        Assert.Equal("CPU Usage", hub.Overlay.Items[1].Label);
     }
 
     // ── Task 3: Sensor mapping ──

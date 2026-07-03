@@ -52,11 +52,14 @@ public sealed class TryxPanoramaHub : IDisposable
         var saved = configStore.Load().Tryx;
         _overlay = new TryxOverlayConfig
         {
-            Stats = saved.OverlayStats,
+            Items = ToRuntimeItems(saved.OverlayItems),
             Color = saved.OverlayColor,
             Align = saved.OverlayAlign,
             Filter = saved.OverlayFilter,
             Opacity = saved.OverlayOpacity,
+            Font = saved.OverlayFont,
+            Size = saved.OverlaySize,
+            Docked = saved.OverlayDocked,
         };
         State.CurrentMedia = saved.CurrentMedia;
         State.CurrentMediaIsCustom = saved.CurrentMediaIsCustom;
@@ -101,8 +104,14 @@ public sealed class TryxPanoramaHub : IDisposable
                     State.ModelName = TryxPanoramaProtocol.GetModelName(port.ProductId);
                     State.LastConnectedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     ServiceLog.Info($"[tryx] connected to {port.PortName} (serial={port.Serial}, adb={port.AdbSerial})");
-                    ApplyInitialConfig(t);
-                    return true;
+                    if (ApplyInitialConfig(t)) return true;
+                    // The panel opened but its first writes stalled - present on the bus
+                    // but not draining (mid re-enumeration). Drop this handle, and with it
+                    // the timed-out write's abandoned overlapped I/O, so the next tick's
+                    // discovery retries a clean transport instead of a second write
+                    // colliding with the in-flight one on the same handle.
+                    try { t.Dispose(); } catch { /* best effort */ }
+                    _transport = null;
                 }
                 catch (Exception ex)
                 {
@@ -117,20 +126,35 @@ public sealed class TryxPanoramaHub : IDisposable
     // without requiring a dashboard interaction. Called only from inside the
     // EnsureConnected lock after _transport is set; uses the transport reference
     // directly to avoid re-entering EnsureConnected.
-    private void ApplyInitialConfig(ITryxPanoramaTransport transport)
+    // Returns false if any initial write stalled or failed: the panel opened but is not
+    // write-ready (mid re-enumeration). The caller drops the transport then, so a timed-out
+    // write's abandoned overlapped I/O is aborted by the handle close instead of left in
+    // flight for the next write to collide with on the same handle.
+    private bool ApplyInitialConfig(ITryxPanoramaTransport transport)
     {
         try
         {
             transport.Write(TryxRkProtocol.BuildConfig(State.ScreenEnabled, State.Brightness));
-            if (_overlay.Stats.Length > 0)
+            // Re-assert the last preset wallpaper so a reconnect (service restart, or the
+            // panel's own re-enumeration) restores the picture instead of leaving the panel
+            // black. A custom clip lives only on the panel / behind a re-transfer, so it is
+            // not re-pushed here - only built-in presets, which are one cheap selection.
+            if (!string.IsNullOrEmpty(State.CurrentMedia) && !State.CurrentMediaIsCustom)
+            {
+                transport.Write(TryxRkProtocol.BuildPreset(State.CurrentMedia, State.ScreenEnabled, State.Brightness));
+            }
+            if (_overlay.Items.Count > 0)
             {
                 transport.Write(TryxRkProtocol.BuildOverlay(
-                    BuildOverlayLines(), ParseHexColorRgb(_overlay.Color), _overlay.Align));
+                    BuildOverlayLines(), BuildOverlayPositions(), ParseHexColorRgb(_overlay.Color),
+                    _overlay.Font, _overlay.Size, _overlay.Align));
             }
+            return true;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[tryx] initial config apply failed: {ex.GetType().Name}: {ex.Message}");
+            return false;
         }
     }
 
@@ -165,12 +189,13 @@ public sealed class TryxPanoramaHub : IDisposable
 
     public bool SendStateAll()
     {
-        if (_overlay.Stats.Length == 0)
+        if (_overlay.Items.Count == 0)
         {
             return true;
         }
         return SendOnly(TryxRkProtocol.BuildOverlay(
-            BuildOverlayLines(), ParseHexColorRgb(_overlay.Color), _overlay.Align));
+            BuildOverlayLines(), BuildOverlayPositions(), ParseHexColorRgb(_overlay.Color),
+            _overlay.Font, _overlay.Size, _overlay.Align));
     }
 
     public bool SetEnabled(bool enable)
@@ -227,21 +252,48 @@ public sealed class TryxPanoramaHub : IDisposable
 
     public bool SetOverlay(TryxOverlayConfig overlay)
     {
-        _overlay.Stats = overlay.Stats;
+        _overlay.Items = overlay.Items;
         _overlay.Color = overlay.Color;
         _overlay.Align = overlay.Align;
         _overlay.Filter = overlay.Filter;
         _overlay.Opacity = overlay.Opacity;
+        _overlay.Font = overlay.Font;
+        _overlay.Size = overlay.Size;
+        _overlay.Docked = overlay.Docked;
         _configStore.Update(s =>
         {
-            s.Tryx.OverlayStats = overlay.Stats;
+            s.Tryx.OverlayItems = ToSettingsItems(overlay.Items);
             s.Tryx.OverlayColor = overlay.Color;
             s.Tryx.OverlayAlign = overlay.Align;
             s.Tryx.OverlayFilter = overlay.Filter;
             s.Tryx.OverlayOpacity = overlay.Opacity;
+            s.Tryx.OverlayFont = overlay.Font;
+            s.Tryx.OverlaySize = overlay.Size;
+            s.Tryx.OverlayDocked = overlay.Docked;
         });
         return SendReliable(TryxRkProtocol.BuildOverlay(
-            BuildOverlayLines(), ParseHexColorRgb(overlay.Color), overlay.Align));
+            BuildOverlayLines(), BuildOverlayPositions(), ParseHexColorRgb(overlay.Color),
+            overlay.Font, overlay.Size, overlay.Align));
+    }
+
+    private static List<TryxOverlaySensorItem> ToRuntimeItems(List<TryxOverlaySensorItemSettings> saved)
+    {
+        var items = new List<TryxOverlaySensorItem>(saved.Count);
+        foreach (var s in saved)
+        {
+            items.Add(new TryxOverlaySensorItem { SensorId = s.SensorId, Device = s.Device, Label = s.Label, X = s.X, Y = s.Y });
+        }
+        return items;
+    }
+
+    private static List<TryxOverlaySensorItemSettings> ToSettingsItems(List<TryxOverlaySensorItem> items)
+    {
+        var saved = new List<TryxOverlaySensorItemSettings>(items.Count);
+        foreach (var i in items)
+        {
+            saved.Add(new TryxOverlaySensorItemSettings { SensorId = i.SensorId, Device = i.Device, Label = i.Label, X = i.X, Y = i.Y });
+        }
+        return saved;
     }
 
     // Panel surface is a fixed 2240x1080 2:1 display; every custom clip is transcoded to
@@ -718,39 +770,80 @@ public sealed class TryxPanoramaHub : IDisposable
         return sb.ToString();
     }
 
-    /// <summary>Maps a dashboard stat label to its overlay value string; unmapped
-    /// labels are skipped. "Date&amp;Time" reads the local clock, not a sensor.</summary>
-    private static TryxOverlayLine? MapOverlayStat(string stat, in TryxSensorReadout r) => stat switch
-    {
-        "CPU Temperature" => new TryxOverlayLine(stat, $"{r.CpuTemp}°C"),
-        "CPU Frequency" => new TryxOverlayLine(stat, $"{r.CpuClock}MHZ"),
-        "CPU Usage" => new TryxOverlayLine(stat, $"{r.CpuLoad}%"),
-        "CPU Voltage" => new TryxOverlayLine(stat, $"{r.CpuVoltage}V"),
-        "GPU Temperature" => new TryxOverlayLine(stat, $"{r.GpuTemp}°C"),
-        "GPU Frequency" => new TryxOverlayLine(stat, $"{r.GpuClock}MHZ"),
-        "GPU Usage" => new TryxOverlayLine(stat, $"{r.GpuLoad}%"),
-        "GPU Voltage" => new TryxOverlayLine(stat, $"{r.GpuVoltage}V"),
-        "Motherboard Temperature" => new TryxOverlayLine(stat, $"{r.MoboTemp}°C"),
-        "Memory Frequency" => new TryxOverlayLine(stat, $"{r.MemClock}MHZ"),
-        "Memory Utilization" => new TryxOverlayLine(stat, $"{r.MemLoad}%"),
-        "Date&Time" => new TryxOverlayLine(stat, DateTime.Now.ToString("HH:mm")),
-        _ => null,
-    };
-
     private List<TryxOverlayLine> BuildOverlayLines()
     {
-        var r = ReadSensors();
-        var lines = new List<TryxOverlayLine>(_overlay.Stats.Length);
-        foreach (var stat in _overlay.Stats)
+        var lines = new List<TryxOverlayLine>(_overlay.Items.Count);
+        foreach (var item in _overlay.Items)
         {
-            var line = MapOverlayStat(stat, in r);
-            if (line is { } value)
-            {
-                lines.Add(value);
-            }
+            lines.Add(new TryxOverlayLine(item.Label, ResolveSensorValue(item.Device, item.SensorId)));
         }
         return lines;
     }
+
+    private List<(double X, double Y)> BuildOverlayPositions()
+    {
+        var positions = new List<(double, double)>(_overlay.Items.Count);
+        foreach (var item in _overlay.Items)
+        {
+            positions.Add((item.X, item.Y));
+        }
+        return positions;
+    }
+
+    /// <summary>Looks up <paramref name="sensorId"/> within <paramref name="device"/>'s
+    /// live sensor group and formats it by its <see cref="HardwareSensor.Type"/>; "--"
+    /// if the group is unknown or the id isn't currently reported.</summary>
+    private string ResolveSensorValue(string device, string sensorId)
+    {
+        foreach (var sensor in GetDeviceSensors(device))
+        {
+            if (sensor.Id == sensorId)
+            {
+                return FormatSensorValue(sensor);
+            }
+        }
+        return "--";
+    }
+
+    private IReadOnlyList<HardwareSensor> GetDeviceSensors(string device) => device switch
+    {
+        "cpu" => _sensors.GetCpuSensors(),
+        "gpu" => GetPrimaryGpuSensors(),
+        "memory" => _sensors.GetMemorySensors(),
+        "motherboard" => _sensors.GetMotherboardSensors(),
+        "storage" => FlattenSensors(_sensors.GetStorageComponents().Values),
+        "network" => FlattenSensors(_sensors.GetSensorExtras().Nics),
+        _ => Array.Empty<HardwareSensor>(),
+    };
+
+    private static IReadOnlyList<HardwareSensor> FlattenSensors(IEnumerable<HardwareComponent> components)
+    {
+        var list = new List<HardwareSensor>();
+        foreach (var component in components)
+        {
+            list.AddRange(component.Sensors);
+        }
+        return list;
+    }
+
+    // Units match the monitoring widgets' own formatting for each LHM sensor type
+    // (LibreHardwareSensorProvider.MapSensorType/MapUnits); unmapped types fall
+    // back to the unformatted value with no unit. Data (e.g. memory used/available)
+    // is GB-scale; SmallData (e.g. GPU VRAM) is MB-scale - these are distinct LHM
+    // units, not interchangeable formatting of the same magnitude.
+    private static string FormatSensorValue(HardwareSensor sensor) => sensor.Type switch
+    {
+        "Temperature" => $"{(int)Math.Round(sensor.Value)}°C",
+        "Load" => $"{(int)Math.Round(sensor.Value)}%",
+        "Clock" or "Frequency" => $"{(int)Math.Round(sensor.Value)}MHz",
+        "Voltage" => $"{sensor.Value.ToString("0.00", CultureInfo.InvariantCulture)}V",
+        "Data" => $"{sensor.Value.ToString("0.0", CultureInfo.InvariantCulture)}GB",
+        "SmallData" => $"{(int)Math.Round(sensor.Value)}MB",
+        "Power" => $"{(int)Math.Round(sensor.Value)}W",
+        "Fan" => $"{(int)Math.Round(sensor.Value)}RPM",
+        "Throughput" => $"{sensor.Value.ToString("0.0", CultureInfo.InvariantCulture)}MB/s",
+        _ => sensor.Value.ToString(CultureInfo.InvariantCulture),
+    };
 
     private static int ParseHexColorRgb(string hex)
     {
