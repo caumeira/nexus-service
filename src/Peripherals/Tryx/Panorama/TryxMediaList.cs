@@ -106,7 +106,9 @@ public static class TryxMediaList
     /// reports null until it fits. An entry missing either its path or its size is dropped.</summary>
     public static IReadOnlyList<MediaEntry>? ParseMediaEntries(ReadOnlySpan<byte> data)
     {
-        if (data.IsEmpty || data.IndexOf("/userdata/default/"u8) < 0) return null;
+        // Custom uploads live under /userdata/user/, built-in presets under /userdata/default/;
+        // match either so a list containing only custom media still parses.
+        if (data.IsEmpty || data.IndexOf("/userdata/"u8) < 0) return null;
         if (!TryGetLenField(data, fieldNumber: 503, out var fileList)) return null;
 
         var entries = new List<MediaEntry>();
@@ -137,6 +139,17 @@ public static class TryxMediaList
         return entries.Count == 0 ? null : entries;
     }
 
+    /// <summary>Panel serial_number from a device_info reply: top-level device_info = field 500,
+    /// DeviceInfo.serial_number = field 8. Null if the buffer is not a device_info frame. Field
+    /// ids decoded from Kanali's UDB.exe descriptor.</summary>
+    public static string? ParseSerialNumber(ReadOnlySpan<byte> data)
+    {
+        if (data.IsEmpty) return null;
+        if (!TryGetLenField(data, fieldNumber: 500, out var deviceInfo)) return null;
+        if (!TryGetLenField(deviceInfo, fieldNumber: 8, out var serial)) return null;
+        return Encoding.UTF8.GetString(serial);
+    }
+
     private static bool TryParseEntry(ReadOnlySpan<byte> entry, out MediaEntry result)
     {
         result = default;
@@ -164,7 +177,10 @@ public static class TryxMediaList
             if (!TrySkipField(entry, ref epos, ewt)) break;
         }
         if (path is null || size < 0) return false;
-        var name = path.StartsWith(StoreDirMarker, StringComparison.Ordinal) ? path[StoreDirMarker.Length..] : path;
+        // Basename after the last '/', so both /userdata/default/<f> and /userdata/user/<f> map
+        // to just <f> (the device filename the rest of the code keys on).
+        var slash = path.LastIndexOf('/');
+        var name = slash >= 0 ? path[(slash + 1)..] : path;
         result = new MediaEntry(name, size);
         return true;
     }

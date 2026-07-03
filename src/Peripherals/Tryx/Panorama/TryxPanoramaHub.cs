@@ -98,6 +98,13 @@ public sealed class TryxPanoramaHub : IDisposable
     private readonly object _mediaSizesLock = new();
     private readonly Dictionary<string, long> _mediaSizes = new(StringComparer.Ordinal);
     private int _syncedMediaListVersion = -1;
+    // Set once the media-list request has been sent for the current connection (after the panel
+    // serial is known); reset on each connect so a reconnect re-fetches.
+    private volatile bool _fileListRequested;
+
+    /// <summary>The panel's serial_number (needed as the sn on get_file_list); empty until the
+    /// device_info reply is parsed.</summary>
+    public string PanelSerial => _transport?.PanelSerial ?? "";
 
     /// <summary>Bytes stored on the panel's /userdata: this session's own per-file map,
     /// re-synced from the transport's media-list push on each version bump and adjusted
@@ -179,7 +186,8 @@ public sealed class TryxPanoramaHub : IDisposable
             RecordMediaDeleted(deviceFileName);
             // Re-fetch so the panel's list (and the per-file sizes) drop the removed file
             // authoritatively, not just via the local delta.
-            SendReliable(TryxRkProtocol.BuildGetFileList());
+            var sn = PanelSerial;
+            if (!string.IsNullOrEmpty(sn)) SendReliable(TryxRkProtocol.BuildGetFileList(sn));
         }
         return ok;
     }
@@ -235,11 +243,12 @@ public sealed class TryxPanoramaHub : IDisposable
         try
         {
             transport.Write(TryxRkProtocol.BuildConfig(State.ScreenEnabled, State.Brightness));
-            // Ask the panel for its stored-media list: a warm reconnect (service restart) does
-            // not re-trigger the unprompted cold-boot push, so without this the media list and
-            // used-bytes would be empty until the panel re-enumerates. The reply lands on the
-            // drain and populates AvailableMediaFilenames + the per-file sizes.
-            transport.Write(TryxRkProtocol.BuildGetFileList());
+            // Bootstrap the device serial: get_file_list needs the panel's serial_number (locked),
+            // which we only learn from device_info. Request it here; once the drain parses the
+            // reply, the heartbeat sends get_file_list so the media list + used-bytes populate
+            // (a warm reconnect doesn't re-trigger the unprompted cold-boot list push).
+            _fileListRequested = false;
+            transport.Write(TryxRkProtocol.BuildGetDeviceInfo());
             // Re-assert the last preset wallpaper so a reconnect (service restart, or the
             // panel's own re-enumeration) restores the picture instead of leaving the panel
             // black. A custom clip lives only on the panel / behind a re-transfer, so it is
@@ -284,6 +293,18 @@ public sealed class TryxPanoramaHub : IDisposable
         {
             SendConn();
             if (!_importInProgress) SendStateAll();
+            // Once the connect-time device_info reply has given us the panel serial, request the
+            // media list once for this connection (the panel only pushes it unprompted on a cold
+            // boot). SendOnly re-enters _txGate (reentrant).
+            if (!_fileListRequested && !_importInProgress)
+            {
+                var sn = PanelSerial;
+                if (!string.IsNullOrEmpty(sn))
+                {
+                    _fileListRequested = true;
+                    SendOnly(TryxRkProtocol.BuildGetFileList(sn));
+                }
+            }
             State.LastFrameMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
         }
         finally

@@ -40,5 +40,10 @@ public interface ITryxPanoramaTransport : IDisposable
     /// panel push, so a caller can tell a re-sync is needed without diffing the dictionary.</summary>
     int MediaListVersion => 0;
 
+    /// <summary>The panel's own serial_number (BYZL...) from its device_info reply, empty until
+    /// received. Required as the sn on CMD_Get_FileList and other locked-serial commands; it is
+    /// not the USB chip id.</summary>
+    string PanelSerial => "";
+
     private static readonly IReadOnlyDictionary<string, long> EmptyMediaFileSizes = new Dictionary<string, long>();
 }

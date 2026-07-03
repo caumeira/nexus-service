@@ -34,6 +34,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     private volatile IReadOnlyList<string> _availableMediaFilenames = Array.Empty<string>();
     private volatile IReadOnlyDictionary<string, long> _mediaFileSizes = EmptyMediaFileSizes;
     private int _mediaListVersion;
+    private volatile string _panelSerial = "";
     private static readonly IReadOnlyDictionary<string, long> EmptyMediaFileSizes = new Dictionary<string, long>();
 
     public WindowsTryxPrinterTransport(string devicePath, string serial)
@@ -83,6 +84,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     public IReadOnlyList<string> AvailableMediaFilenames => _availableMediaFilenames;
     public IReadOnlyDictionary<string, long> MediaFileSizes => _mediaFileSizes;
     public int MediaListVersion => Volatile.Read(ref _mediaListVersion);
+    public string PanelSerial => _panelSerial;
 
     // A write to a panel that has stopped draining its endpoint (mid re-enumeration,
     // or firmware-wedged) parks in the usbprint stack for ~45-60s before it errors. That
@@ -156,26 +158,35 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
                 // a stale non-empty list is never overwritten by an unrelated read.
                 // Assumes the list lands in a single read; a payload split across two
                 // reads only parses the fragment carrying the "/userdata/default/" marker.
-                var presets = TryxMediaList.ParsePresetIds(buffer.AsSpan(0, read));
-                if (presets.Count > 0)
+                var span = buffer.AsSpan(0, read);
+                // file_list (f503) push - device truth. ParseMediaEntries is the authoritative
+                // source (all files under /userdata/*, with sizes); the basename is what the rest
+                // of the code keys on. A non-list read (heartbeat ack, device_info) returns null,
+                // so a stale list is never wiped by an unrelated read.
+                var entries = TryxMediaList.ParseMediaEntries(span);
+                if (entries is not null)
                 {
-                    _availableMediaIds = presets;
-                    var all = TryxMediaList.ParseMediaFilenames(buffer.AsSpan(0, read));
-                    _availableMediaFilenames = all;
-                    var entries = TryxMediaList.ParseMediaEntries(buffer.AsSpan(0, read));
+                    var names = new List<string>(entries.Count);
+                    var sizes = new Dictionary<string, long>(entries.Count, StringComparer.Ordinal);
                     var usedBytes = 0L;
-                    if (entries is not null)
+                    foreach (var e in entries)
                     {
-                        var sizes = new Dictionary<string, long>(entries.Count, StringComparer.Ordinal);
-                        foreach (var e in entries)
-                        {
-                            sizes[e.Name] = e.SizeBytes;
-                            usedBytes += e.SizeBytes;
-                        }
-                        _mediaFileSizes = sizes;
-                        Interlocked.Increment(ref _mediaListVersion);
+                        names.Add(e.Name);
+                        sizes[e.Name] = e.SizeBytes;
+                        usedBytes += e.SizeBytes;
                     }
-                    ServiceLog.Info($"[tryx] panel media list ({all.Count}, {usedBytes} bytes): {string.Join(", ", all)}");
+                    _availableMediaIds = TryxMediaList.ParsePresetIds(span);
+                    _availableMediaFilenames = names;
+                    _mediaFileSizes = sizes;
+                    Interlocked.Increment(ref _mediaListVersion);
+                    ServiceLog.Info($"[tryx] panel media list ({names.Count}, {usedBytes} bytes): {string.Join(", ", names)}");
+                }
+                // device_info (f500) reply carries the panel serial the list/file commands require.
+                var serial = TryxMediaList.ParseSerialNumber(span);
+                if (!string.IsNullOrEmpty(serial))
+                {
+                    _panelSerial = serial;
+                    ServiceLog.Info($"[tryx] panel serial {serial}");
                 }
             }
             catch (Exception ex)

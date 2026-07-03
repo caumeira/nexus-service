@@ -323,15 +323,30 @@ public static class TryxRkProtocol
     }
 
     /// <summary>Requests the panel's stored-media list (CMD_Get_FileList). This command has no
-    /// payload field (unlike config/file_remove which the panel dispatches on the field
-    /// number), so it carries the command name in the header (cmd = field 1). The panel
-    /// replies with the same file_list (f503) push it sends unprompted on a cold boot - needed
-    /// because a warm reconnect (service restart) does not re-trigger that unprompted push.
-    /// Decoded from Kanali's UDB.exe: {header:{cmd:"CMD_Get_FileList"}}.</summary>
-    public static byte[] BuildGetFileList()
+    /// payload field, so it is identified by the header cmd (field 1); the panel also requires
+    /// its serial_number in the header (sn = field 3, serial_number_locked=true on device), so
+    /// this must be the BYZL... serial from device_info, not the USB chip id. The panel replies
+    /// with the file_list (f503) push it otherwise only sends unprompted on a cold boot.
+    /// Kanali: {header:{cmd:"CMD_Get_FileList", sn}}.</summary>
+    public static byte[] BuildGetFileList(string serialNumber)
     {
         var header = new List<byte>();
         WriteLengthDelimited(header, fieldNumber: 1, Encoding.ASCII.GetBytes("CMD_Get_FileList"));
+        WriteLengthDelimited(header, fieldNumber: 3, Encoding.ASCII.GetBytes(serialNumber ?? string.Empty));
+
+        var payload = new List<byte>();
+        WriteLengthDelimited(payload, fieldNumber: 1, header.ToArray());
+        return WrapFrame(payload);
+    }
+
+    /// <summary>Requests the panel's device info (CMD_Get_DeviceInfo). The bootstrap command:
+    /// no sn (it is what tells us the sn), header cmd only. The reply is a device_info (field
+    /// 500) message whose serial_number (field 8) is the BYZL... serial the other commands
+    /// need. Kanali: {header:{cmd:"CMD_Get_DeviceInfo"}}.</summary>
+    public static byte[] BuildGetDeviceInfo()
+    {
+        var header = new List<byte>();
+        WriteLengthDelimited(header, fieldNumber: 1, Encoding.ASCII.GetBytes("CMD_Get_DeviceInfo"));
 
         var payload = new List<byte>();
         WriteLengthDelimited(payload, fieldNumber: 1, header.ToArray());

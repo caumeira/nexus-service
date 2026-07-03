@@ -132,15 +132,22 @@ public class TryxRkProtocolTests
     }
 
     [Fact]
-    public void BuildGetFileList_carries_only_the_header_cmd()
+    public void BuildGetFileList_carries_the_cmd_and_serial_in_the_header()
     {
-        // CMD_Get_FileList has no payload field; the panel dispatches on header.cmd (field 1).
-        var expected = Convert.FromHexString(
-            "54525958140000000a120a10434d445f4765745f46696c654c697374");
+        var text = Encoding.ASCII.GetString(TryxRkProtocol.BuildGetFileList("BYZL123"));
 
-        var actual = TryxRkProtocol.BuildGetFileList();
+        Assert.StartsWith("TRYX", text);
+        Assert.Contains("CMD_Get_FileList", text);
+        Assert.Contains("BYZL123", text); // sn = header field 3
+    }
 
-        Assert.Equal(expected, actual);
+    [Fact]
+    public void BuildGetDeviceInfo_carries_the_bootstrap_cmd()
+    {
+        var text = Encoding.ASCII.GetString(TryxRkProtocol.BuildGetDeviceInfo());
+
+        Assert.StartsWith("TRYX", text);
+        Assert.Contains("CMD_Get_DeviceInfo", text);
     }
 
     [Fact]

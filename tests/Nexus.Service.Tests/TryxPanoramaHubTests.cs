@@ -524,10 +524,11 @@ public class TryxPanoramaHubTests
 
         hub.EnsureConnected();
 
-        // ApplyInitialConfig writes the brightness config, then requests the media list.
+        // ApplyInitialConfig writes the brightness config, then requests device_info to learn
+        // the panel serial (the media list is fetched from the heartbeat once the serial lands).
         Assert.Equal(2, recording.Writes.Count);
         Assert.Equal(TryxRkProtocol.BuildConfig(true, 80), recording.Writes[0]);
-        Assert.Equal(TryxRkProtocol.BuildGetFileList(), recording.Writes[1]);
+        Assert.Equal(TryxRkProtocol.BuildGetDeviceInfo(), recording.Writes[1]);
     }
 
     [Fact]
