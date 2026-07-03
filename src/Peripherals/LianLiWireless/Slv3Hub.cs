@@ -35,6 +35,13 @@ public sealed class Slv3Hub : IDisposable
     private byte _cmdSeq;
     private bool _disposed;
 
+    // The RX device-list poll intermittently returns 0 records under RGB traffic
+    // (fan status beaconing loses RF arbitration to our sends); a single empty
+    // read is a glitch, not a disconnect. Keep the last-known fans for this many
+    // consecutive empty polls before clearing.
+    private const int EmptyPollTolerance = 3;
+    private int _emptyPollStreak;
+
     public Slv3Hub(ISlv3Discovery discovery, Func<Slv3PortInfo, ISlv3Transport> transportFactory)
     {
         _discovery = discovery;
@@ -267,6 +274,15 @@ public sealed class Slv3Hub : IDisposable
                 records.Add(record);
             }
         }
+
+        // Debounce a transient empty poll: keep the last-known fans rather than
+        // flapping them (and the RGB effect_index tracking) out and back in.
+        if (records.Count == 0 && _lastFanRecords.Count > 0 && _emptyPollStreak < EmptyPollTolerance)
+        {
+            _emptyPollStreak++;
+            return true;
+        }
+        _emptyPollStreak = 0;
 
         if (records.Count != _lastFanRecords.Count)
         {
