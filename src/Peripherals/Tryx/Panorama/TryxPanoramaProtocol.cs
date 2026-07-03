@@ -32,13 +32,6 @@ public static class TryxPanoramaProtocol
     // Incremented atomically for every frame sent to the device.
     private static int _seqNumber = 0;
 
-    // Default smart fan curve from nx_e2e.ps1.
-    private static readonly int[][] DefaultSmartCurve =
-    {
-        new[] { 0, 10 }, new[] { 10, 20 }, new[] { 30, 30 }, new[] { 50, 40 },
-        new[] { 65, 55 }, new[] { 80, 70 }, new[] { 90, 100 }, new[] { 100, 100 },
-    };
-
     private const string ZeroSensorJson =
         "{\"network\":{\"upload\":0,\"download\":0}," +
         "\"memory\":{\"total\":0,\"used\":0,\"load\":0,\"temperature\":0,\"speed\":0}," +
@@ -149,90 +142,7 @@ public static class TryxPanoramaProtocol
         return BuildFrame("POST", "waterBlockScreen", json);
     }
 
-    public static byte[] BuildConfigCustom(int brightness, string mediaFileName, TryxOverlayConfig overlay, int[][]? fanSmartMode = null)
-        => BuildConfig(brightness,
-            BuildIdObject("Customization", mediaFileName, overlay),
-            BuildFanLcd("Smart Mode", fanSmartMode ?? DefaultSmartCurve, 40));
-
-    public static byte[] BuildConfigPreset(int brightness, string presetId, TryxOverlayConfig overlay, int[][]? fanSmartMode = null)
-        => BuildConfig(brightness,
-            BuildIdObject(presetId, null, overlay),
-            BuildFanLcd("Smart Mode", fanSmartMode ?? DefaultSmartCurve, 40));
-
-    public static byte[] BuildConfigFanFixed(int brightness, string currentId, bool isCustom, TryxOverlayConfig overlay, int fixedPercent)
-        => BuildConfig(brightness,
-            isCustom ? BuildIdObject("Customization", currentId, overlay) : BuildIdObject(currentId, null, overlay),
-            BuildFanLcd("Fixed Mode", DefaultSmartCurve, fixedPercent));
-
-    // waterBlockScreen.id is ALWAYS the nested object the home UI expects; a bare
-    // string is silently ignored (preset selection failed until this was nested).
-    // media = the pcMedia filename for "Customization", empty for a preset (the
-    // device maps the preset name to its own bundled clip).
-    private static string BuildIdObject(string id, string? mediaFileName, TryxOverlayConfig overlay)
-    {
-        var media = mediaFileName is null ? "[]" : "[\"" + EscapeJson(mediaFileName) + "\"]";
-        var filterValue = overlay.Filter is null ? "null" : "\"" + EscapeJson(overlay.Filter) + "\"";
-        var settings = "{\"color\":\"" + EscapeJson(overlay.Color) + "\",\"align\":\"" + EscapeJson(overlay.Align) +
-                       "\",\"filter\":{\"value\":" + filterValue + ",\"opacity\":" + overlay.Opacity + "},\"badges\":[]}";
-        var sysinfoDisplay = BuildSysinfoDisplay(overlay.Items.ConvertAll(i => i.Label).ToArray());
-        return "{\"id\":\"" + EscapeJson(id) + "\",\"screenMode\":\"Full Screen\",\"playMode\":\"Single\"," +
-               "\"ratio\":\"2:1\",\"media\":" + media +
-               ",\"settings\":" + settings +
-               ",\"sysinfoDisplay\":" + sysinfoDisplay + "}";
-    }
-
-    private static string BuildSysinfoDisplay(string[] stats)
-    {
-        if (stats.Length == 0)
-        {
-            return "[]";
-        }
-        var sb = new System.Text.StringBuilder("[");
-        for (var i = 0; i < stats.Length; i++)
-        {
-            if (i > 0)
-            {
-                sb.Append(',');
-            }
-            sb.Append('"').Append(EscapeJson(stats[i])).Append('"');
-        }
-        sb.Append(']');
-        return sb.ToString();
-    }
-
-    private static string BuildFanLcd(string mode, int[][] smartCurve, int fixedPercent)
-        => "{\"mode\":\"" + mode + "\",\"smartMode\":" + BuildFanCurveJson(smartCurve) + ",\"fixedMode\":" + fixedPercent + "}";
-
-    private static byte[] BuildConfig(int brightness, string idObjectJson, string fanLcdJson)
-    {
-        var json =
-            "{\"temperature\":\"Celsius\"," +
-            "\"waterBlockScreen\":{" +
-            $"\"enable\":true,\"displayInSleep\":false,\"brightness\":{brightness}," +
-            "\"rotate\":270," +
-            "\"id\":" + idObjectJson + "," +
-            "\"fanLCD\":" + fanLcdJson + "}," +
-            "\"spec\":{\"cpu\":\"Nexus\",\"gpu\":\"Nexus\"}," +
-            "\"turboPump\":false}";
-        return BuildFrame("POST", "config", json);
-    }
-
     // ── Helpers ──
-
-    private static string BuildFanCurveJson(int[][] curve)
-    {
-        var sb = new System.Text.StringBuilder("[");
-        for (var i = 0; i < curve.Length; i++)
-        {
-            if (i > 0)
-            {
-                sb.Append(',');
-            }
-            sb.Append('[').Append(curve[i][0]).Append(',').Append(curve[i][1]).Append(']');
-        }
-        sb.Append(']');
-        return sb.ToString();
-    }
 
     private static string EscapeJson(string s)
         => s.Replace("\\", "\\\\").Replace("\"", "\\\"");

@@ -108,13 +108,6 @@ public sealed class TryxBrightnessRequest
     public int Value { get; set; }
 }
 
-public sealed class TryxFanRequest
-{
-    public string Mode { get; set; } = "";
-    public int? Fixed { get; set; }
-    public int[][]? Curve { get; set; }
-}
-
 public sealed class TryxPresetRequest
 {
     public string Id { get; set; } = "";
@@ -199,37 +192,6 @@ public static class TryxRoutes
             }
             var ok = hub.SetBrightness(body.Value);
             return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
-        });
-
-        app.MapPost("/tryx/fan", (TryxFanRequest body, TryxPanoramaHub hub) =>
-        {
-            if (body.Mode == "fixed")
-            {
-                var pct = body.Fixed ?? 40;
-                var ok = hub.SetFanFixed(Math.Clamp(pct, 0, 100));
-                return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
-            }
-            if (body.Mode == "smart")
-            {
-                var curve = body.Curve;
-                if (curve is { Length: > 0 })
-                {
-                    foreach (var pt in curve)
-                    {
-                        if (pt is not { Length: 2 })
-                        {
-                            return Results.Json(
-                                new TryxAckResponse { Ok = false, Msg = "invalid curve; expected [[temp,duty],...]" },
-                                AppJsonContext.Default.TryxAckResponse);
-                        }
-                    }
-                }
-                var ok = hub.SetFanSmart(curve is { Length: > 0 } ? curve : null);
-                return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
-            }
-            return Results.Json(
-                new TryxAckResponse { Ok = false, Msg = "mode must be 'smart' or 'fixed'" },
-                AppJsonContext.Default.TryxAckResponse);
         });
 
         app.MapGet("/tryx/presets", (TryxPanoramaHub hub) =>

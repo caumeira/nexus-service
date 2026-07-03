@@ -238,18 +238,6 @@ public sealed class TryxPanoramaHub : IDisposable
         return ok;
     }
 
-    public bool SetFanSmart(int[][]? curve)
-    {
-        ServiceLog.Warn("[tryx] SetFanSmart not yet implemented for RK firmware");
-        return false;
-    }
-
-    public bool SetFanFixed(int percent)
-    {
-        ServiceLog.Warn("[tryx] SetFanFixed not yet implemented for RK firmware");
-        return false;
-    }
-
     public bool SetOverlay(TryxOverlayConfig overlay)
     {
         _overlay.Items = overlay.Items;
