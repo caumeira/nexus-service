@@ -32,8 +32,13 @@ public interface ITryxPanoramaTransport : IDisposable
     /// download, and custom), or empty if it has not pushed its list this session.</summary>
     IReadOnlyList<string> AvailableMediaFilenames => Array.Empty<string>();
 
-    /// <summary>Bytes stored on the panel's /userdata, summed from the media-list push's
-    /// per-file sizes; 0 until the list is received. The panel exposes no total capacity, so
-    /// this is a used-only figure (see <see cref="TryxMediaList.ParseMediaUsedBytes"/>).</summary>
-    long MediaUsedBytes => 0;
+    /// <summary>Per-file sizes from the panel's last media-list push, keyed by basename;
+    /// empty until a list is received (see <see cref="TryxMediaList.ParseMediaEntries"/>).</summary>
+    IReadOnlyDictionary<string, long> MediaFileSizes => EmptyMediaFileSizes;
+
+    /// <summary>Increments every time <see cref="MediaFileSizes"/> is replaced by a fresh
+    /// panel push, so a caller can tell a re-sync is needed without diffing the dictionary.</summary>
+    int MediaListVersion => 0;
+
+    private static readonly IReadOnlyDictionary<string, long> EmptyMediaFileSizes = new Dictionary<string, long>();
 }

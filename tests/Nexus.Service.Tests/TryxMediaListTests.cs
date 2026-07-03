@@ -91,6 +91,46 @@ public class TryxMediaListTests
         Assert.Null(TryxMediaList.ParseMediaUsedBytes(b.ToArray()));
     }
 
+    [Fact]
+    public void ParseMediaEntries_returns_names_stripped_of_the_store_dir_and_their_sizes()
+    {
+        var blob = BuildMediaListBlob(
+            ("/userdata/default/default_01.mp4.h264_2240x1080", 3790601),
+            ("/userdata/default/myclip.mp4.h264_2240x1080", 12774063));
+
+        var entries = TryxMediaList.ParseMediaEntries(blob);
+
+        Assert.NotNull(entries);
+        Assert.Equal(2, entries!.Count);
+        Assert.Equal("default_01.mp4.h264_2240x1080", entries[0].Name);
+        Assert.Equal(3790601L, entries[0].SizeBytes);
+        Assert.Equal("myclip.mp4.h264_2240x1080", entries[1].Name);
+        Assert.Equal(12774063L, entries[1].SizeBytes);
+    }
+
+    [Fact]
+    public void ParseMediaEntries_returns_null_when_not_a_media_list()
+    {
+        Assert.Null(TryxMediaList.ParseMediaEntries(Encoding.UTF8.GetBytes("some heartbeat ack payload")));
+        Assert.Null(TryxMediaList.ParseMediaEntries(ReadOnlySpan<byte>.Empty));
+    }
+
+    [Fact]
+    public void ParseMediaEntries_does_not_throw_on_a_corrupt_length()
+    {
+        // Same corrupt-length shape as ParseMediaUsedBytes_does_not_throw_on_a_corrupt_length;
+        // this must not throw in the drain thread either.
+        var marker = Encoding.UTF8.GetBytes("/userdata/default/x");
+        var inner = new List<byte>();
+        WriteTag(inner, 2, 2);
+        inner.AddRange(new byte[] { 0x80, 0x80, 0x80, 0x80, 0x08 });
+        var b = new List<byte>();
+        WriteTag(b, 1, 2); WriteVarint(b, (ulong)marker.Length); b.AddRange(marker);
+        WriteTag(b, 503, 2); WriteVarint(b, (ulong)inner.Count); b.AddRange(inner);
+
+        Assert.Null(TryxMediaList.ParseMediaEntries(b.ToArray()));
+    }
+
     // Encodes the panel's frame: top-level f1{f1:1}, empty f2, then f503 { repeated f2 {
     // f1:path, f2:ext, f3:sizeBytes, f4:1 } } - the shape ParseMediaUsedBytes walks.
     private static byte[] BuildMediaListBlob(params (string path, long size)[] files)

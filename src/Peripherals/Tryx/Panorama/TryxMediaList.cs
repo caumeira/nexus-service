@@ -94,19 +94,22 @@ public static class TryxMediaList
         return names.Count == 0 ? Array.Empty<string>() : new List<string>(names);
     }
 
-    /// <summary>Bytes stored on the panel's /userdata, summed from the per-file sizes the
-    /// media-list push carries: outer <c>f503 { repeated f2 { f1:path, f2:ext, f3:sizeBytes,
-    /// f4:1 } }</c>. Returns null when the buffer is not a complete media-list frame (another
-    /// IN read, or a list split across reads), so the caller keeps the last known total rather
-    /// than resetting to 0. Only whole-frame reads count - a very large list that spills past a
-    /// single drain read reports null until it fits.</summary>
-    public static long? ParseMediaUsedBytes(ReadOnlySpan<byte> data)
+    /// <summary>One file the panel's media-list push reports: <paramref name="Name"/> is the
+    /// basename under <see cref="StoreDirMarker"/> (path prefix stripped), <paramref name="SizeBytes"/>
+    /// its f3 size.</summary>
+    public readonly record struct MediaEntry(string Name, long SizeBytes);
+
+    /// <summary>Per-file entries from the media-list push: outer <c>f503 { repeated f2 {
+    /// f1:path, f2:ext, f3:sizeBytes, f4:1 } }</c>. Returns null when the buffer is not a
+    /// complete media-list frame (another IN read, or a list split across reads) - only
+    /// whole-frame reads count, a very large list that spills past a single drain read
+    /// reports null until it fits. An entry missing either its path or its size is dropped.</summary>
+    public static IReadOnlyList<MediaEntry>? ParseMediaEntries(ReadOnlySpan<byte> data)
     {
         if (data.IsEmpty || data.IndexOf("/userdata/default/"u8) < 0) return null;
         if (!TryGetLenField(data, fieldNumber: 503, out var fileList)) return null;
 
-        long total = 0;
-        var any = false;
+        var entries = new List<MediaEntry>();
         var pos = 0;
         while (pos < fileList.Length)
         {
@@ -126,19 +129,58 @@ public static class TryxMediaList
             var entry = fileList.Slice(pos, (int)len);
             pos += (int)len;
             if (fn != 2) continue; // repeated field 2 = one file entry
-            var epos = 0;
-            while (epos < entry.Length)
+            if (TryParseEntry(entry, out var parsed))
             {
-                if (!TryReadVarint(entry, ref epos, out var etag)) break;
-                if ((int)(etag >> 3) == 3 && (int)(etag & 7) == WireVarint)
-                {
-                    if (TryReadVarint(entry, ref epos, out var size)) { total += (long)size; any = true; }
-                    break;
-                }
-                if (!TrySkipField(entry, ref epos, (int)(etag & 7))) break;
+                entries.Add(parsed);
             }
         }
-        return any ? total : null;
+        return entries.Count == 0 ? null : entries;
+    }
+
+    private static bool TryParseEntry(ReadOnlySpan<byte> entry, out MediaEntry result)
+    {
+        result = default;
+        string? path = null;
+        long size = -1;
+        var epos = 0;
+        while (epos < entry.Length)
+        {
+            if (!TryReadVarint(entry, ref epos, out var etag)) break;
+            var efn = (int)(etag >> 3);
+            var ewt = (int)(etag & 7);
+            if (efn == 1 && ewt == WireLen)
+            {
+                if (!TryReadVarint(entry, ref epos, out var nlen) || nlen > (ulong)(entry.Length - epos)) break;
+                path = Encoding.UTF8.GetString(entry.Slice(epos, (int)nlen));
+                epos += (int)nlen;
+                continue;
+            }
+            if (efn == 3 && ewt == WireVarint)
+            {
+                if (!TryReadVarint(entry, ref epos, out var s)) break;
+                size = (long)s;
+                continue;
+            }
+            if (!TrySkipField(entry, ref epos, ewt)) break;
+        }
+        if (path is null || size < 0) return false;
+        var name = path.StartsWith(StoreDirMarker, StringComparison.Ordinal) ? path[StoreDirMarker.Length..] : path;
+        result = new MediaEntry(name, size);
+        return true;
+    }
+
+    /// <summary>Bytes stored on the panel's /userdata, summed from <see cref="ParseMediaEntries"/>.
+    /// Null under the same conditions that method returns null.</summary>
+    public static long? ParseMediaUsedBytes(ReadOnlySpan<byte> data)
+    {
+        var entries = ParseMediaEntries(data);
+        if (entries is null) return null;
+        long total = 0;
+        foreach (var e in entries)
+        {
+            total += e.SizeBytes;
+        }
+        return total;
     }
 
     private const int WireVarint = 0;
@@ -167,7 +209,7 @@ public static class TryxMediaList
             case 5: pos += 4; return pos <= b.Length;   // 32-bit
             case WireLen:
                 // Reject a length past the remaining span before casting - see the note in
-                // ParseMediaUsedBytes; a negative (int)len here would leave pos negative and the
+                // ParseMediaEntries; a negative (int)len here would leave pos negative and the
                 // next varint read would index out of bounds and throw.
                 if (!TryReadVarint(b, ref pos, out var len) || len > (ulong)(b.Length - pos)) return false;
                 pos += (int)len;

@@ -304,6 +304,24 @@ public static class TryxRkProtocol
         return WrapFrame(payload);
     }
 
+    /// <summary>Deletes a stored file on the panel: top-level file_remove command (field 403,
+    /// sibling of the transfer's file_transmit_begin/data/end at 400-402), carrying the
+    /// FileRemove message { file_name = 1, file_type = 2 }. Kanali sends fileType "media" for
+    /// custom/preset media. One-shot command, so an empty header like the config frames - the
+    /// panel dispatches on the field number, not header.cmd. Field ids decoded from Kanali's
+    /// UDB.exe protobuf descriptor; matches the CMD_File_Remove frame it emits.</summary>
+    public static byte[] BuildFileRemove(string deviceFileName)
+    {
+        var fileRemove = new List<byte>();
+        WriteLengthDelimited(fileRemove, fieldNumber: 1, Encoding.UTF8.GetBytes(deviceFileName));
+        WriteLengthDelimited(fileRemove, fieldNumber: 2, Encoding.ASCII.GetBytes("media"));
+
+        var payload = new List<byte>();
+        WriteLengthDelimited(payload, fieldNumber: 1, Array.Empty<byte>());
+        WriteLengthDelimited(payload, fieldNumber: 403, fileRemove.ToArray());
+        return WrapFrame(payload);
+    }
+
     private static List<byte> SessionEnvelope(uint sessionId)
     {
         var f1 = new List<byte>();

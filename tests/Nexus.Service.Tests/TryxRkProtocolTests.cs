@@ -119,6 +119,19 @@ public class TryxRkProtocolTests
     }
 
     [Fact]
+    public void BuildFileRemove_encodes_the_file_remove_command()
+    {
+        // file_remove = top-level field 403 (tag 9a19), FileRemove{ file_name=1, file_type=2 }.
+        // Empty header (0a00) like the config frame; ids decoded from Kanali's UDB.exe descriptor.
+        var expected = Convert.FromHexString(
+            "54525958160000000a009a19110a08746573742e6d703412056d65646961");
+
+        var actual = TryxRkProtocol.BuildFileRemove("test.mp4");
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
     public void BuildFileCommit_matches_the_captured_kanali_frame()
     {
         // f1{f2:668387} + f402{f1:"media"}.

@@ -32,7 +32,9 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     private bool _disposed;
     private volatile IReadOnlyList<string> _availableMediaIds = Array.Empty<string>();
     private volatile IReadOnlyList<string> _availableMediaFilenames = Array.Empty<string>();
-    private long _mediaUsedBytes;
+    private volatile IReadOnlyDictionary<string, long> _mediaFileSizes = EmptyMediaFileSizes;
+    private int _mediaListVersion;
+    private static readonly IReadOnlyDictionary<string, long> EmptyMediaFileSizes = new Dictionary<string, long>();
 
     public WindowsTryxPrinterTransport(string devicePath, string serial)
     {
@@ -79,7 +81,8 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     public string PortName { get; }
     public IReadOnlyList<string> AvailableMediaIds => _availableMediaIds;
     public IReadOnlyList<string> AvailableMediaFilenames => _availableMediaFilenames;
-    public long MediaUsedBytes => Interlocked.Read(ref _mediaUsedBytes);
+    public IReadOnlyDictionary<string, long> MediaFileSizes => _mediaFileSizes;
+    public int MediaListVersion => Volatile.Read(ref _mediaListVersion);
 
     // A write to a panel that has stopped draining its endpoint (mid re-enumeration,
     // or firmware-wedged) parks in the usbprint stack for ~45-60s before it errors. That
@@ -159,9 +162,20 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
                     _availableMediaIds = presets;
                     var all = TryxMediaList.ParseMediaFilenames(buffer.AsSpan(0, read));
                     _availableMediaFilenames = all;
-                    var used = TryxMediaList.ParseMediaUsedBytes(buffer.AsSpan(0, read));
-                    if (used is { } bytes) Interlocked.Exchange(ref _mediaUsedBytes, bytes);
-                    ServiceLog.Info($"[tryx] panel media list ({all.Count}, {used ?? 0} bytes): {string.Join(", ", all)}");
+                    var entries = TryxMediaList.ParseMediaEntries(buffer.AsSpan(0, read));
+                    var usedBytes = 0L;
+                    if (entries is not null)
+                    {
+                        var sizes = new Dictionary<string, long>(entries.Count, StringComparer.Ordinal);
+                        foreach (var e in entries)
+                        {
+                            sizes[e.Name] = e.SizeBytes;
+                            usedBytes += e.SizeBytes;
+                        }
+                        _mediaFileSizes = sizes;
+                        Interlocked.Increment(ref _mediaListVersion);
+                    }
+                    ServiceLog.Info($"[tryx] panel media list ({all.Count}, {usedBytes} bytes): {string.Join(", ", all)}");
                 }
             }
             catch (Exception ex)

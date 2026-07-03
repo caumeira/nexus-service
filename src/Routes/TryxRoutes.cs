@@ -38,10 +38,12 @@ public sealed class TryxStatusResponse
 {
     public bool Connected { get; set; }
     public TryxPanoramaState? State { get; set; }
-    // Bytes stored on the panel from its media list, and the file count. The panel reports no
-    // total capacity, so this is a used-only figure.
+    // Bytes stored on the panel from its media list, and the file count.
     public long MediaUsedBytes { get; set; }
     public int MediaFileCount { get; set; }
+    // Fixed per-model capacity (TryxPanoramaHub.MediaCapacityBytes); the single source of
+    // truth the web reads instead of hardcoding its own copy of the spec value.
+    public long MediaCapacityBytes { get; set; }
     public TryxOverlaySnapshot? Overlay { get; set; }
 }
 
@@ -169,6 +171,7 @@ public static class TryxRoutes
                 State = hub.State,
                 MediaUsedBytes = hub.MediaUsedBytes,
                 MediaFileCount = hub.AvailableMediaFilenames.Count,
+                MediaCapacityBytes = TryxPanoramaHub.MediaCapacityBytes,
                 Overlay = new TryxOverlaySnapshot
                 {
                     Items = BuildOverlayItems(ov),
@@ -402,11 +405,15 @@ public static class TryxRoutes
                 {
                     await file.CopyToAsync(s);
                 }
-                var ok = await hub.ImportAndPlayVideoAsync(tempInput, file.FileName, crop, targetW, targetH, ctx.RequestAborted);
+                var (ok, msg) = await hub.ImportAndPlayVideoAsync(tempInput, file.FileName, crop, targetW, targetH, ctx.RequestAborted);
                 if (!ok)
                 {
                     return Results.Json(
-                        new TryxMediaImportResponse { Error = true, Msg = "Import failed (transcode, push, or verification error)" },
+                        new TryxMediaImportResponse
+                        {
+                            Error = true,
+                            Msg = string.IsNullOrEmpty(msg) ? "Import failed (transcode, push, or verification error)" : msg,
+                        },
                         AppJsonContext.Default.TryxMediaImportResponse);
                 }
                 return Results.Json(
@@ -587,10 +594,12 @@ public static class TryxRoutes
         var adbSerial = hub.State.AdbSerial;
         if (string.IsNullOrEmpty(adbSerial))
         {
-            // RK firmware: no adb to remove the on-panel file, so drop the local record
-            // (thumbnail + duration); the entry leaves the library on the next refresh.
-            TryxThumbnailCache.Delete(name);
-            return new TryxAckResponse { Ok = true };
+            // RK firmware (usbprint, no adb): actually remove the on-panel file with the
+            // file_remove command. RemoveDeviceMedia updates the used-bytes accounting on
+            // success; drop the local thumbnail/duration record only if the panel accepted it.
+            var removed = hub.RemoveDeviceMedia(name);
+            if (removed) TryxThumbnailCache.Delete(name);
+            return new TryxAckResponse { Ok = removed, Msg = removed ? null : "panel remove failed" };
         }
         var adbPath = AdbLocator.ResolveAdbPath();
         if (adbPath is null)
@@ -617,6 +626,7 @@ public static class TryxRoutes
             if (p.ExitCode == 0)
             {
                 TryxThumbnailCache.Delete(name);
+                hub.RecordMediaDeleted(name);
             }
             return new TryxAckResponse { Ok = p.ExitCode == 0 };
         }

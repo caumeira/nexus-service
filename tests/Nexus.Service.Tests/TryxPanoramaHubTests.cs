@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
@@ -25,6 +26,8 @@ public class TryxPanoramaHubTests
         public string PortName => "COM1";
         public List<byte[]> Writes { get; } = new();
         public IReadOnlyList<string> AvailableMediaIds { get; set; } = Array.Empty<string>();
+        public IReadOnlyDictionary<string, long> MediaFileSizes { get; set; } = new Dictionary<string, long>();
+        public int MediaListVersion { get; set; }
         public void Write(ReadOnlySpan<byte> data) => Writes.Add(data.ToArray());
         public void Dispose() { }
     }
@@ -697,5 +700,139 @@ public class TryxPanoramaHubTests
         var json = hub.BuildLiveSensorJsonForTest();
         var doc = JsonDocument.Parse(json);
         Assert.Equal(0, doc.RootElement.GetProperty("memory").GetProperty("speed").GetInt32());
+    }
+
+    // ── Session-accurate used-bytes + capacity ──
+
+    [Fact]
+    public void MediaUsedBytes_syncs_from_the_transport_after_a_version_bump()
+    {
+        var recording = new RecordingTransport
+        {
+            MediaFileSizes = new Dictionary<string, long> { ["a.mp4"] = 100, ["b.mp4"] = 200 },
+            MediaListVersion = 1,
+        };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording);
+
+        hub.EnsureConnected();
+
+        Assert.Equal(300, hub.MediaUsedBytes);
+    }
+
+    [Fact]
+    public void MediaUsedBytes_does_not_resync_until_the_version_bumps_again()
+    {
+        var recording = new RecordingTransport
+        {
+            MediaFileSizes = new Dictionary<string, long> { ["a.mp4"] = 100 },
+            MediaListVersion = 1,
+        };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording);
+        hub.EnsureConnected();
+        Assert.Equal(100, hub.MediaUsedBytes);
+
+        // A later mutation of the transport's map with no version bump (no fresh panel
+        // push) must not be picked up - only RecordMediaDeleted/an upload changes the total.
+        recording.MediaFileSizes = new Dictionary<string, long> { ["a.mp4"] = 100, ["b.mp4"] = 900 };
+
+        Assert.Equal(100, hub.MediaUsedBytes);
+    }
+
+    [Fact]
+    public async Task MediaUsedBytes_reflects_a_session_upload_before_the_panel_repushes()
+    {
+        var recording = new RecordingTransport();
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording);
+        hub.EnsureConnected();
+        Assert.Equal(0, hub.MediaUsedBytes);
+
+        var path = WriteTempFile(500);
+        try
+        {
+            var ok = await hub.InstallLocalMediaAsync(path, "custom.mp4.h264_2240x1080", CancellationToken.None);
+
+            Assert.True(ok);
+            Assert.Equal(500, hub.MediaUsedBytes);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void MediaUsedBytes_reflects_a_session_delete()
+    {
+        var recording = new RecordingTransport
+        {
+            MediaFileSizes = new Dictionary<string, long> { ["a.mp4"] = 1000 },
+            MediaListVersion = 1,
+        };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording);
+        hub.EnsureConnected();
+        Assert.Equal(1000, hub.MediaUsedBytes);
+
+        hub.RecordMediaDeleted("a.mp4");
+
+        Assert.Equal(0, hub.MediaUsedBytes);
+    }
+
+    [Fact]
+    public async Task InstallLocalMediaAsync_rejects_a_transfer_that_would_exceed_capacity_with_padding()
+    {
+        var baseline = TryxPanoramaHub.MediaCapacityBytes - TryxPanoramaHub.MediaCapacityPaddingBytes - 100;
+        var recording = new RecordingTransport
+        {
+            MediaFileSizes = new Dictionary<string, long> { ["bulk.mp4"] = baseline },
+            MediaListVersion = 1,
+        };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording);
+        hub.EnsureConnected();
+
+        var path = WriteTempFile(200);
+        try
+        {
+            var ok = await hub.InstallLocalMediaAsync(path, "new.mp4.h264_2240x1080", CancellationToken.None);
+
+            Assert.False(ok);
+            Assert.Equal(baseline, hub.MediaUsedBytes);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public async Task InstallLocalMediaAsync_accepts_a_transfer_that_fits_within_capacity_with_padding()
+    {
+        var baseline = TryxPanoramaHub.MediaCapacityBytes - TryxPanoramaHub.MediaCapacityPaddingBytes - 100;
+        var recording = new RecordingTransport
+        {
+            MediaFileSizes = new Dictionary<string, long> { ["bulk.mp4"] = baseline },
+            MediaListVersion = 1,
+        };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording);
+        hub.EnsureConnected();
+
+        var path = WriteTempFile(50);
+        try
+        {
+            var ok = await hub.InstallLocalMediaAsync(path, "new.mp4.h264_2240x1080", CancellationToken.None);
+
+            Assert.True(ok);
+            Assert.Equal(baseline + 50, hub.MediaUsedBytes);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
+
+    private static string WriteTempFile(int lengthBytes)
+    {
+        var path = Path.Combine(Path.GetTempPath(), $"tryx-hub-test-{Guid.NewGuid():N}.bin");
+        File.WriteAllBytes(path, new byte[lengthBytes]);
+        return path;
     }
 }

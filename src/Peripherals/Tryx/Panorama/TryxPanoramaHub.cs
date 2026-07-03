@@ -84,9 +84,99 @@ public sealed class TryxPanoramaHub : IDisposable
     /// has not pushed its list this session (it does so only on a cold boot / re-enumeration).</summary>
     public IReadOnlyList<string> AvailableMediaFilenames => _transport?.AvailableMediaFilenames ?? Array.Empty<string>();
 
-    /// <summary>Bytes stored on the panel's /userdata (used only - the panel reports no
-    /// capacity), 0 until its media list is received.</summary>
-    public long MediaUsedBytes => _transport?.MediaUsedBytes ?? 0;
+    // Fixed per-model on-panel storage; the panel's media-list push carries only
+    // per-file sizes, never a device total, so this is a hardcoded spec value.
+    public const long MediaCapacityBytes = 8L * 1024 * 1024 * 1024;
+
+    // Headroom a transfer must clear below MediaCapacityBytes: MediaUsedBytes reflects
+    // this session's last-synced count, not a live on-device query, so this absorbs
+    // filesystem overhead and any push still in flight.
+    public const long MediaCapacityPaddingBytes = 64L * 1024 * 1024;
+
+    private const string InsufficientSpaceMsg = "insufficient_space";
+
+    private readonly object _mediaSizesLock = new();
+    private readonly Dictionary<string, long> _mediaSizes = new(StringComparer.Ordinal);
+    private int _syncedMediaListVersion = -1;
+
+    /// <summary>Bytes stored on the panel's /userdata: this session's own per-file map,
+    /// re-synced from the transport's media-list push on each version bump and adjusted
+    /// locally for uploads/deletes made since (the panel only re-pushes its list on
+    /// reconnect, so a session mutation would otherwise go untracked until then).</summary>
+    public long MediaUsedBytes
+    {
+        get
+        {
+            lock (_mediaSizesLock)
+            {
+                SyncMediaSizesLocked();
+                long total = 0;
+                foreach (var size in _mediaSizes.Values)
+                {
+                    total += size;
+                }
+                return total;
+            }
+        }
+    }
+
+    // Re-syncs from the transport only on a version bump (a fresh panel push), so local
+    // deltas recorded between pushes are not overwritten by re-reading the same push twice.
+    private void SyncMediaSizesLocked()
+    {
+        var transport = _transport;
+        if (transport is null)
+        {
+            return;
+        }
+        var version = transport.MediaListVersion;
+        if (version == _syncedMediaListVersion)
+        {
+            return;
+        }
+        _mediaSizes.Clear();
+        foreach (var kv in transport.MediaFileSizes)
+        {
+            _mediaSizes[kv.Key] = kv.Value;
+        }
+        _syncedMediaListVersion = version;
+    }
+
+    private void RecordMediaUpload(string deviceFileName, long containerBytes)
+    {
+        lock (_mediaSizesLock)
+        {
+            SyncMediaSizesLocked();
+            _mediaSizes[deviceFileName] = containerBytes;
+        }
+    }
+
+    /// <summary>Removes <paramref name="deviceFileName"/> from the used-bytes accounting
+    /// after a delete; the caller has already removed the on-device file (or, for the RK
+    /// usbprint transport, its local record - the panel exposes no confirmed remove wire
+    /// frame, so this local delta is corrected by the next real device push if wrong).</summary>
+    public void RecordMediaDeleted(string deviceFileName)
+    {
+        lock (_mediaSizesLock)
+        {
+            SyncMediaSizesLocked();
+            _mediaSizes.Remove(deviceFileName);
+        }
+    }
+
+    private bool HasSpaceFor(long transferBytes)
+        => MediaUsedBytes + transferBytes + MediaCapacityPaddingBytes <= MediaCapacityBytes;
+
+    /// <summary>Deletes a stored media file on the panel via the file_remove command (the RK
+    /// firmware exposes no adb), then drops it from the used-bytes accounting so the freed
+    /// space is immediately available to the next upload's space check.</summary>
+    public bool RemoveDeviceMedia(string deviceFileName)
+    {
+        if (string.IsNullOrEmpty(deviceFileName)) return false;
+        var ok = SendReliable(TryxRkProtocol.BuildFileRemove(deviceFileName));
+        if (ok) RecordMediaDeleted(deviceFileName);
+        return ok;
+    }
 
     public bool EnsureConnected()
     {
@@ -307,17 +397,20 @@ public sealed class TryxPanoramaHub : IDisposable
 
     /// <summary>Transcodes <paramref name="localPath"/> to the panel's H.264 format, wraps it
     /// in the Tryx media container, streams it over the RK file-transfer protocol, and selects
-    /// it. RK custom media is a directly playable "media" file (no encryption).</summary>
-    public async Task<bool> ImportAndPlayVideoAsync(
+    /// it. RK custom media is a directly playable "media" file (no encryption). Returns
+    /// (ok, message); message is empty on success or on a pre-existing failure mode, and
+    /// carries the stable <see cref="InsufficientSpaceMsg"/> marker when the capacity check
+    /// rejects the transfer.</summary>
+    public async Task<(bool Ok, string Msg)> ImportAndPlayVideoAsync(
         string localPath, string sourceName, TryxVideoCrop? crop, int targetWidth, int targetHeight, CancellationToken ct)
     {
         var ffmpegPath = FfmpegResolver.Path;
         if (ffmpegPath is null)
         {
             ServiceLog.Error("[tryx] ffmpeg not found; cannot import video");
-            return false;
+            return (false, "");
         }
-        if (!EnsureConnected()) return false;
+        if (!EnsureConnected()) return (false, "");
 
         var deviceFileName = CustomMediaFileName(sourceName);
         var mp4Path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"nexus-tryx-{Guid.NewGuid():N}.mp4");
@@ -326,7 +419,7 @@ public sealed class TryxPanoramaHub : IDisposable
         {
             if (!await TranscodeToPanelMp4Async(ffmpegPath, localPath, crop, mp4Path, ct))
             {
-                return false;
+                return (false, "");
             }
             // Bundled ffmpeg has only the mp4 muxer; extract the Annex-B stream ourselves.
             var mp4 = await File.ReadAllBytesAsync(mp4Path, ct);
@@ -335,7 +428,7 @@ public sealed class TryxPanoramaHub : IDisposable
             catch (Exception ex)
             {
                 ServiceLog.Error($"[tryx] MP4->Annex-B conversion failed: {ex.GetType().Name}: {ex.Message}");
-                return false;
+                return (false, "");
             }
             var frames = CountH264Frames(h264);
             // Stable per-name id (GetHashCode is per-process randomized, which would give
@@ -343,14 +436,19 @@ public sealed class TryxPanoramaHub : IDisposable
             var id = StableMediaId(deviceFileName);
             var container = TryxRkProtocol.WrapMediaContainer(h264, PanelFps, PanelWidth, PanelHeight, frames, id);
 
+            if (!HasSpaceFor(container.Length))
+            {
+                return (false, InsufficientSpaceMsg);
+            }
             if (!SendFileTransfer(deviceFileName, container, fileType: "media", ct))
             {
-                return false;
+                return (false, "");
             }
+            RecordMediaUpload(deviceFileName, container.Length);
             // Same f200 config that selects a built-in preset; wallpaper = the pushed file.
             if (!SendReliable(TryxRkProtocol.BuildPreset(deviceFileName, State.ScreenEnabled, State.Brightness)))
             {
-                return false;
+                return (false, "");
             }
             State.CurrentMedia = deviceFileName;
             State.CurrentMediaIsCustom = true;
@@ -360,7 +458,7 @@ public sealed class TryxPanoramaHub : IDisposable
             // Thumbnail/duration from the source so the media list can render the entry.
             try { TryxThumbnailCache.Write(ffmpegPath, localPath, deviceFileName); } catch { }
             try { TryxThumbnailCache.WriteDuration(deviceFileName, TryxThumbnailCache.ProbeDuration(ffmpegPath, localPath)); } catch { }
-            return true;
+            return (true, "");
         }
         finally
         {
@@ -398,6 +496,10 @@ public sealed class TryxPanoramaHub : IDisposable
             {
                 ServiceLog.Error($"[tryx] cloud {id} decrypt not H.264 (head={Convert.ToHexString(head[..Math.Min(n, 16)])})");
                 return (false, "decrypt format error");
+            }
+            if (!HasSpaceFor(new FileInfo(tmp).Length))
+            {
+                return (false, InsufficientSpaceMsg);
             }
             if (!await InstallLocalMediaAsync(tmp, installName, ct)) return (false, "install failed");
             _configStore.Update(s =>
@@ -440,7 +542,13 @@ public sealed class TryxPanoramaHub : IDisposable
         if (!TryxThumbnailCache.IsSafeDeviceName(deviceFileName)) return false;
         if (!EnsureConnected()) return false;
         var bytes = await File.ReadAllBytesAsync(localContainerPath, ct);
+        if (!HasSpaceFor(bytes.Length))
+        {
+            ServiceLog.Warn($"[tryx] install of {deviceFileName} rejected, insufficient panel space");
+            return false;
+        }
         if (!SendFileTransfer(deviceFileName, bytes, fileType: "media", ct)) return false;
+        RecordMediaUpload(deviceFileName, bytes.Length);
         if (!SendReliable(TryxRkProtocol.BuildPreset(deviceFileName, State.ScreenEnabled, State.Brightness))) return false;
         State.CurrentMedia = deviceFileName;
         State.CurrentMediaIsCustom = false;
