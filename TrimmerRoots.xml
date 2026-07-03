@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  SctpTransportCookie: SIPSorcery serializes this type through its embedded
+  TinyJson reflection-based JSON writer during every SCTP COOKIE ECHO
+  handshake (WebRTC data channel setup). Trimming its properties corrupts
+  the cookie: COOKIE ECHO fails HMAC validation and the data channel never
+  opens. preserve="all" keeps every member reachable for that reflection.
+-->
+<linker>
+  <assembly fullname="SIPSorcery">
+    <type fullname="SIPSorcery.Net.SctpTransportCookie" preserve="all" />
+  </assembly>
+</linker>

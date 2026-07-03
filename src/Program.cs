@@ -421,6 +421,7 @@ app.MapSlv3LcdEndpoints();
 app.MapUpdateEndpoints();
 app.MapCloudEndpoints();
 app.MapWebSocketEndpoints();
+app.MapRtcEndpoints();
 Nexus.Service.Lifecycle.BootTimer.Mark("after route mapping");
 
 {

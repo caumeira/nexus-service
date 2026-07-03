@@ -1152,6 +1152,12 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Relay.RelayHttpDispatcher>();
         services.AddSingleton<Nexus.Service.Relay.RelayConnectionService>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Relay.RelayConnectionService>());
+
+        // WebRTC DataChannel direct P2P transport: STUN-only fallback-free path
+        // that rides the SAME sealed framing as the relay, over data channels
+        // instead of a relay WebSocket. Endpoint-driven singleton, not a hosted
+        // service - see RtcSessionManager's class doc.
+        services.AddSingleton<Nexus.Service.Rtc.RtcSessionManager>();
         return services;
     }
 

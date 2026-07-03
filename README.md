@@ -14,7 +14,7 @@ This is the engine of [Nexus](https://hellonexus.com). The other repos are clien
 - **Panel runtimes** - pair + serve the React panel UIs for the HYTE Y70/Y80 secondary touch panel, mobile companion (`/panel/phone`), and Q-Series on-device screens.
 - **Apps / widgets** - host for the `nexus.app/1` SDK apps shipped in [`nexus-apps`](https://github.com/hello-nexus/nexus-apps), with sensor bindings and a sandboxed Web Worker runtime. Legacy `nexus.widget/2` manifests still load.
 - **Activity** - screen-time, app detection, Steam / Discord / OBS integrations, shortcuts.
-- **Remote access** - relay client so the phone panel keeps working away from the LAN (nearest regional relay picked via the cloud API).
+- **Remote access** - relay client so the phone panel keeps working away from the LAN (nearest regional relay picked via the cloud API), with an opportunistic WebRTC DataChannel direct P2P upgrade (STUN only, signaled over the existing relay tunnel via `POST /rtc/offer`) so a relayed session stops paying relay hop latency once a direct path exists.
 - **Cloud accounts** - optional Nexus account (email/password); the service holds the tokens and syncs one account-wide profile library across machines (debounced push, pull on login, revision-based conflict resolution) and reports device specs, all through local `/cloud/*` routes (desktop-bearer only, never exposed to a paired phone).
 - **Webcam** - phone-as-webcam: the mobile companion streams its camera into an OS virtual camera device (`Webcam/`, per-OS backends).
 - **Pairing + auth** - local TLS on `:9443` with SPKI-pinned client sessions (the mobile apps and the dashboard), 6-digit pair codes with SAS verification, host-side approval.
@@ -71,6 +71,7 @@ src/
   Media/              # media session state (GSMTC on Windows)
   Fps/                # FPS capture
   Relay/              # off-LAN relay client for the phone panel
+  Rtc/                # WebRTC DataChannel direct P2P transport (SIPSorcery), signaled via POST /rtc/offer
   Discovery/          # mDNS/Bonjour advertising
   Auth/  Security/    # local pairing, SPKI pinning, token issuance
   Cloud/              # Nexus cloud accounts: api.hellonexus.com client (NEXUS_API_BASE overrides the default base URL), profile sync, device reporting (/cloud/* routes, desktop-bearer only)

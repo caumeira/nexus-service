@@ -160,6 +160,16 @@
     <PackageReference Include="QRCoder" Version="1.6.0" />
   </ItemGroup>
 
+  <!-- SIPSorcery: WebRTC DataChannel direct P2P transport for the phone panel
+       (STUN only, no TURN; the cloud relay stays as fallback). AOT-verified on
+       osx-arm64 + win-x64. TrimmerRoots.xml keeps SctpTransportCookie's
+       properties reachable for SIPSorcery's embedded reflection-based TinyJson
+       serializer, which every SCTP COOKIE ECHO handshake depends on. -->
+  <ItemGroup>
+    <PackageReference Include="SIPSorcery" Version="10.0.10" />
+    <TrimmerRootDescriptor Include="TrimmerRoots.xml" />
+  </ItemGroup>
+
   <!-- DPAPI at-rest protection for small secrets (Steam API key, Discord
        client secret). Cross-platform package; throws PlatformNotSupportedException
        off-Windows, which SecretProtector guards behind OperatingSystem.IsWindows(). -->

@@ -1,0 +1,156 @@
+using System;
+using System.Security.Cryptography;
+using System.Text.Json;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
+using Nexus.Service.Models.Panel;
+using Nexus.Service.Relay;
+using Nexus.Service.Serialization;
+using SIPSorcery.Net;
+
+namespace Nexus.Service.Rtc;
+
+/// <summary>
+/// REST-over-P2P tunnel leg driven by the "http" data channel. Same sealed
+/// framing, counters, replay guard, and in-flight cap as
+/// <c>RelayConnectionService.HttpChannel</c>, just sending over
+/// <see cref="RTCDataChannel.send(byte[], int, int)"/> directly instead of a
+/// WebSocket transport.
+/// </summary>
+public sealed class RtcHttpChannel : IDisposable
+{
+    // Matches RelayConnectionService.MaxConcurrentHttpRequests.
+    private const int MaxConcurrentHttpRequests = 32;
+
+    private readonly RelayHttpDispatcher _httpDispatcher;
+    private readonly RTCDataChannel _channel;
+    private readonly byte[] _aeadKey;
+    private readonly string _sessionId;
+    private readonly ILogger _log;
+    private readonly CancellationToken _ct;
+    private readonly SemaphoreSlim _sendLock = new(1, 1);
+    private readonly SemaphoreSlim _inFlight = new(MaxConcurrentHttpRequests, MaxConcurrentHttpRequests);
+    private ulong _sendCounter;
+    private long _lastRecvCounter = -1;
+    private volatile bool _disposed;
+
+    public RtcHttpChannel(
+        RelayHttpDispatcher httpDispatcher, RTCDataChannel channel, byte[] aeadKey,
+        string sessionId, ILogger log, CancellationToken ct)
+    {
+        _httpDispatcher = httpDispatcher;
+        _channel = channel;
+        _aeadKey = aeadKey;
+        _sessionId = sessionId;
+        _log = log;
+        _ct = ct;
+        _channel.onmessage += OnMessage;
+    }
+
+    private void OnMessage(RTCDataChannel dc, DataChannelPayloadProtocols proto, byte[] data)
+    {
+        if (proto != DataChannelPayloadProtocols.WebRTC_Binary)
+            return;
+        OnRequestFrame(data);
+    }
+
+    /// <summary>
+    /// Decrypt one inbound sealed request frame (dir=2, non-replayed counter)
+    /// and dispatch it on a background task. A bad direction / replayed
+    /// counter / tamper is dropped silently, matching the relay HTTP leg.
+    /// </summary>
+    private void OnRequestFrame(byte[] frame)
+    {
+        if (_disposed)
+            return;
+
+        RelayHttpRequest? request;
+        try
+        {
+            var (dir, counter, plaintext) = RelayCrypto.Open(_aeadKey, frame);
+            if (dir != RelayCrypto.DirClientToHost || (long)counter <= _lastRecvCounter)
+                return;
+            _lastRecvCounter = (long)counter;
+            request = JsonSerializer.Deserialize(plaintext, AppJsonContext.Default.RelayHttpRequest);
+        }
+        catch (CryptographicException)
+        {
+            return;
+        }
+        catch (JsonException)
+        {
+            return;
+        }
+
+        if (request is null)
+            return;
+
+        if (!_inFlight.Wait(0))
+        {
+            _ = SendBusyAsync(request.Id);
+            return;
+        }
+
+        _ = DispatchAndReplyAsync(request);
+    }
+
+    private async Task DispatchAndReplyAsync(RelayHttpRequest request)
+    {
+        try
+        {
+            var response = await _httpDispatcher.DispatchAsync(request, _sessionId, _ct).ConfigureAwait(false);
+            await SendSealedAsync(response).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            _log.LogDebug(ex, "rtc http dispatch failed for id {Id}", request.Id);
+        }
+        finally
+        {
+            _inFlight.Release();
+        }
+    }
+
+    private async Task SendBusyAsync(int id)
+    {
+        var response = new RelayHttpResponse
+        {
+            Id = id,
+            Status = StatusCodes.Status503ServiceUnavailable,
+            Body = "{\"error\":true,\"msg\":\"too many concurrent rtc requests\"}",
+            ContentType = "application/json",
+        };
+        try { await SendSealedAsync(response).ConfigureAwait(false); }
+        catch (Exception ex) { _log.LogDebug(ex, "rtc http busy reply failed"); }
+    }
+
+    private async Task SendSealedAsync(RelayHttpResponse response)
+    {
+        var json = JsonSerializer.SerializeToUtf8Bytes(response, AppJsonContext.Default.RelayHttpResponse);
+        await _sendLock.WaitAsync(_ct).ConfigureAwait(false);
+        try
+        {
+            if (_disposed || _channel.readyState != RTCDataChannelState.open)
+                return;
+            var counter = _sendCounter++;
+            var frame = RelayCrypto.Seal(_aeadKey, RelayCrypto.DirHostToClient, counter, json);
+            _channel.send(frame);
+        }
+        finally
+        {
+            _sendLock.Release();
+        }
+    }
+
+    public void Dispose()
+    {
+        if (_disposed)
+            return;
+        _disposed = true;
+        _channel.onmessage -= OnMessage;
+        _sendLock.Dispose();
+        _inFlight.Dispose();
+    }
+}

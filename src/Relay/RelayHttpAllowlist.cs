@@ -50,6 +50,9 @@ public static class RelayHttpAllowlist
         "/ping",
         "/ready",
         "/hardware",
+        // WebRTC DataChannel direct P2P signaling: the phone POSTs its offer
+        // over this same relay HTTP tunnel to upgrade off the relay.
+        "/rtc",
     };
 
     /// <summary>

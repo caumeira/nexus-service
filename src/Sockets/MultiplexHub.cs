@@ -35,14 +35,16 @@ public sealed class MultiplexHub
 
     /// <summary>
     /// Wire by which a phone-session client reached the hub: a direct LAN
-    /// WebSocket (<see cref="Lan"/>) or a frame bridged through the cloud relay
-    /// (<see cref="Relay"/>). Carried per-client so the sessions list can report
-    /// how each currently-connected paired phone is talking to the PC.
+    /// WebSocket (<see cref="Lan"/>), a frame bridged through the cloud relay
+    /// (<see cref="Relay"/>), or a WebRTC DataChannel direct P2P connection
+    /// (<see cref="Direct"/>). Carried per-client so the sessions list can
+    /// report how each currently-connected paired phone is talking to the PC.
     /// </summary>
     public enum ClientTransport
     {
         Lan,
         Relay,
+        Direct,
     }
 
     /// <summary>
@@ -268,27 +270,33 @@ public sealed class MultiplexHub
 
     /// <summary>
     /// Report how the given phone session is currently connected to the hub:
-    /// <c>"relay"</c> if any live client for that session id is bridged through
-    /// the cloud relay, <c>"lan"</c> if connected only via a direct LAN
-    /// WebSocket, or <c>null</c> if no client for that session is connected.
-    /// Relay wins over LAN when a session somehow has both (a relay bridge
-    /// being torn down while a LAN socket is up), since the relay is the
-    /// transport the user toggled and most wants surfaced.
+    /// <c>"direct"</c> if bridged over a WebRTC DataChannel P2P connection,
+    /// <c>"relay"</c> if bridged through the cloud relay, <c>"lan"</c> if
+    /// connected only via a direct LAN WebSocket, or <c>null</c> if no client
+    /// for that session is connected. Priority direct &gt; relay &gt; lan when a
+    /// session somehow has more than one (a transport being torn down while
+    /// another is still up), surfacing the transport the user most wants shown.
     /// </summary>
     public string? GetConnectedTransport(string phoneSessionId)
     {
         if (string.IsNullOrEmpty(phoneSessionId))
             return null;
 
+        var sawRelay = false;
         var sawLan = false;
         foreach (var (_, client) in _clients)
         {
             if (!string.Equals(client.PhoneSessionId, phoneSessionId, StringComparison.Ordinal))
                 continue;
+            if (client.Transport == ClientTransport.Direct)
+                return "direct";
             if (client.Transport == ClientTransport.Relay)
-                return "relay";
-            sawLan = true;
+                sawRelay = true;
+            else
+                sawLan = true;
         }
+        if (sawRelay)
+            return "relay";
         return sawLan ? "lan" : null;
     }
 

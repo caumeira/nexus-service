@@ -237,6 +237,10 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Relay.RelayDirectoryResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PairBroadcastStateResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PairBroadcastSetRequest))]
+
+// WebRTC DataChannel direct P2P transport
+[JsonSerializable(typeof(Nexus.Service.Rtc.RtcOfferRequest))]
+[JsonSerializable(typeof(Nexus.Service.Rtc.RtcAnswerResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PairWifiInitiateRequest))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhonePairCodeStartResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelPhonePairCodeSubmitBody))]
