@@ -3,9 +3,11 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Fps;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Panel;
 using Nexus.Service.Persistence;
@@ -26,9 +28,12 @@ public readonly record struct TryxVideoCrop(double X, double Y, double W, double
 /// </summary>
 public sealed class TryxPanoramaHub : IDisposable
 {
+    private const string FpsDemandSource = "tryx-overlay";
+
     private readonly ITryxPanoramaPanelDiscovery _discovery;
     private readonly Func<TryxPanoramaPortInfo, ITryxPanoramaTransport> _transportFactory;
     private readonly ISensorProvider _sensors;
+    private readonly IFpsProvider _fps;
     private readonly IConfigStore _configStore;
     private readonly object _lock = new();
     private ITryxPanoramaTransport? _transport;
@@ -42,11 +47,13 @@ public sealed class TryxPanoramaHub : IDisposable
         ITryxPanoramaPanelDiscovery discovery,
         Func<TryxPanoramaPortInfo, ITryxPanoramaTransport> transportFactory,
         ISensorProvider sensors,
+        IFpsProvider fps,
         IConfigStore configStore)
     {
         _discovery = discovery;
         _transportFactory = transportFactory;
         _sensors = sensors;
+        _fps = fps;
         _configStore = configStore;
 
         var saved = configStore.Load().Tryx;
@@ -165,6 +172,7 @@ public sealed class TryxPanoramaHub : IDisposable
             try { _transport?.Dispose(); } catch { /* best effort */ }
             _transport = null;
         }
+        _fps.SetDemand(FpsDemandSource, false);
     }
 
     public bool SendConn()
@@ -174,6 +182,7 @@ public sealed class TryxPanoramaHub : IDisposable
     /// so no control frame lands between the transfer's BEGIN/DATA/COMMIT frames.</summary>
     public void SendHeartbeatTick()
     {
+        _fps.SetDemand(FpsDemandSource, OverlayUsesFps());
         if (!Monitor.TryEnter(_txGate)) return;
         try
         {
@@ -186,6 +195,8 @@ public sealed class TryxPanoramaHub : IDisposable
             Monitor.Exit(_txGate);
         }
     }
+
+    private bool OverlayUsesFps() => _overlay.Items.Any(i => i.Device == "fps");
 
     public bool SendStateAll()
     {
@@ -241,6 +252,10 @@ public sealed class TryxPanoramaHub : IDisposable
     public bool SetOverlay(TryxOverlayConfig overlay)
     {
         _overlay.Items = overlay.Items;
+        // Only assert fps demand while connected: the heartbeat re-asserts it each
+        // tick once a panel attaches, so a disconnected edit here must not start ETW
+        // capture that nothing on the panel consumes. Disconnect() clears it.
+        _fps.SetDemand(FpsDemandSource, OverlayUsesFps() && IsConnected);
         _overlay.Color = overlay.Color;
         _overlay.Align = overlay.Align;
         _overlay.Filter = overlay.Filter;
@@ -801,6 +816,7 @@ public sealed class TryxPanoramaHub : IDisposable
         "motherboard" => _sensors.GetMotherboardSensors(),
         "storage" => FlattenSensors(_sensors.GetStorageComponents().Values),
         "network" => FlattenSensors(_sensors.GetSensorExtras().Nics),
+        "fps" => _fps.GetComponent().Sensors,
         _ => Array.Empty<HardwareSensor>(),
     };
 
@@ -818,7 +834,9 @@ public sealed class TryxPanoramaHub : IDisposable
     // (LibreHardwareSensorProvider.MapSensorType/MapUnits); unmapped types fall
     // back to the unformatted value with no unit. Data (e.g. memory used/available)
     // is GB-scale; SmallData (e.g. GPU VRAM) is MB-scale - these are distinct LHM
-    // units, not interchangeable formatting of the same magnitude.
+    // units, not interchangeable formatting of the same magnitude. Framerate/FrameTime
+    // come from IFpsProvider, not LHM; the web Tryx overlay picker formats "fps"
+    // sensors identically, so these two cases must match it exactly.
     private static string FormatSensorValue(HardwareSensor sensor) => sensor.Type switch
     {
         "Temperature" => $"{(int)Math.Round(sensor.Value)}°C",
@@ -830,6 +848,8 @@ public sealed class TryxPanoramaHub : IDisposable
         "Power" => $"{(int)Math.Round(sensor.Value)}W",
         "Fan" => $"{(int)Math.Round(sensor.Value)}RPM",
         "Throughput" => $"{sensor.Value.ToString("0.0", CultureInfo.InvariantCulture)}MB/s",
+        "Framerate" => $"{(int)Math.Round(sensor.Value)}fps",
+        "FrameTime" => $"{sensor.Value.ToString("0.0", CultureInfo.InvariantCulture)}ms",
         _ => sensor.Value.ToString(CultureInfo.InvariantCulture),
     };
 

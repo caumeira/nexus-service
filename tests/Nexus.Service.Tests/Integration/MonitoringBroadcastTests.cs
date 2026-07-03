@@ -104,27 +104,29 @@ internal sealed class StubPerformanceProvider : IPerformanceProvider
 
 internal sealed class TrackingFpsProvider : IFpsProvider
 {
+    private readonly HashSet<string> _demands = new(StringComparer.Ordinal);
+
     public int StartTransitions { get; private set; }
     public int StopTransitions { get; private set; }
     public int ComponentReads { get; private set; }
     public bool Running { get; private set; }
 
-    public void Start()
+    public void SetDemand(string source, bool wanted)
     {
-        if (Running)
-            return;
+        if (wanted) _demands.Add(source);
+        else _demands.Remove(source);
 
-        Running = true;
-        StartTransitions++;
-    }
-
-    public void Stop()
-    {
-        if (!Running)
-            return;
-
-        Running = false;
-        StopTransitions++;
+        var wantsCapture = _demands.Count > 0;
+        if (wantsCapture && !Running)
+        {
+            Running = true;
+            StartTransitions++;
+        }
+        else if (!wantsCapture && Running)
+        {
+            Running = false;
+            StopTransitions++;
+        }
     }
 
     public HardwareComponent GetComponent()
@@ -150,7 +152,7 @@ internal sealed class TrackingFpsProvider : IFpsProvider
         };
     }
 
-    public void Dispose() => Stop();
+    public void Dispose() => SetDemand("monitoring", false);
 }
 
 internal sealed class ManualTimeProvider : TimeProvider

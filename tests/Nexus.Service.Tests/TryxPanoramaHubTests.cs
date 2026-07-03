@@ -4,6 +4,7 @@ using System.Text;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Fps;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Panel;
 using Nexus.Service.Persistence;
@@ -101,6 +102,44 @@ public class TryxPanoramaHubTests
         Parent = new SensorParent { Id = "test", Name = "test" },
     };
 
+    private static HardwareSensor MakeIdSensor(string id, string type, float value) => new()
+    {
+        Id = id,
+        Name = id,
+        Type = type,
+        Value = value,
+        Units = "",
+        Formatted = value.ToString(),
+        Parent = new SensorParent { Id = "fps", Name = "FPS" },
+    };
+
+    // Mirrors the real IFpsProvider demand contract (WindowsFpsProvider.SetDemand):
+    // capture is wanted while any named source's demand is true. Windows-only
+    // WindowsFpsProvider is excluded from this build (Nexus.Service.csproj), so
+    // this fake is what the two-source coordination and the hub's demand call
+    // sites are verified against.
+    private sealed class FakeFpsProvider : IFpsProvider
+    {
+        private readonly HashSet<string> _demands = new(StringComparer.Ordinal);
+        public List<HardwareSensor> Sensors { get; set; } = new();
+        public bool IsCapturing => _demands.Count > 0;
+
+        public void SetDemand(string source, bool wanted)
+        {
+            if (wanted) _demands.Add(source);
+            else _demands.Remove(source);
+        }
+
+        public HardwareComponent GetComponent() => new()
+        {
+            Id = "fps",
+            Name = "FPS",
+            Sensors = Sensors,
+        };
+
+        public void Dispose() { }
+    }
+
     private sealed class InMemoryConfigStore : IConfigStore
     {
         private NexusSettings _doc = new();
@@ -116,12 +155,14 @@ public class TryxPanoramaHubTests
         ITryxPanoramaPanelDiscovery? discovery = null,
         Func<TryxPanoramaPortInfo, ITryxPanoramaTransport>? transportFactory = null,
         ISensorProvider? sensors = null,
+        IFpsProvider? fps = null,
         IConfigStore? configStore = null)
     {
         return new TryxPanoramaHub(
             discovery ?? new EmptyDiscovery(),
             transportFactory ?? (_ => new RecordingTransport()),
             sensors ?? new StubSensors(),
+            fps ?? new FakeFpsProvider(),
             configStore ?? new InMemoryConfigStore());
     }
 
@@ -285,6 +326,8 @@ public class TryxPanoramaHubTests
     [InlineData("Frequency", 2400f, "2400MHz")]
     [InlineData("Power", 65f, "65W")]
     [InlineData("Fan", 1200f, "1200RPM")]
+    [InlineData("Framerate", 60f, "60fps")]
+    [InlineData("FrameTime", 16.7f, "16.7ms")]
     public void SetOverlay_formats_the_resolved_sensor_by_its_type(string type, float value, string expectedValueText)
     {
         var store = new InMemoryConfigStore();
@@ -448,6 +491,139 @@ public class TryxPanoramaHubTests
         });
 
         Assert.Contains("70°C", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
+    }
+
+    // ── Task 4: fps overlay sensor + demand coordination ──
+
+    [Fact]
+    public void SetOverlay_resolves_an_fps_sensor_from_the_fps_provider()
+    {
+        var recording = new RecordingTransport();
+        var fps = new FakeFpsProvider { Sensors = [MakeIdSensor("fps/current", "Framerate", 60f)] };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, fps: fps);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "fps/current", Device = "fps", Label = "FPS" }],
+        });
+
+        Assert.Contains("60fps", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
+    }
+
+    [Fact]
+    public void SetOverlay_resolves_an_fps_frame_time_sensor()
+    {
+        var recording = new RecordingTransport();
+        var fps = new FakeFpsProvider { Sensors = [MakeIdSensor("fps/frame-time", "FrameTime", 16.7f)] };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, fps: fps);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "fps/frame-time", Device = "fps", Label = "Frame Time" }],
+        });
+
+        Assert.Contains("16.7ms", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
+    }
+
+    [Fact]
+    public void SetOverlay_asserts_fps_demand_when_an_item_uses_the_fps_device()
+    {
+        var fps = new FakeFpsProvider();
+        var hub = BuildHub(discovery: new StubDiscovery(), fps: fps);
+        hub.EnsureConnected();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "fps/current", Device = "fps", Label = "FPS" }],
+        });
+
+        Assert.True(fps.IsCapturing);
+    }
+
+    [Fact]
+    public void SetOverlay_does_not_assert_fps_demand_while_disconnected()
+    {
+        // Configuring an fps overlay item with no panel attached must not start ETW
+        // capture nothing consumes; the heartbeat asserts it once a panel connects.
+        var fps = new FakeFpsProvider();
+        var hub = BuildHub(discovery: new StubDiscovery(), fps: fps);
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "fps/current", Device = "fps", Label = "FPS" }],
+        });
+
+        Assert.False(fps.IsCapturing);
+    }
+
+    [Fact]
+    public void SetOverlay_clears_fps_demand_when_no_item_uses_the_fps_device()
+    {
+        var fps = new FakeFpsProvider();
+        fps.SetDemand("tryx-overlay", true);
+        var hub = BuildHub(fps: fps);
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "test/Package", Device = "cpu", Label = "CPU" }],
+        });
+
+        Assert.False(fps.IsCapturing);
+    }
+
+    [Fact]
+    public void SendHeartbeatTick_asserts_fps_demand_from_the_current_overlay_every_tick()
+    {
+        var fps = new FakeFpsProvider();
+        var hub = BuildHub(discovery: new StubDiscovery(), fps: fps);
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "fps/current", Device = "fps", Label = "FPS" }],
+        });
+        // Simulate the demand having been dropped by another owner between ticks
+        // (e.g. MonitoringBroadcaster.StopAsync); the heartbeat must re-assert it.
+        fps.SetDemand("tryx-overlay", false);
+
+        hub.SendHeartbeatTick();
+
+        Assert.True(fps.IsCapturing);
+    }
+
+    [Fact]
+    public void Disconnect_clears_the_tryx_fps_demand()
+    {
+        var fps = new FakeFpsProvider();
+        var hub = BuildHub(discovery: new StubDiscovery(), fps: fps);
+        hub.EnsureConnected();
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "fps/current", Device = "fps", Label = "FPS" }],
+        });
+        Assert.True(fps.IsCapturing);
+
+        hub.Disconnect();
+
+        Assert.False(fps.IsCapturing);
+    }
+
+    [Fact]
+    public void FpsProvider_demand_keeps_capture_on_while_any_source_wants_it()
+    {
+        // The coordination contract IFpsProvider.SetDemand must honor: capture runs
+        // while any named source's demand is true, so the monitoring broadcaster
+        // and the Tryx overlay never fight over one shared on/off flag.
+        var fps = new FakeFpsProvider();
+
+        fps.SetDemand("monitoring", false);
+        fps.SetDemand("tryx-overlay", true);
+        Assert.True(fps.IsCapturing);
+
+        fps.SetDemand("tryx-overlay", false);
+        Assert.False(fps.IsCapturing);
     }
 
     [Fact]
