@@ -165,8 +165,9 @@ public class Slv3ProtocolTests
         MasterMac.CopyTo(rec.Slice(6));
         rec[12] = 8;    // channel
         rec[13] = 3;    // rxType
-        rec[18] = 25;   // dev_type = SLV3 LCD
+        rec[18] = 0;    // dev_type: a wireless fan chain reports 0 (real Y70 value)
         rec[19] = 3;    // fan_num
+        rec[24] = 0x18; rec[25] = 0x18; rec[26] = 0x18; // fans_type: 3x SLV3-LCD (24)
         // fans_speed @28: port0 RPM 0x0ABC (hi nibble masked), flags in the top nibble.
         rec[28] = 0xFA; rec[29] = 0xBC;   // -> ((0x0A)<<8)|0xBC = 0x0ABC = 2748
         rec[36] = 55;   // pwm port0
@@ -175,12 +176,25 @@ public class Slv3ProtocolTests
         Assert.True(Slv3Protocol.TryParseRecord(reply, Slv3Protocol.RecordHeaderLength, out var record));
         Assert.Equal(FanMac, record.Mac);
         Assert.Equal(MasterMac, record.MasterMac);
-        Assert.Equal(25, record.DevType);
-        Assert.True(record.IsWirelessFan);
+        Assert.Equal(0, record.DevType);
+        Assert.True(record.IsWirelessFan);     // non-master => a fan, regardless of dev_type 0
         Assert.False(record.IsMaster);
+        Assert.Equal(24, record.PrimaryFanType); // SLV3-LCD from fans_type
         Assert.Equal(3, record.FanCount);
         Assert.Equal(0x0ABC, record.Rpm[0]);   // hi nibble flags masked off
         Assert.Equal(55, record.Pwm[0]);
+    }
+
+    [Fact]
+    public void TryParseRecord_treats_devtype_FF_as_master_not_fan()
+    {
+        var reply = new byte[Slv3Protocol.RecordHeaderLength + Slv3Protocol.RecordLength];
+        var rec = reply.AsSpan(Slv3Protocol.RecordHeaderLength);
+        rec[18] = 0xFF; // the dongle's own record
+        rec[41] = 0x1C;
+        Assert.True(Slv3Protocol.TryParseRecord(reply, Slv3Protocol.RecordHeaderLength, out var record));
+        Assert.True(record.IsMaster);
+        Assert.False(record.IsWirelessFan);
     }
 
     [Fact]

@@ -23,6 +23,8 @@ public sealed class Slv3FanInfo
     /// <summary>rx_type slot (1..14); 0 or 0xFE means unbound.</summary>
     public int Slot { get; set; }
     public int DevType { get; set; }
+    /// <summary>Fan subtype from fans_type[0] (0x18=24 SLV3-LCD, 20-23 SLV3-LED, 36-39 SL-Infinity).</summary>
+    public int FanType { get; set; }
     public int FanCount { get; set; }
     public int[] Rpm { get; set; } = Array.Empty<int>();
     public int[] Pwm { get; set; } = Array.Empty<int>();

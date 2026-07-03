@@ -212,6 +212,12 @@ public static class Slv3Protocol
         var effectIndex = new byte[4];
         rec.Slice(20, 4).CopyTo(effectIndex);
 
+        // fans_type carries the per-port fan subtype (0x18=24 SLV3-LCD, 20-23
+        // SLV3-LED, 36-39 SL-Infinity); dev_type at [18] is a coarse category and
+        // reads 0 for a wireless fan chain, so the family lives here.
+        var fansType = new byte[PortsPerRecord];
+        rec.Slice(24, PortsPerRecord).CopyTo(fansType);
+
         var rpm = new int[PortsPerRecord];
         var pwm = new int[PortsPerRecord];
         var anyRpm = false;
@@ -231,7 +237,7 @@ public static class Slv3Protocol
             for (var k = 0; k < PortsPerRecord; k++) pwm[k] = 100;
         }
 
-        record = new Slv3DeviceRecord(mac, masterMac, channel, rxType, devType, fanNum, rightAttach, effectIndex, rpm, pwm, rec[40]);
+        record = new Slv3DeviceRecord(mac, masterMac, channel, rxType, devType, fanNum, rightAttach, effectIndex, fansType, rpm, pwm, rec[40]);
         return true;
     }
 
@@ -267,14 +273,21 @@ public readonly record struct Slv3DeviceRecord(
     int FanCount,
     bool RightAttach,
     byte[] EffectIndex,
+    byte[] FansType,
     int[] Rpm,
     int[] Pwm,
     byte CmdSeq)
 {
-    /// <summary>True for the SLV3 LCD/LED and SL-Infinity wireless fan families (not a master or AIO).</summary>
-    public bool IsWirelessFan =>
-        (DevType >= 20 && DevType <= 26) || (DevType >= 36 && DevType <= 39);
+    /// <summary>
+    /// Any non-master record on the RF link (L-Connect's rfList rule: dev_type 0xFF
+    /// is a master, everything else is a device). A wireless fan chain reports
+    /// dev_type 0 with the fan subtype in <see cref="FansType"/>.
+    /// </summary>
+    public bool IsWirelessFan => DevType != 0xFF;
 
     /// <summary>A record with dev_type 0xFF is another master on the link, not a fan.</summary>
     public bool IsMaster => DevType == 0xFF;
+
+    /// <summary>Per-port fan subtype (0x18=24 SLV3-LCD, 20-23 SLV3-LED, 36-39 SL-Infinity); 0 if no fan on that port.</summary>
+    public byte PrimaryFanType => FansType.Length > 0 ? FansType[0] : (byte)0;
 }

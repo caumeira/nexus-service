@@ -267,6 +267,10 @@ public sealed class Slv3Hub : IDisposable
             }
         }
 
+        if (records.Count != _lastFanRecords.Count)
+        {
+            ServiceLog.Info($"[lianli-wireless] device list: {records.Count} fan chain(s)");
+        }
         _lastFanRecords = records;
         var fans = new Slv3FanInfo[records.Count];
         for (var i = 0; i < records.Count; i++)
@@ -285,6 +289,7 @@ public sealed class Slv3Hub : IDisposable
         Channel = record.Channel,
         Slot = record.RxType,
         DevType = record.DevType,
+        FanType = record.PrimaryFanType,
         FanCount = record.FanCount,
         Rpm = (int[])record.Rpm.Clone(),
         Pwm = (int[])record.Pwm.Clone(),
