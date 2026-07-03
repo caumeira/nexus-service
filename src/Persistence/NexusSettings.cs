@@ -639,13 +639,27 @@ public sealed class LianLiWirelessSettings
 /// <summary>One SL-LCD Wireless fan screen's persisted content selection and display settings.</summary>
 public sealed class LianLiWirelessScreenSettings
 {
-    /// <summary>"off" | "image" | "gif" | "video" | "sensor" | "clock".</summary>
+    /// <summary>"off" | "image" | "gif" | "video" | "sensor" | "clock" | "animation".</summary>
     public string ContentType { get; set; } = "off";
     public string? MediaId { get; set; }
     /// <summary>0-100.</summary>
     public byte Brightness { get; set; } = 100;
     /// <summary>0 = 0 deg, 1 = 90 deg, 2 = 180 deg, 3 = 270 deg.</summary>
     public byte Rotation { get; set; }
+    /// <summary>"cpuLoad" | "cpuTemp" | "gpuLoad" | "gpuTemp" | "fanRpm". Used when ContentType is "sensor".</summary>
+    public string? SensorSource { get; set; }
+    /// <summary>"ring" | "bar". Used when ContentType is "sensor".</summary>
+    public string? SensorStyle { get; set; }
+    /// <summary>"digital" | "digitalMinimal" | "analogClassic" | "analogMinimal". Used when ContentType is "clock".</summary>
+    public string? ClockFace { get; set; }
+    /// <summary>"pulse" | "spectrum" | "spin". Used when ContentType is "animation".</summary>
+    public string? AnimationId { get; set; }
+    /// <summary>Accent hex color "#RRGGBB": gauge fill, clock hands/digits, animation primary color.</summary>
+    public string? ColorA { get; set; }
+    /// <summary>Secondary hex color "#RRGGBB": gauge/clock text color, animation secondary color.</summary>
+    public string? ColorB { get; set; }
+    /// <summary>"c" | "f". Display unit for a temperature sensor source.</summary>
+    public string? TempUnit { get; set; }
 }
 
 public sealed class LianLiLightingSettings

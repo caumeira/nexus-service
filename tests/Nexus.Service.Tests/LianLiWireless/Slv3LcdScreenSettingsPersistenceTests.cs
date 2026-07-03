@@ -24,6 +24,17 @@ public sealed class Slv3LcdScreenSettingsPersistenceTests
                             Brightness = 80,
                             Rotation = 2,
                         },
+                        ["BBBB444455556666"] = new()
+                        {
+                            ContentType = "animation",
+                            SensorSource = "fanRpm",
+                            SensorStyle = "bar",
+                            ClockFace = "analogMinimal",
+                            AnimationId = "spin",
+                            ColorA = "#112233",
+                            ColorB = "#445566",
+                            TempUnit = "f",
+                        },
                     },
                 },
             },
@@ -38,6 +49,16 @@ public sealed class Slv3LcdScreenSettingsPersistenceTests
         Assert.Equal("media-1", screen.MediaId);
         Assert.Equal((byte)80, screen.Brightness);
         Assert.Equal((byte)2, screen.Rotation);
+
+        Assert.True(loaded.Devices.LianLiWireless.Screens.TryGetValue("BBBB444455556666", out var second));
+        Assert.Equal("animation", second.ContentType);
+        Assert.Equal("fanRpm", second.SensorSource);
+        Assert.Equal("bar", second.SensorStyle);
+        Assert.Equal("analogMinimal", second.ClockFace);
+        Assert.Equal("spin", second.AnimationId);
+        Assert.Equal("#112233", second.ColorA);
+        Assert.Equal("#445566", second.ColorB);
+        Assert.Equal("f", second.TempUnit);
     }
 
     [Fact]
@@ -69,5 +90,12 @@ public sealed class Slv3LcdScreenSettingsPersistenceTests
         Assert.Null(screen.MediaId);
         Assert.Equal((byte)100, screen.Brightness);
         Assert.Equal((byte)0, screen.Rotation);
+        Assert.Null(screen.SensorSource);
+        Assert.Null(screen.SensorStyle);
+        Assert.Null(screen.ClockFace);
+        Assert.Null(screen.AnimationId);
+        Assert.Null(screen.ColorA);
+        Assert.Null(screen.ColorB);
+        Assert.Null(screen.TempUnit);
     }
 }

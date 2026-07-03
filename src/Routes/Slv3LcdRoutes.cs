@@ -21,6 +21,20 @@ public sealed class Slv3LcdScreenDto
     public byte Rotation { get; set; }
     public string ContentType { get; set; } = "off";
     public string? MediaId { get; set; }
+    /// <summary>"cpuLoad" | "cpuTemp" | "gpuLoad" | "gpuTemp" | "fanRpm". Set when contentType is "sensor".</summary>
+    public string? SensorSource { get; set; }
+    /// <summary>"ring" | "bar". Set when contentType is "sensor".</summary>
+    public string? SensorStyle { get; set; }
+    /// <summary>"digital" | "digitalMinimal" | "analogClassic" | "analogMinimal". Set when contentType is "clock".</summary>
+    public string? ClockFace { get; set; }
+    /// <summary>"pulse" | "spectrum" | "spin". Set when contentType is "animation".</summary>
+    public string? AnimationId { get; set; }
+    /// <summary>Accent hex color "#RRGGBB": gauge fill, clock hands/digits, animation primary color.</summary>
+    public string? ColorA { get; set; }
+    /// <summary>Secondary hex color "#RRGGBB": gauge/clock text color, animation secondary color.</summary>
+    public string? ColorB { get; set; }
+    /// <summary>"c" | "f". Display unit for a temperature sensor source.</summary>
+    public string? TempUnit { get; set; }
 }
 
 public sealed class Slv3LcdScreensResponse
@@ -38,9 +52,23 @@ public sealed class Slv3LcdSettingsRequest
 public sealed class Slv3LcdContentRequest
 {
     public string Serial { get; set; } = "";
-    /// <summary>"off" | "image" | "gif" | "video" | "sensor" | "clock".</summary>
+    /// <summary>"off" | "image" | "gif" | "video" | "sensor" | "clock" | "animation".</summary>
     public string ContentType { get; set; } = "";
     public string? MediaId { get; set; }
+    /// <summary>"cpuLoad" | "cpuTemp" | "gpuLoad" | "gpuTemp" | "fanRpm". Used when contentType is "sensor".</summary>
+    public string? SensorSource { get; set; }
+    /// <summary>"ring" | "bar". Used when contentType is "sensor".</summary>
+    public string? SensorStyle { get; set; }
+    /// <summary>"digital" | "digitalMinimal" | "analogClassic" | "analogMinimal". Used when contentType is "clock".</summary>
+    public string? ClockFace { get; set; }
+    /// <summary>"pulse" | "spectrum" | "spin". Used when contentType is "animation".</summary>
+    public string? AnimationId { get; set; }
+    /// <summary>Accent hex color "#RRGGBB": gauge fill, clock hands/digits, animation primary color.</summary>
+    public string? ColorA { get; set; }
+    /// <summary>Secondary hex color "#RRGGBB": gauge/clock text color, animation secondary color.</summary>
+    public string? ColorB { get; set; }
+    /// <summary>"c" | "f". Display unit for a temperature sensor source.</summary>
+    public string? TempUnit { get; set; }
 }
 
 public sealed class Slv3LcdMediaDto
@@ -72,7 +100,12 @@ public sealed class Slv3LcdImportResponse
 /// </summary>
 public static class Slv3LcdRoutes
 {
-    private static readonly string[] ValidContentTypes = { "off", "image", "gif", "video", "sensor", "clock" };
+    private static readonly string[] ValidContentTypes = { "off", "image", "gif", "video", "sensor", "clock", "animation" };
+    private static readonly string[] ValidSensorSources = { "cpuLoad", "cpuTemp", "gpuLoad", "gpuTemp", "fanRpm" };
+    private static readonly string[] ValidSensorStyles = { "ring", "bar" };
+    private static readonly string[] ValidClockFaces = { "digital", "digitalMinimal", "analogClassic", "analogMinimal" };
+    private static readonly string[] ValidAnimationIds = { "pulse", "spectrum", "spin" };
+    private static readonly string[] ValidTempUnits = { "c", "f" };
 
     public static void MapSlv3LcdEndpoints(this WebApplication app)
     {
@@ -93,6 +126,13 @@ public static class Slv3LcdRoutes
                     Rotation = settings.Rotation,
                     ContentType = settings.ContentType,
                     MediaId = settings.MediaId,
+                    SensorSource = settings.SensorSource,
+                    SensorStyle = settings.SensorStyle,
+                    ClockFace = settings.ClockFace,
+                    AnimationId = settings.AnimationId,
+                    ColorA = settings.ColorA,
+                    ColorB = settings.ColorB,
+                    TempUnit = settings.TempUnit,
                 });
             }
             return Results.Json(response, AppJsonContext.Default.Slv3LcdScreensResponse);
@@ -143,6 +183,34 @@ public static class Slv3LcdRoutes
             {
                 return Results.Json(ApiResponse.Fail("invalid mediaId"), AppJsonContext.Default.ApiResponse);
             }
+            if (body.SensorSource is not null && Array.IndexOf(ValidSensorSources, body.SensorSource) < 0)
+            {
+                return Results.Json(ApiResponse.Fail("invalid sensorSource"), AppJsonContext.Default.ApiResponse);
+            }
+            if (body.SensorStyle is not null && Array.IndexOf(ValidSensorStyles, body.SensorStyle) < 0)
+            {
+                return Results.Json(ApiResponse.Fail("invalid sensorStyle"), AppJsonContext.Default.ApiResponse);
+            }
+            if (body.ClockFace is not null && Array.IndexOf(ValidClockFaces, body.ClockFace) < 0)
+            {
+                return Results.Json(ApiResponse.Fail("invalid clockFace"), AppJsonContext.Default.ApiResponse);
+            }
+            if (body.AnimationId is not null && Array.IndexOf(ValidAnimationIds, body.AnimationId) < 0)
+            {
+                return Results.Json(ApiResponse.Fail("invalid animationId"), AppJsonContext.Default.ApiResponse);
+            }
+            if (body.TempUnit is not null && Array.IndexOf(ValidTempUnits, body.TempUnit) < 0)
+            {
+                return Results.Json(ApiResponse.Fail("invalid tempUnit"), AppJsonContext.Default.ApiResponse);
+            }
+            if (body.ColorA is not null && !IsValidHexColor(body.ColorA))
+            {
+                return Results.Json(ApiResponse.Fail("invalid colorA"), AppJsonContext.Default.ApiResponse);
+            }
+            if (body.ColorB is not null && !IsValidHexColor(body.ColorB))
+            {
+                return Results.Json(ApiResponse.Fail("invalid colorB"), AppJsonContext.Default.ApiResponse);
+            }
 
             store.Update(s =>
             {
@@ -151,6 +219,13 @@ public static class Slv3LcdRoutes
                     : new LianLiWirelessScreenSettings();
                 screen.ContentType = body.ContentType;
                 screen.MediaId = body.ContentType == "off" ? null : body.MediaId;
+                screen.SensorSource = body.SensorSource ?? screen.SensorSource;
+                screen.SensorStyle = body.SensorStyle ?? screen.SensorStyle;
+                screen.ClockFace = body.ClockFace ?? screen.ClockFace;
+                screen.AnimationId = body.AnimationId ?? screen.AnimationId;
+                screen.ColorA = body.ColorA ?? screen.ColorA;
+                screen.ColorB = body.ColorB ?? screen.ColorB;
+                screen.TempUnit = body.TempUnit ?? screen.TempUnit;
                 s.Devices.LianLiWireless.Screens[body.Serial] = screen;
             });
 
@@ -237,5 +312,21 @@ public static class Slv3LcdRoutes
             library.DeleteItem(id);
             return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
         });
+    }
+
+    private static bool IsValidHexColor(string value)
+    {
+        if (value.Length != 7 || value[0] != '#')
+        {
+            return false;
+        }
+        for (var i = 1; i < 7; i++)
+        {
+            if (!Uri.IsHexDigit(value[i]))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 }

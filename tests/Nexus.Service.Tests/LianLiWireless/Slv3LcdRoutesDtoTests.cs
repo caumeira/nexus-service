@@ -26,6 +26,13 @@ public class Slv3LcdRoutesDtoTests
                     Rotation = 2,
                     ContentType = "image",
                     MediaId = "media-1",
+                    SensorSource = "cpuTemp",
+                    SensorStyle = "ring",
+                    ClockFace = "digital",
+                    AnimationId = "pulse",
+                    ColorA = "#00D1FF",
+                    ColorB = "#FFFFFF",
+                    TempUnit = "c",
                 },
             },
         };
@@ -42,6 +49,13 @@ public class Slv3LcdRoutesDtoTests
         Assert.Equal(2, screen.GetProperty("rotation").GetInt32());
         Assert.Equal("image", screen.GetProperty("contentType").GetString());
         Assert.Equal("media-1", screen.GetProperty("mediaId").GetString());
+        Assert.Equal("cpuTemp", screen.GetProperty("sensorSource").GetString());
+        Assert.Equal("ring", screen.GetProperty("sensorStyle").GetString());
+        Assert.Equal("digital", screen.GetProperty("clockFace").GetString());
+        Assert.Equal("pulse", screen.GetProperty("animationId").GetString());
+        Assert.Equal("#00D1FF", screen.GetProperty("colorA").GetString());
+        Assert.Equal("#FFFFFF", screen.GetProperty("colorB").GetString());
+        Assert.Equal("c", screen.GetProperty("tempUnit").GetString());
     }
 
     [Fact]
@@ -68,6 +82,36 @@ public class Slv3LcdRoutesDtoTests
         Assert.Equal("SER1", body.Serial);
         Assert.Equal("video", body.ContentType);
         Assert.Equal("media-2", body.MediaId);
+    }
+
+    [Fact]
+    public void ContentRequest_deserializes_the_sensor_clock_animation_field_names()
+    {
+        const string json = """
+        {
+          "serial": "SER1",
+          "contentType": "sensor",
+          "sensorSource": "fanRpm",
+          "sensorStyle": "bar",
+          "clockFace": "analogClassic",
+          "animationId": "spectrum",
+          "colorA": "#112233",
+          "colorB": "#445566",
+          "tempUnit": "f"
+        }
+        """;
+
+        var body = JsonSerializer.Deserialize(json, AppJsonContext.Default.Slv3LcdContentRequest);
+
+        Assert.NotNull(body);
+        Assert.Equal("sensor", body.ContentType);
+        Assert.Equal("fanRpm", body.SensorSource);
+        Assert.Equal("bar", body.SensorStyle);
+        Assert.Equal("analogClassic", body.ClockFace);
+        Assert.Equal("spectrum", body.AnimationId);
+        Assert.Equal("#112233", body.ColorA);
+        Assert.Equal("#445566", body.ColorB);
+        Assert.Equal("f", body.TempUnit);
     }
 
     [Fact]

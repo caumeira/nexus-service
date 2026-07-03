@@ -467,6 +467,7 @@ public static class NexusServiceCollectionExtensions
                 port => new Nexus.Service.Peripherals.LianLiWireless.Slv3LcdTransport(port.PortName)));
         services.AddHostedService<Nexus.Service.Peripherals.LianLiWireless.Slv3LcdConnectionWorker>();
         services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.Slv3LcdMediaLibrary>();
+        services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.Slv3LcdSensorReader>();
         services.AddHostedService<Nexus.Service.Peripherals.LianLiWireless.Slv3LcdStreamingWorker>();
 
         // SLV3 wireless RGB: one lighting device per bound fan chain (inner/outer

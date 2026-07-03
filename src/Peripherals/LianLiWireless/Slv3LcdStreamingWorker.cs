@@ -20,17 +20,21 @@ public sealed class Slv3LcdStreamingWorker : BackgroundService
 {
     private const int DiscoveryPollMs = 2000;
     private const int IdlePollMs = 1000;
+    /// <summary>~1 fps: a sensor/clock frame only needs to look live, not smooth.</summary>
+    private const int SensorClockPollMs = 1000;
 
     private readonly Slv3LcdHub _hub;
     private readonly Slv3LcdMediaLibrary _library;
+    private readonly Slv3LcdSensorReader _sensorReader;
     private readonly IConfigStore _store;
     private readonly DeviceControlGate _gate;
     private readonly Dictionary<string, CancellationTokenSource> _running = new(StringComparer.OrdinalIgnoreCase);
 
-    public Slv3LcdStreamingWorker(Slv3LcdHub hub, Slv3LcdMediaLibrary library, IConfigStore store, DeviceControlGate gate)
+    public Slv3LcdStreamingWorker(Slv3LcdHub hub, Slv3LcdMediaLibrary library, Slv3LcdSensorReader sensorReader, IConfigStore store, DeviceControlGate gate)
     {
         _hub = hub;
         _library = library;
+        _sensorReader = sensorReader;
         _store = store;
         _gate = gate;
     }
@@ -132,6 +136,9 @@ public sealed class Slv3LcdStreamingWorker : BackgroundService
         var appliedRotation = -1;
         var appliedContentType = "";
         var pushedStatic = false;
+        // Animation phase resets on every (re)connect and content-type switch;
+        // continuity across a reconnect is not required.
+        var animationStartUtc = DateTime.UtcNow;
 
         while (!ct.IsCancellationRequested)
         {
@@ -162,6 +169,7 @@ public sealed class Slv3LcdStreamingWorker : BackgroundService
                 {
                     appliedContentType = settings.ContentType;
                     pushedStatic = false;
+                    animationStartUtc = DateTime.UtcNow;
                 }
 
                 switch (settings.ContentType)
@@ -187,13 +195,32 @@ public sealed class Slv3LcdStreamingWorker : BackgroundService
                         break;
 
                     case "sensor":
-                    case "clock":
-                        // Rendering not implemented: no host-side drawing library is
-                        // wired in yet (see plans/lianli-wireless-support.md section 7
-                        // handoff). Settings are accepted and persisted; no frame is
-                        // pushed until a renderer lands.
-                        await Task.Delay(IdlePollMs, ct).ConfigureAwait(false);
+                    {
+                        var reading = _sensorReader.Read(settings.SensorSource, settings.TempUnit);
+                        var jpeg = Slv3LcdSensorRenderer.Render(
+                            settings.SensorStyle, reading.Value, reading.Min, reading.Max, reading.Label, reading.Unit,
+                            settings.ColorA, settings.ColorB);
+                        _hub.PushImageToSerial(serial, jpeg);
+                        await Task.Delay(SensorClockPollMs, ct).ConfigureAwait(false);
                         break;
+                    }
+
+                    case "clock":
+                    {
+                        var jpeg = Slv3LcdClockRenderer.Render(settings.ClockFace, DateTime.Now, settings.ColorA, settings.ColorB);
+                        _hub.PushImageToSerial(serial, jpeg);
+                        await Task.Delay(SensorClockPollMs, ct).ConfigureAwait(false);
+                        break;
+                    }
+
+                    case "animation":
+                    {
+                        var elapsed = (DateTime.UtcNow - animationStartUtc).TotalSeconds;
+                        var jpeg = Slv3LcdAnimationRenderer.Render(settings.AnimationId, elapsed, settings.ColorA, settings.ColorB);
+                        _hub.PushImageToSerial(serial, jpeg);
+                        await Task.Delay(Slv3LcdAnimationRenderer.FrameIntervalMs, ct).ConfigureAwait(false);
+                        break;
+                    }
 
                     default:
                         await Task.Delay(IdlePollMs, ct).ConfigureAwait(false);
