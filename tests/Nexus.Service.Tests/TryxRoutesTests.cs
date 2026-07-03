@@ -9,47 +9,55 @@ public class TryxRoutesTests
 {
     private static readonly TryxOverlayConfig CurrentOverlay = new()
     {
-        Align = "Right",
         Filter = "blur",
         Opacity = 80,
     };
 
     [Fact]
-    public void BuildOverlayConfigFromRequest_maps_items_to_stats_and_positions_in_order()
+    public void BuildOverlayConfigFromRequest_maps_items_in_order()
     {
         var body = new TryxOverlayRequest
         {
             Items =
             [
-                new TryxOverlayItem { Stat = "CPU Temperature", X = 0.03, Y = 0.10 },
-                new TryxOverlayItem { Stat = "GPU Temperature", X = 0.50, Y = 0.60 },
+                new TryxOverlayItem { SensorId = "/amdcpu/0/temperature/0", Device = "cpu", Label = "CPU Temp", X = 0.03, Y = 0.10 },
+                new TryxOverlayItem { SensorId = "/gpu-nvidia/0/temperature/0", Device = "gpu", Label = "GPU Temp", X = 0.50, Y = 0.60 },
             ],
             Font = "roboto-bold",
             Size = 120,
             Color = "#112233",
+            Align = "center",
+            Docked = true,
         };
 
         var cfg = TryxRoutes.BuildOverlayConfigFromRequest(body, CurrentOverlay);
 
-        Assert.Equal(["CPU Temperature", "GPU Temperature"], cfg.Stats);
-        Assert.Equal([0.03, 0.50], cfg.PosX);
-        Assert.Equal([0.10, 0.60], cfg.PosY);
+        Assert.Equal(2, cfg.Items.Count);
+        Assert.Equal("/amdcpu/0/temperature/0", cfg.Items[0].SensorId);
+        Assert.Equal("cpu", cfg.Items[0].Device);
+        Assert.Equal("CPU Temp", cfg.Items[0].Label);
+        Assert.Equal(0.03, cfg.Items[0].X);
+        Assert.Equal(0.10, cfg.Items[0].Y);
+        Assert.Equal("/gpu-nvidia/0/temperature/0", cfg.Items[1].SensorId);
         Assert.Equal("roboto-bold", cfg.Font);
         Assert.Equal(120, cfg.Size);
         Assert.Equal("#112233", cfg.Color);
+        Assert.Equal("center", cfg.Align);
+        Assert.True(cfg.Docked);
     }
 
     [Fact]
-    public void BuildOverlayConfigFromRequest_truncates_more_than_three_items()
+    public void BuildOverlayConfigFromRequest_truncates_more_than_four_items()
     {
         var body = new TryxOverlayRequest
         {
             Items =
             [
-                new TryxOverlayItem { Stat = "CPU Temperature", X = 0, Y = 0 },
-                new TryxOverlayItem { Stat = "GPU Temperature", X = 0, Y = 0.1 },
-                new TryxOverlayItem { Stat = "CPU Usage", X = 0, Y = 0.2 },
-                new TryxOverlayItem { Stat = "GPU Usage", X = 0, Y = 0.3 },
+                new TryxOverlayItem { SensorId = "s1", Device = "cpu", Label = "a", X = 0, Y = 0 },
+                new TryxOverlayItem { SensorId = "s2", Device = "cpu", Label = "b", X = 0, Y = 0.1 },
+                new TryxOverlayItem { SensorId = "s3", Device = "cpu", Label = "c", X = 0, Y = 0.2 },
+                new TryxOverlayItem { SensorId = "s4", Device = "cpu", Label = "d", X = 0, Y = 0.3 },
+                new TryxOverlayItem { SensorId = "s5", Device = "cpu", Label = "e", X = 0, Y = 0.4 },
             ],
             Font = "roboto-regular",
             Size = 100,
@@ -58,20 +66,20 @@ public class TryxRoutesTests
 
         var cfg = TryxRoutes.BuildOverlayConfigFromRequest(body, CurrentOverlay);
 
-        Assert.Equal(3, cfg.Stats.Length);
-        Assert.Equal(["CPU Temperature", "GPU Temperature", "CPU Usage"], cfg.Stats);
+        Assert.Equal(4, cfg.Items.Count);
+        Assert.Equal(["s1", "s2", "s3", "s4"], cfg.Items.ConvertAll(i => i.SensorId));
     }
 
     [Fact]
-    public void BuildOverlayConfigFromRequest_skips_blank_stat_names()
+    public void BuildOverlayConfigFromRequest_skips_blank_sensor_ids()
     {
         var body = new TryxOverlayRequest
         {
             Items =
             [
-                new TryxOverlayItem { Stat = "", X = 0, Y = 0 },
-                new TryxOverlayItem { Stat = "   ", X = 0, Y = 0 },
-                new TryxOverlayItem { Stat = "CPU Temperature", X = 0.1, Y = 0.2 },
+                new TryxOverlayItem { SensorId = "", Device = "cpu", Label = "a", X = 0, Y = 0 },
+                new TryxOverlayItem { SensorId = "   ", Device = "cpu", Label = "b", X = 0, Y = 0 },
+                new TryxOverlayItem { SensorId = "s3", Device = "cpu", Label = "c", X = 0.1, Y = 0.2 },
             ],
             Font = "roboto-regular",
             Size = 100,
@@ -80,9 +88,9 @@ public class TryxRoutesTests
 
         var cfg = TryxRoutes.BuildOverlayConfigFromRequest(body, CurrentOverlay);
 
-        Assert.Equal(["CPU Temperature"], cfg.Stats);
-        Assert.Equal([0.1], cfg.PosX);
-        Assert.Equal([0.2], cfg.PosY);
+        Assert.Equal(["s3"], cfg.Items.ConvertAll(i => i.SensorId));
+        Assert.Equal(0.1, cfg.Items[0].X);
+        Assert.Equal(0.2, cfg.Items[0].Y);
     }
 
     [Theory]
@@ -92,7 +100,7 @@ public class TryxRoutesTests
     {
         var body = new TryxOverlayRequest
         {
-            Items = [new TryxOverlayItem { Stat = "CPU Temperature", X = input, Y = input }],
+            Items = [new TryxOverlayItem { SensorId = "s1", Device = "cpu", Label = "a", X = input, Y = input }],
             Font = "roboto-regular",
             Size = 100,
             Color = "#ffffff",
@@ -100,8 +108,8 @@ public class TryxRoutesTests
 
         var cfg = TryxRoutes.BuildOverlayConfigFromRequest(body, CurrentOverlay);
 
-        Assert.Equal(clamped, cfg.PosX[0]);
-        Assert.Equal(clamped, cfg.PosY[0]);
+        Assert.Equal(clamped, cfg.Items[0].X);
+        Assert.Equal(clamped, cfg.Items[0].Y);
     }
 
     [Theory]
@@ -114,7 +122,7 @@ public class TryxRoutesTests
     {
         var body = new TryxOverlayRequest
         {
-            Items = [new TryxOverlayItem { Stat = "CPU Temperature", X = 0, Y = 0 }],
+            Items = [new TryxOverlayItem { SensorId = "s1", Device = "cpu", Label = "a", X = 0, Y = 0 }],
             Font = requestedFont,
             Size = 100,
             Color = "#ffffff",
@@ -135,7 +143,7 @@ public class TryxRoutesTests
     {
         var body = new TryxOverlayRequest
         {
-            Items = [new TryxOverlayItem { Stat = "CPU Temperature", X = 0, Y = 0 }],
+            Items = [new TryxOverlayItem { SensorId = "s1", Device = "cpu", Label = "a", X = 0, Y = 0 }],
             Font = "roboto-regular",
             Size = input,
             Color = "#ffffff",
@@ -151,7 +159,7 @@ public class TryxRoutesTests
     {
         var body = new TryxOverlayRequest
         {
-            Items = [new TryxOverlayItem { Stat = "CPU Temperature", X = 0, Y = 0 }],
+            Items = [new TryxOverlayItem { SensorId = "s1", Device = "cpu", Label = "a", X = 0, Y = 0 }],
             Font = "roboto-regular",
             Size = 100,
             Color = "  ",
@@ -162,12 +170,34 @@ public class TryxRoutesTests
         Assert.Equal("#ffffff", cfg.Color);
     }
 
-    [Fact]
-    public void BuildOverlayConfigFromRequest_preserves_align_filter_and_opacity_from_the_current_overlay()
+    [Theory]
+    [InlineData("left", "left")]
+    [InlineData("center", "center")]
+    [InlineData("right", "right")]
+    [InlineData("bogus", "left")]
+    [InlineData("", "left")]
+    public void BuildOverlayConfigFromRequest_falls_back_to_left_for_an_invalid_align(string requestedAlign, string expectedAlign)
     {
         var body = new TryxOverlayRequest
         {
-            Items = [new TryxOverlayItem { Stat = "CPU Temperature", X = 0, Y = 0 }],
+            Items = [new TryxOverlayItem { SensorId = "s1", Device = "cpu", Label = "a", X = 0, Y = 0 }],
+            Font = "roboto-regular",
+            Size = 100,
+            Color = "#ffffff",
+            Align = requestedAlign,
+        };
+
+        var cfg = TryxRoutes.BuildOverlayConfigFromRequest(body, CurrentOverlay);
+
+        Assert.Equal(expectedAlign, cfg.Align);
+    }
+
+    [Fact]
+    public void BuildOverlayConfigFromRequest_preserves_filter_and_opacity_from_the_current_overlay()
+    {
+        var body = new TryxOverlayRequest
+        {
+            Items = [new TryxOverlayItem { SensorId = "s1", Device = "cpu", Label = "a", X = 0, Y = 0 }],
             Font = "roboto-regular",
             Size = 100,
             Color = "#ffffff",
@@ -175,7 +205,6 @@ public class TryxRoutesTests
 
         var cfg = TryxRoutes.BuildOverlayConfigFromRequest(body, CurrentOverlay);
 
-        Assert.Equal("Right", cfg.Align);
         Assert.Equal("blur", cfg.Filter);
         Assert.Equal(80, cfg.Opacity);
     }
@@ -183,42 +212,38 @@ public class TryxRoutesTests
     // ── /tryx/status overlay.items round-trip ──
 
     [Fact]
-    public void BuildOverlayItems_pairs_each_stat_with_its_configured_position()
+    public void BuildOverlayItems_projects_each_item_verbatim()
     {
         var overlay = new TryxOverlayConfig
         {
-            Stats = ["CPU Temperature", "GPU Temperature"],
-            PosX = [0.03, 0.50],
-            PosY = [0.10, 0.60],
+            Items =
+            [
+                new TryxOverlaySensorItem { SensorId = "s1", Device = "cpu", Label = "CPU Temp", X = 0.03, Y = 0.10 },
+                new TryxOverlaySensorItem { SensorId = "s2", Device = "gpu", Label = "GPU Temp", X = 0.50, Y = 0.60 },
+            ],
         };
 
         var items = TryxRoutes.BuildOverlayItems(overlay);
 
         Assert.Equal(2, items.Length);
-        Assert.Equal("CPU Temperature", items[0].Stat);
+        Assert.Equal("s1", items[0].SensorId);
+        Assert.Equal("cpu", items[0].Device);
+        Assert.Equal("CPU Temp", items[0].Label);
         Assert.Equal(0.03, items[0].X);
         Assert.Equal(0.10, items[0].Y);
-        Assert.Equal("GPU Temperature", items[1].Stat);
+        Assert.Equal("s2", items[1].SensorId);
         Assert.Equal(0.50, items[1].X);
         Assert.Equal(0.60, items[1].Y);
     }
 
     [Fact]
-    public void BuildOverlayItems_reports_the_fallback_stack_for_a_stat_with_no_saved_position()
+    public void BuildOverlayItems_returns_empty_for_no_configured_items()
     {
-        var overlay = new TryxOverlayConfig
-        {
-            Stats = ["CPU Temperature", "GPU Temperature"],
-            PosX = [],
-            PosY = [],
-        };
+        var overlay = new TryxOverlayConfig { Items = [] };
 
         var items = TryxRoutes.BuildOverlayItems(overlay);
 
-        Assert.Equal(0.04, items[0].X);
-        Assert.Equal(0.12, items[0].Y);
-        Assert.Equal(0.04, items[1].X);
-        Assert.Equal(0.28, items[1].Y);
+        Assert.Empty(items);
     }
 
     [Fact]

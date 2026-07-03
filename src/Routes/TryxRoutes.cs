@@ -12,23 +12,26 @@ using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Routes;
 
-/// <summary>One overlay stat's assigned position, normalized 0..1 (top-left of
-/// its value text). Shared shape for the request body and the status snapshot.</summary>
+/// <summary>One overlay item: a live sensor identity plus its normalized (0..1)
+/// justification anchor (top of the value text). Shared shape for the request
+/// body and the status snapshot.</summary>
 public sealed class TryxOverlayItem
 {
-    public string Stat { get; set; } = "";
+    public string SensorId { get; set; } = "";
+    public string Device { get; set; } = "";
+    public string Label { get; set; } = "";
     public double X { get; set; }
     public double Y { get; set; }
 }
 
 public sealed class TryxOverlaySnapshot
 {
-    public string[] Stats { get; set; } = [];
-    public string Color { get; set; } = "";
-    public string Align { get; set; } = "";
     public TryxOverlayItem[] Items { get; set; } = [];
     public string Font { get; set; } = "";
     public int Size { get; set; } = 100;
+    public string Color { get; set; } = "";
+    public string Align { get; set; } = "";
+    public bool Docked { get; set; }
 }
 
 public sealed class TryxStatusResponse
@@ -133,6 +136,8 @@ public sealed class TryxOverlayRequest
     public string Font { get; set; } = "";
     public int Size { get; set; } = 100;
     public string Color { get; set; } = "";
+    public string Align { get; set; } = "";
+    public bool Docked { get; set; }
 }
 
 /// <summary>
@@ -167,12 +172,12 @@ public static class TryxRoutes
                 State = hub.State,
                 Overlay = new TryxOverlaySnapshot
                 {
-                    Stats = ov.Stats,
-                    Color = ov.Color,
-                    Align = ov.Align,
                     Items = BuildOverlayItems(ov),
                     Font = ov.Font,
                     Size = ov.Size,
+                    Color = ov.Color,
+                    Align = ov.Align,
+                    Docked = ov.Docked,
                 },
             };
             return Results.Json(resp, AppJsonContext.Default.TryxStatusResponse);
@@ -447,51 +452,54 @@ public static class TryxRoutes
         }).DisableAntiforgery();
     }
 
-    /// <summary>Maps the fixed overlay wire contract (items/font/size/color) onto a
-    /// <see cref="TryxOverlayConfig"/>, validating each field; Align/Filter/Opacity are
+    private static readonly HashSet<string> ValidOverlayAligns = new(StringComparer.Ordinal) { "left", "center", "right" };
+
+    /// <summary>Maps the fixed overlay wire contract (items/font/size/color/align/docked)
+    /// onto a <see cref="TryxOverlayConfig"/>, validating each field; Filter/Opacity are
     /// not part of this contract, so <paramref name="current"/>'s values pass through
     /// unchanged.</summary>
     internal static TryxOverlayConfig BuildOverlayConfigFromRequest(TryxOverlayRequest body, TryxOverlayConfig current)
     {
-        var stats = new List<string>();
-        var posX = new List<double>();
-        var posY = new List<double>();
+        var items = new List<TryxOverlaySensorItem>();
         foreach (var item in body.Items ?? [])
         {
-            if (item is null || string.IsNullOrWhiteSpace(item.Stat)) continue;
-            stats.Add(item.Stat);
-            posX.Add(Math.Clamp(item.X, 0.0, 1.0));
-            posY.Add(Math.Clamp(item.Y, 0.0, 1.0));
-            if (stats.Count >= 3) break;
+            if (item is null || string.IsNullOrWhiteSpace(item.SensorId)) continue;
+            items.Add(new TryxOverlaySensorItem
+            {
+                SensorId = item.SensorId,
+                Device = item.Device,
+                Label = item.Label,
+                X = Math.Clamp(item.X, 0.0, 1.0),
+                Y = Math.Clamp(item.Y, 0.0, 1.0),
+            });
+            if (items.Count >= 4) break;
         }
         return new TryxOverlayConfig
         {
-            Stats = stats.ToArray(),
+            Items = items,
             Color = string.IsNullOrWhiteSpace(body.Color) ? "#ffffff" : body.Color,
-            Align = current.Align,
+            Align = ValidOverlayAligns.Contains(body.Align) ? body.Align : "left",
             Filter = current.Filter,
             Opacity = current.Opacity,
-            PosX = posX.ToArray(),
-            PosY = posY.ToArray(),
             Font = TryxRkProtocol.IsValidOverlayFont(body.Font) ? body.Font : "roboto-regular",
             Size = Math.Clamp(body.Size, 50, 150),
+            Docked = body.Docked,
         };
     }
 
-    /// <summary>Pairs each configured stat with its position for the status snapshot;
-    /// a stat past the end of PosX/PosY reports the same fallback stack BuildOverlay
-    /// would render for it.</summary>
     internal static TryxOverlayItem[] BuildOverlayItems(TryxOverlayConfig overlay)
     {
-        var items = new TryxOverlayItem[overlay.Stats.Length];
-        for (var i = 0; i < overlay.Stats.Length; i++)
+        var items = new TryxOverlayItem[overlay.Items.Count];
+        for (var i = 0; i < overlay.Items.Count; i++)
         {
-            var hasPos = i < overlay.PosX.Length && i < overlay.PosY.Length;
+            var item = overlay.Items[i];
             items[i] = new TryxOverlayItem
             {
-                Stat = overlay.Stats[i],
-                X = hasPos ? overlay.PosX[i] : TryxRkProtocol.OverlayDefaultPosX,
-                Y = hasPos ? overlay.PosY[i] : TryxRkProtocol.OverlayDefaultPosY + i * TryxRkProtocol.OverlayDefaultPosYStep,
+                SensorId = item.SensorId,
+                Device = item.Device,
+                Label = item.Label,
+                X = item.X,
+                Y = item.Y,
             };
         }
         return items;

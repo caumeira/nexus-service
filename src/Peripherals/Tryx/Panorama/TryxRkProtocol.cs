@@ -21,10 +21,11 @@ public static class TryxRkProtocol
 
     // Camera-verified: widget f7=19 is required-present. Widget f6 selects the
     // text's horizontal alignment within the widget box (1=left, 2=center,
-    // 3=right per Kanali's own sysinfo overlay); per-stat positioning replaces
-    // whole-block alignment, so every widget is left-aligned from its own x.
+    // 3=right per Kanali's own sysinfo overlay).
     private const int OverlayWidgetF7 = 19;
     private const int OverlayAlignLeftF6 = 1;
+    private const int OverlayAlignCenterF6 = 2;
+    private const int OverlayAlignRightF6 = 3;
 
     // Coordinate space is 2240x1080 (camera-verified). A stat's label sits
     // OverlayValueLabelOffsetY below its value; both widths span from x to the
@@ -160,15 +161,18 @@ public static class TryxRkProtocol
 
     /// <summary>
     /// Sensor/text overlay layout. Field 201 nests a repeated field 1 per widget:
-    /// f1=widgetId, f2=x, f3=y, f4=w, f5=h, f6=align (fixed left), f7 fixed, then a
-    /// repeated field 8 per text element (f1=elemId, f2=1 flag, f8=font, f9=fontSize,
+    /// f1=widgetId, f2=x, f3=y, f4=w, f5=h, f6=align, f7 fixed, then a repeated
+    /// field 8 per text element (f1=elemId, f2=1 flag, f8=font, f9=fontSize,
     /// f10=RGB color, f11=text). Each stat renders as two stacked widgets, a large
-    /// value and a small label <see cref="OverlayValueLabelOffsetY"/> below it, both
-    /// positioned from <paramref name="positions"/>[i] (normalized 0..1, top-left of
-    /// the value) and scaled by <paramref name="sizePercent"/>/100; a stat with no
-    /// matching entry in <paramref name="positions"/> falls back to a left stack
-    /// starting at (<see cref="OverlayDefaultPosX"/>, <see cref="OverlayDefaultPosY"/>)
-    /// stepping <see cref="OverlayDefaultPosYStep"/> per line. An empty
+    /// value and a small label <see cref="OverlayValueLabelOffsetY"/> below it.
+    /// <paramref name="positions"/>[i] (normalized 0..1) is the justification
+    /// anchor: left keeps the anchor as the widget's left edge, right as its
+    /// right edge, center as its midpoint (symmetric within the panel width so
+    /// the text visually centers on the anchor). A stat with no matching entry
+    /// in <paramref name="positions"/> falls back to a left stack starting at
+    /// (<see cref="OverlayDefaultPosX"/>, <see cref="OverlayDefaultPosY"/>)
+    /// stepping <see cref="OverlayDefaultPosYStep"/> per line. Font size and the
+    /// value-to-label gap scale by <paramref name="sizePercent"/>/100. An empty
     /// <paramref name="lines"/> list sends a field 201 with zero widgets, which
     /// clears the overlay.
     /// </summary>
@@ -177,7 +181,8 @@ public static class TryxRkProtocol
         IReadOnlyList<(double X, double Y)> positions,
         int colorRgb,
         string fontName,
-        int sizePercent)
+        int sizePercent,
+        string align)
     {
         var scale = sizePercent / 100.0;
 
@@ -192,8 +197,8 @@ public static class TryxRkProtocol
             var nx = Math.Clamp(rawX, 0.0, 1.0);
             var ny = Math.Clamp(rawY, 0.0, 1.0);
 
-            var x = (int)Math.Round(nx * OverlayPanelWidth);
-            var w = OverlayPanelWidth - x;
+            var anchorX = (int)Math.Round(nx * OverlayPanelWidth);
+            var (alignF6, x, w) = ResolveAlignBox(anchorX, align);
             var valueY = (int)Math.Round(ny * OverlayPanelHeight);
             var labelY = (int)Math.Round(ny * OverlayPanelHeight + OverlayValueLabelOffsetY * scale);
             var valueFontSize = (int)Math.Round(OverlayValueFontSize * scale);
@@ -203,10 +208,10 @@ public static class TryxRkProtocol
 
             var widgetIdBase = i * 2;
             AppendOverlayWidget(
-                f201Body, widgetIdBase, x, valueY, w, valueHeight, OverlayAlignLeftF6,
+                f201Body, widgetIdBase, x, valueY, w, valueHeight, alignF6,
                 valueFontSize, colorRgb, fontName, lines[i].Value);
             AppendOverlayWidget(
-                f201Body, widgetIdBase + 1, x, labelY, w, labelHeight, OverlayAlignLeftF6,
+                f201Body, widgetIdBase + 1, x, labelY, w, labelHeight, alignF6,
                 labelFontSize, colorRgb, fontName, lines[i].Label);
         }
 
@@ -215,6 +220,23 @@ public static class TryxRkProtocol
         WriteLengthDelimited(payload, fieldNumber: 201, f201Body.ToArray());
 
         return WrapFrame(payload);
+    }
+
+    /// <summary>Resolves a widget's f6/x/width from its justification anchor.
+    /// Left and right pin the anchor to the box's near edge and grow toward the
+    /// opposite edge; center grows both directions, shrunk to the shorter side
+    /// so the box never leaves the panel.</summary>
+    private static (int AlignF6, int X, int W) ResolveAlignBox(int anchorX, string align) => align switch
+    {
+        "center" => CenterBox(anchorX),
+        "right" => (OverlayAlignRightF6, 0, anchorX),
+        _ => (OverlayAlignLeftF6, anchorX, OverlayPanelWidth - anchorX),
+    };
+
+    private static (int AlignF6, int X, int W) CenterBox(int anchorX)
+    {
+        var half = Math.Min(anchorX, OverlayPanelWidth - anchorX);
+        return (OverlayAlignCenterF6, anchorX - half, 2 * half);
     }
 
     private static void AppendOverlayWidget(

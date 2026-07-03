@@ -52,15 +52,14 @@ public sealed class TryxPanoramaHub : IDisposable
         var saved = configStore.Load().Tryx;
         _overlay = new TryxOverlayConfig
         {
-            Stats = saved.OverlayStats,
+            Items = ToRuntimeItems(saved.OverlayItems),
             Color = saved.OverlayColor,
             Align = saved.OverlayAlign,
             Filter = saved.OverlayFilter,
             Opacity = saved.OverlayOpacity,
-            PosX = saved.OverlayPosX,
-            PosY = saved.OverlayPosY,
             Font = saved.OverlayFont,
             Size = saved.OverlaySize,
+            Docked = saved.OverlayDocked,
         };
         State.CurrentMedia = saved.CurrentMedia;
         State.CurrentMediaIsCustom = saved.CurrentMediaIsCustom;
@@ -126,11 +125,11 @@ public sealed class TryxPanoramaHub : IDisposable
         try
         {
             transport.Write(TryxRkProtocol.BuildConfig(State.ScreenEnabled, State.Brightness));
-            if (_overlay.Stats.Length > 0)
+            if (_overlay.Items.Count > 0)
             {
                 transport.Write(TryxRkProtocol.BuildOverlay(
                     BuildOverlayLines(), BuildOverlayPositions(), ParseHexColorRgb(_overlay.Color),
-                    _overlay.Font, _overlay.Size));
+                    _overlay.Font, _overlay.Size, _overlay.Align));
             }
         }
         catch (Exception ex)
@@ -170,13 +169,13 @@ public sealed class TryxPanoramaHub : IDisposable
 
     public bool SendStateAll()
     {
-        if (_overlay.Stats.Length == 0)
+        if (_overlay.Items.Count == 0)
         {
             return true;
         }
         return SendOnly(TryxRkProtocol.BuildOverlay(
             BuildOverlayLines(), BuildOverlayPositions(), ParseHexColorRgb(_overlay.Color),
-            _overlay.Font, _overlay.Size));
+            _overlay.Font, _overlay.Size, _overlay.Align));
     }
 
     public bool SetEnabled(bool enable)
@@ -233,30 +232,48 @@ public sealed class TryxPanoramaHub : IDisposable
 
     public bool SetOverlay(TryxOverlayConfig overlay)
     {
-        _overlay.Stats = overlay.Stats;
+        _overlay.Items = overlay.Items;
         _overlay.Color = overlay.Color;
         _overlay.Align = overlay.Align;
         _overlay.Filter = overlay.Filter;
         _overlay.Opacity = overlay.Opacity;
-        _overlay.PosX = overlay.PosX;
-        _overlay.PosY = overlay.PosY;
         _overlay.Font = overlay.Font;
         _overlay.Size = overlay.Size;
+        _overlay.Docked = overlay.Docked;
         _configStore.Update(s =>
         {
-            s.Tryx.OverlayStats = overlay.Stats;
+            s.Tryx.OverlayItems = ToSettingsItems(overlay.Items);
             s.Tryx.OverlayColor = overlay.Color;
             s.Tryx.OverlayAlign = overlay.Align;
             s.Tryx.OverlayFilter = overlay.Filter;
             s.Tryx.OverlayOpacity = overlay.Opacity;
-            s.Tryx.OverlayPosX = overlay.PosX;
-            s.Tryx.OverlayPosY = overlay.PosY;
             s.Tryx.OverlayFont = overlay.Font;
             s.Tryx.OverlaySize = overlay.Size;
+            s.Tryx.OverlayDocked = overlay.Docked;
         });
         return SendReliable(TryxRkProtocol.BuildOverlay(
             BuildOverlayLines(), BuildOverlayPositions(), ParseHexColorRgb(overlay.Color),
-            overlay.Font, overlay.Size));
+            overlay.Font, overlay.Size, overlay.Align));
+    }
+
+    private static List<TryxOverlaySensorItem> ToRuntimeItems(List<TryxOverlaySensorItemSettings> saved)
+    {
+        var items = new List<TryxOverlaySensorItem>(saved.Count);
+        foreach (var s in saved)
+        {
+            items.Add(new TryxOverlaySensorItem { SensorId = s.SensorId, Device = s.Device, Label = s.Label, X = s.X, Y = s.Y });
+        }
+        return items;
+    }
+
+    private static List<TryxOverlaySensorItemSettings> ToSettingsItems(List<TryxOverlaySensorItem> items)
+    {
+        var saved = new List<TryxOverlaySensorItemSettings>(items.Count);
+        foreach (var i in items)
+        {
+            saved.Add(new TryxOverlaySensorItemSettings { SensorId = i.SensorId, Device = i.Device, Label = i.Label, X = i.X, Y = i.Y });
+        }
+        return saved;
     }
 
     // Panel surface is a fixed 2240x1080 2:1 display; every custom clip is transcoded to
@@ -733,53 +750,77 @@ public sealed class TryxPanoramaHub : IDisposable
         return sb.ToString();
     }
 
-    /// <summary>Maps a dashboard stat label to its overlay value string; unmapped
-    /// labels are skipped. "Date&amp;Time" reads the local clock, not a sensor.</summary>
-    private static TryxOverlayLine? MapOverlayStat(string stat, in TryxSensorReadout r) => stat switch
-    {
-        "CPU Temperature" => new TryxOverlayLine(stat, $"{r.CpuTemp}°C"),
-        "CPU Frequency" => new TryxOverlayLine(stat, $"{r.CpuClock}MHZ"),
-        "CPU Usage" => new TryxOverlayLine(stat, $"{r.CpuLoad}%"),
-        "CPU Voltage" => new TryxOverlayLine(stat, $"{r.CpuVoltage}V"),
-        "GPU Temperature" => new TryxOverlayLine(stat, $"{r.GpuTemp}°C"),
-        "GPU Frequency" => new TryxOverlayLine(stat, $"{r.GpuClock}MHZ"),
-        "GPU Usage" => new TryxOverlayLine(stat, $"{r.GpuLoad}%"),
-        "GPU Voltage" => new TryxOverlayLine(stat, $"{r.GpuVoltage}V"),
-        "Motherboard Temperature" => new TryxOverlayLine(stat, $"{r.MoboTemp}°C"),
-        "Memory Frequency" => new TryxOverlayLine(stat, $"{r.MemClock}MHZ"),
-        "Memory Utilization" => new TryxOverlayLine(stat, $"{r.MemLoad}%"),
-        "Date&Time" => new TryxOverlayLine(stat, DateTime.Now.ToString("HH:mm")),
-        _ => null,
-    };
-
     private List<TryxOverlayLine> BuildOverlayLines()
     {
-        var r = ReadSensors();
-        var lines = new List<TryxOverlayLine>(_overlay.Stats.Length);
-        foreach (var stat in _overlay.Stats)
+        var lines = new List<TryxOverlayLine>(_overlay.Items.Count);
+        foreach (var item in _overlay.Items)
         {
-            var line = MapOverlayStat(stat, in r);
-            if (line is { } value)
-            {
-                lines.Add(value);
-            }
+            lines.Add(new TryxOverlayLine(item.Label, ResolveSensorValue(item.Device, item.SensorId)));
         }
         return lines;
     }
 
-    /// <summary>Paired (X,Y) entries from <see cref="TryxOverlayConfig.PosX"/>/PosY,
-    /// truncated to whichever array is shorter; BuildOverlay defaults any stat past
-    /// the end of this list to its fallback stack position.</summary>
     private List<(double X, double Y)> BuildOverlayPositions()
     {
-        var count = Math.Min(_overlay.PosX.Length, _overlay.PosY.Length);
-        var positions = new List<(double, double)>(count);
-        for (var i = 0; i < count; i++)
+        var positions = new List<(double, double)>(_overlay.Items.Count);
+        foreach (var item in _overlay.Items)
         {
-            positions.Add((_overlay.PosX[i], _overlay.PosY[i]));
+            positions.Add((item.X, item.Y));
         }
         return positions;
     }
+
+    /// <summary>Looks up <paramref name="sensorId"/> within <paramref name="device"/>'s
+    /// live sensor group and formats it by its <see cref="HardwareSensor.Type"/>; "--"
+    /// if the group is unknown or the id isn't currently reported.</summary>
+    private string ResolveSensorValue(string device, string sensorId)
+    {
+        foreach (var sensor in GetDeviceSensors(device))
+        {
+            if (sensor.Id == sensorId)
+            {
+                return FormatSensorValue(sensor);
+            }
+        }
+        return "--";
+    }
+
+    private IReadOnlyList<HardwareSensor> GetDeviceSensors(string device) => device switch
+    {
+        "cpu" => _sensors.GetCpuSensors(),
+        "gpu" => GetPrimaryGpuSensors(),
+        "memory" => _sensors.GetMemorySensors(),
+        "motherboard" => _sensors.GetMotherboardSensors(),
+        "storage" => FlattenSensors(_sensors.GetStorageComponents().Values),
+        "network" => FlattenSensors(_sensors.GetSensorExtras().Nics),
+        _ => Array.Empty<HardwareSensor>(),
+    };
+
+    private static IReadOnlyList<HardwareSensor> FlattenSensors(IEnumerable<HardwareComponent> components)
+    {
+        var list = new List<HardwareSensor>();
+        foreach (var component in components)
+        {
+            list.AddRange(component.Sensors);
+        }
+        return list;
+    }
+
+    // Units match the monitoring widgets' own formatting for each LHM sensor type
+    // (LibreHardwareSensorProvider.MapSensorType); unmapped types fall back to the
+    // unformatted value with no unit.
+    private static string FormatSensorValue(HardwareSensor sensor) => sensor.Type switch
+    {
+        "Temperature" => $"{(int)Math.Round(sensor.Value)}°C",
+        "Load" => $"{(int)Math.Round(sensor.Value)}%",
+        "Clock" or "Frequency" => $"{(int)Math.Round(sensor.Value)}MHz",
+        "Voltage" => $"{sensor.Value.ToString("0.00", CultureInfo.InvariantCulture)}V",
+        "Data" or "SmallData" => $"{sensor.Value.ToString("0.0", CultureInfo.InvariantCulture)}GB",
+        "Power" => $"{(int)Math.Round(sensor.Value)}W",
+        "Fan" or "Rpm" => $"{(int)Math.Round(sensor.Value)}RPM",
+        "Throughput" => $"{sensor.Value.ToString("0.0", CultureInfo.InvariantCulture)}MB/s",
+        _ => sensor.Value.ToString(CultureInfo.InvariantCulture),
+    };
 
     private static int ParseHexColorRgb(string hex)
     {
