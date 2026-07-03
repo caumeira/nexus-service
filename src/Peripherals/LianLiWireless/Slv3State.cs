@@ -1,0 +1,29 @@
+using System;
+
+namespace Nexus.Service.Peripherals.LianLiWireless;
+
+/// <summary>Live snapshot of the SLV3 link surfaced to routes and the panel.</summary>
+public sealed class Slv3State
+{
+    public bool IsConnected { get; set; }
+    public string MasterMac { get; set; } = "";
+    public int Channel { get; set; } = Slv3Protocol.DefaultChannel;
+    public int TxFirmwareVersion { get; set; }
+    public Slv3FanInfo[] Fans { get; set; } = Array.Empty<Slv3FanInfo>();
+}
+
+/// <summary>One wireless fan as last reported by the RX device-list poll.</summary>
+public sealed class Slv3FanInfo
+{
+    public string Mac { get; set; } = "";
+    /// <summary>Bound master MAC, or empty when unbound.</summary>
+    public string MasterMac { get; set; } = "";
+    public bool BoundToUs { get; set; }
+    public int Channel { get; set; }
+    /// <summary>rx_type slot (1..14); 0 or 0xFE means unbound.</summary>
+    public int Slot { get; set; }
+    public int DevType { get; set; }
+    public int FanCount { get; set; }
+    public int[] Rpm { get; set; } = Array.Empty<int>();
+    public int[] Pwm { get; set; } = Array.Empty<int>();
+}

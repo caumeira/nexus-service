@@ -864,6 +864,12 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiLightingRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiModeInfoDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiModeInfoDto[]))]
+// Lian Li L-Wireless (SLV3) dongle: discovery + bind/unbind/identify/channel.
+[JsonSerializable(typeof(Nexus.Service.Peripherals.LianLiWireless.Slv3State))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.LianLiWireless.Slv3FanInfo))]
+[JsonSerializable(typeof(Nexus.Service.Peripherals.LianLiWireless.Slv3FanInfo[]))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Slv3MacRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.Slv3ChannelRequest))]
 // Lian Li Uni Fan TL hub.
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiTlStateResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiTlFanDto))]

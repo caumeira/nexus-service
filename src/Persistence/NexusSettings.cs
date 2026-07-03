@@ -500,6 +500,7 @@ public sealed class DevicesSettings
     public Dictionary<string, int> ZoneLedCounts { get; set; } = new();
     public CnvsSettings Cnvs { get; set; } = new();
     public LianLiSettings LianLi { get; set; } = new();
+    public LianLiWirelessSettings LianLiWireless { get; set; } = new();
     public LianLiLightingSettings LianLiLighting { get; set; } = new();
     public StrimerLightingSettings StrimerLighting { get; set; } = new();
     public Galahad2LightingSettings Galahad2Lighting { get; set; } = new();
@@ -625,6 +626,12 @@ public sealed class LianLiSettings
             case 3: Port3Fans = qty; break;
         }
     }
+}
+
+public sealed class LianLiWirelessSettings
+{
+    /// <summary>When true, LConnectService and LConnectServiceWatcher are stopped when Nexus attaches the SLV3 dongles.</summary>
+    public bool StopConflictingApps { get; set; } = true;
 }
 
 public sealed class LianLiLightingSettings

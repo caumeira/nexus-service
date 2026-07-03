@@ -425,6 +425,23 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingFrameWriter>());
         services.AddHostedService<Nexus.Service.Peripherals.LianLi.LianLiConnectionWorker>();
 
+        // Lian Li L-Wireless (SLV3) dongles: WinUSB TX/RX transport + discovery +
+        // bind/unbind/identify connection worker. Windows-only for v1 (see
+        // plans/lianli-wireless-support.md); other platforms get a stub discovery
+        // that finds nothing, so the hub stays disconnected.
+#if WINDOWS
+        services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.ISlv3Discovery,
+                              Nexus.Service.Peripherals.LianLiWireless.WindowsSlv3Discovery>();
+#else
+        services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.ISlv3Discovery,
+                              Nexus.Service.Peripherals.LianLiWireless.StubSlv3Discovery>();
+#endif
+        services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.Slv3Hub>(sp =>
+            new Nexus.Service.Peripherals.LianLiWireless.Slv3Hub(
+                sp.GetRequiredService<Nexus.Service.Peripherals.LianLiWireless.ISlv3Discovery>(),
+                port => new Nexus.Service.Peripherals.LianLiWireless.Slv3Transport(port.PortName, port.Role)));
+        services.AddHostedService<Nexus.Service.Peripherals.LianLiWireless.Slv3ConnectionWorker>();
+
         // Lian Li Uni Fan TL: hub + cooling provider + connection worker.
         services.AddSingleton<Nexus.Service.Peripherals.LianLiTl.TlFanHub>();
         services.AddSingleton<Nexus.Service.Cooling.LianLiTlCoolingProvider>();

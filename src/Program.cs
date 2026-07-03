@@ -416,6 +416,7 @@ app.MapWeatherEndpoints();
 app.MapAppEndpoints();
 app.MapConflictEndpoints();
 app.MapTryxEndpoints();
+app.MapSlv3Endpoints();
 app.MapUpdateEndpoints();
 app.MapCloudEndpoints();
 app.MapWebSocketEndpoints();
