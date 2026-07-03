@@ -1,10 +1,24 @@
 using System;
+using System.Globalization;
 using System.IO;
 using System.Threading.Tasks;
 using Nexus.Service.Media;
 using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.LianLiWireless;
+
+/// <summary>
+/// A crop rectangle in source-normalized coordinates (0..1), applied before the
+/// scale-to-panel step. Renders to an ffmpeg <c>crop</c> filter that resolves
+/// against the source's own dimensions (<c>iw</c>/<c>ih</c>).
+/// </summary>
+public readonly record struct Slv3LcdCropRect(double X, double Y, double W, double H)
+{
+    public bool IsFullFrame => X <= 0 && Y <= 0 && W >= 1 && H >= 1;
+
+    public string ToFfmpegFilter() => string.Create(
+        CultureInfo.InvariantCulture, $"crop=iw*{W}:ih*{H}:iw*{X}:ih*{Y}");
+}
 
 /// <summary>
 /// Encodes an arbitrary source image to a 400x400 baseline JPEG for the
@@ -31,7 +45,8 @@ public static class Slv3LcdImage
     /// bytes) to a 400x400 JPEG. <paramref name="sourceExtension"/> (with the
     /// leading dot, e.g. ".png") selects the input format for ffmpeg.
     /// </summary>
-    public static async Task<Slv3LcdEncodeResult> EncodeAsync(byte[] sourceBytes, string sourceExtension)
+    public static async Task<Slv3LcdEncodeResult> EncodeAsync(
+        byte[] sourceBytes, string sourceExtension, Slv3LcdCropRect? crop = null)
     {
         if (sourceBytes.Length == 0)
         {
@@ -53,6 +68,7 @@ public static class Slv3LcdImage
 
             var scaleFilter =
                 $"scale={PanelWidth}:{PanelHeight}:force_original_aspect_ratio=decrease,pad={PanelWidth}:{PanelHeight}:-1:-1:color=black";
+            var filter = crop is { IsFullFrame: false } c ? $"{c.ToFfmpegFilter()},{scaleFilter}" : scaleFilter;
 
             var quality = InitialQuality;
             byte[]? smallest = null;
@@ -60,7 +76,7 @@ public static class Slv3LcdImage
             {
                 await MediaImporter.RunFfmpeg(
                     "-y", "-i", sourcePath,
-                    "-vf", scaleFilter,
+                    "-vf", filter,
                     "-frames:v", "1",
                     "-q:v", quality.ToString(),
                     outputPath).ConfigureAwait(false);
