@@ -132,6 +132,18 @@ public class TryxRkProtocolTests
     }
 
     [Fact]
+    public void BuildGetFileList_carries_only_the_header_cmd()
+    {
+        // CMD_Get_FileList has no payload field; the panel dispatches on header.cmd (field 1).
+        var expected = Convert.FromHexString(
+            "54525958140000000a120a10434d445f4765745f46696c654c697374");
+
+        var actual = TryxRkProtocol.BuildGetFileList();
+
+        Assert.Equal(expected, actual);
+    }
+
+    [Fact]
     public void BuildFileCommit_matches_the_captured_kanali_frame()
     {
         // f1{f2:668387} + f402{f1:"media"}.

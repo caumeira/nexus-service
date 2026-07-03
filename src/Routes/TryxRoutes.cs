@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Nexus.Service.Panel;
@@ -549,11 +550,18 @@ public static class TryxRoutes
 
     private static List<string> ListMediaFiles(TryxPanoramaHub hub)
     {
-        // RK firmware pushes custom uploads over USB (no adb); the thumbnail cache is
-        // the record of them. The legacy adb path below stays for the old serial firmware.
-        var files = TryxThumbnailCache.ListCustomMedia();
         var adbSerial = hub.State.AdbSerial;
-        if (string.IsNullOrEmpty(adbSerial)) return files;
+        if (string.IsNullOrEmpty(adbSerial))
+        {
+            // RK firmware (usbprint, no adb): the panel's own media-list push is device truth,
+            // so a custom upload made via ANY tool (Nexus or Kanali) appears here, not only the
+            // ones we have a local thumbnail for. Exclude the built-in presets and system clips.
+            // Fall back to the local thumbnail record only until the panel's list has arrived.
+            var device = hub.AvailableMediaFilenames.Where(IsCustomDeviceMedia).ToList();
+            return device.Count > 0 ? device : TryxThumbnailCache.ListCustomMedia();
+        }
+        // Legacy serial firmware: enumerate /sdcard/pcMedia over adb, plus the thumbnail record.
+        var files = TryxThumbnailCache.ListCustomMedia();
         var adbPath = AdbLocator.ResolveAdbPath();
         if (adbPath is null) return files;
         try
@@ -588,6 +596,13 @@ public static class TryxRoutes
         catch { /* adb unavailable */ }
         return files;
     }
+
+    // A device file is user media (shown in the library) unless it is a built-in preset
+    // (default_NN) or a system clip (screensaver / start / power-on / standby).
+    private static bool IsCustomDeviceMedia(string name)
+        => !name.StartsWith("default_", StringComparison.Ordinal)
+           && !name.StartsWith("screensaver", StringComparison.Ordinal)
+           && !name.StartsWith("start.", StringComparison.Ordinal);
 
     private static TryxAckResponse DeleteMediaFile(TryxPanoramaHub hub, string name)
     {

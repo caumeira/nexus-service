@@ -174,7 +174,13 @@ public sealed class TryxPanoramaHub : IDisposable
     {
         if (string.IsNullOrEmpty(deviceFileName)) return false;
         var ok = SendReliable(TryxRkProtocol.BuildFileRemove(deviceFileName));
-        if (ok) RecordMediaDeleted(deviceFileName);
+        if (ok)
+        {
+            RecordMediaDeleted(deviceFileName);
+            // Re-fetch so the panel's list (and the per-file sizes) drop the removed file
+            // authoritatively, not just via the local delta.
+            SendReliable(TryxRkProtocol.BuildGetFileList());
+        }
         return ok;
     }
 
@@ -229,6 +235,11 @@ public sealed class TryxPanoramaHub : IDisposable
         try
         {
             transport.Write(TryxRkProtocol.BuildConfig(State.ScreenEnabled, State.Brightness));
+            // Ask the panel for its stored-media list: a warm reconnect (service restart) does
+            // not re-trigger the unprompted cold-boot push, so without this the media list and
+            // used-bytes would be empty until the panel re-enumerates. The reply lands on the
+            // drain and populates AvailableMediaFilenames + the per-file sizes.
+            transport.Write(TryxRkProtocol.BuildGetFileList());
             // Re-assert the last preset wallpaper so a reconnect (service restart, or the
             // panel's own re-enumeration) restores the picture instead of leaving the panel
             // black. A custom clip lives only on the panel / behind a re-transfer, so it is

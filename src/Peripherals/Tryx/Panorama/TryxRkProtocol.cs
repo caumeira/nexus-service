@@ -322,6 +322,22 @@ public static class TryxRkProtocol
         return WrapFrame(payload);
     }
 
+    /// <summary>Requests the panel's stored-media list (CMD_Get_FileList). This command has no
+    /// payload field (unlike config/file_remove which the panel dispatches on the field
+    /// number), so it carries the command name in the header (cmd = field 1). The panel
+    /// replies with the same file_list (f503) push it sends unprompted on a cold boot - needed
+    /// because a warm reconnect (service restart) does not re-trigger that unprompted push.
+    /// Decoded from Kanali's UDB.exe: {header:{cmd:"CMD_Get_FileList"}}.</summary>
+    public static byte[] BuildGetFileList()
+    {
+        var header = new List<byte>();
+        WriteLengthDelimited(header, fieldNumber: 1, Encoding.ASCII.GetBytes("CMD_Get_FileList"));
+
+        var payload = new List<byte>();
+        WriteLengthDelimited(payload, fieldNumber: 1, header.ToArray());
+        return WrapFrame(payload);
+    }
+
     private static List<byte> SessionEnvelope(uint sessionId)
     {
         var f1 = new List<byte>();

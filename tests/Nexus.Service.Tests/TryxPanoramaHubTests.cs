@@ -524,7 +524,10 @@ public class TryxPanoramaHubTests
 
         hub.EnsureConnected();
 
-        Assert.Equal(TryxRkProtocol.BuildConfig(true, 80), Assert.Single(recording.Writes));
+        // ApplyInitialConfig writes the brightness config, then requests the media list.
+        Assert.Equal(2, recording.Writes.Count);
+        Assert.Equal(TryxRkProtocol.BuildConfig(true, 80), recording.Writes[0]);
+        Assert.Equal(TryxRkProtocol.BuildGetFileList(), recording.Writes[1]);
     }
 
     [Fact]
@@ -541,7 +544,8 @@ public class TryxPanoramaHubTests
 
         hub.EnsureConnected();
 
-        Assert.Equal(2, recording.Writes.Count);
+        // config + get_file_list request + overlay frame.
+        Assert.Equal(3, recording.Writes.Count);
     }
 
     // ── Preset availability ──
