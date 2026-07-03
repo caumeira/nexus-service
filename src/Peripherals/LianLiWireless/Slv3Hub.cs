@@ -193,7 +193,7 @@ public sealed class Slv3Hub : IDisposable
             var sends = new Dictionary<string, (Slv3DeviceRecord Record, byte TargetSlot)>(StringComparer.Ordinal);
             foreach (var record in _lastFanRecords)
             {
-                if (Slv3Protocol.MacEquals(record.MasterMac, _masterMac))
+                if (IsBoundToUsLocked(record))
                 {
                     sends[Convert.ToHexString(record.Mac)] = (record, record.RxType);
                 }
@@ -226,8 +226,8 @@ public sealed class Slv3Hub : IDisposable
                 continue;
             }
             var done = op.Unbind
-                ? Slv3Protocol.MacIsZero(record.MasterMac)
-                : Slv3Protocol.MacEquals(record.MasterMac, _masterMac);
+                ? !IsBoundToUsLocked(record)
+                : IsBoundToUsLocked(record);
             if (done)
             {
                 (resolved ??= new List<string>()).Add(key);
@@ -281,11 +281,19 @@ public sealed class Slv3Hub : IDisposable
         return true;
     }
 
+    // This firmware does NOT clear the master MAC on unbind - it clears the slot
+    // (rx_type -> 0) and keeps the stale master. So "bound to us" is our master
+    // AND a valid slot (1..14); a slot-0 record is unbound even if master matches.
+    private bool IsBoundToUsLocked(Slv3DeviceRecord record) =>
+        Slv3Protocol.MacEquals(record.MasterMac, _masterMac)
+        && record.RxType >= Slv3Protocol.MinSlot
+        && record.RxType <= Slv3Protocol.MaxSlot;
+
     private Slv3FanInfo ToFanInfo(Slv3DeviceRecord record) => new()
     {
         Mac = Convert.ToHexString(record.Mac),
         MasterMac = Slv3Protocol.MacIsZero(record.MasterMac) ? "" : Convert.ToHexString(record.MasterMac),
-        BoundToUs = Slv3Protocol.MacEquals(record.MasterMac, _masterMac),
+        BoundToUs = IsBoundToUsLocked(record),
         Channel = record.Channel,
         Slot = record.RxType,
         DevType = record.DevType,
@@ -368,7 +376,7 @@ public sealed class Slv3Hub : IDisposable
                 return false;
             }
             var key = Convert.ToHexString(mac);
-            if (Slv3Protocol.MacEquals(existing.MasterMac, _masterMac))
+            if (IsBoundToUsLocked(existing))
             {
                 _pending.Remove(key);
                 return true;
@@ -401,7 +409,7 @@ public sealed class Slv3Hub : IDisposable
                 return false;
             }
             var key = Convert.ToHexString(mac);
-            if (Slv3Protocol.MacIsZero(existing.MasterMac))
+            if (!IsBoundToUsLocked(existing))
             {
                 _pending.Remove(key);
                 return true;
@@ -460,7 +468,7 @@ public sealed class Slv3Hub : IDisposable
         var used = new HashSet<int>();
         foreach (var record in _lastFanRecords)
         {
-            if (Slv3Protocol.MacEquals(record.MasterMac, _masterMac))
+            if (IsBoundToUsLocked(record))
             {
                 used.Add(record.RxType);
             }
