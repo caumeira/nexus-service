@@ -28,13 +28,38 @@ public sealed class Slv3LcdHub : IDisposable
         _transportFactory = transportFactory;
     }
 
+    /// <summary>
+    /// Currently discovered screens (serial + fan-position mapping), refreshed
+    /// each tick by <see cref="Slv3LcdConnectionWorker"/>. Empty until the
+    /// worker's first pass.
+    /// </summary>
+    public IReadOnlyList<Slv3LcdScreenInfo> Screens { get; private set; } = Array.Empty<Slv3LcdScreenInfo>();
+
+    internal void UpdateScreens(IReadOnlyList<Slv3LcdScreenInfo> screens) => Screens = screens;
+
     /// <summary>Lists the currently enumerable LCD screens (serial + device path).</summary>
     public IReadOnlyList<Slv3LcdPortInfo> Discover() => _discovery.Discover();
 
     public bool PushImageToSerial(string serial, byte[] jpeg)
     {
         var transport = Resolve(serial);
-        return transport is not null && transport.PushImage(jpeg);
+        if (transport is null)
+        {
+            return false;
+        }
+        try
+        {
+            return transport.PushImage(jpeg);
+        }
+        catch (ArgumentException ex)
+        {
+            // A frame decoded from the media library (GIF/video, not size-checked
+            // per frame) can exceed the firmware's transfer-buffer capacity that
+            // BuildPushJpgBuffer enforces; treat that as a failed push rather
+            // than crash the caller.
+            ServiceLog.Warn($"[lianli-wireless-lcd] push rejected for {serial}: {ex.Message}");
+            return false;
+        }
     }
 
     public bool SetBrightness(string serial, byte value)
@@ -47,6 +72,19 @@ public sealed class Slv3LcdHub : IDisposable
     {
         var transport = Resolve(serial);
         return transport is not null && transport.SetRotation(value);
+    }
+
+    /// <summary>Queries GetPosIndex(201) for the fan-position GroupIndex. False if the screen is unresolvable or does not ack.</summary>
+    public bool TryGetPosition(string serial, out int position)
+    {
+        position = -1;
+        var transport = Resolve(serial);
+        if (transport is null || !transport.TryGetPosition(out var group))
+        {
+            return false;
+        }
+        position = group;
+        return true;
     }
 
     private ISlv3LcdTransport? Resolve(string serial)

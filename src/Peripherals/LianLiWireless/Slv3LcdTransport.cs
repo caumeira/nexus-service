@@ -33,6 +33,9 @@ public interface ISlv3LcdTransport : IDisposable
 
     /// <summary>Header-only write; value is 0..3 for the four panel rotations.</summary>
     bool SetRotation(byte value);
+
+    /// <summary>Queries GetPosIndex(201); on success, <paramref name="groupIndex"/> is the fan-position group from ack byte 8.</summary>
+    bool TryGetPosition(out byte groupIndex);
 }
 
 #if WINDOWS
@@ -127,6 +130,35 @@ public sealed class Slv3LcdTransport : ISlv3LcdTransport
 
     public bool SetRotation(byte value) => WriteArgCommand(Slv3LcdProtocol.CmdType.Rotate, value);
 
+    public bool TryGetPosition(out byte groupIndex)
+    {
+        groupIndex = 0;
+        if (_disposed)
+        {
+            return false;
+        }
+        var timestamp = (uint)DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        var header = Slv3LcdProtocol.BuildArgCommandHeader(Slv3LcdProtocol.CmdType.GetPosIndex, timestamp, 0);
+        lock (_ioLock)
+        {
+            var wrote = Slv3WinUsbInterop.WinUsb_WritePipe(
+                _winUsbHandle, Slv3LcdProtocol.WritePipeId, header, (uint)header.Length, out _, IntPtr.Zero);
+            if (!wrote)
+            {
+                return false;
+            }
+            var ack = new byte[Slv3LcdProtocol.HeaderCipherSize];
+            var read = Slv3WinUsbInterop.WinUsb_ReadPipe(
+                _winUsbHandle, Slv3LcdProtocol.ReadPipeId, ack, (uint)ack.Length, out var bytesRead, IntPtr.Zero);
+            if (!read || bytesRead < 9)
+            {
+                return false;
+            }
+            groupIndex = ack[8];
+            return true;
+        }
+    }
+
     private bool WriteArgCommand(Slv3LcdProtocol.CmdType cmd, byte value)
     {
         if (_disposed)
@@ -187,6 +219,13 @@ public sealed class Slv3LcdTransport : ISlv3LcdTransport
     public bool PushImage(byte[] jpeg) => false;
     public bool SetBrightness(byte value) => false;
     public bool SetRotation(byte value) => false;
+
+    public bool TryGetPosition(out byte groupIndex)
+    {
+        groupIndex = 0;
+        return false;
+    }
+
     public void Dispose()
     {
     }

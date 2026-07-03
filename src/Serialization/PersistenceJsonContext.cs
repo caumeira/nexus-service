@@ -10,6 +10,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(TryxSettings))]
 [JsonSerializable(typeof(LianLiSettings))]
 [JsonSerializable(typeof(LianLiWirelessSettings))]
+[JsonSerializable(typeof(LianLiWirelessScreenSettings))]
+[JsonSerializable(typeof(Dictionary<string, LianLiWirelessScreenSettings>))]
 [JsonSerializable(typeof(CorsairSettings))]
 [JsonSerializable(typeof(FirmwareManifest))]
 [JsonSerializable(typeof(FirmwareFile))]

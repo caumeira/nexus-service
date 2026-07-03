@@ -632,6 +632,20 @@ public sealed class LianLiWirelessSettings
 {
     /// <summary>When true, LConnectService and LConnectServiceWatcher are stopped when Nexus attaches the SLV3 dongles.</summary>
     public bool StopConflictingApps { get; set; } = true;
+    /// <summary>Per-screen LCD content and display settings, keyed by the SL-LCD Wireless screen's 16-hex serial.</summary>
+    public Dictionary<string, LianLiWirelessScreenSettings> Screens { get; set; } = new();
+}
+
+/// <summary>One SL-LCD Wireless fan screen's persisted content selection and display settings.</summary>
+public sealed class LianLiWirelessScreenSettings
+{
+    /// <summary>"off" | "image" | "gif" | "video" | "sensor" | "clock".</summary>
+    public string ContentType { get; set; } = "off";
+    public string? MediaId { get; set; }
+    /// <summary>0-100.</summary>
+    public byte Brightness { get; set; } = 100;
+    /// <summary>0 = 0 deg, 1 = 90 deg, 2 = 180 deg, 3 = 270 deg.</summary>
+    public byte Rotation { get; set; }
 }
 
 public sealed class LianLiLightingSettings

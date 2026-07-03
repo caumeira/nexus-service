@@ -7,6 +7,19 @@ namespace Nexus.Service.Tests.LianLiWireless;
 public class Slv3LcdHubTests
 {
     [Fact]
+    public void Screens_starts_empty_and_reflects_the_last_UpdateScreens_call()
+    {
+        var (hub, _, _) = CreateHub();
+        Assert.Empty(hub.Screens);
+
+        hub.UpdateScreens(new[] { new Slv3LcdScreenInfo { Serial = "SER1", Position = 1 } });
+
+        var screen = Assert.Single(hub.Screens);
+        Assert.Equal("SER1", screen.Serial);
+        Assert.Equal(1, screen.Position);
+    }
+
+    [Fact]
     public void Discover_returns_the_discovery_ports()
     {
         var (hub, _, discovery) = CreateHub();
@@ -80,6 +93,44 @@ public class Slv3LcdHubTests
     }
 
     [Fact]
+    public void TryGetPosition_returns_the_transport_groupIndex()
+    {
+        var (hub, factory, discovery) = CreateHub();
+        discovery.Ports.Add(new Slv3LcdPortInfo { PortName = "path-1", Serial = "SER1" });
+        factory.PendingPosition = 2;
+
+        var ok = hub.TryGetPosition("SER1", out var position);
+
+        Assert.True(ok);
+        Assert.Equal(2, position);
+    }
+
+    [Fact]
+    public void TryGetPosition_fails_when_the_transport_does_not_ack()
+    {
+        var (hub, _, discovery) = CreateHub();
+        discovery.Ports.Add(new Slv3LcdPortInfo { PortName = "path-1", Serial = "SER1" });
+
+        var ok = hub.TryGetPosition("SER1", out var position);
+
+        Assert.False(ok);
+        Assert.Equal(-1, position);
+    }
+
+    [Fact]
+    public void PushImageToSerial_returns_false_instead_of_throwing_on_an_oversized_frame()
+    {
+        var (hub, factory, discovery) = CreateHub();
+        discovery.Ports.Add(new Slv3LcdPortInfo { PortName = "path-1", Serial = "SER1" });
+        Assert.True(hub.PushImageToSerial("SER1", new byte[] { 1 }));
+        factory.Opened["SER1"].ThrowOnPush = true;
+
+        var ok = hub.PushImageToSerial("SER1", new byte[] { 2 });
+
+        Assert.False(ok);
+    }
+
+    [Fact]
     public void Dispose_closes_every_open_transport()
     {
         var (hub, factory, discovery) = CreateHub();
@@ -109,11 +160,12 @@ public class Slv3LcdHubTests
     {
         public Dictionary<string, FakeTransport> Opened { get; } = new(StringComparer.Ordinal);
         public int OpenCallCount { get; private set; }
+        public byte? PendingPosition { get; set; }
 
         public ISlv3LcdTransport Create(Slv3LcdPortInfo port)
         {
             OpenCallCount++;
-            var transport = new FakeTransport(port.PortName);
+            var transport = new FakeTransport(port.PortName) { PositionToReturn = PendingPosition };
             Opened[port.Serial] = transport;
             return transport;
         }
@@ -132,6 +184,8 @@ public class Slv3LcdHubTests
         public List<byte> Brightness { get; } = new();
         public List<byte> Rotation { get; } = new();
         public bool Disposed { get; private set; }
+        public byte? PositionToReturn { get; set; }
+        public bool ThrowOnPush { get; set; }
 
         public bool IsOpen => _open;
         public string PortName { get; }
@@ -140,6 +194,10 @@ public class Slv3LcdHubTests
 
         public bool PushImage(byte[] jpeg)
         {
+            if (ThrowOnPush)
+            {
+                throw new ArgumentException("jpeg exceeds the payload capacity");
+            }
             PushedImages.Add(jpeg);
             return true;
         }
@@ -154,6 +212,12 @@ public class Slv3LcdHubTests
         {
             Rotation.Add(value);
             return true;
+        }
+
+        public bool TryGetPosition(out byte groupIndex)
+        {
+            groupIndex = PositionToReturn ?? 0;
+            return PositionToReturn.HasValue;
         }
 
         public void Dispose() => Disposed = true;

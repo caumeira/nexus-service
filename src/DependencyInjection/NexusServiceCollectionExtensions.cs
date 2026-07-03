@@ -442,6 +442,24 @@ public static class NexusServiceCollectionExtensions
                 port => new Nexus.Service.Peripherals.LianLiWireless.Slv3Transport(port.PortName, port.Role)));
         services.AddHostedService<Nexus.Service.Peripherals.LianLiWireless.Slv3ConnectionWorker>();
 
+        // SL-LCD Wireless fan screens: independent wired USB devices (not the
+        // RF link). Windows-only for v1, same discovery-stub pattern as the
+        // dongles above.
+#if WINDOWS
+        services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.ISlv3LcdDiscovery,
+                              Nexus.Service.Peripherals.LianLiWireless.WindowsSlv3LcdDiscovery>();
+#else
+        services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.ISlv3LcdDiscovery,
+                              Nexus.Service.Peripherals.LianLiWireless.StubSlv3LcdDiscovery>();
+#endif
+        services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.Slv3LcdHub>(sp =>
+            new Nexus.Service.Peripherals.LianLiWireless.Slv3LcdHub(
+                sp.GetRequiredService<Nexus.Service.Peripherals.LianLiWireless.ISlv3LcdDiscovery>(),
+                port => new Nexus.Service.Peripherals.LianLiWireless.Slv3LcdTransport(port.PortName)));
+        services.AddHostedService<Nexus.Service.Peripherals.LianLiWireless.Slv3LcdConnectionWorker>();
+        services.AddSingleton<Nexus.Service.Peripherals.LianLiWireless.Slv3LcdMediaLibrary>();
+        services.AddHostedService<Nexus.Service.Peripherals.LianLiWireless.Slv3LcdStreamingWorker>();
+
         // SLV3 wireless RGB: one lighting device per bound fan chain (inner/outer
         // ring zones), streamed to the engine as a live single-frame RF_RgbSync
         // animation. No firmware ROM-effect catalog for v1 (see

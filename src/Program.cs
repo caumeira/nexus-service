@@ -417,6 +417,7 @@ app.MapAppEndpoints();
 app.MapConflictEndpoints();
 app.MapTryxEndpoints();
 app.MapSlv3Endpoints();
+app.MapSlv3LcdEndpoints();
 app.MapUpdateEndpoints();
 app.MapCloudEndpoints();
 app.MapWebSocketEndpoints();
