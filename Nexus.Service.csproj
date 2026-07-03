@@ -832,6 +832,17 @@
     </Content>
   </ItemGroup>
 
+  <!-- GitHub Actions sets GITHUB_ACTIONS=true on every runner; nothing local
+       (including a build-pc tar sync, which has no .git) sets it. build.yml
+       overwrites the VERSION file with the release version before invoking
+       MSBuild when a version was supplied, so a CI build's committed-VERSION
+       read path is unaffected by the local-dev override below. -->
+  <PropertyGroup>
+    <_NexusIsCiBuild>false</_NexusIsCiBuild>
+    <_NexusIsCiBuild Condition="'$(GITHUB_ACTIONS)' == 'true'">true</_NexusIsCiBuild>
+    <_NexusDevVersion>3.0.0-dev</_NexusDevVersion>
+  </PropertyGroup>
+
   <!-- Drive the exe's Win32 file/product version from VERSION; without this the
        Details tab defaults to 1.0.0.0. FileVersion/AssemblyVersion must be
        numeric, so the -beta.N prerelease rides only on InformationalVersion,
@@ -842,6 +853,7 @@
     <_NexusVersionRaw Condition="Exists('$(_NexusVersionFile)')">$([System.IO.File]::ReadAllText('$(_NexusVersionFile)'))</_NexusVersionRaw>
     <_NexusVersionFull>$([System.String]::Copy('$(_NexusVersionRaw)').Split(';')[0].Trim())</_NexusVersionFull>
     <_NexusVersionFull Condition="'$(_NexusVersionFull)' == ''">0.0.0</_NexusVersionFull>
+    <_NexusVersionFull Condition="'$(_NexusIsCiBuild)' != 'true'">$(_NexusDevVersion)</_NexusVersionFull>
     <_NexusVersionNumeric>$([System.String]::Copy('$(_NexusVersionFull)').Split('-')[0])</_NexusVersionNumeric>
     <Version>$(_NexusVersionFull)</Version>
     <InformationalVersion>$(_NexusVersionFull)</InformationalVersion>
@@ -850,7 +862,10 @@
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
-  <!-- Bake VERSION file contents as the build version -->
+  <!-- Bake VERSION file contents as the build version. Local (non-CI) builds
+       report 3.0.0-dev instead, so a dev build is never mistaken for the
+       committed release version; falls back to 3.0.0-beta.0 only if -dev
+       ever breaks VersionCompare/UpdateService (see VersionCompareTests). -->
   <Target Name="SetGitVersion" BeforeTargets="CoreCompile">
     <PropertyGroup>
       <VersionFilePath>$(MSBuildThisFileDirectory)VERSION</VersionFilePath>
@@ -862,6 +877,7 @@
       <VersionFileContents Condition="'$(VersionFileContents)' == ''">0.0.0</VersionFileContents>
       <!-- Split on ";" (ReadLinesFromFile joins lines with ";") and take the first element. -->
       <NexusBuildVersion>v$([System.String]::Copy('$(VersionFileContents)').Split(';')[0].Trim())</NexusBuildVersion>
+      <NexusBuildVersion Condition="'$(_NexusIsCiBuild)' != 'true'">v$(_NexusDevVersion)</NexusBuildVersion>
     </PropertyGroup>
     <WriteLinesToFile File="$(IntermediateOutputPath)GitVersion.g.cs" Lines="namespace Nexus.Service { internal static partial class BuildInfo { public const string Version = &quot;$(NexusBuildVersion)&quot;%3B } }" Overwrite="true" />
     <ItemGroup>

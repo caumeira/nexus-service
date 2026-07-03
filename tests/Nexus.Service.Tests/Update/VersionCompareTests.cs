@@ -49,6 +49,35 @@ public sealed class VersionCompareTests
         Assert.Equal(expected, VersionCompare.IsNewer(candidate, current));
     }
 
+    // --- IsNewer: local-dev "-dev" stamp (parses as an ordinary semver
+    // prerelease identifier; ranks below its own stable release like any
+    // other prerelease, but ranks ABOVE a same-patch "-beta.N" because
+    // neither identifier is numeric so precedence falls to an ordinal
+    // string compare ('d' > 'b') rather than the beta chain's numeric one.
+    // A local dev build therefore never sees "update available" for a
+    // same-patch beta or the matching stable release; a real patch/minor/
+    // major bump is still detected correctly. ---
+
+    [Theory]
+    [InlineData("v3.0.0", "v3.0.0-dev", true)]           // stable release outranks the dev stamp
+    [InlineData("v3.0.0-dev", "v3.0.0", false)]           // dev stamp is not newer than its release
+    [InlineData("v3.0.0-beta.8", "v3.0.0-dev", false)]    // same-patch beta does NOT outrank dev ('b' < 'd')
+    [InlineData("v3.0.0-dev", "v3.0.0-beta.8", true)]     // dev outranks a same-patch beta the other way
+    [InlineData("v3.0.1", "v3.0.0-dev", true)]            // a real patch bump is still newer
+    [InlineData("v3.1.0", "v3.0.0-dev", true)]            // a real minor bump is still newer
+    [InlineData("v4.0.0", "v3.0.0-dev", true)]            // a real major bump is still newer
+    [InlineData("v3.0.0-dev", "v3.0.0-dev", false)]       // equal
+    public void IsNewer_applies_dev_stamp_precedence(string candidate, string current, bool expected)
+    {
+        Assert.Equal(expected, VersionCompare.IsNewer(candidate, current));
+    }
+
+    [Fact]
+    public void IsPrerelease_treats_dev_stamp_as_a_prerelease()
+    {
+        Assert.True(VersionCompare.IsPrerelease("v3.0.0-dev"));
+    }
+
     // --- IsNewer: garbage is never newer ---
 
     [Theory]
