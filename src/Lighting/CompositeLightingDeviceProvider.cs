@@ -25,6 +25,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
     private readonly QSeriesLightingDeviceProvider _qseries;
     private readonly KeebLightingDeviceProvider _keeb;
     private readonly LianLiLightingDeviceProvider _lianLi;
+    private readonly Slv3LightingDeviceProvider _lianLiWireless;
     private readonly CorsairLinkLightingDeviceProvider _corsair;
     private readonly StrimerLightingDeviceProvider _strimer;
     private readonly Galahad2LightingDeviceProvider _galahad2;
@@ -41,6 +42,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         QSeriesLightingDeviceProvider qseries,
         KeebLightingDeviceProvider keeb,
         LianLiLightingDeviceProvider lianLi,
+        Slv3LightingDeviceProvider lianLiWireless,
         CorsairLinkLightingDeviceProvider corsair,
         StrimerLightingDeviceProvider strimer,
         Galahad2LightingDeviceProvider galahad2,
@@ -56,6 +58,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         _qseries  = qseries;
         _keeb     = keeb;
         _lianLi   = lianLi;
+        _lianLiWireless = lianLiWireless;
         _corsair  = corsair;
         _strimer  = strimer;
         _galahad2 = galahad2;
@@ -64,7 +67,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         _engine   = engine;
     }
 
-    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected || _lianLi.IsConnected || _corsair.IsConnected || _strimer.IsConnected || _galahad2.IsConnected || _smart.IsConnected;
+    public bool IsConnected => _openRgb.IsConnected || _np50.IsConnected || _miniHub.IsConnected || _smartHub.IsConnected || _cnvs.IsConnected || _qseries.IsConnected || _keeb.IsConnected || _lianLi.IsConnected || _lianLiWireless.IsConnected || _corsair.IsConnected || _strimer.IsConnected || _galahad2.IsConnected || _smart.IsConnected;
 
     public GetLightingDevicesResponse GetAll()
     {
@@ -192,6 +195,12 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
             rgb.IsInit = rgb.IsInit || lianLi.IsInit;
             rgb.Devices.AddRange(lianLi.Devices);
         }
+        var lianLiWireless = _lianLiWireless.GetAll();
+        if (lianLiWireless.Devices.Count > 0)
+        {
+            rgb.IsInit = rgb.IsInit || lianLiWireless.IsInit;
+            rgb.Devices.AddRange(lianLiWireless.Devices);
+        }
         var corsair = _corsair.GetAll();
         if (corsair.Devices.Count > 0)
         {
@@ -275,6 +284,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         var qseriesIds    = new List<string>(ids.Count);
         var keebIds       = new List<string>(ids.Count);
         var lianLiIds     = new List<string>(ids.Count);
+        var lianLiWirelessIds = new List<string>(ids.Count);
         var corsairIds    = new List<string>(ids.Count);
         var strimerIds    = new List<string>(ids.Count);
         var galahad2Ids   = new List<string>(ids.Count);
@@ -288,6 +298,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
             else if (IsQSeriesId(id))   qseriesIds.Add(id);
             else if (IsKeebId(id))      keebIds.Add(id);
             else if (IsLianLiId(id))    lianLiIds.Add(id);
+            else if (IsLianLiWirelessId(id)) lianLiWirelessIds.Add(id);
             else if (IsCorsairId(id))   corsairIds.Add(id);
             else if (IsStrimerId(id))   strimerIds.Add(id);
             else if (IsGalahad2Id(id))  galahad2Ids.Add(id);
@@ -302,6 +313,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         if (qseriesIds.Count > 0)    _qseries.SetDisabled(qseriesIds);
         if (keebIds.Count > 0)       _keeb.SetDisabled(keebIds);
         if (lianLiIds.Count > 0)     _lianLi.SetDisabled(lianLiIds);
+        if (lianLiWirelessIds.Count > 0) _lianLiWireless.SetDisabled(lianLiWirelessIds);
         if (corsairIds.Count > 0)    _corsair.SetDisabled(corsairIds);
         if (strimerIds.Count > 0)    _strimer.SetDisabled(strimerIds);
         if (galahad2Ids.Count > 0)   _galahad2.SetDisabled(galahad2Ids);
@@ -323,6 +335,7 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
         : IsQSeriesId(id)    ? _qseries
         : IsKeebId(id)       ? _keeb
         : IsLianLiId(id)     ? _lianLi
+        : IsLianLiWirelessId(id) ? _lianLiWireless
         : IsCorsairId(id)    ? _corsair
         : IsStrimerId(id)    ? _strimer
         : IsGalahad2Id(id)   ? _galahad2
@@ -349,6 +362,9 @@ public sealed class CompositeLightingDeviceProvider : ILightingDeviceProvider
 
     private static bool IsLianLiId(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("lianli:", StringComparison.Ordinal);
+
+    private static bool IsLianLiWirelessId(string id) =>
+        !string.IsNullOrEmpty(id) && id.StartsWith("lianli-wireless:", StringComparison.Ordinal);
 
     private static bool IsCorsairId(string id) =>
         !string.IsNullOrEmpty(id) && id.StartsWith("corsair:", StringComparison.Ordinal);

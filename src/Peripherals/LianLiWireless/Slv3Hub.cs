@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Nexus.Service.Platform;
+using RgbColor = Nexus.Service.Peripherals.Hyte.Np50.RgbColor;
 
 namespace Nexus.Service.Peripherals.LianLiWireless;
 
@@ -301,6 +302,7 @@ public sealed class Slv3Hub : IDisposable
         FanCount = record.FanCount,
         Rpm = (int[])record.Rpm.Clone(),
         Pwm = (int[])record.Pwm.Clone(),
+        EffectIndex = Convert.ToHexString(record.EffectIndex),
     };
 
     private bool TryFindRecordLocked(byte[] mac, out Slv3DeviceRecord record)
@@ -444,6 +446,81 @@ public sealed class Slv3Hub : IDisposable
             }
             return true;
         }
+    }
+
+    /// <summary>
+    /// Streams a single animation frame's RGB buffer to a bound fan chain:
+    /// builds the TinyUZ-compressed RF_RgbSync packet set and sends the
+    /// header packet (index 0) four times total - plans/lianli-wireless-support.md
+    /// section 2's reliability requirement - then each data packet once,
+    /// addressed to the fan's current (channel, rxType) pipe. No delay
+    /// between sends; the caller's tick cadence already paces pushes.
+    /// Returns false (and sends nothing) if the fan is unknown, not bound to
+    /// us, or a send fails partway; <paramref name="effectIndexHex"/> carries
+    /// the effect_index actually sent on success, so the caller can compare
+    /// it against the fan's next device-list echo to detect a dropped push.
+    /// </summary>
+    public bool SendRgbFrame(
+        string macHex, ReadOnlySpan<RgbColor> leds, int brightnessPercent, int intervalMs, out string effectIndexHex)
+    {
+        effectIndexHex = "";
+        if (!TryParseMac(macHex, out var mac))
+        {
+            return false;
+        }
+        lock (_lock)
+        {
+            if (_tx is null || !TryFindRecordLocked(mac, out var record) || !IsBoundToUsLocked(record))
+            {
+                return false;
+            }
+
+            var raw = Slv3RgbFrame.BuildFrameBuffer(leds, brightnessPercent);
+            byte[] compressed;
+            try
+            {
+                compressed = TinyUz.Compress(raw);
+            }
+            catch (InvalidOperationException)
+            {
+                return false;
+            }
+
+            var effectIndex = Slv3RgbFrame.BuildEffectIndex(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            var packets = Slv3RgbFrame.BuildPackets(
+                record.Mac, _masterMac, effectIndex, compressed, leds.Length, totalFrames: 1, intervalMs);
+
+            for (var i = 0; i < 4; i++)
+            {
+                if (!SendRfPayloadLocked(record.Channel, record.RxType, packets[0]))
+                {
+                    return false;
+                }
+            }
+            for (var p = 1; p < packets.Length; p++)
+            {
+                if (!SendRfPayloadLocked(record.Channel, record.RxType, packets[p]))
+                {
+                    return false;
+                }
+            }
+
+            effectIndexHex = Convert.ToHexString(effectIndex);
+            return true;
+        }
+    }
+
+    // Caller holds _lock.
+    private bool SendRfPayloadLocked(byte channel, byte rxType, byte[] payload)
+    {
+        foreach (var frame in Slv3Protocol.BuildUsbSendRf(channel, rxType, payload))
+        {
+            if (!_tx!.RfSend(frame))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     /// <summary>Sets our operating channel; must be the default or an odd value (firmware rejects even). Applied to bound fans on the next tick's re-assert.</summary>

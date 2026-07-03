@@ -442,6 +442,18 @@ public static class NexusServiceCollectionExtensions
                 port => new Nexus.Service.Peripherals.LianLiWireless.Slv3Transport(port.PortName, port.Role)));
         services.AddHostedService<Nexus.Service.Peripherals.LianLiWireless.Slv3ConnectionWorker>();
 
+        // SLV3 wireless RGB: one lighting device per bound fan chain (inner/outer
+        // ring zones), streamed to the engine as a live single-frame RF_RgbSync
+        // animation. No firmware ROM-effect catalog for v1 (see
+        // plans/lianli-wireless-support.md section 2 phase note).
+        services.AddSingleton<Nexus.Service.Lighting.Slv3LightingDeviceProvider>();
+        services.AddSingleton<Nexus.Service.Lighting.ILightingFrameContributor>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.Slv3LightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Zones.IDeviceStructureSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Lighting.Slv3LightingDeviceProvider>());
+        services.AddSingleton<Nexus.Service.Lighting.Slv3LightingFrameWriter>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Lighting.Slv3LightingFrameWriter>());
+
         // Lian Li Uni Fan TL: hub + cooling provider + connection worker.
         services.AddSingleton<Nexus.Service.Peripherals.LianLiTl.TlFanHub>();
         services.AddSingleton<Nexus.Service.Cooling.LianLiTlCoolingProvider>();
@@ -532,6 +544,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.Slv3LightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.CorsairLinkLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.StrimerLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Galahad2LightingDeviceProvider>(),
@@ -550,6 +563,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Lighting.QSeriesLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.LianLiLightingDeviceProvider>(),
+                sp.GetRequiredService<Nexus.Service.Lighting.Slv3LightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.CorsairLinkLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.StrimerLightingDeviceProvider>(),
                 sp.GetRequiredService<Nexus.Service.Lighting.Galahad2LightingDeviceProvider>(),

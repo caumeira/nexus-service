@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Devices;
+using Nexus.Service.Lighting;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Platform.Windows;
@@ -23,12 +24,14 @@ public sealed class Slv3ConnectionWorker : BackgroundService
     private const int MaxConsecutiveFailures = 3;
 
     private readonly Slv3Hub _hub;
+    private readonly Slv3LightingDeviceProvider _lighting;
     private readonly IConfigStore _store;
     private readonly DeviceControlGate _gate;
 
-    public Slv3ConnectionWorker(Slv3Hub hub, IConfigStore store, DeviceControlGate gate)
+    public Slv3ConnectionWorker(Slv3Hub hub, Slv3LightingDeviceProvider lighting, IConfigStore store, DeviceControlGate gate)
     {
         _hub = hub;
+        _lighting = lighting;
         _store = store;
         _gate = gate;
     }
@@ -59,6 +62,7 @@ public sealed class Slv3ConnectionWorker : BackgroundService
                 if (_hub.EnsureConnected())
                 {
                     ServiceLog.Info("[lianli-wireless] connected");
+                    _lighting.OnHubStateUpdated();
                     try
                     {
                         var failures = 0;
@@ -76,6 +80,9 @@ public sealed class Slv3ConnectionWorker : BackgroundService
                                     break;
                                 }
                             }
+                            // Picks up newly bound/unbound fan chains without
+                            // waiting for the RgbBridge periodic poll.
+                            _lighting.OnHubStateUpdated();
                             await Task.Delay(TickPollMs, stoppingToken).ConfigureAwait(false);
                         }
                     }
@@ -83,6 +90,7 @@ public sealed class Slv3ConnectionWorker : BackgroundService
                     {
                         _hub.Disconnect();
                         ServiceLog.Info("[lianli-wireless] disconnected");
+                        _lighting.OnHubStateUpdated();
                     }
                 }
                 else

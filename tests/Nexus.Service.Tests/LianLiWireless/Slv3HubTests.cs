@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Nexus.Service.Peripherals.LianLiWireless;
 using Xunit;
+using RgbColor = Nexus.Service.Peripherals.Hyte.Np50.RgbColor;
 
 namespace Nexus.Service.Tests.LianLiWireless;
 
@@ -103,6 +104,55 @@ public class Slv3HubTests
 
         var selectFrame = Assert.Single(tx.SentFrames, f => f.Length >= 12 && f[5] == Slv3Protocol.RfSelect);
         Assert.Equal(FanMac, selectFrame.AsSpan(6, 6).ToArray());
+    }
+
+    [Fact]
+    public void SendRgbFrame_sends_header_four_times_then_data_parts()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac, MasterMac = net.MasterMac, RxType = 3 });
+        Assert.True(hub.DriveTick());
+
+        var leds = new RgbColor[40];
+        for (var i = 0; i < leds.Length; i++)
+        {
+            leds[i] = new RgbColor((byte)i, (byte)(i * 2), (byte)(i * 3));
+        }
+
+        var sent = hub.SendRgbFrame(Convert.ToHexString(FanMac), leds, 100, 100, out var effectIndexHex);
+
+        Assert.True(sent);
+        Assert.Equal(8, effectIndexHex.Length);
+
+        var rgbFrames = tx.SentFrames.FindAll(f => f.Length >= 6 && f[1] == 0 && f[4] == Slv3Protocol.RfFrameType && f[5] == Slv3Protocol.RfRgbSync);
+        // Header packet (part 0) is sent 4 times; at least one more data part follows.
+        Assert.True(rgbFrames.Count >= 5, $"expected at least 5 chunk-0 RF_RgbSync frames, got {rgbFrames.Count}");
+        foreach (var frame in rgbFrames)
+        {
+            Assert.Equal(FanMac, frame.AsSpan(6, 6).ToArray());
+        }
+    }
+
+    [Fact]
+    public void SendRgbFrame_fails_for_unbound_fan()
+    {
+        var (hub, net, _, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac });
+        Assert.True(hub.DriveTick());
+
+        var sent = hub.SendRgbFrame(Convert.ToHexString(FanMac), new RgbColor[40], 100, 100, out var effectIndexHex);
+
+        Assert.False(sent);
+        Assert.Equal("", effectIndexHex);
+    }
+
+    [Fact]
+    public void SendRgbFrame_fails_for_unknown_mac()
+    {
+        var (hub, _, _, _) = CreateConnectedHub();
+        var sent = hub.SendRgbFrame(Convert.ToHexString(FanMac), new RgbColor[40], 100, 100, out var effectIndexHex);
+        Assert.False(sent);
+        Assert.Equal("", effectIndexHex);
     }
 
     [Fact]

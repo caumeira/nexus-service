@@ -28,4 +28,6 @@ public sealed class Slv3FanInfo
     public int FanCount { get; set; }
     public int[] Rpm { get; set; } = Array.Empty<int>();
     public int[] Pwm { get; set; } = Array.Empty<int>();
+    /// <summary>Hex of the RGB effect_index this fan last confirmed (device-list echo); empty until an RGB push lands.</summary>
+    public string EffectIndex { get; set; } = "";
 }
