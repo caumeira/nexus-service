@@ -395,6 +395,9 @@ public sealed class PanelPhonePairingService
             Paired = true,
             Token = result.SessionToken,
             MachineName = result.MachineName,
+            // The phone's paired-PC store dedups records by this fingerprint;
+            // the relay claim path already returns it.
+            SpkiFingerprint = string.IsNullOrEmpty(SpkiFingerprint) ? null : SpkiFingerprint,
         };
     }
 
