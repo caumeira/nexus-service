@@ -104,8 +104,14 @@ public sealed class TryxPanoramaHub : IDisposable
                     State.ModelName = TryxPanoramaProtocol.GetModelName(port.ProductId);
                     State.LastConnectedMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
                     ServiceLog.Info($"[tryx] connected to {port.PortName} (serial={port.Serial}, adb={port.AdbSerial})");
-                    ApplyInitialConfig(t);
-                    return true;
+                    if (ApplyInitialConfig(t)) return true;
+                    // The panel opened but its first writes stalled - present on the bus
+                    // but not draining (mid re-enumeration). Drop this handle, and with it
+                    // the timed-out write's abandoned overlapped I/O, so the next tick's
+                    // discovery retries a clean transport instead of a second write
+                    // colliding with the in-flight one on the same handle.
+                    try { t.Dispose(); } catch { /* best effort */ }
+                    _transport = null;
                 }
                 catch (Exception ex)
                 {
@@ -120,21 +126,35 @@ public sealed class TryxPanoramaHub : IDisposable
     // without requiring a dashboard interaction. Called only from inside the
     // EnsureConnected lock after _transport is set; uses the transport reference
     // directly to avoid re-entering EnsureConnected.
-    private void ApplyInitialConfig(ITryxPanoramaTransport transport)
+    // Returns false if any initial write stalled or failed: the panel opened but is not
+    // write-ready (mid re-enumeration). The caller drops the transport then, so a timed-out
+    // write's abandoned overlapped I/O is aborted by the handle close instead of left in
+    // flight for the next write to collide with on the same handle.
+    private bool ApplyInitialConfig(ITryxPanoramaTransport transport)
     {
         try
         {
             transport.Write(TryxRkProtocol.BuildConfig(State.ScreenEnabled, State.Brightness));
+            // Re-assert the last preset wallpaper so a reconnect (service restart, or the
+            // panel's own re-enumeration) restores the picture instead of leaving the panel
+            // black. A custom clip lives only on the panel / behind a re-transfer, so it is
+            // not re-pushed here - only built-in presets, which are one cheap selection.
+            if (!string.IsNullOrEmpty(State.CurrentMedia) && !State.CurrentMediaIsCustom)
+            {
+                transport.Write(TryxRkProtocol.BuildPreset(State.CurrentMedia, State.ScreenEnabled, State.Brightness));
+            }
             if (_overlay.Items.Count > 0)
             {
                 transport.Write(TryxRkProtocol.BuildOverlay(
                     BuildOverlayLines(), BuildOverlayPositions(), ParseHexColorRgb(_overlay.Color),
                     _overlay.Font, _overlay.Size, _overlay.Align));
             }
+            return true;
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[tryx] initial config apply failed: {ex.GetType().Name}: {ex.Message}");
+            return false;
         }
     }
 
