@@ -457,6 +457,12 @@ public sealed class TryxSettings
     public string OverlayAlign { get; set; } = "Center";
     public string? OverlayFilter { get; set; }
     public int OverlayOpacity { get; set; } = 100;
+    /// <summary>Per-stat normalized (0..1) top-left position of the value text,
+    /// parallel to <see cref="OverlayStats"/>.</summary>
+    public double[] OverlayPosX { get; set; } = [];
+    public double[] OverlayPosY { get; set; } = [];
+    public string OverlayFont { get; set; } = "roboto-regular";
+    public int OverlaySize { get; set; } = 100;
     /// <summary>Last-selected preset id or custom filename, re-applied on connect.</summary>
     public string CurrentMedia { get; set; } = "";
     public bool CurrentMediaIsCustom { get; set; }

@@ -122,6 +122,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.TryxMediaSelectRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.TryxMediaDeleteRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.TryxOverlayRequest))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxOverlayItem))]
+[JsonSerializable(typeof(Nexus.Service.Routes.TryxOverlayItem[]))]
 
 // Fan control
 [JsonSerializable(typeof(FanChannel))]

@@ -146,6 +146,40 @@ public class TryxPanoramaHubTests
     }
 
     [Fact]
+    public void Constructor_loads_overlay_position_font_and_size_from_config_store()
+    {
+        var store = new InMemoryConfigStore();
+        store.Update(s =>
+        {
+            s.Tryx.OverlayStats = ["CPU Temperature", "GPU Temperature"];
+            s.Tryx.OverlayPosX = [0.03, 0.50];
+            s.Tryx.OverlayPosY = [0.10, 0.60];
+            s.Tryx.OverlayFont = "roboto-bold";
+            s.Tryx.OverlaySize = 120;
+        });
+
+        var hub = BuildHub(configStore: store);
+
+        Assert.Equal(new[] { 0.03, 0.50 }, hub.Overlay.PosX);
+        Assert.Equal(new[] { 0.10, 0.60 }, hub.Overlay.PosY);
+        Assert.Equal("roboto-bold", hub.Overlay.Font);
+        Assert.Equal(120, hub.Overlay.Size);
+    }
+
+    [Fact]
+    public void Constructor_defaults_position_font_and_size_on_a_settings_file_that_predates_them()
+    {
+        // An empty InMemoryConfigStore mirrors a settings.json written before this
+        // feature: no OverlayPosX/PosY/Font/Size keys, only their C# defaults apply.
+        var hub = BuildHub(configStore: new InMemoryConfigStore());
+
+        Assert.Empty(hub.Overlay.PosX);
+        Assert.Empty(hub.Overlay.PosY);
+        Assert.Equal("roboto-regular", hub.Overlay.Font);
+        Assert.Equal(100, hub.Overlay.Size);
+    }
+
+    [Fact]
     public void Constructor_loads_current_media_from_config_store()
     {
         var store = new InMemoryConfigStore();
@@ -181,6 +215,10 @@ public class TryxPanoramaHubTests
             Align = "Left",
             Filter = "blur",
             Opacity = 80,
+            PosX = [0.03, 0.50],
+            PosY = [0.10, 0.60],
+            Font = "roboto-bold",
+            Size = 120,
         };
 
         var ok = hub.SetOverlay(overlay);
@@ -188,7 +226,42 @@ public class TryxPanoramaHubTests
         Assert.True(ok);
         Assert.Equal("#00ff00", store.Load().Tryx.OverlayColor);
         Assert.Equal("Left", store.Load().Tryx.OverlayAlign);
+        Assert.Equal(new[] { 0.03, 0.50 }, store.Load().Tryx.OverlayPosX);
+        Assert.Equal(new[] { 0.10, 0.60 }, store.Load().Tryx.OverlayPosY);
+        Assert.Equal("roboto-bold", store.Load().Tryx.OverlayFont);
+        Assert.Equal(120, store.Load().Tryx.OverlaySize);
         Assert.Single(recording.Writes);
+    }
+
+    [Fact]
+    public void SetOverlay_writes_an_rk_frame_using_the_configured_position_font_and_size()
+    {
+        var store = new InMemoryConfigStore();
+        var recording = new RecordingTransport();
+        var hub = BuildHub(
+            discovery: new StubDiscovery(),
+            transportFactory: _ => recording,
+            configStore: store);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+        var overlay = new TryxOverlayConfig
+        {
+            Stats = ["CPU Temperature"],
+            Color = "#ffffff",
+            PosX = [0.03],
+            PosY = [0.10],
+            Font = "monospace",
+            Size = 50,
+        };
+
+        hub.SetOverlay(overlay);
+
+        // StubSensors reports all-zero sensors, so "CPU Temperature" maps to "0°C".
+        var expected = TryxRkProtocol.BuildOverlay(
+            new[] { new TryxOverlayLine("CPU Temperature", "0°C") },
+            new[] { (0.03, 0.10) }, colorRgb: 0xFFFFFF, fontName: "monospace", sizePercent: 50);
+
+        Assert.Equal(expected, Assert.Single(recording.Writes));
     }
 
     [Fact]

@@ -57,6 +57,10 @@ public sealed class TryxPanoramaHub : IDisposable
             Align = saved.OverlayAlign,
             Filter = saved.OverlayFilter,
             Opacity = saved.OverlayOpacity,
+            PosX = saved.OverlayPosX,
+            PosY = saved.OverlayPosY,
+            Font = saved.OverlayFont,
+            Size = saved.OverlaySize,
         };
         State.CurrentMedia = saved.CurrentMedia;
         State.CurrentMediaIsCustom = saved.CurrentMediaIsCustom;
@@ -125,7 +129,8 @@ public sealed class TryxPanoramaHub : IDisposable
             if (_overlay.Stats.Length > 0)
             {
                 transport.Write(TryxRkProtocol.BuildOverlay(
-                    BuildOverlayLines(), ParseHexColorRgb(_overlay.Color), _overlay.Align));
+                    BuildOverlayLines(), BuildOverlayPositions(), ParseHexColorRgb(_overlay.Color),
+                    _overlay.Font, _overlay.Size));
             }
         }
         catch (Exception ex)
@@ -170,7 +175,8 @@ public sealed class TryxPanoramaHub : IDisposable
             return true;
         }
         return SendOnly(TryxRkProtocol.BuildOverlay(
-            BuildOverlayLines(), ParseHexColorRgb(_overlay.Color), _overlay.Align));
+            BuildOverlayLines(), BuildOverlayPositions(), ParseHexColorRgb(_overlay.Color),
+            _overlay.Font, _overlay.Size));
     }
 
     public bool SetEnabled(bool enable)
@@ -232,6 +238,10 @@ public sealed class TryxPanoramaHub : IDisposable
         _overlay.Align = overlay.Align;
         _overlay.Filter = overlay.Filter;
         _overlay.Opacity = overlay.Opacity;
+        _overlay.PosX = overlay.PosX;
+        _overlay.PosY = overlay.PosY;
+        _overlay.Font = overlay.Font;
+        _overlay.Size = overlay.Size;
         _configStore.Update(s =>
         {
             s.Tryx.OverlayStats = overlay.Stats;
@@ -239,9 +249,14 @@ public sealed class TryxPanoramaHub : IDisposable
             s.Tryx.OverlayAlign = overlay.Align;
             s.Tryx.OverlayFilter = overlay.Filter;
             s.Tryx.OverlayOpacity = overlay.Opacity;
+            s.Tryx.OverlayPosX = overlay.PosX;
+            s.Tryx.OverlayPosY = overlay.PosY;
+            s.Tryx.OverlayFont = overlay.Font;
+            s.Tryx.OverlaySize = overlay.Size;
         });
         return SendReliable(TryxRkProtocol.BuildOverlay(
-            BuildOverlayLines(), ParseHexColorRgb(overlay.Color), overlay.Align));
+            BuildOverlayLines(), BuildOverlayPositions(), ParseHexColorRgb(overlay.Color),
+            overlay.Font, overlay.Size));
     }
 
     // Panel surface is a fixed 2240x1080 2:1 display; every custom clip is transcoded to
@@ -750,6 +765,20 @@ public sealed class TryxPanoramaHub : IDisposable
             }
         }
         return lines;
+    }
+
+    /// <summary>Paired (X,Y) entries from <see cref="TryxOverlayConfig.PosX"/>/PosY,
+    /// truncated to whichever array is shorter; BuildOverlay defaults any stat past
+    /// the end of this list to its fallback stack position.</summary>
+    private List<(double X, double Y)> BuildOverlayPositions()
+    {
+        var count = Math.Min(_overlay.PosX.Length, _overlay.PosY.Length);
+        var positions = new List<(double, double)>(count);
+        for (var i = 0; i < count; i++)
+        {
+            positions.Add((_overlay.PosX[i], _overlay.PosY[i]));
+        }
+        return positions;
     }
 
     private static int ParseHexColorRgb(string hex)

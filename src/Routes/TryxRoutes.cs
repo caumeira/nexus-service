@@ -12,11 +12,23 @@ using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Routes;
 
+/// <summary>One overlay stat's assigned position, normalized 0..1 (top-left of
+/// its value text). Shared shape for the request body and the status snapshot.</summary>
+public sealed class TryxOverlayItem
+{
+    public string Stat { get; set; } = "";
+    public double X { get; set; }
+    public double Y { get; set; }
+}
+
 public sealed class TryxOverlaySnapshot
 {
     public string[] Stats { get; set; } = [];
     public string Color { get; set; } = "";
     public string Align { get; set; } = "";
+    public TryxOverlayItem[] Items { get; set; } = [];
+    public string Font { get; set; } = "";
+    public int Size { get; set; } = 100;
 }
 
 public sealed class TryxStatusResponse
@@ -117,11 +129,10 @@ public sealed class TryxMediaDeleteRequest
 
 public sealed class TryxOverlayRequest
 {
-    public string[] Stats { get; set; } = [];
+    public TryxOverlayItem[] Items { get; set; } = [];
+    public string Font { get; set; } = "";
+    public int Size { get; set; } = 100;
     public string Color { get; set; } = "";
-    public string Align { get; set; } = "";
-    public string? Filter { get; set; }
-    public int? Opacity { get; set; }
 }
 
 /// <summary>
@@ -159,6 +170,9 @@ public static class TryxRoutes
                     Stats = ov.Stats,
                     Color = ov.Color,
                     Align = ov.Align,
+                    Items = BuildOverlayItems(ov),
+                    Font = ov.Font,
+                    Size = ov.Size,
                 },
             };
             return Results.Json(resp, AppJsonContext.Default.TryxStatusResponse);
@@ -342,21 +356,7 @@ public static class TryxRoutes
 
         app.MapPost("/tryx/overlay", (TryxOverlayRequest body, TryxPanoramaHub hub) =>
         {
-            var stats = new List<string>();
-            foreach (var s in body.Stats ?? [])
-            {
-                if (string.IsNullOrWhiteSpace(s)) continue;
-                stats.Add(s);
-                if (stats.Count >= 3) break;
-            }
-            var cfg = new TryxOverlayConfig
-            {
-                Stats = stats.ToArray(),
-                Color = string.IsNullOrWhiteSpace(body.Color) ? "#ffffff" : body.Color,
-                Align = string.IsNullOrWhiteSpace(body.Align) ? "Center" : body.Align,
-                Filter = string.IsNullOrWhiteSpace(body.Filter) ? null : body.Filter,
-                Opacity = body.Opacity is null ? 100 : Math.Clamp(body.Opacity.Value, 0, 100),
-            };
+            var cfg = BuildOverlayConfigFromRequest(body, hub.Overlay);
             var ok = hub.SetOverlay(cfg);
             return Results.Json(new TryxAckResponse { Ok = ok }, AppJsonContext.Default.TryxAckResponse);
         });
@@ -445,6 +445,56 @@ public static class TryxRoutes
                 try { File.Delete(tempInput); } catch { /* best effort */ }
             }
         }).DisableAntiforgery();
+    }
+
+    /// <summary>Maps the fixed overlay wire contract (items/font/size/color) onto a
+    /// <see cref="TryxOverlayConfig"/>, validating each field; Align/Filter/Opacity are
+    /// not part of this contract, so <paramref name="current"/>'s values pass through
+    /// unchanged.</summary>
+    internal static TryxOverlayConfig BuildOverlayConfigFromRequest(TryxOverlayRequest body, TryxOverlayConfig current)
+    {
+        var stats = new List<string>();
+        var posX = new List<double>();
+        var posY = new List<double>();
+        foreach (var item in body.Items ?? [])
+        {
+            if (item is null || string.IsNullOrWhiteSpace(item.Stat)) continue;
+            stats.Add(item.Stat);
+            posX.Add(Math.Clamp(item.X, 0.0, 1.0));
+            posY.Add(Math.Clamp(item.Y, 0.0, 1.0));
+            if (stats.Count >= 3) break;
+        }
+        return new TryxOverlayConfig
+        {
+            Stats = stats.ToArray(),
+            Color = string.IsNullOrWhiteSpace(body.Color) ? "#ffffff" : body.Color,
+            Align = current.Align,
+            Filter = current.Filter,
+            Opacity = current.Opacity,
+            PosX = posX.ToArray(),
+            PosY = posY.ToArray(),
+            Font = TryxRkProtocol.IsValidOverlayFont(body.Font) ? body.Font : "roboto-regular",
+            Size = Math.Clamp(body.Size, 50, 150),
+        };
+    }
+
+    /// <summary>Pairs each configured stat with its position for the status snapshot;
+    /// a stat past the end of PosX/PosY reports the same fallback stack BuildOverlay
+    /// would render for it.</summary>
+    internal static TryxOverlayItem[] BuildOverlayItems(TryxOverlayConfig overlay)
+    {
+        var items = new TryxOverlayItem[overlay.Stats.Length];
+        for (var i = 0; i < overlay.Stats.Length; i++)
+        {
+            var hasPos = i < overlay.PosX.Length && i < overlay.PosY.Length;
+            items[i] = new TryxOverlayItem
+            {
+                Stat = overlay.Stats[i],
+                X = hasPos ? overlay.PosX[i] : TryxRkProtocol.OverlayDefaultPosX,
+                Y = hasPos ? overlay.PosY[i] : TryxRkProtocol.OverlayDefaultPosY + i * TryxRkProtocol.OverlayDefaultPosYStep,
+            };
+        }
+        return items;
     }
 
     private static TryxVideoCrop? ParseCrop(string raw)

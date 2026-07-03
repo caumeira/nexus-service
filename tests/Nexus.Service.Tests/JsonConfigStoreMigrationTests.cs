@@ -107,4 +107,71 @@ public class JsonConfigStoreMigrationTests : IDisposable
             store.Dispose();
         }
     }
+
+    [Fact]
+    public void Load_TryxOverlay_PredatingPositionFontAndSize_DefaultsThem()
+    {
+        // A settings.json from before the position/font/size overlay fields shipped:
+        // only the original stats/color/align/filter/opacity keys are present.
+        var json = """
+        {
+          "schemaVersion": 7,
+          "tryx": {
+            "overlayStats": ["CPU Temperature"],
+            "overlayColor": "#ff0000",
+            "overlayAlign": "Right",
+            "overlayOpacity": 75
+          }
+        }
+        """;
+        File.WriteAllText(_settingsPath, json);
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.Equal(new[] { "CPU Temperature" }, s.Tryx.OverlayStats);
+            Assert.Equal("#ff0000", s.Tryx.OverlayColor);
+            Assert.Empty(s.Tryx.OverlayPosX);
+            Assert.Empty(s.Tryx.OverlayPosY);
+            Assert.Equal("roboto-regular", s.Tryx.OverlayFont);
+            Assert.Equal(100, s.Tryx.OverlaySize);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Load_TryxOverlay_PositionFontAndSize_RoundTripThroughRealJson()
+    {
+        var json = """
+        {
+          "schemaVersion": 7,
+          "tryx": {
+            "overlayStats": ["CPU Temperature", "GPU Temperature"],
+            "overlayPosX": [0.03, 0.5],
+            "overlayPosY": [0.1, 0.6],
+            "overlayFont": "roboto-bold",
+            "overlaySize": 120
+          }
+        }
+        """;
+        File.WriteAllText(_settingsPath, json);
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.Equal(new[] { 0.03, 0.5 }, s.Tryx.OverlayPosX);
+            Assert.Equal(new[] { 0.1, 0.6 }, s.Tryx.OverlayPosY);
+            Assert.Equal("roboto-bold", s.Tryx.OverlayFont);
+            Assert.Equal(120, s.Tryx.OverlaySize);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
 }

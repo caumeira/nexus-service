@@ -19,27 +19,38 @@ public static class TryxRkProtocol
 {
     private static readonly byte[] FrameMagic = Encoding.ASCII.GetBytes("TRYX");
 
-    // Camera-verified: widget f7=19 and font "roboto-regular" are required-present.
-    // Widget f6 selects the text's horizontal alignment WITHIN the widget box:
-    // 1 = left, 2 = center, 3 = right (Kanali's own sysinfo overlay uses 1/left).
+    // Camera-verified: widget f7=19 is required-present. Widget f6 selects the
+    // text's horizontal alignment within the widget box (1=left, 2=center,
+    // 3=right per Kanali's own sysinfo overlay); per-stat positioning replaces
+    // whole-block alignment, so every widget is left-aligned from its own x.
     private const int OverlayWidgetF7 = 19;
-    private const string OverlayFontName = "roboto-regular";
     private const int OverlayAlignLeftF6 = 1;
-    private const int OverlayAlignCenterF6 = 2;
-    private const int OverlayAlignRightF6 = 3;
 
-    // Widgets span the full content width; f6 places the text left/center/right
-    // within it. Coordinate space is approx 2240x1080 (camera-verified). The stat
-    // block is centered vertically for any 1/2/3 line count.
-    private const int OverlayInsetX = 60;
-    private const int OverlayContentWidth = 2120;
-    private const int OverlayPanelHeight = 1080;
-    private const int OverlayLineStepY = 250;
+    // Coordinate space is 2240x1080 (camera-verified). A stat's label sits
+    // OverlayValueLabelOffsetY below its value; both widths span from x to the
+    // panel's right edge.
+    public const int OverlayPanelWidth = 2240;
+    public const int OverlayPanelHeight = 1080;
     private const int OverlayValueLabelOffsetY = 150;
     private const int OverlayValueWidgetHeight = 220;
     private const int OverlayLabelWidgetHeight = 160;
     private const int OverlayValueFontSize = 130;
     private const int OverlayLabelFontSize = 52;
+
+    // Fallback stack for a stat with no configured position (normalized 0..1).
+    public const double OverlayDefaultPosX = 0.04;
+    public const double OverlayDefaultPosY = 0.12;
+    public const double OverlayDefaultPosYStep = 0.16;
+
+    // Panel fonts that render distinctly (camera-verified); any other name
+    // silently falls back to the panel's default sans font.
+    private static readonly HashSet<string> ValidOverlayFonts = new(StringComparer.Ordinal)
+    {
+        "roboto-regular", "roboto-thin", "roboto-light", "roboto-medium",
+        "roboto-bold", "roboto-black", "roboto-italic", "roboto-condensed", "monospace",
+    };
+
+    public static bool IsValidOverlayFont(string? font) => font is not null && ValidOverlayFonts.Contains(font);
 
     /// <summary>
     /// Session keep-alive. The panel drops the screen to standby after about 10
@@ -149,41 +160,54 @@ public static class TryxRkProtocol
 
     /// <summary>
     /// Sensor/text overlay layout. Field 201 nests a repeated field 1 per widget:
-    /// f1=widgetId, f2=x, f3=y, f4=w, f5=h, f6/f7 fixed, then a repeated field 8 per
-    /// text element (f1=elemId, f2=1 flag, f8=font, f9=fontSize, f10=RGB color,
-    /// f11=text). Each stat line renders as two stacked widgets, a large value and a
-    /// small label below it. An empty <paramref name="lines"/> list sends a field 201
-    /// with zero widgets, which clears the overlay.
+    /// f1=widgetId, f2=x, f3=y, f4=w, f5=h, f6=align (fixed left), f7 fixed, then a
+    /// repeated field 8 per text element (f1=elemId, f2=1 flag, f8=font, f9=fontSize,
+    /// f10=RGB color, f11=text). Each stat renders as two stacked widgets, a large
+    /// value and a small label <see cref="OverlayValueLabelOffsetY"/> below it, both
+    /// positioned from <paramref name="positions"/>[i] (normalized 0..1, top-left of
+    /// the value) and scaled by <paramref name="sizePercent"/>/100; a stat with no
+    /// matching entry in <paramref name="positions"/> falls back to a left stack
+    /// starting at (<see cref="OverlayDefaultPosX"/>, <see cref="OverlayDefaultPosY"/>)
+    /// stepping <see cref="OverlayDefaultPosYStep"/> per line. An empty
+    /// <paramref name="lines"/> list sends a field 201 with zero widgets, which
+    /// clears the overlay.
     /// </summary>
-    public static byte[] BuildOverlay(IReadOnlyList<TryxOverlayLine> lines, int colorRgb, string align)
+    public static byte[] BuildOverlay(
+        IReadOnlyList<TryxOverlayLine> lines,
+        IReadOnlyList<(double X, double Y)> positions,
+        int colorRgb,
+        string fontName,
+        int sizePercent)
     {
-        var alignF6 = align switch
-        {
-            "Right" => OverlayAlignRightF6,
-            "Center" => OverlayAlignCenterF6,
-            _ => OverlayAlignLeftF6,
-        };
-
-        // Center the whole stack vertically. A line's value sits at lineY and its
-        // label OverlayValueLabelOffsetY below; the block spans the first value to
-        // the last label plus the label height.
-        var blockHeight = (lines.Count - 1) * OverlayLineStepY
-            + OverlayValueLabelOffsetY + OverlayLabelWidgetHeight;
-        var firstLineY = Math.Max(0, (OverlayPanelHeight - blockHeight) / 2);
+        var scale = sizePercent / 100.0;
 
         var f201Body = new List<byte>();
         for (var i = 0; i < lines.Count; i++)
         {
-            var lineY = firstLineY + i * OverlayLineStepY;
+            var (rawX, rawY) = i < positions.Count
+                ? positions[i]
+                : (OverlayDefaultPosX, OverlayDefaultPosY + i * OverlayDefaultPosYStep);
+            // Clamped here (not just at the route boundary) since x/w below feed a
+            // ulong varint write; an out-of-range x would otherwise underflow w.
+            var nx = Math.Clamp(rawX, 0.0, 1.0);
+            var ny = Math.Clamp(rawY, 0.0, 1.0);
+
+            var x = (int)Math.Round(nx * OverlayPanelWidth);
+            var w = OverlayPanelWidth - x;
+            var valueY = (int)Math.Round(ny * OverlayPanelHeight);
+            var labelY = (int)Math.Round(ny * OverlayPanelHeight + OverlayValueLabelOffsetY * scale);
+            var valueFontSize = (int)Math.Round(OverlayValueFontSize * scale);
+            var labelFontSize = (int)Math.Round(OverlayLabelFontSize * scale);
+            var valueHeight = (int)Math.Round(OverlayValueWidgetHeight * scale);
+            var labelHeight = (int)Math.Round(OverlayLabelWidgetHeight * scale);
+
             var widgetIdBase = i * 2;
             AppendOverlayWidget(
-                f201Body, widgetIdBase, OverlayInsetX, lineY,
-                OverlayContentWidth, OverlayValueWidgetHeight, alignF6,
-                OverlayValueFontSize, colorRgb, lines[i].Value);
+                f201Body, widgetIdBase, x, valueY, w, valueHeight, OverlayAlignLeftF6,
+                valueFontSize, colorRgb, fontName, lines[i].Value);
             AppendOverlayWidget(
-                f201Body, widgetIdBase + 1, OverlayInsetX, lineY + OverlayValueLabelOffsetY,
-                OverlayContentWidth, OverlayLabelWidgetHeight, alignF6,
-                OverlayLabelFontSize, colorRgb, lines[i].Label);
+                f201Body, widgetIdBase + 1, x, labelY, w, labelHeight, OverlayAlignLeftF6,
+                labelFontSize, colorRgb, fontName, lines[i].Label);
         }
 
         var payload = new List<byte>();
@@ -194,12 +218,12 @@ public static class TryxRkProtocol
     }
 
     private static void AppendOverlayWidget(
-        List<byte> f201Body, int widgetId, int x, int y, int w, int h, int alignF6, int fontSize, int colorRgb, string text)
+        List<byte> f201Body, int widgetId, int x, int y, int w, int h, int alignF6, int fontSize, int colorRgb, string fontName, string text)
     {
         var elem = new List<byte>();
         WriteVarintField(elem, fieldNumber: 1, (ulong)widgetId);
         WriteVarintField(elem, fieldNumber: 2, 1);
-        WriteLengthDelimited(elem, fieldNumber: 8, Encoding.UTF8.GetBytes(OverlayFontName));
+        WriteLengthDelimited(elem, fieldNumber: 8, Encoding.UTF8.GetBytes(fontName));
         WriteVarintField(elem, fieldNumber: 9, (ulong)fontSize);
         WriteVarintField(elem, fieldNumber: 10, (ulong)colorRgb);
         WriteLengthDelimited(elem, fieldNumber: 11, Encoding.UTF8.GetBytes(text));

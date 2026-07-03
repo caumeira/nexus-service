@@ -13,4 +13,12 @@ public sealed class TryxOverlayConfig
     public string Align { get; set; } = "Left";
     public string? Filter { get; set; }
     public int Opacity { get; set; } = 100;
+
+    /// <summary>Per-stat normalized (0..1) top-left position of the value text,
+    /// parallel to <see cref="Stats"/>; a stat past the end of these arrays falls
+    /// back to <see cref="TryxRkProtocol"/>'s default stack.</summary>
+    public double[] PosX { get; set; } = [];
+    public double[] PosY { get; set; } = [];
+    public string Font { get; set; } = "roboto-regular";
+    public int Size { get; set; } = 100;
 }
