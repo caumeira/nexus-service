@@ -82,9 +82,16 @@ public static class Slv3LcdImage
                 quality = Math.Min(MaxQuality, quality + QualityStep);
             }
 
-            return smallest is not null
-                ? Slv3LcdEncodeResult.Success(smallest)
-                : Slv3LcdEncodeResult.Failure("ffmpeg produced no output.");
+            if (smallest is null)
+            {
+                return Slv3LcdEncodeResult.Failure("ffmpeg produced no output.");
+            }
+            if (smallest.Length > MaxJpegBytes)
+            {
+                ServiceLog.Warn(
+                    $"[lianli-wireless-lcd] encode still {smallest.Length} bytes after {MaxAttempts} quality attempts, over the {MaxJpegBytes}-byte cap");
+            }
+            return Slv3LcdEncodeResult.Success(smallest);
         }
         catch (Exception ex)
         {

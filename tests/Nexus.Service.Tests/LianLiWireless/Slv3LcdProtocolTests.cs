@@ -94,11 +94,9 @@ public class Slv3LcdProtocolTests
         "12AF28DE3F4E82A802E305DC37EFBF10EE23C2FD0258F78D26FD4625153DC593AADFECB";
 
     // The plaintext header from which the vector above was derived carries
-    // header[8..11] = 0x00,0x00,0xAF,0x88; that BE32 value is 44936, not the
-    // 45000 figure noted alongside it in the spec (a documentation slip in
-    // the decimal annotation, not in the byte values, cross-checked against
-    // the byte pattern via an independent openssl des-ecb chained-by-hand
-    // computation as well as this test's own DES.Create() path).
+    // header[8..11] = 0x00,0x00,0xAF,0x88 (BE32 value 44936), cross-checked
+    // against an independent openssl des-ecb chained-by-hand computation as
+    // well as this test's own DES.Create() path.
     [Fact]
     public void EncryptHeader_matches_known_des_cbc_vector()
     {

@@ -12,7 +12,7 @@ namespace Nexus.Service.Peripherals.LianLiWireless;
 /// filters by VID 0x1CBE (PID 0x0005 SL-LCD or 0x0006 TL-LCD); see
 /// plans/lianli-wireless-support.md section 4.4.
 /// </summary>
-public sealed class Slv3LcdDiscovery : ISlv3LcdDiscovery
+public sealed class WindowsSlv3LcdDiscovery : ISlv3LcdDiscovery
 {
     private static readonly Guid LcdGuid = new(Slv3LcdProtocol.LcdInterfaceGuid);
 

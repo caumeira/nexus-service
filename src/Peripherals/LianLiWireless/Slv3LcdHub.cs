@@ -17,7 +17,9 @@ public sealed class Slv3LcdHub : IDisposable
     private readonly ISlv3LcdDiscovery _discovery;
     private readonly Func<Slv3LcdPortInfo, ISlv3LcdTransport> _transportFactory;
     private readonly object _lock = new();
-    private readonly Dictionary<string, ISlv3LcdTransport> _open = new(StringComparer.Ordinal);
+    // Matches FindPort's OrdinalIgnoreCase lookup so the same physical serial
+    // in a different casing cannot cache-miss into a second open transport.
+    private readonly Dictionary<string, ISlv3LcdTransport> _open = new(StringComparer.OrdinalIgnoreCase);
     private bool _disposed;
 
     public Slv3LcdHub(ISlv3LcdDiscovery discovery, Func<Slv3LcdPortInfo, ISlv3LcdTransport> transportFactory)
@@ -31,23 +33,23 @@ public sealed class Slv3LcdHub : IDisposable
 
     public bool PushImageToSerial(string serial, byte[] jpeg)
     {
-        var transport = ResolveLocked(serial);
+        var transport = Resolve(serial);
         return transport is not null && transport.PushImage(jpeg);
     }
 
     public bool SetBrightness(string serial, byte value)
     {
-        var transport = ResolveLocked(serial);
+        var transport = Resolve(serial);
         return transport is not null && transport.SetBrightness(value);
     }
 
     public bool SetRotation(string serial, byte value)
     {
-        var transport = ResolveLocked(serial);
+        var transport = Resolve(serial);
         return transport is not null && transport.SetRotation(value);
     }
 
-    private ISlv3LcdTransport? ResolveLocked(string serial)
+    private ISlv3LcdTransport? Resolve(string serial)
     {
         if (_disposed || string.IsNullOrWhiteSpace(serial))
         {
