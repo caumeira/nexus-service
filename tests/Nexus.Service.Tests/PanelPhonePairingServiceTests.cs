@@ -104,6 +104,17 @@ public class PanelPhonePairingServiceTests
     }
 
     [Fact]
+    public void Claim_SuccessOmitsSpkiFingerprintWithoutCert()
+    {
+        var service = NewService(new InMemoryConfigStore());
+
+        var result = service.Claim(PairTokenFrom(service.CreatePairQr()), NewContext(NativeIosUserAgent, "192.168.1.53"));
+
+        Assert.True(result.Paired);
+        Assert.Null(result.SpkiFingerprint);
+    }
+
+    [Fact]
     public void GetServiceInfo_ReturnsNormalizedMachineName()
     {
         var service = NewService(new InMemoryConfigStore());
