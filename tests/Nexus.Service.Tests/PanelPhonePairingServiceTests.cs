@@ -92,6 +92,29 @@ public class PanelPhonePairingServiceTests
     }
 
     [Fact]
+    public void Claim_SuccessCarriesSpkiFingerprint()
+    {
+        var service = NewService(new InMemoryConfigStore());
+        service.SpkiFingerprint = "fp-stub";
+
+        var result = service.Claim(PairTokenFrom(service.CreatePairQr()), NewContext(NativeIosUserAgent, "192.168.1.53"));
+
+        Assert.True(result.Paired);
+        Assert.Equal("fp-stub", result.SpkiFingerprint);
+    }
+
+    [Fact]
+    public void Claim_SuccessOmitsSpkiFingerprintWithoutCert()
+    {
+        var service = NewService(new InMemoryConfigStore());
+
+        var result = service.Claim(PairTokenFrom(service.CreatePairQr()), NewContext(NativeIosUserAgent, "192.168.1.53"));
+
+        Assert.True(result.Paired);
+        Assert.Null(result.SpkiFingerprint);
+    }
+
+    [Fact]
     public void GetServiceInfo_ReturnsNormalizedMachineName()
     {
         var service = NewService(new InMemoryConfigStore());

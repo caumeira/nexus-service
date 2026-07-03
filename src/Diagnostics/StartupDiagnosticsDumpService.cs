@@ -6,6 +6,7 @@ using Microsoft.Extensions.Hosting;
 using Nexus.Service.Cooling;
 using Nexus.Service.Devices;
 using Nexus.Service.Models.Sensors;
+using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 
@@ -31,19 +32,22 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
     private readonly ILightingDeviceProvider _lighting;
     private readonly ICoolingProvider _cooling;
     private readonly IMonitorEnumerator _monitors;
+    private readonly IHidEnumerator _hid;
 
     public StartupDiagnosticsDumpService(
         SystemSpecsCollector specs,
         DeviceManager devices,
         ILightingDeviceProvider lighting,
         ICoolingProvider cooling,
-        IMonitorEnumerator monitors)
+        IMonitorEnumerator monitors,
+        IHidEnumerator hid)
     {
         _specs = specs;
         _devices = devices;
         _lighting = lighting;
         _cooling = cooling;
         _monitors = monitors;
+        _hid = hid;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -114,6 +118,44 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
             }
         }
         catch (Exception ex) { Emit($"usb read failed: {ex.Message}"); }
+
+        try
+        {
+            // SinoWealth 010C model-id probe, restricted to the known 258A:010C
+            // family (never send this vendor command to an arbitrary VID/PID).
+            // Query bytes, model_id offset and the vendor usage page/id match
+            // OpenRGB Controllers/SinowealthController/SinowealthControllerDetect.cpp
+            // DetectSinowealthKeyboard10c. Read-only query, issued once at
+            // startup. Open shares R/W, so on an already-driven supported 010C
+            // board this Set+Get can interleave with the driver's traffic;
+            // tolerated for a one-shot diagnostic whose target is an
+            // unsupported board that nothing else drives.
+            foreach (var info in _hid.Find(0x258A, 0x010C))
+            {
+                if (info.UsagePage != 0xFF00 || info.Usage != 0x01) continue;
+                using var dev = _hid.Open(info.Path);
+                if (dev == null) continue;
+
+                var query = new byte[] { 0x06, 0x82, 0x01, 0x00, 0x01, 0x00, 0x06 };
+                if (!dev.SetFeature(query))
+                {
+                    Emit("  - sinowealth-010c: SetFeature failed");
+                    continue;
+                }
+
+                var resp = new byte[520]; // OpenRGB reads this query as a 520-byte feature report
+                resp[0] = 0x06; // report id must be preset for GetFeature
+                if (!dev.GetFeature(resp))
+                {
+                    Emit("  - sinowealth-010c: GetFeature failed");
+                    continue;
+                }
+
+                byte modelId = resp[13];
+                Emit($"  - sinowealth-010c model=0x{modelId:X2} head={BitConverter.ToString(resp, 0, 16)}");
+            }
+        }
+        catch (Exception ex) { Emit($"sinowealth-010c probe failed: {ex.Message}"); }
 
         try
         {
