@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Nexus.Service.Peripherals.LianLiWireless;
 
@@ -180,6 +181,41 @@ public static class Slv3Protocol
     {
         var d = Math.Clamp(percent, 0, 100);
         return d == PwmFollowMotherboard ? (byte)0 : (byte)d;
+    }
+
+    /// <summary>SLV3 minimum non-zero duty percent; lower requests would stall the fan.</summary>
+    public const int MinDutyPercent = 14;
+
+    /// <summary>Floors a nonzero duty percent up to <see cref="MinDutyPercent"/>; 0 (fully off) is left alone.</summary>
+    public static int FloorDuty(int percent)
+    {
+        var clamped = Math.Clamp(percent, 0, 100);
+        return clamped is > 0 and < MinDutyPercent ? MinDutyPercent : clamped;
+    }
+
+    /// <summary>
+    /// Wire byte for one bind-frame duty port: null follows the motherboard
+    /// PWM header (<see cref="PwmFollowMotherboard"/>); otherwise a manual
+    /// percent, floored via <see cref="FloorDuty"/> then encoded via
+    /// <see cref="EncodeDuty"/> so it can never collide with the mobo-sync
+    /// sentinel.
+    /// </summary>
+    public static byte ResolvePortDuty(int? percent) =>
+        percent is null ? PwmFollowMotherboard : EncodeDuty(FloorDuty(percent.Value));
+
+    /// <summary>
+    /// Builds the 4-port duty tuple for a bind frame from per-port targets
+    /// (null = motherboard-sync). Ports at or beyond <paramref name="fanCount"/>
+    /// are unoccupied and stay 0 (plans/lianli-wireless-support.md section 3).
+    /// </summary>
+    public static byte[] BuildPwmTuple(IReadOnlyList<int?> targets, int fanCount)
+    {
+        var pwm = new byte[PortsPerRecord];
+        for (var port = 0; port < PortsPerRecord && port < fanCount; port++)
+        {
+            pwm[port] = ResolvePortDuty(port < targets.Count ? targets[port] : null);
+        }
+        return pwm;
     }
 
     /// <summary>Number of valid records in a GetDev reply (first byte is the command echo, second is the count).</summary>

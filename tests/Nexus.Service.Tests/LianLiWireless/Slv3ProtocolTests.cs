@@ -153,6 +153,70 @@ public class Slv3ProtocolTests
         Assert.Equal(55, Slv3Protocol.EncodeDuty(55));
     }
 
+    // ── FloorDuty / ResolvePortDuty / BuildPwmTuple (Phase 3) ──
+
+    [Fact]
+    public void FloorDuty_leaves_zero_alone_but_floors_low_nonzero_values()
+    {
+        Assert.Equal(0, Slv3Protocol.FloorDuty(0));
+        Assert.Equal(14, Slv3Protocol.FloorDuty(1));
+        Assert.Equal(14, Slv3Protocol.FloorDuty(13));
+        Assert.Equal(14, Slv3Protocol.FloorDuty(14));
+        Assert.Equal(50, Slv3Protocol.FloorDuty(50));
+        Assert.Equal(100, Slv3Protocol.FloorDuty(150));
+        Assert.Equal(0, Slv3Protocol.FloorDuty(-5));
+    }
+
+    [Fact]
+    public void ResolvePortDuty_null_is_mobo_sync_sentinel()
+    {
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, Slv3Protocol.ResolvePortDuty(null));
+    }
+
+    [Fact]
+    public void ResolvePortDuty_floors_then_encodes_a_manual_percent()
+    {
+        // 6 is within the floor band (0,14) so it floors to 14 before encode -
+        // it never reaches EncodeDuty's own literal-6 remap.
+        Assert.Equal(14, Slv3Protocol.ResolvePortDuty(6));
+        Assert.Equal(0, Slv3Protocol.ResolvePortDuty(0));
+        Assert.Equal(75, Slv3Protocol.ResolvePortDuty(75));
+    }
+
+    [Fact]
+    public void BuildPwmTuple_defaults_to_mobo_sync_and_zeros_unoccupied_ports()
+    {
+        var pwm = Slv3Protocol.BuildPwmTuple(new int?[] { null, null, null, null }, fanCount: 2);
+
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, pwm[0]);
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, pwm[1]);
+        Assert.Equal(0, pwm[2]);   // beyond fanCount: unoccupied
+        Assert.Equal(0, pwm[3]);
+    }
+
+    [Fact]
+    public void BuildPwmTuple_encodes_manual_targets_for_occupied_ports_only()
+    {
+        var targets = new int?[] { 50, null, 5, 100 };
+        var pwm = Slv3Protocol.BuildPwmTuple(targets, fanCount: 3);
+
+        Assert.Equal(50, pwm[0]);
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, pwm[1]);
+        Assert.Equal(14, pwm[2]);  // 5 floored to the SLV3 minimum
+        Assert.Equal(0, pwm[3]);  // port 3 is beyond fanCount=3, stays 0 even though a target was set
+    }
+
+    [Fact]
+    public void BuildPwmTuple_treats_a_short_targets_list_as_mobo_sync()
+    {
+        var pwm = Slv3Protocol.BuildPwmTuple(new int?[] { 40 }, fanCount: 3);
+
+        Assert.Equal(40, pwm[0]);
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, pwm[1]);
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, pwm[2]);
+        Assert.Equal(0, pwm[3]);
+    }
+
     // ── Device record parsing ──
 
     [Fact]

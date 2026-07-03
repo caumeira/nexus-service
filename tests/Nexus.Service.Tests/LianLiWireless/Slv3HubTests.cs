@@ -171,6 +171,87 @@ public class Slv3HubTests
         Assert.Equal(15, hub.State.Channel);
     }
 
+    // ── SetPortDuty / bind-frame PWM tuple (Phase 3) ──
+
+    [Fact]
+    public void DriveTick_defaults_every_occupied_port_to_mobo_sync()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac, MasterMac = net.MasterMac, RxType = 1, FanCount = 3 });
+
+        Assert.True(hub.DriveTick());
+
+        var bind = LastBindFrame(tx, FanMac);
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, bind[21]);
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, bind[22]);
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, bind[23]);
+        Assert.Equal(0, bind[24]); // port 3 is beyond FanCount=3: unoccupied
+    }
+
+    [Fact]
+    public void SetPortDuty_writes_a_floored_manual_duty_into_the_next_bind_frame()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac, MasterMac = net.MasterMac, RxType = 1, FanCount = 2 });
+        Assert.True(hub.DriveTick());
+
+        Assert.True(hub.SetPortDuty(Convert.ToHexString(FanMac), 0, 50));
+        Assert.True(hub.SetPortDuty(Convert.ToHexString(FanMac), 1, 5)); // floors to 14
+
+        Assert.True(hub.DriveTick());
+
+        var bind = LastBindFrame(tx, FanMac);
+        Assert.Equal(50, bind[21]);
+        Assert.Equal(14, bind[22]);
+        Assert.Equal(0, bind[23]); // unoccupied port stays 0 even if never set
+        Assert.Equal(0, bind[24]);
+    }
+
+    [Fact]
+    public void SetPortDuty_null_restores_mobo_sync()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac, MasterMac = net.MasterMac, RxType = 1, FanCount = 1 });
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.SetPortDuty(Convert.ToHexString(FanMac), 0, 80));
+        Assert.True(hub.DriveTick());
+        Assert.Equal(80, LastBindFrame(tx, FanMac)[21]);
+
+        Assert.True(hub.SetPortDuty(Convert.ToHexString(FanMac), 0, null));
+        Assert.True(hub.DriveTick());
+
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, LastBindFrame(tx, FanMac)[21]);
+    }
+
+    [Fact]
+    public void SetPortDuty_rejects_out_of_range_port_and_malformed_mac()
+    {
+        var (hub, _, _, _) = CreateConnectedHub();
+        Assert.False(hub.SetPortDuty(Convert.ToHexString(FanMac), -1, 50));
+        Assert.False(hub.SetPortDuty(Convert.ToHexString(FanMac), 4, 50));
+        Assert.False(hub.SetPortDuty("not-a-mac", 0, 50));
+    }
+
+    // Finds the most recent RF_Bind USB frame (chunk 0) addressed to fanMac,
+    // whose bytes [21..25) carry the 4-port PWM tuple (RF-payload [17..21),
+    // shifted by the 4-byte USB-frame header).
+    private static byte[] LastBindFrame(FakeTxTransport tx, byte[] fanMac)
+    {
+        byte[]? found = null;
+        foreach (var frame in tx.SentFrames)
+        {
+            if (frame.Length < 25 || frame[0] != Slv3Protocol.UsbSendRf || frame[1] != 0
+                || frame[4] != Slv3Protocol.RfFrameType || frame[5] != Slv3Protocol.RfBind)
+            {
+                continue;
+            }
+            if (!Slv3Protocol.MacEquals(frame.AsSpan(6, 6), fanMac)) continue;
+            found = frame;
+        }
+        Assert.NotNull(found);
+        return found!;
+    }
+
     private static (Slv3Hub Hub, FakeSlv3Network Net, FakeTxTransport Tx, FakeRxTransport Rx) CreateConnectedHub()
     {
         var net = new FakeSlv3Network();
@@ -197,6 +278,7 @@ public class Slv3HubTests
         public byte Channel { get; set; } = Slv3Protocol.DefaultChannel;
         public byte RxType { get; set; }
         public byte DevType { get; set; } = 25;
+        public byte FanCount { get; set; } = 1;
     }
 
     private sealed class FakeSlv3Network
@@ -294,6 +376,7 @@ public class Slv3HubTests
                 rec[12] = fan.Channel;
                 rec[13] = fan.RxType;
                 rec[18] = fan.DevType;
+                rec[19] = fan.FanCount;
                 rec[41] = Slv3Protocol.RecordValidator;
             }
             return buf;

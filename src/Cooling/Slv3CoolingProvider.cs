@@ -1,0 +1,211 @@
+using System;
+using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Peripherals.LianLiWireless;
+using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
+
+namespace Nexus.Service.Cooling;
+
+/// <summary>
+/// Bridges the SLV3 wireless fan chains into the fan-control subsystem. Each
+/// bound chain (identified by its RF MAC) can carry up to
+/// <see cref="Slv3Protocol.PortsPerRecord"/> physical fans; each occupied
+/// port is a curve-assignable channel "lianli-wireless:{mac}:port{N}".
+///
+/// Duty and mode read straight off the RX device-list telemetry
+/// (<see cref="Slv3Hub.State"/>): the firmware itself echoes back the
+/// motherboard-sync sentinel (plans/lianli-wireless-support.md section 3),
+/// so unlike the wired hub - which has no PWM readback - no separate
+/// software-controlled bookkeeping is needed to know Auto vs Manual.
+/// </summary>
+public sealed class Slv3CoolingProvider : IFanControlProvider, ICoolingProvider
+{
+    private const string IdPrefix = "lianli-wireless:";
+
+    private readonly Slv3Hub _hub;
+    private readonly IConfigStore _store;
+    private readonly object _restoreLock = new();
+    private readonly HashSet<string> _restoredMacs = new(StringComparer.Ordinal);
+
+    public Slv3CoolingProvider(Slv3Hub hub, IConfigStore store)
+    {
+        _hub = hub;
+        _store = store;
+    }
+
+    public static bool IsSlv3Id(string id) =>
+        !string.IsNullOrEmpty(id) && id.StartsWith(IdPrefix, StringComparison.Ordinal);
+
+    // ── IFanControlProvider ──
+
+    public IReadOnlyList<FanChannel> GetFanChannels()
+    {
+        if (!_hub.IsConnected) return Array.Empty<FanChannel>();
+        var result = new List<FanChannel>();
+        foreach (var fan in _hub.State.Fans)
+        {
+            if (!fan.BoundToUs || fan.FanCount <= 0) continue;
+            var deviceName = $"Lian Li Wireless Fan ({fan.FanCount}x)";
+            for (var port = 0; port < fan.FanCount; port++)
+            {
+                result.Add(new FanChannel
+                {
+                    Id = PortId(fan.Mac, port),
+                    Name = $"Wireless Fan {port + 1}",
+                    DutyPercent = PortPwm(fan, port),
+                    Rpm = PortRpm(fan, port),
+                    Mode = PortPwm(fan, port) == Slv3Protocol.PwmFollowMotherboard ? FanModes.Auto : FanModes.Manual,
+                    MinDuty = Slv3Protocol.MinDutyPercent,
+                    DeviceId = DeviceId(fan.Mac),
+                    DeviceName = deviceName,
+                    PortLabel = $"Fan {port + 1}",
+                });
+            }
+        }
+        return result;
+    }
+
+    public IReadOnlyList<TemperatureSource> GetTemperatureSources() => Array.Empty<TemperatureSource>();
+
+    public float? ReadTemperature(string sensorId) => null;
+
+    public int SetFanSpeed(string channelId, int dutyPercent)
+    {
+        var clamped = Math.Clamp(dutyPercent, 0, 100);
+        ApplyWrite(channelId, clamped);
+        return clamped;
+    }
+
+    public void DriveFanSpeed(string channelId, int dutyPercent) =>
+        ApplyWrite(channelId, Math.Clamp(dutyPercent, 0, 100));
+
+    public void ReleaseFan(string channelId)
+    {
+        if (!TryParsePort(channelId, out var mac, out var port)) return;
+        _hub.SetPortDuty(mac, port, null);
+    }
+
+    public void ReleaseAll()
+    {
+        if (!_hub.IsConnected) return;
+        foreach (var fan in _hub.State.Fans)
+        {
+            if (!fan.BoundToUs) continue;
+            for (var port = 0; port < fan.FanCount; port++)
+            {
+                _hub.SetPortDuty(fan.Mac, port, null);
+            }
+        }
+    }
+
+    // Neither RPM nor duty tracks a ramp reliably enough for a calibration
+    // sweep to add value over the live telemetry already shown; matches the
+    // wired hub / other first-party providers.
+    public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(
+        IReadOnlyList<string> fanIds,
+        IProgress<FanCalibrationProgress> progress,
+        CancellationToken ct)
+    {
+        return Task.FromResult<IReadOnlyList<FanCalibration>>(Array.Empty<FanCalibration>());
+    }
+
+    // ── ICoolingProvider ──
+
+    public IReadOnlyList<CoolingComponent> GetAll()
+    {
+        if (!_hub.IsConnected) return Array.Empty<CoolingComponent>();
+        var components = new List<CoolingComponent>();
+        foreach (var fan in _hub.State.Fans)
+        {
+            if (!fan.BoundToUs || fan.FanCount <= 0) continue;
+            var devices = new List<CoolingDevice>(fan.FanCount);
+            for (var port = 0; port < fan.FanCount; port++)
+            {
+                devices.Add(new CoolingDevice
+                {
+                    Id = PortId(fan.Mac, port),
+                    Name = $"Wireless Fan {port + 1}",
+                    Type = "Fan",
+                    Rpm = PortRpm(fan, port),
+                    Pwm = PortPwm(fan, port),
+                });
+            }
+            components.Add(new CoolingComponent
+            {
+                Id = DeviceId(fan.Mac),
+                Name = $"Lian Li Wireless Fan ({fan.FanCount}x)",
+                Type = "LianLiWireless",
+                Devices = devices,
+            });
+        }
+        return components;
+    }
+
+    // ── Internals ──
+
+    /// <summary>
+    /// Called by the connection worker each tick. Restores a persisted
+    /// Cooling.ManualSpeeds duty onto a chain the first time it is seen
+    /// bound this run, so a Manual port survives a service restart; a chain
+    /// never given a saved duty stays on the hub's motherboard-sync default.
+    /// </summary>
+    public void OnHubStateUpdated()
+    {
+        foreach (var fan in _hub.State.Fans)
+        {
+            if (!fan.BoundToUs || fan.FanCount <= 0) continue;
+            lock (_restoreLock)
+            {
+                if (!_restoredMacs.Add(fan.Mac)) continue;
+            }
+            var manual = _store.Load().Cooling.ManualSpeeds;
+            for (var port = 0; port < fan.FanCount; port++)
+            {
+                if (manual.TryGetValue(PortId(fan.Mac, port), out var saved))
+                {
+                    _hub.SetPortDuty(fan.Mac, port, saved);
+                }
+            }
+        }
+    }
+
+    private void ApplyWrite(string channelId, int dutyPercent)
+    {
+        if (!TryParsePort(channelId, out var mac, out var port))
+        {
+            return;
+        }
+        if (!_hub.SetPortDuty(mac, port, dutyPercent))
+        {
+            ServiceLog.Warn($"[lianli-wireless-cooling] SetPortDuty {channelId} duty {dutyPercent} returned false");
+        }
+    }
+
+    private static int PortPwm(Slv3FanInfo fan, int port) => port < fan.Pwm.Length ? fan.Pwm[port] : 0;
+
+    private static int PortRpm(Slv3FanInfo fan, int port)
+    {
+        var rpm = port < fan.Rpm.Length ? fan.Rpm[port] : 0;
+        return rpm >= 0 ? rpm : 0;
+    }
+
+    private static string DeviceId(string macHex) => $"{IdPrefix}{macHex}";
+
+    private static string PortId(string macHex, int port) => $"{IdPrefix}{macHex}:port{port}";
+
+    private static bool TryParsePort(string channelId, out string macHex, out int port)
+    {
+        macHex = "";
+        port = 0;
+        if (!IsSlv3Id(channelId)) return false;
+        var rest = channelId.AsSpan(IdPrefix.Length);
+        var marker = rest.LastIndexOf(":port");
+        if (marker < 0) return false;
+        macHex = rest.Slice(0, marker).ToString();
+        return int.TryParse(rest.Slice(marker + 5), out port)
+            && port >= 0 && port < Slv3Protocol.PortsPerRecord;
+    }
+}

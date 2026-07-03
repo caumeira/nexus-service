@@ -16,17 +16,21 @@ namespace Nexus.Service.Peripherals.LianLiWireless;
 public sealed class Slv3Hub : IDisposable
 {
     private static readonly byte[] BroadcastMac = { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF };
-    private static readonly byte[] DefaultPwm =
-    {
-        Slv3Protocol.PwmFollowMotherboard, Slv3Protocol.PwmFollowMotherboard,
-        Slv3Protocol.PwmFollowMotherboard, Slv3Protocol.PwmFollowMotherboard,
-    };
+
+    // Shared read-only default (all null = motherboard-sync) for a chain that
+    // has never had a duty set. Never mutated - safe to share across keys.
+    private static readonly int?[] DefaultDutyTargets = new int?[Slv3Protocol.PortsPerRecord];
 
     private readonly ISlv3Discovery _discovery;
     private readonly Func<Slv3PortInfo, ISlv3Transport> _transportFactory;
     private readonly object _lock = new();
     private readonly Dictionary<string, Slv3PendingOp> _pending = new(StringComparer.Ordinal);
     private List<Slv3DeviceRecord> _lastFanRecords = new();
+
+    // Per-chain PWM port targets keyed by fan MAC hex; a missing key or a
+    // null element means that port follows the motherboard PWM header. Read
+    // by SendBindFrameLocked, written by SetPortDuty; both hold _lock.
+    private readonly Dictionary<string, int?[]> _dutyTargets = new(StringComparer.Ordinal);
 
     private ISlv3Transport? _tx;
     private ISlv3Transport? _rx;
@@ -345,7 +349,8 @@ public sealed class Slv3Hub : IDisposable
         {
             return false;
         }
-        var payload = Slv3Protocol.BuildBind(record.Mac, _masterMac, targetRx: targetSlot, targetChannel: _channel, slot: targetSlot, DefaultPwm);
+        var pwm = Slv3Protocol.BuildPwmTuple(DutyTargetsLocked(record.Mac), record.FanCount);
+        var payload = Slv3Protocol.BuildBind(record.Mac, _masterMac, targetRx: targetSlot, targetChannel: _channel, slot: targetSlot, pwm);
         foreach (var frame in Slv3Protocol.BuildUsbSendRf(record.Channel, record.RxType, payload))
         {
             if (!_tx.RfSend(frame))
@@ -354,6 +359,13 @@ public sealed class Slv3Hub : IDisposable
             }
         }
         return true;
+    }
+
+    // Caller holds _lock.
+    private int?[] DutyTargetsLocked(byte[] mac)
+    {
+        var key = Convert.ToHexString(mac);
+        return _dutyTargets.TryGetValue(key, out var targets) ? targets : DefaultDutyTargets;
     }
 
     // All-zero body: carries no CPU/GPU sensor block (LCD themes are a later
@@ -537,6 +549,52 @@ public sealed class Slv3Hub : IDisposable
             }
         }
         return true;
+    }
+
+    /// <summary>
+    /// Sets a fan chain's port duty target for the next bind-frame keepalive
+    /// (plans/lianli-wireless-support.md section 3): null follows the
+    /// motherboard PWM header, otherwise a manual percent (0..100). Takes
+    /// effect on the connection worker's next ~1 s DriveTick - the keepalive
+    /// already re-sends every tick, so no separate re-assert call is needed.
+    /// Returns false for a malformed MAC or a port outside
+    /// [0, <see cref="Slv3Protocol.PortsPerRecord"/>).
+    /// </summary>
+    public bool SetPortDuty(string macHex, int port, int? percent)
+    {
+        if (!TryParseMac(macHex, out var mac))
+        {
+            return false;
+        }
+        if (port < 0 || port >= Slv3Protocol.PortsPerRecord)
+        {
+            return false;
+        }
+        lock (_lock)
+        {
+            var key = Convert.ToHexString(mac);
+            if (!_dutyTargets.TryGetValue(key, out var targets))
+            {
+                targets = new int?[Slv3Protocol.PortsPerRecord];
+                _dutyTargets[key] = targets;
+            }
+            targets[port] = percent is null ? null : Math.Clamp(percent.Value, 0, 100);
+        }
+        return true;
+    }
+
+    /// <summary>Current duty target for a chain's port (null = unset/motherboard-sync).</summary>
+    public int? GetPortDuty(string macHex, int port)
+    {
+        if (!TryParseMac(macHex, out var mac) || port < 0 || port >= Slv3Protocol.PortsPerRecord)
+        {
+            return null;
+        }
+        lock (_lock)
+        {
+            var key = Convert.ToHexString(mac);
+            return _dutyTargets.TryGetValue(key, out var targets) ? targets[port] : null;
+        }
     }
 
     /// <summary>Sets our operating channel; must be the default or an odd value (firmware rejects even). Applied to bound fans on the next tick's re-assert.</summary>
