@@ -567,6 +567,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.SmartHubHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.LianLiHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.LianLiTlHandler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.LianLiWirelessHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Galahad2Handler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.CorsairLinkHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.StrimerHandler>();
