@@ -467,8 +467,11 @@ public static class TryxRoutes
             items.Add(new TryxOverlaySensorItem
             {
                 SensorId = item.SensorId,
-                Device = item.Device,
-                Label = item.Label,
+                // A JSON body can carry an explicit null here despite the non-nullable
+                // C# type (System.Text.Json overrides the property initializer), which
+                // would otherwise throw downstream in AppendOverlayWidget's UTF8 encode.
+                Device = item.Device ?? "",
+                Label = item.Label ?? "",
                 X = Math.Clamp(item.X, 0.0, 1.0),
                 Y = Math.Clamp(item.Y, 0.0, 1.0),
             });

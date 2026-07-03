@@ -340,6 +340,27 @@ public class TryxPanoramaHubTests
     }
 
     [Fact]
+    public void SetOverlay_formats_smalldata_as_whole_megabytes_not_gigabytes()
+    {
+        // SmallData is LHM's type for GPU VRAM (used/total/free), reported in MB;
+        // formatting it as GB would render an 8192 MB card as "8192.0GB".
+        var recording = new RecordingTransport();
+        var sensors = new StubSensors { GpuSensors = [MakeSensor("GPU Memory Total", "SmallData", 8192f)] };
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, sensors: sensors);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "test/GPU Memory Total", Device = "gpu", Label = "Stat" }],
+        });
+
+        var text = Encoding.UTF8.GetString(Assert.Single(recording.Writes));
+        Assert.Contains("8192MB", text);
+        Assert.DoesNotContain("GB", text);
+    }
+
+    [Fact]
     public void SetOverlay_formats_throughput_to_one_decimal_mbps()
     {
         var recording = new RecordingTransport();

@@ -807,17 +807,20 @@ public sealed class TryxPanoramaHub : IDisposable
     }
 
     // Units match the monitoring widgets' own formatting for each LHM sensor type
-    // (LibreHardwareSensorProvider.MapSensorType); unmapped types fall back to the
-    // unformatted value with no unit.
+    // (LibreHardwareSensorProvider.MapSensorType/MapUnits); unmapped types fall
+    // back to the unformatted value with no unit. Data (e.g. memory used/available)
+    // is GB-scale; SmallData (e.g. GPU VRAM) is MB-scale - these are distinct LHM
+    // units, not interchangeable formatting of the same magnitude.
     private static string FormatSensorValue(HardwareSensor sensor) => sensor.Type switch
     {
         "Temperature" => $"{(int)Math.Round(sensor.Value)}°C",
         "Load" => $"{(int)Math.Round(sensor.Value)}%",
         "Clock" or "Frequency" => $"{(int)Math.Round(sensor.Value)}MHz",
         "Voltage" => $"{sensor.Value.ToString("0.00", CultureInfo.InvariantCulture)}V",
-        "Data" or "SmallData" => $"{sensor.Value.ToString("0.0", CultureInfo.InvariantCulture)}GB",
+        "Data" => $"{sensor.Value.ToString("0.0", CultureInfo.InvariantCulture)}GB",
+        "SmallData" => $"{(int)Math.Round(sensor.Value)}MB",
         "Power" => $"{(int)Math.Round(sensor.Value)}W",
-        "Fan" or "Rpm" => $"{(int)Math.Round(sensor.Value)}RPM",
+        "Fan" => $"{(int)Math.Round(sensor.Value)}RPM",
         "Throughput" => $"{sensor.Value.ToString("0.0", CultureInfo.InvariantCulture)}MB/s",
         _ => sensor.Value.ToString(CultureInfo.InvariantCulture),
     };

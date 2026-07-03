@@ -1,6 +1,8 @@
 using System;
+using System.Text.Json;
 using Nexus.Service.Peripherals.Tryx.Panorama;
 using Nexus.Service.Routes;
+using Nexus.Service.Serialization;
 using Xunit;
 
 namespace Nexus.Service.Tests;
@@ -12,6 +14,30 @@ public class TryxRoutesTests
         Filter = "blur",
         Opacity = 80,
     };
+
+    [Fact]
+    public void BuildOverlayConfigFromRequest_coalesces_a_json_null_label_and_device_to_empty_string()
+    {
+        // System.Text.Json overrides a non-nullable string property's "" initializer
+        // with an explicit JSON null, so this must be exercised through the real
+        // source-gen deserializer (constructing TryxOverlayItem in C# can't repro it).
+        const string json = """
+        {
+          "items": [ { "sensorId": "s1", "device": null, "label": null, "x": 0.1, "y": 0.2 } ],
+          "font": "roboto-regular",
+          "size": 100,
+          "color": "#ffffff"
+        }
+        """;
+        var body = JsonSerializer.Deserialize(json, AppJsonContext.Default.TryxOverlayRequest)!;
+
+        var cfg = TryxRoutes.BuildOverlayConfigFromRequest(body, CurrentOverlay);
+
+        Assert.Single(cfg.Items);
+        Assert.Equal("s1", cfg.Items[0].SensorId);
+        Assert.Equal("", cfg.Items[0].Device);
+        Assert.Equal("", cfg.Items[0].Label);
+    }
 
     [Fact]
     public void BuildOverlayConfigFromRequest_maps_items_in_order()
