@@ -262,10 +262,89 @@ public sealed class RtcSessionManagerTests
         }
     }
 
+    [Fact]
+    public async Task ConcurrentOffers_SameSession_NoCorruption_OneEventuallyOpens()
+    {
+        var relayRoot = RelayCrypto.DeriveRelayRoot("rtc-concurrent-token");
+        var store = StoreWithSession(relayRoot, remoteOn: true, relayOn: true);
+        var hub = new MultiplexHub();
+        var pairing = new Nexus.Service.Panel.PanelPhonePairingService(store, hub) { PublicLinkHost = "" };
+        var rtc = new RtcSessionManager(
+            NullLogger<RtcSessionManager>.Instance, NullLoggerFactory.Instance,
+            pairing, store, hub, RelayTestHelpers.InertHttpDispatcher());
+
+        // Two phones race a genuinely concurrent offer for the same session id.
+        // The per-session offer lock must serialize their negotiations so a
+        // loser's pc.Close() (once superseded) can never race the winner's
+        // setRemoteDescription/createAnswer on a live pc - proven by both
+        // calls completing without throwing, regardless of which one is
+        // still connected afterward.
+        var firstTask = NegotiateAsync(rtc, SessionId, relayRoot);
+        var secondTask = NegotiateAsync(rtc, SessionId, relayRoot);
+        var phones = await Task.WhenAll(firstTask, secondTask);
+
+        try
+        {
+            await WaitUntilAsync(
+                () => phones[0].RuntimeChannel.readyState == RTCDataChannelState.open
+                    || phones[1].RuntimeChannel.readyState == RTCDataChannelState.open,
+                ChannelOpenTimeout, "neither concurrent offer's runtime channel ever opened");
+        }
+        finally
+        {
+            phones[0].Pc.Close("test done");
+            phones[1].Pc.Close("test done");
+            rtc.CloseAll();
+        }
+    }
+
+    [Fact]
+    public async Task DuplicateChannelLabel_FirstChannelKeepsServing()
+    {
+        var relayRoot = RelayCrypto.DeriveRelayRoot("rtc-dup-label-token");
+        var store = StoreWithSession(relayRoot, remoteOn: true, relayOn: true);
+        var hub = new MultiplexHub();
+        var pairing = new Nexus.Service.Panel.PanelPhonePairingService(store, hub) { PublicLinkHost = "" };
+        var rtc = new RtcSessionManager(
+            NullLogger<RtcSessionManager>.Instance, NullLoggerFactory.Instance,
+            pairing, store, hub, RelayTestHelpers.InertHttpDispatcher());
+
+        var phone = await ConnectPhoneAsync(rtc, SessionId, relayRoot);
+        try
+        {
+            // A second channel labeled "runtime" on the same peer connection:
+            // the host closes it and keeps serving the first one unaffected.
+            await phone.Pc.createDataChannel("runtime", null);
+
+            var subCommand = Encoding.UTF8.GetBytes($"{{\"sub\":[\"{Topic}\"]}}");
+            var subFrame = RelayCrypto.Seal(phone.RuntimeKey, RelayCrypto.DirClientToHost, counter: 0, subCommand);
+            phone.RuntimeChannel.send(subFrame);
+
+            await WaitUntilAsync(() => hub.TopicHasSubscribers(Topic), TimeSpan.FromSeconds(10),
+                "the first runtime channel stopped working after a duplicate label was opened");
+        }
+        finally
+        {
+            phone.Pc.Close("test done");
+            rtc.CloseAll();
+        }
+    }
+
     private readonly record struct RtcPhone(
         RTCPeerConnection Pc, RTCDataChannel RuntimeChannel, RTCDataChannel HttpChannel, byte[] RuntimeKey, byte[] HttpKey);
 
     private static async Task<RtcPhone> ConnectPhoneAsync(RtcSessionManager rtc, string sessionId, byte[] relayRoot)
+    {
+        var phone = await NegotiateAsync(rtc, sessionId, relayRoot);
+        await WaitUntilAsync(() => phone.RuntimeChannel.readyState == RTCDataChannelState.open, ChannelOpenTimeout,
+            "runtime data channel never opened");
+        await WaitUntilAsync(() => phone.HttpChannel.readyState == RTCDataChannelState.open, ChannelOpenTimeout,
+            "http data channel never opened");
+        return phone;
+    }
+
+    /// <summary>Offers and answers only - does not wait for the channels to open, so a losing offer's phone can be raced without hanging on a channel that will never connect.</summary>
+    private static async Task<RtcPhone> NegotiateAsync(RtcSessionManager rtc, string sessionId, byte[] relayRoot)
     {
         // Empty iceServers: host (loopback) candidates are enough for an
         // in-proc connection, and gathering completes without a STUN round trip.
@@ -291,11 +370,6 @@ public sealed class RtcSessionManagerTests
         var answerInit = new RTCSessionDescriptionInit { type = RTCSdpType.answer, sdp = result.Sdp };
         var setResult = phonePc.setRemoteDescription(answerInit);
         Assert.Equal(SetDescriptionResultEnum.OK, setResult);
-
-        await WaitUntilAsync(() => runtimeChannel.readyState == RTCDataChannelState.open, ChannelOpenTimeout,
-            "runtime data channel never opened");
-        await WaitUntilAsync(() => httpChannel.readyState == RTCDataChannelState.open, ChannelOpenTimeout,
-            "http data channel never opened");
 
         var runtimeKey = RelayCrypto.DeriveAeadKey(relayRoot, runtimeSalt);
         var httpKey = RelayCrypto.DeriveAeadKey(relayRoot, httpSalt);

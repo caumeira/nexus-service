@@ -24,6 +24,12 @@ public sealed class RtcHttpChannel : IDisposable
     // Matches RelayConnectionService.MaxConcurrentHttpRequests.
     private const int MaxConcurrentHttpRequests = 32;
 
+    // Matches RTCSctpTransport.SCTP_DEFAULT_MAX_MESSAGE_SIZE; RTCDataChannel.send
+    // throws past this, so a response must be checked before it reaches send.
+    internal const int MaxFrameBytes = 256 * 1024;
+    // RelayCrypto.Seal frame = nonce(12) || ciphertext || tag(16).
+    internal const int SealOverheadBytes = RelayCrypto.NonceLength + RelayCrypto.TagLength;
+
     private readonly RelayHttpDispatcher _httpDispatcher;
     private readonly RTCDataChannel _channel;
     private readonly byte[] _aeadKey;
@@ -129,6 +135,12 @@ public sealed class RtcHttpChannel : IDisposable
     private async Task SendSealedAsync(RelayHttpResponse response)
     {
         var json = JsonSerializer.SerializeToUtf8Bytes(response, AppJsonContext.Default.RelayHttpResponse);
+        if (ExceedsFrameCap(json.Length))
+        {
+            response = RejectOversized(response.Id);
+            json = JsonSerializer.SerializeToUtf8Bytes(response, AppJsonContext.Default.RelayHttpResponse);
+        }
+
         await _sendLock.WaitAsync(_ct).ConfigureAwait(false);
         try
         {
@@ -143,6 +155,17 @@ public sealed class RtcHttpChannel : IDisposable
             _sendLock.Release();
         }
     }
+
+    /// <summary>True when a plaintext response of this length would seal past the data channel's max message size.</summary>
+    internal static bool ExceedsFrameCap(int jsonByteLength) => jsonByteLength + SealOverheadBytes > MaxFrameBytes;
+
+    internal static RelayHttpResponse RejectOversized(int id) => new()
+    {
+        Id = id,
+        Status = StatusCodes.Status413PayloadTooLarge,
+        Body = "{\"error\":true,\"msg\":\"response exceeds direct-channel cap\"}",
+        ContentType = "application/json",
+    };
 
     public void Dispose()
     {

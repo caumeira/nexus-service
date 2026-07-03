@@ -41,6 +41,11 @@ public sealed class RtcSessionManager
 
     private readonly object _gate = new();
     private readonly Dictionary<string, RtcSession> _sessions = new(StringComparer.Ordinal);
+    // Per-session offer lock: refcounted so a slot is safe to remove the
+    // moment nobody holds or awaits it, without a dictionary that only ever
+    // grows across the service's uptime (session ids are minted fresh per
+    // claim, never reused).
+    private readonly Dictionary<string, OfferLock> _offerLocks = new(StringComparer.Ordinal);
 
     public RtcSessionManager(
         ILogger<RtcSessionManager> log, ILoggerFactory loggerFactory,
@@ -73,6 +78,62 @@ public sealed class RtcSessionManager
 
         if (string.IsNullOrEmpty(phoneSessionId))
             return OfferResult.Fail("no phone session");
+
+        // Serialize the whole validate-swap-negotiate span per session id, so
+        // a losing offer's pc.Close() (from the last-offer-wins swap) can
+        // never race the winning offer's setRemoteDescription/createAnswer on
+        // a live pc. Keyed per session: two different sessions still
+        // negotiate fully concurrently, each paying its own ICE gather cap.
+        var offerLock = AcquireOfferLock(phoneSessionId);
+        await offerLock.Semaphore.WaitAsync(ct).ConfigureAwait(false);
+        try
+        {
+            return await HandleOfferLockedAsync(phoneSessionId, request, ct).ConfigureAwait(false);
+        }
+        finally
+        {
+            offerLock.Semaphore.Release();
+            ReleaseOfferLock(phoneSessionId, offerLock);
+        }
+    }
+
+    private OfferLock AcquireOfferLock(string phoneSessionId)
+    {
+        lock (_gate)
+        {
+            if (!_offerLocks.TryGetValue(phoneSessionId, out var offerLock))
+            {
+                offerLock = new OfferLock();
+                _offerLocks[phoneSessionId] = offerLock;
+            }
+            offerLock.RefCount++;
+            return offerLock;
+        }
+    }
+
+    private void ReleaseOfferLock(string phoneSessionId, OfferLock offerLock)
+    {
+        lock (_gate)
+        {
+            offerLock.RefCount--;
+            if (offerLock.RefCount == 0 &&
+                _offerLocks.TryGetValue(phoneSessionId, out var current) &&
+                ReferenceEquals(current, offerLock))
+            {
+                _offerLocks.Remove(phoneSessionId);
+            }
+        }
+    }
+
+    /// <summary>Per-session offer semaphore, refcounted so removal from <see cref="_offerLocks"/> can never race a concurrent acquire of the same slot.</summary>
+    private sealed class OfferLock
+    {
+        public readonly SemaphoreSlim Semaphore = new(1, 1);
+        public int RefCount;
+    }
+
+    private async Task<OfferResult> HandleOfferLockedAsync(string phoneSessionId, RtcOfferRequest request, CancellationToken ct)
+    {
         if (!_pairing.GetRemoteControlEnabled() || !_pairing.GetRelayEnabled())
             return OfferResult.Fail("remote access disabled");
 
@@ -113,8 +174,10 @@ public sealed class RtcSessionManager
         var session = new RtcSession(this, phoneSessionId, pc, runtimeKey, httpKey);
         session.Wire();
 
-        // Last-offer-wins: swap the session in before negotiating, so a second
-        // offer racing this one always supersedes whichever pc loses the swap.
+        // Last-offer-wins: the per-session offer lock already makes this
+        // sequential with any other offer for the same id, so swapping the
+        // session in here can never race a concurrent negotiation on the
+        // pc it replaces.
         RtcSession? prior;
         lock (_gate)
         {
@@ -329,7 +392,15 @@ public sealed class RtcSessionManager
 
         private void WireRuntime(RTCDataChannel dc)
         {
-            _runtimeOpened = true;
+            lock (_lock)
+            {
+                if (_runtimeOpened)
+                {
+                    CloseDuplicateChannel(dc, "runtime");
+                    return;
+                }
+                _runtimeOpened = true;
+            }
             CancelGraceTimer();
 
             var transport = new RtcDataChannelTransport(dc);
@@ -346,7 +417,22 @@ public sealed class RtcSessionManager
 
         private void WireHttp(RTCDataChannel dc)
         {
-            _httpChannel = new RtcHttpChannel(_owner._httpDispatcher, dc, _httpKey, _sessionId, _owner._log, _cts.Token);
+            lock (_lock)
+            {
+                if (_httpChannel is not null)
+                {
+                    CloseDuplicateChannel(dc, "http");
+                    return;
+                }
+                _httpChannel = new RtcHttpChannel(_owner._httpDispatcher, dc, _httpKey, _sessionId, _owner._log, _cts.Token);
+            }
+        }
+
+        /// <summary>A second channel claiming an already-wired label is closed; the first channel keeps serving.</summary>
+        private void CloseDuplicateChannel(RTCDataChannel dc, string label)
+        {
+            _owner._log.LogDebug("rtc: duplicate {Label} channel for session {SessionId}", label, _sessionId);
+            try { dc.close(); } catch { /* best effort */ }
         }
 
         private void OnConnectionStateChange(RTCPeerConnectionState state)
