@@ -45,13 +45,19 @@ public sealed class Slv3ConnectionWorker : BackgroundService
                     continue;
                 }
 
+                // WinUSB is exclusive-open: L-Connect must release the dongles before
+                // EnsureConnected opens them, so stop it once they are present but before
+                // the open (unlike the wired HID hub, which can open alongside L-Connect).
+                if (OperatingSystem.IsWindows()
+                    && _store.Load().Devices.LianLiWireless.StopConflictingApps
+                    && _hub.DonglesPresent())
+                {
+                    // Watcher stopped first so it cannot restart the main service.
+                    StopLConnectServices();
+                }
+
                 if (_hub.EnsureConnected())
                 {
-                    if (OperatingSystem.IsWindows() && _store.Load().Devices.LianLiWireless.StopConflictingApps)
-                    {
-                        // Watcher stopped first so it cannot restart the main service.
-                        StopLConnectServices();
-                    }
                     ServiceLog.Info("[lianli-wireless] connected");
                     try
                     {
