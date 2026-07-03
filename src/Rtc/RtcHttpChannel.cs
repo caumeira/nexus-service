@@ -15,9 +15,9 @@ namespace Nexus.Service.Rtc;
 /// <summary>
 /// REST-over-P2P tunnel leg driven by the "http" data channel. Same sealed
 /// framing, counters, replay guard, and in-flight cap as
-/// <c>RelayConnectionService.HttpChannel</c>, just sending over
-/// <see cref="RTCDataChannel.send(byte[], int, int)"/> directly instead of a
-/// WebSocket transport.
+/// <c>RelayConnectionService.HttpChannel</c>; sends sealed frames via
+/// <see cref="RTCDataChannel.send(byte[], int, int)"/> instead of a
+/// WebSocket transport's SendAsync.
 /// </summary>
 public sealed class RtcHttpChannel : IDisposable
 {
@@ -39,6 +39,8 @@ public sealed class RtcHttpChannel : IDisposable
     private readonly SemaphoreSlim _sendLock = new(1, 1);
     private readonly SemaphoreSlim _inFlight = new(MaxConcurrentHttpRequests, MaxConcurrentHttpRequests);
     private ulong _sendCounter;
+    // Mutated only from OnRequestFrame, with no lock: SIPSorcery invokes
+    // onmessage serially, one SCTP receive thread per association.
     private long _lastRecvCounter = -1;
     private volatile bool _disposed;
 

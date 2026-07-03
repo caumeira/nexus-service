@@ -129,6 +129,29 @@ public sealed class RtcSessionManagerTests
     }
 
     [Fact]
+    public async Task Offer_SameSaltForBothChannels_Rejected()
+    {
+        var relayRoot = RelayCrypto.DeriveRelayRoot("rtc-same-salt-token");
+        var store = StoreWithSession(relayRoot, remoteOn: true, relayOn: true);
+        var hub = new MultiplexHub();
+        var pairing = new Nexus.Service.Panel.PanelPhonePairingService(store, hub) { PublicLinkHost = "" };
+        var rtc = new RtcSessionManager(
+            NullLogger<RtcSessionManager>.Instance, NullLoggerFactory.Instance,
+            pairing, store, hub, RelayTestHelpers.InertHttpDispatcher());
+
+        var salt = RelayCrypto.Base64UrlNoPad(RandomBytes(16));
+        var request = new RtcOfferRequest
+        {
+            Sdp = "v=0",
+            RuntimeSalt = salt,
+            HttpSalt = salt,
+        };
+        var result = await rtc.HandleOfferAsync(SessionId, request, CancellationToken.None);
+
+        Assert.False(result.Ok);
+    }
+
+    [Fact]
     public async Task Offer_Success_RuntimeAndHttpChannelsRoundTrip()
     {
         var relayRoot = RelayCrypto.DeriveRelayRoot("rtc-roundtrip-token");
@@ -273,7 +296,7 @@ public sealed class RtcSessionManagerTests
             NullLogger<RtcSessionManager>.Instance, NullLoggerFactory.Instance,
             pairing, store, hub, RelayTestHelpers.InertHttpDispatcher());
 
-        // Two phones race a genuinely concurrent offer for the same session id.
+        // Two phones send offers for the same session id via Task.WhenAll.
         // The per-session offer lock must serialize their negotiations so a
         // loser's pc.Close() (once superseded) can never race the winner's
         // setRemoteDescription/createAnswer on a live pc - proven by both

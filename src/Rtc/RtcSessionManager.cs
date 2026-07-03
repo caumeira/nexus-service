@@ -154,6 +154,11 @@ public sealed class RtcSessionManager
         }
         if (runtimeSalt.Length != RelayCrypto.ConnSaltLength || httpSalt.Length != RelayCrypto.ConnSaltLength)
             return OfferResult.Fail("bad salt");
+        // Equal salts derive the same AEAD key for both channels; each
+        // channel's dir=1 counter independently starts at 0, so the first
+        // host->client frame on each would reuse the same (key, nonce) pair.
+        if (runtimeSalt.AsSpan().SequenceEqual(httpSalt))
+            return OfferResult.Fail("bad salt");
 
         var offerSdp = request.Sdp ?? "";
         if (offerSdp.Length == 0 || Encoding.UTF8.GetByteCount(offerSdp) >= MaxSdpBytes)
@@ -173,6 +178,12 @@ public sealed class RtcSessionManager
         var pc = new RTCPeerConnection(config);
         var session = new RtcSession(this, phoneSessionId, pc, runtimeKey, httpKey);
         session.Wire();
+        // Starts here, not after the answer: an escape from the negotiate
+        // span below (a request-abort cancellation, an unexpected SIPSorcery
+        // exception) still leaves this timer as the only thing guaranteed to
+        // clean up the pc, since onconnectionstatechange may never reach
+        // failed/disconnected for an offer that never finishes signaling.
+        session.StartRuntimeGraceTimer(TimeSpan.FromMilliseconds(RuntimeChannelGraceMs));
 
         // Last-offer-wins: the per-session offer lock already makes this
         // sequential with any other offer for the same id, so swapping the
@@ -219,7 +230,6 @@ public sealed class RtcSessionManager
             return OfferResult.Fail("failed to create answer");
         }
 
-        session.StartRuntimeGraceTimer(TimeSpan.FromMilliseconds(RuntimeChannelGraceMs));
         return OfferResult.Success(answerInit.sdp);
     }
 
@@ -441,7 +451,7 @@ public sealed class RtcSessionManager
                 _owner.CloseSession(_sessionId, this);
         }
 
-        /// <summary>Disposes the session if the "runtime" channel never opens within <paramref name="grace"/> of the answer being returned.</summary>
+        /// <summary>Disposes the session if the "runtime" channel never opens within <paramref name="grace"/> of session creation.</summary>
         public void StartRuntimeGraceTimer(TimeSpan grace)
         {
             CancellationTokenSource cts;

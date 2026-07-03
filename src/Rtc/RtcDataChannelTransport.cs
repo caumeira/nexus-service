@@ -58,7 +58,14 @@ public sealed class RtcDataChannelTransport : WebSocket
         if (_state != WebSocketState.Open)
             return;
         if (buffer.Count > MaxFrameBytes)
-            throw new InvalidOperationException("rtc data channel frame exceeds 256 KB cap");
+        {
+            // A throw here would be swallowed silently by
+            // MultiplexHub.SubscribedClient.SendAsync's bare catch, dropping
+            // the envelope with no signal. Close instead: the phone falls
+            // back to relay, which can still carry a frame this size.
+            Abort();
+            return;
+        }
 
         await _sendLock.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
