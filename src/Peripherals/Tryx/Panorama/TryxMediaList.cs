@@ -93,4 +93,110 @@ public static class TryxMediaList
         }
         return names.Count == 0 ? Array.Empty<string>() : new List<string>(names);
     }
+
+    /// <summary>Bytes stored on the panel's /userdata, summed from the per-file sizes the
+    /// media-list push carries: outer <c>f503 { repeated f2 { f1:path, f2:ext, f3:sizeBytes,
+    /// f4:1 } }</c>. Returns null when the buffer is not a complete media-list frame (another
+    /// IN read, or a list split across reads), so the caller keeps the last known total rather
+    /// than resetting to 0. Only whole-frame reads count - a very large list that spills past a
+    /// single drain read reports null until it fits.</summary>
+    public static long? ParseMediaUsedBytes(ReadOnlySpan<byte> data)
+    {
+        if (data.IsEmpty || data.IndexOf("/userdata/default/"u8) < 0) return null;
+        if (!TryGetLenField(data, fieldNumber: 503, out var fileList)) return null;
+
+        long total = 0;
+        var any = false;
+        var pos = 0;
+        while (pos < fileList.Length)
+        {
+            if (!TryReadVarint(fileList, ref pos, out var tag)) break;
+            var fn = (int)(tag >> 3);
+            var wt = (int)(tag & 7);
+            if (wt != WireLen)
+            {
+                if (!TrySkipField(fileList, ref pos, wt)) break;
+                continue;
+            }
+            // Clamp against the remaining span BEFORE the int cast: a device-corrupt length
+            // varint (bit 31 set, or huge) would make (int)len negative / overflow pos+len and
+            // slip past a `pos + (int)len > Length` guard, then throw in Slice - and a throw here
+            // kills the drain thread, re-arming the ~70s panel reset loop this transport avoids.
+            if (!TryReadVarint(fileList, ref pos, out var len) || len > (ulong)(fileList.Length - pos)) break;
+            var entry = fileList.Slice(pos, (int)len);
+            pos += (int)len;
+            if (fn != 2) continue; // repeated field 2 = one file entry
+            var epos = 0;
+            while (epos < entry.Length)
+            {
+                if (!TryReadVarint(entry, ref epos, out var etag)) break;
+                if ((int)(etag >> 3) == 3 && (int)(etag & 7) == WireVarint)
+                {
+                    if (TryReadVarint(entry, ref epos, out var size)) { total += (long)size; any = true; }
+                    break;
+                }
+                if (!TrySkipField(entry, ref epos, (int)(etag & 7))) break;
+            }
+        }
+        return any ? total : null;
+    }
+
+    private const int WireVarint = 0;
+    private const int WireLen = 2;
+
+    private static bool TryReadVarint(ReadOnlySpan<byte> b, ref int pos, out ulong val)
+    {
+        val = 0;
+        var shift = 0;
+        while (pos < b.Length && shift < 64)
+        {
+            var x = b[pos++];
+            val |= (ulong)(x & 0x7f) << shift;
+            if ((x & 0x80) == 0) return true;
+            shift += 7;
+        }
+        return false;
+    }
+
+    private static bool TrySkipField(ReadOnlySpan<byte> b, ref int pos, int wireType)
+    {
+        switch (wireType)
+        {
+            case WireVarint: return TryReadVarint(b, ref pos, out _);
+            case 1: pos += 8; return pos <= b.Length;   // 64-bit
+            case 5: pos += 4; return pos <= b.Length;   // 32-bit
+            case WireLen:
+                // Reject a length past the remaining span before casting - see the note in
+                // ParseMediaUsedBytes; a negative (int)len here would leave pos negative and the
+                // next varint read would index out of bounds and throw.
+                if (!TryReadVarint(b, ref pos, out var len) || len > (ulong)(b.Length - pos)) return false;
+                pos += (int)len;
+                return true;
+            default: return false;
+        }
+    }
+
+    /// <summary>Content of the first length-delimited field matching <paramref name="fieldNumber"/>.</summary>
+    private static bool TryGetLenField(ReadOnlySpan<byte> b, int fieldNumber, out ReadOnlySpan<byte> content)
+    {
+        content = default;
+        var pos = 0;
+        while (pos < b.Length)
+        {
+            if (!TryReadVarint(b, ref pos, out var tag)) return false;
+            var fn = (int)(tag >> 3);
+            var wt = (int)(tag & 7);
+            if (wt == WireLen)
+            {
+                if (!TryReadVarint(b, ref pos, out var len) || len > (ulong)(b.Length - pos)) return false;
+                if (fn == fieldNumber) { content = b.Slice(pos, (int)len); return true; }
+                pos += (int)len;
+            }
+            else if (!TrySkipField(b, ref pos, wt))
+            {
+                return false;
+            }
+        }
+        return false;
+    }
 }

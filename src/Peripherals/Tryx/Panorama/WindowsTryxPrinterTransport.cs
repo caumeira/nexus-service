@@ -32,6 +32,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     private bool _disposed;
     private volatile IReadOnlyList<string> _availableMediaIds = Array.Empty<string>();
     private volatile IReadOnlyList<string> _availableMediaFilenames = Array.Empty<string>();
+    private long _mediaUsedBytes;
 
     public WindowsTryxPrinterTransport(string devicePath, string serial)
     {
@@ -78,6 +79,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     public string PortName { get; }
     public IReadOnlyList<string> AvailableMediaIds => _availableMediaIds;
     public IReadOnlyList<string> AvailableMediaFilenames => _availableMediaFilenames;
+    public long MediaUsedBytes => Interlocked.Read(ref _mediaUsedBytes);
 
     // A write to a panel that has stopped draining its endpoint (mid re-enumeration,
     // or firmware-wedged) parks in the usbprint stack for ~45-60s before it errors. That
@@ -157,7 +159,9 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
                     _availableMediaIds = presets;
                     var all = TryxMediaList.ParseMediaFilenames(buffer.AsSpan(0, read));
                     _availableMediaFilenames = all;
-                    ServiceLog.Info($"[tryx] panel media list ({all.Count}): {string.Join(", ", all)}");
+                    var used = TryxMediaList.ParseMediaUsedBytes(buffer.AsSpan(0, read));
+                    if (used is { } bytes) Interlocked.Exchange(ref _mediaUsedBytes, bytes);
+                    ServiceLog.Info($"[tryx] panel media list ({all.Count}, {used ?? 0} bytes): {string.Join(", ", all)}");
                 }
             }
             catch (Exception ex)

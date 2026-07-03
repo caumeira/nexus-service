@@ -38,6 +38,10 @@ public sealed class TryxStatusResponse
 {
     public bool Connected { get; set; }
     public TryxPanoramaState? State { get; set; }
+    // Bytes stored on the panel from its media list, and the file count. The panel reports no
+    // total capacity, so this is a used-only figure.
+    public long MediaUsedBytes { get; set; }
+    public int MediaFileCount { get; set; }
     public TryxOverlaySnapshot? Overlay { get; set; }
 }
 
@@ -163,6 +167,8 @@ public static class TryxRoutes
             {
                 Connected = hub.IsConnected,
                 State = hub.State,
+                MediaUsedBytes = hub.MediaUsedBytes,
+                MediaFileCount = hub.AvailableMediaFilenames.Count,
                 Overlay = new TryxOverlaySnapshot
                 {
                     Items = BuildOverlayItems(ov),

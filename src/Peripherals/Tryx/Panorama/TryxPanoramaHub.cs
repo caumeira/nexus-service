@@ -84,6 +84,10 @@ public sealed class TryxPanoramaHub : IDisposable
     /// has not pushed its list this session (it does so only on a cold boot / re-enumeration).</summary>
     public IReadOnlyList<string> AvailableMediaFilenames => _transport?.AvailableMediaFilenames ?? Array.Empty<string>();
 
+    /// <summary>Bytes stored on the panel's /userdata (used only - the panel reports no
+    /// capacity), 0 until its media list is received.</summary>
+    public long MediaUsedBytes => _transport?.MediaUsedBytes ?? 0;
+
     public bool EnsureConnected()
     {
         if (_disposed) return false;

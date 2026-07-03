@@ -31,4 +31,9 @@ public interface ITryxPanoramaTransport : IDisposable
     /// <summary>All media filenames the panel last reported it has stored (preset,
     /// download, and custom), or empty if it has not pushed its list this session.</summary>
     IReadOnlyList<string> AvailableMediaFilenames => Array.Empty<string>();
+
+    /// <summary>Bytes stored on the panel's /userdata, summed from the media-list push's
+    /// per-file sizes; 0 until the list is received. The panel exposes no total capacity, so
+    /// this is a used-only figure (see <see cref="TryxMediaList.ParseMediaUsedBytes"/>).</summary>
+    long MediaUsedBytes => 0;
 }
