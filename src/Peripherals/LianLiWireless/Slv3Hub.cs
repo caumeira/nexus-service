@@ -46,6 +46,10 @@ public sealed class Slv3Hub : IDisposable
     private const int EmptyPollTolerance = 3;
     private int _emptyPollStreak;
 
+    // Firmware settle time between the 4 repeated RGB header packets (no CRC on
+    // this link - see SendRgbFrame). Matches the reference's ~20 ms spacing.
+    private const int HeaderResendGapMs = 20;
+
     public Slv3Hub(ISlv3Discovery discovery, Func<Slv3PortInfo, ISlv3Transport> transportFactory)
     {
         _discovery = discovery;
@@ -481,8 +485,9 @@ public sealed class Slv3Hub : IDisposable
     /// builds the TinyUZ-compressed RF_RgbSync packet set and sends the
     /// header packet (index 0) four times total - plans/lianli-wireless-support.md
     /// section 2's reliability requirement - then each data packet once,
-    /// addressed to the fan's current (channel, rxType) pipe. No delay
-    /// between sends; the caller's tick cadence already paces pushes.
+    /// addressed to the fan's current (channel, rxType) pipe. The 4 header
+    /// repeats are spaced ~20 ms apart (HeaderResendGapMs) per the spec; without
+    /// that gap they collide on the CRC-less link and lock the controller up.
     /// Returns false (and sends nothing) if the fan is unknown, not bound to
     /// us, or a send fails partway; <paramref name="effectIndexHex"/> carries
     /// the effect_index actually sent on success, so the caller can compare
@@ -496,6 +501,9 @@ public sealed class Slv3Hub : IDisposable
         {
             return false;
         }
+        byte channel, rxType;
+        byte[] effectIndex;
+        byte[][] packets;
         lock (_lock)
         {
             if (_tx is null || !TryFindRecordLocked(mac, out var record) || !IsBoundToUsLocked(record))
@@ -514,27 +522,66 @@ public sealed class Slv3Hub : IDisposable
                 return false;
             }
 
-            var effectIndex = Slv3RgbFrame.BuildEffectIndex(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
-            var packets = Slv3RgbFrame.BuildPackets(
+            effectIndex = Slv3RgbFrame.BuildEffectIndex(DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+            packets = Slv3RgbFrame.BuildPackets(
                 record.Mac, _masterMac, effectIndex, compressed, leds.Length, totalFrames: 1, intervalMs);
+            channel = record.Channel;
+            rxType = record.RxType;
+        }
 
-            for (var i = 0; i < 4; i++)
+        // Header packet 0 is sent 4x, spaced ~20 ms apart: this link has no CRC,
+        // so the firmware needs each RF reception to settle before the next to
+        // tell the repeats apart - back-to-back they collide, the receiver applies
+        // a corrupted header, and the controller locks up (plans/lianli-wireless-
+        // support.md section 2). The settle gaps run with _lock RELEASED so the
+        // 1 s device-list poll (DriveTick) keeps running even with several chains
+        // streaming; holding _lock across every gap starves that poll at 2+ bound
+        // chains. The 4 repeats are identical, so a keepalive/poll frame slipping
+        // into a gap is harmless.
+        for (var i = 0; i < 4; i++)
+        {
+            if (i > 0)
             {
-                if (!SendRfPayloadLocked(record.Channel, record.RxType, packets[0]))
-                {
-                    return false;
-                }
+                Thread.Sleep(HeaderResendGapMs);
+            }
+            if (!SendRfPayload(channel, rxType, packets[0]))
+            {
+                return false;
+            }
+        }
+
+        // Data parts carry the reassembly sequence - send them contiguously under
+        // one lock so a concurrent frame can't split them.
+        lock (_lock)
+        {
+            if (_tx is null)
+            {
+                return false;
             }
             for (var p = 1; p < packets.Length; p++)
             {
-                if (!SendRfPayloadLocked(record.Channel, record.RxType, packets[p]))
+                if (!SendRfPayloadLocked(channel, rxType, packets[p]))
                 {
                     return false;
                 }
             }
+        }
 
-            effectIndexHex = Convert.ToHexString(effectIndex);
-            return true;
+        effectIndexHex = Convert.ToHexString(effectIndex);
+        return true;
+    }
+
+    // Same as SendRfPayloadLocked but takes _lock itself, for callers that pace
+    // sends across released-lock gaps (SendRgbFrame's header repeats).
+    private bool SendRfPayload(byte channel, byte rxType, byte[] payload)
+    {
+        lock (_lock)
+        {
+            if (_tx is null)
+            {
+                return false;
+            }
+            return SendRfPayloadLocked(channel, rxType, payload);
         }
     }
 
