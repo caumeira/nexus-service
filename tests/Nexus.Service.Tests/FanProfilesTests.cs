@@ -735,6 +735,110 @@ public class FanProfilesTests : IDisposable
         Assert.Equal("silent", FanProfiles.DerivePresetFromCurves(_store, fans));
     }
 
+    [Fact]
+    public void NoOverride_ApplyTurbo_ExcludesPump()
+    {
+        var fans = new FakeFanProvider(
+            channels: new List<FanChannel>
+            {
+                new() { Id = "fan1", Name = "Fan 1" },
+                new() { Id = "pump1", Name = "AIO Pump", Kind = FanKinds.Pump },
+            },
+            temps: new List<TemperatureSource> { new() { Id = "cpu", Category = "CPU" } });
+
+        FanProfiles.Apply("turbo", fans, _store);
+
+        var s = _store.Load();
+        var preset = s.Cooling.Curves.First(c => c.Preset == "turbo");
+        Assert.Contains(preset.Outputs, o => o.Id == "fan1");
+        Assert.DoesNotContain(preset.Outputs, o => o.Id == "pump1");
+    }
+
+    [Fact]
+    public void LockedFan_StaysOnItsPreset_WhenAnotherPresetIsApplied()
+    {
+        FanProfiles.Apply("silent", _fans, _store);
+        var fan1 = _fans.GetFanChannels().First(c => c.Id == "fan1");
+        FanProfiles.SetLockOverride(fan1, true, _store);
+
+        FanProfiles.Apply("turbo", _fans, _store);
+
+        var s = _store.Load();
+        var silent = s.Cooling.Curves.First(c => c.Preset == "silent");
+        var turbo = s.Cooling.Curves.First(c => c.Preset == "turbo");
+        Assert.Contains(silent.Outputs, o => o.Id == "fan1");
+        Assert.DoesNotContain(turbo.Outputs, o => o.Id == "fan1");
+        Assert.Contains(turbo.Outputs, o => o.Id == "fan2");
+    }
+
+    [Fact]
+    public void LockedFan_AppliedOff_IsReleasedToBios()
+    {
+        FanProfiles.Apply("silent", _fans, _store);
+        var fan1 = _fans.GetFanChannels().First(c => c.Id == "fan1");
+        FanProfiles.SetLockOverride(fan1, true, _store);
+
+        FanProfiles.Apply("off", _fans, _store);
+
+        // Off ignores the lock: every channel detaches and releases to BIOS.
+        var s = _store.Load();
+        var preset = s.Cooling.Curves.First(c => c.Preset == "silent");
+        Assert.DoesNotContain(preset.Outputs, o => o.Id == "fan1");
+        Assert.DoesNotContain(preset.Outputs, o => o.Id == "fan2");
+        Assert.Contains(_fans.Released, id => id == "fan1");
+        Assert.Contains(_fans.Released, id => id == "fan2");
+    }
+
+    [Fact]
+    public void UnlockedPump_AppliedSilent_IsAttached()
+    {
+        var fans = new FakeFanProvider(
+            channels: new List<FanChannel>
+            {
+                new() { Id = "fan1", Name = "Fan 1" },
+                new() { Id = "pump1", Name = "AIO Pump", Kind = FanKinds.Pump },
+            },
+            temps: new List<TemperatureSource> { new() { Id = "cpu", Category = "CPU" } });
+        var pump = fans.GetFanChannels().First(c => c.Id == "pump1");
+        FanProfiles.SetLockOverride(pump, false, _store);
+
+        FanProfiles.Apply("silent", fans, _store);
+
+        var s = _store.Load();
+        var preset = s.Cooling.Curves.First(c => c.Preset == "silent");
+        Assert.Contains(preset.Outputs, o => o.Id == "pump1");
+    }
+
+    [Fact]
+    public void DerivePresetFromCurves_LockedFanOffPreset_DoesNotForceCustom()
+    {
+        FanProfiles.Apply("silent", _fans, _store);
+        var fan2 = _fans.GetFanChannels().First(c => c.Id == "fan2");
+        FanProfiles.SetLockOverride(fan2, true, _store);
+        FanProfiles.DetachFanFromCurves("fan2", _store);
+
+        Assert.Equal("silent", FanProfiles.DerivePresetFromCurves(_store, _fans));
+    }
+
+    [Fact]
+    public void SetLockOverride_CollapsesToDefault_AndRecordsDeviations()
+    {
+        var pump = new FanChannel { Id = "pump1", Kind = FanKinds.Pump };
+        var fan = new FanChannel { Id = "fan1", Kind = FanKinds.Fan };
+
+        // Locking a pump matches its default (locked) -> no override stored.
+        FanProfiles.SetLockOverride(pump, true, _store);
+        Assert.False(_store.Load().Cooling.FanLockOverrides.ContainsKey("pump1"));
+
+        // Locking a fan deviates from its default (unlocked) -> stored as true.
+        FanProfiles.SetLockOverride(fan, true, _store);
+        Assert.True(_store.Load().Cooling.FanLockOverrides["fan1"]);
+
+        // Unlocking that fan restores its default -> entry removed.
+        FanProfiles.SetLockOverride(fan, false, _store);
+        Assert.False(_store.Load().Cooling.FanLockOverrides.ContainsKey("fan1"));
+    }
+
     private sealed class FakeFanProvider : IFanControlProvider
     {
         private readonly List<FanChannel> _channels;

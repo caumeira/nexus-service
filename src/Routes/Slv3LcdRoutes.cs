@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using Microsoft.AspNetCore.Http;
 using Nexus.Service.Media;
@@ -274,7 +275,7 @@ public static class Slv3LcdRoutes
                     await file.CopyToAsync(stream);
                 }
 
-                var result = await library.ImportAsync(tempPath, file.FileName);
+                var result = await library.ImportAsync(tempPath, file.FileName, ParseCropField(form["crop"].ToString()));
                 if (!result.Ok)
                 {
                     return Results.Json(
@@ -303,6 +304,27 @@ public static class Slv3LcdRoutes
             return Results.Json(response, AppJsonContext.Default.Slv3LcdMediaListResponse);
         });
 
+        // First-frame thumbnail; auth via ?token= (ExtractBearerOrQueryToken) so
+        // an <img src> can load it without a header.
+        app.MapGet("/devices/lianli-wireless/media/{id}/thumb", async (string id, Slv3LcdMediaLibrary library) =>
+        {
+            var path = library.GetThumbnailPath(id);
+            if (path is null)
+            {
+                return Results.NotFound();
+            }
+            try
+            {
+                return Results.File(await File.ReadAllBytesAsync(path), "image/jpeg");
+            }
+            catch (IOException)
+            {
+                // A concurrent delete can remove the frame between the exists
+                // check and the read.
+                return Results.NotFound();
+            }
+        });
+
         app.MapDelete("/devices/lianli-wireless/media/{id}", (string id, Slv3LcdMediaLibrary library) =>
         {
             if (!MediaLibrary.IsValidId(id))
@@ -328,5 +350,35 @@ public static class Slv3LcdRoutes
             }
         }
         return true;
+    }
+
+    // "x,y,w,h" normalized (0..1). Returns null (import uncropped) when absent
+    // or malformed; clamps into range so a bad rect can't escape the frame.
+    private static Slv3LcdCropRect? ParseCropField(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            return null;
+        }
+        var parts = raw.Split(',');
+        if (parts.Length != 4
+            || !double.TryParse(parts[0], NumberStyles.Float, CultureInfo.InvariantCulture, out var x)
+            || !double.TryParse(parts[1], NumberStyles.Float, CultureInfo.InvariantCulture, out var y)
+            || !double.TryParse(parts[2], NumberStyles.Float, CultureInfo.InvariantCulture, out var w)
+            || !double.TryParse(parts[3], NumberStyles.Float, CultureInfo.InvariantCulture, out var h))
+        {
+            return null;
+        }
+        // TryParse accepts NaN/Infinity, and Math.Clamp is a pass-through on NaN,
+        // so a non-finite x/y would survive into the ffmpeg filter.
+        if (!double.IsFinite(x) || !double.IsFinite(y) || !double.IsFinite(w) || !double.IsFinite(h))
+        {
+            return null;
+        }
+        x = Math.Clamp(x, 0, 1);
+        y = Math.Clamp(y, 0, 1);
+        w = Math.Clamp(w, 0, 1 - x);
+        h = Math.Clamp(h, 0, 1 - y);
+        return w > 0 && h > 0 ? new Slv3LcdCropRect(x, y, w, h) : null;
     }
 }

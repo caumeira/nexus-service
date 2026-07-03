@@ -121,6 +121,8 @@ public sealed class FanChannel
     public int? MinDuty { get; set; }
     public string? Classification { get; set; }
     public bool Calibrated => MinRpm is not null;
+    /// <summary>True when the channel is exempt from Silent/Balanced/Turbo/Off/Custom preset applies. Computed from settings; not read from hardware.</summary>
+    public bool Locked { get; set; }
 
     // External-device metadata. All null for motherboard/GPU fans; populated
     // only when the channel belongs to a USB hub like NP50. Drives
@@ -221,6 +223,11 @@ public sealed class SetFanSpeedResponse : ApiResponse
 public sealed class SetFanNameBody
 {
     public string Name { get; set; } = "";
+}
+
+public sealed class SetFanLockBody
+{
+    public bool Locked { get; set; }
 }
 
 // ----- Curve engine WebSocket push -----

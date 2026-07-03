@@ -79,13 +79,15 @@ public static class CoolingRoutes
         app.MapGet("/cooling/fans", (IFanControlProvider f, IConfigStore store) =>
         {
             var channels = new List<FanChannel>(f.GetFanChannels());
-            var names = store.Load().Cooling.FanNames;
+            var cooling = store.Load().Cooling;
+            var names = cooling.FanNames;
             foreach (var ch in channels)
             {
                 if (names.TryGetValue(ch.Id, out var custom))
                 {
                     ch.Name = custom;
                 }
+                ch.Locked = FanProfiles.IsLocked(ch, cooling.FanLockOverrides);
             }
             return new GetFanChannelsResponse { Channels = channels };
         }).AllowPanel();
@@ -148,6 +150,25 @@ public static class CoolingRoutes
             PanelTopics.BroadcastCooling(hub);
             return Results.Ok(ApiResponse.Ok());
         });
+
+        app.MapPost("/cooling/fan/{id}/lock", (string id, SetFanLockBody body, IFanControlProvider f, IConfigStore store, MultiplexHub hub) =>
+        {
+            id = Uri.UnescapeDataString(id);
+            var ch = f.GetFanChannels().FirstOrDefault(c => c.Id == id);
+            if (ch is null)
+            {
+                return Results.BadRequest(new ApiResponse { Error = true, Msg = "Unknown fan channel" });
+            }
+
+            FanProfiles.SetLockOverride(ch, body.Locked, store);
+
+            // Locking/unlocking never moves a fan; only re-derive the active
+            // preset label so it stays truthful for future applies.
+            var derived = FanProfiles.DerivePresetFromCurves(store, f);
+            store.Update(s => s.Cooling.ActivePreset = derived);
+            PanelTopics.BroadcastCooling(hub);
+            return Results.Ok(ApiResponse.Ok());
+        }).AllowPanel();
 
         // Profiles
         app.MapGet("/cooling/profiles", (IConfigStore store) =>

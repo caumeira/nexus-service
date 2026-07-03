@@ -115,6 +115,14 @@ public sealed class Slv3LcdMediaLibrary
         return new Slv3LcdImageData { Id = id, Frames = frames.ToArray() };
     }
 
+    /// <summary>Absolute path to the item's first frame (its thumbnail), or null if absent.</summary>
+    public string? GetThumbnailPath(string id)
+    {
+        if (!MediaLibrary.IsValidId(id)) return null;
+        var path = Path.Combine(_rootDir, id, "frame-0000.jpg");
+        return File.Exists(path) ? path : null;
+    }
+
     public bool DeleteItem(string id)
     {
         if (!MediaLibrary.IsValidId(id)) return false;
@@ -137,7 +145,8 @@ public sealed class Slv3LcdMediaLibrary
     /// cap either). GIF frame delays are parsed from the raw file bytes;
     /// video frames get a uniform delay from the fixed extraction rate.
     /// </summary>
-    public async Task<Slv3LcdImportResult> ImportAsync(string sourcePath, string originalName)
+    public async Task<Slv3LcdImportResult> ImportAsync(
+        string sourcePath, string originalName, Slv3LcdCropRect? crop = null)
     {
         if (FfmpegResolver.Path is null)
         {
@@ -166,12 +175,15 @@ public sealed class Slv3LcdMediaLibrary
             // so pad instead of squash, matching Slv3LcdImage's still-image filter.
             var padFilter =
                 $"scale={Slv3LcdProtocol.PanelWidth}:{Slv3LcdProtocol.PanelHeight}:force_original_aspect_ratio=decrease,pad={Slv3LcdProtocol.PanelWidth}:{Slv3LcdProtocol.PanelHeight}:-1:-1:color=black";
+            // The web cropper picks the square region to keep; apply it before
+            // the scale/pad so gif/video crop like stills do.
+            var cropPadFilter = crop is { IsFullFrame: false } cr ? $"{cr.ToFfmpegFilter()},{padFilter}" : padFilter;
 
             var delays = Array.Empty<int>();
             if (isStill)
             {
                 var sourceBytes = await File.ReadAllBytesAsync(sourcePath).ConfigureAwait(false);
-                var encoded = await Slv3LcdImage.EncodeAsync(sourceBytes, ext).ConfigureAwait(false);
+                var encoded = await Slv3LcdImage.EncodeAsync(sourceBytes, ext, crop).ConfigureAwait(false);
                 if (!encoded.Ok)
                 {
                     Directory.Delete(dir, recursive: true);
@@ -185,7 +197,7 @@ public sealed class Slv3LcdMediaLibrary
                 // force 0 so it lines up with CountFrameFiles/LoadFrames below.
                 await MediaImporter.RunFfmpeg(
                     "-y", "-i", sourcePath,
-                    "-vf", padFilter,
+                    "-vf", cropPadFilter,
                     "-vsync", "0",
                     "-start_number", "0",
                     "-q:v", "5",
@@ -198,7 +210,7 @@ public sealed class Slv3LcdMediaLibrary
             {
                 await MediaImporter.RunFfmpeg(
                     "-y", "-i", sourcePath,
-                    "-vf", padFilter,
+                    "-vf", cropPadFilter,
                     "-r", VideoFps.ToString(),
                     "-frames:v", VideoMaxFrames.ToString(),
                     "-start_number", "0",
