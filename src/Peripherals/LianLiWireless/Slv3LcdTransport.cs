@@ -42,9 +42,10 @@ public interface ISlv3LcdTransport : IDisposable
 /// <summary>
 /// WinUSB-backed transport for one SL-LCD Wireless screen. Reuses
 /// <see cref="Slv3WinUsbInterop"/>, the same WinUSB P/Invoke surface as the
-/// RF dongles; this device family differs only in protocol and endpoint
-/// type (bulk here, interrupt on the dongles), not in the open/pipe-policy
-/// pattern.
+/// RF dongles, but the bulk OUT pipe here rejects a NULL-overlapped write with
+/// ERROR_BAD_COMMAND, so writes go through a real OVERLAPPED + GetOverlappedResult
+/// (the RF interrupt pipes tolerate NULL). A background thread drains the IN
+/// endpoint continuously, matching L-Connect's DataReceived reader.
 /// </summary>
 public sealed class Slv3LcdTransport : ISlv3LcdTransport
 {
@@ -53,12 +54,45 @@ public sealed class Slv3LcdTransport : ISlv3LcdTransport
     private const uint WriteTimeoutMs = 3000;
     // The ack read is optional (plan section 4.1); a short timeout reads a
     // non-acking screen as "no ack" rather than blocking the caller.
-    private const uint AckReadTimeoutMs = 500;
+    private const int AckReadTimeoutMs = 500;
+    private const uint WaitObject0 = 0;
 
     private readonly Microsoft.Win32.SafeHandles.SafeFileHandle _fileHandle;
     private readonly IntPtr _winUsbHandle;
+    private readonly IntPtr _writeEvent;
     private readonly object _ioLock = new();
     private bool _disposed;
+
+    // One OUT write at a time (all writes hold _ioLock), so a single reusable
+    // event + overlapped buffer suffices.
+    private bool WriteOverlappedLocked(byte[] buffer)
+    {
+        var pin = System.Runtime.InteropServices.GCHandle.Alloc(buffer, System.Runtime.InteropServices.GCHandleType.Pinned);
+        var ovPtr = Marshal.AllocHGlobal(Marshal.SizeOf<System.Threading.NativeOverlapped>());
+        try
+        {
+            Marshal.StructureToPtr(new System.Threading.NativeOverlapped { EventHandle = _writeEvent }, ovPtr, false);
+            Slv3WinUsbInterop.ResetEvent(_writeEvent);
+            var ok = Slv3WinUsbInterop.WinUsb_WritePipe(
+                _winUsbHandle, Slv3LcdProtocol.WritePipeId, pin.AddrOfPinnedObject(), (uint)buffer.Length, out var transferred, ovPtr);
+            if (!ok && Marshal.GetLastWin32Error() == (int)Slv3WinUsbInterop.ERROR_IO_PENDING)
+            {
+                // On timeout, abort the transfer first so the wait:true reap
+                // returns promptly instead of re-blocking past WriteTimeoutMs.
+                if (Slv3WinUsbInterop.WaitForSingleObject(_writeEvent, WriteTimeoutMs) != WaitObject0)
+                {
+                    Slv3WinUsbInterop.WinUsb_AbortPipe(_winUsbHandle, Slv3LcdProtocol.WritePipeId);
+                }
+                ok = Slv3WinUsbInterop.WinUsb_GetOverlappedResult(_winUsbHandle, ovPtr, out transferred, wait: true);
+            }
+            return ok && transferred == buffer.Length;
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(ovPtr);
+            pin.Free();
+        }
+    }
 
     public Slv3LcdTransport(string devicePath)
     {
@@ -87,8 +121,17 @@ public sealed class Slv3LcdTransport : ISlv3LcdTransport
             throw new IOException($"WinUsb_Initialize failed for {devicePath}: {err}");
         }
 
+        _writeEvent = Slv3WinUsbInterop.CreateEventW(IntPtr.Zero, manualReset: true, initialState: false, IntPtr.Zero);
+        if (_writeEvent == IntPtr.Zero)
+        {
+            var err = Marshal.GetLastWin32Error();
+            Slv3WinUsbInterop.WinUsb_Free(_winUsbHandle);
+            _fileHandle.Dispose();
+            throw new IOException($"CreateEventW failed for {devicePath}: {err}");
+        }
+
         var writeTimeout = WriteTimeoutMs;
-        var readTimeout = AckReadTimeoutMs;
+        var readTimeout = (uint)AckReadTimeoutMs;
         if (!Slv3WinUsbInterop.WinUsb_SetPipePolicy(_winUsbHandle, Slv3LcdProtocol.WritePipeId,
             Slv3WinUsbInterop.PIPE_TRANSFER_TIMEOUT, sizeof(uint), ref writeTimeout))
         {
@@ -100,6 +143,49 @@ public sealed class Slv3LcdTransport : ISlv3LcdTransport
         {
             Nexus.Service.Platform.ServiceLog.Warn(
                 $"[lianli-wireless-lcd] SetPipePolicy (read timeout) failed for {devicePath}: {Marshal.GetLastWin32Error()}");
+        }
+
+        // Clear any halt left on the pipes from L-Connect's prior session; a
+        // stalled bulk OUT pipe rejects WinUsb_WritePipe with ERROR_BAD_COMMAND.
+        Slv3WinUsbInterop.WinUsb_ResetPipe(_winUsbHandle, Slv3LcdProtocol.WritePipeId);
+        Slv3WinUsbInterop.WinUsb_ResetPipe(_winUsbHandle, Slv3LcdProtocol.ReadPipeId);
+
+        // The panel pushes back-pressure/acks on the IN endpoint; if the host does
+        // not continuously drain it the pipe backs up and the OUT writes stall
+        // (ERROR_BAD_COMMAND). L-Connect's InitDev runs a continuous DataReceived
+        // reader for exactly this - mirror it with a background drain thread.
+        _draining = true;
+        _drainThread = new System.Threading.Thread(DrainLoop) { IsBackground = true, Name = "slv3-lcd-drain" };
+        _drainThread.Start();
+
+        // L-Connect's InitDev issues SetFrameRate(120) on open; the panel stays on
+        // its boot logo and ignores pushed JPEGs until it receives this.
+        WriteArgCommand(Slv3LcdProtocol.CmdType.SetFrameRate, 120);
+    }
+
+    private volatile bool _draining;
+    private readonly System.Threading.Thread? _drainThread;
+    // Sole reader of the IN pipe: TryGetPosition consumes acks from here rather
+    // than issuing its own read, which would race the drain for the same frame.
+    private readonly System.Collections.Concurrent.BlockingCollection<byte[]> _rxQueue = new(boundedCapacity: 32);
+
+    private void DrainLoop()
+    {
+        var buf = new byte[10240];
+        while (_draining && !_disposed)
+        {
+            // Different pipe (0x81) than writes (0x01) - WinUSB serializes per
+            // pipe, so this reads concurrently with a push without _ioLock.
+            if (Slv3WinUsbInterop.WinUsb_ReadPipe(
+                    _winUsbHandle, Slv3LcdProtocol.ReadPipeId, buf, (uint)buf.Length, out var n, IntPtr.Zero)
+                && n > 0)
+            {
+                var frame = buf[..(int)n];
+                while (!_rxQueue.TryAdd(frame) && _rxQueue.TryTake(out _))
+                {
+                    // Drop the oldest ack to make room for the newest.
+                }
+            }
         }
     }
 
@@ -116,15 +202,18 @@ public sealed class Slv3LcdTransport : ISlv3LcdTransport
         var buffer = Slv3LcdProtocol.BuildPushJpgBuffer(timestamp, jpeg);
         lock (_ioLock)
         {
-            var ok = Slv3WinUsbInterop.WinUsb_WritePipe(
-                _winUsbHandle, Slv3LcdProtocol.WritePipeId, buffer, (uint)buffer.Length, out _, IntPtr.Zero);
-            if (ok)
+            var ok = WriteOverlappedLocked(buffer);
+            if (ok && !_loggedFirstPush)
             {
-                TryDrainAckLocked();
+                _loggedFirstPush = true;
+                Nexus.Service.Platform.ServiceLog.Info(
+                    $"[lianli-wireless-lcd] PushImage OK ({buffer.Length} bytes)");
             }
             return ok;
         }
     }
+
+    private bool _loggedFirstPush;
 
     public bool SetBrightness(byte value) => WriteArgCommand(Slv3LcdProtocol.CmdType.BrigthSet, value);
 
@@ -141,16 +230,15 @@ public sealed class Slv3LcdTransport : ISlv3LcdTransport
         var header = Slv3LcdProtocol.BuildArgCommandHeader(Slv3LcdProtocol.CmdType.GetPosIndex, timestamp, 0);
         lock (_ioLock)
         {
-            var wrote = Slv3WinUsbInterop.WinUsb_WritePipe(
-                _winUsbHandle, Slv3LcdProtocol.WritePipeId, header, (uint)header.Length, out _, IntPtr.Zero);
-            if (!wrote)
+            // Discard acks queued before this query so the next frame is ours.
+            while (_rxQueue.TryTake(out _))
+            {
+            }
+            if (!WriteOverlappedLocked(header))
             {
                 return false;
             }
-            var ack = new byte[Slv3LcdProtocol.HeaderCipherSize];
-            var read = Slv3WinUsbInterop.WinUsb_ReadPipe(
-                _winUsbHandle, Slv3LcdProtocol.ReadPipeId, ack, (uint)ack.Length, out var bytesRead, IntPtr.Zero);
-            if (!read || bytesRead < 9)
+            if (!_rxQueue.TryTake(out var ack, AckReadTimeoutMs) || ack.Length < 9)
             {
                 return false;
             }
@@ -169,23 +257,8 @@ public sealed class Slv3LcdTransport : ISlv3LcdTransport
         var header = Slv3LcdProtocol.BuildArgCommandHeader(cmd, timestamp, value);
         lock (_ioLock)
         {
-            var ok = Slv3WinUsbInterop.WinUsb_WritePipe(
-                _winUsbHandle, Slv3LcdProtocol.WritePipeId, header, (uint)header.Length, out _, IntPtr.Zero);
-            if (ok)
-            {
-                TryDrainAckLocked();
-            }
-            return ok;
+            return WriteOverlappedLocked(header);
         }
-    }
-
-    // A screen that never acks must not fail the push (plan section 4.1: the
-    // ack is optional). Caller holds _ioLock.
-    private void TryDrainAckLocked()
-    {
-        var ack = new byte[Slv3LcdProtocol.HeaderCipherSize];
-        Slv3WinUsbInterop.WinUsb_ReadPipe(
-            _winUsbHandle, Slv3LcdProtocol.ReadPipeId, ack, (uint)ack.Length, out _, IntPtr.Zero);
     }
 
     public void Dispose()
@@ -195,6 +268,13 @@ public sealed class Slv3LcdTransport : ISlv3LcdTransport
             return;
         }
         _disposed = true;
+        // Stop the drain thread before freeing the handle it reads from. Abort
+        // the IN pipe so a blocked ReadPipe returns even if its timeout policy
+        // never took, then join before WinUsb_Free (no read in flight = no UAF).
+        _draining = false;
+        Slv3WinUsbInterop.WinUsb_AbortPipe(_winUsbHandle, Slv3LcdProtocol.ReadPipeId);
+        _drainThread?.Join();
+        _rxQueue.Dispose();
         lock (_ioLock)
         {
             if (_winUsbHandle != IntPtr.Zero)
@@ -202,6 +282,10 @@ public sealed class Slv3LcdTransport : ISlv3LcdTransport
                 Slv3WinUsbInterop.WinUsb_Free(_winUsbHandle);
             }
             _fileHandle.Dispose();
+            if (_writeEvent != IntPtr.Zero)
+            {
+                Slv3WinUsbInterop.CloseHandle(_writeEvent);
+            }
         }
     }
 }

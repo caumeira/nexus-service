@@ -53,6 +53,14 @@ internal static class Slv3WinUsbInterop
         IntPtr interfaceHandle, byte pipeId, byte[] buffer, uint bufferLength,
         out uint lengthTransferred, IntPtr overlapped);
 
+    // Pointer overload so the LCD push can pass a pinned buffer + a real
+    // OVERLAPPED pointer (the byte[] overload marshals overlapped as IntPtr.Zero).
+    [DllImport("winusb.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool WinUsb_WritePipe(
+        IntPtr interfaceHandle, byte pipeId, IntPtr buffer, uint bufferLength,
+        out uint lengthTransferred, IntPtr overlapped);
+
     [DllImport("winusb.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool WinUsb_ReadPipe(
@@ -63,6 +71,40 @@ internal static class Slv3WinUsbInterop
     [return: MarshalAs(UnmanagedType.Bool)]
     public static extern bool WinUsb_SetPipePolicy(
         IntPtr interfaceHandle, byte pipeId, uint policyType, uint valueLength, ref uint value);
+
+    [DllImport("winusb.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool WinUsb_ResetPipe(IntPtr interfaceHandle, byte pipeId);
+
+    // Cancels any pending transfer on a pipe so a blocked ReadPipe/WritePipe
+    // returns instead of pinning the handle open through Dispose.
+    [DllImport("winusb.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool WinUsb_AbortPipe(IntPtr interfaceHandle, byte pipeId);
+
+    // Overlapped I/O: LibUsbDotNet (what L-Connect uses) drives bulk transfers
+    // through a real OVERLAPPED; a NULL overlapped works for the RF interrupt
+    // pipes but the LCD bulk OUT pipe returns ERROR_BAD_COMMAND without one.
+    public const uint ERROR_IO_PENDING = 997;
+
+    [DllImport("winusb.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool WinUsb_GetOverlappedResult(
+        IntPtr interfaceHandle, IntPtr overlapped, out uint lengthTransferred, [MarshalAs(UnmanagedType.Bool)] bool wait);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern IntPtr CreateEventW(IntPtr attributes, [MarshalAs(UnmanagedType.Bool)] bool manualReset, [MarshalAs(UnmanagedType.Bool)] bool initialState, IntPtr name);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool ResetEvent(IntPtr handle);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    public static extern uint WaitForSingleObject(IntPtr handle, uint milliseconds);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    public static extern bool CloseHandle(IntPtr handle);
 
     [DllImport("setupapi.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     public static extern IntPtr SetupDiGetClassDevs(ref Guid classGuid, string? enumerator, IntPtr hwndParent, uint flags);
