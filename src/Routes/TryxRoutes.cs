@@ -553,12 +553,13 @@ public static class TryxRoutes
         var adbSerial = hub.State.AdbSerial;
         if (string.IsNullOrEmpty(adbSerial))
         {
-            // RK firmware (usbprint, no adb): the panel's own media-list push is device truth,
-            // so a custom upload made via ANY tool (Nexus or Kanali) appears here, not only the
-            // ones we have a local thumbnail for. Exclude the built-in presets and system clips.
-            // Fall back to the local thumbnail record only until the panel's list has arrived.
-            var device = hub.AvailableMediaFilenames.Where(IsCustomDeviceMedia).ToList();
-            return device.Count > 0 ? device : TryxThumbnailCache.ListCustomMedia();
+            // RK firmware (usbprint, no adb): union of the panel's own list (device truth, so a
+            // Kanali upload with no local thumbnail still appears) and the local thumbnail record
+            // (a just-uploaded file the panel's once-per-connection list hasn't caught yet),
+            // deduped by device filename. Built-in presets and system clips are excluded.
+            var device = hub.AvailableMediaFilenames.Where(IsCustomDeviceMedia);
+            return device.Concat(TryxThumbnailCache.ListCustomMedia())
+                .Distinct(StringComparer.Ordinal).ToList();
         }
         // Legacy serial firmware: enumerate /sdcard/pcMedia over adb, plus the thumbnail record.
         var files = TryxThumbnailCache.ListCustomMedia();
