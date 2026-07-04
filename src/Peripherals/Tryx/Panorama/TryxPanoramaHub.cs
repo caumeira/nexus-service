@@ -188,13 +188,18 @@ public sealed class TryxPanoramaHub : IDisposable
     {
         if (string.IsNullOrEmpty(deviceFileName)) return false;
         var sn = PanelSerial;
+        // file_remove is a locked command the panel silently ignores without the serial, and
+        // SendReliable only confirms the bytes left the host - so a serial-less send would report
+        // success while the file survives (and the caller would then drop the local thumbnail).
+        // Fail instead until the connect-time device_info reply has given us the serial.
+        if (string.IsNullOrEmpty(sn)) return false;
         var ok = SendReliable(TryxRkProtocol.BuildFileRemove(deviceFileName, sn));
         if (ok)
         {
             RecordMediaDeleted(deviceFileName);
             // Re-fetch so the panel's list (and the per-file sizes) drop the removed file
             // authoritatively, not just via the local delta.
-            if (!string.IsNullOrEmpty(sn)) SendReliable(TryxRkProtocol.BuildGetFileList(sn));
+            SendReliable(TryxRkProtocol.BuildGetFileList(sn));
         }
         return ok;
     }
@@ -997,10 +1002,10 @@ public sealed class TryxPanoramaHub : IDisposable
         _ => sensor.Value.ToString(CultureInfo.InvariantCulture),
     };
 
-    // LHM Throughput sensors (network up/down) report bytes/sec, so the raw value slapped with
-    // "MB/s" reads as e.g. "1250000.0MB/s". Scale to the largest fitting unit, matching the web
-    // monitoring widgets' formatter (panel/widgets/monitoring/page/shared.ts); no space before
-    // the unit, like the other overlay values.
+    // LHM Throughput sensors (network up/down) report bytes/sec; appending "MB/s" to the raw
+    // value misreads it by orders of magnitude. Scale to the largest fitting unit, matching the
+    // web monitoring widgets' formatter (panel/widgets/monitoring/page/shared.ts); no space
+    // before the unit, like the other overlay values.
     private static string FormatThroughput(float bytesPerSec) =>
         bytesPerSec >= 1024f * 1024f
             ? $"{(bytesPerSec / 1024f / 1024f).ToString("0.0", CultureInfo.InvariantCulture)}MB/s"

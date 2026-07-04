@@ -725,7 +725,8 @@ public class TryxPanoramaHubTests
 
         hub.EnsureConnected();
 
-        // config + get_file_list request + overlay frame.
+        // config + device_info request + overlay frame (the media-list fetch is sent later, from
+        // the heartbeat, once the serial reply lands - not during this connect).
         Assert.Equal(3, recording.Writes.Count);
     }
 

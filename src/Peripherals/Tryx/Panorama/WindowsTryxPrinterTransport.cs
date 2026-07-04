@@ -140,7 +140,11 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     // write failing lets the hub rebuild the transport (with a fresh drain loop).
     private void DrainReads(CancellationToken ct)
     {
-        var buffer = new byte[2048];
+        // Sized so the whole file_list (f503) push lands in one read: ~70 bytes/entry, so 16 KiB
+        // holds ~200 files. A list that overflows one read parses as null (used-bytes/space-check
+        // fall back to 0 until it fits) - see the media-list caveat below; a streaming reassembler
+        // is the proper fix if panels routinely exceed this.
+        var buffer = new byte[16384];
         while (!ct.IsCancellationRequested)
         {
             try
@@ -153,11 +157,9 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
                     Thread.Sleep(50);
                     continue;
                 }
-                // The panel pushes its stored-media list unprompted on this endpoint;
-                // other reads (heartbeat acks, sensor replies) don't parse as one, so
-                // a stale non-empty list is never overwritten by an unrelated read.
-                // Assumes the list lands in a single read; a payload split across two
-                // reads only parses the fragment carrying the "/userdata/default/" marker.
+                // The panel pushes its stored-media list unprompted on this endpoint; other reads
+                // (heartbeat acks, device_info) don't parse as one, so a stale non-empty list is
+                // never overwritten. Assumes the list lands in a single read (see the buffer size).
                 var span = buffer.AsSpan(0, read);
                 // file_list (f503) push - device truth. ParseMediaEntries is the authoritative
                 // source (all files under /userdata/*, with sizes); the basename is what the rest

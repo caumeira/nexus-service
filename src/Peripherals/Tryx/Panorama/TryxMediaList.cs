@@ -62,38 +62,6 @@ public static class TryxMediaList
         return ids.Count == 0 ? Array.Empty<string>() : new List<string>(ids);
     }
 
-    /// <summary>All media filenames the panel lists under <see cref="StoreDirMarker"/>
-    /// (e.g. "default_01.mp4.h264_2240x1080", "download_44.mp4...", custom names), so the
-    /// panel itself is the source of truth for what is stored - no local record needed.
-    /// Empty if the buffer is not the media-list payload.</summary>
-    public static IReadOnlyList<string> ParseMediaFilenames(ReadOnlySpan<byte> data)
-    {
-        if (data.IsEmpty) return Array.Empty<string>();
-        var text = Encoding.UTF8.GetString(data);
-        if (!text.Contains(StoreDirMarker, StringComparison.Ordinal)) return Array.Empty<string>();
-
-        var names = new SortedSet<string>(StringComparer.Ordinal);
-        var searchStart = 0;
-        while (true)
-        {
-            var markerIndex = text.IndexOf(StoreDirMarker, searchStart, StringComparison.Ordinal);
-            if (markerIndex < 0) break;
-            var nameStart = markerIndex + StoreDirMarker.Length;
-            var nameEnd = nameStart;
-            // A filename runs until a control/non-printable byte or another path separator.
-            while (nameEnd < text.Length && text[nameEnd] is not ('\0' or '\n' or '\r' or '/') && !char.IsControl(text[nameEnd]))
-            {
-                nameEnd++;
-            }
-            searchStart = nameEnd + 1;
-            if (nameEnd > nameStart)
-            {
-                names.Add(text[nameStart..nameEnd]);
-            }
-        }
-        return names.Count == 0 ? Array.Empty<string>() : new List<string>(names);
-    }
-
     /// <summary>One file the panel's media-list push reports: <paramref name="Name"/> is the
     /// basename under <see cref="StoreDirMarker"/> (path prefix stripped), <paramref name="SizeBytes"/>
     /// its f3 size.</summary>
