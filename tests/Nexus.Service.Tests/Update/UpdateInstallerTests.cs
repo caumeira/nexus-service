@@ -1,3 +1,4 @@
+using System.IO;
 using Nexus.Service.Update;
 using Xunit;
 
@@ -27,5 +28,46 @@ public sealed class UpdateInstallerTests
     public void IsValidVersionTag_accepts_semver_including_prerelease(string tag, bool expected)
     {
         Assert.Equal(expected, UpdateInstaller.IsValidVersionTag(tag));
+    }
+
+    // The installer launches as SYSTEM, so a marker-supplied path must resolve
+    // inside the SYSTEM-locked staging dir. A non-admin who plants a marker
+    // pointing at their own payload is rejected here even if the marker is read.
+    [Fact]
+    public void IsWithinStagingDir_accepts_a_file_inside_the_staging_dir()
+    {
+        var path = Path.Combine(UpdateDownloader.StagingDir, "Nexus-Setup-v3.0.1.exe");
+        Assert.True(UpdateInstaller.IsWithinStagingDir(path));
+    }
+
+    [Fact]
+    public void IsWithinStagingDir_rejects_a_path_outside_the_staging_dir()
+    {
+        var outside = Path.Combine(Path.GetTempPath(), "evil.exe");
+        Assert.False(UpdateInstaller.IsWithinStagingDir(outside));
+    }
+
+    [Fact]
+    public void IsWithinStagingDir_rejects_a_traversal_escape()
+    {
+        var escape = Path.Combine(UpdateDownloader.StagingDir, "..", "evil.exe");
+        Assert.False(UpdateInstaller.IsWithinStagingDir(escape));
+    }
+
+    [Fact]
+    public void IsWithinStagingDir_rejects_a_sibling_prefix_dir()
+    {
+        // "staged-updates-evil" shares the staging dir's string prefix but is a
+        // different directory; the separator guard must reject it.
+        var sibling = UpdateDownloader.StagingDir + "-evil" + Path.DirectorySeparatorChar + "x.exe";
+        Assert.False(UpdateInstaller.IsWithinStagingDir(sibling));
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData(null)]
+    public void IsWithinStagingDir_rejects_empty(string? path)
+    {
+        Assert.False(UpdateInstaller.IsWithinStagingDir(path!));
     }
 }

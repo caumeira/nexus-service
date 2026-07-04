@@ -5,6 +5,7 @@ using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Update;
 
@@ -26,6 +27,23 @@ public sealed class UpdateDownloader
             Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
             "Nexus",
             "staged-updates");
+
+    /// <summary>
+    /// Creates the staging dir and, on the LocalSystem service, locks it to
+    /// SYSTEM + Administrators. The dir holds the install directive (marker), the
+    /// installer, and the .cmd launched as SYSTEM, so a non-admin able to write
+    /// here is a privilege escalation. %ProgramData% is user-writable by default.
+    /// No-op when running interactively (a dev is not the LocalSystem threat).
+    /// </summary>
+    public static void EnsureSecureStagingDir()
+    {
+        Directory.CreateDirectory(StagingDir);
+        if (OperatingSystem.IsWindows() && WindowsDirectorySecurity.IsLocalSystem())
+        {
+            try { WindowsDirectorySecurity.Protect(StagingDir, resetOwner: true); }
+            catch { /* never block staging on an ACL failure */ }
+        }
+    }
 
     private readonly IHttpClientFactory _http;
 
@@ -50,7 +68,7 @@ public sealed class UpdateDownloader
                 "Cannot download: no SHA-256 hash available for integrity verification.");
         }
 
-        Directory.CreateDirectory(StagingDir);
+        EnsureSecureStagingDir();
 
         var fileName = $"Nexus-Setup-{manifest.Version}.exe";
         var finalPath = Path.Combine(StagingDir, fileName);

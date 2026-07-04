@@ -44,6 +44,29 @@ public static class UpdateInstaller
         return hasDigit;
     }
 
+    // Platform-agnostic so it is unit-tested off-Windows; the launch that
+    // consumes it is Windows-only below.
+    internal static bool IsWithinStagingDir(string installerPath)
+    {
+        if (string.IsNullOrEmpty(installerPath))
+        {
+            return false;
+        }
+
+        try
+        {
+            var staging = Path.GetFullPath(UpdateDownloader.StagingDir);
+            var prefix = staging.EndsWith(Path.DirectorySeparatorChar)
+                ? staging
+                : staging + Path.DirectorySeparatorChar;
+            return Path.GetFullPath(installerPath).StartsWith(prefix, StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
 #if WINDOWS
     private const string TaskPrefix = "NexusOtaInstall";
 
@@ -61,17 +84,43 @@ public static class UpdateInstaller
             return false;
         }
 
+        // The installer runs as SYSTEM, so its path must resolve inside the
+        // SYSTEM-locked staging dir - never an attacker-chosen location a marker
+        // could point at.
+        if (!IsWithinStagingDir(installerPath))
+        {
+            Console.Error.WriteLine($"[ota-install] rejected installer path outside staging dir: {installerPath}");
+            return false;
+        }
+
+        // Re-assert the SYSTEM-only ACL before writing the .cmd that runs as
+        // SYSTEM, closing any window where a non-admin could tamper with it.
+        UpdateDownloader.EnsureSecureStagingDir();
+
         if (!File.Exists(installerPath))
         {
             Console.Error.WriteLine($"[ota-install] installer not found: {installerPath}");
             return false;
         }
 
+        // Delete any pre-existing log so the SYSTEM installer creates it fresh in
+        // the locked dir: File truncate keeps a planted file's owner/DACL (and a
+        // planted symlink would redirect the SYSTEM write).
         var logPath = Path.Combine(UpdateDownloader.StagingDir, $"ota-install-{version}.log");
+        TryDeleteForReplace(logPath);
         var taskName = $"{TaskPrefix}_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
 
         // Build the launcher .cmd file to avoid /TR quoting hell with long paths.
+        // Delete-then-create (never truncate-in-place): File truncate preserves a
+        // pre-planted file's owner + DACL, leaving the .cmd that SYSTEM executes
+        // attacker-writable for an overwrite race. A fresh file in the locked dir
+        // inherits its SYSTEM-only ACL. Abort if a stale one can't be removed.
         var cmdPath = Path.Combine(UpdateDownloader.StagingDir, $"run-ota-{version}.cmd");
+        if (!TryDeleteForReplace(cmdPath))
+        {
+            Console.Error.WriteLine($"[ota-install] could not replace stale launcher: {cmdPath}");
+            return false;
+        }
         File.WriteAllText(cmdPath,
             $"@echo off\r\n\"{installerPath}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART \"/LOG={logPath}\"\r\n");
 
@@ -145,6 +194,24 @@ public static class UpdateInstaller
         {
             Console.Error.WriteLine($"[ota-install] CleanOrphanedTasks failed: {ex.Message}");
         }
+    }
+
+    /// <summary>
+    /// Removes <paramref name="path"/> so the caller can recreate it fresh under
+    /// the locked staging dir's ACL. Returns true when the path is absent
+    /// afterward (deleted or never present), false when a file stubbornly remains.
+    /// </summary>
+    private static bool TryDeleteForReplace(string path)
+    {
+        try
+        {
+            if (File.Exists(path))
+            {
+                File.Delete(path);
+            }
+        }
+        catch { }
+        return !File.Exists(path);
     }
 
     private static bool Schtasks(params string[] args)

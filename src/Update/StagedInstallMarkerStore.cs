@@ -1,7 +1,10 @@
 using System;
 using System.IO;
+using System.Security.AccessControl;
+using System.Security.Principal;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Nexus.Service.Platform;
 using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Update;
@@ -43,6 +46,13 @@ public static class StagedInstallMarkerStore
                 return null;
             }
 
+            if (!IsMarkerTrusted(path))
+            {
+                Console.Error.WriteLine("[ota-marker] rejecting marker not owned by SYSTEM/Administrators");
+                Delete();
+                return null;
+            }
+
             var json = File.ReadAllBytes(path);
             return JsonSerializer.Deserialize(json, AppJsonContext.Default.StagedInstallMarker);
         }
@@ -52,11 +62,40 @@ public static class StagedInstallMarkerStore
         }
     }
 
+    /// <summary>
+    /// The marker directs a SYSTEM-privileged install, so it is trusted only when
+    /// a privileged principal wrote it. On the LocalSystem service, require the
+    /// file owner to be SYSTEM or Administrators: a non-admin cannot create a file
+    /// owned by either, so a planted marker is rejected regardless of the staging
+    /// dir's ACL (race-free). Fails closed (untrusted) on any read error.
+    /// Off-Windows, or when running interactively (not SYSTEM), the LocalSystem
+    /// escalation does not apply and the marker is accepted.
+    /// </summary>
+    private static bool IsMarkerTrusted(string path)
+    {
+        if (!OperatingSystem.IsWindows())
+            return true;
+        if (!WindowsDirectorySecurity.IsLocalSystem())
+            return true;
+        try
+        {
+            var owner = new FileSecurity(path, AccessControlSections.Owner)
+                .GetOwner(typeof(SecurityIdentifier)) as SecurityIdentifier;
+            return owner is not null
+                && (owner.IsWellKnown(WellKnownSidType.LocalSystemSid)
+                    || owner.IsWellKnown(WellKnownSidType.BuiltinAdministratorsSid));
+        }
+        catch
+        {
+            return false;
+        }
+    }
+
     public static void Write(StagedInstallMarker marker)
     {
         try
         {
-            Directory.CreateDirectory(UpdateDownloader.StagingDir);
+            UpdateDownloader.EnsureSecureStagingDir();
             var json = JsonSerializer.SerializeToUtf8Bytes(marker, AppJsonContext.Default.StagedInstallMarker);
             File.WriteAllBytes(MarkerPath, json);
         }

@@ -302,6 +302,11 @@ public sealed class UpdateService : BackgroundService
     {
         var s = _store.Load();
 
+        // Lock the staging dir before trusting anything in it: a non-admin can
+        // otherwise pre-create it under user-writable %ProgramData% and plant a
+        // marker/installer the SYSTEM apply path would run.
+        try { UpdateDownloader.EnsureSecureStagingDir(); } catch { }
+
         var marker = StagedInstallMarkerStore.Read();
         if (marker is null)
         {

@@ -2,8 +2,8 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.Versioning;
-using System.Security.AccessControl;
 using System.Security.Principal;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Widgets;
 
@@ -99,20 +99,5 @@ public static class AppInstallPaths
     }
 
     [SupportedOSPlatform("windows")]
-    private static void SecureDir(string dir)
-    {
-        var info = Directory.CreateDirectory(dir);
-        var sec = new DirectorySecurity();
-        // Drop inherited ACEs (ProgramData grants Users create-file) and set an
-        // explicit protected ACL: only SYSTEM + Administrators may write.
-        sec.SetAccessRuleProtection(isProtected: true, preserveInheritance: false);
-        const InheritanceFlags inherit = InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit;
-        void Allow(WellKnownSidType sid, FileSystemRights rights) =>
-            sec.AddAccessRule(new FileSystemAccessRule(
-                new SecurityIdentifier(sid, null), rights, inherit, PropagationFlags.None, AccessControlType.Allow));
-        Allow(WellKnownSidType.LocalSystemSid, FileSystemRights.FullControl);
-        Allow(WellKnownSidType.BuiltinAdministratorsSid, FileSystemRights.FullControl);
-        Allow(WellKnownSidType.BuiltinUsersSid, FileSystemRights.ReadAndExecute);
-        info.SetAccessControl(sec);
-    }
+    private static void SecureDir(string dir) => WindowsDirectorySecurity.Protect(dir);
 }
