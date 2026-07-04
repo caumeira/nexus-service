@@ -13,7 +13,7 @@ public class Slv3LightingFrameWriterTests
 
     private static (Slv3Hub Hub, Slv3TestHub.FakeSlv3Network Net, Slv3TestHub.FakeTxTransport Tx,
         Slv3LightingDeviceProvider Provider, LightingEngine Engine, Slv3LightingFrameWriter Writer, List<DeviceFrame> Frames)
-        CreateBoundSetup()
+        CreateBoundSetup(Func<long>? clock = null)
     {
         var (hub, net, tx) = Slv3TestHub.CreateConnected();
         net.Fans.Add(new Slv3TestHub.SimulatedFan { Mac = FanMac, MasterMac = net.MasterMac, RxType = 1, FanCount = 1 });
@@ -27,7 +27,12 @@ public class Slv3LightingFrameWriterTests
         var engine = new LightingEngine();
         engine.UpdateDevices(frames.ToArray());
 
-        var writer = new Slv3LightingFrameWriter(engine, hub, store, identify, provider);
+        // Default clock advances 200 ms per tick (> the writer's
+        // MinPushIntervalMs) so each Tick() is a fresh push - the RGB rate-limit
+        // isn't what most tests exercise. Tick_rate_limits_* passes its own clock.
+        var autoClock = 0L;
+        var writer = new Slv3LightingFrameWriter(engine, hub, store, identify, provider,
+            clock ?? (() => { autoClock += 200 * TimeSpan.TicksPerMillisecond; return autoClock; }));
         return (hub, net, tx, provider, engine, writer, frames);
     }
 
@@ -81,6 +86,30 @@ public class Slv3LightingFrameWriterTests
         FillAll(frames, 200, 50, 5);
         writer.Tick();
 
+        Assert.True(tx.SentFrames.Count > countAfterFirst);
+    }
+
+    [Fact]
+    public void Tick_rate_limits_rapid_pushes_on_the_shared_rf_link()
+    {
+        var now = 0L;
+        var (_, _, tx, _, _, writer, frames) = CreateBoundSetup(() => now);
+        FillAll(frames, 10, 20, 30);
+        writer.Tick();
+        var countAfterFirst = tx.SentFrames.Count;
+        Assert.True(countAfterFirst > 0);
+
+        // Content changes but < MinPushIntervalMs elapsed: suppress the push so
+        // the fan's telemetry beacon keeps RF air time (else the device list
+        // reads zero fans and the controller looks "messed up").
+        FillAll(frames, 200, 50, 5);
+        now += 50 * TimeSpan.TicksPerMillisecond;
+        writer.Tick();
+        Assert.Equal(countAfterFirst, tx.SentFrames.Count);
+
+        // Once the interval elapses, the latest frame goes out.
+        now += 100 * TimeSpan.TicksPerMillisecond;
+        writer.Tick();
         Assert.True(tx.SentFrames.Count > countAfterFirst);
     }
 

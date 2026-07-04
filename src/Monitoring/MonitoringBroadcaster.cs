@@ -120,7 +120,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
 
     public override async Task StopAsync(CancellationToken cancellationToken)
     {
-        _fps.Stop();
+        _fps.SetDemand("monitoring", false);
         await base.StopAsync(cancellationToken);
     }
 
@@ -130,7 +130,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
         _hub.OnTopicLastUnsubscriber -= OnTopicLastUnsubscriber;
         _hub.UnregisterSnapshotProvider("screentime");
         _hub.UnregisterSnapshotProvider("volume");
-        _fps.Stop();
+        _fps.SetDemand("monitoring", false);
         base.Dispose();
     }
 
@@ -178,14 +178,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
             await BroadcastVolumeIfChangedAsync();
         }
 
-        if (needFps)
-        {
-            _fps.Start();
-        }
-        else
-        {
-            _fps.Stop();
-        }
+        _fps.SetDemand("monitoring", needFps);
 
         if (!needLhm && !needProcesses && !needGpuProcesses && !needNetwork && !needScreenTime && !needFps && !needExtras)
             return;
@@ -314,7 +307,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
     {
         if (string.Equals(topic, "fps", StringComparison.OrdinalIgnoreCase))
         {
-            _fps.Start();
+            _fps.SetDemand("monitoring", true);
         }
         if (string.Equals(topic, "screentime", StringComparison.OrdinalIgnoreCase))
         {
@@ -325,7 +318,7 @@ public sealed class MonitoringBroadcaster : BackgroundService
     private void OnTopicLastUnsubscriber(string topic)
     {
         if (string.Equals(topic, "fps", StringComparison.OrdinalIgnoreCase))
-            _fps.Stop();
+            _fps.SetDemand("monitoring", false);
     }
 
     private HardwareComponent BuildCpuComponent() => new()

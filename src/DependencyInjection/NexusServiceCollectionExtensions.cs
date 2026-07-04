@@ -775,6 +775,7 @@ public static class NexusServiceCollectionExtensions
                 port => new Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaSerialTransport(port.PortName, port.Serial),
 #endif
                 sp.GetRequiredService<Nexus.Service.Sensors.ISensorProvider>(),
+                sp.GetRequiredService<Nexus.Service.Fps.IFpsProvider>(),
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>()));
         services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaHeartbeatWorker>();
         services.AddHostedService(sp =>

@@ -40,6 +40,59 @@ public class Slv3HubTests
     }
 
     [Fact]
+    public void DriveTick_surfaces_more_than_one_page_of_fans()
+    {
+        var (hub, net, _, _) = CreateConnectedHub();
+        // 12 bound chains > one 10-record device-list page. A single-page poll
+        // truncates the overflow, so those chains vanish from the list and can't
+        // be seen, paired, or confirm a bind (the "many sets" report). The poll
+        // must request a second page.
+        const int fanCount = 12;
+        for (var i = 0; i < fanCount; i++)
+        {
+            var mac = new byte[6];
+            mac[5] = (byte)(0x10 + i);
+            net.Fans.Add(new SimulatedFan { Mac = mac, MasterMac = net.MasterMac, RxType = (byte)(i + 1) });
+        }
+
+        // First poll seeds pageCount from a zero count (one page, so it still sees
+        // only 10); the reported count then tunes the next poll up to two pages.
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.DriveTick());
+
+        Assert.Equal(fanCount, hub.State.Fans.Length);
+        Assert.All(hub.State.Fans, f => Assert.True(f.BoundToUs));
+    }
+
+    [Fact]
+    public void Transient_empty_poll_keeps_a_multi_page_fan_list_whole()
+    {
+        var (hub, net, _, _) = CreateConnectedHub();
+        const int fanCount = 12;
+        for (var i = 0; i < fanCount; i++)
+        {
+            var mac = new byte[6];
+            mac[5] = (byte)(0x10 + i);
+            net.Fans.Add(new SimulatedFan { Mac = mac, MasterMac = net.MasterMac, RxType = (byte)(i + 1) });
+        }
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.DriveTick());
+        Assert.Equal(fanCount, hub.State.Fans.Length);
+
+        // A transient empty poll (RF hiccup) is debounced - it must not reset the
+        // learned page count, or the recovery poll would request one page and
+        // re-truncate the list back to 10.
+        var saved = net.Fans.ToArray();
+        net.Fans.Clear();
+        Assert.True(hub.DriveTick());
+        Assert.Equal(fanCount, hub.State.Fans.Length);   // debounce holds the list
+
+        net.Fans.AddRange(saved);
+        Assert.True(hub.DriveTick());
+        Assert.Equal(fanCount, hub.State.Fans.Length);   // recovery poll stays 2 pages
+    }
+
+    [Fact]
     public void Bind_converges_once_device_list_confirms()
     {
         var (hub, net, _, _) = CreateConnectedHub();
@@ -379,7 +432,10 @@ public class Slv3HubTests
                 rec[19] = fan.FanCount;
                 rec[41] = Slv3Protocol.RecordValidator;
             }
-            return buf;
+            // Firmware sends only the requested pages: the header still reports the
+            // true device count, but records past PageLength * pageCount bytes are
+            // truncated. A one-page poll of >10 fans therefore drops the overflow.
+            return buf.Length <= expectedLen ? buf : buf[..expectedLen];
         }
 
         public void Dispose()

@@ -26,7 +26,9 @@ public sealed class WindowsFpsProvider : IFpsProvider
     // so we read the target PID from there.
     private readonly IScreenTimeProvider _screenTime;
     private readonly object _gate = new();
+    private readonly object _transitionGate = new();
     private readonly FpsCalculator _calculator = new();
+    private readonly HashSet<string> _demands = new(StringComparer.Ordinal);
 
     private CancellationTokenSource? _cts;
     private Task? _focusTask;
@@ -45,7 +47,33 @@ public sealed class WindowsFpsProvider : IFpsProvider
         _screenTime = screenTime;
     }
 
-    public void Start()
+    /// <summary>Adds or removes <paramref name="source"/> from the demand set and starts
+    /// or stops capture to match. Call every tick with a fixed source id (idempotent
+    /// against the current state) rather than once on an edge, so two independent
+    /// callers (monitoring subscribers, a Tryx overlay) never fight over one flag.</summary>
+    public void SetDemand(string source, bool wanted)
+    {
+        lock (_gate)
+        {
+            if (wanted) _demands.Add(source);
+            else _demands.Remove(source);
+        }
+
+        // Serialize the transition and re-read the demand set inside it: when a clear
+        // and an add race, the last caller through _transitionGate acts on the final
+        // set (StartCapture/StopCapture are idempotent), so a capture a live source
+        // still wants is never torn down by a stale decision. Lock order is always
+        // _transitionGate then _gate; the mutate above never holds _transitionGate.
+        lock (_transitionGate)
+        {
+            bool want;
+            lock (_gate) { want = _demands.Count > 0; }
+            if (want) StartCapture();
+            else StopCapture();
+        }
+    }
+
+    private void StartCapture()
     {
         CancellationTokenSource cts;
         lock (_gate)
@@ -70,7 +98,7 @@ public sealed class WindowsFpsProvider : IFpsProvider
         }
     }
 
-    public void Stop()
+    private void StopCapture()
     {
         CancellationTokenSource? cts;
         Task? focusTask;
@@ -173,7 +201,7 @@ public sealed class WindowsFpsProvider : IFpsProvider
         }
     }
 
-    public void Dispose() => Stop();
+    public void Dispose() => StopCapture();
 
     private async Task FocusLoopAsync(CancellationToken token)
     {

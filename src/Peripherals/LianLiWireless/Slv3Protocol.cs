@@ -68,6 +68,7 @@ public static class Slv3Protocol
     public const int RecordLength = 42;
     public const int RecordHeaderLength = 4;   // [0]=cmd echo [1]=count [2..3]=ver/flags
     public const int PageLength = 434;
+    public const int RecordsPerPage = (PageLength - RecordHeaderLength) / RecordLength;
     public const byte RecordValidator = 0x1C;  // record[41] must equal this
 
     /// <summary>PWM byte meaning "follow motherboard PWM header". Real duties skip 6.</summary>

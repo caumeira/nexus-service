@@ -52,15 +52,27 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
     // even when the desired color content is unchanged.
     private readonly Dictionary<string, (int Hash, string EffectIndexHex)> _lastSent = new();
 
+    // Per-fan tick of the last RGB push. The RGB stream and the fan's telemetry
+    // beacon share one RF channel; pushing every 33 ms tick drowns the beacon out
+    // so the device-list poll reads zero fans and the controller looks
+    // "messed up" / disconnected. Cap pushes to MinPushIntervalMs so each cycle
+    // leaves the beacon (and the 1 s device-list poll) air time.
+    private readonly Dictionary<string, long> _lastPushTicks = new();
+    private const int MinPushIntervalMs = 100;
+
     public Slv3LightingFrameWriter(
-        LightingEngine engine, Slv3Hub hub, IConfigStore store, Np50IdentifyTracker identify, Slv3LightingDeviceProvider provider)
+        LightingEngine engine, Slv3Hub hub, IConfigStore store, Np50IdentifyTracker identify, Slv3LightingDeviceProvider provider,
+        Func<long>? nowTicks = null)
     {
         _engine = engine;
         _hub = hub;
         _store = store;
         _identify = identify;
         _provider = provider;
+        _nowTicks = nowTicks ?? (() => DateTime.UtcNow.Ticks);
     }
+
+    private readonly Func<long> _nowTicks;
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -110,6 +122,7 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
         if (!_hub.IsConnected)
         {
             _lastSent.Clear();
+            _lastPushTicks.Clear();
             return;
         }
         var devices = _engine.Devices;
@@ -119,7 +132,7 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var disabled = settings.Devices.DisabledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
-        var nowTicks = DateTime.UtcNow.Ticks;
+        var nowTicks = _nowTicks();
 
         var structures = _provider.BuildStructures();
         var liveMacs = new HashSet<string>(structures.Count);
@@ -168,9 +181,19 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
                 continue;
             }
 
+            // Rate-limit the RF stream so the fan's telemetry beacon keeps air
+            // time (see _lastPushTicks). We drop intermediate frames rather than
+            // queue them - the next eligible tick sends whatever is current.
+            if (_lastPushTicks.TryGetValue(macHex, out var lastPush)
+                && nowTicks - lastPush < MinPushIntervalMs * TimeSpan.TicksPerMillisecond)
+            {
+                continue;
+            }
+
             if (_hub.SendRgbFrame(macHex, frameSpan, PassThroughBrightnessPercent, IntervalMs, out var sentEffectIndexHex))
             {
                 _lastSent[macHex] = (hash, sentEffectIndexHex);
+                _lastPushTicks[macHex] = nowTicks;
             }
         }
 
@@ -184,6 +207,7 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
             foreach (var mac in stale)
             {
                 _lastSent.Remove(mac);
+                _lastPushTicks.Remove(mac);
             }
         }
     }

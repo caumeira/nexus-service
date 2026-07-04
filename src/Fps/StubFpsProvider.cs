@@ -4,8 +4,7 @@ namespace Nexus.Service.Fps;
 
 public sealed class StubFpsProvider : IFpsProvider
 {
-    public void Start() { }
-    public void Stop() { }
+    public void SetDemand(string source, bool wanted) { }
     public void Dispose() { }
 
     public HardwareComponent GetComponent() => new()
