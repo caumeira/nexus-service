@@ -102,8 +102,8 @@ public sealed class TryxPanoramaHub : IDisposable
     // serial is known); reset on each connect so a reconnect re-fetches.
     private volatile bool _fileListRequested;
 
-    /// <summary>The panel's serial_number (needed as the sn on get_file_list); empty until the
-    /// device_info reply is parsed.</summary>
+    /// <summary>The panel's serial_number (needed as the sn on get_file_list / file_remove);
+    /// empty until the device_info reply (from the connect-time CMD_Get_DeviceInfo) is parsed.</summary>
     public string PanelSerial => _transport?.PanelSerial ?? "";
 
     /// <summary>Bytes stored on the panel's /userdata: this session's own per-file map,
@@ -180,13 +180,13 @@ public sealed class TryxPanoramaHub : IDisposable
     public bool RemoveDeviceMedia(string deviceFileName)
     {
         if (string.IsNullOrEmpty(deviceFileName)) return false;
-        var ok = SendReliable(TryxRkProtocol.BuildFileRemove(deviceFileName));
+        var sn = PanelSerial;
+        var ok = SendReliable(TryxRkProtocol.BuildFileRemove(deviceFileName, sn));
         if (ok)
         {
             RecordMediaDeleted(deviceFileName);
             // Re-fetch so the panel's list (and the per-file sizes) drop the removed file
             // authoritatively, not just via the local delta.
-            var sn = PanelSerial;
             if (!string.IsNullOrEmpty(sn)) SendReliable(TryxRkProtocol.BuildGetFileList(sn));
         }
         return ok;

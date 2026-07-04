@@ -310,14 +310,21 @@ public static class TryxRkProtocol
     /// custom/preset media. One-shot command, so an empty header like the config frames - the
     /// panel dispatches on the field number, not header.cmd. Field ids decoded from Kanali's
     /// UDB.exe protobuf descriptor; matches the CMD_File_Remove frame it emits.</summary>
-    public static byte[] BuildFileRemove(string deviceFileName)
+    public static byte[] BuildFileRemove(string deviceFileName, string serialNumber)
     {
+        // file_remove is a locked command: the panel silently ignores it unless the header
+        // carries cmd (field 1) + the panel serial_number (sn = field 3). Matches Kanali's
+        // {header:{cmd:"CMD_File_Remove", sn}, fileRemove:{file_name, file_type:"media"}}.
+        var header = new List<byte>();
+        WriteLengthDelimited(header, fieldNumber: 1, Encoding.ASCII.GetBytes("CMD_File_Remove"));
+        WriteLengthDelimited(header, fieldNumber: 3, Encoding.ASCII.GetBytes(serialNumber ?? string.Empty));
+
         var fileRemove = new List<byte>();
         WriteLengthDelimited(fileRemove, fieldNumber: 1, Encoding.UTF8.GetBytes(deviceFileName));
         WriteLengthDelimited(fileRemove, fieldNumber: 2, Encoding.ASCII.GetBytes("media"));
 
         var payload = new List<byte>();
-        WriteLengthDelimited(payload, fieldNumber: 1, Array.Empty<byte>());
+        WriteLengthDelimited(payload, fieldNumber: 1, header.ToArray());
         WriteLengthDelimited(payload, fieldNumber: 403, fileRemove.ToArray());
         return WrapFrame(payload);
     }
@@ -336,6 +343,10 @@ public static class TryxRkProtocol
 
         var payload = new List<byte>();
         WriteLengthDelimited(payload, fieldNumber: 1, header.ToArray());
+        // The panel dispatches on the ReqPackagePb body oneof, not the header cmd string, so the
+        // (empty) get_file_list body (field 103) MUST be set - the header alone yields
+        // "BodyCaseNotSupported". get_file_list = ReqPackagePb field 103 (Kanali's UDB.exe descriptor).
+        WriteLengthDelimited(payload, fieldNumber: 103, Array.Empty<byte>());
         return WrapFrame(payload);
     }
 
@@ -350,6 +361,9 @@ public static class TryxRkProtocol
 
         var payload = new List<byte>();
         WriteLengthDelimited(payload, fieldNumber: 1, header.ToArray());
+        // Body oneof dispatch: set the (empty) get_device_info body (ReqPackagePb field 100), or
+        // the panel answers "BodyCaseNotSupported". No sn - this is the bootstrap that learns it.
+        WriteLengthDelimited(payload, fieldNumber: 100, Array.Empty<byte>());
         return WrapFrame(payload);
     }
 

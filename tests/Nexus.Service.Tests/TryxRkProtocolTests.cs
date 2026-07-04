@@ -119,35 +119,41 @@ public class TryxRkProtocolTests
     }
 
     [Fact]
-    public void BuildFileRemove_encodes_the_file_remove_command()
+    public void BuildFileRemove_carries_the_header_and_file_remove()
     {
-        // file_remove = top-level field 403 (tag 9a19), FileRemove{ file_name=1, file_type=2 }.
-        // Empty header (0a00) like the config frame; ids decoded from Kanali's UDB.exe descriptor.
-        var expected = Convert.FromHexString(
-            "54525958160000000a009a19110a08746573742e6d703412056d65646961");
+        var text = Encoding.ASCII.GetString(TryxRkProtocol.BuildFileRemove("clip.mp4", "BYZL9"));
 
-        var actual = TryxRkProtocol.BuildFileRemove("test.mp4");
-
-        Assert.Equal(expected, actual);
+        Assert.StartsWith("TRYX", text);
+        Assert.Contains("CMD_File_Remove", text);
+        Assert.Contains("BYZL9", text);   // sn = header field 3 (locked-command requirement)
+        Assert.Contains("clip.mp4", text);
+        Assert.Contains("media", text);
     }
 
     [Fact]
-    public void BuildGetFileList_carries_the_cmd_and_serial_in_the_header()
+    public void BuildGetFileList_carries_the_cmd_serial_and_body_case()
     {
-        var text = Encoding.ASCII.GetString(TryxRkProtocol.BuildGetFileList("BYZL123"));
+        var frame = TryxRkProtocol.BuildGetFileList("BYZL123");
+        var text = Encoding.ASCII.GetString(frame);
 
         Assert.StartsWith("TRYX", text);
         Assert.Contains("CMD_Get_FileList", text);
         Assert.Contains("BYZL123", text); // sn = header field 3
+        // The panel dispatches on the body oneof, so the (empty) get_file_list body (field 103,
+        // tag 0xBA 0x06) MUST be present or the panel answers BodyCaseNotSupported.
+        Assert.Contains("BA0600", Convert.ToHexString(frame));
     }
 
     [Fact]
-    public void BuildGetDeviceInfo_carries_the_bootstrap_cmd()
+    public void BuildGetDeviceInfo_carries_the_cmd_and_body_case()
     {
-        var text = Encoding.ASCII.GetString(TryxRkProtocol.BuildGetDeviceInfo());
+        var frame = TryxRkProtocol.BuildGetDeviceInfo();
+        var text = Encoding.ASCII.GetString(frame);
 
         Assert.StartsWith("TRYX", text);
         Assert.Contains("CMD_Get_DeviceInfo", text);
+        // get_device_info body (field 100, tag 0xA2 0x06) - dispatched on the body oneof.
+        Assert.Contains("A20600", Convert.ToHexString(frame));
     }
 
     [Fact]
