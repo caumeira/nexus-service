@@ -136,7 +136,10 @@ internal static class Slv3TestHub
                 fan.EffectIndex.CopyTo(rec.Slice(20, 4));
                 rec[41] = Slv3Protocol.RecordValidator;
             }
-            return buf;
+            // Firmware sends only the requested pages: the header still reports the
+            // true device count, but records past PageLength * pageCount bytes are
+            // truncated. A one-page poll of >10 fans therefore drops the overflow.
+            return buf.Length <= expectedLen ? buf : buf[..expectedLen];
         }
 
         public void Dispose()

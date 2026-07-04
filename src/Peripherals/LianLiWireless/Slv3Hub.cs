@@ -50,6 +50,12 @@ public sealed class Slv3Hub : IDisposable
     // this link - see SendRgbFrame). Matches the reference's ~20 ms spacing.
     private const int HeaderResendGapMs = 20;
 
+    // Device-list records span more than one 10-record page once enough chains
+    // are bound (up to MaxSlot=14, plus non-fan devices), so the poll requests
+    // ceil(count/10) pages. Clamp so a corrupt count can't trigger a runaway read.
+    private const int MaxDeviceListPages = 3;
+    private int _lastRecordCount;
+
     public Slv3Hub(ISlv3Discovery discovery, Func<Slv3PortInfo, ISlv3Transport> transportFactory)
     {
         _discovery = discovery;
@@ -259,14 +265,26 @@ public sealed class Slv3Hub : IDisposable
         }
     }
 
+    // Pages needed to hold recordCount records at RecordsPerPage each, >=1 and
+    // capped at MaxDeviceListPages so a corrupt count can't request a huge read.
+    private static byte DeviceListPagesFor(int recordCount) =>
+        (byte)Math.Clamp(
+            (recordCount + Slv3Protocol.RecordsPerPage - 1) / Slv3Protocol.RecordsPerPage,
+            1, MaxDeviceListPages);
+
     private bool RefreshDeviceListLocked()
     {
         if (_rx is null)
         {
             return false;
         }
-        // The device cap (<=10 fans, <=3 Strimer, <=1 WaterBlock, etc.) fits one page.
-        const byte pageCount = 1;
+        // <=10 records/page - request ceil(count/10) pages so a device list that
+        // spans more than one page (up to MaxSlot=14 chains plus non-fan devices)
+        // isn't truncated to the first 10. Dropped records vanish from the list,
+        // so those chains can't be seen, paired, or confirm a bind. Seed pageCount
+        // from the last poll's reported count (the reference auto-tunes the same
+        // way); a chain that just appeared is picked up on the next ~1 s poll.
+        var pageCount = DeviceListPagesFor(_lastRecordCount);
         if (!_rx.RfSend(Slv3Protocol.BuildGetDev(pageCount)))
         {
             return false;
@@ -291,6 +309,10 @@ public sealed class Slv3Hub : IDisposable
             return true;
         }
         _emptyPollStreak = 0;
+        // Learn the count only on a poll we act on. A debounced transient-empty
+        // poll returns above without touching it, so a hiccup can't reset the
+        // page estimate to 0 and re-truncate a >10-fan list on the recovery poll.
+        _lastRecordCount = count;
 
         if (records.Count != _lastFanRecords.Count)
         {
