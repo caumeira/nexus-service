@@ -991,11 +991,22 @@ public sealed class TryxPanoramaHub : IDisposable
         "SmallData" => $"{(int)Math.Round(sensor.Value)}MB",
         "Power" => $"{(int)Math.Round(sensor.Value)}W",
         "Fan" => $"{(int)Math.Round(sensor.Value)}RPM",
-        "Throughput" => $"{sensor.Value.ToString("0.0", CultureInfo.InvariantCulture)}MB/s",
+        "Throughput" => FormatThroughput(sensor.Value),
         "Framerate" => $"{(int)Math.Round(sensor.Value)}fps",
         "FrameTime" => $"{sensor.Value.ToString("0.0", CultureInfo.InvariantCulture)}ms",
         _ => sensor.Value.ToString(CultureInfo.InvariantCulture),
     };
+
+    // LHM Throughput sensors (network up/down) report bytes/sec, so the raw value slapped with
+    // "MB/s" reads as e.g. "1250000.0MB/s". Scale to the largest fitting unit, matching the web
+    // monitoring widgets' formatter (panel/widgets/monitoring/page/shared.ts); no space before
+    // the unit, like the other overlay values.
+    private static string FormatThroughput(float bytesPerSec) =>
+        bytesPerSec >= 1024f * 1024f
+            ? $"{(bytesPerSec / 1024f / 1024f).ToString("0.0", CultureInfo.InvariantCulture)}MB/s"
+            : bytesPerSec >= 1024f
+                ? $"{(bytesPerSec / 1024f).ToString("0.0", CultureInfo.InvariantCulture)}KB/s"
+                : $"{(int)Math.Round(bytesPerSec)}B/s";
 
     private static int ParseHexColorRgb(string hex)
     {

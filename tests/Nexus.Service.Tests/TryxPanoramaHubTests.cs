@@ -407,10 +407,12 @@ public class TryxPanoramaHubTests
     }
 
     [Fact]
-    public void SetOverlay_formats_throughput_to_one_decimal_mbps()
+    public void SetOverlay_scales_throughput_bytes_per_sec_to_a_readable_unit()
     {
         var recording = new RecordingTransport();
-        var nics = new List<HardwareComponent> { new() { Sensors = [MakeSensor("Download", "Throughput", 12.34f)] } };
+        // LHM Throughput sensors report bytes/sec; ~12 MB/s (12_000_000 B/s) must render as
+        // "11.4MB/s", not the raw "12000000.0MB/s" the overlay showed before.
+        var nics = new List<HardwareComponent> { new() { Sensors = [MakeSensor("Download", "Throughput", 12_000_000f)] } };
         var sensors = new StubSensors { Nics = nics };
         var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, sensors: sensors);
         hub.EnsureConnected();
@@ -421,7 +423,9 @@ public class TryxPanoramaHubTests
             Items = [new TryxOverlaySensorItem { SensorId = "test/Download", Device = "network", Label = "Stat" }],
         });
 
-        Assert.Contains("12.3MB/s", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
+        var text = Encoding.UTF8.GetString(Assert.Single(recording.Writes));
+        Assert.Contains("11.4MB/s", text);
+        Assert.DoesNotContain("12000000", text);
     }
 
     [Fact]
