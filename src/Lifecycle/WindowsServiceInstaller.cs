@@ -178,7 +178,9 @@ internal static class WindowsServiceInstaller
                 Log($"WARN could not extend service DACL: {ex.Message}");
             }
 
-            // 4. Install PawnIO kernel driver (no-op if already registered).
+            // 4. Install PawnIO kernel driver, upgrading an older installed
+            // driver in place (or reporting a reboot-deferred upgrade) when
+            // already registered.
             Log("ensuring PawnIO driver is installed");
             var pawnTask = PawnIoInstaller.EnsureInstalledAsync();
             pawnTask.GetAwaiter().GetResult();
