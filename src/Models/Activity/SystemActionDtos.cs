@@ -37,3 +37,11 @@ public sealed class SystemAccentResponse
 {
     public string Accent { get; set; } = "";
 }
+
+/// <summary>Stable id for the current OS boot, quantized Unix epoch seconds
+/// so the web UI can detect a reboot since it last showed a one-time
+/// greeting. Stable across a service process restart within the same boot.</summary>
+public sealed class SystemBootResponse
+{
+    public string BootId { get; set; } = "";
+}

@@ -74,6 +74,18 @@ public static class SystemRoutes
         app.MapGet("/system/accent", (ISystemAccentProvider accent) =>
             new SystemAccentResponse { Accent = accent.GetAccentHex() ?? "" }).AllowPanel();
 
+        // Boot id for the web UI once-per-boot greeting check. Derived from OS
+        // uptime (Environment.TickCount64), not process start, so it survives a
+        // service restart within the same boot. Quantized so tick jitter does not
+        // shift it; still wall-clock-derived, so a clock step mid-boot can change
+        // it (at worst a repeat greeting).
+        app.MapGet("/system/boot", () =>
+        {
+            var bootTime = DateTimeOffset.UtcNow - TimeSpan.FromMilliseconds(Environment.TickCount64);
+            var quantizedSeconds = (bootTime.ToUnixTimeSeconds() / 60) * 60;
+            return new SystemBootResponse { BootId = quantizedSeconds.ToString() };
+        }).AllowPanel();
+
         // Volume (default render endpoint)
         app.MapGet("/system/volume", (IVolumeProvider v) => v.GetState()).AllowPanel();
         app.MapPost("/system/volume", (SetVolumeBody body, IVolumeProvider v, MultiplexHub hub) =>

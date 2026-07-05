@@ -658,6 +658,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SetVolumeBody))]
 [JsonSerializable(typeof(SetMutedBody))]
 [JsonSerializable(typeof(SystemAccentResponse))]
+[JsonSerializable(typeof(SystemBootResponse))]
 [JsonSerializable(typeof(SendKeysBody))]
 [JsonSerializable(typeof(SendTextBody))]
 [JsonSerializable(typeof(OpenPathBody))]
