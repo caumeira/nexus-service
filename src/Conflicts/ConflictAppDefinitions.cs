@@ -273,6 +273,17 @@ public static class ConflictAppCatalog
             ProcessNames = new[] { "L-Connect 3", "L-Connect", "LConnect3", "LConnect" },
         },
 
+        // ── Tryx ───────────────────────────────────────────────────────────
+        new()
+        {
+            // Tryx Panorama control app (Electron, C:\Program Files\KANALI);
+            // claims the panel's USB handle Nexus drives directly.
+            Id = "tryx-kanali",
+            DisplayName = "Tryx Kanali",
+            Category = "cooling",
+            ProcessNames = new[] { "Kanali" },
+        },
+
         // ── Other peripheral / lighting vendors ────────────────────────────
         new()
         {
