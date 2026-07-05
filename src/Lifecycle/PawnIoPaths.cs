@@ -24,6 +24,11 @@ public static class PawnIoPaths
         Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
         "Nexus", "PawnIO", "PawnIO.sys");
 
+    /// <summary>Marker written when a driver upgrade is bound but pending a reboot.</summary>
+    public static string UpgradeMarkerPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+        "Nexus", "PawnIO", "upgrade-pending.json");
+
     /// <summary>
     /// PawnIOLib.dll location, preferring system install over bundled copy.
     /// If the user has PawnIO installed via PawnIO_setup.exe, we use their
