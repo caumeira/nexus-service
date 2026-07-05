@@ -109,7 +109,9 @@ public static class SummarySensors
         {
             return null;
         }
-        return used.Value / used.TheoreticalMaximum * 100f;
+        // Clamp to the 100 ceiling the synthesized sensor advertises; a degenerate
+        // used > total reading would otherwise overflow a 0-100 gauge.
+        return Math.Min(100f, used.Value / used.TheoreticalMaximum * 100f);
     }
 
     private static HardwareSensor SynthPercent(SummarySensorKind kind, float percent) => new()

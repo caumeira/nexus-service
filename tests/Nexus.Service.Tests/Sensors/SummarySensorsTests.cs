@@ -164,6 +164,19 @@ public class SummarySensorsTests
     }
 
     [Fact]
+    public void VramUsage_is_clamped_to_100_when_used_exceeds_total()
+    {
+        var sensors = new StubSensors
+        {
+            Gpus = new[]
+            {
+                new GpuReadout { Integrated = false, Sensors = new List<HardwareSensor> { new HardwareSensor { Name = "GPU Memory Used", Type = "SmallData", Value = 20000f, TheoreticalMaximum = 16000f, Parent = new SensorParent() } } },
+            },
+        };
+        Assert.Equal(100f, SummarySensors.Value(sensors, SummarySensorKind.VramUsage));
+    }
+
+    [Fact]
     public void VramUsage_is_omitted_when_no_used_sensor_or_the_total_is_unknown()
     {
         var noUsedSensor = new StubSensors
