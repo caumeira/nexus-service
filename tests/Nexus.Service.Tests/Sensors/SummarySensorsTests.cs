@@ -104,6 +104,8 @@ public class SummarySensorsTests
                     {
                         MakeSensor("GPU Core", "Temperature", 65f),
                         MakeSensor("GPU Core", "Load", 80f),
+                        // MakeSensor sets TheoreticalMaximum = 3, so 1.5 used -> 50%.
+                        MakeSensor("GPU Memory Used", "SmallData", 1.5f),
                     },
                 },
             },
@@ -112,12 +114,12 @@ public class SummarySensorsTests
 
         var result = SummarySensors.Build(sensors);
 
-        Assert.Equal(5, result.Count);
+        Assert.Equal(6, result.Count);
         Assert.Equal(
-            new[] { "summary/cpu-temp", "summary/cpu-usage", "summary/gpu-temp", "summary/gpu-usage", "summary/memory-usage" },
+            new[] { "summary/cpu-temp", "summary/cpu-usage", "summary/gpu-temp", "summary/gpu-usage", "summary/memory-usage", "summary/vram-usage" },
             result.ConvertAll(s => s.Id));
         Assert.Equal(
-            new[] { "CPU Temperature", "CPU Usage", "GPU Temperature", "GPU Usage", "Memory Usage" },
+            new[] { "CPU Temperature", "CPU Usage", "GPU Temperature", "GPU Usage", "Memory Usage", "VRAM Usage" },
             result.ConvertAll(s => s.Name));
         foreach (var sensor in result)
         {
@@ -129,6 +131,56 @@ public class SummarySensorsTests
         Assert.Equal(65f, result[2].Value);
         Assert.Equal(80f, result[3].Value);
         Assert.Equal(40f, result[4].Value);
+        Assert.Equal(50f, result[5].Value);
+    }
+
+    [Fact]
+    public void VramUsage_is_computed_as_used_over_total_percent_and_typed_as_a_load()
+    {
+        var sensors = new StubSensors
+        {
+            Gpus = new[]
+            {
+                new GpuReadout
+                {
+                    Name = "dGPU",
+                    Integrated = false,
+                    Sensors = new List<HardwareSensor>
+                    {
+                        new HardwareSensor { Id = "gpu/mem", Name = "GPU Memory Used", Type = "SmallData", Value = 4000f, TheoreticalMaximum = 16000f, Units = "MB", Parent = new SensorParent() },
+                    },
+                },
+            },
+        };
+
+        Assert.Equal(25f, SummarySensors.Value(sensors, SummarySensorKind.VramUsage));
+
+        var vram = SummarySensors.Build(sensors).Find(s => s.Id == "summary/vram-usage");
+        Assert.NotNull(vram);
+        Assert.Equal("VRAM Usage", vram!.Name);
+        Assert.Equal("Load", vram.Type);
+        Assert.Equal("%", vram.Units);
+        Assert.Equal(25f, vram.Value);
+    }
+
+    [Fact]
+    public void VramUsage_is_omitted_when_no_used_sensor_or_the_total_is_unknown()
+    {
+        var noUsedSensor = new StubSensors
+        {
+            Gpus = new[] { new GpuReadout { Integrated = false, Sensors = new List<HardwareSensor> { MakeSensor("GPU Core", "Load", 50f) } } },
+        };
+        Assert.Null(SummarySensors.Value(noUsedSensor, SummarySensorKind.VramUsage));
+
+        var unknownTotal = new StubSensors
+        {
+            Gpus = new[]
+            {
+                new GpuReadout { Integrated = false, Sensors = new List<HardwareSensor> { new HardwareSensor { Name = "GPU Memory Used", Type = "SmallData", Value = 4000f, TheoreticalMaximum = 0f, Parent = new SensorParent() } } },
+            },
+        };
+        Assert.Null(SummarySensors.Value(unknownTotal, SummarySensorKind.VramUsage));
+        Assert.DoesNotContain(SummarySensors.Build(unknownTotal), s => s.Id == "summary/vram-usage");
     }
 
     [Fact]
@@ -215,5 +267,6 @@ public class SummarySensorsTests
         Assert.Null(SummarySensors.Value(sensors, SummarySensorKind.GpuTemp));
         Assert.Null(SummarySensors.Value(sensors, SummarySensorKind.GpuUsage));
         Assert.Null(SummarySensors.Value(sensors, SummarySensorKind.MemoryUsage));
+        Assert.Null(SummarySensors.Value(sensors, SummarySensorKind.VramUsage));
     }
 }

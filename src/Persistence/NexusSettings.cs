@@ -675,7 +675,7 @@ public sealed class LianLiWirelessScreenSettings
     public byte Brightness { get; set; } = 100;
     /// <summary>0 = 0 deg, 1 = 90 deg, 2 = 180 deg, 3 = 270 deg.</summary>
     public byte Rotation { get; set; }
-    /// <summary>"cpuLoad" | "cpuTemp" | "gpuLoad" | "gpuTemp" | "fanRpm". Used when ContentType is "sensor".</summary>
+    /// <summary>"cpuLoad" | "cpuTemp" | "gpuLoad" | "gpuTemp" | "memoryUsage" | "vramUsage" | "fanRpm". Used when ContentType is "sensor".</summary>
     public string? SensorSource { get; set; }
     /// <summary>"ring" | "bar". Used when ContentType is "sensor".</summary>
     public string? SensorStyle { get; set; }

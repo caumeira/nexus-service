@@ -37,6 +37,8 @@ public sealed class Slv3LcdSensorReader
             "cpuLoad" => new Slv3LcdSensorReading(SummarySensors.Value(_sensors, SummarySensorKind.CpuUsage) ?? 0f, 0f, 100f, "CPU", "%"),
             "gpuLoad" => new Slv3LcdSensorReading(SummarySensors.Value(_sensors, SummarySensorKind.GpuUsage) ?? 0f, 0f, 100f, "GPU", "%"),
             "gpuTemp" => TempReading(SummarySensors.Value(_sensors, SummarySensorKind.GpuTemp) ?? 0f, "GPU", fahrenheit),
+            "memoryUsage" => new Slv3LcdSensorReading(SummarySensors.Value(_sensors, SummarySensorKind.MemoryUsage) ?? 0f, 0f, 100f, "MEM", "%"),
+            "vramUsage" => new Slv3LcdSensorReading(SummarySensors.Value(_sensors, SummarySensorKind.VramUsage) ?? 0f, 0f, 100f, "VRAM", "%"),
             "fanRpm" => FanReading(),
             // "cpuTemp" and any unrecognized/missing source default to CPU temperature.
             _ => TempReading(SummarySensors.Value(_sensors, SummarySensorKind.CpuTemp) ?? 0f, "CPU", fahrenheit),

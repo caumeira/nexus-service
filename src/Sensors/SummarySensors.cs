@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using Nexus.Service.Models.Sensors;
 
 namespace Nexus.Service.Sensors;
@@ -12,12 +13,15 @@ public enum SummarySensorKind
     GpuTemp,
     GpuUsage,
     MemoryUsage,
+    VramUsage,
 }
 
 /// <summary>
 /// Single derivation of the "Quick" summary sensor set (CPU temp/usage, GPU
-/// temp/usage, memory usage), shared by the summary WebSocket topic and the
-/// Lian Li wireless LCD reader so both pick the same underlying sensor.
+/// temp/usage, memory usage, VRAM usage), shared by the summary WebSocket topic
+/// and the Lian Li wireless LCD reader so both pick the same underlying sensor.
+/// Most kinds clone a live sensor; VramUsage is computed (used / total) since
+/// LHM exposes VRAM as SmallData used+total, not a fill-percent Load sensor.
 /// </summary>
 public static class SummarySensors
 {
@@ -25,13 +29,14 @@ public static class SummarySensors
     private const string SummaryComponentName = "Quick";
 
     /// <summary>Builds the summary sensor list in fixed order (CpuTemp, CpuUsage,
-    /// GpuTemp, GpuUsage, MemoryUsage), omitting any kind whose source sensor is absent.</summary>
+    /// GpuTemp, GpuUsage, MemoryUsage, VramUsage), omitting any kind whose source sensor is absent.</summary>
     public static List<HardwareSensor> Build(ISensorProvider sensors)
         => BuildFrom(sensors.GetCpuSensors(), PrimaryGpuSensors(sensors), sensors.GetMemorySensors());
 
-    /// <summary>Raw value of the picked source sensor for <paramref name="kind"/>, or null if absent.</summary>
+    /// <summary>Value of the summary reading for <paramref name="kind"/> (a raw sensor value,
+    /// or the computed fill percent for VramUsage), or null if the source is absent.</summary>
     public static float? Value(ISensorProvider sensors, SummarySensorKind kind)
-        => Pick(sensors.GetCpuSensors(), PrimaryGpuSensors(sensors), sensors.GetMemorySensors(), kind)?.Value;
+        => Resolve(sensors.GetCpuSensors(), PrimaryGpuSensors(sensors), sensors.GetMemorySensors(), kind)?.Value;
 
     /// <summary>Same derivation as <see cref="Build(ISensorProvider)"/>, applied to sensor
     /// lists a caller already fetched, so a caller that has already read cpu/gpu/memory
@@ -41,12 +46,13 @@ public static class SummarySensors
         IReadOnlyList<HardwareSensor> gpuSensors,
         IReadOnlyList<HardwareSensor> memorySensors)
     {
-        var result = new List<HardwareSensor>(5);
+        var result = new List<HardwareSensor>(6);
         AddIfPresent(result, cpuSensors, gpuSensors, memorySensors, SummarySensorKind.CpuTemp);
         AddIfPresent(result, cpuSensors, gpuSensors, memorySensors, SummarySensorKind.CpuUsage);
         AddIfPresent(result, cpuSensors, gpuSensors, memorySensors, SummarySensorKind.GpuTemp);
         AddIfPresent(result, cpuSensors, gpuSensors, memorySensors, SummarySensorKind.GpuUsage);
         AddIfPresent(result, cpuSensors, gpuSensors, memorySensors, SummarySensorKind.MemoryUsage);
+        AddIfPresent(result, cpuSensors, gpuSensors, memorySensors, SummarySensorKind.VramUsage);
         return result;
     }
 
@@ -57,12 +63,26 @@ public static class SummarySensors
         IReadOnlyList<HardwareSensor> memorySensors,
         SummarySensorKind kind)
     {
-        var source = Pick(cpuSensors, gpuSensors, memorySensors, kind);
-        if (source is null)
+        var sensor = Resolve(cpuSensors, gpuSensors, memorySensors, kind);
+        if (sensor is not null)
         {
-            return;
+            result.Add(sensor);
         }
-        result.Add(Clone(source, kind));
+    }
+
+    private static HardwareSensor? Resolve(
+        IReadOnlyList<HardwareSensor> cpuSensors,
+        IReadOnlyList<HardwareSensor> gpuSensors,
+        IReadOnlyList<HardwareSensor> memorySensors,
+        SummarySensorKind kind)
+    {
+        if (kind == SummarySensorKind.VramUsage)
+        {
+            var percent = VramUsagePercent(gpuSensors);
+            return percent is null ? null : SynthPercent(kind, percent.Value);
+        }
+        var source = Pick(cpuSensors, gpuSensors, memorySensors, kind);
+        return source is null ? null : Clone(source, kind);
     }
 
     private static HardwareSensor? Pick(
@@ -77,6 +97,31 @@ public static class SummarySensors
         SummarySensorKind.GpuUsage => PreferElseFirst(gpuSensors, "Load", "Core"),
         SummarySensorKind.MemoryUsage => FindSensor(memorySensors, "Load", null),
         _ => null,
+    };
+
+    // VRAM fill percent = GPU Memory Used / its total. The provider sets the used
+    // sensor's TheoreticalMaximum to total VRAM (LibreHardwareSensorProvider.GetGpus,
+    // LinuxSensorProvider), so the ratio is unit-independent (MB on Windows, GB on Linux).
+    private static float? VramUsagePercent(IReadOnlyList<HardwareSensor> gpuSensors)
+    {
+        var used = FindSensor(gpuSensors, "SmallData", "Used");
+        if (used is null || used.TheoreticalMaximum <= 0f)
+        {
+            return null;
+        }
+        return used.Value / used.TheoreticalMaximum * 100f;
+    }
+
+    private static HardwareSensor SynthPercent(SummarySensorKind kind, float percent) => new()
+    {
+        Id = CanonicalId(kind),
+        Name = CanonicalName(kind),
+        Type = "Load",
+        Value = percent,
+        TheoreticalMaximum = 100f,
+        Units = "%",
+        Formatted = percent.ToString("F0", CultureInfo.InvariantCulture) + "%",
+        Parent = new SensorParent { Id = SummaryComponentId, Name = SummaryComponentName },
     };
 
     private static HardwareSensor Clone(HardwareSensor source, SummarySensorKind kind) => new()
@@ -106,6 +151,7 @@ public static class SummarySensors
         SummarySensorKind.GpuTemp => "summary/gpu-temp",
         SummarySensorKind.GpuUsage => "summary/gpu-usage",
         SummarySensorKind.MemoryUsage => "summary/memory-usage",
+        SummarySensorKind.VramUsage => "summary/vram-usage",
         _ => "",
     };
 
@@ -116,6 +162,7 @@ public static class SummarySensors
         SummarySensorKind.GpuTemp => "GPU Temperature",
         SummarySensorKind.GpuUsage => "GPU Usage",
         SummarySensorKind.MemoryUsage => "Memory Usage",
+        SummarySensorKind.VramUsage => "VRAM Usage",
         _ => "",
     };
 

@@ -22,7 +22,7 @@ public sealed class Slv3LcdScreenDto
     public byte Rotation { get; set; }
     public string ContentType { get; set; } = "off";
     public string? MediaId { get; set; }
-    /// <summary>"cpuLoad" | "cpuTemp" | "gpuLoad" | "gpuTemp" | "fanRpm". Set when contentType is "sensor".</summary>
+    /// <summary>"cpuLoad" | "cpuTemp" | "gpuLoad" | "gpuTemp" | "memoryUsage" | "vramUsage" | "fanRpm". Set when contentType is "sensor".</summary>
     public string? SensorSource { get; set; }
     /// <summary>"ring" | "bar". Set when contentType is "sensor".</summary>
     public string? SensorStyle { get; set; }
@@ -56,7 +56,7 @@ public sealed class Slv3LcdContentRequest
     /// <summary>"off" | "image" | "gif" | "video" | "sensor" | "clock" | "animation".</summary>
     public string ContentType { get; set; } = "";
     public string? MediaId { get; set; }
-    /// <summary>"cpuLoad" | "cpuTemp" | "gpuLoad" | "gpuTemp" | "fanRpm". Used when contentType is "sensor".</summary>
+    /// <summary>"cpuLoad" | "cpuTemp" | "gpuLoad" | "gpuTemp" | "memoryUsage" | "vramUsage" | "fanRpm". Used when contentType is "sensor".</summary>
     public string? SensorSource { get; set; }
     /// <summary>"ring" | "bar". Used when contentType is "sensor".</summary>
     public string? SensorStyle { get; set; }
@@ -102,7 +102,7 @@ public sealed class Slv3LcdImportResponse
 public static class Slv3LcdRoutes
 {
     private static readonly string[] ValidContentTypes = { "off", "image", "gif", "video", "sensor", "clock", "animation" };
-    private static readonly string[] ValidSensorSources = { "cpuLoad", "cpuTemp", "gpuLoad", "gpuTemp", "fanRpm" };
+    private static readonly string[] ValidSensorSources = { "cpuLoad", "cpuTemp", "gpuLoad", "gpuTemp", "memoryUsage", "vramUsage", "fanRpm" };
     private static readonly string[] ValidSensorStyles = { "ring", "bar" };
     private static readonly string[] ValidClockFaces = { "digital", "digitalMinimal", "analogClassic", "analogMinimal" };
     private static readonly string[] ValidAnimationIds = { "pulse", "spectrum", "spin" };
