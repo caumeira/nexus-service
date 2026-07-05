@@ -361,6 +361,8 @@ public static class ProfileRoutes
                     if (theme.ThemeMode is not null)   s.Theme.ThemeMode   = theme.ThemeMode;
                     if (theme.AccentColor is not null) s.Theme.AccentColor = theme.AccentColor;
                     if (theme.ResolvedThemeMode is not null) s.Theme.ResolvedThemeMode = theme.ResolvedThemeMode;
+                    if (theme.BackgroundMode is not null) s.Theme.BackgroundMode = theme.BackgroundMode;
+                    if (theme.AccentSource is not null) s.Theme.AccentSource = theme.AccentSource;
                 }
                 if (body.Panel is { } panel)
                 {

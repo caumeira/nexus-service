@@ -20,6 +20,14 @@ public sealed class ThemeSettings
     // light↔dark instead of re-resolving "system" against their own device's OS
     // (the wrong OS). Empty = never published; panels fall back to ThemeMode.
     public string ResolvedThemeMode { get; set; } = "";
+    // Dashboard window backdrop ("glass"/"gradient"/"flat") and accent policy
+    // ("system" follows the OS accent, "custom" uses AccentColor). Formerly
+    // client-only (per-browser localStorage), which diverged across window
+    // contexts (embedded WebView2 vs a --app temp profile). Empty = unset: a
+    // client that has never written them keeps its own default and seeds the
+    // server once, so an upgrade doesn't clobber an existing choice.
+    public string BackgroundMode { get; set; } = "";
+    public string AccentSource { get; set; } = "";
 }
 
 public sealed class MonitoringSettings
@@ -151,6 +159,8 @@ public sealed class ThemeSettingsPatch
     public string? ThemeMode { get; set; }
     public string? AccentColor { get; set; }
     public string? ResolvedThemeMode { get; set; }
+    public string? BackgroundMode { get; set; }
+    public string? AccentSource { get; set; }
 }
 
 public sealed class PanelSettingsPatch

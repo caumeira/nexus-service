@@ -63,6 +63,38 @@ public sealed class ConfigRoundTripIntegrationTests : IClassFixture<NexusAppFact
     }
 
     [Fact]
+    public async Task Theme_background_and_accent_source_persist_across_post_then_get()
+    {
+        var client = AuthedClient();
+
+        var post = await client.PostAsync("/preferences",
+            Json("{\"theme\":{\"backgroundMode\":\"gradient\",\"accentSource\":\"custom\"}}"));
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+
+        using var doc = JsonDocument.Parse(await (await client.GetAsync("/preferences")).Content.ReadAsStringAsync());
+        var theme = doc.RootElement.GetProperty("theme");
+        Assert.Equal("gradient", theme.GetProperty("backgroundMode").GetString());
+        Assert.Equal("custom", theme.GetProperty("accentSource").GetString());
+    }
+
+    [Fact]
+    public async Task Theme_partial_patch_does_not_clobber_sibling_fields()
+    {
+        var client = AuthedClient();
+
+        await client.PostAsync("/preferences",
+            Json("{\"theme\":{\"backgroundMode\":\"flat\",\"accentColor\":\"#123456\"}}"));
+        // A later patch that omits backgroundMode must leave it intact.
+        await client.PostAsync("/preferences", Json("{\"theme\":{\"accentSource\":\"system\"}}"));
+
+        using var doc = JsonDocument.Parse(await (await client.GetAsync("/preferences")).Content.ReadAsStringAsync());
+        var theme = doc.RootElement.GetProperty("theme");
+        Assert.Equal("flat", theme.GetProperty("backgroundMode").GetString());
+        Assert.Equal("#123456", theme.GetProperty("accentColor").GetString());
+        Assert.Equal("system", theme.GetProperty("accentSource").GetString());
+    }
+
+    [Fact]
     public async Task Write_is_flushed_to_the_isolated_settings_file()
     {
         var client = AuthedClient();
