@@ -109,6 +109,65 @@ public class JsonConfigStoreMigrationTests : IDisposable
     }
 
     [Fact]
+    public void Load_V7_MigratesOnboardingCompletedForExistingInstall()
+    {
+        var json = """
+        {
+          "schemaVersion": 7
+        }
+        """;
+        File.WriteAllText(_settingsPath, json);
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.Equal(NexusSettings.CurrentSchemaVersion, s.SchemaVersion);
+            Assert.True(s.OnboardingCompleted);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Load_NullJsonFile_MarksOnboardingAlreadyComplete()
+    {
+        // The file existed and parsed as valid JSON but held no data ("null"),
+        // so this is an upgrade of an existing install, not a fresh one.
+        File.WriteAllText(_settingsPath, "null");
+
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.Equal(NexusSettings.CurrentSchemaVersion, s.SchemaVersion);
+            Assert.True(s.OnboardingCompleted);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
+    public void Load_NoSettingsFile_OnboardingCompletedDefaultsFalse()
+    {
+        var store = new JsonConfigStore(_settingsPath);
+        var s = store.Load();
+        try
+        {
+            Assert.Equal(NexusSettings.CurrentSchemaVersion, s.SchemaVersion);
+            Assert.False(s.OnboardingCompleted);
+        }
+        finally
+        {
+            store.Dispose();
+        }
+    }
+
+    [Fact]
     public void Load_TryxOverlay_PredatingItemsFontSizeAlignAndDocked_DefaultsThem()
     {
         // A settings.json from before the sensor-item overlay fields shipped: only

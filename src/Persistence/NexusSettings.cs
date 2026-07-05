@@ -18,9 +18,9 @@ public sealed class NexusSettings
     /// a migration in <c>JsonConfigStore.Load()</c>. Lives as a constant so
     /// tests and tooling can reference "current" without bit-rotting.
     /// </summary>
-    public const int CurrentSchemaVersion = 7;
+    public const int CurrentSchemaVersion = 8;
 
-    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
+    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). v8 marks any pre-existing settings.json as already-onboarded (see <see cref="OnboardingCompleted"/>) so the first-run welcome screen only shows for installs with no settings.json at all. The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     public ThemeSettings Theme { get; set; } = new();
@@ -59,6 +59,15 @@ public sealed class NexusSettings
 
     /// <summary>OTA self-update settings. NOT profile-scoped: workstation-level.</summary>
     public UpdateSettings Update { get; set; } = new();
+
+    /// <summary>True once the desktop first-run welcome screen has been shown and
+    /// dismissed. Install-scoped, not cloud profile synced: excluded from
+    /// <see cref="Nexus.Service.Persistence.ProfileManager"/>'s CloneSettings
+    /// allowlist and from <see cref="ProfileSharing"/> categories, so it never
+    /// rides a profile export/import or a cloud push/pull. Lives in
+    /// settings.json (not a separate marker file) so a factory reset wipes it
+    /// and the welcome screen reappears.</summary>
+    public bool OnboardingCompleted { get; set; }
 }
 
 /// <summary>
@@ -102,9 +111,10 @@ public sealed class SmartLightConfig
 
 public sealed class TelemetrySettings
 {
-    /// <summary>Anonymous usage telemetry (fleet heartbeat). Default on. When
-    /// false, no heartbeat is sent and no install id is generated.</summary>
-    public bool CollectAnonymousData { get; set; } = true;
+    /// <summary>Anonymous usage telemetry (fleet heartbeat). Opt-in: default off
+    /// on a fresh install until the user consents. When false, no heartbeat is
+    /// sent and no install id is generated.</summary>
+    public bool CollectAnonymousData { get; set; }
 
     /// <summary>Random per-install id (no PII). Generated on the first beat and
     /// persisted; reset to empty if the user opts out.</summary>

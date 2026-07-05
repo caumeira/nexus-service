@@ -35,10 +35,6 @@ internal static class WindowsUserHelper
     private const string SessionMutexName = @"Local\NexusHelper";
     private const uint WM_CLOSE = 0x0010;
     private const string UpdaterWindowTitle = "Nexus Updater";
-    private static readonly string ReopenFlagPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "Nexus",
-        "reopen-dashboard.flag");
 
     private static readonly CancellationTokenSource s_exit = new();
 
@@ -128,9 +124,10 @@ internal static class WindowsUserHelper
             try { CloseUpdaterWindow(); } catch { /* best-effort */ }
         });
 
-        // If a reopen flag was written before the installer launched, open
-        // the dashboard now that the helper owns the tray.
-        if (File.Exists(ReopenFlagPath))
+        // If a reopen flag was written before the installer launched (or by a
+        // factory reset that just wiped the overlay/helper), open the
+        // dashboard now that the helper owns the tray.
+        if (File.Exists(DashboardReopenFlag.Path))
         {
             _ = Task.Run(() =>
             {
@@ -138,7 +135,7 @@ internal static class WindowsUserHelper
                 // blocked by the flag delete, which throws when the helper
                 // (user session) cannot remove the LocalSystem-written flag.
                 try { Platform.Windows.TrayIcon.OpenLocalWindow(); } catch { /* best-effort */ }
-                try { File.Delete(ReopenFlagPath); } catch { /* service grants the user delete; ignore if it fails */ }
+                try { File.Delete(DashboardReopenFlag.Path); } catch { /* service grants the user delete; ignore if it fails */ }
                 // Dashboard window appears after WebView2 init in the overlay
                 // process; nudge it foreground once visible so it opens on top.
                 try { NudgeDashboardToForeground(); } catch { /* best-effort */ }
