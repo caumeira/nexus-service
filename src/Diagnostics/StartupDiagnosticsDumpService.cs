@@ -121,41 +121,44 @@ public sealed class StartupDiagnosticsDumpService : BackgroundService
 
         try
         {
-            // SinoWealth 010C model-id probe, restricted to the known 258A:010C
-            // family (never send this vendor command to an arbitrary VID/PID).
-            // Query bytes, model_id offset and the vendor usage page/id match
-            // OpenRGB Controllers/SinowealthController/SinowealthControllerDetect.cpp
-            // DetectSinowealthKeyboard10c. Read-only query, issued once at
-            // startup. Open shares R/W, so on an already-driven supported 010C
-            // board this Set+Get can interleave with the driver's traffic;
-            // tolerated for a one-shot diagnostic whose target is an
-            // unsupported board that nothing else drives.
-            foreach (var info in _hid.Find(0x258A, 0x010C))
+            // Every present HID collection, not just a recognized family - the
+            // usage-page/usage/report-length detail an unsupported device's
+            // OpenRGB driver needs, which the usb block above does not carry.
+            var hid = _hid.FindAll().OrderBy(d => d.VendorId).ThenBy(d => d.ProductId).ToList();
+            Emit($"hid ({hid.Count} device(s)):");
+            foreach (var d in hid)
             {
-                if (info.UsagePage != 0xFF00 || info.Usage != 0x01) continue;
-                using var dev = _hid.Open(info.Path);
-                if (dev == null) continue;
+                var line = $"  - {d.VendorId:X4}:{d.ProductId:X4} up={d.UsagePage:X4} u={d.Usage:X4} rpt={d.InputReportByteLength}/{d.OutputReportByteLength}/{d.FeatureReportByteLength} sn={(string.IsNullOrEmpty(d.Serial) ? "-" : d.Serial)}";
 
-                var query = new byte[] { 0x06, 0x82, 0x01, 0x00, 0x01, 0x00, 0x06 };
-                if (!dev.SetFeature(query))
+                // SinoWealth 010C model-id probe, restricted to the known 258A:010C
+                // family (never send this vendor command to an arbitrary VID/PID).
+                // Query bytes, model_id offset and the vendor usage page/id match
+                // OpenRGB Controllers/SinowealthController/SinowealthControllerDetect.cpp
+                // DetectSinowealthKeyboard10c. Read-only query, issued once at
+                // startup. Open shares R/W, so on an already-driven supported 010C
+                // board this Set+Get can interleave with the driver's traffic;
+                // tolerated for a one-shot diagnostic whose target is an
+                // unsupported board that nothing else drives.
+                if (d.VendorId == 0x258A && d.ProductId == 0x010C && d.UsagePage == 0xFF00 && d.Usage == 0x01)
                 {
-                    Emit("  - sinowealth-010c: SetFeature failed");
-                    continue;
+                    using var dev = _hid.Open(d.Path);
+                    if (dev != null)
+                    {
+                        var query = new byte[] { 0x06, 0x82, 0x01, 0x00, 0x01, 0x00, 0x06 };
+                        var resp = new byte[520]; // OpenRGB reads this query as a 520-byte feature report
+                        resp[0] = 0x06; // report id must be preset for GetFeature
+                        if (dev.SetFeature(query) && dev.GetFeature(resp))
+                        {
+                            byte modelId = resp[13];
+                            line += $" model=0x{modelId:X2} head={BitConverter.ToString(resp, 0, 16)}";
+                        }
+                    }
                 }
 
-                var resp = new byte[520]; // OpenRGB reads this query as a 520-byte feature report
-                resp[0] = 0x06; // report id must be preset for GetFeature
-                if (!dev.GetFeature(resp))
-                {
-                    Emit("  - sinowealth-010c: GetFeature failed");
-                    continue;
-                }
-
-                byte modelId = resp[13];
-                Emit($"  - sinowealth-010c model=0x{modelId:X2} head={BitConverter.ToString(resp, 0, 16)}");
+                Emit(line);
             }
         }
-        catch (Exception ex) { Emit($"sinowealth-010c probe failed: {ex.Message}"); }
+        catch (Exception ex) { Emit($"hid read failed: {ex.Message}"); }
 
         try
         {

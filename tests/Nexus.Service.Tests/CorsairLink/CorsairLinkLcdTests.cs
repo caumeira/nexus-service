@@ -421,6 +421,8 @@ public class CorsairLinkLcdTests
             return result;
         }
 
+        public IReadOnlyList<HidDeviceInfo> FindAll() => _infos;
+
         public IHidDevice? Open(string path, bool forInput = false)
         {
             LastOpenedPath = path;

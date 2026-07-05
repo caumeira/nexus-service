@@ -22,17 +22,27 @@ public sealed partial class LinuxHidEnumerator : IHidEnumerator
     public IReadOnlyList<HidDeviceInfo> Find(int vendorId, int productId)
     {
         var result = new List<HidDeviceInfo>();
-        if (!Directory.Exists(HidrawClass)) return result;
+        foreach (var info in EnumerateAll())
+        {
+            if (info.VendorId != vendorId || info.ProductId != productId) continue;
+            result.Add(info);
+        }
+        return result;
+    }
+
+    public IReadOnlyList<HidDeviceInfo> FindAll() => new List<HidDeviceInfo>(EnumerateAll());
+
+    private static IEnumerable<HidDeviceInfo> EnumerateAll()
+    {
+        if (!Directory.Exists(HidrawClass)) yield break;
 
         foreach (var dir in Directory.EnumerateDirectories(HidrawClass))
         {
             var name = System.IO.Path.GetFileName(dir); // e.g. "hidraw2"
             var info = ReadInfo(name);
             if (info is null) continue;
-            if (info.VendorId != vendorId || info.ProductId != productId) continue;
-            result.Add(info);
+            yield return info;
         }
-        return result;
     }
 
     public IHidDevice? Open(string path, bool forInput = false)

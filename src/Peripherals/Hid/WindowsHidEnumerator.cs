@@ -14,7 +14,12 @@ namespace Nexus.Service.Peripherals.Hid;
 /// </summary>
 public sealed class WindowsHidEnumerator : IHidEnumerator
 {
-    public IReadOnlyList<HidDeviceInfo> Find(int vendorId, int productId)
+    public IReadOnlyList<HidDeviceInfo> Find(int vendorId, int productId) =>
+        EnumerateDevices(attrs => attrs.VendorID == (ushort)vendorId && attrs.ProductID == (ushort)productId);
+
+    public IReadOnlyList<HidDeviceInfo> FindAll() => EnumerateDevices(null);
+
+    private static List<HidDeviceInfo> EnumerateDevices(Func<Native.HIDD_ATTRIBUTES, bool>? attrsFilter)
     {
         var result = new List<HidDeviceInfo>();
         Native.HidD_GetHidGuid(out var hidGuid);
@@ -59,51 +64,10 @@ public sealed class WindowsHidEnumerator : IHidEnumerator
                         continue;
                     }
 
-                    // Open briefly to read attributes + preparsed data for report sizes.
-                    var handle = Native.CreateFile(devicePath,
-                        0, // query only
-                        Native.FILE_SHARE_READ | Native.FILE_SHARE_WRITE,
-                        IntPtr.Zero,
-                        Native.OPEN_EXISTING,
-                        0,
-                        IntPtr.Zero);
-                    if (handle == (IntPtr)(-1))
+                    var info = TryReadDeviceInfo(devicePath, attrsFilter);
+                    if (info is not null)
                     {
-                        continue;
-                    }
-
-                    try
-                    {
-                        var attrs = new Native.HIDD_ATTRIBUTES { Size = Marshal.SizeOf<Native.HIDD_ATTRIBUTES>() };
-                        if (!Native.HidD_GetAttributes(handle, ref attrs))
-                        {
-                            continue;
-                        }
-
-                        if (attrs.VendorID != (ushort)vendorId || attrs.ProductID != (ushort)productId)
-                        {
-                            continue;
-                        }
-
-                        var serial = TryGetSerial(handle);
-                        var (usagePage, usage, inLen, outLen, featLen) = TryGetCaps(handle);
-
-                        result.Add(new HidDeviceInfo
-                        {
-                            VendorId = attrs.VendorID,
-                            ProductId = attrs.ProductID,
-                            Path = devicePath,
-                            Serial = serial,
-                            UsagePage = usagePage,
-                            Usage = usage,
-                            InputReportByteLength = inLen,
-                            OutputReportByteLength = outLen,
-                            FeatureReportByteLength = featLen,
-                        });
-                    }
-                    finally
-                    {
-                        Native.CloseHandle(handle);
+                        result.Add(info);
                     }
                 }
                 finally
@@ -118,6 +82,59 @@ public sealed class WindowsHidEnumerator : IHidEnumerator
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// Opens the path query-only to read attributes, then the caller's filter, then
+    /// preparsed data for report sizes (skipped when the filter rejects the device).
+    /// </summary>
+    private static HidDeviceInfo? TryReadDeviceInfo(string devicePath, Func<Native.HIDD_ATTRIBUTES, bool>? attrsFilter)
+    {
+        var handle = Native.CreateFile(devicePath,
+            0, // query only
+            Native.FILE_SHARE_READ | Native.FILE_SHARE_WRITE,
+            IntPtr.Zero,
+            Native.OPEN_EXISTING,
+            0,
+            IntPtr.Zero);
+        if (handle == (IntPtr)(-1))
+        {
+            return null;
+        }
+
+        try
+        {
+            var attrs = new Native.HIDD_ATTRIBUTES { Size = Marshal.SizeOf<Native.HIDD_ATTRIBUTES>() };
+            if (!Native.HidD_GetAttributes(handle, ref attrs))
+            {
+                return null;
+            }
+
+            if (attrsFilter is not null && !attrsFilter(attrs))
+            {
+                return null;
+            }
+
+            var serial = TryGetSerial(handle);
+            var (usagePage, usage, inLen, outLen, featLen) = TryGetCaps(handle);
+
+            return new HidDeviceInfo
+            {
+                VendorId = attrs.VendorID,
+                ProductId = attrs.ProductID,
+                Path = devicePath,
+                Serial = serial,
+                UsagePage = usagePage,
+                Usage = usage,
+                InputReportByteLength = inLen,
+                OutputReportByteLength = outLen,
+                FeatureReportByteLength = featLen,
+            };
+        }
+        finally
+        {
+            Native.CloseHandle(handle);
+        }
     }
 
     public IHidDevice? Open(string path, bool forInput = false)

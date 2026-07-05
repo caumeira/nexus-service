@@ -11,6 +11,9 @@ public interface IHidEnumerator
     /// <summary>Returns metadata for all HID interfaces matching (vendorId, productId). Does not open.</summary>
     IReadOnlyList<HidDeviceInfo> Find(int vendorId, int productId);
 
+    /// <summary>Returns metadata for every present HID interface, no VID/PID filter. Does not open.</summary>
+    IReadOnlyList<HidDeviceInfo> FindAll();
+
     /// <summary>
     /// Opens the device at the given path. Returns null if open fails. Set
     /// <paramref name="forInput"/> for a handle used with <see cref="IHidDevice.Read"/>:
