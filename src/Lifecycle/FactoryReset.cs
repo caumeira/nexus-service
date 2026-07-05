@@ -197,10 +197,41 @@ internal static class FactoryReset
         }
 #endif
 
+#if WINDOWS
+        // A wipe deletes %ProgramData%\Nexus\DesktopWebView2 /
+        // \DashboardEdge (the dashboard's WebView2/Edge profiles, holding
+        // localStorage's cached auth token) out from under the overlay and
+        // helper if either is still running - they survive a plain service
+        // stop/start, so a cold reopen needs them gone first: kill them
+        // before the wipe so nothing holds the profile dirs open, and so the
+        // next boot's UserHelperBootstrapper.EnsureLaunched spawn is not
+        // blocked by the still-running helper's Local\NexusHelper mutex.
+        // Excludes this finalizer's own pid - it also runs as Nexus.exe.
+        if (wipe)
+        {
+            ShellExecutor.RunExit("taskkill.exe", ShellExecutor.DefaultTimeoutMs,
+                "/F", "/T", "/IM", "nexus-overlay.exe");
+            ShellExecutor.RunExit("taskkill.exe", ShellExecutor.DefaultTimeoutMs,
+                "/F", "/FI", $"PID ne {Environment.ProcessId}", "/IM", "Nexus.exe");
+        }
+#endif
+
         if (wipe)
         {
             DeleteRoots();
         }
+#if WINDOWS
+        // The reopen flag lives under %ProgramData%\Nexus, so it must be
+        // written after the wipe or DeleteRoots would remove it immediately.
+        // WindowsUserHelper.Run checks for it on every helper startup - the
+        // fresh helper EnsureLaunched spawns after RestartService below picks
+        // it up and reopens a cold dashboard once the overlay it also starts
+        // is ready.
+        if (wipe)
+        {
+            DashboardReopenFlag.Write();
+        }
+#endif
         RestartService();
 #if WINDOWS
         // A plain restart (e.g. applying the render-GPU choice) was triggered

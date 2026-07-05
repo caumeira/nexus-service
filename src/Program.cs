@@ -390,6 +390,7 @@ app.MapAuthEndpoints();
 app.MapSystemEndpoints();
 app.MapServiceControlEndpoints();
 app.MapTelemetryEndpoints();
+app.MapOnboardingEndpoints();
 app.MapCoolingEndpoints();
 app.MapBenchmarkEndpoints();
 app.MapLightingEndpoints();

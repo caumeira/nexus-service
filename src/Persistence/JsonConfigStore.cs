@@ -65,7 +65,11 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
             try
             {
                 var json = File.ReadAllText(SettingsPath);
-                _cached = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.NexusSettings) ?? new NexusSettings();
+                _cached = JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.NexusSettings);
+                // Valid JSON (e.g. a literal "null") but no data: the file
+                // still existed, so this is not a fresh install for the v8
+                // OnboardingCompleted migration below.
+                _cached ??= new NexusSettings { SchemaVersion = 0 };
                 if (_cached.SchemaVersion < NexusSettings.CurrentSchemaVersion)
                 {
                     Migrate(_cached);
@@ -85,7 +89,12 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
                     Console.Error.WriteLine($"[nexus-service] preserved corrupt settings at {backup}");
                 }
                 catch { /* best-effort backup; never block startup on it */ }
-                _cached = new NexusSettings();
+                // The file existed but couldn't be read: not a fresh install
+                // for the v8 OnboardingCompleted migration, so route through
+                // Migrate() the same as any other pre-v8 document.
+                _cached = new NexusSettings { SchemaVersion = 0 };
+                Migrate(_cached);
+                Persist(_cached);
             }
 
             return _cached;
@@ -97,6 +106,10 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     /// immediately. v6: LED map overrides / aspect ratios move from per-card
     /// keys into the device-scoped segment-local dicts (zones model).
     /// v7: legacy autoUpdateDisabled bool mapped to UpdateMode string.
+    /// v8: any settings.json that already existed predates the first-run
+    /// welcome screen, so it is marked already-onboarded; only an install
+    /// with no settings.json at all (Load's !File.Exists branch, which never
+    /// calls Migrate) sees OnboardingCompleted default to false.
     /// </summary>
     private static void Migrate(NexusSettings doc)
     {
@@ -111,6 +124,10 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
                 doc.Update.UpdateMode = "notify";
             }
             doc.Update.LegacyAutoUpdateDisabled = null;
+        }
+        if (doc.SchemaVersion < 8)
+        {
+            doc.OnboardingCompleted = true;
         }
         doc.SchemaVersion = NexusSettings.CurrentSchemaVersion;
     }

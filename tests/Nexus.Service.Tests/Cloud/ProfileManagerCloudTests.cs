@@ -49,6 +49,20 @@ public sealed class ProfileManagerCloudTests : IDisposable
     }
 
     [Fact]
+    public void ExportProfileForSync_excludes_onboarding_completed()
+    {
+        var activeId = _profiles.GetActiveEntry()!.Id;
+        _store.Update(s => s.OnboardingCompleted = true);
+        _store.FlushNow();
+
+        var export = _profiles.ExportProfileForSync(activeId);
+
+        Assert.NotNull(export);
+        Assert.NotNull(export!.Settings);
+        Assert.False(export.Settings!.OnboardingCompleted);
+    }
+
+    [Fact]
     public void ExportProfileForSync_unknown_profile_returns_null()
     {
         Assert.Null(_profiles.ExportProfileForSync("does-not-exist"));

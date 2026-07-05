@@ -4,6 +4,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Devices.Firmware;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models.Update;
 using Nexus.Service.Persistence;
 using Nexus.Service.Sockets;
@@ -13,10 +14,6 @@ using Nexus.Service.Helper.Domains;
 #endif
 
 namespace Nexus.Service.Update;
-
-// Flag file written before launching the installer so the helper, on its next
-// startup, opens the dashboard once the overlay is ready - replacing the racy
-// boot-time IPC approach. Path: %ProgramData%\Nexus\reopen-dashboard.flag
 
 /// <summary>
 /// Singleton update engine. Implements IHostedService so it polls on a
@@ -35,11 +32,6 @@ namespace Nexus.Service.Update;
 public sealed class UpdateService : BackgroundService
 {
     private static readonly TimeSpan PollInterval = TimeSpan.FromHours(4);
-
-    private static readonly string ReopenFlagPath = Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
-        "Nexus",
-        "reopen-dashboard.flag");
 
     private readonly IUpdateSource _source;
     private readonly UpdateDownloader _downloader;
@@ -389,7 +381,7 @@ public sealed class UpdateService : BackgroundService
 
             if (reopenDashboard)
             {
-                WriteFlagFile();
+                DashboardReopenFlag.Write();
             }
 
             _status = new UpdateStatusResponse
@@ -697,7 +689,7 @@ public sealed class UpdateService : BackgroundService
 
             if (reopenAfter)
             {
-                WriteFlagFile();
+                DashboardReopenFlag.Write();
             }
 
             try
@@ -841,7 +833,7 @@ public sealed class UpdateService : BackgroundService
 
             if (reopenAfter)
             {
-                WriteFlagFile();
+                DashboardReopenFlag.Write();
             }
 
             try
@@ -900,36 +892,6 @@ public sealed class UpdateService : BackgroundService
     private static void TryDeleteStagedFile(string path)
     {
         try { File.Delete(path); } catch { }
-    }
-
-    private static void WriteFlagFile()
-    {
-        try
-        {
-            var dir = Path.GetDirectoryName(ReopenFlagPath);
-            if (dir is not null)
-            {
-                Directory.CreateDirectory(dir);
-            }
-            File.WriteAllText(ReopenFlagPath, "");
-            // Grant BUILTIN\Users (S-1-5-32-545) Modify so the user-session
-            // helper can delete this LocalSystem-written flag after reopening.
-            // Without it the delete fails and the dashboard reopens on every
-            // later helper start. icacls is a no-op / throws off Windows (caught).
-            var psi = new System.Diagnostics.ProcessStartInfo("icacls.exe")
-            {
-                UseShellExecute = false,
-                CreateNoWindow = true,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-            };
-            psi.ArgumentList.Add(ReopenFlagPath);
-            psi.ArgumentList.Add("/grant");
-            psi.ArgumentList.Add("*S-1-5-32-545:(M)");
-            using var icacls = System.Diagnostics.Process.Start(psi);
-            icacls?.WaitForExit(5000);
-        }
-        catch { /* best-effort */ }
     }
 
     private void SetProgress(string phase, double percent, string message, string version)

@@ -40,6 +40,20 @@ public sealed class JsonConfigStoreCorruptLoadTests : IDisposable
     }
 
     [Fact]
+    public void Corrupt_file_marks_onboarding_already_complete()
+    {
+        // The file existed (however unreadable), so this is an upgrade of an
+        // existing install, not a fresh one - the welcome screen must not
+        // reappear for it.
+        File.WriteAllText(_path, "{ this is not valid json ");
+
+        using var store = new JsonConfigStore(_path);
+        var settings = store.Load();
+
+        Assert.True(settings.OnboardingCompleted);
+    }
+
+    [Fact]
     public void Setting_round_trips_through_a_reopen()
     {
         using (var store = new JsonConfigStore(_path))
