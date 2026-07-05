@@ -109,6 +109,29 @@ public class TryxMediaListTests
     }
 
     [Fact]
+    public void ParseMediaEntries_parses_both_arrays_and_flags_user_partition_as_custom()
+    {
+        // The panel reports two arrays: mediaFileList (field 1, custom uploads under
+        // /userdata/user/) and presetFileList (field 2, presets/downloads under
+        // /userdata/default/). Both must parse, classified by path, regardless of field number.
+        var entries = new List<byte>();
+        AppendEntry(entries, fieldNumber: 1, "/userdata/user/2026-07-05_08-46-40-161.mp4.h264_2240x1080", 2278333);
+        AppendEntry(entries, fieldNumber: 2, "/userdata/default/default_01.mp4.h264_2240x1080", 3790601);
+        AppendEntry(entries, fieldNumber: 2, "/userdata/default/download_86.mp4.h264_2240x1080", 25036141);
+        var top = new List<byte>();
+        WriteTag(top, 503, 2); WriteVarint(top, (ulong)entries.Count); top.AddRange(entries);
+
+        var parsed = TryxMediaList.ParseMediaEntries(top.ToArray());
+
+        Assert.NotNull(parsed);
+        Assert.Equal(3, parsed!.Count);
+        var custom = Assert.Single(parsed, e => e.IsCustom);
+        Assert.Equal("2026-07-05_08-46-40-161.mp4.h264_2240x1080", custom.Name);
+        Assert.Equal(2278333L, custom.SizeBytes);
+        Assert.Equal(2, parsed.Count(e => !e.IsCustom));
+    }
+
+    [Fact]
     public void ParseMediaEntries_returns_null_when_not_a_media_list()
     {
         Assert.Null(TryxMediaList.ParseMediaEntries(Encoding.UTF8.GetBytes("some heartbeat ack payload")));
@@ -150,6 +173,15 @@ public class TryxMediaListTests
         WriteTag(top, 2, 2); WriteVarint(top, 0);
         WriteTag(top, 503, 2); WriteVarint(top, (ulong)entries.Count); top.AddRange(entries);
         return top.ToArray();
+    }
+
+    // Appends one file entry { f1:path, f3:size } under the given repeated field number.
+    private static void AppendEntry(List<byte> entries, int fieldNumber, string path, long size)
+    {
+        var entry = new List<byte>();
+        WriteTag(entry, 1, 2); WriteVarint(entry, (ulong)path.Length); entry.AddRange(Encoding.UTF8.GetBytes(path));
+        WriteTag(entry, 3, 0); WriteVarint(entry, (ulong)size);
+        WriteTag(entries, fieldNumber, 2); WriteVarint(entries, (ulong)entry.Count); entries.AddRange(entry);
     }
 
     private static void WriteTag(List<byte> b, int fieldNumber, int wireType)

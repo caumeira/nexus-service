@@ -91,6 +91,10 @@ public sealed class TryxPanoramaHub : IDisposable
     /// has not pushed its list this session (it does so only on a cold boot / re-enumeration).</summary>
     public IReadOnlyList<string> AvailableMediaFilenames => _transport?.AvailableMediaFilenames ?? Array.Empty<string>();
 
+    /// <summary>Custom user uploads the panel reported (/userdata/user/), excluding presets and
+    /// cloud downloads; the library shown in the custom-media list. Empty when disconnected.</summary>
+    public IReadOnlyList<string> AvailableCustomMediaFilenames => _transport?.AvailableCustomMediaFilenames ?? Array.Empty<string>();
+
     // Fixed per-model on-panel storage; the panel's media-list push carries only
     // per-file sizes, never a device total, so this is a hardcoded spec value.
     public const long MediaCapacityBytes = 8L * 1024 * 1024 * 1024;

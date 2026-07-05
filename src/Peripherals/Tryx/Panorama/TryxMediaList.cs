@@ -63,15 +63,21 @@ public static class TryxMediaList
     }
 
     /// <summary>One file the panel's media-list push reports: <paramref name="Name"/> is the
-    /// basename under <see cref="StoreDirMarker"/> (path prefix stripped), <paramref name="SizeBytes"/>
-    /// its f3 size.</summary>
-    public readonly record struct MediaEntry(string Name, long SizeBytes);
+    /// basename (path prefix stripped), <paramref name="SizeBytes"/> its f3 size, and
+    /// <paramref name="IsCustom"/> true for a user upload (path under /userdata/user/) vs a
+    /// preset or cloud download (/userdata/default/).</summary>
+    public readonly record struct MediaEntry(string Name, long SizeBytes, bool IsCustom);
 
-    /// <summary>Per-file entries from the media-list push: outer <c>f503 { repeated f2 {
-    /// f1:path, f2:ext, f3:sizeBytes, f4:1 } }</c>. Returns null when the buffer is not a
-    /// complete media-list frame (another IN read, or a list split across reads) - only
-    /// whole-frame reads count, a very large list that spills past a single drain read
-    /// reports null until it fits. An entry missing either its path or its size is dropped.</summary>
+    private const string CustomDirMarker = "/userdata/user/";
+
+    /// <summary>Per-file entries from the media-list push: outer <c>f503 { repeated mediaFileList=1
+    /// { entry }, repeated presetFileList=2 { entry } }</c> where entry = <c>{ f1:path, f2:ext,
+    /// f3:sizeBytes, f4:readOnly }</c>. Both arrays are parsed (custom uploads live under
+    /// /userdata/user/ in mediaFileList, presets under /userdata/default/ in presetFileList);
+    /// any length field that parses as an entry (has a path + size) is included, so the field
+    /// number itself doesn't gate it. Returns null when the buffer is not a complete media-list
+    /// frame (another IN read, or a list split across reads) - only whole-frame reads count, a
+    /// very large list that spills past a single drain read reports null until it fits.</summary>
     public static IReadOnlyList<MediaEntry>? ParseMediaEntries(ReadOnlySpan<byte> data)
     {
         // Custom uploads live under /userdata/user/, built-in presets under /userdata/default/;
@@ -98,7 +104,8 @@ public static class TryxMediaList
             if (!TryReadVarint(fileList, ref pos, out var len) || len > (ulong)(fileList.Length - pos)) break;
             var entry = fileList.Slice(pos, (int)len);
             pos += (int)len;
-            if (fn != 2) continue; // repeated field 2 = one file entry
+            // mediaFileList (custom, field 1) and presetFileList (field 2) both hold entries;
+            // parse any length field that is a valid entry rather than gating on field number.
             if (TryParseEntry(entry, out var parsed))
             {
                 entries.Add(parsed);
@@ -149,7 +156,8 @@ public static class TryxMediaList
         // to just <f> (the device filename the rest of the code keys on).
         var slash = path.LastIndexOf('/');
         var name = slash >= 0 ? path[(slash + 1)..] : path;
-        result = new MediaEntry(name, size);
+        var isCustom = path.StartsWith(CustomDirMarker, StringComparison.Ordinal);
+        result = new MediaEntry(name, size, isCustom);
         return true;
     }
 

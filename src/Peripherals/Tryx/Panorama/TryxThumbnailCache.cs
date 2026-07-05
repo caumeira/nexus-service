@@ -71,11 +71,23 @@ public static class TryxThumbnailCache
         try
         {
             Directory.CreateDirectory(CacheDir);
-            var dest = ThumbPath(deviceFileName);
+            ExtractFrameTo(ffmpegPath, sourceMp4, ThumbPath(deviceFileName));
+        }
+        catch { /* best effort */ }
+    }
+
+    /// <summary>Extracts one downscaled (320px wide) JPEG frame from <paramref name="source"/>
+    /// to <paramref name="destJpg"/>. Returns true iff the file was written. Kills a hung ffmpeg
+    /// at the timeout so a stalled encode can't block the caller (this runs on the request thread
+    /// for the media list). Best-effort: false on any failure.</summary>
+    public static bool ExtractFrameTo(string ffmpegPath, string source, string destJpg)
+    {
+        try
+        {
             var args = $"-nostdin -hide_banner -loglevel error -y " +
-                       $"-i \"{sourceMp4}\" " +
+                       $"-i \"{source}\" " +
                        $"-frames:v 1 -vf scale=320:-2 -q:v 4 " +
-                       $"\"{dest}\"";
+                       $"\"{destJpg}\"";
             using var p = Process.Start(new ProcessStartInfo
             {
                 FileName = ffmpegPath,
@@ -85,15 +97,19 @@ public static class TryxThumbnailCache
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
             });
-            if (p is null) return;
+            if (p is null) return false;
             // Drain pipes to prevent deadlock when the OS buffer fills.
             var outTask = p.StandardOutput.ReadToEndAsync();
             var errTask = p.StandardError.ReadToEndAsync();
-            p.WaitForExit(15_000);
+            if (!p.WaitForExit(15_000))
+            {
+                try { p.Kill(entireProcessTree: true); } catch { /* already gone */ }
+            }
             outTask.GetAwaiter().GetResult();
             errTask.GetAwaiter().GetResult();
+            return File.Exists(destJpg);
         }
-        catch { /* best effort */ }
+        catch { return false; }
     }
 
     // Caps inline data-URL size so thumbnails don't bloat the action response.

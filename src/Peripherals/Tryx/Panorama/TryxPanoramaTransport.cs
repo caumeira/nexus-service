@@ -32,6 +32,10 @@ public interface ITryxPanoramaTransport : IDisposable
     /// download, and custom), or empty if it has not pushed its list this session.</summary>
     IReadOnlyList<string> AvailableMediaFilenames => Array.Empty<string>();
 
+    /// <summary>Custom user uploads only (panel /userdata/user/), excluding presets and cloud
+    /// downloads (/userdata/default/). The library list; empty until a push arrives.</summary>
+    IReadOnlyList<string> AvailableCustomMediaFilenames => Array.Empty<string>();
+
     /// <summary>Per-file sizes from the panel's last media-list push, keyed by basename;
     /// empty until a list is received (see <see cref="TryxMediaList.ParseMediaEntries"/>).</summary>
     IReadOnlyDictionary<string, long> MediaFileSizes => EmptyMediaFileSizes;

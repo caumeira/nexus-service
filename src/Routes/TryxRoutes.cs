@@ -73,6 +73,9 @@ public sealed class TryxMediaItem
     public string Name { get; set; } = "";
     public string? Thumb { get; set; }
     public double DurationSec { get; set; }
+    /// <summary>Human display name for media Nexus did not upload (from Kanali's library),
+    /// or null; the web shows this instead of the raw device filename.</summary>
+    public string? Label { get; set; }
 }
 
 public sealed class TryxMediaListResponse
@@ -291,11 +294,21 @@ public static class TryxRoutes
             var resp = new TryxMediaListResponse();
             foreach (var name in names)
             {
+                var thumb = TryxThumbnailCache.ReadDataUrl(name);
+                string? label = null;
+                // Media the panel holds but Nexus never uploaded (Kanali cloud themes /
+                // prior uploads) has no cached frame; source the cover + name from Kanali.
+                if (thumb is null)
+                {
+                    var kanali = TryxKanaliData.Lookup(name);
+                    if (kanali is { } k) { thumb = k.Thumb; label = k.DisplayName; }
+                }
                 resp.Media.Add(new TryxMediaItem
                 {
                     Name = name,
-                    Thumb = TryxThumbnailCache.ReadDataUrl(name),
+                    Thumb = thumb,
                     DurationSec = TryxThumbnailCache.ReadDuration(name),
+                    Label = label,
                 });
             }
             return Results.Json(resp, AppJsonContext.Default.TryxMediaListResponse);
@@ -553,12 +566,15 @@ public static class TryxRoutes
         var adbSerial = hub.State.AdbSerial;
         if (string.IsNullOrEmpty(adbSerial))
         {
-            // RK firmware (usbprint, no adb): union of the panel's own list (device truth, so a
-            // Kanali upload with no local thumbnail still appears) and the local thumbnail record
-            // (a just-uploaded file the panel's once-per-connection list hasn't caught yet),
-            // deduped by device filename. Built-in presets and system clips are excluded.
-            var device = hub.AvailableMediaFilenames.Where(IsCustomDeviceMedia);
+            // RK firmware (usbprint, no adb): union of the panel's custom uploads (device truth,
+            // /userdata/user/ only - so a Kanali upload with no local thumbnail still appears, but
+            // presets and cloud downloads under /userdata/default/ are excluded) and the local
+            // thumbnail record (a just-uploaded file the panel's once-per-connection list hasn't
+            // caught yet). A cloud theme installed via Nexus lands in /userdata/user/ too, so drop
+            // the download_<id> cloud names as well - those belong to the cloud gallery.
+            var device = hub.AvailableCustomMediaFilenames;
             return device.Concat(TryxThumbnailCache.ListCustomMedia())
+                .Where(n => !IsCloudDownload(n))
                 .Distinct(StringComparer.Ordinal).ToList();
         }
         // Legacy serial firmware: enumerate /sdcard/pcMedia over adb, plus the thumbnail record.
@@ -598,12 +614,12 @@ public static class TryxRoutes
         return files;
     }
 
-    // A device file is user media (shown in the library) unless it is a built-in preset
-    // (default_NN) or a system clip (screensaver / start / power-on / standby).
-    private static bool IsCustomDeviceMedia(string name)
-        => !name.StartsWith("default_", StringComparison.Ordinal)
-           && !name.StartsWith("screensaver", StringComparison.Ordinal)
-           && !name.StartsWith("start.", StringComparison.Ordinal);
+    // Cloud themes are named download_<materialId> by both Kanali's and Nexus's install paths;
+    // Nexus's install writes them into /userdata/user/ next to real uploads, so they're excluded
+    // from the custom-upload list by name (they surface in the cloud gallery instead).
+    private static bool IsCloudDownload(string name)
+        => name.StartsWith("download_", StringComparison.Ordinal)
+           && name.Length > 9 && char.IsAsciiDigit(name[9]);
 
     private static TryxAckResponse DeleteMediaFile(TryxPanoramaHub hub, string name)
     {

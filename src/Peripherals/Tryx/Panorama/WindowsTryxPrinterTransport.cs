@@ -32,6 +32,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     private bool _disposed;
     private volatile IReadOnlyList<string> _availableMediaIds = Array.Empty<string>();
     private volatile IReadOnlyList<string> _availableMediaFilenames = Array.Empty<string>();
+    private volatile IReadOnlyList<string> _availableCustomMediaFilenames = Array.Empty<string>();
     private volatile IReadOnlyDictionary<string, long> _mediaFileSizes = EmptyMediaFileSizes;
     private int _mediaListVersion;
     private volatile string _panelSerial = "";
@@ -82,6 +83,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     public string PortName { get; }
     public IReadOnlyList<string> AvailableMediaIds => _availableMediaIds;
     public IReadOnlyList<string> AvailableMediaFilenames => _availableMediaFilenames;
+    public IReadOnlyList<string> AvailableCustomMediaFilenames => _availableCustomMediaFilenames;
     public IReadOnlyDictionary<string, long> MediaFileSizes => _mediaFileSizes;
     public int MediaListVersion => Volatile.Read(ref _mediaListVersion);
     public string PanelSerial => _panelSerial;
@@ -169,16 +171,19 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
                 if (entries is not null)
                 {
                     var names = new List<string>(entries.Count);
+                    var customNames = new List<string>();
                     var sizes = new Dictionary<string, long>(entries.Count, StringComparer.Ordinal);
                     var usedBytes = 0L;
                     foreach (var e in entries)
                     {
                         names.Add(e.Name);
+                        if (e.IsCustom) customNames.Add(e.Name);
                         sizes[e.Name] = e.SizeBytes;
                         usedBytes += e.SizeBytes;
                     }
                     _availableMediaIds = TryxMediaList.ParsePresetIds(span);
                     _availableMediaFilenames = names;
+                    _availableCustomMediaFilenames = customNames;
                     _mediaFileSizes = sizes;
                     Interlocked.Increment(ref _mediaListVersion);
                     ServiceLog.Info($"[tryx] panel media list ({names.Count}, {usedBytes} bytes): {string.Join(", ", names)}");
