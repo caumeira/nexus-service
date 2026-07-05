@@ -165,20 +165,42 @@ public static class TrayIcon
 
     public static void Hide() => SetVisible(false);
 
+    /// <summary>
+    /// Start the message-pump thread (creating the hidden window that receives
+    /// WM_DISPLAYCHANGE and TaskbarCreated) without adding the icon. Callers
+    /// that want the pump alive regardless of icon visibility - so
+    /// display-change and taskbar-recreate events keep flowing while the icon
+    /// is hidden - call this; SetVisible then only adds/removes the icon.
+    /// </summary>
+    public static void EnsurePumpStarted()
+    {
+        lock (_sync)
+        {
+            EnsureThreadStartedLocked();
+        }
+    }
+
     public static void SetVisible(bool visible)
     {
         lock (_sync)
         {
             _requestedVisible = visible;
-            if (visible && _thread is null)
-            {
-                _thread = new Thread(Run);
-                _thread.SetApartmentState(ApartmentState.STA);
-                _thread.IsBackground = true;
-                _thread.Start();
-            }
+            if (visible) EnsureThreadStartedLocked();
 
             ApplyIconVisibilityNoThrow();
+        }
+    }
+
+    // Caller holds _sync. The Run thread creates the window and pumps messages;
+    // the icon is added by ApplyIconVisibilityNoThrow only when _requestedVisible.
+    private static void EnsureThreadStartedLocked()
+    {
+        if (_thread is null)
+        {
+            _thread = new Thread(Run);
+            _thread.SetApartmentState(ApartmentState.STA);
+            _thread.IsBackground = true;
+            _thread.Start();
         }
     }
 

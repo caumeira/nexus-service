@@ -94,12 +94,14 @@ internal static class WindowsUserHelper
         // "Shut down" closure can capture it for the stop-request send.
         var outbound = new HelperOutbound();
 
-        // Tray icon: visible by default until the service tells us otherwise.
-        // The server-driven model (HelperCommandClient.SetTrayVisibleAsync)
-        // pushes the current ShowWindowsTrayIcon value on every successful
-        // connect, so the icon settles to the persisted preference within
-        // ~1s of bootstrap. Defaulting to "visible" avoids a transient
-        // disappearance during service restarts.
+        // Tray icon: hidden until the service is connected. The pump thread
+        // starts now (so WM_DISPLAYCHANGE / TaskbarCreated still work while the
+        // icon is hidden), but the icon itself is added
+        // only when the service pushes the current ShowWindowsTrayIcon value on
+        // connect (TrayBootstrap.WireHelperPipe). A service that never comes up
+        // (SCM start type = demand, "launch at startup" off) never sends that
+        // push, so no icon appears while Nexus is not running; a service crash
+        // hides it via onDisconnected below.
         //
         // "Shut down" in the tray menu must match the settings "Stop Nexus"
         // UX: service stopped, --app window closed, tray gone. The stop
@@ -116,7 +118,7 @@ internal static class WindowsUserHelper
                 s_exit.Cancel();
             });
 
-        Platform.Windows.TrayIcon.SetVisible(true);
+        Platform.Windows.TrayIcon.EnsurePumpStarted();
 
         // Close any updater splash from a prior install attempt (whether
         // succeeded, failed, or interrupted). Must run unconditionally so a
@@ -254,7 +256,13 @@ internal static class WindowsUserHelper
                 catch { /* best-effort */ }
             });
 
-        var client = new HelperClientLoop(handlerRegistry, outbound);
+        // Hide the tray icon whenever the service pipe drops (crash or stop);
+        // the service re-pushes ShowWindowsTrayIcon on reconnect. Keeps the
+        // icon absent while Nexus is not running.
+        var client = new HelperClientLoop(
+            handlerRegistry,
+            outbound,
+            onDisconnected: () => Platform.Windows.TrayIcon.SetVisible(false));
         var pipeTask = Task.Run(() => client.RunAsync(s_exit.Token));
 
         try { s_exit.Token.WaitHandle.WaitOne(); }
