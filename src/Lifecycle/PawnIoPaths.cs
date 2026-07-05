@@ -30,14 +30,16 @@ public static class PawnIoPaths
         "Nexus", "PawnIO", "upgrade-pending.json");
 
     /// <summary>
-    /// PawnIOLib.dll location, preferring system install over bundled copy.
-    /// If the user has PawnIO installed via PawnIO_setup.exe, we use their
-    /// DLL so it stays version-matched with their kernel driver.
+    /// PawnIOLib.dll location, preferring the system install over the bundled
+    /// copy only when its file version is at least the bundled version. This
+    /// keeps the DLL from trailing a kernel driver Nexus has upgraded to the
+    /// bundled version.
     /// </summary>
     public static string DllPath
     {
         get
         {
+            var bundledDll = Path.Combine(BundleDir, "PawnIOLib.dll");
             if (OperatingSystem.IsWindows())
             {
                 var systemDll = Path.Combine(
@@ -45,10 +47,20 @@ public static class PawnIoPaths
                     "PawnIO", "PawnIOLib.dll");
                 if (File.Exists(systemDll))
                 {
-                    return systemDll;
+                    var bundledVersion = PawnIoInstaller.ReadFileVersion(bundledDll);
+                    if (bundledVersion is not null
+                        && ShouldUseSystemDll(PawnIoInstaller.ReadFileVersion(systemDll), bundledVersion))
+                    {
+                        return systemDll;
+                    }
                 }
             }
-            return Path.Combine(BundleDir, "PawnIOLib.dll");
+            return bundledDll;
         }
+    }
+
+    internal static bool ShouldUseSystemDll(Version? systemVersion, Version bundledVersion)
+    {
+        return systemVersion is not null && systemVersion >= bundledVersion;
     }
 }

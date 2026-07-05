@@ -309,7 +309,7 @@ public static class PawnIoInstaller
     }
 
     [SupportedOSPlatform("windows")]
-    private static Version? ReadFileVersion(string path)
+    internal static Version? ReadFileVersion(string path)
     {
         try
         {
