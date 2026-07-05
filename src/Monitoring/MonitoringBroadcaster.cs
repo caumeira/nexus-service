@@ -158,9 +158,15 @@ public sealed class MonitoringBroadcaster : BackgroundService
     internal async Task Tick(CancellationToken ct)
     {
         bool composite = _hub.TopicHasSubscribers("monitoring");
-        bool needCpu = composite || _hub.TopicHasSubscribers("cpu");
-        bool needGpu = composite || _hub.TopicHasSubscribers("gpu");
-        bool needMemory = composite || _hub.TopicHasSubscribers("memory");
+        // Not folded with composite: the summary component is never embedded in
+        // MonitoringFrame, so a composite-only tick must not pay for building it.
+        bool needSummary = _hub.TopicHasSubscribers("summary");
+        // The summary set draws from the same cpu/gpu/memory sensors those components
+        // read; folding needSummary in here means BuildSummaryComponent can reuse the
+        // already-fetched lists below instead of triggering a second sensor read.
+        bool needCpu = composite || _hub.TopicHasSubscribers("cpu") || needSummary;
+        bool needGpu = composite || _hub.TopicHasSubscribers("gpu") || needSummary;
+        bool needMemory = composite || _hub.TopicHasSubscribers("memory") || needSummary;
         bool needStorage = composite || _hub.TopicHasSubscribers("storage");
         bool needMotherboard = composite || _hub.TopicHasSubscribers("motherboard");
         bool needLhm = needCpu || needGpu || needMemory || needStorage || needMotherboard;
@@ -196,6 +202,11 @@ public sealed class MonitoringBroadcaster : BackgroundService
             ? new Dictionary<string, StorageComponent>(_sensors.GetStorageComponents())
             : null;
         HardwareComponent? motherboardComponent = needMotherboard ? BuildMotherboardComponent() : null;
+        // needSummary implies needCpu/needGpu/needMemory above, so these are populated
+        // whenever a summary component is needed.
+        HardwareComponent? summaryComponent = needSummary
+            ? BuildSummaryComponent(cpuComponent!, gpuComponents!, memoryComponent!)
+            : null;
         SensorExtras? extras = needExtras ? _sensors.GetSensorExtras() : null;
         string cpuModel = cpuComponent?.Name ?? "";
         _gpuModelsBuf.Clear();
@@ -260,6 +271,11 @@ public sealed class MonitoringBroadcaster : BackgroundService
             {
                 var env = WsEnvelope.Build("motherboard", motherboardComponent, AppJsonContext.Default.HardwareComponent);
                 await _hub.BroadcastTopicAsync("motherboard", env);
+            }
+            if (summaryComponent is not null && _hub.TopicHasSubscribers("summary"))
+            {
+                var env = WsEnvelope.Build("summary", summaryComponent, AppJsonContext.Default.HardwareComponent);
+                await _hub.BroadcastTopicAsync("summary", env);
             }
         }
 
@@ -364,6 +380,17 @@ public sealed class MonitoringBroadcaster : BackgroundService
         Id = "motherboard",
         Name = _sensors.GetMotherboardModel(),
         Sensors = new List<HardwareSensor>(_sensors.GetMotherboardSensors()),
+    };
+
+    private static HardwareComponent BuildSummaryComponent(
+        HardwareComponent cpuComponent, List<HardwareComponent> gpuComponents, HardwareComponent memoryComponent) => new()
+    {
+        Id = "summary",
+        Name = "Quick",
+        Sensors = SummarySensors.BuildFrom(
+            cpuComponent.Sensors,
+            gpuComponents.Count > 0 ? gpuComponents[0].Sensors : Array.Empty<HardwareSensor>(),
+            memoryComponent.Sensors),
     };
 
     // Push the system volume on the "volume" topic only when it changed since

@@ -369,6 +369,49 @@ public class MonitoringBroadcastTests
     }
 
     [Fact]
+    public async Task Tick_WithCompositeSubscriberOnly_DoesNotBroadcastSummary()
+    {
+        var hub = new MultiplexHub();
+        var broadcaster = BuildBroadcaster(hub);
+        var captured = new List<string>();
+        hub.OnBroadcastForTest += (topic, _) => captured.Add(topic);
+
+        using var monitoring = hub.AddTestSubscription("monitoring");
+        await broadcaster.Tick(CancellationToken.None);
+
+        Assert.Contains("monitoring", captured);
+        Assert.DoesNotContain("summary", captured);
+    }
+
+    [Fact]
+    public async Task Tick_WithSummarySubscriber_BroadcastsSummaryTopicWithoutDoubleReadingSensors()
+    {
+        var hub = new MultiplexHub();
+        var sensors = new StubSensorProvider();
+        var broadcaster = BuildBroadcaster(hub, sensors);
+        var captured = new List<(string Topic, byte[] Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) => captured.Add((topic, payload.ToArray()));
+
+        using var monitoring = hub.AddTestSubscription("monitoring");
+        using var summary = hub.AddTestSubscription("summary");
+        await broadcaster.Tick(CancellationToken.None);
+
+        var summaryPayload = captured.FirstOrDefault(c => c.Topic == "summary");
+        Assert.NotEqual(default, summaryPayload);
+
+        using var doc = System.Text.Json.JsonDocument.Parse(summaryPayload.Payload);
+        var sensorIds = doc.RootElement.GetProperty("d").GetProperty("sensors").EnumerateArray()
+            .Select(s => s.GetProperty("id").GetString()).ToList();
+        Assert.Contains("summary/cpu-usage", sensorIds);
+        Assert.Contains("summary/memory-usage", sensorIds);
+
+        // Composite already reads cpu/memory sensors this tick; the summary
+        // derivation must reuse that data instead of reading them again.
+        Assert.Equal(1, sensors.CpuSensorReads);
+        Assert.Equal(1, sensors.MemorySensorReads);
+    }
+
+    [Fact]
     public async Task Tick_WithScreenTimeSubscriber_BroadcastsScreenTimeTopicOnly()
     {
         var hub = new MultiplexHub();
