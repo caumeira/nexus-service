@@ -10,8 +10,9 @@ namespace Nexus.Service.Peripherals.Tryx.Panorama;
 /// panel media Nexus did not upload itself (cloud themes pushed as download_NN, prior
 /// Kanali uploads). Kanali is the Tryx OEM Electron app; its data dir is
 /// <c>&lt;profile&gt;\AppData\Roaming\kanali</c>. Best-effort: no Kanali install -> empty
-/// index, callers fall back to a placeholder. The lookup key is the exact device filename
-/// the panel reports (e.g. <c>download_86.mp4.h264_2240x1080</c>).</summary>
+/// index, callers fall back to a placeholder. Matches the panel-reported filename first
+/// exactly, then by timestamp stem (the panel and Kanali disagree on the suffix form),
+/// and finally extracts a frame from the original upload still under <c>kanali\media</c>.</summary>
 public static class TryxKanaliData
 {
     /// <summary>A matched Kanali record: a human display name and, when present on disk,
@@ -20,6 +21,13 @@ public static class TryxKanaliData
 
     private static readonly object Lock = new();
     private static Dictionary<string, Entry> _index = new(StringComparer.Ordinal);
+    // Same records keyed by timestamp stem, so a panel-reported name in a different
+    // form than Kanali's stored fileName (e.g. "<ts>.Mp4" vs "<ts>.mp4.h264_2240x1080")
+    // still matches. Keyed by StemKey output (already lower-cased).
+    private static Dictionary<string, Entry> _stemIndex = new(StringComparer.Ordinal);
+    // Timestamp stem -> original upload video path under kanali\media, the frame source
+    // when Kanali has no cover record for a panel file.
+    private static Dictionary<string, string> _mediaVideos = new(StringComparer.Ordinal);
     private static string? _dataDir;
     private static DateTime _lastLocateUtc = DateTime.MinValue;
     private static bool _parsed;
@@ -36,17 +44,28 @@ public static class TryxKanaliData
 
     /// <summary>Returns the display name + cover-derived thumbnail data URL for a
     /// panel-reported device filename, or null when Kanali has no record of it.</summary>
-    public static (string DisplayName, string? Thumb)? Lookup(string deviceFileName)
+    public static (string? DisplayName, string? Thumb)? Lookup(string deviceFileName)
     {
         Entry? entry;
+        string? sourceVideo;
         lock (Lock)
         {
             EnsureFresh();
-            _index.TryGetValue(deviceFileName, out entry);
+            if (!_index.TryGetValue(deviceFileName, out entry))
+            {
+                _stemIndex.TryGetValue(StemKey(deviceFileName), out entry);
+            }
+            _mediaVideos.TryGetValue(StemKey(deviceFileName), out sourceVideo);
         }
-        if (entry is null) return null;
-        var thumb = entry.CoverPath is null ? null : EnsureThumbDataUrl(deviceFileName, entry.CoverPath);
-        return (entry.DisplayName, thumb);
+        string? thumb = entry?.CoverPath is { } cover ? EnsureThumbDataUrl(deviceFileName, cover) : null;
+        // No Kanali cover record (or its cover file is gone): extract a frame from the
+        // original upload Kanali still keeps under its media dir, matched by stem.
+        if (thumb is null && sourceVideo is not null)
+        {
+            thumb = EnsureThumbDataUrl(deviceFileName, sourceVideo);
+        }
+        if (entry is null && thumb is null) return null;
+        return (entry?.DisplayName, thumb);
     }
 
     // Rebuilds the index when the Kanali data dir, or either source JSON's mtime, changes.
@@ -61,7 +80,14 @@ public static class TryxKanaliData
                 _lastLocateUtc = DateTime.UtcNow;
                 _dataDir = LocateDataDir();
             }
-            if (_dataDir is null) { _index = new(StringComparer.Ordinal); _parsed = false; return; }
+            if (_dataDir is null)
+            {
+                _index = new(StringComparer.Ordinal);
+                _stemIndex = new(StringComparer.Ordinal);
+                _mediaVideos = new(StringComparer.Ordinal);
+                _parsed = false;
+                return;
+            }
 
             var storePath = Path.Combine(_dataDir, "store.json");
             var materialPath = Path.Combine(_dataDir, "material.json");
@@ -69,6 +95,9 @@ public static class TryxKanaliData
             var materialStamp = StampOf(materialPath);
             // Re-parse only on an mtime change; tracked separately from the entry count so a
             // panel whose media Kanali doesn't know (empty index) doesn't re-read every call.
+            // This also gates the _mediaVideos rebuild: a Kanali upload rewrites store.json, so
+            // its media dir is re-enumerated then; a file appearing under media\ with no JSON
+            // write stays invisible to the fallback until the next store.json change.
             if (_parsed && storeStamp == _storeStamp && materialStamp == _materialStamp)
             {
                 return;
@@ -77,12 +106,62 @@ public static class TryxKanaliData
             ParseMaterial(materialPath, next);
             ParseStore(storePath, next);
             _index = next;
+            _stemIndex = BuildStemIndex(next);
+            _mediaVideos = BuildMediaVideoIndex(_dataDir);
             _storeStamp = storeStamp;
             _materialStamp = materialStamp;
             _parsed = true;
         }
         // Reset _parsed so the next call re-parses rather than trusting stale stamps after a fault.
-        catch { _index = new(StringComparer.Ordinal); _parsed = false; }
+        catch
+        {
+            _index = new(StringComparer.Ordinal);
+            _stemIndex = new(StringComparer.Ordinal);
+            _mediaVideos = new(StringComparer.Ordinal);
+            _parsed = false;
+        }
+    }
+
+    /// <summary>Panel filename -> timestamp stem, tolerant of Kanali's naming variants
+    /// ("&lt;ts&gt;.mp4.h264_2240x1080", "&lt;ts&gt;.Mp4", "&lt;ts&gt;.mp4"): cut at the
+    /// first ".mp4" (any case), else drop the last extension. Lower-cased so lookups are
+    /// case-insensitive.</summary>
+    internal static string StemKey(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return string.Empty;
+        var cut = name.IndexOf(".mp4", StringComparison.OrdinalIgnoreCase);
+        var stem = cut >= 0 ? name.Substring(0, cut) : Path.GetFileNameWithoutExtension(name);
+        return stem.ToLowerInvariant();
+    }
+
+    private static Dictionary<string, Entry> BuildStemIndex(Dictionary<string, Entry> exact)
+    {
+        var stem = new Dictionary<string, Entry>(StringComparer.Ordinal);
+        foreach (var kv in exact)
+        {
+            var key = StemKey(kv.Key);
+            if (key.Length != 0) stem[key] = kv.Value;
+        }
+        return stem;
+    }
+
+    // Original uploads Kanali keeps at <dataDir>\media\<ts>.mp4 (root only; the transcoded
+    // .h264 output and material-cache previews are excluded).
+    private static Dictionary<string, string> BuildMediaVideoIndex(string dataDir)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        try
+        {
+            var mediaDir = Path.Combine(dataDir, "media");
+            if (!Directory.Exists(mediaDir)) return map;
+            foreach (var path in Directory.EnumerateFiles(mediaDir, "*.mp4"))
+            {
+                var key = StemKey(Path.GetFileName(path));
+                if (key.Length != 0) map.TryAdd(key, path);
+            }
+        }
+        catch { /* best effort */ }
+        return map;
     }
 
     private static DateTime StampOf(string path)

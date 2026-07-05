@@ -97,7 +97,7 @@ public sealed class TryxPanoramaHub : IDisposable
 
     // Fixed per-model on-panel storage; the panel's media-list push carries only
     // per-file sizes, never a device total, so this is a hardcoded spec value.
-    public const long MediaCapacityBytes = 8L * 1024 * 1024 * 1024;
+    public const long MediaCapacityBytes = 2L * 1024 * 1024 * 1024;
 
     // Headroom a transfer must clear below MediaCapacityBytes: MediaUsedBytes reflects
     // this session's last-synced count, not a live on-device query, so this absorbs
