@@ -32,10 +32,6 @@ public static class PeripheralRoutes
         app.MapGet("/peripherals/supported", () =>
             new GetSupportedDevicesResponse { Items = SupportedDevicesCatalog.All.ToList() });
 
-        // Static catalog - RGB/lighting-capable devices (backed by OpenRGB).
-        app.MapGet("/peripherals/lighting-supported", () =>
-            new GetSupportedDevicesResponse { Items = LightingDevicesCatalog.All.ToList() });
-
         // Static catalog - everything: peripherals + lighting merged and deduped.
         app.MapGet("/peripherals/all-supported", () =>
             new GetSupportedDevicesResponse { Items = AllSupportedDevices.All.ToList() });
