@@ -43,8 +43,8 @@ public sealed class WindowsTryxRkDiscovery : ITryxPanoramaPanelDiscovery
                 result.Add(new TryxPanoramaPortInfo
                 {
                     PortName = devicePath,
-                    Serial = ParseSerial(devicePath),
-                    ProductId = TryxPanoramaProtocol.ProductIdPanoramaRk,
+                    Serial = TryxRkDevicePath.ParseSerial(devicePath),
+                    ProductId = TryxRkDevicePath.ParseProductId(devicePath, TryxPanoramaProtocol.ProductIdPanoramaRk),
                 });
             }
         }
@@ -53,13 +53,6 @@ public sealed class WindowsTryxRkDiscovery : ITryxPanoramaPanelDiscovery
             Native.SetupDiDestroyDeviceInfoList(devInfo);
         }
         return result;
-    }
-
-    // Device paths look like \\?\USB#VID_391A&PID_1011#<serial>#{28d78fad-...}.
-    private static string ParseSerial(string devicePath)
-    {
-        var parts = devicePath.Split('#');
-        return parts.Length > 2 ? parts[2] : "";
     }
 
     private static string ReadDevicePath(IntPtr devInfo, ref Native.SP_DEVICE_INTERFACE_DATA ifaceData)
