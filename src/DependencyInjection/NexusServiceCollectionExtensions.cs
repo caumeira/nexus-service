@@ -758,7 +758,7 @@ public static class NexusServiceCollectionExtensions
         // legacy CDC-ACM serial + ADB composite identity.
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.ITryxPanoramaPanelDiscovery,
-                              Nexus.Service.Peripherals.Tryx.Panorama.WindowsTryxPrinterDiscovery>();
+                              Nexus.Service.Peripherals.Tryx.Panorama.WindowsTryxRkDiscovery>();
 #elif LINUX
         services.AddSingleton<Nexus.Service.Peripherals.Tryx.Panorama.ITryxPanoramaPanelDiscovery,
                               Nexus.Service.Peripherals.Tryx.Panorama.LinuxTryxPanoramaPortDiscovery>();
@@ -770,7 +770,7 @@ public static class NexusServiceCollectionExtensions
             new Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaHub(
                 sp.GetRequiredService<Nexus.Service.Peripherals.Tryx.Panorama.ITryxPanoramaPanelDiscovery>(),
 #if WINDOWS
-                port => new Nexus.Service.Peripherals.Tryx.Panorama.WindowsTryxPrinterTransport(port.PortName, port.Serial),
+                port => new Nexus.Service.Peripherals.Tryx.Panorama.WindowsTryxRkTransport(port.PortName, port.Serial),
 #else
                 port => new Nexus.Service.Peripherals.Tryx.Panorama.TryxPanoramaSerialTransport(port.PortName, port.Serial),
 #endif

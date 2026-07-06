@@ -11,7 +11,7 @@ namespace Nexus.Service.Peripherals.Tryx.Panorama;
 /// GUID_DEVINTERFACE_USBPRINT device interfaces and matches the VID substring in
 /// the resolved device path; no driver rebind is needed.
 /// </summary>
-public sealed class WindowsTryxPrinterDiscovery : ITryxPanoramaPanelDiscovery
+public sealed class WindowsTryxRkDiscovery : ITryxPanoramaPanelDiscovery
 {
     private static readonly Guid UsbPrintInterfaceGuid = new("28d78fad-5a12-11d1-ae5b-0000f803a8c2");
     private const string VidFragment = "VID_391A";

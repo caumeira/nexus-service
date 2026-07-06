@@ -23,7 +23,7 @@ namespace Nexus.Service.Peripherals.Tryx.Panorama;
 /// The handle is a <see cref="SafeFileHandle"/> owned by the <see cref="FileStream"/>
 /// so an in-flight write can't race a concurrent Dispose onto a recycled handle.
 /// </summary>
-public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
+public sealed class WindowsTryxRkTransport : ITryxPanoramaTransport
 {
     private readonly FileStream _stream;
     private readonly object _writeLock = new();
@@ -38,7 +38,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     private volatile string _panelSerial = "";
     private static readonly IReadOnlyDictionary<string, long> EmptyMediaFileSizes = new Dictionary<string, long>();
 
-    public WindowsTryxPrinterTransport(string devicePath, string serial)
+    public WindowsTryxRkTransport(string devicePath, string serial)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(devicePath);
         Serial = serial ?? "";
@@ -102,7 +102,7 @@ public sealed class WindowsTryxPrinterTransport : ITryxPanoramaTransport
     {
         if (_disposed)
         {
-            throw new ObjectDisposedException(nameof(WindowsTryxPrinterTransport));
+            throw new ObjectDisposedException(nameof(WindowsTryxRkTransport));
         }
         var copy = data.ToArray();
         lock (_writeLock)
