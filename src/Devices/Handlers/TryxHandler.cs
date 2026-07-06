@@ -4,10 +4,10 @@ using Nexus.Service.Peripherals.Tryx.Panorama;
 
 namespace Nexus.Service.Devices.Handlers;
 
-/// <summary>Tryx Panorama AIO screen. Current firmware enumerates as 391A:1011
-/// ("RK PANO") or 391A:1021 (Panorama 360 SE, "PASE"); control over its
-/// raw-USB-bulk interface is not yet implemented, so this handler reports
-/// presence only.</summary>
+/// <summary>Tryx Panorama AIO screen. RK firmware enumerates under VID 391A
+/// across the Panorama family (base "RK PANO", SE "PASE", WaterBlock, v2);
+/// control over its raw-USB-bulk interface is not yet implemented, so this
+/// handler reports presence only.</summary>
 public sealed class TryxHandler : IDeviceHandler
 {
     public string Id => "tryx";
@@ -19,6 +19,9 @@ public sealed class TryxHandler : IDeviceHandler
         new UsbId(TryxPanoramaProtocol.VendorIdRk, TryxPanoramaProtocol.ProductIdPanoramaRk),
         new UsbId(TryxPanoramaProtocol.VendorIdRk, TryxPanoramaProtocol.ProductIdPanoramaRkSe),
         new UsbId(TryxPanoramaProtocol.VendorIdRk, TryxPanoramaProtocol.ProductIdPanoramaRkSe2),
+        new UsbId(TryxPanoramaProtocol.VendorIdRk, TryxPanoramaProtocol.ProductIdPanoramaRkWb),
+        new UsbId(TryxPanoramaProtocol.VendorIdRk, TryxPanoramaProtocol.ProductIdPanoramaRkWb2),
+        new UsbId(TryxPanoramaProtocol.VendorIdRk, TryxPanoramaProtocol.ProductIdPanoramaRkV2),
     };
 
     public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices) =>

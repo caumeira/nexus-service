@@ -102,6 +102,21 @@ public class DeviceDetectionTests
         Assert.True(handler.IsConnected(devices));
     }
 
+    [Theory]
+    [InlineData(0x1031)] // PAWB WaterBlock
+    [InlineData(0x10A1)] // PAWB WaterBlock, 2nd PID
+    [InlineData(0x10B1)] // PANO v2 / CV
+    public void Tryx_IsConnected_ForPanoramaFamilyPids(int productId)
+    {
+        var handler = new TryxHandler();
+        var devices = new List<UsbDeviceEntry>
+        {
+            new() { VendorId = 0x391A, ProductId = productId, Name = "PANO" },
+        };
+
+        Assert.True(handler.IsConnected(devices));
+    }
+
     [Fact]
     public void Tryx_NotConnected_ForRetiredLegacy18D1Firmware()
     {

@@ -26,10 +26,13 @@ public static class TryxPanoramaProtocol
     // serial/adb, so the CDC-serial hub does not reach it.
     public const int VendorIdRk = 0x391A;
     public const int ProductIdPanoramaRk = 0x1011;
-    // Panorama 360 SE: same RK firmware/protocol, distinct PID (enumerates as "PASE").
-    // Kanali's device table (PASE_1021, PASE_1061) lists two PIDs for this model.
+    // Panorama-family variants sharing the RK firmware/protocol, per Kanali's
+    // device table: SE (PASE_1021/1061), WaterBlock (PAWB_1031/10A1), v2 (PANO_10B1).
     public const int ProductIdPanoramaRkSe = 0x1021;
     public const int ProductIdPanoramaRkSe2 = 0x1061;
+    public const int ProductIdPanoramaRkWb = 0x1031;
+    public const int ProductIdPanoramaRkWb2 = 0x10A1;
+    public const int ProductIdPanoramaRkV2 = 0x10B1;
 
     public static readonly int[] KnownProductIds = { ProductIdPanorama };
 
