@@ -52,3 +52,19 @@ public sealed class WeatherDailyForecast
     public double? TemperatureMinF { get; set; }
     public double? TemperatureMaxF { get; set; }
 }
+
+/// <summary>A single geocoding search match for manual location entry.</summary>
+public sealed class WeatherGeocodeResult
+{
+    public string Name { get; set; } = "";
+    public string Admin1 { get; set; } = "";
+    public string Country { get; set; } = "";
+    public string CountryCode { get; set; } = "";
+    public double Latitude { get; set; }
+    public double Longitude { get; set; }
+}
+
+public sealed class WeatherGeocodeResponse
+{
+    public List<WeatherGeocodeResult> Results { get; set; } = new();
+}
