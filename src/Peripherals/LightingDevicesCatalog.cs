@@ -86,7 +86,7 @@ public static class LightingDevicesCatalog
                 Category = CategoryFromController(d.Controller, d.Kind),
                 VendorId = d.Vid ?? "-",
                 ProductId = d.Pid ?? "-",
-                Capabilities = new List<string> { d.Kind ?? "generic" },
+                Capabilities = new List<string> { "rgb" },
                 Source = "openrgb",
             });
         }
@@ -113,9 +113,9 @@ public static class LightingDevicesCatalog
     /// </summary>
     private static readonly IReadOnlyList<SupportedDeviceDto> FirstPartyDevices = new List<SupportedDeviceDto>
     {
-        // HYTE - PIDs from src/Peripherals/Hyte/*.
-        Native("HYTE",    "THICC Q60",              "aio",      "0x3402", "0x0400"),
-        Native("HYTE",    "Q80",                    "aio",      "0x3402", "0x0403"),
+        // HYTE - PIDs from src/Peripherals/Hyte/*. Q60/Q80 are LCD-screen AIOs.
+        Native("HYTE",    "THICC Q60",              "aio",      "0x3402", "0x0400", screen: true),
+        Native("HYTE",    "Q80",                    "aio",      "0x3402", "0x0403", screen: true),
         Native("HYTE",    "Nexus Portal NP50",      "light",    "0x3402", "0x0901"),
         Native("HYTE",    "CNVS",                   "mousemat", "0x3402", "0x0B00"),
         Native("HYTE",    "Keeb TKL",               "keyboard", "0x3402", "0x0300"),
@@ -123,7 +123,7 @@ public static class LightingDevicesCatalog
         Native("HYTE",    "MiniHub",                "light",    "0x3402", "0x0900"),
 
         // Lian Li - PIDs from src/Peripherals/LianLi*, Strimer, Galahad2, LianLiTl,
-        // LianLiWireless.
+        // LianLiWireless. SL/TL-LCD are the fan-mounted LCD screens.
         Native("Lian Li", "Uni Hub",                "fan",      "0x0CF2", "0x7750"),
         Native("Lian Li", "Uni Fan SL",             "fan",      "0x0CF2", "0xA100"),
         Native("Lian Li", "Uni Fan AL",             "fan",      "0x0CF2", "0xA101"),
@@ -135,29 +135,30 @@ public static class LightingDevicesCatalog
         Native("Lian Li", "Galahad II Trinity",     "aio",      "0x0416", "0x7373"),
         Native("Lian Li", "Galahad II Performance", "aio",      "0x0416", "0x7371"),
         Native("Lian Li", "L-Wireless Kit",         "fan",      "0x0416", "0x8040"),
-        Native("Lian Li", "SL-LCD",                 "light",    "0x1CBE", "0x0005"),
-        Native("Lian Li", "TL-LCD",                 "light",    "0x1CBE", "0x0006"),
+        Native("Lian Li", "SL-LCD",                 "light",    "0x1CBE", "0x0005", screen: true),
+        Native("Lian Li", "TL-LCD",                 "light",    "0x1CBE", "0x0006", screen: true),
 
-        // Tryx - PIDs from src/Peripherals/Tryx/Panorama.
-        Native("Tryx",    "Panorama",               "aio",      "0x391A", "0x1011"),
-        Native("Tryx",    "Panorama SE",            "aio",      "0x391A", "0x1021"),
-        Native("Tryx",    "Panorama WaterBlock",    "aio",      "0x391A", "0x1031"),
-        Native("Tryx",    "Panorama v2",            "aio",      "0x391A", "0x10B1"),
+        // Tryx - PIDs from src/Peripherals/Tryx/Panorama. All are LCD-screen AIOs.
+        Native("Tryx",    "Panorama",               "aio",      "0x391A", "0x1011", screen: true),
+        Native("Tryx",    "Panorama SE",            "aio",      "0x391A", "0x1021", screen: true),
+        Native("Tryx",    "Panorama WaterBlock",    "aio",      "0x391A", "0x1031", screen: true),
+        Native("Tryx",    "Panorama v2",            "aio",      "0x391A", "0x10B1", screen: true),
 
-        // Corsair iCUE LINK - PIDs from src/Peripherals/CorsairLink.
+        // Corsair iCUE LINK - PIDs from src/Peripherals/CorsairLink. The LCD/XD5 pumps
+        // carry a screen.
         Native("Corsair", "iCUE LINK System Hub",   "fan",      "0x1B1C", "0x0C3F"),
-        Native("Corsair", "iCUE LINK LCD",          "aio",      "0x1B1C", "0x0C4E"),
-        Native("Corsair", "iCUE LINK XD5 Elite LCD","aio",      "0x1B1C", "0x0C43"),
+        Native("Corsair", "iCUE LINK LCD",          "aio",      "0x1B1C", "0x0C4E", screen: true),
+        Native("Corsair", "iCUE LINK XD5 Elite LCD","aio",      "0x1B1C", "0x0C43", screen: true),
     };
 
-    private static SupportedDeviceDto Native(string vendor, string model, string category, string vid, string pid) => new()
+    private static SupportedDeviceDto Native(string vendor, string model, string category, string vid, string pid, bool screen = false) => new()
     {
         Vendor = vendor,
         Model = model,
         Category = category,
         VendorId = vid,
         ProductId = pid,
-        Capabilities = new List<string> { "rgb" },
+        Capabilities = screen ? new List<string> { "rgb", "screen" } : new List<string> { "rgb" },
         Source = "nexus",
     };
 
