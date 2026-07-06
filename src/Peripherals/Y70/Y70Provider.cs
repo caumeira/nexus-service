@@ -1,6 +1,7 @@
 using System;
 using Nexus.Service.Peripherals.Hyte.Y70Display;
 using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 using Nexus.Service.Platform.Displays;
 
 namespace Nexus.Service.Peripherals.Y70;
@@ -66,8 +67,10 @@ public sealed class Y70Provider : IY70Provider
     {
         var y70 = _store.Load().Y70;
         var effective = y70.ForceOrientation ? "PortraitFlipped" : y70.Orientation;
-        var (ok, err) = _orientation.SetY70Orientation(effective);
-        if (!ok) Console.Error.WriteLine($"[y70] rotate to '{effective}' failed: {err}");
+        var (ok, detail) = _orientation.SetY70Orientation(effective);
+        // Log every apply (detail distinguishes an actual rotation, "applied X
+        // from=Y", from a no-op, "already X") so a re-apply loop is visible.
+        ServiceLog.Info($"[y70-orient] effective='{effective}' force={y70.ForceOrientation} ok={ok} detail='{detail}'");
     }
 
     public int GetBrightness() => _store.Load().Y70.Brightness;

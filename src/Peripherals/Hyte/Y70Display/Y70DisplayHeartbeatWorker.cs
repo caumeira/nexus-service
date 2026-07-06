@@ -22,6 +22,14 @@ public sealed class Y70DisplayHeartbeatWorker : BackgroundService
     private readonly DeviceControlGate _gate;
     private readonly IY70Provider _y70;
     private bool _wasDetected;
+    // A ChangeDisplaySettingsEx rotation drops the Y70 from display enumeration
+    // mid-mode-change, so IsConnected() flaps false for a tick right after we
+    // apply orientation. Requiring several consecutive absent ticks before
+    // declaring a real disconnect stops the apply from re-arming its own edge
+    // (rotate -> "disappears" -> "reappears" -> rotate ...), which otherwise
+    // fights the display in a loop.
+    private int _absentTicks;
+    private const int DetectDropTicks = 3;
 
     public Y70DisplayHeartbeatWorker(Y70DisplayHub hub, HardwarePresence presence, DeviceControlGate gate, IY70Provider y70)
     {
@@ -50,20 +58,32 @@ public sealed class Y70DisplayHeartbeatWorker : BackgroundService
         {
             if (_hub.IsConnected) _hub.Disconnect();
             _wasDetected = false;
+            _absentTicks = 0;
             return;
         }
 
         // IY70Provider.IsConnected() covers both the serial controller and a
         // monitor-only Y70 (DDC/EDID identity), so a monitor-only hot-plug
         // still trips the re-orient edge below even though the serial-gated
-        // block further down never runs for it.
+        // block further down never runs for it. Apply orientation exactly once
+        // per genuine (re)detection; a transient absence (our own rotation, or a
+        // flaky probe) must NOT re-arm the edge - see DetectDropTicks above.
         var detected = _y70.IsConnected();
-        if (detected && !_wasDetected)
+        if (detected)
         {
-            _y70.ApplyEffectiveOrientation();
-            ServiceLog.Info("[y70-display-heartbeat] newly detected; orientation re-applied");
+            _absentTicks = 0;
+            if (!_wasDetected)
+            {
+                _wasDetected = true;
+                _y70.ApplyEffectiveOrientation();
+                ServiceLog.Info("[y70-display-heartbeat] newly detected; orientation re-applied");
+            }
         }
-        _wasDetected = detected;
+        else if (_wasDetected && ++_absentTicks >= DetectDropTicks)
+        {
+            _wasDetected = false;
+            _absentTicks = 0;
+        }
 
         // The serial COM port open/poll below only applies to the serial
         // controller, so it stays gated on the serial VID/PID regardless of

@@ -41,18 +41,35 @@ public class Y70DisplayHeartbeatWorkerTests
     }
 
     [Fact]
-    public void Disconnect_then_reconnect_reapplies_orientation()
+    public void Sustained_disconnect_then_reconnect_reapplies_orientation()
     {
         var y70 = new FakeY70Provider { Connected = true };
         var worker = Build(y70);
 
-        worker.Tick();
+        worker.Tick();               // detected -> apply (1)
         y70.Connected = false;
-        worker.Tick();
+        for (var i = 0; i < 5; i++) worker.Tick();   // sustained absence past the debounce
         y70.Connected = true;
-        worker.Tick();
+        worker.Tick();               // genuine re-detect -> apply (2)
 
         Assert.Equal(2, y70.ApplyCount);
+    }
+
+    [Fact]
+    public void Transient_absence_does_not_reapply_orientation()
+    {
+        // A single-tick absence models the Y70 dropping out of enumeration
+        // mid-rotation. It must NOT re-arm the edge, or the apply loops.
+        var y70 = new FakeY70Provider { Connected = true };
+        var worker = Build(y70);
+
+        worker.Tick();               // detected -> apply (1)
+        y70.Connected = false;
+        worker.Tick();               // one transient miss (within debounce)
+        y70.Connected = true;
+        worker.Tick();               // back -> must NOT re-apply
+
+        Assert.Equal(1, y70.ApplyCount);
     }
 
     [Fact]
