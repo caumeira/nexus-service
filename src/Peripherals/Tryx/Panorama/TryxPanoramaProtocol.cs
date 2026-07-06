@@ -26,6 +26,8 @@ public static class TryxPanoramaProtocol
     // serial/adb, so the CDC-serial hub does not reach it.
     public const int VendorIdRk = 0x391A;
     public const int ProductIdPanoramaRk = 0x1011;
+    // Panorama 360 SE: same RK firmware/protocol, distinct PID (enumerates as "PASE").
+    public const int ProductIdPanoramaRkSe = 0x1021;
 
     public static readonly int[] KnownProductIds = { ProductIdPanorama };
 

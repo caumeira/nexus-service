@@ -79,6 +79,18 @@ public class DeviceDetectionTests
     }
 
     [Fact]
+    public void Tryx_IsConnected_ForPanorama360SePid()
+    {
+        var handler = new TryxHandler();
+        var devices = new List<UsbDeviceEntry>
+        {
+            new() { VendorId = 0x391A, ProductId = 0x1021, Name = "PASE" },
+        };
+
+        Assert.True(handler.IsConnected(devices));
+    }
+
+    [Fact]
     public void Tryx_NotConnected_ForRetiredLegacy18D1Firmware()
     {
         var handler = new TryxHandler();
