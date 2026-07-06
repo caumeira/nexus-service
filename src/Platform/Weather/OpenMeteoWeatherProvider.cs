@@ -10,14 +10,19 @@ namespace Nexus.Service.Platform.Weather;
 
 /// <summary>
 /// Cross-platform weather provider backed by Open-Meteo (no API key, free,
-/// commercial use allowed). Location is resolved via IP geolocation (ipwho.is,
-/// no API key, HTTPS, permissive CORS + User-Agent policy) - accurate to the
-/// city level, which is enough for a device-panel widget and avoids interactive
-/// OS permission prompts inside a kiosk service.
+/// commercial use allowed). Location defaults to IP geolocation (ipwho.is, no
+/// API key, HTTPS, permissive CORS + User-Agent policy) - accurate to the city
+/// level, which is enough for a device-panel widget and avoids interactive OS
+/// permission prompts inside a kiosk service. Callers may instead supply a
+/// manual lat/lon (e.g. from <see cref="SearchLocationsAsync"/>), which skips
+/// ipwho.is entirely.
 ///
-/// Both location and weather responses are cached: location for 24 h, weather
-/// for 15 min. A single request failure returns the last-known good snapshot
-/// if it's still reasonably fresh; total failure returns WeatherSnapshot.Empty.
+/// The weather snapshot cache is keyed per location ("auto" for the IP path,
+/// "{lat},{lon}" for manual) since concurrent widgets may track different
+/// cities. ipwho.is location caches only the auto path, for 24 h. Weather per
+/// key is cached for 15 min. A single request failure returns the last-known
+/// good snapshot for that key if it's still reasonably fresh; total failure
+/// returns WeatherSnapshot.Empty.
 /// </summary>
 public sealed class OpenMeteoWeatherProvider : IWeatherProvider
 {
@@ -30,8 +35,7 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
     private IpLocation? _cachedLocation;
     private DateTime _locationFetchedUtc = DateTime.MinValue;
 
-    private WeatherSnapshot? _cachedWeather;
-    private DateTime _weatherFetchedUtc = DateTime.MinValue;
+    private readonly Dictionary<string, (WeatherSnapshot Snapshot, DateTime FetchedUtc)> _weatherCache = new();
 
     private readonly SemaphoreSlim _lock = new(1, 1);
 
@@ -40,42 +44,51 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
         _http = http;
     }
 
-    public async Task<WeatherSnapshot> GetCurrentAsync()
+    public async Task<WeatherSnapshot> GetCurrentAsync(double? lat = null, double? lon = null, string? label = null, string? countryCode = null)
     {
+        var manual = lat is not null && lon is not null;
+        var key = manual ? $"{lat},{lon}" : "auto";
+
         await _lock.WaitAsync().ConfigureAwait(false);
         try
         {
             var now = DateTime.UtcNow;
 
-            // Serve cached snapshot while it's still fresh.
-            if (_cachedWeather is not null && (now - _weatherFetchedUtc) < WeatherTtl)
+            if (_weatherCache.TryGetValue(key, out var cached) && (now - cached.FetchedUtc) < WeatherTtl)
             {
-                return _cachedWeather;
+                return cached.Snapshot;
             }
 
-            var loc = await GetLocationAsync().ConfigureAwait(false);
-            if (loc is null)
+            IpLocation loc;
+            if (manual)
             {
-                // Fall back to last-known good snapshot if it's still recentish.
-                if (_cachedWeather is not null && (now - _weatherFetchedUtc) < StaleServeTtl)
+                loc = new IpLocation { Latitude = lat, Longitude = lon, CountryCode = countryCode };
+            }
+            else
+            {
+                var auto = await GetLocationAsync().ConfigureAwait(false);
+                if (auto is null)
                 {
-                    return _cachedWeather;
+                    if (_weatherCache.TryGetValue(key, out var stale) && (now - stale.FetchedUtc) < StaleServeTtl)
+                    {
+                        return stale.Snapshot;
+                    }
+                    return WeatherSnapshot.Empty;
                 }
-                return WeatherSnapshot.Empty;
+                loc = auto;
             }
 
-            var snapshot = await FetchWeatherAsync(loc).ConfigureAwait(false);
+            var snapshot = await FetchWeatherAsync(loc, manual ? label : null).ConfigureAwait(false);
             if (snapshot is not null)
             {
-                _cachedWeather = snapshot;
-                _weatherFetchedUtc = now;
+                _weatherCache[key] = (snapshot, now);
                 return snapshot;
             }
 
             // Upstream failed; serve stale if available.
-            if (_cachedWeather is not null && (now - _weatherFetchedUtc) < StaleServeTtl)
+            if (_weatherCache.TryGetValue(key, out var staleFallback) && (now - staleFallback.FetchedUtc) < StaleServeTtl)
             {
-                return _cachedWeather;
+                return staleFallback.Snapshot;
             }
             return WeatherSnapshot.Empty;
         }
@@ -129,7 +142,7 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
         }
     }
 
-    private async Task<WeatherSnapshot?> FetchWeatherAsync(IpLocation loc)
+    private async Task<WeatherSnapshot?> FetchWeatherAsync(IpLocation loc, string? labelOverride)
     {
         try
         {
@@ -163,7 +176,7 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
                 Condition = ConditionFor(c.WeatherCode),
                 HumidityPct = c.RelativeHumidity2m,
                 WindKph = c.WindSpeed10m,
-                LocationLabel = FormatLocation(loc),
+                LocationLabel = string.IsNullOrEmpty(labelOverride) ? FormatLocation(loc) : labelOverride,
                 CountryCode = loc.CountryCode ?? "",
                 AsOf = DateTime.UtcNow.ToString("o"),
                 Hourly = BuildHourlyForecast(payload.Hourly),
@@ -237,6 +250,57 @@ public sealed class OpenMeteoWeatherProvider : IWeatherProvider
         return "";
     }
 
+    public async Task<List<WeatherGeocodeResult>> SearchLocationsAsync(string query, string? language)
+    {
+        if (string.IsNullOrWhiteSpace(query) || query.Trim().Length < 2)
+        {
+            return new List<WeatherGeocodeResult>();
+        }
+
+        try
+        {
+            using var client = _http.CreateClient();
+            client.Timeout = TimeSpan.FromSeconds(5);
+            var lang = string.IsNullOrEmpty(language) ? "en" : language;
+            var url = "https://geocoding-api.open-meteo.com/v1/search"
+                + $"?name={Uri.EscapeDataString(query)}&count=10&language={Uri.EscapeDataString(lang)}&format=json";
+            var resp = await client.GetAsync(url).ConfigureAwait(false);
+            if (!resp.IsSuccessStatusCode)
+            {
+                Console.Error.WriteLine($"[weather] geocode search returned {(int)resp.StatusCode}");
+                return new List<WeatherGeocodeResult>();
+            }
+
+            var payload = await resp.Content.ReadFromJsonAsync(
+                Nexus.Service.Serialization.AppJsonContext.Default.OpenMeteoGeocodeResponse
+            ).ConfigureAwait(false);
+            if (payload?.Results is null)
+            {
+                return new List<WeatherGeocodeResult>();
+            }
+
+            var results = new List<WeatherGeocodeResult>(payload.Results.Length);
+            foreach (var r in payload.Results)
+            {
+                results.Add(new WeatherGeocodeResult
+                {
+                    Name = r.Name ?? "",
+                    Admin1 = r.Admin1 ?? "",
+                    Country = r.Country ?? "",
+                    CountryCode = r.CountryCode ?? "",
+                    Latitude = r.Latitude ?? 0,
+                    Longitude = r.Longitude ?? 0,
+                });
+            }
+            return results;
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[weather] geocode search failed: {ex.Message}");
+            return new List<WeatherGeocodeResult>();
+        }
+    }
+
     /// <summary>
     /// WMO weather code -> short human label. Matches the code ranges used on
     /// the widget side to pick an icon. See https://open-meteo.com/en/docs.
@@ -298,4 +362,19 @@ public sealed class OpenMeteoDaily
     [JsonPropertyName("weather_code")] public int[]? WeatherCode { get; set; }
     [JsonPropertyName("temperature_2m_min")] public double[]? Temperature2mMin { get; set; }
     [JsonPropertyName("temperature_2m_max")] public double[]? Temperature2mMax { get; set; }
+}
+
+public sealed class OpenMeteoGeocodeResponse
+{
+    [JsonPropertyName("results")] public OpenMeteoGeocodeResult[]? Results { get; set; }
+}
+
+public sealed class OpenMeteoGeocodeResult
+{
+    [JsonPropertyName("name")] public string? Name { get; set; }
+    [JsonPropertyName("admin1")] public string? Admin1 { get; set; }
+    [JsonPropertyName("country")] public string? Country { get; set; }
+    [JsonPropertyName("country_code")] public string? CountryCode { get; set; }
+    [JsonPropertyName("latitude")] public double? Latitude { get; set; }
+    [JsonPropertyName("longitude")] public double? Longitude { get; set; }
 }
