@@ -60,17 +60,21 @@ public static class LightingDevicesCatalog
             return new List<SupportedDeviceDto>(FirstPartyDevices);
         }
 
-        // First-party HYTE devices lead the list with correct model/category and a
-        // "nexus" source. The bundled OpenRGB fork registers the same hardware under
-        // its own HYTE* controllers (e.g. the "HYTE Nexus" detector groups the THICC
-        // Q60 and Nexus Portal NP50 into one mislabeled row), so those are skipped
-        // below to avoid duplicate, wrongly-typed entries.
+        // First-party devices Nexus drives natively lead the list with correct
+        // model/category and a "nexus" source. The bundled OpenRGB fork registers
+        // some of the same hardware under its own controllers (the "HYTE Nexus"
+        // detector groups the THICC Q60 and Nexus Portal NP50 into one mislabeled
+        // row; LianLiController and CorsairICueLinkController cover exactly the Uni
+        // Fan/Strimer/Galahad and iCUE LINK hubs we now drive ourselves), so those
+        // controllers are skipped to avoid duplicate, wrongly-typed rows.
         var result = new List<SupportedDeviceDto>(FirstPartyDevices.Count + file.Devices.Count);
         result.AddRange(FirstPartyDevices);
 
         foreach (var d in file.Devices)
         {
-            if ((d.Controller ?? "").StartsWith("HYTE", System.StringComparison.OrdinalIgnoreCase))
+            var controller = d.Controller ?? "";
+            if (controller.StartsWith("HYTE", System.StringComparison.OrdinalIgnoreCase) ||
+                NativelyDrivenControllers.Contains(controller))
             {
                 continue;
             }
@@ -90,27 +94,68 @@ public static class LightingDevicesCatalog
     }
 
     /// <summary>
-    /// HYTE devices Nexus drives natively (VID 0x3402). Curated so they carry the
-    /// correct model, category, and VID/PID independent of how the OpenRGB fork
-    /// happens to register them. PIDs from src/Peripherals/Hyte/*.
+    /// OpenRGB controllers whose hardware Nexus now drives natively; their rows are
+    /// skipped from the OpenRGB catalog so the curated FirstPartyDevices entries are
+    /// the single source. Both map 1:1 to native drivers under src/Peripherals/.
+    /// </summary>
+    private static readonly HashSet<string> NativelyDrivenControllers = new()
+    {
+        "LianLiController",           // Uni Fan family, Strimer, Galahad II
+        "CorsairICueLinkController",  // iCUE LINK System Hub
+    };
+
+    /// <summary>
+    /// Devices Nexus drives natively, curated so they carry the correct model,
+    /// category, and VID/PID independent of how the OpenRGB fork happens to register
+    /// them. VID/PIDs come from the protocol constants under src/Peripherals/*. One
+    /// row per marketed model; a native lighting/cooling driver adds its row here so
+    /// the device shows in the Supported Devices UI.
     /// </summary>
     private static readonly IReadOnlyList<SupportedDeviceDto> FirstPartyDevices = new List<SupportedDeviceDto>
     {
-        Hyte("THICC Q60",         "aio",      "0x0400"),
-        Hyte("Q80",               "aio",      "0x0403"),
-        Hyte("Nexus Portal NP50", "light",    "0x0901"),
-        Hyte("CNVS",              "mousemat", "0x0B00"),
-        Hyte("Keeb TKL",          "keyboard", "0x0300"),
-        Hyte("Smart Hub",         "light",    "0x0904"),
-        Hyte("MiniHub",           "light",    "0x0900"),
+        // HYTE - PIDs from src/Peripherals/Hyte/*.
+        Native("HYTE",    "THICC Q60",              "aio",      "0x3402", "0x0400"),
+        Native("HYTE",    "Q80",                    "aio",      "0x3402", "0x0403"),
+        Native("HYTE",    "Nexus Portal NP50",      "light",    "0x3402", "0x0901"),
+        Native("HYTE",    "CNVS",                   "mousemat", "0x3402", "0x0B00"),
+        Native("HYTE",    "Keeb TKL",               "keyboard", "0x3402", "0x0300"),
+        Native("HYTE",    "Smart Hub",              "light",    "0x3402", "0x0904"),
+        Native("HYTE",    "MiniHub",                "light",    "0x3402", "0x0900"),
+
+        // Lian Li - PIDs from src/Peripherals/LianLi*, Strimer, Galahad2, LianLiTl,
+        // LianLiWireless.
+        Native("Lian Li", "Uni Hub",                "fan",      "0x0CF2", "0x7750"),
+        Native("Lian Li", "Uni Fan SL",             "fan",      "0x0CF2", "0xA100"),
+        Native("Lian Li", "Uni Fan AL",             "fan",      "0x0CF2", "0xA101"),
+        Native("Lian Li", "Uni Fan SL-Infinity",    "fan",      "0x0CF2", "0xA102"),
+        Native("Lian Li", "Uni Fan SL v2",          "fan",      "0x0CF2", "0xA103"),
+        Native("Lian Li", "Uni Fan AL v2",          "fan",      "0x0CF2", "0xA104"),
+        Native("Lian Li", "Uni Fan TL",             "fan",      "0x0416", "0x7372"),
+        Native("Lian Li", "Strimer",                "light",    "0x0CF2", "0xA200"),
+        Native("Lian Li", "Galahad II Trinity",     "aio",      "0x0416", "0x7373"),
+        Native("Lian Li", "Galahad II Performance", "aio",      "0x0416", "0x7371"),
+        Native("Lian Li", "L-Wireless Kit",         "fan",      "0x0416", "0x8040"),
+        Native("Lian Li", "SL-LCD",                 "light",    "0x1CBE", "0x0005"),
+        Native("Lian Li", "TL-LCD",                 "light",    "0x1CBE", "0x0006"),
+
+        // Tryx - PIDs from src/Peripherals/Tryx/Panorama.
+        Native("Tryx",    "Panorama",               "aio",      "0x391A", "0x1011"),
+        Native("Tryx",    "Panorama SE",            "aio",      "0x391A", "0x1021"),
+        Native("Tryx",    "Panorama WaterBlock",    "aio",      "0x391A", "0x1031"),
+        Native("Tryx",    "Panorama v2",            "aio",      "0x391A", "0x10B1"),
+
+        // Corsair iCUE LINK - PIDs from src/Peripherals/CorsairLink.
+        Native("Corsair", "iCUE LINK System Hub",   "fan",      "0x1B1C", "0x0C3F"),
+        Native("Corsair", "iCUE LINK LCD",          "aio",      "0x1B1C", "0x0C4E"),
+        Native("Corsair", "iCUE LINK XD5 Elite LCD","aio",      "0x1B1C", "0x0C43"),
     };
 
-    private static SupportedDeviceDto Hyte(string model, string category, string pid) => new()
+    private static SupportedDeviceDto Native(string vendor, string model, string category, string vid, string pid) => new()
     {
-        Vendor = "HYTE",
+        Vendor = vendor,
         Model = model,
         Category = category,
-        VendorId = "0x3402",
+        VendorId = vid,
         ProductId = pid,
         Capabilities = new List<string> { "rgb" },
         Source = "nexus",
