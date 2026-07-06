@@ -105,24 +105,5 @@ public sealed class WindowsStartupProvider : IStartupProvider
         }
         catch { }
     }
-
-    [SupportedOSPlatform("windows")]
-    private static void RunSchtasks(params string[] args)
-    {
-        var psi = new System.Diagnostics.ProcessStartInfo("schtasks")
-        {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
-        };
-        foreach (var a in args) psi.ArgumentList.Add(a);
-        using var p = System.Diagnostics.Process.Start(psi);
-        if (p is null) return;
-        if (!p.WaitForExit(5000))
-        {
-            try { p.Kill(entireProcessTree: true); } catch { }
-        }
-    }
 #endif
 }

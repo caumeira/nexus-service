@@ -13,9 +13,12 @@ namespace Nexus.Service.Update;
 /// StopApplication and its own taskkill of Nexus.exe. The caller stops the
 /// service after this returns true.
 ///
-/// Task-name format: NexusOtaInstall_{pid}_{ticks}. The task is not deleted
-/// synchronously (the service is about to die); orphaned NexusOtaInstall_*
-/// tasks are cleaned up on the next service boot.
+/// The task carries an already-past ONCE trigger and is disabled right after
+/// the one-shot schtasks /Run, so Task Scheduler never auto-runs it on a wall
+/// clock - it fires exactly once, from that /Run (a start-up auto-apply or the
+/// user's install button). Task-name format: NexusOtaInstall_{pid}_{ticks}; the
+/// spent task is not deleted synchronously (the service is about to die),
+/// CleanOrphanedTasks removes it on the next boot.
 /// </summary>
 public static class UpdateInstaller
 {
@@ -67,9 +70,23 @@ public static class UpdateInstaller
         }
     }
 
-#if WINDOWS
-    private const string TaskPrefix = "NexusOtaInstall";
+    // Scheduled-task name prefix for the detached installer launch. Kept
+    // platform-agnostic (with the matcher below) so the cleanup logic is
+    // unit-tested off-Windows.
+    internal const string TaskPrefix = "NexusOtaInstall";
 
+    // True when a `schtasks /Query /FO CSV` task-name field is one of ours. That
+    // field is the full task path with a leading '\' (e.g. "\NexusOtaInstall_1"),
+    // so match the leaf - a raw StartsWith is defeated by the backslash and
+    // orphaned tasks then never get cleaned.
+    internal static bool IsOwnedTaskName(string csvTaskName)
+    {
+        if (string.IsNullOrEmpty(csvTaskName)) return false;
+        var leaf = csvTaskName[(csvTaskName.LastIndexOf('\\') + 1)..];
+        return leaf.StartsWith(TaskPrefix, StringComparison.OrdinalIgnoreCase);
+    }
+
+#if WINDOWS
     /// <summary>
     /// Schedules <paramref name="installerPath"/> to run as SYSTEM at HIGHEST
     /// privilege and triggers it immediately. Returns true when the task was
@@ -124,11 +141,15 @@ public static class UpdateInstaller
         File.WriteAllText(cmdPath,
             $"@echo off\r\n\"{installerPath}\" /VERYSILENT /SUPPRESSMSGBOXES /NORESTART \"/LOG={logPath}\"\r\n");
 
+        // /ST 00:00 with the default (today) start date leaves the ONCE trigger
+        // already in the past, so Task Scheduler never auto-runs it - the install
+        // only ever happens from the /Run below. /ST is a locale-independent
+        // HH:mm, so this needs no /SD date string (which parses in system locale).
         if (!Schtasks("/Create",
                       "/TN", taskName,
                       "/TR", $"\"{cmdPath}\"",
                       "/SC", "ONCE",
-                      "/ST", "23:59",
+                      "/ST", "00:00",
                       "/RU", "SYSTEM",
                       "/RL", "HIGHEST",
                       "/F"))
@@ -144,6 +165,12 @@ public static class UpdateInstaller
         }
         else
         {
+            // Disable the spent task so no leftover trigger can fire it again on a
+            // wall clock - a redundant guard for the one case the already-past /ST
+            // above misses: a launch inside the 00:00 minute. Must follow /Run; a
+            // disabled task will not /Run.
+            Schtasks("/Change", "/TN", taskName, "/DISABLE");
+
             // Prevent SCM from restarting the old binary while the installer
             // swaps Nexus.exe. RunInstall re-sets the failure actions on the
             // next successful boot.
@@ -185,7 +212,7 @@ public static class UpdateInstaller
                 if (end < 0) continue;
                 var taskName = trimmed[..end];
 
-                if (!taskName.StartsWith(TaskPrefix, StringComparison.OrdinalIgnoreCase)) continue;
+                if (!IsOwnedTaskName(taskName)) continue;
                 Schtasks("/Delete", "/TN", taskName, "/F");
                 Console.Error.WriteLine($"[ota-install] cleaned orphaned task: {taskName}");
             }

@@ -70,4 +70,21 @@ public sealed class UpdateInstallerTests
     {
         Assert.False(UpdateInstaller.IsWithinStagingDir(path!));
     }
+
+    // `schtasks /Query /FO CSV /NH` returns the full task path with a leading
+    // backslash. The cleanup used a raw StartsWith, which the backslash always
+    // defeated, so spent NexusOtaInstall_* tasks were never removed and their
+    // leftover trigger re-ran the installer nightly. Match the leaf instead.
+    [Theory]
+    [InlineData("\\NexusOtaInstall_22056_639183551943660816", true)]  // real CSV form (leading '\')
+    [InlineData("NexusOtaInstall_1_2", true)]                          // no folder prefix
+    [InlineData("\\Microsoft\\Windows\\SomeTask", false)]
+    [InlineData("\\NexusOverlayLaunch_1_2", false)]                    // a different Nexus task, not ours
+    [InlineData("\\", false)]
+    [InlineData("", false)]
+    [InlineData(null, false)]
+    public void IsOwnedTaskName_matches_our_tasks_despite_the_leading_backslash(string? csvName, bool expected)
+    {
+        Assert.Equal(expected, UpdateInstaller.IsOwnedTaskName(csvName!));
+    }
 }
