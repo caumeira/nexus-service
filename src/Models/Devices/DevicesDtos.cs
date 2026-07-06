@@ -17,6 +17,8 @@ public sealed class DeviceListItem
     public bool NexusControlEnabled { get; set; } = true;
     /// <summary>True only for first-party handlers whose connection worker honors the gate. Plugin-contributed handlers manage their own hardware, so the on/off switch does not apply and the UI hides it.</summary>
     public bool SupportsNexusControl { get; set; }
+    /// <summary>Short code for a partial-detection issue (e.g. "usb-disconnected"), or null when there is nothing to flag.</summary>
+    public string? Warning { get; set; }
 }
 
 /// <summary>Body for POST /devices/control.</summary>

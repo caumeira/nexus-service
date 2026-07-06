@@ -40,6 +40,7 @@ public sealed class DisplayTopologyService
     private readonly PanelDeviceRegistry _panelRegistry;
     private readonly object _cacheLock = new();
     private HashSet<string>? _attachedIds;
+    private bool _hasY70Display;
     private long _attachedIdsAtMs;
     private bool _attachedIdsValid;
 
@@ -116,27 +117,57 @@ public sealed class DisplayTopologyService
     /// </summary>
     public HashSet<string>? GetAttachedIds()
     {
+        if (TryGetCached(out var ids, out _)) return ids;
+        return CacheAttachedIds(_provider.Enumerate());
+    }
+
+    /// <summary>
+    /// Whether any currently-attached display matches the Y70's DDC/EDID
+    /// hardware-id fragments. Served from the same short-lived cache as
+    /// <see cref="GetAttachedIds"/> so device-list polling never issues a
+    /// helper RPC per call.
+    /// </summary>
+    public bool HasY70Display()
+    {
+        if (TryGetCached(out _, out var hasY70)) return hasY70;
+        CacheAttachedIds(_provider.Enumerate());
+        lock (_cacheLock) return _hasY70Display;
+    }
+
+    private bool TryGetCached(out HashSet<string>? ids, out bool hasY70)
+    {
         lock (_cacheLock)
         {
             var now = Environment.TickCount64;
             if (_attachedIdsValid && now - _attachedIdsAtMs <= AttachedIdsMaxAgeMs)
-                return _attachedIds;
+            {
+                ids = _attachedIds;
+                hasY70 = _hasY70Display;
+                return true;
+            }
         }
-        var raw = _provider.Enumerate();
-        return CacheAttachedIds(raw);
+        ids = null;
+        hasY70 = false;
+        return false;
     }
 
     private HashSet<string>? CacheAttachedIds(IReadOnlyList<RawDisplayInfo>? raw)
     {
         HashSet<string>? ids = null;
+        var hasY70 = false;
         if (raw is not null)
         {
             ids = new HashSet<string>(StringComparer.Ordinal);
-            foreach (var info in raw) ids.Add(info.Id);
+            foreach (var info in raw)
+            {
+                ids.Add(info.Id);
+                if (!hasY70 && IsY70Display(info.RawHardwareId)) hasY70 = true;
+            }
         }
         lock (_cacheLock)
         {
             _attachedIds = ids;
+            _hasY70Display = hasY70;
             _attachedIdsAtMs = Environment.TickCount64;
             _attachedIdsValid = true;
         }

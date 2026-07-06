@@ -18,10 +18,17 @@ public static class DisplayRoutes
     public static void MapDisplayEndpoints(this WebApplication app)
     {
         // Y70
-        app.MapGet("/y70/rotation", (IY70Provider y) => new Y70RotationParams { Orientation = y.GetOrientation() }).AllowPanel();
+        app.MapGet("/y70/rotation", (IY70Provider y) => new Y70RotationParams
+        {
+            Orientation = y.GetOrientation(),
+            ForceOrientation = y.GetForceOrientation(),
+        }).AllowPanel();
         app.MapPost("/y70/rotation", (Y70RotationParams body, IY70Provider y) =>
         {
-            y.SetOrientation(body.Orientation);
+            var changed = false;
+            if (body.Orientation is not null) { y.SetOrientation(body.Orientation); changed = true; }
+            if (body.ForceOrientation is not null) { y.SetForceOrientation(body.ForceOrientation.Value); changed = true; }
+            if (changed) y.ApplyEffectiveOrientation();
             return ApiResponse.Ok();
         }).AllowPanel();
         app.MapGet("/y70/brightness", (IY70Provider y) => new Y70BrightnessResponse { Brightness = y.GetBrightness() }).AllowPanel();

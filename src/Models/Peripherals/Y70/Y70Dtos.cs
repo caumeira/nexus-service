@@ -3,9 +3,15 @@ namespace Nexus.Service.Models.Peripherals.Y70;
 public class Y70RotationParams : ApiResponse
 {
     /// <summary>One of: Landscape, Portrait, LandscapeFlipped, PortraitFlipped.
-    /// Defaults to PortraitFlipped: the Y70 panel is a fixed portrait strip, so
-    /// an unset value must not drive it landscape.</summary>
-    public string Orientation { get; set; } = "PortraitFlipped";
+    /// Null on a POST body leaves the stored orientation preference unchanged;
+    /// GET always returns the stored value.</summary>
+    public string? Orientation { get; set; }
+
+    /// <summary>When true, the effective orientation applied to hardware is
+    /// forced to PortraitFlipped regardless of Orientation. Null on a POST
+    /// body leaves the stored flag unchanged; GET always returns the stored
+    /// value.</summary>
+    public bool? ForceOrientation { get; set; }
 }
 
 public class Y70BrightnessResponse : ApiResponse

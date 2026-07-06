@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
+using Nexus.Service.Peripherals.Y70;
 using Nexus.Service.Platform;
 
 namespace Nexus.Service.Peripherals.Hyte.Y70Display;
@@ -19,12 +20,15 @@ public sealed class Y70DisplayHeartbeatWorker : BackgroundService
     private readonly Y70DisplayHub _hub;
     private readonly HardwarePresence _presence;
     private readonly DeviceControlGate _gate;
+    private readonly IY70Provider _y70;
+    private bool _wasDetected;
 
-    public Y70DisplayHeartbeatWorker(Y70DisplayHub hub, HardwarePresence presence, DeviceControlGate gate)
+    public Y70DisplayHeartbeatWorker(Y70DisplayHub hub, HardwarePresence presence, DeviceControlGate gate, IY70Provider y70)
     {
         _hub = hub;
         _presence = presence;
         _gate = gate;
+        _y70 = y70;
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -45,12 +49,25 @@ public sealed class Y70DisplayHeartbeatWorker : BackgroundService
         if (!_gate.IsEnabled("y70"))
         {
             if (_hub.IsConnected) _hub.Disconnect();
+            _wasDetected = false;
             return;
         }
 
-        // Skip silently when disconnected and no Y70 display controller is on the
-        // bus. The monitor channel can't identify a Y70 (no EDID vendor), so the
-        // serial controller's VID/PID is the gate; stay live while connected.
+        // IY70Provider.IsConnected() covers both the serial controller and a
+        // monitor-only Y70 (DDC/EDID identity), so a monitor-only hot-plug
+        // still trips the re-orient edge below even though the serial-gated
+        // block further down never runs for it.
+        var detected = _y70.IsConnected();
+        if (detected && !_wasDetected)
+        {
+            _y70.ApplyEffectiveOrientation();
+            ServiceLog.Info("[y70-display-heartbeat] newly detected; orientation re-applied");
+        }
+        _wasDetected = detected;
+
+        // The serial COM port open/poll below only applies to the serial
+        // controller, so it stays gated on the serial VID/PID regardless of
+        // whether a monitor-only Y70 was just detected above.
         if (!_hub.IsConnected && !_presence.UsbPresent(
                 Y70DisplayProtocol.VendorId,
                 Y70DisplayProtocol.Y70TouchProductId,

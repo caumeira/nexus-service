@@ -2,6 +2,9 @@ using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Handlers;
+using Nexus.Service.Models.Displays;
+using Nexus.Service.Peripherals.Hyte.Y70Display;
+using Nexus.Service.Platform.Displays;
 using Xunit;
 
 namespace Nexus.Service.Tests;
@@ -140,6 +143,40 @@ public class DeviceHandlerTests
         Assert.Contains(0x201C, pids); // Q80 under MediaTek VID
         Assert.Contains(0x0600, pids); // Q60 legacy HYTE VID
         Assert.Contains(0x0603, pids); // Q80 legacy HYTE VID
+    }
+
+    private static DisplayTopologyService TopologyWithY70Monitor()
+        => TestHandlers.FakeTopology(new List<RawDisplayInfo>
+        {
+            new() { Id = "y70-monitor", RawHardwareId = Y70DisplayProtocol.DdcPanelHardwareNames[0] },
+        });
+
+    [Fact]
+    public void Y70_monitor_only_is_connected_with_no_serial_and_no_usb()
+    {
+        var h = TestHandlers.Y70(TopologyWithY70Monitor());
+        Assert.True(h.IsConnected(new List<UsbDeviceEntry>()));
+    }
+
+    [Fact]
+    public void Y70_not_connected_with_no_monitor_no_serial_no_usb()
+    {
+        var h = TestHandlers.Y70();
+        Assert.False(h.IsConnected(new List<UsbDeviceEntry>()));
+    }
+
+    [Fact]
+    public void Y70_warns_usb_disconnected_when_monitor_only()
+    {
+        var h = TestHandlers.Y70(TopologyWithY70Monitor());
+        Assert.Equal("usb-disconnected", h.GetWarning(new List<UsbDeviceEntry>()));
+    }
+
+    [Fact]
+    public void Y70_no_warning_when_neither_monitor_nor_serial_present()
+    {
+        var h = TestHandlers.Y70();
+        Assert.Null(h.GetWarning(new List<UsbDeviceEntry>()));
     }
 
     public static IEnumerable<object[]> AllHandlers()

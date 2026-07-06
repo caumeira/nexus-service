@@ -36,6 +36,13 @@ public interface IDeviceHandler
     /// isn't yet known.
     /// </summary>
     string FirmwareType => Id;
+
+    /// <summary>
+    /// Short code describing a partial-detection issue (e.g. a control channel
+    /// is down while another connection path still sees the device), or null
+    /// when there is nothing to flag. Surfaced as DeviceListItem.Warning.
+    /// </summary>
+    string? GetWarning(IReadOnlyList<UsbDeviceEntry> detectedDevices) => null;
 }
 
 /// <summary>USB Vendor ID + Product ID pair.</summary>

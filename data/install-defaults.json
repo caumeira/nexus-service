@@ -14,7 +14,7 @@
   },
 
   "panel": {
-    "autoLaunch": false,
+    "autoLaunch": true,
     "themeSyncWithDesktop": true,
     "themeMode": "system",
     "accentSyncWithDesktop": true,
@@ -190,7 +190,8 @@
   "y70": {
     "orientation": "Landscape",
     "brightness": 80,
-    "screenOff": false
+    "screenOff": false,
+    "forceOrientation": true
   },
 
   "keeb": {

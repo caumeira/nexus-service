@@ -51,8 +51,23 @@ public sealed class Y70Provider : IY70Provider
     public void SetOrientation(string orientation)
     {
         _store.Update(s => s.Y70.Orientation = orientation);
-        var (ok, err) = _orientation.SetY70Orientation(orientation);
-        if (!ok) Console.Error.WriteLine($"[y70] rotate to '{orientation}' failed: {err}");
+    }
+
+    public bool GetForceOrientation() => _store.Load().Y70.ForceOrientation;
+
+    public void SetForceOrientation(bool forceOrientation)
+    {
+        _store.Update(s => s.Y70.ForceOrientation = forceOrientation);
+    }
+
+    /// <summary>Pushes the current effective orientation (PortraitFlipped when
+    /// ForceOrientation is set, else the stored preference) to hardware.</summary>
+    public void ApplyEffectiveOrientation()
+    {
+        var y70 = _store.Load().Y70;
+        var effective = y70.ForceOrientation ? "PortraitFlipped" : y70.Orientation;
+        var (ok, err) = _orientation.SetY70Orientation(effective);
+        if (!ok) Console.Error.WriteLine($"[y70] rotate to '{effective}' failed: {err}");
     }
 
     public int GetBrightness() => _store.Load().Y70.Brightness;

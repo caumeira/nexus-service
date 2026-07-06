@@ -43,8 +43,8 @@ public sealed class PanelSettings
 {
     /// <summary>Runtime visibility of the Y70 panel kiosk. When true, the
     /// nexus-overlay sidecar opens the kiosk window (and auto-relaunches when
-    /// the Y70 reconnects). Surfaced as "Show Panel" in the UI.</summary>
-    public bool AutoLaunch { get; set; }
+    /// the Y70 reconnects). Default on. Surfaced as "Show Panel" in the UI.</summary>
+    public bool AutoLaunch { get; set; } = true;
     /// <summary>When true, the overlay keeps the Y70 panel monitor exclusive to
     /// the kiosk - foreign windows that land on it are relocated back to a
     /// normal monitor. Default on. Surfaced as "Keep panel clear of other

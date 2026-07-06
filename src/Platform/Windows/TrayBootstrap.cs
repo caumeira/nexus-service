@@ -191,7 +191,8 @@ internal static class TrayBootstrap
         {
             try
             {
-                var orientation = trayStore.Load().Y70.Orientation;
+                var y70 = trayStore.Load().Y70;
+                var orientation = y70.ForceOrientation ? "PortraitFlipped" : y70.Orientation;
                 var res = await OrientationCommands.SetAsync(helperRegistry, orientation);
                 ServiceLog.Info($"[y70-sync] orientation re-assert requested='{orientation}' ok={res.Ok} detail='{res.Error}'");
             }

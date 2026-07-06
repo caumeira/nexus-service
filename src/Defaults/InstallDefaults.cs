@@ -153,6 +153,7 @@ public sealed class Y70Defaults
     public string Orientation { get; set; } = "PortraitFlipped";
     public int Brightness { get; set; } = 80;
     public bool ScreenOff { get; set; }
+    public bool ForceOrientation { get; set; } = true;
 }
 
 public sealed class KeebDefaults

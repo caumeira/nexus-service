@@ -460,6 +460,9 @@ public sealed class Y70Settings
     public string Orientation { get; set; } = InstallDefaults.Y70.Orientation;
     public int Brightness { get; set; } = InstallDefaults.Y70.Brightness;
     public bool ScreenOff { get; set; } = InstallDefaults.Y70.ScreenOff;
+    /// <summary>When true, the effective orientation applied to hardware is
+    /// always PortraitFlipped regardless of <see cref="Orientation"/>.</summary>
+    public bool ForceOrientation { get; set; } = InstallDefaults.Y70.ForceOrientation;
 }
 
 /// <summary>Persisted shape of one Tryx overlay item; see

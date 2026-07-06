@@ -48,6 +48,7 @@ public sealed class DeviceManager
             FirmwareType = h.FirmwareType,
             SupportsNexusControl = firstParty.Contains(h),
             NexusControlEnabled = _gate.IsEnabled(h.Id),
+            Warning = h.GetWarning(usbDevices),
         }).ToList();
     }
 
