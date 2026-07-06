@@ -18,6 +18,7 @@ public sealed class TryxHandler : IDeviceHandler
     {
         new UsbId(TryxPanoramaProtocol.VendorIdRk, TryxPanoramaProtocol.ProductIdPanoramaRk),
         new UsbId(TryxPanoramaProtocol.VendorIdRk, TryxPanoramaProtocol.ProductIdPanoramaRkSe),
+        new UsbId(TryxPanoramaProtocol.VendorIdRk, TryxPanoramaProtocol.ProductIdPanoramaRkSe2),
     };
 
     public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices) =>

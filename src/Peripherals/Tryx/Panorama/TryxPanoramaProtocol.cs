@@ -27,7 +27,9 @@ public static class TryxPanoramaProtocol
     public const int VendorIdRk = 0x391A;
     public const int ProductIdPanoramaRk = 0x1011;
     // Panorama 360 SE: same RK firmware/protocol, distinct PID (enumerates as "PASE").
+    // Kanali's device table (PASE_1021, PASE_1061) lists two PIDs for this model.
     public const int ProductIdPanoramaRkSe = 0x1021;
+    public const int ProductIdPanoramaRkSe2 = 0x1061;
 
     public static readonly int[] KnownProductIds = { ProductIdPanorama };
 
