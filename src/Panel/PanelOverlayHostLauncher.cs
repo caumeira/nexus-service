@@ -284,10 +284,12 @@ public sealed class PanelOverlayHostLauncher : IOverlayHost
         var taskName = $"NexusOverlayLaunch_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
         try
         {
-            // /IT = interactive, /SC ONCE + a future /ST so the task only
-            // fires on our explicit /Run call. /F overwrites if collides.
+            // /IT = interactive. /SC ONCE + an already-past /ST 00:00 so the task
+            // only ever fires from our explicit /Run: a leftover task (if the
+            // /Delete below fails) has a spent trigger and cannot auto-run on a
+            // wall clock. /F overwrites if collides.
             if (!Schtasks("/Create", "/TN", taskName, "/TR", $"\"{exePath}\"",
-                          "/SC", "ONCE", "/ST", "23:59", "/RU", username, "/IT", "/F"))
+                          "/SC", "ONCE", "/ST", "00:00", "/RU", username, "/IT", "/F"))
             {
                 return null;
             }
