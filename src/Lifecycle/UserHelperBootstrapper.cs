@@ -97,8 +97,11 @@ internal static class UserHelperBootstrapper
         }
 
         var taskName = $"{taskPrefix}_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
+        // /ST 00:00 is already past, so a leftover task (if the /Delete below
+        // fails) has a spent trigger and never auto-runs on a wall clock; only
+        // the explicit /Run fires it.
         if (!Schtasks("/Create", "/TN", taskName, "/TR", command,
-                      "/SC", "ONCE", "/ST", "23:59", "/RU", username, "/IT", "/F"))
+                      "/SC", "ONCE", "/ST", "00:00", "/RU", username, "/IT", "/F"))
         {
             return false;
         }
@@ -123,8 +126,10 @@ internal static class UserHelperBootstrapper
         }
 
         var taskName = $"{taskPrefix}_{Environment.ProcessId}_{DateTime.UtcNow.Ticks}";
+        // Past /ST 00:00: a leftover task can't auto-fire on a wall clock; only
+        // the explicit /Run below triggers it.
         if (!Schtasks("/Create", "/TN", taskName, "/TR", $"\"{exePath}\" {nexusArg}",
-                      "/SC", "ONCE", "/ST", "23:59", "/RU", username, "/IT", "/F"))
+                      "/SC", "ONCE", "/ST", "00:00", "/RU", username, "/IT", "/F"))
         {
             return;
         }
