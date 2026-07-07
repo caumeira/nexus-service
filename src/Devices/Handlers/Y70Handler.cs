@@ -10,6 +10,7 @@ public sealed class Y70Handler : IDeviceHandler
 {
     private const int HyteVid = 0x3402;
     private const string UsbDisconnectedWarning = "usb-disconnected";
+    private const string DisplayDisconnectedWarning = "display-disconnected";
 
     private readonly Y70DisplayHub _hub;
     private readonly DisplayTopologyService _topology;
@@ -47,12 +48,19 @@ public sealed class Y70Handler : IDeviceHandler
         return detectedDevices.Any(d => Identifiers.Any(id => id.VendorId == d.VendorId && id.ProductId == d.ProductId));
     }
 
-    /// <summary>"usb-disconnected" when the monitor is present but the serial
-    /// control channel (brightness/screen-power/touch) is not; null otherwise.</summary>
+    /// <summary>
+    /// Flags a half-connected Y70: "usb-disconnected" when the monitor is present
+    /// but the serial control channel (brightness/screen-power/touch) is not, and
+    /// "display-disconnected" when the serial channel is up but no video display
+    /// is attached (the panel can't render); null when both or neither are present.
+    /// </summary>
     public string? GetWarning(IReadOnlyList<UsbDeviceEntry> detectedDevices)
+        => ComputeWarning(_hub.IsConnected, _topology.HasY70Display());
+
+    internal static string? ComputeWarning(bool serialConnected, bool hasDisplay)
     {
-        if (_hub.IsConnected) return null;
-        return _topology.HasY70Display() ? UsbDisconnectedWarning : null;
+        if (serialConnected) return hasDisplay ? null : DisplayDisconnectedWarning;
+        return hasDisplay ? UsbDisconnectedWarning : null;
     }
 
     public string GetFirmwareVersion() => _hub.State.FirmwareVersion;

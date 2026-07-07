@@ -179,6 +179,16 @@ public class DeviceHandlerTests
         Assert.Null(h.GetWarning(new List<UsbDeviceEntry>()));
     }
 
+    [Theory]
+    [InlineData(true, true, null)]                       // fully connected
+    [InlineData(false, true, "usb-disconnected")]        // display only, no serial/USB
+    [InlineData(true, false, "display-disconnected")]    // USB/serial only, no display
+    [InlineData(false, false, null)]                     // neither
+    public void Y70_warning_matrix(bool serialConnected, bool hasDisplay, string? expected)
+    {
+        Assert.Equal(expected, Y70Handler.ComputeWarning(serialConnected, hasDisplay));
+    }
+
     public static IEnumerable<object[]> AllHandlers()
     {
         yield return new object[] { TestHandlers.Cnvs() };
