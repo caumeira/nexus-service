@@ -38,7 +38,7 @@ public static class DiagnosticsHealthRoutes
             model.BuildHealth(IsRefresh(refresh))).AllowPanel();
 
         app.MapGet("/diagnostics/incidents", (int? days, EventLogMonitor events, SteamGameLibraryCache steamCache) =>
-            BuildIncidentsResponse(events, steamCache, Math.Clamp(days ?? MaxIncidentDays, 1, MaxIncidentDays)));
+            BuildIncidentsResponse(events, steamCache, Math.Clamp(days ?? MaxIncidentDays, 1, MaxIncidentDays), group: true));
 
         app.MapGet("/diagnostics/smart", (string? refresh, SmartHealthMonitor smart) =>
         {
@@ -89,7 +89,9 @@ public static class DiagnosticsHealthRoutes
             PnpProblemScanner pnp) =>
         {
             var health = healthModel.BuildHealth();
-            var incidents = BuildIncidentsResponse(events, steamCache, MaxIncidentDays);
+            // Bundle is the deep-analysis artifact: keep per-occurrence rows
+            // ungrouped so every timestamp survives, unlike the live route.
+            var incidents = BuildIncidentsResponse(events, steamCache, MaxIncidentDays, group: false);
             var smartSnapshot = smart.Snapshot();
             var memory = BuildMemoryResponse(memDiag);
             var gpuResponse = BuildGpuResponse(gpu, events);
@@ -106,24 +108,30 @@ public static class DiagnosticsHealthRoutes
     private static bool IsRefresh(string? refresh) =>
         refresh is "1" || string.Equals(refresh, "true", StringComparison.OrdinalIgnoreCase);
 
-    private static IncidentsResponse BuildIncidentsResponse(EventLogMonitor events, SteamGameLibraryCache steamCache, int windowDays) =>
+    private static IncidentsResponse BuildIncidentsResponse(
+        EventLogMonitor events, SteamGameLibraryCache steamCache, int windowDays, bool group) =>
         new()
         {
             Supported = OperatingSystem.IsWindows(),
             WindowDays = windowDays,
-            Incidents = GroupRepeats(DecorateGameCrashes(events.Snapshot(windowDays), steamCache)),
+            Incidents = group
+                ? GroupRepeats(DecorateGameCrashes(events.Snapshot(windowDays), steamCache))
+                : DecorateGameCrashes(events.Snapshot(windowDays), steamCache),
         };
 
-    /// <summary>Collapses incidents sharing (Source, Title, App?.Name) into one row:
-    /// the newest occurrence, stamped with RepeatCount and the oldest occurrence's
-    /// FirstUtc. Does not touch EventLogMonitor's store, so CountsSince health
-    /// thresholds keep counting real occurrences.</summary>
+    /// <summary>Collapses incidents sharing (Source, Title, Severity, App?.Name) into
+    /// one row: the newest occurrence, stamped with RepeatCount and the oldest
+    /// occurrence's FirstUtc. Severity is in the key because the same title can
+    /// carry different severities (e.g. WHEA severity is level-driven), so an
+    /// older higher-severity occurrence must not collapse under a newer lower one.
+    /// Does not touch EventLogMonitor's store, so CountsSince health thresholds
+    /// keep counting real occurrences.</summary>
     internal static IReadOnlyList<DiagnosticIncident> GroupRepeats(IReadOnlyList<DiagnosticIncident> incidents)
     {
-        var groups = new Dictionary<(string Source, string Title, string? AppName), List<DiagnosticIncident>>();
+        var groups = new Dictionary<(string Source, string Title, string Severity, string? AppName), List<DiagnosticIncident>>();
         foreach (var incident in incidents)
         {
-            var key = (incident.Source, incident.Title, incident.App?.Name);
+            var key = (incident.Source, incident.Title, incident.Severity, incident.App?.Name);
             if (!groups.TryGetValue(key, out var list))
             {
                 list = new List<DiagnosticIncident>();

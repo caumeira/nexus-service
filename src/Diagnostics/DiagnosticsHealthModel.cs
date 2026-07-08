@@ -84,9 +84,9 @@ public sealed class DiagnosticsHealthModel
         _sensors = sensors;
     }
 
-    /// <summary>forceRefresh bypasses this model's own 30s cache only; it reads
-    /// each module through its normal Snapshot() call, so it does not force
-    /// SMART's 10-minute refresh or any other module's independent cache.</summary>
+    /// <summary>forceRefresh bypasses this model's own cache; module caches are
+    /// unaffected - each module snapshot still goes through its normal
+    /// Snapshot() call.</summary>
     public DiagnosticsHealthResponse BuildHealth(bool forceRefresh = false)
     {
         lock (_gate)

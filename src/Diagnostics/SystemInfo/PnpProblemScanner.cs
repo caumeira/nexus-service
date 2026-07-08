@@ -22,6 +22,10 @@ public sealed record PnpProblemSnapshot(bool Supported, IReadOnlyList<PnpProblem
 public sealed class PnpProblemScanner
 {
     private static readonly TimeSpan CacheTtl = TimeSpan.FromMinutes(5);
+
+    // Floor below which a forceRefresh request is served from cache anyway, so
+    // a stuck client retry loop cannot make this spawn powershell.exe continuously.
+    private static readonly TimeSpan ForceRefreshFloor = TimeSpan.FromSeconds(5);
     private const int ShellTimeoutMs = 15_000;
 
     private readonly object _gate = new();
@@ -38,7 +42,8 @@ public sealed class PnpProblemScanner
         lock (_gate)
         {
             var now = DateTime.UtcNow;
-            if (!forceRefresh && now - _cachedAtUtc < CacheTtl)
+            var honorForce = forceRefresh && now - _cachedAtUtc >= ForceRefreshFloor;
+            if (!honorForce && now - _cachedAtUtc < CacheTtl)
             {
                 return _cached;
             }

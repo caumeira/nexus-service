@@ -11,13 +11,14 @@ public class IncidentGroupingTests
 {
     private static readonly DateTime T0 = new(2026, 7, 1, 0, 0, 0, DateTimeKind.Utc);
 
-    private static DiagnosticIncident Incident(string id, DateTime timeUtc, string source, string title, string? appName = null) =>
+    private static DiagnosticIncident Incident(
+        string id, DateTime timeUtc, string source, string title, string? appName = null, string severity = "warning") =>
         new()
         {
             Id = id,
             TimeUtc = timeUtc,
             Source = source,
-            Severity = "warning",
+            Severity = severity,
             Title = title,
             App = appName is null ? null : new DiagnosticAppInfo { Name = appName },
         };
@@ -109,5 +110,33 @@ public class IncidentGroupingTests
 
         Assert.Equal(2, grouped.Count);
         Assert.All(grouped, i => Assert.Equal(1, i.RepeatCount));
+    }
+
+    [Fact]
+    public void Same_title_different_severity_does_not_merge()
+    {
+        // whea's severity is level-driven, so the same title can occur at both
+        // warning and critical; an older critical row must not collapse under
+        // a newer warning representative (or vice versa).
+        var incidents = new List<DiagnosticIncident>
+        {
+            Incident("a", T0.AddMinutes(2), "whea", "Corrected PCIe/MCE hardware error", severity: "warning"),
+            Incident("b", T0.AddMinutes(1), "whea", "Corrected PCIe/MCE hardware error", severity: "critical"),
+            Incident("c", T0, "whea", "Corrected PCIe/MCE hardware error", severity: "critical"),
+        };
+
+        var grouped = DiagnosticsHealthRoutes.GroupRepeats(incidents);
+
+        Assert.Equal(2, grouped.Count);
+
+        var warning = Assert.Single(grouped, i => i.Severity == "warning");
+        Assert.Equal(1, warning.RepeatCount);
+        Assert.Null(warning.FirstUtc);
+        Assert.Equal("a", warning.Id);
+
+        var critical = Assert.Single(grouped, i => i.Severity == "critical");
+        Assert.Equal(2, critical.RepeatCount);
+        Assert.Equal(T0, critical.FirstUtc);
+        Assert.Equal("b", critical.Id);
     }
 }

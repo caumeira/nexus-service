@@ -33,6 +33,10 @@ public sealed class MemoryDiagnosticOrchestrator
     // from spawning bcdedit/wevtutil on every poll.
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
 
+    // Floor below which ForceRefresh() leaves a cache alone, so a stuck client
+    // retry loop cannot make this spawn bcdedit/wevtutil continuously.
+    private static readonly TimeSpan ForceRefreshFloor = TimeSpan.FromSeconds(5);
+
     private readonly object _gate = new();
 
     // Fallback when bcdedit's enum output can't be parsed - reflects the last
@@ -96,16 +100,24 @@ public sealed class MemoryDiagnosticOrchestrator
         }
     }
 
-    /// <summary>Invalidates both 60s caches so the next IsScheduled()/LastResult()
-    /// call re-runs bcdedit/wevtutil instead of returning a stale value.</summary>
+    /// <summary>Invalidates both caches so the next read re-shells instead of
+    /// returning a stale value. Each cache honors its own force-refresh floor,
+    /// so a caller retrying faster than that floor still hits the cache.</summary>
     public void ForceRefresh()
     {
         if (!OperatingSystem.IsWindows()) return;
 
         lock (_gate)
         {
-            _scheduledCacheValid = false;
-            _lastResultCacheValid = false;
+            var now = DateTime.UtcNow;
+            if (_scheduledCacheValid && now - _scheduledCachedAtUtc >= ForceRefreshFloor)
+            {
+                _scheduledCacheValid = false;
+            }
+            if (_lastResultCacheValid && now - _lastResultCachedAtUtc >= ForceRefreshFloor)
+            {
+                _lastResultCacheValid = false;
+            }
         }
     }
 
