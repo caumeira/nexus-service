@@ -36,6 +36,7 @@ public sealed class NexusSettings
     public DevicesSettings Devices { get; set; } = new();
     public SmartLightsSettings SmartLights { get; set; } = new();
     public UiSettings Ui { get; set; } = new();
+    public UnitsSettings Units { get; set; } = new();
     public ScreenTimeSettings ScreenTime { get; set; } = new();
     public ObsSettings Obs { get; set; } = new();
     public SteamSettings Steam { get; set; } = new();
@@ -175,6 +176,29 @@ public sealed class UiSettingsPatch
 {
     public bool? ShowConflictAlerts { get; set; }
     public bool? OemAppSeeded { get; set; }
+}
+
+/// <summary>
+/// User-unit display preferences. The service stores and echoes these
+/// verbatim; it never interprets the values (the client owns the semantics
+/// of each string).
+/// </summary>
+public sealed class UnitsSettings
+{
+    /// <summary>"c" | "f".</summary>
+    public string MonitoringTempUnit { get; set; } = "c";
+    /// <summary>"system" | "12h" | "24h".</summary>
+    public string TimeFormat { get; set; } = "system";
+    /// <summary>"system" | "dot" | "comma".</summary>
+    public string NumberFormat { get; set; } = "system";
+}
+
+/// <summary>Partial update DTO for the units block of POST /preferences.</summary>
+public sealed class UnitsSettingsPatch
+{
+    public string? MonitoringTempUnit { get; set; }
+    public string? TimeFormat { get; set; }
+    public string? NumberFormat { get; set; }
 }
 
 public sealed class LightingSettings

@@ -783,6 +783,7 @@ public sealed class ProfileManager : IDisposable
             Y70 = source.Y70,
             Devices = source.Devices,
             Ui = source.Ui,
+            Units = source.Units,
             PanelDevices = source.PanelDevices,
             PrimaryProfileId = source.PrimaryProfileId,
             SharedCategories = source.SharedCategories,
