@@ -131,6 +131,36 @@ if (OperatingSystem.IsWindows()
 // Bind on all interfaces so phones on the same LAN can reach the panel
 // phone pairing surface without internet.
 var httpsPort = servicePort == 9400 ? 9443 : servicePort + 443;
+
+// Q-series panel tunnel listener: a second loopback-only port that
+// QSeriesPortWatcher points the panel's `adb reverse` at. The adb tunnel is
+// the only intended client (see PanelTunnelMonitor for the caveats), giving
+// the watcher's escalation reboot an attributable liveness signal - on the
+// main port, panel traffic is indistinguishable from the desktop dashboard
+// (both 127.0.0.1), so an open dashboard masked a stranded panel
+// indefinitely. Windows-only,
+// matching the Q-series host stack. A taken port deactivates the monitor
+// (watcher falls back to the legacy record-based gate) instead of failing the
+// Kestrel bind and taking the service down.
+var panelTunnelPort = servicePort + 1;
+var panelTunnelMonitor = new Nexus.Service.Panel.PanelTunnelMonitor(
+    OperatingSystem.IsWindows() && !testHost && IsLoopbackPortFree(panelTunnelPort) ? panelTunnelPort : null);
+
+static bool IsLoopbackPortFree(int port)
+{
+    try
+    {
+        var probe = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, port);
+        probe.Start();
+        probe.Stop();
+        return true;
+    }
+    catch (System.Net.Sockets.SocketException)
+    {
+        Console.Error.WriteLine($"[nexus-service] panel tunnel port {port} unavailable; panel liveness falls back to record-based gate");
+        return false;
+    }
+}
 X509Certificate2? localHttpsCertificate = null;
 if (!testHost)
 {
@@ -202,6 +232,17 @@ builder.WebHost.ConfigureKestrel(k =>
     {
         k.ListenAnyIP(httpsPort, o => o.UseHttps(localHttpsCertificate));
     }
+    if (panelTunnelMonitor.Port is int tunnelPort)
+    {
+        // IPv4 loopback only - the adb server's host-side connect is IPv4, and
+        // ListenLocalhost's dual-family bind could survive on [::1] alone,
+        // leaving the monitor "active" on a socket adb can't reach.
+        k.Listen(System.Net.IPAddress.Loopback, tunnelPort, lo => lo.Use(next => ctx =>
+        {
+            ctx.Transport = new Nexus.Service.Panel.TunnelActivityDuplexPipe(ctx.Transport, panelTunnelMonitor);
+            return next(ctx);
+        }));
+    }
 });
 builder.Services.Configure<Microsoft.AspNetCore.Http.Features.FormOptions>(o =>
 {
@@ -271,6 +312,7 @@ builder.Services.AddNexusWeather();
 Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusWeather");
 builder.Services.AddNexusWidgets();
 Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusWidgets");
+builder.Services.AddSingleton(panelTunnelMonitor);
 builder.Services.AddNexusPanel(servicePort);
 Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusPanel");
 builder.Services.AddNexusLinuxDBus();
@@ -339,6 +381,14 @@ if (!testHost)
 }
 
 var wsOptions = new WebSocketOptions();
+// Real PING/PONG keepalive. KeepAliveTimeout must be set: without it the
+// runtime's keepalive is an unsolicited outbound PONG that clients never
+// answer. With it, the server PINGs and the browser answers at the protocol
+// layer, so a connected-but-idle panel produces steady inbound bytes on the
+// tunnel listener (PanelTunnelMonitor's liveness signal) and a dead socket is
+// aborted instead of lingering.
+wsOptions.KeepAliveInterval = TimeSpan.FromSeconds(30);
+wsOptions.KeepAliveTimeout = TimeSpan.FromSeconds(60);
 #if !DEBUG
 // Release/AOT: pin WS to the service's own origins.
 foreach (var origin in allowedOrigins)
