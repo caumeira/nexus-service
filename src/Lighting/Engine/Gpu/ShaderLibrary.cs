@@ -92,6 +92,7 @@ internal static class ShaderLibrary
     public static IReadOnlyList<string> AllEffectKeys { get; } = new[]
     {
         // Simple solid-colour fills.
+        "simplewhite",
         "simplered", "simpleorange", "simpleyellow", "simplegreen", "simplecyan",
         "simpleblue", "simpleviolet", "simplepink",
         "rainbow", "plasma", "fire", "spiral", "matrix", "meteor",
