@@ -136,8 +136,9 @@ public sealed class GpuHealthMonitor
         }
         catch
         {
-            // Driver removed mid-read or a symbol misbehaved - report unsupported
-            // rather than let a native fault escape into the caller.
+            // Catches managed exceptions only (e.g. a bad marshalled buffer) - a
+            // native fault from a stale or null function pointer crashes the
+            // process before this catch could ever run.
             return GpuHealthSnapshot.Unsupported;
         }
     }

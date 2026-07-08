@@ -183,7 +183,6 @@ public static class SmbiosParser
 
             anyDeterminable = true;
             if (configured.Value > jedecBase.Value) return true;
-            if (m.Info.MaxSpeedMts is int max && configured.Value == max && max > jedecBase.Value) return true;
         }
         return anyDeterminable ? false : null;
     }

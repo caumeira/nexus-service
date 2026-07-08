@@ -33,13 +33,13 @@ public sealed record CoolingStallSnapshot(bool Supported, IReadOnlyList<CoolingS
 /// <see cref="Snapshot"/>. Kept deliberately hardware-agnostic so it is fully
 /// unit-testable without a real fan controller.
 ///
-/// Rules (conservative: slow to flag, instant to clear):
-///   Pump: rpm &lt; 50 while targetDuty &gt;= 20%, sustained &gt;= 30s -&gt; stalled.
-///   Fan:  rpm == 0 while targetDuty &gt;= 30%, sustained &gt;= 90s  -&gt; stalled.
-///         rpm == 0 while targetDuty &gt;= 15%, sustained &gt;= 5min -&gt; suspect.
-///   Recovery clears immediately: pump rpm &gt;= 100 (2x the 50rpm floor), fan rpm &gt; 0.
-///   No duty signal (null) or an rpm reading that has NEVER been nonzero for this
-///   device -> "unknown", never flagged (nothing to compare a stall against).
+/// Conservative: slow to flag, instant to clear. A channel only flags once a
+/// low/zero rpm condition at a meaningful duty has sustained for its window
+/// (fans get a lower-duty, longer-sustain "suspect" tier below the stall
+/// tier); any real rpm reading clears the flag immediately. A channel with no
+/// duty signal, or one that has never once reported a real rpm, stays
+/// "unknown" - there is nothing to compare a stall against. See the constants
+/// below for the exact thresholds.
 /// </summary>
 public sealed class CoolingStallDetector
 {
@@ -53,6 +53,10 @@ public sealed class CoolingStallDetector
     private const double FanStallMinDuty = 30;
     private const double FanSuspectMinDuty = 15;
 
+    // A channel not fed an observation for this long (an unplugged hub, a
+    // removed fan) drops out of Snapshot() entirely.
+    private static readonly TimeSpan StaleThreshold = TimeSpan.FromMinutes(10);
+
     private sealed class ChannelState
     {
         public string Name = "";
@@ -65,6 +69,7 @@ public sealed class CoolingStallDetector
         public DateTime? FanSuspectConditionStartUtc;
         public string Status = CoolingStallStatuses.Unknown;
         public DateTime? SinceUtc;
+        public DateTime LastObservedUtc;
     }
 
     private readonly object _gate = new();
@@ -79,11 +84,14 @@ public sealed class CoolingStallDetector
 
         lock (_gate)
         {
+            PruneStale(nowUtc);
+
             if (!_channels.TryGetValue(deviceId, out var st))
             {
                 st = new ChannelState();
                 _channels[deviceId] = st;
             }
+            st.LastObservedUtc = nowUtc;
             st.Name = name;
             st.Type = type;
             st.LastRpm = rpm;
@@ -102,9 +110,11 @@ public sealed class CoolingStallDetector
                 return;
             }
 
-            // A null rpm reading on a device that has never once reported a real
-            // rpm: we have no baseline to call this a stall against.
-            if (rpm is null && !st.EverReportedNonzeroRpm)
+            // A device that has never once reported a real rpm - a null reading
+            // and a literal 0 (FanChannel.Rpm is non-nullable, so an unpopulated
+            // header always reports 0) read identically here - has no baseline to
+            // call a stall against.
+            if (!st.EverReportedNonzeroRpm)
             {
                 SetUnknown(st);
                 return;
@@ -123,6 +133,20 @@ public sealed class CoolingStallDetector
             {
                 EvaluateFan(st, nowUtc, effectiveRpm, duty);
             }
+        }
+    }
+
+    // Caller holds _gate. Runs relative to the caller-supplied nowUtc (never
+    // DateTime.UtcNow) so the detector stays fully driven by Observe()'s clock -
+    // a device absent from the fan-control provider's channel list simply stops
+    // being observed, and the next Observe() call for any OTHER channel prunes
+    // it once its last observation falls outside the stale window.
+    private void PruneStale(DateTime nowUtc)
+    {
+        var cutoff = nowUtc - StaleThreshold;
+        foreach (var staleId in _channels.Where(kv => kv.Value.LastObservedUtc < cutoff).Select(kv => kv.Key).ToList())
+        {
+            _channels.Remove(staleId);
         }
     }
 

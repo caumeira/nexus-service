@@ -18,32 +18,38 @@ namespace Nexus.Service.Routes;
 /// <summary>
 /// Diagnostics app REST surface: aggregated health, per-domain detail, memory
 /// test scheduling, and the support-bundle download. Contract frozen in
-/// .deep-build/diagnostics-contract.md. GET routes mirror /cooling/status's
-/// AllowPanel() so the panel widget can reach them; the memory test
-/// POST/DELETE stay on the default auth (no AllowPanel) since scheduling a
-/// reboot diagnostic is a dashboard-only action; bundle/download is
-/// LocalhostOnly like the existing /diagnostics/open-logs route.
+/// .deep-build/diagnostics-contract.md. Only /diagnostics/health and
+/// /diagnostics/cooling carry AllowPanel() - the only two the panel widget
+/// consumes; every other GET stays on the default token auth. The memory test
+/// POST/DELETE also stay on the default auth since scheduling a reboot
+/// diagnostic is a dashboard-only action; bundle/download is LocalhostOnly
+/// like the existing /diagnostics/open-logs route.
 /// </summary>
 public static class DiagnosticsHealthRoutes
 {
+    // EventLogMonitor's backfill window is 30 days (DiagnosticEventCatalog),
+    // so the store never actually holds more history than that regardless of
+    // a larger requested window.
+    private const int MaxIncidentDays = 30;
+
     public static void MapDiagnosticsHealthEndpoints(this WebApplication app)
     {
         app.MapGet("/diagnostics/health", (DiagnosticsHealthModel model) => model.BuildHealth()).AllowPanel();
 
         app.MapGet("/diagnostics/incidents", (int? days, EventLogMonitor events, SteamGameLibraryCache steamCache) =>
         {
-            var windowDays = Math.Clamp(days ?? 30, 1, 90);
+            var windowDays = Math.Clamp(days ?? MaxIncidentDays, 1, MaxIncidentDays);
             return new IncidentsResponse
             {
                 Supported = OperatingSystem.IsWindows(),
                 WindowDays = windowDays,
                 Incidents = DecorateGameCrashes(events.Snapshot(windowDays), steamCache),
             };
-        }).AllowPanel();
+        });
 
-        app.MapGet("/diagnostics/smart", (SmartHealthMonitor smart) => smart.Snapshot()).AllowPanel();
+        app.MapGet("/diagnostics/smart", (SmartHealthMonitor smart) => smart.Snapshot());
 
-        app.MapGet("/diagnostics/memory", (MemoryDiagnosticOrchestrator memDiag) => BuildMemoryResponse(memDiag)).AllowPanel();
+        app.MapGet("/diagnostics/memory", (MemoryDiagnosticOrchestrator memDiag) => BuildMemoryResponse(memDiag));
 
         app.MapPost("/diagnostics/memory/test", (MemoryDiagnosticOrchestrator memDiag) =>
         {
@@ -57,11 +63,11 @@ public static class DiagnosticsHealthRoutes
             return new MemoryTestCancelResponse { Scheduled = memDiag.IsScheduled() };
         });
 
-        app.MapGet("/diagnostics/gpu", (GpuHealthMonitor gpu, EventLogMonitor events) => BuildGpuResponse(gpu, events)).AllowPanel();
+        app.MapGet("/diagnostics/gpu", (GpuHealthMonitor gpu, EventLogMonitor events) => BuildGpuResponse(gpu, events));
 
         app.MapGet("/diagnostics/cooling", (CoolingStallDetector cooling) => cooling.Snapshot()).AllowPanel();
 
-        app.MapGet("/diagnostics/system", (PnpProblemScanner pnp, EventLogMonitor events) => BuildSystemResponse(pnp, events)).AllowPanel();
+        app.MapGet("/diagnostics/system", (PnpProblemScanner pnp, EventLogMonitor events) => BuildSystemResponse(pnp, events));
 
         app.MapGet("/diagnostics/bundle/download", (
             DiagnosticsHealthModel healthModel,
@@ -77,8 +83,8 @@ public static class DiagnosticsHealthRoutes
             var incidents = new IncidentsResponse
             {
                 Supported = OperatingSystem.IsWindows(),
-                WindowDays = 90,
-                Incidents = DecorateGameCrashes(events.Snapshot(90), steamCache),
+                WindowDays = MaxIncidentDays,
+                Incidents = DecorateGameCrashes(events.Snapshot(MaxIncidentDays), steamCache),
             };
             var smartSnapshot = smart.Snapshot();
             var memory = BuildMemoryResponse(memDiag);
@@ -161,7 +167,7 @@ public static class DiagnosticsHealthRoutes
         foreach (var incident in incidents)
         {
             if (incident.App is { } app && !string.IsNullOrEmpty(app.Path)
-                && libraries.Any(lib => app.Path.StartsWith(lib, StringComparison.OrdinalIgnoreCase)))
+                && libraries.Any(lib => IsUnderLibrary(app.Path, lib)))
             {
                 result.Add(incident with { App = app with { IsGame = true } });
             }
@@ -171,6 +177,19 @@ public static class DiagnosticsHealthRoutes
             }
         }
         return result;
+    }
+
+    // A plain StartsWith would match "D:\SteamLibrary2\..." against library
+    // "D:\SteamLibrary" - require the prefix to end exactly at a directory
+    // boundary (or the whole path) before declaring the crash under it.
+    private static bool IsUnderLibrary(string path, string libraryPath)
+    {
+        var lib = libraryPath.TrimEnd('\\', '/');
+        if (!path.StartsWith(lib, StringComparison.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+        return path.Length == lib.Length || path[lib.Length] is '\\' or '/';
     }
 }
 

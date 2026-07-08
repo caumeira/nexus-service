@@ -1,7 +1,7 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Text.Json;
+using Nexus.Service.Diagnostics;
 
 namespace Nexus.Service.Diagnostics.SystemInfo;
 
@@ -51,11 +51,11 @@ public sealed class PnpProblemScanner
 
     private static PnpProblemSnapshot Scan()
     {
-        var json = ShellOut("powershell.exe", ShellTimeoutMs,
+        var result = DiagnosticsShell.Run("powershell.exe", ShellTimeoutMs,
             "-NoProfile", "-Command",
             "Get-CimInstance Win32_PnPEntity -Filter 'ConfigManagerErrorCode <> 0' | " +
             "Select-Object Name,DeviceID,ConfigManagerErrorCode | ConvertTo-Json -Compress");
-        return new PnpProblemSnapshot(true, ParseJson(json));
+        return new PnpProblemSnapshot(true, ParseJson(result.Stdout));
     }
 
     /// <summary>Pure parse of the PowerShell ConvertTo-Json output. Handles the
@@ -128,34 +128,4 @@ public sealed class PnpProblemScanner
         45 => "CM_PROB_PHANTOM",
         _ => $"CM_PROB_{code}",
     };
-
-    private static string ShellOut(string fileName, int timeoutMs, params string[] args)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = fileName,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            foreach (var a in args) psi.ArgumentList.Add(a);
-
-            using var proc = Process.Start(psi);
-            if (proc is null) return "";
-            var stdout = proc.StandardOutput.ReadToEnd();
-            if (!proc.WaitForExit(timeoutMs))
-            {
-                try { proc.Kill(entireProcessTree: true); } catch { }
-                return "";
-            }
-            return stdout;
-        }
-        catch
-        {
-            return "";
-        }
-    }
 }

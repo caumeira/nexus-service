@@ -272,6 +272,15 @@ public class DiagnosticsEventLogTests
     }
 
     [Fact]
+    public void Nvlddmkm_event_at_info_level_is_ignored()
+    {
+        const string xml =
+            "<Event xmlns='http://schemas.microsoft.com/win/2004/08/events/event'><System><Provider Name='nvlddmkm'/><EventID Qualifiers='49322'>13</EventID><Version>0</Version><Level>4</Level><Task>0</Task><Opcode>0</Opcode><Keywords>0x80000000000000</Keywords><TimeCreated SystemTime='2026-06-16T14:01:07.0000000Z'/><EventRecordID>31593</EventRecordID><Correlation/><Execution ProcessID='4' ThreadID='20388'/><Channel>System</Channel><Computer>HyteY70</Computer><Security/></System><EventData><Data>\\Device\\Video3</Data><Data>Info-level driver chatter</Data></EventData></Event>";
+
+        Assert.Null(EventXmlParser.Parse(xml));
+    }
+
+    [Fact]
     public void Unwatched_provider_returns_null()
     {
         const string xml =

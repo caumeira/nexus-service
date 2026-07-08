@@ -93,4 +93,36 @@ public class CoolingStallDetectorTests
         det.Observe("fan4", "Fan", "fan", 0, null, T0.AddMinutes(20));
         Assert.Equal(CoolingStallStatuses.Unknown, det.Snapshot().Devices.Single().Status);
     }
+
+    [Fact]
+    public void ZeroRpm_FirstObservation_NeverReportedNonzero_NeverFlagged()
+    {
+        // FanChannel.Rpm is a non-nullable int, so an unpopulated header reports
+        // a literal 0, not null. A first-ever observation of 0 rpm at a duty
+        // that would otherwise sustain into "stalled" must stay unknown - there
+        // is no prior nonzero reading to call this a stall against.
+        var det = new CoolingStallDetector();
+        det.Observe("fan5", "Fan", "fan", 0, 60, T0);
+        Assert.Equal(CoolingStallStatuses.Unknown, det.Snapshot().Devices.Single().Status);
+
+        det.Observe("fan5", "Fan", "fan", 0, 60, T0.AddMinutes(10));
+        var status = det.Snapshot().Devices.Single().Status;
+        Assert.NotEqual(CoolingStallStatuses.Stalled, status);
+        Assert.NotEqual(CoolingStallStatuses.Suspect, status);
+    }
+
+    [Fact]
+    public void StaleChannel_PrunedAfterTenMinutesUnobserved()
+    {
+        var det = new CoolingStallDetector();
+        det.Observe("fan6", "Fan", "fan", 1200, 50, T0);
+        Assert.Single(det.Snapshot().Devices);
+
+        // A different channel's observation, 11 minutes later, advances the
+        // detector's internal clock past fan6's staleness window.
+        det.Observe("fan7", "Fan", "fan", 1200, 50, T0.AddMinutes(11));
+
+        Assert.DoesNotContain(det.Snapshot().Devices, d => d.Id == "fan6");
+        Assert.Contains(det.Snapshot().Devices, d => d.Id == "fan7");
+    }
 }

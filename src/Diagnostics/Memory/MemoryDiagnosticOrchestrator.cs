@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.Linq;
 using System.Xml.Linq;
+using Nexus.Service.Diagnostics;
 
 namespace Nexus.Service.Diagnostics.Memory;
 
@@ -27,40 +27,73 @@ public sealed class MemoryDiagnosticOrchestrator
     private const int ShellTimeoutMs = 10_000;
     private const string MemdiagToken = "{memdiag}";
 
+    // Boot-scheduled state and the last diagnostic run's result only change
+    // across a reboot or an explicit Schedule()/Cancel() call, so both reads
+    // are cached to keep GET /diagnostics/memory and the health aggregator
+    // from spawning bcdedit/wevtutil on every poll.
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(60);
+
+    private readonly object _gate = new();
+
     // Fallback when bcdedit's enum output can't be parsed - reflects the last
     // Schedule()/Cancel() call this process made, not persisted across restarts.
     private volatile bool _lastKnownScheduled;
+    private bool _scheduledCacheValid;
+    private DateTime _scheduledCachedAtUtc = DateTime.MinValue;
+
+    private MemoryTestResult? _lastResultCached;
+    private bool _lastResultCacheValid;
+    private DateTime _lastResultCachedAtUtc = DateTime.MinValue;
 
     public bool Schedule()
     {
         if (!OperatingSystem.IsWindows()) return false;
-        var (exit, _, _) = ShellOut("bcdedit.exe", ShellTimeoutMs, "/bootsequence", MemdiagToken);
-        var ok = exit == 0;
+        var result = DiagnosticsShell.Run("bcdedit.exe", ShellTimeoutMs, "/bootsequence", MemdiagToken);
+        var ok = result.ExitCode == 0;
         if (ok) _lastKnownScheduled = true;
+        InvalidateScheduledCache();
         return ok;
     }
 
     public bool Cancel()
     {
         if (!OperatingSystem.IsWindows()) return false;
-        var (exit, _, _) = ShellOut("bcdedit.exe", ShellTimeoutMs, "/bootsequence", MemdiagToken, "/remove");
-        var ok = exit == 0;
+        var result = DiagnosticsShell.Run("bcdedit.exe", ShellTimeoutMs, "/bootsequence", MemdiagToken, "/remove");
+        var ok = result.ExitCode == 0;
         if (ok) _lastKnownScheduled = false;
+        InvalidateScheduledCache();
         return ok;
     }
 
     public bool IsScheduled()
     {
         if (!OperatingSystem.IsWindows()) return false;
-        var (exit, stdout, _) = ShellOut("bcdedit.exe", ShellTimeoutMs, "/enum", "{bootmgr}");
-        if (exit != 0 || string.IsNullOrWhiteSpace(stdout))
+
+        lock (_gate)
         {
+            var now = DateTime.UtcNow;
+            if (_scheduledCacheValid && now - _scheduledCachedAtUtc < CacheTtl)
+            {
+                return _lastKnownScheduled;
+            }
+
+            var result = DiagnosticsShell.Run("bcdedit.exe", ShellTimeoutMs, "/enum", "{bootmgr}");
+            if (result.ExitCode == 0 && !string.IsNullOrWhiteSpace(result.Stdout))
+            {
+                _lastKnownScheduled = ParseBootSequenceHasMemdiag(result.Stdout);
+            }
+            _scheduledCacheValid = true;
+            _scheduledCachedAtUtc = now;
             return _lastKnownScheduled;
         }
+    }
 
-        var scheduled = ParseBootSequenceHasMemdiag(stdout);
-        _lastKnownScheduled = scheduled;
-        return scheduled;
+    private void InvalidateScheduledCache()
+    {
+        lock (_gate)
+        {
+            _scheduledCacheValid = false;
+        }
     }
 
     /// <summary>Pure parse: does a "bootsequence" line in `bcdedit /enum` output
@@ -83,12 +116,29 @@ public sealed class MemoryDiagnosticOrchestrator
     public MemoryTestResult? LastResult()
     {
         if (!OperatingSystem.IsWindows()) return null;
-        var (exit, stdout, _) = ShellOut("wevtutil.exe", ShellTimeoutMs,
-            "qe", "System",
-            "/q:*[System[Provider[@Name='Microsoft-Windows-MemoryDiagnostics-Results']]]",
-            "/rd:true", "/c:5", "/f:xml");
-        if (exit != 0) return null;
-        return ParseLastResultXml(stdout);
+
+        lock (_gate)
+        {
+            var now = DateTime.UtcNow;
+            if (_lastResultCacheValid && now - _lastResultCachedAtUtc < CacheTtl)
+            {
+                return _lastResultCached;
+            }
+
+            var result = DiagnosticsShell.Run("wevtutil.exe", ShellTimeoutMs,
+                "qe", "System",
+                "/q:*[System[Provider[@Name='Microsoft-Windows-MemoryDiagnostics-Results']]]",
+                "/rd:true", "/c:5", "/f:xml");
+            if (result.ExitCode != 0)
+            {
+                return _lastResultCacheValid ? _lastResultCached : null;
+            }
+
+            _lastResultCached = ParseLastResultXml(result.Stdout);
+            _lastResultCacheValid = true;
+            _lastResultCachedAtUtc = now;
+            return _lastResultCached;
+        }
     }
 
     /// <summary>Pure parse of wevtutil's XML event dump (multiple sibling
@@ -157,36 +207,4 @@ public sealed class MemoryDiagnosticOrchestrator
 
     private static string? BuildDetail(Dictionary<string, string> data) =>
         data.Count == 0 ? null : string.Join("; ", data.Select(kv => $"{kv.Key}={kv.Value}"));
-
-    private static (int ExitCode, string Stdout, string Stderr) ShellOut(string fileName, int timeoutMs, params string[] args)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = fileName,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            foreach (var a in args) psi.ArgumentList.Add(a);
-
-            using var proc = Process.Start(psi);
-            if (proc is null) return (-1, "", "");
-
-            var stdout = proc.StandardOutput.ReadToEnd();
-            var stderr = proc.StandardError.ReadToEnd();
-            if (!proc.WaitForExit(timeoutMs))
-            {
-                try { proc.Kill(entireProcessTree: true); } catch { }
-                return (-1, stdout, stderr);
-            }
-            return (proc.ExitCode, stdout, stderr);
-        }
-        catch
-        {
-            return (-1, "", "");
-        }
-    }
 }

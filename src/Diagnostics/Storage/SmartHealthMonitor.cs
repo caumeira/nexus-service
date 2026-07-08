@@ -110,9 +110,19 @@ public sealed class SmartHealthMonitor
         }
     }
 
-    // Caller holds _lock.
+    // Caller holds _lock. Mirrors LhmComputer.Update's early-out: while the
+    // background Computer.Open() is still running, Hardware is empty, so
+    // returning here (instead of falling through to the finally) keeps
+    // _hasSnapshot false and leaves the refresh clock unstarted - the next
+    // Snapshot() call retries immediately rather than pinning an empty
+    // Supported=true list for the full 10-minute cache window.
     private void Refresh()
     {
+        if (!_lhm.OpenTask.IsCompletedSuccessfully)
+        {
+            return;
+        }
+
         try
         {
             _lhm.Update();

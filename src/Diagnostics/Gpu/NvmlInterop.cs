@@ -48,6 +48,7 @@ internal static unsafe class NvmlInterop
 
     private static readonly object Gate = new();
     private static bool _attempted;
+    private static bool _loaded;
     private static IntPtr _handle;
 
     private static IntPtr _pInit;
@@ -76,13 +77,18 @@ internal static unsafe class NvmlInterop
     {
         lock (Gate)
         {
-            if (_attempted) return _handle != IntPtr.Zero;
+            // _loaded is the full load+export predicate, not just handle-nonzero -
+            // a re-entrant call must return the same value the first call computed,
+            // or a handle-loaded-but-export-missing state would let a later caller
+            // invoke through a null function pointer (an uncatchable native crash).
+            if (_attempted) return _loaded;
             _attempted = true;
             try
             {
                 if (!NativeLibrary.TryLoad(DefaultLibraryName, out _handle) &&
                     !NativeLibrary.TryLoad(FallbackPath, out _handle))
                 {
+                    _loaded = false;
                     return false;
                 }
 
@@ -104,11 +110,13 @@ internal static unsafe class NvmlInterop
                     _pDeviceGetClocksReasons = Export("nvmlDeviceGetCurrentClocksThrottleReasons");
                 }
 
-                return _pInit != IntPtr.Zero && _pDeviceGetCount != IntPtr.Zero && _pDeviceGetHandleByIndex != IntPtr.Zero;
+                _loaded = _pInit != IntPtr.Zero && _pDeviceGetCount != IntPtr.Zero && _pDeviceGetHandleByIndex != IntPtr.Zero;
+                return _loaded;
             }
             catch
             {
                 _handle = IntPtr.Zero;
+                _loaded = false;
                 return false;
             }
         }

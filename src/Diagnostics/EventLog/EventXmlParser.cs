@@ -99,7 +99,7 @@ public static class EventXmlParser
         DiagnosticParseStrategy.DirtyShutdown => ExtractDirtyShutdown(eventData),
         DiagnosticParseStrategy.Disk => ExtractDisk(eventId),
         DiagnosticParseStrategy.Tdr => ExtractTdr(eventId, system),
-        DiagnosticParseStrategy.GpuDriver => ExtractGpuDriver(eventData),
+        DiagnosticParseStrategy.GpuDriver => ExtractGpuDriver(system, eventData),
         DiagnosticParseStrategy.AppCrash => ExtractAppCrash(eventData),
         DiagnosticParseStrategy.LiveKernel => ExtractLiveKernel(eventData),
         DiagnosticParseStrategy.MemDiag => ExtractMemDiag(eventId),
@@ -194,8 +194,17 @@ public static class EventXmlParser
             $"Display subsystem event {eventId}.", null, EmptyData);
     }
 
-    private static ExtractedFields ExtractGpuDriver(XElement? eventData)
+    // Level<=3 (Critical/Error/Warning) is also encoded in the catalog XPath, so
+    // a live/backfill event never reaches here above that level; re-checked
+    // here as a direct-call safety net (e.g. a future caller feeding raw XML)
+    // so info/verbose driver chatter is never counted as an incident.
+    private static ExtractedFields? ExtractGpuDriver(XElement system, XElement? eventData)
     {
+        var level = int.TryParse(system.Element(Ns + "Level")?.Value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var lv) ? lv : 4;
+        if (level > 3)
+        {
+            return null;
+        }
         var parts = GetPositionalData(eventData).Where(s => !string.IsNullOrWhiteSpace(s)).ToList();
         var detail = parts.Count > 0 ? string.Join(" ", parts) : "GPU driver reported an error event.";
         return new ExtractedFields(DiagnosticSeverity.Warning, "GPU driver error", detail, null, EmptyData);

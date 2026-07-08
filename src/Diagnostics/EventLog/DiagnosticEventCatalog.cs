@@ -85,7 +85,7 @@ public static class DiagnosticEventCatalog
         new()
         {
             Source = SourceGpuDriver, Channel = ChannelSystem,
-            XPath = "Provider[@Name='nvlddmkm' or @Name='amdkmdag']",
+            XPath = "(Provider[@Name='nvlddmkm' or @Name='amdkmdag']) and Level<=3",
             ParseStrategy = DiagnosticParseStrategy.GpuDriver,
         },
         new()
