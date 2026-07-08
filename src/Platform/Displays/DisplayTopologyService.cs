@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Nexus.Service.Models.Displays;
+using Nexus.Service.Models.Panel;
 using Nexus.Service.Panel;
 using Nexus.Service.Peripherals.Hyte.Y70Display;
 
@@ -191,7 +192,86 @@ public sealed class DisplayTopologyService
             _attachedIdsAtMs = Environment.TickCount64;
             _attachedIdsValid = true;
         }
+        if (raw is not null) SyncPromotedPanelCapabilities(raw);
         return ids;
+    }
+
+    /// <summary>
+    /// Fires with the record ids whose capabilities were refreshed by
+    /// <see cref="SyncPromotedPanelCapabilities"/>, so a hub-owning listener
+    /// can broadcast panel/device (this service has no hub reference). The
+    /// only subscriber is the Windows DisplayTopologyWatcher; on macOS/Linux
+    /// records still refresh but clients pick the change up on their next
+    /// fetch instead of a push.
+    /// </summary>
+    public event Action<IReadOnlyList<string>>? PromotedPanelCapabilitiesChanged;
+
+    /// <summary>
+    /// Re-derives promote-time capabilities for every enabled display-bound
+    /// record from the current OS facts. Promote stamps them once and the
+    /// kiosk never self-reports, so rotation, scaling changes, and newly
+    /// curated KnownPanelDisplays facts (dpi/family) would otherwise stay
+    /// stale forever. Writes only when something differs. Best-effort: a
+    /// store fault must not fail the topology read it rides on.
+    /// </summary>
+    private void SyncPromotedPanelCapabilities(IReadOnlyList<RawDisplayInfo> raw)
+    {
+        try
+        {
+            List<string>? changed = null;
+            foreach (var info in raw)
+            {
+                var record = _panelRegistry.FindByDisplayId(info.Id);
+                if (record is null || record.Enabled == false) continue;
+                if (record.Capabilities?.Surface is { } surface && surface != PanelSurfaces.Monitor) continue;
+                var caps = BuildPromotedCapabilities(
+                    info.Name, info.Model, info.ResolutionWidth, info.ResolutionHeight,
+                    info.Scale, info.IsTouch, info.Orientation);
+                // Grid is kiosk-reported on self-registered panels; carry any
+                // stored value so the rebuild never clears it.
+                caps.Grid = record.Capabilities?.Grid;
+                if (_panelRegistry.RefreshDisplayCapabilities(info.Id, caps))
+                    (changed ??= new List<string>()).Add(record.Id);
+            }
+            if (changed is not null) PromotedPanelCapabilitiesChanged?.Invoke(changed);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[displays] promoted capability sync failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Viewport + identity hints for a promoted-monitor record, derived from
+    /// OS facts. The kiosk loads /panel/{id} directly and never runs the
+    /// self-report path, so these values are what the dashboard editor and
+    /// the kiosk grid read.
+    /// </summary>
+    internal static PanelDeviceCapabilities BuildPromotedCapabilities(
+        string? name,
+        string? model,
+        int resolutionWidth,
+        int resolutionHeight,
+        double? scaleFactor,
+        bool isTouch,
+        string? orientation)
+    {
+        var scale = scaleFactor is > 0 ? scaleFactor.Value : 1.0;
+        var known = KnownPanelDisplays.Match(name, model);
+        return new PanelDeviceCapabilities
+        {
+            Surface = PanelSurfaces.Monitor,
+            // Touch widgets are placeable only when an integrated touch
+            // digitizer targets this monitor (Windows pointer-device
+            // association); plain monitors behave like the Q-series.
+            Touch = isTouch,
+            Orientation = string.IsNullOrEmpty(orientation) ? null : orientation,
+            CssWidth = (int)Math.Round(resolutionWidth / scale),
+            CssHeight = (int)Math.Round(resolutionHeight / scale),
+            Dpr = scale,
+            Dpi = known?.Dpi,
+            Family = known?.Family,
+        };
     }
 
     internal static bool IsY70Display(string rawHardwareId)

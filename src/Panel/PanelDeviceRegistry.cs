@@ -174,6 +174,53 @@ public sealed class PanelDeviceRegistry
         });
     }
 
+    /// <summary>
+    /// Replace the service-derived capabilities of a display-bound record
+    /// (promoted monitors only; their kiosk never self-reports, so the whole
+    /// object is safe to rebuild from OS facts). Returns true when stored
+    /// state changed; an equal snapshot leaves the store untouched.
+    /// </summary>
+    public bool RefreshDisplayCapabilities(string displayId, PanelDeviceCapabilities capabilities)
+    {
+        if (string.IsNullOrWhiteSpace(displayId)) return false;
+        // Pre-check outside the transaction so the topology-read path skips
+        // the store write-lock when nothing changed (the common case).
+        var existing = FindByDisplayId(displayId);
+        if (existing is null || CapabilitiesEqual(existing.Capabilities, capabilities)) return false;
+        var changed = false;
+        _store.Update(s =>
+        {
+            foreach (var record in s.PanelDevices.Values)
+            {
+                if (!string.Equals(record.DisplayId, displayId, StringComparison.Ordinal)) continue;
+                // Re-check inside the transaction: a raced removal or second
+                // sync must not report (and broadcast) a phantom change.
+                if (!CapabilitiesEqual(record.Capabilities, capabilities))
+                {
+                    record.Capabilities = capabilities;
+                    changed = true;
+                }
+                return;
+            }
+        });
+        return changed;
+    }
+
+    private static bool CapabilitiesEqual(PanelDeviceCapabilities? a, PanelDeviceCapabilities? b)
+    {
+        if (ReferenceEquals(a, b)) return true;
+        if (a is null || b is null) return false;
+        return string.Equals(a.Surface, b.Surface, StringComparison.Ordinal)
+            && string.Equals(a.Grid, b.Grid, StringComparison.Ordinal)
+            && a.Touch == b.Touch
+            && string.Equals(a.Orientation, b.Orientation, StringComparison.Ordinal)
+            && a.CssWidth == b.CssWidth
+            && a.CssHeight == b.CssHeight
+            && a.Dpr == b.Dpr
+            && a.Dpi == b.Dpi
+            && string.Equals(a.Family, b.Family, StringComparison.Ordinal);
+    }
+
     public PanelDeviceRecord? FindByDisplayId(string displayId)
     {
         if (string.IsNullOrWhiteSpace(displayId))
@@ -293,7 +340,10 @@ public sealed class PanelDeviceRegistry
             // records; the Y70 kiosk uses the global preference.
             if (patch.ReserveMonitor.HasValue && !string.IsNullOrEmpty(record.DisplayId))
                 record.ReserveMonitor = patch.ReserveMonitor.Value;
-            if (patch.Capabilities is not null)
+            // Capabilities on display-bound records are owned by the topology
+            // sync (rebuilt from OS facts); a client value would ping-pong
+            // with the next sync pass.
+            if (patch.Capabilities is not null && string.IsNullOrEmpty(record.DisplayId))
                 record.Capabilities = patch.Capabilities;
 
             record.LastSeenAt = now;
