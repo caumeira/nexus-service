@@ -96,6 +96,19 @@ public sealed class MemoryDiagnosticOrchestrator
         }
     }
 
+    /// <summary>Invalidates both 60s caches so the next IsScheduled()/LastResult()
+    /// call re-runs bcdedit/wevtutil instead of returning a stale value.</summary>
+    public void ForceRefresh()
+    {
+        if (!OperatingSystem.IsWindows()) return;
+
+        lock (_gate)
+        {
+            _scheduledCacheValid = false;
+            _lastResultCacheValid = false;
+        }
+    }
+
     /// <summary>Pure parse: does a "bootsequence" line in `bcdedit /enum` output
     /// reference {memdiag}? Case-insensitive, tolerant of bcdedit's column
     /// alignment (spaces between the field name and value).</summary>

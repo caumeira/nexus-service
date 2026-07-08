@@ -55,7 +55,7 @@ public sealed class GpuHealthMonitor
     private bool _initOk;
     private DateTime _initFailedAtUtc = DateTime.MinValue;
 
-    public GpuHealthSnapshot Snapshot()
+    public GpuHealthSnapshot Snapshot(bool forceRefresh = false)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -65,7 +65,7 @@ public sealed class GpuHealthMonitor
         lock (_gate)
         {
             var now = DateTime.UtcNow;
-            if (now - _cachedAtUtc < RefreshInterval)
+            if (!forceRefresh && now - _cachedAtUtc < RefreshInterval)
             {
                 return _cached;
             }

@@ -28,7 +28,7 @@ public sealed class PnpProblemScanner
     private PnpProblemSnapshot _cached = PnpProblemSnapshot.Unsupported;
     private DateTime _cachedAtUtc = DateTime.MinValue;
 
-    public PnpProblemSnapshot Snapshot()
+    public PnpProblemSnapshot Snapshot(bool forceRefresh = false)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -38,7 +38,7 @@ public sealed class PnpProblemScanner
         lock (_gate)
         {
             var now = DateTime.UtcNow;
-            if (now - _cachedAtUtc < CacheTtl)
+            if (!forceRefresh && now - _cachedAtUtc < CacheTtl)
             {
                 return _cached;
             }

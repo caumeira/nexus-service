@@ -34,22 +34,29 @@ public static class DiagnosticsHealthRoutes
 
     public static void MapDiagnosticsHealthEndpoints(this WebApplication app)
     {
-        app.MapGet("/diagnostics/health", (DiagnosticsHealthModel model) => model.BuildHealth()).AllowPanel();
+        app.MapGet("/diagnostics/health", (string? refresh, DiagnosticsHealthModel model) =>
+            model.BuildHealth(IsRefresh(refresh))).AllowPanel();
 
         app.MapGet("/diagnostics/incidents", (int? days, EventLogMonitor events, SteamGameLibraryCache steamCache) =>
+            BuildIncidentsResponse(events, steamCache, Math.Clamp(days ?? MaxIncidentDays, 1, MaxIncidentDays)));
+
+        app.MapGet("/diagnostics/smart", (string? refresh, SmartHealthMonitor smart) =>
         {
-            var windowDays = Math.Clamp(days ?? MaxIncidentDays, 1, MaxIncidentDays);
-            return new IncidentsResponse
+            if (IsRefresh(refresh))
             {
-                Supported = OperatingSystem.IsWindows(),
-                WindowDays = windowDays,
-                Incidents = DecorateGameCrashes(events.Snapshot(windowDays), steamCache),
-            };
+                smart.ForceRefresh();
+            }
+            return smart.Snapshot();
         });
 
-        app.MapGet("/diagnostics/smart", (SmartHealthMonitor smart) => smart.Snapshot());
-
-        app.MapGet("/diagnostics/memory", (MemoryDiagnosticOrchestrator memDiag) => BuildMemoryResponse(memDiag));
+        app.MapGet("/diagnostics/memory", (string? refresh, MemoryDiagnosticOrchestrator memDiag) =>
+        {
+            if (IsRefresh(refresh))
+            {
+                memDiag.ForceRefresh();
+            }
+            return BuildMemoryResponse(memDiag);
+        });
 
         app.MapPost("/diagnostics/memory/test", (MemoryDiagnosticOrchestrator memDiag) =>
         {
@@ -63,11 +70,13 @@ public static class DiagnosticsHealthRoutes
             return new MemoryTestCancelResponse { Scheduled = memDiag.IsScheduled() };
         });
 
-        app.MapGet("/diagnostics/gpu", (GpuHealthMonitor gpu, EventLogMonitor events) => BuildGpuResponse(gpu, events));
+        app.MapGet("/diagnostics/gpu", (string? refresh, GpuHealthMonitor gpu, EventLogMonitor events) =>
+            BuildGpuResponse(gpu, events, IsRefresh(refresh)));
 
         app.MapGet("/diagnostics/cooling", (CoolingStallDetector cooling) => cooling.Snapshot()).AllowPanel();
 
-        app.MapGet("/diagnostics/system", (PnpProblemScanner pnp, EventLogMonitor events) => BuildSystemResponse(pnp, events));
+        app.MapGet("/diagnostics/system", (string? refresh, PnpProblemScanner pnp, EventLogMonitor events) =>
+            BuildSystemResponse(pnp, events, IsRefresh(refresh)));
 
         app.MapGet("/diagnostics/bundle/download", (
             DiagnosticsHealthModel healthModel,
@@ -80,12 +89,7 @@ public static class DiagnosticsHealthRoutes
             PnpProblemScanner pnp) =>
         {
             var health = healthModel.BuildHealth();
-            var incidents = new IncidentsResponse
-            {
-                Supported = OperatingSystem.IsWindows(),
-                WindowDays = MaxIncidentDays,
-                Incidents = DecorateGameCrashes(events.Snapshot(MaxIncidentDays), steamCache),
-            };
+            var incidents = BuildIncidentsResponse(events, steamCache, MaxIncidentDays);
             var smartSnapshot = smart.Snapshot();
             var memory = BuildMemoryResponse(memDiag);
             var gpuResponse = BuildGpuResponse(gpu, events);
@@ -96,6 +100,53 @@ public static class DiagnosticsHealthRoutes
             var fileName = $"nexus-diagnostics-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
             return Results.File(zipBytes, "application/zip", fileName);
         }).LocalhostOnly();
+    }
+
+    // Accepts "1" or "true" (case-insensitive); bool query binding rejects "1".
+    private static bool IsRefresh(string? refresh) =>
+        refresh is "1" || string.Equals(refresh, "true", StringComparison.OrdinalIgnoreCase);
+
+    private static IncidentsResponse BuildIncidentsResponse(EventLogMonitor events, SteamGameLibraryCache steamCache, int windowDays) =>
+        new()
+        {
+            Supported = OperatingSystem.IsWindows(),
+            WindowDays = windowDays,
+            Incidents = GroupRepeats(DecorateGameCrashes(events.Snapshot(windowDays), steamCache)),
+        };
+
+    /// <summary>Collapses incidents sharing (Source, Title, App?.Name) into one row:
+    /// the newest occurrence, stamped with RepeatCount and the oldest occurrence's
+    /// FirstUtc. Does not touch EventLogMonitor's store, so CountsSince health
+    /// thresholds keep counting real occurrences.</summary>
+    internal static IReadOnlyList<DiagnosticIncident> GroupRepeats(IReadOnlyList<DiagnosticIncident> incidents)
+    {
+        var groups = new Dictionary<(string Source, string Title, string? AppName), List<DiagnosticIncident>>();
+        foreach (var incident in incidents)
+        {
+            var key = (incident.Source, incident.Title, incident.App?.Name);
+            if (!groups.TryGetValue(key, out var list))
+            {
+                list = new List<DiagnosticIncident>();
+                groups[key] = list;
+            }
+            list.Add(incident);
+        }
+
+        var grouped = new List<DiagnosticIncident>(groups.Count);
+        foreach (var list in groups.Values)
+        {
+            if (list.Count == 1)
+            {
+                grouped.Add(list[0]);
+                continue;
+            }
+
+            var newest = list.MaxBy(i => i.TimeUtc)!;
+            var oldest = list.MinBy(i => i.TimeUtc)!;
+            grouped.Add(newest with { RepeatCount = list.Count, FirstUtc = oldest.TimeUtc });
+        }
+
+        return grouped.OrderByDescending(i => i.TimeUtc).ToList();
     }
 
     private static MemoryHealthResponse BuildMemoryResponse(MemoryDiagnosticOrchestrator memDiag)
@@ -111,12 +162,12 @@ public static class DiagnosticsHealthRoutes
         };
     }
 
-    private static GpuHealthResponse BuildGpuResponse(GpuHealthMonitor gpu, EventLogMonitor events)
+    private static GpuHealthResponse BuildGpuResponse(GpuHealthMonitor gpu, EventLogMonitor events, bool forceRefresh = false)
     {
         var counts = events.CountsSince(TimeSpan.FromDays(30));
         var tdr = counts.GetValueOrDefault(DiagnosticEventCatalog.SourceTdr);
         var driverErr = counts.GetValueOrDefault(DiagnosticEventCatalog.SourceGpuDriver);
-        var snapshot = gpu.Snapshot();
+        var snapshot = gpu.Snapshot(forceRefresh);
 
         var gpus = snapshot.Gpus.Select(g => new GpuInfoWire
         {
@@ -132,10 +183,10 @@ public static class DiagnosticsHealthRoutes
         return new GpuHealthResponse { Supported = snapshot.Supported, Gpus = gpus };
     }
 
-    private static SystemDiagnosticsResponse BuildSystemResponse(PnpProblemScanner pnp, EventLogMonitor events)
+    private static SystemDiagnosticsResponse BuildSystemResponse(PnpProblemScanner pnp, EventLogMonitor events, bool forceRefresh = false)
     {
         var counts = events.CountsSince(TimeSpan.FromDays(30));
-        var snapshot = pnp.Snapshot();
+        var snapshot = pnp.Snapshot(forceRefresh);
 
         return new SystemDiagnosticsResponse
         {

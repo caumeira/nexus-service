@@ -84,12 +84,15 @@ public sealed class DiagnosticsHealthModel
         _sensors = sensors;
     }
 
-    public DiagnosticsHealthResponse BuildHealth()
+    /// <summary>forceRefresh bypasses this model's own 30s cache only; it reads
+    /// each module through its normal Snapshot() call, so it does not force
+    /// SMART's 10-minute refresh or any other module's independent cache.</summary>
+    public DiagnosticsHealthResponse BuildHealth(bool forceRefresh = false)
     {
         lock (_gate)
         {
             var now = DateTime.UtcNow;
-            if (_cached is not null && now - _cachedAtUtc < CacheTtl)
+            if (!forceRefresh && _cached is not null && now - _cachedAtUtc < CacheTtl)
             {
                 return _cached;
             }
