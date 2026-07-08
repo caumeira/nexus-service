@@ -98,14 +98,22 @@ internal static partial class CfgMgr32
     /// <summary>
     /// Instance ids of currently-attached devices under the given enumerator
     /// (e.g. "USB"). The list can change between the size query and the fetch,
-    /// so the fetch retries with a re-queried size. Empty list on failure.
+    /// so the fetch retries with a re-queried size. Throws on API failure so
+    /// callers can tell "enumeration broken" from "bus empty" - a false empty
+    /// would read as every device absent and gate off the heartbeat workers.
     /// </summary>
     internal static unsafe List<string> GetPresentDeviceIds(string enumerator)
     {
         const uint flags = CM_GETIDLIST_FILTER_ENUMERATOR | CM_GETIDLIST_FILTER_PRESENT;
+        uint lastCr = CR_SUCCESS;
         for (var attempt = 0; attempt < 3; attempt++)
         {
-            if (CM_Get_Device_ID_List_Size(out var len, enumerator, flags) != CR_SUCCESS || len == 0)
+            lastCr = CM_Get_Device_ID_List_Size(out var len, enumerator, flags);
+            if (lastCr != CR_SUCCESS)
+            {
+                continue;
+            }
+            if (len == 0)
             {
                 return new List<string>();
             }
@@ -113,13 +121,14 @@ internal static partial class CfgMgr32
             var buffer = new char[len + 1024];
             fixed (char* p = buffer)
             {
-                if (CM_Get_Device_ID_List(enumerator, p, (uint)buffer.Length, flags) == CR_SUCCESS)
+                lastCr = CM_Get_Device_ID_List(enumerator, p, (uint)buffer.Length, flags);
+                if (lastCr == CR_SUCCESS)
                 {
                     return SplitMultiSz(buffer);
                 }
             }
         }
-        return new List<string>();
+        throw new InvalidOperationException($"CM_Get_Device_ID_List failed (CR=0x{lastCr:X})");
     }
 
     private static List<string> SplitMultiSz(char[] buffer)

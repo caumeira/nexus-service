@@ -10,10 +10,13 @@ namespace Nexus.Service.Devices.Detection;
 /// refresh lock every caller that arrived during a refresh started its own
 /// bus scan, so each TTL expiry spawned several concurrent scans.
 ///
-/// The TTL is the hotplug-detection latency bound. It starts at 10 s and is
-/// raised by <see cref="UsbDeviceChangeNotifier"/> once PnP device-change
-/// notifications are registered - the TTL then only backstops a missed
-/// notification (e.g. across a sleep/resume re-enumeration storm).
+/// The TTL is the hotplug-detection latency bound. It starts at
+/// <see cref="PollingTtl"/> and is raised by <see cref="UsbDeviceChangeNotifier"/>
+/// once PnP device-change notifications are registered - the TTL then only
+/// backstops a missed notification (e.g. across a sleep/resume re-enumeration
+/// storm). A refresh that throws serves the last known-good list and leaves
+/// the cache stale, so the next caller retries instead of trusting a false
+/// "bus empty" verdict for a full TTL.
 /// </summary>
 internal sealed class CachingUsbEnumerator : IUsbEnumerator
 {
@@ -29,13 +32,16 @@ internal sealed class CachingUsbEnumerator : IUsbEnumerator
 
     public CachingUsbEnumerator(IUsbEnumerator inner) { _inner = inner; }
 
-    /// <summary>Drops the cached list so the next Enumerate re-scans the bus.</summary>
+    /// <summary>
+    /// Marks the cache stale so the next Enumerate re-scans the bus. The list
+    /// itself is kept as the last-known-good fallback for a failing re-scan.
+    /// </summary>
     public void Invalidate()
     {
         lock (_stateLock)
         {
             _version++;
-            _cached = null;
+            _cachedAt = DateTime.MinValue;
         }
     }
 
@@ -75,7 +81,19 @@ internal sealed class CachingUsbEnumerator : IUsbEnumerator
                 versionAtStart = _version;
             }
 
-            var fresh = _inner.Enumerate();
+            List<UsbDeviceEntry> fresh;
+            try
+            {
+                fresh = _inner.Enumerate();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[usb-enum] refresh failed, serving last known list: {ex.Message}");
+                lock (_stateLock)
+                {
+                    return _cached ?? new List<UsbDeviceEntry>();
+                }
+            }
 
             lock (_stateLock)
             {

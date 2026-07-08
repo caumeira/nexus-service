@@ -59,23 +59,31 @@ public sealed class Y70Handler : IDeviceHandler
 
     /// <summary>
     /// Flags a half-connected Y70: "usb-disconnected" when the monitor is present
-    /// but no USB function of the panel (serial control channel or touch
-    /// digitizer) is, and "display-disconnected" when the serial channel is up
-    /// but no video display is attached (the panel can't render); null when both
-    /// or neither are present. The digitizer check prevents a false "connect the
-    /// USB cable" on Y70ti units, whose cable carries touch but no serial.
+    /// but no USB function of the panel is, and "display-disconnected" when the
+    /// serial channel is up but no video display is attached (the panel can't
+    /// render); null when both or neither are present. A touch digitizer with NO
+    /// 0x3402 serial function on the bus is a Y70ti (its cable carries touch but
+    /// no serial), so "connect the USB cable" would be false there; when a serial
+    /// function IS enumerated but the hub can't connect (COM port held, driver
+    /// failure), the warning stays - that is a real degraded state.
     /// </summary>
     public string? GetWarning(IReadOnlyList<UsbDeviceEntry> detectedDevices)
-        => ComputeWarning(_hub.IsConnected, _topology.HasY70Display(), HasTouchDigitizer(detectedDevices));
+        => ComputeWarning(
+            _hub.IsConnected,
+            _topology.HasY70Display(),
+            touchOnlyUsb: HasTouchDigitizer(detectedDevices) && !HasSerialFunction(detectedDevices));
 
     internal static bool HasTouchDigitizer(IReadOnlyList<UsbDeviceEntry> detectedDevices)
         => detectedDevices.Any(d => TouchDigitizers.Any(t => t.VendorId == d.VendorId && t.ProductId == d.ProductId));
 
-    internal static string? ComputeWarning(bool serialConnected, bool hasDisplay, bool touchUsbPresent)
+    internal bool HasSerialFunction(IReadOnlyList<UsbDeviceEntry> detectedDevices)
+        => detectedDevices.Any(d => Identifiers.Any(id => id.VendorId == d.VendorId && id.ProductId == d.ProductId));
+
+    internal static string? ComputeWarning(bool serialConnected, bool hasDisplay, bool touchOnlyUsb)
     {
         if (serialConnected) return hasDisplay ? null : DisplayDisconnectedWarning;
         if (!hasDisplay) return null;
-        return touchUsbPresent ? null : UsbDisconnectedWarning;
+        return touchOnlyUsb ? null : UsbDisconnectedWarning;
     }
 
     public string GetFirmwareVersion() => _hub.State.FirmwareVersion;

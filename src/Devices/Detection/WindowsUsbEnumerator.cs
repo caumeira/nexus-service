@@ -16,20 +16,10 @@ namespace Nexus.Service.Devices.Detection;
 /// </summary>
 public sealed class WindowsUsbEnumerator : IUsbEnumerator
 {
+    // Throws on enumeration failure: CachingUsbEnumerator serves its last
+    // known-good list instead of caching a false "bus empty" verdict that
+    // would gate off every presence-checked heartbeat worker.
     public List<UsbDeviceEntry> Enumerate()
-    {
-        try
-        {
-            return EnumeratePresent();
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[usb-enum] Windows enumeration failed: {ex.Message}");
-            return new List<UsbDeviceEntry>();
-        }
-    }
-
-    private static List<UsbDeviceEntry> EnumeratePresent()
     {
         var result = new List<UsbDeviceEntry>();
         var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

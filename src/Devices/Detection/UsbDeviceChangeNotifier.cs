@@ -14,7 +14,7 @@ namespace Nexus.Service.Devices.Detection;
 /// interface arrival/removal (CM_Register_Notification), so hotplug is
 /// detected event-driven instead of by cache expiry. On successful
 /// registration the cache's fallback TTL is raised - it then only backstops
-/// a missed notification. If registration fails the cache keeps its 10 s
+/// a missed notification. If registration fails the cache keeps its short
 /// polling TTL and behavior matches the pre-notification design.
 /// </summary>
 internal sealed unsafe class UsbDeviceChangeNotifier : IHostedService
@@ -50,7 +50,7 @@ internal sealed unsafe class UsbDeviceChangeNotifier : IHostedService
         }
         else
         {
-            ServiceLog.Warn($"[usb-notify] CM_Register_Notification failed (CR=0x{ret:X}); keeping 10s polling TTL");
+            ServiceLog.Warn($"[usb-notify] CM_Register_Notification failed (CR=0x{ret:X}); keeping the polling TTL");
         }
         return Task.CompletedTask;
     }

@@ -181,21 +181,21 @@ public class DeviceHandlerTests
 
     [Theory]
     [InlineData(true, true, false, null)]                        // fully connected
-    [InlineData(false, true, false, "usb-disconnected")]         // display only, no serial/USB
-    [InlineData(false, true, true, null)]                        // Y70ti: touch digitizer proves the cable is attached
+    [InlineData(false, true, false, "usb-disconnected")]         // display only, no panel USB function
+    [InlineData(false, true, true, null)]                        // Y70ti: touch-only cable proves the cable is attached
     [InlineData(true, false, false, "display-disconnected")]     // USB/serial only, no display
     [InlineData(true, false, true, "display-disconnected")]      // digitizer does not substitute for the display
     [InlineData(false, false, false, null)]                      // neither
     [InlineData(false, false, true, null)]                       // digitizer alone (no Y70 EDID) warns nothing
-    public void Y70_warning_matrix(bool serialConnected, bool hasDisplay, bool touchUsbPresent, string? expected)
+    public void Y70_warning_matrix(bool serialConnected, bool hasDisplay, bool touchOnlyUsb, string? expected)
     {
-        Assert.Equal(expected, Y70Handler.ComputeWarning(serialConnected, hasDisplay, touchUsbPresent));
+        Assert.Equal(expected, Y70Handler.ComputeWarning(serialConnected, hasDisplay, touchOnlyUsb));
     }
 
     [Theory]
     [InlineData(0x222A, 0x0001)] // ILITEK (Y70ti)
     [InlineData(0x27C0, 0x0859)] // Y70 Touch serial variant
-    public void Y70_touch_digitizer_suppresses_usb_warning(int vid, int pid)
+    public void Y70_touch_digitizer_without_serial_function_suppresses_usb_warning(int vid, int pid)
     {
         var h = TestHandlers.Y70(TopologyWithY70Monitor());
         var devices = new List<UsbDeviceEntry>
@@ -203,6 +203,20 @@ public class DeviceHandlerTests
             new() { VendorId = vid, ProductId = pid, Name = "TouchScreen" },
         };
         Assert.Null(h.GetWarning(devices));
+    }
+
+    [Fact]
+    public void Y70_serial_function_on_bus_but_hub_disconnected_still_warns()
+    {
+        // COM port held / driver failure: the 0x3402 serial function is
+        // enumerated but the hub cannot connect - a real degraded state.
+        var h = TestHandlers.Y70(TopologyWithY70Monitor());
+        var devices = new List<UsbDeviceEntry>
+        {
+            new() { VendorId = 0x27C0, ProductId = 0x0859, Name = "TouchScreen" },
+            new() { VendorId = 0x3402, ProductId = 0x0C01, Name = "HYTE Y70 Display" },
+        };
+        Assert.Equal("usb-disconnected", h.GetWarning(devices));
     }
 
     public static IEnumerable<object[]> AllHandlers()
