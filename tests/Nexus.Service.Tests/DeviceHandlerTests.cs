@@ -180,13 +180,29 @@ public class DeviceHandlerTests
     }
 
     [Theory]
-    [InlineData(true, true, null)]                       // fully connected
-    [InlineData(false, true, "usb-disconnected")]        // display only, no serial/USB
-    [InlineData(true, false, "display-disconnected")]    // USB/serial only, no display
-    [InlineData(false, false, null)]                     // neither
-    public void Y70_warning_matrix(bool serialConnected, bool hasDisplay, string? expected)
+    [InlineData(true, true, false, null)]                        // fully connected
+    [InlineData(false, true, false, "usb-disconnected")]         // display only, no serial/USB
+    [InlineData(false, true, true, null)]                        // Y70ti: touch digitizer proves the cable is attached
+    [InlineData(true, false, false, "display-disconnected")]     // USB/serial only, no display
+    [InlineData(true, false, true, "display-disconnected")]      // digitizer does not substitute for the display
+    [InlineData(false, false, false, null)]                      // neither
+    [InlineData(false, false, true, null)]                       // digitizer alone (no Y70 EDID) warns nothing
+    public void Y70_warning_matrix(bool serialConnected, bool hasDisplay, bool touchUsbPresent, string? expected)
     {
-        Assert.Equal(expected, Y70Handler.ComputeWarning(serialConnected, hasDisplay));
+        Assert.Equal(expected, Y70Handler.ComputeWarning(serialConnected, hasDisplay, touchUsbPresent));
+    }
+
+    [Theory]
+    [InlineData(0x222A, 0x0001)] // ILITEK (Y70ti)
+    [InlineData(0x27C0, 0x0859)] // Y70 Touch serial variant
+    public void Y70_touch_digitizer_suppresses_usb_warning(int vid, int pid)
+    {
+        var h = TestHandlers.Y70(TopologyWithY70Monitor());
+        var devices = new List<UsbDeviceEntry>
+        {
+            new() { VendorId = vid, ProductId = pid, Name = "TouchScreen" },
+        };
+        Assert.Null(h.GetWarning(devices));
     }
 
     public static IEnumerable<object[]> AllHandlers()
