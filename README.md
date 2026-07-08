@@ -24,6 +24,7 @@ This is the engine of [Nexus](https://hellonexus.com). The other repos are clien
 ## Ports
 
 - `9400` HTTP (loopback) - default dashboard + panel transport.
+- `9401` HTTP (loopback, Windows-only) - Q-series panel tunnel listener; the host-side target of the panel's `adb reverse`, so inbound activity there proves the physical panel is alive. Skipped silently if the port is taken.
 - `9443` HTTPS - pairing and remote panel surfaces, served over a locally generated cert. The SPKI of that cert is what gets pinned by clients.
 - `6742` TCP (loopback, internal) - OpenRGB SDK server (the headless OpenRGB child process).
 

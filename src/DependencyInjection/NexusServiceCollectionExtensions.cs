@@ -1157,7 +1157,8 @@ public static class NexusServiceCollectionExtensions
                     sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
                     sp.GetRequiredService<Nexus.Service.Panel.PanelDeviceRegistry>(),
                     sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>(),
-                    sp.GetRequiredService<Nexus.Service.Common.ExternalTools.IAdbDeviceRegistry>()));
+                    sp.GetRequiredService<Nexus.Service.Common.ExternalTools.IAdbDeviceRegistry>(),
+                    sp.GetService<Nexus.Service.Panel.PanelTunnelMonitor>()));
             services.AddHostedService(sp =>
                 sp.GetRequiredService<Nexus.Service.QSeries.QSeriesPortWatcher>());
         }

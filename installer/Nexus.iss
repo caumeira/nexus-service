@@ -194,6 +194,8 @@ end;
 procedure StopServiceIfRunning();
 var
   ResultCode: Integer;
+  AdbExe: String;
+  TaskKill: String;
 begin
   // Every process holding a payload file open must be gone before [Files], or
   // Inno reboot-renames the locked file and that pending entry then blocks every
@@ -205,10 +207,35 @@ begin
   //      Nexus.exe locked even after the service stops. No /T (it descends into
   //      the matched tree, which could catch Inno's own helper).
   //   3. Sidecar taskkills are a belt in case a kill-job hadn't reaped them yet.
+  //   4. adb.exe: the phone/Q-series watchers spawn `adb start-server`, which
+  //      DETACHES its own daemon - net stop does not reap it. That daemon (and
+  //      any transient adb client) keeps the whole {app}\tools\adb folder locked
+  //      (its own image, the sibling DLLs it LoadLibrary'd - AdbWinApi/
+  //      AdbWinUsbApi/libwinpthread - and a CWD lock, since the service pins
+  //      WorkingDirectory there), so [Files] fails to replace adb.exe with
+  //      "DeleteFile ... Access is denied". Kill ONLY the adb whose image is our
+  //      bundled copy (matched by exact ExecutablePath, -ieq since Windows paths
+  //      are case-folded), so a user's own Android SDK adb is left alone.
+  //      taskkill can't filter by path, so PowerShell resolves the PIDs - but the
+  //      kill goes through taskkill /F, NOT Stop-Process: the daemon inherited the
+  //      service's LocalSystem token, and taskkill self-enables SeDebugPrivilege
+  //      to terminate a SYSTEM process (the same reach that reaps the processes
+  //      above); a plain Stop-Process from a normal-admin elevation can be denied.
+  //      {app} is user-chosen, so any apostrophe in it is doubled first, else it
+  //      would close the single-quoted PowerShell literal and skip the kill.
   Exec(ExpandConstant('{sys}\net.exe'), 'stop NexusService', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM Nexus.exe /F', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM OpenRGB-headless.exe /F /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{sys}\taskkill.exe'), '/IM nexus-overlay.exe /F /T', '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  AdbExe := ExpandConstant('{app}\tools\adb\adb.exe');
+  TaskKill := ExpandConstant('{sys}\taskkill.exe');
+  StringChangeEx(AdbExe, '''', '''''', True);
+  StringChangeEx(TaskKill, '''', '''''', True);
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -NonInteractive -Command "Get-Process -Name adb -ErrorAction SilentlyContinue | ' +
+    'Where-Object { $_.Path -ieq ''' + AdbExe + ''' } | ' +
+    'ForEach-Object { & ''' + TaskKill + ''' /F /T /PID $_.Id }"',
+    '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;

@@ -98,6 +98,13 @@ public sealed class PanelDeviceCapabilities
     public int? CssWidth { get; set; }
     public int? CssHeight { get; set; }
     public double? Dpr { get; set; }
+    // Physical density (native px/inch) of a curated known display (see
+    // KnownPanelDisplays). The grid capacity math needs real density and
+    // Windows only exposes the scaling DPI, so it cannot come from the OS.
+    public double? Dpi { get; set; }
+    /// <summary>Curated display family id (e.g. "xeneon-edge") driving
+    /// web-side branding (sidebar name + icon).</summary>
+    public string? Family { get; set; }
 }
 
 /// <summary>
