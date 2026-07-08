@@ -67,10 +67,13 @@ public static class Y70DisplayProtocol
         { "RTK0004", "RTD1100", "RTK1234", "RTK2234", "BOE2143", "RTK409A" };
 
     // DDC/CI VCP codes (driven via the platform display-brightness provider).
+    // Values match the reference Y70DDCCIHelper: screen-off is Standby (0x04),
+    // never hard off (0x05), so the monitor keeps answering DDC/CI and a later
+    // screen-on write still reaches it.
     public const byte VcpBrightness = 0x10;
     public const byte VcpPower = 0xD6;
     public const int VcpPowerOn = 0x01;
-    public const int VcpPowerOff = 0x05; // 0x04 = standby, 0x05 = hard off
+    public const int VcpPowerStandby = 0x04;
 
     /// <summary>
     /// The Y70 controller answers the version query with a 7-byte frame

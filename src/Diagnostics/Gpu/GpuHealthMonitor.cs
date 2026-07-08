@@ -47,6 +47,10 @@ public sealed class GpuHealthMonitor
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan InitRetryInterval = TimeSpan.FromHours(1);
 
+    // Floor below which a forceRefresh request is served from cache anyway, so
+    // a stuck client retry loop cannot make this re-query NVML continuously.
+    private static readonly TimeSpan ForceRefreshFloor = TimeSpan.FromSeconds(5);
+
     private readonly object _gate = new();
     private GpuHealthSnapshot _cached = GpuHealthSnapshot.Unsupported;
     private DateTime _cachedAtUtc = DateTime.MinValue;
@@ -55,7 +59,7 @@ public sealed class GpuHealthMonitor
     private bool _initOk;
     private DateTime _initFailedAtUtc = DateTime.MinValue;
 
-    public GpuHealthSnapshot Snapshot()
+    public GpuHealthSnapshot Snapshot(bool forceRefresh = false)
     {
         if (!OperatingSystem.IsWindows())
         {
@@ -65,7 +69,8 @@ public sealed class GpuHealthMonitor
         lock (_gate)
         {
             var now = DateTime.UtcNow;
-            if (now - _cachedAtUtc < RefreshInterval)
+            var honorForce = forceRefresh && now - _cachedAtUtc >= ForceRefreshFloor;
+            if (!honorForce && now - _cachedAtUtc < RefreshInterval)
             {
                 return _cached;
             }

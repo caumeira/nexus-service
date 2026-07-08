@@ -84,12 +84,15 @@ public sealed class DiagnosticsHealthModel
         _sensors = sensors;
     }
 
-    public DiagnosticsHealthResponse BuildHealth()
+    /// <summary>forceRefresh bypasses this model's own cache; module caches are
+    /// unaffected - each module snapshot still goes through its normal
+    /// Snapshot() call.</summary>
+    public DiagnosticsHealthResponse BuildHealth(bool forceRefresh = false)
     {
         lock (_gate)
         {
             var now = DateTime.UtcNow;
-            if (_cached is not null && now - _cachedAtUtc < CacheTtl)
+            if (!forceRefresh && _cached is not null && now - _cachedAtUtc < CacheTtl)
             {
                 return _cached;
             }
