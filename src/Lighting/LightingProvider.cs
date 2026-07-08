@@ -580,7 +580,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         // shows the same look the picker does.
         "simplewhite" or "simplered" or "simpleorange" or "simpleyellow" or "simplegreen"
             or "simplecyan" or "simpleblue" or "simpleviolet"
-            or "simplepink" => new() { ["u_hueShift"] = 0f },
+            or "simplepink" => new() { ["u_hueShift"] = 0f, ["u_warmth"] = 0f },
         "rainbow" => new() { ["u_density"] = 1f, ["u_rotation"] = 0f },
         "fire" => new() { ["u_turbulence"] = 1.6f },
         "plasma" => new() { ["u_warp"] = 1f, ["u_zoom"] = 1f },
