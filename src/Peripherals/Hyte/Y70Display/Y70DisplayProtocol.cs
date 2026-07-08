@@ -33,6 +33,35 @@ public static class Y70DisplayProtocol
     public const string VariantInfinite = "y70-infinite";
     public const string VariantTruly = "y70-truly";
 
+    /// <summary>
+    /// Variant labels for the DDC-only panels (UI/diagnostics). Not
+    /// firmware-catalog keys: these panels expose no USB serial function and
+    /// carry no host-updatable firmware (reference Y70TouchGwController /
+    /// Y70TouchInaController), so no bundle exists and OTA never offers them
+    /// an image. Identified only by their monitor EDID fragment.
+    /// </summary>
+    public const string VariantGw = "y70-gw";
+    public const string VariantIna = "y70-ina";
+
+    /// <summary>
+    /// EDID/PnP fragment to variant for the DDC-only panels (reference
+    /// controllers' SCREEN_NAME constants).
+    /// </summary>
+    public static readonly (string Fragment, string Variant)[] DdcOnlyPanelVariants =
+        { ("RTK1234", VariantGw), ("RTK2345", VariantIna) };
+
+    /// <summary>Variant key of the DDC-only panel matching this monitor hardware id, or empty.</summary>
+    public static string DdcOnlyVariantForHardwareId(string rawHardwareId)
+    {
+        if (string.IsNullOrEmpty(rawHardwareId)) return "";
+        foreach (var (fragment, variant) in DdcOnlyPanelVariants)
+        {
+            if (rawHardwareId.IndexOf(fragment, StringComparison.OrdinalIgnoreCase) >= 0)
+                return variant;
+        }
+        return "";
+    }
+
     // ── Wire constants ──
 
     private const byte Frame0 = 0xFF;
@@ -58,13 +87,14 @@ public static class Y70DisplayProtocol
     public const int ScreenInfoMinResponseLength = 6;
 
     /// <summary>
-    /// EDID/PnP hardware-id fragments for Y70 panels that are driven over DDC/CI
-    /// rather than the serial controller (Truly / GW and Realtek-controller
-    /// variants). Matched against a monitor's PnP DeviceID to pick the display
-    /// for VCP writes.
+    /// EDID/PnP hardware-id fragments of every Y70 panel monitor. Matched
+    /// against a monitor's PnP DeviceID to identify the Y70 display for
+    /// rotation, detection, and DDC/CI VCP writes. Mirrors the reference
+    /// Y70TouchMonitor.SCREEN_NAMES and the copy in nexus-overlay
+    /// PanelDisplay.cs - keep all three in sync.
     /// </summary>
     public static readonly string[] DdcPanelHardwareNames =
-        { "RTK0004", "RTD1100", "RTK1234", "RTK2234", "BOE2143", "RTK409A" };
+        { "RTK0004", "RTD1100", "RTK1234", "RTK2234", "BOE2143", "RTK409A", "RTK2345" };
 
     // DDC/CI VCP codes (driven via the platform display-brightness provider).
     // Values match the reference Y70DDCCIHelper: screen-off is Standby (0x04),

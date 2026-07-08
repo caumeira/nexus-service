@@ -41,6 +41,7 @@ public sealed class DisplayTopologyService
     private readonly object _cacheLock = new();
     private HashSet<string>? _attachedIds;
     private bool _hasY70Display;
+    private string _ddcOnlyY70Variant = "";
     private long _attachedIdsAtMs;
     private bool _attachedIdsValid;
 
@@ -117,7 +118,7 @@ public sealed class DisplayTopologyService
     /// </summary>
     public HashSet<string>? GetAttachedIds()
     {
-        if (TryGetCached(out var ids, out _)) return ids;
+        if (TryGetCached(out var ids, out _, out _)) return ids;
         return CacheAttachedIds(_provider.Enumerate());
     }
 
@@ -129,12 +130,25 @@ public sealed class DisplayTopologyService
     /// </summary>
     public bool HasY70Display()
     {
-        if (TryGetCached(out _, out var hasY70)) return hasY70;
+        if (TryGetCached(out _, out var hasY70, out _)) return hasY70;
         CacheAttachedIds(_provider.Enumerate());
         lock (_cacheLock) return _hasY70Display;
     }
 
-    private bool TryGetCached(out HashSet<string>? ids, out bool hasY70)
+    /// <summary>
+    /// Variant key of the attached DDC-only Y70 panel (GW / Ina, matched by
+    /// EDID fragment), or empty. These panels expose no USB serial function,
+    /// so their handler must not treat a missing serial connection as a
+    /// fault, and the EDID match is their only variant signal.
+    /// </summary>
+    public string DdcOnlyY70Variant()
+    {
+        if (TryGetCached(out _, out _, out var ddcOnly)) return ddcOnly;
+        CacheAttachedIds(_provider.Enumerate());
+        lock (_cacheLock) return _ddcOnlyY70Variant;
+    }
+
+    private bool TryGetCached(out HashSet<string>? ids, out bool hasY70, out string ddcOnlyVariant)
     {
         lock (_cacheLock)
         {
@@ -143,11 +157,13 @@ public sealed class DisplayTopologyService
             {
                 ids = _attachedIds;
                 hasY70 = _hasY70Display;
+                ddcOnlyVariant = _ddcOnlyY70Variant;
                 return true;
             }
         }
         ids = null;
         hasY70 = false;
+        ddcOnlyVariant = "";
         return false;
     }
 
@@ -155,6 +171,7 @@ public sealed class DisplayTopologyService
     {
         HashSet<string>? ids = null;
         var hasY70 = false;
+        var ddcOnlyVariant = "";
         if (raw is not null)
         {
             ids = new HashSet<string>(StringComparer.Ordinal);
@@ -162,12 +179,15 @@ public sealed class DisplayTopologyService
             {
                 ids.Add(info.Id);
                 if (!hasY70 && IsY70Display(info.RawHardwareId)) hasY70 = true;
+                if (ddcOnlyVariant.Length == 0)
+                    ddcOnlyVariant = Y70DisplayProtocol.DdcOnlyVariantForHardwareId(info.RawHardwareId);
             }
         }
         lock (_cacheLock)
         {
             _attachedIds = ids;
             _hasY70Display = hasY70;
+            _ddcOnlyY70Variant = ddcOnlyVariant;
             _attachedIdsAtMs = Environment.TickCount64;
             _attachedIdsValid = true;
         }

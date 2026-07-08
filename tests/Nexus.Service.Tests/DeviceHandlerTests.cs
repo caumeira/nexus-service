@@ -151,6 +151,12 @@ public class DeviceHandlerTests
             new() { Id = "y70-monitor", RawHardwareId = Y70DisplayProtocol.DdcPanelHardwareNames[0] },
         });
 
+    private static DisplayTopologyService TopologyWithMonitor(string rawHardwareId)
+        => TestHandlers.FakeTopology(new List<RawDisplayInfo>
+        {
+            new() { Id = "y70-monitor", RawHardwareId = rawHardwareId },
+        });
+
     [Fact]
     public void Y70_monitor_only_is_connected_with_no_serial_and_no_usb()
     {
@@ -180,16 +186,46 @@ public class DeviceHandlerTests
     }
 
     [Theory]
-    [InlineData(true, true, false, null)]                        // fully connected
-    [InlineData(false, true, false, "usb-disconnected")]         // display only, no panel USB function
-    [InlineData(false, true, true, null)]                        // Y70ti: touch-only cable proves the cable is attached
-    [InlineData(true, false, false, "display-disconnected")]     // USB/serial only, no display
-    [InlineData(true, false, true, "display-disconnected")]      // digitizer does not substitute for the display
-    [InlineData(false, false, false, null)]                      // neither
-    [InlineData(false, false, true, null)]                       // digitizer alone (no Y70 EDID) warns nothing
-    public void Y70_warning_matrix(bool serialConnected, bool hasDisplay, bool touchOnlyUsb, string? expected)
+    [InlineData(true, true, false, false, null)]                        // fully connected
+    [InlineData(false, true, false, false, "usb-disconnected")]         // display only, no panel USB function
+    [InlineData(false, true, true, false, null)]                        // Y70ti: touch-only cable proves the cable is attached
+    [InlineData(false, true, false, true, null)]                        // GW/Ina: no USB serial function exists; DDC drives it
+    [InlineData(true, false, false, false, "display-disconnected")]     // USB/serial only, no display
+    [InlineData(true, false, true, false, "display-disconnected")]      // digitizer does not substitute for the display
+    [InlineData(false, false, false, false, null)]                      // neither
+    [InlineData(false, false, true, false, null)]                       // digitizer alone (no Y70 EDID) warns nothing
+    [InlineData(false, false, false, true, null)]                       // GW/Ina EDID gone (unplugged) warns nothing
+    public void Y70_warning_matrix(bool serialConnected, bool hasDisplay, bool touchOnlyUsb, bool ddcOnlyPanel, string? expected)
     {
-        Assert.Equal(expected, Y70Handler.ComputeWarning(serialConnected, hasDisplay, touchOnlyUsb));
+        Assert.Equal(expected, Y70Handler.ComputeWarning(serialConnected, hasDisplay, touchOnlyUsb, ddcOnlyPanel));
+    }
+
+    [Theory]
+    [InlineData("RTK1234", "y70-gw")]
+    [InlineData("RTK2345", "y70-ina")]
+    public void Y70_ddc_only_monitor_has_no_warning_and_reports_its_variant(string edidFragment, string expectedVariant)
+    {
+        var h = TestHandlers.Y70(TopologyWithMonitor(edidFragment));
+        Assert.True(h.IsConnected(new List<UsbDeviceEntry>()));
+        Assert.Null(h.GetWarning(new List<UsbDeviceEntry>()));
+        Assert.Equal(expectedVariant, h.FirmwareType);
+    }
+
+    [Fact]
+    public void Y70_serial_variant_monitor_only_keeps_keyless_firmware_type()
+    {
+        var h = TestHandlers.Y70(TopologyWithY70Monitor());
+        Assert.Equal("usb-disconnected", h.GetWarning(new List<UsbDeviceEntry>()));
+        Assert.Equal("y70", h.FirmwareType);
+    }
+
+    [Fact]
+    public void Ina_edid_fragment_is_recognized_as_a_y70_display()
+    {
+        // RTK2345 was added to the reference SCREEN_NAMES after the original
+        // port; without it an Ina is invisible to rotation, detection, and
+        // DDC targeting.
+        Assert.True(DisplayTopologyService.IsY70Display("MONITOR\\RTK2345\\{guid}\\0001"));
     }
 
     [Theory]

@@ -5,7 +5,7 @@ using Nexus.Service.Platform.Displays;
 
 namespace Nexus.Service.Devices.Handlers;
 
-/// <summary>Y70 touch display - multiple panel variants (standard, Infinite, Truly).</summary>
+/// <summary>Y70 touch display - multiple panel variants (Touch, Infinite, Truly, GW, Ina).</summary>
 public sealed class Y70Handler : IDeviceHandler
 {
     private const int HyteVid = 0x3402;
@@ -24,7 +24,8 @@ public sealed class Y70Handler : IDeviceHandler
     public string Id => "y70";
 
     // Every panel variant surfaces under the family name; the specific variant
-    // (Touch / Infinite / Truly) is carried by FirmwareType for OTA, not the label.
+    // is carried by FirmwareType (the OTA catalog key for the serial models,
+    // a diagnostics label for the DDC-only ones), not the label.
     public string Name => "Y70 Touch";
 
     public string Category => "display";
@@ -65,13 +66,16 @@ public sealed class Y70Handler : IDeviceHandler
     /// 0x3402 serial function on the bus is a Y70ti (its cable carries touch but
     /// no serial), so "connect the USB cable" would be false there; when a serial
     /// function IS enumerated but the hub can't connect (COM port held, driver
-    /// failure), the warning stays - that is a real degraded state.
+    /// failure), the warning stays - that is a real degraded state. The
+    /// DDC-only panels (GW / Ina) expose no USB serial function at all, so a
+    /// missing serial connection is their normal state, not a fault.
     /// </summary>
     public string? GetWarning(IReadOnlyList<UsbDeviceEntry> detectedDevices)
         => ComputeWarning(
             _hub.IsConnected,
             _topology.HasY70Display(),
-            touchOnlyUsb: HasTouchDigitizer(detectedDevices) && !HasSerialFunction(detectedDevices));
+            touchOnlyUsb: HasTouchDigitizer(detectedDevices) && !HasSerialFunction(detectedDevices),
+            ddcOnlyPanel: _topology.DdcOnlyY70Variant().Length > 0);
 
     internal static bool HasTouchDigitizer(IReadOnlyList<UsbDeviceEntry> detectedDevices)
         => detectedDevices.Any(d => TouchDigitizers.Any(t => t.VendorId == d.VendorId && t.ProductId == d.ProductId));
@@ -79,17 +83,29 @@ public sealed class Y70Handler : IDeviceHandler
     internal bool HasSerialFunction(IReadOnlyList<UsbDeviceEntry> detectedDevices)
         => detectedDevices.Any(d => Identifiers.Any(id => id.VendorId == d.VendorId && id.ProductId == d.ProductId));
 
-    internal static string? ComputeWarning(bool serialConnected, bool hasDisplay, bool touchOnlyUsb)
+    internal static string? ComputeWarning(bool serialConnected, bool hasDisplay, bool touchOnlyUsb, bool ddcOnlyPanel)
     {
         if (serialConnected) return hasDisplay ? null : DisplayDisconnectedWarning;
         if (!hasDisplay) return null;
+        if (ddcOnlyPanel) return null;
         return touchOnlyUsb ? null : UsbDisconnectedWarning;
     }
 
     public string GetFirmwareVersion() => _hub.State.FirmwareVersion;
 
-    // "y70" / "y70-infinite" / "y70-truly" once the controller reports its
-    // variant; Id ("y70", no bundled firmware) until then so the device isn't
-    // offered an update before we know which image applies.
-    public string FirmwareType => string.IsNullOrEmpty(_hub.Variant) ? Id : _hub.Variant;
+    // Serial-reported variant once the controller identifies itself; the
+    // DDC-only panels (GW / Ina) have no serial function, so their EDID match
+    // is the only variant signal. Otherwise the keyless Id ("y70", no bundled
+    // firmware) so the device isn't offered an update before the applicable
+    // image is known - which also covers GW / Ina permanently (they have no
+    // host-updatable firmware).
+    public string FirmwareType
+    {
+        get
+        {
+            if (!string.IsNullOrEmpty(_hub.Variant)) return _hub.Variant;
+            var ddcOnly = _topology.DdcOnlyY70Variant();
+            return ddcOnly.Length > 0 ? ddcOnly : Id;
+        }
+    }
 }
