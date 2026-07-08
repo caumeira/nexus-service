@@ -207,6 +207,27 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
         {
             foreach (var r in results)
                 s.Cooling.FanCalibrations[r.FanId] = r;
+
+            // Prune calibrations for headers that are no longer discovered (a
+            // chip re-enumeration can remap or drop a header), so stale entries
+            // stop surfacing in the results list. Scoped to device roots that
+            // WERE enumerated this pass (id up to "/control/"): a stale channel
+            // is pruned only when its device is present but that specific
+            // channel is gone - so a transient total miss of a device (LHM
+            // hiccup) never nukes its still-valid calibrations. Hub fans never
+            // calibrate, so their keys never appear here.
+            static string RootOf(string id)
+            {
+                var i = id.IndexOf("/control/", StringComparison.Ordinal);
+                return i >= 0 ? id[..i] : id;
+            }
+            var live = new HashSet<string>(mappings.Select(m => m.Id));
+            var liveRoots = new HashSet<string>(mappings.Select(m => RootOf(m.Id)));
+            var stale = s.Cooling.FanCalibrations.Keys
+                .Where(k => !live.Contains(k) && liveRoots.Contains(RootOf(k)))
+                .ToList();
+            foreach (var k in stale)
+                s.Cooling.FanCalibrations.Remove(k);
         });
 
         return results;
@@ -310,6 +331,10 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
 
         _lhm.Update(TimeSpan.FromMilliseconds(100));
         var result = new List<ChannelMapping>();
+        // Per-chip raw tach/control layout, logged only when the channel set
+        // changes (below). This is the diagnostic for a tach/PWM index
+        // mismatch - the class of bug the by-index pairing fixes.
+        var layouts = new List<string>();
 
         foreach (var hw in _lhm.Instance.Hardware)
         {
@@ -317,12 +342,12 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
             if (hw.HardwareType == HardwareType.Motherboard)
             {
                 foreach (var sub in hw.SubHardware)
-                    DiscoverFromHardware(result, sub, "Motherboard");
+                    DiscoverFromHardware(result, sub, "Motherboard", layouts);
             }
 
             // GPU fans
             if (hw.HardwareType is HardwareType.GpuNvidia or HardwareType.GpuAmd or HardwareType.GpuIntel)
-                DiscoverFromHardware(result, hw, "GPU");
+                DiscoverFromHardware(result, hw, "GPU", layouts);
         }
 
         var currentIds = new HashSet<string>(result.Select(c => $"{c.Id}|{c.Name}"), StringComparer.Ordinal);
@@ -331,13 +356,15 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
             ServiceLog.Info($"[fan-control] discovered {result.Count} controllable fan channel(s)");
             foreach (var ch in result)
                 ServiceLog.Info($"[fan-control]   {ch.Name} ({ch.Id})");
+            foreach (var layout in layouts)
+                ServiceLog.Info(layout);
             _lastLoggedChannelIds = currentIds;
         }
 
         return result;
     }
 
-    private static void DiscoverFromHardware(List<ChannelMapping> result, IHardware hw, string prefix)
+    private static void DiscoverFromHardware(List<ChannelMapping> result, IHardware hw, string prefix, List<string> layouts)
     {
         var fans = hw.Sensors
             .Where(s => s.SensorType == SensorType.Fan)
@@ -349,21 +376,33 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
             .OrderBy(s => s.Index)
             .ToList();
 
-        var count = Math.Min(fans.Count, controls.Count);
-        for (int i = 0; i < count; i++)
-        {
-            if (controls[i].Control is null) continue;
+        layouts.Add($"[fan-discovery] {prefix}/{hw.Identifier}: fans=[{string.Join(",", fans.Select(f => f.Index + ":" + f.Name))}] controls=[{string.Join(",", controls.Select(c => c.Index + ":" + c.Name + (c.Control is null ? "(ro)" : "")))}]");
 
-            var name = fans[i].Name;
+        // Pair each tach (Fan) with the Control sharing its chip index.
+        // Iterating fans - not controls - keeps phantom PWM outputs with no
+        // fan attached out of the list; the by-index lookup fixes the old
+        // Math.Min positional zip, which cross-wired a fan's RPM onto the
+        // wrong control when tach and PWM indices are not contiguous
+        // (IT8696E here: tachs at 0,1,2,4; PWM outputs 0-5, so position 3
+        // paired tach index 4 with the dead control index 3).
+        var controlsByIndex = new Dictionary<int, ISensor>();
+        foreach (var c in controls) controlsByIndex[c.Index] = c;
+
+        foreach (var fan in fans)
+        {
+            if (!controlsByIndex.TryGetValue(fan.Index, out var control) || control.Control is null)
+                continue;
+
+            var name = fan.Name;
             if (!name.Contains(prefix, StringComparison.OrdinalIgnoreCase) && prefix != "Motherboard")
                 name = $"{prefix} {name}";
 
             result.Add(new ChannelMapping
             {
-                Id = controls[i].Identifier.ToString(),
+                Id = control.Identifier.ToString(),
                 Name = name,
-                FanSensor = fans[i],
-                ControlSensor = controls[i],
+                FanSensor = fan,
+                ControlSensor = control,
             });
         }
     }

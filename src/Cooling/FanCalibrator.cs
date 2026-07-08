@@ -21,7 +21,7 @@ public sealed class FanCalibrator
     private const int StepSize = 10;
     private const int SampleIntervalMs = 250;
     private const int MinSettleMs = 1500;
-    private const int MaxWaitMs = 6000;
+    private const int MaxWaitMs = 12000;
     private const int WindowSize = 6;
 
     private readonly LhmComputer _lhm;
@@ -102,13 +102,13 @@ public sealed class FanCalibrator
             if (samples.Count > WindowSize) samples.Dequeue();
             elapsed += SampleIntervalMs;
 
-            if (elapsed >= MinSettleMs && samples.Count == WindowSize && IsStable(samples))
+            if (elapsed >= MinSettleMs && samples.Count == WindowSize && IsSettled(samples.ToArray()))
                 break;
         }
 
         return samples.Count > 0 ? (int)samples.Average() : 0;
     }
 
-    private static bool IsStable(IEnumerable<int> samples) => FanCalibrationLogic.IsStable(samples);
+    private static bool IsSettled(IReadOnlyList<int> samples) => FanCalibrationLogic.IsSettled(samples);
     private static FanCalibration Classify(string fanId, List<FanCalibrationPoint> curve) => FanCalibrationLogic.Classify(fanId, curve);
 }
