@@ -9,9 +9,12 @@ using Nexus.Service.Diagnostics.Cooling;
 using Nexus.Service.Diagnostics.EventLog;
 using Nexus.Service.Diagnostics.Gpu;
 using Nexus.Service.Diagnostics.Memory;
+using Nexus.Service.Diagnostics.Report;
 using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Diagnostics.SystemInfo;
 using Nexus.Service.Lighting;
+using Nexus.Service.Platform;
+using Nexus.Service.Sensors;
 
 namespace Nexus.Service.Routes;
 
@@ -78,7 +81,7 @@ public static class DiagnosticsHealthRoutes
         app.MapGet("/diagnostics/system", (string? refresh, PnpProblemScanner pnp, EventLogMonitor events) =>
             BuildSystemResponse(pnp, events, IsRefresh(refresh)));
 
-        app.MapGet("/diagnostics/bundle/download", (
+        app.MapGet("/diagnostics/bundle/download", async (
             DiagnosticsHealthModel healthModel,
             EventLogMonitor events,
             SteamGameLibraryCache steamCache,
@@ -86,7 +89,8 @@ public static class DiagnosticsHealthRoutes
             MemoryDiagnosticOrchestrator memDiag,
             GpuHealthMonitor gpu,
             CoolingStallDetector cooling,
-            PnpProblemScanner pnp) =>
+            PnpProblemScanner pnp,
+            SystemSpecsCollector specs) =>
         {
             var health = healthModel.BuildHealth();
             // Bundle is the deep-analysis artifact: keep per-occurrence rows
@@ -98,9 +102,37 @@ public static class DiagnosticsHealthRoutes
             var coolingSnapshot = cooling.Snapshot();
             var system = BuildSystemResponse(pnp, events);
 
-            var zipBytes = DiagnosticsBundleBuilder.Build(health, incidents, smartSnapshot, memory, gpuResponse, coolingSnapshot, system);
+            byte[]? reportPdf = null;
+            try
+            {
+                var reportSnapshot = await DiagnosticsReportBuilder.GatherAsync(health, specs, smartSnapshot, gpu, events, memDiag, pnp);
+                reportPdf = DiagnosticsReportBuilder.Build(reportSnapshot);
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Warn($"[diagnostics-bundle] report pdf generation failed: {ex.Message}");
+            }
+
+            var zipBytes = DiagnosticsBundleBuilder.Build(health, incidents, smartSnapshot, memory, gpuResponse, coolingSnapshot, system, reportPdf);
             var fileName = $"nexus-diagnostics-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
             return Results.File(zipBytes, "application/zip", fileName);
+        }).LocalhostOnly();
+
+        app.MapGet("/diagnostics/report.pdf", async (
+            DiagnosticsHealthModel healthModel,
+            SystemSpecsCollector specs,
+            SmartHealthMonitor smart,
+            GpuHealthMonitor gpu,
+            EventLogMonitor events,
+            MemoryDiagnosticOrchestrator memDiag,
+            PnpProblemScanner pnp) =>
+        {
+            var health = healthModel.BuildHealth();
+            var smartSnapshot = smart.Snapshot();
+            var snapshot = await DiagnosticsReportBuilder.GatherAsync(health, specs, smartSnapshot, gpu, events, memDiag, pnp);
+            var pdfBytes = DiagnosticsReportBuilder.Build(snapshot);
+            var fileName = $"nexus-diagnostics-report-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmm}.pdf";
+            return Results.File(pdfBytes, "application/pdf", fileName);
         }).LocalhostOnly();
     }
 

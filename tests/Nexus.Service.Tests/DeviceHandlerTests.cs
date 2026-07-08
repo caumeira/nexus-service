@@ -255,6 +255,16 @@ public class DeviceHandlerTests
         Assert.Equal("usb-disconnected", h.GetWarning(devices));
     }
 
+    [Fact]
+    public void Y70_identifiers_are_the_hyte_reference_pid_set()
+    {
+        // Wire contract per HYTE's reference controllers (Y70Touch /
+        // Y70TouchInfinite / Y70TouchTruly): VID_3402 & PID_0C00/0C01/0C02.
+        // Pinned as literals so a drifted constant fails here.
+        var ids = TestHandlers.Y70().Identifiers.Select(i => (i.VendorId, i.ProductId)).ToArray();
+        Assert.Equal(new[] { (0x3402, 0x0C00), (0x3402, 0x0C01), (0x3402, 0x0C02) }, ids);
+    }
+
     public static IEnumerable<object[]> AllHandlers()
     {
         yield return new object[] { TestHandlers.Cnvs() };

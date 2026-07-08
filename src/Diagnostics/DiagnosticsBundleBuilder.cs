@@ -32,7 +32,8 @@ public static class DiagnosticsBundleBuilder
         MemoryHealthResponse memory,
         GpuHealthResponse gpu,
         CoolingStallSnapshot cooling,
-        SystemDiagnosticsResponse system)
+        SystemDiagnosticsResponse system,
+        byte[]? reportPdf = null)
     {
         using var ms = new MemoryStream();
         using (var zip = new ZipArchive(ms, ZipArchiveMode.Create, leaveOpen: true))
@@ -46,6 +47,10 @@ public static class DiagnosticsBundleBuilder
             WriteJson(zip, "system.json", system, AppJsonContext.Default.SystemDiagnosticsResponse);
             WriteText(zip, "system-profile.txt", ReadStartupSnapshot());
             WriteText(zip, "service-log-tail.txt", ReadLogTail());
+            if (reportPdf is { Length: > 0 })
+            {
+                WriteBytes(zip, "report.pdf", reportPdf);
+            }
         }
         return ms.ToArray();
     }
@@ -63,6 +68,13 @@ public static class DiagnosticsBundleBuilder
         using var stream = entry.Open();
         using var writer = new StreamWriter(stream);
         writer.Write(content);
+    }
+
+    private static void WriteBytes(ZipArchive zip, string name, byte[] content)
+    {
+        var entry = zip.CreateEntry(name);
+        using var stream = entry.Open();
+        stream.Write(content, 0, content.Length);
     }
 
     private static string ReadLogTail()

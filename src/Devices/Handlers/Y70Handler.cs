@@ -8,7 +8,6 @@ namespace Nexus.Service.Devices.Handlers;
 /// <summary>Y70 touch display - multiple panel variants (Touch, Infinite, Truly, GW, Ina).</summary>
 public sealed class Y70Handler : IDeviceHandler
 {
-    private const int HyteVid = 0x3402;
     private const string UsbDisconnectedWarning = "usb-disconnected";
     private const string DisplayDisconnectedWarning = "display-disconnected";
 
@@ -30,12 +29,14 @@ public sealed class Y70Handler : IDeviceHandler
 
     public string Category => "display";
 
+    // PID set per HYTE's reference controllers (Y70TouchController /
+    // Y70TouchInfiniteController / Y70TouchTrulyController: VID_3402 &
+    // PID_0C00/0C01/0C02) - the same constants the heartbeat worker gates on.
     public IReadOnlyList<UsbId> Identifiers { get; } = new[]
     {
-        new UsbId(HyteVid, 0x0C01), // HYTE Y70 Display (USB Serial Device - observed on test hardware)
-        new UsbId(HyteVid, 0x0700), // Y70 Touch
-        new UsbId(HyteVid, 0x0701), // Y70 Touch Infinite
-        new UsbId(HyteVid, 0x0702), // Y70 Touch Truly
+        new UsbId(Y70DisplayProtocol.VendorId, Y70DisplayProtocol.Y70TouchProductId),
+        new UsbId(Y70DisplayProtocol.VendorId, Y70DisplayProtocol.Y70InfiniteProductId),
+        new UsbId(Y70DisplayProtocol.VendorId, Y70DisplayProtocol.Y70TrulyProductId),
     };
 
     public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices)
