@@ -18,7 +18,7 @@ namespace Nexus.Service.Activity;
 /// to a non-loopback peer (resolved via <c>/proc/net/tcp{,6}</c> → socket inode →
 /// <c>/proc/[pid]/fd</c>). That keeps disk-bound processes, pure loopback
 /// chatter, and our own PID off the list, mirroring the Windows provider's
-/// "active non-loopback TCP connection" gate (<c>NetstatParser</c>).
+/// "active non-loopback TCP connection" gate (<c>TcpPeerFilter</c>).
 ///
 /// Pure file reads - no subprocesses. Only samples when the "network" or
 /// "monitoring" WS topics have subscribers.

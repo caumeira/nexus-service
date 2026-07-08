@@ -1,17 +1,18 @@
 #if WINDOWS
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
+using Nexus.Service.Devices.Detection.Native;
 
 namespace Nexus.Service.Devices.Detection;
 
 /// <summary>
-/// Windows USB enumeration via `pnputil /enum-devices /connected /properties`.
-/// pnputil reports ONLY presently-attached devices (the HKLM\...\Enum\USB registry
-/// subtree, used by an earlier implementation, is historical and lists every device
-/// ever seen). The `/properties` flag makes pnputil include DEVPKEY_* fields so we
-/// can pull DEVPKEY_Device_BusReportedDeviceDesc (the USB iProduct string - the
-/// device's own brand name) and DEVPKEY_Device_LocationInfo in a single call.
+/// Windows USB enumeration via CfgMgr32 (present devices under the "USB"
+/// enumerator + per-devnode DEVPKEY_* property reads). In-process - no
+/// pnputil.exe child process, no localized-text parsing. The property set
+/// mirrors what `pnputil /enum-devices /connected /properties` carried:
+/// DEVPKEY_Device_BusReportedDeviceDesc is the USB iProduct string (the
+/// device's own brand name), with the driver's generic DeviceDesc as the
+/// fallback name.
 /// </summary>
 public sealed class WindowsUsbEnumerator : IUsbEnumerator
 {
@@ -19,8 +20,7 @@ public sealed class WindowsUsbEnumerator : IUsbEnumerator
     {
         try
         {
-            var output = ShellOut("pnputil", "/enum-devices", "/connected", "/properties");
-            return PnpUtilParser.Parse(output);
+            return EnumeratePresent();
         }
         catch (Exception ex)
         {
@@ -29,34 +29,28 @@ public sealed class WindowsUsbEnumerator : IUsbEnumerator
         }
     }
 
-    private static string ShellOut(string fileName, params string[] args)
+    private static List<UsbDeviceEntry> EnumeratePresent()
     {
-        try
+        var result = new List<UsbDeviceEntry>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+        foreach (var instanceId in CfgMgr32.GetPresentDeviceIds("USB"))
         {
-            var psi = new ProcessStartInfo
+            if (CfgMgr32.LocateDevNode(instanceId, out var devInst) != CfgMgr32.CR_SUCCESS)
             {
-                FileName = fileName,
-                RedirectStandardOutput = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            foreach (var a in args)
-            {
-                psi.ArgumentList.Add(a);
+                continue;
             }
-            using var proc = Process.Start(psi);
-            if (proc is null)
-            {
-                return "";
-            }
-            var output = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit(10000);
-            return output;
+
+            UsbDeviceEntryBuilder.Append(
+                result, seen, instanceId,
+                busReportedDesc: CfgMgr32.GetStringProperty(devInst, in CfgMgr32.DEVPKEY_Device_BusReportedDeviceDesc),
+                deviceDescription: CfgMgr32.GetStringProperty(devInst, in CfgMgr32.DEVPKEY_Device_DeviceDesc),
+                manufacturer: CfgMgr32.GetStringProperty(devInst, in CfgMgr32.DEVPKEY_Device_Manufacturer),
+                className: CfgMgr32.GetStringProperty(devInst, in CfgMgr32.DEVPKEY_Device_Class),
+                driverName: CfgMgr32.GetStringProperty(devInst, in CfgMgr32.DEVPKEY_Device_DriverInfPath),
+                locationInfo: CfgMgr32.GetStringProperty(devInst, in CfgMgr32.DEVPKEY_Device_LocationInfo));
         }
-        catch
-        {
-            return "";
-        }
+        return result;
     }
 }
 #endif
