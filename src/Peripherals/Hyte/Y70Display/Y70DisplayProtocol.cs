@@ -75,6 +75,25 @@ public static class Y70DisplayProtocol
     public const int VcpPowerOn = 0x01;
     public const int VcpPowerStandby = 0x04;
 
+    // The original Touch (0x0C00) dims through the monitor's RGB video-gain
+    // registers with the STM32 backlight PWM pinned at 100% - PWM dimming
+    // makes that panel's backlight hum (reference Y70TouchDevice /
+    // Y70DDCCIHelper). The gain registers only respond after ColorPresetMode
+    // is set to UserDefine3 (reference SetToAdjustClockPhaseMode).
+    public const byte VcpColorPresetMode = 0x14;
+    public const int VcpColorPresetUserDefine3 = 0x0B;
+    public const byte VcpVideoGainRed = 0x16;
+    public const byte VcpVideoGainGreen = 0x18;
+    public const byte VcpVideoGainBlue = 0x1A;
+
+    /// <summary>
+    /// Reference mapping (Y70TouchDevice.SetBrightness) from a 0-100 percent
+    /// to the value written to all three gain registers, compressing the
+    /// percent into the monitor's usable gain band.
+    /// </summary>
+    public static int TouchRgbGainForPercent(int percent)
+        => (int)(Math.Clamp(percent, 0, 100) * 0.8 + 20) / 2;
+
     /// <summary>
     /// The Y70 controller answers the version query with a 7-byte frame
     /// (FF DD 02 maj min build hw) - bench-confirmed on a Y70 Touch Infinite
