@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Nexus.Service.Models.Sensors;
 
@@ -65,4 +66,9 @@ public class SystemSpecsResponse
     public string Monitor { get; set; } = "";
     public string SoundCard { get; set; } = "";
     public string NetworkCard { get; set; } = "";
+    // OA3 firmware Windows product key: a bearer credential. Held on the cached
+    // collector object so the gated system.specs app-action can read it, but
+    // never serialized onto the shareable /system/specs response.
+    [JsonIgnore]
+    public string Oa3ProductKey { get; set; } = "";
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using Nexus.Service.Models.Widgets;
+using Nexus.Service.Sensors;
 
 namespace Nexus.Service.Widgets;
 
@@ -15,10 +16,12 @@ namespace Nexus.Service.Widgets;
 public sealed class AppInstaller
 {
     private readonly AppRegistry _registry;
+    private readonly OemInfo _oemInfo;
 
-    public AppInstaller(AppRegistry registry)
+    public AppInstaller(AppRegistry registry, OemInfo oemInfo)
     {
         _registry = registry;
+        _oemInfo = oemInfo;
     }
 
     /// <summary>
@@ -43,6 +46,10 @@ public sealed class AppInstaller
             var iconUrl = !string.IsNullOrWhiteSpace(entry.Manifest.Icon)
                 ? $"/apps-api/installed/{entry.Id}/asset/{entry.Manifest.Icon}"
                 : null;
+            // No oem block means no gate; an oem block gates preinstall on the
+            // detected SMBIOS manufacturer matching one of the listed names.
+            var oemMatch = entry.Manifest.Oem?.Manufacturer is not { Count: > 0 } manufacturers
+                || _oemInfo.Matches(manufacturers);
             var card = new AppCatalogEntry
             {
                 Id = entry.Id,
@@ -54,7 +61,7 @@ public sealed class AppInstaller
                 Capabilities = entry.Manifest.Capabilities,
                 Source = source,
                 Installed = entry.Source == AppInstallPaths.Source.User,
-                Preinstalled = entry.Manifest.Preinstalled && entry.Source == AppInstallPaths.Source.Bundled,
+                Preinstalled = entry.Manifest.Preinstalled && entry.Source == AppInstallPaths.Source.Bundled && oemMatch,
             };
             if (!seen.ContainsKey(entry.Id))
             {

@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Nexus.Service.Auth;
 using Nexus.Service.Models.Widgets;
+using Nexus.Service.Sensors;
 using Nexus.Service.Serialization;
 using Nexus.Service.Widgets;
 
@@ -53,21 +54,21 @@ public static class AppRoutes
 
     public static void MapAppEndpoints(this WebApplication app)
     {
-        app.MapGet("/apps-api/installed", (AppRegistry registry) =>
+        app.MapGet("/apps-api/installed", (AppRegistry registry, OemInfo oemInfo) =>
         {
             var response = new AppInstalledListingResponse();
             foreach (var entry in registry.All())
             {
-                response.Apps.Add(BuildListing(entry));
+                response.Apps.Add(BuildListing(entry, oemInfo));
             }
             return Results.Json(response, AppJsonContext.Default.AppInstalledListingResponse);
         }).AllowPanel();
 
-        app.MapGet("/apps-api/installed/{id}", (string id, AppRegistry registry) =>
+        app.MapGet("/apps-api/installed/{id}", (string id, AppRegistry registry, OemInfo oemInfo) =>
         {
             if (!AppIds.IsValid(id)) return Results.NotFound();
             if (!registry.TryGet(id, out var entry)) return Results.NotFound();
-            return Results.Json(BuildListing(entry), AppJsonContext.Default.AppInstalledListing);
+            return Results.Json(BuildListing(entry, oemInfo), AppJsonContext.Default.AppInstalledListing);
         }).AllowPanel();
 
         app.MapGet("/apps-api/instance/{instanceId}/settings",
@@ -336,7 +337,7 @@ public static class AppRoutes
         return true;
     }
 
-    private static AppInstalledListing BuildListing(AppEntry entry)
+    private static AppInstalledListing BuildListing(AppEntry entry, OemInfo oemInfo)
     {
         // Icons / SVG assets are now served from `/apps-api/installed/{id}/asset/...`,
         // not the (removed) per-widget origin. Building the URL here keeps the
@@ -352,6 +353,11 @@ public static class AppRoutes
             AppInstallPaths.Source.Bundled => "bundled",
             _ => "unknown",
         };
+
+        // No oem block means no gate; an oem block gates preinstall on the
+        // detected SMBIOS manufacturer matching one of the listed names.
+        var oemMatch = entry.Manifest.Oem?.Manufacturer is not { Count: > 0 } manufacturers
+            || oemInfo.Matches(manufacturers);
 
         return new AppInstalledListing
         {
@@ -373,7 +379,7 @@ public static class AppRoutes
             Trusted = entry.Source != AppInstallPaths.Source.Dev,
             // Preinstall is an OEM bake-in honored only for bundled apps; a user/dev
             // copy of the same id is a deliberate user choice, not a pre-install.
-            Preinstalled = entry.Manifest.Preinstalled && entry.Source == AppInstallPaths.Source.Bundled,
+            Preinstalled = entry.Manifest.Preinstalled && entry.Source == AppInstallPaths.Source.Bundled && oemMatch,
         };
     }
 }

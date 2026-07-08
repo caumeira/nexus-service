@@ -53,3 +53,25 @@ public sealed class ScreentimeTodayDto
     [JsonPropertyName("maxMs")] public long MaxMs { get; set; }
     [JsonPropertyName("hasData")] public bool HasData { get; set; }
 }
+
+/// <summary>Payload returned by the <c>system.specs</c> host action: SMBIOS
+/// Type 1 identity plus the pre-formatted System Specs strings. Every field
+/// is a display string, empty when the platform couldn't resolve it.</summary>
+public sealed class SystemInfoResponse
+{
+    [JsonPropertyName("manufacturer")] public string Manufacturer { get; set; } = "";
+    [JsonPropertyName("model")] public string Model { get; set; } = "";
+    [JsonPropertyName("family")] public string Family { get; set; } = "";
+    [JsonPropertyName("serial")] public string Serial { get; set; } = "";
+    [JsonPropertyName("windowsProductKey")] public string WindowsProductKey { get; set; } = "";
+    [JsonPropertyName("pcName")] public string PcName { get; set; } = "";
+    [JsonPropertyName("osBuild")] public string OsBuild { get; set; } = "";
+    [JsonPropertyName("processor")] public string Processor { get; set; } = "";
+    [JsonPropertyName("motherboard")] public string Motherboard { get; set; } = "";
+    [JsonPropertyName("memory")] public string Memory { get; set; } = "";
+    [JsonPropertyName("storage")] public string Storage { get; set; } = "";
+    [JsonPropertyName("graphicsCard")] public string GraphicsCard { get; set; } = "";
+    [JsonPropertyName("monitor")] public string Monitor { get; set; } = "";
+    [JsonPropertyName("soundCard")] public string SoundCard { get; set; } = "";
+    [JsonPropertyName("networkCard")] public string NetworkCard { get; set; } = "";
+}

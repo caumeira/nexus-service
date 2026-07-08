@@ -125,7 +125,8 @@ $mon = @(Get-CimInstance -Namespace root\wmi -ClassName WmiMonitorID | ForEach-O
 $vc = @(Get-CimInstance -ClassName Win32_VideoController | Select-Object CurrentHorizontalResolution,CurrentVerticalResolution,CurrentRefreshRate)
 $sound = @(Get-CimInstance -ClassName Win32_SoundDevice | Where-Object { $_.Status -eq 'OK' } | Select-Object Name)
 $net = @(Get-NetAdapter -Physical | Select-Object InterfaceDescription,LinkSpeed,Status)
-@{ os = $os; ram = $ram; disks = $disks; monitors = $mon; video = $vc; sound = $sound; net = $net } | ConvertTo-Json -Depth 4 -Compress
+$oa3 = (Get-CimInstance -ClassName SoftwareLicensingService).OA3xOriginalProductKey
+@{ os = $os; ram = $ram; disks = $disks; monitors = $mon; video = $vc; sound = $sound; net = $net; oa3 = $oa3 } | ConvertTo-Json -Depth 4 -Compress
 ";
 
     private static void EnrichWindows(SystemSpecsResponse s)
@@ -156,6 +157,7 @@ $net = @(Get-NetAdapter -Physical | Select-Object InterfaceDescription,LinkSpeed
         ApplyMonitors(s, obj["monitors"], obj["video"]);
         ApplySound(s, obj["sound"]);
         ApplyNet(s, obj["net"]);
+        s.Oa3ProductKey = JsonString(obj["oa3"]).Trim();
     }
 
     private static void ApplyOs(SystemSpecsResponse s, JsonNode? node)

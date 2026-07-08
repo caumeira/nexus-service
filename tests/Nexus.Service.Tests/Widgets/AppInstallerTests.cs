@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text.Json;
+using Nexus.Service.Sensors;
 using Nexus.Service.Widgets;
 
 namespace Nexus.Service.Tests.Widgets;
@@ -63,7 +64,7 @@ public class AppInstallerTests : IDisposable
         // implementation falls back to the OS path. We exercise the Install
         // /Uninstall logic directly against a hand-built setup below for the
         // catalogue + manifest-copy semantics.
-        return (registry, new AppInstaller(registry));
+        return (registry, new AppInstaller(registry, new OemInfo()));
     }
 
     [Fact]
