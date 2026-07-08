@@ -1,29 +1,18 @@
-uniform float u_speed;
-uniform float u_gradient;   // 0 = flat solid colour, 1 = strong dark->light ramp
-uniform float u_rotation;   // gradient angle in degrees (0 = vertical)
-uniform float u_wave;       // 0 = still, 1 = pronounced gentle flowing wave
-// Simple colour fill: a (rotatable) vertical gradient with a gentle wave that
-// flows along the SAME direction as the gradient - a slow, broad brightness
-// swell drifting up the ramp. The colour comes from the post-process tint
-// (u_hue / u_colorize / u_saturation in finalize); this shader only shapes
-// brightness. Every "simple*" key shares this shader.
+uniform float u_hueShift;   // bipolar hue rotation within the colour family
+uniform float u_warmth;     // bipolar colour temperature: + warmer (amber), - cooler (blue)
+// Flat solid-colour fill: one HSV swatch, no motion, gradient, rotation, or
+// contrast. Base hue u_hue nudged by u_hueShift; u_saturation is the HSV
+// saturation (0 = white); u_warmth pushes the colour temperature warm/cool.
+// LEDs light at full brightness so a solid colour reads vivid. Every "simple*"
+// key shares this shader; the colour is the per-key template tint.
 void main() {
-    vec2 uv = uv01();            // 0..1, top-left origin
-    vec2 c = uv - 0.5;
-
-    // Gradient axis. 0 deg = vertical; Y is inverted so the default ramp runs
-    // bright-top -> dark-bottom. Rotation spins the axis.
-    float a = radians(u_rotation);
-    float axis = c.x * sin(a) - c.y * cos(a);          // ~ -0.5 .. 0.5
-    float grad = axis * clamp(u_gradient, 0.0, 1.0) * 1.5;
-
-    // Gentle wave travelling along the gradient axis: a low-frequency sine in
-    // `axis` whose phase drifts with time, so soft bright/dark bands flow up
-    // the gradient. Low amplitude keeps it a subtle swell, not a ripple.
-    float t = u_time * u_speed * 0.25;
-    float wave = sin(axis * 11.0 - t * 2.0);
-    float flow = clamp(u_wave, 0.0, 1.0) * 0.25 * wave;
-
-    float luma = clamp(0.62 + grad + flow, 0.0, 1.3);
-    fragColor = vec4(finalize(vec3(luma)), 1.0);
+    float hue = u_hue + u_hueShift * 0.08;
+    float sat = clamp(u_saturation, 0.0, 1.0);
+    vec3 col = hsv2rgb(vec3(hue, sat, 1.0));
+    // Colour temperature: warm lifts red / drops blue toward amber; cool does
+    // the reverse toward blue, with a slight green lift so cool reads blue not cyan.
+    col.r = clamp(col.r + u_warmth * 0.22, 0.0, 1.0);
+    col.g = clamp(col.g + u_warmth * 0.06, 0.0, 1.0);
+    col.b = clamp(col.b - u_warmth * 0.22, 0.0, 1.0);
+    fragColor = vec4(col, 1.0);
 }

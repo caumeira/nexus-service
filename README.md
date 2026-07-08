@@ -11,6 +11,7 @@ This is the engine of [Nexus](https://hellonexus.com). The other repos are clien
 - **Lighting** - RGB control via a bundled [headless OpenRGB child process](https://github.com/hello-nexus/openrgb-headless), plus first-party HYTE and Lian Li peripheral protocols. Effects engine, screen sync, audio sync, anime mode, game sync (drive your own hardware from a game's lighting: Razer Chroma, Alienware LightFX, and Logitech capture via bundled shims, plus CS2 Game State Integration).
 - **Peripherals** - DPI / polling / battery / sleep for supported mice and keyboards, plus first-party USB device-hub drivers (the Lian Li Uni fan family, Galahad II AIO, and Strimer RGB controllers) (`Peripherals/`).
 - **Tryx Panorama AIO screen** - drive the Panorama cooler's screen (custom video upload + transcode, presets, brightness, fan, sensor overlay) over CDC-ACM serial + ADB (`Peripherals/Tryx/`), exposed as a first-party device through the `/tryx/*` routes (`Routes/TryxRoutes.cs`); media uploads via `POST /tryx/media`.
+- **Diagnostics** - hardware failure surveillance: SMART/NVMe drive health, Windows event-log incidents (WHEA, bugchecks, TDRs, disk errors, app/game crashes), GPU throttle telemetry via the driver's NVML, AIO pump / fan stall detection, Windows Memory Diagnostic scheduling, and PnP problem sweep, aggregated into per-component health verdicts with tray alerts and a support-bundle ZIP export (`src/Diagnostics/`, `/diagnostics/*` routes).
 - **Panel runtimes** - pair + serve the React panel UIs for the HYTE Y70/Y80 secondary touch panel, mobile companion (`/panel/phone`), and Q-Series on-device screens.
 - **Apps / widgets** - host for the `nexus.app/1` SDK apps shipped in [`nexus-apps`](https://github.com/hello-nexus/nexus-apps), with sensor bindings and a sandboxed Web Worker runtime. Legacy `nexus.widget/2` manifests still load.
 - **Activity** - screen-time, app detection, Steam / Discord / OBS integrations, shortcuts.
@@ -69,6 +70,7 @@ src/
   Integrations/
     HomeAssistant/    # Home Assistant: REST+WS client, entity cache, broadcast (GET/POST /home-assistant/*)
   Media/              # media session state (GSMTC on Windows)
+  Diagnostics/        # failure diagnostics: event-log monitor, SMART/NVMe health, GPU/cooling/memory checks, health model + support bundle
   Fps/                # FPS capture
   Relay/              # off-LAN relay client for the phone panel
   Rtc/                # WebRTC DataChannel direct P2P transport (SIPSorcery), signaled via POST /rtc/offer

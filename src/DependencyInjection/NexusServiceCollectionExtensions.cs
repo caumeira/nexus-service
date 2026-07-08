@@ -241,6 +241,45 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// Diagnostics app: SMART/NVMe storage health, GPU health (NVML), cooling
+    /// stall detection, memory (SMBIOS + Windows Memory Diagnostic), pnp
+    /// problem scan, the Windows Event Log incident monitor, the health
+    /// aggregator, and its background alert poller. Every Windows-only
+    /// readout self-gates via OperatingSystem.IsWindows() inside its own
+    /// module; SmartHealthMonitor is the one type whose constructor itself
+    /// differs by platform (it holds the shared LhmComputer only on
+    /// Windows). Depends on IFanControlProvider (AddNexusCooling) and
+    /// ISensorProvider (AddNexusSensors) having already been registered.
+    /// </summary>
+    public static IServiceCollection AddNexusDiagnostics(this IServiceCollection services)
+    {
+        services.AddSingleton<Nexus.Service.Diagnostics.EventLog.EventLogMonitor>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Diagnostics.EventLog.EventLogMonitor>());
+
+#if WINDOWS
+        services.AddSingleton<Nexus.Service.Diagnostics.Storage.SmartHealthMonitor>(sp =>
+            new Nexus.Service.Diagnostics.Storage.SmartHealthMonitor(sp.GetRequiredService<LhmComputer>()));
+#else
+        services.AddSingleton<Nexus.Service.Diagnostics.Storage.SmartHealthMonitor>();
+#endif
+
+        services.AddSingleton<Nexus.Service.Diagnostics.Gpu.GpuHealthMonitor>();
+        services.AddSingleton<Nexus.Service.Diagnostics.Memory.MemoryDiagnosticOrchestrator>();
+        services.AddSingleton<Nexus.Service.Diagnostics.SystemInfo.PnpProblemScanner>();
+
+        services.AddSingleton<Nexus.Service.Diagnostics.Cooling.CoolingStallDetector>();
+        services.AddSingleton<Nexus.Service.Diagnostics.Cooling.CoolingStallFeeder>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Diagnostics.Cooling.CoolingStallFeeder>());
+
+        services.AddSingleton<Nexus.Service.Diagnostics.DiagnosticsHealthModel>();
+        services.AddSingleton<Nexus.Service.Diagnostics.DiagnosticsAlertService>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Diagnostics.DiagnosticsAlertService>());
+
+        services.AddSingleton<Nexus.Service.Routes.SteamGameLibraryCache>();
+        return services;
+    }
+
     public static IServiceCollection AddNexusLighting(this IServiceCollection services)
     {
         services.AddSingleton<LightingEngine>();
