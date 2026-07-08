@@ -1,4 +1,3 @@
-using System;
 using Nexus.Service.Auth;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Displays;
@@ -94,21 +93,13 @@ public static class DisplayRoutes
                 return Results.Conflict(ApiResponse.Fail("display is already a panel"));
 
             // Stamp viewport hints from the OS facts: the kiosk loads
-            // /panel/{id} directly and never runs the self-report path, so
-            // promote-time values are what the dashboard simulator sees.
-            var scale = display.ScaleFactor ?? 1.0;
-            var capabilities = new PanelDeviceCapabilities
-            {
-                Surface = PanelSurfaces.Monitor,
-                // Touch widgets are placeable only when an integrated touch
-                // digitizer targets this monitor (Windows pointer-device
-                // association); plain monitors behave like the Q-series.
-                Touch = display.IsTouch,
-                Orientation = string.IsNullOrEmpty(display.Orientation) ? null : display.Orientation,
-                CssWidth = (int)Math.Round(display.Resolution.Width / scale),
-                CssHeight = (int)Math.Round(display.Resolution.Height / scale),
-                Dpr = scale,
-            };
+            // /panel/{id} directly and never runs the self-report path.
+            // SyncPromotedPanelCapabilities re-derives the same shape on
+            // later topology reads, so the record tracks rotation/rescale.
+            var capabilities = DisplayTopologyService.BuildPromotedCapabilities(
+                display.Name, display.Model,
+                display.Resolution.Width, display.Resolution.Height,
+                display.ScaleFactor, display.IsTouch, display.Orientation);
             var (record, activated) = registry.AllocateForDisplay(id, body?.DisplayName ?? display.Name, capabilities);
             if (!activated)
                 return Results.Conflict(ApiResponse.Fail("display is already a panel"));

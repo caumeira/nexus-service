@@ -199,6 +199,114 @@ public sealed class DisplayTopologyTests : IDisposable
         Assert.Equal("", LinuxDisplayTopologyProvider.ParseEdidIdentity(new byte[128]).Mfg);
     }
 
+    private static RawDisplayInfo XeneonEdge(string id = "CRS0001-2") => new()
+    {
+        Id = id,
+        Name = "XENEON EDGE",
+        Manufacturer = "CRS",
+        Model = "XENEON EDGE",
+        X = 3840,
+        Y = 0,
+        Width = 2560,
+        Height = 720,
+        ResolutionWidth = 2560,
+        ResolutionHeight = 720,
+        Scale = 1.0,
+        IsTouch = true,
+        Orientation = "Landscape",
+    };
+
+    [Fact]
+    public void Known_display_match_is_case_insensitive_and_reads_name_or_model()
+    {
+        Assert.Equal("xeneon-edge", KnownPanelDisplays.Match("XENEON EDGE", "")?.Family);
+        Assert.Equal("xeneon-edge", KnownPanelDisplays.Match("Corsair Xeneon Edge", null)?.Family);
+        Assert.Equal("xeneon-edge", KnownPanelDisplays.Match(null, "xeneon edge")?.Family);
+        Assert.Null(KnownPanelDisplays.Match("DEL 41B7", "41B7"));
+        Assert.Null(KnownPanelDisplays.Match(null, null));
+    }
+
+    [Fact]
+    public void Promoted_capabilities_carry_density_for_known_displays()
+    {
+        var caps = DisplayTopologyService.BuildPromotedCapabilities(
+            "XENEON EDGE", "XENEON EDGE", 2560, 720, 1.5, isTouch: true, orientation: "Landscape");
+
+        Assert.Equal(PanelSurfaces.Monitor, caps.Surface);
+        Assert.Equal(183, caps.Dpi);
+        Assert.Equal("xeneon-edge", caps.Family);
+        Assert.Equal(1707, caps.CssWidth);
+        Assert.Equal(480, caps.CssHeight);
+        Assert.Equal(1.5, caps.Dpr);
+        Assert.True(caps.Touch);
+
+        var generic = DisplayTopologyService.BuildPromotedCapabilities(
+            "DEL 41B7", "41B7", 3840, 2160, null, isTouch: false, orientation: "");
+        Assert.Null(generic.Dpi);
+        Assert.Null(generic.Family);
+        Assert.Equal(3840, generic.CssWidth);
+        Assert.Null(generic.Orientation);
+    }
+
+    [Fact]
+    public void Topology_read_refreshes_stale_promoted_record_capabilities()
+    {
+        var display = XeneonEdge();
+        var provider = new FakeProvider { Displays = new List<RawDisplayInfo> { display } };
+        var service = new DisplayTopologyService(provider, _registry);
+        // A record promoted by an older build: no dpi/family stamped.
+        var (record, _) = _registry.AllocateForDisplay(display.Id, display.Name, new PanelDeviceCapabilities
+        {
+            Surface = PanelSurfaces.Monitor,
+            Touch = true,
+            CssWidth = 2560,
+            CssHeight = 720,
+            Dpr = 1.0,
+        });
+        var changedBatches = new List<IReadOnlyList<string>>();
+        service.PromotedPanelCapabilitiesChanged += ids => changedBatches.Add(ids);
+
+        service.GetTopology();
+
+        var synced = _registry.FindByDisplayId(display.Id)!;
+        Assert.Equal(183, synced.Capabilities?.Dpi);
+        Assert.Equal("xeneon-edge", synced.Capabilities?.Family);
+        Assert.Equal("Landscape", synced.Capabilities?.Orientation);
+        Assert.Equal(new[] { record.Id }, Assert.Single(changedBatches));
+
+        // Same facts again: no write, no event.
+        service.GetTopology();
+        Assert.Single(changedBatches);
+
+        // Rotation to portrait swaps the reported mode; the record follows.
+        display.ResolutionWidth = 720;
+        display.ResolutionHeight = 2560;
+        display.Orientation = "Portrait";
+        service.GetTopology();
+        var rotated = _registry.FindByDisplayId(display.Id)!;
+        Assert.Equal(720, rotated.Capabilities?.CssWidth);
+        Assert.Equal(2560, rotated.Capabilities?.CssHeight);
+        Assert.Equal("Portrait", rotated.Capabilities?.Orientation);
+        Assert.Equal(2, changedBatches.Count);
+    }
+
+    [Fact]
+    public void Disabled_promoted_records_are_not_synced()
+    {
+        var display = XeneonEdge();
+        var provider = new FakeProvider { Displays = new List<RawDisplayInfo> { display } };
+        var service = new DisplayTopologyService(provider, _registry);
+        _registry.AllocateForDisplay(display.Id, display.Name, new PanelDeviceCapabilities
+        {
+            Surface = PanelSurfaces.Monitor,
+        });
+        _registry.DisablePanelForDisplay(display.Id);
+
+        service.GetTopology();
+
+        Assert.Null(_registry.FindByDisplayId(display.Id)!.Capabilities?.Dpi);
+    }
+
     private static byte[] BuildEdid(string mfg, ushort product, uint serial, int widthCm, int heightCm, string modelName)
     {
         var edid = new byte[128];
