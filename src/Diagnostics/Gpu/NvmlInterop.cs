@@ -1,0 +1,216 @@
+using System;
+using System.Collections.Generic;
+using System.Runtime.InteropServices;
+using System.Text;
+
+namespace Nexus.Service.Diagnostics.Gpu;
+
+/// <summary>
+/// Dynamic NVML (nvml.dll) interop for GPU health readout: name, driver version,
+/// temperature, power draw, clocks event/throttle reasons, and per-policy
+/// violation-time counters. Separate from <see cref="Nexus.Service.Cooling.Nvml"/>
+/// (Linux libnvidia-ml.so fan control): this loads the Windows driver's nvml.dll,
+/// which is not on the default library search path for every install, so symbols
+/// are resolved through <see cref="NativeLibrary"/> and invoked via function
+/// pointers rather than static [LibraryImport] (AOT-safe, no marshalling stubs).
+/// Every call returns the raw nvmlReturn_t int; nonzero means the caller skips
+/// the value and keeps going - a partially-populated snapshot beats none.
+/// </summary>
+internal static unsafe class NvmlInterop
+{
+    public const int Success = 0;               // NVML_SUCCESS
+    public const int NotSupported = 3;           // NVML_ERROR_NOT_SUPPORTED
+
+    private const string DefaultLibraryName = "nvml.dll";
+    private const string FallbackPath = @"C:\Program Files\NVIDIA Corporation\NVSMI\nvml.dll";
+
+    private const uint TemperatureGpu = 0;       // NVML_TEMPERATURE_GPU
+    private const int NameBufferSize = 96;       // NVML_DEVICE_NAME_V2_BUFFER_SIZE
+    private const int DriverVersionBufferSize = 80; // NVML_SYSTEM_DRIVER_VERSION_BUFFER_SIZE
+
+    // nvmlClocksEventReasons / nvmlClocksThrottleReasons bitmask values (same bits
+    // under either symbol name; the "EventReasons" name replaced "ThrottleReasons"
+    // in newer drivers, older drivers only export the latter).
+    public const ulong ReasonIdle = 0x1;
+    public const ulong ReasonApplicationsClocksSetting = 0x2;
+    public const ulong ReasonSwPowerCap = 0x4;
+    public const ulong ReasonHwSlowdown = 0x8;
+    public const ulong ReasonSyncBoost = 0x10;
+    public const ulong ReasonSwThermalSlowdown = 0x20;
+    public const ulong ReasonHwThermalSlowdown = 0x40;
+    public const ulong ReasonHwPowerBrakeSlowdown = 0x80;
+    public const ulong ReasonDisplayClockSetting = 0x100;
+
+    // nvmlPerfPolicyType_t values used for cumulative violation-time counters.
+    public const int PolicyPower = 0;
+    public const int PolicyThermal = 1;
+    public const int PolicyBoardLimit = 3;
+
+    private static readonly object Gate = new();
+    private static bool _attempted;
+    private static IntPtr _handle;
+
+    private static IntPtr _pInit;
+    private static IntPtr _pShutdown;
+    private static IntPtr _pDeviceGetCount;
+    private static IntPtr _pDeviceGetHandleByIndex;
+    private static IntPtr _pDeviceGetName;
+    private static IntPtr _pSystemGetDriverVersion;
+    private static IntPtr _pDeviceGetTemperature;
+    private static IntPtr _pDeviceGetPowerUsage;
+    private static IntPtr _pDeviceGetClocksReasons;
+    private static IntPtr _pDeviceGetViolationStatus;
+
+    /// <summary>nvmlViolationTime_t: cumulative microseconds since driver load.</summary>
+    [StructLayout(LayoutKind.Sequential)]
+    public struct NvmlViolationTime
+    {
+        public ulong ReferenceTimeUs;
+        public ulong ViolationTimeUs;
+    }
+
+    /// <summary>Loads nvml.dll and resolves every symbol once. Returns false (and
+    /// stays false) when the driver isn't present or lacks the core enumeration
+    /// entry points; never throws.</summary>
+    public static bool TryLoad()
+    {
+        lock (Gate)
+        {
+            if (_attempted) return _handle != IntPtr.Zero;
+            _attempted = true;
+            try
+            {
+                if (!NativeLibrary.TryLoad(DefaultLibraryName, out _handle) &&
+                    !NativeLibrary.TryLoad(FallbackPath, out _handle))
+                {
+                    return false;
+                }
+
+                _pInit = Export("nvmlInit_v2");
+                _pShutdown = Export("nvmlShutdown");
+                _pDeviceGetCount = Export("nvmlDeviceGetCount_v2");
+                _pDeviceGetHandleByIndex = Export("nvmlDeviceGetHandleByIndex_v2");
+                _pDeviceGetName = Export("nvmlDeviceGetName");
+                _pSystemGetDriverVersion = Export("nvmlSystemGetDriverVersion");
+                _pDeviceGetTemperature = Export("nvmlDeviceGetTemperature");
+                _pDeviceGetPowerUsage = Export("nvmlDeviceGetPowerUsage");
+                _pDeviceGetViolationStatus = Export("nvmlDeviceGetViolationStatus");
+
+                // Newer drivers renamed ThrottleReasons -> EventReasons (same
+                // signature/bitmask); fall back to the old symbol for older drivers.
+                _pDeviceGetClocksReasons = Export("nvmlDeviceGetCurrentClocksEventReasons");
+                if (_pDeviceGetClocksReasons == IntPtr.Zero)
+                {
+                    _pDeviceGetClocksReasons = Export("nvmlDeviceGetCurrentClocksThrottleReasons");
+                }
+
+                return _pInit != IntPtr.Zero && _pDeviceGetCount != IntPtr.Zero && _pDeviceGetHandleByIndex != IntPtr.Zero;
+            }
+            catch
+            {
+                _handle = IntPtr.Zero;
+                return false;
+            }
+        }
+    }
+
+    private static IntPtr Export(string name) =>
+        NativeLibrary.TryGetExport(_handle, name, out var addr) ? addr : IntPtr.Zero;
+
+    public static int Init() => ((delegate* unmanaged[Stdcall]<int>)_pInit)();
+
+    public static void Shutdown()
+    {
+        if (_pShutdown != IntPtr.Zero)
+        {
+            ((delegate* unmanaged[Stdcall]<int>)_pShutdown)();
+        }
+    }
+
+    public static int DeviceGetCount(out uint count) =>
+        ((delegate* unmanaged[Stdcall]<out uint, int>)_pDeviceGetCount)(out count);
+
+    public static int DeviceGetHandleByIndex(uint index, out IntPtr device) =>
+        ((delegate* unmanaged[Stdcall]<uint, out IntPtr, int>)_pDeviceGetHandleByIndex)(index, out device);
+
+    public static string? GetDriverVersion()
+    {
+        if (_pSystemGetDriverVersion == IntPtr.Zero) return null;
+        Span<byte> buf = stackalloc byte[DriverVersionBufferSize];
+        fixed (byte* p = buf)
+        {
+            var rc = ((delegate* unmanaged[Stdcall]<byte*, uint, int>)_pSystemGetDriverVersion)(p, DriverVersionBufferSize);
+            if (rc != Success) return null;
+        }
+        return TrimAtNull(buf);
+    }
+
+    public static string GetDeviceName(IntPtr device)
+    {
+        if (_pDeviceGetName == IntPtr.Zero) return "NVIDIA GPU";
+        Span<byte> buf = stackalloc byte[NameBufferSize];
+        fixed (byte* p = buf)
+        {
+            var rc = ((delegate* unmanaged[Stdcall]<IntPtr, byte*, uint, int>)_pDeviceGetName)(device, p, NameBufferSize);
+            if (rc != Success) return "NVIDIA GPU";
+        }
+        var name = TrimAtNull(buf);
+        return name.Length == 0 ? "NVIDIA GPU" : name;
+    }
+
+    public static int GetTemperature(IntPtr device, out uint tempC)
+    {
+        tempC = 0;
+        if (_pDeviceGetTemperature == IntPtr.Zero) return NotSupported;
+        return ((delegate* unmanaged[Stdcall]<IntPtr, uint, out uint, int>)_pDeviceGetTemperature)(device, TemperatureGpu, out tempC);
+    }
+
+    public static int GetPowerUsageMilliwatts(IntPtr device, out uint milliwatts)
+    {
+        milliwatts = 0;
+        if (_pDeviceGetPowerUsage == IntPtr.Zero) return NotSupported;
+        return ((delegate* unmanaged[Stdcall]<IntPtr, out uint, int>)_pDeviceGetPowerUsage)(device, out milliwatts);
+    }
+
+    public static int GetClocksReasons(IntPtr device, out ulong reasons)
+    {
+        reasons = 0;
+        if (_pDeviceGetClocksReasons == IntPtr.Zero) return NotSupported;
+        return ((delegate* unmanaged[Stdcall]<IntPtr, out ulong, int>)_pDeviceGetClocksReasons)(device, out reasons);
+    }
+
+    public static int GetViolationStatus(IntPtr device, int policyType, out NvmlViolationTime violation)
+    {
+        violation = default;
+        if (_pDeviceGetViolationStatus == IntPtr.Zero) return NotSupported;
+        return ((delegate* unmanaged[Stdcall]<IntPtr, int, out NvmlViolationTime, int>)_pDeviceGetViolationStatus)(device, policyType, out violation);
+    }
+
+    private static string TrimAtNull(Span<byte> buf)
+    {
+        var end = buf.IndexOf((byte)0);
+        return Encoding.UTF8.GetString(end < 0 ? buf : buf[..end]).Trim();
+    }
+
+    // Known reason bits Idle/ApplicationsClocksSetting never map to an active
+    // throttle key. Anything set outside the recognised set (SyncBoost,
+    // DisplayClockSetting, or a future bit) folds into "other".
+    private const ulong KnownReasonBits =
+        ReasonIdle | ReasonApplicationsClocksSetting | ReasonSwPowerCap | ReasonHwSlowdown |
+        ReasonSwThermalSlowdown | ReasonHwThermalSlowdown | ReasonHwPowerBrakeSlowdown;
+
+    /// <summary>Maps a clocks-reasons bitmask to the contract's throttle active
+    /// keys: swPower, hwSlowdown, hwThermal, hwPowerBrake, swThermal, other.</summary>
+    public static string[] MapReasonsToActiveKeys(ulong reasons)
+    {
+        if (reasons == 0) return Array.Empty<string>();
+        var active = new List<string>(4);
+        if ((reasons & ReasonSwPowerCap) != 0) active.Add("swPower");
+        if ((reasons & ReasonHwSlowdown) != 0) active.Add("hwSlowdown");
+        if ((reasons & ReasonSwThermalSlowdown) != 0) active.Add("swThermal");
+        if ((reasons & ReasonHwThermalSlowdown) != 0) active.Add("hwThermal");
+        if ((reasons & ReasonHwPowerBrakeSlowdown) != 0) active.Add("hwPowerBrake");
+        if ((reasons & ~KnownReasonBits) != 0) active.Add("other");
+        return active.ToArray();
+    }
+}

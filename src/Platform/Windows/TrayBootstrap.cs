@@ -116,6 +116,14 @@ internal static class TrayBootstrap
             try { TrayIcon.ShowNoticeBalloon(notice.Title, notice.Text, notice.FolderPath); }
             catch { /* best-effort */ }
         };
+
+        // Same generic balloon, diagnostics flavor: a component just turned "act".
+        var diagAlerts = app.Services.GetRequiredService<Nexus.Service.Diagnostics.DiagnosticsAlertService>();
+        diagAlerts.HardwareIssueDetected += notice =>
+        {
+            try { TrayIcon.ShowNoticeBalloon(notice.Title, notice.Text, null); }
+            catch { /* best-effort */ }
+        };
     }
 
 #if WINDOWS
@@ -166,6 +174,15 @@ internal static class TrayBootstrap
         {
             try { _ = TrayCommands.NoticeAsync(helperRegistry, notice.Title, notice.Text, notice.FolderPath); }
             catch (Exception ex) { Console.Error.WriteLine($"[transfer-notify] show failed: {ex.Message}"); }
+        };
+
+        // Same dashboard-closed gate, diagnostics flavor - pushed down the pipe
+        // because Session 0 can't draw UI.
+        var diagAlerts = app.Services.GetRequiredService<Nexus.Service.Diagnostics.DiagnosticsAlertService>();
+        diagAlerts.HardwareIssueDetected += notice =>
+        {
+            try { _ = TrayCommands.NoticeAsync(helperRegistry, notice.Title, notice.Text, null); }
+            catch (Exception ex) { Console.Error.WriteLine($"[diagnostics-alert] notify failed: {ex.Message}"); }
         };
 
         // Push current state on every fresh helper connect: first bootstrap,

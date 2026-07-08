@@ -924,6 +924,31 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.StrimerModeInfoDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.StrimerModeInfoDto[]))]
 
+// Diagnostics app: aggregated health + per-domain detail + bundle export.
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.DiagnosticsHealthResponse))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.HealthComponent))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.HealthComponentReason))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.EventLog.DiagnosticIncident))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.EventLog.DiagnosticAppInfo))]
+[JsonSerializable(typeof(Nexus.Service.Routes.IncidentsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.Storage.SmartSnapshot))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.Storage.SmartDriveInfo))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.Storage.SmartAttributeWire))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.Storage.SmartNvmeWire))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.Gpu.GpuThrottleInfo))]
+[JsonSerializable(typeof(Nexus.Service.Routes.GpuInfoWire))]
+[JsonSerializable(typeof(Nexus.Service.Routes.GpuHealthResponse))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.Cooling.CoolingStallSnapshot))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.Cooling.CoolingStallDevice))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.Memory.MemoryModuleInfo))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.Memory.MemoryTestResult))]
+[JsonSerializable(typeof(Nexus.Service.Routes.MemoryHealthResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.MemoryTestScheduleResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.MemoryTestCancelResponse))]
+[JsonSerializable(typeof(Nexus.Service.Diagnostics.SystemInfo.PnpProblemDevice))]
+[JsonSerializable(typeof(Nexus.Service.Routes.SystemDiagnosticsCounts))]
+[JsonSerializable(typeof(Nexus.Service.Routes.SystemDiagnosticsResponse))]
+
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]

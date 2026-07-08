@@ -1,0 +1,410 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using Nexus.Service.Diagnostics.Cooling;
+using Nexus.Service.Diagnostics.EventLog;
+using Nexus.Service.Diagnostics.Gpu;
+using Nexus.Service.Diagnostics.Memory;
+using Nexus.Service.Diagnostics.Storage;
+using Nexus.Service.Diagnostics.SystemInfo;
+using Nexus.Service.Sensors;
+
+namespace Nexus.Service.Diagnostics;
+
+/// <summary>Wire status values shared by the overall health value and every component's status.</summary>
+public static class HealthStatuses
+{
+    public const string Ok = "ok";
+    public const string Watch = "watch";
+    public const string Act = "act";
+    public const string Unknown = "unknown";
+}
+
+public sealed record DiagnosticsHealthResponse
+{
+    public DateTime GeneratedAt { get; init; }
+    public bool Supported { get; init; }
+    public string Overall { get; init; } = HealthStatuses.Unknown;
+    public IReadOnlyList<HealthComponent> Components { get; init; } = Array.Empty<HealthComponent>();
+}
+
+public sealed record HealthComponent
+{
+    /// <summary>kind:stableKey, e.g. "storage:S6Z1NX0T123456".</summary>
+    public string Id { get; init; } = "";
+    /// <summary>storage | memory | gpu | cooling | system.</summary>
+    public string Kind { get; init; } = "";
+    public string Name { get; init; } = "";
+    public string Status { get; init; } = HealthStatuses.Unknown;
+    public IReadOnlyList<HealthComponentReason> Reasons { get; init; } = Array.Empty<HealthComponentReason>();
+}
+
+public sealed record HealthComponentReason(string Code, string Severity, string Summary, string Detail);
+
+/// <summary>
+/// Aggregates every diagnostics module into the GET /diagnostics/health payload.
+/// <see cref="Compute"/> is a pure function of plain snapshot DTOs so it is
+/// testable on any platform without the Windows-only monitor classes;
+/// <see cref="BuildHealth"/> is the DI-facing instance wrapper that gathers
+/// those snapshots and caches the result for 30s (the health page and the
+/// alert service both poll through this).
+/// </summary>
+public sealed class DiagnosticsHealthModel
+{
+    private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(30);
+    private static readonly TimeSpan EventWindow = TimeSpan.FromDays(30);
+
+    private readonly SmartHealthMonitor _smart;
+    private readonly CoolingStallDetector _cooling;
+    private readonly GpuHealthMonitor _gpu;
+    private readonly EventLogMonitor _events;
+    private readonly MemoryDiagnosticOrchestrator _memDiag;
+    private readonly PnpProblemScanner _pnp;
+    private readonly ISensorProvider _sensors;
+
+    private readonly object _gate = new();
+    private DiagnosticsHealthResponse? _cached;
+    private DateTime _cachedAtUtc = DateTime.MinValue;
+
+    public DiagnosticsHealthModel(
+        SmartHealthMonitor smart,
+        CoolingStallDetector cooling,
+        GpuHealthMonitor gpu,
+        EventLogMonitor events,
+        MemoryDiagnosticOrchestrator memDiag,
+        PnpProblemScanner pnp,
+        ISensorProvider sensors)
+    {
+        _smart = smart;
+        _cooling = cooling;
+        _gpu = gpu;
+        _events = events;
+        _memDiag = memDiag;
+        _pnp = pnp;
+        _sensors = sensors;
+    }
+
+    public DiagnosticsHealthResponse BuildHealth()
+    {
+        lock (_gate)
+        {
+            var now = DateTime.UtcNow;
+            if (_cached is not null && now - _cachedAtUtc < CacheTtl)
+            {
+                return _cached;
+            }
+
+            var result = Compute(
+                smart: _smart.Snapshot(),
+                cooling: _cooling.Snapshot(),
+                gpu: _gpu.Snapshot(),
+                counts30d: _events.CountsSince(EventWindow),
+                lastMemoryTest: _memDiag.LastResult(),
+                pnp: _pnp.Snapshot(),
+                knownGpuModels: _sensors.GetGpuModels(),
+                windowsSupported: OperatingSystem.IsWindows(),
+                generatedAtUtc: now);
+
+            _cached = result;
+            _cachedAtUtc = now;
+            return result;
+        }
+    }
+
+    /// <summary>
+    /// Pure aggregation: every module's own Windows-gating already collapses to
+    /// unsupported/empty data on non-Windows, so the only extra gate needed
+    /// here is skipping storage/gpu/memory/system entirely when
+    /// <paramref name="windowsSupported"/> is false - cooling stays evaluated
+    /// on every platform (IFanControlProvider exists cross-platform).
+    /// </summary>
+    public static DiagnosticsHealthResponse Compute(
+        SmartSnapshot smart,
+        CoolingStallSnapshot cooling,
+        GpuHealthSnapshot gpu,
+        IReadOnlyDictionary<string, int> counts30d,
+        MemoryTestResult? lastMemoryTest,
+        PnpProblemSnapshot pnp,
+        IReadOnlyList<string> knownGpuModels,
+        bool windowsSupported,
+        DateTime generatedAtUtc)
+    {
+        var components = new List<HealthComponent>();
+
+        if (windowsSupported)
+        {
+            AddStorageComponents(components, smart);
+            AddGpuComponents(components, gpu, counts30d, knownGpuModels);
+            AddMemoryComponent(components, counts30d, lastMemoryTest);
+            AddSystemComponent(components, counts30d, pnp);
+        }
+        AddCoolingComponents(components, cooling);
+
+        return new DiagnosticsHealthResponse
+        {
+            GeneratedAt = generatedAtUtc,
+            Supported = windowsSupported,
+            Overall = WorstStatus(components.Select(c => c.Status)),
+            Components = components,
+        };
+    }
+
+    private static void AddStorageComponents(List<HealthComponent> components, SmartSnapshot smart)
+    {
+        if (!smart.Supported)
+        {
+            return;
+        }
+
+        foreach (var drive in smart.Drives)
+        {
+            var reasons = drive.DetailedReasons
+                .Select(r => new HealthComponentReason(r.Code, MapReasonSeverity(r.Severity), r.Summary, r.Detail))
+                .ToList();
+            components.Add(new HealthComponent
+            {
+                Id = drive.Id,
+                Kind = "storage",
+                Name = drive.Name,
+                Status = MapDriveStatus(drive.Status),
+                Reasons = reasons,
+            });
+        }
+    }
+
+    private static string MapDriveStatus(string status) => status switch
+    {
+        "good" => HealthStatuses.Ok,
+        "caution" => HealthStatuses.Watch,
+        "warning" => HealthStatuses.Act,
+        "bad" => HealthStatuses.Act,
+        _ => HealthStatuses.Unknown,
+    };
+
+    private static string MapReasonSeverity(ReasonSeverity severity) =>
+        severity == ReasonSeverity.Act ? HealthStatuses.Act : HealthStatuses.Watch;
+
+    private static void AddCoolingComponents(List<HealthComponent> components, CoolingStallSnapshot cooling)
+    {
+        if (cooling.Devices.Count == 0)
+        {
+            return;
+        }
+
+        foreach (var device in cooling.Devices)
+        {
+            if (device.Status != CoolingStallStatuses.Stalled && device.Status != CoolingStallStatuses.Suspect)
+            {
+                continue;
+            }
+
+            var isPump = string.Equals(device.Type, "pump", StringComparison.OrdinalIgnoreCase);
+            var code = isPump ? "cooling.pumpStall" : "cooling.fanStall";
+            var severity = device.Status == CoolingStallStatuses.Stalled ? HealthStatuses.Act : HealthStatuses.Watch;
+            var summary = device.Status == CoolingStallStatuses.Stalled
+                ? $"{device.Name} reports 0 RPM while driven"
+                : $"{device.Name} reports 0 RPM at low duty";
+            var detail = $"rpm={Fmt(device.Rpm)} targetDuty={Fmt(device.TargetDutyPercent)}% since={device.SinceUtc:O}";
+
+            components.Add(new HealthComponent
+            {
+                Id = $"cooling:{device.Id}",
+                Kind = "cooling",
+                Name = device.Name,
+                Status = severity,
+                Reasons = new List<HealthComponentReason> { new(code, severity, summary, detail) },
+            });
+        }
+
+        components.Add(new HealthComponent
+        {
+            Id = "cooling",
+            Kind = "cooling",
+            Name = $"Cooling ({cooling.Devices.Count})",
+            Status = HealthStatuses.Ok,
+            Reasons = Array.Empty<HealthComponentReason>(),
+        });
+    }
+
+    private static string Fmt(double? value) => value?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null";
+
+    private static void AddGpuComponents(
+        List<HealthComponent> components,
+        GpuHealthSnapshot gpu,
+        IReadOnlyDictionary<string, int> counts30d,
+        IReadOnlyList<string> knownGpuModels)
+    {
+        var tdrCount = counts30d.GetValueOrDefault(DiagnosticEventCatalog.SourceTdr);
+        var driverErrCount = counts30d.GetValueOrDefault(DiagnosticEventCatalog.SourceGpuDriver);
+
+        if (gpu.Supported)
+        {
+            for (var i = 0; i < gpu.Gpus.Count; i++)
+            {
+                var info = gpu.Gpus[i];
+                var reasons = BuildGpuReasons(info.Throttle, tdrCount, driverErrCount);
+                components.Add(new HealthComponent
+                {
+                    Id = $"gpu:{i}",
+                    Kind = "gpu",
+                    Name = info.Name,
+                    Status = WorstReasonStatus(reasons, HealthStatuses.Ok),
+                    Reasons = reasons,
+                });
+            }
+            return;
+        }
+
+        if (knownGpuModels.Count == 0 && tdrCount == 0 && driverErrCount == 0)
+        {
+            return;
+        }
+
+        var fallbackReasons = BuildGpuReasons(NoThrottle, tdrCount, driverErrCount);
+        components.Add(new HealthComponent
+        {
+            Id = "gpu:0",
+            Kind = "gpu",
+            Name = knownGpuModels.FirstOrDefault() ?? "GPU",
+            Status = WorstReasonStatus(fallbackReasons, HealthStatuses.Unknown),
+            Reasons = fallbackReasons,
+        });
+    }
+
+    private static readonly GpuThrottleInfo NoThrottle = new(Array.Empty<string>(), null, null, null, null);
+
+    private static List<HealthComponentReason> BuildGpuReasons(GpuThrottleInfo throttle, int tdrCount, int driverErrCount)
+    {
+        var reasons = new List<HealthComponentReason>();
+
+        if (tdrCount >= 1)
+        {
+            var severity = tdrCount >= 3 ? HealthStatuses.Act : HealthStatuses.Watch;
+            reasons.Add(new HealthComponentReason("gpu.tdr", severity,
+                $"{tdrCount} display driver timeout(s) in the last 30 days",
+                "A TDR resets the display driver after it stops responding; repeated TDRs point to an unstable driver, an overclock, or a failing GPU."));
+        }
+
+        if (driverErrCount >= 5)
+        {
+            var severity = driverErrCount >= 25 ? HealthStatuses.Act : HealthStatuses.Watch;
+            reasons.Add(new HealthComponentReason("gpu.driverErrors", severity,
+                $"{driverErrCount} GPU driver error(s) in the last 30 days",
+                "Errors logged by the NVIDIA or AMD kernel-mode driver (nvlddmkm / amdkmdag) over the last 30 days."));
+        }
+
+        if (throttle.Active.Contains("hwThermal") || throttle.Active.Contains("hwPowerBrake"))
+        {
+            reasons.Add(new HealthComponentReason("gpu.thermalThrottle", HealthStatuses.Watch,
+                "GPU is hardware throttling",
+                "The GPU reports an active hardware thermal or power-brake throttle, both driven by the board directly rather than software policy."));
+        }
+
+        return reasons;
+    }
+
+    private static void AddMemoryComponent(
+        List<HealthComponent> components,
+        IReadOnlyDictionary<string, int> counts30d,
+        MemoryTestResult? lastMemoryTest)
+    {
+        var wheaCount = counts30d.GetValueOrDefault(DiagnosticEventCatalog.SourceWhea);
+        var reasons = new List<HealthComponentReason>();
+
+        if (lastMemoryTest is { Result: MemoryTestResult.Failed })
+        {
+            reasons.Add(new HealthComponentReason("memory.testFailed", HealthStatuses.Act,
+                "The last Windows Memory Diagnostic run reported errors",
+                lastMemoryTest.Detail ?? "Microsoft-Windows-MemoryDiagnostics-Results logged a failed run."));
+        }
+
+        if (wheaCount >= 1)
+        {
+            var severity = wheaCount >= 5 ? HealthStatuses.Act : HealthStatuses.Watch;
+            reasons.Add(new HealthComponentReason("memory.wheaErrors", severity,
+                $"{wheaCount} WHEA-logged hardware error(s) in the last 30 days",
+                "WHEA covers CPU, PCIe, and memory machine-check-class hardware errors; not all of them are memory faults."));
+        }
+
+        components.Add(new HealthComponent
+        {
+            Id = "memory",
+            Kind = "memory",
+            Name = "Memory",
+            Status = WorstReasonStatus(reasons, HealthStatuses.Ok),
+            Reasons = reasons,
+        });
+    }
+
+    private static void AddSystemComponent(
+        List<HealthComponent> components,
+        IReadOnlyDictionary<string, int> counts30d,
+        PnpProblemSnapshot pnp)
+    {
+        var bugcheckCount = counts30d.GetValueOrDefault(DiagnosticEventCatalog.SourceBugcheck);
+        var dirtyShutdownCount = counts30d.GetValueOrDefault(DiagnosticEventCatalog.SourceDirtyShutdown);
+        var reasons = new List<HealthComponentReason>();
+
+        if (bugcheckCount >= 1)
+        {
+            var severity = bugcheckCount >= 3 ? HealthStatuses.Act : HealthStatuses.Watch;
+            reasons.Add(new HealthComponentReason("system.bugchecks", severity,
+                $"{bugcheckCount} bugcheck(s) in the last 30 days",
+                "Logged by Microsoft-Windows-WER-SystemErrorReporting when Windows reports a kernel bugcheck after reboot."));
+        }
+
+        if (dirtyShutdownCount >= 3)
+        {
+            reasons.Add(new HealthComponentReason("system.dirtyShutdowns", HealthStatuses.Watch,
+                $"{dirtyShutdownCount} unexpected shutdown(s) in the last 30 days",
+                "Kernel-Power event 41: the system restarted without a clean shutdown. Also logged for a deliberate power cut, not only a fault."));
+        }
+
+        if (pnp.Devices.Count >= 1)
+        {
+            reasons.Add(new HealthComponentReason("system.pnpProblems", HealthStatuses.Watch,
+                $"{pnp.Devices.Count} device(s) reporting a Device Manager problem",
+                "Windows Device Manager reports a non-zero ConfigManagerErrorCode for at least one device."));
+        }
+
+        components.Add(new HealthComponent
+        {
+            Id = "system",
+            Kind = "system",
+            Name = "System",
+            Status = WorstReasonStatus(reasons, HealthStatuses.Ok),
+            Reasons = reasons,
+        });
+    }
+
+    private static string WorstReasonStatus(IReadOnlyList<HealthComponentReason> reasons, string baseline)
+    {
+        if (reasons.Any(r => r.Severity == HealthStatuses.Act))
+        {
+            return HealthStatuses.Act;
+        }
+        if (reasons.Any(r => r.Severity == HealthStatuses.Watch))
+        {
+            return HealthStatuses.Watch;
+        }
+        return baseline;
+    }
+
+    private static string WorstStatus(IEnumerable<string> statuses)
+    {
+        var list = statuses.ToList();
+        if (list.Contains(HealthStatuses.Act))
+        {
+            return HealthStatuses.Act;
+        }
+        if (list.Contains(HealthStatuses.Watch))
+        {
+            return HealthStatuses.Watch;
+        }
+        if (list.Contains(HealthStatuses.Unknown))
+        {
+            return HealthStatuses.Unknown;
+        }
+        return HealthStatuses.Ok;
+    }
+}
