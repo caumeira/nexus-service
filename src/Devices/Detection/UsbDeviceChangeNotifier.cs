@@ -1,0 +1,85 @@
+#if WINDOWS
+using System;
+using System.Runtime.InteropServices;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices.Detection.Native;
+using Nexus.Service.Platform;
+
+namespace Nexus.Service.Devices.Detection;
+
+/// <summary>
+/// Invalidates the <see cref="CachingUsbEnumerator"/> on PnP USB device
+/// interface arrival/removal (CM_Register_Notification), so hotplug is
+/// detected event-driven instead of by cache expiry. On successful
+/// registration the cache's fallback TTL is raised - it then only backstops
+/// a missed notification. If registration fails the cache keeps its short
+/// polling TTL and behavior matches the pre-notification design.
+/// </summary>
+internal sealed unsafe class UsbDeviceChangeNotifier : IHostedService
+{
+    private static readonly TimeSpan EventDrivenTtl = TimeSpan.FromSeconds(120);
+
+    // Callback context: the notifier is a process singleton, so a static ref
+    // avoids marshalling a GCHandle through the native context pointer.
+    private static UsbDeviceChangeNotifier? s_instance;
+
+    private readonly CachingUsbEnumerator _cache;
+    private IntPtr _registration;
+
+    public UsbDeviceChangeNotifier(CachingUsbEnumerator cache) { _cache = cache; }
+
+    public Task StartAsync(CancellationToken cancellationToken)
+    {
+        s_instance = this;
+        var filter = new CfgMgr32.CM_NOTIFY_FILTER
+        {
+            cbSize = (uint)Marshal.SizeOf<CfgMgr32.CM_NOTIFY_FILTER>(),
+            FilterType = CfgMgr32.CM_NOTIFY_FILTER_TYPE_DEVICEINTERFACE,
+            ClassGuid = CfgMgr32.UsbDeviceInterfaceClass,
+        };
+        var ret = CfgMgr32.CM_Register_Notification(
+            in filter, IntPtr.Zero,
+            (IntPtr)(delegate* unmanaged<IntPtr, IntPtr, int, IntPtr, uint, uint>)&OnNotification,
+            out _registration);
+        if (ret == CfgMgr32.CR_SUCCESS)
+        {
+            _cache.SetTtl(EventDrivenTtl);
+            ServiceLog.Info($"[usb-notify] PnP usb-interface notifications registered; cache fallback TTL {EventDrivenTtl.TotalSeconds:F0}s");
+        }
+        else
+        {
+            ServiceLog.Warn($"[usb-notify] CM_Register_Notification failed (CR=0x{ret:X}); keeping the polling TTL");
+        }
+        return Task.CompletedTask;
+    }
+
+    public Task StopAsync(CancellationToken cancellationToken)
+    {
+        if (_registration != IntPtr.Zero)
+        {
+            CfgMgr32.CM_Unregister_Notification(_registration);
+            _registration = IntPtr.Zero;
+        }
+        s_instance = null;
+        return Task.CompletedTask;
+    }
+
+    [UnmanagedCallersOnly]
+    private static uint OnNotification(IntPtr hNotify, IntPtr context, int action, IntPtr eventData, uint eventDataSize)
+    {
+        // PnP callbacks must return quickly; Invalidate is O(1) and the next
+        // Enumerate caller performs the actual re-scan.
+        if (action is CfgMgr32.CM_NOTIFY_ACTION_DEVICEINTERFACEARRIVAL
+                   or CfgMgr32.CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL)
+        {
+            s_instance?._cache.Invalidate();
+            ServiceLog.Info(action == CfgMgr32.CM_NOTIFY_ACTION_DEVICEINTERFACEARRIVAL
+                ? "[usb-notify] usb device arrival; enumeration cache invalidated"
+                : "[usb-notify] usb device removal; enumeration cache invalidated");
+        }
+        return 0; // ERROR_SUCCESS
+    }
+}
+#endif

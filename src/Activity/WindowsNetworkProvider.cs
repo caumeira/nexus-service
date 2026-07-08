@@ -5,18 +5,19 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Activity.Native;
 using Nexus.Service.Models.Activity;
 using Nexus.Service.Sockets;
 
 namespace Nexus.Service.Activity;
 
 /// <summary>
-/// Windows network monitor. Polls <c>netstat -n -o</c> to discover which
-/// processes have active connections to a non-loopback peer (loopback PIDs
-/// are dropped so the web client / panel kiosk talking to nexus-service
-/// over localhost do not appear as network users), then reads cumulative
-/// I/O byte counters via <c>GetProcessIoCounters</c>. Only samples when
-/// subscribers exist.
+/// Windows network monitor. Reads the TCP connection table in-process
+/// (<c>GetExtendedTcpTable</c>) to discover which processes have active
+/// connections to a non-loopback peer (loopback PIDs are dropped so the web
+/// client / panel kiosk talking to nexus-service over localhost do not
+/// appear as network users), then reads cumulative I/O byte counters via
+/// <c>GetProcessIoCounters</c>. Only samples when subscribers exist.
 /// </summary>
 public sealed class WindowsNetworkProvider : BackgroundService, INetworkProvider
 {
@@ -54,20 +55,16 @@ public sealed class WindowsNetworkProvider : BackgroundService, INetworkProvider
 
     private void Sample()
     {
-        // netstat -n -o works without admin and includes the owning PID:
-        //   Proto  Local Address       Foreign Address     State         PID
-        //   TCP    192.168.1.35:50123  142.250.80.46:443   ESTABLISHED   9876
-        var output = ShellOut("netstat", "-n", "-o");
-        if (string.IsNullOrEmpty(output))
+        // Step 1: PIDs whose TCP connections include a non-loopback peer.
+        // Pure-loopback PIDs (nexus-service itself, the panel/Y70 launchers)
+        // are dropped here so they never reach the per-process I/O counters.
+        var activePids = new HashSet<int>();
+        IpHlpApi.CollectInternetActivePids(activePids);
+        if (activePids.Count == 0)
         {
             _snapshot = Array.Empty<NetworkProcessInfo>();
             return;
         }
-
-        // Step 1: Parse PIDs whose connections include a non-loopback peer.
-        // Pure-loopback PIDs (nexus-service itself, the panel/Y70 launchers)
-        // are dropped here so they never reach the per-process I/O counters.
-        var activePids = NetstatParser.ParseInternetActivePids(output);
 
         // Step 2: Resolve PIDs to process names and get cumulative I/O counters
         var current = new Dictionary<string, (long bytesIn, long bytesOut)>(StringComparer.OrdinalIgnoreCase);
@@ -101,31 +98,6 @@ public sealed class WindowsNetworkProvider : BackgroundService, INetworkProvider
                 BytesOut = kv.Value.bytesOut,
             })
             .ToList();
-    }
-
-    private static string ShellOut(string fileName, params string[] args)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = fileName,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            foreach (var a in args) psi.ArgumentList.Add(a);
-            using var proc = Process.Start(psi);
-            if (proc is null) return "";
-            var output = proc.StandardOutput.ReadToEnd();
-            if (!proc.WaitForExit(5000))
-            {
-                try { proc.Kill(); } catch { }
-            }
-            return output;
-        }
-        catch { return ""; }
     }
 
     // Win32 P/Invoke for process I/O counters
