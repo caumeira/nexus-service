@@ -1,4 +1,5 @@
 using System;
+using System.Threading;
 using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Peripherals.Hyte.Np50;
 using Nexus.Service.Platform;
@@ -32,7 +33,16 @@ public sealed class Y70DisplayHub : IDisposable, IDfuFlashTarget
     public Y70DisplayState State { get; } = new();
     public bool IsConnected => _transport is { IsOpen: true };
 
-    /// <summary>"y70" / "y70-infinite" / "y70-truly" once connected, else empty. Firmware-catalog key.</summary>
+    /// <summary>
+    /// Increments on every fresh port open. Consumers holding one-time
+    /// per-connection state (the Touch RGB-gain prep) compare against it so a
+    /// replugged panel - whose STM32 and monitor state reset - is re-prepped.
+    /// Written under _lock, read from other threads without it.
+    /// </summary>
+    public int ConnectionEpoch => Volatile.Read(ref _connectionEpoch);
+    private int _connectionEpoch;
+
+    /// <summary>"y70-touch" / "y70-infinite" / "y70-truly" once connected, else empty. Firmware-catalog key.</summary>
     public string Variant => State.Variant;
 
     public string DeviceId => string.IsNullOrEmpty(State.Serial) ? "" : $"y70:{State.Serial}";
@@ -78,6 +88,7 @@ public sealed class Y70DisplayHub : IDisposable, IDfuFlashTarget
                     _transport = t;
                     State.Serial = port.Serial;
                     State.Variant = port.Variant;
+                    Interlocked.Increment(ref _connectionEpoch);
                     ServiceLog.Info($"[y70-display] connected to {port.PortName} (variant={port.Variant} serial={port.Serial})");
                     return true;
                 }

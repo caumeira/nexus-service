@@ -250,6 +250,11 @@
     <EmbeddedResource Include="src\Peripherals\Tryx\Panorama\PresetThumbs\*.jpg">
       <LogicalName>tryx-preset-%(Filename).jpg</LogicalName>
     </EmbeddedResource>
+    <!-- Colored Nexus mark for the diagnostics PDF report header, downscaled
+         from brand/NexusLogoMarkColorAlpha.png; decoded once by NexusReportAssets. -->
+    <EmbeddedResource Include="src\Diagnostics\Report\Assets\nexus-mark-color.png">
+      <LogicalName>nexus-mark-color.png</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <!-- GLSL fragment shaders: one file per animate effect under
