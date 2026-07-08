@@ -101,7 +101,8 @@ public static class DiagnosticsReportBuilder
         {
             GeneratedAtUtc = DateTime.UtcNow,
             MachineName = ResolveMachineName(specs),
-            NexusVersion = BuildInfo.Version,
+            // BuildInfo.Version may carry a v prefix; the layout adds its own.
+            NexusVersion = BuildInfo.Version.TrimStart('v', 'V'),
             ReportId = GenerateReportId(),
             Health = health.BuildHealth(),
             Specs = specs,
