@@ -122,8 +122,10 @@ internal static class PdfFonts
     }
 
     /// <summary>Escapes the three PDF literal-string special characters. Call
-    /// after <see cref="Sanitize"/>, never before - escaping first would let a
-    /// sanitize pass re-interpret the inserted backslashes.</summary>
+    /// last - after <see cref="Sanitize"/> and after any
+    /// <see cref="MeasureWidthPt"/>/<see cref="TruncateToWidth"/> call, since
+    /// the inserted backslash bytes would otherwise count toward the measured
+    /// width and shift the truncation point.</summary>
     public static string Escape(string sanitizedAscii)
     {
         var sb = new StringBuilder(sanitizedAscii.Length);
@@ -195,4 +197,9 @@ internal static class PdfFonts
 
     /// <summary>Formats a point/em value as PDF-safe, invariant-culture, minimal-decimal text.</summary>
     public static string Num(double value) => value.ToString("0.##", CultureInfo.InvariantCulture);
+
+    /// <summary>Formats a small ratio (e.g. a `cm` matrix scale coefficient) with
+    /// enough decimal places that a small source/target ratio does not round
+    /// away to a visibly wrong scale, or to zero.</summary>
+    public static string NumPrecise(double value) => value.ToString("0.#####", CultureInfo.InvariantCulture);
 }

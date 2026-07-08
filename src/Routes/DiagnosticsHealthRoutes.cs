@@ -13,6 +13,7 @@ using Nexus.Service.Diagnostics.Report;
 using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Diagnostics.SystemInfo;
 using Nexus.Service.Lighting;
+using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 
 namespace Nexus.Service.Routes;
@@ -101,8 +102,16 @@ public static class DiagnosticsHealthRoutes
             var coolingSnapshot = cooling.Snapshot();
             var system = BuildSystemResponse(pnp, events);
 
-            var reportSnapshot = await DiagnosticsReportBuilder.GatherAsync(healthModel, specs, smart, gpu, events, memDiag, pnp);
-            var reportPdf = DiagnosticsReportBuilder.Build(reportSnapshot);
+            byte[]? reportPdf = null;
+            try
+            {
+                var reportSnapshot = await DiagnosticsReportBuilder.GatherAsync(health, specs, smartSnapshot, gpu, events, memDiag, pnp);
+                reportPdf = DiagnosticsReportBuilder.Build(reportSnapshot);
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Warn($"[diagnostics-bundle] report pdf generation failed: {ex.Message}");
+            }
 
             var zipBytes = DiagnosticsBundleBuilder.Build(health, incidents, smartSnapshot, memory, gpuResponse, coolingSnapshot, system, reportPdf);
             var fileName = $"nexus-diagnostics-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmmss}.zip";
@@ -118,7 +127,9 @@ public static class DiagnosticsHealthRoutes
             MemoryDiagnosticOrchestrator memDiag,
             PnpProblemScanner pnp) =>
         {
-            var snapshot = await DiagnosticsReportBuilder.GatherAsync(healthModel, specs, smart, gpu, events, memDiag, pnp);
+            var health = healthModel.BuildHealth();
+            var smartSnapshot = smart.Snapshot();
+            var snapshot = await DiagnosticsReportBuilder.GatherAsync(health, specs, smartSnapshot, gpu, events, memDiag, pnp);
             var pdfBytes = DiagnosticsReportBuilder.Build(snapshot);
             var fileName = $"nexus-diagnostics-report-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmm}.pdf";
             return Results.File(pdfBytes, "application/pdf", fileName);

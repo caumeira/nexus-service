@@ -37,9 +37,12 @@ public sealed record ReportSnapshot
 
 /// <summary>
 /// Builds the single-page PDF diagnostics report. <see cref="GatherAsync"/> is
-/// the DI-facing side that reads every live diagnostics module (mirrors the
-/// GET /diagnostics/bundle/download route's gathering); <see cref="Build"/> is
-/// the pure layout function, safe to unit test with a hand-built snapshot.
+/// the DI-facing side that reads every live diagnostics module; it takes the
+/// health response and SMART snapshot as already-computed values (not the
+/// monitors that produce them) so a caller that also needs those values for
+/// its own response - the GET /diagnostics/bundle/download route - reads each
+/// exactly once and both outputs describe the same instant. <see cref="Build"/>
+/// is the pure layout function, safe to unit test with a hand-built snapshot.
 ///
 /// Layout is a fixed budget: every section occupies the same page area and
 /// the same number of row slots no matter how much data exists (drive count,
@@ -66,9 +69,9 @@ public static class DiagnosticsReportBuilder
     private const string NotAvailable = "Not available on this platform";
 
     public static async Task<ReportSnapshot> GatherAsync(
-        DiagnosticsHealthModel health,
+        DiagnosticsHealthResponse health,
         SystemSpecsCollector specsCollector,
-        SmartHealthMonitor smart,
+        SmartSnapshot smart,
         GpuHealthMonitor gpu,
         EventLogMonitor events,
         MemoryDiagnosticOrchestrator memDiag,
@@ -104,11 +107,11 @@ public static class DiagnosticsReportBuilder
             // BuildInfo.Version may carry a v prefix; the layout adds its own.
             NexusVersion = BuildInfo.Version.TrimStart('v', 'V'),
             ReportId = GenerateReportId(),
-            Health = health.BuildHealth(),
+            Health = health,
             Specs = specs,
             MemoryInfo = memInfo,
             Gpu = gpu.Snapshot(),
-            Smart = smart.Snapshot(),
+            Smart = smart,
             Pnp = pnp.Snapshot(),
             Counts30d = events.CountsSince(TimeSpan.FromDays(30)),
             LastMemoryTest = memDiag.LastResult(),
@@ -488,19 +491,23 @@ public static class DiagnosticsReportBuilder
         SectionTitle(c, "Recent stability (30 days)", ref y);
 
         var counts = s.Counts30d;
-        var col1 = new (string Label, int Value)[]
+        // EventLogMonitor/PnpProblemScanner are both Windows-only and report an
+        // empty/zero snapshot on other platforms indistinguishably from "checked,
+        // found none" - gate on Supported so that reads as unsupported, not zero.
+        var eventsSupported = s.Health.Supported;
+        var col1 = new (string Label, int? Value)[]
         {
-            ("Bugchecks", counts.GetValueOrDefault(DiagnosticEventCatalog.SourceBugcheck)),
-            ("Unexpected shutdowns", counts.GetValueOrDefault(DiagnosticEventCatalog.SourceDirtyShutdown)),
-            ("WHEA errors", counts.GetValueOrDefault(DiagnosticEventCatalog.SourceWhea)),
-            ("Disk errors", counts.GetValueOrDefault(DiagnosticEventCatalog.SourceDisk)),
+            ("Bugchecks", eventsSupported ? counts.GetValueOrDefault(DiagnosticEventCatalog.SourceBugcheck) : null),
+            ("Unexpected shutdowns", eventsSupported ? counts.GetValueOrDefault(DiagnosticEventCatalog.SourceDirtyShutdown) : null),
+            ("WHEA errors", eventsSupported ? counts.GetValueOrDefault(DiagnosticEventCatalog.SourceWhea) : null),
+            ("Disk errors", eventsSupported ? counts.GetValueOrDefault(DiagnosticEventCatalog.SourceDisk) : null),
         };
-        var col2 = new (string Label, int Value)[]
+        var col2 = new (string Label, int? Value)[]
         {
-            ("GPU TDRs", counts.GetValueOrDefault(DiagnosticEventCatalog.SourceTdr)),
-            ("GPU driver errors", counts.GetValueOrDefault(DiagnosticEventCatalog.SourceGpuDriver)),
-            ("App crashes", counts.GetValueOrDefault(DiagnosticEventCatalog.SourceAppCrash)),
-            ("Device problems", s.Pnp.Devices.Count),
+            ("GPU TDRs", eventsSupported ? counts.GetValueOrDefault(DiagnosticEventCatalog.SourceTdr) : null),
+            ("GPU driver errors", eventsSupported ? counts.GetValueOrDefault(DiagnosticEventCatalog.SourceGpuDriver) : null),
+            ("App crashes", eventsSupported ? counts.GetValueOrDefault(DiagnosticEventCatalog.SourceAppCrash) : null),
+            ("Device problems", s.Pnp.Supported ? s.Pnp.Devices.Count : null),
         };
 
         var col2X = ContentLeft + ContentWidth / 2 + 10;
@@ -517,7 +524,7 @@ public static class DiagnosticsReportBuilder
         y -= 20;
     }
 
-    private static void DrawCounterCell(PdfContentBuilder c, double x, double y, (string Label, int Value) cell)
+    private static void DrawCounterCell(PdfContentBuilder c, double x, double y, (string Label, int? Value) cell)
     {
         c.FillGray(MidGray);
         var label = PdfFonts.Sanitize(cell.Label + ":");
@@ -525,7 +532,9 @@ public static class DiagnosticsReportBuilder
         var labelWidth = PdfFonts.MeasureWidthPt(label, false, 8);
 
         c.FillGray(BlackGray);
-        c.Text(x + labelWidth + 4, y, 8, true, cell.Value.ToString(CultureInfo.InvariantCulture));
+        var hasValue = cell.Value is not null;
+        var valueText = hasValue ? cell.Value!.Value.ToString(CultureInfo.InvariantCulture) : Placeholder;
+        c.Text(x + labelWidth + 4, y, 8, hasValue, valueText);
     }
 
     private static string FormatMemoryTestLine(MemoryTestResult? result)

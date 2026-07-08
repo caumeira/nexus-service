@@ -60,6 +60,20 @@ internal static class PdfTestSupport
         return int.Parse(header[1], CultureInfo.InvariantCulture);
     }
 
+    /// <summary>Returns the text of the first PDF literal string ("(...) Tj")
+    /// appearing after the given marker - useful for reading the value drawn
+    /// immediately after a known label.</summary>
+    public static string ExtractNextLiteralAfter(string content, string marker)
+    {
+        var idx = content.IndexOf(marker, StringComparison.Ordinal);
+        Assert.True(idx >= 0, $"marker not found: {marker}");
+        var openParen = content.IndexOf('(', idx + marker.Length);
+        Assert.True(openParen >= 0, "no following literal string found");
+        var closeParen = content.IndexOf(')', openParen);
+        Assert.True(closeParen > openParen, "unterminated literal string");
+        return content.Substring(openParen + 1, closeParen - openParen - 1);
+    }
+
     /// <summary>Locates the one stream object without /Filter (image and its
     /// SMask both carry /Filter /FlateDecode; the page content stream never
     /// does) and returns its raw, uncompressed text.</summary>

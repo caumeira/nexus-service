@@ -76,7 +76,7 @@ internal sealed class PdfContentBuilder
         var f = y + h;
 
         _sb.Append(PdfFonts.Num(grayLevel)).Append(" g\n");
-        _sb.Append("q ").Append(PdfFonts.Num(a)).Append(" 0 0 ").Append(PdfFonts.Num(d)).Append(' ')
+        _sb.Append("q ").Append(PdfFonts.NumPrecise(a)).Append(" 0 0 ").Append(PdfFonts.NumPrecise(d)).Append(' ')
            .Append(PdfFonts.Num(e)).Append(' ').Append(PdfFonts.Num(f)).Append(" cm\n");
         _sb.Append(bakedPathOps);
         _sb.Append("f\nQ\n");

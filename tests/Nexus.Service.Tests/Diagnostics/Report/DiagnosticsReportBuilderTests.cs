@@ -177,6 +177,23 @@ public class DiagnosticsReportBuilderTests
         var content = PdfTestSupport.ExtractContentStream(pdf);
         Assert.Contains("Not available on this platform", content);
         Assert.Contains("Memory test: never run", content);
+
+        // Unsupported event/pnp sources render "-", never a misleading "0".
+        Assert.Equal("-", PdfTestSupport.ExtractNextLiteralAfter(content, "(Bugchecks:) Tj"));
+        Assert.Equal("-", PdfTestSupport.ExtractNextLiteralAfter(content, "(WHEA errors:) Tj"));
+        Assert.Equal("-", PdfTestSupport.ExtractNextLiteralAfter(content, "(GPU TDRs:) Tj"));
+        Assert.Equal("-", PdfTestSupport.ExtractNextLiteralAfter(content, "(Device problems:) Tj"));
+    }
+
+    [Fact]
+    public void Build_WindowsSnapshot_StabilityCountersShowRealZero()
+    {
+        var pdf = DiagnosticsReportBuilder.Build(BuildSnapshot(1));
+        var content = PdfTestSupport.ExtractContentStream(pdf);
+
+        // Supported platform with a real (counted, not gated) zero.
+        Assert.Equal("0", PdfTestSupport.ExtractNextLiteralAfter(content, "(Bugchecks:) Tj"));
+        Assert.Equal("0", PdfTestSupport.ExtractNextLiteralAfter(content, "(Device problems:) Tj"));
     }
 
     private static double ExtractYBeforeMarker(string content, string markerText)
