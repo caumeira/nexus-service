@@ -99,6 +99,21 @@ public sealed class AppManifest
     /// </summary>
     [JsonPropertyName("driver")]
     public AppManifestDriver? Driver { get; set; }
+
+    /// <summary>
+    /// Optional OEM gate for <see cref="Preinstalled"/>: when present, the app
+    /// is preinstalled only on a machine whose SMBIOS system manufacturer
+    /// matches one of the listed names. Absent means no gate (unchanged
+    /// behavior).
+    /// </summary>
+    [JsonPropertyName("oem")]
+    public AppManifestOem? Oem { get; set; }
+}
+
+public sealed class AppManifestOem
+{
+    [JsonPropertyName("manufacturer")]
+    public List<string>? Manufacturer { get; set; }
 }
 
 /// <summary>

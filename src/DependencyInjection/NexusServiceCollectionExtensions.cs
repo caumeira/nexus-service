@@ -84,6 +84,10 @@ public static class NexusServiceCollectionExtensions
         // spawn. Hard rule: this MUST stay off the startup critical path -
         // see SystemSpecsPrewarmService.ExecuteAsync.
         services.AddHostedService<SystemSpecsPrewarmService>();
+        services.AddSingleton<OemInfo>();
+        // Warms the SMBIOS manufacturer read off the critical path; see
+        // OemInfoPrewarmService.ExecuteAsync.
+        services.AddHostedService<OemInfoPrewarmService>();
         // Pushes a pairing-QR-refresh nudge to the dashboard when the host IP
         // changes (VPN/Wi-Fi↔wired/DHCP), so a displayed QR doesn't keep
         // embedding a stale LAN address until its TTL. Off the critical path -
@@ -1108,6 +1112,7 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Widgets.AppActions.CoolingActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.LightingActions.RegisterAll(registry);
             Nexus.Service.Widgets.AppActions.AppInstallActions.RegisterAll(registry);
+            Nexus.Service.Widgets.AppActions.SystemSpecsActions.RegisterAll(registry);
             return registry;
         });
         services.AddSingleton<Nexus.Service.Widgets.AppDispatchRateLimiter>();

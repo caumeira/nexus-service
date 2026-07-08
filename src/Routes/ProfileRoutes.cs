@@ -445,6 +445,7 @@ public static class ProfileRoutes
                 if (body.Ui is { } ui)
                 {
                     if (ui.ShowConflictAlerts.HasValue) s.Ui.ShowConflictAlerts = ui.ShowConflictAlerts.Value;
+                    if (ui.OemAppSeeded.HasValue) s.Ui.OemAppSeeded = ui.OemAppSeeded.Value;
                 }
                 if (body.Update is { } update)
                 {

@@ -803,6 +803,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(ScreentimeFocusDto))]
 [JsonSerializable(typeof(ScreentimeTodayDto))]
 [JsonSerializable(typeof(List<ScreentimeHistoryEntryDto>))]
+[JsonSerializable(typeof(SystemInfoResponse))]
 [JsonSerializable(typeof(AppInstalledListing))]
 [JsonSerializable(typeof(AppInstalledListingResponse))]
 [JsonSerializable(typeof(List<AppInstalledListing>))]

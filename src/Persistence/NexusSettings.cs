@@ -163,6 +163,8 @@ public sealed class HomeAssistantSettings
 public sealed class UiSettings
 {
     public bool ShowConflictAlerts { get; set; } = true;
+    /// <summary>True once the web has auto-placed the OEM app onto the dashboard.</summary>
+    public bool OemAppSeeded { get; set; }
 }
 
 /// <summary>
@@ -172,6 +174,7 @@ public sealed class UiSettings
 public sealed class UiSettingsPatch
 {
     public bool? ShowConflictAlerts { get; set; }
+    public bool? OemAppSeeded { get; set; }
 }
 
 public sealed class LightingSettings
