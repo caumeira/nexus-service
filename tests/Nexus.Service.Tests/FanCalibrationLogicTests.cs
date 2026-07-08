@@ -30,14 +30,36 @@ public class FanCalibrationLogicTests
     }
 
     [Fact]
+    public void IsSettled_AcceptsTruePlateau()
+    {
+        var samples = new[] { 1200, 1205, 1198, 1202, 1200, 1203 };
+        Assert.True(FanCalibrationLogic.IsSettled(samples));
+    }
+
+    [Fact]
+    public void IsSettled_RejectsSlowMonotonicRamp()
+    {
+        var samples = new[] { 1180, 1190, 1200, 1210, 1220, 1230 };
+        Assert.True(FanCalibrationLogic.IsStable(samples));
+        Assert.False(FanCalibrationLogic.IsSettled(samples));
+    }
+
+    [Fact]
+    public void IsSettled_RejectsHighVariance()
+    {
+        var samples = new[] { 600, 900, 1100, 1400, 1600, 1800 };
+        Assert.False(FanCalibrationLogic.IsSettled(samples));
+    }
+
+    [Fact]
     public void Classify_Controllable_FullRange()
     {
         var curve = MakeCurve(1890, 1700, 1500, 1300, 1100, 900, 700, 500, 350, 200, 0);
         var result = FanCalibrationLogic.Classify("fan/0", curve);
         Assert.Equal("Stalling", result.Classification); // has 0 RPM at bottom
         Assert.Equal(1890, result.MaxRpm);
-        Assert.Equal(200, result.MinRpm);
-        Assert.Equal(10, result.MinDuty); // duty=10 is the lowest non-zero
+        Assert.Equal(0, result.MinRpm); // true floor: the fan stops at duty 0
+        Assert.Equal(10, result.MinDuty); // duty=10 is the lowest non-zero (spin floor)
     }
 
     [Fact]
@@ -65,8 +87,8 @@ public class FanCalibrationLogicTests
         var curve = MakeCurve(1500, 1300, 1100, 900, 700, 500, 300, 0, 0, 0, 0);
         var result = FanCalibrationLogic.Classify("fan/0", curve);
         Assert.Equal("Stalling", result.Classification);
-        Assert.Equal(300, result.MinRpm);
-        Assert.Equal(40, result.MinDuty); // duty 40 = step index 6 (100-6*10=40)
+        Assert.Equal(0, result.MinRpm); // true floor: stops at the bottom of the sweep
+        Assert.Equal(40, result.MinDuty); // duty 40 = step index 6 (100-6*10=40), spin floor
     }
 
     [Fact]
