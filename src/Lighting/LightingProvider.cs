@@ -470,18 +470,19 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
 
     private static Signature SignatureFor(string name) => name switch
     {
-        // Simple solid-colour fills. Slot 0 of simpleColorFeels in
-        // lightingTemplates.ts: colorize 1, speed 30, saturation 1.10. The
-        // noise in simple.frag is what makes these read as moving in the
-        // thumbnail (rendered at this signature speed).
-        "simplered"    => new(0.00f, 1.00f, 30f, 1.10f, 1.00f, 1f),
-        "simpleorange" => new(0.05f, 1.00f, 30f, 1.10f, 1.00f, 1f),
-        "simpleyellow" => new(0.14f, 1.00f, 30f, 1.10f, 1.00f, 1f),
-        "simplegreen"  => new(0.33f, 1.00f, 30f, 1.10f, 1.00f, 1f),
-        "simplecyan"   => new(0.50f, 1.00f, 30f, 1.10f, 1.00f, 1f),
-        "simpleblue"   => new(0.62f, 1.00f, 30f, 1.10f, 1.00f, 1f),
-        "simpleviolet" => new(0.75f, 1.00f, 30f, 1.10f, 1.00f, 1f),
-        "simplepink"   => new(0.92f, 1.00f, 30f, 1.10f, 1.00f, 1f),
+        // Simple solid-colour fills. Slot 0 of the simple-fill feels in
+        // lightingTemplates.ts: colorize is unused (the shader owns the tint)
+        // and saturation is HSV S (1 = full colour, 0 = white). The fill is
+        // static, so speed is irrelevant to the thumbnail.
+        "simplewhite"  => new(0.00f, 0.00f, 50f, 0.00f, 1.00f, 1f),
+        "simplered"    => new(0.00f, 0.00f, 50f, 1.00f, 1.00f, 1f),
+        "simpleorange" => new(0.05f, 0.00f, 50f, 1.00f, 1.00f, 1f),
+        "simpleyellow" => new(0.14f, 0.00f, 50f, 1.00f, 1.00f, 1f),
+        "simplegreen"  => new(0.33f, 0.00f, 50f, 1.00f, 1.00f, 1f),
+        "simplecyan"   => new(0.50f, 0.00f, 50f, 1.00f, 1.00f, 1f),
+        "simpleblue"   => new(0.62f, 0.00f, 50f, 1.00f, 1.00f, 1f),
+        "simpleviolet" => new(0.75f, 0.00f, 50f, 1.00f, 1.00f, 1f),
+        "simplepink"   => new(0.92f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "rainbow" => new(0.00f, 0.00f, 50f, 1.00f, 1.00f, 1f),
         "fire" => new(0.03f, 0.80f, 70f, 1.10f, 1.05f, 1f),
         "plasma" => new(0.85f, 0.30f, 60f, 1.00f, 1.00f, 1f),
@@ -574,12 +575,12 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     /// </summary>
     private static System.Collections.Generic.Dictionary<string, float>? DefaultParamsFor(string name) => name switch
     {
-        // Simple solid-colour fills expose the gradient tweaks (boldness +
-        // rotation) plus a wave amount. These defaults must match SIMPLE_PARAMS
-        // in the frontend so the thumbnail shows the same look the picker does.
-        "simplered" or "simpleorange" or "simpleyellow" or "simplegreen"
+        // Simple solid-colour fills expose only a slight hue-shift nudge. This
+        // default must match SIMPLE_PARAMS in the frontend so the thumbnail
+        // shows the same look the picker does.
+        "simplewhite" or "simplered" or "simpleorange" or "simpleyellow" or "simplegreen"
             or "simplecyan" or "simpleblue" or "simpleviolet"
-            or "simplepink" => new() { ["u_gradient"] = 0.6f, ["u_wave"] = 0.5f, ["u_rotation"] = 0f },
+            or "simplepink" => new() { ["u_hueShift"] = 0f },
         "rainbow" => new() { ["u_density"] = 1f, ["u_rotation"] = 0f },
         "fire" => new() { ["u_turbulence"] = 1.6f },
         "plasma" => new() { ["u_warp"] = 1f, ["u_zoom"] = 1f },
