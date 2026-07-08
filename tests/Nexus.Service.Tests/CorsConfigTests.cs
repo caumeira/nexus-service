@@ -28,6 +28,7 @@ public class CorsConfigTests
         "http://127.0.0.1:9400",
         "https://hellonexus.com",
         "https://www.hellonexus.com",
+        "https://my.hellonexus.com",
     };
 
     // Runs a request Origin through the production-built default policy and the
@@ -58,6 +59,7 @@ public class CorsConfigTests
     [Theory]
     [InlineData("https://hellonexus.com")]
     [InlineData("https://www.hellonexus.com")]
+    [InlineData("https://my.hellonexus.com")]
     [InlineData("http://localhost:9400")]
     [InlineData("http://127.0.0.1:9400")]
     public async Task Release_AllowsExactAllowlistedOrigins(string origin)
@@ -71,6 +73,8 @@ public class CorsConfigTests
     [InlineData("https://evilhellonexus.com")]          // prefix attack
     [InlineData("https://hellonexus.com.au")]           // extension attack
     [InlineData("https://hellonexus.evil.com")]
+    [InlineData("https://my.hellonexus.com.attacker.com")] // suffix attack on the my. host
+    [InlineData("http://my.hellonexus.com")]            // downgraded scheme on the my. host
     [InlineData("http://hellonexus.com")]               // downgraded scheme
     [InlineData("https://attacker.com")]
     [InlineData("null")]                                // sandboxed / file origin
@@ -82,15 +86,18 @@ public class CorsConfigTests
     [Fact]
     public async Task DebugLoopbackWildcard_AcceptsLoopbackButNotLookalikes()
     {
-        // The dev policy accepts any loopback port (Vite on 5173-5180, etc.)...
+        // The dev policy accepts any loopback port (Vite on 5173-5180, etc.),
+        // including my.localhost (resolved to loopback by browsers)...
         Assert.True(await IsOriginAllowed(Origins, debugLoopbackWildcard: true, "http://localhost:5173"));
         Assert.True(await IsOriginAllowed(Origins, debugLoopbackWildcard: true, "http://127.0.0.1:5180"));
+        Assert.True(await IsOriginAllowed(Origins, debugLoopbackWildcard: true, "http://my.localhost:3000"));
 
         // ...but the ":" port separator is load-bearing: a host that merely
         // starts with "http://localhost" is NOT loopback and must be rejected,
         // and the public allowlist look-alike must never ride the dev policy.
         Assert.False(await IsOriginAllowed(Origins, debugLoopbackWildcard: true, "http://localhost.attacker.com"));
         Assert.False(await IsOriginAllowed(Origins, debugLoopbackWildcard: true, "http://127.0.0.1.attacker.com"));
+        Assert.False(await IsOriginAllowed(Origins, debugLoopbackWildcard: true, "http://my.localhost.attacker.com"));
         Assert.False(await IsOriginAllowed(Origins, debugLoopbackWildcard: true, "https://hellonexus.com.attacker.com"));
     }
 
@@ -101,6 +108,7 @@ public class CorsConfigTests
 
         Assert.Contains("https://hellonexus.com", origins);
         Assert.Contains("https://www.hellonexus.com", origins);
+        Assert.Contains("https://my.hellonexus.com", origins);
         Assert.Contains("http://localhost:9400", origins);
         Assert.Contains("http://127.0.0.1:9400", origins);
         Assert.Contains("https://localhost:9443", origins);

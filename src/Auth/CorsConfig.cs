@@ -30,6 +30,7 @@ public static class CorsConfig
             $"http://127.0.0.1:{httpPort}",
             "https://hellonexus.com",
             "https://www.hellonexus.com",
+            "https://my.hellonexus.com",
         };
 
         if (httpsPort > 0)
@@ -76,11 +77,14 @@ public static class CorsConfig
     /// <summary>
     /// Registers the default CORS policy.
     /// <paramref name="debugLoopbackWildcard"/> (DEBUG builds only) accepts any
-    /// <c>http://localhost:*</c> / <c>http://127.0.0.1:*</c> so the Vite dev
-    /// server on a random loopback port can reach the service. In release it is
-    /// false and the policy is the strict exact-match <paramref name="allowedOrigins"/>
-    /// allowlist. Even the loose dev predicate requires the <c>:</c> port
-    /// separator, so <c>http://localhost.attacker.com</c> does not match.
+    /// <c>http://localhost:*</c> / <c>http://127.0.0.1:*</c> /
+    /// <c>http://my.localhost:*</c> (my.localhost is the local prod-preview
+    /// host for my.hellonexus.com; Chromium/Firefox resolve *.localhost to
+    /// loopback per RFC 6761) so the Vite dev server on a random loopback port
+    /// can reach the service. In release it is false and the policy is the
+    /// strict exact-match <paramref name="allowedOrigins"/> allowlist. Even
+    /// the loose dev predicate requires the <c>:</c> port separator, so
+    /// <c>http://localhost.attacker.com</c> does not match.
     /// </summary>
     public static IServiceCollection AddNexusCors(
         this IServiceCollection services, string[] allowedOrigins, bool debugLoopbackWildcard)
@@ -91,7 +95,8 @@ public static class CorsConfig
             {
                 p.SetIsOriginAllowed(origin =>
                     origin.StartsWith("http://localhost:", StringComparison.OrdinalIgnoreCase) ||
-                    origin.StartsWith("http://127.0.0.1:", StringComparison.OrdinalIgnoreCase));
+                    origin.StartsWith("http://127.0.0.1:", StringComparison.OrdinalIgnoreCase) ||
+                    origin.StartsWith("http://my.localhost:", StringComparison.OrdinalIgnoreCase));
             }
             else
             {
