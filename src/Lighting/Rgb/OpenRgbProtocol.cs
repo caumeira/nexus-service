@@ -289,12 +289,17 @@ public static class OpenRgbProtocol
             var colorsBytes = 4 * modeColorCount;
             EnsureBytes(body, pos, colorsBytes, $"mode[{i}] colors[]");
             pos += colorsBytes;
+            var modeBytes = body.Slice(modeStart, pos - modeStart).ToArray();
+            if (protocolVersion >= 3)
+            {
+                ForceModeBrightnessMax(modeBytes);
+            }
             modes.Add(new RgbMode
             {
                 Index = i,
                 Name = modeName,
                 ColorMode = colorMode,
-                Bytes = body.Slice(modeStart, pos - modeStart).ToArray(),
+                Bytes = modeBytes,
             });
         }
 
@@ -395,6 +400,33 @@ public static class OpenRgbProtocol
             Zones = zones,
             Modes = modes,
         };
+    }
+
+    /// <summary>
+    /// Force a mode's brightness field up to its brightness_max, in place. OpenRGB
+    /// brightness is per-mode; when we assert a mode via UPDATE_MODE we replay the
+    /// device-reported bytes, and a mode whose reported brightness is below its max
+    /// drives the hardware dim - a mode reporting 0 (the Corsair K100 Direct mode)
+    /// drives it dark. Nexus dims in software (RgbBridge.OnFrame), so the hardware
+    /// mode must run full. Only valid for protocol v3+ mode bytes: after the leading
+    /// mode-name bstring, the fixed block carries brightness_max at +20 and the live
+    /// brightness at +36.
+    /// </summary>
+    internal static void ForceModeBrightnessMax(byte[] modeBytes)
+    {
+        // modeBytes = [name bstring (uint16 len + bytes)][fixed block][colors].
+        if (modeBytes.Length < 2)
+        {
+            return;
+        }
+        var nameLen = BinaryPrimitives.ReadUInt16LittleEndian(modeBytes.AsSpan(0, 2));
+        var fixedStart = 2 + nameLen;
+        if (fixedStart + 40 > modeBytes.Length)
+        {
+            return;
+        }
+        var brightnessMax = BinaryPrimitives.ReadUInt32LittleEndian(modeBytes.AsSpan(fixedStart + 20, 4));
+        BinaryPrimitives.WriteUInt32LittleEndian(modeBytes.AsSpan(fixedStart + 36, 4), brightnessMax);
     }
 
     /// <summary>

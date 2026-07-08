@@ -1,9 +1,86 @@
+using System.Buffers.Binary;
+using System.Text;
 using Nexus.Service.Lighting.Rgb;
 
 namespace Nexus.Service.Tests;
 
 public class OpenRgbProtocolTests
 {
+    [Fact]
+    public void ForceModeBrightnessMax_RaisesLiveBrightnessToMax()
+    {
+        // Synthetic v3+ mode "Direct": brightness_max=200, live brightness=5.
+        // After forcing, the replayed brightness must equal brightness_max so the
+        // hardware runs full (software sliders dim on top).
+        var nameBytes = Encoding.ASCII.GetBytes("Direct");
+        var mode = new byte[2 + nameBytes.Length + 1 + 48 + 2];
+        BinaryPrimitives.WriteUInt16LittleEndian(mode.AsSpan(0, 2), (ushort)(nameBytes.Length + 1));
+        nameBytes.CopyTo(mode.AsSpan(2));
+        var fixedStart = 2 + nameBytes.Length + 1;
+        BinaryPrimitives.WriteUInt32LittleEndian(mode.AsSpan(fixedStart + 20, 4), 200); // brightness_max
+        BinaryPrimitives.WriteUInt32LittleEndian(mode.AsSpan(fixedStart + 36, 4), 5);   // brightness
+
+        OpenRgbProtocol.ForceModeBrightnessMax(mode);
+
+        Assert.Equal(200u, BinaryPrimitives.ReadUInt32LittleEndian(mode.AsSpan(fixedStart + 36, 4)));
+    }
+
+    [Fact]
+    public void ForceModeBrightnessMax_IgnoresTruncatedModeBytes()
+    {
+        // A short buffer (malformed mode) must be left untouched, not throw.
+        var mode = new byte[] { 0x02, 0x00, 0x41 };
+        var before = (byte[])mode.Clone();
+        OpenRgbProtocol.ForceModeBrightnessMax(mode);
+        Assert.Equal(before, mode);
+    }
+
+    [Fact]
+    public void ParseControllerData_RaisesSubMaxModeBrightnessToMax()
+    {
+        // v4 controller with one "Direct" mode reporting brightness=7 but
+        // brightness_max=255. The parse path must raise the replayed brightness to
+        // 255 so the hardware runs full; without the forcing it stays 7 (dim), and a
+        // mode reporting 0 would drive the device dark (Corsair K100).
+        var body = new List<byte>();
+        void U16(int v) { body.Add((byte)(v & 0xFF)); body.Add((byte)((v >> 8) & 0xFF)); }
+        void U32(uint v) { for (int s = 0; s < 32; s += 8) body.Add((byte)((v >> s) & 0xFF)); }
+        void BStr(string s) { U16(s.Length + 1); body.AddRange(Encoding.ASCII.GetBytes(s)); body.Add(0); }
+
+        U32(0);        // data_size (unused by the parser)
+        U32(5);        // device_type
+        BStr("K");     // name
+        BStr("");      // vendor (v>=1)
+        BStr("");      // description
+        BStr("");      // version
+        BStr("");      // serial
+        BStr("");      // location
+        U16(1);        // num_modes
+        U32(0);        // active_mode
+        BStr("Direct");
+        U32(0);        // value
+        U32(0);        // flags
+        U32(0);        // speed_min
+        U32(0);        // speed_max
+        U32(0);        // brightness_min
+        U32(255);      // brightness_max
+        U32(0);        // colors_min
+        U32(0);        // colors_max
+        U32(0);        // speed
+        U32(7);        // brightness (sub-max)
+        U32(0);        // direction
+        U32(1);        // color_mode
+        U16(0);        // mode num_colors
+        U16(0);        // num_zones
+        U16(0);        // num_leds
+
+        var dev = OpenRgbProtocol.ParseControllerData(0, body.ToArray(), protocolVersion: 4);
+
+        var mode = Assert.Single(dev.Modes);
+        var fixedStart = 2 + BinaryPrimitives.ReadUInt16LittleEndian(mode.Bytes.AsSpan(0, 2));
+        Assert.Equal(255u, BinaryPrimitives.ReadUInt32LittleEndian(mode.Bytes.AsSpan(fixedStart + 36, 4)));
+    }
+
     [Fact]
     public void WriteHeader_ProducesCorrectMagicAndFields()
     {
