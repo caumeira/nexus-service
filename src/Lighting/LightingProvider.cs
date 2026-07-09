@@ -300,10 +300,11 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         {
             return null;
         }
-        // Render the requested preset slot's saved look. Tag the cache by that
-        // look (not the client's ?v token), so a surface that keeps requesting
-        // the same token still re-renders once the slot's saved look changes.
-        var state = ResolveThumbnailSlot(name, slot);
+        // Render the requested preset slot's effective look (user delta or
+        // canonical default). Tag the cache by that look (not the client's ?v
+        // token), so a surface that keeps requesting the same token still
+        // re-renders once the slot's saved look changes.
+        var state = ResolveSlotLook(name, slot);
         var tag = state is null ? "sig" : HashSlot(state);
         var cacheKey = name + ":" + slot;
         if (!skipCache && _thumbnailCache.TryGetValue(cacheKey, out var cached) && cached.Tag == tag)
@@ -329,30 +330,36 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     }
 
     /// <summary>
-    /// The saved look for the given preset slot, or null when the user hasn't
-    /// customised this effect yet (render the signature look). Slot index is
-    /// clamped into the bundle.
+    /// Effective look for an effect's preset slot: the stored user delta when
+    /// present, else the canonical default bundle slot. Null when the effect is
+    /// unknown to both the store and the defaults table (render the signature
+    /// look). Slot index is clamped to the 4-slot bundle.
     /// </summary>
-    private Nexus.Service.Persistence.AnimateEffectState? ResolveThumbnailSlot(string name, int slot)
+    private Nexus.Service.Persistence.AnimateEffectState? ResolveSlotLook(string name, int slot)
     {
+        slot = Math.Clamp(slot, 0, AnimateTemplateDefaults.SlotCount - 1);
         var templates = _store.Load().Lighting.Animate.Templates;
-        if (templates.TryGetValue(name, out var bundle) && bundle.Slots.Count > 0)
+        if (templates.TryGetValue(name, out var bundle) && slot < bundle.Slots.Count && bundle.Slots[slot] is { } stored)
         {
-            return bundle.Slots[Math.Clamp(slot, 0, bundle.Slots.Count - 1)];
+            return stored;
         }
-        return null;
+        return AnimateTemplateDefaults.Slot(name, slot);
     }
 
     /// <summary>
-    /// Persist the universal preset templates. If the change altered the slot
-    /// currently driving the LEDs, push the new look to the running shader in
-    /// place so the hardware follows the edit (commit-time, from any surface).
-    /// Edits to other slots/effects leave the live LEDs untouched.
+    /// Persist the universal preset templates, pruned to user deltas: slots
+    /// equal to their canonical default are dropped and readers resolve them
+    /// back through <see cref="AnimateTemplateDefaults"/>. If the change
+    /// altered the slot currently driving the LEDs, push the new look to the
+    /// running shader in place so the hardware follows the edit (commit-time,
+    /// from any surface). Edits to other slots/effects leave the live LEDs
+    /// untouched.
     /// </summary>
     public void SaveAnimateTemplates(System.Collections.Generic.Dictionary<string, Nexus.Service.Persistence.AnimateEffectTemplates> templates)
     {
         var before = ActiveLookTag();
-        _store.Update(s => s.Lighting.Animate.Templates = templates ?? new());
+        var pruned = AnimateTemplateDefaults.Prune(templates ?? new());
+        _store.Update(s => s.Lighting.Animate.Templates = pruned);
         if (before != ActiveLookTag())
         {
             ReapplyActiveLook();
@@ -364,11 +371,9 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     {
         var a = _store.Load().Lighting.Animate;
         var effect = (a.Effect ?? "").ToLowerInvariant();
-        if (!a.Templates.TryGetValue(effect, out var b) || b.Slots.Count == 0)
-        {
-            return null;
-        }
-        return HashSlot(b.Slots[Math.Clamp(b.Selected, 0, b.Slots.Count - 1)]);
+        var selected = a.Templates.TryGetValue(effect, out var b) ? b.Selected : 0;
+        var slot = ResolveSlotLook(effect, selected);
+        return slot is null ? null : HashSlot(slot);
     }
 
     /// <summary>
@@ -383,11 +388,12 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         {
             return;
         }
-        if (!a.Templates.TryGetValue(effect, out var b) || b.Slots.Count == 0)
+        var selected = a.Templates.TryGetValue(effect, out var b) ? b.Selected : 0;
+        var slot = ResolveSlotLook(effect, selected);
+        if (slot is null)
         {
             return;
         }
-        var slot = b.Slots[Math.Clamp(b.Selected, 0, b.Slots.Count - 1)];
         var speed = (float)(slot.Speed / 50.0);
         cur.Speed = effect == "pulse" ? speed * 0.5f : speed;
         cur.Intensity = slot.Intensity > 0 ? slot.Intensity : 1f;

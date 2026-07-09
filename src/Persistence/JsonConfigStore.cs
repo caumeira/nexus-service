@@ -110,6 +110,9 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     /// welcome screen, so it is marked already-onboarded; only an install
     /// with no settings.json at all (Load's !File.Exists branch, which never
     /// calls Migrate) sees OnboardingCompleted default to false.
+    /// v9: animate templates shrink to user deltas - slots equal to the
+    /// canonical defaults (previously materialized in full by the web client)
+    /// are pruned; readers resolve missing slots via AnimateTemplateDefaults.
     /// </summary>
     private static void Migrate(NexusSettings doc)
     {
@@ -128,6 +131,13 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         if (doc.SchemaVersion < 8)
         {
             doc.OnboardingCompleted = true;
+        }
+        // Explicit JSON nulls can leave Lighting/Animate null despite the
+        // non-nullable initializers; a throw here would send Load down the
+        // corrupt-file path and reset every user setting.
+        if (doc.SchemaVersion < 9 && doc.Lighting?.Animate is { } animate)
+        {
+            animate.Templates = Nexus.Service.Lighting.AnimateTemplateDefaults.Prune(animate.Templates);
         }
         doc.SchemaVersion = NexusSettings.CurrentSchemaVersion;
     }

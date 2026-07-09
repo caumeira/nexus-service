@@ -698,6 +698,13 @@ public sealed class ProfileManager : IDisposable
         _store.Update(s =>
         {
             s.Lighting = data.Lighting ?? new LightingSettings();
+            // Pre-v9 profile files carry fully materialized template dicts;
+            // re-prune on apply so they don't re-inflate settings.json and
+            // shadow future default-look changes.
+            if (s.Lighting.Animate is { } animate)
+            {
+                animate.Templates = Nexus.Service.Lighting.AnimateTemplateDefaults.Prune(animate.Templates);
+            }
             s.Cooling = data.Cooling ?? new CoolingSettings();
 
             // Theme + Dashboard categories now live in dedicated top-level
