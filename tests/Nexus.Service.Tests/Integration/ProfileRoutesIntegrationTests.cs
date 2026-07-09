@@ -129,4 +129,34 @@ public sealed class ProfileRoutesIntegrationTests : IDisposable
         var body = await res.Content.ReadFromJsonAsync<JsonElement>();
         Assert.Equal("Imported Copy", body.GetProperty("profile").GetProperty("name").GetString());
     }
+
+    [Fact]
+    public async Task Import_with_replace_true_overwrites_the_colliding_profile_in_place()
+    {
+        var client = AuthedClient();
+        var createRes = await client.PostAsJsonAsync("/profiles/create", new { name = "Gaming" });
+        var createBody = await createRes.Content.ReadFromJsonAsync<JsonElement>();
+        var gamingId = createBody.GetProperty("profile").GetProperty("id").GetString();
+        var defaultId = await DefaultProfileIdAsync(client);
+
+        var countBefore = (await (await client.GetAsync("/profiles")).Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("profiles").GetArrayLength();
+
+        var exportRes = await client.GetAsync($"/profiles/{defaultId}/export");
+        using var exportDoc = JsonDocument.Parse(await exportRes.Content.ReadAsStringAsync());
+        var settingsJson = exportDoc.RootElement.GetProperty("settings").GetRawText();
+        var importBody = $$"""{"name":"gaming","settings":{{settingsJson}}}""";
+
+        var res = await client.PostAsync("/profiles/import?replace=true",
+            new StringContent(importBody, Encoding.UTF8, "application/json"));
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+        Assert.Equal(gamingId, body.GetProperty("profile").GetProperty("id").GetString());
+        Assert.Equal("gaming", body.GetProperty("profile").GetProperty("name").GetString());
+
+        var countAfter = (await (await client.GetAsync("/profiles")).Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("profiles").GetArrayLength();
+        Assert.Equal(countBefore, countAfter);
+    }
 }
