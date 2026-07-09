@@ -16,11 +16,11 @@ namespace Nexus.Service.Widgets;
 /// </summary>
 public sealed class WidgetSettingsService
 {
-    // Convention for marketplace widget placement types: native widget types
-    // are bare ("clock", "monitoring", ...); marketplace placements prefix
-    // with this so the renderer can route to the declarative engine instead
-    // of a built-in component.
-    public const string MarketplaceTypePrefix = "marketplace:";
+    // Convention for installed-app widget placement types: native widget types
+    // are bare ("clock", "monitoring", ...); app placements prefix with this so
+    // the renderer can route to the declarative engine instead of a built-in
+    // component.
+    public const string AppTypePrefix = "app:";
 
     private readonly IConfigStore _store;
     private readonly AppRegistry _registry;
@@ -140,8 +140,8 @@ public sealed class WidgetSettingsService
     public static string? MarketplaceIdFromType(string type)
     {
         if (string.IsNullOrEmpty(type)) return null;
-        return type.StartsWith(MarketplaceTypePrefix, System.StringComparison.Ordinal)
-            ? type.Substring(MarketplaceTypePrefix.Length)
+        return type.StartsWith(AppTypePrefix, System.StringComparison.Ordinal)
+            ? type.Substring(AppTypePrefix.Length)
             : null;
     }
 

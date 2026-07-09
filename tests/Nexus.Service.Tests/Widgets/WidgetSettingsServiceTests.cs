@@ -21,7 +21,7 @@ public class WidgetSettingsServiceTests : IDisposable
 {
     private const string AppId = "com.hellonexus.test";
     private const string InstanceId = "test-instance";
-    private const string MarketplaceType = "marketplace:" + AppId;
+    private const string MarketplaceType = "app:" + AppId;
 
     private readonly string _tempDir;
     private readonly string _settingsPath;
@@ -264,7 +264,7 @@ public class WidgetSettingsServiceTests : IDisposable
             s.Panel.DashboardLayout!.Pages[0].Widgets.Add(new PanelWidgetDto
             {
                 Id = "native-clock",
-                Type = "clock", // not the marketplace: prefix
+                Type = "clock", // not the app: prefix
                 Size = "1x1",
             });
         });

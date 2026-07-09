@@ -150,6 +150,13 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         {
             Nexus.Service.Lighting.AnimateTemplateDefaults.PruneStates(a10);
         }
+        // v11: the app-placement prefix renamed marketplace: -> app: with no
+        // runtime alias; rewrite every persisted widget type so existing
+        // placements keep resolving.
+        if (doc.SchemaVersion < 11)
+        {
+            Nexus.Service.Widgets.AppPrefixMigration.Apply(doc);
+        }
         doc.SchemaVersion = NexusSettings.CurrentSchemaVersion;
     }
 
