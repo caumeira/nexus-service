@@ -338,7 +338,7 @@ public static class TrayIcon
             IntPtr hIcon = IntPtr.Zero;
             // 1) Embedded resource (set via <ApplicationIcon> in csproj) - resource ID 32512
             hIcon = LoadImage(cls.hInstance, new IntPtr(32512), 1 /*IMAGE_ICON*/,
-                GetSystemMetrics(11 /*SM_CXSMICON*/), GetSystemMetrics(12 /*SM_CYSMICON*/), 0);
+                GetSystemMetrics(11 /*SM_CXICON*/), GetSystemMetrics(12 /*SM_CYICON*/), 0);
             // 2) icon.ico file next to exe
             if (hIcon == IntPtr.Zero)
             {
