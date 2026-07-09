@@ -957,6 +957,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Diagnostics.Temperature.TemperatureEpisode))]
 [JsonSerializable(typeof(Nexus.Service.Routes.TemperatureSeriesWire))]
 [JsonSerializable(typeof(Nexus.Service.Routes.TemperatureHistoryResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.OpenEventViewerResponse))]
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

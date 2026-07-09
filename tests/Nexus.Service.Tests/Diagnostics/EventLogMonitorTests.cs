@@ -17,4 +17,34 @@ public class EventLogMonitorTests
         Assert.Empty(monitor.Snapshot(30));
         Assert.Empty(monitor.CountsSince(TimeSpan.FromDays(30)));
     }
+
+    [Fact]
+    public async Task TryAddIncident_DropsStaleGeneration_AfterReset()
+    {
+        var monitor = new EventLogMonitor();
+        const int staleGeneration = 0;
+
+        // A reset bumps the generation past staleGeneration, simulating a
+        // clear landing after a backfill pass captured its generation.
+        await monitor.ResetAndBackfillAsync();
+
+        var stale = monitor.TryAddIncident(BuildIncident("stale"), staleGeneration);
+        Assert.False(stale);
+        Assert.Empty(monitor.Snapshot(30));
+
+        var currentGeneration = staleGeneration + 1;
+        var fresh = monitor.TryAddIncident(BuildIncident("fresh"), currentGeneration);
+        Assert.True(fresh);
+        Assert.Single(monitor.Snapshot(30));
+    }
+
+    private static DiagnosticIncident BuildIncident(string id) => new()
+    {
+        Id = id,
+        TimeUtc = DateTime.UtcNow,
+        Source = "whea",
+        Severity = "warning",
+        Title = "test",
+        Detail = "test",
+    };
 }

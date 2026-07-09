@@ -698,12 +698,14 @@ public sealed class ProfileManager : IDisposable
         _store.Update(s =>
         {
             s.Lighting = data.Lighting ?? new LightingSettings();
-            // Pre-v9 profile files carry fully materialized template dicts;
-            // re-prune on apply so they don't re-inflate settings.json and
-            // shadow future default-look changes.
+            // Pre-v10 profile files (local, imported, or cloud-synced) carry
+            // fully materialized template dicts and dense activation states;
+            // re-prune both on apply so they don't re-inflate settings.json
+            // and shadow future default-look changes.
             if (s.Lighting.Animate is { } animate)
             {
                 animate.Templates = Nexus.Service.Lighting.AnimateTemplateDefaults.Prune(animate.Templates);
+                Nexus.Service.Lighting.AnimateTemplateDefaults.PruneStates(animate);
             }
             s.Cooling = data.Cooling ?? new CoolingSettings();
 

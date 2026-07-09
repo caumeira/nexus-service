@@ -222,25 +222,52 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         {
             return;
         }
+        var incoming = new Nexus.Service.Persistence.AnimateEffectState
+        {
+            Speed = body.Speed,
+            Intensity = intensity,
+            Hue = hue,
+            Colorize = colorize,
+            Saturation = saturation,
+            Contrast = contrast,
+            Params = extras is not null
+                ? new System.Collections.Generic.Dictionary<string, float>(extras)
+                : new(),
+        };
         _store.Update(s =>
         {
             s.Lighting.Sync = name;
-            // Persist the full slider state for the active effect. Other
-            // effects' saved states are untouched so switching back restores
-            // exactly what the user last set for each one.
             s.Lighting.Animate.Effect = name;
-            s.Lighting.Animate.States[name] = new Nexus.Service.Persistence.AnimateEffectState
+            // States holds only deltas from the effect's selected preset look:
+            // merely activating an effect (the UI replays the resolved slot
+            // verbatim) must not grow settings.json by a full dense state.
+            // Other effects' saved states are untouched so switching back
+            // restores exactly what the user last set for each one.
+            var baseline = AnimateTemplateDefaults.ResolveSelected(s.Lighting.Animate.Templates, name);
+            // incoming.Intensity was coerced (<= 0 becomes 1) above; compare
+            // against the same coercion of the baseline or a slot saved at
+            // intensity 0 could never match and would pin a dense entry.
+            if (baseline is not null && baseline.Intensity <= 0)
             {
-                Speed = body.Speed,
-                Intensity = intensity,
-                Hue = hue,
-                Colorize = colorize,
-                Saturation = saturation,
-                Contrast = contrast,
-                Params = extras is not null
-                    ? new System.Collections.Generic.Dictionary<string, float>(extras)
-                    : new(),
-            };
+                baseline = new Nexus.Service.Persistence.AnimateEffectState
+                {
+                    Speed = baseline.Speed,
+                    Intensity = 1f,
+                    Hue = baseline.Hue,
+                    Colorize = baseline.Colorize,
+                    Saturation = baseline.Saturation,
+                    Contrast = baseline.Contrast,
+                    Params = baseline.Params,
+                };
+            }
+            if (baseline is not null && AnimateTemplateDefaults.StateEquals(incoming, baseline))
+            {
+                s.Lighting.Animate.States.Remove(name);
+            }
+            else
+            {
+                s.Lighting.Animate.States[name] = incoming;
+            }
         });
     }
 
@@ -336,15 +363,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
     /// look). Slot index is clamped to the 4-slot bundle.
     /// </summary>
     private Nexus.Service.Persistence.AnimateEffectState? ResolveSlotLook(string name, int slot)
-    {
-        slot = Math.Clamp(slot, 0, AnimateTemplateDefaults.SlotCount - 1);
-        var templates = _store.Load().Lighting.Animate.Templates;
-        if (templates.TryGetValue(name, out var bundle) && slot < bundle.Slots.Count && bundle.Slots[slot] is { } stored)
-        {
-            return stored;
-        }
-        return AnimateTemplateDefaults.Slot(name, slot);
-    }
+        => AnimateTemplateDefaults.ResolveSlot(_store.Load().Lighting.Animate.Templates, name, slot);
 
     /// <summary>
     /// Persist the universal preset templates, pruned to user deltas: slots
