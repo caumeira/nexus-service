@@ -30,10 +30,7 @@ public static class AppPrefixMigration
         {
             foreach (var widget in overlay)
             {
-                if (widget is not null)
-                {
-                    widget.Type = Rewrite(widget.Type);
-                }
+                widget?.Type = Rewrite(widget.Type);
             }
         }
     }
@@ -52,10 +49,7 @@ public static class AppPrefixMigration
             }
             foreach (var widget in widgets)
             {
-                if (widget is not null)
-                {
-                    widget.Type = Rewrite(widget.Type);
-                }
+                widget?.Type = Rewrite(widget.Type);
             }
         }
     }
@@ -74,10 +68,7 @@ public static class AppPrefixMigration
             }
             foreach (var widget in widgets)
             {
-                if (widget is not null)
-                {
-                    widget.Type = Rewrite(widget.Type);
-                }
+                widget?.Type = Rewrite(widget.Type);
             }
         }
     }
