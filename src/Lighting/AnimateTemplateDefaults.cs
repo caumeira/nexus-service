@@ -50,6 +50,59 @@ public static class AnimateTemplateDefaults
         return bundle.Slots[Math.Clamp(slot, 0, bundle.Slots.Count - 1)];
     }
 
+    /// <summary>Effective look for an effect's preset slot against a sparse stored
+    /// template dict: the stored user delta when present, else the canonical
+    /// default. Null when the effect is unknown to both. Tolerates a null dict
+    /// and null bundle values (explicit JSON nulls in foreign settings).</summary>
+    public static AnimateEffectState? ResolveSlot(Dictionary<string, AnimateEffectTemplates>? templates, string effect, int slot)
+    {
+        slot = Math.Clamp(slot, 0, SlotCount - 1);
+        if (templates is not null && templates.TryGetValue(effect, out var bundle) && bundle is not null
+            && bundle.Slots is { } slots && slot < slots.Count && slots[slot] is { } stored)
+        {
+            return stored;
+        }
+        return Slot(effect, slot);
+    }
+
+    /// <summary>The effect's currently-selected preset slot look, resolved through the sparse store.</summary>
+    public static AnimateEffectState? ResolveSelected(Dictionary<string, AnimateEffectTemplates>? templates, string effect)
+    {
+        var selected = templates is not null && templates.TryGetValue(effect, out var bundle) && bundle is not null
+            ? bundle.Selected
+            : 0;
+        return ResolveSlot(templates, effect, selected);
+    }
+
+    /// <summary>
+    /// Drop activation-state entries that are redundant: null values and states
+    /// equal to the effect's resolved selected-slot look. Applied by the v10
+    /// load migration and by profile apply/import, so dense States written by
+    /// older builds (or carried by old profile files and cloud-synced payloads)
+    /// cannot re-inflate a pruned settings.json.
+    /// </summary>
+    public static void PruneStates(AnimateSettings animate)
+    {
+        if (animate.States is null)
+        {
+            animate.States = new();
+            return;
+        }
+        var redundant = new List<string>();
+        foreach (var (effect, state) in animate.States)
+        {
+            if (state is null
+                || (ResolveSelected(animate.Templates, effect) is { } look && StateEquals(state, look)))
+            {
+                redundant.Add(effect);
+            }
+        }
+        foreach (var effect in redundant)
+        {
+            animate.States.Remove(effect);
+        }
+    }
+
     /// <summary>
     /// Reduce a full template dict to user deltas. An entirely-default bundle
     /// with Selected == 0 is dropped; in a kept bundle, non-selected slots equal
@@ -79,15 +132,19 @@ public static class AnimateTemplateDefaults
                 result[effect] = bundle;
                 continue;
             }
+            // A foreign doc can carry an explicit null slots list; treat it as
+            // an empty sparse bundle rather than throwing (a Migrate throw
+            // routes Load through the corrupt-file reset).
+            var bundleSlots = bundle.Slots ?? new List<AnimateEffectState?>();
             // A null element in already-sparse input means "the default", so it
             // counts as default here; that keeps Prune idempotent (a re-applied
             // post-v9 profile's all-default sparse bundle drops instead of
             // getting a slot pinned to a copy of today's default).
-            var isDefault = new bool[bundle.Slots.Count];
+            var isDefault = new bool[bundleSlots.Count];
             var allDefault = true;
-            for (var i = 0; i < bundle.Slots.Count; i++)
+            for (var i = 0; i < bundleSlots.Count; i++)
             {
-                var slot = bundle.Slots[i];
+                var slot = bundleSlots[i];
                 var def = i < defaults.Slots.Count ? defaults.Slots[i] : null;
                 isDefault[i] = def is not null && (slot is null || StateEquals(slot, def));
                 allDefault &= isDefault[i];
@@ -97,10 +154,10 @@ public static class AnimateTemplateDefaults
                 continue;
             }
             var selected = Math.Clamp(bundle.Selected, 0, SlotCount - 1);
-            var slots = new List<AnimateEffectState?>(bundle.Slots.Count);
-            for (var i = 0; i < bundle.Slots.Count; i++)
+            var slots = new List<AnimateEffectState?>(bundleSlots.Count);
+            for (var i = 0; i < bundleSlots.Count; i++)
             {
-                slots.Add(isDefault[i] && i != selected ? null : bundle.Slots[i]);
+                slots.Add(isDefault[i] && i != selected ? null : bundleSlots[i]);
             }
             // Already-sparse input (a post-v9 profile file re-applied) can carry a
             // null or truncated-away selected slot; pad to it and materialize so
