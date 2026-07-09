@@ -23,6 +23,25 @@ public class AppPrefixMigrationTests
     }
 
     [Fact]
+    public void Rewrites_legacy_prefix_in_pinned_sidebar_tail()
+    {
+        var doc = new NexusSettings();
+        doc.Ui.PinnedSidebarApps = new List<string> { "monitoring", "marketplace:com.ibuypower.control" };
+        AppPrefixMigration.Apply(doc);
+        Assert.Equal(new[] { "monitoring", "app:com.ibuypower.control" }, doc.Ui.PinnedSidebarApps);
+    }
+
+    [Fact]
+    public void Never_sent_pinned_tail_stays_null_and_is_omitted_from_json()
+    {
+        var doc = new NexusSettings();
+        AppPrefixMigration.Apply(doc);
+        Assert.Null(doc.Ui.PinnedSidebarApps);
+        var json = JsonSerializer.Serialize(doc, PersistenceJsonContext.Default.NexusSettings);
+        Assert.DoesNotContain("pinnedSidebarApps", json);
+    }
+
+    [Fact]
     public void Rewrites_legacy_prefix_across_every_carrier()
     {
         var doc = new NexusSettings();

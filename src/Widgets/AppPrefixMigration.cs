@@ -17,6 +17,13 @@ public static class AppPrefixMigration
 
     public static void Apply(NexusSettings doc)
     {
+        if (doc.Ui?.PinnedSidebarApps is { } pinned)
+        {
+            for (var i = 0; i < pinned.Count; i++)
+            {
+                pinned[i] = Rewrite(pinned[i]);
+            }
+        }
         RewriteLayout(doc.Panel?.DashboardLayout);
         RewriteSeeds(doc.Panel?.Layouts);
         if (doc.PanelDevices is not null)
