@@ -16,7 +16,6 @@ using Nexus.Service.Diagnostics.Report;
 using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Diagnostics.SystemInfo;
 using Nexus.Service.Lighting;
-using Nexus.Service.Models;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 
@@ -152,15 +151,15 @@ public static class DiagnosticsHealthRoutes
 #if WINDOWS
                 var registry = sp.GetRequiredService<Nexus.Service.Helper.HelperRegistry>();
                 _ = Nexus.Service.Helper.Domains.DiagnosticsCommands.OpenEventViewerAsync(registry);
-                return Results.Ok(ApiResponse.Ok());
+                return Results.Ok(new OpenEventViewerResponse { Opened = true });
 #else
-                return Results.Ok(ApiResponse.Fail("Event Viewer is only available on Windows"));
+                return Results.Ok(new OpenEventViewerResponse { Opened = false, Error = "Event Viewer is only available on Windows" });
 #endif
             }
             catch (Exception ex)
             {
                 Console.Error.WriteLine($"[diagnostics] open-event-viewer failed: {ex.Message}");
-                return Results.Problem(ex.Message);
+                return Results.Ok(new OpenEventViewerResponse { Opened = false, Error = ex.Message });
             }
         }).LocalhostOnly();
 
@@ -175,8 +174,8 @@ public static class DiagnosticsHealthRoutes
             }
 
             const int ClearTimeoutMs = 10_000;
-            var systemResult = DiagnosticsShell.Run("wevtutil.exe", ClearTimeoutMs, "cl", "System");
-            var appResult = DiagnosticsShell.Run("wevtutil.exe", ClearTimeoutMs, "cl", "Application");
+            var systemResult = await DiagnosticsShell.RunAsync("wevtutil.exe", ClearTimeoutMs, "cl", "System");
+            var appResult = await DiagnosticsShell.RunAsync("wevtutil.exe", ClearTimeoutMs, "cl", "Application");
             await events.ResetAndBackfillAsync();
 
             var systemOk = systemResult.ExitCode == 0;
@@ -440,4 +439,10 @@ public sealed record EventLogClearResponse
     public bool Cleared { get; init; }
     public string? SystemError { get; init; }
     public string? ApplicationError { get; init; }
+}
+
+public sealed record OpenEventViewerResponse
+{
+    public bool Opened { get; init; }
+    public string? Error { get; init; }
 }

@@ -953,6 +953,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.SystemDiagnosticsCounts))]
 [JsonSerializable(typeof(Nexus.Service.Routes.SystemDiagnosticsResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.EventLogClearResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.OpenEventViewerResponse))]
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
