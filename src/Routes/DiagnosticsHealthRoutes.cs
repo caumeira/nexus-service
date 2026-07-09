@@ -3,6 +3,9 @@ using System.Collections.Generic;
 using System.Linq;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+#if WINDOWS
+using Microsoft.Extensions.DependencyInjection;
+#endif
 using Nexus.Service.Auth;
 using Nexus.Service.Diagnostics;
 using Nexus.Service.Diagnostics.Cooling;
@@ -13,6 +16,7 @@ using Nexus.Service.Diagnostics.Report;
 using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Diagnostics.SystemInfo;
 using Nexus.Service.Lighting;
+using Nexus.Service.Models;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 
@@ -40,8 +44,11 @@ public static class DiagnosticsHealthRoutes
         app.MapGet("/diagnostics/health", (string? refresh, DiagnosticsHealthModel model) =>
             model.BuildHealth(IsRefresh(refresh))).AllowPanel();
 
+        // gpuDriver is excluded from the live feed (too noisy to act on) but
+        // still collected internally and still shown in the support bundle's
+        // ungrouped incidents.json.
         app.MapGet("/diagnostics/incidents", (int? days, EventLogMonitor events, SteamGameLibraryCache steamCache) =>
-            BuildIncidentsResponse(events, steamCache, Math.Clamp(days ?? MaxIncidentDays, 1, MaxIncidentDays), group: true));
+            BuildIncidentsResponse(events, steamCache, Math.Clamp(days ?? MaxIncidentDays, 1, MaxIncidentDays), group: true, includeGpuDriver: false));
 
         app.MapGet("/diagnostics/smart", (string? refresh, SmartHealthMonitor smart) =>
         {
@@ -134,22 +141,80 @@ public static class DiagnosticsHealthRoutes
             var fileName = $"nexus-diagnostics-report-{Environment.MachineName}-{DateTime.Now:yyyyMMdd-HHmm}.pdf";
             return Results.File(pdfBytes, "application/pdf", fileName);
         }).LocalhostOnly();
+
+        // Mirrors /diagnostics/open-logs: the service is LocalSystem in Session
+        // 0 and cannot show eventvwr.msc itself, so it hands off to the
+        // user-session helper over the pipe.
+        app.MapPost("/diagnostics/events/open-viewer", (IServiceProvider sp) =>
+        {
+            try
+            {
+#if WINDOWS
+                var registry = sp.GetRequiredService<Nexus.Service.Helper.HelperRegistry>();
+                _ = Nexus.Service.Helper.Domains.DiagnosticsCommands.OpenEventViewerAsync(registry);
+                return Results.Ok(ApiResponse.Ok());
+#else
+                return Results.Ok(ApiResponse.Fail("Event Viewer is only available on Windows"));
+#endif
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[diagnostics] open-event-viewer failed: {ex.Message}");
+                return Results.Problem(ex.Message);
+            }
+        }).LocalhostOnly();
+
+        // Destructive and desktop-only: wipes the System and Application event
+        // logs via wevtutil, then resyncs EventLogMonitor's in-memory store so
+        // it stops serving now-deleted incidents.
+        app.MapPost("/diagnostics/events/clear", async (EventLogMonitor events) =>
+        {
+            if (!OperatingSystem.IsWindows())
+            {
+                return new EventLogClearResponse { Supported = false };
+            }
+
+            const int ClearTimeoutMs = 10_000;
+            var systemResult = DiagnosticsShell.Run("wevtutil.exe", ClearTimeoutMs, "cl", "System");
+            var appResult = DiagnosticsShell.Run("wevtutil.exe", ClearTimeoutMs, "cl", "Application");
+            await events.ResetAndBackfillAsync();
+
+            var systemOk = systemResult.ExitCode == 0;
+            var appOk = appResult.ExitCode == 0;
+            return new EventLogClearResponse
+            {
+                Supported = true,
+                Cleared = systemOk && appOk,
+                SystemError = systemOk ? null : DescribeShellFailure(systemResult),
+                ApplicationError = appOk ? null : DescribeShellFailure(appResult),
+            };
+        }).LocalhostOnly();
     }
+
+    private static string DescribeShellFailure(ShellResult result) =>
+        !string.IsNullOrWhiteSpace(result.Stderr) ? result.Stderr.Trim() : $"wevtutil exited {result.ExitCode}";
 
     // Accepts "1" or "true" (case-insensitive); bool query binding rejects "1".
     private static bool IsRefresh(string? refresh) =>
         refresh is "1" || string.Equals(refresh, "true", StringComparison.OrdinalIgnoreCase);
 
     private static IncidentsResponse BuildIncidentsResponse(
-        EventLogMonitor events, SteamGameLibraryCache steamCache, int windowDays, bool group) =>
-        new()
+        EventLogMonitor events, SteamGameLibraryCache steamCache, int windowDays, bool group, bool includeGpuDriver = true)
+    {
+        IReadOnlyList<DiagnosticIncident> incidents = events.Snapshot(windowDays);
+        if (!includeGpuDriver)
+        {
+            incidents = incidents.Where(i => i.Source != DiagnosticEventCatalog.SourceGpuDriver).ToList();
+        }
+
+        var decorated = DecorateGameCrashes(incidents, steamCache);
+        return new IncidentsResponse
         {
             Supported = OperatingSystem.IsWindows(),
             WindowDays = windowDays,
-            Incidents = group
-                ? GroupRepeats(DecorateGameCrashes(events.Snapshot(windowDays), steamCache))
-                : DecorateGameCrashes(events.Snapshot(windowDays), steamCache),
+            Incidents = group ? GroupRepeats(decorated) : decorated,
         };
+    }
 
     /// <summary>Collapses incidents sharing (Source, Title, Severity, App?.Name) into
     /// one row: the newest occurrence, stamped with RepeatCount and the oldest
@@ -206,7 +271,6 @@ public static class DiagnosticsHealthRoutes
     {
         var counts = events.CountsSince(TimeSpan.FromDays(30));
         var tdr = counts.GetValueOrDefault(DiagnosticEventCatalog.SourceTdr);
-        var driverErr = counts.GetValueOrDefault(DiagnosticEventCatalog.SourceGpuDriver);
         var snapshot = gpu.Snapshot(forceRefresh);
 
         var gpus = snapshot.Gpus.Select(g => new GpuInfoWire
@@ -217,7 +281,6 @@ public static class DiagnosticsHealthRoutes
             PowerW = g.PowerW,
             Throttle = g.Throttle,
             RecentTdrCount = tdr,
-            RecentDriverErrorCount = driverErr,
         }).ToList();
 
         return new GpuHealthResponse { Supported = snapshot.Supported, Gpus = gpus };
@@ -239,7 +302,6 @@ public static class DiagnosticsHealthRoutes
                 DirtyShutdowns = counts.GetValueOrDefault(DiagnosticEventCatalog.SourceDirtyShutdown),
                 DiskErrors = counts.GetValueOrDefault(DiagnosticEventCatalog.SourceDisk),
                 Tdrs = counts.GetValueOrDefault(DiagnosticEventCatalog.SourceTdr),
-                GpuDriverErrors = counts.GetValueOrDefault(DiagnosticEventCatalog.SourceGpuDriver),
                 AppCrashes = counts.GetValueOrDefault(DiagnosticEventCatalog.SourceAppCrash),
             },
         };
@@ -327,7 +389,6 @@ public sealed record GpuInfoWire
     public double? PowerW { get; init; }
     public GpuThrottleInfo Throttle { get; init; } = new(Array.Empty<string>(), null, null, null, null);
     public int RecentTdrCount { get; init; }
-    public int RecentDriverErrorCount { get; init; }
 }
 
 public sealed record GpuHealthResponse
@@ -363,7 +424,6 @@ public sealed record SystemDiagnosticsCounts
     public int DirtyShutdowns { get; init; }
     public int DiskErrors { get; init; }
     public int Tdrs { get; init; }
-    public int GpuDriverErrors { get; init; }
     public int AppCrashes { get; init; }
 }
 
@@ -372,4 +432,12 @@ public sealed record SystemDiagnosticsResponse
     public bool Supported { get; init; }
     public IReadOnlyList<PnpProblemDevice> PnpProblems { get; init; } = Array.Empty<PnpProblemDevice>();
     public SystemDiagnosticsCounts Counts30d { get; init; } = new();
+}
+
+public sealed record EventLogClearResponse
+{
+    public bool Supported { get; init; }
+    public bool Cleared { get; init; }
+    public string? SystemError { get; init; }
+    public string? ApplicationError { get; init; }
 }

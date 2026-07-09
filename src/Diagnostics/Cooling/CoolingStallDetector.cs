@@ -229,17 +229,24 @@ public sealed class CoolingStallDetector
         st.SinceUtc = sinceUtc;
     }
 
-    /// <summary>Current classification for every channel observed so far. Always
-    /// Supported=true - a fan-control provider exists on every OS this service
-    /// runs on (possibly reporting zero channels), there is no platform gate here.</summary>
+    /// <summary>Current classification for every channel observed so far, minus
+    /// any channel still "unknown" (no duty signal, or never once reported a
+    /// real rpm - most likely not actually connected). Always Supported=true -
+    /// a fan-control provider exists on every OS this service runs on (possibly
+    /// reporting zero channels), there is no platform gate here. An unknown
+    /// channel stays tracked internally (see <see cref="Observe"/>/<see cref="PruneStale"/>)
+    /// so it appears here the moment it reports a real rpm.</summary>
     public CoolingStallSnapshot Snapshot()
     {
         lock (_gate)
         {
-            var devices = _channels.Select(kv => new CoolingStallDevice(
-                kv.Key, kv.Value.Name, kv.Value.Type,
-                kv.Value.LastRpm, kv.Value.LastTargetDutyPercent,
-                kv.Value.Status, kv.Value.SinceUtc)).ToList();
+            var devices = _channels
+                .Where(kv => kv.Value.Status != CoolingStallStatuses.Unknown)
+                .Select(kv => new CoolingStallDevice(
+                    kv.Key, kv.Value.Name, kv.Value.Type,
+                    kv.Value.LastRpm, kv.Value.LastTargetDutyPercent,
+                    kv.Value.Status, kv.Value.SinceUtc))
+                .ToList();
             return new CoolingStallSnapshot(true, devices);
         }
     }

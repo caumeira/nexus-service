@@ -55,6 +55,30 @@ public sealed class EventLogMonitor : BackgroundService
         return result;
     }
 
+    /// <summary>Clears the in-memory store and (Windows only) re-runs the
+    /// catalog backfill from scratch. Used after an external wipe of the
+    /// underlying System/Application logs (POST /diagnostics/events/clear) so
+    /// the store stops serving now-deleted incidents. Clear and every
+    /// Backfill-driven add each take _lock individually, so this never
+    /// corrupts the list against a concurrent live-subscription callback; it
+    /// does not fully rule out a duplicate row if a real event lands after
+    /// the clear but before Backfill's re-query reaches that same channel -
+    /// an acceptable residual gap for this rare, user-initiated action.</summary>
+    public Task ResetAndBackfillAsync()
+    {
+        lock (_lock)
+        {
+            _incidents.Clear();
+        }
+#if WINDOWS
+        foreach (var entry in DiagnosticEventCatalog.Entries)
+        {
+            Backfill(entry);
+        }
+#endif
+        return Task.CompletedTask;
+    }
+
     private void AddIncident(DiagnosticIncident incident)
     {
         lock (_lock)

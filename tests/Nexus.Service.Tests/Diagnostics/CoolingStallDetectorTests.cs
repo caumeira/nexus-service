@@ -65,14 +65,14 @@ public class CoolingStallDetectorTests
     [Fact]
     public void NullRpm_NeverReportedNonzero_NeverFlagged()
     {
+        // Unknown-status channels are excluded from Snapshot() entirely (they
+        // are probably not connected), so this never appears in the device list.
         var det = new CoolingStallDetector();
         det.Observe("fan2", "Fan", "fan", null, 80, T0);
-        Assert.Equal(CoolingStallStatuses.Unknown, det.Snapshot().Devices.Single().Status);
+        Assert.Empty(det.Snapshot().Devices);
 
         det.Observe("fan2", "Fan", "fan", null, 80, T0.AddMinutes(10));
-        var status = det.Snapshot().Devices.Single().Status;
-        Assert.NotEqual(CoolingStallStatuses.Stalled, status);
-        Assert.NotEqual(CoolingStallStatuses.Suspect, status);
+        Assert.Empty(det.Snapshot().Devices);
     }
 
     [Fact]
@@ -88,10 +88,11 @@ public class CoolingStallDetectorTests
     [Fact]
     public void NoDutySignal_NeverFlagged()
     {
+        // Unknown-status channels are excluded from Snapshot() entirely.
         var det = new CoolingStallDetector();
         det.Observe("fan4", "Fan", "fan", 0, null, T0);
         det.Observe("fan4", "Fan", "fan", 0, null, T0.AddMinutes(20));
-        Assert.Equal(CoolingStallStatuses.Unknown, det.Snapshot().Devices.Single().Status);
+        Assert.Empty(det.Snapshot().Devices);
     }
 
     [Fact]
@@ -100,15 +101,27 @@ public class CoolingStallDetectorTests
         // FanChannel.Rpm is a non-nullable int, so an unpopulated header reports
         // a literal 0, not null. A first-ever observation of 0 rpm at a duty
         // that would otherwise sustain into "stalled" must stay unknown - there
-        // is no prior nonzero reading to call this a stall against.
+        // is no prior nonzero reading to call this a stall against. Unknown
+        // channels are excluded from Snapshot() (probably not connected).
         var det = new CoolingStallDetector();
         det.Observe("fan5", "Fan", "fan", 0, 60, T0);
-        Assert.Equal(CoolingStallStatuses.Unknown, det.Snapshot().Devices.Single().Status);
+        Assert.Empty(det.Snapshot().Devices);
 
         det.Observe("fan5", "Fan", "fan", 0, 60, T0.AddMinutes(10));
-        var status = det.Snapshot().Devices.Single().Status;
-        Assert.NotEqual(CoolingStallStatuses.Stalled, status);
-        Assert.NotEqual(CoolingStallStatuses.Suspect, status);
+        Assert.Empty(det.Snapshot().Devices);
+    }
+
+    [Fact]
+    public void NeverSpunChannel_AbsentFromSnapshot_ThenAppearsOnceItSpins()
+    {
+        var det = new CoolingStallDetector();
+        det.Observe("fan8", "Fan", "fan", 0, 50, T0);
+        Assert.Empty(det.Snapshot().Devices);
+
+        det.Observe("fan8", "Fan", "fan", 1200, 50, T0.AddSeconds(5));
+        var device = Assert.Single(det.Snapshot().Devices);
+        Assert.Equal("fan8", device.Id);
+        Assert.Equal(CoolingStallStatuses.Ok, device.Status);
     }
 
     [Fact]
