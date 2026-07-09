@@ -120,6 +120,15 @@ public sealed class DiagnosticsHealthModel
     /// here is skipping storage/gpu/memory/system entirely when
     /// <paramref name="windowsSupported"/> is false - cooling stays evaluated
     /// on every platform (IFanControlProvider exists cross-platform).
+    ///
+    /// Every component reflects current state only: SMART classification,
+    /// active GPU throttle, last memory test result, live pnp problems, and
+    /// cooling stall detection. 30-day event history (TDRs, driver errors,
+    /// bugchecks, dirty shutdowns, WHEA) never feeds a status here - it stays
+    /// on GET /diagnostics/system and /diagnostics/gpu and the PDF report's
+    /// stability grid, both informational-only. <paramref name="counts30d"/>
+    /// is accepted so the "history never affects status" invariant is testable
+    /// by construction; nothing in this method reads it.
     /// </summary>
     public static DiagnosticsHealthResponse Compute(
         SmartSnapshot smart,
@@ -137,9 +146,9 @@ public sealed class DiagnosticsHealthModel
         if (windowsSupported)
         {
             AddStorageComponents(components, smart);
-            AddGpuComponents(components, gpu, counts30d, knownGpuModels);
-            AddMemoryComponent(components, counts30d, lastMemoryTest);
-            AddSystemComponent(components, counts30d, pnp);
+            AddGpuComponents(components, gpu, knownGpuModels);
+            AddMemoryComponent(components, lastMemoryTest);
+            AddSystemComponent(components, pnp);
         }
         AddCoolingComponents(components, cooling);
 
@@ -234,18 +243,14 @@ public sealed class DiagnosticsHealthModel
     private static void AddGpuComponents(
         List<HealthComponent> components,
         GpuHealthSnapshot gpu,
-        IReadOnlyDictionary<string, int> counts30d,
         IReadOnlyList<string> knownGpuModels)
     {
-        var tdrCount = counts30d.GetValueOrDefault(DiagnosticEventCatalog.SourceTdr);
-        var driverErrCount = counts30d.GetValueOrDefault(DiagnosticEventCatalog.SourceGpuDriver);
-
         if (gpu.Supported)
         {
             for (var i = 0; i < gpu.Gpus.Count; i++)
             {
                 var info = gpu.Gpus[i];
-                var reasons = BuildGpuReasons(info.Throttle, tdrCount, driverErrCount);
+                var reasons = BuildGpuReasons(info.Throttle);
                 components.Add(new HealthComponent
                 {
                     Id = $"gpu:{i}",
@@ -258,43 +263,27 @@ public sealed class DiagnosticsHealthModel
             return;
         }
 
-        if (knownGpuModels.Count == 0 && tdrCount == 0 && driverErrCount == 0)
+        // No live NVML/ADL readout: only surface a placeholder component when a
+        // GPU is actually known to exist (from sensor detection), with nothing
+        // to say about its status.
+        if (knownGpuModels.Count == 0)
         {
             return;
         }
 
-        var fallbackReasons = BuildGpuReasons(NoThrottle, tdrCount, driverErrCount);
         components.Add(new HealthComponent
         {
             Id = "gpu:0",
             Kind = "gpu",
             Name = knownGpuModels.FirstOrDefault() ?? "GPU",
-            Status = WorstReasonStatus(fallbackReasons, HealthStatuses.Unknown),
-            Reasons = fallbackReasons,
+            Status = HealthStatuses.Unknown,
+            Reasons = Array.Empty<HealthComponentReason>(),
         });
     }
 
-    private static readonly GpuThrottleInfo NoThrottle = new(Array.Empty<string>(), null, null, null, null);
-
-    private static List<HealthComponentReason> BuildGpuReasons(GpuThrottleInfo throttle, int tdrCount, int driverErrCount)
+    private static List<HealthComponentReason> BuildGpuReasons(GpuThrottleInfo throttle)
     {
         var reasons = new List<HealthComponentReason>();
-
-        if (tdrCount >= 1)
-        {
-            var severity = tdrCount >= 3 ? HealthStatuses.Act : HealthStatuses.Watch;
-            reasons.Add(new HealthComponentReason("gpu.tdr", severity,
-                $"{tdrCount} display driver timeout(s) in the last 30 days",
-                "A TDR resets the display driver after it stops responding; repeated TDRs point to an unstable driver, an overclock, or a failing GPU."));
-        }
-
-        if (driverErrCount >= 5)
-        {
-            var severity = driverErrCount >= 25 ? HealthStatuses.Act : HealthStatuses.Watch;
-            reasons.Add(new HealthComponentReason("gpu.driverErrors", severity,
-                $"{driverErrCount} GPU driver error(s) in the last 30 days",
-                "Errors logged by the NVIDIA or AMD kernel-mode driver (nvlddmkm / amdkmdag) over the last 30 days."));
-        }
 
         if (throttle.Active.Contains("hwThermal") || throttle.Active.Contains("hwPowerBrake"))
         {
@@ -306,12 +295,8 @@ public sealed class DiagnosticsHealthModel
         return reasons;
     }
 
-    private static void AddMemoryComponent(
-        List<HealthComponent> components,
-        IReadOnlyDictionary<string, int> counts30d,
-        MemoryTestResult? lastMemoryTest)
+    private static void AddMemoryComponent(List<HealthComponent> components, MemoryTestResult? lastMemoryTest)
     {
-        var wheaCount = counts30d.GetValueOrDefault(DiagnosticEventCatalog.SourceWhea);
         var reasons = new List<HealthComponentReason>();
 
         if (lastMemoryTest is { Result: MemoryTestResult.Failed })
@@ -319,14 +304,6 @@ public sealed class DiagnosticsHealthModel
             reasons.Add(new HealthComponentReason("memory.testFailed", HealthStatuses.Act,
                 "The last Windows Memory Diagnostic run reported errors",
                 lastMemoryTest.Detail ?? "Microsoft-Windows-MemoryDiagnostics-Results logged a failed run."));
-        }
-
-        if (wheaCount >= 1)
-        {
-            var severity = wheaCount >= 5 ? HealthStatuses.Act : HealthStatuses.Watch;
-            reasons.Add(new HealthComponentReason("memory.wheaErrors", severity,
-                $"{wheaCount} WHEA-logged hardware error(s) in the last 30 days",
-                "WHEA covers CPU, PCIe, and memory machine-check-class hardware errors; not all of them are memory faults."));
         }
 
         components.Add(new HealthComponent
@@ -339,29 +316,9 @@ public sealed class DiagnosticsHealthModel
         });
     }
 
-    private static void AddSystemComponent(
-        List<HealthComponent> components,
-        IReadOnlyDictionary<string, int> counts30d,
-        PnpProblemSnapshot pnp)
+    private static void AddSystemComponent(List<HealthComponent> components, PnpProblemSnapshot pnp)
     {
-        var bugcheckCount = counts30d.GetValueOrDefault(DiagnosticEventCatalog.SourceBugcheck);
-        var dirtyShutdownCount = counts30d.GetValueOrDefault(DiagnosticEventCatalog.SourceDirtyShutdown);
         var reasons = new List<HealthComponentReason>();
-
-        if (bugcheckCount >= 1)
-        {
-            var severity = bugcheckCount >= 3 ? HealthStatuses.Act : HealthStatuses.Watch;
-            reasons.Add(new HealthComponentReason("system.bugchecks", severity,
-                $"{bugcheckCount} bugcheck(s) in the last 30 days",
-                "Logged by Microsoft-Windows-WER-SystemErrorReporting when Windows reports a kernel bugcheck after reboot."));
-        }
-
-        if (dirtyShutdownCount >= 3)
-        {
-            reasons.Add(new HealthComponentReason("system.dirtyShutdowns", HealthStatuses.Watch,
-                $"{dirtyShutdownCount} unexpected shutdown(s) in the last 30 days",
-                "Kernel-Power event 41: the system restarted without a clean shutdown. Also logged for a deliberate power cut, not only a fault."));
-        }
 
         if (pnp.Devices.Count >= 1)
         {

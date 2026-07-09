@@ -24,6 +24,7 @@ public sealed class EventLogMonitor : BackgroundService
 
     private readonly object _lock = new();
     private readonly List<DiagnosticIncident> _incidents = new();
+    private int _generation;
 
     public IReadOnlyList<DiagnosticIncident> Snapshot(int days)
     {
@@ -55,15 +56,75 @@ public sealed class EventLogMonitor : BackgroundService
         return result;
     }
 
+    /// <summary>Clears the in-memory store and (Windows only) re-runs the
+    /// catalog backfill from scratch, offloaded to a thread-pool thread so the
+    /// caller (POST /diagnostics/events/clear, awaited while wevtutil wipes
+    /// the underlying System/Application logs) is never blocked on native
+    /// EvtQuery/EvtNext calls. _generation is bumped under _lock on every
+    /// reset; the boot-time backfill and every reset's own backfill each
+    /// capture the generation current when they start and pass it through to
+    /// every add. An add is dropped, not written, if the generation has since
+    /// moved on - so a still-running stale pass (the boot backfill racing a
+    /// clear during startup, or an older clear racing a newer one) can never
+    /// resurrect incidents a later reset already superseded, and two
+    /// concurrent clears can never interleave into duplicates. The live
+    /// EvtSubscribe callback (<see cref="OnEvent"/>) is unaffected - it always
+    /// adds under whatever generation is current at delivery time, since it
+    /// reports a genuinely new event, not a replay.</summary>
+    public Task ResetAndBackfillAsync()
+    {
+        int generation;
+        lock (_lock)
+        {
+            _generation++;
+            generation = _generation;
+            _incidents.Clear();
+        }
+#if WINDOWS
+        return Task.Run(() =>
+        {
+            foreach (var entry in DiagnosticEventCatalog.Entries)
+            {
+                Backfill(entry, generation);
+            }
+        });
+#else
+        return Task.CompletedTask;
+#endif
+    }
+
     private void AddIncident(DiagnosticIncident incident)
     {
         lock (_lock)
         {
-            _incidents.Add(incident);
-            if (_incidents.Count > MaxIncidents)
+            AddIncidentLocked(incident);
+        }
+    }
+
+    // Returns false without adding if a later reset has bumped the generation
+    // past what the caller's backfill pass started with. Internal (not
+    // private) so EventLogMonitorTests can exercise the generation gate
+    // directly - Backfill itself is Windows-only and needs live WevtApi state.
+    internal bool TryAddIncident(DiagnosticIncident incident, int generation)
+    {
+        lock (_lock)
+        {
+            if (generation != _generation)
             {
-                Trim();
+                return false;
             }
+            AddIncidentLocked(incident);
+            return true;
+        }
+    }
+
+    // Caller holds _lock.
+    private void AddIncidentLocked(DiagnosticIncident incident)
+    {
+        _incidents.Add(incident);
+        if (_incidents.Count > MaxIncidents)
+        {
+            Trim();
         }
     }
 
@@ -121,6 +182,12 @@ public sealed class EventLogMonitor : BackgroundService
             return;
         }
 
+        int generation;
+        lock (_lock)
+        {
+            generation = _generation;
+        }
+
         var backfillCounts = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var entry in DiagnosticEventCatalog.Entries)
         {
@@ -128,7 +195,7 @@ public sealed class EventLogMonitor : BackgroundService
             {
                 return;
             }
-            backfillCounts[entry.Source] = Backfill(entry);
+            backfillCounts[entry.Source] = Backfill(entry, generation);
         }
         var summary = string.Join(", ", backfillCounts.Select(kv => $"{kv.Key}={kv.Value}"));
         ServiceLog.Info($"[event-log-monitor] backfill complete: {summary}");
@@ -195,7 +262,7 @@ public sealed class EventLogMonitor : BackgroundService
         return $"*[System[{string.Join(" or ", predicates)}]]";
     }
 
-    private int Backfill(DiagnosticEventCatalogEntry entry)
+    private int Backfill(DiagnosticEventCatalogEntry entry, int generation)
     {
         var query = $"*[System[({entry.XPath}) and TimeCreated[timediff(@SystemTime) <= {BackfillWindowMs}]]]";
         using var resultSet = WevtApi.EvtQuery(IntPtr.Zero, entry.Channel, query,
@@ -217,9 +284,8 @@ public sealed class EventLogMonitor : BackgroundService
             using var eventHandle = new WevtApi.SafeEvtHandle(buffer[0], ownsHandle: true);
             var xml = Render(eventHandle);
             var incident = xml is not null ? EventXmlParser.Parse(xml) : null;
-            if (incident is not null)
+            if (incident is not null && TryAddIncident(incident, generation))
             {
-                AddIncident(incident);
                 count++;
             }
         }

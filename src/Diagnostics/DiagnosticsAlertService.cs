@@ -8,16 +8,12 @@ using Nexus.Service.Platform;
 
 namespace Nexus.Service.Diagnostics;
 
-/// <summary>One-shot tray/log alert payload for a component that just turned "act".
-/// Text carries the top act-severity reason's summary.</summary>
-public sealed record DiagnosticsAlertNotice(string Title, string Text);
-
 /// <summary>
 /// Polls <see cref="DiagnosticsHealthModel"/> every 5 minutes (first check 2
-/// minutes after start) and raises one warning log line + one
-/// <see cref="HardwareIssueDetected"/> tray notice per "act" component, the
+/// minutes after start) and logs one warning line per "act" component, the
 /// first time its id is seen this service run. A component id is never
-/// re-alerted within the same run, even if it clears and re-triggers.
+/// re-alerted within the same run, even if it clears and re-triggers. Log
+/// only: no tray/native notification is raised for a diagnostics issue.
 /// </summary>
 public sealed class DiagnosticsAlertService : BackgroundService
 {
@@ -26,8 +22,6 @@ public sealed class DiagnosticsAlertService : BackgroundService
 
     private readonly DiagnosticsHealthModel _health;
     private readonly HashSet<string> _alerted = new(StringComparer.Ordinal);
-
-    public event Action<DiagnosticsAlertNotice>? HardwareIssueDetected;
 
     public DiagnosticsAlertService(DiagnosticsHealthModel health)
     {
@@ -78,7 +72,6 @@ public sealed class DiagnosticsAlertService : BackgroundService
                 ?? component.Reasons.FirstOrDefault();
             var summary = topReason?.Summary ?? "no detail available";
             ServiceLog.Warn($"[diagnostics-alert] {component.Kind} issue: {component.Name} - {summary}");
-            HardwareIssueDetected?.Invoke(new DiagnosticsAlertNotice($"Hardware issue detected: {component.Name}", summary));
         }
     }
 }

@@ -735,6 +735,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ServiceRequestStopPayload))]
 // Diagnostics
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenLogsPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenEventViewerPayload))]
 // Tray
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TraySetVisiblePayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TrayPairNoticePayload))]
@@ -951,6 +952,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Diagnostics.SystemInfo.PnpProblemDevice))]
 [JsonSerializable(typeof(Nexus.Service.Routes.SystemDiagnosticsCounts))]
 [JsonSerializable(typeof(Nexus.Service.Routes.SystemDiagnosticsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.EventLogClearResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.OpenEventViewerResponse))]
 
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,

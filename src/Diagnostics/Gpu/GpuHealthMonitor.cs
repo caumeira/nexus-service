@@ -14,8 +14,8 @@ public sealed record GpuThrottleInfo(
     long? HwThermalUs,
     long? HwPowerBrakeUs);
 
-/// <summary>Per-GPU health readout. RecentTdrCount/RecentDriverErrorCount are
-/// intentionally absent - the integrator fills those from the event monitor.</summary>
+/// <summary>Per-GPU health readout. RecentTdrCount is intentionally absent -
+/// the integrator fills it in from the event monitor.</summary>
 public sealed record GpuInfo(
     string Name,
     string? DriverVersion,

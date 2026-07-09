@@ -69,34 +69,49 @@ public class DiagnosticsHealthModelTests
     }
 
     [Theory]
-    [InlineData(1, HealthStatuses.Watch)]
-    [InlineData(2, HealthStatuses.Watch)]
-    [InlineData(3, HealthStatuses.Act)]
-    [InlineData(5, HealthStatuses.Act)]
-    public void GpuTdrThreshold_EscalatesAtThree(int tdrCount, string expectedStatus)
+    [InlineData(1)]
+    [InlineData(3)]
+    [InlineData(25)]
+    public void GpuTdrAndDriverErrorCounts_NeverAffectStatus(int count)
     {
         var gpu = new GpuHealthSnapshot(true, new List<GpuInfo>
         {
             new("Test GPU", "1.0", 50, 100, new GpuThrottleInfo(Array.Empty<string>(), null, null, null, null)),
         });
-        var counts = new Dictionary<string, int> { [DiagnosticEventCatalog.SourceTdr] = tdrCount };
+        var counts = new Dictionary<string, int>
+        {
+            [DiagnosticEventCatalog.SourceTdr] = count,
+            [DiagnosticEventCatalog.SourceGpuDriver] = count,
+        };
 
         var result = Compute(gpu: gpu, counts30d: counts);
 
         var gpuComponent = Assert.Single(result.Components, c => c.Kind == "gpu");
-        Assert.Equal(expectedStatus, gpuComponent.Status);
+        Assert.Equal(HealthStatuses.Ok, gpuComponent.Status);
+        Assert.Empty(gpuComponent.Reasons);
     }
 
     [Fact]
-    public void DirtyShutdowns_NeverEscalatesToAct_RegardlessOfCount()
+    public void DirtyShutdownsBugchecksAndWhea_NeverAffectStatus_RegardlessOfCount()
     {
-        var counts = new Dictionary<string, int> { [DiagnosticEventCatalog.SourceDirtyShutdown] = 1000 };
+        var counts = new Dictionary<string, int>
+        {
+            [DiagnosticEventCatalog.SourceDirtyShutdown] = 1000,
+            [DiagnosticEventCatalog.SourceBugcheck] = 1000,
+            [DiagnosticEventCatalog.SourceWhea] = 1000,
+        };
 
         var result = Compute(counts30d: counts);
 
         var system = Assert.Single(result.Components, c => c.Kind == "system");
-        Assert.Equal(HealthStatuses.Watch, system.Status);
-        Assert.Equal(HealthStatuses.Watch, result.Overall);
+        Assert.Equal(HealthStatuses.Ok, system.Status);
+        Assert.Empty(system.Reasons);
+
+        var memory = Assert.Single(result.Components, c => c.Kind == "memory");
+        Assert.Equal(HealthStatuses.Ok, memory.Status);
+        Assert.Empty(memory.Reasons);
+
+        Assert.Equal(HealthStatuses.Ok, result.Overall);
     }
 
     [Fact]

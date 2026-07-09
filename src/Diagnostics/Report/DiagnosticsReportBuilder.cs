@@ -505,7 +505,7 @@ public static class DiagnosticsReportBuilder
         var col2 = new (string Label, int? Value)[]
         {
             ("GPU TDRs", eventsSupported ? counts.GetValueOrDefault(DiagnosticEventCatalog.SourceTdr) : null),
-            ("GPU driver errors", eventsSupported ? counts.GetValueOrDefault(DiagnosticEventCatalog.SourceGpuDriver) : null),
+            ("Live kernel events", eventsSupported ? counts.GetValueOrDefault(DiagnosticEventCatalog.SourceLiveKernel) : null),
             ("App crashes", eventsSupported ? counts.GetValueOrDefault(DiagnosticEventCatalog.SourceAppCrash) : null),
             ("Device problems", s.Pnp.Supported ? s.Pnp.Devices.Count : null),
         };

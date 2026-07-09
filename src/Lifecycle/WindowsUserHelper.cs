@@ -222,8 +222,11 @@ internal static class WindowsUserHelper
         new ScreenMirrorHandler(screenCapture.Start, screenCapture.Stop).Register(handlerRegistry);
         // Foregrounded variant of LogsFolder.Open: the helper is a background
         // process, so a plain explorer spawn lands behind the app window.
-        new DiagnosticsHandler(() => Platform.Windows.ForegroundNudge.OpenFolderOverApp(
-            Nexus.Service.Platform.ServiceLog.LogsDirectory)).Register(handlerRegistry);
+        new DiagnosticsHandler(
+            onOpenLogs: () => Platform.Windows.ForegroundNudge.OpenFolderOverApp(
+                Nexus.Service.Platform.ServiceLog.LogsDirectory),
+            onOpenEventViewer: () => Platform.Windows.ForegroundNudge.OpenFileOverApp("eventvwr.msc")
+        ).Register(handlerRegistry);
         new SystemHandler().Register(handlerRegistry);
         new ProfileListHandler(payload =>
         {

@@ -16,13 +16,20 @@ namespace Nexus.Service.Helper.Domains;
 /// </summary>
 public sealed class OpenLogsPayload { }
 
+/// <summary>
+/// Payload for <c>diagnostics.openEventViewer</c>. Service-to-helper, one-way,
+/// same shape and reasoning as <see cref="OpenLogsPayload"/>: eventvwr.msc
+/// must launch in the user session, not Session 0.
+/// </summary>
+public sealed class OpenEventViewerPayload { }
+
 // JSON source-gen registration is centralised in
 // src/Serialization/AppJsonContext.cs - append a matching
 // [JsonSerializable(typeof(OpenLogsPayload))] line there.
 
 /// <summary>
 /// Service-side outbound facade. Service code calls this to ask the
-/// user-session helper to reveal the logs folder.
+/// user-session helper to reveal the logs folder or open Event Viewer.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public static class DiagnosticsCommands
@@ -37,21 +44,34 @@ public static class DiagnosticsCommands
             payloadType: AppJsonContext.Default.OpenLogsPayload,
             ct: ct);
     }
+
+    public static Task OpenEventViewerAsync(HelperRegistry registry, CancellationToken ct = default)
+    {
+        var conn = registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "diagnostics.openEventViewer",
+            payload: new OpenEventViewerPayload(),
+            payloadType: AppJsonContext.Default.OpenEventViewerPayload,
+            ct: ct);
+    }
 }
 
 /// <summary>
 /// Helper-side handler. The helper bootstrap constructs this with the open
-/// action and calls <see cref="Register"/> to bind it to the dispatch
+/// actions and calls <see cref="Register"/> to bind them to the dispatch
 /// registry.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class DiagnosticsHandler
 {
     private readonly Action _onOpenLogs;
+    private readonly Action _onOpenEventViewer;
 
-    public DiagnosticsHandler(Action onOpenLogs)
+    public DiagnosticsHandler(Action onOpenLogs, Action onOpenEventViewer)
     {
         _onOpenLogs = onOpenLogs;
+        _onOpenEventViewer = onOpenEventViewer;
     }
 
     public void Register(HelperHandlerRegistry registry)
@@ -59,6 +79,11 @@ public sealed class DiagnosticsHandler
         registry.Register("diagnostics.openLogs", (env, _) =>
         {
             try { _onOpenLogs(); } catch { }
+            return Task.FromResult(env.Ok());
+        });
+        registry.Register("diagnostics.openEventViewer", (env, _) =>
+        {
+            try { _onOpenEventViewer(); } catch { }
             return Task.FromResult(env.Ok());
         });
     }
