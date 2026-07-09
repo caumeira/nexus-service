@@ -48,5 +48,48 @@ public sealed class InMemoryTemperatureHistoryStore : ITemperatureHistoryStore
         }
     }
 
+    public IReadOnlyList<string> FindLegacyGpuComponentIds(string name)
+    {
+        lock (_lock)
+        {
+            return _rows.Values
+                .Where(r => r.Kind == "gpu" && r.Name == name && LegacyGpuComponentId.IsLegacy(r.ComponentId))
+                .Select(r => r.ComponentId)
+                .Distinct()
+                .ToList();
+        }
+    }
+
+    public int RekeyComponent(string oldId, string newId)
+    {
+        if (oldId == newId)
+        {
+            return 0;
+        }
+
+        lock (_lock)
+        {
+            var oldKeys = _rows.Keys.Where(k => k.ComponentId == oldId).ToList();
+            foreach (var key in oldKeys)
+            {
+                var row = _rows[key];
+                var newKey = (newId, key.BucketUtcMs);
+                if (_rows.TryGetValue(newKey, out var existing))
+                {
+                    if (row.Samples > existing.Samples)
+                    {
+                        _rows[newKey] = row with { ComponentId = newId };
+                    }
+                }
+                else
+                {
+                    _rows[newKey] = row with { ComponentId = newId };
+                }
+                _rows.Remove(key);
+            }
+            return oldKeys.Count;
+        }
+    }
+
     public void Dispose() { }
 }
