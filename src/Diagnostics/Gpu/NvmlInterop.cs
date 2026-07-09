@@ -27,6 +27,7 @@ internal static unsafe class NvmlInterop
     private const uint TemperatureGpu = 0;       // NVML_TEMPERATURE_GPU
     private const int NameBufferSize = 96;       // NVML_DEVICE_NAME_V2_BUFFER_SIZE
     private const int DriverVersionBufferSize = 80; // NVML_SYSTEM_DRIVER_VERSION_BUFFER_SIZE
+    private const int UuidBufferSize = 96;       // NVML_DEVICE_UUID_V2_BUFFER_SIZE
 
     // nvmlClocksEventReasons / nvmlClocksThrottleReasons bitmask values (same bits
     // under either symbol name; the "EventReasons" name replaced "ThrottleReasons"
@@ -56,6 +57,7 @@ internal static unsafe class NvmlInterop
     private static IntPtr _pDeviceGetCount;
     private static IntPtr _pDeviceGetHandleByIndex;
     private static IntPtr _pDeviceGetName;
+    private static IntPtr _pDeviceGetUUID;
     private static IntPtr _pSystemGetDriverVersion;
     private static IntPtr _pDeviceGetTemperature;
     private static IntPtr _pDeviceGetPowerUsage;
@@ -97,6 +99,7 @@ internal static unsafe class NvmlInterop
                 _pDeviceGetCount = Export("nvmlDeviceGetCount_v2");
                 _pDeviceGetHandleByIndex = Export("nvmlDeviceGetHandleByIndex_v2");
                 _pDeviceGetName = Export("nvmlDeviceGetName");
+                _pDeviceGetUUID = Export("nvmlDeviceGetUUID");
                 _pSystemGetDriverVersion = Export("nvmlSystemGetDriverVersion");
                 _pDeviceGetTemperature = Export("nvmlDeviceGetTemperature");
                 _pDeviceGetPowerUsage = Export("nvmlDeviceGetPowerUsage");
@@ -164,6 +167,22 @@ internal static unsafe class NvmlInterop
         }
         var name = TrimAtNull(buf);
         return name.Length == 0 ? "NVIDIA GPU" : name;
+    }
+
+    /// <summary>Stable per-device identifier that survives reboots, driver
+    /// updates, and enumeration-order changes (unlike the index NVML hands
+    /// back from DeviceGetHandleByIndex). Null when unsupported.</summary>
+    public static string? GetUuid(IntPtr device)
+    {
+        if (_pDeviceGetUUID == IntPtr.Zero) return null;
+        Span<byte> buf = stackalloc byte[UuidBufferSize];
+        fixed (byte* p = buf)
+        {
+            var rc = ((delegate* unmanaged[Stdcall]<IntPtr, byte*, uint, int>)_pDeviceGetUUID)(device, p, UuidBufferSize);
+            if (rc != Success) return null;
+        }
+        var uuid = TrimAtNull(buf);
+        return uuid.Length == 0 ? null : uuid;
     }
 
     public static int GetTemperature(IntPtr device, out uint tempC)

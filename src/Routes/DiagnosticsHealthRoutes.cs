@@ -25,12 +25,13 @@ namespace Nexus.Service.Routes;
 /// <summary>
 /// Diagnostics app REST surface: aggregated health, per-domain detail, memory
 /// test scheduling, and the support-bundle download. Contract frozen in
-/// .deep-build/diagnostics-contract.md. Only /diagnostics/health and
-/// /diagnostics/cooling carry AllowPanel() - the only two the panel widget
-/// consumes; every other GET stays on the default token auth. The memory test
-/// POST/DELETE also stay on the default auth since scheduling a reboot
-/// diagnostic is a dashboard-only action; bundle/download is LocalhostOnly
-/// like the existing /diagnostics/open-logs route.
+/// .deep-build/diagnostics-contract.md. Only /diagnostics/health,
+/// /diagnostics/cooling, and /diagnostics/temperatures carry AllowPanel() -
+/// the set the panel widget consumes; every other GET stays on the default
+/// token auth. The memory test POST/DELETE also stay on the default auth
+/// since scheduling a reboot diagnostic is a dashboard-only action;
+/// bundle/download is LocalhostOnly like the existing /diagnostics/open-logs
+/// route.
 /// </summary>
 public static class DiagnosticsHealthRoutes
 {

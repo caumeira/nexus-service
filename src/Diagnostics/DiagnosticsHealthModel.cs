@@ -56,8 +56,8 @@ public sealed class DiagnosticsHealthModel
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan EventWindow = TimeSpan.FromDays(30);
 
-    // Wider than the 24h recency window Compute checks, so an episode that
-    // started before the last 24h but still overlaps it is not truncated.
+    // Wider than the recency window Compute checks, so an episode that
+    // started before that window but still overlaps it is not truncated.
     private static readonly TimeSpan TempEpisodeLookback = TimeSpan.FromHours(48);
 
     private readonly SmartHealthMonitor _smart;

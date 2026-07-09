@@ -3,9 +3,10 @@ using System.Collections.Generic;
 
 namespace Nexus.Service.Diagnostics.Temperature;
 
-/// <summary>One 5-minute bucket for one component. BucketUtcMs is the bucket's
-/// start (aligned to TemperatureSampler.BucketMinutes); AvgC/MaxC/Samples are
-/// derived from every 30s reading that landed in the bucket.</summary>
+/// <summary>One bucket for one component. BucketUtcMs is the bucket's start,
+/// aligned to TemperatureSampler.BucketMinutes; AvgC/MaxC/Samples are derived
+/// from every reading TemperatureSampler took at its tick cadence during
+/// that bucket.</summary>
 public sealed record TemperatureBucketRow(
     string ComponentId, string Kind, string Name, long BucketUtcMs,
     double AvgC, double MaxC, int Samples);

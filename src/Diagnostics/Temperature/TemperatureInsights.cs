@@ -24,7 +24,8 @@ public static class TemperatureInsights
     private const double StorageThresholdC = 70;
     private const double RamThresholdC = 60;
 
-    // Two 5-minute buckets = 10 minutes sustained above threshold.
+    // A single above-threshold bucket can be a noisy sample, not sustained
+    // heat; requiring more than one in a row filters that out.
     private const int MinConsecutiveBuckets = 2;
 
     public static double? ThresholdFor(string kind) => kind switch

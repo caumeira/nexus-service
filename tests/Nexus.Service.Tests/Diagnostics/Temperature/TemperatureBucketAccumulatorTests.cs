@@ -80,6 +80,19 @@ public class TemperatureBucketAccumulatorTests
     }
 
     [Fact]
+    public void AllReadingsBelowZero_MaxReflectsTheHighestReading_NotZero()
+    {
+        var acc = new TemperatureBucketAccumulator();
+        acc.Advance(0, new[] { Reading("cpu", -20), Reading("cpu", -5), Reading("cpu", -10) });
+
+        var flushed = acc.Advance(BucketMs, Enumerable.Empty<(string, string, string, double)>());
+
+        var row = Assert.Single(flushed);
+        Assert.Equal(-5, row.MaxC);
+        Assert.Equal(-35.0 / 3, row.AvgC, precision: 5);
+    }
+
+    [Fact]
     public void NewBucketAfterRollover_StartsFreshAccumulation()
     {
         var acc = new TemperatureBucketAccumulator();

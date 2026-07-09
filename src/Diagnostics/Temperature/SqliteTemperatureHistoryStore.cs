@@ -10,7 +10,8 @@ namespace Nexus.Service.Diagnostics.Temperature;
 /// SQLite-backed persistent store for temperature history, mirroring
 /// SqliteScreenTimeStore's connection/pragma/schema conventions. One
 /// long-lived connection, one lock serializing reads and writes, WAL mode
-/// for durability without blocking the 30s sampler writes against API reads.
+/// for durability without blocking the sampler's periodic writes against
+/// concurrent API reads.
 /// </summary>
 public sealed class SqliteTemperatureHistoryStore : ITemperatureHistoryStore
 {

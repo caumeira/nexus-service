@@ -11,10 +11,10 @@ using Nexus.Service.Sensors;
 namespace Nexus.Service.Diagnostics.Temperature;
 
 /// <summary>
-/// Samples CPU/GPU/storage/RAM temperatures every 30s from existing read
-/// paths (no new hardware I/O) and flushes one 5-minute bucket per component
-/// to ITemperatureHistoryStore on rollover. Mirrors HeartbeatService's
-/// PeriodicTimer do/while shape with a per-tick try/catch.
+/// Samples CPU/GPU/storage/RAM temperatures on its own tick cadence from
+/// existing read paths (no new hardware I/O) and flushes one bucket per
+/// component to ITemperatureHistoryStore on rollover. Mirrors
+/// HeartbeatService's PeriodicTimer do/while shape with a per-tick try/catch.
 /// </summary>
 public sealed class TemperatureSampler : BackgroundService
 {
@@ -140,7 +140,11 @@ public sealed class TemperatureSampler : BackgroundService
                 var g = gpuSnap.Gpus[i];
                 if (g.TemperatureC is { } gpuC)
                 {
-                    yield return ($"gpu:{i}", "gpu", g.Name, gpuC);
+                    // NVML's UUID survives reboots and driver updates; the
+                    // enumeration index does not, so it is a fallback for the
+                    // rare case UUID is unsupported, not the primary id.
+                    var id = g.Uuid is { Length: > 0 } uuid ? $"gpu:{uuid}" : $"gpu:{i}";
+                    yield return (id, "gpu", g.Name, gpuC);
                 }
             }
         }
