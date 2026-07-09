@@ -908,7 +908,14 @@ public sealed class ProfileManager : IDisposable
 
                     if (_manifest.ActiveProfileId != primaryId)
                     {
-                        _store.Update(s => ProfileSharing.ApplyCategory(s, primaryData, normalized));
+                        _store.Update(s =>
+                        {
+                            ProfileSharing.ApplyCategory(s, primaryData, normalized);
+                            // ReadProfileFile bypasses JsonConfigStore.Migrate, so a
+                            // pre-v11 primary can carry legacy marketplace: widget
+                            // types into live settings; rewrite them (idempotent).
+                            Nexus.Service.Widgets.AppPrefixMigration.Apply(s);
+                        });
                     }
                 }
             }
