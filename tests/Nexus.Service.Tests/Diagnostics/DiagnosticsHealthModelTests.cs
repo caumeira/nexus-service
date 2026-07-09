@@ -7,6 +7,7 @@ using Nexus.Service.Diagnostics.Gpu;
 using Nexus.Service.Diagnostics.Memory;
 using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Diagnostics.SystemInfo;
+using Nexus.Service.Diagnostics.Temperature;
 using Xunit;
 
 namespace Nexus.Service.Tests.Diagnostics;
@@ -26,7 +27,9 @@ public class DiagnosticsHealthModelTests
         IReadOnlyDictionary<string, int>? counts30d = null,
         MemoryTestResult? lastMemoryTest = null,
         PnpProblemSnapshot? pnp = null,
-        IReadOnlyList<string>? knownGpuModels = null)
+        IReadOnlyList<string>? knownGpuModels = null,
+        IReadOnlyList<TemperatureEpisode>? tempEpisodes = null,
+        DateTime? generatedAtUtc = null)
     {
         return DiagnosticsHealthModel.Compute(
             smart: smart ?? EmptySmart,
@@ -37,7 +40,8 @@ public class DiagnosticsHealthModelTests
             pnp: pnp ?? EmptyPnp,
             knownGpuModels: knownGpuModels ?? Array.Empty<string>(),
             windowsSupported: true,
-            generatedAtUtc: T0);
+            generatedAtUtc: generatedAtUtc ?? T0,
+            tempEpisodes: tempEpisodes);
     }
 
     [Fact]
@@ -204,4 +208,57 @@ public class DiagnosticsHealthModelTests
     }
 
     private static SmartSnapshot SmartSnapshotUnsupported() => new() { Supported = false, Drives = Array.Empty<SmartDriveInfo>() };
+
+    [Fact]
+    public void SustainedHighTemp_RecentEpisode_AddsWatchReasonToCoolingAggregate()
+    {
+        var episode = new TemperatureEpisode("gpu:0", "RTX 5080", T0.AddHours(-1), T0.AddMinutes(-35), 91.5, 85);
+
+        var result = Compute(tempEpisodes: new[] { episode });
+
+        var aggregate = Assert.Single(result.Components, c => c.Id == "cooling");
+        Assert.Equal(HealthStatuses.Watch, aggregate.Status);
+        var reason = Assert.Single(aggregate.Reasons);
+        Assert.Equal("cooling.sustainedHighTemp", reason.Code);
+        Assert.Equal(HealthStatuses.Watch, reason.Severity);
+        Assert.Contains("RTX 5080", reason.Summary);
+        Assert.Equal(HealthStatuses.Watch, result.Overall);
+    }
+
+    [Fact]
+    public void SustainedHighTemp_EpisodeOlderThan24h_ProducesNoReason()
+    {
+        var episode = new TemperatureEpisode("gpu:0", "RTX 5080", T0.AddHours(-30), T0.AddHours(-25), 91.5, 85);
+
+        var result = Compute(tempEpisodes: new[] { episode });
+
+        Assert.DoesNotContain(result.Components, c => c.Id == "cooling");
+        Assert.Equal(HealthStatuses.Ok, result.Overall);
+    }
+
+    [Fact]
+    public void SustainedHighTemp_NoEpisodes_AggregateOmittedWhenNoCoolingDevicesEither()
+    {
+        var result = Compute();
+
+        Assert.DoesNotContain(result.Components, c => c.Id == "cooling");
+    }
+
+    [Fact]
+    public void SustainedHighTemp_CombinesWithStalledPump_WorstStatusWins()
+    {
+        var cooling = new CoolingStallSnapshot(true, new List<CoolingStallDevice>
+        {
+            new("pump1", "Q60 Pump", "pump", 0, 60, CoolingStallStatuses.Stalled, T0),
+        });
+        var episode = new TemperatureEpisode("cpu", "CPU", T0.AddHours(-1), T0.AddMinutes(-50), 92, 90);
+
+        var result = Compute(cooling: cooling, tempEpisodes: new[] { episode });
+
+        var stalled = Assert.Single(result.Components, c => c.Id == "cooling:pump1");
+        Assert.Equal(HealthStatuses.Act, stalled.Status);
+        var aggregate = Assert.Single(result.Components, c => c.Id == "cooling");
+        Assert.Equal(HealthStatuses.Watch, aggregate.Status);
+        Assert.Equal(HealthStatuses.Act, result.Overall);
+    }
 }

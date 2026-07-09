@@ -1,0 +1,142 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace Nexus.Service.Diagnostics.Temperature;
+
+/// <summary>One chart point: t is the bucket's start (UTC ms).</summary>
+public sealed record TemperaturePoint(long T, double Avg, double Max);
+
+/// <summary>A sustained-high-temperature window for one component.</summary>
+public sealed record TemperatureEpisode(
+    string ComponentId, string Name, DateTime StartUtc, DateTime EndUtc,
+    double PeakC, double ThresholdC);
+
+/// <summary>
+/// Pure analysis over stored temperature buckets: no I/O, fully unit-testable.
+/// Sustained-high detection and chart decimation both operate on
+/// TemperatureBucketRow lists already read from the store.
+/// </summary>
+public static class TemperatureInsights
+{
+    private const double CpuThresholdC = 90;
+    private const double GpuThresholdC = 85;
+    private const double StorageThresholdC = 70;
+    private const double RamThresholdC = 60;
+
+    // Two 5-minute buckets = 10 minutes sustained above threshold.
+    private const int MinConsecutiveBuckets = 2;
+
+    public static double? ThresholdFor(string kind) => kind switch
+    {
+        "cpu" => CpuThresholdC,
+        "gpu" => GpuThresholdC,
+        "storage" => StorageThresholdC,
+        "ram" => RamThresholdC,
+        _ => null,
+    };
+
+    /// <summary>
+    /// Finds every run of at least <see cref="MinConsecutiveBuckets"/> time-adjacent
+    /// buckets whose AvgC is at or above the kind's threshold, per component. A
+    /// missing bucket (a gap in bucket_utc) breaks a run even if both sides are
+    /// above threshold - the run must be one unbroken stretch of sampled buckets.
+    /// </summary>
+    public static IReadOnlyList<TemperatureEpisode> DetectEpisodes(IReadOnlyList<TemperatureBucketRow> rows)
+    {
+        var bucketMs = TemperatureSampler.BucketMinutes * 60_000L;
+        var episodes = new List<TemperatureEpisode>();
+
+        foreach (var group in rows.GroupBy(r => r.ComponentId))
+        {
+            var ordered = group.OrderBy(r => r.BucketUtcMs).ToList();
+            if (ThresholdFor(ordered[0].Kind) is not { } thresholdC)
+            {
+                continue;
+            }
+
+            long? streakStartMs = null;
+            long? streakLastMs = null;
+            var streakLen = 0;
+            var streakPeak = 0.0;
+            var streakName = ordered[0].Name;
+
+            void CloseStreak()
+            {
+                if (streakLen >= MinConsecutiveBuckets)
+                {
+                    episodes.Add(new TemperatureEpisode(
+                        group.Key,
+                        streakName,
+                        DateTimeOffset.FromUnixTimeMilliseconds(streakStartMs!.Value).UtcDateTime,
+                        DateTimeOffset.FromUnixTimeMilliseconds(streakLastMs!.Value + bucketMs).UtcDateTime,
+                        streakPeak,
+                        thresholdC));
+                }
+                streakLen = 0;
+                streakStartMs = null;
+                streakPeak = 0.0;
+            }
+
+            foreach (var row in ordered)
+            {
+                var above = row.AvgC >= thresholdC;
+                var contiguous = streakLastMs is { } lastMs && row.BucketUtcMs - lastMs == bucketMs;
+
+                if (above && streakLen > 0 && contiguous)
+                {
+                    streakLen++;
+                    streakPeak = Math.Max(streakPeak, row.MaxC);
+                    streakName = row.Name;
+                }
+                else if (above)
+                {
+                    CloseStreak();
+                    streakLen = 1;
+                    streakStartMs = row.BucketUtcMs;
+                    streakPeak = row.MaxC;
+                    streakName = row.Name;
+                }
+                else
+                {
+                    CloseStreak();
+                }
+                streakLastMs = row.BucketUtcMs;
+            }
+            CloseStreak();
+        }
+
+        return episodes.OrderBy(e => e.StartUtc).ToList();
+    }
+
+    /// <summary>
+    /// Merges adjacent buckets so a series never exceeds maxPoints: avg is the
+    /// samples-weighted average of the merged buckets' averages, max is the
+    /// max of their maxes, t is the first merged bucket's start.
+    /// </summary>
+    public static IReadOnlyList<TemperaturePoint> Decimate(IReadOnlyList<TemperatureBucketRow> rows, int maxPoints)
+    {
+        if (rows.Count == 0)
+        {
+            return Array.Empty<TemperaturePoint>();
+        }
+        if (rows.Count <= maxPoints)
+        {
+            return rows.Select(r => new TemperaturePoint(r.BucketUtcMs, r.AvgC, r.MaxC)).ToList();
+        }
+
+        var groupSize = (int)Math.Ceiling(rows.Count / (double)maxPoints);
+        var result = new List<TemperaturePoint>();
+        for (var i = 0; i < rows.Count; i += groupSize)
+        {
+            var chunk = rows.Skip(i).Take(groupSize).ToList();
+            var totalSamples = chunk.Sum(r => r.Samples);
+            var avg = totalSamples > 0
+                ? chunk.Sum(r => r.AvgC * r.Samples) / totalSamples
+                : chunk.Average(r => r.AvgC);
+            var max = chunk.Max(r => r.MaxC);
+            result.Add(new TemperaturePoint(chunk[0].BucketUtcMs, avg, max));
+        }
+        return result;
+    }
+}

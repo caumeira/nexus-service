@@ -272,6 +272,21 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Diagnostics.Cooling.CoolingStallFeeder>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Diagnostics.Cooling.CoolingStallFeeder>());
 
+        services.AddSingleton<Nexus.Service.Diagnostics.Temperature.ITemperatureHistoryStore>(_ =>
+        {
+            try
+            {
+                return new Nexus.Service.Diagnostics.Temperature.SqliteTemperatureHistoryStore();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[temperature-store] sqlite unavailable, using in-memory: {ex.Message}");
+                return new Nexus.Service.Diagnostics.Temperature.InMemoryTemperatureHistoryStore();
+            }
+        });
+        services.AddSingleton<Nexus.Service.Diagnostics.Temperature.TemperatureSampler>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Diagnostics.Temperature.TemperatureSampler>());
+
         services.AddSingleton<Nexus.Service.Diagnostics.DiagnosticsHealthModel>();
         services.AddSingleton<Nexus.Service.Diagnostics.DiagnosticsAlertService>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Diagnostics.DiagnosticsAlertService>());

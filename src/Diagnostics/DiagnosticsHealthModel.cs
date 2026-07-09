@@ -7,6 +7,8 @@ using Nexus.Service.Diagnostics.Gpu;
 using Nexus.Service.Diagnostics.Memory;
 using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Diagnostics.SystemInfo;
+using Nexus.Service.Diagnostics.Temperature;
+using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 
 namespace Nexus.Service.Diagnostics;
@@ -54,6 +56,10 @@ public sealed class DiagnosticsHealthModel
     private static readonly TimeSpan CacheTtl = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan EventWindow = TimeSpan.FromDays(30);
 
+    // Wider than the 24h recency window Compute checks, so an episode that
+    // started before the last 24h but still overlaps it is not truncated.
+    private static readonly TimeSpan TempEpisodeLookback = TimeSpan.FromHours(48);
+
     private readonly SmartHealthMonitor _smart;
     private readonly CoolingStallDetector _cooling;
     private readonly GpuHealthMonitor _gpu;
@@ -61,6 +67,7 @@ public sealed class DiagnosticsHealthModel
     private readonly MemoryDiagnosticOrchestrator _memDiag;
     private readonly PnpProblemScanner _pnp;
     private readonly ISensorProvider _sensors;
+    private readonly ITemperatureHistoryStore _tempStore;
 
     private readonly object _gate = new();
     private DiagnosticsHealthResponse? _cached;
@@ -73,7 +80,8 @@ public sealed class DiagnosticsHealthModel
         EventLogMonitor events,
         MemoryDiagnosticOrchestrator memDiag,
         PnpProblemScanner pnp,
-        ISensorProvider sensors)
+        ISensorProvider sensors,
+        ITemperatureHistoryStore tempStore)
     {
         _smart = smart;
         _cooling = cooling;
@@ -82,6 +90,7 @@ public sealed class DiagnosticsHealthModel
         _memDiag = memDiag;
         _pnp = pnp;
         _sensors = sensors;
+        _tempStore = tempStore;
     }
 
     /// <summary>forceRefresh bypasses this model's own cache; module caches are
@@ -106,11 +115,27 @@ public sealed class DiagnosticsHealthModel
                 pnp: _pnp.Snapshot(),
                 knownGpuModels: _sensors.GetGpuModels(),
                 windowsSupported: OperatingSystem.IsWindows(),
-                generatedAtUtc: now);
+                generatedAtUtc: now,
+                tempEpisodes: TemperatureInsights.DetectEpisodes(QueryTempRows(now)));
 
             _cached = result;
             _cachedAtUtc = now;
             return result;
+        }
+    }
+
+    private IReadOnlyList<TemperatureBucketRow> QueryTempRows(DateTime nowUtc)
+    {
+        try
+        {
+            var toMs = new DateTimeOffset(nowUtc).ToUnixTimeMilliseconds();
+            var fromMs = new DateTimeOffset(nowUtc - TempEpisodeLookback).ToUnixTimeMilliseconds();
+            return _tempStore.Query(fromMs, toMs);
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Warn($"[diagnostics-health] temperature query failed: {ex.Message}");
+            return Array.Empty<TemperatureBucketRow>();
         }
     }
 
@@ -139,7 +164,8 @@ public sealed class DiagnosticsHealthModel
         PnpProblemSnapshot pnp,
         IReadOnlyList<string> knownGpuModels,
         bool windowsSupported,
-        DateTime generatedAtUtc)
+        DateTime generatedAtUtc,
+        IReadOnlyList<TemperatureEpisode>? tempEpisodes = null)
     {
         var components = new List<HealthComponent>();
 
@@ -150,7 +176,7 @@ public sealed class DiagnosticsHealthModel
             AddMemoryComponent(components, lastMemoryTest);
             AddSystemComponent(components, pnp);
         }
-        AddCoolingComponents(components, cooling);
+        AddCoolingComponents(components, cooling, tempEpisodes ?? Array.Empty<TemperatureEpisode>(), generatedAtUtc);
 
         return new DiagnosticsHealthResponse
         {
@@ -196,9 +222,18 @@ public sealed class DiagnosticsHealthModel
     private static string MapReasonSeverity(ReasonSeverity severity) =>
         severity == ReasonSeverity.Act ? HealthStatuses.Act : HealthStatuses.Watch;
 
-    private static void AddCoolingComponents(List<HealthComponent> components, CoolingStallSnapshot cooling)
+    private static void AddCoolingComponents(
+        List<HealthComponent> components,
+        CoolingStallSnapshot cooling,
+        IReadOnlyList<TemperatureEpisode> tempEpisodes,
+        DateTime generatedAtUtc)
     {
-        if (cooling.Devices.Count == 0)
+        var cutoffUtc = generatedAtUtc.AddHours(-24);
+        var recentEpisodes = tempEpisodes
+            .Where(e => e.EndUtc >= cutoffUtc && e.StartUtc <= generatedAtUtc)
+            .ToList();
+
+        if (cooling.Devices.Count == 0 && recentEpisodes.Count == 0)
         {
             return;
         }
@@ -228,15 +263,23 @@ public sealed class DiagnosticsHealthModel
             });
         }
 
+        var reasons = recentEpisodes.Select(ep => new HealthComponentReason(
+            "cooling.sustainedHighTemp",
+            HealthStatuses.Watch,
+            $"{ep.Name} ran above {ep.ThresholdC:0} C for {FormatMinutes(ep.EndUtc - ep.StartUtc)} in the last 24 hours",
+            $"componentId={ep.ComponentId} peakC={ep.PeakC:0.0} start={ep.StartUtc:O} end={ep.EndUtc:O}")).ToList();
+
         components.Add(new HealthComponent
         {
             Id = "cooling",
             Kind = "cooling",
             Name = $"Cooling ({cooling.Devices.Count})",
-            Status = HealthStatuses.Ok,
-            Reasons = Array.Empty<HealthComponentReason>(),
+            Status = WorstReasonStatus(reasons, HealthStatuses.Ok),
+            Reasons = reasons,
         });
     }
+
+    private static string FormatMinutes(TimeSpan span) => $"{(int)Math.Round(span.TotalMinutes)} minutes";
 
     private static string Fmt(double? value) => value?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null";
 

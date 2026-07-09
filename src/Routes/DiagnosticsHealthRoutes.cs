@@ -15,6 +15,7 @@ using Nexus.Service.Diagnostics.Memory;
 using Nexus.Service.Diagnostics.Report;
 using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Diagnostics.SystemInfo;
+using Nexus.Service.Diagnostics.Temperature;
 using Nexus.Service.Lighting;
 using Nexus.Service.Models;
 using Nexus.Service.Platform;
@@ -38,6 +39,11 @@ public static class DiagnosticsHealthRoutes
     // so the store never actually holds more history than that regardless of
     // a larger requested window.
     private const int MaxIncidentDays = 30;
+
+    private const int MinTemperatureHours = 1;
+    private const int MaxTemperatureHours = 720;
+    private const int DefaultTemperatureHours = 168;
+    private const int MaxPointsPerSeries = 600;
 
     public static void MapDiagnosticsHealthEndpoints(this WebApplication app)
     {
@@ -84,6 +90,23 @@ public static class DiagnosticsHealthRoutes
             BuildGpuResponse(gpu, events, IsRefresh(refresh)));
 
         app.MapGet("/diagnostics/cooling", (CoolingStallDetector cooling) => cooling.Snapshot()).AllowPanel();
+
+        app.MapGet("/diagnostics/temperatures", (int? hours, ITemperatureHistoryStore tempStore) =>
+        {
+            var windowHours = Math.Clamp(hours ?? DefaultTemperatureHours, MinTemperatureHours, MaxTemperatureHours);
+            try
+            {
+                var toUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+                var fromUtcMs = toUtcMs - windowHours * 3_600_000L;
+                var rows = tempStore.Query(fromUtcMs, toUtcMs);
+                return BuildTemperatureResponse(rows);
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Warn($"[diagnostics-temperatures] query failed: {ex.Message}");
+                return new TemperatureHistoryResponse { Supported = false };
+            }
+        }).AllowPanel();
 
         app.MapGet("/diagnostics/system", (string? refresh, PnpProblemScanner pnp, EventLogMonitor events) =>
             BuildSystemResponse(pnp, events, IsRefresh(refresh)));
@@ -189,6 +212,40 @@ public static class DiagnosticsHealthRoutes
                 ApplicationError = appOk ? null : DescribeShellFailure(appResult),
             };
         }).LocalhostOnly();
+    }
+
+    private static TemperatureHistoryResponse BuildTemperatureResponse(IReadOnlyList<TemperatureBucketRow> rows)
+    {
+        var series = rows
+            .GroupBy(r => r.ComponentId)
+            .Select(g =>
+            {
+                var ordered = g.OrderBy(r => r.BucketUtcMs).ToList();
+                var last = ordered[^1];
+                return new TemperatureSeriesWire
+                {
+                    Id = g.Key,
+                    Kind = last.Kind,
+                    Name = last.Name,
+                    Points = TemperatureInsights.Decimate(ordered, MaxPointsPerSeries)
+                        .Select(p => p with { Avg = Math.Round(p.Avg, 1), Max = Math.Round(p.Max, 1) })
+                        .ToList(),
+                };
+            })
+            .OrderBy(s => s.Id, StringComparer.Ordinal)
+            .ToList();
+
+        var episodes = TemperatureInsights.DetectEpisodes(rows)
+            .Select(e => e with { PeakC = Math.Round(e.PeakC, 1) })
+            .ToList();
+
+        return new TemperatureHistoryResponse
+        {
+            Supported = true,
+            BucketMinutes = Nexus.Service.Diagnostics.Temperature.TemperatureSampler.BucketMinutes,
+            Series = series,
+            Episodes = episodes,
+        };
     }
 
     private static string DescribeShellFailure(ShellResult result) =>
@@ -440,4 +497,20 @@ public sealed record EventLogClearResponse
     public bool Cleared { get; init; }
     public string? SystemError { get; init; }
     public string? ApplicationError { get; init; }
+}
+
+public sealed record TemperatureSeriesWire
+{
+    public string Id { get; init; } = "";
+    public string Kind { get; init; } = "";
+    public string Name { get; init; } = "";
+    public IReadOnlyList<TemperaturePoint> Points { get; init; } = Array.Empty<TemperaturePoint>();
+}
+
+public sealed record TemperatureHistoryResponse
+{
+    public bool Supported { get; init; }
+    public int BucketMinutes { get; init; } = Nexus.Service.Diagnostics.Temperature.TemperatureSampler.BucketMinutes;
+    public IReadOnlyList<TemperatureSeriesWire> Series { get; init; } = Array.Empty<TemperatureSeriesWire>();
+    public IReadOnlyList<TemperatureEpisode> Episodes { get; init; } = Array.Empty<TemperatureEpisode>();
 }
