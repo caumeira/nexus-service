@@ -66,6 +66,15 @@ public sealed class TemperatureSampler : BackgroundService
             // schedule below rather than block forever.
         }
 
+        try
+        {
+            GpuComponentIdMigration.Migrate(_store, ResolveGpusWithUuid());
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Warn($"[temp-sampler] gpu id migration failed: {ex.Message}");
+        }
+
         using var timer = new PeriodicTimer(TickInterval);
         do
         {
@@ -105,6 +114,25 @@ public sealed class TemperatureSampler : BackgroundService
     }
 
     private static long AlignBucket(long nowMs) => nowMs / BucketMs * BucketMs;
+
+    private IReadOnlyList<(string Name, string Uuid)> ResolveGpusWithUuid()
+    {
+        var snap = _gpu.Snapshot();
+        if (!snap.Supported)
+        {
+            return Array.Empty<(string, string)>();
+        }
+
+        var result = new List<(string, string)>();
+        foreach (var g in snap.Gpus)
+        {
+            if (g.Uuid is { Length: > 0 } uuid)
+            {
+                result.Add((g.Name, uuid));
+            }
+        }
+        return result;
+    }
 
     private void MaybePrune(DateTime nowUtc)
     {

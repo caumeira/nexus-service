@@ -27,4 +27,14 @@ public interface ITemperatureHistoryStore : IDisposable
 
     /// <summary>Deletes rows older than utcMs. Returns the number of rows deleted.</summary>
     int PruneOlderThan(long utcMs);
+
+    /// <summary>Distinct component ids with kind gpu, matching LegacyGpuComponentId.IsLegacy,
+    /// whose name equals the given GPU name. Empty means nothing to migrate; more than one
+    /// means the mapping to a new id is ambiguous.</summary>
+    IReadOnlyList<string> FindLegacyGpuComponentIds(string name);
+
+    /// <summary>Re-keys every row from oldId to newId. A bucket_utc present under both ids
+    /// is merged by keeping the row with more samples (ties keep the newId row); the oldId
+    /// row is always removed. Returns the number of oldId rows migrated.</summary>
+    int RekeyComponent(string oldId, string newId);
 }

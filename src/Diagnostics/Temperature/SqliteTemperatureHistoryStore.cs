@@ -143,6 +143,78 @@ public sealed class SqliteTemperatureHistoryStore : ITemperatureHistoryStore
         }
     }
 
+    public IReadOnlyList<string> FindLegacyGpuComponentIds(string name)
+    {
+        lock (_writeLock)
+        {
+            var result = new List<string>();
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "SELECT DISTINCT component_id FROM temp_buckets WHERE kind = 'gpu' AND name = $name;";
+            cmd.Parameters.AddWithValue("$name", name);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var id = reader.GetString(0);
+                if (LegacyGpuComponentId.IsLegacy(id))
+                {
+                    result.Add(id);
+                }
+            }
+            return result;
+        }
+    }
+
+    public int RekeyComponent(string oldId, string newId)
+    {
+        if (oldId == newId)
+        {
+            return 0;
+        }
+
+        lock (_writeLock)
+        {
+            using var tx = _connection.BeginTransaction();
+
+            using var countCmd = _connection.CreateCommand();
+            countCmd.Transaction = tx;
+            countCmd.CommandText = "SELECT COUNT(*) FROM temp_buckets WHERE component_id = $old;";
+            countCmd.Parameters.AddWithValue("$old", oldId);
+            var moved = Convert.ToInt32(countCmd.ExecuteScalar());
+            if (moved == 0)
+            {
+                tx.Commit();
+                return 0;
+            }
+
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                UPDATE temp_buckets
+                SET avg_c = (SELECT o.avg_c FROM temp_buckets o WHERE o.component_id = $old AND o.bucket_utc = temp_buckets.bucket_utc),
+                    max_c = (SELECT o.max_c FROM temp_buckets o WHERE o.component_id = $old AND o.bucket_utc = temp_buckets.bucket_utc),
+                    samples = (SELECT o.samples FROM temp_buckets o WHERE o.component_id = $old AND o.bucket_utc = temp_buckets.bucket_utc)
+                WHERE component_id = $new
+                  AND EXISTS (
+                    SELECT 1 FROM temp_buckets o WHERE o.component_id = $old AND o.bucket_utc = temp_buckets.bucket_utc
+                      AND o.samples > temp_buckets.samples
+                  );
+
+                UPDATE temp_buckets
+                SET component_id = $new
+                WHERE component_id = $old
+                  AND bucket_utc NOT IN (SELECT bucket_utc FROM temp_buckets WHERE component_id = $new);
+
+                DELETE FROM temp_buckets WHERE component_id = $old;
+            """;
+            cmd.Parameters.AddWithValue("$old", oldId);
+            cmd.Parameters.AddWithValue("$new", newId);
+            cmd.ExecuteNonQuery();
+
+            tx.Commit();
+            return moved;
+        }
+    }
+
     public void Dispose()
     {
         try

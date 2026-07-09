@@ -108,4 +108,100 @@ public class SqliteTemperatureHistoryStoreTests : IDisposable
         Assert.Contains(rows, r => r.ComponentId == "cpu" && r.AvgC == 60);
         Assert.Contains(rows, r => r.ComponentId == "gpu:0" && r.AvgC == 70);
     }
+
+    private static TemperatureBucketRow GpuRow(string id, string name, long bucketUtcMs, double avg = 50, double max = 60, int samples = 10) =>
+        new(id, "gpu", name, bucketUtcMs, avg, max, samples);
+
+    [Fact]
+    public void FindLegacyGpuComponentIds_ReturnsOnlyDigitSuffixIdsForThatName()
+    {
+        _store.UpsertBuckets(new[]
+        {
+            GpuRow("gpu:0", "NVIDIA GeForce RTX 5080", 1000),
+            GpuRow("gpu:GPU-abc123", "NVIDIA GeForce RTX 5080", 1000),
+            GpuRow("gpu:0", "AMD Radeon RX 7900", 2000),
+        });
+
+        var ids = _store.FindLegacyGpuComponentIds("NVIDIA GeForce RTX 5080");
+
+        Assert.Equal(new[] { "gpu:0" }, ids);
+    }
+
+    [Fact]
+    public void FindLegacyGpuComponentIds_ReturnsEmpty_WhenNoLegacyRows()
+    {
+        _store.UpsertBuckets(new[] { GpuRow("gpu:GPU-abc123", "NVIDIA GeForce RTX 5080", 1000) });
+
+        Assert.Empty(_store.FindLegacyGpuComponentIds("NVIDIA GeForce RTX 5080"));
+    }
+
+    [Fact]
+    public void FindLegacyGpuComponentIds_ReturnsMultiple_WhenAmbiguous()
+    {
+        _store.UpsertBuckets(new[]
+        {
+            GpuRow("gpu:0", "NVIDIA GeForce RTX 5080", 1000),
+            GpuRow("gpu:1", "NVIDIA GeForce RTX 5080", 2000),
+        });
+
+        var ids = _store.FindLegacyGpuComponentIds("NVIDIA GeForce RTX 5080");
+
+        Assert.Equal(2, ids.Count);
+        Assert.Contains("gpu:0", ids);
+        Assert.Contains("gpu:1", ids);
+    }
+
+    [Fact]
+    public void RekeyComponent_MovesNonCollidingRows_AndRemovesOldId()
+    {
+        _store.UpsertBuckets(new[]
+        {
+            GpuRow("gpu:0", "NVIDIA GeForce RTX 5080", 1000, avg: 55),
+            GpuRow("gpu:0", "NVIDIA GeForce RTX 5080", 2000, avg: 65),
+        });
+
+        var moved = _store.RekeyComponent("gpu:0", "gpu:GPU-abc123");
+
+        Assert.Equal(2, moved);
+        var rows = _store.Query(0, 10_000);
+        Assert.Equal(2, rows.Count);
+        Assert.All(rows, r => Assert.Equal("gpu:GPU-abc123", r.ComponentId));
+        Assert.Contains(rows, r => r.BucketUtcMs == 1000 && r.AvgC == 55);
+        Assert.Contains(rows, r => r.BucketUtcMs == 2000 && r.AvgC == 65);
+    }
+
+    [Fact]
+    public void RekeyComponent_Collision_KeepsRowWithMoreSamples()
+    {
+        _store.UpsertBuckets(new[] { GpuRow("gpu:0", "NVIDIA GeForce RTX 5080", 1000, avg: 55, samples: 20) });
+        _store.UpsertBuckets(new[] { GpuRow("gpu:GPU-abc123", "NVIDIA GeForce RTX 5080", 1000, avg: 70, samples: 5) });
+
+        var moved = _store.RekeyComponent("gpu:0", "gpu:GPU-abc123");
+
+        Assert.Equal(1, moved);
+        var row = Assert.Single(_store.Query(0, 10_000));
+        Assert.Equal("gpu:GPU-abc123", row.ComponentId);
+        Assert.Equal(55, row.AvgC);
+        Assert.Equal(20, row.Samples);
+    }
+
+    [Fact]
+    public void RekeyComponent_Collision_KeepsNewRow_WhenNewHasMoreOrEqualSamples()
+    {
+        _store.UpsertBuckets(new[] { GpuRow("gpu:0", "NVIDIA GeForce RTX 5080", 1000, avg: 55, samples: 5) });
+        _store.UpsertBuckets(new[] { GpuRow("gpu:GPU-abc123", "NVIDIA GeForce RTX 5080", 1000, avg: 70, samples: 20) });
+
+        _store.RekeyComponent("gpu:0", "gpu:GPU-abc123");
+
+        var row = Assert.Single(_store.Query(0, 10_000));
+        Assert.Equal("gpu:GPU-abc123", row.ComponentId);
+        Assert.Equal(70, row.AvgC);
+        Assert.Equal(20, row.Samples);
+    }
+
+    [Fact]
+    public void RekeyComponent_NoRows_ReturnsZero()
+    {
+        Assert.Equal(0, _store.RekeyComponent("gpu:0", "gpu:GPU-abc123"));
+    }
 }
