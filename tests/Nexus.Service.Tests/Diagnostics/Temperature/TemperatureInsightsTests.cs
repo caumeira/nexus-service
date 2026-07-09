@@ -161,4 +161,84 @@ public class TemperatureInsightsTests
     {
         Assert.Empty(TemperatureInsights.Decimate(Array.Empty<TemperatureBucketRow>(), 600));
     }
+
+    [Theory]
+    [InlineData(1, 5)]
+    [InlineData(24, 5)]
+    [InlineData(25, 15)]
+    [InlineData(72, 15)]
+    [InlineData(73, 30)]
+    [InlineData(168, 30)]
+    [InlineData(169, 60)]
+    [InlineData(336, 60)]
+    public void TierWidthMinutesFor_MapsWindowToExpectedWidth(int windowHours, int expectedWidthMinutes)
+    {
+        Assert.Equal(expectedWidthMinutes, TemperatureInsights.TierWidthMinutesFor(windowHours));
+    }
+
+    [Fact]
+    public void MergeToWidth_NarrowWindowIsNoOp()
+    {
+        var rows = SeriesOf(10);
+
+        var merged = TemperatureInsights.MergeToWidth(rows, BucketMs);
+
+        Assert.Equal(rows.Count, merged.Count);
+        Assert.Equal(rows[0].BucketUtcMs, merged[0].BucketUtcMs);
+    }
+
+    [Fact]
+    public void MergeToWidth_FourteenDaysOfRawBuckets_MergeToHourlyGrid()
+    {
+        var rows = SeriesOf(336 * 12);
+        var widthMs = TemperatureInsights.TierWidthMinutesFor(336) * 60_000L;
+
+        var merged = TemperatureInsights.MergeToWidth(rows, widthMs);
+
+        Assert.Equal(336, merged.Count);
+        Assert.All(merged, r => Assert.Equal(0, r.BucketUtcMs % widthMs));
+    }
+
+    [Fact]
+    public void MergeToWidth_WeightsAverageBySamplesWithinEachSlot()
+    {
+        var rows = new List<TemperatureBucketRow>
+        {
+            new("cpu", "cpu", "CPU", T0Ms, AvgC: 10, MaxC: 20, Samples: 10),
+            new("cpu", "cpu", "CPU", T0Ms + BucketMs, AvgC: 50, MaxC: 55, Samples: 30),
+        };
+
+        var merged = TemperatureInsights.MergeToWidth(rows, 15 * 60_000L);
+
+        var point = Assert.Single(merged);
+        // Weighted: (10*10 + 50*30) / 40 = 40.
+        Assert.Equal(40, point.AvgC, precision: 5);
+        Assert.Equal(55, point.MaxC);
+        Assert.Equal(T0Ms, point.BucketUtcMs);
+    }
+
+    [Fact]
+    public void MergeToWidth_GridPositionsAreStableRegardlessOfWindowStartOffset()
+    {
+        // Raw buckets start 10 minutes into what would be an hourly slot - a
+        // window rarely starts exactly on a tier boundary.
+        var startMs = T0Ms + 2 * BucketMs;
+        var rows = Enumerable.Range(0, 12)
+            .Select(i => new TemperatureBucketRow("cpu", "cpu", "CPU", startMs + i * BucketMs, 50, 55, 10))
+            .ToList();
+        var widthMs = 60 * 60_000L;
+
+        var merged = TemperatureInsights.MergeToWidth(rows, widthMs);
+
+        Assert.Equal(2, merged.Count);
+        Assert.All(merged, r => Assert.Equal(0, r.BucketUtcMs % widthMs));
+        Assert.Equal(T0Ms, merged[0].BucketUtcMs);
+        Assert.Equal(T0Ms + widthMs, merged[1].BucketUtcMs);
+    }
+
+    [Fact]
+    public void MergeToWidth_Empty_ReturnsEmpty()
+    {
+        Assert.Empty(TemperatureInsights.MergeToWidth(Array.Empty<TemperatureBucketRow>(), 60 * 60_000L));
+    }
 }

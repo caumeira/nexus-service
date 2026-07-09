@@ -44,6 +44,18 @@ public sealed class InMemoryScreenTimeStore : IScreenTimeStore
         }
     }
 
+    public IReadOnlyList<FocusSessionRow> QuerySessions(long fromUtcMs, long toUtcMs)
+    {
+        lock (_lock)
+        {
+            return _sessions
+                .Where(s => s.EndedUtc >= fromUtcMs && s.StartedUtc <= toUtcMs)
+                .OrderBy(s => s.StartedUtc)
+                .Select(s => new FocusSessionRow(s.AppName, s.AppPath, s.StartedUtc, s.EndedUtc))
+                .ToList();
+        }
+    }
+
     public DayBreakdown GetDay(DateOnly localDate)
     {
         var dateStr = localDate.ToString(DateFormat);

@@ -37,6 +37,17 @@ public static class TemperatureInsights
         _ => null,
     };
 
+    /// <summary>Chart granularity tier for a requested window: wider windows get a
+    /// coarser target bucket width in minutes, bounding merged point counts by
+    /// width instead of relying on a raw point cap alone.</summary>
+    public static int TierWidthMinutesFor(int windowHours) => windowHours switch
+    {
+        <= 24 => 5,
+        <= 72 => 15,
+        <= 168 => 30,
+        _ => 60,
+    };
+
     /// <summary>
     /// Finds every run of at least <see cref="MinConsecutiveBuckets"/> time-adjacent
     /// buckets whose AvgC is at or above the kind's threshold, per component. A
@@ -108,6 +119,54 @@ public static class TemperatureInsights
         }
 
         return episodes.OrderBy(e => e.StartUtc).ToList();
+    }
+
+    /// <summary>
+    /// Merges buckets into fixed-width slots aligned to widthMs boundaries (slot
+    /// start = bucketUtc / widthMs * widthMs), so merged points land on the same
+    /// grid positions across requests instead of drifting with row count. avg is
+    /// the samples-weighted average, max is the max of maxes; ComponentId/Kind/Name
+    /// come from the slot's last row. Rows must already be ordered by BucketUtcMs.
+    /// A no-op when widthMs is not wider than the raw bucket width.
+    /// </summary>
+    public static IReadOnlyList<TemperatureBucketRow> MergeToWidth(IReadOnlyList<TemperatureBucketRow> rows, long widthMs)
+    {
+        const long rawBucketMs = TemperatureSampler.BucketMinutes * 60_000L;
+        if (rows.Count == 0 || widthMs <= rawBucketMs)
+        {
+            return rows;
+        }
+
+        var result = new List<TemperatureBucketRow>();
+        var chunk = new List<TemperatureBucketRow>();
+        var currentSlot = 0L;
+
+        foreach (var row in rows)
+        {
+            var slot = row.BucketUtcMs / widthMs * widthMs;
+            if (chunk.Count > 0 && slot != currentSlot)
+            {
+                result.Add(MergeChunk(chunk, currentSlot));
+                chunk.Clear();
+            }
+            currentSlot = slot;
+            chunk.Add(row);
+        }
+        if (chunk.Count > 0)
+        {
+            result.Add(MergeChunk(chunk, currentSlot));
+        }
+        return result;
+    }
+
+    private static TemperatureBucketRow MergeChunk(List<TemperatureBucketRow> chunk, long slotStartMs)
+    {
+        var totalSamples = chunk.Sum(r => r.Samples);
+        var avg = totalSamples > 0
+            ? chunk.Sum(r => r.AvgC * r.Samples) / totalSamples
+            : chunk.Average(r => r.AvgC);
+        var max = chunk.Max(r => r.MaxC);
+        return chunk[^1] with { BucketUtcMs = slotStartMs, AvgC = avg, MaxC = max, Samples = totalSamples };
     }
 
     /// <summary>

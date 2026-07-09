@@ -20,6 +20,11 @@ public interface IScreenTimeStore : IDisposable
 
     DayBreakdown GetDay(DateOnly localDate);
     IReadOnlyList<DayTotal> GetRange(DateOnly fromInclusive, DateOnly toInclusive);
+
+    /// Raw focus sessions overlapping [fromUtcMs, toUtcMs], ordered by start.
+    /// Powers the temperature chart's app-usage overlay, which buckets the
+    /// timeline itself rather than reading the day/hour rollups.
+    IReadOnlyList<FocusSessionRow> QuerySessions(long fromUtcMs, long toUtcMs);
     AppHistory GetAppHistory(string appName, DateOnly fromInclusive, DateOnly toInclusive);
     IReadOnlyList<AppUsage> GetTodayUsage(DateOnly today);
     IReadOnlyList<AppUsage> GetHourUsage(DateOnly localDate, int hourLocal);

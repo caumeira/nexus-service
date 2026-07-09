@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 #if WINDOWS
 using Microsoft.Extensions.DependencyInjection;
 #endif
+using Nexus.Service.Activity.Storage;
 using Nexus.Service.Auth;
 using Nexus.Service.Diagnostics;
 using Nexus.Service.Diagnostics.Cooling;
@@ -17,6 +18,7 @@ using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Diagnostics.SystemInfo;
 using Nexus.Service.Diagnostics.Temperature;
 using Nexus.Service.Lighting;
+using Nexus.Service.Models;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 
@@ -41,8 +43,11 @@ public static class DiagnosticsHealthRoutes
     private const int MaxIncidentDays = 30;
 
     private const int MinTemperatureHours = 1;
-    private const int MaxTemperatureHours = 720;
+    private const int MaxTemperatureHours = 336;
     private const int DefaultTemperatureHours = 168;
+
+    // Defensive backstop only: TemperatureInsights.TierWidthMinutesFor already
+    // bounds each series well under this cap for every window up to MaxTemperatureHours.
     private const int MaxPointsPerSeries = 600;
 
     public static void MapDiagnosticsHealthEndpoints(this WebApplication app)
@@ -91,22 +96,29 @@ public static class DiagnosticsHealthRoutes
 
         app.MapGet("/diagnostics/cooling", (CoolingStallDetector cooling) => cooling.Snapshot()).AllowPanel();
 
-        app.MapGet("/diagnostics/temperatures", (int? hours, ITemperatureHistoryStore tempStore) =>
+        // date (yyyy-MM-dd, service host's local calendar day) takes priority
+        // over hours when both are present.
+        app.MapGet("/diagnostics/temperatures", (int? hours, string? date, ITemperatureHistoryStore tempStore) =>
         {
-            var windowHours = Math.Clamp(hours ?? DefaultTemperatureHours, MinTemperatureHours, MaxTemperatureHours);
-            try
+            if (!TryResolveTemperatureWindow(hours, date, out var fromUtcMs, out var toUtcMs, out var tierWidthMinutes, out var error))
             {
-                var toUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
-                var fromUtcMs = toUtcMs - windowHours * 3_600_000L;
-                var rows = tempStore.Query(fromUtcMs, toUtcMs);
-                return BuildTemperatureResponse(rows);
+                return Results.BadRequest(ApiResponse.Fail(error!));
             }
-            catch (Exception ex)
-            {
-                ServiceLog.Warn($"[diagnostics-temperatures] query failed: {ex.Message}");
-                return new TemperatureHistoryResponse { Supported = false };
-            }
+            return QueryTemperatures(tempStore, fromUtcMs, toUtcMs, tierWidthMinutes);
         }).AllowPanel();
+
+        // App-usage overlay for the temperature chart: dominant foreground app
+        // per tier-width slot on the same window grid. Default (dashboard-token)
+        // auth, NOT AllowPanel - app names carry Screen Time's privacy scope and
+        // must not reach the phone panel.
+        app.MapGet("/diagnostics/temperatures/apps", (int? hours, string? date, IScreenTimeStore screenTime) =>
+        {
+            if (!TryResolveTemperatureWindow(hours, date, out var fromUtcMs, out var toUtcMs, out var tierWidthMinutes, out var error))
+            {
+                return Results.BadRequest(ApiResponse.Fail(error!));
+            }
+            return Results.Ok(BuildTemperatureAppUsage(screenTime, fromUtcMs, toUtcMs, tierWidthMinutes));
+        });
 
         app.MapGet("/diagnostics/system", (string? refresh, PnpProblemScanner pnp, EventLogMonitor events) =>
             BuildSystemResponse(pnp, events, IsRefresh(refresh)));
@@ -214,20 +226,85 @@ public static class DiagnosticsHealthRoutes
         }).LocalhostOnly();
     }
 
-    private static TemperatureHistoryResponse BuildTemperatureResponse(IReadOnlyList<TemperatureBucketRow> rows)
+    // Shared window resolution for the temperatures + app-usage endpoints so
+    // both sit on the same [from, to] range and tier width, keeping the app
+    // bands aligned to the temperature buckets.
+    private static bool TryResolveTemperatureWindow(
+        int? hours, string? date,
+        out long fromUtcMs, out long toUtcMs, out int tierWidthMinutes, out string? error)
     {
+        fromUtcMs = 0;
+        toUtcMs = 0;
+        tierWidthMinutes = 0;
+
+        if (!string.IsNullOrWhiteSpace(date))
+        {
+            if (!TemperatureDayWindow.TryResolve(
+                    date, DateTimeOffset.UtcNow, TimeZoneInfo.Local, TemperatureSampler.RetentionDays,
+                    out fromUtcMs, out toUtcMs, out error))
+            {
+                return false;
+            }
+            tierWidthMinutes = TemperatureInsights.TierWidthMinutesFor(24);
+            return true;
+        }
+
+        var windowHours = Math.Clamp(hours ?? DefaultTemperatureHours, MinTemperatureHours, MaxTemperatureHours);
+        toUtcMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        fromUtcMs = toUtcMs - windowHours * 3_600_000L;
+        tierWidthMinutes = TemperatureInsights.TierWidthMinutesFor(windowHours);
+        error = null;
+        return true;
+    }
+
+    private static TemperatureAppUsageResponse BuildTemperatureAppUsage(
+        IScreenTimeStore screenTime, long fromUtcMs, long toUtcMs, int tierWidthMinutes)
+    {
+        try
+        {
+            var sessions = screenTime.QuerySessions(fromUtcMs, toUtcMs);
+            var buckets = ScreenTimeUsage.Build(sessions, fromUtcMs, toUtcMs, tierWidthMinutes * 60_000L);
+            return new TemperatureAppUsageResponse { Supported = true, BucketMinutes = tierWidthMinutes, Buckets = buckets };
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Warn($"[diagnostics-temperatures-apps] query failed: {ex.Message}");
+            return new TemperatureAppUsageResponse { Supported = false };
+        }
+    }
+
+    private static IResult QueryTemperatures(
+        ITemperatureHistoryStore tempStore, long fromUtcMs, long toUtcMs, int tierWidthMinutes)
+    {
+        try
+        {
+            var rows = tempStore.Query(fromUtcMs, toUtcMs);
+            return Results.Ok(BuildTemperatureResponse(rows, tierWidthMinutes));
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Warn($"[diagnostics-temperatures] query failed: {ex.Message}");
+            return Results.Ok(new TemperatureHistoryResponse { Supported = false });
+        }
+    }
+
+    internal static TemperatureHistoryResponse BuildTemperatureResponse(
+        IReadOnlyList<TemperatureBucketRow> rows, int tierWidthMinutes)
+    {
+        var widthMs = tierWidthMinutes * 60_000L;
         var series = rows
             .GroupBy(r => r.ComponentId)
             .Select(g =>
             {
                 var ordered = g.OrderBy(r => r.BucketUtcMs).ToList();
                 var last = ordered[^1];
+                var merged = TemperatureInsights.MergeToWidth(ordered, widthMs);
                 return new TemperatureSeriesWire
                 {
                     Id = g.Key,
                     Kind = last.Kind,
                     Name = last.Name,
-                    Points = TemperatureInsights.Decimate(ordered, MaxPointsPerSeries)
+                    Points = TemperatureInsights.Decimate(merged, MaxPointsPerSeries)
                         .Select(p => p with { Avg = Math.Round(p.Avg, 1), Max = Math.Round(p.Max, 1) })
                         .ToList(),
                 };
@@ -242,7 +319,8 @@ public static class DiagnosticsHealthRoutes
         return new TemperatureHistoryResponse
         {
             Supported = true,
-            BucketMinutes = Nexus.Service.Diagnostics.Temperature.TemperatureSampler.BucketMinutes,
+            BucketMinutes = tierWidthMinutes,
+            RetentionDays = TemperatureSampler.RetentionDays,
             Series = series,
             Episodes = episodes,
         };
@@ -511,6 +589,7 @@ public sealed record TemperatureHistoryResponse
 {
     public bool Supported { get; init; }
     public int BucketMinutes { get; init; } = Nexus.Service.Diagnostics.Temperature.TemperatureSampler.BucketMinutes;
+    public int RetentionDays { get; init; } = Nexus.Service.Diagnostics.Temperature.TemperatureSampler.RetentionDays;
     public IReadOnlyList<TemperatureSeriesWire> Series { get; init; } = Array.Empty<TemperatureSeriesWire>();
     public IReadOnlyList<TemperatureEpisode> Episodes { get; init; } = Array.Empty<TemperatureEpisode>();
 }

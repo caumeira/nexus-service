@@ -83,6 +83,33 @@ public sealed class SqliteScreenTimeStore : IScreenTimeStore
         }
     }
 
+    public IReadOnlyList<FocusSessionRow> QuerySessions(long fromUtcMs, long toUtcMs)
+    {
+        var rows = new List<FocusSessionRow>();
+        lock (_writeLock)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT app_name, app_path, started_utc, ended_utc
+                FROM sessions
+                WHERE ended_utc >= $from AND started_utc <= $to
+                ORDER BY started_utc ASC;
+            """;
+            cmd.Parameters.AddWithValue("$from", fromUtcMs);
+            cmd.Parameters.AddWithValue("$to", toUtcMs);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                rows.Add(new FocusSessionRow(
+                    reader.GetString(0),
+                    reader.IsDBNull(1) ? null : reader.GetString(1),
+                    reader.GetInt64(2),
+                    reader.GetInt64(3)));
+            }
+        }
+        return rows;
+    }
+
     public DayBreakdown GetDay(DateOnly localDate)
     {
         var dateStr = localDate.ToString(DateFormat);
@@ -340,6 +367,7 @@ public sealed class SqliteScreenTimeStore : IScreenTimeStore
             CREATE INDEX IF NOT EXISTS ix_sessions_date_app  ON sessions(date_local, app_name);
             CREATE INDEX IF NOT EXISTS ix_sessions_date_hour ON sessions(date_local, hour_local);
             CREATE INDEX IF NOT EXISTS ix_sessions_app       ON sessions(app_name);
+            CREATE INDEX IF NOT EXISTS ix_sessions_started   ON sessions(started_utc);
 
             CREATE TABLE IF NOT EXISTS schema_meta (
                 key   TEXT PRIMARY KEY,

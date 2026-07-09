@@ -22,10 +22,14 @@ public sealed class TemperatureSampler : BackgroundService
     /// bucket-adjacency checks and with the route response's bucketMinutes field.</summary>
     public const int BucketMinutes = 5;
 
+    /// <summary>Retention window in days; shared with the route response's
+    /// retentionDays field and the single-day query's oldest-allowed-date check.</summary>
+    public const int RetentionDays = 90;
+
     private const long BucketMs = BucketMinutes * 60_000L;
 
     private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(30);
-    private static readonly TimeSpan RetentionWindow = TimeSpan.FromDays(90);
+    private static readonly TimeSpan RetentionWindow = TimeSpan.FromDays(RetentionDays);
     private static readonly TimeSpan PruneInterval = TimeSpan.FromDays(1);
 
     // Bounds the wait for ISensorProvider.ReadyAsync so a platform whose

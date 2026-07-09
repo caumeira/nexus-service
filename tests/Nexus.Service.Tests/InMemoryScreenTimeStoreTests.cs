@@ -33,4 +33,21 @@ public class InMemoryScreenTimeStoreTests
         Assert.Equal(1, store.DeleteApp("Code"));
         Assert.Single(store.GetDay(new DateOnly(2026, 4, 20)).Apps);
     }
+
+    [Fact]
+    public void QuerySessions_ReturnsOverlappingRowsOrderedByStart()
+    {
+        using var store = new InMemoryScreenTimeStore();
+        store.RecordSession("Chrome", "/c", Utc(2026, 4, 20, 8), Utc(2026, 4, 20, 9));
+        store.RecordSession("Code", "/v", Utc(2026, 4, 20, 10), Utc(2026, 4, 20, 11));
+        store.RecordSession("Slack", null, Utc(2026, 4, 20, 14), Utc(2026, 4, 20, 15));
+
+        // Window 8:30-10:30 overlaps the first two sessions (partial each), not Slack.
+        var rows = store.QuerySessions(Utc(2026, 4, 20, 8, 30), Utc(2026, 4, 20, 10, 30));
+
+        Assert.Equal(2, rows.Count);
+        Assert.Equal("Chrome", rows[0].AppName);
+        Assert.Equal("/c", rows[0].AppPath);
+        Assert.Equal("Code", rows[1].AppName);
+    }
 }

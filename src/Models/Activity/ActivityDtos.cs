@@ -28,6 +28,11 @@ public class AppUsage
     public long TotalMs { get; set; }
 }
 
+/// A raw focus session as stored: one foreground app from StartedUtcMs to
+/// EndedUtcMs. Returned by IScreenTimeStore.QuerySessions for the temperature
+/// app-usage overlay, which needs the session timeline, not the day/hour rollups.
+public sealed record FocusSessionRow(string AppName, string? AppPath, long StartedUtcMs, long EndedUtcMs);
+
 public sealed class DayBreakdown
 {
     public string Date { get; set; } = "";
