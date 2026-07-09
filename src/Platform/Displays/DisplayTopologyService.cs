@@ -225,7 +225,8 @@ public sealed class DisplayTopologyService
                 if (record is null || record.Enabled == false) continue;
                 if (record.Capabilities?.Surface is { } surface && surface != PanelSurfaces.Monitor) continue;
                 var caps = BuildPromotedCapabilities(
-                    info.Name, info.Model, info.ResolutionWidth, info.ResolutionHeight,
+                    info.Manufacturer, info.Model, info.Name,
+                    info.ResolutionWidth, info.ResolutionHeight,
                     info.Scale, info.IsTouch, info.Orientation);
                 // Grid is kiosk-reported on self-registered panels; carry any
                 // stored value so the rebuild never clears it.
@@ -248,8 +249,9 @@ public sealed class DisplayTopologyService
     /// the kiosk grid read.
     /// </summary>
     internal static PanelDeviceCapabilities BuildPromotedCapabilities(
-        string? name,
+        string? manufacturer,
         string? model,
+        string? name,
         int resolutionWidth,
         int resolutionHeight,
         double? scaleFactor,
@@ -257,7 +259,7 @@ public sealed class DisplayTopologyService
         string? orientation)
     {
         var scale = scaleFactor is > 0 ? scaleFactor.Value : 1.0;
-        var known = KnownPanelDisplays.Match(name, model);
+        var known = KnownPanelDisplays.Match(manufacturer, model, name);
         return new PanelDeviceCapabilities
         {
             Surface = PanelSurfaces.Monitor,

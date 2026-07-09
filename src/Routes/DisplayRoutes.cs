@@ -97,7 +97,7 @@ public static class DisplayRoutes
             // SyncPromotedPanelCapabilities re-derives the same shape on
             // later topology reads, so the record tracks rotation/rescale.
             var capabilities = DisplayTopologyService.BuildPromotedCapabilities(
-                display.Name, display.Model,
+                display.Manufacturer, display.Model, display.Name,
                 display.Resolution.Width, display.Resolution.Height,
                 display.ScaleFactor, display.IsTouch, display.Orientation);
             var (record, activated) = registry.AllocateForDisplay(id, body?.DisplayName ?? display.Name, capabilities);

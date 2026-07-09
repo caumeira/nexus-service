@@ -199,12 +199,14 @@ public sealed class DisplayTopologyTests : IDisposable
         Assert.Equal("", LinuxDisplayTopologyProvider.ParseEdidIdentity(new byte[128]).Mfg);
     }
 
-    private static RawDisplayInfo XeneonEdge(string id = "CRS0001-2") => new()
+    // The shape WindowsDisplayIdentity reports: Name composed from the PnP
+    // DeviceID segment "CRXED00"; the EDID product-name string never surfaces.
+    private static RawDisplayInfo XeneonEdge(string id = "CRXED00-2") => new()
     {
         Id = id,
-        Name = "XENEON EDGE",
-        Manufacturer = "CRS",
-        Model = "XENEON EDGE",
+        Name = "CRX ED00",
+        Manufacturer = "CRX",
+        Model = "ED00",
         X = 3840,
         Y = 0,
         Width = 2560,
@@ -217,20 +219,25 @@ public sealed class DisplayTopologyTests : IDisposable
     };
 
     [Fact]
-    public void Known_display_match_is_case_insensitive_and_reads_name_or_model()
+    public void Known_display_match_reads_pnp_identity_or_edid_name()
     {
-        Assert.Equal("xeneon-edge", KnownPanelDisplays.Match("XENEON EDGE", "")?.Family);
-        Assert.Equal("xeneon-edge", KnownPanelDisplays.Match("Corsair Xeneon Edge", null)?.Family);
-        Assert.Equal("xeneon-edge", KnownPanelDisplays.Match(null, "xeneon edge")?.Family);
-        Assert.Null(KnownPanelDisplays.Match("DEL 41B7", "41B7"));
-        Assert.Null(KnownPanelDisplays.Match(null, null));
+        // Windows: PnP identity from the DeviceID, no EDID name available.
+        Assert.Equal("xeneon-edge", KnownPanelDisplays.Match("CRX", "ED00", "CRX ED00")?.Family);
+        Assert.Equal("xeneon-edge", KnownPanelDisplays.Match("crx", "ed00", null)?.Family);
+        // macOS/Linux: EDID product name in Name or Model.
+        Assert.Equal("xeneon-edge", KnownPanelDisplays.Match(null, null, "XENEON EDGE")?.Family);
+        Assert.Equal("xeneon-edge", KnownPanelDisplays.Match(null, null, "Corsair Xeneon Edge")?.Family);
+        Assert.Equal("xeneon-edge", KnownPanelDisplays.Match(null, "xeneon edge", null)?.Family);
+        Assert.Null(KnownPanelDisplays.Match("DEL", "41B7", "DEL 41B7"));
+        Assert.Null(KnownPanelDisplays.Match("CRX", "1234", "CRX 1234"));
+        Assert.Null(KnownPanelDisplays.Match(null, null, null));
     }
 
     [Fact]
     public void Promoted_capabilities_carry_density_for_known_displays()
     {
         var caps = DisplayTopologyService.BuildPromotedCapabilities(
-            "XENEON EDGE", "XENEON EDGE", 2560, 720, 1.5, isTouch: true, orientation: "Landscape");
+            "CRX", "ED00", "CRX ED00", 2560, 720, 1.5, isTouch: true, orientation: "Landscape");
 
         Assert.Equal(PanelSurfaces.Monitor, caps.Surface);
         Assert.Equal(183, caps.Dpi);
@@ -241,7 +248,7 @@ public sealed class DisplayTopologyTests : IDisposable
         Assert.True(caps.Touch);
 
         var generic = DisplayTopologyService.BuildPromotedCapabilities(
-            "DEL 41B7", "41B7", 3840, 2160, null, isTouch: false, orientation: "");
+            "DEL", "41B7", "DEL 41B7", 3840, 2160, null, isTouch: false, orientation: "");
         Assert.Null(generic.Dpi);
         Assert.Null(generic.Family);
         Assert.Equal(3840, generic.CssWidth);
