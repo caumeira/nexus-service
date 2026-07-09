@@ -80,6 +80,10 @@ public sealed class SmartHealthMonitor
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(10);
 
+    // Floor below which ForceRefresh() is a no-op, so a stuck client retry
+    // loop cannot make this re-poll LhmComputer continuously.
+    private static readonly TimeSpan ForceRefreshFloor = TimeSpan.FromSeconds(5);
+
     private readonly LhmComputer _lhm;
     private readonly object _lock = new();
     private readonly Stopwatch _sinceRefresh = Stopwatch.StartNew();
@@ -106,6 +110,10 @@ public sealed class SmartHealthMonitor
     {
         lock (_lock)
         {
+            if (_hasSnapshot && _sinceRefresh.Elapsed < ForceRefreshFloor)
+            {
+                return;
+            }
             Refresh();
         }
     }

@@ -1,5 +1,6 @@
 #if WINDOWS
 using System;
+using System.Collections.Generic;
 using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,12 +25,14 @@ public sealed class DisplayTopologyWatcher : BackgroundService
 
     private readonly HelperRegistry _helpers;
     private readonly MultiplexHub _hub;
+    private readonly DisplayTopologyService _topology;
     private readonly Timer _debounce;
 
-    public DisplayTopologyWatcher(HelperRegistry helpers, MultiplexHub hub)
+    public DisplayTopologyWatcher(HelperRegistry helpers, MultiplexHub hub, DisplayTopologyService topology)
     {
         _helpers = helpers;
         _hub = hub;
+        _topology = topology;
         _debounce = new Timer(_ => Broadcast(), null, Timeout.Infinite, Timeout.Infinite);
     }
 
@@ -38,14 +41,30 @@ public sealed class DisplayTopologyWatcher : BackgroundService
         _helpers.InboundEnvelope += OnEnvelope;
         _helpers.Connected += OnHelperEdge;
         _helpers.Disconnected += OnHelperEdge;
+        _topology.PromotedPanelCapabilitiesChanged += OnPromotedCapabilitiesChanged;
         stoppingToken.Register(() =>
         {
             _helpers.InboundEnvelope -= OnEnvelope;
             _helpers.Connected -= OnHelperEdge;
             _helpers.Disconnected -= OnHelperEdge;
+            _topology.PromotedPanelCapabilitiesChanged -= OnPromotedCapabilitiesChanged;
             _debounce.Dispose();
         });
         return Task.CompletedTask;
+    }
+
+    /// <summary>Editors key their grid on the record's capabilities, so a
+    /// refresh (rotation, scaling change) must push panel/device.</summary>
+    private void OnPromotedCapabilitiesChanged(IReadOnlyList<string> recordIds)
+    {
+        try
+        {
+            foreach (var id in recordIds) PanelTopics.BroadcastPanelDevice(_hub, id);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[displays] panel capability broadcast failed: {ex.Message}");
+        }
     }
 
     private void OnEnvelope(HelperConnection _, HelperEnvelope env)
@@ -62,7 +81,14 @@ public sealed class DisplayTopologyWatcher : BackgroundService
 
     private void Broadcast()
     {
-        try { PanelTopics.BroadcastDisplays(_hub); }
+        try
+        {
+            // Re-enumerate before broadcasting: GetTopology runs the
+            // promoted-record capability sync, so display-bound records
+            // track rotation/rescale even when no client refetches topology.
+            _topology.GetTopology();
+            PanelTopics.BroadcastDisplays(_hub);
+        }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[displays] topology broadcast failed: {ex.Message}");

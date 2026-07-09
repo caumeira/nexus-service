@@ -1,5 +1,7 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Xunit;
 
@@ -7,33 +9,34 @@ namespace Nexus.Service.Tests;
 
 public class UsbEnumeratorTests
 {
-    // ---- Windows pnputil parser (present devices, with /properties) ----
+    // ---- Windows entry builder (CfgMgr32 enumeration) ----
+
+    private static (List<UsbDeviceEntry> Result, HashSet<string> Seen) NewSink()
+        => (new List<UsbDeviceEntry>(), new HashSet<string>(System.StringComparer.OrdinalIgnoreCase));
+
+    private static void Append(
+        List<UsbDeviceEntry> result, HashSet<string> seen, string instanceId,
+        string busReported = "", string deviceDesc = "", string manufacturer = "",
+        string className = "", string driverName = "", string locationInfo = "")
+        => UsbDeviceEntryBuilder.Append(result, seen, instanceId, busReported,
+            deviceDesc, manufacturer, className, driverName, locationInfo);
 
     [Fact]
     public void Windows_Prefers_BusReportedDeviceDesc_Over_DeviceDescription()
     {
-        // pnputil /enum-devices /connected /properties format. The USB iProduct
-        // string (BusReportedDeviceDesc) is the brand-friendly name; Device
-        // Description for HID interface nodes is the generic "USB Input Device".
-        var output = string.Join('\n', new[]
-        {
-            "Instance ID:                USB\\VID_1B1C&PID_1B2E&MI_00\\9&1357d11b&1&0000",
-            "Device Description:         USB Input Device",
-            "Class Name:                 HIDClass",
-            "Manufacturer Name:          (Standard system devices)",
-            "Status:                     Started",
-            "Driver Name:                input.inf",
-            "Properties:",
-            "    DEVPKEY_Device_DeviceDesc [String]:",
-            "        USB Input Device",
-            "    DEVPKEY_Device_BusReportedDeviceDesc [String]:",
-            "        Corsair Gaming M65 Pro RGB Mouse",
-            "    DEVPKEY_Device_LocationInfo [String]:",
-            "        000e.0000.0000.016.000.000.000.000.000",
-            "",
-        });
+        // The USB iProduct string (BusReportedDeviceDesc) is the brand-friendly
+        // name; DeviceDesc for HID interface nodes is the generic "USB Input
+        // Device".
+        var (result, seen) = NewSink();
+        Append(result, seen, @"USB\VID_1B1C&PID_1B2E&MI_00\9&1357d11b&1&0000",
+            busReported: "Corsair Gaming M65 Pro RGB Mouse",
+            deviceDesc: "USB Input Device",
+            manufacturer: "(Standard system devices)",
+            className: "HIDClass",
+            driverName: "input.inf",
+            locationInfo: "000e.0000.0000.016.000.000.000.000.000");
 
-        var entry = Assert.Single(PnpUtilParser.Parse(output));
+        var entry = Assert.Single(result);
         Assert.Equal(0x1B1C, entry.VendorId);
         Assert.Equal(0x1B2E, entry.ProductId);
         Assert.Equal("Corsair Gaming M65 Pro RGB Mouse", entry.Name);
@@ -41,23 +44,20 @@ public class UsbEnumeratorTests
         Assert.Equal("HIDClass", entry.Class);
         Assert.Equal("input.inf", entry.Driver);
         Assert.Equal("000e.0000.0000.016.000.000.000.000.000", entry.Location);
+        Assert.Equal("9&1357d11b&1&0000", entry.Serial);
+        Assert.Equal(@"USB\VID_1B1C&PID_1B2E&MI_00", entry.HardwareId);
     }
 
     [Fact]
     public void Windows_Falls_Back_To_DeviceDescription_When_BusReported_Missing()
     {
-        var output = string.Join('\n', new[]
-        {
-            "Instance ID:                USB\\VID_046D&PID_C548\\9&abcdef&0&0",
-            "Device Description:         Logitech USB Receiver",
-            "Manufacturer Name:          Logitech",
-            "Properties:",
-            "    DEVPKEY_Device_LocationInfo [String]:",
-            "        Port_#0003.Hub_#0001",
-            "",
-        });
+        var (result, seen) = NewSink();
+        Append(result, seen, @"USB\VID_046D&PID_C548\9&abcdef&0&0",
+            deviceDesc: "Logitech USB Receiver",
+            manufacturer: "Logitech",
+            locationInfo: "Port_#0003.Hub_#0001");
 
-        var entry = Assert.Single(PnpUtilParser.Parse(output));
+        var entry = Assert.Single(result);
         Assert.Equal("Logitech USB Receiver", entry.Name);
         Assert.Equal("Port_#0003.Hub_#0001", entry.Location);
     }
@@ -67,62 +67,44 @@ public class UsbEnumeratorTests
     {
         // All three nodes of a composite device share BusReportedDeviceDesc;
         // dedupe by (VID, PID, Name) collapses them to one row.
-        var output = string.Join('\n', new[]
-        {
-            "Instance ID:                USB\\VID_1B1C&PID_1B2E\\SERIAL",
-            "Device Description:         USB Composite Device",
-            "Manufacturer Name:          (Standard USB Host Controller)",
-            "Properties:",
-            "    DEVPKEY_Device_BusReportedDeviceDesc [String]:",
-            "        Corsair Gaming M65 Pro RGB Mouse",
-            "",
-            "Instance ID:                USB\\VID_1B1C&PID_1B2E&MI_00\\9&1&0",
-            "Device Description:         USB Input Device",
-            "Manufacturer Name:          (Standard system devices)",
-            "Properties:",
-            "    DEVPKEY_Device_BusReportedDeviceDesc [String]:",
-            "        Corsair Gaming M65 Pro RGB Mouse",
-            "",
-            "Instance ID:                USB\\VID_1B1C&PID_1B2E&MI_01\\9&1&1",
-            "Device Description:         USB Input Device",
-            "Manufacturer Name:          (Standard system devices)",
-            "Properties:",
-            "    DEVPKEY_Device_BusReportedDeviceDesc [String]:",
-            "        Corsair Gaming M65 Pro RGB Mouse",
-            "",
-        });
+        var (result, seen) = NewSink();
+        Append(result, seen, @"USB\VID_1B1C&PID_1B2E\SERIAL", busReported: "Corsair Gaming M65 Pro RGB Mouse");
+        Append(result, seen, @"USB\VID_1B1C&PID_1B2E&MI_00\9&1&0", busReported: "Corsair Gaming M65 Pro RGB Mouse");
+        Append(result, seen, @"USB\VID_1B1C&PID_1B2E&MI_01\9&1&1", busReported: "Corsair Gaming M65 Pro RGB Mouse");
 
-        var entry = Assert.Single(PnpUtilParser.Parse(output));
+        var entry = Assert.Single(result);
         Assert.Equal("Corsair Gaming M65 Pro RGB Mouse", entry.Name);
     }
 
     [Fact]
     public void Windows_Skips_NonUsb_And_RootHub_Entries()
     {
-        var output = string.Join('\n', new[]
-        {
-            "Instance ID:                USB\\ROOT_HUB30\\5&18297c0c&0&0",
-            "Device Description:         USB Root Hub (USB 3.0)",
-            "",
-            "Instance ID:                PCI\\VEN_1022&DEV_14E3",
-            "Device Description:         PCI Device",
-            "",
-            "Instance ID:                USB\\VID_1B1C&PID_1B2E\\9&xyz&1&0",
-            "Device Description:         Real Device",
-            "Manufacturer Name:          Corsair",
-            "",
-        });
+        var (result, seen) = NewSink();
+        Append(result, seen, @"USB\ROOT_HUB30\5&18297c0c&0&0", deviceDesc: "USB Root Hub (USB 3.0)");
+        Append(result, seen, @"PCI\VEN_1022&DEV_14E3", deviceDesc: "PCI Device");
+        Append(result, seen, @"USB\VID_1B1C&PID_1B2E\9&xyz&1&0", deviceDesc: "Real Device", manufacturer: "Corsair");
 
-        var entry = Assert.Single(PnpUtilParser.Parse(output));
+        var entry = Assert.Single(result);
         Assert.Equal("Real Device", entry.Name);
         Assert.Equal("Corsair", entry.Manufacturer);
     }
 
     [Fact]
-    public void Windows_Empty_Output_Returns_Empty_List()
+    public void Windows_Skips_Instances_Without_VidPid()
     {
-        Assert.Empty(PnpUtilParser.Parse(""));
-        Assert.Empty(PnpUtilParser.Parse("   \n  \n"));
+        var (result, seen) = NewSink();
+        Append(result, seen, @"USB\UNKNOWN_DEVICE\123", deviceDesc: "No ids");
+        Assert.Empty(result);
+    }
+
+    [Fact]
+    public void Windows_ParseInstanceId_Extracts_VidPid_And_Serial()
+    {
+        var (vid, pid, deviceKey, serial) = UsbDeviceEntryBuilder.ParseInstanceId(@"USB\VID_3402&PID_0C01\A1B2C3");
+        Assert.Equal(0x3402, vid);
+        Assert.Equal(0x0C01, pid);
+        Assert.Equal("VID_3402&PID_0C01", deviceKey);
+        Assert.Equal("A1B2C3", serial);
     }
 
     // ---- Mac JSON parser ----

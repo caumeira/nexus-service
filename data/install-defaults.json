@@ -37,11 +37,11 @@
             "row": 0,
             "config": {
               "slotCount": 2,
-              "slot0_device": "cpu",
-              "slot0_sensor": "CPU Total",
+              "slot0_device": "quick",
+              "slot0_sensor": "summary/cpu-usage",
               "slot0_design": "sparkline",
-              "slot1_device": "memory",
-              "slot1_sensor": "Memory Used",
+              "slot1_device": "quick",
+              "slot1_sensor": "summary/memory-usage",
               "slot1_design": "halfgauge"
             }
           },
@@ -76,11 +76,11 @@
             "row": 2,
             "config": {
               "slotCount": 2,
-              "slot0_device": "cpu",
-              "slot0_sensor": "CPU Total",
+              "slot0_device": "quick",
+              "slot0_sensor": "summary/cpu-usage",
               "slot0_design": "sparkline",
-              "slot1_device": "memory",
-              "slot1_sensor": "Memory Used",
+              "slot1_device": "quick",
+              "slot1_sensor": "summary/memory-usage",
               "slot1_design": "halfgauge"
             }
           },
@@ -109,11 +109,11 @@
             "row": 0,
             "config": {
               "slotCount": 2,
-              "slot0_device": "cpu",
-              "slot0_sensor": "CPU Total",
+              "slot0_device": "quick",
+              "slot0_sensor": "summary/cpu-usage",
               "slot0_design": "sparkline",
-              "slot1_device": "memory",
-              "slot1_sensor": "Memory Used",
+              "slot1_device": "quick",
+              "slot1_sensor": "summary/memory-usage",
               "slot1_design": "halfgauge"
             }
           },

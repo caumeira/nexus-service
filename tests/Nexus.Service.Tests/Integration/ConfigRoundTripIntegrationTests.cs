@@ -95,6 +95,22 @@ public sealed class ConfigRoundTripIntegrationTests : IClassFixture<NexusAppFact
     }
 
     [Fact]
+    public async Task Units_persist_across_post_then_get()
+    {
+        var client = AuthedClient();
+
+        var post = await client.PostAsync("/preferences",
+            Json("{\"units\":{\"monitoringTempUnit\":\"f\",\"timeFormat\":\"12h\",\"numberFormat\":\"comma\"}}"));
+        Assert.Equal(HttpStatusCode.OK, post.StatusCode);
+
+        using var doc = JsonDocument.Parse(await (await client.GetAsync("/preferences")).Content.ReadAsStringAsync());
+        var units = doc.RootElement.GetProperty("units");
+        Assert.Equal("f", units.GetProperty("monitoringTempUnit").GetString());
+        Assert.Equal("12h", units.GetProperty("timeFormat").GetString());
+        Assert.Equal("comma", units.GetProperty("numberFormat").GetString());
+    }
+
+    [Fact]
     public async Task Write_is_flushed_to_the_isolated_settings_file()
     {
         var client = AuthedClient();

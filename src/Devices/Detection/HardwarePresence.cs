@@ -15,8 +15,9 @@ namespace Nexus.Service.Devices.Detection;
 /// the bus, not a hard-coded table. See plans/third-party-app-sdk.md
 /// (PluginProcessSupervisor) for the intended plugin hook.
 ///
-/// Backed by the shared 10 s-cached <see cref="IUsbEnumerator"/>, so a per-tick
-/// presence check adds no bus-scan cost over the device detection already running.
+/// Backed by the shared single-flight <see cref="CachingUsbEnumerator"/>
+/// (event-invalidated on Windows), so a per-tick presence check adds no
+/// bus-scan cost over the device detection already running.
 /// Note: the monitor channel (<see cref="Platform.MonitorEnumerator"/>) carries no
 /// EDID/vendor, so it cannot identify a specific product (e.g. a Y70) and is not a
 /// gate source; a Y70 is gated on its serial controller's VID/PID instead.

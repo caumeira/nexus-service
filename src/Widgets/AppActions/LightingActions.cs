@@ -57,15 +57,15 @@ public static class LightingActions
 
             float r = ((rgb >> 16) & 0xFF) / 255f, g = ((rgb >> 8) & 0xFF) / 255f, b = (rgb & 0xFF) / 255f;
             var l = services.GetRequiredService<ILightingProvider>();
+            // The flat "simple" fill is one HSV swatch, so only hue + saturation
+            // reach the shader; colorize / speed / contrast / intensity are unused
+            // for it and left at their defaults. Full saturation renders the
+            // picked hue at its most vivid.
             l.StartAnimate(new AnimateHeadlessStart
             {
                 Effect = "simple",
                 Hue = HueOf(r, g, b), // 0..1, matches the simple<colour> preset signatures
-                Colorize = 1f,
-                Saturation = 1.1f,
-                Contrast = 1f,
-                Speed = 30,
-                Intensity = 1f,
+                Saturation = 1f,
                 Persist = true,
             });
             return Task.FromResult<JsonElement?>(Ack(true, applied: $"hue {HueOf(r, g, b):0.00} (#{clean})"));

@@ -6,7 +6,7 @@ namespace Nexus.Service.Tests;
 /// <summary>
 /// Network provider parsing logic. <see cref="MacNetworkProvider.ParseNettop"/>
 /// parses nettop CSV output and merges by process name;
-/// <see cref="NetstatParser"/> derives internet-active PIDs from netstat output.
+/// <see cref="TcpPeerFilter"/> classifies TCP-table remote peers on Windows.
 /// </summary>
 public class NetworkParsingTests
 {
@@ -91,88 +91,79 @@ public class NetworkParsingTests
         Assert.Empty(MacNetworkProvider.ParseNettop("   \n  \n"));
     }
 
-    // --- NetstatParser (Windows) ---
+    // --- TcpPeerFilter (Windows TCP connection table) ---
 
     [Theory]
-    [InlineData("127.0.0.1:9400")]
-    [InlineData("127.255.255.255:80")]
-    [InlineData("0.0.0.0:0")]
-    [InlineData("[::1]:443")]
-    [InlineData("[::]:0")]
-    [InlineData("*:*")]
-    [InlineData("[::ffff:127.0.0.1]:1234")]
-    public void IsLoopbackOrUnspecified_True(string foreignAddress)
+    [InlineData(127, 0, 0, 1, false)]
+    [InlineData(127, 255, 255, 255, false)]
+    [InlineData(0, 0, 0, 0, false)]
+    [InlineData(142, 250, 80, 46, true)]   // public IPv4
+    [InlineData(192, 168, 1, 235, true)]   // LAN (still real wire traffic)
+    [InlineData(8, 8, 8, 8, true)]
+    public void IsInternetPeerV4_ClassifiesRemoteAddresses(byte a, byte b, byte c, byte d, bool expected)
     {
-        Assert.True(NetstatParser.IsLoopbackOrUnspecified(foreignAddress));
-    }
-
-    [Theory]
-    [InlineData("142.250.80.46:443")]      // public IPv4
-    [InlineData("192.168.1.235:9400")]     // LAN (still real wire traffic)
-    [InlineData("8.8.8.8:53")]
-    [InlineData("[2606:4700::1]:443")]     // public IPv6
-    [InlineData("[fe80::1]:5353")]         // IPv6 link-local
-    public void IsLoopbackOrUnspecified_False(string foreignAddress)
-    {
-        Assert.False(NetstatParser.IsLoopbackOrUnspecified(foreignAddress));
+        // MIB_TCPROW_OWNER_PID.dwRemoteAddr is network byte order: the first
+        // octet sits in the low byte on little-endian.
+        var addr = (uint)a | ((uint)b << 8) | ((uint)c << 16) | ((uint)d << 24);
+        Assert.Equal(expected, TcpPeerFilter.IsInternetPeerV4(addr));
     }
 
     [Fact]
-    public void ParseInternetActivePids_ExcludesLoopbackOnlyPids()
+    public void IsInternetPeerV6_LoopbackAndUnspecified_False()
     {
-        // nexus-service (PID 9876) only talks to localhost.
-        // Edge browser (PID 4242) has both a loopback handshake AND public traffic.
-        var output = """
-        Active Connections
+        var loopback = new byte[16];
+        loopback[15] = 1; // ::1
+        Assert.False(TcpPeerFilter.IsInternetPeerV6(loopback));
 
-          Proto  Local Address          Foreign Address        State           PID
-          TCP    127.0.0.1:9400         127.0.0.1:50123        ESTABLISHED     9876
-          TCP    127.0.0.1:9400         127.0.0.1:50124        ESTABLISHED     9876
-          TCP    127.0.0.1:50123        127.0.0.1:9400         ESTABLISHED     4242
-          TCP    192.168.1.35:50500     142.250.80.46:443      ESTABLISHED     4242
-          TCP    0.0.0.0:9400           0.0.0.0:0              LISTENING       9876
-          UDP    0.0.0.0:5353           *:*                                    1111
-        """;
-
-        var pids = NetstatParser.ParseInternetActivePids(output);
-
-        Assert.Contains(4242, pids);     // Edge has at least one real peer
-        Assert.DoesNotContain(9876, pids); // nexus-service is loopback-only
-        Assert.DoesNotContain(1111, pids); // mDNS listener has no real peer
+        Assert.False(TcpPeerFilter.IsInternetPeerV6(new byte[16])); // ::
     }
 
     [Fact]
-    public void ParseInternetActivePids_HandlesIpv6Peers()
+    public void IsInternetPeerV6_V4MappedLoopbackAndUnspecified_False()
     {
-        var output = """
-          TCP    [::1]:9400             [::1]:50123            ESTABLISHED     9876
-          TCP    [2001:db8::1]:50500    [2606:4700::1]:443     ESTABLISHED     4242
-        """;
+        var mappedLoopback = new byte[16];
+        mappedLoopback[10] = 0xFF;
+        mappedLoopback[11] = 0xFF;
+        mappedLoopback[12] = 127; // ::ffff:127.0.0.1
+        mappedLoopback[15] = 1;
+        Assert.False(TcpPeerFilter.IsInternetPeerV6(mappedLoopback));
 
-        var pids = NetstatParser.ParseInternetActivePids(output);
-
-        Assert.Contains(4242, pids);
-        Assert.DoesNotContain(9876, pids);
+        var mappedUnspecified = new byte[16];
+        mappedUnspecified[10] = 0xFF;
+        mappedUnspecified[11] = 0xFF; // ::ffff:0.0.0.0
+        Assert.False(TcpPeerFilter.IsInternetPeerV6(mappedUnspecified));
     }
 
     [Fact]
-    public void ParseInternetActivePids_EmptyInput_ReturnsEmpty()
+    public void IsInternetPeerV6_PublicLinkLocalAndMappedLan_True()
     {
-        Assert.Empty(NetstatParser.ParseInternetActivePids(""));
-        Assert.Empty(NetstatParser.ParseInternetActivePids("Active Connections\n"));
+        var publicV6 = new byte[16];
+        publicV6[0] = 0x26; // 2606:4700::1
+        publicV6[1] = 0x06;
+        publicV6[2] = 0x47;
+        publicV6[15] = 1;
+        Assert.True(TcpPeerFilter.IsInternetPeerV6(publicV6));
+
+        var linkLocal = new byte[16];
+        linkLocal[0] = 0xFE; // fe80::1
+        linkLocal[1] = 0x80;
+        linkLocal[15] = 1;
+        Assert.True(TcpPeerFilter.IsInternetPeerV6(linkLocal));
+
+        var mappedLan = new byte[16];
+        mappedLan[10] = 0xFF;
+        mappedLan[11] = 0xFF;
+        mappedLan[12] = 192; // ::ffff:192.168.1.35
+        mappedLan[13] = 168;
+        mappedLan[14] = 1;
+        mappedLan[15] = 35;
+        Assert.True(TcpPeerFilter.IsInternetPeerV6(mappedLan));
     }
 
     [Fact]
-    public void ParseInternetActivePids_IgnoresKernelPid()
+    public void IsInternetPeerV6_WrongLength_False()
     {
-        var output = """
-          TCP    192.168.1.35:445       142.250.80.46:443      ESTABLISHED     0
-          TCP    192.168.1.35:50500     142.250.80.46:443      ESTABLISHED     4242
-        """;
-
-        var pids = NetstatParser.ParseInternetActivePids(output);
-
-        Assert.Single(pids);
-        Assert.Contains(4242, pids);
+        Assert.False(TcpPeerFilter.IsInternetPeerV6(new byte[4]));
+        Assert.False(TcpPeerFilter.IsInternetPeerV6(System.ReadOnlySpan<byte>.Empty));
     }
 }

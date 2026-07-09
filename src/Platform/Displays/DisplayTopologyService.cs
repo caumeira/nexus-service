@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Nexus.Service.Models.Displays;
+using Nexus.Service.Models.Panel;
 using Nexus.Service.Panel;
 using Nexus.Service.Peripherals.Hyte.Y70Display;
 
@@ -41,6 +42,7 @@ public sealed class DisplayTopologyService
     private readonly object _cacheLock = new();
     private HashSet<string>? _attachedIds;
     private bool _hasY70Display;
+    private string _ddcOnlyY70Variant = "";
     private long _attachedIdsAtMs;
     private bool _attachedIdsValid;
 
@@ -117,7 +119,7 @@ public sealed class DisplayTopologyService
     /// </summary>
     public HashSet<string>? GetAttachedIds()
     {
-        if (TryGetCached(out var ids, out _)) return ids;
+        if (TryGetCached(out var ids, out _, out _)) return ids;
         return CacheAttachedIds(_provider.Enumerate());
     }
 
@@ -129,12 +131,25 @@ public sealed class DisplayTopologyService
     /// </summary>
     public bool HasY70Display()
     {
-        if (TryGetCached(out _, out var hasY70)) return hasY70;
+        if (TryGetCached(out _, out var hasY70, out _)) return hasY70;
         CacheAttachedIds(_provider.Enumerate());
         lock (_cacheLock) return _hasY70Display;
     }
 
-    private bool TryGetCached(out HashSet<string>? ids, out bool hasY70)
+    /// <summary>
+    /// Variant key of the attached DDC-only Y70 panel (GW / Ina, matched by
+    /// EDID fragment), or empty. These panels expose no USB serial function,
+    /// so their handler must not treat a missing serial connection as a
+    /// fault, and the EDID match is their only variant signal.
+    /// </summary>
+    public string DdcOnlyY70Variant()
+    {
+        if (TryGetCached(out _, out _, out var ddcOnly)) return ddcOnly;
+        CacheAttachedIds(_provider.Enumerate());
+        lock (_cacheLock) return _ddcOnlyY70Variant;
+    }
+
+    private bool TryGetCached(out HashSet<string>? ids, out bool hasY70, out string ddcOnlyVariant)
     {
         lock (_cacheLock)
         {
@@ -143,11 +158,13 @@ public sealed class DisplayTopologyService
             {
                 ids = _attachedIds;
                 hasY70 = _hasY70Display;
+                ddcOnlyVariant = _ddcOnlyY70Variant;
                 return true;
             }
         }
         ids = null;
         hasY70 = false;
+        ddcOnlyVariant = "";
         return false;
     }
 
@@ -155,6 +172,7 @@ public sealed class DisplayTopologyService
     {
         HashSet<string>? ids = null;
         var hasY70 = false;
+        var ddcOnlyVariant = "";
         if (raw is not null)
         {
             ids = new HashSet<string>(StringComparer.Ordinal);
@@ -162,16 +180,98 @@ public sealed class DisplayTopologyService
             {
                 ids.Add(info.Id);
                 if (!hasY70 && IsY70Display(info.RawHardwareId)) hasY70 = true;
+                if (ddcOnlyVariant.Length == 0)
+                    ddcOnlyVariant = Y70DisplayProtocol.DdcOnlyVariantForHardwareId(info.RawHardwareId);
             }
         }
         lock (_cacheLock)
         {
             _attachedIds = ids;
             _hasY70Display = hasY70;
+            _ddcOnlyY70Variant = ddcOnlyVariant;
             _attachedIdsAtMs = Environment.TickCount64;
             _attachedIdsValid = true;
         }
+        if (raw is not null) SyncPromotedPanelCapabilities(raw);
         return ids;
+    }
+
+    /// <summary>
+    /// Fires with the record ids whose capabilities were refreshed by
+    /// <see cref="SyncPromotedPanelCapabilities"/>, so a hub-owning listener
+    /// can broadcast panel/device (this service has no hub reference). The
+    /// only subscriber is the Windows DisplayTopologyWatcher; on macOS/Linux
+    /// records still refresh but clients pick the change up on their next
+    /// fetch instead of a push.
+    /// </summary>
+    public event Action<IReadOnlyList<string>>? PromotedPanelCapabilitiesChanged;
+
+    /// <summary>
+    /// Re-derives promote-time capabilities for every enabled display-bound
+    /// record from the current OS facts. Promote stamps them once and the
+    /// kiosk never self-reports, so rotation, scaling changes, and newly
+    /// curated KnownPanelDisplays facts (dpi/family) would otherwise stay
+    /// stale forever. Writes only when something differs. Best-effort: a
+    /// store fault must not fail the topology read it rides on.
+    /// </summary>
+    private void SyncPromotedPanelCapabilities(IReadOnlyList<RawDisplayInfo> raw)
+    {
+        try
+        {
+            List<string>? changed = null;
+            foreach (var info in raw)
+            {
+                var record = _panelRegistry.FindByDisplayId(info.Id);
+                if (record is null || record.Enabled == false) continue;
+                if (record.Capabilities?.Surface is { } surface && surface != PanelSurfaces.Monitor) continue;
+                var caps = BuildPromotedCapabilities(
+                    info.Name, info.Model, info.ResolutionWidth, info.ResolutionHeight,
+                    info.Scale, info.IsTouch, info.Orientation);
+                // Grid is kiosk-reported on self-registered panels; carry any
+                // stored value so the rebuild never clears it.
+                caps.Grid = record.Capabilities?.Grid;
+                if (_panelRegistry.RefreshDisplayCapabilities(info.Id, caps))
+                    (changed ??= new List<string>()).Add(record.Id);
+            }
+            if (changed is not null) PromotedPanelCapabilitiesChanged?.Invoke(changed);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[displays] promoted capability sync failed: {ex.Message}");
+        }
+    }
+
+    /// <summary>
+    /// Viewport + identity hints for a promoted-monitor record, derived from
+    /// OS facts. The kiosk loads /panel/{id} directly and never runs the
+    /// self-report path, so these values are what the dashboard editor and
+    /// the kiosk grid read.
+    /// </summary>
+    internal static PanelDeviceCapabilities BuildPromotedCapabilities(
+        string? name,
+        string? model,
+        int resolutionWidth,
+        int resolutionHeight,
+        double? scaleFactor,
+        bool isTouch,
+        string? orientation)
+    {
+        var scale = scaleFactor is > 0 ? scaleFactor.Value : 1.0;
+        var known = KnownPanelDisplays.Match(name, model);
+        return new PanelDeviceCapabilities
+        {
+            Surface = PanelSurfaces.Monitor,
+            // Touch widgets are placeable only when an integrated touch
+            // digitizer targets this monitor (Windows pointer-device
+            // association); plain monitors behave like the Q-series.
+            Touch = isTouch,
+            Orientation = string.IsNullOrEmpty(orientation) ? null : orientation,
+            CssWidth = (int)Math.Round(resolutionWidth / scale),
+            CssHeight = (int)Math.Round(resolutionHeight / scale),
+            Dpr = scale,
+            Dpi = known?.Dpi,
+            Family = known?.Family,
+        };
     }
 
     internal static bool IsY70Display(string rawHardwareId)

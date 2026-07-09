@@ -126,6 +126,7 @@ public sealed class Preferences
     public MonitoringSettings Monitoring { get; set; } = new();
     public CoolingPrefs Cooling { get; set; } = new();
     public UiSettings Ui { get; set; } = new();
+    public UnitsSettings Units { get; set; } = new();
     public UpdatePrefs Update { get; set; } = new();
 }
 
@@ -150,6 +151,7 @@ public sealed class PreferencesPatch
     public MonitoringSettingsPatch? Monitoring { get; set; }
     public CoolingPrefsPatch? Cooling { get; set; }
     public UiSettingsPatch? Ui { get; set; }
+    public UnitsSettingsPatch? Units { get; set; }
     public UpdatePrefsPatch? Update { get; set; }
 }
 

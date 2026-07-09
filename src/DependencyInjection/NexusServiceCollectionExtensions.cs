@@ -826,9 +826,16 @@ public static class NexusServiceCollectionExtensions
 
 #if WINDOWS
         services.AddSingleton<Nexus.Service.Devices.Detection.WindowsUsbEnumerator>();
-        services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>
+        // Registered as the concrete type too: UsbDeviceChangeNotifier drives
+        // Invalidate/SetTtl on the cache when PnP notifications are available.
+        services.AddSingleton<Nexus.Service.Devices.Detection.CachingUsbEnumerator>(sp =>
             new Nexus.Service.Devices.Detection.CachingUsbEnumerator(
                 sp.GetRequiredService<Nexus.Service.Devices.Detection.WindowsUsbEnumerator>()));
+        services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>
+            sp.GetRequiredService<Nexus.Service.Devices.Detection.CachingUsbEnumerator>());
+        services.AddHostedService(sp =>
+            new Nexus.Service.Devices.Detection.UsbDeviceChangeNotifier(
+                sp.GetRequiredService<Nexus.Service.Devices.Detection.CachingUsbEnumerator>()));
 #elif MACOS
         services.AddSingleton<Nexus.Service.Devices.Detection.MacUsbEnumerator>();
         services.AddSingleton<Nexus.Service.Devices.Detection.IUsbEnumerator>(sp =>
@@ -1150,7 +1157,8 @@ public static class NexusServiceCollectionExtensions
                     sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
                     sp.GetRequiredService<Nexus.Service.Panel.PanelDeviceRegistry>(),
                     sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>(),
-                    sp.GetRequiredService<Nexus.Service.Common.ExternalTools.IAdbDeviceRegistry>()));
+                    sp.GetRequiredService<Nexus.Service.Common.ExternalTools.IAdbDeviceRegistry>(),
+                    sp.GetService<Nexus.Service.Panel.PanelTunnelMonitor>()));
             services.AddHostedService(sp =>
                 sp.GetRequiredService<Nexus.Service.QSeries.QSeriesPortWatcher>());
         }

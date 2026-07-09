@@ -245,10 +245,22 @@
     <EmbeddedResource Include="data\install-defaults.json">
       <LogicalName>install-defaults.json</LogicalName>
     </EmbeddedResource>
+    <!-- Canonical default template bundles per animate effect: served by
+         GET /lighting/animate/defaults, used to prune persisted templates to
+         user deltas and to resolve missing slots for thumbnails and reapply.
+         Read once by AnimateTemplateDefaults. -->
+    <EmbeddedResource Include="data\default-animate-templates.json">
+      <LogicalName>default-animate-templates.json</LogicalName>
+    </EmbeddedResource>
     <!-- Built-in Tryx Panorama preset cover thumbnails (default_01..06), served as
          data URLs by /tryx/presets; the panel can't produce them. -->
     <EmbeddedResource Include="src\Peripherals\Tryx\Panorama\PresetThumbs\*.jpg">
       <LogicalName>tryx-preset-%(Filename).jpg</LogicalName>
+    </EmbeddedResource>
+    <!-- Colored Nexus mark for the diagnostics PDF report header, downscaled
+         from brand/NexusLogoMarkColorAlpha.png; decoded once by NexusReportAssets. -->
+    <EmbeddedResource Include="src\Diagnostics\Report\Assets\nexus-mark-color.png">
+      <LogicalName>nexus-mark-color.png</LogicalName>
     </EmbeddedResource>
   </ItemGroup>
 

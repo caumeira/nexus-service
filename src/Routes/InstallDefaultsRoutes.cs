@@ -98,18 +98,22 @@ public static class InstallDefaultsRoutes
                     Animate = new LightingAnimateDefaults
                     {
                         Effect = s.Lighting.Animate.Effect,
-                        // State is a per-effect dictionary at runtime; export
-                        // the active effect's slider snapshot when present so
-                        // pasting the JSON back installs that as the default.
-                        State = s.Lighting.Animate.States.TryGetValue(s.Lighting.Animate.Effect, out var st) && st is not null
+                        // State is a per-effect dictionary at runtime holding
+                        // only deltas from the selected preset look; resolve
+                        // through the templates so the export always carries
+                        // the active effect's effective slider snapshot.
+                        State = (s.Lighting.Animate.States.TryGetValue(s.Lighting.Animate.Effect, out var st) && st is not null
+                                ? st
+                                : Nexus.Service.Lighting.AnimateTemplateDefaults.ResolveSelected(s.Lighting.Animate.Templates, s.Lighting.Animate.Effect))
+                            is { } effective
                             ? new LightingAnimateState
                             {
-                                Speed = st.Speed,
-                                Intensity = st.Intensity,
-                                Hue = st.Hue,
-                                Colorize = st.Colorize,
-                                Saturation = st.Saturation,
-                                Contrast = st.Contrast,
+                                Speed = effective.Speed,
+                                Intensity = effective.Intensity,
+                                Hue = effective.Hue,
+                                Colorize = effective.Colorize,
+                                Saturation = effective.Saturation,
+                                Contrast = effective.Contrast,
                             }
                             : InstallDefaults.Lighting.Animate.State,
                     },

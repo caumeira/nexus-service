@@ -22,11 +22,15 @@ using Nexus.Service.Platform;
 namespace Nexus.Service.QSeries;
 
 /// <summary>
-/// Keeps <c>adb reverse tcp:{port} tcp:{port}</c> alive on an attached HYTE
-/// Q60 / Q80 panel so its Android shell (<c>com.hellonexus.qshell</c>) can load
-/// the Nexus panel SPA from <c>http://localhost:{port}</c>. The reverse is owned
-/// by the host adb-server; if that server dies the reverse evaporates and the
-/// panel WebSocket goes silent.
+/// Keeps <c>adb reverse tcp:{servicePort} tcp:{tunnelPort}</c> alive on an
+/// attached HYTE Q60 / Q80 panel so its Android shell
+/// (<c>com.hellonexus.qshell</c>) can load the Nexus panel SPA from
+/// <c>http://localhost:{servicePort}</c>. The host-side target is the dedicated
+/// panel tunnel listener (<see cref="Nexus.Service.Panel.PanelTunnelMonitor"/>)
+/// when it bound, so inbound activity there attributably proves the physical
+/// panel is alive; the device-side port the panel connects to never changes.
+/// The reverse is owned by the host adb-server; if that server dies the
+/// reverse evaporates and the panel WebSocket goes silent.
 ///
 /// USB-FFS adbd is fragile: cycling the host adb-server mid-stream can wedge the
 /// device daemon into <c>offline</c>, which can't be cleared from the host without
@@ -80,17 +84,31 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private static readonly TimeSpan RecoveryCooldown = TimeSpan.FromMinutes(2);
 
     private readonly int _servicePort;
-    private readonly string _localSpec;
-    private readonly string _remoteSpec;
+    /// <summary>Device-side reverse spec - the port qshell connects to on the
+    /// panel's loopback. Never changes: qshell hardcodes it.</summary>
+    private readonly string _deviceSpec;
+    /// <summary>Host-side reverse target: the tunnel listener when it bound,
+    /// else the main service port (legacy mapping).</summary>
+    private readonly string _hostSpec;
     private readonly AdbClient _client;
     private readonly QSeriesTransportStore _transportStore;
     private readonly HardwarePresence _presence;
     private readonly DeviceControlGate _gate;
 
     /// <summary>
+    /// Tunnel liveness monitor; when active, its inbound-activity timestamp is
+    /// the escalation gate's liveness signal. Null in tests / when the tunnel
+    /// port failed to bind - the record-based legacy gate applies then.
+    /// </summary>
+    private readonly Nexus.Service.Panel.PanelTunnelMonitor? _tunnelMonitor;
+
+    /// <summary>
     /// Panel registry, read-only here, to check whether the Q-series panel has
     /// re-contacted the service (its record's <c>LastSeenAt</c>) after a host
-    /// restart - the liveness gate for the escalation reboot.
+    /// restart - the legacy liveness gate for the escalation reboot, used only
+    /// when <see cref="_tunnelMonitor"/> is inactive. Any local client's GET of
+    /// the device record bumps <c>LastSeenAt</c>, so this signal cannot tell
+    /// the physical panel from an open desktop dashboard.
     /// </summary>
     private readonly PanelDeviceRegistry _panelDevices;
 
@@ -139,19 +157,20 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _lastRecoveryByInstanceId = new(StringComparer.Ordinal);
 
-    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, IAdbDeviceRegistry? deviceRegistry = null)
-        : this(servicePort, presence, panelDevices, gate, new QSeriesTransportStore(), deviceRegistry) { }
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, IAdbDeviceRegistry? deviceRegistry = null, Nexus.Service.Panel.PanelTunnelMonitor? tunnelMonitor = null)
+        : this(servicePort, presence, panelDevices, gate, new QSeriesTransportStore(), deviceRegistry, tunnelMonitor) { }
 
     /// <summary>Test seam: inject a store pointing at a tmp path.</summary>
-    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, QSeriesTransportStore transportStore, IAdbDeviceRegistry? deviceRegistry = null)
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, QSeriesTransportStore transportStore, IAdbDeviceRegistry? deviceRegistry = null, Nexus.Service.Panel.PanelTunnelMonitor? tunnelMonitor = null)
     {
         _servicePort = servicePort;
         _presence = presence;
         _panelDevices = panelDevices;
         _gate = gate;
         _deviceRegistry = deviceRegistry;
-        _localSpec = $"tcp:{servicePort}";
-        _remoteSpec = $"tcp:{servicePort}";
+        _tunnelMonitor = tunnelMonitor;
+        _deviceSpec = $"tcp:{servicePort}";
+        _hostSpec = tunnelMonitor?.Port is int tunnelPort ? $"tcp:{tunnelPort}" : $"tcp:{servicePort}";
         _client = new AdbClient();
         _transportStore = transportStore;
         _promoted = _transportStore.Load();
@@ -334,10 +353,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             _homePinnedThisRun.Remove(key);
         }
-        // Re-arm the grace anchor on detach. _escalationRebootedThisRun is
-        // deliberately NOT cleared here - like _lastQshellRebootBySerial it must
-        // survive our reboot's re-enumeration so a still-stranded panel isn't rebooted
-        // twice.
+        // Re-arm the grace anchor on detach. _escalationRebootCountBySerial and
+        // _lastEscalationRebootBySerial are deliberately NOT cleared here - like
+        // _lastQshellRebootBySerial they must survive our reboot's re-enumeration
+        // so a still-stranded panel keeps its bounded attempt budget.
         foreach (var key in _firstSeenAtBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
         {
             _firstSeenAtBySerial.Remove(key);
@@ -803,11 +822,23 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private readonly Dictionary<string, DateTimeOffset> _firstSeenAtBySerial = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Serials escalation-rebooted this run - bounds it to one reboot per run so a
-    /// dead panel can't loop. NOT cleared on detach (survives the reboot's
+    /// Serial -> escalation reboots issued this run. Bounded by
+    /// <see cref="MaxEscalationRebootsPerRun"/> and spaced by
+    /// <see cref="EscalationRetryCooldown"/> so a panel whose recovery reboot
+    /// lands in another wedge gets further attempts, while a dead panel can't
+    /// reboot-loop. NOT cleared on detach (survives the reboot's
     /// re-enumeration); a fresh service start re-allows.
     /// </summary>
-    private readonly HashSet<string> _escalationRebootedThisRun = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, int> _escalationRebootCountBySerial = new(StringComparer.Ordinal);
+
+    /// <summary>Serial -> last escalation reboot time; spaces retries.</summary>
+    private readonly Dictionary<string, DateTimeOffset> _lastEscalationRebootBySerial = new(StringComparer.Ordinal);
+
+    /// <summary>Minimum gap between escalation reboots for one serial.</summary>
+    private static readonly TimeSpan EscalationRetryCooldown = TimeSpan.FromMinutes(30);
+
+    /// <summary>Escalation reboots allowed per serial per service run.</summary>
+    private const int MaxEscalationRebootsPerRun = 3;
 
     /// <summary>
     /// Serials whose last am-start reported the qshell activity does not exist:
@@ -1018,25 +1049,30 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// only reliable clear of a hard wedge.
     ///
     /// Gated on real liveness so the common restart (tunnel fine, or a reverse
-    /// remove+re-add cleared a soft wedge) never reboots: the panel's record
-    /// <c>LastSeenAt</c> is bumped whenever its SPA reaches the service - on load
-    /// and on the nexus-web socket-reconnect refetch (usePanelLayout). If it has
-    /// advanced past this run's first sighting, the panel reconnected on its own
-    /// through a healthy tunnel, so leave it alone. Only a panel still stale past
-    /// <see cref="EscalationGrace"/> is rebooted. The gate trusts any contact with
-    /// the q60 record, so an operator opening the device's settings during the
-    /// grace also counts as alive; that risks a missed reboot (panel stays on its
-    /// clock failsafe), never a spurious one, so it fails safe.
+    /// remove+re-add cleared a soft wedge) never reboots. With the tunnel
+    /// listener active the signal is inbound bytes on the tunnel port
+    /// (WebSocket keepalive pongs included), whose only intended client is the
+    /// panel's adb tunnel (caveats on <c>PanelTunnelMonitor</c>), so an open
+    /// desktop dashboard cannot mask a stranded panel. Legacy
+    /// fallback (tunnel port unbound): the record's <c>LastSeenAt</c>, which any
+    /// local client's GET bumps - that variant risks a missed reboot while the
+    /// dashboard is open, never a spurious one. Only a panel still silent past
+    /// <see cref="EscalationGrace"/> is rebooted.
     ///
-    /// One reboot per run (<see cref="_escalationRebootedThisRun"/>); shares
-    /// <see cref="_lastQshellRebootBySerial"/> with the reseat path so they can't
-    /// double-reboot across the re-enumeration.
+    /// One transitional spurious reboot is possible on the first run after the
+    /// host-side tunnel port changes: a panel whose SPA reconnected through the
+    /// old mapping before the first tick re-points it produces no tunnel
+    /// activity and gets bounced once; it comes back on the new mapping.
+    ///
+    /// Up to <see cref="MaxEscalationRebootsPerRun"/> reboots per run spaced by
+    /// <see cref="EscalationRetryCooldown"/> (a recovery reboot can itself land
+    /// in a fresh wedge); shares <see cref="_lastQshellRebootBySerial"/> with
+    /// the reseat path so they can't double-reboot across the re-enumeration.
     /// </summary>
     private async Task TryEscalateRebootAsync(DeviceData device, CancellationToken ct)
     {
         // No anchor -> not seen this run yet; nothing to escalate.
         if (!_firstSeenAtBySerial.TryGetValue(device.Serial, out var firstSeenAt)) return;
-        if (_escalationRebootedThisRun.Contains(device.Serial)) return;
         // An in-flight adb install holds the transport; a reboot here would abort it.
         if (_deviceRegistry?.TryGet(QshellPackage)?.InstallInProgress == true) return;
         // qshell is not installed (pre-upgrade panel on the OEM launcher): a panel
@@ -1047,38 +1083,74 @@ public sealed class QSeriesPortWatcher : BackgroundService
         var sinceFirstSeen = now - firstSeenAt;
         if (sinceFirstSeen < EscalationGrace) return;
 
-        // Liveness gate: skip the reboot if the panel re-contacted the service since
-        // we started watching it this run (its SPA reconnected through a healthy
-        // tunnel). A reboot here would bounce a recovered panel through the splash.
-        var panelLastSeen = QSeriesPanelLastSeenUtcMs();
-        if (panelLastSeen is long seenMs && seenMs >= firstSeenAt.ToUnixTimeMilliseconds())
+        // Liveness gate: skip the reboot if the panel contacted the service since we
+        // started watching it this run. A reboot here would bounce a recovered panel
+        // through the splash.
+        if (PanelContactedSince(
+                _tunnelMonitor?.IsActive == true ? _tunnelMonitor.LastInboundActivityUnixMs : null,
+                QSeriesPanelLastSeenUtcMs(),
+                firstSeenAt.ToUnixTimeMilliseconds()))
         {
             return;
         }
 
-        if (_lastQshellRebootBySerial.TryGetValue(device.Serial, out var lastReboot)
-            && now - lastReboot < QshellRebootCooldown)
+        _escalationRebootCountBySerial.TryGetValue(device.Serial, out var rebootCount);
+        if (!EscalationRebootPermitted(
+                rebootCount,
+                _lastQshellRebootBySerial.TryGetValue(device.Serial, out var lastReboot) ? lastReboot : null,
+                _lastEscalationRebootBySerial.TryGetValue(device.Serial, out var lastEscalation) ? lastEscalation : null,
+                now))
         {
-            // A reseat reboot just fired - let it play out.
             return;
         }
 
         try
         {
             ServiceLog.Info(
-                $"[qseries-port-watcher] {device.Serial}: panel never re-contacted the service {sinceFirstSeen.TotalSeconds:F0}s after first sighting; rebooting once to clear a hard USB-FFS wedge");
+                $"[qseries-port-watcher] {device.Serial}: panel never contacted the service {sinceFirstSeen.TotalSeconds:F0}s after first sighting; rebooting to clear a hard USB-FFS wedge or a stranded qshell (attempt {rebootCount + 1}/{MaxEscalationRebootsPerRun})");
             await _client.RebootAsync(device, ct);
             // Record the reboot only after it's issued; if RebootAsync throws (stale
             // transport id mid-re-enumeration) leave the flags unset so the next tick
-            // retries instead of latching the run as already-rebooted.
+            // retries instead of latching the attempt as spent.
             _lastQshellRebootBySerial[device.Serial] = now;
-            _escalationRebootedThisRun.Add(device.Serial);
+            _lastEscalationRebootBySerial[device.Serial] = now;
+            _escalationRebootCountBySerial[device.Serial] = rebootCount + 1;
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
             ServiceLog.Info(
                 $"[qseries-port-watcher] {device.Serial}: escalation reboot failed: {ex.GetType().Name}: {ex.Message}; will retry next tick");
         }
+    }
+
+    /// <summary>
+    /// Escalation reboot budget: bounded attempts per run, spaced by
+    /// <see cref="EscalationRetryCooldown"/>, and never inside the shared
+    /// <see cref="QshellRebootCooldown"/> window after ANY reboot (a reseat
+    /// reboot may still be playing out).
+    /// </summary>
+    internal static bool EscalationRebootPermitted(int rebootCount, DateTimeOffset? lastAnyReboot, DateTimeOffset? lastEscalationReboot, DateTimeOffset now)
+    {
+        if (rebootCount >= MaxEscalationRebootsPerRun) return false;
+        if (lastAnyReboot is DateTimeOffset any && now - any < QshellRebootCooldown) return false;
+        if (lastEscalationReboot is DateTimeOffset escalation && now - escalation < EscalationRetryCooldown) return false;
+        return true;
+    }
+
+    /// <summary>
+    /// Escalation liveness decision. When the tunnel monitor is active
+    /// (<paramref name="tunnelLastInboundMs"/> non-null), only tunnel activity
+    /// counts - the record's <c>LastSeenAt</c> is ignored because any local
+    /// client's GET bumps it (the desktop dashboard masking a stranded panel is
+    /// the failure this replaces). Legacy fallback compares the record instead.
+    /// </summary>
+    internal static bool PanelContactedSince(long? tunnelLastInboundMs, long? recordLastSeenMs, long firstSeenAtMs)
+    {
+        if (tunnelLastInboundMs is long tunnelMs)
+        {
+            return tunnelMs >= firstSeenAtMs;
+        }
+        return recordLastSeenMs is long recordMs && recordMs >= firstSeenAtMs;
     }
 
     /// <summary>
@@ -1121,9 +1193,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
             _reverseAppliedBySerial.Remove(device.Serial); // re-log the apply below
             try
             {
-                await _client.RemoveReverseForwardAsync(device, _remoteSpec, ct);
+                await _client.RemoveReverseForwardAsync(device, _deviceSpec, ct);
                 ServiceLog.Info(
-                    $"[qseries-port-watcher] {device.Serial}: force-refreshed reverse on first sighting this run (removed {_remoteSpec})");
+                    $"[qseries-port-watcher] {device.Serial}: force-refreshed reverse on first sighting this run (removed {_deviceSpec})");
             }
             catch (Exception ex) when (!ct.IsCancellationRequested)
             {
@@ -1134,15 +1206,15 @@ public sealed class QSeriesPortWatcher : BackgroundService
         }
 
         // allowRebind: true is idempotent - re-binds an existing reverse instead of
-        // failing "cannot rebind existing socket" on later ticks. The mapping is always
-        // tcp:{port} -> tcp:{port}, so a rebind is a no-op for other consumers.
+        // failing "cannot rebind existing socket" on later ticks. Arg order per
+        // IAdbClient: remote (device-side) first, local (host-side) second.
         try
         {
-            await _client.CreateReverseForwardAsync(device, _localSpec, _remoteSpec, true, ct);
+            await _client.CreateReverseForwardAsync(device, _deviceSpec, _hostSpec, true, ct);
             if (!_reverseAppliedBySerial.TryGetValue(device.Serial, out _))
             {
                 ServiceLog.Info(
-                    $"[qseries-port-watcher] reverse applied: {device.Serial} ({device.Model}) {_localSpec} -> {_remoteSpec}");
+                    $"[qseries-port-watcher] reverse applied: {device.Serial} ({device.Model}) device {_deviceSpec} -> host {_hostSpec}");
                 _reverseAppliedBySerial[device.Serial] = true;
             }
         }

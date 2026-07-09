@@ -698,6 +698,15 @@ public sealed class ProfileManager : IDisposable
         _store.Update(s =>
         {
             s.Lighting = data.Lighting ?? new LightingSettings();
+            // Pre-v10 profile files (local, imported, or cloud-synced) carry
+            // fully materialized template dicts and dense activation states;
+            // re-prune both on apply so they don't re-inflate settings.json
+            // and shadow future default-look changes.
+            if (s.Lighting.Animate is { } animate)
+            {
+                animate.Templates = Nexus.Service.Lighting.AnimateTemplateDefaults.Prune(animate.Templates);
+                Nexus.Service.Lighting.AnimateTemplateDefaults.PruneStates(animate);
+            }
             s.Cooling = data.Cooling ?? new CoolingSettings();
 
             // Theme + Dashboard categories now live in dedicated top-level
@@ -783,6 +792,7 @@ public sealed class ProfileManager : IDisposable
             Y70 = source.Y70,
             Devices = source.Devices,
             Ui = source.Ui,
+            Units = source.Units,
             PanelDevices = source.PanelDevices,
             PrimaryProfileId = source.PrimaryProfileId,
             SharedCategories = source.SharedCategories,

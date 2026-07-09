@@ -17,6 +17,21 @@ public static class LightingRoutes
         app.MapGet("/lighting/current", (ILightingProvider l) => new CurrentSyncResponse { Sync = l.GetSync() }).AllowPanel();
         app.MapGet("/lighting/animate/settings", (Nexus.Service.Persistence.IConfigStore store) =>
             store.Load().Lighting.Animate).AllowPanel();
+        // Canonical default template bundles. The web keeps no copy of these
+        // tables; it merges this over the sparse user deltas from
+        // /lighting/animate/settings. Static per binary, so clients revalidate
+        // against the content ETag and get cheap 304s.
+        app.MapGet("/lighting/animate/defaults", (HttpRequest req, HttpResponse res) =>
+        {
+            var etag = AnimateTemplateDefaults.ETag;
+            res.Headers.ETag = etag;
+            res.Headers.CacheControl = "no-cache";
+            if (string.Equals(req.Headers.IfNoneMatch.ToString(), etag, StringComparison.Ordinal))
+            {
+                return Results.StatusCode(StatusCodes.Status304NotModified);
+            }
+            return Results.Bytes(AnimateTemplateDefaults.SerializedJson, "application/json");
+        }).AllowPanel();
         app.MapPost("/lighting/animate/templates", (SetAnimateTemplatesBody body, ILightingProvider l, MultiplexHub hub) =>
         {
             // Persist + reconcile: if the edited slot is the one driving the LEDs,

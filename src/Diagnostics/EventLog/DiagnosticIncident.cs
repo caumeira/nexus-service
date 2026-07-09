@@ -33,6 +33,10 @@ public sealed record DiagnosticIncident
     /// <summary>Non-null only when Source is "appCrash". IsGame is always false here; the integrator fills it via Steam library match.</summary>
     public DiagnosticAppInfo? App { get; init; }
     public IReadOnlyDictionary<string, string> Data { get; init; } = EmptyData;
+    /// <summary>Count of occurrences collapsed into this row by the route-layer repeat grouping. 1 when not grouped.</summary>
+    public int RepeatCount { get; init; } = 1;
+    /// <summary>Oldest grouped occurrence's time. Null when RepeatCount == 1.</summary>
+    public DateTime? FirstUtc { get; init; }
 }
 
 /// <summary>The crashing application, populated only for Source == "appCrash".</summary>

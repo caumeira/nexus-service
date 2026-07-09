@@ -169,6 +169,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<Nexus.Service.Persistence.GraphPoint>), TypeInfoPropertyName = "PersistenceListGraphPoint")]
 [JsonSerializable(typeof(Nexus.Service.Persistence.UiSettings))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.UiSettingsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.UnitsSettings))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.UnitsSettingsPatch))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.ThemeSettings))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.MonitoringSettings))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.PanelSettings))]

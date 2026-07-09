@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
@@ -110,6 +111,11 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
     /// welcome screen, so it is marked already-onboarded; only an install
     /// with no settings.json at all (Load's !File.Exists branch, which never
     /// calls Migrate) sees OnboardingCompleted default to false.
+    /// v9: animate templates shrink to user deltas - slots equal to the
+    /// canonical defaults (previously materialized in full by the web client)
+    /// are pruned; readers resolve missing slots via AnimateTemplateDefaults.
+    /// v10: animate activation states shrink to deltas from the resolved
+    /// selected-slot look; absent entries resolve through the templates.
     /// </summary>
     private static void Migrate(NexusSettings doc)
     {
@@ -128,6 +134,21 @@ public sealed class JsonConfigStore : IConfigStore, IDisposable
         if (doc.SchemaVersion < 8)
         {
             doc.OnboardingCompleted = true;
+        }
+        // Explicit JSON nulls can leave Lighting/Animate null despite the
+        // non-nullable initializers; a throw here would send Load down the
+        // corrupt-file path and reset every user setting.
+        if (doc.SchemaVersion < 9 && doc.Lighting?.Animate is { } animate)
+        {
+            animate.Templates = Nexus.Service.Lighting.AnimateTemplateDefaults.Prune(animate.Templates);
+        }
+        // v10: activation states shrink to deltas - an entry equal to the
+        // effect's resolved selected-slot look is redundant (StartAnimate no
+        // longer writes those; readers resolve absent entries the same way).
+        // Runs after v9 so resolution sees the pruned sparse templates.
+        if (doc.SchemaVersion < 10 && doc.Lighting?.Animate is { } a10)
+        {
+            Nexus.Service.Lighting.AnimateTemplateDefaults.PruneStates(a10);
         }
         doc.SchemaVersion = NexusSettings.CurrentSchemaVersion;
     }

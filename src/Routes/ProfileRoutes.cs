@@ -65,6 +65,7 @@ public static class ProfileRoutes
                         PreferredGpuId = s.Cooling.PreferredGpuId,
                     },
                     Ui = s.Ui,
+                    Units = s.Units,
                     Update = new UpdatePrefs
                     {
                         UpdateMode = s.Update.UpdateMode,
@@ -185,6 +186,7 @@ public static class ProfileRoutes
                     PreferredGpuId = s.Cooling.PreferredGpuId,
                 },
                 Ui = s.Ui,
+                Units = s.Units,
                 Update = new UpdatePrefs
                 {
                     UpdateMode = s.Update.UpdateMode,
@@ -446,6 +448,12 @@ public static class ProfileRoutes
                 {
                     if (ui.ShowConflictAlerts.HasValue) s.Ui.ShowConflictAlerts = ui.ShowConflictAlerts.Value;
                     if (ui.OemAppSeeded.HasValue) s.Ui.OemAppSeeded = ui.OemAppSeeded.Value;
+                }
+                if (body.Units is { } units)
+                {
+                    if (units.MonitoringTempUnit is { } v1) s.Units.MonitoringTempUnit = v1;
+                    if (units.TimeFormat is { } v2) s.Units.TimeFormat = v2;
+                    if (units.NumberFormat is { } v3) s.Units.NumberFormat = v3;
                 }
                 if (body.Update is { } update)
                 {
