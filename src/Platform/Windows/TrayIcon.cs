@@ -1128,6 +1128,10 @@ public static class TrayIcon
     private const char GlyphSettings = '\uE713'; // Setting
     private const char GlyphProfiles = '\uE716'; // People
     private const char GlyphShutdown = '\uE7E8'; // PowerButton
+    // A glyph filling the cell at full alpha reads heavier than the item
+    // text; a smaller em and attenuated alpha keep icons secondary to labels.
+    private const int GlyphEmPercent = 75;
+    private const int GlyphAlphaPercent = 85;
 
     // Mirrors ApplyImmersiveTheme's build gate: below 1903 the popup menu
     // never renders dark, so glyphs must stay black even when the apps theme
@@ -1227,9 +1231,10 @@ public static class TrayIcon
             SelectObject(dc, bmp);
 
             var text = glyph.ToString();
+            var em = Math.Max(8, size * GlyphEmPercent / 100);
             foreach (var face in GlyphFontFaces)
             {
-                var candidate = CreateFont(-size, 0, 0, 0, 400 /*FW_NORMAL*/, 0, 0, 0,
+                var candidate = CreateFont(-em, 0, 0, 0, 400 /*FW_NORMAL*/, 0, 0, 0,
                     1 /*DEFAULT_CHARSET*/, 0, 0, ANTIALIASED_QUALITY, 0, face);
                 if (candidate == IntPtr.Zero)
                 {
@@ -1265,9 +1270,10 @@ public static class TrayIcon
             for (var i = 0; i < count; i++)
             {
                 var coverage = (Marshal.ReadInt32(bits, i * 4) >> 8) & 0xFF;
+                var a = coverage * GlyphAlphaPercent / 100;
                 var argb = white
-                    ? (coverage << 24) | (coverage << 16) | (coverage << 8) | coverage
-                    : coverage << 24;
+                    ? (a << 24) | (a << 16) | (a << 8) | a
+                    : a << 24;
                 Marshal.WriteInt32(bits, i * 4, argb);
             }
 
