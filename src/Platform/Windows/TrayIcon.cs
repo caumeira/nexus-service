@@ -44,6 +44,16 @@ public static class TrayIcon
     private const int MF_CHECKED = 0x0008;
     private const int MF_UNCHECKED = 0x0000;
     private const int MF_POPUP = 0x0010;
+    private const uint MIIM_BITMAP = 0x0080;
+    private const int SM_CXSMICON = 49;
+    private const int TRANSPARENT_BKMODE = 1;
+    private const uint ANTIALIASED_QUALITY = 4;
+    private const uint DT_CENTER = 0x0001;
+    private const uint DT_VCENTER = 0x0004;
+    private const uint DT_SINGLELINE = 0x0020;
+    private const uint DT_NOCLIP = 0x0100;
+    private const uint GGI_MARK_NONEXISTING_GLYPHS = 0x0001;
+    private const ushort MissingGlyphIndex = 0xFFFF;
     private const int DefaultServicePort = 9400;
     private const uint WM_CLOSE = 0x0010;
     private const uint WM_DISPLAYCHANGE = 0x007E;
@@ -447,6 +457,7 @@ public static class TrayIcon
                     var menu = CreatePopupMenu();
                     AppendMenu(menu, MF_STRING, IDM_OPEN_APP, "Open");
                     AppendMenu(menu, MF_STRING, IDM_OPEN_SETTINGS, "Settings");
+                    var profilesPos = -1;
                     _profileMenuIds.Clear();
                     if (_getProfiles is not null)
                     {
@@ -464,15 +475,22 @@ public static class TrayIcon
                                     _profileMenuIds.Add(id);
                                 }
                                 AppendMenu(menu, MF_POPUP, sub, "Profiles");
+                                profilesPos = GetMenuItemCount(menu) - 1;
                             }
                         }
                         catch { /* omit submenu on any fetch failure */ }
                     }
                     AppendMenu(menu, MF_SEPARATOR, 0, string.Empty);
                     AppendMenu(menu, MF_STRING, IDM_SHUTDOWN, "Shut down");
+                    var glyphBitmaps = AttachMenuGlyphs(menu, profilesPos);
                     SetForegroundWindow(hwnd);
                     TrackPopupMenu(menu, 0, pt.X, pt.Y, 0, hwnd, IntPtr.Zero);
                     DestroyMenu(menu);
+                    // DestroyMenu does not free hbmpItem bitmaps.
+                    foreach (var bmp in glyphBitmaps)
+                    {
+                        DeleteObject(bmp);
+                    }
                 }
                 else if (ev == WM_LBUTTONUP || ev == WM_LBUTTONDBLCLK)
                 {
@@ -1101,6 +1119,179 @@ public static class TrayIcon
         return false;
     }
 
+    // Menu item glyphs: Segoe Fluent Icons (Win11) with Segoe MDL2 Assets
+    // fallback (Win10, same codepoints), drawn into 32-bpp DIB sections for
+    // MENUITEMINFO.hbmpItem. Rebuilt on every popup so theme changes apply;
+    // a missing font or glyph leaves the item text-only.
+    private static readonly string[] GlyphFontFaces = { "Segoe Fluent Icons", "Segoe MDL2 Assets" };
+    private const char GlyphOpen = '\uE8A7';     // OpenInNewWindow
+    private const char GlyphSettings = '\uE713'; // Setting
+    private const char GlyphProfiles = '\uE716'; // People
+    private const char GlyphShutdown = '\uE7E8'; // PowerButton
+
+    // Mirrors ApplyImmersiveTheme's build gate: below 1903 the popup menu
+    // never renders dark, so glyphs must stay black even when the apps theme
+    // is dark, or they are near-invisible on the light menu surface.
+    private static bool MenusRenderDark()
+        => Environment.OSVersion.Version.Build >= SetPreferredAppModeMinBuild && IsSystemDarkMode();
+
+    /// <summary>
+    /// Attaches a glyph bitmap to each fixed menu item (and the Profiles
+    /// submenu item when <paramref name="profilesPos"/> is a position, not -1).
+    /// Returns the created HBITMAPs; the caller frees them after DestroyMenu.
+    /// </summary>
+    private static System.Collections.Generic.List<IntPtr> AttachMenuGlyphs(IntPtr menu, int profilesPos)
+    {
+        var bitmaps = new System.Collections.Generic.List<IntPtr>();
+        try
+        {
+            var size = GetSystemMetrics(SM_CXSMICON);
+            if (size <= 0) size = 16;
+            var white = MenusRenderDark();
+            SetMenuItemGlyph(menu, (uint)IDM_OPEN_APP, byPosition: false, GlyphOpen, white, size, bitmaps);
+            SetMenuItemGlyph(menu, (uint)IDM_OPEN_SETTINGS, byPosition: false, GlyphSettings, white, size, bitmaps);
+            if (profilesPos >= 0)
+            {
+                // The Profiles item carries a submenu, not a command id.
+                SetMenuItemGlyph(menu, (uint)profilesPos, byPosition: true, GlyphProfiles, white, size, bitmaps);
+            }
+            SetMenuItemGlyph(menu, (uint)IDM_SHUTDOWN, byPosition: false, GlyphShutdown, white, size, bitmaps);
+        }
+        catch { /* glyphs are cosmetic */ }
+        return bitmaps;
+    }
+
+    private static void SetMenuItemGlyph(
+        IntPtr menu, uint item, bool byPosition, char glyph, bool white, int size,
+        System.Collections.Generic.List<IntPtr> createdBitmaps)
+    {
+        var bmp = CreateMenuGlyphBitmap(glyph, white, size);
+        if (bmp == IntPtr.Zero)
+        {
+            return;
+        }
+        var mii = new MENUITEMINFO
+        {
+            cbSize = Marshal.SizeOf<MENUITEMINFO>(),
+            fMask = MIIM_BITMAP,
+            hbmpItem = bmp,
+        };
+        if (SetMenuItemInfo(menu, item, byPosition, ref mii))
+        {
+            createdBitmaps.Add(bmp);
+        }
+        else
+        {
+            DeleteObject(bmp);
+        }
+    }
+
+    /// <summary>
+    /// Renders a single icon-font glyph into a size x size 32-bpp
+    /// premultiplied-ARGB DIB section (white for dark menus, black for light)
+    /// and returns the HBITMAP, or IntPtr.Zero when the glyph can't be
+    /// produced. The caller owns the bitmap.
+    /// </summary>
+    private static IntPtr CreateMenuGlyphBitmap(char glyph, bool white, int size)
+    {
+        var screenDc = GetDC(IntPtr.Zero);
+        if (screenDc == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+        var dc = CreateCompatibleDC(screenDc);
+        ReleaseDC(IntPtr.Zero, screenDc);
+        if (dc == IntPtr.Zero)
+        {
+            return IntPtr.Zero;
+        }
+
+        var bmp = IntPtr.Zero;
+        var font = IntPtr.Zero;
+        var ok = false;
+        try
+        {
+            var bmi = new BITMAPINFOHEADER
+            {
+                biSize = Marshal.SizeOf<BITMAPINFOHEADER>(),
+                biWidth = size,
+                biHeight = -size, // top-down
+                biPlanes = 1,
+                biBitCount = 32,
+            };
+            bmp = CreateDIBSection(dc, ref bmi, 0 /*DIB_RGB_COLORS*/, out var bits, IntPtr.Zero, 0);
+            if (bmp == IntPtr.Zero || bits == IntPtr.Zero)
+            {
+                return IntPtr.Zero;
+            }
+            SelectObject(dc, bmp);
+
+            var text = glyph.ToString();
+            foreach (var face in GlyphFontFaces)
+            {
+                var candidate = CreateFont(-size, 0, 0, 0, 400 /*FW_NORMAL*/, 0, 0, 0,
+                    1 /*DEFAULT_CHARSET*/, 0, 0, ANTIALIASED_QUALITY, 0, face);
+                if (candidate == IntPtr.Zero)
+                {
+                    continue;
+                }
+                var prev = SelectObject(dc, candidate);
+                // A missing face maps CreateFont to a default font, so probe
+                // the glyph itself; PUA icon codepoints exist nowhere else.
+                if (GetGlyphIndices(dc, text, 1, out var gi, GGI_MARK_NONEXISTING_GLYPHS) == 1
+                    && gi != MissingGlyphIndex)
+                {
+                    font = candidate;
+                    break;
+                }
+                SelectObject(dc, prev);
+                DeleteObject(candidate);
+            }
+            if (font == IntPtr.Zero)
+            {
+                return IntPtr.Zero;
+            }
+
+            SetBkMode(dc, TRANSPARENT_BKMODE);
+            SetTextColor(dc, 0x00FFFFFF);
+            var rc = new RECT { Right = size, Bottom = size };
+            DrawText(dc, text, text.Length, ref rc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOCLIP);
+            GdiFlush();
+
+            // GDI text writes no alpha. The white-on-black coverage becomes
+            // the alpha channel, premultiplied - the menu alpha-blends
+            // hbmpItem, and straight-alpha pixels fringe on dark surfaces.
+            var count = size * size;
+            for (var i = 0; i < count; i++)
+            {
+                var coverage = (Marshal.ReadInt32(bits, i * 4) >> 8) & 0xFF;
+                var argb = white
+                    ? (coverage << 24) | (coverage << 16) | (coverage << 8) | coverage
+                    : coverage << 24;
+                Marshal.WriteInt32(bits, i * 4, argb);
+            }
+
+            ok = true;
+            return bmp;
+        }
+        catch
+        {
+            return IntPtr.Zero;
+        }
+        finally
+        {
+            DeleteDC(dc);
+            if (font != IntPtr.Zero)
+            {
+                DeleteObject(font);
+            }
+            if (!ok && bmp != IntPtr.Zero)
+            {
+                DeleteObject(bmp);
+            }
+        }
+    }
+
     private static string? FindEdge()
     {
         string[] candidates =
@@ -1199,6 +1390,59 @@ public static class TrayIcon
     [DllImport("shell32", CharSet = CharSet.Unicode)] private static extern bool Shell_NotifyIcon(int msg, ref NOTIFYICONDATA data);
     [DllImport("user32")] private static extern UIntPtr SetTimer(IntPtr hWnd, UIntPtr nIDEvent, uint uElapse, IntPtr lpTimerFunc);
     [DllImport("user32")] private static extern bool KillTimer(IntPtr hWnd, UIntPtr uIDEvent);
+
+    // Menu glyph rendering
+    [StructLayout(LayoutKind.Sequential)]
+    private struct RECT { public int Left, Top, Right, Bottom; }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct BITMAPINFOHEADER
+    {
+        public int biSize;
+        public int biWidth;
+        public int biHeight;
+        public short biPlanes;
+        public short biBitCount;
+        public int biCompression;
+        public int biSizeImage;
+        public int biXPelsPerMeter;
+        public int biYPelsPerMeter;
+        public int biClrUsed;
+        public int biClrImportant;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MENUITEMINFO
+    {
+        public int cbSize;
+        public uint fMask;
+        public uint fType;
+        public uint fState;
+        public uint wID;
+        public IntPtr hSubMenu;
+        public IntPtr hbmpChecked;
+        public IntPtr hbmpUnchecked;
+        public UIntPtr dwItemData;
+        public IntPtr dwTypeData;
+        public uint cch;
+        public IntPtr hbmpItem;
+    }
+
+    [DllImport("user32")] private static extern IntPtr GetDC(IntPtr hwnd);
+    [DllImport("user32")] private static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
+    [DllImport("user32")] private static extern int GetMenuItemCount(IntPtr menu);
+    [DllImport("user32", CharSet = CharSet.Unicode, EntryPoint = "SetMenuItemInfoW")] private static extern bool SetMenuItemInfo(IntPtr menu, uint item, bool byPosition, ref MENUITEMINFO info);
+    [DllImport("user32", CharSet = CharSet.Unicode, EntryPoint = "DrawTextW")] private static extern int DrawText(IntPtr hdc, string text, int count, ref RECT rect, uint format);
+    [DllImport("gdi32")] private static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+    [DllImport("gdi32")] private static extern bool DeleteDC(IntPtr hdc);
+    [DllImport("gdi32")] private static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
+    [DllImport("gdi32")] private static extern bool DeleteObject(IntPtr obj);
+    [DllImport("gdi32")] private static extern IntPtr CreateDIBSection(IntPtr hdc, ref BITMAPINFOHEADER bmi, uint usage, out IntPtr bits, IntPtr hSection, uint offset);
+    [DllImport("gdi32", CharSet = CharSet.Unicode, EntryPoint = "CreateFontW")] private static extern IntPtr CreateFont(int height, int width, int escapement, int orientation, int weight, uint italic, uint underline, uint strikeOut, uint charSet, uint outPrecision, uint clipPrecision, uint quality, uint pitchAndFamily, string faceName);
+    [DllImport("gdi32")] private static extern int SetBkMode(IntPtr hdc, int mode);
+    [DllImport("gdi32")] private static extern uint SetTextColor(IntPtr hdc, int color);
+    [DllImport("gdi32", CharSet = CharSet.Unicode, EntryPoint = "GetGlyphIndicesW")] private static extern uint GetGlyphIndices(IntPtr hdc, string str, int count, out ushort glyphIndex, uint flags);
+    [DllImport("gdi32")] private static extern bool GdiFlush();
 
     // Single-instance window focus path
     private const int SW_RESTORE = 9;
