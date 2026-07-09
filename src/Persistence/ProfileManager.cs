@@ -527,15 +527,12 @@ public sealed class ProfileManager : IDisposable
         OnProfileSwitched?.Invoke();
     }
 
-    public ProfileEntry ImportProfile(string name, NexusSettings data)
+    public ProfileEntry ImportProfile(string name, NexusSettings data, bool replaceExisting = false)
     {
+        bool reactivate = false;
+        ProfileEntry entry;
         lock (_lock)
         {
-            if (_manifest.Profiles.Count >= MaxProfiles)
-            {
-                throw new InvalidOperationException("Maximum number of profiles reached.");
-            }
-
             data.Auth = null;
             data.PrimaryProfileId = null;
             data.SharedCategories = new List<string>();
@@ -545,36 +542,77 @@ public sealed class ProfileManager : IDisposable
             {
                 trimmed = "Imported";
             }
-            EnsureNameAvailable(trimmed, excludeProfileId: null);
 
-            var id = Guid.NewGuid().ToString("N")[..8];
+            var existing = _manifest.Profiles.FirstOrDefault(p =>
+                string.Equals(p.Name, trimmed, StringComparison.OrdinalIgnoreCase));
             var now = DateTimeOffset.UtcNow.ToString("o");
-            var entry = new ProfileEntry { Id = id, Name = trimmed, CreatedAt = now, UpdatedAt = now };
 
-            var filePath = ProfileFilePath(id);
-            var json = JsonSerializer.Serialize(data, PersistenceJsonContext.Default.NexusSettings);
-            WriteAtomic(filePath, json);
+            if (existing is not null)
+            {
+                if (!replaceExisting)
+                {
+                    throw new ProfileNameConflictException(trimmed);
+                }
 
-            _manifest.Profiles.Add(entry);
-            SaveManifest();
+                // Overwrite in place: keep the id, manifest position and
+                // CreatedAt so active/Primary references and the reorder
+                // list stay valid; adopt the imported name's casing.
+                existing.Name = trimmed;
+                existing.UpdatedAt = now;
+                var replaceJson = JsonSerializer.Serialize(data, PersistenceJsonContext.Default.NexusSettings);
+                WriteAtomic(ProfileFilePath(existing.Id), replaceJson);
+                SaveManifest();
 
-            return entry;
+                // Overwriting the active profile: re-baseline in-memory
+                // settings from the imported file so the next flush can't
+                // clobber it, then let the caller re-apply the engines.
+                reactivate = existing.Id == _manifest.ActiveProfileId;
+                if (reactivate)
+                {
+                    LoadProfileIntoSettings(existing.Id);
+                    _dirty = false;
+                }
+                entry = existing;
+            }
+            else
+            {
+                if (_manifest.Profiles.Count >= MaxProfiles)
+                {
+                    throw new InvalidOperationException("Maximum number of profiles reached.");
+                }
+
+                var id = Guid.NewGuid().ToString("N")[..8];
+                entry = new ProfileEntry { Id = id, Name = trimmed, CreatedAt = now, UpdatedAt = now };
+
+                var json = JsonSerializer.Serialize(data, PersistenceJsonContext.Default.NexusSettings);
+                WriteAtomic(ProfileFilePath(id), json);
+
+                _manifest.Profiles.Add(entry);
+                SaveManifest();
+            }
         }
+
+        if (reactivate)
+        {
+            OnProfileSwitched?.Invoke();
+        }
+
+        return entry;
     }
 
-    public ProfileEntry ImportProfileJson(string json)
+    public ProfileEntry ImportProfileJson(string json, bool replaceExisting = false)
     {
         // Imported profile JSON could be v1 shape from an older export.
         var migrated = json;
         var wrapper = JsonSerializer.Deserialize(migrated, PersistenceJsonContext.Default.ProfileExport);
         if (wrapper?.Settings is not null)
         {
-            return ImportProfile(wrapper.Name ?? "Imported", wrapper.Settings);
+            return ImportProfile(wrapper.Name ?? "Imported", wrapper.Settings, replaceExisting);
         }
 
         var data = JsonSerializer.Deserialize(migrated, PersistenceJsonContext.Default.NexusSettings)
                    ?? throw new InvalidOperationException("Invalid profile data.");
-        return ImportProfile("Imported", data);
+        return ImportProfile("Imported", data, replaceExisting);
     }
 
     public void Dispose()

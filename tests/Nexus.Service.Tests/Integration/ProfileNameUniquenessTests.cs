@@ -85,4 +85,60 @@ public sealed class ProfileNameUniquenessTests : IDisposable
 
         Assert.Equal("Quiet", entry.Name);
     }
+
+    [Fact]
+    public void ImportProfile_with_replaceExisting_overwrites_the_colliding_profile_in_place()
+    {
+        var created = _profiles.CreateProfile("Gaming");
+        var countBefore = _profiles.GetManifest().Profiles.Count;
+
+        var imported = new NexusSettings();
+        imported.Cooling.PreferredGpuId = "replaced-marker";
+
+        var entry = _profiles.ImportProfile("gaming", imported, replaceExisting: true);
+
+        Assert.Equal(created.Id, entry.Id);
+        Assert.Equal("gaming", entry.Name);
+        Assert.Equal(countBefore, _profiles.GetManifest().Profiles.Count);
+        Assert.True(DateTimeOffset.Parse(entry.UpdatedAt) >= DateTimeOffset.Parse(created.UpdatedAt));
+
+        var exported = _profiles.ExportProfile(created.Id);
+        Assert.Equal("replaced-marker", exported!.Cooling.PreferredGpuId);
+    }
+
+    [Fact]
+    public void ImportProfile_with_replaceExisting_works_at_MaxProfiles_cap()
+    {
+        _profiles.CreateProfile("P1");
+        _profiles.CreateProfile("P2");
+        _profiles.CreateProfile("P3");
+        var target = _profiles.CreateProfile("P4");
+        Assert.Equal(ProfileManager.MaxProfiles, _profiles.GetManifest().Profiles.Count);
+
+        var entry = _profiles.ImportProfile("p4", new NexusSettings(), replaceExisting: true);
+
+        Assert.Equal(target.Id, entry.Id);
+        Assert.Equal(ProfileManager.MaxProfiles, _profiles.GetManifest().Profiles.Count);
+    }
+
+    [Fact]
+    public void ImportProfile_with_replaceExisting_overwrites_a_non_active_profile_without_switching()
+    {
+        var target = _profiles.CreateProfile("Gaming");
+        var active = _profiles.CreateProfile("Quiet");
+        Assert.Equal(active.Id, _profiles.GetManifest().ActiveProfileId);
+        var countBefore = _profiles.GetManifest().Profiles.Count;
+
+        var imported = new NexusSettings();
+        imported.Cooling.PreferredGpuId = "nonactive-marker";
+
+        var entry = _profiles.ImportProfile("gaming", imported, replaceExisting: true);
+
+        Assert.Equal(target.Id, entry.Id);
+        Assert.Equal(countBefore, _profiles.GetManifest().Profiles.Count);
+        Assert.Equal(active.Id, _profiles.GetManifest().ActiveProfileId);
+
+        var exported = _profiles.ExportProfile(target.Id);
+        Assert.Equal("nonactive-marker", exported!.Cooling.PreferredGpuId);
+    }
 }

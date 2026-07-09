@@ -147,12 +147,20 @@ public static class ProfileRoutes
             return Results.Text(json, "application/json");
         });
 
-        app.MapPost("/profiles/import", async (HttpRequest req, ProfileManager pm) =>
+        app.MapPost("/profiles/import", async (HttpRequest req, ProfileManager pm, MultiplexHub hub, bool? replace) =>
         {
             var json = await new System.IO.StreamReader(req.Body).ReadToEndAsync();
             try
             {
-                var entry = pm.ImportProfileJson(json);
+                var entry = pm.ImportProfileJson(json, replace == true);
+                if (replace == true)
+                {
+                    // A replace can overwrite the active profile; refetch the
+                    // same way /profiles/{id}/switch does.
+                    PanelTopics.BroadcastPrefs(hub);
+                    PanelTopics.BroadcastLighting(hub);
+                    PanelTopics.BroadcastCooling(hub);
+                }
                 return Results.Ok(new ProfileResponse { Profile = entry });
             }
             catch (ProfileNameConflictException)
