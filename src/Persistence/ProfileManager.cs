@@ -716,6 +716,11 @@ public sealed class ProfileManager : IDisposable
             ProfileSharing.ApplyCategory(s, data, ProfileSharing.Theme);
             ProfileSharing.ApplyCategory(s, data, ProfileSharing.Dashboard);
 
+            // Pre-v11 profiles carry widget types under the legacy
+            // marketplace: prefix; rewrite after the category copies so the
+            // applied layout keeps resolving (idempotent).
+            Nexus.Service.Widgets.AppPrefixMigration.Apply(s);
+
             // PanelDevices is hardware-scoped, not profile-scoped: do NOT
             // entries that the loaded profile JSON happens to carry into
         });
