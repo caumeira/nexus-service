@@ -49,7 +49,7 @@ public class CachingUsbEnumeratorTests
     }
 
     [Fact]
-    public void Concurrent_expired_callers_single_flight_one_scan()
+    public async Task Concurrent_expired_callers_single_flight_one_scan()
     {
         var inner = new FakeEnumerator
         {
@@ -67,14 +67,14 @@ public class CachingUsbEnumeratorTests
 
         // One caller reaches the inner enumerator and blocks; release it once
         // it is inside, then let all callers finish.
-        Assert.True(inner.EnterGate.Wait(TimeSpan.FromSeconds(10)));
+        Assert.True(await inner.EnterGate.WaitAsync(TimeSpan.FromSeconds(10)));
         inner.ExitGate.Release(tasks.Length);
-        Task.WaitAll(tasks, TimeSpan.FromSeconds(10));
+        await Task.WhenAll(tasks).WaitAsync(TimeSpan.FromSeconds(10));
 
         Assert.Equal(1, inner.Calls);
         foreach (var t in tasks)
         {
-            Assert.Single(t.Result);
+            Assert.Single(await t);
         }
     }
 
@@ -93,7 +93,7 @@ public class CachingUsbEnumeratorTests
     }
 
     [Fact]
-    public void Invalidate_during_scan_leaves_cache_stale()
+    public async Task Invalidate_during_scan_leaves_cache_stale()
     {
         var inner = new FakeEnumerator
         {
@@ -104,13 +104,13 @@ public class CachingUsbEnumeratorTests
         var cache = new CachingUsbEnumerator(inner);
 
         var scan = Task.Run(() => cache.Enumerate());
-        Assert.True(inner.EnterGate.Wait(TimeSpan.FromSeconds(10)));
+        Assert.True(await inner.EnterGate.WaitAsync(TimeSpan.FromSeconds(10)));
 
         // The bus changed while the scan was in flight: its result must not
         // be trusted as fresh.
         cache.Invalidate();
         inner.ExitGate.Release(2);
-        scan.Wait(TimeSpan.FromSeconds(10));
+        await scan.WaitAsync(TimeSpan.FromSeconds(10));
 
         cache.Enumerate();
         Assert.Equal(2, inner.Calls);
