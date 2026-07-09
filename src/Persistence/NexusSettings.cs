@@ -166,6 +166,11 @@ public sealed class UiSettings
     public bool ShowConflictAlerts { get; set; } = true;
     /// <summary>True once the web has auto-placed the OEM app onto the dashboard.</summary>
     public bool OemAppSeeded { get; set; }
+    /// <summary>Sidebar pinned-app tail (app keys / app:&lt;id&gt; placement types),
+    /// in display order. Null when the client has never sent it - the web then
+    /// falls back to its local copy, so a machine-wiped browser recovers the
+    /// pin from here instead of losing it (OemAppSeeded blocks a reseed).</summary>
+    public List<string>? PinnedSidebarApps { get; set; }
 }
 
 /// <summary>
@@ -176,6 +181,7 @@ public sealed class UiSettingsPatch
 {
     public bool? ShowConflictAlerts { get; set; }
     public bool? OemAppSeeded { get; set; }
+    public List<string>? PinnedSidebarApps { get; set; }
 }
 
 /// <summary>
