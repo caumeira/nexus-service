@@ -18,9 +18,9 @@ public sealed class NexusSettings
     /// a migration in <c>JsonConfigStore.Load()</c>. Lives as a constant so
     /// tests and tooling can reference "current" without bit-rotting.
     /// </summary>
-    public const int CurrentSchemaVersion = 9;
+    public const int CurrentSchemaVersion = 10;
 
-    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). v8 marks any pre-existing settings.json as already-onboarded (see <see cref="OnboardingCompleted"/>) so the first-run welcome screen only shows for installs with no settings.json at all. v9 prunes <see cref="AnimateSettings.Templates"/> to user deltas against the canonical defaults (see <see cref="Nexus.Service.Lighting.AnimateTemplateDefaults"/>). The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
+    /// <summary>Persisted profile schema. v2 nests Theme/Panel/Overlay/Monitoring out of UiSettings into matching top-level POCOs that mirror install-defaults.json. v3 drops the <c>{s/n/b}</c> wrapper on per-widget config values; values are raw JSON (string/number/bool/object/array). v4 retires the type-scoped marketplace <c>Widgets</c> bag - every placement keeps its own config under <see cref="Nexus.Service.Models.Panel.PanelWidgetDto.Config"/>. v5 renames the <c>performance</c> cooling preset to <c>turbo</c>. v6 re-keys per-card LED map overrides/aspect ratios into the device-scoped segment-local <see cref="DevicesSettings.DeviceLedOverrides"/> / <see cref="DevicesSettings.DeviceAspectRatios"/> (zones model). v8 marks any pre-existing settings.json as already-onboarded (see <see cref="OnboardingCompleted"/>) so the first-run welcome screen only shows for installs with no settings.json at all. v9 prunes <see cref="AnimateSettings.Templates"/> to user deltas against the canonical defaults (see <see cref="Nexus.Service.Lighting.AnimateTemplateDefaults"/>). v10 prunes <see cref="AnimateSettings.States"/> entries equal to the effect's resolved selected-slot look. The v1-v4 load-time migrations were removed; records now load as-is and a malformed/older file falls back to defaults (see <see cref="JsonConfigStore"/>).</summary>
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
 
     public ThemeSettings Theme { get; set; } = new();
@@ -271,9 +271,11 @@ public sealed class AnimateSettings
 {
     /// <summary>Key of the last-selected animate effect.</summary>
     public string Effect { get; set; } = InstallDefaults.Lighting.Animate.Effect;
-    /// <summary>Full slider state keyed by effect name. Each effect remembers its own
-    /// speed / hue / colorize / intensity / custom params so switching between them
-    /// restores exactly what the user last saw rather than overwriting with defaults.</summary>
+    /// <summary>Last-activated slider state keyed by effect name, sparse: an entry
+    /// exists only when the look differs from the effect's resolved selected-slot
+    /// look (see <see cref="Nexus.Service.Lighting.AnimateTemplateDefaults.ResolveSelected"/>);
+    /// readers resolve absent entries the same way. Switching between effects
+    /// restores exactly what the user last saw without storing default looks.</summary>
     public Dictionary<string, AnimateEffectState> States { get; set; } = new();
     /// <summary>Four pre-tweaked template slots per effect plus the currently-selected
     /// index. Drives the 1/2/3/4 button row in the animate drawer. Templates[effect].Slots[Selected]

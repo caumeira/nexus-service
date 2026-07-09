@@ -70,13 +70,14 @@ public static class LiveEngineSync
                     if (!string.IsNullOrEmpty(mediaId)) lighting.StartMedia(mediaId);
                     break;
                 default:
-                    // Animate: Sync is the shader effect name. Pull the saved
-                    // slider state for that effect; fall back to defaults if
-                    // the user has never touched it.
+                    // Animate: Sync is the shader effect name. States holds
+                    // only deltas from the selected preset look; an absent
+                    // entry means "the resolved slot look", not base defaults.
                     var effect = sync;
                     if (!s.Animate.States.TryGetValue(effect, out var saved) || saved is null)
                     {
-                        saved = new AnimateEffectState();
+                        saved = Nexus.Service.Lighting.AnimateTemplateDefaults.ResolveSelected(s.Animate.Templates, effect)
+                            ?? new AnimateEffectState();
                     }
                     lighting.StartAnimate(new AnimateHeadlessStart
                     {
