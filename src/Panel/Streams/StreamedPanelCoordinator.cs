@@ -357,17 +357,17 @@ public sealed class StreamedPanelCoordinator : BackgroundService
     private void HandleTransportFault(string serial, IStreamedPanelTransport faulted, Exception ex)
     {
         ServiceLog.Error($"[streamed-panel] transport fault serial={serial}: {ex.GetType().Name}: {ex.Message}");
-        DeviceSession? current = null;
         lock (_lock)
         {
+            // The flag flips inside the lock so a stale fault can never
+            // overwrite a concurrent reopen's transport-up.
             if (_bySerial.TryGetValue(serial, out var ds) && ReferenceEquals(ds.Transport, faulted))
             {
                 ds.Transport = null;
-                current = ds;
+                ds.Session.SetTransportUp(false);
             }
         }
         try { faulted.Dispose(); } catch { }
-        current?.Session.SetTransportUp(false);
     }
 
     private void CloseSession(DeviceSession ds, string reason)

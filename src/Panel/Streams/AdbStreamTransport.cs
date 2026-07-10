@@ -4,6 +4,7 @@ using System.IO;
 using System.Net;
 using System.Net.Sockets;
 using System.Security.Cryptography;
+using System.Threading;
 using Nexus.Service.Platform;
 
 namespace Nexus.Service.Panel.Streams;
@@ -34,6 +35,7 @@ public sealed class AdbStreamTransport : IStreamedPanelTransport
     private string? _remotePlayerPath;
     private Socket? _streamSocket;
     private Process? _playerProcess;
+    private int _disposed;
 
     public bool IsOpen { get; private set; }
 
@@ -122,6 +124,7 @@ public sealed class AdbStreamTransport : IStreamedPanelTransport
         if (!alive)
         {
             try { process.Kill(true); } catch { }
+            try { process.Dispose(); } catch { }
             _playerProcess = null;
             throw new InvalidOperationException($"D213 player {playerName} did not start (no pid on device)");
         }
@@ -141,6 +144,11 @@ public sealed class AdbStreamTransport : IStreamedPanelTransport
 
     public void Dispose()
     {
+        // Idempotence matters here: a paced writer's late fault callback can
+        // dispose a transport CloseSession already disposed, and the killall
+        // below is device-wide, so a re-entrant run would kill the
+        // replacement session's freshly started player.
+        if (Interlocked.Exchange(ref _disposed, 1) != 0) return;
         IsOpen = false;
 
         try { _streamSocket?.Close(); } catch { }
