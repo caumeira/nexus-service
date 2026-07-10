@@ -112,6 +112,38 @@ public class TemperatureInsightsTests
         Assert.Empty(TemperatureInsights.DetectEpisodes(rows));
     }
 
+    [Fact]
+    public void DetectEpisodes_PopulatesKindFromTheRows()
+    {
+        var rows = new[] { Row("gpu:0", "gpu", 0, 86, max: 90), Row("gpu:0", "gpu", 1, 88, max: 92) };
+
+        var episode = Assert.Single(TemperatureInsights.DetectEpisodes(rows));
+
+        Assert.Equal("gpu", episode.Kind);
+    }
+
+    [Fact]
+    public void DetectEpisodes_ThresholdOverride_ChangesWhichSamplesQualify()
+    {
+        var rows = new[] { Row("cpu", "cpu", 0, 80), Row("cpu", "cpu", 1, 82) };
+
+        Assert.Empty(TemperatureInsights.DetectEpisodes(rows));
+
+        var overrides = new Dictionary<string, double> { ["cpu"] = 75 };
+        var episode = Assert.Single(TemperatureInsights.DetectEpisodes(rows, overrides));
+
+        Assert.Equal(75, episode.ThresholdC);
+        Assert.Equal("cpu", episode.Kind);
+    }
+
+    [Fact]
+    public void ThresholdFor_OverrideMissingKind_FallsBackToDefault()
+    {
+        var overrides = new Dictionary<string, double> { ["gpu"] = 70 };
+
+        Assert.Equal(90, TemperatureInsights.ThresholdFor("cpu", overrides));
+    }
+
     private static List<TemperatureBucketRow> SeriesOf(int count, double avg = 50, double max = 55, int samples = 10) =>
         Enumerable.Range(0, count)
             .Select(i => new TemperatureBucketRow("cpu", "cpu", "CPU", T0Ms + i * BucketMs, avg, max, samples))

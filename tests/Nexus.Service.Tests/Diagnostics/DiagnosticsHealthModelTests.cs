@@ -8,6 +8,7 @@ using Nexus.Service.Diagnostics.Memory;
 using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Diagnostics.SystemInfo;
 using Nexus.Service.Diagnostics.Temperature;
+using Nexus.Service.Persistence;
 using Xunit;
 
 namespace Nexus.Service.Tests.Diagnostics;
@@ -29,7 +30,8 @@ public class DiagnosticsHealthModelTests
         PnpProblemSnapshot? pnp = null,
         IReadOnlyList<string>? knownGpuModels = null,
         IReadOnlyList<TemperatureEpisode>? tempEpisodes = null,
-        DateTime? generatedAtUtc = null)
+        DateTime? generatedAtUtc = null,
+        DiagnosticsSettings? diagnostics = null)
     {
         return DiagnosticsHealthModel.Compute(
             smart: smart ?? EmptySmart,
@@ -41,7 +43,8 @@ public class DiagnosticsHealthModelTests
             knownGpuModels: knownGpuModels ?? Array.Empty<string>(),
             windowsSupported: true,
             generatedAtUtc: generatedAtUtc ?? T0,
-            tempEpisodes: tempEpisodes);
+            tempEpisodes: tempEpisodes,
+            diagnostics: diagnostics);
     }
 
     [Fact]
@@ -210,9 +213,10 @@ public class DiagnosticsHealthModelTests
     private static SmartSnapshot SmartSnapshotUnsupported() => new() { Supported = false, Drives = Array.Empty<SmartDriveInfo>() };
 
     [Fact]
-    public void SustainedHighTemp_RecentEpisode_AddsWatchReasonToCoolingAggregate()
+    public void SustainedHighTemp_OngoingEpisode_AddsWatchReasonToCoolingAggregate()
     {
-        var episode = new TemperatureEpisode("gpu:0", "RTX 5080", T0.AddHours(-1), T0.AddMinutes(-35), 91.5, 85);
+        // Ends exactly at "now" - still hot at generation time.
+        var episode = new TemperatureEpisode("gpu:0", "RTX 5080", T0.AddHours(-1), T0, 91.5, 85, "gpu");
 
         var result = Compute(tempEpisodes: new[] { episode });
 
@@ -226,9 +230,11 @@ public class DiagnosticsHealthModelTests
     }
 
     [Fact]
-    public void SustainedHighTemp_EpisodeOlderThan24h_ProducesNoReason()
+    public void SustainedHighTemp_EpisodeEndedBeforeTheRecencyWindow_ProducesNoReason()
     {
-        var episode = new TemperatureEpisode("gpu:0", "RTX 5080", T0.AddHours(-30), T0.AddHours(-25), 91.5, 85);
+        // Default linger is 0, so the recency window is one bucket (5 min);
+        // an episode that cooled 20 minutes ago is well outside it.
+        var episode = new TemperatureEpisode("gpu:0", "RTX 5080", T0.AddHours(-1), T0.AddMinutes(-20), 91.5, 85, "gpu");
 
         var result = Compute(tempEpisodes: new[] { episode });
 
@@ -251,7 +257,7 @@ public class DiagnosticsHealthModelTests
         {
             new("pump1", "Q60 Pump", "pump", 0, 60, CoolingStallStatuses.Stalled, T0),
         });
-        var episode = new TemperatureEpisode("cpu", "CPU", T0.AddHours(-1), T0.AddMinutes(-50), 92, 90);
+        var episode = new TemperatureEpisode("cpu", "CPU", T0.AddHours(-1), T0, 92, 90, "cpu");
 
         var result = Compute(cooling: cooling, tempEpisodes: new[] { episode });
 
@@ -260,5 +266,104 @@ public class DiagnosticsHealthModelTests
         var aggregate = Assert.Single(result.Components, c => c.Id == "cooling");
         Assert.Equal(HealthStatuses.Watch, aggregate.Status);
         Assert.Equal(HealthStatuses.Act, result.Overall);
+    }
+
+    [Fact]
+    public void WarningLingerMinutes_KeepsAPastEpisodeVisibleWithinTheLingerWindow()
+    {
+        var diagnostics = new DiagnosticsSettings { WarningLingerMinutes = 30 };
+        var episode = new TemperatureEpisode("gpu:0", "RTX 5080", T0.AddHours(-1), T0.AddMinutes(-20), 91.5, 85, "gpu");
+
+        var result = Compute(tempEpisodes: new[] { episode }, diagnostics: diagnostics);
+
+        var aggregate = Assert.Single(result.Components, c => c.Id == "cooling");
+        Assert.Equal(HealthStatuses.Watch, aggregate.Status);
+    }
+
+    [Fact]
+    public void WarningLingerMinutes_DoesNotKeepAnEpisodeVisibleBeyondTheLingerWindow()
+    {
+        var diagnostics = new DiagnosticsSettings { WarningLingerMinutes = 30 };
+        var episode = new TemperatureEpisode("gpu:0", "RTX 5080", T0.AddHours(-1), T0.AddMinutes(-40), 91.5, 85, "gpu");
+
+        var result = Compute(tempEpisodes: new[] { episode }, diagnostics: diagnostics);
+
+        Assert.DoesNotContain(result.Components, c => c.Id == "cooling");
+    }
+
+    [Fact]
+    public void DisabledStorageComponent_ExcludedFromStatusAndOverall()
+    {
+        var smart = new SmartSnapshot
+        {
+            Supported = true,
+            Drives = new List<SmartDriveInfo>
+            {
+                new()
+                {
+                    Id = "storage:ABC123",
+                    Name = "Test SSD",
+                    Status = "bad",
+                    DetailedReasons = new List<SmartReason>
+                    {
+                        new("nvme.criticalWarning", ReasonSeverity.Act, "critical", "detail"),
+                    },
+                },
+            },
+        };
+        var diagnostics = new DiagnosticsSettings();
+        diagnostics.Components.Storage = false;
+
+        var result = Compute(smart: smart, diagnostics: diagnostics);
+
+        Assert.DoesNotContain(result.Components, c => c.Kind == "storage");
+        Assert.Equal(HealthStatuses.Ok, result.Overall);
+    }
+
+    [Fact]
+    public void DisabledCpuComponent_ExcludesCpuTempEpisodeFromCoolingAggregate()
+    {
+        var diagnostics = new DiagnosticsSettings();
+        diagnostics.Components.Cpu = false;
+        var episode = new TemperatureEpisode("cpu", "CPU", T0.AddHours(-1), T0, 95, 90, "cpu");
+
+        var result = Compute(tempEpisodes: new[] { episode }, diagnostics: diagnostics);
+
+        Assert.DoesNotContain(result.Components, c => c.Id == "cooling");
+        Assert.Equal(HealthStatuses.Ok, result.Overall);
+    }
+
+    [Fact]
+    public void DisabledCoolingComponent_ExcludesStallDevices_ButNotOtherKindsTempWarnings()
+    {
+        var cooling = new CoolingStallSnapshot(true, new List<CoolingStallDevice>
+        {
+            new("pump1", "Q60 Pump", "pump", 0, 60, CoolingStallStatuses.Stalled, T0),
+        });
+        var diagnostics = new DiagnosticsSettings();
+        diagnostics.Components.Cooling = false;
+        var episode = new TemperatureEpisode("gpu:0", "RTX 5080", T0.AddHours(-1), T0, 95, 85, "gpu");
+
+        var result = Compute(cooling: cooling, tempEpisodes: new[] { episode }, diagnostics: diagnostics);
+
+        Assert.DoesNotContain(result.Components, c => c.Id == "cooling:pump1");
+        var aggregate = Assert.Single(result.Components, c => c.Id == "cooling");
+        Assert.Equal(HealthStatuses.Watch, aggregate.Status);
+    }
+
+    [Fact]
+    public void DisabledGpuComponent_ExcludesGpuThrottleComponent()
+    {
+        var gpu = new GpuHealthSnapshot(true, new List<GpuInfo>
+        {
+            new("Test GPU", "1.0", 50, 100, new GpuThrottleInfo(new[] { "hwThermal" }, null, null, null, null)),
+        });
+        var diagnostics = new DiagnosticsSettings();
+        diagnostics.Components.Gpu = false;
+
+        var result = Compute(gpu: gpu, diagnostics: diagnostics);
+
+        Assert.DoesNotContain(result.Components, c => c.Kind == "gpu");
+        Assert.Equal(HealthStatuses.Ok, result.Overall);
     }
 }
