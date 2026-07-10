@@ -507,9 +507,6 @@ internal static class MacStatusBar
     private const string CoreFoundation = "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation";
 
     [DllImport(CoreFoundation)]
-    private static extern void CFRunLoopRun();
-
-    [DllImport(CoreFoundation)]
     private static extern IntPtr CFRunLoopGetMain();
 
     [DllImport(CoreFoundation)]

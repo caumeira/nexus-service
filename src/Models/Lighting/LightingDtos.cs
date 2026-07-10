@@ -143,13 +143,6 @@ public sealed class PostProcessBody
     public float Intensity { get; set; } = 0.5f;
 }
 
-public class GifHeadlessStart
-{
-    public int Speed { get; set; }
-    public string Mode { get; set; } = "Loop";
-    public List<string> Paths { get; set; } = new();
-}
-
 /// <summary>
 /// Per-device Chroma frame posted by the native shim to
 /// /lighting/game-sync/frame. One POST per device per rendered frame.

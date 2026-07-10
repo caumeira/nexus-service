@@ -95,7 +95,6 @@ echo "[contract-test] hitting endpoints on $BASE"
 check_http GET /ping
 check_http GET /system/snapshot
 check_http GET /system/os-version
-check_http GET /system/elevation
 check_http GET /system/polling-rate
 check_http POST /system/polling-rate '{"pollingRate":1000}'
 check_http GET /system/volume
@@ -126,7 +125,6 @@ check_http GET /system/motherboard/model
 check_http GET /system/fps/sensors
 
 # Cooling
-check_http GET /cooling/all
 check_http GET /cooling/q60
 check_http GET /cooling/q80
 check_http GET /cooling/minihub
@@ -188,7 +186,6 @@ check_http GET /lighting/screen/effect
 check_http POST /lighting/screen/effect '{"hue":0.25,"colorize":0.5,"saturation":1.2,"contrast":1.1,"persist":true}'
 check_http GET /lighting/media/effect
 check_http POST /lighting/media/effect '{"hue":0.1,"colorize":0.2,"saturation":1,"contrast":1,"persist":false}'
-check_http POST /lighting/gif/headless-start '{"speed":50,"mode":"Loop","paths":[]}'
 check_http POST /lighting/streaming/set-streaming '{"streaming":{},"scale":{"width":1920,"height":1080},"mode":"single"}'
 
 # Devices

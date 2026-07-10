@@ -51,8 +51,6 @@ public class ApkFlasherTests
 
     private const string QshellPackage = "com.hellonexus.qshell";
     private const string QshellComponent = QshellPackage + "/" + QshellPackage + ".MainActivity";
-    private const string OemPackage = "com.companyname.thiccapp";
-    private const string OemComponent = OemPackage + "/" + OemPackage + ".MainActivity";
 
     /// <summary>
     /// Default dumpsys response factory: first call returns old versionCode,
@@ -351,37 +349,6 @@ public class ApkFlasherTests
         await WaitForPhaseAsync(gate.Status, "done");
 
         Assert.True(gate.Status.Success);
-    }
-
-    [Fact]
-    public async Task RevertPanelHome_IssuesOemSetHomeActivity()
-    {
-        var registry = new FakeRegistry();
-        var gate = new FlashGate();
-        var device = new FakeDevice("emulator-5554", QshellPackage);
-        registry.Register(device);
-
-        var flasher = MakeFlasher(registry, gate);
-
-        var result = await flasher.RevertPanelHomeAsync(CancellationToken.None);
-
-        Assert.Null(result);
-        Assert.Contains(device.IssuedCommands,
-            c => c.Contains("set-home-activity", StringComparison.Ordinal)
-              && c.Contains(OemComponent, StringComparison.Ordinal));
-    }
-
-    [Fact]
-    public async Task RevertPanelHome_ReturnsErrorWhenNoDevice()
-    {
-        var registry = new FakeRegistry();
-        var gate = new FlashGate();
-        var flasher = MakeFlasher(registry, gate);
-
-        var result = await flasher.RevertPanelHomeAsync(CancellationToken.None);
-
-        Assert.NotNull(result);
-        Assert.Contains("connected", result, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

@@ -1077,10 +1077,6 @@ internal static class MacAppWindow
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern void MsgSend_PerformAfter(IntPtr receiver, IntPtr sel, IntPtr selArg, IntPtr obj, double delay);
 
-    // +numberWithDouble: -> takes a double (passed in d0 on arm64).
-    [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
-    private static extern IntPtr MsgSendDouble(IntPtr receiver, IntPtr sel, double arg1);
-
     [DllImport(Libobjc, EntryPoint = "objc_msgSend")]
     private static extern void MsgSendVoidBool(IntPtr receiver, IntPtr sel, [MarshalAs(UnmanagedType.I1)] bool arg1);
 

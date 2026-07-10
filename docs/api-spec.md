@@ -39,7 +39,6 @@ Each endpoint has an `impl` column: **real** = working implementation, **stub** 
 | Verb | Path | impl | Notes |
 |---|---|---|---|
 | WS   | `/cooling`                  | stub | |
-| GET  | `/cooling/all`              | stub | `{ coolingComponents[] }` |
 | GET  | `/cooling/q60`              | stub | |
 | GET  | `/cooling/q80`              | stub | |
 | GET  | `/cooling/minihub`          | stub | |
@@ -82,8 +81,6 @@ Each endpoint has an `impl` column: **real** = working implementation, **stub** 
 | POST | `/lighting/music/headless-start` | stub | |
 | WS   | `/lighting/screen`             | stub | |
 | POST | `/lighting/screen/headless-start` | stub | |
-| WS   | `/lighting/gif`                | stub | |
-| POST | `/lighting/gif/headless-start` | stub | |
 | WS   | `/lighting/config`             | stub | |
 | WS   | `/lighting/streaming`          | stub | |
 | POST | `/lighting/streaming/set-streaming` | stub | |

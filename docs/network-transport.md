@@ -87,7 +87,6 @@ before counting the currently selected view.
 | `GET /cooling/status` | every `500 ms` | `2 req/s` | Sidebar cooling status dot and calibration state. |
 | `GET /lighting/status` | every `500 ms` | `2 req/s` | Sidebar lighting status/scanning state. |
 | `GET /panel/status` | every `500 ms` | `2 req/s` | Sidebar panel/kiosk and phone subscriber count. |
-| `GET /system/elevation` | once when service comes online | event | Admin-mode footer indicator. |
 | `GET /profiles` | once on online mount, then after profile mutations | event | Profile dropdown state. |
 | `GET /preferences` | once on `UiSettingsProvider` mount/profile switch | event | Server-backed UI preferences. |
 | `POST /preferences` | debounced `250 ms` after setting changes | event | Persist profile-scoped preferences. |
@@ -99,8 +98,6 @@ before counting the currently selected view.
 Base desktop idle count in the current working tree:
 
 - HTTP polling: `6.2 req/s` (`6 req/s` from service state, `0.2 req/s` ping).
-  `/system/elevation` is a one-shot request when the service comes online and
-  does not contribute steady-state polling.
 - WebSocket: one persistent `/ws` connection, usually receiving `1.1` JSON
   frames per second (`monitoring` every second and `screentime` every 10
   seconds) while subscribed.

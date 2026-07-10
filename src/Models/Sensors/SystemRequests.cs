@@ -8,19 +8,6 @@ public class GetPollingRateResponse
     public int PollingRate { get; set; }
 }
 
-public class ProcessElevationResponse
-{
-    public string Platform { get; set; } = "";
-    public bool Supported { get; set; }
-    public bool IsElevated { get; set; }
-    public string Status { get; set; } = "";
-}
-
-public class ProcessElevationRelaunchResponse
-{
-    public string Result { get; set; } = "";
-}
-
 public class GetModelResponse
 {
     public string Model { get; set; } = "";

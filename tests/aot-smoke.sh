@@ -44,7 +44,7 @@ TOKEN="$(curl -fsS "${URL}/pair" | sed -n 's/.*"token":"\([^"]*\)".*/\1/p')"
 [ -n "${TOKEN}" ] || { echo "[aot-smoke] could not obtain token"; exit 1; }
 
 FAIL=0
-for ep in /system/elevation /cooling/status /lighting/global-brightness /devices /widgets-api/installed; do
+for ep in /system/specs /cooling/status /lighting/global-brightness /devices /widgets-api/installed; do
   body="$(curl -fsS -H "Authorization: Bearer ${TOKEN}" "${URL}${ep}" || echo '__ERR__')"
   if [ "${body}" = '__ERR__' ]; then echo "[aot-smoke] FAIL ${ep}: request error"; FAIL=1; continue; fi
   if [ "${body}" = '{}' ] || [ -z "${body}" ]; then
