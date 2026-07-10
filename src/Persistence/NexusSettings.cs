@@ -529,8 +529,10 @@ public sealed class TryxSettings
 public sealed class DevicesSettings
 {
     public List<string> DisabledLightingDevices { get; set; } = new();
-    /// <summary>Handler ids with Nexus Control off. Absent id means the device is controlled (default on).</summary>
+    /// <summary>Handler ids the user explicitly opted out of (Nexus Control off). Overrides the brand default; a Hyte/iBUYPOWER handler absent here stays on.</summary>
     public List<string> NexusControlDisabled { get; set; } = new();
+    /// <summary>Handler ids the user explicitly opted into (Nexus Control on). Overrides the brand default; a third-party handler absent here stays off.</summary>
+    public List<string> NexusControlEnabled { get; set; } = new();
     public Dictionary<string, LightingDevicePreference> LightingDevicePrefs { get; set; } = new();
     /// <summary>LEGACY (pre-v6, per-card key). Read only by the one-time schema migration that moves entries into <see cref="DeviceLedOverrides"/>; empty afterward. Do not write.</summary>
     public Dictionary<string, List<LedPositionOverride>> LedMapOverrides { get; set; } = new();
@@ -664,8 +666,6 @@ public sealed class LianLiSettings
     public int Port1Fans { get; set; } = 4;
     public int Port2Fans { get; set; } = 4;
     public int Port3Fans { get; set; } = 4;
-    /// <summary>When true, LConnectService and LConnectServiceWatcher are stopped when Nexus attaches the hub.</summary>
-    public bool StopConflictingApps { get; set; } = true;
 
     public int GetFans(int port) => port switch
     {
@@ -690,8 +690,6 @@ public sealed class LianLiSettings
 
 public sealed class LianLiWirelessSettings
 {
-    /// <summary>When true, LConnectService and LConnectServiceWatcher are stopped when Nexus attaches the SLV3 dongles.</summary>
-    public bool StopConflictingApps { get; set; } = true;
     /// <summary>Per-screen LCD content and display settings, keyed by the SL-LCD Wireless screen's 16-hex serial.</summary>
     public Dictionary<string, LianLiWirelessScreenSettings> Screens { get; set; } = new();
 }
@@ -753,8 +751,6 @@ public sealed class Galahad2LightingSettings
 
 public sealed class CorsairSettings
 {
-    /// <summary>When true, Corsair iCUE is stopped when Nexus attaches the iCUE LINK hub (both apps co-drive the hub and fight every write).</summary>
-    public bool StopConflictingApps { get; set; } = true;
     public string? LcdSelectedMediaId { get; set; }
     /// <summary>LCD brightness 0-100. 0 = display off, 100 = maximum.</summary>
     public byte LcdBrightness { get; set; } = 100;

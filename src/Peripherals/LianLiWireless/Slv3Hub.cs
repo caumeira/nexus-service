@@ -66,27 +66,6 @@ public sealed class Slv3Hub : IDisposable
 
     public bool IsConnected => _tx is { IsOpen: true } && _rx is { IsOpen: true };
 
-    /// <summary>
-    /// True when both dongles are enumerable, without opening them. WinUSB is
-    /// exclusive-open, so the worker must stop a conflicting L-Connect before
-    /// <see cref="EnsureConnected"/> or CreateFileW fails with a sharing violation.
-    /// </summary>
-    public bool DonglesPresent()
-    {
-        if (_disposed)
-        {
-            return false;
-        }
-        var hasTx = false;
-        var hasRx = false;
-        foreach (var port in _discovery.Discover())
-        {
-            hasTx |= port.Role == Slv3DongleRole.Tx;
-            hasRx |= port.Role == Slv3DongleRole.Rx;
-        }
-        return hasTx && hasRx;
-    }
-
     /// <summary>Opens the TX + RX dongles and learns our master MAC. Both must open for the link to be usable.</summary>
     public bool EnsureConnected()
     {

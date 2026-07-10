@@ -1,7 +1,9 @@
+using System;
 using Nexus.Service.Activity;
 using Nexus.Service.Conflicts;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Conflicts;
+using Nexus.Service.Platform.Windows;
 
 namespace Nexus.Service.Routes;
 
@@ -27,9 +29,11 @@ public static class ConflictRoutes
         });
 
         // Terminate every running process matching the catalog entry for
-        // <c>body.Id</c>. We never trust a caller-supplied process name -
-        // the SPA only sends a catalog id, and we resolve it to the names
-        // we have already vetted in ConflictAppCatalog.
+        // <c>body.Id</c>, then stop any Windows services it lists (for apps
+        // whose background service re-grabs the hardware). We never trust a
+        // caller-supplied process/service name - the SPA only sends a catalog
+        // id, and we resolve it to the names we have already vetted in
+        // ConflictAppCatalog.
         app.MapPost("/conflicts/kill", (KillConflictBody body) =>
         {
             var def = ConflictWatcher.FindById(body?.Id ?? "");
@@ -47,6 +51,17 @@ public static class ConflictRoutes
             {
                 if (ProcessKiller.Kill(name))
                     killed = true;
+            }
+
+            if (OperatingSystem.IsWindows())
+            {
+                foreach (var svc in def.WindowsServiceNames)
+                {
+                    if (WindowsServiceController.StopService(svc) == ServiceStopResult.Stopped)
+                    {
+                        killed = true;
+                    }
+                }
             }
 
             return Results.Ok(new KillConflictResponse

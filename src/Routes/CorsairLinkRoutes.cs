@@ -1,9 +1,7 @@
 using System;
 using System.Collections.Generic;
 using Microsoft.AspNetCore.Http;
-using Nexus.Service.Models;
 using Nexus.Service.Peripherals.CorsairLink;
-using Nexus.Service.Persistence;
 using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Routes;
@@ -12,11 +10,10 @@ public static partial class DevicesRoutes
 {
     private static void MapCorsairEndpoints(WebApplication app)
     {
-        // GET /devices/corsair/state - connection, firmware, the auto-detected
-        // device topology with live RPM/temperature, and the iCUE-takeover flag.
-        app.MapGet("/devices/corsair/state", (CorsairLinkHub hub, IConfigStore store) =>
+        // GET /devices/corsair/state - connection, firmware, and the
+        // auto-detected device topology with live RPM/temperature.
+        app.MapGet("/devices/corsair/state", (CorsairLinkHub hub) =>
         {
-            var s = store.Load();
             var devices = new List<CorsairDeviceDto>();
             foreach (var d in hub.State.Devices)
             {
@@ -37,23 +34,8 @@ public static partial class DevicesRoutes
             {
                 IsConnected = hub.IsConnected,
                 Firmware = hub.State.Firmware,
-                StopConflictingApps = s.Devices.Corsair.StopConflictingApps,
                 Devices = devices.ToArray(),
             }, AppJsonContext.Default.CorsairStateResponse);
-        });
-
-        // PUT /devices/corsair/settings - toggle whether Nexus stops Corsair iCUE
-        // when it takes over the hub.
-        app.MapPut("/devices/corsair/settings", (CorsairSettingsRequest body, IConfigStore store) =>
-        {
-            store.Update(s =>
-            {
-                if (body.StopConflictingApps.HasValue)
-                {
-                    s.Devices.Corsair.StopConflictingApps = body.StopConflictingApps.Value;
-                }
-            });
-            return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
         });
     }
 }
@@ -62,7 +44,6 @@ public sealed class CorsairStateResponse
 {
     public bool IsConnected { get; set; }
     public string Firmware { get; set; } = "";
-    public bool StopConflictingApps { get; set; }
     public CorsairDeviceDto[] Devices { get; set; } = Array.Empty<CorsairDeviceDto>();
 }
 
@@ -79,9 +60,4 @@ public sealed class CorsairDeviceDto
     public float? TempC { get; set; }
     /// <summary>Hub-assigned device serial; disambiguates otherwise-identical fans.</summary>
     public string Serial { get; set; } = "";
-}
-
-public sealed class CorsairSettingsRequest
-{
-    public bool? StopConflictingApps { get; set; }
 }

@@ -27,6 +27,9 @@ public sealed class ConflictAppDefinition
 
     /// <summary>Process names to match against <c>Process.GetProcesses().ProcessName</c>.</summary>
     public string[] ProcessNames { get; init; } = Array.Empty<string>();
+
+    /// <summary>Windows service names to stop, in order, when ending this app - for apps whose background service holds the hardware. Empty for most.</summary>
+    public string[] WindowsServiceNames { get; init; } = Array.Empty<string>();
 }
 
 public static class ConflictAppCatalog
@@ -230,6 +233,7 @@ public static class ConflictAppCatalog
                 "Corsair.Service", "Corsair.Service.CpuldRemote64", "Corsair.Service.DisplayAdapter",
                 "CorsairDeviceControlService", "CueLLAccessService", "CorsairService",
             },
+            WindowsServiceNames = new[] { "CorsairDeviceListerService" },
         },
         new()
         {
@@ -271,6 +275,8 @@ public static class ConflictAppCatalog
             DisplayName = "Lian Li L-Connect",
             Category = "lighting",
             ProcessNames = new[] { "L-Connect 3", "L-Connect", "LConnect3", "LConnect" },
+            // Watcher first so it cannot restart the main service.
+            WindowsServiceNames = new[] { "LConnectServiceWatcher", "LConnectService" },
         },
 
         // ── Tryx ───────────────────────────────────────────────────────────
