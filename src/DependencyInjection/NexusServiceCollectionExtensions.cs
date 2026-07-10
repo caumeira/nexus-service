@@ -477,6 +477,28 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Keeb.KeebInputWorker>();
 
+        // Stream Deck: gen1-protocol button decks (Mini bench-verified
+        // 2026-07-10). Peripheral, not lighting - no frame contributor, no
+        // 30 Hz tick; see plans/streamdeck-support.md Phase 0. The simulated
+        // surface is DI-registered only under DEV_TOOLS, so the connection
+        // worker's optional constructor argument resolves to null (no
+        // simulated deck ever appears) in a release build.
+#if DEV_TOOLS
+        services.AddSingleton<Nexus.Service.Peripherals.StreamDeck.SimulatedStreamDeckSurface>(_ =>
+            new Nexus.Service.Peripherals.StreamDeck.SimulatedStreamDeckSurface(
+                Nexus.Service.Peripherals.StreamDeck.StreamDeckModels.ByProductId(0x0063)!, "sim-0001"));
+#endif
+        services.AddSingleton<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>(sp =>
+            new Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker(
+                sp.GetRequiredService<Nexus.Service.Peripherals.Hid.IHidEnumerator>(),
+                sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
+                sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>()
+#if DEV_TOOLS
+                , sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.SimulatedStreamDeckSurface>()
+#endif
+            ));
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>());
+
         // Lian Li Uni Hub SL-Infinity: HID connection worker + lighting + cooling.
         services.AddSingleton<Nexus.Service.Peripherals.LianLi.LianLiHub>();
         services.AddSingleton<Nexus.Service.Cooling.LianLiCoolingProvider>();
@@ -672,6 +694,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.CorsairLinkHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.StrimerHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.TryxHandler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.StreamDeckHandler>();
 
         // Read-only catalog of firmware images embedded in this build. Backs
         // the Firmware Updates page's "available version" column.

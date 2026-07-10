@@ -1,0 +1,131 @@
+using System;
+
+namespace Nexus.Service.Peripherals.StreamDeck;
+
+/// <summary>
+/// In-memory Stream Deck surface: no HID hardware needed. Used by Mac dev, the
+/// unit-test suite, and (dev-tools-gated at the DI/route level, matching
+/// FirmwareRoutes/D213PanelDiscovery's #if DEV_TOOLS convention) the
+/// <c>/streamdeck/dev/sim-press</c> bench route on Windows boxes with no
+/// physical deck attached. This class itself compiles and is tested
+/// unconditionally - only its wiring into the running app is dev-gated.
+/// </summary>
+public sealed class SimulatedStreamDeckSurface : IStreamDeckSurface
+{
+    private readonly object _io = new();
+    private readonly byte[]?[] _keyImages;
+    private readonly bool[] _pressed;
+    private bool _dirty;
+    private bool _connected = true;
+
+    public StreamDeckModel Model { get; }
+    public string Serial { get; }
+    public string FirmwareVersion => "sim-1.0";
+    public bool IsConnected => _connected;
+    public int Brightness { get; private set; } = 100;
+    public int ResetCount { get; private set; }
+
+    public SimulatedStreamDeckSurface(StreamDeckModel model, string serial)
+    {
+        Model = model;
+        Serial = serial;
+        _keyImages = new byte[model.KeyCount][];
+        _pressed = new bool[model.KeyCount];
+    }
+
+    public bool SetBrightness(int percent)
+    {
+        lock (_io)
+        {
+            if (!_connected)
+            {
+                return false;
+            }
+            Brightness = Math.Clamp(percent, 0, 100);
+            return true;
+        }
+    }
+
+    public bool SetKeyImage(int keyIndex, ReadOnlyMemory<byte> wireBytes)
+    {
+        lock (_io)
+        {
+            if (!_connected || keyIndex < 0 || keyIndex >= Model.KeyCount)
+            {
+                return false;
+            }
+            _keyImages[keyIndex] = wireBytes.ToArray();
+            return true;
+        }
+    }
+
+    public bool ClearKey(int keyIndex)
+    {
+        lock (_io)
+        {
+            if (!_connected || keyIndex < 0 || keyIndex >= Model.KeyCount)
+            {
+                return false;
+            }
+            _keyImages[keyIndex] = null;
+            return true;
+        }
+    }
+
+    public bool Reset()
+    {
+        lock (_io)
+        {
+            if (!_connected)
+            {
+                return false;
+            }
+            Array.Clear(_keyImages);
+            Brightness = 100;
+            ResetCount++;
+            return true;
+        }
+    }
+
+    public bool[]? ReadInput(int timeoutMs)
+    {
+        lock (_io)
+        {
+            if (!_connected || !_dirty)
+            {
+                return null;
+            }
+            _dirty = false;
+            return (bool[])_pressed.Clone();
+        }
+    }
+
+    /// <summary>Test/dev hook: sets one key's pressed state, queuing a snapshot for the next ReadInput.</summary>
+    public void Poke(int keyIndex, bool pressed)
+    {
+        lock (_io)
+        {
+            if (keyIndex < 0 || keyIndex >= Model.KeyCount)
+            {
+                return;
+            }
+            _pressed[keyIndex] = pressed;
+            _dirty = true;
+        }
+    }
+
+    /// <summary>Test/dev hook: the last bytes pushed to a key, or null if never set / cleared.</summary>
+    public byte[]? PeekKeyImage(int keyIndex) =>
+        keyIndex >= 0 && keyIndex < Model.KeyCount ? _keyImages[keyIndex] : null;
+
+    /// <summary>Test hook: simulates an unplug.</summary>
+    public void SimulateDisconnect()
+    {
+        lock (_io)
+        {
+            _connected = false;
+        }
+    }
+
+    public void Dispose() { }
+}

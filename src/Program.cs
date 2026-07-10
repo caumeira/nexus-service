@@ -454,6 +454,7 @@ app.MapDiscordEndpoints();
 app.MapDevicesEndpoints();
 app.MapPeripheralEndpoints();
 app.MapKeebEndpoints();
+app.MapStreamDeckEndpoints();
 app.MapDisplayEndpoints();
 app.MapActivityEndpoints();
 app.MapLifecycleEndpoints();

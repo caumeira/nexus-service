@@ -126,6 +126,24 @@ public static class SupportedDevicesCatalog
         // HyperX
         Mouse("HyperX", "Pulsefire Haste",               "0x03F0", "0x038F", Caps("dpi", "polling")),
         Headset("HyperX", "Cloud II Wireless",           "0x03F0", "0x018B", Caps("battery")),
+
+        // Elgato Stream Deck - button-only models (dials/touchscreen Plus
+        // family out of scope). Gen1 (BMP) models are HID-verified on the
+        // Mini; gen2 (JPEG) models land in Phase 3.
+        Deck("Elgato", "Stream Deck Original",            "0x0FD9", "0x0060", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck Mini",                "0x0FD9", "0x0063", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck Mini MK.2",            "0x0FD9", "0x0090", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck Mini Discord",         "0x0FD9", "0x00B3", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck Mini MK.2 Module",     "0x0FD9", "0x00B8", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck Original V2",          "0x0FD9", "0x006D", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck MK.2",                 "0x0FD9", "0x0080", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck MK.2 Scissor",         "0x0FD9", "0x00A5", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck MK.2 Module",          "0x0FD9", "0x00B9", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck XL",                   "0x0FD9", "0x006C", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck XL V2",                "0x0FD9", "0x008F", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck XL V2 Module",         "0x0FD9", "0x00BA", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck Neo",                  "0x0FD9", "0x009A", Caps("keys", "brightness", "screen")),
+        Deck("Elgato", "Stream Deck Pedal",                "0x0FD9", "0x0086", Caps("keys")),
     };
 
     // These peripherals are driven by Nexus's native protocol stack (not OpenRGB),
@@ -138,6 +156,9 @@ public static class SupportedDevicesCatalog
 
     private static SupportedDeviceDto Headset(string vendor, string model, string vid, string pid, List<string> caps) =>
         new() { Vendor = vendor, Model = model, Category = "headset", VendorId = vid, ProductId = pid, Capabilities = caps, Source = "nexus" };
+
+    private static SupportedDeviceDto Deck(string vendor, string model, string vid, string pid, List<string> caps) =>
+        new() { Vendor = vendor, Model = model, Category = "controller", VendorId = vid, ProductId = pid, Capabilities = caps, Source = "nexus" };
 
     private static List<string> Caps(params string[] values) => new(values);
 }

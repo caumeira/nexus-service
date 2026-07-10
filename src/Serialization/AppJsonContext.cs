@@ -962,6 +962,13 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Diagnostics.Temperature.TemperatureAppUsageResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.OpenEventViewerResponse))]
 
+// Stream Deck (Phase 0 bench/dev routes)
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSummaryDto))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSummaryDto>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.GetStreamDecksResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.SetStreamDeckBrightnessBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSimPressBody))]
+
 // Metadata-only: skips the per-type generated fast-path writer, a large AOT
 // code cost across this context's roots; serialization runs through the
 // shared metadata-driven writer instead. Deserialization is metadata-driven
