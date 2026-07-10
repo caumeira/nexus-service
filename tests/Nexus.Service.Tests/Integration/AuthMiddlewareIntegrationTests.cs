@@ -29,7 +29,7 @@ public sealed class AuthMiddlewareIntegrationTests : IClassFixture<NexusAppFacto
     {
         var client = _factory.CreateClient();
 
-        var res = await client.GetAsync("/system/elevation");
+        var res = await client.GetAsync("/defaults");
 
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
     }
@@ -41,7 +41,7 @@ public sealed class AuthMiddlewareIntegrationTests : IClassFixture<NexusAppFacto
         client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", Token);
 
-        var res = await client.GetAsync("/system/elevation");
+        var res = await client.GetAsync("/defaults");
 
         Assert.Equal(HttpStatusCode.OK, res.StatusCode);
     }
@@ -53,7 +53,7 @@ public sealed class AuthMiddlewareIntegrationTests : IClassFixture<NexusAppFacto
         client.DefaultRequestHeaders.Authorization =
             new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "not-the-token");
 
-        var res = await client.GetAsync("/system/elevation");
+        var res = await client.GetAsync("/defaults");
 
         Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
     }

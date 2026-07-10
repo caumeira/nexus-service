@@ -241,36 +241,6 @@ public sealed class ProcessMonitor : BackgroundService
         });
         _latest = result;
     }
-
-    private static string ShellOut(string fileName, params string[] args)
-    {
-        try
-        {
-            var psi = new ProcessStartInfo
-            {
-                FileName = fileName,
-                RedirectStandardOutput = true,
-                RedirectStandardError = true,
-                UseShellExecute = false,
-                CreateNoWindow = true,
-            };
-            foreach (var a in args)
-            {
-                psi.ArgumentList.Add(a);
-            }
-
-            using var proc = Process.Start(psi);
-            if (proc is null)
-            {
-                return "";
-            }
-
-            var output = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit(3000);
-            return output;
-        }
-        catch { return ""; }
-    }
 }
 
 public class ProcessInfo

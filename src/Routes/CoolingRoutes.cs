@@ -14,10 +14,6 @@ public static class CoolingRoutes
 {
     public static void MapCoolingEndpoints(this WebApplication app)
     {
-        // Main cooling
-        app.MapGet("/cooling/all", (ICoolingProvider c) =>
-            new GetAllCoolingResponse { CoolingComponents = new(c.GetAll()) }).AllowPanel();
-
         // Curves
         app.MapGet("/cooling/curves", (Nexus.Service.Persistence.IConfigStore store) =>
         {

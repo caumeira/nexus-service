@@ -17,8 +17,7 @@ internal delegate Task<string?> ApkDownloader(CancellationToken ct);
 /// <summary>
 /// Manual-flash path for the qshell APK on the connected Q-series panel.
 /// Installs qshell alongside the OEM launcher (both coexist), then sets qshell
-/// as the default HOME via cmd package set-home-activity. Revert is
-/// set-home-activity back to the OEM - no uninstall required.
+/// as the default HOME via cmd package set-home-activity.
 /// Acquires <see cref="FlashGate"/> so this flash and a concurrent DFU flash
 /// are mutually exclusive.
 /// </summary>
@@ -30,10 +29,6 @@ public sealed class ApkFlasher
 
     internal const string QshellPackage = "com.hellonexus.qshell";
     private const string QshellComponent = QshellPackage + "/" + QshellPackage + ".MainActivity";
-
-    // OEM home launcher that ships on the panel from the factory.
-    internal const string OemPackage = "com.companyname.thiccapp";
-    private const string OemComponent = OemPackage + "/" + OemPackage + ".MainActivity";
 
     // adb shell command that switches the default HOME launcher (no reboot needed).
     private const string SetHomeCmd = "cmd package set-home-activity ";
@@ -152,33 +147,6 @@ public sealed class ApkFlasher
         status.Error = "";
         _ = Task.Run(() => RunAsync(device, CancellationToken.None));
         return true;
-    }
-
-    /// <summary>
-    /// Switch the panel home back to the OEM launcher without uninstalling qshell.
-    /// Returns null on success, an error string on failure.
-    /// </summary>
-    public async Task<string?> RevertPanelHomeAsync(CancellationToken ct)
-    {
-        var device = _deviceRegistry.TryGet(QshellPackage);
-        if (device is null)
-        {
-            return "No Q-series panel is connected.";
-        }
-        try
-        {
-            var setHomeOut = (await device.ShellAsync(SetHomeCmd + OemComponent, ct)).Trim();
-            if (setHomeOut.Length > 0 && !setHomeOut.Contains("Success", StringComparison.OrdinalIgnoreCase))
-            {
-                return $"set-home-activity to OEM failed: {setHomeOut}";
-            }
-            await device.ShellAsync(GoHomeCmd, ct);
-            return null;
-        }
-        catch (Exception ex)
-        {
-            return $"{ex.GetType().Name}: {ex.Message}";
-        }
     }
 
     private async Task RunAsync(IAdbDeviceTarget device, CancellationToken ct)

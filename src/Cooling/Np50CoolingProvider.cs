@@ -46,12 +46,6 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
     // it uses a different protocol command.
     private int _pendingLegacyDuty;
 
-    // Cached "is hub in software mode?" so we don't send the mode-switch
-    // command on every fan write. Hub may revert to motherboard mode if the
-    // 5s heartbeat lapses; we re-assert on reconnect.
-    private bool _softwareModeAsserted;
-    private string _lastConnectedSerial = "";
-
     // Channels under user-set software control. Used to surface Mode="Manual"
     // back to the panel - without it the panel snaps a freshly Manual-clicked
     // hub fan back to BIOS on the next cooling-topic refresh (see
@@ -200,7 +194,6 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
         if (_softwareControlled.Count == 0)
         {
             _hub.SetDesiredCoolingMode(Np50Protocol.ModeMotherboard);
-            _softwareModeAsserted = false;
         }
     }
 
@@ -209,7 +202,6 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
         _softwareControlled.Clear();
         if (!_hub.IsConnected) return;
         _hub.SetDesiredCoolingMode(Np50Protocol.ModeMotherboard);
-        _softwareModeAsserted = false;
     }
 
     public Task<IReadOnlyList<FanCalibration>> CalibrateAsync(
@@ -339,19 +331,6 @@ public sealed class Np50CoolingProvider : IFanControlProvider, ICoolingProvider
             for (var i = connected; i < portList.Length; i++) portList[i] = 0;
         }
         _hub.SetPortFanSpeeds(port, portList);
-    }
-
-    // Kept for ReleaseFan/ReleaseAll to track that software-mode was once
-    // asserted. ApplyChannelWrite now re-asserts on every write directly so
-    // a 5s-heartbeat-lapse doesn't strand the hub in motherboard mode.
-    private void AssertSoftwareModeIfNeeded()
-    {
-        if (_softwareModeAsserted && _lastConnectedSerial == _hub.State.Serial) return;
-        if (_hub.SetCoolingMode(Np50Protocol.ModeSoftware))
-        {
-            _softwareModeAsserted = true;
-            _lastConnectedSerial = _hub.State.Serial;
-        }
     }
 
     private static bool TryParsePortDev(string channelId, out int port, out int dev)

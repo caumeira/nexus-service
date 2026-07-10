@@ -164,12 +164,6 @@ public static class LightingRoutes
             PanelTopics.BroadcastLighting(hub);
             return ApiResponse.Ok();
         }).AllowPanel();
-        app.MapPost("/lighting/gif/headless-start", (GifHeadlessStart body, ILightingProvider l, MultiplexHub hub) =>
-        {
-            l.StartGif(body);
-            PanelTopics.BroadcastLighting(hub);
-            return ApiResponse.Ok();
-        }).AllowPanel();
         // Screen Mirror + Media post-process (hue / colorize / saturation / contrast).
         // Same shape for both modes so the right-pane Effect tab can drive either
         // with one slider set.

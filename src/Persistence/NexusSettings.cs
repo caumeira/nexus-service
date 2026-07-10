@@ -398,7 +398,6 @@ public sealed class CoolingSettings
     /// fresh install (seed Silent/Balanced/Turbo) from a profile the user has
     /// since emptied (leave it empty - do not resurrect the presets).</summary>
     public bool CurvesSeeded { get; set; }
-    public MiniHubLayout MiniHubLayout { get; set; } = new();
     /// <summary>User-defined fan names keyed by channel ID. Only valid while the hardware mapping is unchanged.</summary>
     public Dictionary<string, string> FanNames { get; set; } = new();
     public Dictionary<string, Nexus.Service.Models.Cooling.FanCalibration> FanCalibrations { get; set; } = new();
@@ -481,14 +480,6 @@ public sealed class GraphPoint
 {
     public double Temp { get; set; }
     public double Speed { get; set; }
-}
-
-public sealed class MiniHubLayout
-{
-    public int Port1 { get; set; }
-    public int Port2 { get; set; }
-    public int Port3 { get; set; }
-    public int Port4 { get; set; }
 }
 
 public sealed class Y70Settings

@@ -866,16 +866,6 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
         });
     }
 
-    public void StartGif(GifHeadlessStart body)
-    {
-        EnsureRgbActive();
-        if (body.Paths.Count > 0 && System.IO.File.Exists(body.Paths[0]))
-        {
-            _engine.SetEffect(new GifEffect(body.Paths[0]));
-        }
-        _store.Update(s => s.Lighting.Sync = "gif");
-    }
-
     // Fires on the scanner's background thread after each scan completes.
     // Ensures the GSI cfg is present when Game Sync is active and a supported
     // GSI game was found, without requiring the user to re-toggle.

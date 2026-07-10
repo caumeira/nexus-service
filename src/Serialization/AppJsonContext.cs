@@ -45,8 +45,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(GetModelResponse))]
 [JsonSerializable(typeof(GetGpuModelsResponse))]
 [JsonSerializable(typeof(CpuHealthResponse))]
-[JsonSerializable(typeof(ProcessElevationResponse))]
-[JsonSerializable(typeof(ProcessElevationRelaunchResponse))]
 [JsonSerializable(typeof(GetStoragePartitionsResponse))]
 [JsonSerializable(typeof(GetDriveStorageResponse))]
 [JsonSerializable(typeof(SystemSpecsResponse))]
@@ -413,7 +411,6 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(ScreenSyncOptions))]
 [JsonSerializable(typeof(ScreenSyncMonitor))]
 [JsonSerializable(typeof(List<ScreenSyncMonitor>))]
-[JsonSerializable(typeof(GifHeadlessStart))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncFrameBody))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncDeviceInfo))]
 [JsonSerializable(typeof(Nexus.Service.Models.Lighting.GameSyncStateResponse))]
@@ -887,12 +884,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiLightingRequest))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiModeInfoDto))]
 [JsonSerializable(typeof(Nexus.Service.Routes.LianLiModeInfoDto[]))]
-// Lian Li L-Wireless (SLV3) dongle: discovery + bind/unbind/identify/channel.
+// Lian Li L-Wireless (SLV3) dongle: discovery + bind/unbind/identify.
 [JsonSerializable(typeof(Nexus.Service.Peripherals.LianLiWireless.Slv3State))]
 [JsonSerializable(typeof(Nexus.Service.Peripherals.LianLiWireless.Slv3FanInfo))]
 [JsonSerializable(typeof(Nexus.Service.Peripherals.LianLiWireless.Slv3FanInfo[]))]
 [JsonSerializable(typeof(Nexus.Service.Routes.Slv3MacRequest))]
-[JsonSerializable(typeof(Nexus.Service.Routes.Slv3ChannelRequest))]
 // Lian Li L-Wireless SL-LCD fan screens: discovery/settings, content, media library.
 [JsonSerializable(typeof(Nexus.Service.Peripherals.LianLiWireless.Slv3LcdMediaItem))]
 [JsonSerializable(typeof(Nexus.Service.Routes.Slv3LcdScreenDto))]

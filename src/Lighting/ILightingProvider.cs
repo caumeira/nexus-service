@@ -23,7 +23,6 @@ public interface ILightingProvider
     void StartMusic(MusicHeadlessStart body);
     void StartScreen(ScreenHeadlessStart body);
     void ReselectScreen();
-    void StartGif(GifHeadlessStart body);
     bool StartMedia(string mediaId);
     void StartMediaIdle();
 

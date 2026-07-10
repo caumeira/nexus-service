@@ -23,37 +23,6 @@ public static class SystemRoutes
 {
     public static void MapSystemEndpoints(this WebApplication app)
     {
-        app.MapGet("/system/elevation", () =>
-        {
-            var platform = OperatingSystem.IsWindows() ? "windows"
-                : OperatingSystem.IsMacOS() ? "macos"
-                : "linux";
-            var elevation = ProcessElevation.GetCurrent();
-            return new ProcessElevationResponse
-            {
-                Platform = platform,
-                Supported = elevation.Supported,
-                IsElevated = elevation.IsElevated,
-                Status = elevation.Status,
-            };
-        }).AllowPanel();
-
-        app.MapPost("/system/elevation/relaunch", () =>
-        {
-            var result = ProcessRelauncher.TryRelaunchAsAdmin();
-            return new ProcessElevationRelaunchResponse
-            {
-                Result = result switch
-                {
-                    RelaunchResult.Started => "started",
-                    RelaunchResult.AlreadyElevated => "already-elevated",
-                    RelaunchResult.Unsupported => "unsupported",
-                    RelaunchResult.UserDenied => "user-denied",
-                    _ => "failed",
-                },
-            };
-        });
-
         // No REST sensor endpoints - all hardware sensor / model data is
         // delivered via the `/monitoring` topic over the multiplex WebSocket.
         // RAM capacity ships as `theoreticalMaximum` on the Memory Used sensor.

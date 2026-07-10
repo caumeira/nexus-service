@@ -133,22 +133,5 @@ public static partial class DevicesRoutes
         // navigating between tabs. Both FirmwareFlasher and ApkFlasher write
         // to the same FlashGate.Status object, so this endpoint covers both.
         app.MapGet("/devices/firmware/flash/status", (FirmwareFlasher flasher) => flasher.Status);
-
-#if DEV_TOOLS
-        // Revert the panel home launcher back to the OEM (com.companyname.thiccapp).
-        // Does not uninstall qshell; the switch is instant and lossless.
-        app.MapPost("/devices/firmware/panel-app/revert-home", async (ApkFlasher apkFlasher, CancellationToken ct) =>
-        {
-            var error = await apkFlasher.RevertPanelHomeAsync(ct);
-            if (error is null)
-            {
-                return Results.Json(new FlashStartResponse { Started = true }, AppJsonContext.Default.FlashStartResponse);
-            }
-            return Results.Json(
-                new FlashStartResponse { Error = true, Msg = error, Started = false },
-                AppJsonContext.Default.FlashStartResponse,
-                statusCode: StatusCodes.Status409Conflict);
-        });
-#endif
     }
 }

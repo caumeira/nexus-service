@@ -59,10 +59,8 @@ Test-Endpoint "GET" "/system/gpu/sensors" $null $token
 Test-Endpoint "GET" "/system/gpu/model" $null $token
 Test-Endpoint "GET" "/system/storage/sensors" $null $token
 Test-Endpoint "GET" "/system/os-version" $null $token
-Test-Endpoint "GET" "/system/elevation" $null $token
 Test-Endpoint "GET" "/system/volume" $null $token
 Test-Endpoint "GET" "/lighting/current" $null $token
-Test-Endpoint "GET" "/cooling/all" $null $token
 Test-Endpoint "GET" "/keeb/settings" $null $token
 Test-Endpoint "GET" "/y70/status" $null $token
 Test-Endpoint "GET" "/displays" $null $token
