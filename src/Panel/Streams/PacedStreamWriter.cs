@@ -23,6 +23,8 @@ public sealed class PacedStreamWriter : IDisposable
     private readonly Thread _thread;
     private IStreamedPanelTransport? _transport;
     private long _lastWriteStallLogTicks;
+    private long _lastStatsLogTicks;
+    private (long Enqueued, long Sent, long Dropped, long Trims, int Depth) _lastStats;
     private volatile bool _disposed;
 
     public PacedStreamWriter(StreamSession session, Action<IStreamedPanelTransport, Exception> onTransportFault)
@@ -84,6 +86,18 @@ public sealed class PacedStreamWriter : IDisposable
 
                 WaitUntil(deadline);
                 var now = Stopwatch.GetTimestamp();
+                if (_lastStatsLogTicks == 0) _lastStatsLogTicks = now;
+                if (now - _lastStatsLogTicks > Stopwatch.Frequency * 30)
+                {
+                    var stats = _session.StatsSnapshot();
+                    var secs = (now - _lastStatsLogTicks) / (double)Stopwatch.Frequency;
+                    ServiceLog.Info(
+                        $"[streamed-panel] stats serial={_session.Info.Serial} in={(stats.Enqueued - _lastStats.Enqueued) / secs:F1}fps " +
+                        $"out={(stats.Sent - _lastStats.Sent) / secs:F1}fps depth={stats.Depth} " +
+                        $"dropped={stats.Dropped - _lastStats.Dropped} trims={stats.Trims - _lastStats.Trims}");
+                    _lastStats = stats;
+                    _lastStatsLogTicks = now;
+                }
                 // A late tick (blocked write, empty stretch) must not bank
                 // debt that later bursts the wire; re-anchor instead. The
                 // threshold is a few frame intervals: banked debt below it

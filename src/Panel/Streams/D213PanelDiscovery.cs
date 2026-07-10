@@ -159,7 +159,12 @@ internal static class D213Profiles
                 CssWidth = 800,
                 CssHeight = 800,
                 Dpr = 1.0,
-                Fps = 60,
+                // Just below the panel's ~60Hz consumption so the delivery
+                // chain (socket, adb window, device fifo) runs empty and
+                // frames arrive paced instead of gulp-and-starve; at parity
+                // or above, one transient leaves those buffers standing full
+                // and the render-on-arrival player shows periodic time snaps.
+                Fps = 58,
                 BitrateKbps = 8000,
             };
         }
@@ -172,7 +177,8 @@ internal static class D213Profiles
             CssWidth = 1024,
             CssHeight = 600,
             Dpr = 1.0,
-            Fps = 60,
+            // Same consumption-slack rule as the q60 profile above.
+            Fps = 58,
             BitrateKbps = 8000,
         };
     }
