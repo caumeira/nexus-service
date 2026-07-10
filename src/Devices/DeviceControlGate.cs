@@ -42,6 +42,14 @@ public sealed class DeviceControlGate
         return DeviceControlPolicy.DefaultOn(handlerId);
     }
 
+    /// <summary>True when the user has made no explicit on/off choice for this handler (in neither list).</summary>
+    public bool IsUnset(string handlerId)
+    {
+        var devices = _store.Load().Devices;
+        return !devices.NexusControlDisabled.Contains(handlerId, StringComparer.OrdinalIgnoreCase)
+            && !devices.NexusControlEnabled.Contains(handlerId, StringComparer.OrdinalIgnoreCase);
+    }
+
     public void SetEnabled(string handlerId, bool enabled) => _store.Update(s =>
     {
         var devices = s.Devices;
