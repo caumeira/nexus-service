@@ -99,16 +99,17 @@ public class Slv3LightingFrameWriterTests
         var countAfterFirst = tx.SentFrames.Count;
         Assert.True(countAfterFirst > 0);
 
-        // Content changes but < MinPushIntervalMs elapsed: suppress the push so
-        // the fan's telemetry beacon keeps RF air time (else the device list
-        // reads zero fans and the controller looks "messed up").
+        // Content changes but less than the per-chain floor (one bound chain =
+        // one 33 ms tick) elapsed: suppress the push so the fan's telemetry
+        // beacon keeps RF air time (else the device list reads zero fans and
+        // the controller looks "messed up").
         FillAll(frames, 200, 50, 5);
-        now += 50 * TimeSpan.TicksPerMillisecond;
+        now += 20 * TimeSpan.TicksPerMillisecond;
         writer.Tick();
         Assert.Equal(countAfterFirst, tx.SentFrames.Count);
 
-        // Once the interval elapses, the latest frame goes out.
-        now += 100 * TimeSpan.TicksPerMillisecond;
+        // Once the floor elapses, the latest frame goes out.
+        now += 33 * TimeSpan.TicksPerMillisecond;
         writer.Tick();
         Assert.True(tx.SentFrames.Count > countAfterFirst);
     }

@@ -24,15 +24,17 @@ public sealed class Slv3LcdStreamingWorker : BackgroundService
     private const int SensorClockPollMs = 1000;
 
     private readonly Slv3LcdHub _hub;
+    private readonly Slv3Hub _rfHub;
     private readonly Slv3LcdMediaLibrary _library;
     private readonly Slv3LcdSensorReader _sensorReader;
     private readonly IConfigStore _store;
     private readonly DeviceControlGate _gate;
     private readonly Dictionary<string, CancellationTokenSource> _running = new(StringComparer.OrdinalIgnoreCase);
 
-    public Slv3LcdStreamingWorker(Slv3LcdHub hub, Slv3LcdMediaLibrary library, Slv3LcdSensorReader sensorReader, IConfigStore store, DeviceControlGate gate)
+    public Slv3LcdStreamingWorker(Slv3LcdHub hub, Slv3Hub rfHub, Slv3LcdMediaLibrary library, Slv3LcdSensorReader sensorReader, IConfigStore store, DeviceControlGate gate)
     {
         _hub = hub;
+        _rfHub = rfHub;
         _library = library;
         _sensorReader = sensorReader;
         _store = store;
@@ -144,6 +146,12 @@ public sealed class Slv3LcdStreamingWorker : BackgroundService
         {
             try
             {
+                // Arm the RF TX for LCD video traffic before pushing frames
+                // (L-Connect's ensure_video_mode); idempotent per RF connection,
+                // so this also re-arms after a dongle reconnect. The screens'
+                // video RF shares the 2.4 GHz air with the fan control link.
+                _rfHub.EnsureVideoMode();
+
                 var settings = _store.Load().Devices.LianLiWireless.Screens.TryGetValue(serial, out var s)
                     ? s
                     : new LianLiWirelessScreenSettings();

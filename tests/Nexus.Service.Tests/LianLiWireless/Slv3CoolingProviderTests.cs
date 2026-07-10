@@ -60,6 +60,23 @@ public class Slv3CoolingProviderTests
     }
 
     [Fact]
+    public void GetFanChannels_MinDuty_follows_the_fan_family()
+    {
+        var (hub, _, _) = Slv3TestHub.CreateConnected();
+        hub.State.Fans = new[]
+        {
+            new Slv3FanInfo { Mac = Mac, BoundToUs = true, FanCount = 1, FanType = 37 }, // SL-Infinity
+            new Slv3FanInfo { Mac = "AABBCCDDEEFF", BoundToUs = true, FanCount = 1, FanType = 24 }, // SLV3-LCD
+        };
+        var provider = new Slv3CoolingProvider(hub, new InMemoryConfigStore());
+
+        var channels = provider.GetFanChannels();
+
+        Assert.Equal(11, channels[0].MinDuty);
+        Assert.Equal(14, channels[1].MinDuty);
+    }
+
+    [Fact]
     public void GetFanChannels_skips_unbound_chains_and_zero_fan_count_chains()
     {
         var (hub, _, _) = Slv3TestHub.CreateConnected();

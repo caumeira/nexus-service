@@ -49,6 +49,7 @@ public sealed class Slv3CoolingProvider : IFanControlProvider, ICoolingProvider
         {
             if (!fan.BoundToUs || fan.FanCount <= 0) continue;
             var deviceName = $"Lian Li Wireless Fan ({fan.FanCount}x)";
+            var minDuty = Slv3Protocol.MinDutyPercentFor(Slv3Protocol.ClassifyFanFamily((byte)fan.FanType));
             for (var port = 0; port < fan.FanCount; port++)
             {
                 result.Add(new FanChannel
@@ -58,7 +59,7 @@ public sealed class Slv3CoolingProvider : IFanControlProvider, ICoolingProvider
                     DutyPercent = PortPwm(fan, port),
                     Rpm = PortRpm(fan, port),
                     Mode = PortPwm(fan, port) == Slv3Protocol.PwmFollowMotherboard ? FanModes.Auto : FanModes.Manual,
-                    MinDuty = Slv3Protocol.MinDutyPercent,
+                    MinDuty = minDuty,
                     DeviceId = DeviceId(fan.Mac),
                     DeviceName = deviceName,
                     PortLabel = $"Fan {port + 1}",

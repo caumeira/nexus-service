@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Nexus.Service.Peripherals.LianLiWireless;
 
 namespace Nexus.Service.Tests.LianLiWireless;
@@ -217,6 +218,163 @@ public class Slv3ProtocolTests
         Assert.Equal(0, pwm[3]);
     }
 
+    // ── SaveCfg / ResetAnother / video-mode frames (link-health) ──
+
+    [Fact]
+    public void BuildSaveCfg_broadcasts_to_ff_and_carries_the_master_mac()
+    {
+        var payload = Slv3Protocol.BuildSaveCfg(MasterMac);
+
+        Assert.Equal(Slv3Protocol.RfPayloadSize, payload.Length);
+        Assert.Equal(0x12, payload[0]);
+        Assert.Equal(0x15, payload[1]);            // RF_SaveCfg
+        Assert.Equal(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }, payload.AsSpan(2, 6).ToArray());
+        Assert.Equal(MasterMac, payload.AsSpan(8, 6).ToArray());
+        Assert.Equal(0xFF, payload[14]);
+        Assert.Equal(0, payload[15]);               // rest of the payload is zero
+    }
+
+    [Fact]
+    public void BuildResetAnother_emits_the_reset_command_with_no_body()
+    {
+        var frame = Slv3Protocol.BuildResetAnother();
+
+        Assert.Equal(64, frame.Length);
+        Assert.Equal(0x15, frame[0]);
+        for (var i = 1; i < frame.Length; i++)
+        {
+            Assert.Equal(0, frame[i]);
+        }
+    }
+
+    [Fact]
+    public void BuildVideoStart_emits_getmac_cmd_with_the_start_flag()
+    {
+        var frame = Slv3Protocol.BuildVideoStart();
+        Assert.Equal(0x11, frame[0]);
+        Assert.Equal(0x01, frame[1]);
+    }
+
+    [Fact]
+    public void BuildVideoPrep_lays_out_device_index_channel_and_ff()
+    {
+        var frame = Slv3Protocol.BuildVideoPrep(deviceIndex: 2, channel: 8);
+        Assert.Equal(0x10, frame[0]);
+        Assert.Equal(2, frame[1]);
+        Assert.Equal(8, frame[2]);
+        Assert.Equal(0xFF, frame[3]);
+    }
+
+    // ── ParseGetDevMoboDuty ──
+
+    [Fact]
+    public void ParseGetDevMoboDuty_returns_null_when_the_unavailable_bit_is_set()
+    {
+        var reply = new byte[4];
+        reply[0] = Slv3Protocol.UsbSendRf;
+        reply[2] = 0x80; // unavailable bit
+        reply[3] = 0;
+        Assert.Null(Slv3Protocol.ParseGetDevMoboDuty(reply));
+    }
+
+    [Fact]
+    public void ParseGetDevMoboDuty_returns_null_when_on_and_off_are_both_zero()
+    {
+        var reply = new byte[4];
+        reply[0] = Slv3Protocol.UsbSendRf;
+        reply[2] = 0;
+        reply[3] = 0;
+        Assert.Null(Slv3Protocol.ParseGetDevMoboDuty(reply));
+    }
+
+    [Fact]
+    public void ParseGetDevMoboDuty_computes_percent_from_on_and_off_times()
+    {
+        var reply = new byte[4];
+        reply[0] = Slv3Protocol.UsbSendRf;
+        reply[2] = 63; // off
+        reply[3] = 63; // on
+        Assert.Equal(50, Slv3Protocol.ParseGetDevMoboDuty(reply));
+
+        reply[2] = 0;
+        reply[3] = 255;
+        Assert.Equal(100, Slv3Protocol.ParseGetDevMoboDuty(reply));
+    }
+
+    // ── ChannelScanOrder ──
+
+    [Fact]
+    public void ChannelScanOrder_starts_at_default_and_covers_1_through_39_exactly_once()
+    {
+        var order = Slv3Protocol.ChannelScanOrder();
+
+        Assert.Equal(Slv3Protocol.DefaultChannel, order[0]);
+        Assert.Equal(39, order.Length);
+        Assert.Equal(39, new HashSet<byte>(order).Count);
+        for (byte ch = 1; ch <= 39; ch++)
+        {
+            Assert.Contains(ch, order);
+        }
+    }
+
+    // ── ClassifyFanFamily / LedsPerFanFor / MinDutyPercentFor / FloorDuty ──
+
+    [Theory]
+    [InlineData(19, Slv3FanFamily.Unknown)]
+    [InlineData(20, Slv3FanFamily.Slv3Led)]
+    [InlineData(23, Slv3FanFamily.Slv3Led)]
+    [InlineData(24, Slv3FanFamily.Slv3Lcd)]
+    [InlineData(26, Slv3FanFamily.Slv3Lcd)]
+    [InlineData(27, Slv3FanFamily.Tlv2Lcd)]
+    [InlineData(28, Slv3FanFamily.Tlv2Led)]
+    [InlineData(31, Slv3FanFamily.Tlv2Led)]
+    [InlineData(32, Slv3FanFamily.Tlv2Lcd)]
+    [InlineData(35, Slv3FanFamily.Tlv2Lcd)]
+    [InlineData(36, Slv3FanFamily.SlInf)]
+    [InlineData(39, Slv3FanFamily.SlInf)]
+    [InlineData(40, Slv3FanFamily.Cl)]
+    [InlineData(42, Slv3FanFamily.Cl)]
+    [InlineData(43, Slv3FanFamily.Unknown)]
+    public void ClassifyFanFamily_matches_the_documented_ranges(byte fansTypeByte, Slv3FanFamily expected)
+    {
+        Assert.Equal(expected, Slv3Protocol.ClassifyFanFamily(fansTypeByte));
+    }
+
+    [Theory]
+    [InlineData(Slv3FanFamily.Tlv2Lcd, 26)]
+    [InlineData(Slv3FanFamily.Tlv2Led, 26)]
+    [InlineData(Slv3FanFamily.SlInf, 44)]
+    [InlineData(Slv3FanFamily.Cl, 24)]
+    [InlineData(Slv3FanFamily.Slv3Led, 40)]
+    [InlineData(Slv3FanFamily.Slv3Lcd, 40)]
+    [InlineData(Slv3FanFamily.Unknown, 40)]
+    public void LedsPerFanFor_matches_family(Slv3FanFamily family, int expected)
+    {
+        Assert.Equal(expected, Slv3Protocol.LedsPerFanFor(family));
+    }
+
+    [Theory]
+    [InlineData(Slv3FanFamily.Tlv2Lcd, 10)]
+    [InlineData(Slv3FanFamily.Cl, 10)]
+    [InlineData(Slv3FanFamily.Tlv2Led, 11)]
+    [InlineData(Slv3FanFamily.SlInf, 11)]
+    [InlineData(Slv3FanFamily.Slv3Led, 14)]
+    [InlineData(Slv3FanFamily.Slv3Lcd, 14)]
+    [InlineData(Slv3FanFamily.Unknown, 14)]
+    public void MinDutyPercentFor_matches_family(Slv3FanFamily family, int expected)
+    {
+        Assert.Equal(expected, Slv3Protocol.MinDutyPercentFor(family));
+    }
+
+    [Fact]
+    public void FloorDuty_uses_the_family_minimum_but_leaves_zero_alone()
+    {
+        Assert.Equal(11, Slv3Protocol.FloorDuty(5, Slv3FanFamily.SlInf));
+        Assert.Equal(14, Slv3Protocol.FloorDuty(5, Slv3FanFamily.Slv3Lcd));
+        Assert.Equal(0, Slv3Protocol.FloorDuty(0, Slv3FanFamily.SlInf));
+        Assert.Equal(0, Slv3Protocol.FloorDuty(0, Slv3FanFamily.Cl));
+    }
+
     // ── Device record parsing ──
 
     [Fact]
@@ -280,6 +438,28 @@ public class Slv3ProtocolTests
         rec[41] = 0x1C;
         Assert.True(Slv3Protocol.TryParseRecord(reply, Slv3Protocol.RecordHeaderLength, out var record));
         Assert.Equal(100, record.Pwm[0]);
+    }
+
+    [Fact]
+    public void TryParseRecord_surfaces_family_from_the_first_nonzero_fans_type_byte()
+    {
+        var reply = new byte[Slv3Protocol.RecordHeaderLength + Slv3Protocol.RecordLength];
+        var rec = reply.AsSpan(Slv3Protocol.RecordHeaderLength);
+        rec[24] = 37; // SL-Infinity
+        rec[41] = Slv3Protocol.RecordValidator;
+
+        Assert.True(Slv3Protocol.TryParseRecord(reply, Slv3Protocol.RecordHeaderLength, out var record));
+        Assert.Equal(Slv3FanFamily.SlInf, record.Family);
+    }
+
+    [Fact]
+    public void TryParseRecord_family_is_unknown_when_fans_type_is_all_zero()
+    {
+        var reply = new byte[Slv3Protocol.RecordHeaderLength + Slv3Protocol.RecordLength];
+        reply[Slv3Protocol.RecordHeaderLength + 41] = Slv3Protocol.RecordValidator;
+
+        Assert.True(Slv3Protocol.TryParseRecord(reply, Slv3Protocol.RecordHeaderLength, out var record));
+        Assert.Equal(Slv3FanFamily.Unknown, record.Family);
     }
 
     [Fact]

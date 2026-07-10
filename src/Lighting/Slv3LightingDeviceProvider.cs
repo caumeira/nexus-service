@@ -77,7 +77,10 @@ public sealed class Slv3LightingDeviceProvider : ILightingDeviceProvider, ILight
         foreach (var fan in _hub.State.Fans)
         {
             if (!fan.BoundToUs) continue;
-            sb.Append('|').Append(fan.Mac).Append(':').Append(fan.FanCount);
+            // FanType is part of the signature because the family sets the LED
+            // count: a chain first seen with a starved beacon (fans_type all 0,
+            // Unknown family) rebuilds once the real subtype arrives.
+            sb.Append('|').Append(fan.Mac).Append(':').Append(fan.FanCount).Append(':').Append(fan.FanType);
         }
         return sb.ToString();
     }
@@ -308,13 +311,18 @@ public sealed class Slv3LightingDeviceProvider : ILightingDeviceProvider, ILight
         return structures;
     }
 
+    /// <summary>Half the family's wire LED count: the two ring zones split each fan's LEDs evenly (v1 approximation).</summary>
+    internal static int RingLedsFor(Slv3FanInfo fan) =>
+        Slv3Protocol.LedsPerFanFor(Slv3Protocol.ClassifyFanFamily((byte)fan.FanType)) / 2;
+
     private static DeviceStructure BuildStructure(Slv3FanInfo fan)
     {
         var deviceId = DeviceIdFor(fan.Mac);
         var deviceKey = DeviceKeyComputer.ForFirstParty(Slv3Protocol.TxVendorId, Slv3Protocol.TxProductId, "wireless-fan");
-        var ringLeds = fan.FanCount * LedsPerFanPerRing;
-        var (innerU, innerV) = BuildFanRingUV(fan.FanCount, InnerRadius);
-        var (outerU, outerV) = BuildFanRingUV(fan.FanCount, OuterRadius);
+        var ledsPerRing = RingLedsFor(fan);
+        var ringLeds = fan.FanCount * ledsPerRing;
+        var (innerU, innerV) = BuildFanRingUV(fan.FanCount, InnerRadius, ledsPerRing);
+        var (outerU, outerV) = BuildFanRingUV(fan.FanCount, OuterRadius, ledsPerRing);
 
         var structure = new DeviceStructure
         {
@@ -365,22 +373,22 @@ public sealed class Slv3LightingDeviceProvider : ILightingDeviceProvider, ILight
         return structure;
     }
 
-    // One ring of LedsPerFanPerRing LEDs per fan, fans laid side by side along
+    // One ring of ledsPerRing LEDs per fan, fans laid side by side along
     // u; radius/fans in u keeps each ring round inside its column. Mirrors
     // LianLiZoneSupport.BuildFanRingUV.
-    private static (float[] u, float[] v) BuildFanRingUV(int fans, float radius)
+    private static (float[] u, float[] v) BuildFanRingUV(int fans, float radius, int ledsPerRing)
     {
-        var ledCount = fans * LedsPerFanPerRing;
+        var ledCount = fans * ledsPerRing;
         var u = new float[ledCount];
         var v = new float[ledCount];
         for (var f = 0; f < fans; f++)
         {
             var centerU = (f + 0.5f) / fans;
-            for (var i = 0; i < LedsPerFanPerRing; i++)
+            for (var i = 0; i < ledsPerRing; i++)
             {
-                var angle = (i / (double)LedsPerFanPerRing) * 2.0 * Math.PI;
-                u[f * LedsPerFanPerRing + i] = centerU + (radius / fans) * (float)Math.Cos(angle);
-                v[f * LedsPerFanPerRing + i] = 0.5f + radius * (float)Math.Sin(angle);
+                var angle = (i / (double)ledsPerRing) * 2.0 * Math.PI;
+                u[f * ledsPerRing + i] = centerU + (radius / fans) * (float)Math.Cos(angle);
+                v[f * ledsPerRing + i] = 0.5f + radius * (float)Math.Sin(angle);
             }
         }
         return (u, v);
