@@ -962,12 +962,28 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Diagnostics.Temperature.TemperatureAppUsageResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.OpenEventViewerResponse))]
 
-// Stream Deck (Phase 0 bench/dev routes)
+// Stream Deck
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSummaryDto))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSummaryDto>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.GetStreamDecksResponse))]
-[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.SetStreamDeckBrightnessBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.UpdateStreamDeckBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckConfigEnvelope))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckImageUploadResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckChangedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSimPressBody))]
+// Stream Deck binding model - the shared DeckAction/DeckConfig tree that
+// rides the GET/PUT config wire contract (see Nexus.Service.Deck.DeckActionModel).
+[JsonSerializable(typeof(Nexus.Service.Deck.DeckConfig))]
+[JsonSerializable(typeof(Nexus.Service.Deck.DeckFolder))]
+[JsonSerializable(typeof(Nexus.Service.Deck.DeckSlot))]
+[JsonSerializable(typeof(List<Nexus.Service.Deck.DeckSlot>))]
+[JsonSerializable(typeof(Nexus.Service.Deck.DeckIcon))]
+[JsonSerializable(typeof(Nexus.Service.Deck.DeckAction))]
+[JsonSerializable(typeof(Nexus.Service.Deck.DeckSystemAction))]
+[JsonSerializable(typeof(Nexus.Service.Deck.DeckNexusAction))]
+[JsonSerializable(typeof(Nexus.Service.Deck.DeckToggleState))]
+[JsonSerializable(typeof(Nexus.Service.Deck.DeckSequenceStep))]
+[JsonSerializable(typeof(List<Nexus.Service.Deck.DeckSequenceStep>))]
 
 // Metadata-only: skips the per-type generated fast-path writer, a large AOT
 // code cost across this context's roots; serialization runs through the

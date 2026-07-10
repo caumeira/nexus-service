@@ -241,5 +241,24 @@ public static class PanelTopics
         _ = hub.BroadcastTopicAsync(HomeAssistant, env);
     }
 
+    /// <summary>
+    /// Physical Stream Deck state changed. Unlike the bare-revision topics
+    /// above, this frame carries a discriminator (<c>Kind</c>: "decks" |
+    /// "config" | "nav" | "press") plus whatever fields that kind needs, so a
+    /// subscriber can react to nav/press live instead of only refetching.
+    /// </summary>
+    public const string StreamDeck = "streamdeck";
+
+    public static void BroadcastStreamDeck(MultiplexHub hub, Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckChangedFrame frame)
+    {
+        if (!hub.TopicHasSubscribers(StreamDeck))
+        {
+            return;
+        }
+        frame.Revision = Now();
+        var env = WsEnvelope.Build(StreamDeck, frame, AppJsonContext.Default.StreamDeckChangedFrame);
+        _ = hub.BroadcastTopicAsync(StreamDeck, env);
+    }
+
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 }
