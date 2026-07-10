@@ -44,6 +44,9 @@ $iss = Join-Path $scriptDir "Nexus.iss"
 # 72h, so /tr timestamping is mandatory: it keeps a signature valid after the
 # cert rotates.
 $signMetadata = Join-Path $scriptDir "signing-metadata.json"
+# Certs rotate daily (72h validity), so timestamping is mandatory; shared by
+# the sweep (Invoke-NexusSigning) and the ISCC /S sign-tool definition.
+$timestampUrl = "http://timestamp.acs.microsoft.com"
 
 function Resolve-SignTool {
     if ($SignToolPath -and (Test-Path $SignToolPath)) { return $SignToolPath }
@@ -100,8 +103,9 @@ function Invoke-NexusSigning {
     $st = Resolve-SignTool
     $dlib = Resolve-Dlib
     Write-Host "Signing $($targets.Count) file(s): $st"
+    $targets | ForEach-Object { Write-Host "  sign: $_" }
     foreach ($f in $targets) {
-        & $st sign /v /fd SHA256 /tr "http://timestamp.acs.microsoft.com" /td SHA256 `
+        & $st sign /v /fd SHA256 /tr $timestampUrl /td SHA256 `
             /dlib $dlib /dmdf $signMetadata $f
         if ($LASTEXITCODE -ne 0) { throw "signtool failed (exit $LASTEXITCODE) on $f" }
     }
@@ -183,15 +187,28 @@ if ((Test-Path $assetsDir) -and (Test-Path $indexHtml)) {
     Write-Host "wwwroot clean: $($all.Count) bundles, 0 orphaned."
 }
 
-# Sign first-party executables before Inno packages them, so the binaries the
-# user runs after install are signed (third-party bundles - OpenRGB, adb - are
-# launched by the signed service, never directly by the user, so they carry no
-# mark-of-the-web and are left unsigned).
+# Sign every PE in the payload before Inno packages it. Smart App Control
+# (Microsoft's SACVT preinstall validation) requires each .exe/.dll on the
+# image to chain to a trusted root regardless of who launches it, so bundled
+# third-party binaries are signed too. Files already validly signed keep
+# their original publisher signature (adb.exe - Google, diskspd.exe -
+# Microsoft). .sys is never re-signed: PawnIO.sys carries the kernel-mode
+# signature it needs to load, which a plain Authenticode sign would replace.
 if ($Sign) {
-    $firstParty = @(Join-Path $PublishDir "Nexus.exe")
-    $firstParty += Get-ChildItem $PublishDir -Recurse -Filter "nexus-overlay.exe" -ErrorAction SilentlyContinue |
-        ForEach-Object { $_.FullName }
-    Invoke-NexusSigning $firstParty
+    if (-not (Test-Path $signMetadata)) { throw "Missing signing metadata: $signMetadata" }
+    $unsigned = @(Get-ChildItem $PublishDir -Recurse -File -Force -Include *.exe, *.dll |
+        Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid' } |
+        ForEach-Object { $_.FullName })
+    Invoke-NexusSigning $unsigned
+
+    # Gate: nothing unsigned may reach the installer payload.
+    $stillUnsigned = @(Get-ChildItem $PublishDir -Recurse -File -Force -Include *.exe, *.dll, *.sys |
+        Where-Object { (Get-AuthenticodeSignature $_.FullName).Status -ne 'Valid' })
+    if ($stillUnsigned.Count -gt 0) {
+        $stillUnsigned | ForEach-Object { Write-Host "UNSIGNED: $($_.FullName)" }
+        throw "$($stillUnsigned.Count) PE file(s) unsigned after the signing sweep."
+    }
+    Write-Host "Signing gate: every PE under $PublishDir is validly signed."
 }
 
 # Drive the installer's displayed version from the VERSION file so Nexus-Setup.exe
@@ -202,9 +219,21 @@ $verFull = (Get-Content (Join-Path $scriptDir "..\VERSION") -Raw).Trim()
 $verNumeric = ($verFull -split '-')[0]
 $verInfo = "$verNumeric.0"
 
+$isccArgs = @("/DPublishDir=$PublishDir", "/DMyAppVersion=$verFull", "/DMyAppVersionInfo=$verInfo")
+if ($Sign) {
+    # Hand ISCC the sign tool so it signs Setup.exe AND the embedded
+    # uninstaller (SignedUninstaller in Nexus.iss) - the extracted
+    # unins000.exe is a PE on the installed image, so Smart App Control
+    # checks it like everything else. $q is Inno's double-quote escape.
+    $st = Resolve-SignTool
+    $dlib = Resolve-Dlib
+    $isccArgs += '/Snexussign=$q' + $st + '$q sign /fd SHA256 /tr ' + $timestampUrl + ' /td SHA256 /dlib $q' + $dlib + '$q /dmdf $q' + $signMetadata + '$q $q$f$q'
+    $isccArgs += "/DEnableSigning"
+}
+
 Push-Location $scriptDir
 try {
-    & $iscc /DPublishDir="$PublishDir" /DMyAppVersion="$verFull" /DMyAppVersionInfo="$verInfo" Nexus.iss
+    & $iscc @isccArgs Nexus.iss
     if ($LASTEXITCODE -ne 0) { throw "ISCC compile failed (exit $LASTEXITCODE)" }
 } finally {
     Pop-Location
@@ -212,9 +241,12 @@ try {
 
 $out = Join-Path $scriptDir "output\Nexus-Setup.exe"
 
-# Sign the installer before the drop copy and the hash, so SHA256SUMS (and the
-# OTA integrity check that reads it) covers the signed bytes.
-if ($Sign) { Invoke-NexusSigning @($out) }
+# ISCC already signed Setup.exe via the nexussign tool; assert it before the
+# drop copy and the hash, so SHA256SUMS (and the OTA integrity check that
+# reads it) covers the signed bytes.
+if ($Sign -and (Get-AuthenticodeSignature $out).Status -ne 'Valid') {
+    throw "Nexus-Setup.exe is not validly signed after ISCC"
+}
 
 $dropDir = (Resolve-Path (Join-Path $scriptDir "..\..")).Path
 $drop    = Join-Path $dropDir "Nexus-Setup.exe"

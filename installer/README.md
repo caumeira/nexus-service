@@ -47,9 +47,9 @@ release.
 Optional flags:
 - `-PublishDir <path>`  the AOT publish dir to wrap (pass `$env:ProgramFiles\Nexus`)
 - `-OpenOutput`         open Explorer at the resulting file
-- `-Sign`               Authenticode-sign the first-party binaries and the
-  installer via Azure Artifact Signing (see Code signing below); omit for a
-  fast unsigned dev build
+- `-Sign`               Authenticode-sign every PE in the payload, the embedded
+  uninstaller, and the installer via Azure Artifact Signing (see Code signing
+  below); omit for a fast unsigned dev build
 - `-SignToolPath` / `-DlibPath`  override the auto-probed signtool / dlib paths
 
 ### Keep it lean
@@ -97,18 +97,26 @@ page; it carries a "Create a desktop shortcut" checkbox (ticked by default).
 
 Pass `-Sign` to Authenticode-sign the release via **Azure Artifact Signing**
 (formerly "Trusted Signing"), under the **American Future Technology Corp**
-publisher identity. The script signs `Nexus.exe` and `nexus-overlay.exe` before
-Inno packages them, then `Nexus-Setup.exe` after Inno produces it but before the
-`SHA256SUMS` hash, so the published hash (and the OTA integrity check) covers the
-signed bytes. Bundled third-party binaries (`OpenRGB-headless.exe`, `adb.exe`)
-are launched by the signed service, never directly by the user, so they carry no
-mark-of-the-web and are left unsigned. `PawnIO.sys` is WHQL-signed by its author.
+publisher identity. The script signs **every `.exe`/`.dll` in the payload**
+that is not already validly signed - bundled third-party binaries included -
+then hard-fails if any PE remains unsigned. Smart App Control (Microsoft's
+SACVT preinstall validation) requires every PE on the image to chain to a
+trusted root regardless of who launches it, so "launched only by the service"
+binaries like `OpenRGB-headless.exe` are signed too. Files that already carry
+a valid publisher signature (`adb.exe` - Google, `diskspd.exe` - Microsoft)
+are left untouched, as is `PawnIO.sys` (kernel-mode signed by its author).
+Inno then signs the embedded uninstaller (`SignedUninstaller`, the extracted
+`unins000.exe` is a PE on the image too) and `Nexus-Setup.exe` itself, before
+the `SHA256SUMS` hash, so the published hash (and the OTA integrity check)
+covers the signed bytes.
 
 Account/profile/endpoint live in `signing-metadata.json` (non-secret). The signer
 authenticates with `DefaultAzureCredential`:
 
-- **CI** (`hello-nexus/nexus` `.github/workflows/ci.yml`): `azure/login` via OIDC
-  federated credentials (no stored secret), then `build-installer.ps1 -Sign`.
+- **CI** (`hello-nexus/nexus` `.github/workflows/build.yml`): `azure/login` via
+  OIDC federated credentials (no stored secret), then `build-installer.ps1 -Sign`
+  with `-DlibPath` pointing at the `Microsoft.Trusted.Signing.Client` NuGet
+  package's `bin/x64` dlib (signtool comes from the runner's Windows SDK).
 - **Local / build-pc**: install the client tools once and provide the
   service-principal env vars, then run with `-Sign`:
 
@@ -117,6 +125,13 @@ authenticates with `DefaultAzureCredential`:
   $env:AZURE_TENANT_ID="..."; $env:AZURE_CLIENT_ID="..."; $env:AZURE_CLIENT_SECRET="..."
   powershell -File installer\build-installer.ps1 -PublishDir "$env:ProgramFiles\Nexus" -Sign
   ```
+
+  Signing rewrites files in place, so a `-Sign` run against the live
+  `Program Files` tree needs every process holding a payload file closed
+  first - including the detached adb daemon, which outlives `net stop
+  NexusService` and keeps `tools\adb\` locked (kill the `adb.exe` whose
+  image path is the bundled copy, same as the installer's own
+  pre-install stop logic).
 
 The client tools bundle a compatible signtool + `Azure.CodeSigning.Dlib.dll`; the
 dlib does **not** work with the 10.0.20348 Windows SDK. Certs are valid only 72h,

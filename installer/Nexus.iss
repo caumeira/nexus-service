@@ -71,6 +71,13 @@ SetupIconFile=..\icon.ico
 ShowLanguageDialog=no
 CloseApplications=force
 RestartApplications=no
+; build-installer.ps1 -Sign defines EnableSigning and the nexussign tool via
+; /S. SignedUninstaller matters for Smart App Control: the extracted
+; unins000.exe is a PE on the installed image and must be signed like the rest.
+#ifdef EnableSigning
+SignTool=nexussign
+SignedUninstaller=yes
+#endif
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
