@@ -246,7 +246,10 @@ public sealed class AdbStreamTransport : IStreamedPanelTransport
 
     private void KillStalePlayers()
     {
-        RunAdbShell("killall player_demo mpp_video_test mpp_fs mpp_q60 cat httpd 2>/dev/null; true");
+        // test_lvgl is the stock boot demo; it repaints the fb continuously,
+        // so leaving it alive defeats the blank below and its animation shows
+        // in the bars around any non-fullscreen video window.
+        RunAdbShell("killall player_demo mpp_video_test mpp_fs mpp_q60 cat httpd test_lvgl 2>/dev/null; true");
     }
 
     // Video renders on the DE's own layer; the fb below still shows the dead
