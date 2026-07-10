@@ -111,7 +111,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
         var (factory, client) = Boot();
         using (factory)
         {
-            var putBody = "{\"config\":{\"slots\":[{\"label\":\"Lock\",\"action\":{\"type\":\"power\",\"powerAction\":\"lock\"}}]}}";
+            var putBody = "{\"config\":{\"slots\":[{\"label\":\"Lock\",\"action\":{\"type\":\"power\",\"action\":\"lock\"}}]}}";
             var put = await client.PutAsync("/streamdeck/decks/SERIAL-1/config", Json(putBody));
             Assert.True(put.IsSuccessStatusCode);
 
@@ -120,7 +120,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
             var slots = doc.RootElement.GetProperty("config").GetProperty("slots");
             Assert.Equal(1, slots.GetArrayLength());
             Assert.Equal("Lock", slots[0].GetProperty("label").GetString());
-            Assert.Equal("lock", slots[0].GetProperty("action").GetProperty("powerAction").GetString());
+            Assert.Equal("lock", slots[0].GetProperty("action").GetProperty("action").GetString());
 
             var store = factory.Services.GetRequiredService<IConfigStore>();
             Assert.Equal("Lock", store.Load().StreamDeck.Decks["SERIAL-1"].Deck.Slots[0].Label);

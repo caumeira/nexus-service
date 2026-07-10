@@ -1,20 +1,19 @@
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 
 namespace Nexus.Service.Deck;
 
 /// <summary>
 /// C# mirror of nexus-web's <c>panel/widgets/deck/types.ts</c> - the binding
 /// model both the virtual touch deck widget and physical Stream Deck configs
-/// share. Keep field-for-field in sync with that file.
-///
-/// System.Text.Json's source generator rejects two properties that resolve
-/// to the same JSON name, but the TS union reuses the field name "action" for
-/// three different variants (system/nexus/power). This mirror instead uses
-/// three distinct properties - <see cref="SystemAction"/>, <see cref="NexusAction"/>,
-/// <see cref="PowerAction"/> - so a wire payload produced straight from the TS
-/// <c>DeckAction</c> shape does not round-trip unmodified; the web-side
-/// physical-deck target adapter must map between the two shapes.
+/// share. Keep field-for-field in sync with that file. The wire shape is
+/// byte-for-byte the TS union (nexus-web's api/streamdeck.ts round-trips the
+/// native <c>DeckConfig</c> with no adapter), even though the reused JSON key
+/// "action" (system/nexus/power) needs three distinct C# properties -
+/// <see cref="SystemAction"/>, <see cref="NexusAction"/>,
+/// <see cref="PowerAction"/> - handled by <see cref="DeckActionConverter"/>.
 /// </summary>
+[JsonConverter(typeof(DeckActionConverter))]
 public sealed class DeckAction
 {
     /// <summary>
