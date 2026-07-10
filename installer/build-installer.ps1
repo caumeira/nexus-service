@@ -227,7 +227,8 @@ if ($Sign) {
     # checks it like everything else. $q is Inno's double-quote escape.
     $st = Resolve-SignTool
     $dlib = Resolve-Dlib
-    $isccArgs += '/Snexussign=$q' + $st + '$q sign /fd SHA256 /tr ' + $timestampUrl + ' /td SHA256 /dlib $q' + $dlib + '$q /dmdf $q' + $signMetadata + '$q $q$f$q'
+    # $f arrives pre-quoted from ISCC, so it must NOT get $q wrapping.
+    $isccArgs += '/Snexussign=$q' + $st + '$q sign /fd SHA256 /tr ' + $timestampUrl + ' /td SHA256 /dlib $q' + $dlib + '$q /dmdf $q' + $signMetadata + '$q $f'
     $isccArgs += "/DEnableSigning"
 }
 
