@@ -26,6 +26,7 @@ public sealed class StreamSession
     private long _sent;
     private long _dropped;
     private long _trims;
+    private long _maxIngestGapMs;
     private bool _waitingForIdr = true;
     private bool _ingestBound;
     private bool _transportUp;
@@ -140,12 +141,30 @@ public sealed class StreamSession
         get { lock (_lock) return _queue.Count; }
     }
 
+    /// <summary>The ingest reader reports each inter-frame arrival gap;
+    /// change-driven capture makes gaps routine on slow content, so only the
+    /// window maximum is surfaced (in the stats line), never per-frame.</summary>
+    public void RecordIngestGap(long gapMs)
+    {
+        lock (_lock)
+        {
+            if (gapMs > _maxIngestGapMs) _maxIngestGapMs = gapMs;
+        }
+    }
+
     /// <summary>Cumulative flow counters; deltas between reads give the
     /// interval's in/out rates, which expose a producer/consumer rate gap
-    /// the individual warn lines cannot.</summary>
-    public (long Enqueued, long Sent, long Dropped, long Trims, int Depth) StatsSnapshot()
+    /// the individual warn lines cannot. Dropped includes trimmed frames,
+    /// so enqueued - sent - dropped reconciles with depth. MaxIngestGapMs
+    /// is the maximum since the previous snapshot (reset on read).</summary>
+    public (long Enqueued, long Sent, long Dropped, long Trims, int Depth, long MaxIngestGapMs) StatsSnapshot()
     {
-        lock (_lock) return (_enqueued, _sent, _dropped, _trims, _queue.Count);
+        lock (_lock)
+        {
+            var maxGap = _maxIngestGapMs;
+            _maxIngestGapMs = 0;
+            return (_enqueued, _sent, _dropped, _trims, _queue.Count, maxGap);
+        }
     }
 
     private int FramesUntilIdrLocked()
@@ -175,9 +194,11 @@ public sealed class StreamSession
         _queue.Clear();
         if (newestIdr < 0 || frames.Length - newestIdr > _maxQueuedFrames)
         {
+            _dropped += frames.Length;
             _waitingForIdr = true;
             return;
         }
+        _dropped += newestIdr;
         for (var i = newestIdr; i < frames.Length; i++)
             _queue.Enqueue(frames[i]);
     }

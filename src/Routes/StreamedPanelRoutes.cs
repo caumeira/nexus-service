@@ -44,8 +44,8 @@ public static class StreamedPanelRoutes
             ctx.Features.Get<IHttpMinRequestBodyDataRateFeature>()?.MinDataRate = null;
 
             var reader = ctx.Request.BodyReader;
-            // An arrival gap here means the overlay produced nothing for that
-            // long: the content clock on glass jumps by the same amount.
+            // Arrival gaps are routine (capture is change-driven), so the
+            // session keeps only the window maximum for its stats line.
             long lastFrameTicks = 0;
             try
             {
@@ -59,11 +59,7 @@ public static class StreamedPanelRoutes
                         {
                             var now = System.Diagnostics.Stopwatch.GetTimestamp();
                             if (lastFrameTicks != 0)
-                            {
-                                var gapMs = (now - lastFrameTicks) * 1000 / System.Diagnostics.Stopwatch.Frequency;
-                                if (gapMs > 100)
-                                    ServiceLog.Warn($"[streamed-panel] ingest gap {gapMs}ms session={sessionId}");
-                            }
+                                session.RecordIngestGap((now - lastFrameTicks) * 1000 / System.Diagnostics.Stopwatch.Frequency);
                             lastFrameTicks = now;
                             session.Enqueue(frame);
                         }

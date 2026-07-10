@@ -77,11 +77,11 @@ public class D213ProfileTests
     [Fact]
     public void Resolve_record_overrides_fps_only()
     {
-        var record = new StreamedPanelRecord { PanelDeviceId = "dev-1", Fps = 30 };
+        var record = new StreamedPanelRecord { PanelDeviceId = "dev-1", Fps = 24 };
 
         var profile = D213Profiles.Resolve(record);
 
-        Assert.Equal(30, profile.Fps);
+        Assert.Equal(24, profile.Fps);
         Assert.Equal(3500, profile.BitrateKbps);
     }
 

@@ -24,7 +24,7 @@ public sealed class PacedStreamWriter : IDisposable
     private IStreamedPanelTransport? _transport;
     private long _lastWriteStallLogTicks;
     private long _lastStatsLogTicks;
-    private (long Enqueued, long Sent, long Dropped, long Trims, int Depth) _lastStats;
+    private (long Enqueued, long Sent, long Dropped, long Trims, int Depth, long MaxIngestGapMs) _lastStats;
     private volatile bool _disposed;
 
     public PacedStreamWriter(StreamSession session, Action<IStreamedPanelTransport, Exception> onTransportFault)
@@ -94,15 +94,15 @@ public sealed class PacedStreamWriter : IDisposable
                     ServiceLog.Info(
                         $"[streamed-panel] stats serial={_session.Info.Serial} in={(stats.Enqueued - _lastStats.Enqueued) / secs:F1}fps " +
                         $"out={(stats.Sent - _lastStats.Sent) / secs:F1}fps depth={stats.Depth} " +
-                        $"dropped={stats.Dropped - _lastStats.Dropped} trims={stats.Trims - _lastStats.Trims}");
+                        $"dropped={stats.Dropped - _lastStats.Dropped} trims={stats.Trims - _lastStats.Trims} " +
+                        $"maxInGap={stats.MaxIngestGapMs}ms");
                     _lastStats = stats;
                     _lastStatsLogTicks = now;
                 }
                 // A late tick (blocked write, empty stretch) must not bank
-                // debt that later bursts the wire; re-anchor instead. The
-                // threshold is a few frame intervals: banked debt below it
-                // flushes within ~100ms, and anything above drains through
-                // the pacing policy's bounded 2-per-tick catch-up.
+                // debt that later bursts the wire; re-anchor instead. What
+                // the re-anchor leaves queued drains through the pacing
+                // policy's bounded catch-up rather than a same-tick flush.
                 if (now - deadline > Stopwatch.Frequency / 10) deadline = now;
                 deadline += interval;
 

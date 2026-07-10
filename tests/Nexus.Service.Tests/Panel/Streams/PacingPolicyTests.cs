@@ -32,7 +32,7 @@ public class PacingPolicyTests
     [Fact]
     public void Waiting_for_idr_at_head_drops_nothing_and_sends_from_idr()
     {
-        var decision = PacingPolicy.Decide(queueDepth: 3, framesUntilIdr: 0, waitingForIdr: true);
+        var decision = PacingPolicy.Decide(queueDepth: PacingPolicy.CatchUpDepth, framesUntilIdr: 0, waitingForIdr: true);
 
         Assert.Equal(new PacingDecision(DropCount: 0, SendCount: 1, ClearWaitingForIdr: true), decision);
     }
@@ -40,7 +40,7 @@ public class PacingPolicyTests
     [Fact]
     public void Waiting_for_idr_with_remaining_exactly_catch_up_depth_sends_one()
     {
-        var decision = PacingPolicy.Decide(queueDepth: 8, framesUntilIdr: 2, waitingForIdr: true);
+        var decision = PacingPolicy.Decide(queueDepth: PacingPolicy.CatchUpDepth + 2, framesUntilIdr: 2, waitingForIdr: true);
 
         Assert.Equal(new PacingDecision(DropCount: 2, SendCount: 1, ClearWaitingForIdr: true), decision);
     }

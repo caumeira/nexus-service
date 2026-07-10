@@ -14,7 +14,12 @@ public readonly record struct PacingDecision(int DropCount, int SendCount, bool 
 /// </summary>
 public static class PacingPolicy
 {
-    public const int CatchUpDepth = 6;
+    // Steady state holds a small pipeline-phase depth; anything above it is
+    // banked debt (a stall, a writer re-anchor) that must drain back to
+    // live, or it stands as permanent glass latency. Profiles produce below
+    // the device's consumption rate, so the occasional double-send has
+    // headroom to deliver.
+    public const int CatchUpDepth = 2;
 
     public static PacingDecision Decide(int queueDepth, int framesUntilIdr, bool waitingForIdr)
     {
