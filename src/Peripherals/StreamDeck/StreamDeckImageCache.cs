@@ -32,9 +32,35 @@ public sealed class StreamDeckImageCache
 
     public static string Hash(byte[] bytes) => Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
 
-    /// <summary>Writes the bytes if not already cached (content-addressed, so a re-upload of the same image is a no-op write).</summary>
+    /// <summary>
+    /// Whitelists a device serial before it becomes a directory component,
+    /// matching every observed shape (real Elgato serials, the sd-&lt;hex&gt;
+    /// HID-path fallback, the sim-0001 simulator id) while rejecting path
+    /// traversal segments like ".." or "/".
+    /// </summary>
+    public static bool IsValidSerial(string? serial)
+    {
+        if (string.IsNullOrWhiteSpace(serial) || serial.Length > 64)
+        {
+            return false;
+        }
+        foreach (var ch in serial)
+        {
+            if (!char.IsLetterOrDigit(ch) && ch != '-' && ch != '_')
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>Writes the bytes if not already cached (content-addressed, so a re-upload of the same image is a no-op write). No-ops on an invalid serial.</summary>
     public void Store(string serial, string hash, byte[] bytes)
     {
+        if (!IsValidSerial(serial))
+        {
+            return;
+        }
         var path = PathFor(serial, hash);
         if (File.Exists(path))
         {
@@ -44,9 +70,13 @@ public sealed class StreamDeckImageCache
         File.WriteAllBytes(path, bytes);
     }
 
-    /// <summary>Returns the cached bytes, or null when never stored (or the cache was wiped).</summary>
+    /// <summary>Returns the cached bytes, or null when never stored, the serial is invalid, or the cache was wiped.</summary>
     public byte[]? Load(string serial, string hash)
     {
+        if (!IsValidSerial(serial))
+        {
+            return null;
+        }
         try
         {
             var path = PathFor(serial, hash);
@@ -55,6 +85,23 @@ public sealed class StreamDeckImageCache
         catch
         {
             return null;
+        }
+    }
+
+    /// <summary>Deletes one cached image. Used to evict a hash no longer referenced by any slot after a replace.</summary>
+    public void Evict(string serial, string hash)
+    {
+        if (!IsValidSerial(serial))
+        {
+            return;
+        }
+        try
+        {
+            File.Delete(PathFor(serial, hash));
+        }
+        catch
+        {
+            /* best effort */
         }
     }
 

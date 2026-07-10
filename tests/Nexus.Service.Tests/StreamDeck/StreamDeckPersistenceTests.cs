@@ -162,4 +162,85 @@ public class StreamDeckImageCacheTests : IDisposable
 
         Assert.Null(_cache.Load("SERIAL-2", hash));
     }
+
+    [Theory]
+    [InlineData("A00DA431130Y9Y")]
+    [InlineData("sd-1a2b3c4d")]
+    [InlineData("sim-0001")]
+    [InlineData("XL-SERIAL")]
+    [InlineData("a")]
+    public void IsValidSerial_AcceptsEveryObservedSerialShape(string serial)
+    {
+        Assert.True(StreamDeckImageCache.IsValidSerial(serial));
+    }
+
+    [Theory]
+    [InlineData("..")]
+    [InlineData("../evil")]
+    [InlineData("a/b")]
+    [InlineData("a\\b")]
+    [InlineData("/etc/passwd")]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData(null)]
+    public void IsValidSerial_RejectsTraversalAndEmptyPayloads(string? serial)
+    {
+        Assert.False(StreamDeckImageCache.IsValidSerial(serial));
+    }
+
+    [Fact]
+    public void IsValidSerial_RejectsLongerThan64Chars()
+    {
+        Assert.False(StreamDeckImageCache.IsValidSerial(new string('a', 65)));
+        Assert.True(StreamDeckImageCache.IsValidSerial(new string('a', 64)));
+    }
+
+    [Theory]
+    [InlineData("..")]
+    [InlineData("../evil")]
+    [InlineData("a/b")]
+    public void Store_WithTraversalSerial_WritesNothingOutsideTheCacheRoot(string serial)
+    {
+        var bytes = new byte[] { 1, 2, 3 };
+        var hash = StreamDeckImageCache.Hash(bytes);
+
+        _cache.Store(serial, hash, bytes);
+
+        // The only thing on disk under the parent of _tempDir must still be
+        // _tempDir itself (empty, since Store no-ops on an invalid serial) -
+        // nothing escaped into a sibling or ancestor directory.
+        var parent = Path.GetDirectoryName(_tempDir)!;
+        Assert.False(Directory.Exists(Path.Combine(parent, "evil")));
+        if (Directory.Exists(_tempDir))
+        {
+            Assert.Empty(Directory.GetFileSystemEntries(_tempDir));
+        }
+    }
+
+    [Theory]
+    [InlineData("..")]
+    [InlineData("../evil")]
+    public void Load_WithTraversalSerial_ReturnsNull(string serial)
+    {
+        Assert.Null(_cache.Load(serial, "0000000000000000000000000000000000000000000000000000000000000000"));
+    }
+
+    [Fact]
+    public void Evict_RemovesTheCachedFile()
+    {
+        var bytes = new byte[] { 4, 5, 6 };
+        var hash = StreamDeckImageCache.Hash(bytes);
+        _cache.Store("SERIAL-1", hash, bytes);
+        Assert.NotNull(_cache.Load("SERIAL-1", hash));
+
+        _cache.Evict("SERIAL-1", hash);
+
+        Assert.Null(_cache.Load("SERIAL-1", hash));
+    }
+
+    [Fact]
+    public void Evict_UnknownHash_IsANoOp()
+    {
+        _cache.Evict("SERIAL-1", "0000000000000000000000000000000000000000000000000000000000000000");
+    }
 }
