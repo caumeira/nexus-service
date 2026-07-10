@@ -65,6 +65,10 @@ namespace Nexus.Service.Serialization;
 // service / adb-server restarts.
 [JsonSerializable(typeof(QSeriesTransportRecord))]
 [JsonSerializable(typeof(Dictionary<string, QSeriesTransportRecord>))]
+// StreamedPanelStore: (device serial → panel record id + profile overrides)
+// so a streamed panel keeps its layout/theme across restarts/re-attaches.
+[JsonSerializable(typeof(Nexus.Service.Panel.Streams.StreamedPanelRecord))]
+[JsonSerializable(typeof(Dictionary<string, Nexus.Service.Panel.Streams.StreamedPanelRecord>))]
 // Smart (network) lights - paired Hue / Nanoleaf / WLED / etc. config.
 [JsonSerializable(typeof(SmartLightsSettings))]
 [JsonSerializable(typeof(SmartLightConfig))]

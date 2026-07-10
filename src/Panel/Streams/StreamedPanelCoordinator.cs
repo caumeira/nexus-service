@@ -1,0 +1,389 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Security.Cryptography;
+using System.Threading;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices;
+using Nexus.Service.Models.Panel;
+using Nexus.Service.Platform;
+
+namespace Nexus.Service.Panel.Streams;
+
+/// <summary>
+/// Owns streamed-panel sessions end to end: polls each registered
+/// <see cref="IStreamedPanelDiscovery"/>, allocates/reuses the panel device
+/// record per serial, opens the device transport, publishes desired sessions
+/// for the overlay's render engine (GET /panel/streams/assignments), binds
+/// the overlay's ingest connection, and runs one <see cref="PacedStreamWriter"/>
+/// per session. Device presence is runtime state: it never touches
+/// NexusSettings, and overlay lifetime is handled here (Start when sessions
+/// exist; teardown rides the overlay's idle-exit).
+/// </summary>
+public sealed class StreamedPanelCoordinator : BackgroundService
+{
+    private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(5);
+    // Absorbs the D213's known bus drops on host power events without
+    // tearing down the render host; past this the assignment is unpublished.
+    private static readonly TimeSpan DetachLinger = TimeSpan.FromSeconds(60);
+
+    private sealed class DeviceSession
+    {
+        public required StreamSession Session { get; init; }
+        public required PacedStreamWriter Writer { get; init; }
+        public required IStreamedPanelDiscovery Discovery { get; init; }
+        public required StreamedPanelDeviceInfo Info { get; init; }
+        public IStreamedPanelTransport? Transport { get; set; }
+        public long LastPresentAtMs { get; set; }
+        public HttpContext? IngestContext { get; set; }
+    }
+
+    private readonly object _lock = new();
+    private readonly Dictionary<string, DeviceSession> _bySerial = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DeviceSession> _bySessionId = new(StringComparer.Ordinal);
+    private readonly IReadOnlyList<IStreamedPanelDiscovery> _discoveries;
+    private readonly StreamedPanelStore _store;
+    private readonly PanelDeviceRegistry _registry;
+    private readonly DeviceControlGate _gate;
+    private readonly IOverlayHost _overlayHost;
+    private readonly Action? _notifyOverlay;
+    private readonly Func<long> _nowMs;
+
+    public StreamedPanelCoordinator(
+        IEnumerable<IStreamedPanelDiscovery> discoveries,
+        StreamedPanelStore store,
+        PanelDeviceRegistry registry,
+        DeviceControlGate gate,
+        IOverlayHost overlayHost,
+        Action? notifyOverlay = null,
+        Func<long>? nowMs = null)
+    {
+        _discoveries = discoveries.ToList();
+        _store = store;
+        _registry = registry;
+        _gate = gate;
+        _overlayHost = overlayHost;
+        _notifyOverlay = notifyOverlay;
+        _nowMs = nowMs ?? (() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds());
+    }
+
+    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    {
+        if (_discoveries.Count == 0) return;
+
+        try { await Task.Delay(TimeSpan.FromSeconds(2), stoppingToken); }
+        catch (TaskCanceledException) { return; }
+
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try
+            {
+                TickOnce();
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Error($"[streamed-panel] tick failed: {ex.GetType().Name}: {ex.Message}");
+            }
+
+            try { await Task.Delay(PollInterval, stoppingToken); }
+            catch (TaskCanceledException) { break; }
+        }
+
+        CloseAll("service stopping");
+    }
+
+    internal void TickOnce()
+    {
+        var changed = false;
+        foreach (var discovery in _discoveries)
+        {
+            var enabled = _gate.IsEnabled(discovery.HandlerId);
+            IReadOnlyList<StreamedPanelDeviceInfo> devices;
+            if (!enabled)
+            {
+                devices = Array.Empty<StreamedPanelDeviceInfo>();
+            }
+            else
+            {
+                try
+                {
+                    devices = discovery.Discover();
+                }
+                catch (Exception ex)
+                {
+                    ServiceLog.Error($"[streamed-panel] discover failed ({discovery.HandlerId}): {ex.GetType().Name}: {ex.Message}");
+                    continue;
+                }
+            }
+
+            var now = _nowMs();
+            var present = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var info in devices) present.Add(info.Serial);
+
+            foreach (var info in devices)
+            {
+                DeviceSession? existing;
+                lock (_lock) _bySerial.TryGetValue(info.Serial, out existing);
+                if (existing is not null && !ProfilesEqual(existing.Info.Profile, info.Profile))
+                {
+                    // Config changes re-mint the session (fresh sessionId) so
+                    // the overlay's reconcile is a pure spawn/close diff.
+                    CloseSession(existing, "profile changed");
+                    existing = null;
+                    changed = true;
+                }
+                if (existing is not null)
+                {
+                    existing.LastPresentAtMs = now;
+                    if (existing.Transport is null || !existing.Transport.IsOpen)
+                        TryReopenTransport(existing);
+                }
+                else if (StartSession(discovery, info, now))
+                {
+                    changed = true;
+                }
+            }
+
+            List<DeviceSession> absent;
+            lock (_lock)
+            {
+                absent = _bySerial.Values
+                    .Where(ds => ReferenceEquals(ds.Discovery, discovery) && !present.Contains(ds.Info.Serial))
+                    .ToList();
+            }
+            foreach (var ds in absent)
+            {
+                if (!enabled)
+                {
+                    CloseSession(ds, "control gate off");
+                    changed = true;
+                }
+                else if (now - ds.LastPresentAtMs > DetachLinger.TotalMilliseconds)
+                {
+                    CloseSession(ds, "detached past linger");
+                    changed = true;
+                }
+            }
+        }
+
+        bool anySessions;
+        lock (_lock) anySessions = _bySerial.Count > 0;
+        if (anySessions && !_overlayHost.IsRunning)
+            _overlayHost.Start();
+        if (changed)
+            _notifyOverlay?.Invoke();
+    }
+
+    public StreamAssignmentsResponse GetAssignments()
+    {
+        var response = new StreamAssignmentsResponse();
+        lock (_lock)
+        {
+            foreach (var ds in _bySerial.Values)
+            {
+                if (ds.Session.Closed) continue;
+                var p = ds.Info.Profile;
+                response.Assignments.Add(new StreamAssignmentDto
+                {
+                    SessionId = ds.Session.SessionId,
+                    PanelDeviceId = ds.Session.PanelDeviceId,
+                    CssWidth = p.CssWidth,
+                    CssHeight = p.CssHeight,
+                    Dpr = p.Dpr,
+                    Fps = p.Fps,
+                    BitrateKbps = p.BitrateKbps,
+                });
+            }
+        }
+        return response;
+    }
+
+    /// <summary>
+    /// Binds an ingest connection to its session. A second connection for a
+    /// live session supersedes the first (overlay hard-kill leaves a half-open
+    /// socket the new connection must displace). Returns null for unknown or
+    /// closed sessions; the overlay treats 404 as "close host and re-reconcile".
+    /// </summary>
+    public StreamSession? TryBindIngest(string sessionId, HttpContext ctx)
+    {
+        HttpContext? superseded = null;
+        StreamSession? session = null;
+        lock (_lock)
+        {
+            if (_bySessionId.TryGetValue(sessionId, out var ds) && !ds.Session.Closed)
+            {
+                superseded = ds.IngestContext;
+                ds.IngestContext = ctx;
+                ds.Session.ResetForNewIngest();
+                session = ds.Session;
+            }
+        }
+        if (superseded is not null)
+        {
+            try { superseded.Abort(); } catch { }
+        }
+        if (session is not null)
+            ServiceLog.Info($"[streamed-panel] ingest bound session={sessionId}{(superseded is not null ? " (superseded previous)" : "")}");
+        return session;
+    }
+
+    public void OnIngestClosed(string sessionId, HttpContext ctx)
+    {
+        lock (_lock)
+        {
+            if (!_bySessionId.TryGetValue(sessionId, out var ds)) return;
+            if (!ReferenceEquals(ds.IngestContext, ctx)) return;
+            ds.IngestContext = null;
+            ds.Session.SetIngestBound(false);
+        }
+        ServiceLog.Info($"[streamed-panel] ingest closed session={sessionId}");
+    }
+
+    public override Task StopAsync(CancellationToken cancellationToken)
+    {
+        CloseAll("service stopping");
+        return base.StopAsync(cancellationToken);
+    }
+
+    private bool StartSession(IStreamedPanelDiscovery discovery, StreamedPanelDeviceInfo info, long now)
+    {
+        string panelDeviceId;
+        try
+        {
+            panelDeviceId = ResolvePanelDeviceId(info);
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Error($"[streamed-panel] record allocation failed serial={info.Serial}: {ex.GetType().Name}: {ex.Message}");
+            return false;
+        }
+
+        var session = new StreamSession(NewSessionId(), info, panelDeviceId);
+        var ds = new DeviceSession
+        {
+            Session = session,
+            Writer = new PacedStreamWriter(session, ex => HandleTransportFault(info.Serial, ex)),
+            Discovery = discovery,
+            Info = info,
+            LastPresentAtMs = now,
+        };
+        lock (_lock)
+        {
+            _bySerial[info.Serial] = ds;
+            _bySessionId[session.SessionId] = ds;
+        }
+        ServiceLog.Info($"[streamed-panel] session started serial={info.Serial} session={session.SessionId} "
+            + $"panel={panelDeviceId} profile={info.Profile.Kind} {info.Profile.CssWidth}x{info.Profile.CssHeight}@{info.Profile.Fps}");
+
+        TryReopenTransport(ds);
+        return true;
+    }
+
+    // The per-serial store keeps the panel record identity stable across
+    // restarts/re-attaches so layout and theme survive; a record the user
+    // deleted via the API is re-allocated fresh.
+    private string ResolvePanelDeviceId(StreamedPanelDeviceInfo info)
+    {
+        var records = _store.Load();
+        if (records.TryGetValue(info.Serial, out var rec)
+            && !string.IsNullOrEmpty(rec.PanelDeviceId)
+            && _registry.Get(rec.PanelDeviceId) is not null)
+        {
+            return rec.PanelDeviceId;
+        }
+
+        var record = _registry.Allocate(info.Profile.DisplayName, info.Profile.BuildCapabilities());
+        rec ??= new StreamedPanelRecord();
+        rec.PanelDeviceId = record.Id;
+        records[info.Serial] = rec;
+        _store.Save(records);
+        return record.Id;
+    }
+
+    private void TryReopenTransport(DeviceSession ds)
+    {
+        try
+        {
+            var old = ds.Transport;
+            ds.Transport = null;
+            if (old is not null)
+            {
+                try { old.Dispose(); } catch { }
+            }
+            var transport = ds.Discovery.CreateTransport(ds.Info);
+            transport.Open();
+            transport.StartPlayer();
+            ds.Transport = transport;
+            ds.Session.SetTransportUp(true);
+            ds.Writer.SetTransport(transport);
+            ServiceLog.Info($"[streamed-panel] transport open serial={ds.Info.Serial}");
+        }
+        catch (Exception ex)
+        {
+            ds.Session.SetTransportUp(false);
+            ServiceLog.Error($"[streamed-panel] transport open failed serial={ds.Info.Serial}: {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    private void HandleTransportFault(string serial, Exception ex)
+    {
+        DeviceSession? ds;
+        lock (_lock) _bySerial.TryGetValue(serial, out ds);
+        if (ds is null) return;
+        ServiceLog.Error($"[streamed-panel] transport fault serial={serial}: {ex.GetType().Name}: {ex.Message}");
+        ds.Session.SetTransportUp(false);
+        var transport = ds.Transport;
+        ds.Transport = null;
+        if (transport is not null)
+        {
+            try { transport.Dispose(); } catch { }
+        }
+    }
+
+    private void CloseSession(DeviceSession ds, string reason)
+    {
+        lock (_lock)
+        {
+            _bySerial.Remove(ds.Info.Serial);
+            _bySessionId.Remove(ds.Session.SessionId);
+        }
+        ds.Session.Close();
+        ds.Writer.Dispose();
+        if (ds.Transport is not null)
+        {
+            try { ds.Transport.Dispose(); } catch { }
+            ds.Transport = null;
+        }
+        var ingest = ds.IngestContext;
+        ds.IngestContext = null;
+        if (ingest is not null)
+        {
+            try { ingest.Abort(); } catch { }
+        }
+        ServiceLog.Info($"[streamed-panel] session closed serial={ds.Info.Serial} session={ds.Session.SessionId} ({reason})");
+    }
+
+    private void CloseAll(string reason)
+    {
+        List<DeviceSession> all;
+        lock (_lock) all = _bySerial.Values.ToList();
+        foreach (var ds in all) CloseSession(ds, reason);
+    }
+
+    internal static bool ProfilesEqual(StreamedPanelProfile a, StreamedPanelProfile b)
+        => string.Equals(a.Kind, b.Kind, StringComparison.Ordinal)
+           && string.Equals(a.Surface, b.Surface, StringComparison.Ordinal)
+           && a.CssWidth == b.CssWidth
+           && a.CssHeight == b.CssHeight
+           && a.Dpr.Equals(b.Dpr)
+           && a.Fps == b.Fps
+           && a.BitrateKbps == b.BitrateKbps;
+
+    private static string NewSessionId()
+    {
+        var bytes = RandomNumberGenerator.GetBytes(9);
+        return Convert.ToBase64String(bytes).Replace('+', '-').Replace('/', '_').TrimEnd('=');
+    }
+}

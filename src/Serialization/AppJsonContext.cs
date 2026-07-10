@@ -277,6 +277,10 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayAssignmentsResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayRotationBody))]
 
+// Streamed panels (off-screen render in the overlay, H.264 to a USB device).
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.StreamAssignmentDto))]
+[JsonSerializable(typeof(Nexus.Service.Models.Panel.StreamAssignmentsResponse))]
+
 // Weather
 [JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherSnapshot))]
 [JsonSerializable(typeof(Nexus.Service.Models.Weather.WeatherHourlyForecast))]

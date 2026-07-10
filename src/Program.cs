@@ -465,6 +465,7 @@ app.MapGalleryEndpoints();
 app.MapTransferEndpoints();
 app.MapProfileEndpoints();
 app.MapPanelEndpoints();
+app.MapStreamedPanelEndpoints();
 app.MapOverlayEndpoints();
 app.MapWeatherEndpoints();
 app.MapAppEndpoints();

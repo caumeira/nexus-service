@@ -364,6 +364,17 @@
     </Content>
   </ItemGroup>
 
+  <!-- ArtInChip D213 streamed-panel device players: patched mpp_video_test
+       builds pushed to the board's /tmp by AdbStreamTransport (dev-gated
+       reference hardware; see plans/streamed-panels.md in the parent repo). -->
+  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))) AND Exists('Bundled\win-x64\d213')">
+    <Content Include="Bundled\win-x64\d213\**\*.*">
+      <Link>tools\d213\%(RecursiveDir)%(Filename)%(Extension)</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
   <Target Name="EnsureOpenRgbBundle" BeforeTargets="Publish">
     <Error Condition="$(RuntimeIdentifier.StartsWith('osx')) AND !Exists('Bundled/osx-arm64/openrgb/OpenRGB-headless')"
            Text="OpenRGB macOS bundle missing at Bundled/osx-arm64/openrgb/. Build it: cd ../nexus-rgb/openrgb-headless &amp;&amp; qmake OpenRGB.pro CONFIG+=release CONFIG+=sdk_no_version_check &amp;&amp; make -j ; then cd .. &amp;&amp; ./bundle-macos.sh" />

@@ -1209,6 +1209,46 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Panel.PanelPhonePairingService>();
         services.AddSingleton<Nexus.Service.Panel.PanelDeviceRegistry>();
 
+        // Streamed panels: panels rendered off-screen by the overlay's stream
+        // engine and piped as H.264 to USB display devices through swappable
+        // IStreamedPanelTransport implementations. The D213 discovery is the
+        // dev-gated reference device (Windows-only: the render engine needs
+        // WGC/MF in the session-1 overlay); the coordinator idles when no
+        // discovery is registered.
+        services.AddSingleton<Nexus.Service.Panel.Streams.StreamedPanelStore>();
+        if (OperatingSystem.IsWindows())
+        {
+            services.AddSingleton<Nexus.Service.Panel.Streams.IStreamedPanelDiscovery>(sp =>
+                new Nexus.Service.Panel.Streams.D213PanelDiscovery(
+                    sp.GetRequiredService<Nexus.Service.Panel.Streams.StreamedPanelStore>()));
+        }
+        services.AddSingleton<Nexus.Service.Panel.Streams.StreamedPanelCoordinator>(sp =>
+        {
+            Action? notifyOverlay = null;
+#if WINDOWS
+            // Same push nudge OverlayHostBootstrap uses: the overlay refetches
+            // prefs AND stream assignments on it, so no new IPC message exists.
+            var helperRegistry = sp.GetService<Nexus.Service.Helper.HelperRegistry>();
+            if (helperRegistry is not null)
+            {
+                notifyOverlay = () =>
+                {
+                    try { _ = Nexus.Service.Helper.Domains.LifecycleCommands.NotifyOverlayPrefsChangedAsync(helperRegistry); }
+                    catch { }
+                };
+            }
+#endif
+            return new Nexus.Service.Panel.Streams.StreamedPanelCoordinator(
+                sp.GetServices<Nexus.Service.Panel.Streams.IStreamedPanelDiscovery>(),
+                sp.GetRequiredService<Nexus.Service.Panel.Streams.StreamedPanelStore>(),
+                sp.GetRequiredService<Nexus.Service.Panel.PanelDeviceRegistry>(),
+                sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>(),
+                sp.GetRequiredService<Nexus.Service.Panel.IOverlayHost>(),
+                notifyOverlay);
+        });
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Panel.Streams.StreamedPanelCoordinator>());
+
         // Cloud-relay transport: holds one outbound relay socket per paired
         // phone session when the user has opted in (RemoteControl + Relay). It
         // bridges relayed, end-to-end-encrypted frames into the same
