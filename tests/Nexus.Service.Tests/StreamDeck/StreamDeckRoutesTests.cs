@@ -240,6 +240,141 @@ public sealed class StreamDeckRoutesTests : IDisposable
     }
 
     [Fact]
+    public async Task UploadImage_InvalidSerialCharset_Returns400()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var bytes = new byte[] { 0x42, 0x4d, 1, 2, 3 };
+            var content = new ByteArrayContent(bytes);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+            var path = $"/streamdeck/decks/{Uri.EscapeDataString("bad serial")}/images/0/0";
+            var res = await client.PutAsync(path, content);
+
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+            var onDisk = Path.Combine(_imageCacheDir, "bad serial");
+            Assert.False(Directory.Exists(onDisk));
+        }
+    }
+
+    [Theory]
+    [InlineData("abc", "0")]
+    [InlineData("0", "2")]
+    [InlineData("back", "1")]
+    public async Task UploadImage_InvalidSlotPathOrState_Returns400(string slotPath, string state)
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var bytes = new byte[] { 0x42, 0x4d, 1, 2, 3 };
+            var content = new ByteArrayContent(bytes);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+            var res = await client.PutAsync($"/streamdeck/decks/SERIAL-1/images/{slotPath}/{state}", content);
+
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task UploadImage_ReplacingASlot_EvictsTheOrphanedHash()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var first = new byte[] { 0x42, 0x4d, 1, 1, 1 };
+            var firstContent = new ByteArrayContent(first);
+            firstContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            var firstRes = await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0/0", firstContent);
+            using var firstDoc = JsonDocument.Parse(await firstRes.Content.ReadAsStringAsync());
+            var firstHash = firstDoc.RootElement.GetProperty("hash").GetString()!;
+            var firstPath = Path.Combine(_imageCacheDir, "SERIAL-1", firstHash + ".bin");
+            Assert.True(File.Exists(firstPath));
+
+            var second = new byte[] { 0x42, 0x4d, 2, 2, 2 };
+            var secondContent = new ByteArrayContent(second);
+            secondContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            var secondRes = await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0/0", secondContent);
+            using var secondDoc = JsonDocument.Parse(await secondRes.Content.ReadAsStringAsync());
+            var secondHash = secondDoc.RootElement.GetProperty("hash").GetString()!;
+
+            Assert.NotEqual(firstHash, secondHash);
+            Assert.False(File.Exists(firstPath));
+            Assert.True(File.Exists(Path.Combine(_imageCacheDir, "SERIAL-1", secondHash + ".bin")));
+        }
+    }
+
+    [Fact]
+    public async Task UploadImage_ReplacingASlot_KeepsTheHashIfStillReferencedByAnotherSlot()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var shared = new byte[] { 0x42, 0x4d, 3, 3, 3 };
+            var sharedHash = StreamDeckImageCache.Hash(shared);
+
+            foreach (var refKey in new[] { "0/0", "1/0" })
+            {
+                var content = new ByteArrayContent(shared);
+                content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+                await client.PutAsync($"/streamdeck/decks/SERIAL-1/images/{refKey}", content);
+            }
+
+            var replacement = new byte[] { 0x42, 0x4d, 4, 4, 4 };
+            var replacementContent = new ByteArrayContent(replacement);
+            replacementContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0/0", replacementContent);
+
+            // slot 1/0 still references sharedHash, so it must survive.
+            Assert.True(File.Exists(Path.Combine(_imageCacheDir, "SERIAL-1", sharedHash + ".bin")));
+        }
+    }
+
+    [Fact]
+    public async Task UploadImage_WrongSizeForAKnownModel_Fails()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            store.Update(s => s.StreamDeck.Decks["SERIAL-1"] = new PhysicalDeckSettings { ProductId = mini.ProductId });
+
+            var wrongSize = new byte[] { 0x42, 0x4d, 1, 2, 3 };
+            var content = new ByteArrayContent(wrongSize);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+            var res = await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0/0", content);
+
+            var text = await res.Content.ReadAsStringAsync();
+            Assert.Contains("\"error\":true", text);
+        }
+    }
+
+    [Fact]
+    public async Task UploadImage_ExactModelSizeForAKnownModel_Succeeds()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            store.Update(s => s.StreamDeck.Decks["SERIAL-1"] = new PhysicalDeckSettings { ProductId = mini.ProductId });
+
+            var exactSize = new byte[54 + mini.KeyPixelSize * mini.KeyPixelSize * 3];
+            var content = new ByteArrayContent(exactSize);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+            var res = await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0/0", content);
+
+            Assert.True(res.IsSuccessStatusCode);
+            var text = await res.Content.ReadAsStringAsync();
+            Assert.DoesNotContain("\"error\":true", text);
+        }
+    }
+
+    [Fact]
     public async Task TestPress_DispatchesTheResolvedSlotActionToTheExecutor()
     {
         var (factory, client) = Boot();

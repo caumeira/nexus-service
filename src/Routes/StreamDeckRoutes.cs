@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Auth;
@@ -147,18 +148,39 @@ public static class StreamDeckRoutes
             string serial, string slotPath, string state, HttpRequest req,
             StreamDeckImageCache cache, IConfigStore store, StreamDeckConnectionWorker worker, CancellationToken ct) =>
         {
+            if (!StreamDeckImageCache.IsValidSerial(serial))
+            {
+                return Results.Json(ApiResponse.Fail("invalid serial"), AppJsonContext.Default.ApiResponse, statusCode: 400);
+            }
+            if (!IsValidImageSlotAndState(slotPath, state))
+            {
+                return Results.Json(ApiResponse.Fail("invalid slot path or state"), AppJsonContext.Default.ApiResponse, statusCode: 400);
+            }
+
             var (bytes, tooLarge) = await ReadBoundedAsync(req.Body, MaxImageBytes, ct).ConfigureAwait(false);
             if (tooLarge)
             {
-                return Results.BadRequest(ApiResponse.Fail("image too large"));
+                return Results.Json(ApiResponse.Fail("image too large"), AppJsonContext.Default.ApiResponse);
             }
             if (bytes is null || bytes.Length == 0)
             {
-                return Results.BadRequest(ApiResponse.Fail("empty upload"));
+                return Results.Json(ApiResponse.Fail("empty upload"), AppJsonContext.Default.ApiResponse);
+            }
+
+            var model = worker.FindBySerial(serial)?.Model;
+            if (model is null && store.Load().StreamDeck.Decks.TryGetValue(serial, out var persistedDeck))
+            {
+                model = StreamDeckModels.ByProductId(persistedDeck.ProductId);
+            }
+            if (model is not null && !model.IsValidWireImageLength(bytes.Length))
+            {
+                return Results.Json(ApiResponse.Fail("image size does not match this deck's key format"), AppJsonContext.Default.ApiResponse);
             }
 
             var hash = StreamDeckImageCache.Hash(bytes);
             cache.Store(serial, hash, bytes);
+            string? evictHash = null;
+            var refKey = $"{slotPath}/{state}";
             store.Update(s =>
             {
                 if (!s.StreamDeck.Decks.TryGetValue(serial, out var deck))
@@ -166,8 +188,18 @@ public static class StreamDeckRoutes
                     deck = new PhysicalDeckSettings();
                     s.StreamDeck.Decks[serial] = deck;
                 }
-                deck.ImageRefs[$"{slotPath}/{state}"] = hash;
+                if (deck.ImageRefs.TryGetValue(refKey, out var previousHash) &&
+                    previousHash != hash &&
+                    !deck.ImageRefs.Any(kv => kv.Key != refKey && kv.Value == previousHash))
+                {
+                    evictHash = previousHash;
+                }
+                deck.ImageRefs[refKey] = hash;
             });
+            if (evictHash is not null)
+            {
+                cache.Evict(serial, evictHash);
+            }
             worker.RefreshView(serial);
             return Results.Json(new StreamDeckImageUploadResponse { Hash = hash }, AppJsonContext.Default.StreamDeckImageUploadResponse);
         }).LocalhostOnly();
@@ -252,6 +284,25 @@ public static class StreamDeckRoutes
         StreamDeckImageFormat.Jpeg => "jpeg",
         _ => "",
     };
+
+    /// <summary>
+    /// A valid ImageRefs key is either the reserved "back" folder-back-key
+    /// slot with state "0" (StreamDeckConnectionWorker.BackSlotPath, only
+    /// ever pushed with state 0), or a real slot path (DeckConfigNavigation's
+    /// dot-joined index chain) with state "0" or "1" (off/on for a toggle).
+    /// </summary>
+    private static bool IsValidImageSlotAndState(string slotPath, string state)
+    {
+        if (state != "0" && state != "1")
+        {
+            return false;
+        }
+        if (slotPath == "back")
+        {
+            return state == "0";
+        }
+        return DeckConfigNavigation.ParseSlotPath(slotPath) is not null;
+    }
 
     /// <summary>Reads a request body up to maxBytes, checking the running total after every chunk so a chunked upload (no Content-Length) never buffers unbounded memory before the size check runs.</summary>
     private static async Task<(byte[]? Bytes, bool TooLarge)> ReadBoundedAsync(Stream source, long maxBytes, CancellationToken ct)
