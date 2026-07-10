@@ -33,6 +33,17 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         var root = doc.RootElement;
         var action = new DeckAction();
 
+        // A malformed action node (a raw string/array/number where an object
+        // is expected, whether at the top level or nested via steps[].action
+        // / on / off) would throw on the TryGetProperty calls below. Settings
+        // persistence has no per-field recovery (JsonConfigStore.Load resets
+        // every setting on any deserialization exception), so this returns an
+        // empty/unknown action instead of throwing.
+        if (root.ValueKind != JsonValueKind.Object)
+        {
+            return action;
+        }
+
         if (root.TryGetProperty("type", out var typeEl) && typeEl.ValueKind == JsonValueKind.String)
         {
             action.Type = typeEl.GetString() ?? "";

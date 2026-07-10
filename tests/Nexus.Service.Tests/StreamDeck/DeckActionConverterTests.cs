@@ -236,6 +236,33 @@ public class DeckActionConverterTests
         Assert.Equal("lightingPower", b.State!.Kind);
     }
 
+    [Theory]
+    [InlineData("\"just a string\"")]
+    [InlineData("[1,2,3]")]
+    [InlineData("42")]
+    [InlineData("true")]
+    public void Deserialize_NonObjectNode_ReturnsAnEmptyActionInsteadOfThrowing(string json)
+    {
+        var a = Deserialize(json);
+        Assert.Equal("", a.Type);
+        Assert.Null(a.SystemAction);
+        Assert.Null(a.NexusAction);
+        Assert.Null(a.PowerAction);
+    }
+
+    [Fact]
+    public void Deserialize_SequenceStepWithNonObjectAction_ReturnsAnEmptyActionForThatStep()
+    {
+        var json = "{\"type\":\"sequence\",\"steps\":[{\"action\":\"not an object\",\"pressMs\":5}]}";
+
+        var a = Deserialize(json);
+
+        Assert.Equal("sequence", a.Type);
+        Assert.Single(a.Steps!);
+        Assert.Equal("", a.Steps![0].Action.Type);
+        Assert.Equal(5, a.Steps[0].PressMs);
+    }
+
     [Fact]
     public void PersistenceJsonContext_UsesTheSameConverter()
     {

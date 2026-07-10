@@ -244,3 +244,52 @@ public class StreamDeckImageCacheTests : IDisposable
         _cache.Evict("SERIAL-1", "0000000000000000000000000000000000000000000000000000000000000000");
     }
 }
+
+/// <summary>
+/// A malformed DeckAction node anywhere in settings.json must not blast-radius
+/// the rest of the document: JsonConfigStore.Load's catch-all resets EVERY
+/// setting to defaults on any deserialization exception, so a throwing
+/// converter for one field would silently wipe an unrelated user's whole
+/// config. Exercises the real JsonConfigStore (see JsonConfigStoreCorruptLoadTests),
+/// not a hand-written fake.
+/// </summary>
+public sealed class DeckActionSettingsLoadSurvivalTests : IDisposable
+{
+    private readonly string _dir;
+    private readonly string _path;
+
+    public DeckActionSettingsLoadSurvivalTests()
+    {
+        _dir = Path.Combine(Path.GetTempPath(), "nexus-deckaction-survival-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(_dir);
+        _path = Path.Combine(_dir, "settings.json");
+    }
+
+    public void Dispose()
+    {
+        try { Directory.Delete(_dir, recursive: true); } catch { /* best effort */ }
+    }
+
+    [Fact]
+    public void MalformedDeckActionInASlot_DoesNotResetTheRestOfSettings()
+    {
+        var json = "{"
+            + "\"schemaVersion\":11,"
+            + "\"lighting\":{\"globalBrightness\":0.42},"
+            + "\"streamDeck\":{\"decks\":{\"SERIAL-1\":{\"deck\":{\"slots\":[{\"action\":\"not an object\"}]}}}}"
+            + "}";
+        File.WriteAllText(_path, json);
+
+        using var store = new JsonConfigStore(_path);
+        var settings = store.Load();
+
+        // The rest of the document survived (proves Load did not treat this
+        // as corrupt and reset to defaults).
+        Assert.Equal(0.42f, settings.Lighting.GlobalBrightness);
+        Assert.False(File.Exists(_path + ".corrupt"));
+
+        var slot = settings.StreamDeck.Decks["SERIAL-1"].Deck.Slots[0];
+        Assert.NotNull(slot.Action);
+        Assert.Equal("", slot.Action!.Type);
+    }
+}
