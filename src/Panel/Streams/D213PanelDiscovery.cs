@@ -165,7 +165,11 @@ internal static class D213Profiles
                 // or above, one transient leaves those buffers standing full
                 // and the render-on-arrival player shows periodic time snaps.
                 Fps = 58,
-                BitrateKbps = 8000,
+                // The board's adb-over-USB-FFS delivery chain measures a
+                // ~4.5Mbps ceiling (write stalls + queue trims above it,
+                // which the render-on-arrival player shows as periodic time
+                // snaps); the bitrate must fit the transport with headroom.
+                BitrateKbps = 3500,
             };
         }
 
@@ -179,7 +183,8 @@ internal static class D213Profiles
             Dpr = 1.0,
             // Same consumption-slack rule as the q60 profile above.
             Fps = 58,
-            BitrateKbps = 8000,
+            // Same transport-ceiling rule as the q60 profile above.
+            BitrateKbps = 3500,
         };
     }
 
