@@ -35,7 +35,9 @@ public sealed class HidStreamDeckSurface : IStreamDeckSurface
     {
         _hid = hid;
         Model = model;
-        _inputBuf = new byte[1 + model.KeyCount];
+        _inputBuf = model.Protocol == StreamDeckProtocolGeneration.Gen1
+            ? new byte[1 + model.KeyCount]
+            : new byte[StreamDeckProtocol.Gen2InputHeaderLength + model.KeyCount];
     }
 
     /// <summary>Opens the device at the given HID interface. False if already open or the open failed.</summary>
@@ -74,11 +76,18 @@ public sealed class HidStreamDeckSurface : IStreamDeckSurface
     {
         lock (_io)
         {
-            if (_device is null)
+            // Pedal is screenless and has no brightness control (python
+            // StreamDeckPedal.set_brightness is a no-op) - ImageFormat.None
+            // is unique to it among the button-only catalog, so it also
+            // serves as the "does this deck have a screen" check.
+            if (_device is null || Model.ImageFormat == StreamDeckImageFormat.None)
             {
                 return false;
             }
-            if (_device.SetFeature(StreamDeckProtocol.BuildBrightnessFeature(percent)))
+            var feature = Model.Protocol == StreamDeckProtocolGeneration.Gen1
+                ? StreamDeckProtocol.BuildBrightnessFeature(percent)
+                : StreamDeckProtocol.BuildGen2BrightnessFeature(percent);
+            if (_device.SetFeature(feature))
             {
                 _consecutiveWriteFailures = 0;
                 return true;
@@ -91,11 +100,14 @@ public sealed class HidStreamDeckSurface : IStreamDeckSurface
     {
         lock (_io)
         {
-            if (_device is null)
+            if (_device is null || Model.ImageFormat == StreamDeckImageFormat.None)
             {
                 return false;
             }
-            if (_device.SetFeature(StreamDeckProtocol.BuildResetFeature()))
+            var feature = Model.Protocol == StreamDeckProtocolGeneration.Gen1
+                ? StreamDeckProtocol.BuildResetFeature()
+                : StreamDeckProtocol.BuildGen2ResetFeature();
+            if (_device.SetFeature(feature))
             {
                 _consecutiveWriteFailures = 0;
                 return true;
@@ -108,12 +120,15 @@ public sealed class HidStreamDeckSurface : IStreamDeckSurface
     {
         lock (_io)
         {
-            if (_device is null || keyIndex < 0 || keyIndex >= Model.KeyCount)
+            if (_device is null || Model.ImageFormat == StreamDeckImageFormat.None
+                || keyIndex < 0 || keyIndex >= Model.KeyCount)
             {
                 return false;
             }
             var rawIndex = Model.RemapKeyIndex(keyIndex);
-            var pages = StreamDeckProtocol.BuildImagePages(wireBytes.Span, rawIndex, Model);
+            var pages = Model.Protocol == StreamDeckProtocolGeneration.Gen1
+                ? StreamDeckProtocol.BuildImagePages(wireBytes.Span, rawIndex, Model)
+                : StreamDeckProtocol.BuildGen2ImagePages(wireBytes.Span, rawIndex, Model);
             foreach (var page in pages)
             {
                 if (!_device.Write(page))
@@ -158,7 +173,9 @@ public sealed class HidStreamDeckSurface : IStreamDeckSurface
             {
                 return null;
             }
-            return StreamDeckProtocol.DecodeGen1Input(_inputBuf.AsSpan(0, n), Model);
+            return Model.Protocol == StreamDeckProtocolGeneration.Gen1
+                ? StreamDeckProtocol.DecodeGen1Input(_inputBuf.AsSpan(0, n), Model)
+                : StreamDeckProtocol.DecodeGen2Input(_inputBuf.AsSpan(0, n), Model);
         }
     }
 
@@ -168,12 +185,16 @@ public sealed class HidStreamDeckSurface : IStreamDeckSurface
         var dev = _device!;
         try
         {
-            var request = StreamDeckProtocol.BuildFirmwareFeatureRequest();
+            var request = Model.Protocol == StreamDeckProtocolGeneration.Gen1
+                ? StreamDeckProtocol.BuildFirmwareFeatureRequest()
+                : StreamDeckProtocol.BuildGen2FirmwareFeatureRequest();
             if (!dev.GetFeature(request))
             {
                 return;
             }
-            FirmwareVersion = StreamDeckProtocol.ExtractAsciiString(request);
+            FirmwareVersion = Model.Protocol == StreamDeckProtocolGeneration.Gen1
+                ? StreamDeckProtocol.ExtractAsciiString(request)
+                : StreamDeckProtocol.ExtractAsciiString(request, StreamDeckProtocol.Gen2FirmwareStringOffset);
         }
         catch { /* best effort - firmware version is cosmetic */ }
     }

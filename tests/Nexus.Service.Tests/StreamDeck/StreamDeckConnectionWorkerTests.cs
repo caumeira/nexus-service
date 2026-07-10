@@ -95,6 +95,24 @@ public class StreamDeckConnectionWorkerTests
     }
 
     [Fact]
+    public void Tick_DiscoversAndConnectsAGen2Deck()
+    {
+        var xl = StreamDeckModels.ByProductId(0x006c)!;
+        var f = NewFixtures(devicePresent: true);
+        f.Hid.ByProductId[xl.ProductId] = new List<HidDeviceInfo>
+        {
+            new() { VendorId = StreamDeckModels.VendorId, ProductId = xl.ProductId, Path = "path-xl", Serial = "XL-SERIAL" },
+        };
+        f.Hid.DevicesByPath["path-xl"] = new MockStreamDeckHidDevice { Serial = "XL-SERIAL", ProductId = xl.ProductId, Path = "path-xl" };
+        var worker = NewWorker(f);
+
+        worker.Tick();
+
+        Assert.NotNull(worker.FindBySerial("XL-SERIAL"));
+        Assert.True(worker.FindBySerial("XL-SERIAL")!.IsConnected);
+    }
+
+    [Fact]
     public void Tick_GateDisabled_NeverConnects()
     {
         var f = NewFixtures(devicePresent: true);

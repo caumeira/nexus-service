@@ -6,16 +6,22 @@ using Nexus.Service.Peripherals.StreamDeck;
 namespace Nexus.Service.Tests.StreamDeck;
 
 /// <summary>
-/// Golden-vector coverage for the Stream Deck gen1 wire protocol. Byte
-/// layouts are cross-verified against two independent MIT references
-/// (fetched 2026-07-10): python-elgato-streamdeck (StreamDeckMini.py,
-/// StreamDeckOriginal.py) and the elgato-streamdeck Rust crate (src/lib.rs,
-/// src/util.rs). Pure functions, no hardware, fast.
+/// Golden-vector coverage for the Stream Deck gen1 and gen2 wire protocols.
+/// Byte layouts are cross-verified against two independent MIT references:
+/// python-elgato-streamdeck (StreamDeck/Devices/StreamDeckMini.py,
+/// StreamDeckOriginal.py, StreamDeckOriginalV2.py, StreamDeckXL.py,
+/// StreamDeckNeo.py, StreamDeckPedal.py) and the elgato-streamdeck Rust crate
+/// (github.com/OpenActionAPI/rust-elgato-streamdeck: src/lib.rs, src/util.rs,
+/// src/info.rs). Pure functions, no hardware, fast.
 /// </summary>
 public class StreamDeckProtocolTests
 {
     private static readonly StreamDeckModel Mini = StreamDeckModels.ByProductId(0x0063)!;
     private static readonly StreamDeckModel Original = StreamDeckModels.ByProductId(0x0060)!;
+    private static readonly StreamDeckModel Xl = StreamDeckModels.ByProductId(0x006c)!;
+    private static readonly StreamDeckModel OriginalV2 = StreamDeckModels.ByProductId(0x006d)!;
+    private static readonly StreamDeckModel Neo = StreamDeckModels.ByProductId(0x009a)!;
+    private static readonly StreamDeckModel Pedal = StreamDeckModels.ByProductId(0x0086)!;
 
     // ── Feature reports ──
 
@@ -207,5 +213,176 @@ public class StreamDeckProtocolTests
         Assert.Equal((ushort)24, BitConverter.ToUInt16(bmp, 28));
         Assert.Equal((uint)(80 * 80 * 3), BitConverter.ToUInt32(bmp, 34));
         Assert.All(bmp.Skip(54), b => Assert.Equal(0, b));
+    }
+
+    // ── Gen2 feature reports ──
+
+    [Fact]
+    public void BuildGen2ResetFeature_matchesBothReferences()
+    {
+        var buf = StreamDeckProtocol.BuildGen2ResetFeature();
+        Assert.Equal(32, buf.Length);
+        Assert.Equal(0x03, buf[0]);
+        Assert.Equal(0x02, buf[1]);
+        Assert.All(buf.Skip(2), b => Assert.Equal(0, b));
+    }
+
+    [Theory]
+    [InlineData(0)]
+    [InlineData(50)]
+    [InlineData(100)]
+    public void BuildGen2BrightnessFeature_matchesTheRustCratesCleanThirtyTwoByteBuffer(int percent)
+    {
+        // python's set_brightness resizes to 33 bytes via bytearray slice
+        // assignment (payload[0:2] = [0x03, 0x08, percent], a 3-element list
+        // replacing a 2-element slice); the Rust crate builds a clean 32-byte
+        // buffer instead. This matches Rust and the existing gen1 convention.
+        var buf = StreamDeckProtocol.BuildGen2BrightnessFeature(percent);
+        Assert.Equal(32, buf.Length);
+        Assert.Equal(0x03, buf[0]);
+        Assert.Equal(0x08, buf[1]);
+        Assert.Equal((byte)percent, buf[2]);
+        Assert.All(buf.Skip(3), b => Assert.Equal(0, b));
+    }
+
+    [Theory]
+    [InlineData(-50, 0)]
+    [InlineData(150, 100)]
+    public void BuildGen2BrightnessFeature_clampsOutOfRangePercent(int input, int clamped)
+    {
+        var buf = StreamDeckProtocol.BuildGen2BrightnessFeature(input);
+        Assert.Equal((byte)clamped, buf[2]);
+    }
+
+    [Fact]
+    public void BuildGen2SerialFeatureRequest_reportIdIs0x06()
+    {
+        var buf = StreamDeckProtocol.BuildGen2SerialFeatureRequest();
+        Assert.Equal(0x06, buf[0]);
+    }
+
+    [Fact]
+    public void BuildGen2FirmwareFeatureRequest_reportIdIs0x05()
+    {
+        var buf = StreamDeckProtocol.BuildGen2FirmwareFeatureRequest();
+        Assert.Equal(0x05, buf[0]);
+    }
+
+    [Fact]
+    public void ExtractAsciiString_gen2SerialOffsetIs2()
+    {
+        var buf = new byte[32];
+        var serial = Encoding.ASCII.GetBytes("CL12345678");
+        serial.CopyTo(buf, StreamDeckProtocol.Gen2SerialStringOffset);
+        Assert.Equal("CL12345678", StreamDeckProtocol.ExtractAsciiString(buf, StreamDeckProtocol.Gen2SerialStringOffset));
+    }
+
+    [Fact]
+    public void ExtractAsciiString_gen2FirmwareOffsetIs6()
+    {
+        var buf = new byte[32];
+        var version = Encoding.ASCII.GetBytes("1.02.007");
+        version.CopyTo(buf, StreamDeckProtocol.Gen2FirmwareStringOffset);
+        Assert.Equal("1.02.007", StreamDeckProtocol.ExtractAsciiString(buf, StreamDeckProtocol.Gen2FirmwareStringOffset));
+    }
+
+    // ── Gen2 image page chunking ──
+
+    [Fact]
+    public void BuildGen2ImagePages_Xl_singlePage_hasEightByteHeaderAndIsLastFlag()
+    {
+        var image = Enumerable.Range(1, 10).Select(i => (byte)i).ToArray();
+        var pages = StreamDeckProtocol.BuildGen2ImagePages(image, rawKeyIndex: 5, Xl);
+
+        Assert.Single(pages);
+        var page = pages[0];
+        Assert.Equal(Xl.ImageReportLength, page.Length);
+        Assert.Equal(0x02, page[0]); // image report id
+        Assert.Equal(0x07, page[1]); // gen2 key-image subtype
+        Assert.Equal(5, page[2]);    // 0-based raw key index, no +1
+        Assert.Equal(1, page[3]);    // is-last
+        Assert.Equal((ushort)image.Length, BitConverter.ToUInt16(page, 4)); // little-endian length
+        Assert.Equal((ushort)0, BitConverter.ToUInt16(page, 6));            // little-endian page number
+        Assert.Equal(image, page.Skip(StreamDeckProtocol.Gen2PageHeaderLength).Take(image.Length).ToArray());
+        Assert.All(page.Skip(StreamDeckProtocol.Gen2PageHeaderLength + image.Length), b => Assert.Equal(0, b));
+    }
+
+    [Fact]
+    public void BuildGen2ImagePages_Xl_splitsAcrossPagesAtPayloadBoundary()
+    {
+        var payloadLength = Xl.ImageReportLength - StreamDeckProtocol.Gen2PageHeaderLength; // 1016
+        var image = new byte[payloadLength + 1];
+        for (var i = 0; i < image.Length; i++) image[i] = (byte)(i % 256);
+
+        var pages = StreamDeckProtocol.BuildGen2ImagePages(image, rawKeyIndex: 0, Xl);
+
+        Assert.Equal(2, pages.Count);
+        Assert.Equal((ushort)0, BitConverter.ToUInt16(pages[0], 6)); // page 0
+        Assert.Equal(0, pages[0][3]);                                // not last
+        Assert.Equal((ushort)1, BitConverter.ToUInt16(pages[1], 6)); // page 1
+        Assert.Equal(1, pages[1][3]);                                // last
+        Assert.Equal(image[^1], pages[1][StreamDeckProtocol.Gen2PageHeaderLength]);
+    }
+
+    [Fact]
+    public void BuildGen2ImagePages_OriginalV2_usesTheSameEightByteHeaderShapeAsXl()
+    {
+        var image = new byte[] { 1, 2, 3 };
+        var pages = StreamDeckProtocol.BuildGen2ImagePages(image, rawKeyIndex: 2, OriginalV2);
+
+        Assert.Single(pages);
+        Assert.Equal(OriginalV2.ImageReportLength, pages[0].Length);
+        Assert.Equal(0x07, pages[0][1]);
+        Assert.Equal(2, pages[0][2]);
+    }
+
+    // ── Gen2 input decode ──
+
+    [Fact]
+    public void DecodeGen2Input_Xl_readsOneByteAfterTheFourByteHeader()
+    {
+        var report = new byte[4 + Xl.KeyCount];
+        report[4 + 3] = 1; // key 3 pressed
+        report[4 + 10] = 1; // key 10 pressed
+
+        var states = StreamDeckProtocol.DecodeGen2Input(report, Xl);
+
+        Assert.Equal(Xl.KeyCount, states.Length);
+        Assert.True(states[3]);
+        Assert.True(states[10]);
+        Assert.False(states[0]);
+    }
+
+    [Fact]
+    public void DecodeGen2Input_shortReportTreatsMissingBytesAsReleased()
+    {
+        var report = new byte[] { 0x01, 0, 0, 0, 1 }; // only key 0 present in this report
+        var states = StreamDeckProtocol.DecodeGen2Input(report, Xl);
+        Assert.True(states[0]);
+        Assert.All(states.Skip(1), s => Assert.False(s));
+    }
+
+    [Fact]
+    public void DecodeGen2Input_Neo_onlyDecodesTheEightLcdKeys_notTheTwoTouchKeys()
+    {
+        // Neo's KeyCount is 8 (the LCD keys); the touch keys land at report
+        // offsets KeyCount and KeyCount+1 per both references but this pass
+        // does not surface them as bindable input (see StreamDeckModels.cs).
+        var report = new byte[4 + Neo.KeyCount + 2];
+        report[4 + 7] = 1;      // last LCD key pressed
+        report[4 + 8] = 1;      // first touch key - not decoded
+        var states = StreamDeckProtocol.DecodeGen2Input(report, Neo);
+
+        Assert.Equal(8, states.Length);
+        Assert.True(states[7]);
+    }
+
+    [Fact]
+    public void DecodeGen2Input_Pedal_usesTheSameHeaderShapeAsVisualModels()
+    {
+        var report = new byte[4 + Pedal.KeyCount];
+        report[4 + 1] = 1;
+        var states = StreamDeckProtocol.DecodeGen2Input(report, Pedal);
+        Assert.Equal(new[] { false, true, false }, states);
     }
 }

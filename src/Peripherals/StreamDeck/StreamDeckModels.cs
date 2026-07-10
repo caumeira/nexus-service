@@ -160,8 +160,14 @@ public static class StreamDeckModels
         StreamDeckModel.Gen2("XL", 0x006c, 32, 4, 8, 96),
         StreamDeckModel.Gen2("XL V2", 0x008f, 32, 4, 8, 96),
         StreamDeckModel.Gen2("XL V2 Module", 0x00ba, 32, 4, 8, 96),
-        // Neo's 8 LED keys use the standard gen2 key-image path; its 2
-        // capacitive page keys and 248x58 info screen are out of v1 scope.
+        // Neo's 8 LED keys use the standard gen2 key-image path. Its 2
+        // capacitive touch keys report at input offsets KeyCount and
+        // KeyCount+1 (documented in both MIT references), but KeyCount stays
+        // 8 here (Rows*Columns) rather than 10 - wiring them as bindable
+        // input needs the KeyCount/grid-layout invariant every other model
+        // relies on to grow past Rows*Columns, which is out of this pass;
+        // StreamDeckProtocol.DecodeGen2Input only decodes the first KeyCount
+        // states. The 248x58 info screen stays out of v1 scope entirely.
         StreamDeckModel.Gen2("Neo", 0x009a, 8, 2, 4, 96),
 
         // Input-only: no key screens, buttons drive input dispatch only.

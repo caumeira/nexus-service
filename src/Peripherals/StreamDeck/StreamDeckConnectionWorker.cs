@@ -25,8 +25,8 @@ namespace Nexus.Service.Peripherals.StreamDeck;
 /// replug on a different USB port) and dispatches a resolved key's action to
 /// <see cref="IDeckActionExecutor"/> off the tick thread.
 ///
-/// Phase 0 only opens Gen1-protocol models (the bench-verified Mini and its
-/// BMP siblings); Gen2 detection/connection lands in Phase 3.
+/// Opens every model in <see cref="StreamDeckModels.All"/>, gen1 and gen2
+/// alike; only the Mini is bench-verified (StreamDeckModel.Verified).
 /// </summary>
 public sealed class StreamDeckConnectionWorker : BackgroundService
 {
@@ -150,10 +150,6 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         {
             foreach (var model in StreamDeckModels.All)
             {
-                if (model.Protocol != StreamDeckProtocolGeneration.Gen1)
-                {
-                    continue;
-                }
                 foreach (var info in _hid.Find(StreamDeckModels.VendorId, model.ProductId))
                 {
                     seenPaths.Add(info.Path);

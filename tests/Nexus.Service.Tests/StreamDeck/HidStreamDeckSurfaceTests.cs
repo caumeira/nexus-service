@@ -244,4 +244,108 @@ public class HidStreamDeckSurfaceTests
 
         Assert.False(surface.IsConnected);
     }
+
+    // ── Gen2 (XL, Pedal) ──
+
+    private static readonly StreamDeckModel Xl = StreamDeckModels.ByProductId(0x006c)!;
+    private static readonly StreamDeckModel Pedal = StreamDeckModels.ByProductId(0x0086)!;
+
+    [Fact]
+    public void SetBrightness_Xl_SendsGen2FeatureBytes()
+    {
+        var (dev, surface) = Connect(Xl);
+
+        Assert.True(surface.SetBrightness(42));
+
+        Assert.Equal(StreamDeckProtocol.BuildGen2BrightnessFeature(42), dev.FeatureWrites[0]);
+    }
+
+    [Fact]
+    public void Reset_Xl_SendsGen2ResetBytes()
+    {
+        var (dev, surface) = Connect(Xl);
+
+        Assert.True(surface.Reset());
+
+        Assert.Equal(StreamDeckProtocol.BuildGen2ResetFeature(), dev.FeatureWrites[0]);
+    }
+
+    [Fact]
+    public void SetKeyImage_Xl_PushesPagesMatchingTheGen2Builder()
+    {
+        var (dev, surface) = Connect(Xl);
+        var image = Enumerable.Range(0, 2000).Select(i => (byte)(i % 256)).ToArray();
+
+        Assert.True(surface.SetKeyImage(5, image));
+
+        var expected = StreamDeckProtocol.BuildGen2ImagePages(image, rawKeyIndex: 5, Xl);
+        Assert.Equal(expected.Count, dev.OutputWrites.Count);
+        for (var i = 0; i < expected.Count; i++)
+        {
+            Assert.Equal(expected[i], dev.OutputWrites[i]);
+        }
+    }
+
+    [Fact]
+    public void ReadInput_Xl_DecodesAGen2Report()
+    {
+        var (dev, surface) = Connect(Xl);
+        var report = new byte[4 + Xl.KeyCount];
+        report[4 + 9] = 1;
+        dev.PendingReads.Enqueue(report);
+
+        var states = surface.ReadInput(10);
+
+        Assert.NotNull(states);
+        Assert.True(states![9]);
+    }
+
+    [Fact]
+    public void Connect_Xl_ReadsFirmwareViaGen2OffsetSix()
+    {
+        var dev = new MockStreamDeckHidDevice
+        {
+            ProductId = Xl.ProductId,
+            FeatureReplyBuilder = req =>
+            {
+                var reply = new byte[32];
+                req.CopyTo(reply, 0);
+                System.Text.Encoding.ASCII.GetBytes("1.02.007").CopyTo(reply, StreamDeckProtocol.Gen2FirmwareStringOffset);
+                return reply;
+            },
+        };
+        var hid = new FakeStreamDeckHidEnumerator { DeviceToOpen = dev };
+        var surface = new HidStreamDeckSurface(hid, Xl);
+
+        surface.Connect(new HidDeviceInfo { VendorId = StreamDeckModels.VendorId, ProductId = Xl.ProductId, Path = "p", Serial = "s" });
+
+        Assert.Equal("1.02.007", surface.FirmwareVersion);
+    }
+
+    [Fact]
+    public void Pedal_HasNoScreen_SetBrightnessResetAndSetKeyImageAllNoOpWithoutTouchingTheDevice()
+    {
+        var (dev, surface) = Connect(Pedal);
+
+        Assert.False(surface.SetBrightness(50));
+        Assert.False(surface.Reset());
+        Assert.False(surface.SetKeyImage(0, new byte[] { 1, 2, 3 }));
+        Assert.False(surface.ClearKey(0));
+
+        Assert.Empty(dev.FeatureWrites);
+        Assert.Empty(dev.OutputWrites);
+    }
+
+    [Fact]
+    public void Pedal_ReadInput_StillDecodesKeyPresses()
+    {
+        var (dev, surface) = Connect(Pedal);
+        var report = new byte[4 + Pedal.KeyCount];
+        report[4 + 2] = 1;
+        dev.PendingReads.Enqueue(report);
+
+        var states = surface.ReadInput(10);
+
+        Assert.Equal(new[] { false, false, true }, states);
+    }
 }
