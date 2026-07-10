@@ -479,10 +479,14 @@ public static class NexusServiceCollectionExtensions
 
         // Stream Deck: gen1-protocol button decks (Mini bench-verified
         // 2026-07-10). Peripheral, not lighting - no frame contributor, no
-        // 30 Hz tick; see plans/streamdeck-support.md Phase 0. The simulated
+        // 30 Hz tick; see plans/streamdeck-support.md Phase 0/1. The simulated
         // surface is DI-registered only under DEV_TOOLS, so the connection
         // worker's optional constructor argument resolves to null (no
         // simulated deck ever appears) in a release build.
+        services.AddSingleton<Nexus.Service.Peripherals.StreamDeck.StreamDeckImageCache>();
+        services.AddSingleton<Nexus.Service.Deck.DeckActionExecutor>();
+        services.AddSingleton<Nexus.Service.Deck.IDeckActionExecutor>(sp =>
+            sp.GetRequiredService<Nexus.Service.Deck.DeckActionExecutor>());
 #if DEV_TOOLS
         services.AddSingleton<Nexus.Service.Peripherals.StreamDeck.SimulatedStreamDeckSurface>(_ =>
             new Nexus.Service.Peripherals.StreamDeck.SimulatedStreamDeckSurface(
@@ -492,7 +496,11 @@ public static class NexusServiceCollectionExtensions
             new Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker(
                 sp.GetRequiredService<Nexus.Service.Peripherals.Hid.IHidEnumerator>(),
                 sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
-                sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>()
+                sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>(),
+                sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
+                sp.GetRequiredService<Nexus.Service.Deck.IDeckActionExecutor>(),
+                sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckImageCache>(),
+                sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>()
 #if DEV_TOOLS
                 , sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.SimulatedStreamDeckSurface>()
 #endif
@@ -1114,6 +1122,10 @@ public static class NexusServiceCollectionExtensions
 #else
         services.AddSingleton<IPawnIoProvider, StubPawnIoProvider>();
 #endif
+
+        // Extracted body of SystemRoutes.cs so the Stream Deck executor can
+        // drive the same OS-level actions headless (no loopback HTTP call).
+        services.AddSingleton<Nexus.Service.Actions.SystemActions>();
 
         // Replay persisted lighting + cooling state to hardware on startup.
         // Lives in Lifecycle because it doesn't belong to a single domain.
