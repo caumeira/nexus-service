@@ -412,7 +412,8 @@ public sealed class StreamedPanelCoordinator : BackgroundService
            && a.CssHeight == b.CssHeight
            && a.Dpr.Equals(b.Dpr)
            && a.Fps == b.Fps
-           && a.BitrateKbps == b.BitrateKbps;
+           && a.BitrateKbps == b.BitrateKbps
+           && a.WriteBatchFrames == b.WriteBatchFrames;
 
     private static string NewSessionId()
     {

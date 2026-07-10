@@ -190,7 +190,7 @@ internal static class D213Profiles
     {
         var kind = record?.ProfileKind ?? FsKind;
         var basis = Default(kind);
-        if (record is null || (record.Fps is null && record.BitrateKbps is null))
+        if (record is null || (record.Fps is null && record.BitrateKbps is null && record.WriteBatchFrames is null))
         {
             return basis;
         }
@@ -205,6 +205,7 @@ internal static class D213Profiles
             Dpr = basis.Dpr,
             Fps = record.Fps ?? basis.Fps,
             BitrateKbps = record.BitrateKbps ?? basis.BitrateKbps,
+            WriteBatchFrames = record.WriteBatchFrames ?? basis.WriteBatchFrames,
         };
     }
 }

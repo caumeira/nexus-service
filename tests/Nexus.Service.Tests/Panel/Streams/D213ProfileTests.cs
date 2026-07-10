@@ -124,4 +124,23 @@ public class D213ProfileTests
         Assert.Equal("d213-fs", profile.Kind);
         Assert.Equal(PanelSurfaces.Monitor, profile.Surface);
     }
+
+    [Fact]
+    public void Default_write_batch_is_single_frame()
+    {
+        Assert.Equal(1, D213Profiles.Default("d213-fs").WriteBatchFrames);
+        Assert.Equal(1, D213Profiles.Default("d213-q60").WriteBatchFrames);
+    }
+
+    [Fact]
+    public void Resolve_record_overrides_write_batch_only()
+    {
+        var record = new StreamedPanelRecord { PanelDeviceId = "dev-1", WriteBatchFrames = 2 };
+
+        var profile = D213Profiles.Resolve(record);
+
+        Assert.Equal(2, profile.WriteBatchFrames);
+        Assert.Equal(30, profile.Fps);
+        Assert.Equal(3500, profile.BitrateKbps);
+    }
 }

@@ -17,6 +17,7 @@ public sealed class PacedStreamWriter : IDisposable
 {
     private readonly StreamSession _session;
     private readonly int _fps;
+    private readonly int _batchFrames;
     private readonly Action<IStreamedPanelTransport, Exception> _onTransportFault;
     private readonly object _transportLock = new();
     private readonly AutoResetEvent _wake = new(false);
@@ -31,6 +32,7 @@ public sealed class PacedStreamWriter : IDisposable
     {
         _session = session;
         _fps = Math.Clamp(session.Info.Profile.Fps, 1, 240);
+        _batchFrames = Math.Clamp(session.Info.Profile.WriteBatchFrames, 1, 8);
         _onTransportFault = onTransportFault;
         _thread = new Thread(Run)
         {
@@ -71,7 +73,9 @@ public sealed class PacedStreamWriter : IDisposable
         if (OperatingSystem.IsWindows()) TimeBeginPeriod(1);
         try
         {
-            var interval = Stopwatch.Frequency / _fps;
+            // One tick per batch: fps stays the frame rate on the wire while
+            // batched frames share a single write (and round trip).
+            var interval = Stopwatch.Frequency * _batchFrames / _fps;
             var deadline = Stopwatch.GetTimestamp() + interval;
             while (!_disposed)
             {
@@ -106,28 +110,40 @@ public sealed class PacedStreamWriter : IDisposable
                 if (now - deadline > Stopwatch.Frequency / 10) deadline = now;
                 deadline += interval;
 
-                foreach (var frame in _session.DequeueForTick())
+                var frames = _session.DequeueForTick();
+                if (frames.Count == 0) continue;
+                if (_batchFrames > 1 && frames.Count > 1)
                 {
+                    // The batch shares one write so the transport pays one
+                    // round trip for all of it (the point of batching).
+                    var total = 0;
+                    var anyIdr = false;
+                    foreach (var frame in frames)
+                    {
+                        total += frame.Payload.Length;
+                        anyIdr |= frame.IsIdr;
+                    }
+                    var buffer = System.Buffers.ArrayPool<byte>.Shared.Rent(total);
                     try
                     {
-                        var writeStart = Stopwatch.GetTimestamp();
-                        transport.Write(frame.Payload);
-                        // A blocked write is downstream backpressure (socket
-                        // buffer, adb forwarding, device fifo); on a
-                        // render-on-arrival device every stall shows on glass
-                        // as a time snap when the backlog flushes.
-                        var writeMs = (Stopwatch.GetTimestamp() - writeStart) * 1000 / Stopwatch.Frequency;
-                        if (writeMs > 50 && Stopwatch.GetTimestamp() - _lastWriteStallLogTicks > Stopwatch.Frequency)
+                        var offset = 0;
+                        foreach (var frame in frames)
                         {
-                            _lastWriteStallLogTicks = Stopwatch.GetTimestamp();
-                            ServiceLog.Warn($"[streamed-panel] write stalled {writeMs}ms serial={_session.Info.Serial} ({frame.Payload.Length}b{(frame.IsIdr ? " idr" : "")})");
+                            frame.Payload.CopyTo(buffer.AsSpan(offset));
+                            offset += frame.Payload.Length;
                         }
+                        if (!TryWrite(transport, buffer.AsSpan(0, total), anyIdr)) continue;
                     }
-                    catch (Exception ex)
+                    finally
                     {
-                        ClearTransport();
-                        _onTransportFault(transport, ex);
-                        break;
+                        System.Buffers.ArrayPool<byte>.Shared.Return(buffer);
+                    }
+                }
+                else
+                {
+                    foreach (var frame in frames)
+                    {
+                        if (!TryWrite(transport, frame.Payload, frame.IsIdr)) break;
                     }
                 }
             }
@@ -135,6 +151,31 @@ public sealed class PacedStreamWriter : IDisposable
         finally
         {
             if (OperatingSystem.IsWindows()) TimeEndPeriod(1);
+        }
+    }
+
+    private bool TryWrite(IStreamedPanelTransport transport, ReadOnlySpan<byte> payload, bool isIdr)
+    {
+        try
+        {
+            var writeStart = Stopwatch.GetTimestamp();
+            transport.Write(payload);
+            // A blocked write is downstream backpressure (socket buffer, adb
+            // forwarding, device fifo); on a render-on-arrival device every
+            // stall shows on glass as a time snap when the backlog flushes.
+            var writeMs = (Stopwatch.GetTimestamp() - writeStart) * 1000 / Stopwatch.Frequency;
+            if (writeMs > 50 && Stopwatch.GetTimestamp() - _lastWriteStallLogTicks > Stopwatch.Frequency)
+            {
+                _lastWriteStallLogTicks = Stopwatch.GetTimestamp();
+                ServiceLog.Warn($"[streamed-panel] write stalled {writeMs}ms serial={_session.Info.Serial} ({payload.Length}b{(isIdr ? " idr" : "")})");
+            }
+            return true;
+        }
+        catch (Exception ex)
+        {
+            ClearTransport();
+            _onTransportFault(transport, ex);
+            return false;
         }
     }
 

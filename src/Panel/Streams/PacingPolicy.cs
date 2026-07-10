@@ -21,8 +21,12 @@ public static class PacingPolicy
     // headroom to deliver.
     public const int CatchUpDepth = 2;
 
-    public static PacingDecision Decide(int queueDepth, int framesUntilIdr, bool waitingForIdr)
+    /// <summary>batchFrames scales the whole decision: the writer ticks at
+    /// fps/batch and each tick's frames go out as one transport write, so a
+    /// steady tick sends one batch and catch-up sends two.</summary>
+    public static PacingDecision Decide(int queueDepth, int framesUntilIdr, bool waitingForIdr, int batchFrames = 1)
     {
+        var batch = Math.Max(1, batchFrames);
         if (waitingForIdr)
         {
             if (framesUntilIdr < 0)
@@ -31,7 +35,7 @@ public static class PacingPolicy
             }
 
             var remaining = queueDepth - framesUntilIdr;
-            var send = Math.Min(remaining > CatchUpDepth ? 2 : 1, remaining);
+            var send = Math.Min(remaining > CatchUpDepth * batch ? 2 * batch : batch, remaining);
             return new PacingDecision(framesUntilIdr, send, true);
         }
 
@@ -40,7 +44,7 @@ public static class PacingPolicy
             return new PacingDecision(0, 0, false);
         }
 
-        var sendCount = Math.Min(queueDepth > CatchUpDepth ? 2 : 1, queueDepth);
+        var sendCount = Math.Min(queueDepth > CatchUpDepth * batch ? 2 * batch : batch, queueDepth);
         return new PacingDecision(0, sendCount, false);
     }
 }
