@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Nexus.Service.Deck;
 using Nexus.Service.Devices.Firmware;
 using Nexus.Service.Models.Profiles;
 using Nexus.Service.Persistence;
@@ -87,6 +88,23 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(LayoutPreset))]
 [JsonSerializable(typeof(List<LayoutPreset>))]
+// Stream Deck bindings - the shared DeckAction/DeckConfig tree (see
+// Nexus.Service.Deck.DeckActionModel) persisted per physical deck serial.
+[JsonSerializable(typeof(StreamDeckSettings))]
+[JsonSerializable(typeof(PhysicalDeckSettings))]
+[JsonSerializable(typeof(Dictionary<string, PhysicalDeckSettings>))]
+[JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(DeckConfig))]
+[JsonSerializable(typeof(DeckFolder))]
+[JsonSerializable(typeof(DeckSlot))]
+[JsonSerializable(typeof(List<DeckSlot>))]
+[JsonSerializable(typeof(DeckIcon))]
+[JsonSerializable(typeof(DeckAction))]
+[JsonSerializable(typeof(DeckSystemAction))]
+[JsonSerializable(typeof(DeckNexusAction))]
+[JsonSerializable(typeof(DeckToggleState))]
+[JsonSerializable(typeof(DeckSequenceStep))]
+[JsonSerializable(typeof(List<DeckSequenceStep>))]
 // Metadata-only for the same reason as AppJsonContext: settings writes are
 // rare, so the generated fast-path writer is pure AOT size.
 [JsonSourceGenerationOptions(

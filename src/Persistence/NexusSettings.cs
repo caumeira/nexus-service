@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Nexus.Service.Deck;
 using Nexus.Service.Defaults;
 
 namespace Nexus.Service.Persistence;
@@ -69,6 +70,9 @@ public sealed class NexusSettings
     /// settings.json (not a separate marker file) so a factory reset wipes it
     /// and the welcome screen reappears.</summary>
     public bool OnboardingCompleted { get; set; }
+
+    /// <summary>Physical Stream Deck bindings, keyed by device serial. Workstation-level: survives Nexus profile switches and follows the deck across USB ports.</summary>
+    public StreamDeckSettings StreamDeck { get; set; } = new();
 }
 
 /// <summary>
@@ -694,6 +698,25 @@ public sealed class LianLiWirelessSettings
     public bool StopConflictingApps { get; set; } = true;
     /// <summary>Per-screen LCD content and display settings, keyed by the SL-LCD Wireless screen's 16-hex serial.</summary>
     public Dictionary<string, LianLiWirelessScreenSettings> Screens { get; set; } = new();
+}
+
+public sealed class StreamDeckSettings
+{
+    /// <summary>Per-deck bindings, keyed by device serial.</summary>
+    public Dictionary<string, PhysicalDeckSettings> Decks { get; set; } = new();
+}
+
+/// <summary>One physical Stream Deck's persisted name, brightness, key bindings, and uploaded-image references.</summary>
+public sealed class PhysicalDeckSettings
+{
+    public const int DefaultBrightness = 60;
+
+    /// <summary>Empty falls back to the model name.</summary>
+    public string Name { get; set; } = "";
+    public int Brightness { get; set; } = DefaultBrightness;
+    public DeckConfig Deck { get; set; } = new();
+    /// <summary>Keyed by "{slotPath}/{state}" (state "0" or "1" for a toggle); value is the cached image's content hash.</summary>
+    public Dictionary<string, string> ImageRefs { get; set; } = new();
 }
 
 /// <summary>One SL-LCD Wireless fan screen's persisted content selection and display settings.</summary>
