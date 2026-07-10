@@ -40,7 +40,7 @@ public sealed class HidStreamDeckSurface : IStreamDeckSurface
             : new byte[StreamDeckProtocol.Gen2InputHeaderLength + model.KeyCount];
     }
 
-    /// <summary>Opens the device at the given HID interface. False if already open or the open failed.</summary>
+    /// <summary>Opens the device at the given HID interface. True if already open; false only when the open itself fails.</summary>
     public bool Connect(HidDeviceInfo info)
     {
         lock (_io)
