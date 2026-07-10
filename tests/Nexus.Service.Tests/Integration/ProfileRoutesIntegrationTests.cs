@@ -131,6 +131,104 @@ public sealed class ProfileRoutesIntegrationTests : IDisposable
     }
 
     [Fact]
+    public async Task Preferences_diagnostics_patch_persists_and_round_trips_through_GET()
+    {
+        var client = AuthedClient();
+
+        var patch = new
+        {
+            diagnostics = new
+            {
+                thresholds = new { cpuC = 80, gpuC = 82, storageC = 65, ramC = 55 },
+                warningLingerMinutes = 15,
+                notifications = new
+                {
+                    enabled = true,
+                    highTemp = true,
+                    storageHealth = false,
+                    cooling = true,
+                    memoryTest = false,
+                    systemDevices = false,
+                    gpuThrottle = true,
+                    cooldownMinutes = 30,
+                },
+                components = new { cpu = true, gpu = false, storage = true, ram = true, cooling = false, system = true },
+            },
+        };
+
+        var postRes = await client.PostAsJsonAsync("/preferences", patch);
+        Assert.Equal(HttpStatusCode.OK, postRes.StatusCode);
+
+        var getRes = await client.GetAsync("/preferences");
+        Assert.Equal(HttpStatusCode.OK, getRes.StatusCode);
+        var body = await getRes.Content.ReadFromJsonAsync<JsonElement>();
+        var diagnostics = body.GetProperty("diagnostics");
+
+        var thresholds = diagnostics.GetProperty("thresholds");
+        Assert.Equal(80, thresholds.GetProperty("cpuC").GetDouble());
+        Assert.Equal(82, thresholds.GetProperty("gpuC").GetDouble());
+        Assert.Equal(65, thresholds.GetProperty("storageC").GetDouble());
+        Assert.Equal(55, thresholds.GetProperty("ramC").GetDouble());
+
+        Assert.Equal(15, diagnostics.GetProperty("warningLingerMinutes").GetInt32());
+
+        var notifications = diagnostics.GetProperty("notifications");
+        Assert.True(notifications.GetProperty("enabled").GetBoolean());
+        Assert.True(notifications.GetProperty("highTemp").GetBoolean());
+        Assert.False(notifications.GetProperty("storageHealth").GetBoolean());
+        Assert.True(notifications.GetProperty("cooling").GetBoolean());
+        Assert.False(notifications.GetProperty("memoryTest").GetBoolean());
+        Assert.False(notifications.GetProperty("systemDevices").GetBoolean());
+        Assert.True(notifications.GetProperty("gpuThrottle").GetBoolean());
+        Assert.Equal(30, notifications.GetProperty("cooldownMinutes").GetInt32());
+
+        var components = diagnostics.GetProperty("components");
+        Assert.True(components.GetProperty("cpu").GetBoolean());
+        Assert.False(components.GetProperty("gpu").GetBoolean());
+        Assert.True(components.GetProperty("storage").GetBoolean());
+        Assert.True(components.GetProperty("ram").GetBoolean());
+        Assert.False(components.GetProperty("cooling").GetBoolean());
+        Assert.True(components.GetProperty("system").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Preferences_GET_defaults_diagnostics_to_the_documented_defaults()
+    {
+        var client = AuthedClient();
+
+        var res = await client.GetAsync("/preferences");
+
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        var body = await res.Content.ReadFromJsonAsync<JsonElement>();
+        var diagnostics = body.GetProperty("diagnostics");
+
+        var thresholds = diagnostics.GetProperty("thresholds");
+        Assert.Equal(90, thresholds.GetProperty("cpuC").GetDouble());
+        Assert.Equal(85, thresholds.GetProperty("gpuC").GetDouble());
+        Assert.Equal(70, thresholds.GetProperty("storageC").GetDouble());
+        Assert.Equal(60, thresholds.GetProperty("ramC").GetDouble());
+        Assert.Equal(0, diagnostics.GetProperty("warningLingerMinutes").GetInt32());
+
+        var notifications = diagnostics.GetProperty("notifications");
+        Assert.False(notifications.GetProperty("enabled").GetBoolean());
+        Assert.False(notifications.GetProperty("highTemp").GetBoolean());
+        Assert.False(notifications.GetProperty("storageHealth").GetBoolean());
+        Assert.False(notifications.GetProperty("cooling").GetBoolean());
+        Assert.False(notifications.GetProperty("memoryTest").GetBoolean());
+        Assert.False(notifications.GetProperty("systemDevices").GetBoolean());
+        Assert.False(notifications.GetProperty("gpuThrottle").GetBoolean());
+        Assert.Equal(60, notifications.GetProperty("cooldownMinutes").GetInt32());
+
+        var components = diagnostics.GetProperty("components");
+        Assert.True(components.GetProperty("cpu").GetBoolean());
+        Assert.True(components.GetProperty("gpu").GetBoolean());
+        Assert.True(components.GetProperty("storage").GetBoolean());
+        Assert.True(components.GetProperty("ram").GetBoolean());
+        Assert.True(components.GetProperty("cooling").GetBoolean());
+        Assert.True(components.GetProperty("system").GetBoolean());
+    }
+
+    [Fact]
     public async Task Import_with_replace_true_overwrites_the_colliding_profile_in_place()
     {
         var client = AuthedClient();

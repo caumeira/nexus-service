@@ -8,6 +8,7 @@ using Nexus.Service.Diagnostics.Memory;
 using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Diagnostics.SystemInfo;
 using Nexus.Service.Diagnostics.Temperature;
+using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 
@@ -68,6 +69,7 @@ public sealed class DiagnosticsHealthModel
     private readonly PnpProblemScanner _pnp;
     private readonly ISensorProvider _sensors;
     private readonly ITemperatureHistoryStore _tempStore;
+    private readonly IConfigStore _store;
 
     private readonly object _gate = new();
     private DiagnosticsHealthResponse? _cached;
@@ -81,7 +83,8 @@ public sealed class DiagnosticsHealthModel
         MemoryDiagnosticOrchestrator memDiag,
         PnpProblemScanner pnp,
         ISensorProvider sensors,
-        ITemperatureHistoryStore tempStore)
+        ITemperatureHistoryStore tempStore,
+        IConfigStore store)
     {
         _smart = smart;
         _cooling = cooling;
@@ -91,6 +94,7 @@ public sealed class DiagnosticsHealthModel
         _pnp = pnp;
         _sensors = sensors;
         _tempStore = tempStore;
+        _store = store;
     }
 
     /// <summary>forceRefresh bypasses this model's own cache; module caches are
@@ -106,6 +110,17 @@ public sealed class DiagnosticsHealthModel
                 return _cached;
             }
 
+            // Single settings snapshot for this whole computation - thresholds
+            // and the episode recency window both derive from it.
+            var diagnostics = _store.Load().Diagnostics;
+            var thresholdOverrides = new Dictionary<string, double>
+            {
+                ["cpu"] = diagnostics.Thresholds.CpuC,
+                ["gpu"] = diagnostics.Thresholds.GpuC,
+                ["storage"] = diagnostics.Thresholds.StorageC,
+                ["ram"] = diagnostics.Thresholds.RamC,
+            };
+
             var result = Compute(
                 smart: _smart.Snapshot(),
                 cooling: _cooling.Snapshot(),
@@ -116,7 +131,8 @@ public sealed class DiagnosticsHealthModel
                 knownGpuModels: _sensors.GetGpuModels(),
                 windowsSupported: OperatingSystem.IsWindows(),
                 generatedAtUtc: now,
-                tempEpisodes: TemperatureInsights.DetectEpisodes(QueryTempRows(now)));
+                tempEpisodes: TemperatureInsights.DetectEpisodes(QueryTempRows(now), thresholdOverrides),
+                diagnostics: diagnostics);
 
             _cached = result;
             _cachedAtUtc = now;
@@ -165,18 +181,32 @@ public sealed class DiagnosticsHealthModel
         IReadOnlyList<string> knownGpuModels,
         bool windowsSupported,
         DateTime generatedAtUtc,
-        IReadOnlyList<TemperatureEpisode>? tempEpisodes = null)
+        IReadOnlyList<TemperatureEpisode>? tempEpisodes = null,
+        DiagnosticsSettings? diagnostics = null)
     {
+        var diag = diagnostics ?? new DiagnosticsSettings();
         var components = new List<HealthComponent>();
 
         if (windowsSupported)
         {
-            AddStorageComponents(components, smart);
-            AddGpuComponents(components, gpu, knownGpuModels);
-            AddMemoryComponent(components, lastMemoryTest);
-            AddSystemComponent(components, pnp);
+            if (diag.Components.Storage)
+            {
+                AddStorageComponents(components, smart);
+            }
+            if (diag.Components.Gpu)
+            {
+                AddGpuComponents(components, gpu, knownGpuModels);
+            }
+            if (diag.Components.Ram)
+            {
+                AddMemoryComponent(components, lastMemoryTest);
+            }
+            if (diag.Components.System)
+            {
+                AddSystemComponent(components, pnp);
+            }
         }
-        AddCoolingComponents(components, cooling, tempEpisodes ?? Array.Empty<TemperatureEpisode>(), generatedAtUtc);
+        AddCoolingComponents(components, cooling, tempEpisodes ?? Array.Empty<TemperatureEpisode>(), generatedAtUtc, diag);
 
         return new DiagnosticsHealthResponse
         {
@@ -222,64 +252,91 @@ public sealed class DiagnosticsHealthModel
     private static string MapReasonSeverity(ReasonSeverity severity) =>
         severity == ReasonSeverity.Act ? HealthStatuses.Act : HealthStatuses.Watch;
 
+    /// <summary>
+    /// A temperature episode counts as a current warning only while it is
+    /// still ongoing or just barely ended: recency window is the wider of one
+    /// bucket's width (accounts for the latest bucket not having flushed yet)
+    /// and the user's configured linger. Default linger 0 means only an
+    /// episode that is ongoing right now (or ended within one bucket) shows a
+    /// warning; the 24h+ episode history stays on GET /diagnostics/temperatures,
+    /// which calls TemperatureInsights.DetectEpisodes directly and never
+    /// passes through this recency filter.
+    /// </summary>
     private static void AddCoolingComponents(
         List<HealthComponent> components,
         CoolingStallSnapshot cooling,
         IReadOnlyList<TemperatureEpisode> tempEpisodes,
-        DateTime generatedAtUtc)
+        DateTime generatedAtUtc,
+        DiagnosticsSettings diagnostics)
     {
-        var cutoffUtc = generatedAtUtc.AddHours(-24);
+        var recencyMinutes = Math.Max(TemperatureSampler.BucketMinutes, diagnostics.WarningLingerMinutes);
+        var cutoffUtc = generatedAtUtc.AddMinutes(-recencyMinutes);
         var recentEpisodes = tempEpisodes
             .Where(e => e.EndUtc >= cutoffUtc && e.StartUtc <= generatedAtUtc)
+            .Where(e => IsTempKindEnabled(e.Kind, diagnostics.Components))
             .ToList();
 
-        if (cooling.Devices.Count == 0 && recentEpisodes.Count == 0)
+        var stallEligible = diagnostics.Components.Cooling && cooling.Devices.Count > 0;
+        if (!stallEligible && recentEpisodes.Count == 0)
         {
             return;
         }
 
-        foreach (var device in cooling.Devices)
+        if (diagnostics.Components.Cooling)
         {
-            if (device.Status != CoolingStallStatuses.Stalled && device.Status != CoolingStallStatuses.Suspect)
+            foreach (var device in cooling.Devices)
             {
-                continue;
+                if (device.Status != CoolingStallStatuses.Stalled && device.Status != CoolingStallStatuses.Suspect)
+                {
+                    continue;
+                }
+
+                var isPump = string.Equals(device.Type, "pump", StringComparison.OrdinalIgnoreCase);
+                var code = isPump ? "cooling.pumpStall" : "cooling.fanStall";
+                var severity = device.Status == CoolingStallStatuses.Stalled ? HealthStatuses.Act : HealthStatuses.Watch;
+                var summary = device.Status == CoolingStallStatuses.Stalled
+                    ? $"{device.Name} reports 0 RPM while driven"
+                    : $"{device.Name} reports 0 RPM at low duty";
+                var detail = $"rpm={Fmt(device.Rpm)} targetDuty={Fmt(device.TargetDutyPercent)}% since={device.SinceUtc:O}";
+
+                components.Add(new HealthComponent
+                {
+                    Id = $"cooling:{device.Id}",
+                    Kind = "cooling",
+                    Name = device.Name,
+                    Status = severity,
+                    Reasons = new List<HealthComponentReason> { new(code, severity, summary, detail) },
+                });
             }
-
-            var isPump = string.Equals(device.Type, "pump", StringComparison.OrdinalIgnoreCase);
-            var code = isPump ? "cooling.pumpStall" : "cooling.fanStall";
-            var severity = device.Status == CoolingStallStatuses.Stalled ? HealthStatuses.Act : HealthStatuses.Watch;
-            var summary = device.Status == CoolingStallStatuses.Stalled
-                ? $"{device.Name} reports 0 RPM while driven"
-                : $"{device.Name} reports 0 RPM at low duty";
-            var detail = $"rpm={Fmt(device.Rpm)} targetDuty={Fmt(device.TargetDutyPercent)}% since={device.SinceUtc:O}";
-
-            components.Add(new HealthComponent
-            {
-                Id = $"cooling:{device.Id}",
-                Kind = "cooling",
-                Name = device.Name,
-                Status = severity,
-                Reasons = new List<HealthComponentReason> { new(code, severity, summary, detail) },
-            });
         }
 
         var reasons = recentEpisodes.Select(ep => new HealthComponentReason(
             "cooling.sustainedHighTemp",
             HealthStatuses.Watch,
-            $"{ep.Name} ran above {ep.ThresholdC:0} C for {FormatMinutes(ep.EndUtc - ep.StartUtc)} in the last 24 hours",
+            $"{ep.Name} recently ran above {ep.ThresholdC:0} C",
             $"componentId={ep.ComponentId} peakC={ep.PeakC:0.0} start={ep.StartUtc:O} end={ep.EndUtc:O}")).ToList();
 
-        components.Add(new HealthComponent
+        if (stallEligible || reasons.Count > 0)
         {
-            Id = "cooling",
-            Kind = "cooling",
-            Name = $"Cooling ({cooling.Devices.Count})",
-            Status = WorstReasonStatus(reasons, HealthStatuses.Ok),
-            Reasons = reasons,
-        });
+            components.Add(new HealthComponent
+            {
+                Id = "cooling",
+                Kind = "cooling",
+                Name = $"Cooling ({cooling.Devices.Count})",
+                Status = WorstReasonStatus(reasons, HealthStatuses.Ok),
+                Reasons = reasons,
+            });
+        }
     }
 
-    private static string FormatMinutes(TimeSpan span) => $"{(int)Math.Round(span.TotalMinutes)} minutes";
+    private static bool IsTempKindEnabled(string kind, DiagnosticsComponents components) => kind switch
+    {
+        "cpu" => components.Cpu,
+        "gpu" => components.Gpu,
+        "storage" => components.Storage,
+        "ram" => components.Ram,
+        _ => true,
+    };
 
     private static string Fmt(double? value) => value?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "null";
 

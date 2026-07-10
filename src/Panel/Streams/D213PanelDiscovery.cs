@@ -159,8 +159,15 @@ internal static class D213Profiles
                 CssWidth = 800,
                 CssHeight = 800,
                 Dpr = 1.0,
-                Fps = 60,
-                BitrateKbps = 8000,
+                // The board's adb delivery chain measures a hard ~33
+                // frames/s ceiling regardless of frame size (one
+                // write->ack round trip per frame, display-drained); any
+                // higher production rate grows the queue until it trims to
+                // an IDR, which the render-on-arrival player shows as a
+                // periodic time snap. Produce below the ceiling so the
+                // chain runs drained and arrival time is writer-paced.
+                Fps = 30,
+                BitrateKbps = 3500,
             };
         }
 
@@ -172,8 +179,9 @@ internal static class D213Profiles
             CssWidth = 1024,
             CssHeight = 600,
             Dpr = 1.0,
-            Fps = 60,
-            BitrateKbps = 8000,
+            // Same delivery-ceiling rule as the q60 profile above.
+            Fps = 30,
+            BitrateKbps = 3500,
         };
     }
 
@@ -182,7 +190,7 @@ internal static class D213Profiles
     {
         var kind = record?.ProfileKind ?? FsKind;
         var basis = Default(kind);
-        if (record is null || (record.Fps is null && record.BitrateKbps is null))
+        if (record is null || (record.Fps is null && record.BitrateKbps is null && record.WriteBatchFrames is null))
         {
             return basis;
         }
@@ -197,6 +205,7 @@ internal static class D213Profiles
             Dpr = basis.Dpr,
             Fps = record.Fps ?? basis.Fps,
             BitrateKbps = record.BitrateKbps ?? basis.BitrateKbps,
+            WriteBatchFrames = record.WriteBatchFrames ?? basis.WriteBatchFrames,
         };
     }
 }

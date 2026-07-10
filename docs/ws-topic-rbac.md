@@ -11,37 +11,41 @@ bearer / panel cookie auth gate during the upgrade can subsequently send
 per-topic permission check inside `MultiplexHub`.
 
 That means a paired *phone* session - which we want to restrict to the
-panel surface (lighting, beats, presence) - currently has the same topic
+panel surface (lighting, presence) - currently has the same topic
 surface as the *desktop* dashboard session, including diagnostic streams
-that contain process names, network connections, and screen-time data.
+that contain process names (CPU and GPU), network connections, and
+screen-time data.
 
 ## Current topics
 
 Enumerated from `RegisterSnapshotProvider` and `BroadcastTopicAsync`
-call sites in `src/Monitoring`, `src/Sensors`, and the audio pipeline.
+call sites in `src/Monitoring`, `src/Sensors`, `src/Activity`, and the
+audio pipeline.
 
 | Topic         | Source                | Sensitivity | Phone-OK? |
 |---------------|-----------------------|-------------|-----------|
+| `summary`     | sensor composite      | low         | yes       |
 | `cpu`         | sensor composite      | low         | yes       |
 | `gpu`         | sensor composite      | low         | yes       |
 | `memory`      | sensor composite      | low         | yes       |
 | `storage`     | sensor composite      | low         | yes       |
 | `motherboard` | sensor composite      | low         | yes       |
-| `cooling`     | sensor composite      | low         | yes       |
+| `cooling` / `cooling-realtime` | curve engine | low    | yes       |
 | `extras`      | sensor composite      | low         | yes       |
 | `monitoring`  | composite of above    | low         | yes       |
 | `fps`         | Windows ETW capture   | low         | yes       |
 | `volume`      | media session         | low         | yes       |
 | `audio`       | spectrum analyser     | low         | yes       |
-| `beats`       | beat detector         | low         | yes       |
-| **`processes`**   | top-N process list   | **medium - leaks user app usage** | **no** |
-| **`network`**     | per-PID throughput  | **medium - leaks browsing patterns** | **no** |
-| **`screentime`**  | per-app daily time  | **medium - privacy-sensitive**       | **no** |
+| **`processes`**     | top-N process list  | **medium - leaks user app usage**    | **no** |
+| **`gpu-processes`** | per-PID GPU usage   | **medium - leaks user app usage**    | **no** |
+| **`network`**       | per-PID throughput  | **medium - leaks browsing patterns** | **no** |
+| **`screentime`**    | per-app daily time  | **medium - privacy-sensitive**       | **no** |
 
-The three highlighted topics expose user-activity signal that a phone
+The four highlighted topics expose user-activity signal that a phone
 client (potentially handed to a guest, propped in the kitchen, or pinned
-on the lock screen) should not see. The desktop dashboard, which runs
-under the same login as the user, can see them.
+on the lock screen) should not see. `gpu-processes` names the process
+behind each GPU PID, the same leak class as `processes`. The desktop
+dashboard, which runs under the same login as the user, can see them all.
 
 ## Proposal
 
@@ -51,6 +55,7 @@ Add a per-topic policy in `MultiplexHub.HandleSubscribe(...)`:
 private static readonly HashSet<string> DesktopOnlyTopics = new(StringComparer.OrdinalIgnoreCase)
 {
     "processes",
+    "gpu-processes",
     "network",
     "screentime",
 };

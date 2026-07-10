@@ -1,23 +1,17 @@
 using System;
-using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Nexus.Service.Activity;
-using Nexus.Service.Conflicts;
 using Nexus.Service.Cooling;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting;
 using Nexus.Service.Peripherals.Hid;
-using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
-using Nexus.Service.Platform.Windows;
 
 namespace Nexus.Service.Peripherals.CorsairLink;
 
 /// <summary>
-/// Discovers the iCUE LINK System Hub, opens its command interface, stops Corsair
-/// iCUE (which otherwise co-drives the hub and fights every write), takes the hub
+/// Discovers the iCUE LINK System Hub, opens its command interface, takes the hub
 /// into software mode, and polls speed/temperature telemetry while connected.
 /// </summary>
 public sealed class CorsairLinkConnectionWorker : BackgroundService
@@ -31,7 +25,6 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
     private readonly CorsairLinkLightingDeviceProvider _lighting;
     private readonly CorsairLinkCoolingProvider _cooling;
     private readonly CorsairLinkLcd _lcd;
-    private readonly IConfigStore _store;
     private readonly DeviceControlGate _gate;
 
     public CorsairLinkConnectionWorker(
@@ -40,7 +33,6 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
         CorsairLinkLightingDeviceProvider lighting,
         CorsairLinkCoolingProvider cooling,
         CorsairLinkLcd lcd,
-        IConfigStore store,
         DeviceControlGate gate)
     {
         _hid = hid;
@@ -48,7 +40,6 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
         _lighting = lighting;
         _cooling = cooling;
         _lcd = lcd;
-        _store = store;
         _gate = gate;
     }
 
@@ -72,10 +63,6 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
                 }
 
                 _hub.Attach(device);
-                if (OperatingSystem.IsWindows() && _store.Load().Devices.Corsair.StopConflictingApps)
-                {
-                    StopCorsairApps();
-                }
 
                 if (!_hub.Initialize())
                 {
@@ -128,26 +115,6 @@ public sealed class CorsairLinkConnectionWorker : BackgroundService
                 ServiceLog.Error($"[corsair] worker error: {ex.Message}");
                 await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
             }
-        }
-    }
-
-    [SupportedOSPlatform("windows")]
-    private static void StopCorsairApps()
-    {
-        var killedAny = false;
-        foreach (var def in ConflictAppCatalog.All)
-        {
-            if (def.Id != "icue") continue;
-            foreach (var name in def.ProcessNames)
-            {
-                if (ProcessKiller.Kill(name)) killedAny = true;
-            }
-        }
-        // The device-lister service re-grabs the hub if left running.
-        WindowsServiceController.StopService("CorsairDeviceListerService");
-        if (killedAny)
-        {
-            ServiceLog.Info("[corsair] stopped Corsair iCUE to take over the hub");
         }
     }
 

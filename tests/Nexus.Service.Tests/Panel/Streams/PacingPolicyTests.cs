@@ -32,7 +32,7 @@ public class PacingPolicyTests
     [Fact]
     public void Waiting_for_idr_at_head_drops_nothing_and_sends_from_idr()
     {
-        var decision = PacingPolicy.Decide(queueDepth: 3, framesUntilIdr: 0, waitingForIdr: true);
+        var decision = PacingPolicy.Decide(queueDepth: PacingPolicy.CatchUpDepth, framesUntilIdr: 0, waitingForIdr: true);
 
         Assert.Equal(new PacingDecision(DropCount: 0, SendCount: 1, ClearWaitingForIdr: true), decision);
     }
@@ -40,7 +40,7 @@ public class PacingPolicyTests
     [Fact]
     public void Waiting_for_idr_with_remaining_exactly_catch_up_depth_sends_one()
     {
-        var decision = PacingPolicy.Decide(queueDepth: 8, framesUntilIdr: 2, waitingForIdr: true);
+        var decision = PacingPolicy.Decide(queueDepth: PacingPolicy.CatchUpDepth + 2, framesUntilIdr: 2, waitingForIdr: true);
 
         Assert.Equal(new PacingDecision(DropCount: 2, SendCount: 1, ClearWaitingForIdr: true), decision);
     }
@@ -115,5 +115,38 @@ public class PacingPolicyTests
         var steady = PacingPolicy.Decide(queueDepth: 10, framesUntilIdr: -1, waitingForIdr: false);
         Assert.True(steady.DropCount >= 0);
         Assert.True(steady.SendCount >= 0);
+    }
+
+    [Fact]
+    public void Batched_steady_tick_sends_one_batch()
+    {
+        var decision = PacingPolicy.Decide(queueDepth: 4, framesUntilIdr: -1, waitingForIdr: false, batchFrames: 2);
+
+        Assert.Equal(new PacingDecision(DropCount: 0, SendCount: 2, ClearWaitingForIdr: false), decision);
+    }
+
+    [Fact]
+    public void Batched_catch_up_sends_two_batches()
+    {
+        var depth = PacingPolicy.CatchUpDepth * 2 + 1;
+        var decision = PacingPolicy.Decide(queueDepth: depth, framesUntilIdr: -1, waitingForIdr: false, batchFrames: 2);
+
+        Assert.Equal(new PacingDecision(DropCount: 0, SendCount: 4, ClearWaitingForIdr: false), decision);
+    }
+
+    [Fact]
+    public void Batched_send_is_capped_by_queue_depth()
+    {
+        var decision = PacingPolicy.Decide(queueDepth: 1, framesUntilIdr: -1, waitingForIdr: false, batchFrames: 4);
+
+        Assert.Equal(new PacingDecision(DropCount: 0, SendCount: 1, ClearWaitingForIdr: false), decision);
+    }
+
+    [Fact]
+    public void Batch_below_one_behaves_as_unbatched()
+    {
+        var decision = PacingPolicy.Decide(queueDepth: 1, framesUntilIdr: -1, waitingForIdr: false, batchFrames: 0);
+
+        Assert.Equal(new PacingDecision(DropCount: 0, SendCount: 1, ClearWaitingForIdr: false), decision);
     }
 }

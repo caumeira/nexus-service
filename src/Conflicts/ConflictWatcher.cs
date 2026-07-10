@@ -14,6 +14,20 @@ using Microsoft.Extensions.Hosting;
 namespace Nexus.Service.Conflicts;
 
 /// <summary>
+/// Read-only view of the conflict watcher's detected-app state, exposed so
+/// other services can gate behavior on whether a competing app is running
+/// without depending on the watcher's broadcast/hosted-service surface.
+/// </summary>
+public interface IConflictDetector
+{
+    /// <summary>True if the competing app with this <see cref="ConflictAppCatalog"/> id is currently running.</summary>
+    bool IsAppRunning(string appId);
+
+    /// <summary>False until the first process scan completes, so callers do not treat "not yet scanned" as "no apps running".</summary>
+    bool DetectionReady { get; }
+}
+
+/// <summary>
 /// Background service that polls the running process list every 5 s, matches
 /// it against <see cref="ConflictAppCatalog.All"/>, and broadcasts the
 /// current snapshot on the multiplex topic <c>conflicts</c> whenever the
@@ -24,7 +38,7 @@ namespace Nexus.Service.Conflicts;
 /// provider so newly-subscribing clients receive the current state without
 /// waiting for the next change tick.
 /// </summary>
-public sealed class ConflictWatcher : BackgroundService
+public sealed class ConflictWatcher : BackgroundService, IConflictDetector
 {
     public const string Topic = "conflicts";
 
@@ -47,6 +61,8 @@ public sealed class ConflictWatcher : BackgroundService
     /// <summary>Set of conflict ids currently detected. Used to detect changes.</summary>
     private string[] _lastDetectedIds = Array.Empty<string>();
 
+    private volatile bool _detectionReady;
+
     public ConflictWatcher(MultiplexHub hub, OpenRgbProcessManager? openRgb = null)
     {
         _hub = hub;
@@ -55,6 +71,19 @@ public sealed class ConflictWatcher : BackgroundService
     }
 
     public IReadOnlyList<DetectedConflict> GetConflicts() => _latest;
+
+    public bool DetectionReady => _detectionReady;
+
+    public bool IsAppRunning(string appId)
+    {
+        var latest = _latest;
+        foreach (var conflict in latest)
+        {
+            if (string.Equals(conflict.Id, appId, StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
+    }
 
     /// <summary>
     /// Resolve the catalog entry matching a given id (case-insensitive).
@@ -127,6 +156,7 @@ public sealed class ConflictWatcher : BackgroundService
         bool changed = !ArraysEqual(ids, _lastDetectedIds);
         _lastDetectedIds = ids;
         _latest = detected;
+        _detectionReady = true;
 
         if (!changed && _cachedEnvelope is not null)
             return;

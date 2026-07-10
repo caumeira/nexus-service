@@ -41,9 +41,9 @@ public sealed class LhmComputer : IDisposable
             IsStorageEnabled = true,
             IsMotherboardEnabled = true,
             IsControllerEnabled = true,
-            IsNetworkEnabled = false,
-            IsBatteryEnabled = false,
-            IsPsuEnabled = false,
+            IsNetworkEnabled = true,
+            IsBatteryEnabled = true,
+            IsPsuEnabled = true,
         };
         _openTask = Task.Run(() =>
         {
