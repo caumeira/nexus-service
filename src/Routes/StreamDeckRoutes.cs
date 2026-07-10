@@ -34,8 +34,10 @@ public static class StreamDeckRoutes
             var settings = store.Load().StreamDeck;
             var warning = handler.GetWarning(usb.Enumerate());
             var response = new GetStreamDecksResponse();
+            var seenSerials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (_, surface) in worker.Surfaces)
             {
+                seenSerials.Add(surface.Serial);
                 settings.Decks.TryGetValue(surface.Serial, out var deck);
                 response.Decks.Add(new StreamDeckSummaryDto
                 {
@@ -53,6 +55,38 @@ public static class StreamDeckRoutes
                     Brightness = deck?.Brightness ?? PhysicalDeckSettings.DefaultBrightness,
                     FirmwareVersion = surface.FirmwareVersion,
                     Warning = warning,
+                });
+            }
+
+            // Persisted decks with no live surface (unplugged, or never seen
+            // this run) still list so their name/config stay reachable.
+            foreach (var (serial, deck) in settings.Decks)
+            {
+                if (seenSerials.Contains(serial))
+                {
+                    continue;
+                }
+                var model = StreamDeckModels.ByProductId(deck.ProductId);
+                if (model is null)
+                {
+                    continue;
+                }
+                response.Decks.Add(new StreamDeckSummaryDto
+                {
+                    Serial = serial,
+                    Model = model.Name,
+                    Name = string.IsNullOrEmpty(deck.Name) ? model.Name : deck.Name,
+                    Connected = false,
+                    Verified = model.Verified,
+                    Rows = model.Rows,
+                    Columns = model.Columns,
+                    KeyCount = model.KeyCount,
+                    KeyPixels = model.KeyPixelSize,
+                    Format = FormatName(model.ImageFormat),
+                    Transform = model.Transform,
+                    Brightness = deck.Brightness,
+                    FirmwareVersion = "",
+                    Warning = null,
                 });
             }
             return response;

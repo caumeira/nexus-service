@@ -714,6 +714,8 @@ public sealed class PhysicalDeckSettings
     /// <summary>Empty falls back to the model name.</summary>
     public string Name { get; set; } = "";
     public int Brightness { get; set; } = DefaultBrightness;
+    /// <summary>Last-known StreamDeckModel.ProductId, so a disconnected deck can still report its layout via StreamDeckModels.ByProductId.</summary>
+    public int ProductId { get; set; }
     public DeckConfig Deck { get; set; } = new();
     /// <summary>Keyed by "{slotPath}/{state}" (state "0" or "1" for a toggle); value is the cached image's content hash.</summary>
     public Dictionary<string, string> ImageRefs { get; set; } = new();

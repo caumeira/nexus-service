@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
@@ -91,6 +92,54 @@ public sealed class StreamDeckRoutesTests : IDisposable
     }
 
     private static StringContent Json(string body) => new(body, Encoding.UTF8, "application/json");
+
+    [Fact]
+    public async Task GetDecks_ListsAPersistedDeckWithNoLiveSurfaceAsDisconnected()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            store.Update(s => s.StreamDeck.Decks["OFFLINE-SERIAL"] = new PhysicalDeckSettings
+            {
+                Name = "Desk Deck",
+                ProductId = mini.ProductId,
+            });
+
+            var res = await client.GetAsync("/streamdeck/decks");
+            Assert.True(res.IsSuccessStatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var decks = doc.RootElement.GetProperty("decks");
+            var entry = decks.EnumerateArray().Single(d => d.GetProperty("serial").GetString() == "OFFLINE-SERIAL");
+
+            Assert.False(entry.GetProperty("connected").GetBoolean());
+            Assert.Equal("Desk Deck", entry.GetProperty("name").GetString());
+            Assert.Equal(mini.Name, entry.GetProperty("model").GetString());
+            Assert.Equal(mini.Rows, entry.GetProperty("rows").GetInt32());
+            Assert.Equal(mini.Columns, entry.GetProperty("cols").GetInt32());
+            Assert.Equal(mini.KeyCount, entry.GetProperty("keyCount").GetInt32());
+            Assert.Equal(mini.Transform, entry.GetProperty("transform").GetString());
+            Assert.True(!entry.TryGetProperty("warning", out var warningEl) || warningEl.ValueKind == JsonValueKind.Null);
+        }
+    }
+
+    [Fact]
+    public async Task GetDecks_UnknownPersistedProductId_IsSkippedRatherThanBroken()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            store.Update(s => s.StreamDeck.Decks["CORRUPT-SERIAL"] = new PhysicalDeckSettings { ProductId = 0xDEAD });
+
+            var res = await client.GetAsync("/streamdeck/decks");
+            Assert.True(res.IsSuccessStatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var decks = doc.RootElement.GetProperty("decks");
+            Assert.DoesNotContain(decks.EnumerateArray(), d => d.GetProperty("serial").GetString() == "CORRUPT-SERIAL");
+        }
+    }
 
     [Fact]
     public async Task GetConfig_WithNoPersistedDeck_ReturnsAnEmptyConfig()

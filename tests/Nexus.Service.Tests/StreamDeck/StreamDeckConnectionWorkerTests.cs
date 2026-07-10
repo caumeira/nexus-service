@@ -142,6 +142,27 @@ public class StreamDeckConnectionWorkerTests
     }
 
     [Fact]
+    public void Tick_DeviceUnplugged_PersistedProductIdSurvivesForTheDisconnectedDecksListing()
+    {
+        var f = NewFixtures(devicePresent: false);
+        AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
+        var usb = new MutableUsbEnumerator();
+        usb.Devices.Add(new UsbDeviceEntry { VendorId = StreamDeckModels.VendorId, ProductId = Mini.ProductId });
+        var presence = new HardwarePresence(usb);
+        var worker = new StreamDeckConnectionWorker(f.Hid, presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub);
+
+        worker.Tick();
+        Assert.Equal(Mini.ProductId, f.Store.Load().StreamDeck.Decks["SERIAL-1"].ProductId);
+
+        usb.Devices.Clear();
+        f.Hid.ByProductId.Clear();
+        worker.Tick();
+
+        Assert.Empty(worker.Surfaces);
+        Assert.Equal(Mini.ProductId, f.Store.Load().StreamDeck.Decks["SERIAL-1"].ProductId);
+    }
+
+    [Fact]
     public void Tick_WithSimulatedSurface_RegistersItOnFirstTick()
     {
         var f = NewFixtures(devicePresent: false);

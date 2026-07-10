@@ -702,7 +702,10 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.CorsairLinkHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.StrimerHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.TryxHandler>();
-        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.StreamDeckHandler>();
+        // Registered as itself (not just IDeviceHandler) - StreamDeckRoutes.cs
+        // injects the concrete type directly for GetWarning's detectedDevices.
+        services.AddSingleton<Nexus.Service.Devices.Handlers.StreamDeckHandler>();
+        services.AddSingleton<IDeviceHandler>(sp => sp.GetRequiredService<Nexus.Service.Devices.Handlers.StreamDeckHandler>());
 
         // Read-only catalog of firmware images embedded in this build. Backs
         // the Firmware Updates page's "available version" column.

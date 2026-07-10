@@ -203,6 +203,17 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
             ? deck.Brightness
             : PhysicalDeckSettings.DefaultBrightness;
         surface.SetBrightness(brightness);
+
+        _store.Update(s =>
+        {
+            if (!s.StreamDeck.Decks.TryGetValue(surface.Serial, out var persisted))
+            {
+                persisted = new PhysicalDeckSettings();
+                s.StreamDeck.Decks[surface.Serial] = persisted;
+            }
+            persisted.ProductId = surface.Model.ProductId;
+        });
+
         _folderPathsBySerial[surface.Serial] = new List<int>();
         PushCurrentView(surface);
         BroadcastDecksChanged(surface.Serial);
