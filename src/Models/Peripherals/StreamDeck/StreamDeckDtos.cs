@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using System.Text.Json.Serialization;
 using Nexus.Service.Deck;
 
 namespace Nexus.Service.Models.Peripherals.StreamDeck;
@@ -13,6 +14,8 @@ public sealed class StreamDeckSummaryDto
     public bool Connected { get; set; }
     public bool Verified { get; set; }
     public int Rows { get; set; }
+    /// <summary>Wire name "cols" per the streamdeck-support.md contract, not "columns".</summary>
+    [JsonPropertyName("cols")]
     public int Columns { get; set; }
     public int KeyCount { get; set; }
     public int KeyPixels { get; set; }
