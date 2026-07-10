@@ -48,6 +48,22 @@ public sealed class HardwarePresence
         return false;
     }
 
+    /// <summary>
+    /// Currently enumerated devices under <paramref name="vendorId"/>, for
+    /// diagnostic reads of devnode identity (class, driver INF) - not a
+    /// presence gate.
+    /// </summary>
+    public List<UsbDeviceEntry> UsbEntriesFor(int vendorId)
+    {
+        var result = new List<UsbDeviceEntry>();
+        foreach (var d in _usb.Enumerate())
+        {
+            if (d.VendorId == vendorId)
+                result.Add(d);
+        }
+        return result;
+    }
+
     private static bool Contains(IReadOnlyList<int> ids, int value)
     {
         for (var i = 0; i < ids.Count; i++)

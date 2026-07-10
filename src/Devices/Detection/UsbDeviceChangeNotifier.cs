@@ -75,11 +75,38 @@ internal sealed unsafe class UsbDeviceChangeNotifier : IHostedService
                    or CfgMgr32.CM_NOTIFY_ACTION_DEVICEINTERFACEREMOVAL)
         {
             s_instance?._cache.Invalidate();
+            var link = ReadSymbolicLink(eventData, eventDataSize);
+            var device = link.Length > 0 ? $" {link}" : "";
             ServiceLog.Info(action == CfgMgr32.CM_NOTIFY_ACTION_DEVICEINTERFACEARRIVAL
-                ? "[usb-notify] usb device arrival; enumeration cache invalidated"
-                : "[usb-notify] usb device removal; enumeration cache invalidated");
+                ? $"[usb-notify] usb device arrival{device}; enumeration cache invalidated"
+                : $"[usb-notify] usb device removal{device}; enumeration cache invalidated");
         }
         return 0; // ERROR_SUCCESS
+    }
+
+    /// <summary>
+    /// CM_NOTIFY_EVENT_DATA layout for a device-interface event: FilterType(4) +
+    /// Reserved(4) + ClassGuid(16), then the WCHAR SymbolicLink
+    /// (<c>\\?\USB#VID_xxxx&amp;PID_yyyy#serial#{guid}</c>) - the identity of the
+    /// device that arrived/left, which attributes the invalidation in field logs.
+    /// </summary>
+    private const int SymbolicLinkOffsetBytes = 24;
+
+    private static string ReadSymbolicLink(IntPtr eventData, uint eventDataSize)
+    {
+        if (eventData == IntPtr.Zero || eventDataSize <= SymbolicLinkOffsetBytes + sizeof(char))
+            return "";
+        try
+        {
+            var chars = (int)(eventDataSize - SymbolicLinkOffsetBytes) / sizeof(char);
+            var text = Marshal.PtrToStringUni(eventData + SymbolicLinkOffsetBytes, chars) ?? "";
+            var nul = text.IndexOf('\0');
+            return nul >= 0 ? text.Substring(0, nul) : text;
+        }
+        catch
+        {
+            return "";
+        }
     }
 }
 #endif

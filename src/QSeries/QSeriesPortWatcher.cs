@@ -152,6 +152,25 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private readonly Dictionary<string, DateTimeOffset> _offlineSince = new(StringComparer.Ordinal);
 
     /// <summary>
+    /// Offline serials whose USB instance proved non-MediaTek (a phone, not the
+    /// panel), excluded from offline recovery so the per-tick pass never USB-resets
+    /// someone's phone. Cleared on detach so a replug reclassifies.
+    /// </summary>
+    private readonly HashSet<string> _offlineNonQSeriesSerials = new(StringComparer.Ordinal);
+
+    /// <summary>Serial -> last USB instance-id lookup time; the lookup spawns
+    /// powershell, so it runs on the recovery-threshold cadence, not per tick.
+    /// Cleared when the serial returns online or detaches.</summary>
+    private readonly Dictionary<string, DateTimeOffset> _lastInstanceIdLookupBySerial = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Signature last logged while Q-series hardware was present with no online
+    /// Q-series visible to adb; null while one is online. Gates the diagnostic to
+    /// one line per state change instead of per tick.
+    /// </summary>
+    private string? _adbVisibilitySignature;
+
+    /// <summary>
     /// Last <c>pnputil /restart-device</c> time per USB instance id (the granularity
     /// pnputil acts on). A different replugged device gets its own cooldown.
     /// </summary>
@@ -200,6 +219,71 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
             try { await Task.Delay(PollInterval, stoppingToken); }
             catch (TaskCanceledException) { break; }
+        }
+    }
+
+    /// <summary>
+    /// Panel counted as connected at OS shutdown when the tunnel saw inbound
+    /// bytes this recently. Comfortably above the WebSocket keepalive interval,
+    /// so a live socket always qualifies.
+    /// </summary>
+    private static readonly TimeSpan ShutdownRebootSilence = TimeSpan.FromSeconds(90);
+
+    /// <summary>Construction time; anchors the shutdown-reboot silence check
+    /// when the tunnel saw no bytes at all this run.</summary>
+    private readonly DateTimeOffset _runStartedAt = DateTimeOffset.UtcNow;
+
+    public override async Task StopAsync(CancellationToken cancellationToken)
+    {
+        if (Lifecycle.HostShutdown.IsOsShutdown)
+        {
+            // Best-effort: runs before base.StopAsync cancels the tick loop
+            // (awaiting an in-flight tick could eat the SCM shutdown allowance),
+            // so it races the tick's collection mutations on another thread and
+            // any failure is swallowed rather than aborting shutdown handling.
+            try { TryRebootStrandedPanelsForShutdown(); }
+            catch { }
+        }
+        await base.StopAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// A panel already stranded at OS shutdown (splash-latched or adbd-wedged)
+    /// stays stranded across the host restart, because the wedge survives host
+    /// reboots; rebooting it now makes host and panel cold-boot in parallel and
+    /// the per-attach pass (reverse, am start, HOME pin) picks it up when both
+    /// return. A panel with recent tunnel activity is left alone: its qshell
+    /// keeps the WebView mounted across the restart and reconnects in seconds,
+    /// where a reboot would cost the full cold bootstrap on every OS restart.
+    /// Without the tunnel signal (legacy mapping) stranded and healthy are
+    /// indistinguishable, so nothing is rebooted. The signal is host-global,
+    /// not per-serial, so on a multi-panel host one live panel shields a
+    /// stranded sibling; single-panel installs are the field norm. Budget: OS
+    /// shutdown allows ~5s total (WaitToKillServiceTimeout), so each reboot
+    /// call is capped short.
+    /// </summary>
+    private void TryRebootStrandedPanelsForShutdown()
+    {
+        if (_knownQSeriesSerials.Count == 0) return;
+        if (_tunnelMonitor?.IsActive != true) return;
+
+        // No bytes at all this run anchors on run start: a shutdown moments
+        // after service start must not reboot a panel whose reconnect is still
+        // in flight (Windows Update restart chains).
+        var last = _tunnelMonitor.LastInboundActivityUnixMs;
+        var referenceMs = last > 0 ? last : _runStartedAt.ToUnixTimeMilliseconds();
+        var silenceMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() - referenceMs;
+        if (silenceMs < ShutdownRebootSilence.TotalMilliseconds) return;
+
+        var adbPath = AdbLocator.ResolveAdbPath();
+        if (adbPath is null) return;
+        foreach (var serial in _knownQSeriesSerials.ToArray())
+        {
+            if (QSeriesTransport.IsTcpSerial(serial)) continue;
+            var ok = RunAdb(adbPath, $"-s {serial} reboot", out var err, timeoutMs: 1_500);
+            ServiceLog.Info(ok
+                ? $"[qseries-port-watcher] {serial}: panel silent at OS shutdown; rebooting it so host and panel cold-boot in parallel"
+                : $"[qseries-port-watcher] {serial}: shutdown reboot failed: {err}");
         }
     }
 
@@ -332,6 +416,8 @@ public sealed class QSeriesPortWatcher : BackgroundService
             await TryEscalateRebootAsync(device, ct);
         }
 
+        LogAdbVisibility(deviceList, seenSerials);
+
         // Per-serial state for serials that left the adb list. A re-attach re-logs
         // the applied reverse and force-refreshes it again.
         foreach (var key in _reverseAppliedBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
@@ -352,6 +438,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
         foreach (var key in _homePinnedThisRun.Where(k => !seenSerials.Contains(k)).ToList())
         {
             _homePinnedThisRun.Remove(key);
+        }
+        foreach (var key in _homePinFailuresBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
+        {
+            _homePinFailuresBySerial.Remove(key);
         }
         // Re-arm the grace anchor on detach. _escalationRebootCountBySerial and
         // _lastEscalationRebootBySerial are deliberately NOT cleared here - like
@@ -409,11 +499,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
     }
 
     /// <summary>
-    /// For any known-Q-series serial stuck <c>offline</c> past
+    /// For any Q-series serial stuck <c>offline</c> past
     /// <see cref="OfflineRecoveryThreshold"/>, resolve its USB composite parent and
     /// run <c>pnputil /restart-device</c> - a USB-level reset that restarts adbd in
     /// firmware and clears the handshake wedge. Host-side <c>adb</c> can't: the wedge
-    /// is device-side and adbd can't be restarted without root.
+    /// is device-side and adbd can't be restarted without root. A serial never seen
+    /// online (a panel whose adbd comes up wedged on a fresh boot) qualifies when
+    /// its USB instance sits on the MediaTek VID; other offline devices (a phone)
+    /// are classified once and skipped.
     /// </summary>
     private async Task TryRecoverOfflineQSeriesDevicesAsync(IReadOnlyCollection<DeviceData> deviceList, CancellationToken ct)
     {
@@ -427,14 +520,23 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             if (string.IsNullOrEmpty(device.Serial)) continue;
             present.Add(device.Serial);
-            if (!_knownQSeriesSerials.Contains(device.Serial)) continue;
+            if (!_knownQSeriesSerials.Contains(device.Serial)
+                && _offlineNonQSeriesSerials.Contains(device.Serial))
+            {
+                continue;
+            }
 
             if (device.State == DeviceState.Online)
             {
                 _offlineSince.Remove(device.Serial);
+                _lastInstanceIdLookupBySerial.Remove(device.Serial);
                 continue;
             }
             if (device.State != DeviceState.Offline) continue;
+
+            // An adb-over-TCP serial has no USB instance to reset; recovery
+            // acts on the USB transport entry only.
+            if (QSeriesTransport.IsTcpSerial(device.Serial)) continue;
 
             if (!_offlineSince.TryGetValue(device.Serial, out var since))
             {
@@ -444,12 +546,29 @@ public sealed class QSeriesPortWatcher : BackgroundService
             var offlineFor = now - since;
             if (offlineFor < OfflineRecoveryThreshold) continue;
 
+            // The lookup spawns powershell, so a serial it can't resolve (device
+            // mid-re-enumeration, or a name mismatch) is retried on the threshold
+            // cadence, not every tick - while _offlineSince stays truthful so the
+            // logged duration accumulates.
+            if (_lastInstanceIdLookupBySerial.TryGetValue(device.Serial, out var lastLookup)
+                && now - lastLookup < OfflineRecoveryThreshold)
+            {
+                continue;
+            }
+            _lastInstanceIdLookupBySerial[device.Serial] = now;
+
             var instanceId = TryFindUsbInstanceId(device.Serial);
             if (instanceId is null)
             {
                 ServiceLog.Info(
                     $"[qseries-port-watcher] {device.Serial}: offline for {offlineFor.TotalSeconds:F0}s but no matching USB instance id found");
-                // Defer; the device may re-enumerate under a different name.
+                continue;
+            }
+
+            if (!_knownQSeriesSerials.Contains(device.Serial) && !IsMediaTekInstanceId(instanceId))
+            {
+                _offlineNonQSeriesSerials.Add(device.Serial);
+                _offlineSince.Remove(device.Serial);
                 continue;
             }
 
@@ -480,11 +599,16 @@ public sealed class QSeriesPortWatcher : BackgroundService
             catch (TaskCanceledException) { return; }
         }
 
-        // A re-attach gets a fresh offline-since timer.
+        // A re-attach gets a fresh offline-since timer and a fresh classification.
         foreach (var key in _offlineSince.Keys.Where(k => !present.Contains(k)).ToList())
         {
             _offlineSince.Remove(key);
         }
+        foreach (var key in _lastInstanceIdLookupBySerial.Keys.Where(k => !present.Contains(k)).ToList())
+        {
+            _lastInstanceIdLookupBySerial.Remove(key);
+        }
+        _offlineNonQSeriesSerials.RemoveWhere(k => !present.Contains(k));
     }
 
     /// <summary>
@@ -661,8 +785,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
         return null;
     }
 
-    /// <summary>Synchronous adb.exe shell-out (used for <c>tcpip</c>). True on exit 0.</summary>
-    private static bool RunAdb(string adbPath, string arguments, out string errorOutput)
+    /// <summary>Synchronous adb.exe shell-out (used for <c>tcpip</c> and the
+    /// shutdown reboot). True on exit 0.</summary>
+    private static bool RunAdb(string adbPath, string arguments, out string errorOutput, int timeoutMs = 8_000)
     {
         errorOutput = string.Empty;
         try
@@ -678,10 +803,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 RedirectStandardError = true,
             });
             if (p is null) return false;
-            if (!p.WaitForExit(8_000))
+            if (!p.WaitForExit(timeoutMs))
             {
                 try { p.Kill(true); } catch { }
-                errorOutput = "timed out after 8s";
+                errorOutput = $"timed out after {timeoutMs}ms";
                 return false;
             }
             if (p.ExitCode != 0)
@@ -704,6 +829,56 @@ public sealed class QSeriesPortWatcher : BackgroundService
         // discriminator; state + serial don't disambiguate.
         var model = device.Model ?? string.Empty;
         return QSeriesModels.Contains(model.Replace(" ", "_"));
+    }
+
+    /// <summary>USB instance id sits on the MediaTek VID (the Q-series panel's
+    /// SoC) - the recovery-suspect test for an offline serial never seen online.</summary>
+    internal static bool IsMediaTekInstanceId(string instanceId) =>
+        instanceId.Contains($"VID_{MediaTekAdbVendorId:X4}", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// One-line adb + PnP state dump while Q-series hardware is present but no
+    /// online Q-series is visible to adb - the state every rescue layer (reverse,
+    /// am start, HOME pin, escalation reboot) silently waits on. Logged on state
+    /// change only; a closing line marks recovery and re-arms the diagnostic.
+    /// </summary>
+    private void LogAdbVisibility(IReadOnlyCollection<DeviceData> deviceList, HashSet<string> onlineQSeries)
+    {
+        if (onlineQSeries.Count > 0)
+        {
+            if (_adbVisibilitySignature is not null)
+            {
+                _adbVisibilitySignature = null;
+                ServiceLog.Info("[qseries-port-watcher] q-series visible to adb again");
+            }
+            return;
+        }
+
+        var signature = BuildAdbVisibilitySignature(deviceList, _presence.UsbEntriesFor(MediaTekAdbVendorId));
+        if (signature == _adbVisibilitySignature) return;
+        _adbVisibilitySignature = signature;
+        ServiceLog.Info(
+            $"[qseries-port-watcher] q-series hardware present but none online via adb; {signature}");
+    }
+
+    /// <summary>
+    /// <c>adb=[serial(state,model)…] mediatek-pnp=[name pid class mfr inf…]</c>.
+    /// The PnP half carries each MediaTek devnode's bound class and driver INF -
+    /// enough to spot a vendor-driver misbinding (device node class
+    /// AndroidUsbDeviceClass while adb stays empty) and name the
+    /// <c>pnputil /delete-driver</c> target. Composite children that share the
+    /// parent's product string dedupe into one row (UsbDeviceEntryBuilder), so
+    /// row count is not a healthy/misbound signal on its own.
+    /// </summary>
+    internal static string BuildAdbVisibilitySignature(
+        IEnumerable<DeviceData> adbDevices, IEnumerable<UsbDeviceEntry> mediatekEntries)
+    {
+        var adb = string.Join(", ", adbDevices
+            .Where(d => !string.IsNullOrEmpty(d.Serial))
+            .Select(d => $"{d.Serial}({d.State}{(string.IsNullOrEmpty(d.Model) ? "" : "," + d.Model)})"));
+        var pnp = string.Join(", ", mediatekEntries.Select(e =>
+            $"{e.Name} pid={e.ProductId:X4} class={e.Class} mfr={e.Manufacturer} inf={e.Driver}"));
+        return $"adb=[{adb}] mediatek-pnp=[{pnp}]";
     }
 
     /// <summary>
@@ -784,6 +959,17 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// resolves HOME without the chooser. Cleared on detach so a reboot re-pins.
     /// </summary>
     private readonly HashSet<string> _homePinnedThisRun = new(StringComparer.Ordinal);
+
+    /// <summary>Serial -> consecutive failed pin attempts this attach; bounds the
+    /// un-latch retry below. Cleared on success and on detach.</summary>
+    private readonly Dictionary<string, int> _homePinFailuresBySerial = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Pin attempts per attach before giving up. Sized like
+    /// <see cref="EscalationGrace"/>: at the poll cadence the attempts span past
+    /// the slowest legitimate "package service not yet up" boot window.
+    /// </summary>
+    private const int MaxHomePinAttemptsPerAttach = 18;
 
     /// <summary>
     /// Last adb transport id per serial. A change (same serial) is the reliable reseat
@@ -940,17 +1126,58 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             await _client.ExecuteShellCommandAsync(
                 device, $"cmd package set-home-activity {QshellComponent}", receiver, ct);
-            ServiceLog.Info(
-                $"[qseries-port-watcher] {device.Serial}: re-pinned default HOME to qshell ({receiver.ToString().Trim()})");
+            var output = receiver.ToString().Trim();
+            if (SetHomeActivityTook(output))
+            {
+                _homePinFailuresBySerial.Remove(device.Serial);
+                ServiceLog.Info(
+                    $"[qseries-port-watcher] {device.Serial}: re-pinned default HOME to qshell ({output})");
+            }
+            else
+            {
+                // Early panel boot: `cmd` answers "Can't find service: package" as
+                // normal output with a clean exit, so only checking for exceptions
+                // latched the pin as done without it ever landing.
+                RecordHomePinFailure(device.Serial, output);
+            }
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
-            // Drop the flag so the next tick retries.
-            _homePinnedThisRun.Remove(device.Serial);
-            ServiceLog.Info(
-                $"[qseries-port-watcher] {device.Serial}: set-home-activity failed: {ex.GetType().Name}");
+            RecordHomePinFailure(device.Serial, ex.GetType().Name);
         }
     }
+
+    /// <summary>
+    /// Bounded pin retry: un-latch so the next tick retries, log the first
+    /// failure only, and at the attempt cap leave the serial latched (no further
+    /// shell calls or lines until re-attach). A persistently failing pin - boot
+    /// transient or not - must not shell out and log every tick until detach.
+    /// </summary>
+    private void RecordHomePinFailure(string serial, string detail)
+    {
+        _homePinFailuresBySerial.TryGetValue(serial, out var failures);
+        _homePinFailuresBySerial[serial] = failures + 1;
+        if (failures + 1 >= MaxHomePinAttemptsPerAttach)
+        {
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {serial}: set-home-activity kept failing ({detail}); giving up until re-attach");
+            return;
+        }
+        _homePinnedThisRun.Remove(serial);
+        if (failures == 0)
+        {
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {serial}: set-home-activity did not take ({detail}); retrying (suppressing repeats)");
+        }
+    }
+
+    /// <summary>
+    /// <c>cmd package set-home-activity</c> prints "Success" when the pin landed.
+    /// Early in panel boot the package service is not yet up and the same call
+    /// prints "Can't find service: package" with a clean exit.
+    /// </summary>
+    internal static bool SetHomeActivityTook(string output) =>
+        output.Contains("Success", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
     /// A reseat (same serial, new transport id) leaves a degraded USB-FFS link that
