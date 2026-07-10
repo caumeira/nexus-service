@@ -159,16 +159,14 @@ internal static class D213Profiles
                 CssWidth = 800,
                 CssHeight = 800,
                 Dpr = 1.0,
-                // Just below the panel's ~60Hz consumption so the delivery
-                // chain (socket, adb window, device fifo) runs empty and
-                // frames arrive paced instead of gulp-and-starve; at parity
-                // or above, one transient leaves those buffers standing full
-                // and the render-on-arrival player shows periodic time snaps.
-                Fps = 58,
-                // The board's adb-over-USB-FFS delivery chain measures a
-                // ~4.5Mbps ceiling (write stalls + queue trims above it,
-                // which the render-on-arrival player shows as periodic time
-                // snaps); the bitrate must fit the transport with headroom.
+                // The board's adb delivery chain measures a hard ~33
+                // frames/s ceiling regardless of frame size (one
+                // write->ack round trip per frame, display-drained); any
+                // higher production rate grows the queue until it trims to
+                // an IDR, which the render-on-arrival player shows as a
+                // periodic time snap. Produce below the ceiling so the
+                // chain runs drained and arrival time is writer-paced.
+                Fps = 30,
                 BitrateKbps = 3500,
             };
         }
@@ -181,9 +179,8 @@ internal static class D213Profiles
             CssWidth = 1024,
             CssHeight = 600,
             Dpr = 1.0,
-            // Same consumption-slack rule as the q60 profile above.
-            Fps = 58,
-            // Same transport-ceiling rule as the q60 profile above.
+            // Same delivery-ceiling rule as the q60 profile above.
+            Fps = 30,
             BitrateKbps = 3500,
         };
     }

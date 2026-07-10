@@ -15,7 +15,7 @@ public class D213ProfileTests
         Assert.Equal(PanelSurfaces.Monitor, profile.Surface);
         Assert.Equal(1024, profile.CssWidth);
         Assert.Equal(600, profile.CssHeight);
-        Assert.Equal(58, profile.Fps);
+        Assert.Equal(30, profile.Fps);
         Assert.Equal(3500, profile.BitrateKbps);
     }
 
@@ -45,7 +45,7 @@ public class D213ProfileTests
         var profile = D213Profiles.Resolve(null);
 
         Assert.Equal("d213-fs", profile.Kind);
-        Assert.Equal(58, profile.Fps);
+        Assert.Equal(30, profile.Fps);
         Assert.Equal(3500, profile.BitrateKbps);
     }
 
@@ -58,7 +58,7 @@ public class D213ProfileTests
 
         Assert.Equal("d213-q60", profile.Kind);
         Assert.Equal(PanelSurfaces.Q60, profile.Surface);
-        Assert.Equal(58, profile.Fps);
+        Assert.Equal(30, profile.Fps);
         Assert.Equal(3500, profile.BitrateKbps);
     }
 
@@ -92,7 +92,7 @@ public class D213ProfileTests
 
         var profile = D213Profiles.Resolve(record);
 
-        Assert.Equal(58, profile.Fps);
+        Assert.Equal(30, profile.Fps);
         Assert.Equal(3000, profile.BitrateKbps);
     }
 
