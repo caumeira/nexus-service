@@ -90,6 +90,19 @@ public sealed class StreamDeckModel
     public int RemapKeyIndex(int index) =>
         KeyIndexRightToLeft ? StreamDeckModels.FlipWithinRow(index, Columns) : index;
 
+    /// <summary>
+    /// The /streamdeck/decks DTO's wire transform (nexus-web's
+    /// deckKeyTransform.ts DeckKeyTransform: "none" | "flipBoth" |
+    /// "mirrorXRot90"), the pixel transform a rendered key bitmap needs
+    /// before it matches what this model expects on the wire.
+    /// </summary>
+    public string Transform =>
+        ImageFormat == StreamDeckImageFormat.None
+            ? "none"
+            : Mirror == StreamDeckMirror.X && Rotation == StreamDeckRotation.Rot90
+                ? "mirrorXRot90"
+                : "flipBoth";
+
     internal static StreamDeckModel Gen1(
         string name, int productId, int keyCount, int rows, int columns, int keyPixelSize,
         bool verified,
@@ -127,29 +140,32 @@ public static class StreamDeckModels
     public static readonly IReadOnlyList<StreamDeckModel> All = new List<StreamDeckModel>
     {
         // Gen1: BMP, mirror-X + rot90 for the Mini family, halved-payload +
-        // right-to-left remap for the legacy Original.
-        StreamDeckModel.Gen1("Stream Deck Original", 0x0060, 15, 3, 5, 72,
+        // right-to-left remap for the legacy Original. Bare names (no
+        // "Stream Deck " prefix) per plan streamdeck-support.md §1 - the
+        // web's transformForModel fallback normalizes and matches against
+        // these exact strings.
+        StreamDeckModel.Gen1("Original", 0x0060, 15, 3, 5, 72,
             verified: false, rotation: StreamDeckRotation.Rot0, mirror: StreamDeckMirror.Both,
             keyIndexRightToLeft: true, imageReportLength: 8191, halvedImagePayload: true, imagePageNumberBase: 1),
-        StreamDeckModel.Gen1("Stream Deck Mini", 0x0063, 6, 2, 3, 80, verified: true),
-        StreamDeckModel.Gen1("Stream Deck Mini MK.2", 0x0090, 6, 2, 3, 80, verified: false),
-        StreamDeckModel.Gen1("Stream Deck Mini Discord", 0x00b3, 6, 2, 3, 80, verified: false),
-        StreamDeckModel.Gen1("Stream Deck Mini MK.2 Module", 0x00b8, 6, 2, 3, 80, verified: false),
+        StreamDeckModel.Gen1("Mini", 0x0063, 6, 2, 3, 80, verified: true),
+        StreamDeckModel.Gen1("Mini MK.2", 0x0090, 6, 2, 3, 80, verified: false),
+        StreamDeckModel.Gen1("Mini Discord", 0x00b3, 6, 2, 3, 80, verified: false),
+        StreamDeckModel.Gen1("Mini MK.2 Module", 0x00b8, 6, 2, 3, 80, verified: false),
 
-        // Gen2: JPEG, flip-both, Phase 3 codec (not implemented in Phase 0).
-        StreamDeckModel.Gen2("Stream Deck Original V2", 0x006d, 15, 3, 5, 72),
-        StreamDeckModel.Gen2("Stream Deck MK.2", 0x0080, 15, 3, 5, 72),
-        StreamDeckModel.Gen2("Stream Deck MK.2 Scissor", 0x00a5, 15, 3, 5, 72),
-        StreamDeckModel.Gen2("Stream Deck MK.2 Module", 0x00b9, 15, 3, 5, 72),
-        StreamDeckModel.Gen2("Stream Deck XL", 0x006c, 32, 4, 8, 96),
-        StreamDeckModel.Gen2("Stream Deck XL V2", 0x008f, 32, 4, 8, 96),
-        StreamDeckModel.Gen2("Stream Deck XL V2 Module", 0x00ba, 32, 4, 8, 96),
+        // Gen2: JPEG, flip-both.
+        StreamDeckModel.Gen2("Original V2", 0x006d, 15, 3, 5, 72),
+        StreamDeckModel.Gen2("MK.2", 0x0080, 15, 3, 5, 72),
+        StreamDeckModel.Gen2("MK.2 Scissor", 0x00a5, 15, 3, 5, 72),
+        StreamDeckModel.Gen2("MK.2 Module", 0x00b9, 15, 3, 5, 72),
+        StreamDeckModel.Gen2("XL", 0x006c, 32, 4, 8, 96),
+        StreamDeckModel.Gen2("XL V2", 0x008f, 32, 4, 8, 96),
+        StreamDeckModel.Gen2("XL V2 Module", 0x00ba, 32, 4, 8, 96),
         // Neo's 8 LED keys use the standard gen2 key-image path; its 2
         // capacitive page keys and 248x58 info screen are out of v1 scope.
-        StreamDeckModel.Gen2("Stream Deck Neo", 0x009a, 8, 2, 4, 96),
+        StreamDeckModel.Gen2("Neo", 0x009a, 8, 2, 4, 96),
 
         // Input-only: no key screens, buttons drive input dispatch only.
-        StreamDeckModel.InputOnly("Stream Deck Pedal", 0x0086, 3, 1, 3),
+        StreamDeckModel.InputOnly("Pedal", 0x0086, 3, 1, 3),
     };
 
     public static StreamDeckModel? ByProductId(int productId) => All.FirstOrDefault(m => m.ProductId == productId);

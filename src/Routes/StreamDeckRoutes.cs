@@ -49,6 +49,7 @@ public static class StreamDeckRoutes
                     KeyCount = surface.Model.KeyCount,
                     KeyPixels = surface.Model.KeyPixelSize,
                     Format = FormatName(surface.Model.ImageFormat),
+                    Transform = surface.Model.Transform,
                     Brightness = deck?.Brightness ?? PhysicalDeckSettings.DefaultBrightness,
                     FirmwareVersion = surface.FirmwareVersion,
                     Warning = warning,

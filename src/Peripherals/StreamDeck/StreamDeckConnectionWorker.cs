@@ -324,7 +324,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         {
             if (inFolder && key == 0)
             {
-                surface.ClearKey(key);
+                PushBackKey(surface, deck);
                 continue;
             }
             var slotIndex = inFolder ? key - 1 : key;
@@ -348,6 +348,23 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
             {
                 surface.ClearKey(key);
             }
+        }
+    }
+
+    /// <summary>Reserved image-ref key the web uploads once per deck via PUT .../images/back/0 (not a real DeckSlot).</summary>
+    private const string BackSlotPath = "back";
+
+    private void PushBackKey(IStreamDeckSurface surface, PhysicalDeckSettings? deck)
+    {
+        var hash = deck is not null && deck.ImageRefs.TryGetValue($"{BackSlotPath}/0", out var h) ? h : null;
+        var bytes = hash is not null ? _imageCache.Load(surface.Serial, hash) : null;
+        if (bytes is not null)
+        {
+            surface.SetKeyImage(0, bytes);
+        }
+        else
+        {
+            surface.ClearKey(0);
         }
     }
 

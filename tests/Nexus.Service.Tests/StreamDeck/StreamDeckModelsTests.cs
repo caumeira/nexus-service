@@ -42,7 +42,7 @@ public class StreamDeckModelsTests
     {
         var model = StreamDeckModels.ByProductId(0x0063);
         Assert.NotNull(model);
-        Assert.Equal("Stream Deck Mini", model!.Name);
+        Assert.Equal("Mini", model!.Name);
     }
 
     [Fact]
@@ -57,6 +57,20 @@ public class StreamDeckModelsTests
         var pedal = StreamDeckModels.ByProductId(0x0086)!;
         Assert.Equal(StreamDeckImageFormat.None, pedal.ImageFormat);
         Assert.Equal(0, pedal.KeyPixelSize);
+    }
+
+    [Theory]
+    [InlineData(0x0063, "mirrorXRot90")] // Mini
+    [InlineData(0x0090, "mirrorXRot90")] // Mini MK.2
+    [InlineData(0x00b3, "mirrorXRot90")] // Mini Discord
+    [InlineData(0x00b8, "mirrorXRot90")] // Mini MK.2 Module
+    [InlineData(0x0060, "flipBoth")]     // Original (gen1, rot0 + mirror-both)
+    [InlineData(0x006d, "flipBoth")]     // Original V2 (gen2)
+    [InlineData(0x006c, "flipBoth")]     // XL
+    [InlineData(0x0086, "none")]         // Pedal (no key image)
+    public void Transform_MatchesTheWebsDeckKeyTransformDerivation(int productId, string expected)
+    {
+        Assert.Equal(expected, StreamDeckModels.ByProductId(productId)!.Transform);
     }
 
     [Fact]

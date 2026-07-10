@@ -21,6 +21,8 @@ public sealed class StreamDeckSummaryDto
     public int KeyPixels { get; set; }
     /// <summary>"bmp" | "jpeg".</summary>
     public string Format { get; set; } = "";
+    /// <summary>"none" | "flipBoth" | "mirrorXRot90" - see StreamDeckModel.Transform.</summary>
+    public string Transform { get; set; } = "";
     /// <summary>Persisted value, 0-100.</summary>
     public int Brightness { get; set; }
     public string FirmwareVersion { get; set; } = "";

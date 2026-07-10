@@ -284,6 +284,37 @@ public class StreamDeckConnectionWorkerTests
         Assert.Empty(worker.GetFolderPath("sim-0001"));
     }
 
+    [Fact]
+    public void FolderView_PushesTheCachedBackBitmapAtKeyZero_FallsBackToClearWhenUncached()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot() } } } },
+            },
+        });
+        var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        simulated.Poke(0, true);
+        worker.Tick();
+        simulated.Poke(0, false);
+        worker.Tick();
+        Assert.Equal(new[] { 0 }, worker.GetFolderPath("sim-0001"));
+        Assert.Null(simulated.PeekKeyImage(0));
+
+        var bytes = new byte[] { 7, 7, 7 };
+        var hash = StreamDeckImageCache.Hash(bytes);
+        f.ImageCache.Store("sim-0001", hash, bytes);
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"].ImageRefs["back/0"] = hash);
+        worker.RefreshView("sim-0001");
+
+        Assert.Equal(bytes, simulated.PeekKeyImage(0));
+    }
+
     private sealed class MutableUsbEnumerator : IUsbEnumerator
     {
         public List<UsbDeviceEntry> Devices { get; } = new();

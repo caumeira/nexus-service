@@ -170,6 +170,27 @@ public sealed class StreamDeckRoutesTests : IDisposable
     }
 
     [Fact]
+    public async Task UploadImage_BackSlotPath_CachesUnderTheReservedKey()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var bytes = new byte[] { 0x42, 0x4d, 9, 9, 9 };
+            var content = new ByteArrayContent(bytes);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+            var res = await client.PutAsync("/streamdeck/decks/SERIAL-1/images/back/0", content);
+            Assert.True(res.IsSuccessStatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var hash = doc.RootElement.GetProperty("hash").GetString();
+            Assert.False(string.IsNullOrEmpty(hash));
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            Assert.Equal(hash, store.Load().StreamDeck.Decks["SERIAL-1"].ImageRefs["back/0"]);
+        }
+    }
+
+    [Fact]
     public async Task TestPress_DispatchesTheResolvedSlotActionToTheExecutor()
     {
         var (factory, client) = Boot();
