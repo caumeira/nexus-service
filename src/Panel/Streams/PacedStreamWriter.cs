@@ -85,8 +85,11 @@ public sealed class PacedStreamWriter : IDisposable
                 WaitUntil(deadline);
                 var now = Stopwatch.GetTimestamp();
                 // A late tick (blocked write, empty stretch) must not bank
-                // debt that later bursts the wire; re-anchor instead.
-                if (now - deadline > Stopwatch.Frequency / 2) deadline = now;
+                // debt that later bursts the wire; re-anchor instead. The
+                // threshold is a few frame intervals: banked debt below it
+                // flushes within ~100ms, and anything above drains through
+                // the pacing policy's bounded 2-per-tick catch-up.
+                if (now - deadline > Stopwatch.Frequency / 10) deadline = now;
                 deadline += interval;
 
                 foreach (var frame in _session.DequeueForTick())
