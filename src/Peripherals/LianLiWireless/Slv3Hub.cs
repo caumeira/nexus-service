@@ -46,6 +46,11 @@ public sealed class Slv3Hub : IDisposable
     private byte _cmdSeq;
     private bool _disposed;
     private bool _videoModeActive;
+    private int _videoModePreppedCount;
+    // Round-robin cursor into ChannelScanOrder so one connect attempt probes a
+    // bounded slice; a full scan completes across successive attempts instead
+    // of holding _lock for ~19 s of read timeouts in one call.
+    private int _channelScanCursor;
 
     // A chain unseen this long is treated as gone (powered off / out of range)
     // and dropped; until then it stays listed so downstream devices are stable.
@@ -210,6 +215,7 @@ public sealed class Slv3Hub : IDisposable
         _rxResetCount = 0;
         _saveCfgSendsRemaining = 0;
         _videoModeActive = false;
+        _videoModePreppedCount = 0;
     }
 
     private bool MasterInitLocked()
@@ -218,19 +224,28 @@ public sealed class Slv3Hub : IDisposable
         {
             return false;
         }
-        // Probe the configured channel first, then scan the rest: a dongle left
-        // on another channel by L-Connect only answers GetMac there, and a
-        // zero MAC in the reply means "no master on this channel", not success.
+        // Probe the configured channel first, then a bounded slice of the scan
+        // order: a dongle left on another channel by L-Connect only answers
+        // GetMac there, and a zero MAC in the reply means "no master on this
+        // channel", not success. Each dead probe costs a full 500 ms read
+        // timeout under _lock, so one attempt probes at most ScanProbesPerAttempt
+        // channels; the cursor resumes there on the worker's next 5 s retry,
+        // covering all 39 channels across a few attempts without starving the
+        // routes and writer that share the lock.
         if (TryGetMacOnChannelLocked(_channel))
         {
             return true;
         }
-        foreach (var channel in Slv3Protocol.ChannelScanOrder())
+        const int ScanProbesPerAttempt = 8;
+        var order = Slv3Protocol.ChannelScanOrder();
+        for (var probes = 0; probes < ScanProbesPerAttempt && probes < order.Length; _channelScanCursor++)
         {
+            var channel = order[_channelScanCursor % order.Length];
             if (channel == _channel)
             {
                 continue;
             }
+            probes++;
             if (TryGetMacOnChannelLocked(channel))
             {
                 ServiceLog.Info($"[lianli-wireless] master found on channel {channel} (scanned from {_channel})");
@@ -523,7 +538,7 @@ public sealed class Slv3Hub : IDisposable
         Channel = record.Channel,
         Slot = record.RxType,
         DevType = record.DevType,
-        FanType = record.PrimaryFanType,
+        FanType = record.EffectiveFanType,
         FanCount = record.FanCount,
         Rpm = (int[])record.Rpm.Clone(),
         Pwm = (int[])record.Pwm.Clone(),
@@ -671,7 +686,12 @@ public sealed class Slv3Hub : IDisposable
     {
         lock (_lock)
         {
-            if (_videoModeActive)
+            // Re-arm when chains appeared after the last arming: the LCD loops
+            // call this on USB attach, typically before the first GetDev poll
+            // has populated the chain list, and un-prepped chains would keep
+            // colliding with the video link.
+            var deviceCount = Math.Max(1, _knownChains.Count);
+            if (_videoModeActive && deviceCount <= _videoModePreppedCount)
             {
                 return true;
             }
@@ -683,9 +703,11 @@ public sealed class Slv3Hub : IDisposable
             {
                 return false;
             }
+            // Video-start is wire-identical to GetMac(channel 1); drain the
+            // reply so it cannot be consumed by a later channel scan.
+            _tx.RfRead(Slv3Protocol.UsbPacketSize);
             // Reference gaps: 2 ms after video-start, 1 ms between prep frames.
             Thread.Sleep(2);
-            var deviceCount = Math.Max(1, _knownChains.Count);
             for (var i = 0; i < deviceCount; i++)
             {
                 if (!_tx.RfSend(Slv3Protocol.BuildVideoPrep((byte)i, _channel)))
@@ -695,16 +717,19 @@ public sealed class Slv3Hub : IDisposable
                 Thread.Sleep(1);
             }
             _videoModeActive = true;
+            _videoModePreppedCount = deviceCount;
             ServiceLog.Info($"[lianli-wireless] video mode armed ({deviceCount} device(s))");
             return true;
         }
     }
 
     /// <summary>
-    /// Soft-reboots a chain's controller via RF RebootLcd (0x16). Recovery
-    /// action for a chain that beacons header-only records (0 fans, no RPM)
-    /// while staying reachable; equivalent to a fan power cycle without
-    /// touching the PSU. Sent 3x for RF reliability, like SaveCfg.
+    /// Sends RF RebootLcd (0x16) at a chain 3x. Recovery attempt for a chain
+    /// that beacons header-only records (0 fans, no RPM) while staying
+    /// reachable; whether the command reboots the whole chain controller or
+    /// only its LCD subsystem is a hardware hypothesis pending bench
+    /// verification. Repeats are spaced with _lock released so the tick and
+    /// writer are not starved.
     /// </summary>
     public bool ResetChain(string macHex)
     {
@@ -712,29 +737,36 @@ public sealed class Slv3Hub : IDisposable
         {
             return false;
         }
+        byte channel, rxType;
+        var payloads = new byte[3][];
         lock (_lock)
         {
             if (_tx is null || !TryFindRecordLocked(mac, out var record))
             {
                 return false;
             }
-            for (var i = 0; i < 3; i++)
+            channel = record.Channel;
+            rxType = record.RxType;
+            for (var i = 0; i < payloads.Length; i++)
             {
-                var payload = new byte[Slv3Protocol.RfPayloadSize];
-                Slv3Protocol.WriteRfHeader(payload, Slv3Protocol.RfRebootChain, record.Mac, _masterMac,
-                    targetRx: record.RxType, targetChannel: record.Channel, slot: record.RxType, cmdSeq: NextSeqLocked());
-                foreach (var frame in Slv3Protocol.BuildUsbSendRf(record.Channel, record.RxType, payload))
-                {
-                    if (!_tx.RfSend(frame))
-                    {
-                        return false;
-                    }
-                }
+                payloads[i] = new byte[Slv3Protocol.RfPayloadSize];
+                Slv3Protocol.WriteRfHeader(payloads[i], Slv3Protocol.RfRebootChain, record.Mac, _masterMac,
+                    targetRx: rxType, targetChannel: channel, slot: rxType, cmdSeq: NextSeqLocked());
+            }
+        }
+        for (var i = 0; i < payloads.Length; i++)
+        {
+            if (i > 0)
+            {
                 Thread.Sleep(30);
             }
-            ServiceLog.Info($"[lianli-wireless] chain reset sent to {macHex}");
-            return true;
+            if (!SendRfPayload(channel, rxType, payloads[i]))
+            {
+                return false;
+            }
         }
+        ServiceLog.Info($"[lianli-wireless] chain reset sent to {macHex}");
+        return true;
     }
 
     /// <summary>Sends a one-shot RF_Select frame so the fan flashes for identification.</summary>

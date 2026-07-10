@@ -411,7 +411,7 @@ public class Slv3ProtocolTests
         Assert.Equal(0, record.DevType);
         Assert.True(record.IsWirelessFan);     // non-master => a fan, regardless of dev_type 0
         Assert.False(record.IsMaster);
-        Assert.Equal(24, record.PrimaryFanType); // SLV3-LCD from fans_type
+        Assert.Equal(24, record.EffectiveFanType); // SLV3-LCD from fans_type
         Assert.Equal(3, record.FanCount);
         Assert.Equal(0x0ABC, record.Rpm[0]);   // hi nibble flags masked off
         Assert.Equal(55, record.Pwm[0]);

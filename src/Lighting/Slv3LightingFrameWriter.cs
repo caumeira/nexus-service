@@ -16,11 +16,12 @@ namespace Nexus.Service.Lighting;
 /// single-frame RF_RgbSync animation - the plan's "OpenRGB-style / live
 /// direct mode" (plans/lianli-wireless-support.md section 2). There is no
 /// firmware ROM-effect catalog exposed for wireless fans: every tick composes
-/// each chain's resolved zone frames into a fan-major 40-LED-per-fan buffer
-/// and pushes it through <see cref="Slv3Hub.SendRgbFrame"/> only when the
-/// buffer content changed or the fan's last RX-confirmed effect_index no
-/// longer matches what this writer sent (a dropped push), mirroring the
-/// wired hub's firmware-signature drift re-assert.
+/// each chain's resolved zone frames into a fan-major buffer (the family's
+/// wire LED count per fan) and pushes it through
+/// <see cref="Slv3Hub.SendRgbFrame"/> only when the buffer content changed or
+/// the fan's last RX-confirmed effect_index no longer matches what this
+/// writer sent (a dropped push), mirroring the wired hub's
+/// firmware-signature drift re-assert.
 /// </summary>
 public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
 {
@@ -62,11 +63,13 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
     // tick sends whatever is current.
     private readonly Dictionary<string, long> _lastPushTicks = new();
 
-    // A chain whose last push is older than this gets the Reliable header tier
-    // (4x20 ms repeats): the stream was idle, so the next frame is effectively
-    // a one-shot effect application and a lost header would stick until drift
-    // detection. Inside a live stream the Streaming tier (2x2 ms) is used - the
-    // next frame supersedes a lost one within ~2 ticks.
+    // A chain whose last push is older than this gets the Reliable header tier:
+    // the stream was idle, so the next frame is effectively a one-shot effect
+    // application and a lost header would stick until drift detection. Inside
+    // a live stream the Streaming tier is used - the next frame supersedes a
+    // lost one within a couple of ticks. The effective threshold never drops
+    // below twice the per-chain push floor, so a many-chain floor cannot push
+    // every frame into the expensive Reliable tier.
     private const int StreamIdleRearmMs = 500;
 
     public Slv3LightingFrameWriter(
@@ -173,9 +176,9 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
             SegmentFrameComposer.Compose(
                 structure, zones, devices, disabled, prefs, globalBrightness, 1.0, nowTicks, _identify, _segmentBuffers);
 
-            // Ring length is family-dependent (SLV3 20, SL-INF 22, TLV2 13);
-            // it must match the provider's structure for this chain or the
-            // fan-major interleave below misaligns.
+            // Ring length is family-dependent; it must match the provider's
+            // structure for this chain or the fan-major interleave below
+            // misaligns.
             var fanInfo = FindFanInfo(macHex);
             if (fanInfo is null) continue;
             var ringLen = Slv3LightingDeviceProvider.RingLedsFor(fanInfo);
@@ -220,10 +223,11 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
 
             // Reliable tier for the first push, a drift re-assert, or a stream
             // resuming after idle; Streaming tier inside a continuous flow.
+            var rearmMs = Math.Max(StreamIdleRearmMs, minPushIntervalMs * 2);
             var streaming = !driftedSinceLastConfirm
                 && last.EffectIndexHex is not null
                 && hasLastPush
-                && nowTicks - lastPush < StreamIdleRearmMs * TimeSpan.TicksPerMillisecond;
+                && nowTicks - lastPush < rearmMs * TimeSpan.TicksPerMillisecond;
 
             if (_hub.SendRgbFrame(macHex, frameSpan, PassThroughBrightnessPercent, IntervalMs, streaming, out var sentEffectIndexHex))
             {

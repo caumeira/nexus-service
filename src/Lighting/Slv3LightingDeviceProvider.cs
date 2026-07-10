@@ -20,17 +20,16 @@ namespace Nexus.Service.Lighting;
 /// each bound chain is already a natural 1:1 device, so this provider does
 /// not implement IComposableHubSource.
 ///
-/// SLV3 fans wire 40 LEDs each (plans/lianli-wireless-support.md section 2).
-/// Their 4 physical sub-rings (12+8+12+8) are split here as two 20-LED
-/// halves - "Inner Ring" = the first 20 wire indices, "Outer Ring" = the
-/// last 20 - a documented v1 approximation pending a hardware camera check
-/// of the true ring boundary.
+/// The family's wire LED count per fan (Slv3Protocol.LedsPerFanFor) is split
+/// as two equal ring zones - "Inner Ring" = the first half of the wire
+/// indices, "Outer Ring" = the last half - a documented v1 approximation
+/// pending a hardware camera check of the true ring boundary (SLV3's physical
+/// sub-rings are 12+8+12+8).
 /// </summary>
 public sealed class Slv3LightingDeviceProvider : ILightingDeviceProvider, ILightingFrameContributor, IDeviceStructureSource
 {
     public const int InnerSegment = 0;
     public const int OuterSegment = 1;
-    public const int LedsPerFanPerRing = Slv3RgbFrame.LedsPerFan / 2;
 
     /// <summary>Logical group label for card layout; matches the device-handler id ("lianli-wireless") used elsewhere.</summary>
     public const string GroupId = "lianli-wireless";

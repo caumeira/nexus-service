@@ -9,8 +9,16 @@ public sealed class Slv3State
     public string MasterMac { get; set; } = "";
     public int Channel { get; set; } = Slv3Protocol.DefaultChannel;
     public int TxFirmwareVersion { get; set; }
+    // Volatile int backing (-1 = null): Nullable<int> writes are not atomic,
+    // and the route serializer reads this lock-free while the hub writes it.
+    private volatile int _moboPwmPercent = -1;
+
     /// <summary>Motherboard PWM-header duty sensed by the RX (GetDev header bytes [2..3]); null when unavailable.</summary>
-    public int? MotherboardPwmPercent { get; set; }
+    public int? MotherboardPwmPercent
+    {
+        get => _moboPwmPercent < 0 ? null : _moboPwmPercent;
+        set => _moboPwmPercent = value is null ? -1 : Math.Clamp(value.Value, 0, 100);
+    }
     public Slv3FanInfo[] Fans { get; set; } = Array.Empty<Slv3FanInfo>();
 }
 

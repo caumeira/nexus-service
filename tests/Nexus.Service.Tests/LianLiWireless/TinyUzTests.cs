@@ -199,4 +199,153 @@ public class TinyUzTests
         new Random(555).NextBytes(data);
         Assert.Throws<InvalidOperationException>(() => TinyUz.Compress(data));
     }
+
+    [Fact]
+    public void Compress_literal_line_matches_reference_bit_writer()
+    {
+        // 20 bytes of a collision-free filler (no 3-byte window repeats, per
+        // Section2 of the class summary): the whole run stays one
+        // literal-line control code plus a raw 20-byte copy, no accidental
+        // match. Bytes computed by the reference bit-writer script.
+        var data = LcgFiller(20, 1);
+        var expected = Combine(
+            new byte[] { 0x00, 0x10, 0x00, 0x00, 0x62, 0x00, 0x18 },
+            data,
+            new byte[] { 0x00 });
+
+        var encoded = TinyUz.Compress(data);
+
+        Assert.Equal(expected, encoded);
+    }
+
+    [Fact]
+    public void Compress_multi_byte_dict_pos_matches_reference_bit_writer()
+    {
+        // 3-byte trigraph, 125 bytes of collision-free filler, the same
+        // trigraph again: the only match is the trailing repeat at distance
+        // 128, past the 1-byte dict_pos range (>= 128), forcing the
+        // multi-byte dict_pos encoding. Bytes computed by the reference
+        // bit-writer script.
+        var trigraph = new byte[] { 0x41, 0x42, 0x43 };
+        var filler = LcgFiller(125, 1);
+        var data = Combine(trigraph, filler, trigraph);
+        var expected = Combine(
+            new byte[] { 0x00, 0x10, 0x00, 0x00, 0x62, 0x00, 0x1F },
+            trigraph,
+            filler,
+            new byte[] { 0x01, 0x80, 0x03, 0x00 });
+
+        var encoded = TinyUz.Compress(data);
+
+        Assert.Equal(expected, encoded);
+    }
+
+    [Fact]
+    public void Compress_big_pos_for_len_borrow_matches_reference_bit_writer()
+    {
+        // Same shape as the distance=128 case, but with a 2685-byte filler
+        // pushing the trailing match to distance 2688 (> BigPosForLen=2687),
+        // which borrows one from the length code on the wire (undone by the
+        // decoder's +1). Bytes computed by the reference bit-writer script.
+        var trigraph = new byte[] { 0x11, 0x22, 0x33 };
+        var filler = LcgFiller(2685, 1);
+        var data = Combine(trigraph, filler, trigraph);
+        var expected = Combine(
+            new byte[] { 0x00, 0x10, 0x00, 0x00, 0x6A, 0x00, 0xD9, 0x07 },
+            trigraph,
+            filler,
+            new byte[] { 0x48, 0x80, 0x30, 0x00 });
+
+        var encoded = TinyUz.Compress(data);
+
+        Assert.Equal(expected, encoded);
+    }
+
+    [Fact]
+    public void Compress_reuse_bit_matches_reference_bit_writer()
+    {
+        // Two distinct 3-byte-periodic segments back to back: each restarts
+        // its own "3 literal bytes then a distance-3 match" cycle (the
+        // second segment's bytes never occurred before its own start), so
+        // both matches land on distance 3. The second match immediately
+        // follows a literal with the same dict position as the first match,
+        // so the reuse bit fires and the dict_pos byte is omitted. Bytes
+        // computed by the reference bit-writer script.
+        var seg1 = Combine(new byte[] { 0xFF, 0x00, 0x00 }, new byte[] { 0xFF, 0x00, 0x00 }, new byte[] { 0xFF, 0x00, 0x00 }, new byte[] { 0xFF, 0x00, 0x00 });
+        var seg2 = Combine(new byte[] { 0xAA, 0xBB, 0xCC }, new byte[] { 0xAA, 0xBB, 0xCC }, new byte[] { 0xAA, 0xBB, 0xCC }, new byte[] { 0xAA, 0xBB, 0xCC });
+        var data = Combine(seg1, seg2);
+        var expected = new byte[]
+        {
+            0x00, 0x10, 0x00, 0x00, 0xA7, 0xFF, 0x00, 0x00, 0x39, 0x03, 0xAA, 0xBB, 0xCC, 0x2D, 0x03, 0x00,
+        };
+
+        var encoded = TinyUz.Compress(data);
+
+        Assert.Equal(expected, encoded);
+    }
+
+    [Fact]
+    public void Compress_distance_equal_to_dict_size_matches_reference_bit_writer()
+    {
+        // The reference encoder's own invariant is dict_pos < dictSize, i.e.
+        // distance <= dictSize (compress/tuz_enc_private/tuz_enc_clip.cpp's
+        // checkv(dict_pos<props.dictSize) with dict_pos = distance-1); the
+        // firmware's circular-buffer decoder (tuz_dec.c's _dict_read_byte)
+        // resolves distance==dictSize to dictType_pos=0, reading the oldest
+        // still-live ring byte before it gets overwritten, which is exactly
+        // dictSize bytes back. distance==DictSize is therefore valid on both
+        // sides and this port's matcher accepts it (cur-candidate<=DictSize).
+        // Trigraph, 4093 bytes of collision-free filler, trigraph again: the
+        // trailing match sits at distance exactly DictSize. Bytes computed
+        // by the reference bit-writer script.
+        var trigraph = new byte[] { 0x99, 0x88, 0x77 };
+        var filler = LcgFiller(4093, 1);
+        var data = Combine(trigraph, filler, trigraph);
+        Assert.Equal(TinyUz.DictSize, data.Length - trigraph.Length);
+        var expected = Combine(
+            new byte[] { 0x00, 0x10, 0x00, 0x00, 0xB2, 0x00, 0xDD, 0x07 },
+            trigraph,
+            filler,
+            new byte[] { 0xE8, 0x80, 0x31, 0x00 });
+
+        var encoded = TinyUz.Compress(data);
+
+        Assert.Equal(expected, encoded);
+    }
+
+    // Deterministic 24-bit-state LCG (Numerical Recipes constants), top byte
+    // taken per step: reproduces the same filler bytes the reference
+    // bit-writer script used to derive the exact-byte vectors above, without
+    // embedding thousands of literal bytes in this file. Every filler used
+    // here was verified in that script to contain no repeated 3-byte window
+    // and no accidental occurrence of its paired trigraph, so Compress finds
+    // no match inside it.
+    private static byte[] LcgFiller(int length, uint seed)
+    {
+        var result = new byte[length];
+        var state = seed;
+        for (var i = 0; i < length; i++)
+        {
+            state = unchecked((state * 1664525u) + 1013904223u);
+            result[i] = (byte)(state >> 24);
+        }
+        return result;
+    }
+
+    private static byte[] Combine(params byte[][] parts)
+    {
+        var total = 0;
+        foreach (var part in parts)
+        {
+            total += part.Length;
+        }
+        var result = new byte[total];
+        var offset = 0;
+        foreach (var part in parts)
+        {
+            Array.Copy(part, 0, result, offset, part.Length);
+            offset += part.Length;
+        }
+        return result;
+    }
 }

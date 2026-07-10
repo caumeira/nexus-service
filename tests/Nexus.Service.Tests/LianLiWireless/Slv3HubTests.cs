@@ -469,8 +469,16 @@ public class Slv3HubTests
         var rx = new FakeRxTransport(net);
         var hub = new Slv3Hub(new FakeDiscovery(), port => port.Role == Slv3DongleRole.Tx ? tx : rx);
 
-        Assert.True(hub.EnsureConnected());
+        // One attempt probes a bounded slice of the scan order (each dead
+        // channel costs a full read timeout under the hub lock); the cursor
+        // resumes across attempts, mirroring the worker's connect retries.
+        var connected = false;
+        for (var attempt = 0; attempt < 6 && !connected; attempt++)
+        {
+            connected = hub.EnsureConnected();
+        }
 
+        Assert.True(connected);
         Assert.Equal(15, hub.State.Channel);
     }
 

@@ -468,11 +468,12 @@ public readonly record struct Slv3DeviceRecord(
     /// <summary>A record with dev_type 0xFF is another master on the link, not a fan.</summary>
     public bool IsMaster => DevType == 0xFF;
 
-    /// <summary>Per-port fan subtype (0x18=24 SLV3-LCD, 20-23 SLV3-LED, 36-39 SL-Infinity); 0 if no fan on that port.</summary>
-    public byte PrimaryFanType => FansType.Length > 0 ? FansType[0] : (byte)0;
-
-    /// <summary>Family from the first non-zero fans_type byte; a starving beacon can report all-zero (Unknown).</summary>
-    public Slv3FanFamily Family
+    /// <summary>
+    /// First non-zero per-port fan subtype (0x18=24 SLV3-LCD, 20-23 SLV3-LED,
+    /// 36-39 SL-Infinity); 0 when every port reads empty (starving beacon).
+    /// Port 0 alone is not authoritative - it can be empty on a populated chain.
+    /// </summary>
+    public byte EffectiveFanType
     {
         get
         {
@@ -480,12 +481,15 @@ public readonly record struct Slv3DeviceRecord(
             {
                 if (b != 0)
                 {
-                    return Slv3Protocol.ClassifyFanFamily(b);
+                    return b;
                 }
             }
-            return Slv3FanFamily.Unknown;
+            return 0;
         }
     }
+
+    /// <summary>Family from <see cref="EffectiveFanType"/>; all-zero fans_type classifies Unknown.</summary>
+    public Slv3FanFamily Family => Slv3Protocol.ClassifyFanFamily(EffectiveFanType);
 }
 
 /// <summary>Wireless fan family, classified from a record's fans_type bytes.</summary>
