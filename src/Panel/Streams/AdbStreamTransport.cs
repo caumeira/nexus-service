@@ -158,6 +158,18 @@ public sealed class AdbStreamTransport : IStreamedPanelTransport
         try { _playerProcess?.Dispose(); } catch { }
         _playerProcess = null;
 
+        // The board's gadget never re-attaches after host USB churn and no
+        // host-side recovery exists, so a host that is about to reboot takes
+        // the board down with it: the board's ~30-60s boot re-announces the
+        // gadget as Windows comes back up and the panel returns unassisted.
+        // Budget: OS shutdown allows ~5s total (WaitToKillServiceTimeout)
+        // and sessions dispose sequentially, so the wait stays short.
+        if (Lifecycle.HostShutdown.IsOsShutdown)
+        {
+            try { RunAdbShell("reboot", timeoutMs: 1_500); } catch { }
+            return;
+        }
+
         KillRemotePlayerBestEffort();
     }
 

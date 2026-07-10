@@ -192,8 +192,10 @@ internal static class WindowsServiceHost
     {
         switch (dwControl)
         {
-            case SERVICE_CONTROL_STOP:
             case SERVICE_CONTROL_SHUTDOWN:
+                HostShutdown.IsOsShutdown = true;
+                goto case SERVICE_CONTROL_STOP;
+            case SERVICE_CONTROL_STOP:
                 ReportStatus(SERVICE_STOP_PENDING, waitHintMs: 15_000, controlsAccepted: 0);
                 try { s_cts?.Cancel(); } catch { }
                 return NO_ERROR;
