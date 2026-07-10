@@ -33,11 +33,25 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     private const int TickMs = 1000;
 
     /// <summary>
-    /// Per-surface read timeout inside one tick. Bounded so a tick with
-    /// several tracked decks still completes well under TickMs; sub-second
-    /// press latency isn't required until Phase 1 wires the executor.
+    /// Timeout for the first HID read of a surface's drain loop each tick.
+    /// Bounded so a tick with several tracked decks still completes well
+    /// under TickMs.
     /// </summary>
     private const int InputPollTimeoutMs = 50;
+
+    /// <summary>
+    /// Every subsequent read in a surface's drain loop uses this (a
+    /// non-blocking poll per IHidDevice.Read's timeoutMs contract) so
+    /// draining a backlog never stalls the tick past the first report.
+    /// </summary>
+    private const int DrainPollTimeoutMs = 0;
+
+    /// <summary>
+    /// Caps reports drained per surface per tick so a flooding/misbehaving
+    /// device can't monopolize the tick thread; far above any plausible
+    /// human press rate within one TickMs window.
+    /// </summary>
+    private const int MaxDrainedReportsPerTick = 32;
 
     internal const string SimulatedKey = "sim";
 
@@ -253,6 +267,11 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         BroadcastDecksChanged(surface.Serial);
     }
 
+    /// <summary>
+    /// Drains every queued HID report per surface (not just one) so rapid
+    /// presses within a tick's 1-second window all dispatch this tick instead
+    /// of trickling out one per future tick.
+    /// </summary>
     private void PumpInput()
     {
         foreach (var (key, surface) in _surfaces)
@@ -261,29 +280,33 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
             {
                 continue;
             }
-            var states = surface.ReadInput(InputPollTimeoutMs);
-            if (states is null)
+            for (var reportsRead = 0; reportsRead < MaxDrainedReportsPerTick; reportsRead++)
             {
-                continue;
-            }
-            if (!_lastKeyStates.TryGetValue(key, out var last) || last.Length != states.Length)
-            {
-                last = new bool[states.Length];
-                _lastKeyStates[key] = last;
-            }
-            for (var i = 0; i < states.Length; i++)
-            {
-                if (states[i] == last[i])
+                var timeoutMs = reportsRead == 0 ? InputPollTimeoutMs : DrainPollTimeoutMs;
+                var states = surface.ReadInput(timeoutMs);
+                if (states is null)
                 {
-                    continue;
+                    break;
                 }
-                ServiceLog.Info($"[streamdeck] key {(states[i] ? "down" : "up")} serial={surface.Serial} index={i}");
-                if (states[i])
+                if (!_lastKeyStates.TryGetValue(key, out var last) || last.Length != states.Length)
                 {
-                    HandleKeyDown(surface, i);
+                    last = new bool[states.Length];
+                    _lastKeyStates[key] = last;
                 }
+                for (var i = 0; i < states.Length; i++)
+                {
+                    if (states[i] == last[i])
+                    {
+                        continue;
+                    }
+                    ServiceLog.Info($"[streamdeck] key {(states[i] ? "down" : "up")} serial={surface.Serial} index={i}");
+                    if (states[i])
+                    {
+                        HandleKeyDown(surface, i);
+                    }
+                }
+                states.CopyTo(last, 0);
             }
-            states.CopyTo(last, 0);
         }
     }
 

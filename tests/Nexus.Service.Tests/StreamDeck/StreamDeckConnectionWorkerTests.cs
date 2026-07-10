@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
@@ -27,15 +28,21 @@ internal sealed class FakeWorkerHidEnumerator : IHidEnumerator
         DevicesByPath.TryGetValue(path, out var dev) ? dev : null;
 }
 
-/// <summary>Spy executor: records every dispatch instead of touching real providers.</summary>
+/// <summary>
+/// Spy executor: records every dispatch instead of touching real providers.
+/// HandleKeyDown fire-and-forgets each dispatch onto the thread pool
+/// (Task.Run, never awaited), so two presses within one Tick() can call
+/// ExecuteAsync concurrently from different threads - a plain List here would
+/// silently drop an entry under that race, so Calls is a ConcurrentQueue.
+/// </summary>
 internal sealed class FakeDeckActionExecutor : IDeckActionExecutor
 {
-    public readonly List<(DeckAction? Action, string Serial, int KeyIndex, string LatchKey)> Calls = new();
+    public readonly ConcurrentQueue<(DeckAction? Action, string Serial, int KeyIndex, string LatchKey)> Calls = new();
     private readonly Dictionary<string, bool> _latches = new();
 
     public Task ExecuteAsync(DeckAction? action, string serial, int keyIndex, string latchKey, CancellationToken ct)
     {
-        Calls.Add((action, serial, keyIndex, latchKey));
+        Calls.Enqueue((action, serial, keyIndex, latchKey));
         return Task.CompletedTask;
     }
 
@@ -249,6 +256,43 @@ public class StreamDeckConnectionWorkerTests
         Assert.Equal("sim-0001", call.Serial);
         Assert.Equal(0, call.KeyIndex);
         Assert.Same(action, call.Action);
+    }
+
+    [Fact]
+    public async Task Tick_DrainsMultipleQueuedReportsInASingleTick()
+    {
+        var f = NewFixtures(devicePresent: true);
+        AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
+        var actionA = new DeckAction { Type = "openUrl", Url = "https://a.example.com" };
+        var actionB = new DeckAction { Type = "openUrl", Url = "https://b.example.com" };
+        f.Store.Update(s => s.StreamDeck.Decks["SERIAL-1"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Slots = { new DeckSlot { Action = actionA }, new DeckSlot { Action = actionB } } },
+        });
+        var worker = NewWorker(f);
+        worker.Tick();
+
+        // Two full press+release cycles queued as 4 separate HID reports, all
+        // already sitting in the device's read queue before the next tick -
+        // simulates two rapid presses landing inside one 1-second tick window.
+        var device = (MockStreamDeckHidDevice)f.Hid.DevicesByPath["path-1"];
+        device.PendingReads.Enqueue(new byte[] { 0x01, 1, 0, 0, 0, 0, 0 }); // key 0 down
+        device.PendingReads.Enqueue(new byte[] { 0x01, 0, 0, 0, 0, 0, 0 }); // key 0 up
+        device.PendingReads.Enqueue(new byte[] { 0x01, 0, 1, 0, 0, 0, 0 }); // key 1 down
+        device.PendingReads.Enqueue(new byte[] { 0x01, 0, 0, 0, 0, 0, 0 }); // key 1 up
+
+        worker.Tick();
+        for (var i = 0; i < 50 && f.Executor.Calls.Count < 2; i++)
+        {
+            await Task.Delay(10);
+        }
+
+        // Both dispatches are fire-and-forget Task.Run work items (HandleKeyDown
+        // never awaits them), so their thread-pool execution order relative to
+        // each other isn't guaranteed - assert the set, not indexed positions.
+        Assert.Equal(2, f.Executor.Calls.Count);
+        Assert.Contains(f.Executor.Calls, c => c.KeyIndex == 0 && ReferenceEquals(c.Action, actionA));
+        Assert.Contains(f.Executor.Calls, c => c.KeyIndex == 1 && ReferenceEquals(c.Action, actionB));
     }
 
     [Fact]
