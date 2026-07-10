@@ -20,7 +20,7 @@ public class PeripheralCatalogTests
     {
         foreach (var d in SupportedDevicesCatalog.All)
         {
-            Assert.Contains(d.Category, new[] { "mouse", "keyboard", "headset" });
+            Assert.Contains(d.Category, new[] { "mouse", "keyboard", "headset", "controller" });
         }
     }
 
