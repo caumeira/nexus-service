@@ -546,6 +546,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
         SensorType.Throughput => "B/s",
         SensorType.Energy => "mWh",
         SensorType.Noise => "dBA",
+        SensorType.TimeSpan => "s",
         _ => "",
     };
 
@@ -560,9 +561,36 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
         SensorType.Power => $"{value:F1} W",
         SensorType.Data => $"{value:F2} GB",
         SensorType.SmallData => $"{value:F0} MB",
-        SensorType.Throughput => $"{value:F0} B/s",
+        SensorType.Energy => $"{value:F0} mWh",
+        SensorType.Throughput => FormatThroughput(value),
+        SensorType.TimeSpan => FormatTimeSpan(value),
         _ => $"{value:F1}",
     };
+
+    private static string FormatThroughput(float bytesPerSec)
+    {
+        if (bytesPerSec <= 0)
+            return "0 B/s";
+        if (bytesPerSec >= 1024 * 1024 * 1024)
+            return $"{bytesPerSec / 1024.0 / 1024.0 / 1024.0:F2} GB/s";
+        if (bytesPerSec >= 1024 * 1024)
+            return $"{bytesPerSec / 1024.0 / 1024.0:F2} MB/s";
+        if (bytesPerSec >= 1024)
+            return $"{bytesPerSec / 1024.0:F1} KB/s";
+        return $"{bytesPerSec:F0} B/s";
+    }
+
+    // LHM reports Battery "Remaining Time" and PSU "Uptime"/"Total uptime" in seconds.
+    private static string FormatTimeSpan(float seconds)
+    {
+        if (seconds <= 0)
+            return "0";
+        if (seconds < 3600)
+            return $"{seconds / 60:F0}m";
+        if (seconds < 86400)
+            return $"{seconds / 3600:F1}h";
+        return $"{seconds / 86400:F1}d";
+    }
 
     private static string FormatGb(double gb) => gb >= 1000 ? $"{gb / 1024.0:F2} TB" : $"{gb:F2} GB";
 
