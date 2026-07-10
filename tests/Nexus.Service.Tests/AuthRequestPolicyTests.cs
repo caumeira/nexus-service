@@ -46,6 +46,37 @@ public class AuthRequestPolicyTests
         AssertPanelAllowedRoute(app, "POST", "/system/volume/mute");
     }
 
+    /// <summary>
+    /// Guards every route the SystemActions extraction rewired (deck executor
+    /// + /system/* routes now share one implementation): a refactor that
+    /// silently drops an AllowPanel/LocalhostOnly marker changes endpoint
+    /// metadata, which DeckActionRoutesTests (fixed client identity, real
+    /// requests) cannot see. This caught a real regression - the extraction
+    /// dropped AllowPanel from /system/open-path.
+    /// </summary>
+    [Fact]
+    public async Task SystemActionsExtraction_PreservesEveryRoutesAuthMetadata()
+    {
+        var builder = WebApplication.CreateSlimBuilder();
+        await using var app = builder.Build();
+        app.MapSystemEndpoints();
+
+        AssertPanelAllowedRoute(app, "POST", "/system/input/keys");
+        AssertPanelAllowedRoute(app, "POST", "/system/input/text");
+        AssertPanelAllowedRoute(app, "POST", "/system/open-settings");
+        AssertPanelAllowedRoute(app, "POST", "/system/open-url");
+        AssertPanelAllowedRoute(app, "POST", "/system/open-path");
+        AssertPanelAllowedRoute(app, "POST", "/system/power/lock");
+        AssertPanelAllowedRoute(app, "POST", "/system/power/sleep");
+        AssertPanelAllowedRoute(app, "GET", "/system/audio/devices");
+        AssertPanelAllowedRoute(app, "POST", "/system/audio/default-output");
+        AssertPanelAllowedRoute(app, "POST", "/system/audio/default-input");
+
+        AssertPanelDeniedRoute(app, "POST", "/system/power/shutdown");
+        AssertPanelDeniedRoute(app, "POST", "/system/power/restart");
+        AssertPanelDeniedRoute(app, "POST", "/system/power/logout");
+    }
+
     [Fact]
     public async Task PanelRoutes_MarksServiceInfoAsPanelAllowed()
     {
@@ -214,14 +245,23 @@ public class AuthRequestPolicyTests
 
     private static void AssertPanelAllowedRoute(WebApplication app, string method, string pattern)
     {
-        var endpoint = ((IEndpointRouteBuilder)app).DataSources
+        var endpoint = FindEndpoint(app, method, pattern);
+        Assert.NotNull(endpoint);
+        Assert.NotNull(endpoint.Metadata.GetMetadata<AllowPanelAccess>());
+    }
+
+    private static void AssertPanelDeniedRoute(WebApplication app, string method, string pattern)
+    {
+        var endpoint = FindEndpoint(app, method, pattern);
+        Assert.NotNull(endpoint);
+        Assert.Null(endpoint.Metadata.GetMetadata<AllowPanelAccess>());
+    }
+
+    private static RouteEndpoint? FindEndpoint(WebApplication app, string method, string pattern) =>
+        ((IEndpointRouteBuilder)app).DataSources
             .SelectMany(static source => source.Endpoints)
             .OfType<RouteEndpoint>()
             .FirstOrDefault(e =>
                 string.Equals(e.RoutePattern.RawText, pattern, StringComparison.Ordinal)
                 && (e.Metadata.GetMetadata<IHttpMethodMetadata>()?.HttpMethods.Contains(method) ?? false));
-
-        Assert.NotNull(endpoint);
-        Assert.NotNull(endpoint.Metadata.GetMetadata<AllowPanelAccess>());
-    }
 }

@@ -79,9 +79,11 @@ public static class SystemRoutes
         app.MapPost("/system/open-url", (OpenUrlRequest body, Nexus.Service.Actions.SystemActions actions) =>
             actions.OpenUrlAsync(body.Url ?? "")).AllowPanel();
 
-        // open-path is LAN-only (denied on the relay) - it opens arbitrary local files.
+        // open-path is denied on the relay (RelayHttpAllowlist.cs) since it
+        // opens arbitrary local files, but is reachable from a paired phone
+        // directly over LAN.
         app.MapPost("/system/open-path", (OpenPathBody body, Nexus.Service.Actions.SystemActions actions) =>
-            actions.OpenPathAsync(body.Path ?? ""));
+            actions.OpenPathAsync(body.Path ?? "")).AllowPanel();
 
         // ── Power / session. lock + sleep are panel/relay-reachable; shutdown /
         // restart / logout are LAN-only (no AllowPanel + denied on the relay). ──
