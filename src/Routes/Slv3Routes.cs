@@ -11,8 +11,8 @@ public sealed class Slv3MacRequest
 }
 
 /// <summary>
-/// First-party Lian Li L-Wireless (SLV3) dongle routes. Phase 1 scope only:
-/// discovery, bind/unbind/identify. See plans/lianli-wireless-support.md.
+/// First-party Lian Li L-Wireless (SLV3) dongle routes: discovery,
+/// bind/unbind/identify, chain reset. See plans/lianli-wireless-support.md.
 /// </summary>
 public static class Slv3Routes
 {
@@ -48,6 +48,17 @@ public static class Slv3Routes
         app.MapPost("/devices/lianli-wireless/identify", (Slv3MacRequest body, Slv3Hub hub) =>
         {
             if (!hub.Identify(body.Mac))
+            {
+                return Results.Json(ApiResponse.Fail("fan not found"), AppJsonContext.Default.ApiResponse);
+            }
+            return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
+        });
+
+        // POST /devices/lianli-wireless/reset-chain - soft-reboot a chain
+        // controller stuck reporting header-only records (0 fans, no RPM).
+        app.MapPost("/devices/lianli-wireless/reset-chain", (Slv3MacRequest body, Slv3Hub hub) =>
+        {
+            if (!hub.ResetChain(body.Mac))
             {
                 return Results.Json(ApiResponse.Fail("fan not found"), AppJsonContext.Default.ApiResponse);
             }

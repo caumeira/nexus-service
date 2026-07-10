@@ -700,6 +700,43 @@ public sealed class Slv3Hub : IDisposable
         }
     }
 
+    /// <summary>
+    /// Soft-reboots a chain's controller via RF RebootLcd (0x16). Recovery
+    /// action for a chain that beacons header-only records (0 fans, no RPM)
+    /// while staying reachable; equivalent to a fan power cycle without
+    /// touching the PSU. Sent 3x for RF reliability, like SaveCfg.
+    /// </summary>
+    public bool ResetChain(string macHex)
+    {
+        if (!TryParseMac(macHex, out var mac))
+        {
+            return false;
+        }
+        lock (_lock)
+        {
+            if (_tx is null || !TryFindRecordLocked(mac, out var record))
+            {
+                return false;
+            }
+            for (var i = 0; i < 3; i++)
+            {
+                var payload = new byte[Slv3Protocol.RfPayloadSize];
+                Slv3Protocol.WriteRfHeader(payload, Slv3Protocol.RfRebootChain, record.Mac, _masterMac,
+                    targetRx: record.RxType, targetChannel: record.Channel, slot: record.RxType, cmdSeq: NextSeqLocked());
+                foreach (var frame in Slv3Protocol.BuildUsbSendRf(record.Channel, record.RxType, payload))
+                {
+                    if (!_tx.RfSend(frame))
+                    {
+                        return false;
+                    }
+                }
+                Thread.Sleep(30);
+            }
+            ServiceLog.Info($"[lianli-wireless] chain reset sent to {macHex}");
+            return true;
+        }
+    }
+
     /// <summary>Sends a one-shot RF_Select frame so the fan flashes for identification.</summary>
     public bool Identify(string macHex)
     {

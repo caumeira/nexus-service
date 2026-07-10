@@ -50,6 +50,7 @@ public static class Slv3Protocol
     public const byte RfSelect = 0x12;             // identify a fan
     public const byte RfClockSync = 0x14;          // master-clock heartbeat (broadcast)
     public const byte RfSaveCfg = 0x15;            // persist to fan flash
+    public const byte RfRebootChain = 0x16;        // RebootLcd: soft-reboot the chain controller
     public const byte RfRgbSync = 0x20;            // streamed RGB frame animation
     public const byte RfMbSyncSwitch = 0x24;
     public const byte RfLightSyncSwitch = 0x26;
@@ -339,10 +340,21 @@ public static class Slv3Protocol
     /// Builds the 4-port duty tuple for a bind frame from per-port targets
     /// (null = motherboard-sync). Ports at or beyond <paramref name="fanCount"/>
     /// are unoccupied and stay 0 (plans/lianli-wireless-support.md section 3).
+    /// A record degraded to 0 fans (wedged chain still beaconing header-only
+    /// records) gets mobo-sync on every port instead of an all-zero tuple, so
+    /// the keepalive cannot command real-but-unreported fans off.
     /// </summary>
     public static byte[] BuildPwmTuple(IReadOnlyList<int?> targets, int fanCount, Slv3FanFamily family = Slv3FanFamily.Slv3Lcd)
     {
         var pwm = new byte[PortsPerRecord];
+        if (fanCount <= 0)
+        {
+            for (var port = 0; port < PortsPerRecord; port++)
+            {
+                pwm[port] = PwmFollowMotherboard;
+            }
+            return pwm;
+        }
         for (var port = 0; port < PortsPerRecord && port < fanCount; port++)
         {
             pwm[port] = ResolvePortDuty(port < targets.Count ? targets[port] : null, family);

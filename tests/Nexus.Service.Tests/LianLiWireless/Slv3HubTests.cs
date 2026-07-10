@@ -173,6 +173,29 @@ public class Slv3HubTests
     }
 
     [Fact]
+    public void ResetChain_sends_reboot_frames_addressed_to_the_fan()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac, MasterMac = net.MasterMac, RxType = 2 });
+        Assert.True(hub.DriveTick());
+        tx.SentFrames.Clear();
+
+        Assert.True(hub.ResetChain(Convert.ToHexString(FanMac)));
+
+        var rebootFrames = tx.SentFrames.FindAll(f =>
+            f.Length >= 12 && f[1] == 0 && f[4] == Slv3Protocol.RfFrameType && f[5] == Slv3Protocol.RfRebootChain);
+        Assert.Equal(3, rebootFrames.Count);
+        Assert.All(rebootFrames, f => Assert.Equal(FanMac, f.AsSpan(6, 6).ToArray()));
+    }
+
+    [Fact]
+    public void ResetChain_fails_for_unknown_mac()
+    {
+        var (hub, _, _, _) = CreateConnectedHub();
+        Assert.False(hub.ResetChain(Convert.ToHexString(FanMac)));
+    }
+
+    [Fact]
     public void Identify_sends_rf_select_frame_addressed_to_the_fan()
     {
         var (hub, net, tx, _) = CreateConnectedHub();

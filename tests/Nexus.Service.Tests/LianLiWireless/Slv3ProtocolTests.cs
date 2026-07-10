@@ -196,6 +196,16 @@ public class Slv3ProtocolTests
     }
 
     [Fact]
+    public void BuildPwmTuple_degraded_zero_fan_record_gets_mobo_sync_on_every_port()
+    {
+        // A wedged chain beacons header-only records (fanCount 0); an all-zero
+        // tuple would command real-but-unreported fans off.
+        var pwm = Slv3Protocol.BuildPwmTuple(new int?[] { 40, null, null, null }, fanCount: 0);
+
+        Assert.All(pwm, b => Assert.Equal(Slv3Protocol.PwmFollowMotherboard, b));
+    }
+
+    [Fact]
     public void BuildPwmTuple_encodes_manual_targets_for_occupied_ports_only()
     {
         var targets = new int?[] { 50, null, 5, 100 };
