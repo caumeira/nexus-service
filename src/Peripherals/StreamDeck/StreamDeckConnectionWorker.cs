@@ -49,6 +49,16 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     private readonly StreamDeckImageCache _imageCache;
     private readonly MultiplexHub _hub;
     private readonly SimulatedStreamDeckSurface? _simulated;
+
+    /// <summary>
+    /// Guards _surfaces/_lastKeyStates/_folderPathsBySerial against the tick
+    /// thread racing an HTTP route (GET /streamdeck/decks, FindBySerial,
+    /// RefreshView) reading or writing the same dictionaries. Reentrant per
+    /// thread (a plain object lock), so Tick's internals can call PushCurrentView
+    /// while already holding it without deadlocking.
+    /// </summary>
+    private readonly object _lock = new();
+
     private readonly Dictionary<string, IStreamDeckSurface> _surfaces = new();
     private readonly Dictionary<string, bool[]> _lastKeyStates = new();
     private readonly Dictionary<string, List<int>> _folderPathsBySerial = new(StringComparer.OrdinalIgnoreCase);
@@ -73,15 +83,37 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         _simulated = simulated;
     }
 
-    /// <summary>Every currently tracked surface, keyed by HID path (or "sim" for the simulated deck).</summary>
-    public IReadOnlyDictionary<string, IStreamDeckSurface> Surfaces => _surfaces;
+    /// <summary>A snapshot of every currently tracked surface, keyed by HID path (or "sim" for the simulated deck).</summary>
+    public IReadOnlyDictionary<string, IStreamDeckSurface> Surfaces
+    {
+        get
+        {
+            lock (_lock)
+            {
+                return new Dictionary<string, IStreamDeckSurface>(_surfaces);
+            }
+        }
+    }
 
-    public IStreamDeckSurface? FindBySerial(string serial) =>
+    public IStreamDeckSurface? FindBySerial(string serial)
+    {
+        lock (_lock)
+        {
+            return FindBySerialLocked(serial);
+        }
+    }
+
+    private IStreamDeckSurface? FindBySerialLocked(string serial) =>
         _surfaces.Values.FirstOrDefault(s => string.Equals(s.Serial, serial, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>Current folder path for a deck (empty at root). Test/diagnostic accessor.</summary>
-    public IReadOnlyList<int> GetFolderPath(string serial) =>
-        _folderPathsBySerial.TryGetValue(serial, out var path) ? path : Array.Empty<int>();
+    public IReadOnlyList<int> GetFolderPath(string serial)
+    {
+        lock (_lock)
+        {
+            return _folderPathsBySerial.TryGetValue(serial, out var path) ? path.ToList() : Array.Empty<int>();
+        }
+    }
 
     /// <summary>
     /// The most recently fire-and-forget dispatched key action, if any. Test
@@ -93,10 +125,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     /// <summary>Re-pushes cached key images for a deck's current folder view. Call after a config or image-ref mutation.</summary>
     public void RefreshView(string serial)
     {
-        var surface = FindBySerial(serial);
-        if (surface is not null)
+        lock (_lock)
         {
-            PushCurrentView(surface);
+            var surface = FindBySerialLocked(serial);
+            if (surface is not null)
+            {
+                PushCurrentView(surface);
+            }
         }
     }
 
@@ -119,15 +154,18 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     /// <summary>One reconcile + input-pump cycle. Public so tests can step it deterministically.</summary>
     public void Tick()
     {
-        if (!_gate.IsEnabled("streamdeck"))
+        lock (_lock)
         {
-            DisconnectAll();
-            return;
-        }
+            if (!_gate.IsEnabled("streamdeck"))
+            {
+                DisconnectAll();
+                return;
+            }
 
-        RegisterSimulatedIfNeeded();
-        ReconcileHidSurfaces();
-        PumpInput();
+            RegisterSimulatedIfNeeded();
+            ReconcileHidSurfaces();
+            PumpInput();
+        }
     }
 
     private void RegisterSimulatedIfNeeded()
@@ -395,17 +433,24 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
 
     private void DisconnectAll()
     {
-        foreach (var (key, surface) in _surfaces)
+        lock (_lock)
         {
-            if (key == SimulatedKey)
+            var hadSurfaces = _surfaces.Count > 0;
+            foreach (var (key, surface) in _surfaces)
             {
-                continue;
+                if (key == SimulatedKey)
+                {
+                    continue;
+                }
+                surface.Dispose();
             }
-            surface.Dispose();
+            _surfaces.Clear();
+            _lastKeyStates.Clear();
+            _folderPathsBySerial.Clear();
+            if (hadSurfaces)
+            {
+                BroadcastDecksChanged(null);
+            }
         }
-        _surfaces.Clear();
-        _lastKeyStates.Clear();
-        _folderPathsBySerial.Clear();
-        BroadcastDecksChanged(null);
     }
 }
