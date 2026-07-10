@@ -86,7 +86,7 @@ public sealed class StreamSession
         {
             var decision = PacingPolicy.Decide(
                 _queue.Count, FramesUntilIdrLocked(), _waitingForIdr,
-                Math.Clamp(Info.Profile.WriteBatchFrames, 1, 8));
+                Info.Profile.EffectiveWriteBatchFrames);
             for (var i = 0; i < decision.DropCount; i++) _queue.Dequeue();
             _dropped += decision.DropCount;
             if (decision.ClearWaitingForIdr) _waitingForIdr = false;
@@ -113,6 +113,7 @@ public sealed class StreamSession
     {
         lock (_lock)
         {
+            _dropped += _queue.Count;
             _queue.Clear();
             _waitingForIdr = true;
             _ingestBound = true;

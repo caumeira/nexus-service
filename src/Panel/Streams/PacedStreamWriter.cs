@@ -32,7 +32,7 @@ public sealed class PacedStreamWriter : IDisposable
     {
         _session = session;
         _fps = Math.Clamp(session.Info.Profile.Fps, 1, 240);
-        _batchFrames = Math.Clamp(session.Info.Profile.WriteBatchFrames, 1, 8);
+        _batchFrames = session.Info.Profile.EffectiveWriteBatchFrames;
         _onTransportFault = onTransportFault;
         _thread = new Thread(Run)
         {
@@ -60,9 +60,11 @@ public sealed class PacedStreamWriter : IDisposable
         if (_disposed) return;
         _disposed = true;
         _wake.Set();
-        if (Thread.CurrentThread != _thread)
-            _thread.Join(2000);
-        _wake.Dispose();
+        var exited = Thread.CurrentThread == _thread || _thread.Join(2000);
+        // A thread that outlived the join (a transport write still inside
+        // its bounded timeout) may touch _wake after this returns; leak the
+        // handle rather than hand it a disposed one.
+        if (exited) _wake.Dispose();
     }
 
     private void Run()
@@ -115,7 +117,7 @@ public sealed class PacedStreamWriter : IDisposable
                 if (_batchFrames > 1 && frames.Count > 1)
                 {
                     // The batch shares one write so the transport pays one
-                    // round trip for all of it (the point of batching).
+                    // round trip for all of it.
                     var total = 0;
                     var anyIdr = false;
                     foreach (var frame in frames)
@@ -179,14 +181,16 @@ public sealed class PacedStreamWriter : IDisposable
         }
     }
 
-    private static void WaitUntil(long deadline)
+    private void WaitUntil(long deadline)
     {
-        while (true)
+        // Sleeps are capped so _disposed is observed promptly: a batched
+        // tick interval can far exceed Dispose's thread-join timeout.
+        while (!_disposed)
         {
             var remaining = deadline - Stopwatch.GetTimestamp();
             if (remaining <= 0) return;
             var ms = remaining * 1000 / Stopwatch.Frequency;
-            if (ms >= 2) Thread.Sleep((int)ms - 1);
+            if (ms >= 2) Thread.Sleep((int)Math.Min(ms - 1, 50));
             else if (ms >= 1) Thread.Sleep(1);
             else Thread.SpinWait(64);
         }

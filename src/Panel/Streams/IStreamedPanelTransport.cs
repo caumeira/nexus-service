@@ -46,9 +46,12 @@ public interface IStreamedPanelTransport : IDisposable
     void StartPlayer();
 
     /// <summary>
-    /// Blocking write of exactly one access unit. Must fail (throw) within a
-    /// bounded time when the device stalls rather than block indefinitely;
-    /// the paced writer treats any throw as transport loss.
+    /// Blocking write of one or more concatenated Annex-B access units (the
+    /// paced writer batches per <see cref="StreamedPanelProfile.WriteBatchFrames"/>,
+    /// so implementations must treat the payload as a byte stream, never as
+    /// one framed unit). Must fail (throw) within a bounded time when the
+    /// device stalls rather than block indefinitely; the paced writer treats
+    /// any throw as transport loss.
     /// </summary>
-    void Write(ReadOnlySpan<byte> annexBAccessUnit);
+    void Write(ReadOnlySpan<byte> annexBPayload);
 }
