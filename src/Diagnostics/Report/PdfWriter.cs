@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.IO.Compression;
 using System.Text;
 
 namespace Nexus.Service.Diagnostics.Report;
@@ -38,18 +37,6 @@ public sealed class PdfWriter
     public void Define(int id, string dict, byte[]? stream = null)
     {
         _slots[id - 1] = (dict, stream);
-    }
-
-    /// <summary>zlib-wraps raw bytes (RFC1950): the exact byte stream PDF's
-    /// /Filter /FlateDecode expects, unlike raw deflate (RFC1951).</summary>
-    public static byte[] Deflate(byte[] raw)
-    {
-        using var ms = new MemoryStream();
-        using (var z = new ZLibStream(ms, CompressionLevel.Optimal, leaveOpen: true))
-        {
-            z.Write(raw, 0, raw.Length);
-        }
-        return ms.ToArray();
     }
 
     /// <summary>Assembles the final PDF byte stream: header, every defined

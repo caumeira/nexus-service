@@ -74,9 +74,9 @@ internal static class PdfTestSupport
         return content.Substring(openParen + 1, closeParen - openParen - 1);
     }
 
-    /// <summary>Locates the one stream object without /Filter (image and its
-    /// SMask both carry /Filter /FlateDecode; the page content stream never
-    /// does) and returns its raw, uncompressed text.</summary>
+    /// <summary>Locates the one stream object without /Filter (the report's
+    /// page content stream is stored uncompressed) and returns its raw
+    /// text.</summary>
     public static string ExtractContentStream(byte[] pdfBytes)
     {
         var text = AsLatin1(pdfBytes);

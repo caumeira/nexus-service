@@ -53,14 +53,6 @@ internal sealed class PdfContentBuilder
         Text(rightX - width, y, sizePt, bold, sanitizedText);
     }
 
-    /// <summary>Places an image XObject into rect (x, y, w, h), (x, y) = bottom-left.</summary>
-    public void DrawImage(string resourceName, double x, double y, double w, double h)
-    {
-        _sb.Append("q ").Append(PdfFonts.Num(w)).Append(" 0 0 ").Append(PdfFonts.Num(h)).Append(' ')
-           .Append(PdfFonts.Num(x)).Append(' ').Append(PdfFonts.Num(y))
-           .Append(" cm /").Append(resourceName).Append(" Do Q\n");
-    }
-
     /// <summary>
     /// Draws a pre-baked vector path (m/l/c/h operators in an arbitrary source
     /// unit space, e.g. an SVG viewBox) scaled and translated into rect (x, y,

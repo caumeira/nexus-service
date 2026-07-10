@@ -1,5 +1,3 @@
-using System.IO;
-using System.IO.Compression;
 using System.Text;
 using Nexus.Service.Diagnostics.Report;
 using Xunit;
@@ -50,19 +48,5 @@ public class PdfWriterTests
         var catalogId = pdf.Add($"<< /Type /Catalog /Pages {danglingId} 0 R >>");
 
         Assert.Throws<System.InvalidOperationException>(() => pdf.Build(catalogId, infoId: null));
-    }
-
-    [Fact]
-    public void Deflate_RoundTripsThroughZLibStream()
-    {
-        var raw = Encoding.ASCII.GetBytes("the quick brown fox jumps over the lazy dog");
-        var deflated = PdfWriter.Deflate(raw);
-
-        using var ms = new MemoryStream(deflated);
-        using var z = new ZLibStream(ms, CompressionMode.Decompress);
-        using var outMs = new MemoryStream();
-        z.CopyTo(outMs);
-
-        Assert.Equal(raw, outMs.ToArray());
     }
 }

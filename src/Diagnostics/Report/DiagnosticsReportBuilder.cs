@@ -164,11 +164,13 @@ public static class DiagnosticsReportBuilder
     {
         const double markSize = 42;
         var markBottomY = y - markSize;
-        c.DrawImage("Im1", ContentLeft, markBottomY, markSize, markSize);
+        var markWidth = markSize * NexusReportAssets.MarkSourceWidth / NexusReportAssets.MarkSourceHeight;
+        c.DrawVectorPath(NexusReportAssets.LoadMarkOperators(), NexusReportAssets.MarkSourceWidth,
+            NexusReportAssets.MarkSourceHeight, ContentLeft, markBottomY, markWidth, markSize, BlackGray);
 
         const double wordmarkHeight = 20;
         var wordmarkWidth = wordmarkHeight * NexusReportAssets.WordmarkSourceWidth / NexusReportAssets.WordmarkSourceHeight;
-        var wordmarkX = ContentLeft + markSize + 12;
+        var wordmarkX = ContentLeft + markWidth + 12;
         var wordmarkY = markBottomY + (markSize - wordmarkHeight) / 2;
         c.DrawVectorPath(NexusReportAssets.LoadWordmarkOperators(), NexusReportAssets.WordmarkSourceWidth,
             NexusReportAssets.WordmarkSourceHeight, wordmarkX, wordmarkY, wordmarkWidth, wordmarkHeight, BlackGray);
@@ -596,14 +598,6 @@ public static class DiagnosticsReportBuilder
         var fontRegularId = pdf.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>");
         var fontBoldId = pdf.Add("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>");
 
-        var mark = NexusReportAssets.LoadMark();
-        var smaskId = pdf.Add(
-            $"<< /Type /XObject /Subtype /Image /Width {mark.Width} /Height {mark.Height} /ColorSpace /DeviceGray /BitsPerComponent 8 /Filter /FlateDecode /Length {mark.AlphaFlate.Length} >>",
-            mark.AlphaFlate);
-        var imageId = pdf.Add(
-            $"<< /Type /XObject /Subtype /Image /Width {mark.Width} /Height {mark.Height} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /FlateDecode /SMask {smaskId} 0 R /Length {mark.RgbFlate.Length} >>",
-            mark.RgbFlate);
-
         var pageId = pdf.Reserve();
         var contentBytes = content.ToBytes();
         var contentId = pdf.Add($"<< /Length {contentBytes.Length} >>", contentBytes);
@@ -615,8 +609,8 @@ public static class DiagnosticsReportBuilder
         pdf.Define(catalogId, $"<< /Type /Catalog /Pages {pagesId} 0 R >>");
         pdf.Define(pageId,
             $"<< /Type /Page /Parent {pagesId} 0 R /MediaBox [0 0 {PdfFonts.Num(PageWidth)} {PdfFonts.Num(PageHeight)}] " +
-            $"/Resources << /Font << /{PdfFonts.Regular} {fontRegularId} 0 R /{PdfFonts.Bold} {fontBoldId} 0 R >> " +
-            $"/XObject << /Im1 {imageId} 0 R >> >> /Contents {contentId} 0 R >>");
+            $"/Resources << /Font << /{PdfFonts.Regular} {fontRegularId} 0 R /{PdfFonts.Bold} {fontBoldId} 0 R >> >> " +
+            $"/Contents {contentId} 0 R >>");
 
         return pdf.Build(catalogId, infoId);
     }
