@@ -962,7 +962,13 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Diagnostics.Temperature.TemperatureAppUsageResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.OpenEventViewerResponse))]
 
+// Metadata-only: skips the per-type generated fast-path writer, a large AOT
+// code cost across this context's roots; serialization runs through the
+// shared metadata-driven writer instead. Deserialization is metadata-driven
+// in both modes, and the HTTP pipeline's merged options already disabled the
+// fast path, so only typed JsonTypeInfo writes change code path.
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
-    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull)]
+    DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
+    GenerationMode = JsonSourceGenerationMode.Metadata)]
 public partial class AppJsonContext : JsonSerializerContext;

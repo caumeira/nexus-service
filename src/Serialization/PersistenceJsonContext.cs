@@ -83,8 +83,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<string>))]
 [JsonSerializable(typeof(LayoutPreset))]
 [JsonSerializable(typeof(List<LayoutPreset>))]
+// Metadata-only for the same reason as AppJsonContext: settings writes are
+// rare, so the generated fast-path writer is pure AOT size.
 [JsonSourceGenerationOptions(
     PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase,
     DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
-    WriteIndented = true)]
+    WriteIndented = true,
+    GenerationMode = JsonSourceGenerationMode.Metadata)]
 public partial class PersistenceJsonContext : JsonSerializerContext;
