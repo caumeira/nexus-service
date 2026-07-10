@@ -1,10 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
+using System.Threading.Tasks;
+using Nexus.Service.Deck;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Peripherals.StreamDeck;
 using Nexus.Service.Persistence;
+using Nexus.Service.Sockets;
 
 namespace Nexus.Service.Tests.StreamDeck;
 
@@ -23,20 +27,49 @@ internal sealed class FakeWorkerHidEnumerator : IHidEnumerator
         DevicesByPath.TryGetValue(path, out var dev) ? dev : null;
 }
 
+/// <summary>Spy executor: records every dispatch instead of touching real providers.</summary>
+internal sealed class FakeDeckActionExecutor : IDeckActionExecutor
+{
+    public readonly List<(DeckAction? Action, string Serial, int KeyIndex, string LatchKey)> Calls = new();
+    private readonly Dictionary<string, bool> _latches = new();
+
+    public Task ExecuteAsync(DeckAction? action, string serial, int keyIndex, string latchKey, CancellationToken ct)
+    {
+        Calls.Add((action, serial, keyIndex, latchKey));
+        return Task.CompletedTask;
+    }
+
+    public bool IsToggleOn(DeckToggleState? state, string latchKey) => _latches.TryGetValue(latchKey, out var v) && v;
+}
+
 public class StreamDeckConnectionWorkerTests
 {
     private static readonly StreamDeckModel Mini = StreamDeckModels.ByProductId(0x0063)!;
 
-    private static (FakeWorkerHidEnumerator hid, HardwarePresence presence, DeviceControlGate gate) NewFixtures(bool devicePresent)
+    private sealed record Fixtures(
+        FakeWorkerHidEnumerator Hid,
+        HardwarePresence Presence,
+        DeviceControlGate Gate,
+        InMemoryConfigStore Store,
+        FakeDeckActionExecutor Executor,
+        StreamDeckImageCache ImageCache,
+        MultiplexHub Hub);
+
+    private static Fixtures NewFixtures(bool devicePresent)
     {
         var hid = new FakeWorkerHidEnumerator();
         var usbEntries = devicePresent
             ? new List<UsbDeviceEntry> { new() { VendorId = StreamDeckModels.VendorId, ProductId = Mini.ProductId } }
             : new List<UsbDeviceEntry>();
         var presence = new HardwarePresence(new FixedUsbEnumerator(usbEntries.ToArray()));
-        var gate = new DeviceControlGate(new InMemoryConfigStore());
-        return (hid, presence, gate);
+        var store = new InMemoryConfigStore();
+        var gate = new DeviceControlGate(store);
+        var imageCache = new StreamDeckImageCache(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "nexus-streamdeck-test-" + Guid.NewGuid().ToString("N")));
+        return new Fixtures(hid, presence, gate, store, new FakeDeckActionExecutor(), imageCache, new MultiplexHub());
     }
+
+    private static StreamDeckConnectionWorker NewWorker(Fixtures f, SimulatedStreamDeckSurface? simulated = null) =>
+        new(f.Hid, f.Presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub, simulated);
 
     private static void AddMiniDevice(FakeWorkerHidEnumerator hid, string path, string serial)
     {
@@ -50,9 +83,9 @@ public class StreamDeckConnectionWorkerTests
     [Fact]
     public void Tick_DiscoversAndConnectsAPresentDeck()
     {
-        var (hid, presence, gate) = NewFixtures(devicePresent: true);
-        AddMiniDevice(hid, "path-1", "SERIAL-1");
-        var worker = new StreamDeckConnectionWorker(hid, presence, gate);
+        var f = NewFixtures(devicePresent: true);
+        AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
+        var worker = NewWorker(f);
 
         worker.Tick();
 
@@ -64,10 +97,10 @@ public class StreamDeckConnectionWorkerTests
     [Fact]
     public void Tick_GateDisabled_NeverConnects()
     {
-        var (hid, presence, gate) = NewFixtures(devicePresent: true);
-        AddMiniDevice(hid, "path-1", "SERIAL-1");
-        gate.SetEnabled("streamdeck", false);
-        var worker = new StreamDeckConnectionWorker(hid, presence, gate);
+        var f = NewFixtures(devicePresent: true);
+        AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
+        f.Gate.SetEnabled("streamdeck", false);
+        var worker = NewWorker(f);
 
         worker.Tick();
 
@@ -77,9 +110,9 @@ public class StreamDeckConnectionWorkerTests
     [Fact]
     public void Tick_NoUsbPresence_SkipsHidScanEntirely()
     {
-        var (hid, presence, gate) = NewFixtures(devicePresent: false);
-        AddMiniDevice(hid, "path-1", "SERIAL-1"); // hid would find it, but presence says no 0x0FD9 on the bus
-        var worker = new StreamDeckConnectionWorker(hid, presence, gate);
+        var f = NewFixtures(devicePresent: false);
+        AddMiniDevice(f.Hid, "path-1", "SERIAL-1"); // hid would find it, but presence says no 0x0FD9 on the bus
+        var worker = NewWorker(f);
 
         worker.Tick();
 
@@ -89,20 +122,19 @@ public class StreamDeckConnectionWorkerTests
     [Fact]
     public void Tick_DeviceUnplugged_DisposesAndRemovesTheSurface()
     {
-        var hid = new FakeWorkerHidEnumerator();
-        AddMiniDevice(hid, "path-1", "SERIAL-1");
+        var f = NewFixtures(devicePresent: false);
+        AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
         var usb = new MutableUsbEnumerator();
         usb.Devices.Add(new UsbDeviceEntry { VendorId = StreamDeckModels.VendorId, ProductId = Mini.ProductId });
         var presence = new HardwarePresence(usb);
-        var gate = new DeviceControlGate(new InMemoryConfigStore());
-        var worker = new StreamDeckConnectionWorker(hid, presence, gate);
+        var worker = new StreamDeckConnectionWorker(f.Hid, presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub);
 
         worker.Tick();
-        var dev = (MockStreamDeckHidDevice)hid.DevicesByPath["path-1"];
+        var dev = (MockStreamDeckHidDevice)f.Hid.DevicesByPath["path-1"];
         Assert.Single(worker.Surfaces);
 
         usb.Devices.Clear();
-        hid.ByProductId.Clear();
+        f.Hid.ByProductId.Clear();
         worker.Tick();
 
         Assert.Empty(worker.Surfaces);
@@ -112,9 +144,9 @@ public class StreamDeckConnectionWorkerTests
     [Fact]
     public void Tick_WithSimulatedSurface_RegistersItOnFirstTick()
     {
-        var (hid, presence, gate) = NewFixtures(devicePresent: false);
+        var f = NewFixtures(devicePresent: false);
         var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
-        var worker = new StreamDeckConnectionWorker(hid, presence, gate, simulated);
+        var worker = NewWorker(f, simulated);
 
         worker.Tick();
 
@@ -124,9 +156,9 @@ public class StreamDeckConnectionWorkerTests
     [Fact]
     public void Tick_WithSimulatedSurface_PumpsPressesAcrossMultipleTicksWithoutError()
     {
-        var (hid, presence, gate) = NewFixtures(devicePresent: false);
+        var f = NewFixtures(devicePresent: false);
         var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
-        var worker = new StreamDeckConnectionWorker(hid, presence, gate, simulated);
+        var worker = NewWorker(f, simulated);
         worker.Tick();
 
         simulated.Poke(0, true);
@@ -143,15 +175,113 @@ public class StreamDeckConnectionWorkerTests
         // The simulated surface is a shared DI singleton the dev routes also
         // hold a reference to; disabling Nexus Control must stop tracking it,
         // not dispose the shared instance out from under those routes.
-        var (hid, presence, gate) = NewFixtures(devicePresent: false);
+        var f = NewFixtures(devicePresent: false);
         var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
-        var worker = new StreamDeckConnectionWorker(hid, presence, gate, simulated);
+        var worker = NewWorker(f, simulated);
         worker.Tick();
 
-        gate.SetEnabled("streamdeck", false);
+        f.Gate.SetEnabled("streamdeck", false);
         worker.Tick();
 
         Assert.True(simulated.IsConnected);
+    }
+
+    [Fact]
+    public async Task SimulatedPress_OnRootActionSlot_DispatchesToTheExecutor()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        var action = new DeckAction { Type = "openUrl", Url = "https://example.com" };
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Slots = { new DeckSlot { Action = action } } },
+        });
+        var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        simulated.Poke(0, true);
+        worker.Tick();
+        if (worker.LastDispatchTask is not null)
+        {
+            await worker.LastDispatchTask;
+        }
+
+        var call = Assert.Single(f.Executor.Calls);
+        Assert.Equal("sim-0001", call.Serial);
+        Assert.Equal(0, call.KeyIndex);
+        Assert.Same(action, call.Action);
+    }
+
+    [Fact]
+    public async Task KeyPress_OnFolderSlot_PushesFolderAndShiftsSubsequentKeysByOne()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        var innerAction = new DeckAction { Type = "openUrl", Url = "https://inner.example.com" };
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Slots =
+                {
+                    new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot { Action = innerAction } } } },
+                },
+            },
+        });
+        var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        // Press key 0 (the folder slot) at root - no shift applies at root.
+        simulated.Poke(0, true);
+        worker.Tick();
+        simulated.Poke(0, false);
+        worker.Tick();
+
+        Assert.Equal(new[] { 0 }, worker.GetFolderPath("sim-0001"));
+        Assert.Empty(f.Executor.Calls);
+
+        // Inside the folder, key 0 is reserved for Back; the folder's own
+        // slot 0 lives at physical key 1.
+        simulated.Poke(1, true);
+        worker.Tick();
+        if (worker.LastDispatchTask is not null)
+        {
+            await worker.LastDispatchTask;
+        }
+
+        var call = Assert.Single(f.Executor.Calls);
+        Assert.Same(innerAction, call.Action);
+        // The dispatch's key index is the logical slot index within the
+        // folder's own slot list (0), not the physical key number (1) - the
+        // physical key was shifted by the reserved Back key at index 0.
+        Assert.Equal(0, call.KeyIndex);
+    }
+
+    [Fact]
+    public void KeyPress_OnBackKey_PopsTheFolderPath()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot() } } } },
+            },
+        });
+        var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        simulated.Poke(0, true);
+        worker.Tick();
+        simulated.Poke(0, false);
+        worker.Tick();
+        Assert.Equal(new[] { 0 }, worker.GetFolderPath("sim-0001"));
+
+        simulated.Poke(0, true);
+        worker.Tick();
+
+        Assert.Empty(worker.GetFolderPath("sim-0001"));
     }
 
     private sealed class MutableUsbEnumerator : IUsbEnumerator
