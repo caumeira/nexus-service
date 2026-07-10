@@ -29,7 +29,7 @@ This is the engine of [Nexus](https://hellonexus.com). The other repos are clien
 - `9443` HTTPS - pairing and remote panel surfaces, served over a locally generated cert. The SPKI of that cert is what gets pinned by clients.
 - `6742` TCP (loopback, internal) - OpenRGB SDK server (the headless OpenRGB child process).
 
-See `docs/network-transport.md` for the full polling/topic inventory and `docs/api-spec.md` for the REST surface.
+See `docs/network-transport.md` for the full polling/topic inventory and `docs/openapi.json` for the generated REST route inventory (regenerate with `dotnet run -- --emit-openapi docs/openapi.json`; see Build).
 
 ## Develop
 
@@ -86,13 +86,14 @@ src/
   Update/             # OTA self-update engine (IUpdateSource, GitHubReleaseProvider, UpdateService poller, UpdateDownloader, UpdateIntegrity, UpdateInstaller)
   ...                 # supporting subsystems (Devices, Monitoring, Models, Plugins, Telemetry, ...)
 docs/
-  api-spec.md         # REST surface
+  openapi.json        # generated REST route inventory (see Build)
   network-transport.md# REST + WebSocket inventory + cadence
   ws-topic-rbac.md    # who may subscribe to which WS topics
+  shader-benchmark.md # Q-series shader performance baseline
 Bundled/
-  win-x64/            # openrgb + pawnio (at publish root); tools/: adb, ffmpeg, dfu-util, dfu-driver, gamesync, clpeak, primesieve, vkpeak, diskspd, stream
-  osx-arm64/          # openrgb (at publish root); tools/: adb, ffmpeg
-  linux-x64/          # openrgb (at publish root); tools/: adb, ffmpeg
+  win-x64/            # adb, dfu-util, dfu-driver, gamesync, pawnio, bench/ (clpeak, diskspd, primesieve, stream, vkpeak), d213/ (DevTools-gated panel blobs); openrgb + ffmpeg added at publish
+  osx-arm64/          # adb; openrgb + ffmpeg added at publish
+  linux-x64/          # adb; openrgb + ffmpeg added at publish
   macos/  linux/      # tray/status icons, helpers, app icons
 installer/
   Nexus.iss           # Inno Setup script
@@ -126,6 +127,21 @@ The bundled ffmpeg has no separate repo: it is stock upstream ffmpeg compiled by
 ```sh
 bash scripts/fetch-ffmpeg.sh all    # or: mac | win | linux
 ```
+
+### API route inventory
+
+`docs/openapi.json` is a generated OpenAPI 3.1 document listing every REST
+route the service exposes. It is produced from the live route registration -
+regenerate it after adding, removing, or renaming a route:
+
+```sh
+dotnet run -- --emit-openapi docs/openapi.json
+```
+
+The flag starts the host only far enough to register endpoints (no hardware, no
+real port) and writes the document. In a `DEBUG` build the same document is also
+served live at `/openapi/v1.json`; a release build maps no such endpoint.
+Regenerate `docs/openapi.json` whenever a route is added, removed, or renamed.
 
 ## Installers
 
