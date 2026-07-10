@@ -7,10 +7,13 @@ namespace Nexus.Service.Diagnostics.Temperature;
 /// <summary>One chart point: t is the bucket's start (UTC ms).</summary>
 public sealed record TemperaturePoint(long T, double Avg, double Max);
 
-/// <summary>A sustained-high-temperature window for one component.</summary>
+/// <summary>A sustained-high-temperature window for one component. Kind is
+/// cpu/gpu/storage/ram (the same values TemperatureSampler tags each row
+/// with); it gates which DiagnosticsSettings.Components flag applies to this
+/// episode.</summary>
 public sealed record TemperatureEpisode(
     string ComponentId, string Name, DateTime StartUtc, DateTime EndUtc,
-    double PeakC, double ThresholdC);
+    double PeakC, double ThresholdC, string Kind = "");
 
 /// <summary>
 /// Pure analysis over stored temperature buckets: no I/O, fully unit-testable.
@@ -19,23 +22,33 @@ public sealed record TemperatureEpisode(
 /// </summary>
 public static class TemperatureInsights
 {
-    private const double CpuThresholdC = 90;
-    private const double GpuThresholdC = 85;
-    private const double StorageThresholdC = 70;
-    private const double RamThresholdC = 60;
+    public const double CpuThresholdC = 90;
+    public const double GpuThresholdC = 85;
+    public const double StorageThresholdC = 70;
+    public const double RamThresholdC = 60;
 
     // A single above-threshold bucket can be a noisy sample, not sustained
     // heat; requiring more than one in a row filters that out.
     private const int MinConsecutiveBuckets = 2;
 
-    public static double? ThresholdFor(string kind) => kind switch
+    /// <summary>overrides lets a caller substitute the user-configured
+    /// DiagnosticsSettings.Thresholds per kind; a kind missing from overrides,
+    /// or a null overrides map, falls back to the hardcoded default.</summary>
+    public static double? ThresholdFor(string kind, IReadOnlyDictionary<string, double>? overrides = null)
     {
-        "cpu" => CpuThresholdC,
-        "gpu" => GpuThresholdC,
-        "storage" => StorageThresholdC,
-        "ram" => RamThresholdC,
-        _ => null,
-    };
+        if (overrides is not null && overrides.TryGetValue(kind, out var configured))
+        {
+            return configured;
+        }
+        return kind switch
+        {
+            "cpu" => CpuThresholdC,
+            "gpu" => GpuThresholdC,
+            "storage" => StorageThresholdC,
+            "ram" => RamThresholdC,
+            _ => null,
+        };
+    }
 
     /// <summary>Chart granularity tier for a requested window: wider windows get a
     /// coarser target bucket width in minutes, bounding merged point counts by
@@ -53,8 +66,12 @@ public static class TemperatureInsights
     /// buckets whose AvgC is at or above the kind's threshold, per component. A
     /// missing bucket (a gap in bucket_utc) breaks a run even if both sides are
     /// above threshold - the run must be one unbroken stretch of sampled buckets.
+    /// thresholdOverrides substitutes user-configured per-kind thresholds; null
+    /// (the graph-history caller) keeps the hardcoded defaults.
     /// </summary>
-    public static IReadOnlyList<TemperatureEpisode> DetectEpisodes(IReadOnlyList<TemperatureBucketRow> rows)
+    public static IReadOnlyList<TemperatureEpisode> DetectEpisodes(
+        IReadOnlyList<TemperatureBucketRow> rows,
+        IReadOnlyDictionary<string, double>? thresholdOverrides = null)
     {
         var bucketMs = TemperatureSampler.BucketMinutes * 60_000L;
         var episodes = new List<TemperatureEpisode>();
@@ -62,7 +79,8 @@ public static class TemperatureInsights
         foreach (var group in rows.GroupBy(r => r.ComponentId))
         {
             var ordered = group.OrderBy(r => r.BucketUtcMs).ToList();
-            if (ThresholdFor(ordered[0].Kind) is not { } thresholdC)
+            var kind = ordered[0].Kind;
+            if (ThresholdFor(kind, thresholdOverrides) is not { } thresholdC)
             {
                 continue;
             }
@@ -83,7 +101,8 @@ public static class TemperatureInsights
                         DateTimeOffset.FromUnixTimeMilliseconds(streakStartMs!.Value).UtcDateTime,
                         DateTimeOffset.FromUnixTimeMilliseconds(streakLastMs!.Value + bucketMs).UtcDateTime,
                         streakPeak,
-                        thresholdC));
+                        thresholdC,
+                        kind));
                 }
                 streakLen = 0;
                 streakStartMs = null;

@@ -185,6 +185,14 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Persistence.OverlaySettingsPatch))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.MonitoringSettingsPatch))]
 [JsonSerializable(typeof(Nexus.Service.Persistence.CoolingPrefsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.DiagnosticsSettings))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.DiagnosticsThresholds))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.DiagnosticsNotifications))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.DiagnosticsComponents))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.DiagnosticsSettingsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.DiagnosticsThresholdsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.DiagnosticsNotificationsPatch))]
+[JsonSerializable(typeof(Nexus.Service.Persistence.DiagnosticsComponentsPatch))]
 
 // Panel widget engine - per-device records, layouts, control-state push frames.
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.PanelLayoutDto))]

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Diagnostics;
 using Nexus.Service.Panel;
 using Nexus.Service.Platform.Linux.DBus;
 using Nexus.Service.Sockets;
@@ -26,6 +27,7 @@ public sealed class LinuxTrayService : IHostedService
     private readonly DBusConnection _dbus;
     private readonly PanelPhonePairingService _pairing;
     private readonly TransferInbox _transfer;
+    private readonly DiagnosticsAlertService _diagAlerts;
     private readonly MultiplexHub _hub;
     private readonly ISystemAccentProvider _accent;
     private LinuxTrayHost? _host;
@@ -33,12 +35,13 @@ public sealed class LinuxTrayService : IHostedService
     private string? _lastAccent;
     private string _url = "http://localhost:9400";
 
-    public LinuxTrayService(IHostApplicationLifetime lifetime, DBusConnection dbus, PanelPhonePairingService pairing, TransferInbox transfer, MultiplexHub hub, ISystemAccentProvider accent)
+    public LinuxTrayService(IHostApplicationLifetime lifetime, DBusConnection dbus, PanelPhonePairingService pairing, TransferInbox transfer, DiagnosticsAlertService diagAlerts, MultiplexHub hub, ISystemAccentProvider accent)
     {
         _lifetime = lifetime;
         _dbus = dbus;
         _pairing = pairing;
         _transfer = transfer;
+        _diagAlerts = diagAlerts;
         _hub = hub;
         _accent = accent;
     }
@@ -49,6 +52,7 @@ public sealed class LinuxTrayService : IHostedService
         _dbus.Reconnected += OnReconnected;
         _pairing.PairRequestNeedsAttention += OnPairAttention;
         _transfer.TransferNeedsAttention += OnTransferAttention;
+        _diagAlerts.AlertNeedsAttention += OnDiagnosticsAlert;
         try
         {
             await _dbus.StartAsync();
@@ -69,6 +73,7 @@ public sealed class LinuxTrayService : IHostedService
         _dbus.Reconnected -= OnReconnected;
         _pairing.PairRequestNeedsAttention -= OnPairAttention;
         _transfer.TransferNeedsAttention -= OnTransferAttention;
+        _diagAlerts.AlertNeedsAttention -= OnDiagnosticsAlert;
         _accentCts?.Cancel();
         _host?.Dispose();
         _host = null;
@@ -154,6 +159,8 @@ public sealed class LinuxTrayService : IHostedService
             : notice.Text;
         LinuxNotify.Send(notice.Title, body);
     }
+
+    private void OnDiagnosticsAlert(DiagnosticsAlertNotice notice) => LinuxNotify.Send(notice.Title, notice.Text);
 
     private static string AbbreviateHome(string path)
     {

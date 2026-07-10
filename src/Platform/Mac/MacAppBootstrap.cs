@@ -55,6 +55,13 @@ internal static class MacAppBootstrap
             catch { /* best-effort */ }
         };
 
+        var diagAlerts = app.Services.GetRequiredService<Nexus.Service.Diagnostics.DiagnosticsAlertService>();
+        diagAlerts.AlertNeedsAttention += notice =>
+        {
+            try { MacNotify.Send(notice.Title, notice.Text); }
+            catch { /* best-effort */ }
+        };
+
         MacStatusBar.Initialize(
             iconPath,
             onOpenDashboard: () => MacAppWindow.OpenOrFocus(ServiceLaunchIntent.LocalDashboardUrl(servicePort)),
