@@ -9,6 +9,7 @@ using Nexus.Service.Devices.Handlers;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Peripherals.StreamDeck;
 using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 using Nexus.Service.Peripherals.StreamDeck;
 using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
@@ -178,7 +179,15 @@ public static class StreamDeckRoutes
             }
 
             var hash = StreamDeckImageCache.Hash(bytes);
-            cache.Store(serial, hash, bytes);
+            try
+            {
+                cache.Store(serial, hash, bytes);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                ServiceLog.Warn($"[streamdeck] image cache write failed for {serial}: {ex.Message}");
+                return Results.Json(ApiResponse.Fail("image cache write failed"), AppJsonContext.Default.ApiResponse);
+            }
             string? evictHash = null;
             var refKey = $"{slotPath}/{state}";
             store.Update(s =>
