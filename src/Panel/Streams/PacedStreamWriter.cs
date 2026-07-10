@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using System.Threading;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Panel.Streams;
 
@@ -21,6 +22,7 @@ public sealed class PacedStreamWriter : IDisposable
     private readonly AutoResetEvent _wake = new(false);
     private readonly Thread _thread;
     private IStreamedPanelTransport? _transport;
+    private long _lastWriteStallLogTicks;
     private volatile bool _disposed;
 
     public PacedStreamWriter(StreamSession session, Action<IStreamedPanelTransport, Exception> onTransportFault)
@@ -91,7 +93,18 @@ public sealed class PacedStreamWriter : IDisposable
                 {
                     try
                     {
+                        var writeStart = Stopwatch.GetTimestamp();
                         transport.Write(frame.Payload);
+                        // A blocked write is downstream backpressure (socket
+                        // buffer, adb forwarding, device fifo); on a
+                        // render-on-arrival device every stall shows on glass
+                        // as a time snap when the backlog flushes.
+                        var writeMs = (Stopwatch.GetTimestamp() - writeStart) * 1000 / Stopwatch.Frequency;
+                        if (writeMs > 50 && Stopwatch.GetTimestamp() - _lastWriteStallLogTicks > Stopwatch.Frequency)
+                        {
+                            _lastWriteStallLogTicks = Stopwatch.GetTimestamp();
+                            ServiceLog.Warn($"[streamed-panel] write stalled {writeMs}ms serial={_session.Info.Serial} ({frame.Payload.Length}b{(frame.IsIdr ? " idr" : "")})");
+                        }
                     }
                     catch (Exception ex)
                     {

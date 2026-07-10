@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Features;
 using Nexus.Service.Auth;
 using Nexus.Service.Panel.Streams;
+using Nexus.Service.Platform;
 using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Routes;
@@ -43,6 +44,9 @@ public static class StreamedPanelRoutes
             ctx.Features.Get<IHttpMinRequestBodyDataRateFeature>()?.MinDataRate = null;
 
             var reader = ctx.Request.BodyReader;
+            // An arrival gap here means the overlay produced nothing for that
+            // long: the content clock on glass jumps by the same amount.
+            long lastFrameTicks = 0;
             try
             {
                 while (true)
@@ -52,7 +56,17 @@ public static class StreamedPanelRoutes
                     while (StreamFrameReader.TryReadFrame(ref buffer, out var frame))
                     {
                         if (!frame!.IsControl)
+                        {
+                            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                            if (lastFrameTicks != 0)
+                            {
+                                var gapMs = (now - lastFrameTicks) * 1000 / System.Diagnostics.Stopwatch.Frequency;
+                                if (gapMs > 100)
+                                    ServiceLog.Warn($"[streamed-panel] ingest gap {gapMs}ms session={sessionId}");
+                            }
+                            lastFrameTicks = now;
                             session.Enqueue(frame);
+                        }
                     }
                     reader.AdvanceTo(buffer.Start, buffer.End);
                     if (result.IsCompleted) break;
