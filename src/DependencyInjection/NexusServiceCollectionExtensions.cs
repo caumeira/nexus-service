@@ -1211,17 +1211,20 @@ public static class NexusServiceCollectionExtensions
 
         // Streamed panels: panels rendered off-screen by the overlay's stream
         // engine and piped as H.264 to USB display devices through swappable
-        // IStreamedPanelTransport implementations. The D213 discovery is the
-        // dev-gated reference device (Windows-only: the render engine needs
-        // WGC/MF in the session-1 overlay); the coordinator idles when no
-        // discovery is registered.
+        // IStreamedPanelTransport implementations. The D213 reference device
+        // is DEV_TOOLS-only (final hardware undefined; a release must never
+        // claim a consumer gadget whose adb serial happens to match) and
+        // Windows-only (the render engine needs WGC/MF in the session-1
+        // overlay). The coordinator idles when no discovery is registered.
         services.AddSingleton<Nexus.Service.Panel.Streams.StreamedPanelStore>();
+#if DEV_TOOLS
         if (OperatingSystem.IsWindows())
         {
             services.AddSingleton<Nexus.Service.Panel.Streams.IStreamedPanelDiscovery>(sp =>
                 new Nexus.Service.Panel.Streams.D213PanelDiscovery(
                     sp.GetRequiredService<Nexus.Service.Panel.Streams.StreamedPanelStore>()));
         }
+#endif
         services.AddSingleton<Nexus.Service.Panel.Streams.StreamedPanelCoordinator>(sp =>
         {
             Action? notifyOverlay = null;

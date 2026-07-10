@@ -97,6 +97,18 @@ public sealed class StreamSessionTests
     }
 
     [Fact]
+    public void Overflow_with_idr_only_at_head_clears_and_rearms()
+    {
+        var session = NewSession(fps: 10);
+        session.Enqueue(Frame(idr: true, 1));
+        for (byte i = 2; i <= 31; i++) session.Enqueue(Frame(idr: false, i));
+
+        Assert.Equal(0, session.QueueDepthForTest);
+        session.Enqueue(Frame(idr: true, 99));
+        Assert.Equal(99, session.DequeueForTick().Single().Payload[0]);
+    }
+
+    [Fact]
     public void Transport_reopen_requires_fresh_idr()
     {
         var session = NewSession();

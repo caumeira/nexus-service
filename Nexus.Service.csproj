@@ -365,9 +365,10 @@
   </ItemGroup>
 
   <!-- ArtInChip D213 streamed-panel device players: patched mpp_video_test
-       builds pushed to the board's /tmp by AdbStreamTransport (dev-gated
-       reference hardware; see plans/streamed-panels.md in the parent repo). -->
-  <ItemGroup Condition="($([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))) AND Exists('Bundled\win-x64\d213')">
+       builds pushed to the board's /tmp by AdbStreamTransport. DEV_TOOLS-only,
+       matching the discovery registration (see plans/streamed-panels.md in
+       the parent repo). -->
+  <ItemGroup Condition="'$(DevTools)' == 'true' AND ($([MSBuild]::IsOSPlatform('Windows')) OR $(RuntimeIdentifier.StartsWith('win'))) AND Exists('Bundled\win-x64\d213')">
     <Content Include="Bundled\win-x64\d213\**\*.*">
       <Link>tools\d213\%(RecursiveDir)%(Filename)%(Extension)</Link>
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>

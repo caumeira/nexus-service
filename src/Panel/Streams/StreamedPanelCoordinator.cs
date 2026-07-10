@@ -137,7 +137,13 @@ public sealed class StreamedPanelCoordinator : BackgroundService
                 if (existing is not null)
                 {
                     existing.LastPresentAtMs = now;
-                    if (existing.Transport is null || !existing.Transport.IsOpen)
+                    bool needsReopen;
+                    lock (_lock)
+                    {
+                        var transport = existing.Transport;
+                        needsReopen = transport is null || !transport.IsOpen;
+                    }
+                    if (needsReopen)
                         TryReopenTransport(existing);
                 }
                 else if (StartSession(discovery, info, now))
@@ -264,7 +270,7 @@ public sealed class StreamedPanelCoordinator : BackgroundService
         var ds = new DeviceSession
         {
             Session = session,
-            Writer = new PacedStreamWriter(session, ex => HandleTransportFault(info.Serial, ex)),
+            Writer = new PacedStreamWriter(session, (faulted, ex) => HandleTransportFault(info.Serial, faulted, ex)),
             Discovery = discovery,
             Info = info,
             LastPresentAtMs = now,
@@ -304,18 +310,37 @@ public sealed class StreamedPanelCoordinator : BackgroundService
 
     private void TryReopenTransport(DeviceSession ds)
     {
+        IStreamedPanelTransport? old;
+        lock (_lock)
+        {
+            old = ds.Transport;
+            ds.Transport = null;
+        }
+        if (old is not null)
+        {
+            try { old.Dispose(); } catch { }
+        }
         try
         {
-            var old = ds.Transport;
-            ds.Transport = null;
-            if (old is not null)
-            {
-                try { old.Dispose(); } catch { }
-            }
             var transport = ds.Discovery.CreateTransport(ds.Info);
             transport.Open();
             transport.StartPlayer();
-            ds.Transport = transport;
+            var accepted = false;
+            lock (_lock)
+            {
+                // Open() is slow; a session closed meanwhile must not get a
+                // resurrected transport.
+                if (_bySessionId.ContainsKey(ds.Session.SessionId))
+                {
+                    ds.Transport = transport;
+                    accepted = true;
+                }
+            }
+            if (!accepted)
+            {
+                try { transport.Dispose(); } catch { }
+                return;
+            }
             ds.Session.SetTransportUp(true);
             ds.Writer.SetTransport(transport);
             ServiceLog.Info($"[streamed-panel] transport open serial={ds.Info.Serial}");
@@ -327,34 +352,39 @@ public sealed class StreamedPanelCoordinator : BackgroundService
         }
     }
 
-    private void HandleTransportFault(string serial, Exception ex)
+    // The faulted instance travels with the callback: a fault landing after a
+    // reopen already swapped in a fresh transport must dispose only its own.
+    private void HandleTransportFault(string serial, IStreamedPanelTransport faulted, Exception ex)
     {
-        DeviceSession? ds;
-        lock (_lock) _bySerial.TryGetValue(serial, out ds);
-        if (ds is null) return;
         ServiceLog.Error($"[streamed-panel] transport fault serial={serial}: {ex.GetType().Name}: {ex.Message}");
-        ds.Session.SetTransportUp(false);
-        var transport = ds.Transport;
-        ds.Transport = null;
-        if (transport is not null)
+        DeviceSession? current = null;
+        lock (_lock)
         {
-            try { transport.Dispose(); } catch { }
+            if (_bySerial.TryGetValue(serial, out var ds) && ReferenceEquals(ds.Transport, faulted))
+            {
+                ds.Transport = null;
+                current = ds;
+            }
         }
+        try { faulted.Dispose(); } catch { }
+        current?.Session.SetTransportUp(false);
     }
 
     private void CloseSession(DeviceSession ds, string reason)
     {
+        IStreamedPanelTransport? transport;
         lock (_lock)
         {
             _bySerial.Remove(ds.Info.Serial);
             _bySessionId.Remove(ds.Session.SessionId);
+            transport = ds.Transport;
+            ds.Transport = null;
         }
         ds.Session.Close();
         ds.Writer.Dispose();
-        if (ds.Transport is not null)
+        if (transport is not null)
         {
-            try { ds.Transport.Dispose(); } catch { }
-            ds.Transport = null;
+            try { transport.Dispose(); } catch { }
         }
         var ingest = ds.IngestContext;
         ds.IngestContext = null;

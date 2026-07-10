@@ -33,10 +33,10 @@ public static class StreamedPanelRoutes
                 return Results.NotFound();
 
             // The global MaxRequestBodySize (sized for media imports) caps a
-            // multi-hour stream, and the default MinDataRate (240 B / 5 s)
-            // would abort the request during a capture stall; both must be
-            // lifted for this request only. Keepalive control frames keep
-            // liveness observable instead.
+            // multi-hour stream, and the default MinDataRate would abort the
+            // request during a capture stall; both must be lifted for this
+            // request only. Keepalive control frames keep liveness observable
+            // instead.
             var sizeFeature = ctx.Features.Get<IHttpMaxRequestBodySizeFeature>();
             if (sizeFeature is { IsReadOnly: false })
                 sizeFeature.MaxRequestBodySize = null;

@@ -32,8 +32,8 @@ public sealed class StreamSession
         SessionId = sessionId;
         Info = info;
         PanelDeviceId = panelDeviceId;
-        // 2s of frames: enough to absorb a transport blip, small enough that
-        // a stalled device resumes at a near-live IDR instead of replaying.
+        // Enough queue to absorb a transport blip while resuming near-live;
+        // when even the newest GOP exceeds it, resync from the next IDR.
         _maxQueuedFrames = Math.Max(30, info.Profile.Fps * 2);
     }
 
@@ -145,8 +145,9 @@ public sealed class StreamSession
     }
 
     // Keeps only the suffix starting at the newest IDR so the decoder can
-    // resume without a mid-GOP gap; arms the resync latch when everything
-    // queued is mid-GOP.
+    // resume without a mid-GOP gap. When there is no IDR, or the newest GOP
+    // itself already exceeds the cap (IDR stuck at the head), holding it
+    // would grow unbounded; clear and resync from the next IDR instead.
     private void TrimToNewestIdrLocked()
     {
         var frames = _queue.ToArray();
@@ -156,7 +157,7 @@ public sealed class StreamSession
             if (frames[i].IsIdr) { newestIdr = i; break; }
         }
         _queue.Clear();
-        if (newestIdr < 0)
+        if (newestIdr < 0 || frames.Length - newestIdr > _maxQueuedFrames)
         {
             _waitingForIdr = true;
             return;

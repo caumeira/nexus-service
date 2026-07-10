@@ -16,14 +16,14 @@ public sealed class PacedStreamWriter : IDisposable
 {
     private readonly StreamSession _session;
     private readonly int _fps;
-    private readonly Action<Exception> _onTransportFault;
+    private readonly Action<IStreamedPanelTransport, Exception> _onTransportFault;
     private readonly object _transportLock = new();
     private readonly AutoResetEvent _wake = new(false);
     private readonly Thread _thread;
     private IStreamedPanelTransport? _transport;
     private volatile bool _disposed;
 
-    public PacedStreamWriter(StreamSession session, Action<Exception> onTransportFault)
+    public PacedStreamWriter(StreamSession session, Action<IStreamedPanelTransport, Exception> onTransportFault)
     {
         _session = session;
         _fps = Math.Clamp(session.Info.Profile.Fps, 1, 240);
@@ -61,8 +61,9 @@ public sealed class PacedStreamWriter : IDisposable
 
     private void Run()
     {
-        // 1ms scheduler granularity for the pacing sleeps; without it Windows
-        // rounds Thread.Sleep to ~15ms and the tick jitters visibly.
+        // Windows rounds Thread.Sleep to the ~15ms scheduler quantum by
+        // default, which jitters the tick visibly; request finer timer
+        // resolution while this thread lives.
         if (OperatingSystem.IsWindows()) TimeBeginPeriod(1);
         try
         {
@@ -95,7 +96,7 @@ public sealed class PacedStreamWriter : IDisposable
                     catch (Exception ex)
                     {
                         ClearTransport();
-                        _onTransportFault(ex);
+                        _onTransportFault(transport, ex);
                         break;
                     }
                 }

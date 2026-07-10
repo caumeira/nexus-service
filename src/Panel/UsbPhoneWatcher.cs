@@ -177,6 +177,10 @@ public sealed class UsbPhoneWatcher : BackgroundService
             // emulators (serial "emulator-NNNN").
             if (device.Serial.Contains(':', StringComparison.Ordinal)) continue;
             if (device.Serial.StartsWith("emulator-", StringComparison.Ordinal)) continue;
+            // ArtInChip streamed-panel boards are owned by StreamedPanelCoordinator;
+            // probing them here races the persistent stream shell over a USB link
+            // that corrupts under concurrent adb ops.
+            if (device.Serial.StartsWith("d211_", StringComparison.Ordinal)) continue;
             if (IsQSeriesModel(device.Model)) continue;
 
             if (!_panelAppConfirmedBySerial.Contains(device.Serial))

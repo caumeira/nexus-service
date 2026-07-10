@@ -13,6 +13,7 @@ This is the engine of [Nexus](https://hellonexus.com). The other repos are clien
 - **Tryx Panorama AIO screen** - drive the Panorama cooler's screen (custom video upload + transcode, presets, brightness, fan, sensor overlay) over CDC-ACM serial + ADB (`Peripherals/Tryx/`), exposed as a first-party device through the `/tryx/*` routes (`Routes/TryxRoutes.cs`); media uploads via `POST /tryx/media`.
 - **Diagnostics** - hardware failure surveillance: SMART/NVMe drive health, Windows event-log incidents (WHEA, bugchecks, TDRs, disk errors, app/game crashes), GPU throttle telemetry via the driver's NVML, AIO pump / fan stall detection, Windows Memory Diagnostic scheduling, and PnP problem sweep, aggregated into per-component health verdicts with tray alerts and a support-bundle ZIP export (`src/Diagnostics/`, `/diagnostics/*` routes).
 - **Panel runtimes** - pair + serve the React panel UIs for the HYTE Y70/Y80 secondary touch panel, mobile companion (`/panel/phone`), and Q-Series on-device screens.
+- **Streamed panels** - panels rendered off-screen by the overlay's stream engine and piped as H.264 to USB display devices through swappable transports (`src/Panel/Streams/`, `/panel/streams/*` routes); the ArtInChip D213 reference transport is DEV_TOOLS-only.
 - **Apps / widgets** - host for the `nexus.app/1` SDK apps shipped in [`nexus-apps`](https://github.com/hello-nexus/nexus-apps), with sensor bindings and a sandboxed Web Worker runtime. Legacy `nexus.widget/2` manifests still load.
 - **Activity** - screen-time, app detection, Steam / Discord / OBS integrations, shortcuts.
 - **Remote access** - relay client so the phone panel keeps working away from the LAN (nearest regional relay picked via the cloud API), with an opportunistic WebRTC DataChannel direct P2P upgrade (STUN only, signaled over the existing relay tunnel via `POST /rtc/offer`) so a relayed session stops paying relay hop latency once a direct path exists.
@@ -64,7 +65,7 @@ src/
   Cooling/  QSeries/  # fan/pump drivers
   Lighting/           # OpenRGB bridge, HYTE protocols, effects, screen+audio sync
   Peripherals/        # mouse/keyboard + USB hub drivers (Lian Li Uni/AIO/Strimer); Tryx/ = Panorama AIO screen (serial + ADB)
-  Panel/              # /panel/* pairing + token endpoints
+  Panel/              # /panel/* pairing + token endpoints; Streams/ = streamed-panel sessions + H.264 ingest + device transports
   Widgets/            # nexus.app/1 app host (manifest loader, data sources, worker sandbox)
   Activity/           # screentime, app detection
   Discord/ Steam/ Obs/# third-party integrations

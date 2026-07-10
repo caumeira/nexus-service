@@ -64,6 +64,9 @@ public sealed class AdbStreamTransport : IStreamedPanelTransport
         }
 
         EnsureBlobOnDevice(localBlobPath, remoteBlobPath);
+        // adb push never sets the execute bit; without this the player exec
+        // fails "Permission denied" and the fifo has no reader.
+        RunAdbShell($"chmod 755 {remoteBlobPath}");
         _remotePlayerPath = remoteBlobPath;
 
         KillStalePlayers();
@@ -104,6 +107,25 @@ public sealed class AdbStreamTransport : IStreamedPanelTransport
         _ = process.StandardOutput.ReadToEndAsync();
         _ = process.StandardError.ReadToEndAsync();
 
+        // The adb shell spawn cannot report an on-device exec failure (exit
+        // text is drained, not parsed), and a dead player means the fifo has
+        // no reader and every write stalls. pidof is the only observable
+        // player-alive signal over adb; poll it briefly.
+        var playerName = _remotePlayerPath[(_remotePlayerPath.LastIndexOf('/') + 1)..];
+        var alive = false;
+        for (var attempt = 0; attempt < 5 && !alive; attempt++)
+        {
+            System.Threading.Thread.Sleep(200);
+            var (ok, stdout, _) = RunAdbShell($"pidof {playerName}");
+            alive = ok && stdout.Trim().Length > 0;
+        }
+        if (!alive)
+        {
+            try { process.Kill(true); } catch { }
+            _playerProcess = null;
+            throw new InvalidOperationException($"D213 player {playerName} did not start (no pid on device)");
+        }
+
         ServiceLog.Info($"[d213] {Serial}: player started ({_remotePlayerPath})");
     }
 
@@ -125,6 +147,7 @@ public sealed class AdbStreamTransport : IStreamedPanelTransport
         _streamSocket = null;
 
         try { _playerProcess?.Kill(true); } catch { }
+        try { _playerProcess?.Dispose(); } catch { }
         _playerProcess = null;
 
         KillRemotePlayerBestEffort();
@@ -312,6 +335,10 @@ public sealed class AdbStreamTransport : IStreamedPanelTransport
         {
             socket.Connect(IPAddress.Loopback, AdbServerPort);
             socket.SendTimeout = 2000;
+            // Bounds the OKAY/READY handshake reads; an unbounded Receive here
+            // hangs the coordinator tick thread for every device when the
+            // device shell stalls mid-handshake.
+            socket.ReceiveTimeout = 5000;
 
             SendServiceRequest(socket, $"host:transport:{Serial}");
             SendServiceRequest(socket, $"shell:stty raw -echo; echo READY; cat > {FifoPath}");
