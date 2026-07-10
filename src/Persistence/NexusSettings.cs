@@ -43,6 +43,7 @@ public sealed class NexusSettings
     public DiscordSettings Discord { get; set; } = new();
     public HomeAssistantSettings HomeAssistant { get; set; } = new();
     public TelemetrySettings Telemetry { get; set; } = new();
+    public DiagnosticsSettings Diagnostics { get; set; } = new();
     /// <summary>Registered panel devices keyed by opaque deviceId. Each record carries the per-device layout + theme overrides + capabilities. NOT profile-scoped: device identity is hardware-level and survives profile switches.</summary>
     public Dictionary<string, Nexus.Service.Models.Panel.PanelDeviceRecord> PanelDevices { get; set; } = new();
 

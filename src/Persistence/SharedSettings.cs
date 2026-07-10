@@ -128,6 +128,7 @@ public sealed class Preferences
     public UiSettings Ui { get; set; } = new();
     public UnitsSettings Units { get; set; } = new();
     public UpdatePrefs Update { get; set; } = new();
+    public DiagnosticsSettings Diagnostics { get; set; } = new();
 }
 
 public sealed class CoolingPrefs
@@ -137,6 +138,95 @@ public sealed class CoolingPrefs
     public string? PreferredGpuTempSensorId { get; set; }
     /// <summary>Primary GPU (by model name) for monitoring/sensor display. null = auto.</summary>
     public string? PreferredGpuId { get; set; }
+}
+
+/// <summary>Per-kind temperature ceiling in Celsius. Defaults match the values
+/// <see cref="Nexus.Service.Diagnostics.Temperature.TemperatureInsights"/> used
+/// as hardcoded constants before this setting existed.</summary>
+public sealed class DiagnosticsThresholds
+{
+    public double CpuC { get; set; } = 90;
+    public double GpuC { get; set; } = 85;
+    public double StorageC { get; set; } = 70;
+    public double RamC { get; set; } = 60;
+}
+
+public sealed class DiagnosticsThresholdsPatch
+{
+    public double? CpuC { get; set; }
+    public double? GpuC { get; set; }
+    public double? StorageC { get; set; }
+    public double? RamC { get; set; }
+}
+
+/// <summary>Master + per-category native-notification toggles for diagnostics
+/// alerts, plus the minimum gap between repeat alerts for the same
+/// component. Every toggle defaults off; DiagnosticsAlertService only raises
+/// a native notification when Enabled and the reason's own category are
+/// both true.</summary>
+public sealed class DiagnosticsNotifications
+{
+    public bool Enabled { get; set; }
+    public bool HighTemp { get; set; }
+    public bool StorageHealth { get; set; }
+    public bool Cooling { get; set; }
+    public bool MemoryTest { get; set; }
+    public bool SystemDevices { get; set; }
+    public bool GpuThrottle { get; set; }
+    public int CooldownMinutes { get; set; } = 60;
+}
+
+public sealed class DiagnosticsNotificationsPatch
+{
+    public bool? Enabled { get; set; }
+    public bool? HighTemp { get; set; }
+    public bool? StorageHealth { get; set; }
+    public bool? Cooling { get; set; }
+    public bool? MemoryTest { get; set; }
+    public bool? SystemDevices { get; set; }
+    public bool? GpuThrottle { get; set; }
+    public int? CooldownMinutes { get; set; }
+}
+
+/// <summary>Per-area enable flag for diagnostics health status + alerts. A
+/// disabled area is excluded from GET /diagnostics/health aggregation and
+/// never produces a notification.</summary>
+public sealed class DiagnosticsComponents
+{
+    public bool Cpu { get; set; } = true;
+    public bool Gpu { get; set; } = true;
+    public bool Storage { get; set; } = true;
+    public bool Ram { get; set; } = true;
+    public bool Cooling { get; set; } = true;
+    public bool System { get; set; } = true;
+}
+
+public sealed class DiagnosticsComponentsPatch
+{
+    public bool? Cpu { get; set; }
+    public bool? Gpu { get; set; }
+    public bool? Storage { get; set; }
+    public bool? Ram { get; set; }
+    public bool? Cooling { get; set; }
+    public bool? System { get; set; }
+}
+
+public sealed class DiagnosticsSettings
+{
+    public DiagnosticsThresholds Thresholds { get; set; } = new();
+    /// <summary>Minutes an over-threshold warning is kept after the component
+    /// last measured hot. 0 = clears as soon as the latest sample cools.</summary>
+    public int WarningLingerMinutes { get; set; }
+    public DiagnosticsNotifications Notifications { get; set; } = new();
+    public DiagnosticsComponents Components { get; set; } = new();
+}
+
+public sealed class DiagnosticsSettingsPatch
+{
+    public DiagnosticsThresholdsPatch? Thresholds { get; set; }
+    public int? WarningLingerMinutes { get; set; }
+    public DiagnosticsNotificationsPatch? Notifications { get; set; }
+    public DiagnosticsComponentsPatch? Components { get; set; }
 }
 
 // PATCH wrappers. POST /preferences accepts PreferencesPatch with optional
@@ -153,6 +243,7 @@ public sealed class PreferencesPatch
     public UiSettingsPatch? Ui { get; set; }
     public UnitsSettingsPatch? Units { get; set; }
     public UpdatePrefsPatch? Update { get; set; }
+    public DiagnosticsSettingsPatch? Diagnostics { get; set; }
 }
 
 public sealed class ThemeSettingsPatch
