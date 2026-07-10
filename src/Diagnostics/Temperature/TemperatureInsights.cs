@@ -22,10 +22,10 @@ public sealed record TemperatureEpisode(
 /// </summary>
 public static class TemperatureInsights
 {
-    private const double CpuThresholdC = 90;
-    private const double GpuThresholdC = 85;
-    private const double StorageThresholdC = 70;
-    private const double RamThresholdC = 60;
+    public const double CpuThresholdC = 90;
+    public const double GpuThresholdC = 85;
+    public const double StorageThresholdC = 70;
+    public const double RamThresholdC = 60;
 
     // A single above-threshold bucket can be a noisy sample, not sustained
     // heat; requiring more than one in a row filters that out.

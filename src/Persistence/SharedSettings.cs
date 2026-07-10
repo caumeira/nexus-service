@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Nexus.Service.Diagnostics.Temperature;
 using Nexus.Service.Models.Panel;
 
 namespace Nexus.Service.Persistence;
@@ -140,15 +141,15 @@ public sealed class CoolingPrefs
     public string? PreferredGpuId { get; set; }
 }
 
-/// <summary>Per-kind temperature ceiling in Celsius. Defaults match the values
-/// <see cref="Nexus.Service.Diagnostics.Temperature.TemperatureInsights"/> used
-/// as hardcoded constants before this setting existed.</summary>
+/// <summary>Per-kind temperature ceiling in Celsius. Defaults come from
+/// <see cref="TemperatureInsights"/>'s threshold constants, the same values the
+/// graph-history episode shading uses; keep them the single source.</summary>
 public sealed class DiagnosticsThresholds
 {
-    public double CpuC { get; set; } = 90;
-    public double GpuC { get; set; } = 85;
-    public double StorageC { get; set; } = 70;
-    public double RamC { get; set; } = 60;
+    public double CpuC { get; set; } = TemperatureInsights.CpuThresholdC;
+    public double GpuC { get; set; } = TemperatureInsights.GpuThresholdC;
+    public double StorageC { get; set; } = TemperatureInsights.StorageThresholdC;
+    public double RamC { get; set; } = TemperatureInsights.RamThresholdC;
 }
 
 public sealed class DiagnosticsThresholdsPatch
