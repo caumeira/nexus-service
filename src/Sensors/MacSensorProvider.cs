@@ -540,64 +540,6 @@ public sealed class MacSensorProvider : ISensorProvider
         return _memTotalBytes;
     }
 
-    private record DfEntry(string Filesystem, string Mount, double TotalGb, double UsedGb, double AvailGb, double UsePct);
-
-    private List<DfEntry> ParseDf()
-    {
-        var output = ShellOut("/bin/df", "-k");
-        var entries = new List<DfEntry>();
-        foreach (var line in output.Split('\n').Skip(1)) // skip header
-        {
-            var parts = Regex.Split(line.Trim(), @"\s+");
-            if (parts.Length < 6)
-            {
-                continue;
-            }
-
-            var fs = parts[0];
-            // Skip pseudo-filesystems
-            if (fs.StartsWith("devfs") || fs.StartsWith("map ") || fs == "none")
-            {
-                continue;
-            }
-
-            if (!long.TryParse(parts[1], out var totalK))
-            {
-                continue;
-            }
-
-            if (!long.TryParse(parts[2], out var usedK))
-            {
-                continue;
-            }
-
-            if (!long.TryParse(parts[3], out var availK))
-            {
-                continue;
-            }
-
-            var mount = parts[^1]; // last column
-            // Skip system snapshots and tiny mounts
-            if (mount.StartsWith("/System/Volumes/") && mount != "/System/Volumes/Data")
-            {
-                continue;
-            }
-
-            if (totalK < 1024 * 1024)
-            {
-                continue; // skip < 1GB
-            }
-
-            var totalGb = totalK / 1024.0 / 1024.0;
-            var usedGb = usedK / 1024.0 / 1024.0;
-            var availGb = availK / 1024.0 / 1024.0;
-            var usePct = totalK > 0 ? usedK * 100.0 / totalK : 0;
-
-            entries.Add(new DfEntry(fs, mount, totalGb, usedGb, availGb, usePct));
-        }
-        return entries;
-    }
-
     private static string FormatGb(double gb) => gb >= 1000 ? $"{gb / 1024.0:F2} TB" : $"{gb:F2} GB";
 
     private static string ShellOut(string fileName, params string[] args)

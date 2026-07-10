@@ -24,14 +24,15 @@ public sealed class GpuContext : IDisposable
     private readonly object _lock = new();
     private readonly int _width;
     private readonly int _height;
-    // Windows path: GLFW hidden window owns the context.
-    private IWindow? _window;
 #if MACOS
     // macOS path: CGL context pointer, no window.
     private IntPtr _cglCtx;
 #elif LINUX
     // Linux path: headless EGL device context, no window (works under the root daemon).
     private bool _eglUsed;
+#else
+    // Windows path: GLFW hidden window owns the context.
+    private IWindow? _window;
 #endif
     private GL? _gl;
     private uint _fbo;
@@ -302,15 +303,6 @@ public sealed class GpuContext : IDisposable
         Log($"[gpu] OpenGL context ready ({_width}x{_height})");
     }
 
-    private void TeardownOnFailure()
-    {
-        try
-        { _window?.Dispose(); }
-        catch { }
-        _window = null;
-        _gl = null;
-    }
-
     public void Dispose()
     {
         lock (_lock)
@@ -330,9 +322,6 @@ public sealed class GpuContext : IDisposable
         // tear it down once the thread has joined; a leaked context at process
         // exit is harmless.
         var joined = _glThread?.Join(TimeSpan.FromSeconds(2)) ?? true;
-        try
-        { _window?.Dispose(); }
-        catch { }
 #if MACOS
         if (joined && _cglCtx != IntPtr.Zero)
         {
@@ -345,6 +334,10 @@ public sealed class GpuContext : IDisposable
             LinuxEglContext.Destroy();
             _eglUsed = false;
         }
+#else
+        try
+        { _window?.Dispose(); }
+        catch { }
 #endif
         // Dispose the per-thread MREs we created along the way.
         if (_invokeDone.Values is { } values)
