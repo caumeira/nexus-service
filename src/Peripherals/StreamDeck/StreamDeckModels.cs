@@ -90,6 +90,24 @@ public sealed class StreamDeckModel
     public int RemapKeyIndex(int index) =>
         KeyIndexRightToLeft ? StreamDeckModels.FlipWithinRow(index, Columns) : index;
 
+    /// <summary>Standard BITMAPFILEHEADER+BITMAPINFOHEADER size (matches StreamDeckProtocol.BuildBlankBmp).</summary>
+    private const int BmpHeaderLength = 54;
+
+    /// <summary>
+    /// Whether a byte length is a plausible wire image for this model: for
+    /// BMP, the exact uncompressed 24bpp size (an odd/wrong length would make
+    /// BuildImagePages' HalvedImagePayload halving split unevenly, and any
+    /// oversized upload risks the gen1 page-number byte wrapping past 255);
+    /// for JPEG, any non-empty payload (compressed size is inherently
+    /// variable; the route's own upload byte cap is the only bound needed).
+    /// </summary>
+    public bool IsValidWireImageLength(int length) => ImageFormat switch
+    {
+        StreamDeckImageFormat.Bmp => length == BmpHeaderLength + KeyPixelSize * KeyPixelSize * 3,
+        StreamDeckImageFormat.Jpeg => length > 0,
+        _ => false,
+    };
+
     /// <summary>
     /// The /streamdeck/decks DTO's wire transform (nexus-web's
     /// deckKeyTransform.ts DeckKeyTransform: "none" | "flipBoth" |

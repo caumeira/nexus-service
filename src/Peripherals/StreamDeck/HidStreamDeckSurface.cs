@@ -121,7 +121,8 @@ public sealed class HidStreamDeckSurface : IStreamDeckSurface
         lock (_io)
         {
             if (_device is null || Model.ImageFormat == StreamDeckImageFormat.None
-                || keyIndex < 0 || keyIndex >= Model.KeyCount)
+                || keyIndex < 0 || keyIndex >= Model.KeyCount
+                || !Model.IsValidWireImageLength(wireBytes.Length))
             {
                 return false;
             }

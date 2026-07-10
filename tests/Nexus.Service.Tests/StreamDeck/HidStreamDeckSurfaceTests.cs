@@ -90,6 +90,10 @@ public class HidStreamDeckSurfaceTests
         return (dev, surface);
     }
 
+    /// <summary>An exact-length, arbitrary-content BMP wire image for a BMP model, matching StreamDeckModel.IsValidWireImageLength.</summary>
+    private static byte[] BmpImage(StreamDeckModel model) =>
+        Enumerable.Range(0, 54 + model.KeyPixelSize * model.KeyPixelSize * 3).Select(i => (byte)(i % 256)).ToArray();
+
     [Fact]
     public void Connect_PopulatesSerialFromHidDeviceInfo()
     {
@@ -144,7 +148,7 @@ public class HidStreamDeckSurfaceTests
     public void SetKeyImage_Mini_PushesPagesMatchingProtocolBuilder()
     {
         var (dev, surface) = Connect(Mini);
-        var image = Enumerable.Range(0, 2000).Select(i => (byte)(i % 256)).ToArray();
+        var image = BmpImage(Mini);
 
         Assert.True(surface.SetKeyImage(2, image));
 
@@ -161,7 +165,7 @@ public class HidStreamDeckSurfaceTests
     {
         var (dev, surface) = Connect(Original);
 
-        Assert.True(surface.SetKeyImage(0, new byte[] { 1, 2, 3, 4 }));
+        Assert.True(surface.SetKeyImage(0, BmpImage(Original)));
 
         // Canonical key 0 (row 0 leftmost) maps to raw hardware index 4
         // (row 0 rightmost) for the Original, so the wire byte is 4+1=5.

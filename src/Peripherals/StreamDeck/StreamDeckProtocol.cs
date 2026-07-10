@@ -202,8 +202,10 @@ public static class StreamDeckProtocol
     /// </summary>
     public static List<byte[]> BuildImagePages(ReadOnlySpan<byte> wireBytes, int rawKeyIndex, StreamDeckModel model)
     {
+        // Ceiling division so an odd wireBytes.Length still splits into
+        // exactly 2 pages (a plain / 2 would leave 1 byte for a 3rd page).
         var payloadLength = model.HalvedImagePayload
-            ? wireBytes.Length / 2
+            ? (wireBytes.Length + 1) / 2
             : model.ImageReportLength - PageHeaderLength;
 
         var pages = new List<byte[]>();
