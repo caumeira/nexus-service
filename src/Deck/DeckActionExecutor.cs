@@ -140,7 +140,7 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
                 DispatchHotkey(action.Keys ?? "");
                 return DispatchOutcome.Ok;
             case "text":
-                _system.SendText(action.Text ?? "");
+                await _system.SendTextAsync(action.Text ?? "").ConfigureAwait(false);
                 return DispatchOutcome.Ok;
             case "power":
                 DispatchPower(action.PowerAction);

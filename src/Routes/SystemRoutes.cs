@@ -70,7 +70,7 @@ public static class SystemRoutes
             actions.SendKeys(body)).AllowPanel();
 
         app.MapPost("/system/input/text", (SendTextBody body, Nexus.Service.Actions.SystemActions actions) =>
-            actions.SendText(body.Text ?? "")).AllowPanel();
+            actions.SendTextAsync(body.Text ?? "")).AllowPanel();
 
         // ── Open URL / file / folder / OS settings / task manager (deck launch actions) ──
         app.MapPost("/system/open-settings", (Nexus.Service.Actions.SystemActions actions) =>

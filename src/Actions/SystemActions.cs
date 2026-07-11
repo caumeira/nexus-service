@@ -60,14 +60,36 @@ public sealed class SystemActions
     /// <summary>
     /// Clipboard-set then paste - the only Unicode-reliable cross-platform
     /// path. Clobbers the clipboard (restore deferred). Always pastes; there
-    /// is no non-paste path (mirrors the pre-extraction route exactly).
+    /// is no non-paste path. On Windows, a connected user-session helper does
+    /// both steps itself: the service runs LocalSystem in Session 0, where a
+    /// direct clipboard set lands on an invisible clipboard and SendInput has
+    /// no interactive desktop to inject into, so both silently no-op without
+    /// the helper. macOS/Linux and an interactive (non-service) Windows run
+    /// use the local providers directly, since they already execute in the
+    /// user's own session.
     /// </summary>
-    public ApiResponse SendText(string text)
+    public async Task<ApiResponse> SendTextAsync(string text)
     {
         if (text.Length == 0)
         {
             return ApiResponse.Fail("text required");
         }
+#if WINDOWS
+        if (OperatingSystem.IsWindows())
+        {
+            var registry = _sp.GetService<Nexus.Service.Helper.HelperRegistry>();
+            if (registry?.GetAny() is not null)
+            {
+                var ok = await Nexus.Service.Helper.Domains.ClipboardCommands
+                    .SetTextAndPasteAsync(registry, text).ConfigureAwait(false);
+                return ok ? ApiResponse.Ok() : ApiResponse.Fail("paste failed");
+            }
+            if (!Environment.UserInteractive)
+            {
+                return ApiResponse.Fail("no interactive user session");
+            }
+        }
+#endif
         if (!_clipboard.SetText(text))
         {
             return ApiResponse.Fail("clipboard unavailable");
