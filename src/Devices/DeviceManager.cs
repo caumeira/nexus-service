@@ -49,6 +49,7 @@ public sealed class DeviceManager
             SupportsNexusControl = firstParty.Contains(h),
             NexusControlEnabled = _gate.IsEnabled(h.Id),
             Warning = h.GetWarning(usbDevices),
+            ConflictAppId = DeviceControlPolicy.ConflictAppFor(h.Id),
         }).ToList();
     }
 

@@ -1,14 +1,11 @@
 using System;
-using System.Runtime.Versioning;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Cooling;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting;
-using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
-using Nexus.Service.Platform.Windows;
 
 namespace Nexus.Service.Peripherals.LianLiWireless;
 
@@ -27,16 +24,14 @@ public sealed class Slv3ConnectionWorker : BackgroundService
     private readonly Slv3Hub _hub;
     private readonly Slv3LightingDeviceProvider _lighting;
     private readonly Slv3CoolingProvider _cooling;
-    private readonly IConfigStore _store;
     private readonly DeviceControlGate _gate;
 
     public Slv3ConnectionWorker(
-        Slv3Hub hub, Slv3LightingDeviceProvider lighting, Slv3CoolingProvider cooling, IConfigStore store, DeviceControlGate gate)
+        Slv3Hub hub, Slv3LightingDeviceProvider lighting, Slv3CoolingProvider cooling, DeviceControlGate gate)
     {
         _hub = hub;
         _lighting = lighting;
         _cooling = cooling;
-        _store = store;
         _gate = gate;
     }
 
@@ -50,17 +45,6 @@ public sealed class Slv3ConnectionWorker : BackgroundService
                 {
                     await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
                     continue;
-                }
-
-                // WinUSB is exclusive-open: L-Connect must release the dongles before
-                // EnsureConnected opens them, so stop it once they are present but before
-                // the open (unlike the wired HID hub, which can open alongside L-Connect).
-                if (OperatingSystem.IsWindows()
-                    && _store.Load().Devices.LianLiWireless.StopConflictingApps
-                    && _hub.DonglesPresent())
-                {
-                    // Watcher stopped first so it cannot restart the main service.
-                    StopLConnectServices();
                 }
 
                 if (_hub.EnsureConnected())
@@ -116,25 +100,6 @@ public sealed class Slv3ConnectionWorker : BackgroundService
                 ServiceLog.Error($"[lianli-wireless] worker error: {ex.Message}");
                 await Task.Delay(ConnectPollMs, stoppingToken).ConfigureAwait(false);
             }
-        }
-    }
-
-    [SupportedOSPlatform("windows")]
-    private static void StopLConnectServices()
-    {
-        var watcherResult = WindowsServiceController.StopService("LConnectServiceWatcher");
-        var mainResult = WindowsServiceController.StopService("LConnectService");
-        if (watcherResult == ServiceStopResult.NotFound && mainResult == ServiceStopResult.NotFound)
-        {
-            return;
-        }
-        if (watcherResult == ServiceStopResult.Failed || mainResult == ServiceStopResult.Failed)
-        {
-            ServiceLog.Warn($"[lianli-wireless] L-Connect stop: watcher={watcherResult} main={mainResult}");
-        }
-        else
-        {
-            ServiceLog.Info("[lianli-wireless] stopped LConnectServiceWatcher and LConnectService");
         }
     }
 }

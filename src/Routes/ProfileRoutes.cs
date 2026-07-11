@@ -72,6 +72,7 @@ public static class ProfileRoutes
                         UpdateChannel = s.Update.UpdateChannel,
                         LastDismissedUpdateVersion = s.Update.LastDismissedUpdateVersion,
                     },
+                    Diagnostics = s.Diagnostics,
                 };
                 // Profile switches swap the entire prefs block - everyone refetches via the broadcast.
                 PanelTopics.BroadcastPrefs(hub);
@@ -201,6 +202,7 @@ public static class ProfileRoutes
                     UpdateChannel = s.Update.UpdateChannel,
                     LastDismissedUpdateVersion = s.Update.LastDismissedUpdateVersion,
                 },
+                Diagnostics = s.Diagnostics,
             };
         }).AllowPanel();
 
@@ -469,6 +471,39 @@ public static class ProfileRoutes
                     if (update.UpdateMode is "notify" or "download" or "always") s.Update.UpdateMode = update.UpdateMode;
                     if (update.UpdateChannel is not null) s.Update.UpdateChannel = update.UpdateChannel;
                     if (update.LastDismissedUpdateVersion is not null) s.Update.LastDismissedUpdateVersion = update.LastDismissedUpdateVersion;
+                }
+                if (body.Diagnostics is { } diagnostics)
+                {
+                    if (diagnostics.Thresholds is { } thresholds)
+                    {
+                        if (thresholds.CpuC.HasValue)     s.Diagnostics.Thresholds.CpuC     = thresholds.CpuC.Value;
+                        if (thresholds.GpuC.HasValue)     s.Diagnostics.Thresholds.GpuC     = thresholds.GpuC.Value;
+                        if (thresholds.StorageC.HasValue) s.Diagnostics.Thresholds.StorageC = thresholds.StorageC.Value;
+                        if (thresholds.RamC.HasValue)     s.Diagnostics.Thresholds.RamC     = thresholds.RamC.Value;
+                    }
+                    if (diagnostics.WarningLingerMinutes.HasValue)
+                        s.Diagnostics.WarningLingerMinutes = Math.Max(0, diagnostics.WarningLingerMinutes.Value);
+                    if (diagnostics.Notifications is { } notifications)
+                    {
+                        if (notifications.Enabled.HasValue)        s.Diagnostics.Notifications.Enabled        = notifications.Enabled.Value;
+                        if (notifications.HighTemp.HasValue)       s.Diagnostics.Notifications.HighTemp       = notifications.HighTemp.Value;
+                        if (notifications.StorageHealth.HasValue)  s.Diagnostics.Notifications.StorageHealth  = notifications.StorageHealth.Value;
+                        if (notifications.Cooling.HasValue)        s.Diagnostics.Notifications.Cooling        = notifications.Cooling.Value;
+                        if (notifications.MemoryTest.HasValue)     s.Diagnostics.Notifications.MemoryTest     = notifications.MemoryTest.Value;
+                        if (notifications.SystemDevices.HasValue)  s.Diagnostics.Notifications.SystemDevices  = notifications.SystemDevices.Value;
+                        if (notifications.GpuThrottle.HasValue)    s.Diagnostics.Notifications.GpuThrottle    = notifications.GpuThrottle.Value;
+                        if (notifications.CooldownMinutes.HasValue)
+                            s.Diagnostics.Notifications.CooldownMinutes = Math.Max(0, notifications.CooldownMinutes.Value);
+                    }
+                    if (diagnostics.Components is { } components)
+                    {
+                        if (components.Cpu.HasValue)     s.Diagnostics.Components.Cpu     = components.Cpu.Value;
+                        if (components.Gpu.HasValue)     s.Diagnostics.Components.Gpu     = components.Gpu.Value;
+                        if (components.Storage.HasValue) s.Diagnostics.Components.Storage = components.Storage.Value;
+                        if (components.Ram.HasValue)     s.Diagnostics.Components.Ram     = components.Ram.Value;
+                        if (components.Cooling.HasValue) s.Diagnostics.Components.Cooling = components.Cooling.Value;
+                        if (components.System.HasValue)  s.Diagnostics.Components.System  = components.System.Value;
+                    }
                 }
             });
             pm.MarkDirty();

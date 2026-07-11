@@ -357,6 +357,11 @@ public sealed class AdbStreamTransport : IStreamedPanelTransport
         try
         {
             socket.Connect(IPAddress.Loopback, AdbServerPort);
+            // The stream is one-directional small paced writes; with Nagle
+            // on, a sub-MSS tail can sit out the peer's delayed-ACK timer
+            // (200ms on Windows) and then flush as a burst, which a
+            // render-on-arrival player shows as a visible time snap.
+            socket.NoDelay = true;
             socket.SendTimeout = 2000;
             // Bounds the OKAY/READY handshake reads; an unbounded Receive here
             // hangs the coordinator tick thread for every device when the

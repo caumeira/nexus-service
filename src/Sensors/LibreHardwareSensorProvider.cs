@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Nexus.Service.Models.Sensors;
+using Nexus.Service.Sensors.Astral;
 using LibreHardwareMonitor.Hardware;
 
 namespace Nexus.Service.Sensors;
@@ -24,6 +25,7 @@ namespace Nexus.Service.Sensors;
 public sealed class LibreHardwareSensorProvider : ISensorProvider
 {
     private readonly LhmComputer _lhm;
+    private readonly AstralGpuSupplement _astral = new(new AstralNvApiClient());
     private string? _ramBrandModel;
     private string? _storageBrandModel;
 
@@ -87,9 +89,20 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
     {
         _lhm.Update(TimeSpan.FromMilliseconds(100));
         var result = new List<GpuReadout>();
+        // DXGI adapter descriptions are never Astral/AIB-enriched, so LUID
+        // matching below needs each GPU's raw LHM name alongside the
+        // (possibly renamed) display name, keyed by the untouched Id.
+        var rawNames = new Dictionary<string, string>();
         foreach (var hw in FindHardware(HardwareType.GpuNvidia, HardwareType.GpuAmd, HardwareType.GpuIntel))
         {
             var mapped = MapSensors(hw);
+            var displayName = hw.Name;
+            if (hw.HardwareType == HardwareType.GpuNvidia)
+            {
+                var hwIdentifier = hw.Identifier.ToString();
+                _astral.AppendSensors(hwIdentifier, hwIdentifier, hw.Name, mapped);
+                displayName = _astral.EnrichName(hwIdentifier, hw.Name);
+            }
             // VRAM total comes from the GPU's "GPU Memory Total" sensor; reuse it
             // as the ceiling for "GPU Memory Used" / "Free" so the client can
             // draw a proportional gauge without juggling sibling lookups.
@@ -109,16 +122,18 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
                 }
             }
             var (vendor, integrated) = ClassifyGpu(hw.HardwareType, hw.Name, vramTotalMb);
+            var id = hw.Identifier.ToString();
+            rawNames[id] = hw.Name;
             result.Add(new GpuReadout
             {
-                Id = hw.Identifier.ToString(),
-                Name = hw.Name,
+                Id = id,
+                Name = displayName,
                 Vendor = vendor,
                 Integrated = integrated,
                 Sensors = mapped,
             });
         }
-        AttachAdapterLuids(result);
+        AttachAdapterLuids(result, rawNames);
         return result;
     }
 
@@ -126,15 +141,18 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
     // per-process GPU counters (whose PDH instances carry a luid tag) to the
     // picked GPU. Exact model-name match first, then vendor + discrete/integrated
     // class for any leftover; unmatched GPUs keep AdapterLuid="" (combined view).
-    private static void AttachAdapterLuids(List<GpuReadout> gpus)
+    // The exact match compares each GPU's raw LHM name (rawNames), not its
+    // possibly Astral/AIB-enriched display name, against DXGI's description.
+    private static void AttachAdapterLuids(List<GpuReadout> gpus, IReadOnlyDictionary<string, string> rawNames)
     {
         var adapters = GpuAdapterLuids.Enumerate();
         if (adapters.Count == 0) return;
         var used = new HashSet<string>();
         foreach (var g in gpus)
         {
+            var rawName = rawNames.TryGetValue(g.Id, out var n) ? n : g.Name;
             var a = adapters.FirstOrDefault(x => !used.Contains(x.Luid)
-                && string.Equals(x.Description.Trim(), g.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+                && string.Equals(x.Description.Trim(), rawName.Trim(), StringComparison.OrdinalIgnoreCase));
             if (a.Luid is { Length: > 0 }) { g.AdapterLuid = a.Luid; used.Add(a.Luid); }
         }
         foreach (var g in gpus)
@@ -546,6 +564,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
         SensorType.Throughput => "B/s",
         SensorType.Energy => "mWh",
         SensorType.Noise => "dBA",
+        SensorType.TimeSpan => "s",
         _ => "",
     };
 
@@ -560,9 +579,36 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
         SensorType.Power => $"{value:F1} W",
         SensorType.Data => $"{value:F2} GB",
         SensorType.SmallData => $"{value:F0} MB",
-        SensorType.Throughput => $"{value:F0} B/s",
+        SensorType.Energy => $"{value:F0} mWh",
+        SensorType.Throughput => FormatThroughput(value),
+        SensorType.TimeSpan => FormatTimeSpan(value),
         _ => $"{value:F1}",
     };
+
+    private static string FormatThroughput(float bytesPerSec)
+    {
+        if (bytesPerSec <= 0)
+            return "0 B/s";
+        if (bytesPerSec >= 1024 * 1024 * 1024)
+            return $"{bytesPerSec / 1024.0 / 1024.0 / 1024.0:F2} GB/s";
+        if (bytesPerSec >= 1024 * 1024)
+            return $"{bytesPerSec / 1024.0 / 1024.0:F2} MB/s";
+        if (bytesPerSec >= 1024)
+            return $"{bytesPerSec / 1024.0:F1} KB/s";
+        return $"{bytesPerSec:F0} B/s";
+    }
+
+    // LHM reports Battery "Remaining Time" and PSU "Uptime"/"Total uptime" in seconds.
+    private static string FormatTimeSpan(float seconds)
+    {
+        if (seconds <= 0)
+            return "0";
+        if (seconds < 3600)
+            return $"{seconds / 60:F0}m";
+        if (seconds < 86400)
+            return $"{seconds / 3600:F1}h";
+        return $"{seconds / 86400:F1}d";
+    }
 
     private static string FormatGb(double gb) => gb >= 1000 ? $"{gb / 1024.0:F2} TB" : $"{gb:F2} GB";
 

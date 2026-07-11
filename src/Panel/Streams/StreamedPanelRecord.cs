@@ -15,4 +15,5 @@ public sealed class StreamedPanelRecord
 
     public int? Fps { get; set; }
     public int? BitrateKbps { get; set; }
+    public int? WriteBatchFrames { get; set; }
 }

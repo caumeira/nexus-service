@@ -1,3 +1,4 @@
+using System;
 using Nexus.Service.Models.Panel;
 
 namespace Nexus.Service.Panel.Streams;
@@ -24,6 +25,24 @@ public sealed class StreamedPanelProfile
     public double Dpr { get; init; } = 1.0;
     public int Fps { get; init; } = 60;
     public int BitrateKbps { get; init; } = 8000;
+
+    public const int MaxWriteBatchFrames = 8;
+
+    /// <summary>
+    /// Frames concatenated into one transport write. The paced writer ticks
+    /// at Fps/batch and sends the batch as a single write, so a transport
+    /// whose throughput is bounded per round trip (one ack per write, as on
+    /// the D213's adb chain) carries batch-times more frames per second. A
+    /// display-rate-bound device gains nothing: excess frames congest the
+    /// chain and the queue trims. Above 1 the device shows frames in bursts
+    /// of this size, so keep it at 1 unless the transport is the ceiling.
+    /// Consumers read <see cref="EffectiveWriteBatchFrames"/>: the writer's
+    /// tick interval and the pacing policy's send size must agree on one
+    /// clamped value.
+    /// </summary>
+    public int WriteBatchFrames { get; init; } = 1;
+
+    public int EffectiveWriteBatchFrames => Math.Clamp(WriteBatchFrames, 1, MaxWriteBatchFrames);
 
     public PanelDeviceCapabilities BuildCapabilities() => new()
     {

@@ -218,11 +218,11 @@ internal static class WindowsServiceInstaller
             try { CreateStartMenuShortcut(installedExe); }
             catch (Exception ex) { Log($"WARN Start Menu shortcut failed: {ex.Message}"); }
 
-            // Tray autostart (HKCU\Run\Nexus) is enabled by the user-session
-            // helper on first run, not here. An OTA reinstall runs the installer
+            // Tray autostart (HKCU\Run\Nexus) is synced by the user-session
+            // helper on each run, not here. An OTA reinstall runs the installer
             // as SYSTEM, so an install-time Registry.CurrentUser write lands in
             // SYSTEM's hive (S-1-5-18), never the user's. The helper writes it
-            // in user context instead - see WindowsStartupProvider.EnsureHelperAutostart.
+            // in user context instead - see WindowsStartupProvider.SyncHelperAutostart.
 
             // 8. Start the service.
             Log("starting NexusService");

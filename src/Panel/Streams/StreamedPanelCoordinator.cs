@@ -280,8 +280,11 @@ public sealed class StreamedPanelCoordinator : BackgroundService
             _bySerial[info.Serial] = ds;
             _bySessionId[session.SessionId] = ds;
         }
+        // The full effective profile, so a stale persisted override (an old
+        // fps/bitrate hand-tune in streamed-panels.json) is visible at a
+        // glance when a device misbehaves on supposedly-fixed defaults.
         ServiceLog.Info($"[streamed-panel] session started serial={info.Serial} session={session.SessionId} "
-            + $"panel={panelDeviceId} profile={info.Profile.Kind} {info.Profile.CssWidth}x{info.Profile.CssHeight}@{info.Profile.Fps}");
+            + $"panel={panelDeviceId} profile={info.Profile.Kind} {info.Profile.CssWidth}x{info.Profile.CssHeight}@{info.Profile.Fps} {info.Profile.BitrateKbps}kbps");
 
         TryReopenTransport(ds);
         return true;
@@ -409,7 +412,8 @@ public sealed class StreamedPanelCoordinator : BackgroundService
            && a.CssHeight == b.CssHeight
            && a.Dpr.Equals(b.Dpr)
            && a.Fps == b.Fps
-           && a.BitrateKbps == b.BitrateKbps;
+           && a.BitrateKbps == b.BitrateKbps
+           && a.WriteBatchFrames == b.WriteBatchFrames;
 
     private static string NewSessionId()
     {

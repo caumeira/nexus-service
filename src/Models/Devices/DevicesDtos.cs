@@ -19,6 +19,8 @@ public sealed class DeviceListItem
     public bool SupportsNexusControl { get; set; }
     /// <summary>Short code for a partial-detection issue (e.g. "usb-disconnected"), or null when there is nothing to flag.</summary>
     public string? Warning { get; set; }
+    /// <summary>ConflictAppCatalog id of the third-party app that competes with this device (e.g. "icue", "lian-li-l-connect"), or null when none maps. Drives the device page's "close the app first" gate.</summary>
+    public string? ConflictAppId { get; set; }
 }
 
 /// <summary>Body for POST /devices/control.</summary>

@@ -116,6 +116,15 @@ internal static class TrayBootstrap
             try { TrayIcon.ShowNoticeBalloon(notice.Title, notice.Text, notice.FolderPath); }
             catch { /* best-effort */ }
         };
+
+        // Diagnostics alerts: same generic notice balloon, gated by the
+        // user's notification settings inside DiagnosticsAlertService itself.
+        var diagAlerts = app.Services.GetRequiredService<Nexus.Service.Diagnostics.DiagnosticsAlertService>();
+        diagAlerts.AlertNeedsAttention += notice =>
+        {
+            try { TrayIcon.ShowNoticeBalloon(notice.Title, notice.Text, null); }
+            catch { /* best-effort */ }
+        };
     }
 
 #if WINDOWS
@@ -166,6 +175,14 @@ internal static class TrayBootstrap
         {
             try { _ = TrayCommands.NoticeAsync(helperRegistry, notice.Title, notice.Text, notice.FolderPath); }
             catch (Exception ex) { Console.Error.WriteLine($"[transfer-notify] show failed: {ex.Message}"); }
+        };
+
+        // Diagnostics alerts - pushed down the pipe, same as pairing/transfer.
+        var diagAlerts = app.Services.GetRequiredService<Nexus.Service.Diagnostics.DiagnosticsAlertService>();
+        diagAlerts.AlertNeedsAttention += notice =>
+        {
+            try { _ = TrayCommands.NoticeAsync(helperRegistry, notice.Title, notice.Text, null); }
+            catch (Exception ex) { Console.Error.WriteLine($"[diagnostics-notify] show failed: {ex.Message}"); }
         };
 
         // Push current state on every fresh helper connect: first bootstrap,

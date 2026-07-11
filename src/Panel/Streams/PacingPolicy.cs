@@ -14,10 +14,19 @@ public readonly record struct PacingDecision(int DropCount, int SendCount, bool 
 /// </summary>
 public static class PacingPolicy
 {
-    public const int CatchUpDepth = 6;
+    // Steady state holds a small pipeline-phase depth; anything above it is
+    // banked debt (a stall, a writer re-anchor) that must drain back to
+    // live, or it stands as permanent glass latency. Profiles produce below
+    // the device's consumption rate, so the occasional double-send has
+    // headroom to deliver.
+    public const int CatchUpDepth = 2;
 
-    public static PacingDecision Decide(int queueDepth, int framesUntilIdr, bool waitingForIdr)
+    /// <summary>batchFrames scales the whole decision: the writer ticks at
+    /// fps/batch and each tick's frames go out as one transport write, so a
+    /// steady tick sends one batch and catch-up sends two.</summary>
+    public static PacingDecision Decide(int queueDepth, int framesUntilIdr, bool waitingForIdr, int batchFrames = 1)
     {
+        var batch = Math.Max(1, batchFrames);
         if (waitingForIdr)
         {
             if (framesUntilIdr < 0)
@@ -26,7 +35,7 @@ public static class PacingPolicy
             }
 
             var remaining = queueDepth - framesUntilIdr;
-            var send = Math.Min(remaining > CatchUpDepth ? 2 : 1, remaining);
+            var send = Math.Min(remaining > CatchUpDepth * batch ? 2 * batch : batch, remaining);
             return new PacingDecision(framesUntilIdr, send, true);
         }
 
@@ -35,7 +44,7 @@ public static class PacingPolicy
             return new PacingDecision(0, 0, false);
         }
 
-        var sendCount = Math.Min(queueDepth > CatchUpDepth ? 2 : 1, queueDepth);
+        var sendCount = Math.Min(queueDepth > CatchUpDepth * batch ? 2 * batch : batch, queueDepth);
         return new PacingDecision(0, sendCount, false);
     }
 }

@@ -50,6 +50,7 @@ public static class Slv3Protocol
     public const byte RfSelect = 0x12;             // identify a fan
     public const byte RfClockSync = 0x14;          // master-clock heartbeat (broadcast)
     public const byte RfSaveCfg = 0x15;            // persist to fan flash
+    public const byte RfRebootChain = 0x16;        // RebootLcd: soft-reboot the chain controller
     public const byte RfRgbSync = 0x20;            // streamed RGB frame animation
     public const byte RfMbSyncSwitch = 0x24;
     public const byte RfLightSyncSwitch = 0x26;
@@ -78,6 +79,39 @@ public static class Slv3Protocol
     // dev_type ranges that identify our wireless LCD fans in a device record.
     public const byte DevTypeSlv3Fan = 20;      // 20-23 SLV3 LED, 24-26 SLV3 LCD
     public const byte DevTypeSlInfinity = 36;   // 36-39 SL-Infinity
+
+    /// <summary>
+    /// Fan family from a fans_type byte (lian-li-linux fan_type.rs ranges):
+    /// SLV3-LED 20-23, SLV3-LCD 24-26, TLV2-LCD 27 and 32-35, TLV2-LED 28-31,
+    /// SL-INF wireless 36-39, CL/RL120 40-42.
+    /// </summary>
+    public static Slv3FanFamily ClassifyFanFamily(byte fansTypeByte) => fansTypeByte switch
+    {
+        >= 20 and <= 23 => Slv3FanFamily.Slv3Led,
+        >= 24 and <= 26 => Slv3FanFamily.Slv3Lcd,
+        27 or (>= 32 and <= 35) => Slv3FanFamily.Tlv2Lcd,
+        >= 28 and <= 31 => Slv3FanFamily.Tlv2Led,
+        >= 36 and <= 39 => Slv3FanFamily.SlInf,
+        >= 40 and <= 42 => Slv3FanFamily.Cl,
+        _ => Slv3FanFamily.Unknown,
+    };
+
+    /// <summary>Wire LED count per physical fan (lian-li-linux leds_per_fan). Unknown keeps the bench-verified SLV3 value.</summary>
+    public static int LedsPerFanFor(Slv3FanFamily family) => family switch
+    {
+        Slv3FanFamily.Tlv2Lcd or Slv3FanFamily.Tlv2Led => 26,
+        Slv3FanFamily.SlInf => 44,
+        Slv3FanFamily.Cl => 24,
+        _ => 40,
+    };
+
+    /// <summary>Minimum non-zero duty percent per family; lower requests stall the fan (lian-li-linux min_duty_percent). Unknown keeps the SLV3 floor.</summary>
+    public static int MinDutyPercentFor(Slv3FanFamily family) => family switch
+    {
+        Slv3FanFamily.Tlv2Lcd or Slv3FanFamily.Cl => 10,
+        Slv3FanFamily.Tlv2Led or Slv3FanFamily.SlInf => 11,
+        _ => MinDutyPercent,
+    };
 
     /// <summary>
     /// Fragment a 240-byte RF payload into <see cref="UsbPacketSize"/>-byte USB
@@ -119,6 +153,103 @@ public static class Slv3Protocol
         frame[0] = UsbSendRf;
         frame[1] = pageCount;
         return frame;
+    }
+
+    /// <summary>
+    /// USB frame that resets the RX dongle's RF MCU: [0]=0x15. The reference
+    /// (lian-li-linux controller.rs) issues it after 5 consecutive GetDev
+    /// failures; a USB handle reopen alone does not reset a wedged radio.
+    /// </summary>
+    public static byte[] BuildResetAnother()
+    {
+        var frame = new byte[UsbPacketSize];
+        frame[0] = UsbResetAnother;
+        return frame;
+    }
+
+    /// <summary>TX video-start frame [0]=0x11 [1]=0x01 (lian-li-linux CMD_VIDEO_START); precedes wireless-LCD streaming.</summary>
+    public static byte[] BuildVideoStart()
+    {
+        var frame = new byte[UsbPacketSize];
+        frame[0] = UsbGetMac;
+        frame[1] = 0x01;
+        return frame;
+    }
+
+    /// <summary>Per-device video prep frame [0]=0x10 [1]=deviceIndex [2]=channel [3]=0xFF, no payload (lian-li-linux ensure_video_mode).</summary>
+    public static byte[] BuildVideoPrep(byte deviceIndex, byte channel)
+    {
+        var frame = new byte[UsbPacketSize];
+        frame[0] = UsbSendRf;
+        frame[1] = deviceIndex;
+        frame[2] = channel;
+        frame[3] = 0xFF;
+        return frame;
+    }
+
+    /// <summary>
+    /// RF_SaveCfg (0x15) payload: broadcast fan MAC (FF x6), our master MAC,
+    /// targetRx 0xFF, remaining header/body zero (lian-li-linux bind.rs
+    /// save_rf_config). Persists the fans' current binding to flash so it
+    /// survives a power cycle; without it a bind lives only in RAM.
+    /// </summary>
+    public static byte[] BuildSaveCfg(ReadOnlySpan<byte> masterMac)
+    {
+        var payload = new byte[RfPayloadSize];
+        payload[0] = RfFrameType;
+        payload[1] = RfSaveCfg;
+        payload.AsSpan(2, MacLength).Fill(0xFF);
+        masterMac.Slice(0, MacLength).CopyTo(payload.AsSpan(8));
+        payload[14] = 0xFF;
+        return payload;
+    }
+
+    /// <summary>
+    /// Motherboard PWM duty sensed by the RX, from the GetDev reply header:
+    /// [2] bit7 = unavailable, else off-time = [2] &amp; 0x7F and on-time = [3];
+    /// duty = on / (on + off). Returns a percent 0..100, or null when the RX
+    /// reports it unavailable (or on + off == 0).
+    /// </summary>
+    public static int? ParseGetDevMoboDuty(ReadOnlySpan<byte> reply)
+    {
+        if (reply.Length < RecordHeaderLength || reply[0] != UsbSendRf)
+        {
+            return null;
+        }
+        var indicator = reply[2];
+        if ((indicator & 0x80) != 0)
+        {
+            return null;
+        }
+        int off = indicator & 0x7F;
+        int on = reply[3];
+        if (on + off == 0)
+        {
+            return null;
+        }
+        return Math.Clamp((int)Math.Round(100.0 * on / (on + off)), 0, 100);
+    }
+
+    /// <summary>
+    /// GetMac probe order when the dongle is not on <see cref="DefaultChannel"/>:
+    /// 8 first, then even channels, then odd (lian-li-linux discover_master_mac).
+    /// A dongle left on another channel by L-Connect answers only there.
+    /// </summary>
+    public static byte[] ChannelScanOrder()
+    {
+        var order = new List<byte> { DefaultChannel };
+        for (byte ch = 2; ch <= 38; ch += 2)
+        {
+            if (ch != DefaultChannel)
+            {
+                order.Add(ch);
+            }
+        }
+        for (byte ch = 1; ch <= 39; ch += 2)
+        {
+            order.Add(ch);
+        }
+        return order.ToArray();
     }
 
     /// <summary>
@@ -187,11 +318,12 @@ public static class Slv3Protocol
     /// <summary>SLV3 minimum non-zero duty percent; lower requests would stall the fan.</summary>
     public const int MinDutyPercent = 14;
 
-    /// <summary>Floors a nonzero duty percent up to <see cref="MinDutyPercent"/>; 0 (fully off) is left alone.</summary>
-    public static int FloorDuty(int percent)
+    /// <summary>Floors a nonzero duty percent up to the family's minimum; 0 (fully off) is left alone.</summary>
+    public static int FloorDuty(int percent, Slv3FanFamily family = Slv3FanFamily.Slv3Lcd)
     {
         var clamped = Math.Clamp(percent, 0, 100);
-        return clamped is > 0 and < MinDutyPercent ? MinDutyPercent : clamped;
+        var floor = MinDutyPercentFor(family);
+        return clamped > 0 && clamped < floor ? floor : clamped;
     }
 
     /// <summary>
@@ -201,20 +333,36 @@ public static class Slv3Protocol
     /// <see cref="EncodeDuty"/> so it can never collide with the mobo-sync
     /// sentinel.
     /// </summary>
-    public static byte ResolvePortDuty(int? percent) =>
-        percent is null ? PwmFollowMotherboard : EncodeDuty(FloorDuty(percent.Value));
+    public static byte ResolvePortDuty(int? percent, Slv3FanFamily family = Slv3FanFamily.Slv3Lcd) =>
+        percent is null ? PwmFollowMotherboard : EncodeDuty(FloorDuty(percent.Value, family));
 
     /// <summary>
-    /// Builds the 4-port duty tuple for a bind frame from per-port targets
-    /// (null = motherboard-sync). Ports at or beyond <paramref name="fanCount"/>
-    /// are unoccupied and stay 0 (plans/lianli-wireless-support.md section 3).
+    /// Builds the 4-port duty tuple for a bind frame from per-port targets. A
+    /// manual target (non-null) is always written so a user can drive a port
+    /// even on a chain whose controller does not enumerate its fans
+    /// (<paramref name="fanCount"/> 0). A port with no target follows the
+    /// motherboard PWM header when it is occupied or the count is unknown
+    /// (<paramref name="fanCount"/> 0), and stays 0 only when known-unoccupied
+    /// (at or beyond a non-zero <paramref name="fanCount"/>), so the keepalive
+    /// cannot command a real-but-unreported fan off.
     /// </summary>
-    public static byte[] BuildPwmTuple(IReadOnlyList<int?> targets, int fanCount)
+    public static byte[] BuildPwmTuple(IReadOnlyList<int?> targets, int fanCount, Slv3FanFamily family = Slv3FanFamily.Slv3Lcd)
     {
         var pwm = new byte[PortsPerRecord];
-        for (var port = 0; port < PortsPerRecord && port < fanCount; port++)
+        for (var port = 0; port < PortsPerRecord; port++)
         {
-            pwm[port] = ResolvePortDuty(port < targets.Count ? targets[port] : null);
+            // Known-unoccupied (at or beyond a non-zero count) stays 0; an
+            // unknown-count chain treats every port as in play so the user can
+            // drive it.
+            var inPlay = fanCount <= 0 || port < fanCount;
+            if (!inPlay)
+            {
+                continue;
+            }
+            var target = port < targets.Count ? targets[port] : null;
+            pwm[port] = target is not null
+                ? EncodeDuty(FloorDuty(target.Value, family))
+                : PwmFollowMotherboard;
         }
         return pwm;
     }
@@ -325,6 +473,38 @@ public readonly record struct Slv3DeviceRecord(
     /// <summary>A record with dev_type 0xFF is another master on the link, not a fan.</summary>
     public bool IsMaster => DevType == 0xFF;
 
-    /// <summary>Per-port fan subtype (0x18=24 SLV3-LCD, 20-23 SLV3-LED, 36-39 SL-Infinity); 0 if no fan on that port.</summary>
-    public byte PrimaryFanType => FansType.Length > 0 ? FansType[0] : (byte)0;
+    /// <summary>
+    /// First non-zero per-port fan subtype (0x18=24 SLV3-LCD, 20-23 SLV3-LED,
+    /// 36-39 SL-Infinity); 0 when every port reads empty (starving beacon).
+    /// Port 0 alone is not authoritative - it can be empty on a populated chain.
+    /// </summary>
+    public byte EffectiveFanType
+    {
+        get
+        {
+            foreach (var b in FansType)
+            {
+                if (b != 0)
+                {
+                    return b;
+                }
+            }
+            return 0;
+        }
+    }
+
+    /// <summary>Family from <see cref="EffectiveFanType"/>; all-zero fans_type classifies Unknown.</summary>
+    public Slv3FanFamily Family => Slv3Protocol.ClassifyFanFamily(EffectiveFanType);
+}
+
+/// <summary>Wireless fan family, classified from a record's fans_type bytes.</summary>
+public enum Slv3FanFamily
+{
+    Unknown,
+    Slv3Led,
+    Slv3Lcd,
+    Tlv2Led,
+    Tlv2Lcd,
+    SlInf,
+    Cl,
 }

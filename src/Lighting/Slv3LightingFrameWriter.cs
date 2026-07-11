@@ -16,11 +16,12 @@ namespace Nexus.Service.Lighting;
 /// single-frame RF_RgbSync animation - the plan's "OpenRGB-style / live
 /// direct mode" (plans/lianli-wireless-support.md section 2). There is no
 /// firmware ROM-effect catalog exposed for wireless fans: every tick composes
-/// each chain's resolved zone frames into a fan-major 40-LED-per-fan buffer
-/// and pushes it through <see cref="Slv3Hub.SendRgbFrame"/> only when the
-/// buffer content changed or the fan's last RX-confirmed effect_index no
-/// longer matches what this writer sent (a dropped push), mirroring the
-/// wired hub's firmware-signature drift re-assert.
+/// each chain's resolved zone frames into a fan-major buffer (the family's
+/// wire LED count per fan) and pushes it through
+/// <see cref="Slv3Hub.SendRgbFrame"/> only when the buffer content changed or
+/// the fan's last RX-confirmed effect_index no longer matches what this
+/// writer sent (a dropped push), mirroring the wired hub's
+/// firmware-signature drift re-assert.
 /// </summary>
 public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
 {
@@ -53,12 +54,23 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
     private readonly Dictionary<string, (int Hash, string EffectIndexHex)> _lastSent = new();
 
     // Per-fan tick of the last RGB push. The RGB stream and the fan's telemetry
-    // beacon share one RF channel; pushing every 33 ms tick drowns the beacon out
-    // so the device-list poll reads zero fans and the controller looks
-    // "messed up" / disconnected. Cap pushes to MinPushIntervalMs so each cycle
-    // leaves the beacon (and the 1 s device-list poll) air time.
+    // beacon share one RF channel; pushing every 33 ms tick to every chain
+    // drowns the beacon out so the device-list poll reads zero fans and the
+    // controller looks "messed up" / disconnected. The floor scales with the
+    // chain count (one chain streams at the full tick rate; N chains split the
+    // air N ways) so each cycle leaves the beacon and the 1 s device-list poll
+    // air time. Intermediate frames are dropped, not queued - the next eligible
+    // tick sends whatever is current.
     private readonly Dictionary<string, long> _lastPushTicks = new();
-    private const int MinPushIntervalMs = 100;
+
+    // A chain whose last push is older than this gets the Reliable header tier:
+    // the stream was idle, so the next frame is effectively a one-shot effect
+    // application and a lost header would stick until drift detection. Inside
+    // a live stream the Streaming tier is used - the next frame supersedes a
+    // lost one within a couple of ticks. The effective threshold never drops
+    // below twice the per-chain push floor, so a many-chain floor cannot push
+    // every frame into the expensive Reliable tier.
+    private const int StreamIdleRearmMs = 500;
 
     public Slv3LightingFrameWriter(
         LightingEngine engine, Slv3Hub hub, IConfigStore store, Np50IdentifyTracker identify, Slv3LightingDeviceProvider provider,
@@ -137,6 +149,22 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
         var structures = _provider.BuildStructures();
         var liveMacs = new HashSet<string>(structures.Count);
 
+        // One chain streams at the full tick rate; N chains split the air N
+        // ways so the telemetry beacon and device-list poll keep their share.
+        var minPushIntervalMs = Math.Max(TickPeriodMs, TickPeriodMs * structures.Count);
+
+        Slv3FanInfo? FindFanInfo(string macHex)
+        {
+            foreach (var fan in _hub.State.Fans)
+            {
+                if (string.Equals(fan.Mac, macHex, StringComparison.OrdinalIgnoreCase))
+                {
+                    return fan;
+                }
+            }
+            return null;
+        }
+
         foreach (var structure in structures)
         {
             var macHex = Slv3LightingDeviceProvider.MacFromDeviceId(structure.DeviceId);
@@ -148,17 +176,23 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
             SegmentFrameComposer.Compose(
                 structure, zones, devices, disabled, prefs, globalBrightness, 1.0, nowTicks, _identify, _segmentBuffers);
 
-            var ringLen = Slv3LightingDeviceProvider.LedsPerFanPerRing;
+            // Ring length is family-dependent; it must match the provider's
+            // structure for this chain or the fan-major interleave below
+            // misaligns.
+            var fanInfo = FindFanInfo(macHex);
+            if (fanInfo is null) continue;
+            var ringLen = Slv3LightingDeviceProvider.RingLedsFor(fanInfo);
+            var ledsPerFan = ringLen * 2;
             var fanCount = structure.Segments[Slv3LightingDeviceProvider.InnerSegment].LedCount / ringLen;
             if (fanCount <= 0) continue;
-            var totalLeds = fanCount * Slv3RgbFrame.LedsPerFan;
+            var totalLeds = fanCount * ledsPerFan;
             EnsureWireBuffer(totalLeds);
 
             var inner = _segmentBuffers[Slv3LightingDeviceProvider.InnerSegment];
             var outer = _segmentBuffers[Slv3LightingDeviceProvider.OuterSegment];
             for (var f = 0; f < fanCount; f++)
             {
-                var baseIdx = f * Slv3RgbFrame.LedsPerFan;
+                var baseIdx = f * ledsPerFan;
                 for (var i = 0; i < ringLen; i++)
                 {
                     _wireBuffer[baseIdx + i] = inner[f * ringLen + i];
@@ -181,16 +215,21 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
                 continue;
             }
 
-            // Rate-limit the RF stream so the fan's telemetry beacon keeps air
-            // time (see _lastPushTicks). We drop intermediate frames rather than
-            // queue them - the next eligible tick sends whatever is current.
-            if (_lastPushTicks.TryGetValue(macHex, out var lastPush)
-                && nowTicks - lastPush < MinPushIntervalMs * TimeSpan.TicksPerMillisecond)
+            var hasLastPush = _lastPushTicks.TryGetValue(macHex, out var lastPush);
+            if (hasLastPush && nowTicks - lastPush < minPushIntervalMs * TimeSpan.TicksPerMillisecond)
             {
                 continue;
             }
 
-            if (_hub.SendRgbFrame(macHex, frameSpan, PassThroughBrightnessPercent, IntervalMs, out var sentEffectIndexHex))
+            // Reliable tier for the first push, a drift re-assert, or a stream
+            // resuming after idle; Streaming tier inside a continuous flow.
+            var rearmMs = Math.Max(StreamIdleRearmMs, minPushIntervalMs * 2);
+            var streaming = !driftedSinceLastConfirm
+                && last.EffectIndexHex is not null
+                && hasLastPush
+                && nowTicks - lastPush < rearmMs * TimeSpan.TicksPerMillisecond;
+
+            if (_hub.SendRgbFrame(macHex, frameSpan, PassThroughBrightnessPercent, IntervalMs, streaming, out var sentEffectIndexHex))
             {
                 _lastSent[macHex] = (hash, sentEffectIndexHex);
                 _lastPushTicks[macHex] = nowTicks;

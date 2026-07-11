@@ -1,8 +1,12 @@
 # Network Transport and Polling Inventory
 
-Current as of 2026-05-06. This document inventories the network traffic that
+Current as of 2026-07-10. This document inventories the network traffic that
 the app sends today between the desktop dashboard, the panel surfaces, and the
-local service.
+local service, focused on transport semantics: cadence, WebSocket topics,
+multiplex behavior, snapshot-on-subscribe, and auth/reconnect. The exhaustive
+REST route list (every path, method, request/response shape) lives in the
+generated `docs/openapi.json`; this document does not try to enumerate every
+route.
 
 ## Scope
 
@@ -25,10 +29,43 @@ storage/BroadcastChannel.
 
 ## Maintenance
 
-Keep this inventory current when features add, remove, or change any REST
-route, WebSocket topic, polling cadence, upload/download path, external
-network call, or desktop/panel/phone transport behavior. Update the relevant
-counts and audit hotspots in the same change that changes the traffic.
+Keep this inventory current when features add, remove, or change a WebSocket
+topic, polling cadence, upload/download path, external network call, or
+desktop/panel/phone transport behavior. Update the relevant counts and audit
+hotspots in the same change that changes the traffic.
+
+The exhaustive REST route inventory (every path, method, request/response
+schema) is generated into `docs/openapi.json` and is not duplicated here.
+When a change adds, removes, or renames a REST route, regenerate that file
+instead of adding a row to this document; only touch this document when the
+route also changes a polling cadence, introduces or removes a WebSocket
+topic, or changes multiplex/auth/reconnect behavior.
+
+## Route Families Added Since 2026-05
+
+These route families landed after this document's prior pass. Their full
+endpoint lists are in `docs/openapi.json`; only transport-relevant behavior
+is called out here:
+
+- `/panel/streams/*` (streamed panels) - `GET /panel/streams/assignments` is a
+  regular poll target; `POST /panel/streams/{sessionId}/ingest` is not
+  request/reply, it is one long-lived chunked POST per stream session that
+  carries framed H.264 access units for the life of the session (request
+  body size and minimum data rate limits are lifted for this route).
+- `/diagnostics/*` - health/incident/SMART/GPU/memory snapshots plus
+  downloadable bundle (`/diagnostics/bundle/download`) and PDF report
+  (`/diagnostics/report.pdf`) endpoints. No WebSocket topic.
+- `/tryx/*` - Tryx Panorama panel control, including cloud theme catalog
+  proxying (`/tryx/cloud/*`) and local media upload/select. No WebSocket
+  topic.
+- `/cloud/*` - online account registration/login/sync endpoints
+  (`nexus-api`-backed). No WebSocket topic.
+- `/home-assistant/*` - Home Assistant entity config and control. Introduces
+  the `homeAssistant` multiplex topic (see below).
+- `/rtc/offer` - WebRTC DataChannel direct P2P signaling: the phone posts an
+  SDP offer (typically over the relay tunnel) and gets an SDP answer back,
+  after which media/data can flow peer-to-peer instead of through the relay.
+  No WebSocket topic.
 
 ## Transport Topology
 
@@ -90,10 +127,15 @@ before counting the currently selected view.
 | `GET /profiles` | once on online mount, then after profile mutations | event | Profile dropdown state. |
 | `GET /preferences` | once on `UiSettingsProvider` mount/profile switch | event | Server-backed UI preferences. |
 | `POST /preferences` | debounced `250 ms` after setting changes | event | Persist profile-scoped preferences. |
-| `GET /system/memory/total` | once per multiplex bridge mount | event | Seed process/memory charts. |
 | `WS /ws` subscribe `monitoring`, `screentime` | one socket while online | 1 socket | Global monitoring store and screen-time store. |
 | WS server frame `monitoring` | service default `1000 ms` | `1 frame/s/client` | Composite sensors, process, and network snapshot. |
 | WS server frame `screentime` | every `10000 ms`, plus snapshot on subscribe | `0.1 frame/s/client` | Current focus app and daily usage. |
+
+There is no dedicated request to seed installed-memory totals for
+process/memory charts (the prior `GET /system/memory/total` route is gone).
+Total capacity now rides the existing periodic sensor payloads: each memory
+sensor carries a `theoreticalMaximum` field (installed RAM in GB), and the
+composite `monitoring` frame also carries a formatted `MemoryTotal` string.
 
 Base desktop idle count in the current working tree:
 
@@ -152,43 +194,64 @@ Topics currently using snapshot-on-subscribe:
 |---|---|---|
 | `screentime` | `MonitoringBroadcaster` | first broadcast tick after a subscriber appears (≤1 s) |
 | `volume` | `MonitoringBroadcaster.BroadcastVolumeIfChangedAsync` | first broadcast tick after a subscriber appears (≤1 s) |
+| `conflicts` | `ConflictWatcher` | first poll tick after startup (~2 s), refreshed every 5 s poll |
+| `panel/phone/pair-code/request` | `PanelPhonePairingService` | only while a pair request is pending; no snapshot (subscriber gets nothing) once it resolves |
 
 Other slow / event-driven topics (e.g. `prefs`, `lighting`, `cooling`,
 `panel/device`) are good future candidates for the same registry.
 
 | Topic | Producer | Cadence | Consumers today | Purpose |
 |---|---|---:|---|---|
-| `monitoring` | `MonitoringBroadcaster` | default `1000 ms`, configurable by `/system/polling-rate` | desktop and panel app-level bridge | Composite CPU/GPU/memory/storage/motherboard/process/network frame. |
+| `monitoring` | `MonitoringBroadcaster` | fixed `1000 ms` (no runtime-configurable route) | desktop and panel app-level bridge | Composite CPU/GPU/memory/storage/motherboard/process/network frame. |
 | `screentime` | `MonitoringBroadcaster` | every `10000 ms`, plus snapshot on subscribe | desktop and panel app-level bridge | Focus app and usage history. |
 | `cpu` | `MonitoringBroadcaster` | default `1000 ms` | `useSensors()` | CPU sensor component. |
 | `gpu` | `MonitoringBroadcaster` | default `1000 ms` | `useSensors()` | GPU sensor components. |
 | `memory` | `MonitoringBroadcaster` | default `1000 ms` | `useSensors()` | Memory sensor component. |
 | `storage` | `MonitoringBroadcaster` | default `1000 ms` | `useSensors()` | Storage components. |
 | `motherboard` | `MonitoringBroadcaster` | default `1000 ms` | `useSensors()` | Motherboard sensors, including fan sensors. |
+| `summary` | `MonitoringBroadcaster` | default `1000 ms` | `useSensors()` | Condensed "Quick" component (a cpu/gpu/memory subset) for compact sensor displays. |
 | `fps` | `MonitoringBroadcaster` + `IFpsProvider` | default `1000 ms` while subscribed | Performance widget slots configured to FPS | Foreground-window FPS sensor. Windows ETW capture starts on first `fps` topic subscriber and stops when the last subscriber leaves. Not included in the global `monitoring` frame. |
 | `processes` | `MonitoringBroadcaster` | default `1000 ms` | no direct current React subscriber | Process frame, also included in `monitoring`. |
+| `gpu-processes` | `MonitoringBroadcaster` + `GpuProcessMonitor` | default `1000 ms` while subscribed, Windows only | `useProcessMonitor()` | Per-process GPU engine/VRAM usage (PDH counters). Same privacy class as `processes`: exposes running app names. |
 | `network` | `MonitoringBroadcaster` | default `1000 ms` | no direct current React subscriber | Network frame, also included in `monitoring`. |
-| `cooling` | `CurveEngine` | default `1000 ms` when curves exist | Cooling view | Live fan channel speed/RPM. |
+| `extras` | `MonitoringBroadcaster` | default `1000 ms` | `useSensorExtras()` | Detailed-tab sensor extras not carried in the composite `monitoring` frame. |
+| `volume` | `MonitoringBroadcaster.BroadcastVolumeIfChangedAsync` | event-driven, evaluated each `1000 ms` tick, plus snapshot on subscribe | `useSystemVolume()` | System default-render audio volume + mute (see Cooling view traffic below for the HTTP fallback). |
+| `cooling-realtime` | `CurveEngine` | default `1000 ms` when curves exist | Cooling view | Live fan channel speed/RPM. |
 | `cooling-curves` | `CurveEngine` | default `1000 ms` when curves exist | Cooling view | Curve calculations and applied outputs. |
+| `conflicts` | `ConflictWatcher` | poll every `5000 ms` server-side, broadcasts only on change, plus snapshot on subscribe | `useConflictApps()` | Competing RGB/control app detection (iCUE, NZXT CAM, etc) driving the device-page conflict gate. |
+| `devices` | `DeviceBroadcaster` | re-enumerates every `5000 ms` only while subscribed, broadcasts only on change or first subscriber | `useDevices()`, `useUsbDevices()`, `usePeripherals()` | Push-driven refetch for the curated device list, raw USB list, and peripheral list; see Devices view traffic below. |
 | `benchmark/{runId}` | `BenchmarkRunner` | provider progress, documented around `500 ms` | Benchmark view | Benchmark progress and terminal state. |
-| `audio` | `BeatsProvider` | event-driven while audio capture is running | Lighting view audio preview | Audio state for shader preview. |
-| `beats` | `BeatsProvider` | event-driven while subscribed | no current React subscriber found | Beat events. |
+| `audio` | `IBeatsProvider.OnBeat`, broadcast from `AppBootstrap` | event-driven while audio capture is running | Lighting view audio preview | Audio level/bass/mid/high/beat/spectrum snapshot for shader preview. |
 | `panel/phone/presence` | subscription-count topic | no payload today | phone panel subscribes | Lets `/panel/status` count connected phone remotes. |
 | `prefs` | event-driven on every `POST /preferences` and `POST /profiles/{id}/switch` | `{revision: long}` | panel `usePanelTheme`, anything that reads global `Ui*` settings | Push-driven refetch. |
 | `lighting` | event-driven on every `/lighting/*` mutation | `{revision: long}` | `LightingQuickWidget` and any future cross-device lighting subscriber | Push-driven refetch; replaces the prior 4s `setInterval(hydrate)` poll. |
-| `cooling` | event-driven on every `/cooling/*` mutation | `{revision: long}` | `CoolingQuickWidget` | Push-driven refetch; replaces the prior 2s `setInterval(refresh)` poll. |
+| `lighting/mapping-applied` | event-driven when a community mapping auto-applies to a first-seen device | mapping payload rides the frame directly | `MappingAppliedToasts` | Toast + one-click undo; fires alongside a regular `lighting` broadcast for state refetch. |
+| `cooling` | event-driven on every `/cooling/*` mutation | `{revision: long}` | `CoolingQuickWidget` | Push-driven refetch; replaces the prior 2s `setInterval(refresh)` poll. Distinct from `cooling-realtime` above. |
+| `cooling/warnings` | event-driven on an active-warning-set transition (NP50 heartbeat worker; future warning producers) | `{revision: long, deviceId: string}` | no current REST endpoint or React subscriber found | Broadcast infrastructure only; not yet wired to a route or UI. |
 | `panel/device` | event-driven on every panel device CRUD (`POST /panel/devices`, `POST /panel/devices/{id}`, `DELETE /panel/devices/{id}`) | `{revision: long, deviceId: string}` | `usePanelLayout` filters by `deviceId === mine` and refetches the device record | Cross-device layout sync; replaces the BroadcastChannel cross-tab path for cross-device updates. |
+| `gallery` | event-driven on gallery source add/remove/upload | `{revision: long}` | `GalleryPage`, `useGallery()` | Push-driven refetch of `GET /gallery/items`. |
+| `displays` | event-driven on display topology or monitor-panel assignment change | `{revision: long}` | `useDisplayTopology()` | Push-driven refetch of `GET /displays/topology`. |
+| `homeAssistant` | event-driven on Home Assistant entity cache change | `{revision: long}` | `HomeAssistantPage` | Push-driven refetch of `GET /home-assistant/entities`. |
+| `mediaLibrary` | event-driven on lighting media library mutation (import/commit/delete) | `{revision: long}` | `useMediaLibrary()` | Push-driven refetch of `GET /media/library`. |
+| `panel/phone/pair-code/request` | event-driven, plus snapshot on subscribe while a request is pending | request/cancelled payload | `IncomingPairModal` | Manual pair-code request lifecycle for the dashboard Allow/Deny modal. |
+| `panel/phone/pair-qr/refresh` | event-driven on host network address change (VPN toggle, Wi-Fi/wired switch, DHCP renew) | `{revision: long}` | `PairRemoteContent` | Prompts a QR re-fetch after a LAN IP change instead of waiting out the QR's TTL. |
+| `system/accent` | event-driven on OS accent color change, Linux only | `{hex: string}` | `SystemAccentSync` | Live OS accent colour sync (watches the XDG portal). |
+| `transfer` | event-driven when a phone-to-PC transfer lands | event payload rides the frame directly | `TransferToasts` | No canonical resource to refetch; the payload is the notification. |
+| `update` | event-driven when an update becomes available or finishes staging | `{revision: long}` | dashboard `sidebar` | Push-driven refetch of `GET /update/status` instead of waiting out the sidebar's 60s poll. |
 
 Notes:
 
 - The backend default monitoring interval is `1000 ms`; a frontend comment in
   `App.tsx` says `2 s`, but the active service code initializes
   `MonitoringBroadcaster` to `1000 ms`.
-- `useSensors()` subscribes to five individual sensor topics. When a surface is
+- `useSensors()` subscribes to six individual sensor topics (`summary`,
+  `cpu`, `gpu`, `memory`, `storage`, `motherboard`). When a surface is
   already subscribed to `monitoring`, this duplicates sensor payloads on the
   same socket.
-- `CurveEngine` returns early when no curves exist, so `cooling` and
-  `cooling-curves` do not broadcast in that case even if subscribed.
+- `CurveEngine` returns early when no curves exist, so `cooling-realtime` and
+  `cooling-curves` do not broadcast in that case even if subscribed. The
+  event-driven `cooling` (revision) topic is unaffected; it fires from route
+  mutations regardless of whether any curve exists.
 
 ## Dedicated Lighting WebSocket
 
@@ -220,8 +283,8 @@ Mounted Lighting view traffic:
 | `WS /lighting/output` | one socket, reconnect `2000 ms` | 1 socket | Live canvas/device colors. |
 | binary lighting frame | active effect frame interval | about `30-60 frames/s` | Live preview frames. |
 | `GET /lighting/current` | every `1000 ms` | `1 req/s` | Current lighting sync mode. |
-| `GET /devices/lighting-devices/all` | every `3000 ms` | `0.33 req/s` | Lighting device layout and power state. |
-| `GET /devices/usb/all` | every `5000 ms` | `0.2 req/s` | VID/PID detection for lighting device support. |
+| `GET /devices/lighting-devices/all` | on mount and profile change, then push-driven refetch on the `lighting` and `devices` WS topics | event + push | Lighting device layout and power state. No longer a `3000 ms` poll. |
+| `GET /devices/usb/all` | every `5000 ms` | `0.2 req/s` | VID/PID detection for lighting device support. Not individually re-verified against the `devices` topic migration described in the Devices view section below; may also now be push-driven. |
 | `GET /lighting/static/settings` | every `1000 ms` when static mode | `1 req/s` | Reconcile static color. |
 | `GET /lighting/animate/settings` | every `1500 ms` when animate mode | `0.67 req/s` | Reconcile active effect/templates. |
 | `GET /lighting/animate/settings`, `/lighting/music-reactive`, `/lighting/static/settings`, `/lighting/screen/effect`, `/lighting/media/effect` | one-shot on mode/raw sync changes | event | Hydrate controls for the active mode. |
@@ -247,9 +310,9 @@ Mounted Cooling view traffic:
 | `GET /cooling/sources` | one-shot and every `1000 ms` | `1 req/s` | Temperature source labels/values. |
 | `GET /cooling/curves` | one-shot on mount/profile/control refresh | event | Curve config. |
 | `GET /cooling/profiles` | one-shot and every `1000 ms` | `1 req/s` | Detect active cooling profile changes. |
-| WS topic `cooling` | default `1000 ms` when curves exist | `1 frame/s/client` | Live fan speed/RPM. |
+| WS topic `cooling-realtime` | default `1000 ms` when curves exist | `1 frame/s/client` | Live fan speed/RPM. |
 | WS topic `cooling-curves` | default `1000 ms` when curves exist | `1 frame/s/client` | Live curve calculations. |
-| WS topics `cpu`,`gpu`,`memory`,`storage`,`motherboard` | default `1000 ms` | up to `5 frames/s/client` | Sensor data for the view and curve labels. |
+| WS topics `summary`,`cpu`,`gpu`,`memory`,`storage`,`motherboard` | default `1000 ms` | up to `6 frames/s/client` | Sensor data for the view and curve labels. |
 | WS topic `volume` | event-driven (push only on change, evaluated each `1000 ms` broadcaster tick), plus snapshot on subscribe | <=`1 frame/s/client` | System default-render audio volume + mute. Backs the panel media widget slider. `useSystemVolume` HTTP-polls `/system/volume` at `1000 ms` as a connect-time / fallback path; panel-authorized `POST /system/volume` and `POST /system/volume/mute` apply user changes. |
 
 Cooling user actions call `POST /cooling/fan/{id}/speed`,
@@ -273,17 +336,27 @@ Mounted Devices view traffic:
 
 | Request | Cadence | Count | Purpose |
 |---|---:|---:|---|
-| `GET /devices/all` | every `5000 ms` on Supported tab | `0.2 req/s` | Curated connected device list. |
-| `GET /peripherals` | every `5000 ms` on Supported tab | `0.2 req/s` | Service-owned peripheral list. |
-| `GET /devices/usb/all` | every `5000 ms` whenever Devices view is mounted | `0.2 req/s` | VID/PID support detection. |
-| Additional `GET /devices/usb/all` | every `5000 ms` on Connected tab | extra `0.2 req/s` | Raw USB tab data. |
-| Additional `GET /devices/all` | every `5000 ms` on Panels tab | extra `0.2 req/s` | Curated display-device input for the panel inventory. |
+| `GET /devices/all` | one-shot REST seed on mount (Available tab active), refetched on the `devices` WS topic | event + push | Curated connected device list. |
+| `GET /peripherals` | one-shot REST seed on mount (Available tab active), refetched on the `devices` WS topic | event + push | Service-owned peripheral list. |
+| `GET /devices/usb/all` | one-shot REST seed whenever the Devices view is mounted, refetched on the `devices` WS topic | event + push | VID/PID support detection; one subscription shared by the catalog highlight and the Connected Devices modal. |
 | `GET /displays` | every `5000 ms` on Panels tab | `0.2 req/s` | Attached monitor inventory and brightness-control capability summary. |
 | `GET /panel/status` | every `5000 ms` on Panels tab | `0.2 req/s` | Panel host running state for directly managed panels. |
 | `GET /panel/phone/sessions` | every `5000 ms` on Panels tab | `0.2 req/s` | Paired phone/tablet panel presence metadata. |
 | Browser WebHID snapshot | every `10000 ms` | local only | Browser-local granted WebHID peripherals, not service traffic. |
 | `GET /peripherals/{id}` | every `5000 ms` while a service peripheral popup is open | `0.2 req/s` | Peripheral detail and battery/DPI/polling/sleep state. |
 | `GET /y70/brightness`, `/y70/rotation`, `/y70/toggle` | one-shot when Y70 popup/widget mounts | event | Y70 controls hydration. |
+
+The curated device list, raw USB list, and peripheral list moved from 5s
+REST polling to a one-shot fetch plus the `devices` WS topic (see the
+Multiplex WebSocket Topics table above); `DeviceBroadcaster` re-enumerates
+every 5s server-side only while the topic has a subscriber, and only
+broadcasts when the fingerprint changes or a first subscriber arrives. The
+Devices view's tab structure has changed since
+this table was last fully audited (tab keys are now `available`, `displays`,
+`firmware`, `specs`, with the raw USB list reachable from a modal rather
+than a separate tab); the `GET /displays`, `/panel/status`, and
+`/panel/phone/sessions` rows above have not been individually re-verified
+against the current tab layout.
 
 Devices user actions call peripheral `PUT` routes, Y70 `POST` routes, firmware
 routes, lighting rescan/identify routes, and supported-device modal routes on
@@ -324,7 +397,6 @@ Y70 kiosk panel baseline:
 | `POST /preferences` | after layout/theme/background edits | event | Persist panel layout/theme/background config. |
 | `GET /lighting/shaders/{effect}` | once per selected shader background effect, cached in-browser | event | Fetch GLSL source; rendering runs locally on the panel device. |
 | `WS /ws` subscribe `monitoring`, `screentime` | one socket | 1 socket | Global panel monitoring/screen-time store. |
-| `GET /system/memory/total` | once per multiplex bridge mount | event | Seed process/memory charts. |
 | `GET /ping` | every `3000 ms` on Y70/kiosk, after an initial interval delay | `0.33 req/s` | Close kiosk after 3 consecutive failures. |
 | WS server frame `monitoring` | default `1000 ms` | `1 frame/s/client` | Panel monitoring store. |
 | WS server frame `screentime` | every `10000 ms`, plus snapshot on subscribe | `0.1 frame/s/client` | Panel screen-time store. |
@@ -340,9 +412,8 @@ Phone panel baseline:
 | `POST /preferences` | after layout/theme/background edits | event | Persist phone layout/theme/background config. |
 | `GET /lighting/shaders/{effect}` | once per selected shader background effect, cached in-browser | event | Fetch GLSL source; rendering runs locally on the phone. |
 | `WS /ws` subscribe `monitoring`, `screentime`, `panel/phone/presence` | one socket | 1 socket | Store data and presence count. |
-| `GET /system/memory/total` | once per multiplex bridge mount | event | Seed process/memory charts. |
 | WS server frame `monitoring` | default `1000 ms` | `1 frame/s/client` | Phone monitoring store. |
-| WS server frame `screentime` | default `1000 ms` | `1 frame/s/client` | Phone screen-time store. |
+| WS server frame `screentime` | every `10000 ms`, plus snapshot on subscribe | `0.1 frame/s/client` | Phone screen-time store. |
 
 The phone panel does not run the kiosk `/ping` watchdog.
 
@@ -352,7 +423,7 @@ Panel widgets add traffic only when mounted in the current panel layout.
 
 | Widget | Request/frame | Cadence | Purpose |
 |---|---|---:|---|
-| Monitoring widget | WS topics `cpu`,`gpu`,`memory`,`storage`,`motherboard` via `useSensors()` | default `1000 ms` | Sensor gauges. |
+| Monitoring widget | WS topics `summary`,`cpu`,`gpu`,`memory`,`storage`,`motherboard` via `useSensors()` | default `1000 ms` | Sensor gauges. |
 | Monitoring widget network slots | no extra network | local store | Network In/Out/Total gauges read totals from the app-level `monitoring` store. |
 | Monitoring widget | WS topic `fps` via `useFpsSensors()` | default `1000 ms` only while an FPS slot is active | FPS gauge. This topic is not subscribed for non-FPS widget configs, so the service does not start ETW capture for ordinary monitoring widgets. |
 | Screen-time widget | no extra network | local store | Reads app-level `screentime` store. |
@@ -363,7 +434,7 @@ Panel widgets add traffic only when mounted in the current panel layout.
 | Lighting Quick | `GET /lighting/current`, `/lighting/animate/settings`, `/lighting/static/settings` | every `4000 ms` | Hydrate mode/effect/color. |
 | Lighting Quick | `GET /lighting/effects/{key}/thumbnail.bmp` | one load per effect when not compact | Effect thumbnails. |
 | Lighting Quick | lighting `POST` routes | user action | Apply mode/effect/color/music reactive. |
-| Cooling Quick | WS topics `cpu`,`gpu`,`memory`,`storage`,`motherboard` via `useSensors()` | default `1000 ms` | Temperature/RPM gauges. |
+| Cooling Quick | WS topics `summary`,`cpu`,`gpu`,`memory`,`storage`,`motherboard` via `useSensors()` | default `1000 ms` | Temperature/RPM gauges. |
 | Cooling Quick | `GET /cooling/profiles` | every `2000 ms` | Active/profile list. |
 | Cooling Quick | `POST /cooling/profile/{name}` | user action | Apply cooling profile. |
 | OBS widget | `GET /api/obs/status` | every `2500 ms` | OBS connection/status. |
@@ -426,13 +497,17 @@ features.
 - The desktop sidebar service-state poll is the largest always-on REST source:
   three endpoints every `500 ms`, or `6 req/s`.
 - Desktop and panel subscribe to the composite `monitoring` topic globally.
-  Any `useSensors()` consumer adds five more sensor topic frames per second,
+  Any `useSensors()` consumer adds six more sensor topic frames per second,
   duplicating data already present in `monitoring`.
-- Devices view creates a global raw USB poll for support detection and a second
-  raw USB poll on the Connected tab.
-- Lighting view has multiple reconciliation loops at once:
-  `/lighting/current` every second, device list every three seconds, USB every
-  five seconds, plus mode-specific settings polling.
+- Devices view's curated/USB/peripheral lists are push-driven via the
+  `devices` topic rather than polled (see Devices view traffic above);
+  `DeviceBroadcaster` re-enumerates the OS device/USB lists every `5000 ms`
+  server-side only while the topic has a subscriber, and only broadcasts
+  when the enumerated fingerprint actually changed.
+- Lighting view has multiple reconciliation loops at once: `/lighting/current`
+  every second, USB every five seconds, plus mode-specific settings polling.
+  The device list itself moved from a three-second poll to push-driven
+  refetch on the `lighting`/`devices` WS topics.
 - Phone pairing presence uses a WebSocket subscription count, but the desktop
   still observes it through `/panel/status` polling every `500 ms`.
 - Panel layout and theme/background each fetch `/preferences` separately on

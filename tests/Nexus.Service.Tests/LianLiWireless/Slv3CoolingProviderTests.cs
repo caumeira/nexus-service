@@ -60,7 +60,24 @@ public class Slv3CoolingProviderTests
     }
 
     [Fact]
-    public void GetFanChannels_skips_unbound_chains_and_zero_fan_count_chains()
+    public void GetFanChannels_MinDuty_follows_the_fan_family()
+    {
+        var (hub, _, _) = Slv3TestHub.CreateConnected();
+        hub.State.Fans = new[]
+        {
+            new Slv3FanInfo { Mac = Mac, BoundToUs = true, FanCount = 1, FanType = 37 }, // SL-Infinity
+            new Slv3FanInfo { Mac = "AABBCCDDEEFF", BoundToUs = true, FanCount = 1, FanType = 24 }, // SLV3-LCD
+        };
+        var provider = new Slv3CoolingProvider(hub, new InMemoryConfigStore());
+
+        var channels = provider.GetFanChannels();
+
+        Assert.Equal(11, channels[0].MinDuty);
+        Assert.Equal(14, channels[1].MinDuty);
+    }
+
+    [Fact]
+    public void GetFanChannels_skips_unbound_but_exposes_a_bound_zero_count_chain_as_rpm_unavailable()
     {
         var (hub, _, _) = Slv3TestHub.CreateConnected();
         hub.State.Fans = new[]
@@ -70,8 +87,16 @@ public class Slv3CoolingProviderTests
         };
         var provider = new Slv3CoolingProvider(hub, new InMemoryConfigStore());
 
-        Assert.Empty(provider.GetFanChannels());
-        Assert.Empty(provider.GetAll());
+        var channels = provider.GetFanChannels();
+        // Unbound chain skipped; the bound chain that reports no fan count still
+        // exposes the controller's physical ports so the user can drive them.
+        Assert.Equal(Slv3Protocol.PortsPerRecord, channels.Count);
+        Assert.All(channels, c => Assert.StartsWith("lianli-wireless:AABBCCDDEEFF:port", c.Id));
+        Assert.All(channels, c => Assert.True(c.RpmUnavailable));
+
+        var component = Assert.Single(provider.GetAll());
+        Assert.Equal(Slv3Protocol.PortsPerRecord, component.Devices.Count);
+        Assert.All(component.Devices, d => Assert.Null(d.Rpm));
     }
 
     [Fact]
@@ -128,6 +153,22 @@ public class Slv3CoolingProviderTests
 
         Assert.Null(hub.GetPortDuty(Mac, 0));
         Assert.Null(hub.GetPortDuty(Mac, 1));
+    }
+
+    [Fact]
+    public void ReleaseAll_clears_a_bound_zero_count_chain_whose_ports_were_driven()
+    {
+        var (hub, _, _) = Slv3TestHub.CreateConnected();
+        // Controller reports no fan count but the ports are still exposed and
+        // drivable; ReleaseAll must clear them, not skip the chain.
+        hub.State.Fans = new[] { new Slv3FanInfo { Mac = Mac, BoundToUs = true, FanCount = 0 } };
+        var provider = new Slv3CoolingProvider(hub, new InMemoryConfigStore());
+        provider.SetFanSpeed($"lianli-wireless:{Mac}:port0", 50);
+        Assert.Equal(50, hub.GetPortDuty(Mac, 0));
+
+        provider.ReleaseAll();
+
+        Assert.Null(hub.GetPortDuty(Mac, 0));
     }
 
     [Fact]

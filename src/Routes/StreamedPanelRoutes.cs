@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Server.Kestrel.Core.Features;
 using Nexus.Service.Auth;
 using Nexus.Service.Panel.Streams;
+using Nexus.Service.Platform;
 using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Routes;
@@ -43,6 +44,9 @@ public static class StreamedPanelRoutes
             ctx.Features.Get<IHttpMinRequestBodyDataRateFeature>()?.MinDataRate = null;
 
             var reader = ctx.Request.BodyReader;
+            // Arrival gaps are routine (capture is change-driven), so the
+            // session keeps only the window maximum for its stats line.
+            long lastFrameTicks = 0;
             try
             {
                 while (true)
@@ -52,7 +56,13 @@ public static class StreamedPanelRoutes
                     while (StreamFrameReader.TryReadFrame(ref buffer, out var frame))
                     {
                         if (!frame!.IsControl)
+                        {
+                            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+                            if (lastFrameTicks != 0)
+                                session.RecordIngestGap((now - lastFrameTicks) * 1000 / System.Diagnostics.Stopwatch.Frequency);
+                            lastFrameTicks = now;
                             session.Enqueue(frame);
+                        }
                     }
                     reader.AdvanceTo(buffer.Start, buffer.End);
                     if (result.IsCompleted) break;

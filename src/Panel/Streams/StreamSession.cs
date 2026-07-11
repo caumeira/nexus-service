@@ -22,6 +22,11 @@ public sealed class StreamSession
     private readonly object _lock = new();
     private readonly Queue<StreamFrame> _queue = new();
     private readonly int _maxQueuedFrames;
+    private long _enqueued;
+    private long _sent;
+    private long _dropped;
+    private long _trims;
+    private long _maxIngestGapMs;
     private bool _waitingForIdr = true;
     private bool _ingestBound;
     private bool _transportUp;
@@ -64,6 +69,7 @@ public sealed class StreamSession
         lock (_lock)
         {
             if (_closed) return;
+            _enqueued++;
             _queue.Enqueue(frame);
             if (_queue.Count > _maxQueuedFrames)
                 TrimToNewestIdrLocked();
@@ -78,13 +84,17 @@ public sealed class StreamSession
     {
         lock (_lock)
         {
-            var decision = PacingPolicy.Decide(_queue.Count, FramesUntilIdrLocked(), _waitingForIdr);
+            var decision = PacingPolicy.Decide(
+                _queue.Count, FramesUntilIdrLocked(), _waitingForIdr,
+                Info.Profile.EffectiveWriteBatchFrames);
             for (var i = 0; i < decision.DropCount; i++) _queue.Dequeue();
+            _dropped += decision.DropCount;
             if (decision.ClearWaitingForIdr) _waitingForIdr = false;
             if (decision.SendCount == 0) return Array.Empty<StreamFrame>();
             var send = new List<StreamFrame>(decision.SendCount);
             for (var i = 0; i < decision.SendCount && _queue.Count > 0; i++)
                 send.Add(_queue.Dequeue());
+            _sent += send.Count;
             return send;
         }
     }
@@ -103,6 +113,7 @@ public sealed class StreamSession
     {
         lock (_lock)
         {
+            _dropped += _queue.Count;
             _queue.Clear();
             _waitingForIdr = true;
             _ingestBound = true;
@@ -133,6 +144,32 @@ public sealed class StreamSession
         get { lock (_lock) return _queue.Count; }
     }
 
+    /// <summary>The ingest reader reports each inter-frame arrival gap;
+    /// change-driven capture makes gaps routine on slow content, so only the
+    /// window maximum is surfaced (in the stats line), never per-frame.</summary>
+    public void RecordIngestGap(long gapMs)
+    {
+        lock (_lock)
+        {
+            if (gapMs > _maxIngestGapMs) _maxIngestGapMs = gapMs;
+        }
+    }
+
+    /// <summary>Cumulative flow counters; deltas between reads give the
+    /// interval's in/out rates, which expose a producer/consumer rate gap
+    /// the individual warn lines cannot. Dropped includes trimmed frames,
+    /// so enqueued - sent - dropped reconciles with depth. MaxIngestGapMs
+    /// is the maximum since the previous snapshot (reset on read).</summary>
+    public (long Enqueued, long Sent, long Dropped, long Trims, int Depth, long MaxIngestGapMs) StatsSnapshot()
+    {
+        lock (_lock)
+        {
+            var maxGap = _maxIngestGapMs;
+            _maxIngestGapMs = 0;
+            return (_enqueued, _sent, _dropped, _trims, _queue.Count, maxGap);
+        }
+    }
+
     private int FramesUntilIdrLocked()
     {
         var i = 0;
@@ -150,6 +187,7 @@ public sealed class StreamSession
     // would grow unbounded; clear and resync from the next IDR instead.
     private void TrimToNewestIdrLocked()
     {
+        _trims++;
         var frames = _queue.ToArray();
         var newestIdr = -1;
         for (var i = frames.Length - 1; i >= 0; i--)
@@ -159,9 +197,11 @@ public sealed class StreamSession
         _queue.Clear();
         if (newestIdr < 0 || frames.Length - newestIdr > _maxQueuedFrames)
         {
+            _dropped += frames.Length;
             _waitingForIdr = true;
             return;
         }
+        _dropped += newestIdr;
         for (var i = newestIdr; i < frames.Length; i++)
             _queue.Enqueue(frames[i]);
     }

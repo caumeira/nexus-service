@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Nexus.Service.Auth;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models;
 
 namespace Nexus.Service.Routes;
@@ -155,7 +156,21 @@ internal static class ServiceControlRoutes
     {
         var startMode = enable ? "auto" : "demand";
         var (code, _) = RunSc("config", ServiceName, $"start=", startMode);
-        return code == 0;
+        if (code != 0) return false;
+#if WINDOWS
+        // The service start type only governs the LocalSystem daemon. The
+        // helper (tray) also auto-launches from a per-user HKCU Run key, which
+        // this Session 0 handler cannot write. Sync it in the console session so
+        // "start on boot" off actually removes every boot launcher, not just the
+        // service. Best-effort: if no console user is signed in, the helper
+        // re-syncs on its next start.
+        if (OperatingSystem.IsWindows())
+        {
+            var exe = System.IO.Path.Combine(AppContext.BaseDirectory, "Nexus.exe");
+            UserHelperBootstrapper.RunInUserSession($"\"{exe}\" --sync-autostart", "sync-autostart", "NexusSyncAutostart");
+        }
+#endif
+        return true;
     }
 
     private static (int code, string output) RunSc(params string[] args)

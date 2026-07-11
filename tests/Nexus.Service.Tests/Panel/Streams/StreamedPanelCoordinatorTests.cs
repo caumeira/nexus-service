@@ -30,6 +30,10 @@ public sealed class StreamedPanelCoordinatorTests : IDisposable
         _config = new JsonConfigStore(_configPath);
         _registry = new PanelDeviceRegistry(_config);
         _gate = new DeviceControlGate(_config);
+        // "fake-panel" is not on the Hyte/iBUYPOWER default-on list, so these
+        // coordinator tests need it explicitly enabled to exercise the
+        // publish/attach/detach behavior independent of the gate default.
+        _gate.SetEnabled("fake-panel", true);
         _store = new StreamedPanelStore(_storePath);
     }
 

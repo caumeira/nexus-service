@@ -160,6 +160,17 @@
     <PackageReference Include="QRCoder" Version="1.6.0" />
   </ItemGroup>
 
+  <!-- OpenAPI document generation for docs/openapi.json (the REST-route
+       inventory). The .NET 10 stack is AOT-compatible; the doc is produced by
+       the emit-openapi CLI path, and MapOpenApi() is DEBUG-only so a release
+       build exposes no endpoint. AspNetCore.OpenApi tracks the ASP.NET runtime;
+       Microsoft.OpenApi is pinned directly to 2.7.5 (overriding the 2.0.0 the
+       former pulls transitively) to clear advisory GHSA-v5pm-xwqc-g5wc. -->
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.8" />
+    <PackageReference Include="Microsoft.OpenApi" Version="2.7.5" />
+  </ItemGroup>
+
   <!-- SIPSorcery: WebRTC DataChannel direct P2P transport for the phone panel
        (STUN only, no TURN; the cloud relay stays as fallback). AOT-verified on
        osx-arm64 + win-x64. TrimmerRoots.xml keeps SctpTransportCookie's
@@ -638,6 +649,7 @@
   <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) AND !$(RuntimeIdentifier.StartsWith('win'))">
     <Compile Remove="src/Sensors/LhmComputer.cs" />
     <Compile Remove="src/Sensors/LibreHardwareSensorProvider.cs" />
+    <Compile Remove="src/Sensors/Astral/AstralNvApiClient.cs" />
     <Compile Remove="src/Cooling/WindowsFanControlProvider.cs" />
     <Compile Remove="src/Cooling/FanCalibrator.cs" />
     <Compile Remove="src/Activity/WindowsScreenTimeProvider.cs" />

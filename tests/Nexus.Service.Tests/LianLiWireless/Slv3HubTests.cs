@@ -18,6 +18,10 @@ public class Slv3HubTests
 {
     private static readonly byte[] FanMac = Convert.FromHexString("112233445566");
 
+    // Mirrors Slv3Hub's private PendingOpTickBudget: a bind/unbind not
+    // confirmed within this many ticks is dropped as non-converging.
+    private const int PendingOpTickBudget = 15;
+
     [Fact]
     public void EnsureConnected_learns_master_mac()
     {
@@ -93,16 +97,38 @@ public class Slv3HubTests
     }
 
     [Fact]
-    public void Bind_converges_once_device_list_confirms()
+    public void Bind_converges_on_the_first_tick_via_the_immediate_frame()
     {
         var (hub, net, _, _) = CreateConnectedHub();
         net.Fans.Add(new SimulatedFan { Mac = FanMac });
         Assert.True(hub.DriveTick());
 
+        // Bind() sends the first bind frame itself; the next poll confirms.
+        Assert.True(hub.Bind(Convert.ToHexString(FanMac)));
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.State.Fans[0].BoundToUs);
+        Assert.Equal(1, hub.State.Fans[0].Slot);
+    }
+
+    [Fact]
+    public void Bind_converges_via_tick_resend_when_the_immediate_frame_is_lost()
+    {
+        var (hub, net, _, _) = CreateConnectedHub();
+        var fan = new SimulatedFan { Mac = FanMac };
+        net.Fans.Add(fan);
+        Assert.True(hub.DriveTick());
+
+        // Fan drops off the RF network (beacon starved): the merged device list
+        // still carries it, so Bind() is accepted, but the immediate frame is
+        // lost (nothing on the fake network to apply it to).
+        net.Fans.Clear();
         Assert.True(hub.Bind(Convert.ToHexString(FanMac)));
         Assert.True(hub.DriveTick());
         Assert.False(hub.State.Fans[0].BoundToUs);
 
+        // Fan reappears; the pending op's per-tick re-send binds it.
+        net.Fans.Add(fan);
+        Assert.True(hub.DriveTick());
         Assert.True(hub.DriveTick());
         Assert.True(hub.State.Fans[0].BoundToUs);
         Assert.Equal(1, hub.State.Fans[0].Slot);
@@ -147,6 +173,29 @@ public class Slv3HubTests
     }
 
     [Fact]
+    public void ResetChain_sends_reboot_frames_addressed_to_the_fan()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac, MasterMac = net.MasterMac, RxType = 2 });
+        Assert.True(hub.DriveTick());
+        tx.SentFrames.Clear();
+
+        Assert.True(hub.ResetChain(Convert.ToHexString(FanMac)));
+
+        var rebootFrames = tx.SentFrames.FindAll(f =>
+            f.Length >= 12 && f[1] == 0 && f[4] == Slv3Protocol.RfFrameType && f[5] == Slv3Protocol.RfRebootChain);
+        Assert.Equal(3, rebootFrames.Count);
+        Assert.All(rebootFrames, f => Assert.Equal(FanMac, f.AsSpan(6, 6).ToArray()));
+    }
+
+    [Fact]
+    public void ResetChain_fails_for_unknown_mac()
+    {
+        var (hub, _, _, _) = CreateConnectedHub();
+        Assert.False(hub.ResetChain(Convert.ToHexString(FanMac)));
+    }
+
+    [Fact]
     public void Identify_sends_rf_select_frame_addressed_to_the_fan()
     {
         var (hub, net, tx, _) = CreateConnectedHub();
@@ -172,7 +221,7 @@ public class Slv3HubTests
             leds[i] = new RgbColor((byte)i, (byte)(i * 2), (byte)(i * 3));
         }
 
-        var sent = hub.SendRgbFrame(Convert.ToHexString(FanMac), leds, 100, 100, out var effectIndexHex);
+        var sent = hub.SendRgbFrame(Convert.ToHexString(FanMac), leds, 100, 100, streaming: false, out var effectIndexHex);
 
         Assert.True(sent);
         Assert.Equal(8, effectIndexHex.Length);
@@ -187,13 +236,31 @@ public class Slv3HubTests
     }
 
     [Fact]
+    public void SendRgbFrame_streaming_tier_sends_header_twice()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac, MasterMac = net.MasterMac, RxType = 3 });
+        Assert.True(hub.DriveTick());
+        tx.SentFrames.Clear();
+
+        var sent = hub.SendRgbFrame(Convert.ToHexString(FanMac), new RgbColor[40], 100, 100, streaming: true, out _);
+
+        Assert.True(sent);
+        // Part-0 payloads appear once per header repeat; chunk seq 0 of each
+        // payload carries packetIndex at RF byte [18] = frame byte [22].
+        var headerFrames = tx.SentFrames.FindAll(f =>
+            f.Length >= 23 && f[1] == 0 && f[4] == Slv3Protocol.RfFrameType && f[5] == Slv3Protocol.RfRgbSync && f[22] == 0);
+        Assert.Equal(2, headerFrames.Count);
+    }
+
+    [Fact]
     public void SendRgbFrame_fails_for_unbound_fan()
     {
         var (hub, net, _, _) = CreateConnectedHub();
         net.Fans.Add(new SimulatedFan { Mac = FanMac });
         Assert.True(hub.DriveTick());
 
-        var sent = hub.SendRgbFrame(Convert.ToHexString(FanMac), new RgbColor[40], 100, 100, out var effectIndexHex);
+        var sent = hub.SendRgbFrame(Convert.ToHexString(FanMac), new RgbColor[40], 100, 100, streaming: false, out var effectIndexHex);
 
         Assert.False(sent);
         Assert.Equal("", effectIndexHex);
@@ -203,7 +270,7 @@ public class Slv3HubTests
     public void SendRgbFrame_fails_for_unknown_mac()
     {
         var (hub, _, _, _) = CreateConnectedHub();
-        var sent = hub.SendRgbFrame(Convert.ToHexString(FanMac), new RgbColor[40], 100, 100, out var effectIndexHex);
+        var sent = hub.SendRgbFrame(Convert.ToHexString(FanMac), new RgbColor[40], 100, 100, streaming: false, out var effectIndexHex);
         Assert.False(sent);
         Assert.Equal("", effectIndexHex);
     }
@@ -285,6 +352,239 @@ public class Slv3HubTests
         Assert.False(hub.SetPortDuty("not-a-mac", 0, 50));
     }
 
+    // ── Chain persistence / device-list merge (link-health) ──
+
+    [Fact]
+    public void Chain_persists_through_empty_polls_until_expiry()
+    {
+        var clock = new ManualClock();
+        var (hub, net, _, _) = CreateConnectedHub(clock.NowMs);
+        net.Fans.Add(new SimulatedFan { Mac = FanMac });
+        Assert.True(hub.DriveTick());
+        Assert.Single(hub.State.Fans);
+
+        // Chain drops off the RF network but the poll keeps succeeding
+        // (empty reply); a merge-based list must not evict it immediately.
+        net.Fans.Clear();
+        for (var i = 0; i < 5; i++)
+        {
+            Assert.True(hub.DriveTick());
+        }
+        var fan = Assert.Single(hub.State.Fans);
+        Assert.False(fan.Stale);
+
+        clock.AdvanceMs(4_000); // past ChainStaleMs (3500 ms)
+        Assert.True(hub.DriveTick());
+        fan = Assert.Single(hub.State.Fans);
+        Assert.True(fan.Stale);
+
+        clock.AdvanceMs(31_000); // cumulative unseen time now past ChainExpiryMs (30000 ms)
+        Assert.True(hub.DriveTick());
+        Assert.Empty(hub.State.Fans);
+    }
+
+    [Fact]
+    public void Chain_seen_every_poll_never_goes_stale_despite_slow_clock_advance()
+    {
+        var clock = new ManualClock();
+        var (hub, net, _, _) = CreateConnectedHub(clock.NowMs);
+        net.Fans.Add(new SimulatedFan { Mac = FanMac });
+        Assert.True(hub.DriveTick());
+        Assert.False(hub.State.Fans[0].Stale);
+
+        clock.AdvanceMs(4_000); // would exceed ChainStaleMs if unseen, but the fan is re-reported below
+        Assert.True(hub.DriveTick());
+
+        Assert.False(hub.State.Fans[0].Stale);
+    }
+
+    // ── GetDev failure escalation / RX reset ──
+
+    [Fact]
+    public void Five_consecutive_getdev_failures_reset_the_rx_and_keep_the_list()
+    {
+        var (hub, net, _, rx) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac });
+        Assert.True(hub.DriveTick());
+
+        // A healthy handle that keeps returning an unreadable reply (wedged
+        // RX MCU) drives the 5-consecutive-failure reset path.
+        rx.FailReads = true;
+        for (var i = 0; i < 5; i++)
+        {
+            Assert.True(hub.DriveTick());
+        }
+        rx.FailReads = false;
+
+        var resetFrame = Assert.Single(rx.SentFrames, f => f.Length >= 1 && f[0] == Slv3Protocol.UsbResetAnother);
+        Assert.Equal(0x15, resetFrame[0]);
+
+        Assert.True(hub.DriveTick());
+        Assert.Single(hub.State.Fans);
+    }
+
+    [Fact]
+    public void Getdev_failures_past_the_reset_budget_make_drivetick_fail()
+    {
+        var (hub, net, _, rx) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac });
+        Assert.True(hub.DriveTick());
+
+        rx.FailReads = true;
+        // 3 resets x a 5-fail streak each = 15 ticks; a 4th streak of 5 fails
+        // then exhausts MaxRxResetsPerConnection and DriveTick starts failing.
+        var results = new bool[20];
+        for (var i = 0; i < results.Length; i++)
+        {
+            results[i] = hub.DriveTick();
+        }
+
+        Assert.True(results[18]);
+        Assert.False(results[19]);
+        Assert.Equal(3, rx.SentFrames.FindAll(f => f.Length >= 1 && f[0] == Slv3Protocol.UsbResetAnother).Count);
+    }
+
+    [Fact]
+    public void Getdev_send_failure_fails_the_tick_immediately_without_a_reset()
+    {
+        var (hub, net, _, rx) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac });
+        Assert.True(hub.DriveTick());
+
+        // A dead USB handle (the write itself fails) is fatal for the tick;
+        // it must not be folded into the wedged-MCU reset streak.
+        rx.FailSend = true;
+        Assert.False(hub.DriveTick());
+
+        Assert.DoesNotContain(rx.SentFrames, f => f.Length >= 1 && f[0] == Slv3Protocol.UsbResetAnother);
+    }
+
+    // ── Channel scan (MasterInitLocked) ──
+
+    [Fact]
+    public void EnsureConnected_scans_channels_when_the_master_answers_off_default()
+    {
+        var net = new FakeSlv3Network();
+        var tx = new FakeTxTransport(net) { MasterChannel = 15 };
+        var rx = new FakeRxTransport(net);
+        var hub = new Slv3Hub(new FakeDiscovery(), port => port.Role == Slv3DongleRole.Tx ? tx : rx);
+
+        // One attempt probes a bounded slice of the scan order (each dead
+        // channel costs a full read timeout under the hub lock); the cursor
+        // resumes across attempts, mirroring the worker's connect retries.
+        var connected = false;
+        for (var attempt = 0; attempt < 6 && !connected; attempt++)
+        {
+            connected = hub.EnsureConnected();
+        }
+
+        Assert.True(connected);
+        Assert.Equal(15, hub.State.Channel);
+    }
+
+    [Fact]
+    public void EnsureConnected_skips_the_scan_when_the_master_answers_on_the_default_channel()
+    {
+        var net = new FakeSlv3Network();
+        var tx = new FakeTxTransport(net); // MasterChannel defaults to Slv3Protocol.DefaultChannel
+        var rx = new FakeRxTransport(net);
+        var hub = new Slv3Hub(new FakeDiscovery(), port => port.Role == Slv3DongleRole.Tx ? tx : rx);
+
+        Assert.True(hub.EnsureConnected());
+
+        Assert.Equal(Slv3Protocol.DefaultChannel, hub.State.Channel);
+        Assert.Single(tx.SentFrames, f => f.Length >= 2 && f[0] == Slv3Protocol.UsbGetMac);
+    }
+
+    // ── RF_SaveCfg after a confirmed bind/unbind ──
+
+    [Fact]
+    public void Confirmed_bind_broadcasts_savecfg_exactly_three_times()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac });
+        Assert.True(hub.DriveTick());
+
+        Assert.True(hub.Bind(Convert.ToHexString(FanMac)));
+        tx.SentFrames.Clear();
+
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.DriveTick());
+
+        var saveCfgFrames = tx.SentFrames.FindAll(f =>
+            f.Length >= 18 && f[0] == Slv3Protocol.UsbSendRf && f[1] == 0
+            && f[4] == Slv3Protocol.RfFrameType && f[5] == Slv3Protocol.RfSaveCfg);
+
+        Assert.Equal(3, saveCfgFrames.Count);
+        foreach (var frame in saveCfgFrames)
+        {
+            Assert.Equal(new byte[] { 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF }, frame.AsSpan(6, 6).ToArray());
+            Assert.Equal(net.MasterMac, frame.AsSpan(12, 6).ToArray());
+        }
+    }
+
+    // ── Pending bind/unbind drop after PendingOpTickBudget ──
+
+    [Fact]
+    public void Pending_bind_drops_after_the_tick_budget_and_does_not_resume_on_its_own()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        var fan = new SimulatedFan { Mac = FanMac };
+        net.Fans.Add(fan);
+        Assert.True(hub.DriveTick());
+
+        net.Fans.Clear(); // fan unreachable: neither the immediate nor the re-send frame ever applies
+        Assert.True(hub.Bind(Convert.ToHexString(FanMac)));
+
+        for (var i = 0; i < PendingOpTickBudget + 1; i++)
+        {
+            Assert.True(hub.DriveTick());
+        }
+
+        tx.SentFrames.Clear();
+        net.Fans.Add(fan);
+        Assert.True(hub.DriveTick());
+        Assert.True(hub.DriveTick());
+
+        Assert.False(hub.State.Fans[0].BoundToUs);
+        Assert.DoesNotContain(tx.SentFrames, f =>
+            f.Length >= 12 && f[0] == Slv3Protocol.UsbSendRf && f[1] == 0
+            && f[4] == Slv3Protocol.RfFrameType && f[5] == Slv3Protocol.RfBind
+            && Slv3Protocol.MacEquals(f.AsSpan(6, 6), FanMac));
+    }
+
+    // ── EnsureVideoMode ──
+
+    [Fact]
+    public void EnsureVideoMode_arms_once_then_rearms_only_after_reconnect()
+    {
+        var (hub, net, tx, _) = CreateConnectedHub();
+        net.Fans.Add(new SimulatedFan { Mac = FanMac });
+        Assert.True(hub.DriveTick());
+        tx.SentFrames.Clear();
+
+        Assert.True(hub.EnsureVideoMode());
+
+        Assert.Equal(2, tx.SentFrames.Count); // 1 video-start + 1 prep frame (one known chain)
+        Assert.Equal(Slv3Protocol.UsbGetMac, tx.SentFrames[0][0]);
+        Assert.Equal(0x01, tx.SentFrames[0][1]);
+        Assert.Equal(Slv3Protocol.UsbSendRf, tx.SentFrames[1][0]);
+        Assert.Equal(0xFF, tx.SentFrames[1][3]);
+
+        tx.SentFrames.Clear();
+        Assert.True(hub.EnsureVideoMode()); // idempotent until disconnect
+        Assert.Empty(tx.SentFrames);
+
+        hub.Disconnect();
+        Assert.True(hub.EnsureConnected());
+        tx.SentFrames.Clear();
+
+        Assert.True(hub.EnsureVideoMode());
+        Assert.NotEmpty(tx.SentFrames.FindAll(f => f.Length >= 2 && f[0] == Slv3Protocol.UsbGetMac && f[1] == 0x01));
+    }
+
     // Finds the most recent RF_Bind USB frame (chunk 0) addressed to fanMac,
     // whose bytes [21..25) carry the 4-port PWM tuple (RF-payload [17..21),
     // shifted by the 4-byte USB-frame header).
@@ -305,14 +605,22 @@ public class Slv3HubTests
         return found!;
     }
 
-    private static (Slv3Hub Hub, FakeSlv3Network Net, FakeTxTransport Tx, FakeRxTransport Rx) CreateConnectedHub()
+    private static (Slv3Hub Hub, FakeSlv3Network Net, FakeTxTransport Tx, FakeRxTransport Rx) CreateConnectedHub(Func<long>? nowMs = null)
     {
         var net = new FakeSlv3Network();
         var tx = new FakeTxTransport(net);
         var rx = new FakeRxTransport(net);
-        var hub = new Slv3Hub(new FakeDiscovery(), port => port.Role == Slv3DongleRole.Tx ? tx : rx);
+        var hub = new Slv3Hub(new FakeDiscovery(), port => port.Role == Slv3DongleRole.Tx ? tx : rx, nowMs);
         Assert.True(hub.EnsureConnected());
         return (hub, net, tx, rx);
+    }
+
+    // Injectable monotonic clock for chain last-seen/expiry tests.
+    private sealed class ManualClock
+    {
+        private long _nowMs = 1_000_000;
+        public long NowMs() => _nowMs;
+        public void AdvanceMs(long delta) => _nowMs += delta;
     }
 
     private sealed class FakeDiscovery : ISlv3Discovery
@@ -347,6 +655,7 @@ public class Slv3HubTests
     private sealed class FakeTxTransport : ISlv3Transport
     {
         private readonly FakeSlv3Network _net;
+        private byte _lastGetMacChannel;
 
         public FakeTxTransport(FakeSlv3Network net)
         {
@@ -358,10 +667,22 @@ public class Slv3HubTests
         public string PortName => "fake-tx";
         public List<byte[]> SentFrames { get; } = new();
 
+        // Channel the fake master answers GetMac on. Defaults to the protocol
+        // default so a hub that never scans still connects on the first probe.
+        public byte MasterChannel { get; set; } = Slv3Protocol.DefaultChannel;
+
         public bool RfSend(ReadOnlySpan<byte> frame)
         {
             var copy = frame.ToArray();
             SentFrames.Add(copy);
+            if (copy.Length >= 2 && copy[0] == Slv3Protocol.UsbGetMac)
+            {
+                // GetMac and video-start share USB_CMD 0x11; byte [1] is the
+                // requested channel for GetMac and a fixed 0x01 for video-start.
+                // Only MasterInitLocked's probe/scan reads the reply that follows,
+                // so a video-start's byte [1] never gets mistaken for a channel.
+                _lastGetMacChannel = copy[1];
+            }
             if (copy.Length >= 21 && copy[0] == Slv3Protocol.UsbSendRf && copy[1] == 0 && copy[5] == Slv3Protocol.RfBind)
             {
                 var fanMac = copy.AsSpan(6, 6).ToArray();
@@ -387,7 +708,10 @@ public class Slv3HubTests
         {
             var reply = new byte[64];
             reply[0] = Slv3Protocol.UsbGetMac;
-            _net.MasterMac.CopyTo(reply, 1);
+            if (_lastGetMacChannel == MasterChannel)
+            {
+                _net.MasterMac.CopyTo(reply, 1);
+            }
             return reply;
         }
 
@@ -411,11 +735,33 @@ public class Slv3HubTests
         public bool IsOpen => true;
         public Slv3DongleRole Role => Slv3DongleRole.Rx;
         public string PortName => "fake-rx";
+        public List<byte[]> SentFrames { get; } = new();
 
-        public bool RfSend(ReadOnlySpan<byte> frame) => true;
+        // Simulates a wedged RX MCU: the GetDev write succeeds but the reply
+        // carries no valid echo, driving the 5-consecutive-failure reset path.
+        public bool FailReads { get; set; }
+
+        // Simulates a dead USB handle: the GetDev write itself fails, which
+        // DriveTick treats as fatal (no reset streak, immediate false).
+        public bool FailSend { get; set; }
+
+        public bool RfSend(ReadOnlySpan<byte> frame)
+        {
+            var copy = frame.ToArray();
+            SentFrames.Add(copy);
+            if (FailSend && copy.Length >= 1 && copy[0] == Slv3Protocol.UsbSendRf)
+            {
+                return false;
+            }
+            return true;
+        }
 
         public byte[] RfRead(int expectedLen)
         {
+            if (FailReads)
+            {
+                return Array.Empty<byte>();
+            }
             var buf = new byte[Slv3Protocol.RecordHeaderLength + _net.Fans.Count * Slv3Protocol.RecordLength];
             buf[0] = Slv3Protocol.UsbSendRf;
             buf[1] = (byte)_net.Fans.Count;
