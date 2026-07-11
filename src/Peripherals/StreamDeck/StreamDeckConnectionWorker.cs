@@ -332,7 +332,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     }
 
     /// <summary>
-    /// Blanks (brightness 0) any connected deck whose SleepAfterSeconds has
+    /// Blanks the display of any connected deck whose SleepAfterSeconds has
     /// elapsed with no key input since _lastInputAt. Runs once per tick, so
     /// idle detection resolves within one TickMs of the configured threshold;
     /// a deck already marked asleep is skipped so it is blanked only once per

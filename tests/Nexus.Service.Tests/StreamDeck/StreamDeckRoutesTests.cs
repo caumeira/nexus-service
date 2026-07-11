@@ -17,8 +17,10 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Nexus.Service.Auth;
 using Nexus.Service.Deck;
+using Nexus.Service.Devices.Handlers;
 using Nexus.Service.Peripherals.StreamDeck;
 using Nexus.Service.Persistence;
+using Nexus.Service.Routes;
 using Nexus.Service.Tests.Integration;
 using Xunit;
 
@@ -216,6 +218,10 @@ public sealed class StreamDeckRoutesTests : IDisposable
     [InlineData(-90, 270)]
     [InlineData(400, 0)]
     [InlineData(359, 0)]
+    [InlineData(45, 90)]
+    [InlineData(135, 180)]
+    [InlineData(225, 270)]
+    [InlineData(315, 0)]
     public async Task UpdateDeck_ClampsOrientationToNearestCanonicalValue(int input, int expected)
     {
         var (factory, client) = Boot();
@@ -488,5 +494,17 @@ public sealed class StreamDeckRoutesTests : IDisposable
             var res = await anon.GetAsync("/streamdeck/decks");
             Assert.Equal(HttpStatusCode.Unauthorized, res.StatusCode);
         }
+    }
+
+    [Fact]
+    public void ResolveConflictAppId_NoWarning_ReturnsNull()
+    {
+        Assert.Null(StreamDeckRoutes.ResolveConflictAppId(null));
+    }
+
+    [Fact]
+    public void ResolveConflictAppId_WithWarning_ReturnsTheElgatoCatalogId()
+    {
+        Assert.Equal(StreamDeckHandler.ElgatoConflictAppId, StreamDeckRoutes.ResolveConflictAppId("elgato-software-running"));
     }
 }

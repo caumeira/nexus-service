@@ -59,7 +59,7 @@ public sealed class StreamDeckSleepAfterTests : IDisposable
     {
         _store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings { Brightness = 80, SleepAfterSeconds = 30 });
 
-        _worker.Tick(); // connects; ApplyPersistedBrightness pushes 80
+        _worker.Tick(); // connects; ApplyPersistedBrightness pushes the persisted value
         Assert.Equal(80, _simulated.Brightness);
         Assert.False(_worker.IsAsleep("sim-0001"));
 
@@ -140,7 +140,8 @@ public sealed class StreamDeckSleepAfterTests : IDisposable
         _simulated.Poke(0, false);
         _worker.Tick();
 
-        // 40s since connect, but only 20s since the press/release above.
+        // Elapsed time since connect now exceeds the threshold, but elapsed
+        // time since the press/release above does not.
         _clock.Advance(TimeSpan.FromSeconds(20));
         _worker.Tick();
 

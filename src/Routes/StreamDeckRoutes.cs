@@ -35,7 +35,7 @@ public static class StreamDeckRoutes
         {
             var settings = store.Load().StreamDeck;
             var warning = handler.GetWarning(usb.Enumerate());
-            var conflictAppId = warning is not null ? StreamDeckHandler.ElgatoConflictAppId : null;
+            var conflictAppId = ResolveConflictAppId(warning);
             var response = new GetStreamDecksResponse();
             var seenSerials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (_, surface) in worker.Surfaces)
@@ -128,9 +128,9 @@ public static class StreamDeckRoutes
                     deck.SleepAfterSeconds = Math.Max(0, body.SleepAfterSeconds.Value);
                 }
             });
-            // Skipped while the deck is asleep (sleep-after blanked it to
-            // brightness 0): the new value already persisted above and
-            // applies the moment the next key press wakes it.
+            // Skipped while the deck is asleep (sleep-after already blanked
+            // it): the new value already persisted above and applies the
+            // moment the next key press wakes it.
             if (body.Brightness is not null && !worker.IsAsleep(serial))
             {
                 worker.FindBySerial(serial)?.SetBrightness(Math.Clamp(body.Brightness.Value, 0, 100));
@@ -313,7 +313,7 @@ public static class StreamDeckRoutes
         _ => "",
     };
 
-    /// <summary>Normalizes any degree value to the nearest of 0, 90, 180, or 270 (wrapping at 360).</summary>
+    /// <summary>Normalizes any degree value to the nearest cardinal (quarter-turn) rotation, wrapping past a full turn.</summary>
     private static int ClampOrientation(int degrees)
     {
         var normalized = ((degrees % 360) + 360) % 360;
@@ -325,6 +325,10 @@ public static class StreamDeckRoutes
             _ => 0,
         };
     }
+
+    /// <summary>The catalog id to kill the contending Elgato app, or null while there is no contention.</summary>
+    internal static string? ResolveConflictAppId(string? warning) =>
+        warning is not null ? StreamDeckHandler.ElgatoConflictAppId : null;
 
     /// <summary>
     /// A valid ImageRefs key is either the reserved "back" folder-back-key

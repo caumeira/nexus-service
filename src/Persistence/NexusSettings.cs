@@ -713,9 +713,9 @@ public sealed class PhysicalDeckSettings
     /// <summary>Empty falls back to the model name.</summary>
     public string Name { get; set; } = "";
     public int Brightness { get; set; } = DefaultBrightness;
-    /// <summary>User rotation composed on top of the model's wire Transform, degrees: 0, 90, 180, or 270. The web renders key bitmaps; the service only persists this.</summary>
+    /// <summary>User rotation composed on top of the model's wire Transform, in quarter-turn degree steps. The web renders key bitmaps; the service only persists this.</summary>
     public int Orientation { get; set; }
-    /// <summary>Seconds of no key input before the deck blanks (brightness 0). 0 disables sleep-after.</summary>
+    /// <summary>Seconds of no key input before the deck blanks the display. A non-positive value disables sleep-after.</summary>
     public int SleepAfterSeconds { get; set; }
     /// <summary>Last-known StreamDeckModel.ProductId, so a disconnected deck can still report its layout via StreamDeckModels.ByProductId.</summary>
     public int ProductId { get; set; }

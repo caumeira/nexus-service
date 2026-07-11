@@ -297,7 +297,9 @@ public static class ConflictAppCatalog
             // Elgato's own Stream Deck app can hold the same HID handle
             // concurrently as Nexus (see StreamDeckHandler.GetWarning), so
             // both apps painting the deck is a visual fight, not a
-            // connection failure.
+            // connection failure. Id references the same constant
+            // StreamDeckRoutes surfaces as conflictAppId, so the two never
+            // drift apart.
             Id = StreamDeckHandler.ElgatoConflictAppId,
             DisplayName = "Elgato Stream Deck",
             Category = "peripherals",

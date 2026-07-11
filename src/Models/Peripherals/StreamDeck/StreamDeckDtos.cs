@@ -25,9 +25,9 @@ public sealed class StreamDeckSummaryDto
     public string Transform { get; set; } = "";
     /// <summary>Persisted value, 0-100.</summary>
     public int Brightness { get; set; }
-    /// <summary>User rotation, degrees: 0, 90, 180, or 270.</summary>
+    /// <summary>User rotation, in quarter-turn degree steps.</summary>
     public int Orientation { get; set; }
-    /// <summary>Seconds of no key input before the deck blanks; 0 disables sleep-after.</summary>
+    /// <summary>Seconds of no key input before the deck blanks; a non-positive value disables sleep-after.</summary>
     public int SleepAfterSeconds { get; set; }
     public string FirmwareVersion { get; set; } = "";
     /// <summary>"elgato-software-running" when Elgato's own app is contending for the deck; null otherwise.</summary>
@@ -46,9 +46,9 @@ public sealed class UpdateStreamDeckBody
 {
     public string? Name { get; set; }
     public int? Brightness { get; set; }
-    /// <summary>Degrees; clamped to the nearest of 0, 90, 180, or 270.</summary>
+    /// <summary>Degrees; clamped to the nearest quarter-turn.</summary>
     public int? Orientation { get; set; }
-    /// <summary>Seconds of no key input before the deck blanks; clamped to >= 0.</summary>
+    /// <summary>Seconds of no key input before the deck blanks; clamped to a non-negative value.</summary>
     public int? SleepAfterSeconds { get; set; }
 }
 
