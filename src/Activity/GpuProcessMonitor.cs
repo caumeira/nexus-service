@@ -152,23 +152,7 @@ public sealed class GpuProcessMonitor : BackgroundService
         return j > i && int.TryParse(inst.AsSpan(i, j - i), out var pid) ? pid : 0;
     }
 
-    // Extract the adapter LUID from the instance's "luid_0xHIGH_0xLOW" segment,
-    // normalized to the same "HighPart:LowPart" form GpuAdapterLuids produces
-    // from DXGI. "" when absent/unparseable.
-    private static string ParseLuid(string inst)
-    {
-        const string tag = "luid_";
-        var i = inst.IndexOf(tag, StringComparison.Ordinal);
-        if (i < 0) return "";
-        var rest = inst.AsSpan(i + tag.Length);
-        var u1 = rest.IndexOf('_');
-        if (u1 <= 0) return "";
-        var high = rest[..u1].ToString();
-        var after = rest[(u1 + 1)..];
-        var u2 = after.IndexOf('_');
-        var low = (u2 < 0 ? after : after[..u2]).ToString();
-        return GpuAdapterLuids.LuidFromHex(high, low);
-    }
+    private static string ParseLuid(string inst) => GpuAdapterLuids.ParseInstanceLuid(inst);
 
     private static string ProcName(int pid)
     {

@@ -133,45 +133,9 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
                 Sensors = mapped,
             });
         }
-        AttachAdapterLuids(result, rawNames);
+        GpuAdapterLuids.Attach(result, rawNames);
         return result;
     }
-
-    // Attribute each GPU to its DXGI adapter LUID so the client can scope
-    // per-process GPU counters (whose PDH instances carry a luid tag) to the
-    // picked GPU. Exact model-name match first, then vendor + discrete/integrated
-    // class for any leftover; unmatched GPUs keep AdapterLuid="" (combined view).
-    // The exact match compares each GPU's raw LHM name (rawNames), not its
-    // possibly Astral/AIB-enriched display name, against DXGI's description.
-    private static void AttachAdapterLuids(List<GpuReadout> gpus, IReadOnlyDictionary<string, string> rawNames)
-    {
-        var adapters = GpuAdapterLuids.Enumerate();
-        if (adapters.Count == 0) return;
-        var used = new HashSet<string>();
-        foreach (var g in gpus)
-        {
-            var rawName = rawNames.TryGetValue(g.Id, out var n) ? n : g.Name;
-            var a = adapters.FirstOrDefault(x => !used.Contains(x.Luid)
-                && string.Equals(x.Description.Trim(), rawName.Trim(), StringComparison.OrdinalIgnoreCase));
-            if (a.Luid is { Length: > 0 }) { g.AdapterLuid = a.Luid; used.Add(a.Luid); }
-        }
-        foreach (var g in gpus)
-        {
-            if (g.AdapterLuid.Length > 0) continue;
-            var a = adapters.FirstOrDefault(x => !used.Contains(x.Luid)
-                && VendorMatches(g.Vendor, x.VendorId)
-                && (x.DedicatedVramMb >= 1024) == !g.Integrated);
-            if (a.Luid is { Length: > 0 }) { g.AdapterLuid = a.Luid; used.Add(a.Luid); }
-        }
-    }
-
-    private static bool VendorMatches(string vendor, uint vendorId) => vendor switch
-    {
-        "nvidia" => vendorId == 0x10DE,
-        "amd" => vendorId == 0x1002,
-        "intel" => vendorId == 0x8086,
-        _ => false,
-    };
 
     // LHM's HardwareType is authoritative for vendor; NVIDIA is always discrete,
     // Intel client GPUs always integrated. AMD is the ambiguous one: a discrete
