@@ -33,4 +33,8 @@ public sealed class SensorExtras
 
     /// <summary>Embedded controllers (laptop EC chips). Rare on desktops.</summary>
     public List<HardwareComponent> EmbeddedControllers { get; set; } = new();
+
+    /// <summary>Per-DIMM SPD data (temperature, capacity, SDRAM timings). Empty
+    /// when the platform can't reach SMBus/SPD, e.g. a VM or restricted BIOS.</summary>
+    public List<HardwareComponent> MemoryModules { get; set; } = new();
 }

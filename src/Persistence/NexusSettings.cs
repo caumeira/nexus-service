@@ -217,10 +217,11 @@ public sealed class LightingSettings
     public string Sync { get; set; } = InstallDefaults.Lighting.Sync;
     public Dictionary<string, float> BrightnessScale { get; set; } = new();
     public bool BrightnessEnabled { get; set; } = InstallDefaults.Lighting.BrightnessEnabled;
-    /// <summary>Master multiplier applied to every LED channel before it leaves
-    /// the RGB bridge. Combines with per-device <see cref="LightingDevicePreference.Brightness"/>
-    /// so the effective brightness for a given LED is <c>global * device / 100</c>.
-    /// Range 0..1; default 1.0 (no attenuation).</summary>
+    /// <summary>Master brightness cap applied to every LED channel before it
+    /// leaves the RGB bridge. Caps per-device <see cref="LightingDevicePreference.Brightness"/>
+    /// so the effective brightness for a given LED is <c>min(global, device / 100)</c>:
+    /// a zone can never render brighter than the master level.
+    /// Range 0..1; default 1.0 (no cap).</summary>
     public float GlobalBrightness { get; set; } = 1.0f;
     public Dictionary<string, int> SpeedScale { get; set; } = new();
     public bool SpeedEnabled { get; set; } = InstallDefaults.Lighting.SpeedEnabled;

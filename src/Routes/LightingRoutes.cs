@@ -108,9 +108,10 @@ public static class LightingRoutes
                 GpuAvailable = gpu?.Available ?? false,
             };
         }).AllowPanel();
-        // Master brightness slider: multiplies every LED channel before it leaves
-        // the RGB bridge. Read live by RgbBridge.OnFrame, so a POST takes effect
-        // on the next frame push without restarting any effect.
+        // Master brightness slider: caps every LED channel before it leaves the
+        // RGB bridge (a device never renders brighter than master). Read live by
+        // RgbBridge.OnFrame, so a POST takes effect on the next frame push
+        // without restarting any effect.
         app.MapGet("/lighting/global-brightness", (Nexus.Service.Persistence.IConfigStore store) =>
             new Models.Lighting.GlobalBrightnessBody { Value = store.Load().Lighting.GlobalBrightness }).AllowPanel();
         app.MapPost("/lighting/global-brightness", (Models.Lighting.GlobalBrightnessBody body,

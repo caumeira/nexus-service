@@ -82,7 +82,12 @@ public class TryxPanoramaHubTests
         public IReadOnlyList<HardwareSensor> GetMemorySensors() => MemorySensors;
         public string GetMemoryTotalFormatted() => "32 GB";
         public string GetRamBrandModel() => "";
-        public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents() => StorageComponents;
+        public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true) =>
+            includeSmart
+                ? StorageComponents
+                : StorageComponents
+                    .Where(kv => !LhmComponentIdentifiers.IsSmartStorageComponent(kv.Value.Id))
+                    .ToDictionary(kv => kv.Key, kv => kv.Value);
         public IReadOnlyList<string> GetStoragePartitions() => Array.Empty<string>();
         public IReadOnlyList<StorageDriveInfo> GetStorageInfo() => Array.Empty<StorageDriveInfo>();
         public string GetStorageBrandModel() => "";
@@ -447,6 +452,35 @@ public class TryxPanoramaHubTests
         });
 
         Assert.Contains("40°C", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
+    }
+
+    [Fact]
+    public void SetOverlay_storage_device_excludes_lhm_smart_components()
+    {
+        // GetStorageComponents(includeSmart: false) drops LHM SMART rows before
+        // they're built (LhmComponentIdentifiers.IsSmartStorageComponent); the
+        // hub calls it with includeSmart: false so the overlay only ever
+        // resolves the DriveInfo logical-volume subset.
+        var recording = new RecordingTransport();
+        var components = new Dictionary<string, StorageComponent>
+        {
+            ["C"] = new() { Id = "C", Sensors = [MakeSensor("Temp", "Temperature", 40f)] },
+            ["smart/nvme/0"] = new() { Id = "smart/nvme/0", Sensors = [MakeSensor("Composite Temperature", "Temperature", 55f)] },
+        };
+        var sensors = new StubSensors { StorageComponents = components };
+
+        Assert.DoesNotContain(sensors.GetStorageComponents(includeSmart: false).Keys, id => id.StartsWith("smart/"));
+
+        var hub = BuildHub(discovery: new StubDiscovery(), transportFactory: _ => recording, sensors: sensors);
+        hub.EnsureConnected();
+        recording.Writes.Clear();
+
+        hub.SetOverlay(new TryxOverlayConfig
+        {
+            Items = [new TryxOverlaySensorItem { SensorId = "test/Composite Temperature", Device = "storage", Label = "Stat" }],
+        });
+
+        Assert.Contains("--", Encoding.UTF8.GetString(Assert.Single(recording.Writes)));
     }
 
     [Fact]

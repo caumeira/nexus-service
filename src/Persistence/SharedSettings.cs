@@ -167,13 +167,15 @@ public sealed class DiagnosticsThresholdsPatch
 /// both true.</summary>
 public sealed class DiagnosticsNotifications
 {
+    // Master switch stays off by default; the per-category flags default on, so
+    // turning notifications on notifies for every category without extra setup.
     public bool Enabled { get; set; }
-    public bool HighTemp { get; set; }
-    public bool StorageHealth { get; set; }
-    public bool Cooling { get; set; }
-    public bool MemoryTest { get; set; }
-    public bool SystemDevices { get; set; }
-    public bool GpuThrottle { get; set; }
+    public bool HighTemp { get; set; } = true;
+    public bool StorageHealth { get; set; } = true;
+    public bool Cooling { get; set; } = true;
+    public bool MemoryTest { get; set; } = true;
+    public bool SystemDevices { get; set; } = true;
+    public bool GpuThrottle { get; set; } = true;
     public int CooldownMinutes { get; set; } = 60;
 }
 

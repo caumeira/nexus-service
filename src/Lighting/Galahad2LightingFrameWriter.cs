@@ -89,7 +89,7 @@ public sealed class Galahad2LightingFrameWriter : IHostedService, IDisposable
         var settings         = _store.Load();
         var ls               = settings.Devices.Galahad2Lighting;
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
-        var brightnessRaw    = (byte)Math.Clamp((int)Math.Round(ls.Brightness * globalBrightness), 0, 4);
+        var brightnessRaw    = (byte)Math.Clamp((int)Math.Round(Math.Min((double)ls.Brightness, globalBrightness * 4.0)), 0, 4);
 
         if (ls.Mode == "canvas")
         {

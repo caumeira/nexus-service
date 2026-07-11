@@ -199,6 +199,28 @@ public static class DiagnosticsHealthRoutes
             }
         }).LocalhostOnly();
 
+        // Mirrors /diagnostics/events/open-viewer: hands off to the
+        // user-session helper since the service cannot show devmgmt.msc
+        // itself from Session 0.
+        app.MapPost("/diagnostics/devices/open-manager", (IServiceProvider sp) =>
+        {
+            try
+            {
+#if WINDOWS
+                var registry = sp.GetRequiredService<Nexus.Service.Helper.HelperRegistry>();
+                _ = Nexus.Service.Helper.Domains.DiagnosticsCommands.OpenDeviceManagerAsync(registry);
+                return Results.Ok(new OpenDeviceManagerResponse { Opened = true });
+#else
+                return Results.Ok(new OpenDeviceManagerResponse { Opened = false, Error = "Device Manager is only available on Windows" });
+#endif
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[diagnostics] open-device-manager failed: {ex.Message}");
+                return Results.Ok(new OpenDeviceManagerResponse { Opened = false, Error = ex.Message });
+            }
+        }).LocalhostOnly();
+
         // Destructive and desktop-only: wipes the System and Application event
         // logs via wevtutil, then resyncs EventLogMonitor's in-memory store so
         // it stops serving now-deleted incidents.
@@ -595,6 +617,12 @@ public sealed record TemperatureHistoryResponse
 }
 
 public sealed record OpenEventViewerResponse
+{
+    public bool Opened { get; init; }
+    public string? Error { get; init; }
+}
+
+public sealed record OpenDeviceManagerResponse
 {
     public bool Opened { get; init; }
     public string? Error { get; init; }

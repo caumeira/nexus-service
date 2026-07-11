@@ -108,7 +108,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
             // draw a proportional gauge without juggling sibling lookups.
             float vramTotalMb = hw.Sensors
                 .Where(s => s.SensorType == SensorType.SmallData && s.Name.Contains("Total", StringComparison.OrdinalIgnoreCase))
-                .Select(s => s.Value ?? 0f)
+                .Select(s => SensorValueSanitizer.Sanitize(s.Value ?? 0f))
                 .FirstOrDefault();
             if (vramTotalMb > 0)
             {
@@ -205,11 +205,11 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
             // sensors self-describing.
             float used = hw.Sensors
                 .Where(s => s.SensorType == SensorType.Data && s.Name.Contains("Used", StringComparison.OrdinalIgnoreCase))
-                .Select(s => s.Value ?? 0f)
+                .Select(s => SensorValueSanitizer.Sanitize(s.Value ?? 0f))
                 .FirstOrDefault();
             float avail = hw.Sensors
                 .Where(s => s.SensorType == SensorType.Data && s.Name.Contains("Available", StringComparison.OrdinalIgnoreCase))
-                .Select(s => s.Value ?? 0f)
+                .Select(s => SensorValueSanitizer.Sanitize(s.Value ?? 0f))
                 .FirstOrDefault();
             float total = used + avail;
             if (total > 0)
@@ -244,8 +244,9 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
         return "";
     }
 
-    public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents()
+    public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true)
     {
+        _lhm.Update(TimeSpan.FromMilliseconds(100));
         var result = new Dictionary<string, StorageComponent>();
         foreach (var di in System.IO.DriveInfo.GetDrives())
         {
@@ -272,6 +273,24 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
                     MakeSensor($"storage/{label}/usage", "Usage", "Level", (float)usePct, "%", label),
                 },
             };
+        }
+        // LHM SMART per physical drive (composite/warning/critical temp, life,
+        // activity, power-on hours, etc), additional to the DriveInfo rows above.
+        // The "smart/" id keeps these out of consumers that only want the
+        // logical-volume subset (LhmComponentIdentifiers.IsSmartStorageComponent).
+        if (includeSmart)
+        {
+            foreach (var hw in FindHardware(HardwareType.Storage))
+            {
+                var component = BuildComponent(hw);
+                var id = LhmComponentIdentifiers.BuildSmartStorageId(hw.Identifier.ToString());
+                result[id] = new StorageComponent
+                {
+                    Id = id,
+                    Name = component.Name,
+                    Sensors = component.Sensors,
+                };
+            }
         }
         return result;
     }
@@ -470,6 +489,10 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
                 case HardwareType.EmbeddedController:
                     extras.EmbeddedControllers.Add(BuildComponent(hw));
                     break;
+                case HardwareType.Memory:
+                    if (LhmComponentIdentifiers.IsDimmModule(hw.Identifier.ToString()))
+                        extras.MemoryModules.Add(BuildComponent(hw));
+                    break;
             }
         }
 
@@ -507,19 +530,25 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
 
     private static List<HardwareSensor> MapSensors(IHardware hw)
     {
-        return hw.Sensors.Select(s => new HardwareSensor
+        return hw.Sensors.Select(s =>
         {
-            Id = s.Identifier.ToString(),
-            Name = s.Name,
-            Type = MapSensorType(s.SensorType),
-            Value = s.Value ?? 0f,
-            Min = s.Min ?? 0f,
-            Max = s.Max ?? 0f,
-            Units = MapUnits(s.SensorType),
-            Formatted = FormatValue(s.Value ?? 0f, s.SensorType),
-            FormattedMax = FormatValue(s.Max ?? 0f, s.SensorType),
-            FormattedMin = FormatValue(s.Min ?? 0f, s.SensorType),
-            Parent = new SensorParent { Id = hw.Identifier.ToString(), Name = hw.Name },
+            var value = SensorValueSanitizer.Sanitize(s.Value ?? 0f);
+            var min = SensorValueSanitizer.Sanitize(s.Min ?? 0f);
+            var max = SensorValueSanitizer.Sanitize(s.Max ?? 0f);
+            return new HardwareSensor
+            {
+                Id = s.Identifier.ToString(),
+                Name = s.Name,
+                Type = MapSensorType(s.SensorType),
+                Value = value,
+                Min = min,
+                Max = max,
+                Units = MapUnits(s.SensorType),
+                Formatted = FormatValue(value, s.SensorType),
+                FormattedMax = FormatValue(max, s.SensorType),
+                FormattedMin = FormatValue(min, s.SensorType),
+                Parent = new SensorParent { Id = hw.Identifier.ToString(), Name = hw.Name },
+            };
         }).ToList();
     }
 

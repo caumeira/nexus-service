@@ -23,6 +23,13 @@ public sealed class OpenLogsPayload { }
 /// </summary>
 public sealed class OpenEventViewerPayload { }
 
+/// <summary>
+/// Payload for <c>diagnostics.openDeviceManager</c>. Service-to-helper, one-way,
+/// same shape and reasoning as <see cref="OpenLogsPayload"/>: devmgmt.msc
+/// must launch in the user session, not Session 0.
+/// </summary>
+public sealed class OpenDeviceManagerPayload { }
+
 // JSON source-gen registration is centralised in
 // src/Serialization/AppJsonContext.cs - append a matching
 // [JsonSerializable(typeof(OpenLogsPayload))] line there.
@@ -55,6 +62,17 @@ public static class DiagnosticsCommands
             payloadType: AppJsonContext.Default.OpenEventViewerPayload,
             ct: ct);
     }
+
+    public static Task OpenDeviceManagerAsync(HelperRegistry registry, CancellationToken ct = default)
+    {
+        var conn = registry.GetAny();
+        if (conn is null) return Task.CompletedTask;
+        return conn.SendAsync(
+            type: "diagnostics.openDeviceManager",
+            payload: new OpenDeviceManagerPayload(),
+            payloadType: AppJsonContext.Default.OpenDeviceManagerPayload,
+            ct: ct);
+    }
 }
 
 /// <summary>
@@ -67,11 +85,13 @@ public sealed class DiagnosticsHandler
 {
     private readonly Action _onOpenLogs;
     private readonly Action _onOpenEventViewer;
+    private readonly Action _onOpenDeviceManager;
 
-    public DiagnosticsHandler(Action onOpenLogs, Action onOpenEventViewer)
+    public DiagnosticsHandler(Action onOpenLogs, Action onOpenEventViewer, Action onOpenDeviceManager)
     {
         _onOpenLogs = onOpenLogs;
         _onOpenEventViewer = onOpenEventViewer;
+        _onOpenDeviceManager = onOpenDeviceManager;
     }
 
     public void Register(HelperHandlerRegistry registry)
@@ -84,6 +104,11 @@ public sealed class DiagnosticsHandler
         registry.Register("diagnostics.openEventViewer", (env, _) =>
         {
             try { _onOpenEventViewer(); } catch { }
+            return Task.FromResult(env.Ok());
+        });
+        registry.Register("diagnostics.openDeviceManager", (env, _) =>
+        {
+            try { _onOpenDeviceManager(); } catch { }
             return Task.FromResult(env.Ok());
         });
     }

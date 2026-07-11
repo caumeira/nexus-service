@@ -1287,10 +1287,11 @@ public sealed class RgbBridge : IDisposable
                 _identifyOverrides.TryRemove(dev.Id, out _);
             }
 
-            // Combined brightness multiplier: global slider * per-device slider.
-            // Both are user-facing 0..100 sliders; identify ignores brightness
+            // Effective brightness multiplier: the master level caps the
+            // per-device slider, so a zone never renders brighter than master
+            // (effective = min(device/100, global)). Identify ignores brightness
             // so the flash always reads as max-bright white even when the user
-            // has dimmed the device or the global multiplier.
+            // has dimmed the device or the master level.
             // The Dictionary<,> on LightingDevicePrefs is mutated in place by
             // SetBrightness writers; a concurrent insert during this read can
             // throw InvalidOperationException. Catch it and fall back to full
@@ -1298,7 +1299,7 @@ public sealed class RgbBridge : IDisposable
             int devBrightness;
             try { devBrightness = devicePrefs.TryGetValue(dev.Id, out var pref) ? pref.Brightness : 100; }
             catch (InvalidOperationException) { devBrightness = 100; }
-            var brightnessMul = globalBrightness * Math.Clamp(devBrightness, 0, 100) / 100.0;
+            var brightnessMul = Math.Min(Math.Clamp(devBrightness, 0, 100) / 100.0, globalBrightness);
 
             if (isOff)
             {

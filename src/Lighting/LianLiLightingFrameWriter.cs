@@ -270,7 +270,7 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         {
             return LianLiLightingModes.BrightnessCodes[0];
         }
-        var idx = (int)Math.Round(ls.Brightness * globalBrightness);
+        var idx = (int)Math.Round(Math.Min((double)ls.Brightness, globalBrightness * 4.0));
         return LianLiLightingModes.BrightnessCodes[Math.Clamp(idx, 0, 4)];
     }
 

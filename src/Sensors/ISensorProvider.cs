@@ -41,7 +41,14 @@ public interface ISensorProvider
     /// </summary>
     string GetRamBrandModel();
 
-    IReadOnlyDictionary<string, StorageComponent> GetStorageComponents();
+    /// <summary>
+    /// Logical-volume components (DriveInfo Used/Free/Usage) keyed by drive
+    /// letter/mount, plus one "smart/"-prefixed component per LHM
+    /// physical-drive SMART node when <paramref name="includeSmart"/> is true.
+    /// Pass false to skip building the SMART rows entirely (e.g. the Tryx
+    /// overlay, which only ever resolves the logical-volume subset).
+    /// </summary>
+    IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true);
     IReadOnlyList<string> GetStoragePartitions();
     IReadOnlyList<StorageDriveInfo> GetStorageInfo();
     /// <summary>

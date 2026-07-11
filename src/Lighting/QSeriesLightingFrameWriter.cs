@@ -135,7 +135,7 @@ public sealed class QSeriesLightingFrameWriter : IHostedService, IDisposable
         int devBrightness;
         try { devBrightness = prefs.TryGetValue(id, out var pref) ? pref.Brightness : 100; }
         catch (InvalidOperationException) { devBrightness = 100; }
-        return globalBrightness * Math.Clamp(devBrightness, 0, 100) / 100.0;
+        return Math.Min(Math.Clamp(devBrightness, 0, 100) / 100.0, globalBrightness);
     }
 
     private static void FillBufferSlice(QColor[] dst, ReadOnlySpan<byte> src, int ledCount,

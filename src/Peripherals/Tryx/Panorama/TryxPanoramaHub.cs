@@ -967,7 +967,9 @@ public sealed class TryxPanoramaHub : IDisposable
         "gpu" => GetPrimaryGpuSensors(),
         "memory" => _sensors.GetMemorySensors(),
         "motherboard" => _sensors.GetMotherboardSensors(),
-        "storage" => FlattenSensors(_sensors.GetStorageComponents().Values),
+        // includeSmart: false - the overlay only ever showed the DriveInfo
+        // logical-volume Used/Free/Usage subset, never the LHM SMART rows.
+        "storage" => FlattenSensors(_sensors.GetStorageComponents(includeSmart: false).Values),
         "network" => FlattenSensors(_sensors.GetSensorExtras().Nics),
         "fps" => _fps.GetComponent().Sensors,
         _ => Array.Empty<HardwareSensor>(),

@@ -209,14 +209,16 @@ public sealed class ProfileRoutesIntegrationTests : IDisposable
         Assert.Equal(60, thresholds.GetProperty("ramC").GetDouble());
         Assert.Equal(0, diagnostics.GetProperty("warningLingerMinutes").GetInt32());
 
+        // Master switch off by default; every category on, so enabling
+        // notifications alerts for all of them without extra setup.
         var notifications = diagnostics.GetProperty("notifications");
         Assert.False(notifications.GetProperty("enabled").GetBoolean());
-        Assert.False(notifications.GetProperty("highTemp").GetBoolean());
-        Assert.False(notifications.GetProperty("storageHealth").GetBoolean());
-        Assert.False(notifications.GetProperty("cooling").GetBoolean());
-        Assert.False(notifications.GetProperty("memoryTest").GetBoolean());
-        Assert.False(notifications.GetProperty("systemDevices").GetBoolean());
-        Assert.False(notifications.GetProperty("gpuThrottle").GetBoolean());
+        Assert.True(notifications.GetProperty("highTemp").GetBoolean());
+        Assert.True(notifications.GetProperty("storageHealth").GetBoolean());
+        Assert.True(notifications.GetProperty("cooling").GetBoolean());
+        Assert.True(notifications.GetProperty("memoryTest").GetBoolean());
+        Assert.True(notifications.GetProperty("systemDevices").GetBoolean());
+        Assert.True(notifications.GetProperty("gpuThrottle").GetBoolean());
         Assert.Equal(60, notifications.GetProperty("cooldownMinutes").GetInt32());
 
         var components = diagnostics.GetProperty("components");

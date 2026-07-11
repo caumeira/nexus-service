@@ -25,7 +25,7 @@ public class SummarySensorsTests
         public IReadOnlyList<HardwareSensor> GetMemorySensors() => MemorySensors;
         public string GetMemoryTotalFormatted() => "32 GB";
         public string GetRamBrandModel() => "";
-        public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents() => new Dictionary<string, StorageComponent>();
+        public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true) => new Dictionary<string, StorageComponent>();
         public IReadOnlyList<string> GetStoragePartitions() => Array.Empty<string>();
         public IReadOnlyList<StorageDriveInfo> GetStorageInfo() => Array.Empty<StorageDriveInfo>();
         public string GetStorageBrandModel() => "";

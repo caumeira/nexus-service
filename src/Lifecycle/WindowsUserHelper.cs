@@ -225,7 +225,8 @@ internal static class WindowsUserHelper
         new DiagnosticsHandler(
             onOpenLogs: () => Platform.Windows.ForegroundNudge.OpenFolderOverApp(
                 Nexus.Service.Platform.ServiceLog.LogsDirectory),
-            onOpenEventViewer: () => Platform.Windows.ForegroundNudge.OpenFileOverApp("eventvwr.msc")
+            onOpenEventViewer: () => Platform.Windows.ForegroundNudge.OpenFileOverApp("eventvwr.msc"),
+            onOpenDeviceManager: () => Platform.Windows.ForegroundNudge.OpenFileOverApp("devmgmt.msc")
         ).Register(handlerRegistry);
         new SystemHandler().Register(handlerRegistry);
         new ProfileListHandler(payload =>

@@ -26,8 +26,22 @@ public static class DeviceControlPolicy
         ["streamdeck"] = StreamDeckHandler.ElgatoConflictAppId,
     };
 
+    // Hyte + iBUYPOWER hardware: the brands Nexus is built for. Every other
+    // first-party handler drives third-party hardware whose support is
+    // experimental (surfaced with a badge in the UI).
+    private static readonly HashSet<string> FirstPartyHandlers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "cnvs", "keeb", "np50", "smarthub", "y70", "qseries", "fan-hub",
+    };
+
     public static bool DefaultOn(string handlerId) => !ConflictAppByHandler.ContainsKey(handlerId);
 
     public static string? ConflictAppFor(string handlerId)
         => ConflictAppByHandler.TryGetValue(handlerId, out var id) ? id : null;
+
+    /// <summary>
+    /// True for handlers driving non-Hyte/iBUYPOWER hardware, whose support is
+    /// experimental. Drives the "Experimental" badge in the UI.
+    /// </summary>
+    public static bool IsExperimental(string handlerId) => !FirstPartyHandlers.Contains(handlerId);
 }
