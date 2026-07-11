@@ -19,6 +19,13 @@ internal static class AstralTelemetryParser
     public const int BlockSize = 24;
     public const int PinCount = 6;
 
+    // All six 12VHPWR pins sit on the same 12V rail, so a genuine read has every
+    // pin near 12V. A read from a non-Astral card that happens to answer at 0x56
+    // (or a corrupt transfer) won't - this band rejects it so we don't emit bogus
+    // amps or mislabel the card "ROG Astral". Deliberately wide (rail sag/spike).
+    private const float MinPlausiblePinVolts = 6f;
+    private const float MaxPlausiblePinVolts = 16f;
+
     public readonly record struct PinReading(float VoltageVolts, float CurrentAmps, float PowerWatts);
 
     public readonly record struct AstralReadout(
@@ -49,6 +56,12 @@ internal static class AstralTelemetryParser
         {
             var current = words[i * 2] / 1000f;
             var voltage = words[i * 2 + 1] / 1000f;
+            if (voltage < MinPlausiblePinVolts || voltage > MaxPlausiblePinVolts)
+            {
+                throw new ArgumentException(
+                    $"Astral pin {i + 1} voltage {voltage:F3}V outside the plausible 12V-rail band; " +
+                    "not an Astral power-monitor block.", nameof(block));
+            }
             var power = voltage * current;
             pins[i] = new PinReading(voltage, current, power);
             connectorCurrent += current;

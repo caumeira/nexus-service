@@ -13,9 +13,22 @@ public class AstralGpuSupplementTests
         public uint SubSystemId;
         public bool HasSubSystemId = true;
         public bool ReadSucceeds;
-        public byte[] Block = new byte[AstralTelemetryParser.BlockSize];
+        public byte[] Block = ValidBlock();
         public int SubsystemCalls;
         public int ReadCalls;
+
+        // Every word = 12000 -> each pin reads 12.0 V / 12.0 A, so it passes
+        // AstralTelemetryParser's 12V-rail plausibility band.
+        private static byte[] ValidBlock()
+        {
+            var block = new byte[AstralTelemetryParser.BlockSize];
+            for (var i = 0; i < AstralTelemetryParser.BlockSize; i += 2)
+            {
+                block[i] = 0x2E;
+                block[i + 1] = 0xE0;
+            }
+            return block;
+        }
 
         public bool TryGetPciSubsystemId(int adapterIndex, out uint subSystemId)
         {

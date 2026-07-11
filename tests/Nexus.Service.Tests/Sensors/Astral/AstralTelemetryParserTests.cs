@@ -103,4 +103,21 @@ public class AstralTelemetryParserTests
     {
         Assert.Throws<ArgumentException>(() => AstralTelemetryParser.Parse(new byte[10]));
     }
+
+    [Fact]
+    public void Parse_throws_when_pin_voltages_are_not_on_the_12v_rail()
+    {
+        // A non-Astral device answering at 0x56, or a corrupt transfer, won't
+        // have every pin near 12V - reject it so we emit no bogus amps and don't
+        // mislabel the card "ROG Astral". All-zero and out-of-band both fail.
+        Assert.Throws<ArgumentException>(
+            () => AstralTelemetryParser.Parse(new byte[AstralTelemetryParser.BlockSize]));
+
+        var wild = BuildBlock(new (float, float)[]
+        {
+            (40.000f, 5.000f), (12.100f, 5.100f), (12.200f, 5.200f),
+            (12.300f, 5.300f), (12.400f, 5.400f), (12.500f, 5.500f),
+        });
+        Assert.Throws<ArgumentException>(() => AstralTelemetryParser.Parse(wild));
+    }
 }
