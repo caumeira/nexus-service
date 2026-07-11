@@ -31,8 +31,8 @@ public sealed class DeckAction
     public DeckNexusAction? NexusAction { get; set; }
 
     public string? Keys { get; set; }
+    /// <summary>text: always pastes immediately (clipboard set + paste chord injection).</summary>
     public string? Text { get; set; }
-    public bool? Paste { get; set; }
 
     /// <summary>lock | sleep | shutdown | restart | logout.</summary>
     public string? PowerAction { get; set; }

@@ -106,14 +106,24 @@ public class DeckActionConverterTests
     [Fact]
     public void Text_RoundTrips()
     {
-        var a = Deserialize("{\"type\":\"text\",\"text\":\"hello\",\"paste\":true}");
+        var a = Deserialize("{\"type\":\"text\",\"text\":\"hello\"}");
         Assert.Equal("text", a.Type);
         Assert.Equal("hello", a.Text);
-        Assert.True(a.Paste);
 
         var b = RoundTrip(a);
         Assert.Equal(a.Text, b.Text);
-        Assert.Equal(a.Paste, b.Paste);
+    }
+
+    [Fact]
+    public void Text_LegacyPasteKey_IsSilentlyIgnoredOnRead()
+    {
+        var a = Deserialize("{\"type\":\"text\",\"text\":\"hello\",\"paste\":false}");
+        Assert.Equal("text", a.Type);
+        Assert.Equal("hello", a.Text);
+
+        var raw = JsonSerializer.Serialize(a, AppJsonContext.Default.DeckAction);
+        using var doc = JsonDocument.Parse(raw);
+        Assert.False(doc.RootElement.TryGetProperty("paste", out _));
     }
 
     [Fact]
@@ -188,7 +198,7 @@ public class DeckActionConverterTests
     {
         var json = "{\"type\":\"sequence\",\"steps\":["
             + "{\"action\":{\"type\":\"hotkey\",\"keys\":\"ctrl+c\"},\"pressMs\":10,\"gapAfterMs\":20},"
-            + "{\"action\":{\"type\":\"text\",\"text\":\"pasted\",\"paste\":true}}"
+            + "{\"action\":{\"type\":\"text\",\"text\":\"pasted\"}}"
             + "]}";
         var a = Deserialize(json);
         Assert.Equal("sequence", a.Type);
