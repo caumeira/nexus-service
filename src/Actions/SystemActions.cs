@@ -246,7 +246,7 @@ public sealed class SystemActions
             {
                 return true;
             }
-            Nexus.Service.Platform.ServiceLog.Warn("[system-actions] no active console user session for taskmgr.exe");
+            Nexus.Service.Platform.ServiceLog.Warn("[system-actions] task manager launch via user session failed");
 #endif
             return false;
         }

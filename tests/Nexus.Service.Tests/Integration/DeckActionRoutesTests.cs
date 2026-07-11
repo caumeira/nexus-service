@@ -162,4 +162,20 @@ public class DeckActionRoutesTests
             Assert.Null(_power.Called);
         }
     }
+
+    [Fact]
+    public async Task OpenTaskManager_requires_auth()
+    {
+        // OpenTaskManager has no injectable provider seam (same as
+        // OpenUrlAsync/OpenPathAsync/OpenSettingsAsync) - it shells out to the
+        // real OS on a successful dispatch, so only the auth gate is exercised
+        // here rather than a real request with a valid token.
+        var (factory, _) = Boot();
+        using (factory)
+        {
+            var anon = factory.CreateClient();
+            var res = await anon.PostAsync("/system/open-task-manager", Json("{}"));
+            Assert.False(res.IsSuccessStatusCode);
+        }
+    }
 }
