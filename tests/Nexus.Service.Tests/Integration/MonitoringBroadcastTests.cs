@@ -34,6 +34,7 @@ internal sealed class StubSensorProvider : ISensorProvider
     }
     public (bool Healthy, float DistanceToTJMax) GetCpuHealth() => (true, 20f);
     public List<GpuReadout> Gpus { get; init; } = new();
+    public List<HardwareComponent> MemoryModules { get; init; } = new();
     public IReadOnlyList<string> GetGpuModels() => Gpus.Select(g => g.Name).ToList();
     public IReadOnlyList<HardwareSensor> GetGpuSensors() => Gpus.SelectMany(g => g.Sensors).ToList();
     public IReadOnlyList<GpuReadout> GetGpus() => Gpus;
@@ -55,7 +56,7 @@ internal sealed class StubSensorProvider : ISensorProvider
         };
     }
     public string GetMemoryTotalFormatted() => "16 GB";
-    public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents() =>
+    public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true) =>
         new Dictionary<string, StorageComponent>();
     public IReadOnlyList<string> GetStoragePartitions() => Array.Empty<string>();
     public IReadOnlyList<StorageDriveInfo> GetStorageInfo() => Array.Empty<StorageDriveInfo>();
@@ -87,6 +88,7 @@ internal sealed class StubSensorProvider : ISensorProvider
                     },
                 },
             },
+            MemoryModules = new List<HardwareComponent>(MemoryModules),
         };
     }
     public string GetOsVersion() => "test-os";
@@ -502,6 +504,48 @@ public class MonitoringBroadcastTests
         Assert.DoesNotContain("cpu", captured.Select(c => c.Topic));
         Assert.Equal(1, sensors.ExtrasReads);
         Assert.Equal(0, sensors.CpuSensorReads);
+    }
+
+    [Fact]
+    public async Task Tick_WithExtrasSubscriber_IncludesMemoryModules()
+    {
+        var hub = new MultiplexHub();
+        var sensors = new StubSensorProvider
+        {
+            MemoryModules =
+            {
+                new HardwareComponent
+                {
+                    Id = "/memory/dimm/0",
+                    Name = "Corsair - CMK16GX4M2B3200C16 (#0)",
+                    Sensors = new List<HardwareSensor>
+                    {
+                        new()
+                        {
+                            Id = "/memory/dimm/0/temperature/0",
+                            Name = "DIMM #0",
+                            Type = "Temperature",
+                            Value = 38,
+                            Units = "°C",
+                            Formatted = "38.0 °C",
+                            Parent = new SensorParent { Id = "/memory/dimm/0", Name = "Corsair - CMK16GX4M2B3200C16 (#0)" },
+                        },
+                    },
+                },
+            },
+        };
+        var broadcaster = BuildBroadcaster(hub, sensors);
+        var captured = new List<(string Topic, string Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) =>
+            captured.Add((topic, System.Text.Encoding.UTF8.GetString(payload.Span)));
+
+        using var sub = hub.AddTestSubscription("extras");
+        await broadcaster.Tick(CancellationToken.None);
+
+        var extras = captured.FirstOrDefault(c => c.Topic == "extras");
+        Assert.NotEqual(default, extras);
+        Assert.Contains("\"memoryModules\"", extras.Payload);
+        Assert.Contains("CMK16GX4M2B3200C16", extras.Payload);
     }
 
     [Fact]

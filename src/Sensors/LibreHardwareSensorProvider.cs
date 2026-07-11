@@ -244,8 +244,9 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
         return "";
     }
 
-    public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents()
+    public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true)
     {
+        _lhm.Update(TimeSpan.FromMilliseconds(100));
         var result = new Dictionary<string, StorageComponent>();
         foreach (var di in System.IO.DriveInfo.GetDrives())
         {
@@ -272,6 +273,24 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
                     MakeSensor($"storage/{label}/usage", "Usage", "Level", (float)usePct, "%", label),
                 },
             };
+        }
+        // LHM SMART per physical drive (composite/warning/critical temp, life,
+        // activity, power-on hours, etc), additional to the DriveInfo rows above.
+        // The "smart/" id keeps these out of consumers that only want the
+        // logical-volume subset (LhmComponentIdentifiers.IsSmartStorageComponent).
+        if (includeSmart)
+        {
+            foreach (var hw in FindHardware(HardwareType.Storage))
+            {
+                var component = BuildComponent(hw);
+                var id = LhmComponentIdentifiers.BuildSmartStorageId(hw.Identifier.ToString());
+                result[id] = new StorageComponent
+                {
+                    Id = id,
+                    Name = component.Name,
+                    Sensors = component.Sensors,
+                };
+            }
         }
         return result;
     }
@@ -469,6 +488,10 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
                     break;
                 case HardwareType.EmbeddedController:
                     extras.EmbeddedControllers.Add(BuildComponent(hw));
+                    break;
+                case HardwareType.Memory:
+                    if (LhmComponentIdentifiers.IsDimmModule(hw.Identifier.ToString()))
+                        extras.MemoryModules.Add(BuildComponent(hw));
                     break;
             }
         }

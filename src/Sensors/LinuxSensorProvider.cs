@@ -420,7 +420,7 @@ public sealed class LinuxSensorProvider : ISensorProvider
         return _memTotal;
     }
 
-    public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents()
+    public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true)
     {
         var result = new Dictionary<string, StorageComponent>();
         foreach (var di in GetRealDrives())
