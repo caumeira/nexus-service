@@ -202,4 +202,47 @@ internal static class RenderKit
         });
         return buffer;
     }
+
+    /// <summary>Extracts a top-down RGBA8888 buffer from an image, keeping alpha (unlike <see cref="ToRgb24"/>) for callers that still need to transform pixels before dropping it.</summary>
+    public static byte[] ToRgba32Bytes(Image<Rgba32> image)
+    {
+        var buffer = new byte[image.Width * image.Height * 4];
+        var offset = 0;
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var pixel = row[x];
+                    buffer[offset++] = pixel.R;
+                    buffer[offset++] = pixel.G;
+                    buffer[offset++] = pixel.B;
+                    buffer[offset++] = pixel.A;
+                }
+            }
+        });
+        return buffer;
+    }
+
+    /// <summary>Builds an image from a top-down RGBA8888 buffer, the inverse of <see cref="ToRgba32Bytes"/>.</summary>
+    public static Image<Rgba32> FromRgba32Bytes(byte[] rgba, int width, int height)
+    {
+        var image = new Image<Rgba32>(width, height);
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                var rowOffset = y * width * 4;
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var o = rowOffset + x * 4;
+                    row[x] = new Rgba32(rgba[o], rgba[o + 1], rgba[o + 2], rgba[o + 3]);
+                }
+            }
+        });
+        return image;
+    }
 }

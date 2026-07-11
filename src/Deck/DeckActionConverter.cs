@@ -101,6 +101,31 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         {
             action.KeysB = keysBEl.GetString();
         }
+        if (root.TryGetProperty("category", out var categoryEl) && categoryEl.ValueKind == JsonValueKind.String)
+        {
+            action.Category = categoryEl.GetString();
+        }
+        if (root.TryGetProperty("sensor", out var sensorEl) && sensorEl.ValueKind == JsonValueKind.String)
+        {
+            action.Sensor = sensorEl.GetString();
+        }
+        if (root.TryGetProperty("style", out var styleEl) && styleEl.ValueKind == JsonValueKind.String)
+        {
+            action.Style = styleEl.GetString();
+        }
+        if (root.TryGetProperty("color", out var colorEl) && colorEl.ValueKind == JsonValueKind.String)
+        {
+            action.Color = colorEl.GetString();
+        }
+        if (root.TryGetProperty("showName", out var showNameEl) &&
+            (showNameEl.ValueKind == JsonValueKind.True || showNameEl.ValueKind == JsonValueKind.False))
+        {
+            action.ShowName = showNameEl.GetBoolean();
+        }
+        if (root.TryGetProperty("press", out var pressEl) && pressEl.ValueKind == JsonValueKind.String)
+        {
+            action.Press = pressEl.GetString();
+        }
 
         if (root.TryGetProperty("action", out var actionEl))
         {
@@ -194,6 +219,30 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         if (value.KeysB is not null)
         {
             writer.WriteString("keysB", value.KeysB);
+        }
+        if (value.Category is not null)
+        {
+            writer.WriteString("category", value.Category);
+        }
+        if (value.Sensor is not null)
+        {
+            writer.WriteString("sensor", value.Sensor);
+        }
+        if (value.Style is not null)
+        {
+            writer.WriteString("style", value.Style);
+        }
+        if (value.Color is not null)
+        {
+            writer.WriteString("color", value.Color);
+        }
+        if (value.ShowName is not null)
+        {
+            writer.WriteBoolean("showName", value.ShowName.Value);
+        }
+        if (value.Press is not null)
+        {
+            writer.WriteString("press", value.Press);
         }
 
         switch (value.Type)

@@ -6,9 +6,11 @@ using System.Threading.Tasks;
 using Nexus.Service.Deck;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
+using Nexus.Service.Models.Sensors;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Peripherals.StreamDeck;
 using Nexus.Service.Persistence;
+using Nexus.Service.Sensors;
 using Nexus.Service.Sockets;
 
 namespace Nexus.Service.Tests.StreamDeck;
@@ -49,6 +51,36 @@ internal sealed class FakeDeckActionExecutor : IDeckActionExecutor
     public bool IsToggleOn(DeckToggleState? state, string latchKey) => _latches.TryGetValue(latchKey, out var v) && v;
 }
 
+/// <summary>Minimal settable ISensorProvider for monitoring-tile push tests.</summary>
+internal sealed class FakeSensorProvider : ISensorProvider
+{
+    public IReadOnlyList<HardwareSensor> CpuSensors { get; set; } = Array.Empty<HardwareSensor>();
+    public IReadOnlyList<GpuReadout> Gpus { get; set; } = Array.Empty<GpuReadout>();
+    public IReadOnlyList<HardwareSensor> MemorySensors { get; set; } = Array.Empty<HardwareSensor>();
+    public IReadOnlyList<HardwareSensor> MotherboardSensors { get; set; } = Array.Empty<HardwareSensor>();
+    public IReadOnlyDictionary<string, StorageComponent> StorageComponents { get; set; } = new Dictionary<string, StorageComponent>();
+
+    public string GetCpuModel() => "TestCPU";
+    public IReadOnlyList<HardwareSensor> GetCpuSensors() => CpuSensors;
+    public (bool Healthy, float DistanceToTJMax) GetCpuHealth() => (true, 20f);
+    public IReadOnlyList<string> GetGpuModels() => Array.Empty<string>();
+    public IReadOnlyList<HardwareSensor> GetGpuSensors() => Array.Empty<HardwareSensor>();
+    public IReadOnlyList<GpuReadout> GetGpus() => Gpus;
+    public IReadOnlyList<HardwareSensor> GetMemorySensors() => MemorySensors;
+    public string GetMemoryTotalFormatted() => "32 GB";
+    public string GetRamBrandModel() => "";
+    public IReadOnlyDictionary<string, StorageComponent> GetStorageComponents(bool includeSmart = true) => StorageComponents;
+    public IReadOnlyList<string> GetStoragePartitions() => Array.Empty<string>();
+    public IReadOnlyList<StorageDriveInfo> GetStorageInfo() => Array.Empty<StorageDriveInfo>();
+    public string GetStorageBrandModel() => "";
+    public IReadOnlyList<HardwareSensor> GetMotherboardSensors() => MotherboardSensors;
+    public string GetMotherboardModel() => "TestMobo";
+    public SensorExtras GetSensorExtras() => new();
+    public string GetOsVersion() => "TestOS";
+    public void SetPollingRate(int pollingRate) { }
+    public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
+}
+
 public class StreamDeckConnectionWorkerTests
 {
     private static readonly StreamDeckModel Mini = StreamDeckModels.ByProductId(0x0063)!;
@@ -60,7 +92,8 @@ public class StreamDeckConnectionWorkerTests
         InMemoryConfigStore Store,
         FakeDeckActionExecutor Executor,
         StreamDeckImageCache ImageCache,
-        MultiplexHub Hub);
+        MultiplexHub Hub,
+        FakeSensorProvider Sensors);
 
     private static Fixtures NewFixtures(bool devicePresent)
     {
@@ -77,11 +110,11 @@ public class StreamDeckConnectionWorkerTests
         // explicitly rather than depending on the brand default.
         gate.SetEnabled("streamdeck", true);
         var imageCache = new StreamDeckImageCache(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "nexus-streamdeck-test-" + Guid.NewGuid().ToString("N")));
-        return new Fixtures(hid, presence, gate, store, new FakeDeckActionExecutor(), imageCache, new MultiplexHub());
+        return new Fixtures(hid, presence, gate, store, new FakeDeckActionExecutor(), imageCache, new MultiplexHub(), new FakeSensorProvider());
     }
 
     private static StreamDeckConnectionWorker NewWorker(Fixtures f, SimulatedStreamDeckSurface? simulated = null) =>
-        new(f.Hid, f.Presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub, simulated);
+        new(f.Hid, f.Presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub, f.Sensors, simulated);
 
     private static void AddMiniDevice(FakeWorkerHidEnumerator hid, string path, string serial)
     {
@@ -157,7 +190,7 @@ public class StreamDeckConnectionWorkerTests
         var usb = new MutableUsbEnumerator();
         usb.Devices.Add(new UsbDeviceEntry { VendorId = StreamDeckModels.VendorId, ProductId = Mini.ProductId });
         var presence = new HardwarePresence(usb);
-        using var worker = new StreamDeckConnectionWorker(f.Hid, presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub);
+        using var worker = new StreamDeckConnectionWorker(f.Hid, presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub, f.Sensors);
 
         worker.Tick();
         var dev = (MockStreamDeckHidDevice)f.Hid.DevicesByPath["path-1"];
@@ -179,7 +212,7 @@ public class StreamDeckConnectionWorkerTests
         var usb = new MutableUsbEnumerator();
         usb.Devices.Add(new UsbDeviceEntry { VendorId = StreamDeckModels.VendorId, ProductId = Mini.ProductId });
         var presence = new HardwarePresence(usb);
-        using var worker = new StreamDeckConnectionWorker(f.Hid, presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub);
+        using var worker = new StreamDeckConnectionWorker(f.Hid, presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub, f.Sensors);
 
         worker.Tick();
         Assert.Equal(Mini.ProductId, f.Store.Load().StreamDeck.Decks["SERIAL-1"].ProductId);
@@ -757,6 +790,110 @@ public class StreamDeckConnectionWorkerTests
         using var worker = NewWorker(f);
 
         Assert.Equal(0, worker.GetCurrentPage("never-connected"));
+    }
+
+    [Fact]
+    public void Tick_MonitoringSlot_RendersAndPushesAValidWireImage_WithoutTouchingImageRefsOrTheCache()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "line" };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick();
+
+        var bytes = simulated.PeekKeyImage(0);
+        Assert.NotNull(bytes);
+        Assert.True(Mini.IsValidWireImageLength(bytes!.Length));
+        Assert.Empty(f.Store.Load().StreamDeck.Decks["sim-0001"].ImageRefs);
+    }
+
+    [Fact]
+    public void Tick_MonitoringSlot_UnchangedSensorValue_SkipsTheSecondPush()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick();
+        Assert.Equal(1, simulated.SetKeyImageCallCount);
+
+        worker.Tick();
+        worker.Tick();
+
+        Assert.Equal(1, simulated.SetKeyImageCallCount);
+    }
+
+    [Fact]
+    public void PushCurrentView_NeverClearsALiveMonitoringKey()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "radial" };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+        Assert.NotNull(simulated.PeekKeyImage(0));
+
+        // RefreshView drives the same PushCurrentView a nav/config change does;
+        // it must not blank the monitoring key.
+        worker.RefreshView("sim-0001");
+
+        Assert.NotNull(simulated.PeekKeyImage(0));
+    }
+
+    [Fact]
+    public void Tick_MoreMonitoringKeysThanTheCap_RoundRobinsAcrossTicks()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 1f, Formatted = "1%", Parent = new SensorParent() },
+        };
+        // One more monitoring slot than the per-tick push cap and than the
+        // Mini's key count can hold, so the last one is held back on tick 1.
+        var slots = new List<DeckSlot>();
+        for (var i = 0; i < Mini.KeyCount - 1; i++)
+        {
+            slots.Add(new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "line" } });
+        }
+        var lastKeyIndex = slots.Count - 1;
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = slots } } },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick();
+        Assert.Null(simulated.PeekKeyImage(lastKeyIndex));
+
+        worker.Tick();
+        Assert.NotNull(simulated.PeekKeyImage(lastKeyIndex));
     }
 
     private sealed class MutableUsbEnumerator : IUsbEnumerator

@@ -11,6 +11,8 @@ using Nexus.Service.Models.Peripherals.StreamDeck;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
+using Nexus.Service.Rendering;
+using Nexus.Service.Sensors;
 using Nexus.Service.Sockets;
 
 namespace Nexus.Service.Peripherals.StreamDeck;
@@ -44,6 +46,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
 
     internal const string SimulatedKey = "sim";
 
+    /// <summary>Round-robin cap on rendered+pushed monitoring keys per tick; sampling (history append) is unbounded.</summary>
+    private const int MonitoringPushCapPerTick = 4;
+    private const int MonitoringHistoryLength = 40;
+
     private readonly IHidEnumerator _hid;
     private readonly HardwarePresence _presence;
     private readonly DeviceControlGate _gate;
@@ -51,6 +57,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private readonly IDeckActionExecutor _executor;
     private readonly StreamDeckImageCache _imageCache;
     private readonly MultiplexHub _hub;
+    private readonly ISensorProvider _sensors;
 
     /// <summary>
     /// The dev-tools bench simulated deck, if any. Mutable (not just
@@ -84,6 +91,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// <summary>One dedicated input reader per connected real HID surface, keyed the same as _surfaces. Never holds an entry for SimulatedKey.</summary>
     private readonly Dictionary<string, StreamDeckInputReader> _inputReaders = new();
 
+    /// <summary>Per "{serial}:{page}:{slotPath}" monitoring key sample history, oldest first, capped at MonitoringHistoryLength. Page-qualified because BuildSlotPath is not itself unique across a deck's pages.</summary>
+    private readonly Dictionary<string, List<float>> _monitoringHistory = new(StringComparer.Ordinal);
+    /// <summary>Per "{serial}:{page}:{slotPath}" last-pushed render hash, so an unchanged-looking tile is not re-pushed over HID every tick.</summary>
+    private readonly Dictionary<string, uint> _monitoringLastHash = new(StringComparer.Ordinal);
+    /// <summary>Cursor into the current tick's visible-monitoring-key list, so a push-capped tick advances fairly across ticks instead of starving keys past the cap.</summary>
+    private int _monitoringRoundRobinCursor;
+
     private readonly TimeProvider _clock;
 
     public StreamDeckConnectionWorker(
@@ -94,6 +108,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         IDeckActionExecutor executor,
         StreamDeckImageCache imageCache,
         MultiplexHub hub,
+        ISensorProvider sensors,
         SimulatedStreamDeckSurface? simulated = null,
         TimeProvider? clock = null)
     {
@@ -104,6 +119,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _executor = executor;
         _imageCache = imageCache;
         _hub = hub;
+        _sensors = sensors;
         _simulated = simulated;
         _clock = clock ?? TimeProvider.System;
     }
@@ -270,6 +286,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             ReconcileHidSurfaces();
             PumpSimulatedInput();
             ApplySleepAfterIdle();
+            RefreshMonitoringKeys();
         }
     }
 
@@ -341,6 +358,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _lastInputAt.Remove(existing.Serial);
         _asleep.Remove(existing.Serial);
         _currentPageBySerial.Remove(existing.Serial);
+        RemoveMonitoringStateForSerial(existing.Serial);
         BroadcastDecksChanged(existing.Serial);
     }
 
@@ -403,6 +421,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _lastInputAt.Remove(serial);
             _asleep.Remove(serial);
             _currentPageBySerial.Remove(serial);
+            RemoveMonitoringStateForSerial(serial);
             BroadcastDecksChanged(serial);
         }
     }
@@ -733,6 +752,231 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         BroadcastNav(serial, next, new List<int>());
     }
 
+    /// <summary>A monitoring slot visible on a connected, awake deck this tick.</summary>
+    private readonly struct MonitoringKeyRef
+    {
+        public readonly IStreamDeckSurface Surface;
+        public readonly int KeyIndex;
+        public readonly string HistoryKey;
+        public readonly DeckSlot Slot;
+        public readonly int Orientation;
+
+        public MonitoringKeyRef(IStreamDeckSurface surface, int keyIndex, string historyKey, DeckSlot slot, int orientation)
+        {
+            Surface = surface;
+            KeyIndex = keyIndex;
+            HistoryKey = historyKey;
+            Slot = slot;
+            Orientation = orientation;
+        }
+    }
+
+    /// <summary>
+    /// Samples every visible monitoring key's sensor into its history buffer
+    /// (cheap - a cached-snapshot read), then renders and pushes a capped,
+    /// round-robin subset over HID (the expensive, rate-limited part).
+    /// Skips a deck entirely while it is asleep/blanked - nothing is visible,
+    /// so there is nothing to sample or push until the next wake.
+    /// </summary>
+    private void RefreshMonitoringKeys()
+    {
+        var settings = _store.Load().StreamDeck;
+        var visible = new List<MonitoringKeyRef>();
+
+        foreach (var surface in _surfaces.Values)
+        {
+            if (!surface.IsConnected)
+            {
+                continue;
+            }
+            if (_asleep.TryGetValue(surface.Serial, out var asleep) && asleep)
+            {
+                continue;
+            }
+            if (!settings.Decks.TryGetValue(surface.Serial, out var deck))
+            {
+                continue;
+            }
+            var config = deck.Deck;
+            var page = ClampCurrentPageLocked(surface.Serial, config);
+            var folderPath = _folderPathsBySerial.TryGetValue(surface.Serial, out var fp) ? fp : new List<int>();
+            var view = DeckConfigNavigation.ResolveView(config, page, folderPath);
+            if (view is null)
+            {
+                continue;
+            }
+
+            var inFolder = folderPath.Count > 0;
+            for (var key = 0; key < surface.Model.KeyCount; key++)
+            {
+                if (inFolder && key == 0)
+                {
+                    continue;
+                }
+                var slotIndex = inFolder ? key - 1 : key;
+                if (slotIndex < 0 || slotIndex >= view.Count)
+                {
+                    continue;
+                }
+                var slot = view[slotIndex];
+                if (slot.Action?.Type != "monitoring")
+                {
+                    continue;
+                }
+                var slotPath = DeckConfigNavigation.BuildSlotPath(folderPath, slotIndex);
+                visible.Add(new MonitoringKeyRef(surface, key, BuildMonitoringKey(surface.Serial, page, slotPath), slot, deck.Orientation));
+            }
+        }
+
+        foreach (var candidate in visible)
+        {
+            SampleMonitoringHistory(candidate);
+        }
+
+        if (visible.Count == 0)
+        {
+            return;
+        }
+
+        var pushCount = Math.Min(MonitoringPushCapPerTick, visible.Count);
+        for (var i = 0; i < pushCount; i++)
+        {
+            PushMonitoringKey(visible[(_monitoringRoundRobinCursor + i) % visible.Count]);
+        }
+        _monitoringRoundRobinCursor = (_monitoringRoundRobinCursor + pushCount) % visible.Count;
+    }
+
+    private void SampleMonitoringHistory(MonitoringKeyRef key)
+    {
+        var action = key.Slot.Action!;
+        var sensor = SensorSnapshotResolver.Resolve(_sensors, action.Category ?? "", action.Sensor ?? "");
+        if (!_monitoringHistory.TryGetValue(key.HistoryKey, out var history))
+        {
+            history = new List<float>(MonitoringHistoryLength);
+            _monitoringHistory[key.HistoryKey] = history;
+        }
+        history.Add(sensor?.Value ?? 0f);
+        if (history.Count > MonitoringHistoryLength)
+        {
+            history.RemoveAt(0);
+        }
+    }
+
+    /// <summary>
+    /// Renders and pushes one monitoring key, skipping the HID write when the
+    /// encoded wire bytes hash the same as the last push (a pixel-identical
+    /// tile - quantizing the history before render is what makes that hash
+    /// stable tick over tick for an unchanged reading) or when the configured
+    /// sensor id no longer resolves (deck keeps its last frame rather than
+    /// blanking). Never touches ImageRefs/StreamDeckImageCache - monitoring
+    /// frames change every tick and are pushed as in-memory bytes.
+    /// </summary>
+    private void PushMonitoringKey(MonitoringKeyRef key)
+    {
+        var action = key.Slot.Action!;
+        var sensor = SensorSnapshotResolver.Resolve(_sensors, action.Category ?? "", action.Sensor ?? "");
+        if (sensor is null)
+        {
+            return;
+        }
+
+        var history = _monitoringHistory.TryGetValue(key.HistoryKey, out var h) ? h : new List<float>();
+        // Rounded coarser than raw sensor jitter, so a visually-unchanged
+        // tile hashes the same and is not re-pushed over HID every tick.
+        var quantizedHistory = new List<float>(history.Count);
+        foreach (var sample in history)
+        {
+            quantizedHistory.Add(MathF.Round(sample, 1));
+        }
+
+        var title = key.Slot.Title;
+        var input = new MonitoringTileInput
+        {
+            Name = !string.IsNullOrEmpty(key.Slot.Label) ? key.Slot.Label! : sensor.Name,
+            ShowName = action.ShowName ?? true,
+            ValueText = sensor.Formatted,
+            SensorType = sensor.Type,
+            History = quantizedHistory,
+            Style = action.Style switch
+            {
+                "radial" => MonitoringTileStyle.Radial,
+                "number" => MonitoringTileStyle.Number,
+                _ => MonitoringTileStyle.Line,
+            },
+            AccentColorHex = action.Color,
+            BackgroundColorHex = key.Slot.Color,
+            TitleFont = title?.Font,
+            TitleSize = title?.Size,
+            TitleBold = title?.Bold ?? false,
+            TitleItalic = title?.Italic ?? false,
+            TitleColorHex = title?.Color,
+        };
+
+        var model = key.Surface.Model;
+        using var rendered = MonitoringTileRenderer.Render(input, model.KeyPixelSize);
+        var raw = new DeckRawImage(rendered.Width, rendered.Height, RenderKit.ToRgba32Bytes(rendered));
+        var oriented = DeckKeyTransformer.ApplyOrientation(raw, key.Orientation);
+        var transformed = DeckKeyTransformer.ApplyKeyTransform(oriented, DeckKeyTransformer.ParseTransform(model.Transform));
+
+        byte[] wireBytes;
+        using (var transformedImage = RenderKit.FromRgba32Bytes(transformed.Data, transformed.Width, transformed.Height))
+        {
+            wireBytes = model.ImageFormat switch
+            {
+                StreamDeckImageFormat.Bmp => BmpEncoder.Encode(RenderKit.ToRgb24(transformedImage), transformed.Width, transformed.Height),
+                StreamDeckImageFormat.Jpeg => RenderKit.EncodeJpeg(transformedImage),
+                _ => Array.Empty<byte>(),
+            };
+        }
+
+        if (wireBytes.Length == 0 || !model.IsValidWireImageLength(wireBytes.Length))
+        {
+            return;
+        }
+
+        var hash = ComputeFnv1aHash(wireBytes);
+        if (_monitoringLastHash.TryGetValue(key.HistoryKey, out var lastHash) && lastHash == hash)
+        {
+            return;
+        }
+
+        if (key.Surface.SetKeyImage(key.KeyIndex, wireBytes))
+        {
+            _monitoringLastHash[key.HistoryKey] = hash;
+        }
+    }
+
+    /// <summary>32-bit FNV-1a, same algorithm HidStreamDeckSurface.StableIdFromPath uses - not cryptographic, only used for tick-to-tick change detection.</summary>
+    private static uint ComputeFnv1aHash(byte[] bytes)
+    {
+        unchecked
+        {
+            uint h = 2166136261;
+            foreach (var b in bytes)
+            {
+                h ^= b;
+                h *= 16777619;
+            }
+            return h;
+        }
+    }
+
+    /// <summary>Page-qualified: BuildSlotPath alone is not unique across a deck's pages.</summary>
+    private static string BuildMonitoringKey(string serial, int page, string slotPath) => $"{serial}:{page}:{slotPath}";
+
+    private void RemoveMonitoringStateForSerial(string serial)
+    {
+        var prefix = serial + ":";
+        foreach (var k in _monitoringHistory.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+        {
+            _monitoringHistory.Remove(k);
+        }
+        foreach (var k in _monitoringLastHash.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+        {
+            _monitoringLastHash.Remove(k);
+        }
+    }
+
     private void PushCurrentView(IStreamDeckSurface surface)
     {
         if (!_folderPathsBySerial.TryGetValue(surface.Serial, out var folderPath))
@@ -765,6 +1009,12 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             if (slot is null)
             {
                 surface.ClearKey(key);
+                continue;
+            }
+            if (slot.Action?.Type == "monitoring")
+            {
+                // RefreshMonitoringKeys owns this key's pixels and repaints it
+                // on the next tick; clearing it here would stomp a live render.
                 continue;
             }
 
@@ -857,6 +1107,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _lastInputAt.Clear();
             _asleep.Clear();
             _currentPageBySerial.Clear();
+            _monitoringHistory.Clear();
+            _monitoringLastHash.Clear();
             if (hadSurfaces)
             {
                 BroadcastDecksChanged(null);

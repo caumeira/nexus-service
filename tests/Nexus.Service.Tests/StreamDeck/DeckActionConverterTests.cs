@@ -347,6 +347,72 @@ public class DeckActionConverterTests
     }
 
     [Fact]
+    public void Monitoring_AllFieldsPresent_RoundTrips()
+    {
+        var json = "{\"type\":\"monitoring\",\"category\":\"cpu\",\"sensor\":\"summary/cpu-usage\",\"style\":\"line\",\"color\":\"#4da3ff\",\"showName\":true,\"press\":\"taskManager\"}";
+        var a = Deserialize(json);
+        Assert.Equal("monitoring", a.Type);
+        Assert.Equal("cpu", a.Category);
+        Assert.Equal("summary/cpu-usage", a.Sensor);
+        Assert.Equal("line", a.Style);
+        Assert.Equal("#4da3ff", a.Color);
+        Assert.True(a.ShowName);
+        Assert.Equal("taskManager", a.Press);
+
+        var b = RoundTrip(a);
+        Assert.Equal(a.Category, b.Category);
+        Assert.Equal(a.Sensor, b.Sensor);
+        Assert.Equal(a.Style, b.Style);
+        Assert.Equal(a.Color, b.Color);
+        Assert.Equal(a.ShowName, b.ShowName);
+        Assert.Equal(a.Press, b.Press);
+    }
+
+    [Fact]
+    public void Monitoring_OptionalFieldsOmitted_DefaultToNull()
+    {
+        var a = Deserialize("{\"type\":\"monitoring\",\"category\":\"gpu\",\"sensor\":\"gpu/core-temp\",\"style\":\"radial\"}");
+        Assert.Equal("monitoring", a.Type);
+        Assert.Equal("gpu", a.Category);
+        Assert.Equal("gpu/core-temp", a.Sensor);
+        Assert.Equal("radial", a.Style);
+        Assert.Null(a.Color);
+        Assert.Null(a.ShowName);
+        Assert.Null(a.Press);
+    }
+
+    [Fact]
+    public void Monitoring_OmittedOptionalsDoNotSerialize()
+    {
+        var a = Deserialize("{\"type\":\"monitoring\",\"category\":\"memory\",\"sensor\":\"memory/used\",\"style\":\"number\"}");
+
+        var raw = JsonSerializer.Serialize(a, AppJsonContext.Default.DeckAction);
+        using var doc = JsonDocument.Parse(raw);
+        var root = doc.RootElement;
+        Assert.Equal("memory", root.GetProperty("category").GetString());
+        Assert.Equal("memory/used", root.GetProperty("sensor").GetString());
+        Assert.Equal("number", root.GetProperty("style").GetString());
+        Assert.False(root.TryGetProperty("color", out _));
+        Assert.False(root.TryGetProperty("showName", out _));
+        Assert.False(root.TryGetProperty("press", out _));
+    }
+
+    [Fact]
+    public void Monitoring_ShowNameFalse_RoundTripsAsFalseNotAbsent()
+    {
+        var a = Deserialize("{\"type\":\"monitoring\",\"category\":\"cpu\",\"sensor\":\"summary/cpu-temp\",\"style\":\"line\",\"showName\":false}");
+        Assert.False(a.ShowName);
+
+        var raw = JsonSerializer.Serialize(a, AppJsonContext.Default.DeckAction);
+        using var doc = JsonDocument.Parse(raw);
+        Assert.True(doc.RootElement.TryGetProperty("showName", out var showNameEl));
+        Assert.False(showNameEl.GetBoolean());
+
+        var b = RoundTrip(a);
+        Assert.False(b.ShowName);
+    }
+
+    [Fact]
     public void PersistenceJsonContext_UsesTheSameConverter()
     {
         var json = "{\"type\":\"power\",\"action\":\"sleep\"}";

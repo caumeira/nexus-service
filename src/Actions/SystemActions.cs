@@ -227,6 +227,57 @@ public sealed class SystemActions
     public bool LaunchShortcut(string targetId) => _shortcuts.Launch(targetId);
 
     /// <summary>
+    /// Opens the OS task manager: Windows Task Manager, macOS Activity
+    /// Monitor. Best effort; false when the platform has neither.
+    /// </summary>
+    public bool OpenTaskManager()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+#if WINDOWS
+            // The service runs as LocalSystem in Session 0, where a directly
+            // spawned taskmgr.exe has no interactive desktop to draw on - run
+            // it in the active console user's session instead, same mechanism
+            // WindowsSystemPowerProvider.Lock() uses.
+            if (Nexus.Service.Lifecycle.UserHelperBootstrapper.RunInUserSession("taskmgr.exe", "task-manager", "NexusTaskManager"))
+            {
+                return true;
+            }
+#endif
+            Process.Start(new ProcessStartInfo("taskmgr.exe") { UseShellExecute = true });
+            return true;
+        }
+        if (OperatingSystem.IsMacOS())
+        {
+            return Nexus.Service.Platform.ShellExecutor.RunExit("open", 5000, "-a", "Activity Monitor") == 0;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Opens (or focuses) the Nexus dashboard window, the same mechanism
+    /// POST /service/open-app uses: the service runs headless in Session 0
+    /// (Windows) or has no window of its own yet (macOS on first launch), so
+    /// this delegates to the interactive-session launcher / app window owner.
+    /// </summary>
+    public void OpenDashboard()
+    {
+#if WINDOWS
+        if (OperatingSystem.IsWindows())
+        {
+            Nexus.Service.Lifecycle.UserHelperBootstrapper.LaunchOpenApp();
+            return;
+        }
+#endif
+#if MACOS
+        if (OperatingSystem.IsMacOS())
+        {
+            Nexus.Service.Platform.Mac.MacAppWindow.OpenOrFocus(Nexus.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
+        }
+#endif
+    }
+
+    /// <summary>
     /// Builds the inputter strokes for a key request. An explicit Strokes list
     /// wins; otherwise a single chord is expanded to a key-down then key-up
     /// (both carrying the modifier flags) so the combo presses and releases.

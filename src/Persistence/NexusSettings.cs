@@ -714,7 +714,7 @@ public sealed class PhysicalDeckSettings
     /// <summary>Empty falls back to the model name.</summary>
     public string Name { get; set; } = "";
     public int Brightness { get; set; } = DefaultBrightness;
-    /// <summary>User rotation composed on top of the model's wire Transform, in quarter-turn degree steps. The web renders key bitmaps; the service only persists this.</summary>
+    /// <summary>User rotation composed on top of the model's wire Transform, in quarter-turn degree steps. Applied by both the web-rendered key bitmaps and the service's own monitoring tile renders.</summary>
     public int Orientation { get; set; }
     /// <summary>Seconds of no key input before the deck blanks the display. A non-positive value disables sleep-after.</summary>
     public int SleepAfterSeconds { get; set; }
