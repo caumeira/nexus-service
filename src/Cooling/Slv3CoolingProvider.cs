@@ -105,7 +105,10 @@ public sealed class Slv3CoolingProvider : IFanControlProvider, ICoolingProvider
         foreach (var fan in _hub.State.Fans)
         {
             if (!fan.BoundToUs) continue;
-            for (var port = 0; port < fan.FanCount; port++)
+            // EffectivePortCount, not FanCount, so a zero-count chain (whose
+            // ports GetFanChannels exposes and the user can drive) is released
+            // too; FanCount would iterate zero ports and leave it pinned.
+            for (var port = 0; port < EffectivePortCount(fan); port++)
             {
                 _hub.SetPortDuty(fan.Mac, port, null);
             }
