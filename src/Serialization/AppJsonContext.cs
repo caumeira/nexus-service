@@ -745,6 +745,7 @@ namespace Nexus.Service.Serialization;
 // Diagnostics
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenLogsPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenEventViewerPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.OpenDeviceManagerPayload))]
 // Tray
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TraySetVisiblePayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.TrayPairNoticePayload))]
@@ -968,6 +969,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Diagnostics.Temperature.TemperatureAppBucket))]
 [JsonSerializable(typeof(Nexus.Service.Diagnostics.Temperature.TemperatureAppUsageResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.OpenEventViewerResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.OpenDeviceManagerResponse))]
 
 // Metadata-only: skips the per-type generated fast-path writer, a large AOT
 // code cost across this context's roots; serialization runs through the
