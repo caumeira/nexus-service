@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
@@ -8,15 +9,17 @@ using SixLabors.ImageSharp.Formats.Jpeg;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
-namespace Nexus.Service.Peripherals.LianLiWireless;
+namespace Nexus.Service.Rendering;
 
 /// <summary>
-/// Shared ImageSharp drawing primitives for the SL-LCD Wireless sensor/clock/
-/// animation content renderers: hex color parsing, a manual arc/ring polygon
-/// builder (avoids depending on a specific PathBuilder.AddArc overload),
-/// centered text, and JPEG encode. No IO beyond the in-memory encode buffer.
+/// Shared ImageSharp drawing primitives for every server-rendered device
+/// bitmap (SL-LCD Wireless sensor/clock/animation content, deck monitoring
+/// tiles): hex color parsing, a manual arc/ring polygon builder (avoids
+/// depending on a specific PathBuilder.AddArc overload), a filled-series
+/// polygon for sparkline-style graphs, centered text, and JPEG encode. No IO
+/// beyond the in-memory encode buffer.
 /// </summary>
-internal static class Slv3LcdRenderKit
+internal static class RenderKit
 {
     private const int JpegQuality = 85;
 
@@ -119,6 +122,51 @@ internal static class Slv3LcdRenderKit
         }));
     }
 
+    /// <summary>
+    /// Builds a filled area-graph polygon across <paramref name="band"/>: a
+    /// baseline along the band's bottom edge, rising to each sample's
+    /// normalized height (0 = bottom, 1 = top, clamped), evenly spaced left
+    /// to right. Zero samples degenerates to a zero-height baseline (no
+    /// visible fill); one sample degenerates to a flat-topped rectangle
+    /// spanning the full band width at that sample's height, since a single
+    /// point has no line to interpolate.
+    /// </summary>
+    public static IPath BuildFilledSeries(RectangleF band, IReadOnlyList<float> normalizedValues)
+    {
+        var n = normalizedValues.Count;
+        if (n == 0)
+        {
+            return new Polygon(new LinearLineSegment(new[]
+            {
+                new PointF(band.Left, band.Bottom),
+                new PointF(band.Right, band.Bottom),
+            }));
+        }
+        if (n == 1)
+        {
+            var y = band.Bottom - Math.Clamp(normalizedValues[0], 0f, 1f) * band.Height;
+            return new Polygon(new LinearLineSegment(new[]
+            {
+                new PointF(band.Left, band.Bottom),
+                new PointF(band.Left, y),
+                new PointF(band.Right, y),
+                new PointF(band.Right, band.Bottom),
+            }));
+        }
+
+        var points = new PointF[n + 2];
+        points[0] = new PointF(band.Left, band.Bottom);
+        for (var i = 0; i < n; i++)
+        {
+            var x = band.Left + band.Width * i / (n - 1);
+            var clamped = Math.Clamp(normalizedValues[i], 0f, 1f);
+            var y = band.Bottom - clamped * band.Height;
+            points[i + 1] = new PointF(x, y);
+        }
+        points[n + 1] = new PointF(band.Right, band.Bottom);
+        return new Polygon(new LinearLineSegment(points));
+    }
+
     public static void DrawCentered(IImageProcessingContext ctx, string text, Font font, Color color, PointF center)
     {
         var size = TextMeasurer.MeasureSize(text, new TextOptions(font));
@@ -131,5 +179,27 @@ internal static class Slv3LcdRenderKit
         using var ms = new MemoryStream();
         image.SaveAsJpeg(ms, new JpegEncoder { Quality = JpegQuality });
         return ms.ToArray();
+    }
+
+    /// <summary>Extracts a top-down RGB888 buffer from an RGBA image, dropping alpha, for <see cref="BmpEncoder"/>.</summary>
+    public static byte[] ToRgb24(Image<Rgba32> image)
+    {
+        var buffer = new byte[image.Width * image.Height * 3];
+        var offset = 0;
+        image.ProcessPixelRows(accessor =>
+        {
+            for (var y = 0; y < accessor.Height; y++)
+            {
+                var row = accessor.GetRowSpan(y);
+                for (var x = 0; x < row.Length; x++)
+                {
+                    var pixel = row[x];
+                    buffer[offset++] = pixel.R;
+                    buffer[offset++] = pixel.G;
+                    buffer[offset++] = pixel.B;
+                }
+            }
+        });
+        return buffer;
     }
 }

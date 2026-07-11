@@ -4,6 +4,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using Nexus.Service.Rendering;
 
 namespace Nexus.Service.Peripherals.LianLiWireless;
 
@@ -26,8 +27,8 @@ public static class Slv3LcdAnimationRenderer
 
     public static byte[] Render(string? animationId, double elapsedSeconds, string? colorAHex, string? colorBHex)
     {
-        var colorA = Slv3LcdRenderKit.ParseColor(colorAHex, DefaultColorA);
-        var colorB = Slv3LcdRenderKit.ParseColor(colorBHex, DefaultColorB);
+        var colorA = RenderKit.ParseColor(colorAHex, DefaultColorA);
+        var colorB = RenderKit.ParseColor(colorBHex, DefaultColorB);
 
         return animationId switch
         {
@@ -52,12 +53,12 @@ public static class Slv3LcdAnimationRenderer
         image.Mutate(ctx =>
         {
             ctx.Fill(Color.Black);
-            ctx.Fill(WithAlpha(colorB, 0.25f), Slv3LcdRenderKit.BuildCircle(center, radius + 50f));
-            ctx.Fill(WithAlpha(colorA, 0.55f), Slv3LcdRenderKit.BuildCircle(center, radius + 22f));
-            ctx.Fill(colorA, Slv3LcdRenderKit.BuildCircle(center, radius));
+            ctx.Fill(WithAlpha(colorB, 0.25f), RenderKit.BuildCircle(center, radius + 50f));
+            ctx.Fill(WithAlpha(colorA, 0.55f), RenderKit.BuildCircle(center, radius + 22f));
+            ctx.Fill(colorA, RenderKit.BuildCircle(center, radius));
         });
 
-        return Slv3LcdRenderKit.EncodeJpeg(image);
+        return RenderKit.EncodeJpeg(image);
     }
 
     private static byte[] RenderSpectrum(double elapsedSeconds)
@@ -77,7 +78,7 @@ public static class Slv3LcdAnimationRenderer
             }
         });
 
-        return Slv3LcdRenderKit.EncodeJpeg(image);
+        return RenderKit.EncodeJpeg(image);
     }
 
     private static byte[] RenderSpin(double elapsedSeconds, Color colorA, Color colorB)
@@ -94,13 +95,13 @@ public static class Slv3LcdAnimationRenderer
             {
                 var angle = rotation + i * (360f / spokeCount);
                 var fade = 1f - (float)i / spokeCount;
-                var spoke = Slv3LcdRenderKit.BuildHand(center, 160f, angle, 16f, tailFraction: 0f);
+                var spoke = RenderKit.BuildHand(center, 160f, angle, 16f, tailFraction: 0f);
                 ctx.Fill(WithAlpha(colorA, 0.15f + fade * 0.85f), spoke);
             }
-            ctx.Fill(colorB, Slv3LcdRenderKit.BuildCircle(center, 20f));
+            ctx.Fill(colorB, RenderKit.BuildCircle(center, 20f));
         });
 
-        return Slv3LcdRenderKit.EncodeJpeg(image);
+        return RenderKit.EncodeJpeg(image);
     }
 
     private static Color WithAlpha(Color color, float alpha)
