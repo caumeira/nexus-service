@@ -98,6 +98,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(PhysicalDeckSettings))]
 [JsonSerializable(typeof(Dictionary<string, PhysicalDeckSettings>))]
 [JsonSerializable(typeof(Dictionary<string, string>))]
+[JsonSerializable(typeof(DeckPreset))]
+[JsonSerializable(typeof(List<DeckPreset>))]
 [JsonSerializable(typeof(DeckConfig))]
 [JsonSerializable(typeof(DeckFolder))]
 [JsonSerializable(typeof(DeckSlot))]

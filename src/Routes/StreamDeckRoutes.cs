@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Auth;
@@ -208,7 +209,7 @@ public static class StreamDeckRoutes
                 }
                 if (deck.ImageRefs.TryGetValue(refKey, out var previousHash) &&
                     previousHash != hash &&
-                    !deck.ImageRefs.Any(kv => kv.Key != refKey && kv.Value == previousHash))
+                    !IsHashReferenced(deck, previousHash, refKey))
                 {
                     evictHash = previousHash;
                 }
@@ -267,6 +268,206 @@ public static class StreamDeckRoutes
                 }
             }
             return ApiResponse.Ok();
+        }).LocalhostOnly();
+
+        app.MapGet("/streamdeck/decks/{serial}/presets", (
+            string serial, IConfigStore store) =>
+        {
+            var settings = store.Load().StreamDeck;
+            settings.Decks.TryGetValue(serial, out var deck);
+            return Results.Json(
+                new GetDeckPresetsResponse
+                {
+                    Presets = deck?.Presets.ConvertAll(ToPresetDto) ?? new List<DeckPresetDto>(),
+                    ActiveId = deck?.ActivePresetId,
+                },
+                AppJsonContext.Default.GetDeckPresetsResponse);
+        }).LocalhostOnly();
+
+        app.MapPost("/streamdeck/decks/{serial}/presets", (
+            string serial, CreateDeckPresetBody body, IConfigStore store) =>
+        {
+            bool capped = false;
+            DeckPreset? created = null;
+            store.Update(s =>
+            {
+                if (!s.StreamDeck.Decks.TryGetValue(serial, out var deck))
+                {
+                    deck = new PhysicalDeckSettings();
+                    s.StreamDeck.Decks[serial] = deck;
+                }
+                if (deck.Presets.Count >= 10)
+                {
+                    capped = true;
+                    return;
+                }
+                var id = Guid.NewGuid().ToString("n");
+                created = new DeckPreset
+                {
+                    Id = id,
+                    Name = body.Name,
+                    Deck = DeepCopyDeckConfig(deck.Deck),
+                    ImageRefs = new Dictionary<string, string>(deck.ImageRefs),
+                };
+                deck.Presets.Add(created);
+                deck.ActivePresetId = id;
+            });
+            if (capped)
+            {
+                return Results.Json(
+                    ApiResponse.Fail("Deck preset cap of 10 reached"),
+                    AppJsonContext.Default.ApiResponse,
+                    statusCode: 400);
+            }
+            return Results.Json(
+                new CreateDeckPresetResponse { Preset = ToPresetDto(created!), ActiveId = created!.Id },
+                AppJsonContext.Default.CreateDeckPresetResponse);
+        }).LocalhostOnly();
+
+        app.MapPut("/streamdeck/decks/{serial}/presets/active", (
+            string serial, SetActiveDeckPresetBody body, IConfigStore store) =>
+        {
+            store.Update(s =>
+            {
+                if (!s.StreamDeck.Decks.TryGetValue(serial, out var deck))
+                {
+                    deck = new PhysicalDeckSettings();
+                    s.StreamDeck.Decks[serial] = deck;
+                }
+                deck.ActivePresetId = body.Id;
+            });
+            return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
+        }).LocalhostOnly();
+
+        app.MapPut("/streamdeck/decks/{serial}/presets/{id}", (
+            string serial, string id, UpdateDeckPresetBody body, IConfigStore store, StreamDeckImageCache cache) =>
+        {
+            var settings = store.Load().StreamDeck;
+            if (!settings.Decks.TryGetValue(serial, out var existingDeck) || existingDeck.Presets.Find(p => p.Id == id) is null)
+            {
+                return Results.Json(
+                    ApiResponse.Fail("Deck preset not found"),
+                    AppJsonContext.Default.ApiResponse,
+                    statusCode: 404);
+            }
+
+            List<string>? evictHashes = null;
+            store.Update(s =>
+            {
+                if (!s.StreamDeck.Decks.TryGetValue(serial, out var deck))
+                {
+                    return;
+                }
+                var p = deck.Presets.Find(x => x.Id == id);
+                if (p is null)
+                {
+                    return;
+                }
+                if (!string.IsNullOrEmpty(body.Name))
+                {
+                    p.Name = body.Name;
+                }
+                if (body.SaveCurrent)
+                {
+                    var previousHashes = p.ImageRefs.Values.Distinct().ToList();
+                    p.Deck = DeepCopyDeckConfig(deck.Deck);
+                    p.ImageRefs = new Dictionary<string, string>(deck.ImageRefs);
+                    evictHashes = previousHashes.Where(h => !IsHashReferenced(deck, h, null)).ToList();
+                }
+            });
+            if (evictHashes is not null)
+            {
+                foreach (var h in evictHashes)
+                {
+                    cache.Evict(serial, h);
+                }
+            }
+            return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
+        }).LocalhostOnly();
+
+        app.MapDelete("/streamdeck/decks/{serial}/presets/{id}", (
+            string serial, string id, IConfigStore store, StreamDeckImageCache cache) =>
+        {
+            string? activeId = null;
+            List<string>? evictHashes = null;
+            store.Update(s =>
+            {
+                if (!s.StreamDeck.Decks.TryGetValue(serial, out var deck))
+                {
+                    return;
+                }
+                var removed = deck.Presets.Find(p => p.Id == id);
+                deck.Presets.RemoveAll(p => p.Id == id);
+                if (deck.ActivePresetId == id)
+                {
+                    deck.ActivePresetId = null;
+                }
+                activeId = deck.ActivePresetId;
+                if (removed is not null)
+                {
+                    evictHashes = removed.ImageRefs.Values
+                        .Distinct()
+                        .Where(h => !IsHashReferenced(deck, h, null))
+                        .ToList();
+                }
+            });
+            if (evictHashes is not null)
+            {
+                foreach (var h in evictHashes)
+                {
+                    cache.Evict(serial, h);
+                }
+            }
+            return Results.Json(
+                new DeleteDeckPresetResponse { ActiveId = activeId },
+                AppJsonContext.Default.DeleteDeckPresetResponse);
+        }).LocalhostOnly();
+
+        app.MapPost("/streamdeck/decks/{serial}/presets/{id}/activate", (
+            string serial, string id, IConfigStore store, StreamDeckConnectionWorker worker, MultiplexHub hub, StreamDeckImageCache cache) =>
+        {
+            var settings = store.Load().StreamDeck;
+            if (!settings.Decks.TryGetValue(serial, out var existingDeck))
+            {
+                return Results.Json(
+                    ApiResponse.Fail("Deck preset not found"),
+                    AppJsonContext.Default.ApiResponse,
+                    statusCode: 404);
+            }
+            var preset = existingDeck.Presets.Find(p => p.Id == id);
+            if (preset is null)
+            {
+                return Results.Json(
+                    ApiResponse.Fail("Deck preset not found"),
+                    AppJsonContext.Default.ApiResponse,
+                    statusCode: 404);
+            }
+
+            var config = DeepCopyDeckConfig(preset.Deck);
+            var imageRefs = new Dictionary<string, string>(preset.ImageRefs);
+            List<string>? evictHashes = null;
+            store.Update(s =>
+            {
+                if (!s.StreamDeck.Decks.TryGetValue(serial, out var deck))
+                {
+                    return;
+                }
+                var previousHashes = deck.ImageRefs.Values.Distinct().ToList();
+                deck.Deck = config;
+                deck.ImageRefs = imageRefs;
+                deck.ActivePresetId = id;
+                evictHashes = previousHashes.Where(h => !IsHashReferenced(deck, h, null)).ToList();
+            });
+            if (evictHashes is not null)
+            {
+                foreach (var h in evictHashes)
+                {
+                    cache.Evict(serial, h);
+                }
+            }
+            worker.RefreshView(serial);
+            PanelTopics.BroadcastStreamDeck(hub, new StreamDeckChangedFrame { Kind = "config", Serial = serial });
+            return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
         }).LocalhostOnly();
 
 #if DEV_TOOLS
@@ -366,6 +567,41 @@ public static class StreamDeckRoutes
     /// <summary>The catalog id to kill the contending Elgato app, or null while there is no contention.</summary>
     internal static string? ResolveConflictAppId(string? warning) =>
         warning is not null ? StreamDeckHandler.ElgatoConflictAppId : null;
+
+    private static DeckPresetDto ToPresetDto(DeckPreset p) => new() { Id = p.Id, Name = p.Name };
+
+    /// <summary>
+    /// Deep-copies a DeckConfig by round-tripping it through DeckConfigConverter -
+    /// the tree nests DeckFolder/DeckSlot/DeckAction/DeckSequenceStep, so a
+    /// hand-rolled clone would have to mirror every branch of that converter.
+    /// </summary>
+    private static DeckConfig DeepCopyDeckConfig(DeckConfig source) =>
+        JsonSerializer.Deserialize(
+            JsonSerializer.SerializeToUtf8Bytes(source, AppJsonContext.Default.DeckConfig),
+            AppJsonContext.Default.DeckConfig)!;
+
+    /// <summary>
+    /// True if any live slot (other than excludeKey) or any saved preset still
+    /// references hash. A preset snapshots ImageRefs at save time, so an image
+    /// hash the live upload route would otherwise evict can still be the only
+    /// copy backing an older preset - evicting it early leaves that preset's
+    /// keys blank the next time it activates.
+    /// </summary>
+    private static bool IsHashReferenced(PhysicalDeckSettings deck, string hash, string? excludeKey)
+    {
+        if (deck.ImageRefs.Any(kv => kv.Key != excludeKey && kv.Value == hash))
+        {
+            return true;
+        }
+        foreach (var preset in deck.Presets)
+        {
+            if (preset.ImageRefs.Values.Any(v => v == hash))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
 
     /// <summary>
     /// A valid ImageRefs key is either the reserved "back" folder-back-key

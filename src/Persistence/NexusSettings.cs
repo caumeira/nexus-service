@@ -723,6 +723,19 @@ public sealed class PhysicalDeckSettings
     public DeckConfig Deck { get; set; } = new();
     /// <summary>Keyed by "{slotPath}/{state}" (state "0" or "1" for a toggle); value is the cached image's content hash.</summary>
     public Dictionary<string, string> ImageRefs { get; set; } = new();
+    // Named snapshots of Deck + ImageRefs. Capped by the route layer.
+    public List<DeckPreset> Presets { get; set; } = new();
+    // Preset the live Deck was last loaded from; null = none selected.
+    public string? ActivePresetId { get; set; }
+}
+
+/// <summary>One named snapshot of a deck's config and uploaded-image references, for POST/activate under /streamdeck/decks/{serial}/presets.</summary>
+public sealed class DeckPreset
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public DeckConfig Deck { get; set; } = new();
+    public Dictionary<string, string> ImageRefs { get; set; } = new();
 }
 
 /// <summary>One SL-LCD Wireless fan screen's persisted content selection and display settings.</summary>

@@ -985,6 +985,14 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckDevModelDto))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckDevModelDto>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckDevModelsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.DeckPresetDto))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Peripherals.StreamDeck.DeckPresetDto>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.GetDeckPresetsResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.CreateDeckPresetBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.CreateDeckPresetResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.UpdateDeckPresetBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.SetActiveDeckPresetBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.DeleteDeckPresetResponse))]
 // Stream Deck binding model - the shared DeckAction/DeckConfig tree that
 // rides the GET/PUT config wire contract (see Nexus.Service.Deck.DeckActionModel).
 [JsonSerializable(typeof(Nexus.Service.Deck.DeckConfig))]
