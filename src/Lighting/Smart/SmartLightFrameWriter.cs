@@ -107,7 +107,7 @@ public sealed class SmartLightFrameWriter : IHostedService, IDisposable
             if (disabled.Contains(frame.Id)) continue;
 
             var devBrightness = prefs.TryGetValue(frame.Id, out var pref) ? pref.Brightness : 100;
-            var b01 = global * Math.Clamp(devBrightness, 0, 100) / 100f;
+            var b01 = Math.Min(Math.Clamp(devBrightness, 0, 100) / 100f, global);
             _provider.SubmitEffectFrame(frame.Id, frame.LedBytes, frame.LedCount, b01);
             streamed = true;
         }

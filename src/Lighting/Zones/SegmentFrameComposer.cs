@@ -56,9 +56,9 @@ public static class SegmentFrameComposer
                 continue;
             }
 
-            // Device-wide master (the keeb firmware-brightness level, set by the
-            // knob and the Settings slider) multiplies the per-zone software level,
-            // so they compose instead of fighting: effective = global * master * zone.
+            // The keeb firmware-brightness level (masterMul, set by the knob and
+            // the Settings slider) multiplies the per-zone software level, which the
+            // global master brightness caps: effective = min(global, zone) * masterMul.
             var mul = ComputeBrightnessMul(zone.Id, disabled, prefs, globalBrightness) * masterMul;
             var identifying = false;
             var identifyOn = false;
@@ -132,7 +132,8 @@ public static class SegmentFrameComposer
         }
     }
 
-    /// <summary>Combined off-switch + per-card and global brightness multiplier; identical math to the legacy per-card writers.</summary>
+    /// <summary>Combined off-switch + per-card brightness capped by the master
+    /// level: a card never renders brighter than master (min(device/100, global)).</summary>
     public static double ComputeBrightnessMul(string id,
         IReadOnlyList<string> disabled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
@@ -151,6 +152,6 @@ public static class SegmentFrameComposer
         // to full brightness for this frame.
         try { devBrightness = prefs.TryGetValue(id, out var pref) ? pref.Brightness : 100; }
         catch (InvalidOperationException) { devBrightness = 100; }
-        return globalBrightness * Math.Clamp(devBrightness, 0, 100) / 100.0;
+        return Math.Min(Math.Clamp(devBrightness, 0, 100) / 100.0, globalBrightness);
     }
 }

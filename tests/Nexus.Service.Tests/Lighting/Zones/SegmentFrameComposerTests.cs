@@ -74,7 +74,7 @@ public class SegmentFrameComposerTests
     }
 
     [Fact]
-    public void Brightness_scaling_matches_legacy_rounding()
+    public void Master_brightness_caps_per_zone_software_brightness()
     {
         var structure = KeebZoneSupport.BuildStructure(HubId);
         var zones = ZoneResolution.Resolve(structure, new NexusSettings());
@@ -90,8 +90,10 @@ public class SegmentFrameComposerTests
             new List<string>(), prefs, globalBrightness: 0.8f, masterMul: 1.0,
             nowTicks: DateTime.UtcNow.Ticks, identify: null, buffers);
 
-        var mulKeys = 0.8f * 37 / 100.0;
-        var mulGlow = 0.8f * 100 / 100.0;
+        // Master caps rather than scales: keys (37%) stay below the 80% master,
+        // underglow (100%) is capped to it.
+        var mulKeys = Math.Min(37 / 100.0, 0.8f);
+        var mulGlow = Math.Min(100 / 100.0, 0.8f);
         Assert.Equal(LegacyFillZone(keys, KeebLayout.KeyLedCount, mulKeys), buffers[0]);
         Assert.Equal(LegacyFillZone(underglow, KeebLayout.SurroundLedCount, mulGlow), buffers[1]);
     }
