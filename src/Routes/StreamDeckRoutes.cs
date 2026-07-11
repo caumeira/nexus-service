@@ -35,6 +35,7 @@ public static class StreamDeckRoutes
         {
             var settings = store.Load().StreamDeck;
             var warning = handler.GetWarning(usb.Enumerate());
+            var conflictAppId = warning is not null ? StreamDeckHandler.ElgatoConflictAppId : null;
             var response = new GetStreamDecksResponse();
             var seenSerials = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             foreach (var (_, surface) in worker.Surfaces)
@@ -55,8 +56,11 @@ public static class StreamDeckRoutes
                     Format = FormatName(surface.Model.ImageFormat),
                     Transform = surface.Model.Transform,
                     Brightness = deck?.Brightness ?? PhysicalDeckSettings.DefaultBrightness,
+                    Orientation = deck?.Orientation ?? 0,
+                    SleepAfterSeconds = deck?.SleepAfterSeconds ?? 0,
                     FirmwareVersion = surface.FirmwareVersion,
                     Warning = warning,
+                    ConflictAppId = conflictAppId,
                 });
             }
 
@@ -87,15 +91,18 @@ public static class StreamDeckRoutes
                     Format = FormatName(model.ImageFormat),
                     Transform = model.Transform,
                     Brightness = deck.Brightness,
+                    Orientation = deck.Orientation,
+                    SleepAfterSeconds = deck.SleepAfterSeconds,
                     FirmwareVersion = "",
                     Warning = null,
+                    ConflictAppId = null,
                 });
             }
             return response;
         }).LocalhostOnly();
 
         app.MapPost("/streamdeck/decks/{serial}", (
-            string serial, UpdateStreamDeckBody body, StreamDeckConnectionWorker worker, IConfigStore store) =>
+            string serial, UpdateStreamDeckBody body, StreamDeckConnectionWorker worker, IConfigStore store, MultiplexHub hub) =>
         {
             store.Update(s =>
             {
@@ -112,11 +119,23 @@ public static class StreamDeckRoutes
                 {
                     deck.Brightness = Math.Clamp(body.Brightness.Value, 0, 100);
                 }
+                if (body.Orientation is not null)
+                {
+                    deck.Orientation = ClampOrientation(body.Orientation.Value);
+                }
+                if (body.SleepAfterSeconds is not null)
+                {
+                    deck.SleepAfterSeconds = Math.Max(0, body.SleepAfterSeconds.Value);
+                }
             });
-            if (body.Brightness is not null)
+            // Skipped while the deck is asleep (sleep-after blanked it to
+            // brightness 0): the new value already persisted above and
+            // applies the moment the next key press wakes it.
+            if (body.Brightness is not null && !worker.IsAsleep(serial))
             {
                 worker.FindBySerial(serial)?.SetBrightness(Math.Clamp(body.Brightness.Value, 0, 100));
             }
+            PanelTopics.BroadcastStreamDeck(hub, new StreamDeckChangedFrame { Kind = "decks", Serial = serial });
             return ApiResponse.Ok();
         }).LocalhostOnly();
 
@@ -293,6 +312,19 @@ public static class StreamDeckRoutes
         StreamDeckImageFormat.Jpeg => "jpeg",
         _ => "",
     };
+
+    /// <summary>Normalizes any degree value to the nearest of 0, 90, 180, or 270 (wrapping at 360).</summary>
+    private static int ClampOrientation(int degrees)
+    {
+        var normalized = ((degrees % 360) + 360) % 360;
+        return normalized switch
+        {
+            >= 45 and < 135 => 90,
+            >= 135 and < 225 => 180,
+            >= 225 and < 315 => 270,
+            _ => 0,
+        };
+    }
 
     /// <summary>
     /// A valid ImageRefs key is either the reserved "back" folder-back-key

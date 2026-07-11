@@ -10,6 +10,9 @@ public sealed class StreamDeckHandler : IDeviceHandler
 {
     private const string ElgatoSoftwareWarning = "elgato-software-running";
 
+    /// <summary>ConflictAppCatalog id for the same Elgato-software contention <see cref="GetWarning"/> detects.</summary>
+    public const string ElgatoConflictAppId = "elgato-stream-deck";
+
     private readonly StreamDeckConnectionWorker _worker;
 
     public StreamDeckHandler(StreamDeckConnectionWorker worker)

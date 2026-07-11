@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Nexus.Service.Devices.Handlers;
 
 namespace Nexus.Service.Conflicts;
 
@@ -288,6 +289,19 @@ public static class ConflictAppCatalog
             DisplayName = "Tryx Kanali",
             Category = "cooling",
             ProcessNames = new[] { "Kanali" },
+        },
+
+        // ── Elgato ─────────────────────────────────────────────────────────
+        new()
+        {
+            // Elgato's own Stream Deck app can hold the same HID handle
+            // concurrently as Nexus (see StreamDeckHandler.GetWarning), so
+            // both apps painting the deck is a visual fight, not a
+            // connection failure.
+            Id = StreamDeckHandler.ElgatoConflictAppId,
+            DisplayName = "Elgato Stream Deck",
+            Category = "peripherals",
+            ProcessNames = new[] { "StreamDeck" },
         },
 
         // ── Other peripheral / lighting vendors ────────────────────────────

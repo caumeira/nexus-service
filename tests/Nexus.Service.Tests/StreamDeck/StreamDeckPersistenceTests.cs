@@ -22,6 +22,8 @@ public class StreamDeckPersistenceTests
         {
             Name = "My Deck",
             Brightness = 42,
+            Orientation = 180,
+            SleepAfterSeconds = 90,
             Deck = new DeckConfig
             {
                 Slots =
@@ -79,6 +81,8 @@ public class StreamDeckPersistenceTests
         var deck = roundTripped!.StreamDeck.Decks["SERIAL-1"];
         Assert.Equal("My Deck", deck.Name);
         Assert.Equal(42, deck.Brightness);
+        Assert.Equal(180, deck.Orientation);
+        Assert.Equal(90, deck.SleepAfterSeconds);
         Assert.Equal("abc123", deck.ImageRefs["0/0"]);
         Assert.Equal(3, deck.Deck.Slots.Count);
         Assert.Equal("lock", deck.Deck.Slots[0].Action!.PowerAction);
@@ -94,6 +98,14 @@ public class StreamDeckPersistenceTests
     {
         Assert.Equal(60, new PhysicalDeckSettings().Brightness);
         Assert.Equal(60, PhysicalDeckSettings.DefaultBrightness);
+    }
+
+    [Fact]
+    public void PhysicalDeckSettings_OrientationAndSleepAfterSeconds_DefaultToZero()
+    {
+        var deck = new PhysicalDeckSettings();
+        Assert.Equal(0, deck.Orientation);
+        Assert.Equal(0, deck.SleepAfterSeconds);
     }
 }
 

@@ -50,12 +50,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     private readonly SimulatedStreamDeckSurface? _simulated;
 
     /// <summary>
-    /// Guards _surfaces/_lastKeyStates/_folderPathsBySerial against the tick
-    /// thread, an HTTP route (GET /streamdeck/decks, FindBySerial, RefreshView),
-    /// and each connected surface's own StreamDeckInputReader background thread
-    /// (via OnInputReport) all reading or writing the same dictionaries.
-    /// Reentrant per thread (a plain object lock), so Tick's internals can call
-    /// PushCurrentView while already holding it without deadlocking.
+    /// Guards _surfaces/_lastKeyStates/_folderPathsBySerial/_lastInputAt/_asleep
+    /// against the tick thread, an HTTP route (GET /streamdeck/decks,
+    /// FindBySerial, RefreshView, IsAsleep), and each connected surface's own
+    /// StreamDeckInputReader background thread (via OnInputReport) all reading
+    /// or writing the same dictionaries. Reentrant per thread (a plain object
+    /// lock), so Tick's internals can call PushCurrentView while already
+    /// holding it without deadlocking.
     /// </summary>
     private readonly object _lock = new();
 
@@ -63,8 +64,15 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     private readonly Dictionary<string, bool[]> _lastKeyStates = new();
     private readonly Dictionary<string, List<int>> _folderPathsBySerial = new(StringComparer.OrdinalIgnoreCase);
 
+    /// <summary>Per-deck (keyed by serial) timestamp of the last key input, real or simulated. Seeded on connect; drives ApplySleepAfterIdle.</summary>
+    private readonly Dictionary<string, DateTimeOffset> _lastInputAt = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Per-deck (keyed by serial) sleep-after state: true once blanked by ApplySleepAfterIdle, cleared by the next key down.</summary>
+    private readonly Dictionary<string, bool> _asleep = new(StringComparer.OrdinalIgnoreCase);
+
     /// <summary>One dedicated input reader per connected real HID surface, keyed the same as _surfaces. Never holds an entry for SimulatedKey.</summary>
     private readonly Dictionary<string, StreamDeckInputReader> _inputReaders = new();
+
+    private readonly TimeProvider _clock;
 
     public StreamDeckConnectionWorker(
         IHidEnumerator hid,
@@ -74,7 +82,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         IDeckActionExecutor executor,
         StreamDeckImageCache imageCache,
         MultiplexHub hub,
-        SimulatedStreamDeckSurface? simulated = null)
+        SimulatedStreamDeckSurface? simulated = null,
+        TimeProvider? clock = null)
     {
         _hid = hid;
         _presence = presence;
@@ -84,6 +93,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         _imageCache = imageCache;
         _hub = hub;
         _simulated = simulated;
+        _clock = clock ?? TimeProvider.System;
     }
 
     /// <summary>A snapshot of every currently tracked surface, keyed by HID path (or "sim" for the simulated deck).</summary>
@@ -108,6 +118,15 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
 
     private IStreamDeckSurface? FindBySerialLocked(string serial) =>
         _surfaces.Values.FirstOrDefault(s => string.Equals(s.Serial, serial, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>True if ApplySleepAfterIdle has blanked this deck and no key input has restored it yet.</summary>
+    public bool IsAsleep(string serial)
+    {
+        lock (_lock)
+        {
+            return _asleep.TryGetValue(serial, out var asleep) && asleep;
+        }
+    }
 
     /// <summary>Current folder path for a deck (empty at root). Test/diagnostic accessor.</summary>
     public IReadOnlyList<int> GetFolderPath(string serial)
@@ -173,6 +192,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
             RegisterSimulatedIfNeeded();
             ReconcileHidSurfaces();
             PumpSimulatedInput();
+            ApplySleepAfterIdle();
         }
     }
 
@@ -235,6 +255,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
             _surfaces.Remove(key);
             _lastKeyStates.Remove(key);
             _folderPathsBySerial.Remove(serial);
+            _lastInputAt.Remove(serial);
+            _asleep.Remove(serial);
             BroadcastDecksChanged(serial);
         }
     }
@@ -261,11 +283,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     /// <summary>Applies persisted brightness, resets folder nav to root, and pushes the root view's cached images.</summary>
     private void OnSurfaceConnected(IStreamDeckSurface surface)
     {
-        var settings = _store.Load().StreamDeck;
-        var brightness = settings.Decks.TryGetValue(surface.Serial, out var deck)
-            ? deck.Brightness
-            : PhysicalDeckSettings.DefaultBrightness;
-        surface.SetBrightness(brightness);
+        ApplyPersistedBrightness(surface);
 
         _store.Update(s =>
         {
@@ -277,9 +295,21 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
             persisted.ProductId = surface.Model.ProductId;
         });
 
+        _lastInputAt[surface.Serial] = _clock.GetUtcNow();
+        _asleep[surface.Serial] = false;
         _folderPathsBySerial[surface.Serial] = new List<int>();
         PushCurrentView(surface);
         BroadcastDecksChanged(surface.Serial);
+    }
+
+    /// <summary>Pushes the persisted (or default) brightness to a surface. Shared by connect and sleep-after wake.</summary>
+    private void ApplyPersistedBrightness(IStreamDeckSurface surface)
+    {
+        var settings = _store.Load().StreamDeck;
+        var brightness = settings.Decks.TryGetValue(surface.Serial, out var deck)
+            ? deck.Brightness
+            : PhysicalDeckSettings.DefaultBrightness;
+        surface.SetBrightness(brightness);
     }
 
     /// <summary>
@@ -302,12 +332,62 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     }
 
     /// <summary>
+    /// Blanks (brightness 0) any connected deck whose SleepAfterSeconds has
+    /// elapsed with no key input since _lastInputAt. Runs once per tick, so
+    /// idle detection resolves within one TickMs of the configured threshold;
+    /// a deck already marked asleep is skipped so it is blanked only once per
+    /// idle period. HandleKeyDown clears the flag and restores brightness on
+    /// the next key press.
+    /// </summary>
+    private void ApplySleepAfterIdle()
+    {
+        var settings = _store.Load().StreamDeck;
+        var now = _clock.GetUtcNow();
+        foreach (var surface in _surfaces.Values)
+        {
+            if (!surface.IsConnected)
+            {
+                continue;
+            }
+            if (!settings.Decks.TryGetValue(surface.Serial, out var deck) || deck.SleepAfterSeconds <= 0)
+            {
+                continue;
+            }
+            if (_asleep.TryGetValue(surface.Serial, out var alreadyAsleep) && alreadyAsleep)
+            {
+                continue;
+            }
+            if (!_lastInputAt.TryGetValue(surface.Serial, out var lastInput) ||
+                now - lastInput < TimeSpan.FromSeconds(deck.SleepAfterSeconds))
+            {
+                continue;
+            }
+            surface.SetBrightness(0);
+            _asleep[surface.Serial] = true;
+            ServiceLog.Info($"[streamdeck] deck asleep after {deck.SleepAfterSeconds}s idle (serial={surface.Serial})");
+        }
+    }
+
+    /// <summary>Restores persisted brightness and clears the sleep-after flag if this deck was blanked. No-op otherwise.</summary>
+    private void WakeIfAsleep(IStreamDeckSurface surface)
+    {
+        if (!_asleep.TryGetValue(surface.Serial, out var asleep) || !asleep)
+        {
+            return;
+        }
+        _asleep[surface.Serial] = false;
+        ApplyPersistedBrightness(surface);
+        ServiceLog.Info($"[streamdeck] deck woken by key input (serial={surface.Serial})");
+    }
+
+    /// <summary>
     /// Diffs a decoded key-state snapshot against the last known state for
     /// this surface and dispatches any newly-pressed key. Caller must hold
     /// _lock.
     /// </summary>
     private void ProcessKeyStates(string key, IStreamDeckSurface surface, bool[] states)
     {
+        _lastInputAt[surface.Serial] = _clock.GetUtcNow();
         if (!_lastKeyStates.TryGetValue(key, out var last) || last.Length != states.Length)
         {
             last = new bool[states.Length];
@@ -348,6 +428,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
 
     private void HandleKeyDown(IStreamDeckSurface surface, int physicalIndex)
     {
+        WakeIfAsleep(surface);
+
         if (!_folderPathsBySerial.TryGetValue(surface.Serial, out var folderPath))
         {
             folderPath = new List<int>();
@@ -507,6 +589,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
             _surfaces.Clear();
             _lastKeyStates.Clear();
             _folderPathsBySerial.Clear();
+            _lastInputAt.Clear();
+            _asleep.Clear();
             if (hadSurfaces)
             {
                 BroadcastDecksChanged(null);

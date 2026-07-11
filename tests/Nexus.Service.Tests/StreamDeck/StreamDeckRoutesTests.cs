@@ -120,7 +120,10 @@ public sealed class StreamDeckRoutesTests : IDisposable
             Assert.Equal(mini.Columns, entry.GetProperty("cols").GetInt32());
             Assert.Equal(mini.KeyCount, entry.GetProperty("keyCount").GetInt32());
             Assert.Equal(mini.Transform, entry.GetProperty("transform").GetString());
+            Assert.Equal(0, entry.GetProperty("orientation").GetInt32());
+            Assert.Equal(0, entry.GetProperty("sleepAfterSeconds").GetInt32());
             Assert.True(!entry.TryGetProperty("warning", out var warningEl) || warningEl.ValueKind == JsonValueKind.Null);
+            Assert.True(!entry.TryGetProperty("conflictAppId", out var conflictEl) || conflictEl.ValueKind == JsonValueKind.Null);
         }
     }
 
@@ -189,6 +192,54 @@ public sealed class StreamDeckRoutesTests : IDisposable
             var deck = store.Load().StreamDeck.Decks["SERIAL-1"];
             Assert.Equal("Desk Deck", deck.Name);
             Assert.Equal(77, deck.Brightness);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateDeck_PersistsOrientationAndSleepAfterSeconds()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var res = await client.PostAsync("/streamdeck/decks/SERIAL-1", Json("{\"orientation\":180,\"sleepAfterSeconds\":120}"));
+            Assert.True(res.IsSuccessStatusCode);
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var deck = store.Load().StreamDeck.Decks["SERIAL-1"];
+            Assert.Equal(180, deck.Orientation);
+            Assert.Equal(120, deck.SleepAfterSeconds);
+        }
+    }
+
+    [Theory]
+    [InlineData(100, 90)]
+    [InlineData(-90, 270)]
+    [InlineData(400, 0)]
+    [InlineData(359, 0)]
+    public async Task UpdateDeck_ClampsOrientationToNearestCanonicalValue(int input, int expected)
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var res = await client.PostAsync("/streamdeck/decks/SERIAL-1", Json($"{{\"orientation\":{input}}}"));
+            Assert.True(res.IsSuccessStatusCode);
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            Assert.Equal(expected, store.Load().StreamDeck.Decks["SERIAL-1"].Orientation);
+        }
+    }
+
+    [Fact]
+    public async Task UpdateDeck_ClampsSleepAfterSecondsToNonNegative()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var res = await client.PostAsync("/streamdeck/decks/SERIAL-1", Json("{\"sleepAfterSeconds\":-5}"));
+            Assert.True(res.IsSuccessStatusCode);
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            Assert.Equal(0, store.Load().StreamDeck.Decks["SERIAL-1"].SleepAfterSeconds);
         }
     }
 

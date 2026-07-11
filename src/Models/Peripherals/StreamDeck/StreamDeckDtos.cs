@@ -25,9 +25,15 @@ public sealed class StreamDeckSummaryDto
     public string Transform { get; set; } = "";
     /// <summary>Persisted value, 0-100.</summary>
     public int Brightness { get; set; }
+    /// <summary>User rotation, degrees: 0, 90, 180, or 270.</summary>
+    public int Orientation { get; set; }
+    /// <summary>Seconds of no key input before the deck blanks; 0 disables sleep-after.</summary>
+    public int SleepAfterSeconds { get; set; }
     public string FirmwareVersion { get; set; } = "";
     /// <summary>"elgato-software-running" when Elgato's own app is contending for the deck; null otherwise.</summary>
     public string? Warning { get; set; }
+    /// <summary>ConflictAppCatalog id to pass to POST /conflicts/kill when Warning is set; null otherwise.</summary>
+    public string? ConflictAppId { get; set; }
 }
 
 public sealed class GetStreamDecksResponse
@@ -35,11 +41,15 @@ public sealed class GetStreamDecksResponse
     public List<StreamDeckSummaryDto> Decks { get; set; } = new();
 }
 
-/// <summary>POST /streamdeck/decks/{serial} - rename and/or set brightness. Either field may be omitted.</summary>
+/// <summary>POST /streamdeck/decks/{serial} - rename and/or set brightness/orientation/sleep-after. Any field may be omitted.</summary>
 public sealed class UpdateStreamDeckBody
 {
     public string? Name { get; set; }
     public int? Brightness { get; set; }
+    /// <summary>Degrees; clamped to the nearest of 0, 90, 180, or 270.</summary>
+    public int? Orientation { get; set; }
+    /// <summary>Seconds of no key input before the deck blanks; clamped to >= 0.</summary>
+    public int? SleepAfterSeconds { get; set; }
 }
 
 /// <summary>Shared envelope for GET/PUT /streamdeck/decks/{serial}/config.</summary>
