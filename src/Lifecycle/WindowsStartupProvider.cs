@@ -71,19 +71,33 @@ public sealed class WindowsStartupProvider : IStartupProvider
     }
 
 #if WINDOWS
+    private const string ServiceStartKey = @"SYSTEM\CurrentControlSet\Services\NexusService";
+
     /// <summary>
-    /// Ensure the helper's tray-autostart Run key is present, written in the
-    /// calling user's hive. Called from the user-session helper, where HKCU is
-    /// the real user (not LocalSystem), so the key lands in the right place.
-    /// Autostart is on by default and has no user-facing opt-out today; the
-    /// service spawns the helper regardless, so this just keeps the sign-in
-    /// autostart entry present and pointed at the current exe.
+    /// Point the helper's sign-in Run key at <paramref name="exePath"/> when the
+    /// service is set to start at boot, and remove it when the service is
+    /// demand/disabled, so the per-user helper autostart mirrors the "start on
+    /// boot" choice. The service start type (HKLM) is the single source of
+    /// truth; a LocalSystem service cannot write the real user's HKCU, so this
+    /// must run in the user context (the --helper and --sync-autostart entries).
     /// </summary>
     [SupportedOSPlatform("windows")]
-    public static void EnsureHelperAutostart(string exePath)
+    public static void SyncHelperAutostart(string exePath)
     {
         if (string.IsNullOrEmpty(exePath)) return;
-        new WindowsStartupProvider().SetEnabled(true, exePath, string.Empty);
+        new WindowsStartupProvider().SetEnabled(ServiceStartsAtBoot(), exePath, string.Empty);
+    }
+
+    /// <summary>True when the service Start DWORD is 2 (auto). Defaults true if unreadable so a broken read never silently disables autostart.</summary>
+    [SupportedOSPlatform("windows")]
+    private static bool ServiceStartsAtBoot()
+    {
+        try
+        {
+            using var key = Registry.LocalMachine.OpenSubKey(ServiceStartKey, writable: false);
+            return key?.GetValue("Start") is not int start || start == 2;
+        }
+        catch { return true; }
     }
 
     /// <summary>

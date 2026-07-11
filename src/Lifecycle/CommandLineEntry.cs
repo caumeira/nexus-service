@@ -32,6 +32,14 @@ internal static class CommandLineEntry
                 if (a.Length < 2 || string.IsNullOrEmpty(a[1])) return 1;
                 return new Nexus.Service.Activity.WindowsAudioDeviceProvider().SetDefaultDirect(a[1]) ? 0 : 1;
             },
+            // One-shot invoked by the service via schtasks after a start-mode
+            // change: syncs the per-user sign-in Run key to the new service
+            // start type (HKCU is the real user here, not the LocalSystem service).
+            ["--sync-autostart"] = static _ =>
+            {
+                WindowsStartupProvider.SyncHelperAutostart(Environment.ProcessPath ?? string.Empty);
+                return 0;
+            },
         };
 #endif
 
