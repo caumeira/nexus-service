@@ -27,11 +27,11 @@ internal sealed class AstralNvApiClient : IAstralNvApiClient
 
     private const int MaxPhysicalGpus = 64;
 
-    // Astral's onboard ITE IT8915FN power-monitor IC: 7-bit I2C address 0x2B
-    // (shifted to the 8-bit form NvI2CInfo.I2CDevAddress expects), power/
-    // current registers starting at register 0x80. Same address NvidiaGpu.cs
-    // TryReadAstral12VHPwrPinSensors uses and Timic3/astral-power-monitoring's
-    // SMBus dump confirms independently.
+    // Astral's onboard ITE IT8915FN power-monitor IC. AstralI2CDevAddress is
+    // the chip's I2C address shifted into the form NvI2CInfo.I2CDevAddress
+    // expects; AstralRegisterAddress is where its power/current registers
+    // begin. Same address NvidiaGpu.cs TryReadAstral12VHPwrPinSensors uses,
+    // independently confirmed by Timic3/astral-power-monitoring's SMBus dump.
     private const byte AstralI2CDevAddress = 0x2B << 1;
     private const byte AstralRegisterAddress = 0x80;
     private const uint I2CSpeedDeprecated = 0xFFFF;

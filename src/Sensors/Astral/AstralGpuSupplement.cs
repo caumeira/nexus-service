@@ -25,6 +25,7 @@ internal sealed class AstralGpuSupplement
     private readonly IAstralNvApiClient _client;
     private readonly TimeProvider _timeProvider;
     private readonly TimeSpan _probeInterval;
+    private readonly object _lock = new();
     private readonly Dictionary<int, GpuState> _states = new();
 
     public AstralGpuSupplement(IAstralNvApiClient client) : this(client, TimeProvider.System, TimeSpan.FromSeconds(1))
@@ -55,11 +56,17 @@ internal sealed class AstralGpuSupplement
     /// </summary>
     public string EnrichName(string hwIdentifier, string lhmName)
     {
-        if (!TryGetState(hwIdentifier, out var state))
+        // LibreHardwareSensorProvider is a DI singleton; GetGpus() is called
+        // from both the monitoring broadcaster's background loop and HTTP
+        // request threads, so all reads/writes of _states go through this lock.
+        lock (_lock)
         {
-            return lhmName;
+            if (!TryGetState(hwIdentifier, out var state))
+            {
+                return lhmName;
+            }
+            return AstralAibVendors.EnrichName(lhmName, state.SubSystemId, state.LastReadout.HasValue);
         }
-        return AstralAibVendors.EnrichName(lhmName, state.SubSystemId, state.LastReadout.HasValue);
     }
 
     /// <summary>
@@ -69,26 +76,29 @@ internal sealed class AstralGpuSupplement
     /// </summary>
     public void AppendSensors(string hwIdentifier, string hwId, string hwName, List<HardwareSensor> result)
     {
-        if (!TryGetState(hwIdentifier, out var state))
+        lock (_lock)
         {
-            return;
-        }
+            if (!TryGetState(hwIdentifier, out var state))
+            {
+                return;
+            }
 
-        if ((state.SubSystemId & 0xFFFF) != AstralAibVendors.AsusVendorId)
-        {
-            return;
-        }
+            if ((state.SubSystemId & 0xFFFF) != AstralAibVendors.AsusVendorId)
+            {
+                return;
+            }
 
-        var now = _timeProvider.GetUtcNow();
-        if (now >= state.NextProbeUtc)
-        {
-            state.NextProbeUtc = now + _probeInterval;
-            Probe(state, state.AdapterIndex);
-        }
+            var now = _timeProvider.GetUtcNow();
+            if (now >= state.NextProbeUtc)
+            {
+                state.NextProbeUtc = now + _probeInterval;
+                Probe(state, state.AdapterIndex);
+            }
 
-        if (state.LastReadout is { } readout)
-        {
-            AstralSensorBuilder.Append(hwId, hwName, readout, result);
+            if (state.LastReadout is { } readout)
+            {
+                AstralSensorBuilder.Append(hwId, hwName, readout, result);
+            }
         }
     }
 

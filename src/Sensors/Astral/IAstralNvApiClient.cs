@@ -9,16 +9,16 @@ namespace Nexus.Service.Sensors.Astral;
 internal interface IAstralNvApiClient
 {
     /// <summary>
-    /// PCI subsystem id (vendor in the low 16 bits) for the NVAPI physical GPU
+    /// PCI subsystem id (vendor in the low portion) for the NVAPI physical GPU
     /// at <paramref name="adapterIndex"/>, matching the same enumeration order
     /// LibreHardwareMonitor's NvidiaGroup uses to assign its adapter indices.
     /// </summary>
     bool TryGetPciSubsystemId(int adapterIndex, out uint subSystemId);
 
     /// <summary>
-    /// Reads the 24-byte Astral 12VHPWR telemetry block. False on any NVAPI
-    /// error (wrong adapter index, no Astral controller, I2C NAK); `block` is
-    /// then empty.
+    /// Reads the Astral 12VHPWR telemetry block (see AstralTelemetryParser.
+    /// BlockSize). False on any NVAPI error (wrong adapter index, no Astral
+    /// controller, I2C NAK); `block` is then empty.
     /// </summary>
     bool TryReadAstralBlock(int adapterIndex, out byte[] block);
 }

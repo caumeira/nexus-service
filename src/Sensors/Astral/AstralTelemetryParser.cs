@@ -3,17 +3,16 @@ using System;
 namespace Nexus.Service.Sensors.Astral;
 
 /// <summary>
-/// Parses the 24-byte block read from an ASUS ROG Astral GPU's onboard ITE
-/// IT8915FN power-monitor IC into per-pin 12VHPWR voltage/current/power plus
+/// Parses the block read from an ASUS ROG Astral GPU's onboard ITE IT8915FN
+/// power-monitor IC into per-pin 12VHPWR voltage/current/power plus
 /// connector totals.
 ///
-/// Byte layout: 12 big-endian u16 words (millivolts/milliamps), pin 6 first
-/// (voltage then current), descending to pin 1 last. Mirrors
+/// Byte layout: big-endian words holding millivolts/milliamps, pins in
+/// descending order (voltage before current per pin). Mirrors
 /// LibreHardwareMonitor's Hardware/Gpu/NvidiaGpu.cs
-/// TryReadAstral12VHPwrPinSensors (the word-reversal loop building `data`) and
-/// Update's per-pin loop (data[i*2]=current, data[i*2+1]=voltage), and is
-/// independently confirmed by Timic3/astral-power-monitoring's README register
-/// map (same IC, same reversed rail order).
+/// TryReadAstral12VHPwrPinSensors and its per-pin Update loop, independently
+/// confirmed by Timic3/astral-power-monitoring's README register map (same
+/// IC, same reversed rail order).
 /// </summary>
 internal static class AstralTelemetryParser
 {

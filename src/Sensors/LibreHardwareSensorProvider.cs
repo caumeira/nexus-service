@@ -89,6 +89,10 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
     {
         _lhm.Update(TimeSpan.FromMilliseconds(100));
         var result = new List<GpuReadout>();
+        // DXGI adapter descriptions are never Astral/AIB-enriched, so LUID
+        // matching below needs each GPU's raw LHM name alongside the
+        // (possibly renamed) display name, keyed by the untouched Id.
+        var rawNames = new Dictionary<string, string>();
         foreach (var hw in FindHardware(HardwareType.GpuNvidia, HardwareType.GpuAmd, HardwareType.GpuIntel))
         {
             var mapped = MapSensors(hw);
@@ -118,16 +122,18 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
                 }
             }
             var (vendor, integrated) = ClassifyGpu(hw.HardwareType, hw.Name, vramTotalMb);
+            var id = hw.Identifier.ToString();
+            rawNames[id] = hw.Name;
             result.Add(new GpuReadout
             {
-                Id = hw.Identifier.ToString(),
+                Id = id,
                 Name = displayName,
                 Vendor = vendor,
                 Integrated = integrated,
                 Sensors = mapped,
             });
         }
-        AttachAdapterLuids(result);
+        AttachAdapterLuids(result, rawNames);
         return result;
     }
 
@@ -135,15 +141,18 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
     // per-process GPU counters (whose PDH instances carry a luid tag) to the
     // picked GPU. Exact model-name match first, then vendor + discrete/integrated
     // class for any leftover; unmatched GPUs keep AdapterLuid="" (combined view).
-    private static void AttachAdapterLuids(List<GpuReadout> gpus)
+    // The exact match compares each GPU's raw LHM name (rawNames), not its
+    // possibly Astral/AIB-enriched display name, against DXGI's description.
+    private static void AttachAdapterLuids(List<GpuReadout> gpus, IReadOnlyDictionary<string, string> rawNames)
     {
         var adapters = GpuAdapterLuids.Enumerate();
         if (adapters.Count == 0) return;
         var used = new HashSet<string>();
         foreach (var g in gpus)
         {
+            var rawName = rawNames.TryGetValue(g.Id, out var n) ? n : g.Name;
             var a = adapters.FirstOrDefault(x => !used.Contains(x.Luid)
-                && string.Equals(x.Description.Trim(), g.Name.Trim(), StringComparison.OrdinalIgnoreCase));
+                && string.Equals(x.Description.Trim(), rawName.Trim(), StringComparison.OrdinalIgnoreCase));
             if (a.Luid is { Length: > 0 }) { g.AdapterLuid = a.Luid; used.Add(a.Luid); }
         }
         foreach (var g in gpus)

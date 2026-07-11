@@ -9,8 +9,8 @@ namespace Nexus.Service.Sensors.Astral;
 /// NvAPI_GPU_GetPCIIdentifiers) and enriches LibreHardwareMonitor's raw NVAPI
 /// model name with it. LHM's name is always "NVIDIA &lt;model&gt;" (see
 /// NvidiaGpu.cs GetName); this replaces that generic prefix with the AIB's
-/// brand so the client shows e.g. "ASUS GeForce RTX 5080" instead of "NVIDIA
-/// GeForce RTX 5080".
+/// brand so the client shows an AIB-branded name instead of the generic
+/// NVIDIA-prefixed one.
 /// </summary>
 internal static class AstralAibVendors
 {
