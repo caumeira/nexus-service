@@ -253,6 +253,18 @@ public sealed class DisplayTopologyTests : IDisposable
         Assert.Null(generic.Family);
         Assert.Equal(3840, generic.CssWidth);
         Assert.Null(generic.Orientation);
+        Assert.False(generic.Touch);
+    }
+
+    [Fact]
+    public void Known_touch_display_is_touch_even_when_os_reports_no_digitizer()
+    {
+        // The Windows pointer-device association misses some panels; a curated
+        // touch strip stays interactive regardless.
+        var caps = DisplayTopologyService.BuildPromotedCapabilities(
+            "CRX", "ED00", "CRX ED00", 2560, 720, 1.5, isTouch: false, orientation: "Landscape");
+
+        Assert.True(caps.Touch);
     }
 
     [Fact]
