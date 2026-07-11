@@ -140,7 +140,7 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         var disabled = settings.Devices.DisabledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
-        // The keeb software stream is brightness = global * per-zone only. The
+        // The keeb software stream brightness is min(global, per-zone). The
         // firmware-brightness level (keeb Settings slider) dims the firmware animation,
         // not the software stream; the knob drives global brightness while streaming
         // (see SyncFromDevice), so it never multiplies into this stream (masterMul 1).

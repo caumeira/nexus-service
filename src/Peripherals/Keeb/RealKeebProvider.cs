@@ -108,12 +108,12 @@ public sealed class RealKeebProvider : IKeebProvider
     {
         var brightness = Math.Clamp(body.Brightness, 0, 100);
         // While a software effect streams, the firmware animation is suppressed and
-        // the frame writer multiplies FirmwareLighting.Brightness into the stream, so
-        // writing the 0x06 page now would only flash the firmware animation through
-        // the live stream (and a brightness drag flashes repeatedly). Update the
-        // master and let the composer apply it; the frame writer writes the page when
-        // streaming stops. With no effect, write it so the firmware animation reflects
-        // the change immediately.
+        // the frame writer caps the stream by the master brightness, so writing the
+        // 0x06 page now would only flash the firmware animation through the live
+        // stream (and a brightness drag flashes repeatedly). Update the master and
+        // let the composer apply it; the frame writer writes the page when streaming
+        // stops. With no effect, write it so the firmware animation reflects the
+        // change immediately.
         var streaming = _engine.CurrentEffectName != "none";
         _applier.ApplyGated(s =>
         {

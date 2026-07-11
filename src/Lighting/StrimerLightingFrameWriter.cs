@@ -200,7 +200,7 @@ public sealed class StrimerLightingFrameWriter : IHostedService, IDisposable
     private static byte ComputeBrightnessByte(int brightness, float globalBrightness)
     {
         if (globalBrightness <= 0f) return StrimerLightingModes.BrightnessCodes[0];
-        var idx = (int)Math.Round(brightness * globalBrightness);
+        var idx = (int)Math.Round(Math.Min((double)brightness, globalBrightness * 4.0));
         return StrimerLightingModes.BrightnessCodes[Math.Clamp(idx, 0, 4)];
     }
 

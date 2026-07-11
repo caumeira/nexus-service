@@ -517,7 +517,7 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
         { hue = pref.Hue; sat = pref.Saturation; bri = pref.Brightness; }
         var global = Math.Clamp(s.Lighting.GlobalBrightness, 0f, 1f);
         var (r, g, b) = ColorMath.HsvToRgb(hue, sat, 1f);
-        var b01 = global * Math.Clamp(bri, 0, 100) / 100f;
+        var b01 = Math.Min(Math.Clamp(bri, 0, 100) / 100f, global);
 
         // A device whose realtime mode lapses without a stream
         // (plan.StaticNeedsStreaming, e.g. Govee) can't hold a single-color
