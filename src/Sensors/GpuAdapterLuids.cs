@@ -1,7 +1,9 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Nexus.Service.Models.Sensors;
 #if WINDOWS
+using System.Runtime.InteropServices;
 using Vortice.DXGI;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
@@ -66,6 +68,94 @@ internal static class GpuAdapterLuids
         return Array.Empty<Adapter>();
 #endif
     }
+
+    private static readonly IReadOnlySet<string> NoKernelLuids = new HashSet<string>();
+
+    /// <summary>
+    /// Attribute each GPU to its DXGI adapter LUID so the client can scope
+    /// per-process GPU counters (whose PDH instances carry a luid tag) to the
+    /// picked GPU. Exact model-name match first, then vendor + discrete/integrated
+    /// class for any leftover; unmatched GPUs keep AdapterLuid="" (combined view).
+    /// </summary>
+    public static void Attach(List<GpuReadout> gpus, IReadOnlyDictionary<string, string> rawNames)
+    {
+        var adapters = Enumerate();
+        if (adapters.Count == 0) return;
+        // Any indirect-display driver (a remote-desktop or USB/virtual "display",
+        // e.g. the "USB Mobile Monitor Virtual Display" seen on this box) renders
+        // through the physical GPU and so enumerates through DXGI as a second
+        // adapter with the GPU's exact name/vendor/VRAM. A name match alone can
+        // bind the GPU to that clone's LUID - which the per-process GPU counters
+        // never tag (the clone owns no VRAM), leaving the client's per-GPU process
+        // view empty. Only when two adapters share a description do we consult the
+        // set of LUIDs the graphics kernel backs with VRAM and prefer one of those;
+        // a single-adapter box skips the PDH query and pays nothing.
+        var kernelLuids = HasDuplicateDescriptions(adapters) ? KernelAdapterLuids() : NoKernelLuids;
+        MatchAdapterLuids(gpus, adapters, rawNames, kernelLuids);
+    }
+
+    private static bool HasDuplicateDescriptions(IReadOnlyList<Adapter> adapters)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var a in adapters)
+            if (!seen.Add(a.Description.Trim())) return true;
+        return false;
+    }
+
+    // The exact match compares each GPU's raw LHM name (rawNames), not its
+    // possibly Astral/AIB-enriched display name, against DXGI's description.
+    internal static void MatchAdapterLuids(
+        List<GpuReadout> gpus,
+        IReadOnlyList<Adapter> adapters,
+        IReadOnlyDictionary<string, string> rawNames,
+        IReadOnlySet<string> kernelLuids)
+    {
+        var used = new HashSet<string>();
+        foreach (var g in gpus)
+        {
+            var rawName = rawNames.TryGetValue(g.Id, out var n) ? n : g.Name;
+            if (PickAdapter(adapters, used, kernelLuids,
+                    x => string.Equals(x.Description.Trim(), rawName.Trim(), StringComparison.OrdinalIgnoreCase)) is { } a)
+            { g.AdapterLuid = a.Luid; used.Add(a.Luid); }
+        }
+        foreach (var g in gpus)
+        {
+            if (g.AdapterLuid.Length > 0) continue;
+            if (PickAdapter(adapters, used, kernelLuids,
+                    x => VendorMatches(g.Vendor, x.VendorId) && (x.DedicatedVramMb >= 1024) == !g.Integrated) is { } a)
+            { g.AdapterLuid = a.Luid; used.Add(a.Luid); }
+        }
+    }
+
+    // Among unused adapters (non-empty LUID) passing the predicate, the first one
+    // the graphics kernel backs with VRAM wins over one it doesn't (the render
+    // clone owns no VRAM). Preferring the FIRST backed match keeps the choice
+    // positionally stable across polls - two same-model discrete GPUs, both backed,
+    // bind to distinct LUIDs in enumeration order rather than swapping by live
+    // usage. With no kernel info, the first match wins, preserving prior behavior.
+    private static Adapter? PickAdapter(
+        IReadOnlyList<Adapter> adapters,
+        HashSet<string> used,
+        IReadOnlySet<string> kernelLuids,
+        Func<Adapter, bool> predicate)
+    {
+        Adapter? first = null;
+        foreach (var x in adapters)
+        {
+            if (x.Luid.Length == 0 || used.Contains(x.Luid) || !predicate(x)) continue;
+            if (kernelLuids.Contains(x.Luid)) return x;
+            first ??= x;
+        }
+        return first;
+    }
+
+    private static bool VendorMatches(string vendor, uint vendorId) => vendor switch
+    {
+        "nvidia" => vendorId == 0x10DE,
+        "amd" => vendorId == 0x1002,
+        "intel" => vendorId == 0x8086,
+        _ => false,
+    };
 
     /// <summary>
     /// True if at least one DXGI adapter can actually instantiate a Direct3D
@@ -136,4 +226,113 @@ internal static class GpuAdapterLuids
         var t = s.StartsWith("0x", StringComparison.OrdinalIgnoreCase) ? s.AsSpan(2) : s.AsSpan();
         return uint.TryParse(t, NumberStyles.HexNumber, CultureInfo.InvariantCulture, out v);
     }
+
+    /// <summary>
+    /// Canonical LUID string from a PDH GPU counter instance's
+    /// "luid_0xHIGH_0xLOW_..." segment (e.g. "pid_5040_luid_0x00000000_0x000105fc_...").
+    /// "" when absent/unparseable. Same "HighPart:LowPart" form <see cref="Enumerate"/>
+    /// produces from DXGI, so a PDH-derived LUID compares equal to a DXGI one.
+    /// </summary>
+    public static string ParseInstanceLuid(string instance)
+    {
+        const string tag = "luid_";
+        var i = instance.IndexOf(tag, StringComparison.Ordinal);
+        if (i < 0) return "";
+        var rest = instance.AsSpan(i + tag.Length);
+        var u1 = rest.IndexOf('_');
+        if (u1 <= 0) return "";
+        var high = rest[..u1].ToString();
+        var after = rest[(u1 + 1)..];
+        var u2 = after.IndexOf('_');
+        var low = (u2 < 0 ? after : after[..u2]).ToString();
+        return LuidFromHex(high, low);
+    }
+
+    /// <summary>
+    /// LUIDs the Windows graphics kernel backs with VRAM, from the instance names
+    /// of the PDH "GPU Adapter Memory" counter. This is the LUID space the
+    /// per-process "GPU Engine"/"GPU Process Memory" counters tag their instances
+    /// with, so a GPU whose DXGI description is duplicated by an indirect-display
+    /// render clone (which owns no VRAM and so never appears here) can be bound to
+    /// the LUID that actually carries GPU work. Empty on non-Windows or if the
+    /// counter is unavailable.
+    /// </summary>
+    public static IReadOnlySet<string> KernelAdapterLuids()
+    {
+#if WINDOWS
+        var set = new HashSet<string>();
+        IntPtr query = IntPtr.Zero;
+        try
+        {
+            if (Pdh.PdhOpenQueryW(null, IntPtr.Zero, out query) != 0) { query = IntPtr.Zero; return set; }
+            if (Pdh.PdhAddEnglishCounterW(query, @"\GPU Adapter Memory(*)\Dedicated Usage", IntPtr.Zero, out var counter) != 0)
+                return set;
+            if (Pdh.PdhCollectQueryData(query) != 0) return set;
+            foreach (var inst in Pdh.EnumInstanceNames(counter))
+            {
+                var luid = ParseInstanceLuid(inst);
+                if (luid.Length > 0) set.Add(luid);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[gpu-luid] GPU Adapter Memory enumeration failed: {ex.Message}");
+        }
+        finally
+        {
+            if (query != IntPtr.Zero) { try { Pdh.PdhCloseQuery(query); } catch { } }
+        }
+        return set;
+#else
+        return new HashSet<string>();
+#endif
+    }
+
+#if WINDOWS
+    private static class Pdh
+    {
+        private const string Lib = "pdh.dll";
+        private const uint PDH_FMT_DOUBLE = 0x00000200;
+        private const uint PDH_MORE_DATA = 0x800007D2;
+        // PDH_FMT_COUNTERVALUE_ITEM_W (x64): LPWSTR szName(8) + DWORD CStatus(4)
+        // + 4 pad + double(8) = 24 bytes.
+        private const int ItemSize = 24;
+
+        [DllImport(Lib, CharSet = CharSet.Unicode)]
+        public static extern uint PdhOpenQueryW(string? dataSource, IntPtr userData, out IntPtr query);
+        [DllImport(Lib, CharSet = CharSet.Unicode)]
+        public static extern uint PdhAddEnglishCounterW(IntPtr query, string path, IntPtr userData, out IntPtr counter);
+        [DllImport(Lib)]
+        public static extern uint PdhCollectQueryData(IntPtr query);
+        [DllImport(Lib)]
+        public static extern uint PdhCloseQuery(IntPtr query);
+        [DllImport(Lib)]
+        private static extern uint PdhGetFormattedCounterArrayW(IntPtr counter, uint format, ref uint bufferSize, out uint itemCount, IntPtr buffer);
+
+        // Only instance names are needed (each carries the adapter LUID); the
+        // counter value is not read, so an errored instance's undefined value
+        // union is never consumed. A per-instance name is populated regardless
+        // of CStatus.
+        public static IEnumerable<string> EnumInstanceNames(IntPtr counter)
+        {
+            uint size = 0;
+            if (PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, ref size, out _, IntPtr.Zero) != PDH_MORE_DATA || size == 0)
+                yield break;
+            var buf = Marshal.AllocHGlobal((int)size);
+            try
+            {
+                if (PdhGetFormattedCounterArrayW(counter, PDH_FMT_DOUBLE, ref size, out var count, buf) != 0)
+                    yield break;
+                for (var i = 0; i < count; i++)
+                {
+                    var namePtr = Marshal.ReadIntPtr(buf + i * ItemSize);
+                    if (namePtr == IntPtr.Zero) continue;
+                    var name = Marshal.PtrToStringUni(namePtr);
+                    if (!string.IsNullOrEmpty(name)) yield return name;
+                }
+            }
+            finally { Marshal.FreeHGlobal(buf); }
+        }
+    }
+#endif
 }
