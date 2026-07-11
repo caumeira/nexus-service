@@ -169,4 +169,46 @@ public class MonitoringTileRendererTests
 
         Assert.Equal(96, image.Width);
     }
+
+    [Theory]
+    [InlineData("Load")]
+    [InlineData("Temperature")]
+    [InlineData("Control")]
+    [InlineData("Level")]
+    public void ResolveDomain_FixesPercentLikeSensorTypesTo0_100(string sensorType)
+    {
+        var domain = MonitoringTileRenderer.ResolveDomain(sensorType, new List<float> { 4200f, 4200f });
+
+        Assert.Equal(0f, domain.Min);
+        Assert.Equal(100f, domain.Max);
+    }
+
+    [Fact]
+    public void ResolveDomain_AutoScalesEverythingElseToHistoryMinMax()
+    {
+        var domain = MonitoringTileRenderer.ResolveDomain("Clock", new List<float> { 4200f, 4700f, 4500f });
+
+        Assert.Equal(4200f, domain.Min);
+        Assert.Equal(4700f, domain.Max);
+    }
+
+    [Fact]
+    public void RadialFraction_DividesByDomainMaxRatherThanMinMaxNormalizing()
+    {
+        var domain = (Min: 100f, Max: 200f);
+
+        Assert.Equal(0.75f, MonitoringTileRenderer.RadialFraction(150f, domain));
+    }
+
+    [Fact]
+    public void RadialFraction_ClampsAboveDomainMax()
+    {
+        Assert.Equal(1f, MonitoringTileRenderer.RadialFraction(500f, (Min: 0f, Max: 100f)));
+    }
+
+    [Fact]
+    public void RadialFraction_DegenerateDomainRendersNeutralFill()
+    {
+        Assert.Equal(0.5f, MonitoringTileRenderer.RadialFraction(50f, (Min: 10f, Max: 10f)));
+    }
 }

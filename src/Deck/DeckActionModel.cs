@@ -67,7 +67,7 @@ public sealed class DeckAction
     public string? Sensor { get; set; }
     /// <summary>monitoring: line | radial | number.</summary>
     public string? Style { get; set; }
-    /// <summary>monitoring: graph/arc accent hex color. Unset falls back to the wire default #4da3ff.</summary>
+    /// <summary>monitoring: graph/arc accent hex color. Unset falls back to MonitoringTileRenderer.DefaultAccent.</summary>
     public string? Color { get; set; }
     /// <summary>monitoring: shows the sensor name label at top. Unset falls back to true.</summary>
     public bool? ShowName { get; set; }

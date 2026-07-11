@@ -8,6 +8,7 @@ using Nexus.Service.Deck;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Models.Peripherals.StreamDeck;
+using Nexus.Service.Models.Sensors;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
@@ -828,9 +829,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             }
         }
 
-        foreach (var candidate in visible)
+        var sampled = new HardwareSensor?[visible.Count];
+        for (var i = 0; i < visible.Count; i++)
         {
-            SampleMonitoringHistory(candidate);
+            sampled[i] = SampleMonitoringHistory(visible[i]);
         }
 
         if (visible.Count == 0)
@@ -841,12 +843,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         var pushCount = Math.Min(MonitoringPushCapPerTick, visible.Count);
         for (var i = 0; i < pushCount; i++)
         {
-            PushMonitoringKey(visible[(_monitoringRoundRobinCursor + i) % visible.Count]);
+            var idx = (_monitoringRoundRobinCursor + i) % visible.Count;
+            PushMonitoringKey(visible[idx], sampled[idx]);
         }
         _monitoringRoundRobinCursor = (_monitoringRoundRobinCursor + pushCount) % visible.Count;
     }
 
-    private void SampleMonitoringHistory(MonitoringKeyRef key)
+    private HardwareSensor? SampleMonitoringHistory(MonitoringKeyRef key)
     {
         var action = key.Slot.Action!;
         var sensor = SensorSnapshotResolver.Resolve(_sensors, action.Category ?? "", action.Sensor ?? "");
@@ -860,43 +863,60 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         {
             history.RemoveAt(0);
         }
+        return sensor;
     }
+
+    /// <summary>Value text shown when the configured sensor id no longer resolves.</summary>
+    private const string UnresolvedSensorValueText = "--";
 
     /// <summary>
     /// Renders and pushes one monitoring key, skipping the HID write when the
     /// encoded wire bytes hash the same as the last push (a pixel-identical
     /// tile - quantizing the history before render is what makes that hash
-    /// stable tick over tick for an unchanged reading) or when the configured
-    /// sensor id no longer resolves (deck keeps its last frame rather than
-    /// blanking). Never touches ImageRefs/StreamDeckImageCache - monitoring
-    /// frames change every tick and are pushed as in-memory bytes.
+    /// stable tick over tick for an unchanged reading). A sensor that no
+    /// longer resolves renders a placeholder tile rather than being skipped,
+    /// so a stale image from a previous view is not left on the key forever.
+    /// Never touches ImageRefs/StreamDeckImageCache - monitoring frames
+    /// change every tick and are pushed as in-memory bytes.
     /// </summary>
-    private void PushMonitoringKey(MonitoringKeyRef key)
+    private void PushMonitoringKey(MonitoringKeyRef key, HardwareSensor? sensor)
     {
         var action = key.Slot.Action!;
-        var sensor = SensorSnapshotResolver.Resolve(_sensors, action.Category ?? "", action.Sensor ?? "");
+        string name;
+        string valueText;
+        string sensorType;
+        List<float> historyForRender;
+
         if (sensor is null)
         {
-            return;
+            name = key.Slot.Label ?? "";
+            valueText = UnresolvedSensorValueText;
+            sensorType = "";
+            historyForRender = new List<float>();
         }
-
-        var history = _monitoringHistory.TryGetValue(key.HistoryKey, out var h) ? h : new List<float>();
-        // Rounded coarser than raw sensor jitter, so a visually-unchanged
-        // tile hashes the same and is not re-pushed over HID every tick.
-        var quantizedHistory = new List<float>(history.Count);
-        foreach (var sample in history)
+        else
         {
-            quantizedHistory.Add(MathF.Round(sample, 1));
+            var history = _monitoringHistory.TryGetValue(key.HistoryKey, out var h) ? h : new List<float>();
+            // Rounded coarser than raw sensor jitter, so a visually-unchanged
+            // tile hashes the same and is not re-pushed over HID every tick.
+            historyForRender = new List<float>(history.Count);
+            foreach (var sample in history)
+            {
+                historyForRender.Add(MathF.Round(sample, 1));
+            }
+            name = !string.IsNullOrEmpty(key.Slot.Label) ? key.Slot.Label! : sensor.Name;
+            valueText = sensor.Formatted;
+            sensorType = sensor.Type;
         }
 
         var title = key.Slot.Title;
         var input = new MonitoringTileInput
         {
-            Name = !string.IsNullOrEmpty(key.Slot.Label) ? key.Slot.Label! : sensor.Name,
+            Name = name,
             ShowName = action.ShowName ?? true,
-            ValueText = sensor.Formatted,
-            SensorType = sensor.Type,
-            History = quantizedHistory,
+            ValueText = valueText,
+            SensorType = sensorType,
+            History = historyForRender,
             Style = action.Style switch
             {
                 "radial" => MonitoringTileStyle.Radial,
@@ -971,6 +991,20 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         {
             _monitoringHistory.Remove(k);
         }
+        InvalidateMonitoringHashesForSerial(serial);
+    }
+
+    /// <summary>
+    /// Drops last-pushed hashes for this serial so the next RefreshMonitoringKeys
+    /// tick repaints every visible monitoring key even if its quantized reading
+    /// is unchanged from before the view changed. Without this, a key that goes
+    /// monitoring -> non-monitoring -> monitoring again across a nav/config
+    /// change keeps whatever foreign image PushCurrentView (or the other page's
+    /// monitoring render) last put on it, because the hash still matches.
+    /// </summary>
+    private void InvalidateMonitoringHashesForSerial(string serial)
+    {
+        var prefix = serial + ":";
         foreach (var k in _monitoringLastHash.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
         {
             _monitoringLastHash.Remove(k);
@@ -979,6 +1013,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
 
     private void PushCurrentView(IStreamDeckSurface surface)
     {
+        InvalidateMonitoringHashesForSerial(surface.Serial);
         if (!_folderPathsBySerial.TryGetValue(surface.Serial, out var folderPath))
         {
             folderPath = new List<int>();

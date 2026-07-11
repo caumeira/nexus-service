@@ -31,7 +31,7 @@ public sealed class MonitoringTileInput
     public string? BackgroundColorHex { get; init; }
     /// <summary>"default" | "arial" | "georgia" | "courierNew", matching nexus-web's DECK_TITLE_FONTS ids. Null/unrecognized falls back to the platform default.</summary>
     public string? TitleFont { get; init; }
-    /// <summary>Percent of the tile's pixel edge, matching nexus-web's DeckTitleStyle.size convention. Null falls back to the DECK_TITLE_SIZE_DEFAULT (16).</summary>
+    /// <summary>Percent of the tile's pixel edge, matching nexus-web's DeckTitleStyle.size convention. Null falls back to MonitoringTileRenderer.DefaultTitleSizePercent.</summary>
     public int? TitleSize { get; init; }
     public bool TitleBold { get; init; }
     public bool TitleItalic { get; init; }
@@ -150,7 +150,7 @@ internal static class MonitoringTileRenderer
         var innerRadius = outerRadius * (1f - RadialThicknessFraction);
 
         var current = input.History.Count > 0 ? input.History[^1] : 0f;
-        var fraction = Normalize(current, domain.Min, domain.Max);
+        var fraction = RadialFraction(current, domain);
 
         ctx.Fill(TrackColor, RenderKit.BuildRingSegment(center, innerRadius, outerRadius, RadialStartDeg, RadialStartDeg + RadialSweepDeg));
         if (fraction > 0f)
@@ -179,14 +179,16 @@ internal static class MonitoringTileRenderer
     }
 
     /// <summary>
-    /// Percent -> 0-100, temperature -> 0-100 (both fixed so a graph/arc
-    /// reads consistently regardless of how hot the sample window got),
-    /// everything else auto-scales to its own history's min/max.
+    /// Load/Temperature/Control/Level are fixed 0-100 so a graph/arc reads
+    /// consistently regardless of the sample window; everything else
+    /// auto-scales to its own history's min/max.
     /// </summary>
-    private static (float Min, float Max) ResolveDomain(string sensorType, IReadOnlyList<float> history)
+    internal static (float Min, float Max) ResolveDomain(string sensorType, IReadOnlyList<float> history)
     {
         if (string.Equals(sensorType, "Load", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(sensorType, "Temperature", StringComparison.OrdinalIgnoreCase))
+            string.Equals(sensorType, "Temperature", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(sensorType, "Control", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(sensorType, "Level", StringComparison.OrdinalIgnoreCase))
         {
             return (0f, 100f);
         }
@@ -218,6 +220,21 @@ internal static class MonitoringTileRenderer
             return 0.5f;
         }
         return Math.Clamp((value - min) / (max - min), 0f, 1f);
+    }
+
+    /// <summary>
+    /// The radial arc fills by value/domainMax (not a min/max normalization
+    /// like the line graph's y-axis), so a fixed 0-100 domain reads as a true
+    /// percent-of-100 gauge. A degenerate domain still renders a neutral
+    /// mid-fill rather than 0 or 100.
+    /// </summary>
+    internal static float RadialFraction(float value, (float Min, float Max) domain)
+    {
+        if (domain.Max <= domain.Min)
+        {
+            return 0.5f;
+        }
+        return Math.Clamp(value / domain.Max, 0f, 1f);
     }
 
     private static float TitlePixelSize(int? sizePercent, int pixelSize)

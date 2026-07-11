@@ -842,6 +842,46 @@ public class StreamDeckConnectionWorkerTests
     }
 
     [Fact]
+    public void Tick_MonitoringSlot_UnresolvedSensor_RendersAPlaceholderInsteadOfLeavingTheKeyBlank()
+    {
+        var f = NewFixtures(devicePresent: false); // no CpuSensors configured: "cpu/missing" never resolves
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/missing", Style = "number" };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick();
+
+        var bytes = simulated.PeekKeyImage(0);
+        Assert.NotNull(bytes);
+        Assert.True(Mini.IsValidWireImageLength(bytes!.Length));
+    }
+
+    [Fact]
+    public void Tick_MonitoringSlot_UnresolvedSensor_PlaceholderIsHashSkippedOnRepeatTicks()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/missing", Style = "number" };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick();
+        Assert.Equal(1, simulated.SetKeyImageCallCount);
+
+        worker.Tick();
+        worker.Tick();
+
+        Assert.Equal(1, simulated.SetKeyImageCallCount);
+    }
+
+    [Fact]
     public void PushCurrentView_NeverClearsALiveMonitoringKey()
     {
         var f = NewFixtures(devicePresent: false);
@@ -862,6 +902,65 @@ public class StreamDeckConnectionWorkerTests
         // RefreshView drives the same PushCurrentView a nav/config change does;
         // it must not blank the monitoring key.
         worker.RefreshView("sim-0001");
+
+        Assert.NotNull(simulated.PeekKeyImage(0));
+    }
+
+    [Fact]
+    public void Tick_MonitoringSlot_RepaintsAfterNavigatingAwayAndBackWithAnUnchangedReading()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "line" } },
+                            new DeckSlot { Action = new DeckAction { Type = "page", Op = "next" } },
+                        },
+                    },
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://page1.example.com" } },
+                            new DeckSlot { Action = new DeckAction { Type = "page", Op = "prev" } },
+                        },
+                    },
+                },
+            },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick();
+        Assert.NotNull(simulated.PeekKeyImage(0));
+
+        // Page 1's key 0 has no ImageRef, so navigating there clears the
+        // physical key the monitoring slot used to own.
+        simulated.Poke(1, true);
+        worker.Tick();
+        simulated.Poke(1, false);
+        worker.Tick();
+        Assert.Null(simulated.PeekKeyImage(0));
+
+        // Navigate back with the sensor reading unchanged from the first
+        // push. A quantized-unchanged reading must not suppress the repaint
+        // just because the key was blanked while on page 1 in between.
+        simulated.Poke(1, true);
+        worker.Tick();
+        simulated.Poke(1, false);
+        worker.Tick();
+        worker.Tick();
 
         Assert.NotNull(simulated.PeekKeyImage(0));
     }

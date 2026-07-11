@@ -238,14 +238,17 @@ public sealed class SystemActions
             // The service runs as LocalSystem in Session 0, where a directly
             // spawned taskmgr.exe has no interactive desktop to draw on - run
             // it in the active console user's session instead, same mechanism
-            // WindowsSystemPowerProvider.Lock() uses.
+            // WindowsSystemPowerProvider.Lock() uses. A LocalSystem-privileged
+            // taskmgr.exe launched with no user session (the pre-fix fallback)
+            // spawns invisibly in Session 0 and leaks a privileged process per
+            // press, so a missing session is a hard failure here, not a retry.
             if (Nexus.Service.Lifecycle.UserHelperBootstrapper.RunInUserSession("taskmgr.exe", "task-manager", "NexusTaskManager"))
             {
                 return true;
             }
+            Nexus.Service.Platform.ServiceLog.Warn("[system-actions] no active console user session for taskmgr.exe");
 #endif
-            Process.Start(new ProcessStartInfo("taskmgr.exe") { UseShellExecute = true });
-            return true;
+            return false;
         }
         if (OperatingSystem.IsMacOS())
         {
