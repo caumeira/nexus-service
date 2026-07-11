@@ -41,6 +41,11 @@ public sealed class DeckConfigConverter : JsonConverter<DeckConfig>
             {
                 config.Pages.Add(new DeckPage { Slots = slotsEl.Deserialize(GetTypeInfo<List<DeckSlot>>(options)) ?? new() });
             }
+
+            if (root.TryGetProperty("defaultTitleStyle", out var defEl) && defEl.ValueKind == JsonValueKind.Object)
+            {
+                config.DefaultTitleStyle = defEl.Deserialize(GetTypeInfo<DeckTitleStyle>(options));
+            }
         }
 
         if (config.Pages.Count == 0)
@@ -76,6 +81,11 @@ public sealed class DeckConfigConverter : JsonConverter<DeckConfig>
             writer.WriteEndObject();
         }
         writer.WriteEndArray();
+        if (value.DefaultTitleStyle is not null)
+        {
+            writer.WritePropertyName("defaultTitleStyle");
+            JsonSerializer.Serialize(writer, value.DefaultTitleStyle, GetTypeInfo<DeckTitleStyle>(options));
+        }
         writer.WriteEndObject();
     }
 

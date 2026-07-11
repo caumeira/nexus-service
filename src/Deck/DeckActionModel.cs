@@ -178,4 +178,6 @@ public sealed class DeckPage
 public sealed class DeckConfig
 {
     public List<DeckPage> Pages { get; set; } = new();
+    /// <summary>Deck-wide default title style seeded onto newly bound keys. Web-owned; the service only persists it.</summary>
+    public DeckTitleStyle? DefaultTitleStyle { get; set; }
 }
