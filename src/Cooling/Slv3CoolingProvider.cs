@@ -47,10 +47,12 @@ public sealed class Slv3CoolingProvider : IFanControlProvider, ICoolingProvider
         var result = new List<FanChannel>();
         foreach (var fan in _hub.State.Fans)
         {
-            if (!fan.BoundToUs || fan.FanCount <= 0) continue;
-            var deviceName = $"Lian Li Wireless Fan ({fan.FanCount}x)";
+            if (!fan.BoundToUs) continue;
+            var portCount = EffectivePortCount(fan);
+            var rpmUnavailable = fan.FanCount <= 0;
+            var deviceName = $"Lian Li Wireless Fan ({portCount}x)";
             var minDuty = Slv3Protocol.MinDutyPercentFor(Slv3Protocol.ClassifyFanFamily((byte)fan.FanType));
-            for (var port = 0; port < fan.FanCount; port++)
+            for (var port = 0; port < portCount; port++)
             {
                 result.Add(new FanChannel
                 {
@@ -60,6 +62,7 @@ public sealed class Slv3CoolingProvider : IFanControlProvider, ICoolingProvider
                     Rpm = PortRpm(fan, port),
                     Mode = PortPwm(fan, port) == Slv3Protocol.PwmFollowMotherboard ? FanModes.Auto : FanModes.Manual,
                     MinDuty = minDuty,
+                    RpmUnavailable = rpmUnavailable,
                     DeviceId = DeviceId(fan.Mac),
                     DeviceName = deviceName,
                     PortLabel = $"Fan {port + 1}",
@@ -68,6 +71,13 @@ public sealed class Slv3CoolingProvider : IFanControlProvider, ICoolingProvider
         }
         return result;
     }
+
+    // Ports to expose for a bound chain. A controller that enumerates its fans
+    // reports FanCount; one that does not (fan interlock tach line open) reports
+    // 0 while still accepting PWM, so fall back to the controller's physical
+    // port count and let the user drive them open-loop (no RPM read-back).
+    private static int EffectivePortCount(Slv3FanInfo fan) =>
+        fan.FanCount > 0 ? fan.FanCount : Slv3Protocol.PortsPerRecord;
 
     public IReadOnlyList<TemperatureSource> GetTemperatureSources() => Array.Empty<TemperatureSource>();
 
@@ -121,23 +131,25 @@ public sealed class Slv3CoolingProvider : IFanControlProvider, ICoolingProvider
         var components = new List<CoolingComponent>();
         foreach (var fan in _hub.State.Fans)
         {
-            if (!fan.BoundToUs || fan.FanCount <= 0) continue;
-            var devices = new List<CoolingDevice>(fan.FanCount);
-            for (var port = 0; port < fan.FanCount; port++)
+            if (!fan.BoundToUs) continue;
+            var portCount = EffectivePortCount(fan);
+            var rpmUnavailable = fan.FanCount <= 0;
+            var devices = new List<CoolingDevice>(portCount);
+            for (var port = 0; port < portCount; port++)
             {
                 devices.Add(new CoolingDevice
                 {
                     Id = PortId(fan.Mac, port),
                     Name = $"Wireless Fan {port + 1}",
                     Type = "Fan",
-                    Rpm = PortRpm(fan, port),
+                    Rpm = rpmUnavailable ? null : PortRpm(fan, port),
                     Pwm = PortPwm(fan, port),
                 });
             }
             components.Add(new CoolingComponent
             {
                 Id = DeviceId(fan.Mac),
-                Name = $"Lian Li Wireless Fan ({fan.FanCount}x)",
+                Name = $"Lian Li Wireless Fan ({portCount}x)",
                 Type = "LianLiWireless",
                 Devices = devices,
             });
@@ -157,13 +169,13 @@ public sealed class Slv3CoolingProvider : IFanControlProvider, ICoolingProvider
     {
         foreach (var fan in _hub.State.Fans)
         {
-            if (!fan.BoundToUs || fan.FanCount <= 0) continue;
+            if (!fan.BoundToUs) continue;
             lock (_restoreLock)
             {
                 if (!_restoredMacs.Add(fan.Mac)) continue;
             }
             var manual = _store.Load().Cooling.ManualSpeeds;
-            for (var port = 0; port < fan.FanCount; port++)
+            for (var port = 0; port < EffectivePortCount(fan); port++)
             {
                 if (manual.TryGetValue(PortId(fan.Mac, port), out var saved))
                 {

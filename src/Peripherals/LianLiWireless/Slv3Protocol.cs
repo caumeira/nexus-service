@@ -337,27 +337,32 @@ public static class Slv3Protocol
         percent is null ? PwmFollowMotherboard : EncodeDuty(FloorDuty(percent.Value, family));
 
     /// <summary>
-    /// Builds the 4-port duty tuple for a bind frame from per-port targets
-    /// (null = motherboard-sync). Ports at or beyond <paramref name="fanCount"/>
-    /// are unoccupied and stay 0 (plans/lianli-wireless-support.md section 3).
-    /// A record degraded to 0 fans (wedged chain still beaconing header-only
-    /// records) gets mobo-sync on every port instead of an all-zero tuple, so
-    /// the keepalive cannot command real-but-unreported fans off.
+    /// Builds the 4-port duty tuple for a bind frame from per-port targets. A
+    /// manual target (non-null) is always written so a user can drive a port
+    /// even on a chain whose controller does not enumerate its fans
+    /// (<paramref name="fanCount"/> 0). A port with no target follows the
+    /// motherboard PWM header when it is occupied or the count is unknown
+    /// (<paramref name="fanCount"/> 0), and stays 0 only when known-unoccupied
+    /// (at or beyond a non-zero <paramref name="fanCount"/>), so the keepalive
+    /// cannot command a real-but-unreported fan off.
     /// </summary>
     public static byte[] BuildPwmTuple(IReadOnlyList<int?> targets, int fanCount, Slv3FanFamily family = Slv3FanFamily.Slv3Lcd)
     {
         var pwm = new byte[PortsPerRecord];
-        if (fanCount <= 0)
+        for (var port = 0; port < PortsPerRecord; port++)
         {
-            for (var port = 0; port < PortsPerRecord; port++)
+            // Known-unoccupied (at or beyond a non-zero count) stays 0; an
+            // unknown-count chain treats every port as in play so the user can
+            // drive it.
+            var inPlay = fanCount <= 0 || port < fanCount;
+            if (!inPlay)
             {
-                pwm[port] = PwmFollowMotherboard;
+                continue;
             }
-            return pwm;
-        }
-        for (var port = 0; port < PortsPerRecord && port < fanCount; port++)
-        {
-            pwm[port] = ResolvePortDuty(port < targets.Count ? targets[port] : null, family);
+            var target = port < targets.Count ? targets[port] : null;
+            pwm[port] = target is not null
+                ? EncodeDuty(FloorDuty(target.Value, family))
+                : PwmFollowMotherboard;
         }
         return pwm;
     }

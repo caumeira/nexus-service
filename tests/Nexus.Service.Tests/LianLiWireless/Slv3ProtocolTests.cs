@@ -196,13 +196,18 @@ public class Slv3ProtocolTests
     }
 
     [Fact]
-    public void BuildPwmTuple_degraded_zero_fan_record_gets_mobo_sync_on_every_port()
+    public void BuildPwmTuple_zero_fan_chain_honors_manual_targets_and_mobo_syncs_the_rest()
     {
-        // A wedged chain beacons header-only records (fanCount 0); an all-zero
-        // tuple would command real-but-unreported fans off.
+        // A controller that does not enumerate its fans reports fanCount 0 while
+        // still accepting PWM; a manual target must reach the wire (so the user
+        // can drive it) and unset ports follow the motherboard rather than being
+        // commanded off.
         var pwm = Slv3Protocol.BuildPwmTuple(new int?[] { 40, null, null, null }, fanCount: 0);
 
-        Assert.All(pwm, b => Assert.Equal(Slv3Protocol.PwmFollowMotherboard, b));
+        Assert.Equal(40, pwm[0]);
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, pwm[1]);
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, pwm[2]);
+        Assert.Equal(Slv3Protocol.PwmFollowMotherboard, pwm[3]);
     }
 
     [Fact]

@@ -77,7 +77,7 @@ public class Slv3CoolingProviderTests
     }
 
     [Fact]
-    public void GetFanChannels_skips_unbound_chains_and_zero_fan_count_chains()
+    public void GetFanChannels_skips_unbound_but_exposes_a_bound_zero_count_chain_as_rpm_unavailable()
     {
         var (hub, _, _) = Slv3TestHub.CreateConnected();
         hub.State.Fans = new[]
@@ -87,8 +87,16 @@ public class Slv3CoolingProviderTests
         };
         var provider = new Slv3CoolingProvider(hub, new InMemoryConfigStore());
 
-        Assert.Empty(provider.GetFanChannels());
-        Assert.Empty(provider.GetAll());
+        var channels = provider.GetFanChannels();
+        // Unbound chain skipped; the bound chain that reports no fan count still
+        // exposes the controller's physical ports so the user can drive them.
+        Assert.Equal(Slv3Protocol.PortsPerRecord, channels.Count);
+        Assert.All(channels, c => Assert.StartsWith("lianli-wireless:AABBCCDDEEFF:port", c.Id));
+        Assert.All(channels, c => Assert.True(c.RpmUnavailable));
+
+        var component = Assert.Single(provider.GetAll());
+        Assert.Equal(Slv3Protocol.PortsPerRecord, component.Devices.Count);
+        Assert.All(component.Devices, d => Assert.Null(d.Rpm));
     }
 
     [Fact]
