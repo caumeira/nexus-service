@@ -263,10 +263,12 @@ public sealed class DisplayTopologyService
         return new PanelDeviceCapabilities
         {
             Surface = PanelSurfaces.Monitor,
-            // Touch widgets are placeable only when an integrated touch
-            // digitizer targets this monitor (Windows pointer-device
-            // association); plain monitors behave like the Q-series.
-            Touch = isTouch,
+            // Touch widgets are placeable when an integrated touch digitizer
+            // targets this monitor (Windows pointer-device association), or when
+            // a curated known display asserts touch - the association is
+            // unreliable and misses some panels (e.g. the Xeneon Edge, a touch
+            // strip). Plain monitors with neither behave like the Q-series.
+            Touch = isTouch || (known?.Touch ?? false),
             Orientation = string.IsNullOrEmpty(orientation) ? null : orientation,
             CssWidth = (int)Math.Round(resolutionWidth / scale),
             CssHeight = (int)Math.Round(resolutionHeight / scale),

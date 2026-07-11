@@ -46,9 +46,21 @@
             }
           },
           {
+            "type": "diagnostics",
+            "size": "2x2",
+            "col": 4,
+            "row": 0
+          },
+          {
             "type": "lighting",
             "size": "4x2",
             "col": 0,
+            "row": 2
+          },
+          {
+            "type": "weather",
+            "size": "2x2",
+            "col": 4,
             "row": 2
           },
           {
