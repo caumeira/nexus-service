@@ -26,13 +26,12 @@ internal sealed class StreamDeckInputReader : IDisposable
     private const int DefaultRetryDelayMs = 1000;
 
     /// <summary>
-    /// Bench diagnostic: whether Windows strips an unnumbered report's leading
-    /// 0x00 report-id byte before it reaches Read (as hidapi does) is not yet
-    /// confirmed for the Mini, so this logs the first few raw reports per
-    /// surface to check the byte layout against DecodeGen1Input's offset.
-    /// Flip to false once confirmed.
+    /// Bench diagnostic: logs the first few raw input reports per surface.
+    /// The Mini sends a numbered report (byte 0 = 0x01 header, key states at
+    /// bytes 1-6, no Windows 0x00 prepend), confirmed on hardware, so
+    /// DecodeGen1Input's offset-1 is correct. Flip true to re-verify a model.
     /// </summary>
-    private const bool LogRawInputReports = true;
+    private const bool LogRawInputReports = false;
 
     private const int MaxRawReportsLogged = 5;
     private const int RawPreviewByteCount = 8;
@@ -119,9 +118,11 @@ internal sealed class StreamDeckInputReader : IDisposable
         var dev = _hid.Open(_path, forInput: true);
         if (dev is null)
         {
+            ServiceLog.Warn($"[streamdeck] input reader open FAILED ({_path})");
             return false;
         }
         _reader = dev;
+        ServiceLog.Info($"[streamdeck] input reader opened ({_path})");
         return true;
     }
 
