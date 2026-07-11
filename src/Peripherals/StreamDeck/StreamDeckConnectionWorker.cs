@@ -161,6 +161,35 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private int GetCurrentPageLocked(string serial) =>
         _currentPageBySerial.TryGetValue(serial, out var page) ? page : 0;
 
+    /// <summary>
+    /// Applies a desktop-editor navigation (page + folder path) to the deck's
+    /// tracked state and re-renders the physical surface, so navigating in the
+    /// editor mirrors onto the hardware. Does NOT broadcast a nav frame - only a
+    /// real key press does (physical -> desktop), so the desktop's own POST
+    /// never echoes back to loop the two directions.
+    /// </summary>
+    public bool SetNav(string serial, int page, IReadOnlyList<int> folderPath)
+    {
+        lock (_lock)
+        {
+            if (!_store.Load().StreamDeck.Decks.ContainsKey(serial))
+            {
+                return false;
+            }
+            var config = LoadConfig(serial);
+            var pageCount = Math.Max(config.Pages.Count, 1);
+            _currentPageBySerial[serial] = Math.Clamp(page, 0, pageCount - 1);
+            _folderPathsBySerial[serial] = new List<int>(folderPath);
+            var surface = FindBySerialLocked(serial);
+            if (surface is not null)
+            {
+                WakeIfAsleep(surface);
+                PushCurrentView(surface);
+            }
+            return true;
+        }
+    }
+
     /// <inheritdoc />
     public void SetBrightness(string serial, int percent)
     {

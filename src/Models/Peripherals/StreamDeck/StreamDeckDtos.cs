@@ -91,6 +91,13 @@ public sealed class StreamDeckSimulateBody
     public int ProductId { get; set; }
 }
 
+/// <summary>POST /streamdeck/decks/{serial}/nav body: the editor's current page + folder path, mirrored onto the deck.</summary>
+public sealed class StreamDeckNavBody
+{
+    public int Page { get; set; }
+    public List<int>? FolderPath { get; set; }
+}
+
 /// <summary>One entry of GET /streamdeck/dev/models, for the dev-tools model picker.</summary>
 public sealed class StreamDeckDevModelDto
 {

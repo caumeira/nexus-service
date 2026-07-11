@@ -145,6 +145,15 @@ public static class StreamDeckRoutes
             return new StreamDeckConfigEnvelope { Config = config };
         }).LocalhostOnly();
 
+        // Mirror the desktop editor's navigation (page + folder) onto the deck.
+        app.MapPost("/streamdeck/decks/{serial}/nav", (
+            string serial, StreamDeckNavBody body, StreamDeckConnectionWorker worker) =>
+        {
+            return worker.SetNav(serial, body.Page, body.FolderPath ?? new List<int>())
+                ? ApiResponse.Ok()
+                : ApiResponse.Fail("deck not found");
+        }).LocalhostOnly();
+
         app.MapPut("/streamdeck/decks/{serial}/images/{slotPath}/{state}", async (
             string serial, string slotPath, string state, HttpRequest req,
             StreamDeckImageCache cache, IConfigStore store, StreamDeckConnectionWorker worker, CancellationToken ct) =>
