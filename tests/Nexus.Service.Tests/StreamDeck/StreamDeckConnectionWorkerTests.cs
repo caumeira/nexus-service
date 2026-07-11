@@ -92,7 +92,7 @@ public class StreamDeckConnectionWorkerTests
     {
         var f = NewFixtures(devicePresent: true);
         AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
-        var worker = NewWorker(f);
+        using var worker = NewWorker(f);
 
         worker.Tick();
 
@@ -111,7 +111,7 @@ public class StreamDeckConnectionWorkerTests
             new() { VendorId = StreamDeckModels.VendorId, ProductId = xl.ProductId, Path = "path-xl", Serial = "XL-SERIAL" },
         };
         f.Hid.DevicesByPath["path-xl"] = new MockStreamDeckHidDevice { Serial = "XL-SERIAL", ProductId = xl.ProductId, Path = "path-xl" };
-        var worker = NewWorker(f);
+        using var worker = NewWorker(f);
 
         worker.Tick();
 
@@ -125,7 +125,7 @@ public class StreamDeckConnectionWorkerTests
         var f = NewFixtures(devicePresent: true);
         AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
         f.Gate.SetEnabled("streamdeck", false);
-        var worker = NewWorker(f);
+        using var worker = NewWorker(f);
 
         worker.Tick();
 
@@ -137,7 +137,7 @@ public class StreamDeckConnectionWorkerTests
     {
         var f = NewFixtures(devicePresent: false);
         AddMiniDevice(f.Hid, "path-1", "SERIAL-1"); // hid would find it, but presence says no 0x0FD9 on the bus
-        var worker = NewWorker(f);
+        using var worker = NewWorker(f);
 
         worker.Tick();
 
@@ -152,7 +152,7 @@ public class StreamDeckConnectionWorkerTests
         var usb = new MutableUsbEnumerator();
         usb.Devices.Add(new UsbDeviceEntry { VendorId = StreamDeckModels.VendorId, ProductId = Mini.ProductId });
         var presence = new HardwarePresence(usb);
-        var worker = new StreamDeckConnectionWorker(f.Hid, presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub);
+        using var worker = new StreamDeckConnectionWorker(f.Hid, presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub);
 
         worker.Tick();
         var dev = (MockStreamDeckHidDevice)f.Hid.DevicesByPath["path-1"];
@@ -174,7 +174,7 @@ public class StreamDeckConnectionWorkerTests
         var usb = new MutableUsbEnumerator();
         usb.Devices.Add(new UsbDeviceEntry { VendorId = StreamDeckModels.VendorId, ProductId = Mini.ProductId });
         var presence = new HardwarePresence(usb);
-        var worker = new StreamDeckConnectionWorker(f.Hid, presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub);
+        using var worker = new StreamDeckConnectionWorker(f.Hid, presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub);
 
         worker.Tick();
         Assert.Equal(Mini.ProductId, f.Store.Load().StreamDeck.Decks["SERIAL-1"].ProductId);
@@ -192,7 +192,7 @@ public class StreamDeckConnectionWorkerTests
     {
         var f = NewFixtures(devicePresent: false);
         var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
-        var worker = NewWorker(f, simulated);
+        using var worker = NewWorker(f, simulated);
 
         worker.Tick();
 
@@ -204,7 +204,7 @@ public class StreamDeckConnectionWorkerTests
     {
         var f = NewFixtures(devicePresent: false);
         var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
-        var worker = NewWorker(f, simulated);
+        using var worker = NewWorker(f, simulated);
         worker.Tick();
 
         simulated.Poke(0, true);
@@ -223,7 +223,7 @@ public class StreamDeckConnectionWorkerTests
         // not dispose the shared instance out from under those routes.
         var f = NewFixtures(devicePresent: false);
         var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
-        var worker = NewWorker(f, simulated);
+        using var worker = NewWorker(f, simulated);
         worker.Tick();
 
         f.Gate.SetEnabled("streamdeck", false);
@@ -242,7 +242,7 @@ public class StreamDeckConnectionWorkerTests
         {
             Deck = new DeckConfig { Slots = { new DeckSlot { Action = action } } },
         });
-        var worker = NewWorker(f, simulated);
+        using var worker = NewWorker(f, simulated);
         worker.Tick();
 
         simulated.Poke(0, true);
@@ -259,7 +259,7 @@ public class StreamDeckConnectionWorkerTests
     }
 
     [Fact]
-    public async Task Tick_DrainsMultipleQueuedReportsInASingleTick()
+    public async Task RealSurface_DedicatedReaderDrainsQueuedReportsAndDispatchesEachPress()
     {
         var f = NewFixtures(devicePresent: true);
         AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
@@ -269,19 +269,19 @@ public class StreamDeckConnectionWorkerTests
         {
             Deck = new DeckConfig { Slots = { new DeckSlot { Action = actionA }, new DeckSlot { Action = actionB } } },
         });
-        var worker = NewWorker(f);
-        worker.Tick();
+        using var worker = NewWorker(f);
+        worker.Tick(); // connects the surface and starts its dedicated StreamDeckInputReader
 
-        // Two full press+release cycles queued as 4 separate HID reports, all
-        // already sitting in the device's read queue before the next tick -
-        // simulates two rapid presses landing inside one 1-second tick window.
+        // Two full press+release cycles queued as 4 separate HID reports. The
+        // reader's background thread (not this test's Tick calls) is what
+        // drains and decodes them, exactly as a real burst of rapid presses
+        // arriving between ticks would.
         var device = (MockStreamDeckHidDevice)f.Hid.DevicesByPath["path-1"];
         device.PendingReads.Enqueue(new byte[] { 0x01, 1, 0, 0, 0, 0, 0 }); // key 0 down
         device.PendingReads.Enqueue(new byte[] { 0x01, 0, 0, 0, 0, 0, 0 }); // key 0 up
         device.PendingReads.Enqueue(new byte[] { 0x01, 0, 1, 0, 0, 0, 0 }); // key 1 down
         device.PendingReads.Enqueue(new byte[] { 0x01, 0, 0, 0, 0, 0, 0 }); // key 1 up
 
-        worker.Tick();
         for (var i = 0; i < 50 && f.Executor.Calls.Count < 2; i++)
         {
             await Task.Delay(10);
@@ -290,9 +290,58 @@ public class StreamDeckConnectionWorkerTests
         // Both dispatches are fire-and-forget Task.Run work items (HandleKeyDown
         // never awaits them), so their thread-pool execution order relative to
         // each other isn't guaranteed - assert the set, not indexed positions.
+        // Exactly 2 (not 4) confirms the up transitions were diffed out, not dispatched.
         Assert.Equal(2, f.Executor.Calls.Count);
         Assert.Contains(f.Executor.Calls, c => c.KeyIndex == 0 && ReferenceEquals(c.Action, actionA));
         Assert.Contains(f.Executor.Calls, c => c.KeyIndex == 1 && ReferenceEquals(c.Action, actionB));
+    }
+
+    [Fact]
+    public async Task RealSurface_DedicatedReaderDrivesFolderNavPushAndBack()
+    {
+        var f = NewFixtures(devicePresent: true);
+        AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
+        var innerAction = new DeckAction { Type = "openUrl", Url = "https://inner.example.com" };
+        f.Store.Update(s => s.StreamDeck.Decks["SERIAL-1"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot { Action = innerAction } } } } },
+            },
+        });
+        using var worker = NewWorker(f);
+        worker.Tick();
+        var device = (MockStreamDeckHidDevice)f.Hid.DevicesByPath["path-1"];
+
+        // Press key 0 (the folder slot) at root - pushes into the folder.
+        device.PendingReads.Enqueue(new byte[] { 0x01, 1, 0, 0, 0, 0, 0 });
+        device.PendingReads.Enqueue(new byte[] { 0x01, 0, 0, 0, 0, 0, 0 });
+        for (var i = 0; i < 50 && worker.GetFolderPath("SERIAL-1").Count == 0; i++)
+        {
+            await Task.Delay(10);
+        }
+        Assert.Equal(new[] { 0 }, worker.GetFolderPath("SERIAL-1"));
+
+        // Inside the folder, key 0 is reserved for Back; the folder's own
+        // slot 0 lives at physical key 1.
+        device.PendingReads.Enqueue(new byte[] { 0x01, 0, 1, 0, 0, 0, 0 });
+        device.PendingReads.Enqueue(new byte[] { 0x01, 0, 0, 0, 0, 0, 0 });
+        for (var i = 0; i < 50 && f.Executor.Calls.Count < 1; i++)
+        {
+            await Task.Delay(10);
+        }
+        var call = Assert.Single(f.Executor.Calls);
+        Assert.Same(innerAction, call.Action);
+        Assert.Equal(0, call.KeyIndex);
+
+        // Pressing key 0 again (now Back) pops the folder path.
+        device.PendingReads.Enqueue(new byte[] { 0x01, 1, 0, 0, 0, 0, 0 });
+        device.PendingReads.Enqueue(new byte[] { 0x01, 0, 0, 0, 0, 0, 0 });
+        for (var i = 0; i < 50 && worker.GetFolderPath("SERIAL-1").Count > 0; i++)
+        {
+            await Task.Delay(10);
+        }
+        Assert.Empty(worker.GetFolderPath("SERIAL-1"));
     }
 
     [Fact]
@@ -311,7 +360,7 @@ public class StreamDeckConnectionWorkerTests
                 },
             },
         });
-        var worker = NewWorker(f, simulated);
+        using var worker = NewWorker(f, simulated);
         worker.Tick();
 
         // Press key 0 (the folder slot) at root - no shift applies at root.
@@ -352,7 +401,7 @@ public class StreamDeckConnectionWorkerTests
                 Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot() } } } },
             },
         });
-        var worker = NewWorker(f, simulated);
+        using var worker = NewWorker(f, simulated);
         worker.Tick();
 
         simulated.Poke(0, true);
@@ -379,7 +428,7 @@ public class StreamDeckConnectionWorkerTests
                 Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot() } } } },
             },
         });
-        var worker = NewWorker(f, simulated);
+        using var worker = NewWorker(f, simulated);
         worker.Tick();
 
         simulated.Poke(0, true);

@@ -90,6 +90,15 @@ public sealed class StreamDeckModel
     public int RemapKeyIndex(int index) =>
         KeyIndexRightToLeft ? StreamDeckModels.FlipWithinRow(index, Columns) : index;
 
+    /// <summary>
+    /// Interrupt-IN input report buffer length: report id byte plus one byte
+    /// per key for gen1 (StreamDeckProtocol.DecodeGen1Input's offset i+1), or
+    /// the gen2 header plus one byte per key (StreamDeckProtocol.Gen2InputHeaderLength).
+    /// </summary>
+    public int InputReportBufferLength => Protocol == StreamDeckProtocolGeneration.Gen1
+        ? 1 + KeyCount
+        : StreamDeckProtocol.Gen2InputHeaderLength + KeyCount;
+
     /// <summary>Standard BITMAPFILEHEADER+BITMAPINFOHEADER size (matches StreamDeckProtocol.BuildBlankBmp).</summary>
     private const int BmpHeaderLength = 54;
 

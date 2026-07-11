@@ -17,13 +17,19 @@ namespace Nexus.Service.Peripherals.StreamDeck;
 
 /// <summary>
 /// Discovers and owns every connected Stream Deck's <see cref="IStreamDeckSurface"/>,
-/// keyed by HID path. Surface-agnostic: real HID decks and (dev-tools-gated)
-/// the shared simulated deck are tracked in the same dictionary and pumped
-/// through the same input loop, so the worker never branches on transport.
+/// keyed by HID path. Reconcile (hot-plug scan + image pushes) runs on a
+/// 1-second tick; button input does not. Each real HID surface gets its own
+/// <see cref="StreamDeckInputReader"/> - a dedicated thread keeping a blocking
+/// interrupt-IN read continuously pending on its own HID handle, started when
+/// the surface connects and stopped when it disconnects - so a press between
+/// tick windows is never missed and the read never contends with this
+/// worker's image/brightness writes. The dev-tools-gated shared simulated
+/// deck has no HID handle to read; its synthetic presses are still polled on
+/// the tick (see PumpSimulatedInput).
 ///
 /// Also owns per-deck folder navigation (keyed by serial, so it survives a
 /// replug on a different USB port) and dispatches a resolved key's action to
-/// <see cref="IDeckActionExecutor"/> off the tick thread.
+/// <see cref="IDeckActionExecutor"/> off the read thread.
 ///
 /// Opens every model in <see cref="StreamDeckModels.All"/>, gen1 and gen2
 /// alike; only the Mini is bench-verified (StreamDeckModel.Verified).
@@ -31,27 +37,6 @@ namespace Nexus.Service.Peripherals.StreamDeck;
 public sealed class StreamDeckConnectionWorker : BackgroundService
 {
     private const int TickMs = 1000;
-
-    /// <summary>
-    /// Timeout for the first HID read of a surface's drain loop each tick.
-    /// Bounded so a tick with several tracked decks still completes well
-    /// under TickMs.
-    /// </summary>
-    private const int InputPollTimeoutMs = 50;
-
-    /// <summary>
-    /// Every subsequent read in a surface's drain loop uses this (a
-    /// non-blocking poll per IHidDevice.Read's timeoutMs contract) so
-    /// draining a backlog never stalls the tick past the first report.
-    /// </summary>
-    private const int DrainPollTimeoutMs = 0;
-
-    /// <summary>
-    /// Caps reports drained per surface per tick so a flooding/misbehaving
-    /// device can't monopolize the tick thread; far above any plausible
-    /// human press rate within one TickMs window.
-    /// </summary>
-    private const int MaxDrainedReportsPerTick = 32;
 
     internal const string SimulatedKey = "sim";
 
@@ -66,16 +51,20 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
 
     /// <summary>
     /// Guards _surfaces/_lastKeyStates/_folderPathsBySerial against the tick
-    /// thread racing an HTTP route (GET /streamdeck/decks, FindBySerial,
-    /// RefreshView) reading or writing the same dictionaries. Reentrant per
-    /// thread (a plain object lock), so Tick's internals can call PushCurrentView
-    /// while already holding it without deadlocking.
+    /// thread, an HTTP route (GET /streamdeck/decks, FindBySerial, RefreshView),
+    /// and each connected surface's own StreamDeckInputReader background thread
+    /// (via OnInputReport) all reading or writing the same dictionaries.
+    /// Reentrant per thread (a plain object lock), so Tick's internals can call
+    /// PushCurrentView while already holding it without deadlocking.
     /// </summary>
     private readonly object _lock = new();
 
     private readonly Dictionary<string, IStreamDeckSurface> _surfaces = new();
     private readonly Dictionary<string, bool[]> _lastKeyStates = new();
     private readonly Dictionary<string, List<int>> _folderPathsBySerial = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>One dedicated input reader per connected real HID surface, keyed the same as _surfaces. Never holds an entry for SimulatedKey.</summary>
+    private readonly Dictionary<string, StreamDeckInputReader> _inputReaders = new();
 
     public StreamDeckConnectionWorker(
         IHidEnumerator hid,
@@ -132,7 +121,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     /// <summary>
     /// The most recently fire-and-forget dispatched key action, if any. Test
     /// seam only: HandleKeyDown intentionally does not await this (a slow or
-    /// throwing action must never stall PumpInput for other decks).
+    /// throwing action must never stall the input read loop for other decks).
     /// </summary>
     internal Task? LastDispatchTask { get; private set; }
 
@@ -165,7 +154,12 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         DisconnectAll();
     }
 
-    /// <summary>One reconcile + input-pump cycle. Public so tests can step it deterministically.</summary>
+    /// <summary>
+    /// One reconcile cycle: hot-plug scan, image pushes, and (simulated
+    /// surface only) an input poll. Public so tests can step it
+    /// deterministically. Real HID input arrives via each surface's dedicated
+    /// StreamDeckInputReader, not this tick.
+    /// </summary>
     public void Tick()
     {
         lock (_lock)
@@ -178,7 +172,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
 
             RegisterSimulatedIfNeeded();
             ReconcileHidSurfaces();
-            PumpInput();
+            PumpSimulatedInput();
         }
     }
 
@@ -219,6 +213,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
                     _lastKeyStates[info.Path] = new bool[model.KeyCount];
                     ServiceLog.Info($"[streamdeck] connected {model.Name} (serial={surface.Serial})");
                     OnSurfaceConnected(surface);
+                    StartInputReader(info.Path, surface);
                 }
             }
         }
@@ -235,11 +230,31 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
             }
             var serial = _surfaces[key].Serial;
             ServiceLog.Info($"[streamdeck] disconnected (serial={serial})");
+            StopInputReader(key);
             _surfaces[key].Dispose();
             _surfaces.Remove(key);
             _lastKeyStates.Remove(key);
             _folderPathsBySerial.Remove(serial);
             BroadcastDecksChanged(serial);
+        }
+    }
+
+    /// <summary>Starts the dedicated blocking-read thread for a newly connected real HID surface. No-op if one is already running for this key.</summary>
+    private void StartInputReader(string key, IStreamDeckSurface surface)
+    {
+        if (_inputReaders.ContainsKey(key))
+        {
+            return;
+        }
+        _inputReaders[key] = new StreamDeckInputReader(_hid, key, surface.Model, states => OnInputReport(key, states));
+    }
+
+    /// <summary>Signals a surface's dedicated reader thread to stop. Non-blocking; see StreamDeckInputReader.Dispose.</summary>
+    private void StopInputReader(string key)
+    {
+        if (_inputReaders.Remove(key, out var reader))
+        {
+            reader.Dispose();
         }
     }
 
@@ -268,45 +283,66 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     }
 
     /// <summary>
-    /// Drains every queued HID report per surface (not just one) so rapid
-    /// presses within a tick's 1-second window all dispatch this tick instead
-    /// of trickling out one per future tick.
+    /// Polls the shared simulated deck for a queued synthetic press. Only
+    /// SimulatedStreamDeckSurface goes through the tick: it has no HID handle
+    /// for a dedicated reader, and its ReadInput never blocks (a single
+    /// pressed-state snapshot, not a queue), so one poll per tick is enough.
     /// </summary>
-    private void PumpInput()
+    private void PumpSimulatedInput()
     {
-        foreach (var (key, surface) in _surfaces)
+        if (!_surfaces.TryGetValue(SimulatedKey, out var surface) || !surface.IsConnected)
         {
-            if (!surface.IsConnected)
+            return;
+        }
+        var states = surface.ReadInput(0);
+        if (states is not null)
+        {
+            ProcessKeyStates(SimulatedKey, surface, states);
+        }
+    }
+
+    /// <summary>
+    /// Diffs a decoded key-state snapshot against the last known state for
+    /// this surface and dispatches any newly-pressed key. Caller must hold
+    /// _lock.
+    /// </summary>
+    private void ProcessKeyStates(string key, IStreamDeckSurface surface, bool[] states)
+    {
+        if (!_lastKeyStates.TryGetValue(key, out var last) || last.Length != states.Length)
+        {
+            last = new bool[states.Length];
+            _lastKeyStates[key] = last;
+        }
+        for (var i = 0; i < states.Length; i++)
+        {
+            if (states[i] == last[i])
             {
                 continue;
             }
-            for (var reportsRead = 0; reportsRead < MaxDrainedReportsPerTick; reportsRead++)
+            ServiceLog.Info($"[streamdeck] key {(states[i] ? "down" : "up")} serial={surface.Serial} index={i}");
+            if (states[i])
             {
-                var timeoutMs = reportsRead == 0 ? InputPollTimeoutMs : DrainPollTimeoutMs;
-                var states = surface.ReadInput(timeoutMs);
-                if (states is null)
-                {
-                    break;
-                }
-                if (!_lastKeyStates.TryGetValue(key, out var last) || last.Length != states.Length)
-                {
-                    last = new bool[states.Length];
-                    _lastKeyStates[key] = last;
-                }
-                for (var i = 0; i < states.Length; i++)
-                {
-                    if (states[i] == last[i])
-                    {
-                        continue;
-                    }
-                    ServiceLog.Info($"[streamdeck] key {(states[i] ? "down" : "up")} serial={surface.Serial} index={i}");
-                    if (states[i])
-                    {
-                        HandleKeyDown(surface, i);
-                    }
-                }
-                states.CopyTo(last, 0);
+                HandleKeyDown(surface, i);
             }
+        }
+        states.CopyTo(last, 0);
+    }
+
+    /// <summary>
+    /// Callback for a real HID surface's dedicated StreamDeckInputReader,
+    /// invoked from that surface's own read thread. Acquires _lock itself
+    /// (unlike the tick-driven helpers, which assume it is already held) and
+    /// never runs while a blocking wire read is pending.
+    /// </summary>
+    private void OnInputReport(string key, bool[] states)
+    {
+        lock (_lock)
+        {
+            if (!_surfaces.TryGetValue(key, out var surface))
+            {
+                return;
+            }
+            ProcessKeyStates(key, surface, states);
         }
     }
 
@@ -465,6 +501,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
                 {
                     continue;
                 }
+                StopInputReader(key);
                 surface.Dispose();
             }
             _surfaces.Clear();
@@ -475,5 +512,12 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
                 BroadcastDecksChanged(null);
             }
         }
+    }
+
+    /// <summary>Stops every input reader thread and disposes tracked surfaces, so neither a container disposal nor a test-scoped worker leaks a background thread.</summary>
+    public override void Dispose()
+    {
+        DisconnectAll();
+        base.Dispose();
     }
 }

@@ -35,9 +35,7 @@ public sealed class HidStreamDeckSurface : IStreamDeckSurface
     {
         _hid = hid;
         Model = model;
-        _inputBuf = model.Protocol == StreamDeckProtocolGeneration.Gen1
-            ? new byte[1 + model.KeyCount]
-            : new byte[StreamDeckProtocol.Gen2InputHeaderLength + model.KeyCount];
+        _inputBuf = new byte[model.InputReportBufferLength];
     }
 
     /// <summary>Opens the device at the given HID interface. True if already open; false only when the open itself fails.</summary>

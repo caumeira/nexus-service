@@ -1,17 +1,29 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Peripherals.StreamDeck;
 
 namespace Nexus.Service.Tests.StreamDeck;
 
-/// <summary>Records HID exchanges so tests can assert the exact bytes HidStreamDeckSurface sends/reads.</summary>
+/// <summary>
+/// Records HID exchanges so tests can assert the exact bytes HidStreamDeckSurface
+/// sends/reads. PendingReads is a ConcurrentQueue (not a plain Queue) because
+/// StreamDeckConnectionWorkerTests now drives this device from a live
+/// StreamDeckInputReader background thread concurrently with the test thread
+/// enqueuing reports. Read polls in short increments up to timeoutMs instead
+/// of returning 0 instantly, so that background reader idles between polls
+/// rather than busy-spinning for the lifetime of the test process.
+/// </summary>
 internal sealed class MockStreamDeckHidDevice : IHidDevice
 {
+    private const int PollIntervalMs = 5;
+
     public List<byte[]> FeatureWrites { get; } = new();
     public List<byte[]> OutputWrites { get; } = new();
-    public Queue<byte[]> PendingReads { get; } = new();
+    public ConcurrentQueue<byte[]> PendingReads { get; } = new();
     public Func<byte[], byte[]>? FeatureReplyBuilder { get; set; }
     public bool FailNextFeatureWrite { get; set; }
     public bool FailNextOutputWrite { get; set; }
@@ -52,11 +64,21 @@ internal sealed class MockStreamDeckHidDevice : IHidDevice
     public int Read(Span<byte> buffer, int timeoutMs)
     {
         if (FailNextRead) return -1;
-        if (PendingReads.Count == 0) return 0;
-        var next = PendingReads.Dequeue();
-        var n = Math.Min(next.Length, buffer.Length);
-        next.AsSpan(0, n).CopyTo(buffer);
-        return n;
+        var deadline = Environment.TickCount64 + Math.Max(timeoutMs, 0);
+        while (true)
+        {
+            if (PendingReads.TryDequeue(out var next))
+            {
+                var n = Math.Min(next.Length, buffer.Length);
+                next.AsSpan(0, n).CopyTo(buffer);
+                return n;
+            }
+            if (Environment.TickCount64 >= deadline)
+            {
+                return 0;
+            }
+            Thread.Sleep(PollIntervalMs);
+        }
     }
 
     public void Dispose() => Disposed = true;

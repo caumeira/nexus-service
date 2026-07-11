@@ -137,6 +137,9 @@ public sealed class WindowsHidEnumerator : IHidEnumerator
         }
     }
 
+    /// <summary>hidapi's own default queue depth for an input handle (hid.c HidD_SetNumInputBuffers call).</summary>
+    private const uint InputBufferDepth = 64;
+
     public IHidDevice? Open(string path, bool forInput = false)
     {
         // Try progressively less restrictive access if another process (e.g. vendor
@@ -176,6 +179,14 @@ public sealed class WindowsHidEnumerator : IHidEnumerator
         }
 
         ServiceLog.Info($"[hid] opened {path.Substring(System.Math.Max(0, path.Length - 60))} with access={modeUsed}");
+
+        if (forInput)
+        {
+            // Grows the driver's queued-input-report depth past its small
+            // default, so a burst of presses isn't dropped while nothing was
+            // reading; hidapi (hid.c) calls this on every input open.
+            Native.HidD_SetNumInputBuffers(handle, InputBufferDepth);
+        }
 
         var attrs = new Native.HIDD_ATTRIBUTES { Size = Marshal.SizeOf<Native.HIDD_ATTRIBUTES>() };
         if (!Native.HidD_GetAttributes(handle, ref attrs))
@@ -297,6 +308,10 @@ public sealed class WindowsHidEnumerator : IHidEnumerator
         [DllImport("hid.dll", SetLastError = true)]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool HidD_GetInputReport(IntPtr handle, byte[] buffer, uint bufferLength);
+
+        [DllImport("hid.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool HidD_SetNumInputBuffers(IntPtr handle, uint numberBuffers);
 
         [DllImport("hid.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
