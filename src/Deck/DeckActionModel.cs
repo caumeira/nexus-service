@@ -54,7 +54,7 @@ public sealed class DeckAction
     public int? Target { get; set; }
     /// <summary>deckBrightness set: target percent, 0-100.</summary>
     public int? Value { get; set; }
-    /// <summary>deckBrightness up/down: step percent; unset defaults to 10.</summary>
+    /// <summary>deckBrightness up/down: step percent; unset falls back to DeckActionExecutor.DeckBrightnessStep.</summary>
     public int? Step { get; set; }
     /// <summary>hotkeySwitch: first combo, same format as Keys.</summary>
     public string? KeysA { get; set; }

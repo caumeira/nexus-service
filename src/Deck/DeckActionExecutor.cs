@@ -188,8 +188,9 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
 
     /// <summary>
     /// deckBrightness: set applies action.Value directly; up/down adjust the
-    /// currently persisted brightness by action.Step (default 10). Persists
-    /// the clamped result and pushes it live to this deck's own surface.
+    /// currently persisted brightness by action.Step, falling back to
+    /// DeckBrightnessStep when unset. Persists the clamped result and pushes
+    /// it live to this deck's own surface.
     /// </summary>
     private void DispatchDeckBrightness(DeckAction action, string serial)
     {

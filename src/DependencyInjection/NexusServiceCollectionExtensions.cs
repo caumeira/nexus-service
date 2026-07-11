@@ -490,9 +490,11 @@ public static class NexusServiceCollectionExtensions
         // Lazy so resolving it does not construct StreamDeckConnectionWorker
         // right away - DeckActionExecutor needs it for deckBrightness/deckSleep,
         // but the worker also depends on IDeckActionExecutor, and a direct
-        // constructor cycle would blow up at first resolution. By dispatch
-        // time (only ever triggered by the worker itself) the worker
-        // singleton already exists, so .Value never re-enters construction.
+        // constructor cycle would blow up at first resolution. The executor
+        // instance calling .Value is already fully constructed by then, so
+        // deferring the worker lookup to that point can never re-enter its
+        // own construction, regardless of which caller (the worker's key
+        // dispatch, or the test-press route) triggered it.
         services.AddSingleton(sp => new System.Lazy<Nexus.Service.Deck.IDeckSurfaceControl>(
             () => sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>()));
         services.AddSingleton<Nexus.Service.Deck.DeckActionExecutor>();
