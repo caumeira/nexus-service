@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Threading.Tasks;
 using Nexus.Service.Deck;
@@ -126,6 +127,36 @@ public sealed class StreamDeckSleepAfterTests : IDisposable
         }
 
         Assert.Equal(55, _simulated.Brightness);
+        Assert.False(_worker.IsAsleep("sim-0001"));
+        var call = Assert.Single(_executor.Calls);
+        Assert.Same(action, call.Action);
+    }
+
+    [Fact]
+    public async Task SimulatePress_WhileAsleep_RestoresBrightnessBeforeDispatch()
+    {
+        var action = new DeckAction { Type = "openUrl", Url = "https://example.com" };
+        _store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Brightness = 80,
+            SleepAfterSeconds = 30,
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        _worker.Tick();
+        _clock.Advance(TimeSpan.FromSeconds(31));
+        _worker.Tick();
+        Assert.Equal(0, _simulated.Brightness);
+
+        // A test-press on a sleeping deck must wake it too, the same as a
+        // real key press - not just dispatch the action into the dark.
+        var config = _store.Load().StreamDeck.Decks["sim-0001"].Deck;
+        Assert.True(_worker.SimulatePress("sim-0001", new List<int> { 0 }, config));
+        if (_worker.LastDispatchTask is not null)
+        {
+            await _worker.LastDispatchTask;
+        }
+
+        Assert.Equal(80, _simulated.Brightness);
         Assert.False(_worker.IsAsleep("sim-0001"));
         var call = Assert.Single(_executor.Calls);
         Assert.Same(action, call.Action);

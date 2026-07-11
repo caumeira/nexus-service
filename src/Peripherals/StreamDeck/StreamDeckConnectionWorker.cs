@@ -431,10 +431,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     }
 
     /// <summary>
-    /// Polls the shared simulated deck for a queued synthetic press. Only
-    /// SimulatedStreamDeckSurface goes through the tick: it has no HID handle
-    /// for a dedicated reader, and its ReadInput never blocks (a single
-    /// pressed-state snapshot, not a queue), so one poll per tick is enough.
+    /// Drains every queued synthetic press transition for the shared
+    /// simulated deck. Only SimulatedStreamDeckSurface goes through the
+    /// tick: it has no HID handle for a dedicated reader, and its
+    /// ReadInput never blocks. Draining the whole queue (not one poll)
+    /// ensures a press and release within one tick both dispatch, instead
+    /// of the tick sampling only the latest state and dropping a
+    /// sub-tick transition.
     /// </summary>
     private void PumpSimulatedInput()
     {
@@ -442,8 +445,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         {
             return;
         }
-        var states = surface.ReadInput(0);
-        if (states is not null)
+        bool[]? states;
+        while ((states = surface.ReadInput(0)) is not null)
         {
             ProcessKeyStates(SimulatedKey, surface, states);
         }
@@ -548,11 +551,12 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     {
         WakeIfAsleep(surface);
 
-        var page = GetCurrentPageLocked(surface.Serial);
-        if (!_folderPathsBySerial.TryGetValue(surface.Serial, out var folderPath))
+        var serial = surface.Serial;
+        var page = GetCurrentPageLocked(serial);
+        if (!_folderPathsBySerial.TryGetValue(serial, out var folderPath))
         {
             folderPath = new List<int>();
-            _folderPathsBySerial[surface.Serial] = folderPath;
+            _folderPathsBySerial[serial] = folderPath;
         }
         var inFolder = folderPath.Count > 0;
 
@@ -560,27 +564,85 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         {
             var popped = new List<int>(folderPath);
             popped.RemoveAt(popped.Count - 1);
-            _folderPathsBySerial[surface.Serial] = popped;
+            _folderPathsBySerial[serial] = popped;
             PushCurrentView(surface);
-            BroadcastNav(surface.Serial, page, popped);
+            BroadcastNav(serial, page, popped);
             return;
         }
 
         var slotIndex = inFolder ? physicalIndex - 1 : physicalIndex;
-        var config = LoadConfig(surface.Serial);
+        var config = LoadConfig(serial);
         var view = DeckConfigNavigation.ResolveView(config, page, folderPath);
         if (view is null || slotIndex < 0 || slotIndex >= view.Count)
         {
             return;
         }
 
-        var slot = view[slotIndex];
+        HandleSlotAction(serial, config, page, folderPath, slotIndex, view[slotIndex]);
+    }
+
+    /// <summary>
+    /// Resolves and simulates a press at a config slot path (test-press):
+    /// same nav-or-dispatch decision as a real key press (HandleSlotAction),
+    /// so a "page" action changes GetCurrentPage and a folder slot pushes
+    /// folder nav exactly as pressing the physical key would. Uses the
+    /// deck's current tracked page but the slot path's own folder indices,
+    /// not the deck's live tracked folder - a test-press can target any
+    /// configured slot regardless of what the physical keys currently show.
+    /// Works even when the deck has no live surface (image push and the
+    /// sleep wake are skipped then; nav/dispatch state still updates).
+    /// Returns false when the path does not resolve to an action or folder
+    /// slot.
+    /// </summary>
+    public bool SimulatePress(string serial, IReadOnlyList<int> indices, DeckConfig config)
+    {
+        lock (_lock)
+        {
+            if (indices.Count == 0)
+            {
+                return false;
+            }
+            var page = GetCurrentPageLocked(serial);
+            var slot = DeckConfigNavigation.ResolveSlot(config, page, indices);
+            if (slot is null || (slot.Action is null && slot.Folder is null))
+            {
+                return false;
+            }
+            var liveSurface = FindBySerialLocked(serial);
+            if (liveSurface is not null)
+            {
+                WakeIfAsleep(liveSurface);
+            }
+            var folderPath = new List<int>(indices);
+            var slotIndex = folderPath[^1];
+            folderPath.RemoveAt(folderPath.Count - 1);
+            HandleSlotAction(serial, config, page, folderPath, slotIndex, slot);
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// Given a slot already resolved at (page, folderPath, slotIndex),
+    /// applies the same nav-or-dispatch decision a real key press makes: a
+    /// folder slot pushes folder nav, a "page" action changes the tracked
+    /// page, "pageIndicator" is display-only, and any other action
+    /// dispatches to the executor off this thread (fire-and-forget, see
+    /// LastDispatchTask). The live view is only re-pushed to hardware when a
+    /// surface is actually connected for this serial. Caller must hold
+    /// _lock. Shared by HandleKeyDown and SimulatePress.
+    /// </summary>
+    private void HandleSlotAction(string serial, DeckConfig config, int page, List<int> folderPath, int slotIndex, DeckSlot slot)
+    {
         if (slot.Folder is not null)
         {
             var pushed = new List<int>(folderPath) { slotIndex };
-            _folderPathsBySerial[surface.Serial] = pushed;
-            PushCurrentView(surface);
-            BroadcastNav(surface.Serial, page, pushed);
+            _folderPathsBySerial[serial] = pushed;
+            var pushSurface = FindBySerialLocked(serial);
+            if (pushSurface is not null)
+            {
+                PushCurrentView(pushSurface);
+            }
+            BroadcastNav(serial, page, pushed);
             return;
         }
         if (slot.Action is null)
@@ -589,7 +651,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
         if (slot.Action.Type == "page")
         {
-            HandlePageAction(surface, config, slot.Action);
+            HandlePageAction(serial, config, slot.Action);
             return;
         }
         if (slot.Action.Type == "pageIndicator")
@@ -597,7 +659,6 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             return;
         }
 
-        var serial = surface.Serial;
         var action = slot.Action;
         var latchKey = BuildLatchKey(serial, folderPath, slotIndex);
         var folderPathSnapshot = new List<int>(folderPath);
@@ -621,10 +682,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// a page-nav press is always meant to land on that page's root, even
     /// when clamping leaves the page index unchanged (e.g. "prev" at page 0).
     /// </summary>
-    private void HandlePageAction(IStreamDeckSurface surface, DeckConfig config, DeckAction action)
+    private void HandlePageAction(string serial, DeckConfig config, DeckAction action)
     {
         var pageCount = Math.Max(config.Pages.Count, 1);
-        var current = GetCurrentPageLocked(surface.Serial);
+        var current = GetCurrentPageLocked(serial);
         var next = action.Op switch
         {
             "next" => current + 1,
@@ -633,10 +694,14 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _ => current,
         };
         next = Math.Clamp(next, 0, pageCount - 1);
-        _currentPageBySerial[surface.Serial] = next;
-        _folderPathsBySerial[surface.Serial] = new List<int>();
-        PushCurrentView(surface);
-        BroadcastNav(surface.Serial, next, new List<int>());
+        _currentPageBySerial[serial] = next;
+        _folderPathsBySerial[serial] = new List<int>();
+        var surface = FindBySerialLocked(serial);
+        if (surface is not null)
+        {
+            PushCurrentView(surface);
+        }
+        BroadcastNav(serial, next, new List<int>());
     }
 
     private void PushCurrentView(IStreamDeckSurface surface)

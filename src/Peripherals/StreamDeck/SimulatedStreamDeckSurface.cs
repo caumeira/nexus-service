@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 namespace Nexus.Service.Peripherals.StreamDeck;
 
@@ -15,7 +16,13 @@ public sealed class SimulatedStreamDeckSurface : IStreamDeckSurface
     private readonly object _io = new();
     private readonly byte[]?[] _keyImages;
     private readonly bool[] _pressed;
-    private bool _dirty;
+    /// <summary>
+    /// One queued full-state snapshot per Poke transition, drained in order
+    /// by ReadInput - mirrors a real HID input report per state change, so a
+    /// press and release within one tick are both delivered instead of only
+    /// the latest sampled state.
+    /// </summary>
+    private readonly Queue<bool[]> _pendingReports = new();
     private bool _connected = true;
 
     public StreamDeckModel Model { get; }
@@ -91,16 +98,15 @@ public sealed class SimulatedStreamDeckSurface : IStreamDeckSurface
     {
         lock (_io)
         {
-            if (!_connected || !_dirty)
+            if (!_connected || _pendingReports.Count == 0)
             {
                 return null;
             }
-            _dirty = false;
-            return (bool[])_pressed.Clone();
+            return _pendingReports.Dequeue();
         }
     }
 
-    /// <summary>Test/dev hook: sets one key's pressed state, queuing a snapshot for the next ReadInput.</summary>
+    /// <summary>Test/dev hook: sets one key's pressed state, queuing this transition's full snapshot for ReadInput to deliver in order.</summary>
     public void Poke(int keyIndex, bool pressed)
     {
         lock (_io)
@@ -110,7 +116,7 @@ public sealed class SimulatedStreamDeckSurface : IStreamDeckSurface
                 return;
             }
             _pressed[keyIndex] = pressed;
-            _dirty = true;
+            _pendingReports.Enqueue((bool[])_pressed.Clone());
         }
     }
 

@@ -264,6 +264,36 @@ public class StreamDeckConnectionWorkerTests
     }
 
     [Fact]
+    public async Task SimulatedPress_FastDownThenUpWithinOneTick_StillDispatchesExactlyOnce()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        var action = new DeckAction { Type = "openUrl", Url = "https://example.com" };
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        // Both transitions queue before a single Tick drains them, mirroring
+        // a press+release faster than the 1s tick (the sub-tick hold that
+        // previously got dropped when ReadInput only sampled the latest state).
+        simulated.Poke(0, true);
+        simulated.Poke(0, false);
+        worker.Tick();
+        if (worker.LastDispatchTask is not null)
+        {
+            await worker.LastDispatchTask;
+        }
+
+        var call = Assert.Single(f.Executor.Calls);
+        Assert.Equal("sim-0001", call.Serial);
+        Assert.Equal(0, call.KeyIndex);
+        Assert.Same(action, call.Action);
+    }
+
+    [Fact]
     public async Task RealSurface_DedicatedReaderDrainsQueuedReportsAndDispatchesEachPress()
     {
         var f = NewFixtures(devicePresent: true);

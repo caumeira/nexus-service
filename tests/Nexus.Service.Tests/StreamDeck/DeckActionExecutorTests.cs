@@ -302,6 +302,22 @@ public sealed class DeckActionExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task System_VolumeUp_WithExplicitStep_TreatsStepAsAPercentNotARawFraction()
+    {
+        _volume.State = new VolumeState { Supported = true, Volume = 0.5, Muted = false };
+        await Run(new DeckAction { Type = "system", SystemAction = new DeckSystemAction { Op = "volumeUp", Step = 10 } });
+        Assert.Equal(0.6, _volume.State.Volume, 3);
+    }
+
+    [Fact]
+    public async Task System_VolumeDown_WithExplicitStep_TreatsStepAsAPercentNotARawFraction()
+    {
+        _volume.State = new VolumeState { Supported = true, Volume = 0.5, Muted = false };
+        await Run(new DeckAction { Type = "system", SystemAction = new DeckSystemAction { Op = "volumeDown", Step = 6 } });
+        Assert.Equal(0.44, _volume.State.Volume, 3);
+    }
+
+    [Fact]
     public async Task System_MuteToggle_FlipsMuted()
     {
         _volume.State = new VolumeState { Supported = true, Volume = 0.5, Muted = false };

@@ -73,7 +73,7 @@ public sealed class DeckSystemAction
 
     /// <summary>volumeSet (0..1), brightnessSet (0..100).</summary>
     public double? Value { get; set; }
-    /// <summary>Up/down increment.</summary>
+    /// <summary>Up/down increment as a percent (0..100) of the target's own range, for both volume* and brightness*.</summary>
     public double? Step { get; set; }
     /// <summary>brightness* target display id.</summary>
     public string? DisplayId { get; set; }

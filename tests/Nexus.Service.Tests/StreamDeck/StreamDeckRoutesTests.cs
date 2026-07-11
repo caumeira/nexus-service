@@ -491,6 +491,14 @@ public sealed class StreamDeckRoutesTests : IDisposable
             var res = await client.PostAsync("/streamdeck/decks/SERIAL-1/test-press/0", Json("{}"));
             Assert.True(res.IsSuccessStatusCode);
 
+            // The dispatch is fire-and-forget (Task.Run), same as a real key
+            // press - await the test seam before asserting the spy was called.
+            var worker = factory.Services.GetRequiredService<StreamDeckConnectionWorker>();
+            if (worker.LastDispatchTask is not null)
+            {
+                await worker.LastDispatchTask;
+            }
+
             Assert.NotNull(_executor.LastCall);
             Assert.Equal("SERIAL-1", _executor.LastCall!.Value.Serial);
             Assert.Equal("lock", _executor.LastCall.Value.Action!.PowerAction);
@@ -506,6 +514,61 @@ public sealed class StreamDeckRoutesTests : IDisposable
             var res = await client.PostAsync("/streamdeck/decks/NEVER-SEEN/test-press/0", Json("{}"));
             var text = await res.Content.ReadAsStringAsync();
             Assert.Contains("\"error\":true", text);
+            Assert.Null(_executor.LastCall);
+        }
+    }
+
+    [Fact]
+    public async Task TestPress_OnPageAction_ChangesCurrentPageLikeARealPress()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            store.Update(s => s.StreamDeck.Decks["SERIAL-1"] = new PhysicalDeckSettings
+            {
+                Deck = new DeckConfig
+                {
+                    Pages =
+                    {
+                        new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "page", Op = "next" } } } },
+                        new DeckPage(),
+                    },
+                },
+            });
+            var worker = factory.Services.GetRequiredService<StreamDeckConnectionWorker>();
+            Assert.Equal(0, worker.GetCurrentPage("SERIAL-1"));
+
+            var res = await client.PostAsync("/streamdeck/decks/SERIAL-1/test-press/0", Json("{}"));
+            Assert.True(res.IsSuccessStatusCode);
+
+            // A "page" slot is intercepted before the executor, exactly like
+            // a real key press - the executor must never see it.
+            Assert.Equal(1, worker.GetCurrentPage("SERIAL-1"));
+            Assert.Null(_executor.LastCall);
+        }
+    }
+
+    [Fact]
+    public async Task TestPress_OnFolderSlot_PushesFolderNavLikeARealPress()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            store.Update(s => s.StreamDeck.Decks["SERIAL-1"] = new PhysicalDeckSettings
+            {
+                Deck = new DeckConfig
+                {
+                    Pages = { new DeckPage { Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot() } } } } } },
+                },
+            });
+            var worker = factory.Services.GetRequiredService<StreamDeckConnectionWorker>();
+
+            var res = await client.PostAsync("/streamdeck/decks/SERIAL-1/test-press/0", Json("{}"));
+            Assert.True(res.IsSuccessStatusCode);
+
+            Assert.Equal(new[] { 0 }, worker.GetFolderPath("SERIAL-1"));
             Assert.Null(_executor.LastCall);
         }
     }

@@ -28,7 +28,7 @@ namespace Nexus.Service.Deck;
 /// </summary>
 public sealed class DeckActionExecutor : IDeckActionExecutor
 {
-    private const double VolumeStep = 0.05;
+    private const double VolumeStepPercent = 5;
     private const double BrightnessStep = 10;
     private const int DefaultGapMs = 60;
     private const int DeckBrightnessStep = 10;
@@ -321,8 +321,8 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
             case "volumeDown":
             {
                 var cur = _system.GetVolume().Volume;
-                var step = sa.Step ?? VolumeStep;
-                var next = Math.Clamp(cur + (sa.Op == "volumeUp" ? 1 : -1) * step, 0, 1);
+                var stepPercent = sa.Step ?? VolumeStepPercent;
+                var next = Math.Clamp(cur + (sa.Op == "volumeUp" ? 1 : -1) * (stepPercent / 100.0), 0, 1);
                 _system.SetVolume(next);
                 PanelTopics.BroadcastVolume(_hub);
                 return;

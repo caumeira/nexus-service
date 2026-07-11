@@ -31,6 +31,24 @@ public class SimulatedStreamDeckSurfaceTests
     }
 
     [Fact]
+    public void Poke_TwoTransitionsBeforeAnyRead_BothDeliveredInOrder()
+    {
+        var deck = Mini();
+        deck.Poke(0, true);
+        deck.Poke(0, false);
+
+        var first = deck.ReadInput(0);
+        Assert.NotNull(first);
+        Assert.True(first![0]);
+
+        var second = deck.ReadInput(0);
+        Assert.NotNull(second);
+        Assert.False(second![0]);
+
+        Assert.Null(deck.ReadInput(0));
+    }
+
+    [Fact]
     public void Poke_ReleaseThenReadInput_ReflectsRelease()
     {
         var deck = Mini();

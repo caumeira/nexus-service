@@ -213,9 +213,8 @@ public static class StreamDeckRoutes
             return Results.Json(new StreamDeckImageUploadResponse { Hash = hash }, AppJsonContext.Default.StreamDeckImageUploadResponse);
         }).LocalhostOnly();
 
-        app.MapPost("/streamdeck/decks/{serial}/test-press/{slotPath}", async (
-            string serial, string slotPath, StreamDeckConnectionWorker worker, IConfigStore store,
-            IDeckActionExecutor executor, CancellationToken ct) =>
+        app.MapPost("/streamdeck/decks/{serial}/test-press/{slotPath}", (
+            string serial, string slotPath, StreamDeckConnectionWorker worker, IConfigStore store) =>
         {
             var indices = DeckConfigNavigation.ParseSlotPath(slotPath);
             if (indices is null)
@@ -227,27 +226,14 @@ public static class StreamDeckRoutes
             {
                 return ApiResponse.Fail("deck not found");
             }
-            var page = worker.GetCurrentPage(serial);
-            var slot = DeckConfigNavigation.ResolveSlot(deck.Deck, page, indices);
-            if (slot?.Action is null)
-            {
-                return ApiResponse.Fail("slot has no action");
-            }
 
-            var folderPath = indices.GetRange(0, indices.Count - 1);
-            var slotIndex = indices[^1];
-            var latchKey = $"{serial}:{string.Join('.', folderPath)}:{slotIndex}";
-            await executor.ExecuteAsync(slot.Action, serial, slotIndex, latchKey, ct).ConfigureAwait(false);
-
-            // Best effort: only correct when the simulator's live folder view
-            // already matches this slot's containing folder.
-            if (worker.FindBySerial(serial) is SimulatedStreamDeckSurface simulated)
-            {
-                var physicalIndex = slotIndex + (folderPath.Count > 0 ? 1 : 0);
-                simulated.Poke(physicalIndex, true);
-                simulated.Poke(physicalIndex, false);
-            }
-            return ApiResponse.Ok();
+            // Routes through the same nav-or-dispatch decision a real key
+            // press makes (HandleSlotAction), so testing a page or folder
+            // slot navigates the tracked deck state exactly like pressing
+            // the physical key would, not just the leaf-action executor.
+            return worker.SimulatePress(serial, indices, deck.Deck)
+                ? ApiResponse.Ok()
+                : ApiResponse.Fail("slot has no action");
         }).LocalhostOnly();
 
         app.MapPost("/streamdeck/decks/{serial}/test-pattern", (string serial, StreamDeckConnectionWorker worker) =>
