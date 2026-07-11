@@ -130,6 +130,32 @@ public sealed class StreamDeckRoutesTests : IDisposable
     }
 
     [Fact]
+    public async Task GetDecks_ReflectsASimulatedModelSetOnTheWorker()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var worker = factory.Services.GetRequiredService<StreamDeckConnectionWorker>();
+            var xl = StreamDeckModels.ByProductId(0x006c)!; // not the DI-default Mini - proves the model is parametric
+            Assert.True(worker.SetSimulatedModel(xl.ProductId));
+
+            var res = await client.GetAsync("/streamdeck/decks");
+            Assert.True(res.IsSuccessStatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var decks = doc.RootElement.GetProperty("decks");
+            var entry = decks.EnumerateArray().Single(d => d.GetProperty("model").GetString() == "XL");
+
+            Assert.True(entry.GetProperty("connected").GetBoolean());
+            Assert.Equal(xl.Rows, entry.GetProperty("rows").GetInt32());
+            Assert.Equal(xl.Columns, entry.GetProperty("cols").GetInt32());
+            Assert.Equal(xl.KeyCount, entry.GetProperty("keyCount").GetInt32());
+            Assert.Equal(xl.KeyPixelSize, entry.GetProperty("keyPixels").GetInt32());
+            Assert.Equal("jpeg", entry.GetProperty("format").GetString());
+            Assert.Equal(xl.Transform, entry.GetProperty("transform").GetString());
+        }
+    }
+
+    [Fact]
     public async Task GetDecks_UnknownPersistedProductId_IsSkippedRatherThanBroken()
     {
         var (factory, client) = Boot();

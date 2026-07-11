@@ -481,19 +481,15 @@ public static class NexusServiceCollectionExtensions
 
         // Stream Deck: gen1-protocol button decks (Mini bench-verified
         // 2026-07-10). Peripheral, not lighting - no frame contributor, no
-        // 30 Hz tick; see plans/streamdeck-support.md Phase 0/1. The simulated
-        // surface is DI-registered only under DEV_TOOLS, so the connection
-        // worker's optional constructor argument resolves to null (no
-        // simulated deck ever appears) in a release build.
+        // 30 Hz tick; see plans/streamdeck-support.md Phase 0/1. The
+        // connection worker always starts with no simulated deck; the
+        // DEV_TOOLS-only /streamdeck/dev/simulate route picks a model at
+        // runtime via StreamDeckConnectionWorker.SetSimulatedModel, so a
+        // release build never constructs a SimulatedStreamDeckSurface at all.
         services.AddSingleton<Nexus.Service.Peripherals.StreamDeck.StreamDeckImageCache>();
         services.AddSingleton<Nexus.Service.Deck.DeckActionExecutor>();
         services.AddSingleton<Nexus.Service.Deck.IDeckActionExecutor>(sp =>
             sp.GetRequiredService<Nexus.Service.Deck.DeckActionExecutor>());
-#if DEV_TOOLS
-        services.AddSingleton<Nexus.Service.Peripherals.StreamDeck.SimulatedStreamDeckSurface>(_ =>
-            new Nexus.Service.Peripherals.StreamDeck.SimulatedStreamDeckSurface(
-                Nexus.Service.Peripherals.StreamDeck.StreamDeckModels.ByProductId(0x0063)!, "sim-0001"));
-#endif
         services.AddSingleton<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>(sp =>
             new Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker(
                 sp.GetRequiredService<Nexus.Service.Peripherals.Hid.IHidEnumerator>(),
@@ -502,11 +498,7 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Deck.IDeckActionExecutor>(),
                 sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckImageCache>(),
-                sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>()
-#if DEV_TOOLS
-                , sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.SimulatedStreamDeckSurface>()
-#endif
-            ));
+                sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>()));
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>());
 
         // Lian Li Uni Hub SL-Infinity: HID connection worker + lighting + cooling.

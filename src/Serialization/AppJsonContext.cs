@@ -978,6 +978,10 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckImageUploadResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckChangedFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSimPressBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSimulateBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckDevModelDto))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckDevModelDto>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckDevModelsResponse))]
 // Stream Deck binding model - the shared DeckAction/DeckConfig tree that
 // rides the GET/PUT config wire contract (see Nexus.Service.Deck.DeckActionModel).
 [JsonSerializable(typeof(Nexus.Service.Deck.DeckConfig))]

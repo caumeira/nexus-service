@@ -82,3 +82,25 @@ public sealed class StreamDeckSimPressBody
     public int KeyIndex { get; set; }
     public bool Pressed { get; set; }
 }
+
+/// <summary>POST /streamdeck/dev/simulate body: picks the model the simulated deck presents as.</summary>
+public sealed class StreamDeckSimulateBody
+{
+    public int ProductId { get; set; }
+}
+
+/// <summary>One entry of GET /streamdeck/dev/models, for the dev-tools model picker.</summary>
+public sealed class StreamDeckDevModelDto
+{
+    public int ProductId { get; set; }
+    public string Name { get; set; } = "";
+    public int Rows { get; set; }
+    [JsonPropertyName("cols")]
+    public int Columns { get; set; }
+    public int KeyCount { get; set; }
+}
+
+public sealed class StreamDeckDevModelsResponse
+{
+    public List<StreamDeckDevModelDto> Models { get; set; } = new();
+}

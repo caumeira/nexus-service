@@ -447,6 +447,105 @@ public class StreamDeckConnectionWorkerTests
         Assert.Equal(bytes, simulated.PeekKeyImage(0));
     }
 
+    [Theory]
+    [InlineData(0x0086, 1, 3, 3)]  // Pedal
+    [InlineData(0x0063, 2, 3, 6)]  // Mini
+    [InlineData(0x0090, 2, 3, 6)]  // Mini MK.2
+    [InlineData(0x006c, 4, 8, 32)] // XL
+    public void SetSimulatedModel_ForAGivenModel_RegistersASurfaceWithMatchingLayout(
+        int productId, int rows, int columns, int keyCount)
+    {
+        var f = NewFixtures(devicePresent: false);
+        using var worker = NewWorker(f);
+
+        Assert.True(worker.SetSimulatedModel(productId));
+
+        var surface = Assert.Single(worker.Surfaces).Value;
+        Assert.Equal(rows, surface.Model.Rows);
+        Assert.Equal(columns, surface.Model.Columns);
+        Assert.Equal(keyCount, surface.Model.KeyCount);
+    }
+
+    [Fact]
+    public void SetSimulatedModel_UnknownProductId_ReturnsFalseAndAddsNoSurface()
+    {
+        var f = NewFixtures(devicePresent: false);
+        using var worker = NewWorker(f);
+
+        Assert.False(worker.SetSimulatedModel(0xDEAD));
+
+        Assert.Empty(worker.Surfaces);
+    }
+
+    [Fact]
+    public void SetSimulatedModel_ReplacingTheCurrentModel_TearsDownTheOldSurfaceCleanly()
+    {
+        var f = NewFixtures(devicePresent: false);
+        using var worker = NewWorker(f);
+        Assert.True(worker.SetSimulatedModel(0x0063)); // Mini
+        var miniSerial = Assert.Single(worker.Surfaces).Value.Serial;
+        Assert.True(worker.HasSerialState(miniSerial));
+
+        Assert.True(worker.SetSimulatedModel(0x006c)); // XL
+
+        Assert.False(worker.HasSerialState(miniSerial));
+        Assert.Null(worker.FindBySerial(miniSerial));
+        var xlSurface = Assert.Single(worker.Surfaces).Value;
+        Assert.Equal("XL", xlSurface.Model.Name);
+    }
+
+    [Fact]
+    public void ClearSimulatedModel_RemovesTheSurfaceAndItsState()
+    {
+        var f = NewFixtures(devicePresent: false);
+        using var worker = NewWorker(f);
+        Assert.True(worker.SetSimulatedModel(0x0063));
+        var serial = Assert.Single(worker.Surfaces).Value.Serial;
+
+        worker.ClearSimulatedModel();
+
+        Assert.Empty(worker.Surfaces);
+        Assert.False(worker.HasSerialState(serial));
+    }
+
+    [Fact]
+    public void ClearSimulatedModel_WithNoSimulatedDeck_IsANoOp()
+    {
+        var f = NewFixtures(devicePresent: false);
+        using var worker = NewWorker(f);
+
+        worker.ClearSimulatedModel();
+
+        Assert.Empty(worker.Surfaces);
+    }
+
+    [Fact]
+    public async Task SetSimulatedModel_ThenPoke_DispatchesThroughTheExecutorLikeAnyOtherSurface()
+    {
+        var f = NewFixtures(devicePresent: false);
+        using var worker = NewWorker(f);
+        Assert.True(worker.SetSimulatedModel(0x0063)); // Mini
+        var serial = Assert.Single(worker.Surfaces).Value.Serial;
+        var action = new DeckAction { Type = "openUrl", Url = "https://example.com" };
+        f.Store.Update(s => s.StreamDeck.Decks[serial] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Slots = { new DeckSlot { Action = action } } },
+        });
+
+        var simulated = (SimulatedStreamDeckSurface)worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey];
+        simulated.Poke(0, true);
+        worker.Tick();
+        if (worker.LastDispatchTask is not null)
+        {
+            await worker.LastDispatchTask;
+        }
+
+        var call = Assert.Single(f.Executor.Calls);
+        Assert.Equal(serial, call.Serial);
+        Assert.Equal(0, call.KeyIndex);
+        Assert.Same(action, call.Action);
+    }
+
     private sealed class MutableUsbEnumerator : IUsbEnumerator
     {
         public List<UsbDeviceEntry> Devices { get; } = new();

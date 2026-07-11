@@ -20,8 +20,8 @@ namespace Nexus.Service.Routes;
 /// Stream Deck REST contract (plan streamdeck-support.md §5.5). Every route
 /// is LocalhostOnly - a physical deck is a desktop configuration surface, not
 /// something a paired phone panel touches. test-pattern and the DEV_TOOLS
-/// sim-press route are additive bench tooling, not part of the desktop
-/// contract the web editor drives.
+/// dev/* routes (sim-press, simulate, models) are additive bench tooling,
+/// not part of the desktop contract the web editor drives.
 /// </summary>
 public static class StreamDeckRoutes
 {
@@ -42,26 +42,7 @@ public static class StreamDeckRoutes
             {
                 seenSerials.Add(surface.Serial);
                 settings.Decks.TryGetValue(surface.Serial, out var deck);
-                response.Decks.Add(new StreamDeckSummaryDto
-                {
-                    Serial = surface.Serial,
-                    Model = surface.Model.Name,
-                    Name = string.IsNullOrEmpty(deck?.Name) ? surface.Model.Name : deck!.Name,
-                    Connected = surface.IsConnected,
-                    Verified = surface.Model.Verified,
-                    Rows = surface.Model.Rows,
-                    Columns = surface.Model.Columns,
-                    KeyCount = surface.Model.KeyCount,
-                    KeyPixels = surface.Model.KeyPixelSize,
-                    Format = FormatName(surface.Model.ImageFormat),
-                    Transform = surface.Model.Transform,
-                    Brightness = deck?.Brightness ?? PhysicalDeckSettings.DefaultBrightness,
-                    Orientation = deck?.Orientation ?? 0,
-                    SleepAfterSeconds = deck?.SleepAfterSeconds ?? 0,
-                    FirmwareVersion = surface.FirmwareVersion,
-                    Warning = warning,
-                    ConflictAppId = conflictAppId,
-                });
+                response.Decks.Add(BuildSummary(surface, deck, warning, conflictAppId));
             }
 
             // Persisted decks with no live surface (unplugged, or never seen
@@ -303,8 +284,68 @@ public static class StreamDeckRoutes
             }
             return ApiResponse.Fail("simulator not available");
         }).LocalhostOnly();
+
+        app.MapGet("/streamdeck/dev/models", () =>
+        {
+            var response = new StreamDeckDevModelsResponse();
+            foreach (var model in StreamDeckModels.All)
+            {
+                response.Models.Add(new StreamDeckDevModelDto
+                {
+                    ProductId = model.ProductId,
+                    Name = model.Name,
+                    Rows = model.Rows,
+                    Columns = model.Columns,
+                    KeyCount = model.KeyCount,
+                });
+            }
+            return response;
+        }).LocalhostOnly();
+
+        app.MapPost("/streamdeck/dev/simulate", (
+            StreamDeckSimulateBody body, StreamDeckConnectionWorker worker, IConfigStore store) =>
+        {
+            if (!worker.SetSimulatedModel(body.ProductId))
+            {
+                return Results.Json(ApiResponse.Fail("unknown model"), AppJsonContext.Default.ApiResponse, statusCode: 400);
+            }
+            var surface = worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey];
+            store.Load().StreamDeck.Decks.TryGetValue(surface.Serial, out var deck);
+            return Results.Json(
+                BuildSummary(surface, deck, warning: null, conflictAppId: null),
+                AppJsonContext.Default.StreamDeckSummaryDto);
+        }).LocalhostOnly();
+
+        app.MapDelete("/streamdeck/dev/simulate", (StreamDeckConnectionWorker worker) =>
+        {
+            worker.ClearSimulatedModel();
+            return ApiResponse.Ok();
+        }).LocalhostOnly();
 #endif
     }
+
+    /// <summary>Shared DTO builder for GET /streamdeck/decks and the dev-tools simulate route.</summary>
+    private static StreamDeckSummaryDto BuildSummary(
+        IStreamDeckSurface surface, PhysicalDeckSettings? deck, string? warning, string? conflictAppId) => new()
+    {
+        Serial = surface.Serial,
+        Model = surface.Model.Name,
+        Name = string.IsNullOrEmpty(deck?.Name) ? surface.Model.Name : deck!.Name,
+        Connected = surface.IsConnected,
+        Verified = surface.Model.Verified,
+        Rows = surface.Model.Rows,
+        Columns = surface.Model.Columns,
+        KeyCount = surface.Model.KeyCount,
+        KeyPixels = surface.Model.KeyPixelSize,
+        Format = FormatName(surface.Model.ImageFormat),
+        Transform = surface.Model.Transform,
+        Brightness = deck?.Brightness ?? PhysicalDeckSettings.DefaultBrightness,
+        Orientation = deck?.Orientation ?? 0,
+        SleepAfterSeconds = deck?.SleepAfterSeconds ?? 0,
+        FirmwareVersion = surface.FirmwareVersion,
+        Warning = warning,
+        ConflictAppId = conflictAppId,
+    };
 
     private static string FormatName(StreamDeckImageFormat format) => format switch
     {

@@ -47,7 +47,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     private readonly IDeckActionExecutor _executor;
     private readonly StreamDeckImageCache _imageCache;
     private readonly MultiplexHub _hub;
-    private readonly SimulatedStreamDeckSurface? _simulated;
+
+    /// <summary>
+    /// The dev-tools bench simulated deck, if any. Mutable (not just
+    /// ctor-assigned): SetSimulatedModel/ClearSimulatedModel swap it at
+    /// runtime, guarded by _lock like every other surface mutation.
+    /// </summary>
+    private SimulatedStreamDeckSurface? _simulated;
 
     /// <summary>
     /// Guards _surfaces/_lastKeyStates/_folderPathsBySerial/_lastInputAt/_asleep
@@ -206,6 +212,73 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         _lastKeyStates[SimulatedKey] = new bool[_simulated.Model.KeyCount];
         ServiceLog.Info($"[streamdeck] simulated deck available ({_simulated.Model.Name}, serial={_simulated.Serial})");
         OnSurfaceConnected(_simulated);
+    }
+
+    /// <summary>
+    /// Dev-tools bench hook: swaps the simulated deck to the given model,
+    /// tearing down any previous simulated surface first (same cleanup path
+    /// as a real unplug). Returns false without side effects for an
+    /// unrecognized product id. Callable from an HTTP route thread
+    /// concurrently with the tick thread; takes _lock itself. Registers the
+    /// new surface immediately, so it appears in Surfaces/GET
+    /// /streamdeck/decks without waiting for the next tick. Only the DI
+    /// wiring and the routes that call this are dev-gated - like
+    /// SimulatedStreamDeckSurface itself, this method compiles and is tested
+    /// unconditionally.
+    /// </summary>
+    public bool SetSimulatedModel(int productId)
+    {
+        var model = StreamDeckModels.ByProductId(productId);
+        if (model is null)
+        {
+            return false;
+        }
+        lock (_lock)
+        {
+            RemoveSimulatedLocked();
+            _simulated = new SimulatedStreamDeckSurface(model, $"sim-{model.ProductId:x4}");
+            RegisterSimulatedIfNeeded();
+        }
+        return true;
+    }
+
+    /// <summary>Dev-tools bench hook: removes the simulated deck, if any. Same cleanup path as a real unplug.</summary>
+    public void ClearSimulatedModel()
+    {
+        lock (_lock)
+        {
+            RemoveSimulatedLocked();
+            _simulated = null;
+        }
+    }
+
+    /// <summary>
+    /// Tears down the currently tracked simulated surface, if any: removes it
+    /// from _surfaces and clears its serial-keyed nav/idle state, mirroring
+    /// ReconcileHidSurfaces' disconnect path. Caller must hold _lock.
+    /// </summary>
+    private void RemoveSimulatedLocked()
+    {
+        if (!_surfaces.TryGetValue(SimulatedKey, out var existing))
+        {
+            return;
+        }
+        existing.Dispose();
+        _surfaces.Remove(SimulatedKey);
+        _lastKeyStates.Remove(SimulatedKey);
+        _folderPathsBySerial.Remove(existing.Serial);
+        _lastInputAt.Remove(existing.Serial);
+        _asleep.Remove(existing.Serial);
+        BroadcastDecksChanged(existing.Serial);
+    }
+
+    /// <summary>Test seam: true if folder-nav/last-input/sleep state is still tracked for this serial. Asserts SetSimulatedModel/ClearSimulatedModel do not leak entries across a swap.</summary>
+    internal bool HasSerialState(string serial)
+    {
+        lock (_lock)
+        {
+            return _folderPathsBySerial.ContainsKey(serial) || _lastInputAt.ContainsKey(serial) || _asleep.ContainsKey(serial);
+        }
     }
 
     private void ReconcileHidSurfaces()
