@@ -38,18 +38,23 @@ public sealed class DeviceManager
         // Only first-party handlers have a gate-honoring connection worker; the
         // on/off switch is a no-op for plugin handlers, so don't advertise it.
         var firstParty = new HashSet<IDeviceHandler>(_handlers);
-        return AllHandlers.Select(h => new DeviceListItem
+        return AllHandlers.Select(h =>
         {
-            Id = h.Id,
-            Name = h.Name,
-            Category = h.Category,
-            Connected = h.IsConnected(usbDevices),
-            FirmwareVersion = h.GetFirmwareVersion(),
-            FirmwareType = h.FirmwareType,
-            SupportsNexusControl = firstParty.Contains(h),
-            NexusControlEnabled = _gate.IsEnabled(h.Id),
-            Warning = h.GetWarning(usbDevices),
-            ConflictAppId = DeviceControlPolicy.ConflictAppFor(h.Id),
+            var supportsControl = firstParty.Contains(h);
+            return new DeviceListItem
+            {
+                Id = h.Id,
+                Name = h.Name,
+                Category = h.Category,
+                Connected = h.IsConnected(usbDevices),
+                FirmwareVersion = h.GetFirmwareVersion(),
+                FirmwareType = h.FirmwareType,
+                SupportsNexusControl = supportsControl,
+                Experimental = supportsControl && DeviceControlPolicy.IsExperimental(h.Id),
+                NexusControlEnabled = _gate.IsEnabled(h.Id),
+                Warning = h.GetWarning(usbDevices),
+                ConflictAppId = DeviceControlPolicy.ConflictAppFor(h.Id),
+            };
         }).ToList();
     }
 
