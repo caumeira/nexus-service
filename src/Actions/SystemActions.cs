@@ -46,13 +46,38 @@ public sealed class SystemActions
         _sp = sp;
     }
 
-    public ApiResponse SendKeys(SendKeysBody body)
+    /// <summary>
+    /// Keystroke injection for the deck hotkey/hotkeySwitch actions and the
+    /// /system/input/keys route. On Windows, a connected user-session helper
+    /// injects the strokes itself: the service runs LocalSystem in Session 0,
+    /// where SendInput has no interactive desktop to reach, so a direct send
+    /// silently no-ops without the helper. macOS/Linux and an interactive
+    /// (non-service) Windows run use the local inputter directly, since they
+    /// already execute in the user's own session.
+    /// </summary>
+    public async Task<ApiResponse> SendKeysAsync(SendKeysBody body)
     {
         var input = BuildKeyStrokes(body);
         if (input.Strokes.Count == 0)
         {
             return ApiResponse.Fail("key or strokes required");
         }
+#if WINDOWS
+        if (OperatingSystem.IsWindows())
+        {
+            var registry = _sp.GetService<Nexus.Service.Helper.HelperRegistry>();
+            if (registry?.GetAny() is not null)
+            {
+                var ok = await Nexus.Service.Helper.Domains.InputCommands
+                    .SendKeysAsync(registry, input).ConfigureAwait(false);
+                return ok ? ApiResponse.Ok() : ApiResponse.Fail("send keys failed");
+            }
+            if (!Environment.UserInteractive)
+            {
+                return ApiResponse.Fail("no interactive user session");
+            }
+        }
+#endif
         _inputter.Send(input);
         return ApiResponse.Ok();
     }

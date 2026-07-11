@@ -119,6 +119,19 @@ public class DeckActionRoutesTests
     }
 
     [Fact]
+    public async Task InputKeys_requires_auth()
+    {
+        var (factory, _) = Boot();
+        using (factory)
+        {
+            var anon = factory.CreateClient();
+            var res = await anon.PostAsync("/system/input/keys", Json("{\"key\":\"KeyM\"}"));
+            Assert.False(res.IsSuccessStatusCode);
+            Assert.Null(_inputter.Last);
+        }
+    }
+
+    [Fact]
     public async Task InputText_SetsClipboardAndPastes()
     {
         var (factory, client) = Boot();

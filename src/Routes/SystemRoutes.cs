@@ -67,7 +67,7 @@ public static class SystemRoutes
 
         // ── Keyboard / text injection (deck hotkey + type-text actions) ──
         app.MapPost("/system/input/keys", (SendKeysBody body, Nexus.Service.Actions.SystemActions actions) =>
-            actions.SendKeys(body)).AllowPanel();
+            actions.SendKeysAsync(body)).AllowPanel();
 
         app.MapPost("/system/input/text", (SendTextBody body, Nexus.Service.Actions.SystemActions actions) =>
             actions.SendTextAsync(body.Text ?? "")).AllowPanel();
