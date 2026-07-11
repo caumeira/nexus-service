@@ -103,6 +103,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(DeckSlot))]
 [JsonSerializable(typeof(List<DeckSlot>))]
 [JsonSerializable(typeof(DeckIcon))]
+[JsonSerializable(typeof(DeckTitleStyle))]
 [JsonSerializable(typeof(DeckAction))]
 [JsonSerializable(typeof(DeckSystemAction))]
 [JsonSerializable(typeof(DeckNexusAction))]

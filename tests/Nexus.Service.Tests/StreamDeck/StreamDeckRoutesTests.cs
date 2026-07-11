@@ -210,6 +210,65 @@ public sealed class StreamDeckRoutesTests : IDisposable
     }
 
     [Fact]
+    public async Task PutConfig_ThenGetConfig_RoundTripsTheTitleStyle()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var putBody = "{\"config\":{\"pages\":[{\"slots\":[{\"label\":\"Lock\",\"title\":{"
+                + "\"show\":true,\"align\":\"top\",\"font\":\"mono\",\"size\":18,"
+                + "\"bold\":true,\"italic\":false,\"underline\":true,\"color\":\"#ff0000\"},"
+                + "\"action\":{\"type\":\"power\",\"action\":\"lock\"}}]}]}}";
+            var put = await client.PutAsync("/streamdeck/decks/SERIAL-1/config", Json(putBody));
+            Assert.True(put.IsSuccessStatusCode);
+
+            var get = await client.GetAsync("/streamdeck/decks/SERIAL-1/config");
+            using var doc = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
+            var slot = doc.RootElement.GetProperty("config").GetProperty("pages")[0].GetProperty("slots")[0];
+            var title = slot.GetProperty("title");
+            Assert.True(title.GetProperty("show").GetBoolean());
+            Assert.Equal("top", title.GetProperty("align").GetString());
+            Assert.Equal("mono", title.GetProperty("font").GetString());
+            Assert.Equal(18, title.GetProperty("size").GetInt32());
+            Assert.True(title.GetProperty("bold").GetBoolean());
+            Assert.False(title.GetProperty("italic").GetBoolean());
+            Assert.True(title.GetProperty("underline").GetBoolean());
+            Assert.Equal("#ff0000", title.GetProperty("color").GetString());
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var persisted = store.Load().StreamDeck.Decks["SERIAL-1"].Deck.Pages[0].Slots[0].Title;
+            Assert.NotNull(persisted);
+            Assert.Equal("top", persisted!.Align);
+            Assert.Equal("#ff0000", persisted.Color);
+        }
+    }
+
+    [Fact]
+    public async Task PutConfig_SlotWithNoTitle_GetConfigOmitsTheTitleKey()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var putBody = "{\"config\":{\"pages\":[{\"slots\":[{\"label\":\"Lock\"}]}]}}";
+            var put = await client.PutAsync("/streamdeck/decks/SERIAL-1/config", Json(putBody));
+            Assert.True(put.IsSuccessStatusCode);
+
+            var get = await client.GetAsync("/streamdeck/decks/SERIAL-1/config");
+            using var doc = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
+            var slot = doc.RootElement.GetProperty("config").GetProperty("pages")[0].GetProperty("slots")[0];
+            // The HTTP pipeline's merged JsonSerializerOptions write every
+            // nullable DeckSlot field explicitly (icon/color/action/folder
+            // included) rather than omitting it, so "title" is either absent
+            // or JSON null here - never an empty title object, which would
+            // read on the web side as an explicitly-customized style.
+            Assert.True(!slot.TryGetProperty("title", out var titleEl) || titleEl.ValueKind == JsonValueKind.Null);
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            Assert.Null(store.Load().StreamDeck.Decks["SERIAL-1"].Deck.Pages[0].Slots[0].Title);
+        }
+    }
+
+    [Fact]
     public async Task PutConfig_LegacySlotsShape_NormalizesToOnePage()
     {
         var (factory, client) = Boot();

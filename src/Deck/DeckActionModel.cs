@@ -138,9 +138,24 @@ public sealed class DeckSlot
     public string? Label { get; set; }
     /// <summary>Unset falls back to an auto color by action category.</summary>
     public string? Color { get; set; }
+    /// <summary>Styling for Label. Unset falls back to nexus-web's deckTitleStyle.ts defaults.</summary>
+    public DeckTitleStyle? Title { get; set; }
     /// <summary>A slot is an action, a folder, or empty - never both.</summary>
     public DeckAction? Action { get; set; }
     public DeckFolder? Folder { get; set; }
+}
+
+public sealed class DeckTitleStyle
+{
+    public bool? Show { get; set; }
+    /// <summary>top | middle | bottom.</summary>
+    public string? Align { get; set; }
+    public string? Font { get; set; }
+    public int? Size { get; set; }
+    public bool? Bold { get; set; }
+    public bool? Italic { get; set; }
+    public bool? Underline { get; set; }
+    public string? Color { get; set; }
 }
 
 public sealed class DeckFolder

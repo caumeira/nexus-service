@@ -375,4 +375,48 @@ public sealed class DeckConfigConverterTests
         Assert.Empty(config.Pages[0].Slots);
         Assert.Equal("Real", config.Pages[1].Slots[0].Label);
     }
+
+    [Fact]
+    public void SlotWithTitleStyle_RoundTripsEveryField()
+    {
+        var json = "{\"pages\":[{\"slots\":[{\"label\":\"Lock\",\"title\":{"
+            + "\"show\":true,\"align\":\"top\",\"font\":\"mono\",\"size\":18,"
+            + "\"bold\":true,\"italic\":false,\"underline\":true,\"color\":\"#ff0000\"}}]}]}";
+        var config = Deserialize(json);
+
+        var title = config.Pages[0].Slots[0].Title;
+        Assert.NotNull(title);
+        Assert.True(title!.Show);
+        Assert.Equal("top", title.Align);
+        Assert.Equal("mono", title.Font);
+        Assert.Equal(18, title.Size);
+        Assert.True(title.Bold);
+        Assert.False(title.Italic);
+        Assert.True(title.Underline);
+        Assert.Equal("#ff0000", title.Color);
+
+        var reserialized = JsonSerializer.Serialize(config, PersistenceJsonContext.Default.DeckConfig);
+        using var doc = JsonDocument.Parse(reserialized);
+        var titleEl = doc.RootElement.GetProperty("pages")[0].GetProperty("slots")[0].GetProperty("title");
+        Assert.True(titleEl.GetProperty("show").GetBoolean());
+        Assert.Equal("top", titleEl.GetProperty("align").GetString());
+        Assert.Equal("mono", titleEl.GetProperty("font").GetString());
+        Assert.Equal(18, titleEl.GetProperty("size").GetInt32());
+        Assert.True(titleEl.GetProperty("bold").GetBoolean());
+        Assert.False(titleEl.GetProperty("italic").GetBoolean());
+        Assert.True(titleEl.GetProperty("underline").GetBoolean());
+        Assert.Equal("#ff0000", titleEl.GetProperty("color").GetString());
+    }
+
+    [Fact]
+    public void SlotWithNoTitleStyle_OmitsTheTitleKeyOnWrite()
+    {
+        var config = Deserialize("{\"pages\":[{\"slots\":[{\"label\":\"A\"}]}]}");
+        Assert.Null(config.Pages[0].Slots[0].Title);
+
+        var json = JsonSerializer.Serialize(config, PersistenceJsonContext.Default.DeckConfig);
+        using var doc = JsonDocument.Parse(json);
+        var slot = doc.RootElement.GetProperty("pages")[0].GetProperty("slots")[0];
+        Assert.False(slot.TryGetProperty("title", out _));
+    }
 }
