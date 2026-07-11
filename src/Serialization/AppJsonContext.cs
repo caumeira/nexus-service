@@ -685,6 +685,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SetAudioDefaultBody))]
 [JsonSerializable(typeof(GetAllShortcutsResponse))]
 [JsonSerializable(typeof(GetShortcutResponse))]
+[JsonSerializable(typeof(Nexus.Service.Activity.IconCacheMeta))]
 
 // Lifecycle
 [JsonSerializable(typeof(SetWillStartParams))]

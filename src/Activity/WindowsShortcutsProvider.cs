@@ -11,17 +11,23 @@ namespace Nexus.Service.Activity;
 
 public sealed class WindowsShortcutsProvider : IShortcutsProvider
 {
+    private const int IconSizePx = 256;
+    private static readonly TimeSpan IconCachePruneAge = TimeSpan.FromDays(30);
+    private const int IconCachePruneMaxEntries = 500;
+
     private static readonly TimeSpan AppListCacheTtl = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan IconCacheTtl = TimeSpan.FromHours(1);
     // An app with no extractable icon (no Start-Menu .lnk match / no UWP logo)
-    // otherwise re-spawns powershell.exe on every GetIcon, since nothing is
-    // cached to short-circuit it - a panel scrolling past icon-less apps keeps
-    // the helper busy and the browser's connection pool full. Cache the empty
-    // result too, but briefly: a miss also covers a transient extraction failure
-    // (e.g. a powershell timeout while the box is benchmark-pegged), so the short
-    // TTL bounds how long a real icon can be hidden after one load-induced miss
-    // while still absorbing a scroll's worth of repeat views.
+    // otherwise re-runs extraction on every GetIcon, since nothing is cached to
+    // short-circuit it - a panel scrolling past icon-less apps keeps the helper
+    // busy. Cache the empty result too, but briefly: a miss also covers a
+    // transient extraction failure, so the short TTL bounds how long a real
+    // icon can be hidden after one load-induced miss while still absorbing a
+    // scroll's worth of repeat views.
     private static readonly TimeSpan NegativeIconCacheTtl = TimeSpan.FromMinutes(2);
+
+    private readonly IWindowsIconExtractor _iconExtractor;
+    private readonly IconDiskCache _diskCache;
 
     private List<Shortcut>? _appCache;
     private DateTime _appCacheExpiry;
@@ -29,6 +35,17 @@ public sealed class WindowsShortcutsProvider : IShortcutsProvider
 
     private readonly Dictionary<string, (byte[] Data, DateTime Expiry)> _iconCache = new();
     private readonly object _iconLock = new();
+
+    public WindowsShortcutsProvider() : this(new WindowsIconExtractor(), new IconDiskCache())
+    {
+    }
+
+    internal WindowsShortcutsProvider(IWindowsIconExtractor iconExtractor, IconDiskCache diskCache)
+    {
+        _iconExtractor = iconExtractor;
+        _diskCache = diskCache;
+        _diskCache.PruneStale(IconCachePruneAge, IconCachePruneMaxEntries);
+    }
 
     public IReadOnlyList<Shortcut> GetAll()
     {
@@ -147,24 +164,70 @@ public sealed class WindowsShortcutsProvider : IShortcutsProvider
         }
     }
 
-    private static byte[] ExtractWin32Icon(Shortcut shortcut)
+    private byte[] ExtractWin32Icon(Shortcut shortcut)
     {
-        var escapedName = shortcut.Name.Replace("'", "''");
-        var script = "Add-Type -AssemblyName System.Drawing; " +
-            "$searchDirs = @(" +
-            "[IO.Path]::Combine($env:ProgramData, 'Microsoft\\Windows\\Start Menu\\Programs'), " +
-            "[IO.Path]::Combine($env:APPDATA, 'Microsoft\\Windows\\Start Menu\\Programs')); " +
-            "foreach ($dir in $searchDirs) { " +
-            "$lnks = Get-ChildItem $dir -Filter '*.lnk' -Recurse -EA SilentlyContinue | " +
-            $"Where-Object {{ $_.BaseName -eq '{escapedName}' }}; " +
-            "foreach ($lnk in $lnks) { " +
-            "try { $ico = [System.Drawing.Icon]::ExtractAssociatedIcon($lnk.FullName); " +
-            "if ($ico) { $bmp = $ico.ToBitmap(); $ms = [IO.MemoryStream]::new(); " +
-            "$bmp.Save($ms, [Drawing.Imaging.ImageFormat]::Png); " +
-            "[Convert]::ToBase64String($ms.ToArray()); " +
-            "$ms.Dispose(); $bmp.Dispose(); $ico.Dispose(); return } } catch {} } }";
+        var lnkPath = FindShortcutLnk(shortcut.Name);
+        if (lnkPath is null)
+        {
+            return Array.Empty<byte>();
+        }
 
-        return RunPowerShellBase64(script, 10000);
+        DateTime sourceWriteTimeUtc;
+        try
+        {
+            sourceWriteTimeUtc = File.GetLastWriteTimeUtc(lnkPath);
+        }
+        catch
+        {
+            return Array.Empty<byte>();
+        }
+
+        var cached = _diskCache.TryGet(shortcut.Id, lnkPath, sourceWriteTimeUtc);
+        if (cached is not null)
+        {
+            return cached;
+        }
+
+        var png = _iconExtractor.ExtractPng(lnkPath, IconSizePx);
+        if (png.Length > 0)
+        {
+            _diskCache.Store(shortcut.Id, lnkPath, sourceWriteTimeUtc, png);
+        }
+
+        return png;
+    }
+
+    /// <summary>Finds the Start-Menu .lnk whose base name matches, searching the same two roots the old PowerShell path did.</summary>
+    private static string? FindShortcutLnk(string name)
+    {
+        foreach (var dir in StartMenuProgramsDirs())
+        {
+            if (!Directory.Exists(dir))
+            {
+                continue;
+            }
+
+            var options = new EnumerationOptions { RecurseSubdirectories = true, IgnoreInaccessible = true };
+            foreach (var lnk in Directory.EnumerateFiles(dir, "*.lnk", options))
+            {
+                if (string.Equals(Path.GetFileNameWithoutExtension(lnk), name, StringComparison.OrdinalIgnoreCase))
+                {
+                    return lnk;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    private static IEnumerable<string> StartMenuProgramsDirs()
+    {
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "Microsoft", "Windows", "Start Menu", "Programs");
+        yield return Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
+            "Microsoft", "Windows", "Start Menu", "Programs");
     }
 
     private static byte[] ExtractUwpIcon(string appId)
