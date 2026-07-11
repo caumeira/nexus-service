@@ -487,6 +487,14 @@ public static class NexusServiceCollectionExtensions
         // runtime via StreamDeckConnectionWorker.SetSimulatedModel, so a
         // release build never constructs a SimulatedStreamDeckSurface at all.
         services.AddSingleton<Nexus.Service.Peripherals.StreamDeck.StreamDeckImageCache>();
+        // Lazy so resolving it does not construct StreamDeckConnectionWorker
+        // right away - DeckActionExecutor needs it for deckBrightness/deckSleep,
+        // but the worker also depends on IDeckActionExecutor, and a direct
+        // constructor cycle would blow up at first resolution. By dispatch
+        // time (only ever triggered by the worker itself) the worker
+        // singleton already exists, so .Value never re-enters construction.
+        services.AddSingleton(sp => new System.Lazy<Nexus.Service.Deck.IDeckSurfaceControl>(
+            () => sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>()));
         services.AddSingleton<Nexus.Service.Deck.DeckActionExecutor>();
         services.AddSingleton<Nexus.Service.Deck.IDeckActionExecutor>(sp =>
             sp.GetRequiredService<Nexus.Service.Deck.DeckActionExecutor>());

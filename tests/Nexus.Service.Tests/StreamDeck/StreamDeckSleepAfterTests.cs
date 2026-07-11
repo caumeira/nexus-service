@@ -42,6 +42,9 @@ public sealed class StreamDeckSleepAfterTests : IDisposable
         _simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
         var presence = new HardwarePresence(new FixedUsbEnumerator());
         var gate = new DeviceControlGate(_store);
+        // See NewFixtures in StreamDeckConnectionWorkerTests.cs: "streamdeck"
+        // defaults off (mapped Elgato competitor), so opt in explicitly.
+        gate.SetEnabled("streamdeck", true);
         var imageCache = new StreamDeckImageCache(_imageCacheDir);
         _worker = new StreamDeckConnectionWorker(
             new FakeWorkerHidEnumerator(), presence, gate, _store, _executor, imageCache, new MultiplexHub(),
@@ -104,7 +107,7 @@ public sealed class StreamDeckSleepAfterTests : IDisposable
         {
             Brightness = 80,
             SleepAfterSeconds = 30,
-            Deck = new DeckConfig { Slots = { new DeckSlot { Action = action } } },
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
         });
         _worker.Tick();
         _clock.Advance(TimeSpan.FromSeconds(31));

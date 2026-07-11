@@ -71,6 +71,11 @@ public class StreamDeckConnectionWorkerTests
         var presence = new HardwarePresence(new FixedUsbEnumerator(usbEntries.ToArray()));
         var store = new InMemoryConfigStore();
         var gate = new DeviceControlGate(store);
+        // DeviceControlPolicy defaults "streamdeck" off (Elgato's own software
+        // is a mapped competitor - see DeviceControlPolicyTests); these tests
+        // exercise the worker's own connect/dispatch behavior, so opt in
+        // explicitly rather than depending on the brand default.
+        gate.SetEnabled("streamdeck", true);
         var imageCache = new StreamDeckImageCache(System.IO.Path.Combine(System.IO.Path.GetTempPath(), "nexus-streamdeck-test-" + Guid.NewGuid().ToString("N")));
         return new Fixtures(hid, presence, gate, store, new FakeDeckActionExecutor(), imageCache, new MultiplexHub());
     }
@@ -240,7 +245,7 @@ public class StreamDeckConnectionWorkerTests
         var action = new DeckAction { Type = "openUrl", Url = "https://example.com" };
         f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
         {
-            Deck = new DeckConfig { Slots = { new DeckSlot { Action = action } } },
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
         });
         using var worker = NewWorker(f, simulated);
         worker.Tick();
@@ -267,7 +272,7 @@ public class StreamDeckConnectionWorkerTests
         var actionB = new DeckAction { Type = "openUrl", Url = "https://b.example.com" };
         f.Store.Update(s => s.StreamDeck.Decks["SERIAL-1"] = new PhysicalDeckSettings
         {
-            Deck = new DeckConfig { Slots = { new DeckSlot { Action = actionA }, new DeckSlot { Action = actionB } } },
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = actionA }, new DeckSlot { Action = actionB } } } } },
         });
         using var worker = NewWorker(f);
         worker.Tick(); // connects the surface and starts its dedicated StreamDeckInputReader
@@ -306,7 +311,7 @@ public class StreamDeckConnectionWorkerTests
         {
             Deck = new DeckConfig
             {
-                Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot { Action = innerAction } } } } },
+                Pages = { new DeckPage { Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot { Action = innerAction } } } } } } },
             },
         });
         using var worker = NewWorker(f);
@@ -354,9 +359,12 @@ public class StreamDeckConnectionWorkerTests
         {
             Deck = new DeckConfig
             {
-                Slots =
+                Pages =
                 {
-                    new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot { Action = innerAction } } } },
+                    new DeckPage
+                    {
+                        Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot { Action = innerAction } } } } },
+                    },
                 },
             },
         });
@@ -398,7 +406,7 @@ public class StreamDeckConnectionWorkerTests
         {
             Deck = new DeckConfig
             {
-                Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot() } } } },
+                Pages = { new DeckPage { Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot() } } } } } },
             },
         });
         using var worker = NewWorker(f, simulated);
@@ -425,7 +433,7 @@ public class StreamDeckConnectionWorkerTests
         {
             Deck = new DeckConfig
             {
-                Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot() } } } },
+                Pages = { new DeckPage { Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot() } } } } } },
             },
         });
         using var worker = NewWorker(f, simulated);
@@ -529,7 +537,7 @@ public class StreamDeckConnectionWorkerTests
         var action = new DeckAction { Type = "openUrl", Url = "https://example.com" };
         f.Store.Update(s => s.StreamDeck.Decks[serial] = new PhysicalDeckSettings
         {
-            Deck = new DeckConfig { Slots = { new DeckSlot { Action = action } } },
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
         });
 
         var simulated = (SimulatedStreamDeckSurface)worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey];
@@ -544,6 +552,181 @@ public class StreamDeckConnectionWorkerTests
         Assert.Equal(serial, call.Serial);
         Assert.Equal(0, call.KeyIndex);
         Assert.Same(action, call.Action);
+    }
+
+    /// <summary>
+    /// Two-page config for page-nav tests: each page's slot 1 dispatches a
+    /// distinguishable openUrl action, so a dispatch after a page change
+    /// proves the worker actually resolved the NEW page's view, not just
+    /// advanced a counter.
+    /// </summary>
+    private static PhysicalDeckSettings TwoPageDeckSettings() => new()
+    {
+        Deck = new DeckConfig
+        {
+            Pages =
+            {
+                new DeckPage
+                {
+                    Slots =
+                    {
+                        new DeckSlot { Action = new DeckAction { Type = "page", Op = "next" } },
+                        new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://page0.example.com" } },
+                        new DeckSlot { Action = new DeckAction { Type = "page", Op = "prev" } },
+                    },
+                },
+                new DeckPage
+                {
+                    Slots =
+                    {
+                        new DeckSlot { Action = new DeckAction { Type = "page", Op = "prev" } },
+                        new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://page1.example.com" } },
+                        new DeckSlot { Action = new DeckAction { Type = "page", Op = "goto", Target = 0 } },
+                    },
+                },
+            },
+        },
+    };
+
+    [Fact]
+    public async Task PageNextAction_AdvancesPageAndDispatchesFromTheNewPagesView()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = TwoPageDeckSettings());
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        simulated.Poke(0, true);
+        worker.Tick();
+        simulated.Poke(0, false);
+        worker.Tick();
+
+        Assert.Equal(1, worker.GetCurrentPage("sim-0001"));
+        Assert.Empty(f.Executor.Calls);
+
+        simulated.Poke(1, true);
+        worker.Tick();
+        if (worker.LastDispatchTask is not null)
+        {
+            await worker.LastDispatchTask;
+        }
+
+        var call = Assert.Single(f.Executor.Calls);
+        Assert.Equal("https://page1.example.com", call.Action!.Url);
+    }
+
+    [Fact]
+    public void PagePrevAction_AtFirstPage_ClampsAndStaysAtZero()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = TwoPageDeckSettings());
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        simulated.Poke(2, true);
+        worker.Tick();
+
+        Assert.Equal(0, worker.GetCurrentPage("sim-0001"));
+    }
+
+    [Fact]
+    public void PageGotoAction_JumpsToTheTargetPageClampedToRange()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        var settings = TwoPageDeckSettings();
+        // Out-of-range goto target must clamp to the last real page (index 1).
+        settings.Deck.Pages[0].Slots[1].Action = new DeckAction { Type = "page", Op = "goto", Target = 99 };
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = settings);
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        simulated.Poke(1, true);
+        worker.Tick();
+        Assert.Equal(1, worker.GetCurrentPage("sim-0001"));
+
+        simulated.Poke(1, false);
+        worker.Tick();
+        simulated.Poke(2, true); // page 1's slot 2: goto target=0
+        worker.Tick();
+
+        Assert.Equal(0, worker.GetCurrentPage("sim-0001"));
+    }
+
+    [Fact]
+    public void PageIndicatorSlot_PressDoesNotDispatchToTheExecutor()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "pageIndicator" } } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        simulated.Poke(0, true);
+        worker.Tick();
+
+        Assert.Empty(f.Executor.Calls);
+    }
+
+    [Fact]
+    public void PageAction_InsideAFolder_ResetsFolderPathToRoot()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot
+                            {
+                                Folder = new DeckFolder
+                                {
+                                    Slots = { new DeckSlot { Action = new DeckAction { Type = "page", Op = "next" } } },
+                                },
+                            },
+                        },
+                    },
+                    new DeckPage(),
+                },
+            },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        // Enter the folder (key 0), then press the folder's own slot 0 (physical
+        // key 1, since key 0 is reserved as Back inside the folder) - the "page
+        // next" action.
+        simulated.Poke(0, true);
+        worker.Tick();
+        simulated.Poke(0, false);
+        worker.Tick();
+        Assert.Equal(new[] { 0 }, worker.GetFolderPath("sim-0001"));
+
+        simulated.Poke(1, true);
+        worker.Tick();
+
+        Assert.Equal(1, worker.GetCurrentPage("sim-0001"));
+        Assert.Empty(worker.GetFolderPath("sim-0001"));
+    }
+
+    [Fact]
+    public void GetCurrentPage_UnknownSerial_ReturnsZero()
+    {
+        var f = NewFixtures(devicePresent: false);
+        using var worker = NewWorker(f);
+
+        Assert.Equal(0, worker.GetCurrentPage("never-connected"));
     }
 
     private sealed class MutableUsbEnumerator : IUsbEnumerator

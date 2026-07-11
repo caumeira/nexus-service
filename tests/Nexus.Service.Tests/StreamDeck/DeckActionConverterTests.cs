@@ -264,6 +264,89 @@ public class DeckActionConverterTests
     }
 
     [Fact]
+    public void Page_Next_RoundTrips()
+    {
+        var a = Deserialize("{\"type\":\"page\",\"op\":\"next\"}");
+        Assert.Equal("page", a.Type);
+        Assert.Equal("next", a.Op);
+        Assert.Null(a.Target);
+
+        var b = RoundTrip(a);
+        Assert.Equal(a.Op, b.Op);
+    }
+
+    [Fact]
+    public void Page_Goto_CarriesTheTargetIndex()
+    {
+        var a = Deserialize("{\"type\":\"page\",\"op\":\"goto\",\"target\":2}");
+        Assert.Equal("goto", a.Op);
+        Assert.Equal(2, a.Target);
+
+        var b = RoundTrip(a);
+        Assert.Equal(2, b.Target);
+    }
+
+    [Fact]
+    public void PageIndicator_RoundTrips()
+    {
+        var a = Deserialize("{\"type\":\"pageIndicator\"}");
+        Assert.Equal("pageIndicator", a.Type);
+
+        var raw = JsonSerializer.Serialize(a, AppJsonContext.Default.DeckAction);
+        using var doc = JsonDocument.Parse(raw);
+        Assert.Equal("pageIndicator", doc.RootElement.GetProperty("type").GetString());
+        Assert.False(doc.RootElement.TryGetProperty("op", out _));
+    }
+
+    [Fact]
+    public void DeckBrightness_Set_RoundTrips()
+    {
+        var a = Deserialize("{\"type\":\"deckBrightness\",\"op\":\"set\",\"value\":75}");
+        Assert.Equal("deckBrightness", a.Type);
+        Assert.Equal("set", a.Op);
+        Assert.Equal(75, a.Value);
+        Assert.Null(a.Step);
+
+        var b = RoundTrip(a);
+        Assert.Equal(75, b.Value);
+    }
+
+    [Fact]
+    public void DeckBrightness_UpWithStep_RoundTrips()
+    {
+        var a = Deserialize("{\"type\":\"deckBrightness\",\"op\":\"up\",\"step\":20}");
+        Assert.Equal("up", a.Op);
+        Assert.Equal(20, a.Step);
+        Assert.Null(a.Value);
+
+        var b = RoundTrip(a);
+        Assert.Equal(20, b.Step);
+    }
+
+    [Fact]
+    public void DeckSleep_RoundTrips()
+    {
+        var a = Deserialize("{\"type\":\"deckSleep\"}");
+        Assert.Equal("deckSleep", a.Type);
+
+        var b = RoundTrip(a);
+        Assert.Equal("deckSleep", b.Type);
+    }
+
+    [Fact]
+    public void HotkeySwitch_RoundTrips()
+    {
+        var a = Deserialize("{\"type\":\"hotkeySwitch\",\"keysA\":\"ctrl+shift+m\",\"keysB\":\"ctrl+shift+n\"}");
+        Assert.Equal("hotkeySwitch", a.Type);
+        Assert.Equal("ctrl+shift+m", a.KeysA);
+        Assert.Equal("ctrl+shift+n", a.KeysB);
+
+        var b = RoundTrip(a);
+        Assert.Equal(a.KeysA, b.KeysA);
+        Assert.Equal(a.KeysB, b.KeysB);
+    }
+
+    [Fact]
     public void PersistenceJsonContext_UsesTheSameConverter()
     {
         var json = "{\"type\":\"power\",\"action\":\"sleep\"}";

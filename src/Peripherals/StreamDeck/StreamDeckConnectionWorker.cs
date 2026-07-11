@@ -27,14 +27,18 @@ namespace Nexus.Service.Peripherals.StreamDeck;
 /// deck has no HID handle to read; its synthetic presses are still polled on
 /// the tick (see PumpSimulatedInput).
 ///
-/// Also owns per-deck folder navigation (keyed by serial, so it survives a
-/// replug on a different USB port) and dispatches a resolved key's action to
-/// <see cref="IDeckActionExecutor"/> off the read thread.
+/// Also owns per-deck folder navigation and current page (both keyed by
+/// serial, so they survive a replug on a different USB port) and dispatches
+/// a resolved key's action to <see cref="IDeckActionExecutor"/> off the read
+/// thread. A "page" slot is intercepted here rather than reaching the
+/// executor: it changes the tracked page instead of dispatching. Implements
+/// <see cref="IDeckSurfaceControl"/> so the executor can push a live
+/// brightness change or a sleep blank to this deck's own surface.
 ///
 /// Opens every model in <see cref="StreamDeckModels.All"/>, gen1 and gen2
 /// alike; only the Mini is bench-verified (StreamDeckModel.Verified).
 /// </summary>
-public sealed class StreamDeckConnectionWorker : BackgroundService
+public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurfaceControl
 {
     private const int TickMs = 1000;
 
@@ -69,6 +73,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     private readonly Dictionary<string, IStreamDeckSurface> _surfaces = new();
     private readonly Dictionary<string, bool[]> _lastKeyStates = new();
     private readonly Dictionary<string, List<int>> _folderPathsBySerial = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Per-deck (keyed by serial) current page index, 0-based; default 0 when absent.</summary>
+    private readonly Dictionary<string, int> _currentPageBySerial = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>Per-deck (keyed by serial) timestamp of the last key input, real or simulated. Seeded on connect; drives ApplySleepAfterIdle.</summary>
     private readonly Dictionary<string, DateTimeOffset> _lastInputAt = new(StringComparer.OrdinalIgnoreCase);
@@ -140,6 +146,42 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         lock (_lock)
         {
             return _folderPathsBySerial.TryGetValue(serial, out var path) ? path.ToList() : Array.Empty<int>();
+        }
+    }
+
+    /// <summary>Current page index for a deck (0-based, default 0). Test/diagnostic accessor.</summary>
+    public int GetCurrentPage(string serial)
+    {
+        lock (_lock)
+        {
+            return GetCurrentPageLocked(serial);
+        }
+    }
+
+    private int GetCurrentPageLocked(string serial) =>
+        _currentPageBySerial.TryGetValue(serial, out var page) ? page : 0;
+
+    /// <inheritdoc />
+    public void SetBrightness(string serial, int percent)
+    {
+        lock (_lock)
+        {
+            FindBySerialLocked(serial)?.SetBrightness(percent);
+        }
+    }
+
+    /// <inheritdoc />
+    public void PutAsleep(string serial)
+    {
+        lock (_lock)
+        {
+            var surface = FindBySerialLocked(serial);
+            if (surface is null)
+            {
+                return;
+            }
+            surface.SetBrightness(0);
+            _asleep[surface.Serial] = true;
         }
     }
 
@@ -269,15 +311,16 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         _folderPathsBySerial.Remove(existing.Serial);
         _lastInputAt.Remove(existing.Serial);
         _asleep.Remove(existing.Serial);
+        _currentPageBySerial.Remove(existing.Serial);
         BroadcastDecksChanged(existing.Serial);
     }
 
-    /// <summary>Test seam: true if folder-nav/last-input/sleep state is still tracked for this serial. Asserts SetSimulatedModel/ClearSimulatedModel do not leak entries across a swap.</summary>
+    /// <summary>Test seam: true if folder-nav/last-input/sleep/page state is still tracked for this serial. Asserts SetSimulatedModel/ClearSimulatedModel do not leak entries across a swap.</summary>
     internal bool HasSerialState(string serial)
     {
         lock (_lock)
         {
-            return _folderPathsBySerial.ContainsKey(serial) || _lastInputAt.ContainsKey(serial) || _asleep.ContainsKey(serial);
+            return _folderPathsBySerial.ContainsKey(serial) || _lastInputAt.ContainsKey(serial) || _asleep.ContainsKey(serial) || _currentPageBySerial.ContainsKey(serial);
         }
     }
 
@@ -330,6 +373,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
             _folderPathsBySerial.Remove(serial);
             _lastInputAt.Remove(serial);
             _asleep.Remove(serial);
+            _currentPageBySerial.Remove(serial);
             BroadcastDecksChanged(serial);
         }
     }
@@ -371,6 +415,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         _lastInputAt[surface.Serial] = _clock.GetUtcNow();
         _asleep[surface.Serial] = false;
         _folderPathsBySerial[surface.Serial] = new List<int>();
+        _currentPageBySerial[surface.Serial] = 0;
         PushCurrentView(surface);
         BroadcastDecksChanged(surface.Serial);
     }
@@ -503,6 +548,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
     {
         WakeIfAsleep(surface);
 
+        var page = GetCurrentPageLocked(surface.Serial);
         if (!_folderPathsBySerial.TryGetValue(surface.Serial, out var folderPath))
         {
             folderPath = new List<int>();
@@ -516,13 +562,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
             popped.RemoveAt(popped.Count - 1);
             _folderPathsBySerial[surface.Serial] = popped;
             PushCurrentView(surface);
-            BroadcastNav(surface.Serial, popped);
+            BroadcastNav(surface.Serial, page, popped);
             return;
         }
 
         var slotIndex = inFolder ? physicalIndex - 1 : physicalIndex;
         var config = LoadConfig(surface.Serial);
-        var view = DeckConfigNavigation.ResolveView(config, folderPath);
+        var view = DeckConfigNavigation.ResolveView(config, page, folderPath);
         if (view is null || slotIndex < 0 || slotIndex >= view.Count)
         {
             return;
@@ -534,10 +580,19 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
             var pushed = new List<int>(folderPath) { slotIndex };
             _folderPathsBySerial[surface.Serial] = pushed;
             PushCurrentView(surface);
-            BroadcastNav(surface.Serial, pushed);
+            BroadcastNav(surface.Serial, page, pushed);
             return;
         }
         if (slot.Action is null)
+        {
+            return;
+        }
+        if (slot.Action.Type == "page")
+        {
+            HandlePageAction(surface, config, slot.Action);
+            return;
+        }
+        if (slot.Action.Type == "pageIndicator")
         {
             return;
         }
@@ -560,6 +615,30 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         BroadcastPress(serial, folderPathSnapshot, slotIndex);
     }
 
+    /// <summary>
+    /// Applies a "page" slot's next/prev/goto op, clamped to the config's
+    /// page range. Always resets folder nav to root and re-pushes the view -
+    /// a page-nav press is always meant to land on that page's root, even
+    /// when clamping leaves the page index unchanged (e.g. "prev" at page 0).
+    /// </summary>
+    private void HandlePageAction(IStreamDeckSurface surface, DeckConfig config, DeckAction action)
+    {
+        var pageCount = Math.Max(config.Pages.Count, 1);
+        var current = GetCurrentPageLocked(surface.Serial);
+        var next = action.Op switch
+        {
+            "next" => current + 1,
+            "prev" => current - 1,
+            "goto" => action.Target ?? current,
+            _ => current,
+        };
+        next = Math.Clamp(next, 0, pageCount - 1);
+        _currentPageBySerial[surface.Serial] = next;
+        _folderPathsBySerial[surface.Serial] = new List<int>();
+        PushCurrentView(surface);
+        BroadcastNav(surface.Serial, next, new List<int>());
+    }
+
     private void PushCurrentView(IStreamDeckSurface surface)
     {
         if (!_folderPathsBySerial.TryGetValue(surface.Serial, out var folderPath))
@@ -569,13 +648,14 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         var settings = _store.Load().StreamDeck;
         settings.Decks.TryGetValue(surface.Serial, out var deck);
         var config = deck?.Deck ?? new DeckConfig();
+        var page = ClampCurrentPageLocked(surface.Serial, config);
 
-        var view = DeckConfigNavigation.ResolveView(config, folderPath);
+        var view = DeckConfigNavigation.ResolveView(config, page, folderPath);
         if (view is null)
         {
             folderPath = new List<int>();
             _folderPathsBySerial[surface.Serial] = folderPath;
-            view = DeckConfigNavigation.ResolveView(config, folderPath) ?? new List<DeckSlot>();
+            view = DeckConfigNavigation.ResolveView(config, page, folderPath) ?? new List<DeckSlot>();
         }
 
         var inFolder = folderPath.Count > 0;
@@ -633,14 +713,32 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
         return settings.Decks.TryGetValue(serial, out var deck) ? deck.Deck : new DeckConfig();
     }
 
+    /// <summary>
+    /// Clamps a deck's tracked current page to the config's actual page
+    /// range, updating the tracked value when a config edit (or a config
+    /// with no persisted deck yet) has shrunk it out of range. Caller must
+    /// hold _lock.
+    /// </summary>
+    private int ClampCurrentPageLocked(string serial, DeckConfig config)
+    {
+        var pageCount = Math.Max(config.Pages.Count, 1);
+        var current = GetCurrentPageLocked(serial);
+        var clamped = Math.Clamp(current, 0, pageCount - 1);
+        if (clamped != current)
+        {
+            _currentPageBySerial[serial] = clamped;
+        }
+        return clamped;
+    }
+
     private static string BuildLatchKey(string serial, IReadOnlyList<int> folderPath, int slotIndex) =>
         $"{serial}:{string.Join('.', folderPath)}:{slotIndex}";
 
     private void BroadcastDecksChanged(string? serial) =>
         PanelTopics.BroadcastStreamDeck(_hub, new StreamDeckChangedFrame { Kind = "decks", Serial = serial });
 
-    private void BroadcastNav(string serial, List<int> folderPath) =>
-        PanelTopics.BroadcastStreamDeck(_hub, new StreamDeckChangedFrame { Kind = "nav", Serial = serial, FolderPath = folderPath });
+    private void BroadcastNav(string serial, int page, List<int> folderPath) =>
+        PanelTopics.BroadcastStreamDeck(_hub, new StreamDeckChangedFrame { Kind = "nav", Serial = serial, Page = page, FolderPath = folderPath });
 
     private void BroadcastPress(string serial, List<int> folderPath, int keyIndex) =>
         PanelTopics.BroadcastStreamDeck(_hub, new StreamDeckChangedFrame { Kind = "press", Serial = serial, FolderPath = folderPath, KeyIndex = keyIndex });
@@ -664,6 +762,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService
             _folderPathsBySerial.Clear();
             _lastInputAt.Clear();
             _asleep.Clear();
+            _currentPageBySerial.Clear();
             if (hadSurfaces)
             {
                 BroadcastDecksChanged(null);

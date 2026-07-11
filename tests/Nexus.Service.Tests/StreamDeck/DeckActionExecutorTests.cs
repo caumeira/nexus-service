@@ -155,6 +155,15 @@ internal sealed class FakeY70Provider : IY70Provider
     public bool IsRotated() => false;
 }
 
+internal sealed class FakeDeckSurfaceControl : Nexus.Service.Deck.IDeckSurfaceControl
+{
+    public (string Serial, int Percent)? LastBrightness;
+    public string? LastAsleepSerial;
+
+    public void SetBrightness(string serial, int percent) => LastBrightness = (serial, percent);
+    public void PutAsleep(string serial) => LastAsleepSerial = serial;
+}
+
 internal sealed class FakeDisplayBrightnessProvider : IDisplayBrightnessProvider
 {
     public Dictionary<string, int> Current = new();
@@ -195,6 +204,7 @@ public sealed class DeckActionExecutorTests : IDisposable
     private readonly FakeFanControlProvider _fans = new();
     private readonly FakeY70Provider _y70 = new();
     private readonly FakeDisplayBrightnessProvider _displayProvider = new();
+    private readonly FakeDeckSurfaceControl _deckSurface = new();
     private readonly DeckActionExecutor _executor;
 
     public DeckActionExecutorTests()
@@ -212,7 +222,8 @@ public sealed class DeckActionExecutorTests : IDisposable
         var hub = new MultiplexHub();
 
         _executor = new DeckActionExecutor(
-            system, _lightingDevices, _lighting, _fans, _store, _profiles, _y70, displayBrightness, _media, hub);
+            system, _lightingDevices, _lighting, _fans, _store, _profiles, _y70, displayBrightness, _media, hub,
+            new Lazy<Nexus.Service.Deck.IDeckSurfaceControl>(() => _deckSurface));
     }
 
     public void Dispose()
@@ -522,5 +533,88 @@ public sealed class DeckActionExecutorTests : IDisposable
 
         Assert.Equal("sleep", _power.Called);
         Assert.True(sw.ElapsedMilliseconds >= 55, $"expected at least ~60ms of sequence pacing, elapsed {sw.ElapsedMilliseconds}ms");
+    }
+
+    [Fact]
+    public async Task DeckBrightness_Set_PersistsAndAppliesLive()
+    {
+        await Run(new DeckAction { Type = "deckBrightness", Op = "set", Value = 77 });
+
+        Assert.Equal(77, _store.Load().StreamDeck.Decks["dev"].Brightness);
+        Assert.Equal(("dev", 77), _deckSurface.LastBrightness);
+    }
+
+    [Fact]
+    public async Task DeckBrightness_Set_ClampsToValidRange()
+    {
+        await Run(new DeckAction { Type = "deckBrightness", Op = "set", Value = 250 });
+
+        Assert.Equal(100, _store.Load().StreamDeck.Decks["dev"].Brightness);
+        Assert.Equal(("dev", 100), _deckSurface.LastBrightness);
+    }
+
+    [Fact]
+    public async Task DeckBrightness_Up_AdjustsFromCurrentByDefaultStep()
+    {
+        _store.Update(s => s.StreamDeck.Decks["dev"] = new PhysicalDeckSettings { Brightness = 50 });
+
+        await Run(new DeckAction { Type = "deckBrightness", Op = "up" });
+
+        Assert.Equal(60, _store.Load().StreamDeck.Decks["dev"].Brightness);
+        Assert.Equal(("dev", 60), _deckSurface.LastBrightness);
+    }
+
+    [Fact]
+    public async Task DeckBrightness_Down_UsesTheGivenStepAndClampsAtZero()
+    {
+        _store.Update(s => s.StreamDeck.Decks["dev"] = new PhysicalDeckSettings { Brightness = 15 });
+
+        await Run(new DeckAction { Type = "deckBrightness", Op = "down", Step = 30 });
+
+        Assert.Equal(0, _store.Load().StreamDeck.Decks["dev"].Brightness);
+        Assert.Equal(("dev", 0), _deckSurface.LastBrightness);
+    }
+
+    [Fact]
+    public async Task DeckBrightness_SetWithNoValue_IsANoOp()
+    {
+        await Run(new DeckAction { Type = "deckBrightness", Op = "set" });
+
+        Assert.Null(_deckSurface.LastBrightness);
+    }
+
+    [Fact]
+    public async Task DeckSleep_BlanksThisDecksSurface()
+    {
+        await Run(new DeckAction { Type = "deckSleep" }, "dev-serial:0");
+
+        Assert.Equal("dev", _deckSurface.LastAsleepSerial);
+    }
+
+    [Fact]
+    public async Task HotkeySwitch_AlternatesBetweenKeysAAndKeysBPerPress()
+    {
+        var action = new DeckAction { Type = "hotkeySwitch", KeysA = "ctrl+shift+m", KeysB = "ctrl+shift+n" };
+
+        await Run(action, "dev:switch-key");
+        Assert.Equal("KeyM", _inputter.Last!.Strokes[0].Key);
+
+        await Run(action, "dev:switch-key");
+        Assert.Equal("KeyN", _inputter.Last!.Strokes[0].Key);
+
+        await Run(action, "dev:switch-key");
+        Assert.Equal("KeyM", _inputter.Last!.Strokes[0].Key);
+    }
+
+    [Fact]
+    public async Task HotkeySwitch_LatchIsPerKeyNotGlobal()
+    {
+        var action = new DeckAction { Type = "hotkeySwitch", KeysA = "ctrl+shift+m", KeysB = "ctrl+shift+n" };
+
+        await Run(action, "dev:key-1");
+        await Run(action, "dev:key-2");
+
+        // A different latchKey starts its own alternation from KeysA again.
+        Assert.Equal("KeyM", _inputter.Last!.Strokes[0].Key);
     }
 }

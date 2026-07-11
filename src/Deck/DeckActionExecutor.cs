@@ -10,6 +10,7 @@ using Nexus.Service.Cooling;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting;
 using Nexus.Service.Models.Activity;
+using Nexus.Service.Models.Peripherals.StreamDeck;
 using Nexus.Service.Persistence;
 using Nexus.Service.Peripherals.Y70;
 using Nexus.Service.Platform;
@@ -30,6 +31,7 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
     private const double VolumeStep = 0.05;
     private const double BrightnessStep = 10;
     private const int DefaultGapMs = 60;
+    private const int DeckBrightnessStep = 10;
 
     private readonly SystemActions _system;
     private readonly ILightingDeviceProvider _lightingDevices;
@@ -41,6 +43,7 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
     private readonly DisplayBrightnessController _displayBrightness;
     private readonly IMediaProvider _media;
     private readonly MultiplexHub _hub;
+    private readonly Lazy<IDeckSurfaceControl> _deckSurface;
 
     /// <summary>
     /// In-memory only, matching the web widget's per-tab <c>useState</c>
@@ -61,7 +64,8 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         IY70Provider y70,
         DisplayBrightnessController displayBrightness,
         IMediaProvider media,
-        MultiplexHub hub)
+        MultiplexHub hub,
+        Lazy<IDeckSurfaceControl> deckSurface)
     {
         _system = system;
         _lightingDevices = lightingDevices;
@@ -73,6 +77,7 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         _displayBrightness = displayBrightness;
         _media = media;
         _hub = hub;
+        _deckSurface = deckSurface;
     }
 
     public async Task ExecuteAsync(DeckAction? action, string serial, int keyIndex, string latchKey, CancellationToken ct)
@@ -163,8 +168,79 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
                 return DispatchOutcome.Ok;
             case "toggle":
                 return await DispatchToggleAsync(action, serial, latchKey, ct).ConfigureAwait(false);
+            case "deckBrightness":
+                DispatchDeckBrightness(action, serial);
+                return DispatchOutcome.Ok;
+            case "deckSleep":
+                _deckSurface.Value.PutAsleep(serial);
+                return DispatchOutcome.Ok;
+            case "hotkeySwitch":
+                DispatchHotkeySwitch(action, latchKey);
+                return DispatchOutcome.Ok;
             default:
+                // "page" is worker-handled (StreamDeckConnectionWorker
+                // intercepts it before ever reaching the executor) and
+                // "pageIndicator" is display-only - both fall through to
+                // Unknown here rather than getting a dedicated case.
                 return DispatchOutcome.Unknown;
+        }
+    }
+
+    /// <summary>
+    /// deckBrightness: set applies action.Value directly; up/down adjust the
+    /// currently persisted brightness by action.Step (default 10). Persists
+    /// the clamped result and pushes it live to this deck's own surface.
+    /// </summary>
+    private void DispatchDeckBrightness(DeckAction action, string serial)
+    {
+        var settings = _store.Load().StreamDeck;
+        var current = settings.Decks.TryGetValue(serial, out var deck) ? deck.Brightness : PhysicalDeckSettings.DefaultBrightness;
+        int target;
+        switch (action.Op)
+        {
+            case "set":
+                if (action.Value is null)
+                {
+                    return;
+                }
+                target = action.Value.Value;
+                break;
+            case "up":
+                target = current + (action.Step ?? DeckBrightnessStep);
+                break;
+            case "down":
+                target = current - (action.Step ?? DeckBrightnessStep);
+                break;
+            default:
+                return;
+        }
+        var clamped = Math.Clamp(target, 0, 100);
+        _store.Update(s =>
+        {
+            if (!s.StreamDeck.Decks.TryGetValue(serial, out var d))
+            {
+                d = new PhysicalDeckSettings();
+                s.StreamDeck.Decks[serial] = d;
+            }
+            d.Brightness = clamped;
+        });
+        _deckSurface.Value.SetBrightness(serial, clamped);
+        PanelTopics.BroadcastStreamDeck(_hub, new StreamDeckChangedFrame { Kind = "decks", Serial = serial });
+    }
+
+    /// <summary>
+    /// Alternates between keysA and keysB on each press, using the same
+    /// per-key in-memory latch the "internal" toggle state uses, then sends
+    /// the chosen combo through the same path the "hotkey" action uses.
+    /// </summary>
+    private void DispatchHotkeySwitch(DeckAction action, string latchKey)
+    {
+        var sendB = _latches.TryGetValue(latchKey, out var flip) && flip;
+        _latches[latchKey] = !sendB;
+        var keys = sendB ? action.KeysB : action.KeysA;
+        if (!string.IsNullOrEmpty(keys))
+        {
+            DispatchHotkey(keys);
         }
     }
 

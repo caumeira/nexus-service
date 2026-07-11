@@ -71,6 +71,8 @@ public sealed class StreamDeckChangedFrame
     /// <summary>"decks" | "config" | "nav" | "press".</summary>
     public string Kind { get; set; } = "";
     public string? Serial { get; set; }
+    /// <summary>Current page index, for "nav".</summary>
+    public int? Page { get; set; }
     /// <summary>Current folder path, for "nav" and "press".</summary>
     public List<int>? FolderPath { get; set; }
     /// <summary>Logical slot index within the current folder view, for "press".</summary>

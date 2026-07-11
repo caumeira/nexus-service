@@ -77,6 +77,30 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         {
             action.DeviceId = deviceIdEl.GetString();
         }
+        if (root.TryGetProperty("op", out var opEl) && opEl.ValueKind == JsonValueKind.String)
+        {
+            action.Op = opEl.GetString();
+        }
+        if (root.TryGetProperty("target", out var targetEl) && targetEl.ValueKind == JsonValueKind.Number)
+        {
+            action.Target = targetEl.GetInt32();
+        }
+        if (root.TryGetProperty("value", out var valueEl) && valueEl.ValueKind == JsonValueKind.Number)
+        {
+            action.Value = valueEl.GetInt32();
+        }
+        if (root.TryGetProperty("step", out var stepEl) && stepEl.ValueKind == JsonValueKind.Number)
+        {
+            action.Step = stepEl.GetInt32();
+        }
+        if (root.TryGetProperty("keysA", out var keysAEl) && keysAEl.ValueKind == JsonValueKind.String)
+        {
+            action.KeysA = keysAEl.GetString();
+        }
+        if (root.TryGetProperty("keysB", out var keysBEl) && keysBEl.ValueKind == JsonValueKind.String)
+        {
+            action.KeysB = keysBEl.GetString();
+        }
 
         if (root.TryGetProperty("action", out var actionEl))
         {
@@ -146,6 +170,30 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         if (value.DeviceId is not null)
         {
             writer.WriteString("deviceId", value.DeviceId);
+        }
+        if (value.Op is not null)
+        {
+            writer.WriteString("op", value.Op);
+        }
+        if (value.Target is not null)
+        {
+            writer.WriteNumber("target", value.Target.Value);
+        }
+        if (value.Value is not null)
+        {
+            writer.WriteNumber("value", value.Value.Value);
+        }
+        if (value.Step is not null)
+        {
+            writer.WriteNumber("step", value.Step.Value);
+        }
+        if (value.KeysA is not null)
+        {
+            writer.WriteString("keysA", value.KeysA);
+        }
+        if (value.KeysB is not null)
+        {
+            writer.WriteString("keysB", value.KeysB);
         }
 
         switch (value.Type)

@@ -3,20 +3,28 @@ using System.Collections.Generic;
 namespace Nexus.Service.Deck;
 
 /// <summary>
-/// Walks a <see cref="DeckConfig"/> tree by folder path / dot-joined slot
-/// path, mirroring nexus-web's <c>deckLayout.ts</c> resolution rules. Shared
-/// by the connection worker (physical key -> slot) and the routes
-/// (test-press, image slot addressing).
+/// Walks a <see cref="DeckConfig"/> tree by page index + folder path /
+/// dot-joined slot path, mirroring nexus-web's <c>deckLayout.ts</c>
+/// resolution rules. Shared by the connection worker (physical key -> slot)
+/// and the routes (test-press, image slot addressing). The dot-joined slot
+/// path itself stays page-independent (matches nexus-web's
+/// computeViewUploadJobs, which does not prefix slotPath by page either) -
+/// only the page selects which page's slot tree the path walks.
 /// </summary>
 public static class DeckConfigNavigation
 {
     /// <summary>
-    /// The slot list at the given folder path, or null when the path no
-    /// longer resolves (a folder was removed or replaced by a leaf action).
+    /// The slot list at the given page + folder path, or null when the page
+    /// is out of range or the folder path no longer resolves (a folder was
+    /// removed or replaced by a leaf action).
     /// </summary>
-    public static List<DeckSlot>? ResolveView(DeckConfig config, IReadOnlyList<int> folderPath)
+    public static List<DeckSlot>? ResolveView(DeckConfig config, int page, IReadOnlyList<int> folderPath)
     {
-        var slots = config.Slots;
+        if (page < 0 || page >= config.Pages.Count)
+        {
+            return null;
+        }
+        var slots = config.Pages[page].Slots;
         foreach (var idx in folderPath)
         {
             if (idx < 0 || idx >= slots.Count)
@@ -33,8 +41,8 @@ public static class DeckConfigNavigation
         return slots;
     }
 
-    /// <summary>The slot at a dot-joined index path from the root, or null if it does not resolve.</summary>
-    public static DeckSlot? ResolveSlot(DeckConfig config, IReadOnlyList<int> indices)
+    /// <summary>The slot at a dot-joined index path from a page's root, or null if it does not resolve.</summary>
+    public static DeckSlot? ResolveSlot(DeckConfig config, int page, IReadOnlyList<int> indices)
     {
         if (indices.Count == 0)
         {
@@ -45,7 +53,7 @@ public static class DeckConfigNavigation
         {
             parentPath.Add(indices[i]);
         }
-        var view = ResolveView(config, parentPath);
+        var view = ResolveView(config, page, parentPath);
         if (view is null)
         {
             return null;

@@ -26,45 +26,51 @@ public class StreamDeckPersistenceTests
             SleepAfterSeconds = 90,
             Deck = new DeckConfig
             {
-                Slots =
+                Pages = new List<DeckPage>
                 {
-                    new DeckSlot
+                    new()
                     {
-                        Label = "Lock",
-                        Color = "#ff0000",
-                        Action = new DeckAction { Type = "power", PowerAction = "lock" },
-                    },
-                    new DeckSlot
-                    {
-                        Folder = new DeckFolder
+                        Slots =
                         {
-                            Slots =
+                            new DeckSlot
                             {
-                                new DeckSlot
+                                Label = "Lock",
+                                Color = "#ff0000",
+                                Action = new DeckAction { Type = "power", PowerAction = "lock" },
+                            },
+                            new DeckSlot
+                            {
+                                Folder = new DeckFolder
                                 {
-                                    Action = new DeckAction
+                                    Slots =
                                     {
-                                        Type = "toggle",
-                                        State = new DeckToggleState { Kind = "mute" },
-                                        On = new DeckAction { Type = "system", SystemAction = new DeckSystemAction { Op = "muteToggle" } },
-                                        Off = new DeckAction { Type = "system", SystemAction = new DeckSystemAction { Op = "muteToggle" } },
+                                        new DeckSlot
+                                        {
+                                            Action = new DeckAction
+                                            {
+                                                Type = "toggle",
+                                                State = new DeckToggleState { Kind = "mute" },
+                                                On = new DeckAction { Type = "system", SystemAction = new DeckSystemAction { Op = "muteToggle" } },
+                                                Off = new DeckAction { Type = "system", SystemAction = new DeckSystemAction { Op = "muteToggle" } },
+                                            },
+                                        },
                                     },
                                 },
                             },
-                        },
-                    },
-                    new DeckSlot
-                    {
-                        Action = new DeckAction
-                        {
-                            Type = "sequence",
-                            Steps = new List<DeckSequenceStep>
+                            new DeckSlot
                             {
-                                new()
+                                Action = new DeckAction
                                 {
-                                    Action = new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "y70Brightness", Value = 80 } },
-                                    PressMs = 10,
-                                    GapAfterMs = 20,
+                                    Type = "sequence",
+                                    Steps = new List<DeckSequenceStep>
+                                    {
+                                        new()
+                                        {
+                                            Action = new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "y70Brightness", Value = 80 } },
+                                            PressMs = 10,
+                                            GapAfterMs = 20,
+                                        },
+                                    },
                                 },
                             },
                         },
@@ -84,13 +90,15 @@ public class StreamDeckPersistenceTests
         Assert.Equal(180, deck.Orientation);
         Assert.Equal(90, deck.SleepAfterSeconds);
         Assert.Equal("abc123", deck.ImageRefs["0/0"]);
-        Assert.Equal(3, deck.Deck.Slots.Count);
-        Assert.Equal("lock", deck.Deck.Slots[0].Action!.PowerAction);
-        Assert.Equal("mute", deck.Deck.Slots[1].Folder!.Slots[0].Action!.State!.Kind);
-        Assert.Equal("muteToggle", deck.Deck.Slots[1].Folder!.Slots[0].Action!.On!.SystemAction!.Op);
-        Assert.Single(deck.Deck.Slots[2].Action!.Steps!);
-        Assert.Equal(80, deck.Deck.Slots[2].Action!.Steps![0].Action.NexusAction!.Value);
-        Assert.Equal(10, deck.Deck.Slots[2].Action!.Steps![0].PressMs);
+        Assert.Single(deck.Deck.Pages);
+        var slots = deck.Deck.Pages[0].Slots;
+        Assert.Equal(3, slots.Count);
+        Assert.Equal("lock", slots[0].Action!.PowerAction);
+        Assert.Equal("mute", slots[1].Folder!.Slots[0].Action!.State!.Kind);
+        Assert.Equal("muteToggle", slots[1].Folder!.Slots[0].Action!.On!.SystemAction!.Op);
+        Assert.Single(slots[2].Action!.Steps!);
+        Assert.Equal(80, slots[2].Action!.Steps![0].Action.NexusAction!.Value);
+        Assert.Equal(10, slots[2].Action!.Steps![0].PressMs);
     }
 
     [Fact]
@@ -285,6 +293,9 @@ public sealed class DeckActionSettingsLoadSurvivalTests : IDisposable
     [Fact]
     public void MalformedDeckActionInASlot_DoesNotResetTheRestOfSettings()
     {
+        // Also exercises the legacy pre-pagination "deck":{"slots":[...]}
+        // shape (no "pages" key) - DeckConfigConverter must normalize it into
+        // one page for this document to load at all.
         var json = "{"
             + "\"schemaVersion\":11,"
             + "\"lighting\":{\"globalBrightness\":0.42},"
@@ -300,8 +311,68 @@ public sealed class DeckActionSettingsLoadSurvivalTests : IDisposable
         Assert.Equal(0.42f, settings.Lighting.GlobalBrightness);
         Assert.False(File.Exists(_path + ".corrupt"));
 
-        var slot = settings.StreamDeck.Decks["SERIAL-1"].Deck.Slots[0];
+        var pages = settings.StreamDeck.Decks["SERIAL-1"].Deck.Pages;
+        Assert.Single(pages);
+        var slot = pages[0].Slots[0];
         Assert.NotNull(slot.Action);
         Assert.Equal("", slot.Action!.Type);
+    }
+}
+
+/// <summary>
+/// DeckConfig's own converter: legacy pre-pagination persisted shape and the
+/// documented "a DeckConfig always has at least one page" invariant.
+/// </summary>
+public sealed class DeckConfigConverterTests
+{
+    private static DeckConfig Deserialize(string json) =>
+        JsonSerializer.Deserialize(json, PersistenceJsonContext.Default.DeckConfig)!;
+
+    [Fact]
+    public void LegacySlotsShape_WrapsIntoOnePage()
+    {
+        var config = Deserialize("{\"slots\":[{\"label\":\"A\"},{\"label\":\"B\"}]}");
+
+        Assert.Single(config.Pages);
+        Assert.Equal(2, config.Pages[0].Slots.Count);
+        Assert.Equal("A", config.Pages[0].Slots[0].Label);
+        Assert.Equal("B", config.Pages[0].Slots[1].Label);
+    }
+
+    [Fact]
+    public void CurrentPagesShape_RoundTrips()
+    {
+        var config = Deserialize("{\"pages\":[{\"slots\":[{\"label\":\"P1\"}]},{\"slots\":[{\"label\":\"P2\"}]}]}");
+
+        Assert.Equal(2, config.Pages.Count);
+        Assert.Equal("P1", config.Pages[0].Slots[0].Label);
+        Assert.Equal("P2", config.Pages[1].Slots[0].Label);
+
+        var json = JsonSerializer.Serialize(config, PersistenceJsonContext.Default.DeckConfig);
+        using var doc = JsonDocument.Parse(json);
+        Assert.True(doc.RootElement.TryGetProperty("pages", out _));
+        Assert.False(doc.RootElement.TryGetProperty("slots", out _));
+    }
+
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("\"oops\"")]
+    [InlineData("[1,2,3]")]
+    public void NeitherShapePresent_FallsBackToOneEmptyPage(string json)
+    {
+        var config = Deserialize(json);
+
+        Assert.Single(config.Pages);
+        Assert.Empty(config.Pages[0].Slots);
+    }
+
+    [Fact]
+    public void MalformedPageEntry_IsSkippedRatherThanThrowing()
+    {
+        var config = Deserialize("{\"pages\":[\"not an object\",{\"slots\":[{\"label\":\"Real\"}]}]}");
+
+        Assert.Equal(2, config.Pages.Count);
+        Assert.Empty(config.Pages[0].Slots);
+        Assert.Equal("Real", config.Pages[1].Slots[0].Label);
     }
 }

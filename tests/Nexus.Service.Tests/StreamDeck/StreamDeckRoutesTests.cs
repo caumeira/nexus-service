@@ -181,7 +181,9 @@ public sealed class StreamDeckRoutesTests : IDisposable
             var res = await client.GetAsync("/streamdeck/decks/UNKNOWN-SERIAL/config");
             Assert.True(res.IsSuccessStatusCode);
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
-            Assert.Empty(doc.RootElement.GetProperty("config").GetProperty("slots").EnumerateArray());
+            var pages = doc.RootElement.GetProperty("config").GetProperty("pages");
+            Assert.Equal(1, pages.GetArrayLength());
+            Assert.Empty(pages[0].GetProperty("slots").EnumerateArray());
         }
     }
 
@@ -191,19 +193,36 @@ public sealed class StreamDeckRoutesTests : IDisposable
         var (factory, client) = Boot();
         using (factory)
         {
-            var putBody = "{\"config\":{\"slots\":[{\"label\":\"Lock\",\"action\":{\"type\":\"power\",\"action\":\"lock\"}}]}}";
+            var putBody = "{\"config\":{\"pages\":[{\"slots\":[{\"label\":\"Lock\",\"action\":{\"type\":\"power\",\"action\":\"lock\"}}]}]}}";
             var put = await client.PutAsync("/streamdeck/decks/SERIAL-1/config", Json(putBody));
             Assert.True(put.IsSuccessStatusCode);
 
             var get = await client.GetAsync("/streamdeck/decks/SERIAL-1/config");
             using var doc = JsonDocument.Parse(await get.Content.ReadAsStringAsync());
-            var slots = doc.RootElement.GetProperty("config").GetProperty("slots");
+            var slots = doc.RootElement.GetProperty("config").GetProperty("pages")[0].GetProperty("slots");
             Assert.Equal(1, slots.GetArrayLength());
             Assert.Equal("Lock", slots[0].GetProperty("label").GetString());
             Assert.Equal("lock", slots[0].GetProperty("action").GetProperty("action").GetString());
 
             var store = factory.Services.GetRequiredService<IConfigStore>();
-            Assert.Equal("Lock", store.Load().StreamDeck.Decks["SERIAL-1"].Deck.Slots[0].Label);
+            Assert.Equal("Lock", store.Load().StreamDeck.Decks["SERIAL-1"].Deck.Pages[0].Slots[0].Label);
+        }
+    }
+
+    [Fact]
+    public async Task PutConfig_LegacySlotsShape_NormalizesToOnePage()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var putBody = "{\"config\":{\"slots\":[{\"label\":\"Lock\",\"action\":{\"type\":\"power\",\"action\":\"lock\"}}]}}";
+            var put = await client.PutAsync("/streamdeck/decks/SERIAL-1/config", Json(putBody));
+            Assert.True(put.IsSuccessStatusCode);
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var pages = store.Load().StreamDeck.Decks["SERIAL-1"].Deck.Pages;
+            Assert.Single(pages);
+            Assert.Equal("Lock", pages[0].Slots[0].Label);
         }
     }
 
@@ -466,7 +485,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
             var store = factory.Services.GetRequiredService<IConfigStore>();
             store.Update(s => s.StreamDeck.Decks["SERIAL-1"] = new PhysicalDeckSettings
             {
-                Deck = new DeckConfig { Slots = { new DeckSlot { Action = new DeckAction { Type = "power", PowerAction = "lock" } } } },
+                Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "power", PowerAction = "lock" } } } } } },
             });
 
             var res = await client.PostAsync("/streamdeck/decks/SERIAL-1/test-press/0", Json("{}"));

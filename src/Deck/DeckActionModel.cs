@@ -18,7 +18,8 @@ public sealed class DeckAction
 {
     /// <summary>
     /// launchApp | openFile | openFolder | openUrl | system | hotkey | text |
-    /// power | audioOutput | audioInput | nexus | sequence | toggle.
+    /// power | audioOutput | audioInput | nexus | sequence | toggle | page |
+    /// pageIndicator | deckBrightness | deckSleep | hotkeySwitch.
     /// </summary>
     public string Type { get; set; } = "";
 
@@ -46,6 +47,19 @@ public sealed class DeckAction
     /// <summary>Branch taken when the toggle resolves off.</summary>
     public DeckAction? Off { get; set; }
     public DeckToggleState? State { get; set; }
+
+    /// <summary>page: next | prev | goto. deckBrightness: set | up | down.</summary>
+    public string? Op { get; set; }
+    /// <summary>page goto: 0-based target page index.</summary>
+    public int? Target { get; set; }
+    /// <summary>deckBrightness set: target percent, 0-100.</summary>
+    public int? Value { get; set; }
+    /// <summary>deckBrightness up/down: step percent; unset defaults to 10.</summary>
+    public int? Step { get; set; }
+    /// <summary>hotkeySwitch: first combo, same format as Keys.</summary>
+    public string? KeysA { get; set; }
+    /// <summary>hotkeySwitch: second combo, alternated with KeysA on each press.</summary>
+    public string? KeysB { get; set; }
 }
 
 public sealed class DeckSystemAction
@@ -134,7 +148,19 @@ public sealed class DeckFolder
     public List<DeckSlot> Slots { get; set; } = new();
 }
 
-public sealed class DeckConfig
+/// <summary>One page's grid. Folders still nest within a page via DeckSlot.Folder.</summary>
+public sealed class DeckPage
 {
     public List<DeckSlot> Slots { get; set; } = new();
+}
+
+/// <summary>
+/// An ordered list of pages, the axis a deck's page-navigation keys move
+/// between. See <see cref="DeckConfigConverter"/> for the wire shape and its
+/// legacy-slots back-compat.
+/// </summary>
+[JsonConverter(typeof(DeckConfigConverter))]
+public sealed class DeckConfig
+{
+    public List<DeckPage> Pages { get; set; } = new();
 }

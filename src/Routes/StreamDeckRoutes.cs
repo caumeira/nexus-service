@@ -123,7 +123,7 @@ public static class StreamDeckRoutes
         app.MapGet("/streamdeck/decks/{serial}/config", (string serial, IConfigStore store) =>
         {
             var settings = store.Load().StreamDeck;
-            var config = settings.Decks.TryGetValue(serial, out var deck) ? deck.Deck : new DeckConfig();
+            var config = settings.Decks.TryGetValue(serial, out var deck) ? deck.Deck : new DeckConfig { Pages = { new DeckPage() } };
             return new StreamDeckConfigEnvelope { Config = config };
         }).LocalhostOnly();
 
@@ -227,7 +227,8 @@ public static class StreamDeckRoutes
             {
                 return ApiResponse.Fail("deck not found");
             }
-            var slot = DeckConfigNavigation.ResolveSlot(deck.Deck, indices);
+            var page = worker.GetCurrentPage(serial);
+            var slot = DeckConfigNavigation.ResolveSlot(deck.Deck, page, indices);
             if (slot?.Action is null)
             {
                 return ApiResponse.Fail("slot has no action");

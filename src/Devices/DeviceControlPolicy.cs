@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using Nexus.Service.Devices.Handlers;
 
 namespace Nexus.Service.Devices;
 
@@ -22,6 +23,7 @@ public static class DeviceControlPolicy
         ["strimer"] = "lian-li-l-connect",
         ["corsair"] = "icue",
         ["tryx"] = "tryx-kanali",
+        ["streamdeck"] = StreamDeckHandler.ElgatoConflictAppId,
     };
 
     public static bool DefaultOn(string handlerId) => !ConflictAppByHandler.ContainsKey(handlerId);
