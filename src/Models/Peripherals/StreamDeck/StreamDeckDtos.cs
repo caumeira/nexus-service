@@ -113,3 +113,49 @@ public sealed class StreamDeckDevModelsResponse
 {
     public List<StreamDeckDevModelDto> Models { get; set; } = new();
 }
+
+// ----- /streamdeck/decks/{serial}/presets -----
+
+/// <summary>One deck preset's identity - GET .../presets never sends the config/imageRefs.</summary>
+public sealed class DeckPresetDto
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+}
+
+public sealed class GetDeckPresetsResponse
+{
+    public List<DeckPresetDto> Presets { get; set; } = new();
+    // Always serialize; null = no preset selected. WhenWritingNull would omit it.
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? ActiveId { get; set; }
+}
+
+public sealed class CreateDeckPresetBody
+{
+    public string Name { get; set; } = "";
+}
+
+public sealed class CreateDeckPresetResponse
+{
+    public DeckPresetDto? Preset { get; set; }
+    public string? ActiveId { get; set; }
+}
+
+public sealed class UpdateDeckPresetBody
+{
+    public string? Name { get; set; }
+    public bool SaveCurrent { get; set; }
+}
+
+public sealed class SetActiveDeckPresetBody
+{
+    public string? Id { get; set; }
+}
+
+public sealed class DeleteDeckPresetResponse
+{
+    // Always serialize; null = no preset selected. WhenWritingNull would omit it.
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public string? ActiveId { get; set; }
+}

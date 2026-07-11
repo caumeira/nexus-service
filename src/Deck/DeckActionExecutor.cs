@@ -140,7 +140,7 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
                 DispatchHotkey(action.Keys ?? "");
                 return DispatchOutcome.Ok;
             case "text":
-                _system.SendText(action.Text ?? "");
+                await _system.SendTextAsync(action.Text ?? "").ConfigureAwait(false);
                 return DispatchOutcome.Ok;
             case "power":
                 DispatchPower(action.PowerAction);
@@ -176,6 +176,9 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
                 return DispatchOutcome.Ok;
             case "hotkeySwitch":
                 DispatchHotkeySwitch(action, latchKey);
+                return DispatchOutcome.Ok;
+            case "monitoring":
+                DispatchMonitoringPress(action.Press);
                 return DispatchOutcome.Ok;
             default:
                 // "page" is worker-handled (StreamDeckConnectionWorker
@@ -310,6 +313,16 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
             case "shutdown": _system.Shutdown(); return;
             case "restart": _system.Restart(); return;
             case "logout": _system.Logout(); return;
+        }
+    }
+
+    /// <summary>none/absent is a no-op, matching the pageIndicator slot.</summary>
+    private void DispatchMonitoringPress(string? press)
+    {
+        switch (press)
+        {
+            case "taskManager": _system.OpenTaskManager(); return;
+            case "monitoringPage": _system.OpenDashboard(); return;
         }
     }
 

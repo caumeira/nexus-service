@@ -356,6 +356,22 @@ public sealed class DeckActionExecutorTests : IDisposable
         // No exception, no crash - nothing else to assert without touching the real filesystem.
     }
 
+    // "taskManager" and "monitoringPage" call real OS launch paths (SystemActions
+    // has no injectable seam for them, matching OpenPathAsync/OpenUrlAsync above)
+    // - only the no-op presses are exercised here for the same reason
+    // OpenFile_WithMissingPath_IsANoOp avoids a real filesystem touch.
+    [Fact]
+    public async Task Monitoring_PressNone_IsANoOp()
+    {
+        await Run(new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "summary/cpu-usage", Style = "line", Press = "none" });
+    }
+
+    [Fact]
+    public async Task Monitoring_PressAbsent_IsANoOp()
+    {
+        await Run(new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "summary/cpu-usage", Style = "line" });
+    }
+
     [Fact]
     public async Task Nexus_RgbEffect_StartsAnimateWithStartAnimateDefaults()
     {

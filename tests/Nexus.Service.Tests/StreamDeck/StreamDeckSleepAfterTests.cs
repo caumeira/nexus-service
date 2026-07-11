@@ -5,6 +5,7 @@ using System.Threading.Tasks;
 using Nexus.Service.Deck;
 using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
+using Nexus.Service.Models.Sensors;
 using Nexus.Service.Peripherals.StreamDeck;
 using Nexus.Service.Persistence;
 using Nexus.Service.Sockets;
@@ -34,6 +35,7 @@ public sealed class StreamDeckSleepAfterTests : IDisposable
     private readonly string _imageCacheDir = Path.Combine(Path.GetTempPath(), "nexus-streamdeck-sleep-test-" + Guid.NewGuid().ToString("N")[..8]);
     private readonly InMemoryConfigStore _store = new();
     private readonly FakeDeckActionExecutor _executor = new();
+    private readonly FakeSensorProvider _sensors = new();
     private readonly ManualTimeProvider _clock = new(DateTimeOffset.UtcNow);
     private readonly SimulatedStreamDeckSurface _simulated;
     private readonly StreamDeckConnectionWorker _worker;
@@ -48,7 +50,7 @@ public sealed class StreamDeckSleepAfterTests : IDisposable
         gate.SetEnabled("streamdeck", true);
         var imageCache = new StreamDeckImageCache(_imageCacheDir);
         _worker = new StreamDeckConnectionWorker(
-            new FakeWorkerHidEnumerator(), presence, gate, _store, _executor, imageCache, new MultiplexHub(),
+            new FakeWorkerHidEnumerator(), presence, gate, _store, _executor, imageCache, new MultiplexHub(), _sensors,
             _simulated, _clock);
     }
 
@@ -187,5 +189,39 @@ public sealed class StreamDeckSleepAfterTests : IDisposable
     public void IsAsleep_UnknownSerial_ReturnsFalse()
     {
         Assert.False(_worker.IsAsleep("never-connected"));
+    }
+
+    [Fact]
+    public void Tick_MonitoringSlot_StopsPushingOnceTheDeckIsAsleep()
+    {
+        _sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 10f, Formatted = "10%", Parent = new SensorParent() },
+        };
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "line" };
+        _store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Brightness = 80,
+            SleepAfterSeconds = 30,
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+
+        _worker.Tick();
+        Assert.Equal(1, _simulated.SetKeyImageCallCount);
+
+        _clock.Advance(TimeSpan.FromSeconds(31));
+        _worker.Tick();
+        Assert.True(_worker.IsAsleep("sim-0001"));
+
+        // Change the sensor value while asleep so an unguarded render would
+        // produce a different, pushable frame - it must still not push.
+        _sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 90f, Formatted = "90%", Parent = new SensorParent() },
+        };
+        _worker.Tick();
+        _worker.Tick();
+
+        Assert.Equal(1, _simulated.SetKeyImageCallCount);
     }
 }

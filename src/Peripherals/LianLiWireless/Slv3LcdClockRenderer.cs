@@ -5,6 +5,7 @@ using SixLabors.ImageSharp;
 using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using Nexus.Service.Rendering;
 
 namespace Nexus.Service.Peripherals.LianLiWireless;
 
@@ -24,8 +25,8 @@ public static class Slv3LcdClockRenderer
 
     public static byte[] Render(string? face, DateTime now, string? accentHex, string? textHex)
     {
-        var accent = Slv3LcdRenderKit.ParseColor(accentHex, DefaultAccent);
-        var text = Slv3LcdRenderKit.ParseColor(textHex, DefaultText);
+        var accent = RenderKit.ParseColor(accentHex, DefaultAccent);
+        var text = RenderKit.ParseColor(textHex, DefaultText);
 
         return face switch
         {
@@ -40,27 +41,27 @@ public static class Slv3LcdClockRenderer
     private static byte[] RenderDigital(DateTime now, Color accent, Color text, bool showDate)
     {
         using var image = new Image<Rgba32>(Width, Height);
-        var font = Slv3LcdRenderKit.ResolveFont();
+        var font = RenderKit.ResolveFont();
         var center = new PointF(Width / 2f, Height / 2f);
 
         image.Mutate(ctx =>
         {
             ctx.Fill(Color.Black);
             var timeY = showDate ? center.Y - 20f : center.Y;
-            Slv3LcdRenderKit.DrawCentered(ctx, now.ToString("HH:mm:ss", CultureInfo.InvariantCulture), font.CreateFont(64, FontStyle.Bold), accent, new PointF(center.X, timeY));
+            RenderKit.DrawCentered(ctx, now.ToString("HH:mm:ss", CultureInfo.InvariantCulture), font.CreateFont(64, FontStyle.Bold), accent, new PointF(center.X, timeY));
             if (showDate)
             {
-                Slv3LcdRenderKit.DrawCentered(ctx, now.ToString("ddd, MMM d", CultureInfo.InvariantCulture), font.CreateFont(26, FontStyle.Regular), text, new PointF(center.X, timeY + 60f));
+                RenderKit.DrawCentered(ctx, now.ToString("ddd, MMM d", CultureInfo.InvariantCulture), font.CreateFont(26, FontStyle.Regular), text, new PointF(center.X, timeY + 60f));
             }
         });
 
-        return Slv3LcdRenderKit.EncodeJpeg(image);
+        return RenderKit.EncodeJpeg(image);
     }
 
     private static byte[] RenderAnalog(DateTime now, Color accent, Color text, bool showNumbers)
     {
         using var image = new Image<Rgba32>(Width, Height);
-        var font = Slv3LcdRenderKit.ResolveFont();
+        var font = RenderKit.ResolveFont();
         var center = new PointF(Width / 2f, Height / 2f);
         const float dialRadius = 175f;
 
@@ -71,28 +72,28 @@ public static class Slv3LcdClockRenderer
         image.Mutate(ctx =>
         {
             ctx.Fill(Color.Black);
-            ctx.Draw(text, 3f, Slv3LcdRenderKit.BuildCircle(center, dialRadius));
+            ctx.Draw(text, 3f, RenderKit.BuildCircle(center, dialRadius));
 
             for (var tick = 0; tick < 12; tick++)
             {
                 var tickDeg = tick * 30f;
-                ctx.Fill(text, Slv3LcdRenderKit.BuildClockTick(center, dialRadius - 24f, dialRadius - 6f, tickDeg, 6f));
+                ctx.Fill(text, RenderKit.BuildClockTick(center, dialRadius - 24f, dialRadius - 6f, tickDeg, 6f));
                 if (showNumbers && tick % 3 == 0)
                 {
                     var rad = (tickDeg - 90f) * MathF.PI / 180f;
                     var numberRadius = dialRadius - 34f;
                     var point = new PointF(center.X + numberRadius * MathF.Cos(rad), center.Y + numberRadius * MathF.Sin(rad));
                     var hourNumber = tick == 0 ? 12 : tick;
-                    Slv3LcdRenderKit.DrawCentered(ctx, hourNumber.ToString(CultureInfo.InvariantCulture), font.CreateFont(24, FontStyle.Regular), text, point);
+                    RenderKit.DrawCentered(ctx, hourNumber.ToString(CultureInfo.InvariantCulture), font.CreateFont(24, FontStyle.Regular), text, point);
                 }
             }
 
-            ctx.Fill(text, Slv3LcdRenderKit.BuildHand(center, dialRadius * 0.5f, hourDeg, 10f));
-            ctx.Fill(text, Slv3LcdRenderKit.BuildHand(center, dialRadius * 0.75f, minuteDeg, 7f));
-            ctx.Fill(accent, Slv3LcdRenderKit.BuildHand(center, dialRadius * 0.82f, secondDeg, 3f, tailFraction: 0.18f));
-            ctx.Fill(accent, Slv3LcdRenderKit.BuildCircle(center, 8f));
+            ctx.Fill(text, RenderKit.BuildHand(center, dialRadius * 0.5f, hourDeg, 10f));
+            ctx.Fill(text, RenderKit.BuildHand(center, dialRadius * 0.75f, minuteDeg, 7f));
+            ctx.Fill(accent, RenderKit.BuildHand(center, dialRadius * 0.82f, secondDeg, 3f, tailFraction: 0.18f));
+            ctx.Fill(accent, RenderKit.BuildCircle(center, 8f));
         });
 
-        return Slv3LcdRenderKit.EncodeJpeg(image);
+        return RenderKit.EncodeJpeg(image);
     }
 }

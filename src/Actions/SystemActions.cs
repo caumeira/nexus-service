@@ -60,14 +60,36 @@ public sealed class SystemActions
     /// <summary>
     /// Clipboard-set then paste - the only Unicode-reliable cross-platform
     /// path. Clobbers the clipboard (restore deferred). Always pastes; there
-    /// is no non-paste path (mirrors the pre-extraction route exactly).
+    /// is no non-paste path. On Windows, a connected user-session helper does
+    /// both steps itself: the service runs LocalSystem in Session 0, where a
+    /// direct clipboard set lands on an invisible clipboard and SendInput has
+    /// no interactive desktop to inject into, so both silently no-op without
+    /// the helper. macOS/Linux and an interactive (non-service) Windows run
+    /// use the local providers directly, since they already execute in the
+    /// user's own session.
     /// </summary>
-    public ApiResponse SendText(string text)
+    public async Task<ApiResponse> SendTextAsync(string text)
     {
         if (text.Length == 0)
         {
             return ApiResponse.Fail("text required");
         }
+#if WINDOWS
+        if (OperatingSystem.IsWindows())
+        {
+            var registry = _sp.GetService<Nexus.Service.Helper.HelperRegistry>();
+            if (registry?.GetAny() is not null)
+            {
+                var ok = await Nexus.Service.Helper.Domains.ClipboardCommands
+                    .SetTextAndPasteAsync(registry, text).ConfigureAwait(false);
+                return ok ? ApiResponse.Ok() : ApiResponse.Fail("paste failed");
+            }
+            if (!Environment.UserInteractive)
+            {
+                return ApiResponse.Fail("no interactive user session");
+            }
+        }
+#endif
         if (!_clipboard.SetText(text))
         {
             return ApiResponse.Fail("clipboard unavailable");
@@ -225,6 +247,60 @@ public sealed class SystemActions
     public void SetMuted(bool muted) => _volume.SetMuted(muted);
 
     public bool LaunchShortcut(string targetId) => _shortcuts.Launch(targetId);
+
+    /// <summary>
+    /// Opens the OS task manager: Windows Task Manager, macOS Activity
+    /// Monitor. Best effort; false when the platform has neither.
+    /// </summary>
+    public bool OpenTaskManager()
+    {
+        if (OperatingSystem.IsWindows())
+        {
+#if WINDOWS
+            // The service runs as LocalSystem in Session 0, where a directly
+            // spawned taskmgr.exe has no interactive desktop to draw on - run
+            // it in the active console user's session instead, same mechanism
+            // WindowsSystemPowerProvider.Lock() uses. A LocalSystem-privileged
+            // taskmgr.exe launched with no user session (the pre-fix fallback)
+            // spawns invisibly in Session 0 and leaks a privileged process per
+            // press, so a missing session is a hard failure here, not a retry.
+            if (Nexus.Service.Lifecycle.UserHelperBootstrapper.RunInUserSession("taskmgr.exe", "task-manager", "NexusTaskManager"))
+            {
+                return true;
+            }
+            Nexus.Service.Platform.ServiceLog.Warn("[system-actions] task manager launch via user session failed");
+#endif
+            return false;
+        }
+        if (OperatingSystem.IsMacOS())
+        {
+            return Nexus.Service.Platform.ShellExecutor.RunExit("open", 5000, "-a", "Activity Monitor") == 0;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Opens (or focuses) the Nexus dashboard window, the same mechanism
+    /// POST /service/open-app uses: the service runs headless in Session 0
+    /// (Windows) or has no window of its own yet (macOS on first launch), so
+    /// this delegates to the interactive-session launcher / app window owner.
+    /// </summary>
+    public void OpenDashboard()
+    {
+#if WINDOWS
+        if (OperatingSystem.IsWindows())
+        {
+            Nexus.Service.Lifecycle.UserHelperBootstrapper.LaunchOpenApp();
+            return;
+        }
+#endif
+#if MACOS
+        if (OperatingSystem.IsMacOS())
+        {
+            Nexus.Service.Platform.Mac.MacAppWindow.OpenOrFocus(Nexus.Service.Platform.ServiceLaunchIntent.LocalDashboardUrl(0));
+        }
+#endif
+    }
 
     /// <summary>
     /// Builds the inputter strokes for a key request. An explicit Strokes list

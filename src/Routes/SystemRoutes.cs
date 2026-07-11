@@ -70,9 +70,9 @@ public static class SystemRoutes
             actions.SendKeys(body)).AllowPanel();
 
         app.MapPost("/system/input/text", (SendTextBody body, Nexus.Service.Actions.SystemActions actions) =>
-            actions.SendText(body.Text ?? "")).AllowPanel();
+            actions.SendTextAsync(body.Text ?? "")).AllowPanel();
 
-        // ── Open URL / file / folder / OS settings (deck launch actions) ──
+        // ── Open URL / file / folder / OS settings / task manager (deck launch actions) ──
         app.MapPost("/system/open-settings", (Nexus.Service.Actions.SystemActions actions) =>
             actions.OpenSettingsAsync()).AllowPanel();
 
@@ -84,6 +84,9 @@ public static class SystemRoutes
         // directly over LAN.
         app.MapPost("/system/open-path", (OpenPathBody body, Nexus.Service.Actions.SystemActions actions) =>
             actions.OpenPathAsync(body.Path ?? "")).AllowPanel();
+
+        app.MapPost("/system/open-task-manager", (Nexus.Service.Actions.SystemActions actions) =>
+            actions.OpenTaskManager() ? ApiResponse.Ok() : ApiResponse.Fail("failed to open task manager")).AllowPanel();
 
         // ── Power / session. lock + sleep are panel/relay-reachable; shutdown /
         // restart / logout are LAN-only (no AllowPanel + denied on the relay). ──

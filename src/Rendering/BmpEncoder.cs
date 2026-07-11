@@ -1,6 +1,6 @@
 using System;
 
-namespace Nexus.Service.Lighting.Engine.Gpu;
+namespace Nexus.Service.Rendering;
 
 /// <summary>
 /// Minimal uncompressed 24-bpp BMP encoder. No NuGet, no AOT/trim warnings.
