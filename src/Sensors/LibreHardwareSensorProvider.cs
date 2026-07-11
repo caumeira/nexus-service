@@ -5,6 +5,7 @@ using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text.RegularExpressions;
 using Nexus.Service.Models.Sensors;
+using Nexus.Service.Sensors.Astral;
 using LibreHardwareMonitor.Hardware;
 
 namespace Nexus.Service.Sensors;
@@ -24,6 +25,7 @@ namespace Nexus.Service.Sensors;
 public sealed class LibreHardwareSensorProvider : ISensorProvider
 {
     private readonly LhmComputer _lhm;
+    private readonly AstralGpuSupplement _astral = new(new AstralNvApiClient());
     private string? _ramBrandModel;
     private string? _storageBrandModel;
 
@@ -90,6 +92,13 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
         foreach (var hw in FindHardware(HardwareType.GpuNvidia, HardwareType.GpuAmd, HardwareType.GpuIntel))
         {
             var mapped = MapSensors(hw);
+            var displayName = hw.Name;
+            if (hw.HardwareType == HardwareType.GpuNvidia)
+            {
+                var hwIdentifier = hw.Identifier.ToString();
+                _astral.AppendSensors(hwIdentifier, hwIdentifier, hw.Name, mapped);
+                displayName = _astral.EnrichName(hwIdentifier, hw.Name);
+            }
             // VRAM total comes from the GPU's "GPU Memory Total" sensor; reuse it
             // as the ceiling for "GPU Memory Used" / "Free" so the client can
             // draw a proportional gauge without juggling sibling lookups.
@@ -112,7 +121,7 @@ public sealed class LibreHardwareSensorProvider : ISensorProvider
             result.Add(new GpuReadout
             {
                 Id = hw.Identifier.ToString(),
-                Name = hw.Name,
+                Name = displayName,
                 Vendor = vendor,
                 Integrated = integrated,
                 Sensors = mapped,

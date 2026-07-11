@@ -649,6 +649,7 @@
   <ItemGroup Condition="!$([MSBuild]::IsOSPlatform('Windows')) AND !$(RuntimeIdentifier.StartsWith('win'))">
     <Compile Remove="src/Sensors/LhmComputer.cs" />
     <Compile Remove="src/Sensors/LibreHardwareSensorProvider.cs" />
+    <Compile Remove="src/Sensors/Astral/AstralNvApiClient.cs" />
     <Compile Remove="src/Cooling/WindowsFanControlProvider.cs" />
     <Compile Remove="src/Cooling/FanCalibrator.cs" />
     <Compile Remove="src/Activity/WindowsScreenTimeProvider.cs" />
