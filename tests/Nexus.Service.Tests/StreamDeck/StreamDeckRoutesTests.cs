@@ -475,7 +475,7 @@ public sealed class StreamDeckRoutesTests : IDisposable
             var shared = new byte[] { 0x42, 0x4d, 3, 3, 3 };
             var sharedHash = StreamDeckImageCache.Hash(shared);
 
-            foreach (var refKey in new[] { "0/0", "1/0" })
+            foreach (var refKey in new[] { "0.0/0", "0.1/0" })
             {
                 var content = new ByteArrayContent(shared);
                 content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
@@ -485,9 +485,9 @@ public sealed class StreamDeckRoutesTests : IDisposable
             var replacement = new byte[] { 0x42, 0x4d, 4, 4, 4 };
             var replacementContent = new ByteArrayContent(replacement);
             replacementContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
-            await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0/0", replacementContent);
+            await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0.0/0", replacementContent);
 
-            // slot 1/0 still references sharedHash, so it must survive.
+            // slot 0.1/0 still references sharedHash, so it must survive.
             Assert.True(File.Exists(Path.Combine(_imageCacheDir, "SERIAL-1", sharedHash + ".bin")));
         }
     }
@@ -532,6 +532,134 @@ public sealed class StreamDeckRoutesTests : IDisposable
             Assert.True(res.IsSuccessStatusCode);
             var text = await res.Content.ReadAsStringAsync();
             Assert.DoesNotContain("\"error\":true", text);
+        }
+    }
+
+    /// <summary>Two-page config, each page's root slot 0 an action, so a v2 image upload can target either page's key 0 independently.</summary>
+    private static string TwoPageActionConfigBody() =>
+        "{\"config\":{\"pages\":["
+        + "{\"slots\":[{\"action\":{\"type\":\"power\",\"action\":\"lock\"}}]},"
+        + "{\"slots\":[{\"action\":{\"type\":\"power\",\"action\":\"lock\"}}]}]}}";
+
+    [Fact]
+    public async Task UploadImage_TargetingTheCurrentlyVisiblePage_RepaintsTheLiveKey()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var worker = factory.Services.GetRequiredService<StreamDeckConnectionWorker>();
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            Assert.True(worker.SetSimulatedModel(mini.ProductId));
+            var serial = worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey].Serial;
+            var simulated = (SimulatedStreamDeckSurface)worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey];
+            await client.PutAsync($"/streamdeck/decks/{serial}/config", Json(TwoPageActionConfigBody()));
+
+            var exactSize = new byte[54 + mini.KeyPixelSize * mini.KeyPixelSize * 3];
+            var content = new ByteArrayContent(exactSize);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+
+            var res = await client.PutAsync($"/streamdeck/decks/{serial}/images/0.0/0", content);
+            Assert.True(res.IsSuccessStatusCode);
+
+            Assert.Equal(exactSize, simulated.PeekKeyImage(0));
+        }
+    }
+
+    [Fact]
+    public async Task UploadImage_TargetingANonVisiblePage_SkipsTheRepaint()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var worker = factory.Services.GetRequiredService<StreamDeckConnectionWorker>();
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            Assert.True(worker.SetSimulatedModel(mini.ProductId));
+            var serial = worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey].Serial;
+            var simulated = (SimulatedStreamDeckSurface)worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey];
+            await client.PutAsync($"/streamdeck/decks/{serial}/config", Json(TwoPageActionConfigBody()));
+
+            var pageZeroImage = new byte[54 + mini.KeyPixelSize * mini.KeyPixelSize * 3];
+            pageZeroImage[54] = 1;
+            var pageZeroContent = new ByteArrayContent(pageZeroImage);
+            pageZeroContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            await client.PutAsync($"/streamdeck/decks/{serial}/images/0.0/0", pageZeroContent);
+            var callsAfterVisibleUpload = simulated.SetKeyImageCallCount;
+
+            // The deck is still showing page 0 - a v2 upload targeting page
+            // 1's own key 0 must not trigger a repaint of the live view.
+            var pageOneImage = new byte[54 + mini.KeyPixelSize * mini.KeyPixelSize * 3];
+            pageOneImage[54] = 2;
+            var pageOneContent = new ByteArrayContent(pageOneImage);
+            pageOneContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            var res = await client.PutAsync($"/streamdeck/decks/{serial}/images/1.0/0", pageOneContent);
+            Assert.True(res.IsSuccessStatusCode);
+
+            Assert.Equal(callsAfterVisibleUpload, simulated.SetKeyImageCallCount);
+            Assert.Equal(pageZeroImage, simulated.PeekKeyImage(0));
+        }
+    }
+
+    [Fact]
+    public async Task UploadImage_BackSlotPath_RepaintsOnlyWhileTheDeckIsInAFolder()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var worker = factory.Services.GetRequiredService<StreamDeckConnectionWorker>();
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            Assert.True(worker.SetSimulatedModel(mini.ProductId));
+            var serial = worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey].Serial;
+            var simulated = (SimulatedStreamDeckSurface)worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey];
+            var folderConfig = "{\"config\":{\"pages\":[{\"slots\":[{\"folder\":{\"slots\":[{}]}}]}]}}";
+            await client.PutAsync($"/streamdeck/decks/{serial}/config", Json(folderConfig));
+
+            var backImage = new byte[54 + mini.KeyPixelSize * mini.KeyPixelSize * 3];
+            var atRootContent = new ByteArrayContent(backImage);
+            atRootContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            var atRoot = await client.PutAsync($"/streamdeck/decks/{serial}/images/back/0", atRootContent);
+            Assert.True(atRoot.IsSuccessStatusCode);
+            Assert.Null(simulated.PeekKeyImage(0));
+
+            var navRes = await client.PostAsync($"/streamdeck/decks/{serial}/nav", Json("{\"page\":0,\"folderPath\":[0]}"));
+            Assert.True(navRes.IsSuccessStatusCode);
+
+            var inFolderContent = new ByteArrayContent(backImage);
+            inFolderContent.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            var inFolder = await client.PutAsync($"/streamdeck/decks/{serial}/images/back/0", inFolderContent);
+            Assert.True(inFolder.IsSuccessStatusCode);
+
+            Assert.Equal(backImage, simulated.PeekKeyImage(0));
+        }
+    }
+
+    [Fact]
+    public async Task UploadImage_ReplacingASlot_EvictsAHashEvenIfOnlyALegacyV1KeyStillPointsAtIt()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var shared = new byte[] { 9, 8, 7 };
+            var sharedHash = StreamDeckImageCache.Hash(shared);
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var cache = factory.Services.GetRequiredService<StreamDeckImageCache>();
+            cache.Store("SERIAL-1", sharedHash, shared);
+            // Seeds a legacy pre-v2 "0/0" entry alongside the v2 "0.0/0"
+            // entry this test is about to replace - both point at sharedHash.
+            store.Update(s => s.StreamDeck.Decks["SERIAL-1"] = new PhysicalDeckSettings
+            {
+                ImageRefs = { ["0/0"] = sharedHash, ["0.0/0"] = sharedHash },
+            });
+            var blobPath = Path.Combine(_imageCacheDir, "SERIAL-1", sharedHash + ".bin");
+
+            var replacement = new byte[] { 1, 2, 3 };
+            var content = new ByteArrayContent(replacement);
+            content.Headers.ContentType = new MediaTypeHeaderValue("application/octet-stream");
+            await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0.0/0", content);
+
+            // The legacy "0/0" key still nominally points at sharedHash, but
+            // it is not counted as a reference, so the blob is evicted even
+            // though that stale dict entry was never cleaned up (no migration).
+            Assert.False(File.Exists(blobPath));
         }
     }
 

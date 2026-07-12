@@ -367,6 +367,33 @@ public sealed class StreamDeckPresetRoutesTests : IDisposable
     }
 
     [Fact]
+    public async Task Activate_copies_a_v2_page_qualified_image_ref_onto_the_live_deck()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PutAsync(
+                "/streamdeck/decks/SERIAL-1/config",
+                Json("""{"config":{"pages":[{"slots":[{"label":"P0"}]},{"slots":[{"label":"P1"}]}]}}"""));
+            await client.PutAsync("/streamdeck/decks/SERIAL-1/images/1.0/0", ImageBytes(4, 5, 6));
+            var createRes = await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"P"}"""));
+            using var createDoc = JsonDocument.Parse(await createRes.Content.ReadAsStringAsync());
+            var id = createDoc.RootElement.GetProperty("preset").GetProperty("id").GetString()!;
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var savedHash = store.Load().StreamDeck.Decks["SERIAL-1"].ImageRefs["1.0/0"];
+
+            // A live-only overwrite of the same v2 key after the save.
+            await client.PutAsync("/streamdeck/decks/SERIAL-1/images/1.0/0", ImageBytes(7, 8, 9));
+
+            var res = await client.PostAsync($"/streamdeck/decks/SERIAL-1/presets/{id}/activate", null);
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+
+            var deck = store.Load().StreamDeck.Decks["SERIAL-1"];
+            Assert.Equal(savedHash, deck.ImageRefs["1.0/0"]);
+        }
+    }
+
+    [Fact]
     public async Task Activate_returns_404_for_unknown_id()
     {
         var (factory, client) = Boot();
@@ -480,12 +507,12 @@ public sealed class StreamDeckPresetRoutesTests : IDisposable
         {
             var shared = new byte[] { 3, 1, 4 };
             var sharedHash = StreamDeckImageCache.Hash(shared);
-            await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0/0", ImageBytes(shared));
+            await client.PutAsync("/streamdeck/decks/SERIAL-1/images/0.0/0", ImageBytes(shared));
             var createRes = await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"P"}"""));
             using var createDoc = JsonDocument.Parse(await createRes.Content.ReadAsStringAsync());
             var id = createDoc.RootElement.GetProperty("preset").GetProperty("id").GetString()!;
 
-            // Live slot 0/0 still points at sharedHash - deleting the preset must not evict it.
+            // Live slot 0.0/0 still points at sharedHash - deleting the preset must not evict it.
             var res = await client.DeleteAsync($"/streamdeck/decks/SERIAL-1/presets/{id}");
             Assert.Equal(HttpStatusCode.OK, res.StatusCode);
 

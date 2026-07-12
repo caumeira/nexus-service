@@ -808,7 +808,7 @@ public class StreamDeckConnectionWorkerTests
         f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
         {
             Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://example.com" } } } } } },
-            ImageRefs = { ["0/0"] = hash },
+            ImageRefs = { ["0.0/0"] = hash },
         });
         using var worker = NewWorker(f, simulated);
         worker.Tick();
@@ -853,7 +853,7 @@ public class StreamDeckConnectionWorkerTests
                     },
                 },
             },
-            ImageRefs = { ["0/0"] = hash, ["1/0"] = hash },
+            ImageRefs = { ["0.0/0"] = hash, ["0.1/0"] = hash },
         });
         using var worker = NewWorker(f, simulated);
         worker.Tick();
@@ -870,6 +870,68 @@ public class StreamDeckConnectionWorkerTests
 
         Assert.NotNull(pressedA);
         Assert.Equal(pressedA, pressedB);
+    }
+
+    /// <summary>
+    /// Image-refs v2: the key is page-qualified, so two pages that each use
+    /// slot 0 at their own root resolve their own distinct uploaded image
+    /// instead of one page's upload overwriting the other's.
+    /// </summary>
+    [Fact]
+    public void Tick_TwoPagesReuseTheSameSlotIndex_EachPageResolvesItsOwnUploadedImage()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        var page0Bytes = new byte[] { 1, 1, 1 };
+        var page1Bytes = new byte[] { 2, 2, 2 };
+        var page0Hash = StreamDeckImageCache.Hash(page0Bytes);
+        var page1Hash = StreamDeckImageCache.Hash(page1Bytes);
+        f.ImageCache.Store("sim-0001", page0Hash, page0Bytes);
+        f.ImageCache.Store("sim-0001", page1Hash, page1Bytes);
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://page0.example.com" } } } },
+                    new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://page1.example.com" } } } },
+                },
+            },
+            ImageRefs = { ["0.0/0"] = page0Hash, ["1.0/0"] = page1Hash },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+        Assert.Equal(page0Bytes, simulated.PeekKeyImage(0));
+
+        Assert.True(worker.SetNav("sim-0001", 1, Array.Empty<int>()));
+
+        Assert.Equal(page1Bytes, simulated.PeekKeyImage(0));
+    }
+
+    /// <summary>
+    /// A legacy pre-v2 key ("0/0", no leading page segment) is an orphan
+    /// under image-refs v2 - ResolveSlotImage only builds page-qualified
+    /// keys, so it never resolves; no migration re-keys it.
+    /// </summary>
+    [Fact]
+    public void Tick_LegacyUnqualifiedImageRefKey_NeverResolves()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        var bytes = StreamDeckProtocol.BuildBlankBmp(Mini.KeyPixelSize);
+        var hash = StreamDeckImageCache.Hash(bytes);
+        f.ImageCache.Store("sim-0001", hash, bytes);
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://example.com" } } } } } },
+            ImageRefs = { ["0/0"] = hash },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick();
+
+        Assert.Null(simulated.PeekKeyImage(0));
     }
 
     [Fact]

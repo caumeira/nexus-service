@@ -219,7 +219,10 @@ public static class StreamDeckRoutes
             {
                 cache.Evict(serial, evictHash);
             }
-            worker.RefreshView(serial);
+            if (IsUploadedKeyVisible(serial, slotPath, worker))
+            {
+                worker.RefreshView(serial);
+            }
             return Results.Json(new StreamDeckImageUploadResponse { Hash = hash }, AppJsonContext.Default.StreamDeckImageUploadResponse);
         }).LocalhostOnly();
 
@@ -581,15 +584,17 @@ public static class StreamDeckRoutes
             AppJsonContext.Default.DeckConfig)!;
 
     /// <summary>
-    /// True if any live slot (other than excludeKey) or any saved preset still
-    /// references hash. A preset snapshots ImageRefs at save time, so an image
-    /// hash the live upload route would otherwise evict can still be the only
-    /// copy backing an older preset - evicting it early leaves that preset's
-    /// keys blank the next time it activates.
+    /// True if any live v2-or-back slot (other than excludeKey) or any saved
+    /// preset still references hash. A preset snapshots ImageRefs at save
+    /// time, so an image hash the live upload route would otherwise evict
+    /// can still be the only copy backing an older preset - evicting it
+    /// early leaves that preset's keys blank the next time it activates. A
+    /// live legacy pre-v2 key never counts, so a hash only a stale orphaned
+    /// v1 entry still points at is not pinned alive forever.
     /// </summary>
     private static bool IsHashReferenced(PhysicalDeckSettings deck, string hash, string? excludeKey)
     {
-        if (deck.ImageRefs.Any(kv => kv.Key != excludeKey && kv.Value == hash))
+        if (deck.ImageRefs.Any(kv => kv.Key != excludeKey && kv.Value == hash && IsV2OrBackImageRefKey(kv.Key)))
         {
             return true;
         }
@@ -601,6 +606,43 @@ public static class StreamDeckRoutes
             }
         }
         return false;
+    }
+
+    /// <summary>
+    /// True for a v2 page-qualified ImageRefs key ("0.3/0") or the reserved
+    /// page-independent "back/0" key. False for a legacy pre-v2 key ("3/0"),
+    /// which no longer resolves to any slot (StreamDeckConnectionWorker.
+    /// ResolveSlotImage only builds v2 keys) and must not keep its hash's
+    /// blob alive.
+    /// </summary>
+    private static bool IsV2OrBackImageRefKey(string key)
+    {
+        var slashIndex = key.IndexOf('/');
+        if (slashIndex < 0)
+        {
+            return false;
+        }
+        var slotPath = key[..slashIndex];
+        return slotPath == "back" || DeckConfigNavigation.ParseImageRefSlotPath(slotPath) is not null;
+    }
+
+    /// <summary>
+    /// True if a just-uploaded key's slotPath is part of the deck's current
+    /// physical view, so the upload route should trigger a HID repaint. The
+    /// web editor now uploads the whole config tree (every page, every
+    /// folder) on each edit (image-refs v2), so most uploads target a
+    /// page/folder the deck is not currently showing and must not trigger a
+    /// full RefreshView - that repaint-per-key cascade was the original
+    /// page next/prev latency.
+    /// </summary>
+    private static bool IsUploadedKeyVisible(string serial, string slotPath, StreamDeckConnectionWorker worker)
+    {
+        if (slotPath == "back")
+        {
+            return worker.IsShowingAFolder(serial);
+        }
+        var parsed = DeckConfigNavigation.ParseImageRefSlotPath(slotPath);
+        return parsed is not null && worker.IsCurrentView(serial, parsed.Value.Page, parsed.Value.FolderPath);
     }
 
     /// <summary>

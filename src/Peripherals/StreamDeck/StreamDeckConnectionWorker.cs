@@ -256,6 +256,47 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
     }
 
+    /// <summary>
+    /// True if (page, folderPath) is the deck's currently displayed view.
+    /// The image upload route uses this to skip a repaint for a page/folder
+    /// the deck is not showing right now - image-refs v2 has the web upload
+    /// every page and folder on each edit, not just the one on screen.
+    /// </summary>
+    public bool IsCurrentView(string serial, int page, IReadOnlyList<int> folderPath)
+    {
+        lock (_lock)
+        {
+            if (FindBySerialLocked(serial) is null)
+            {
+                return false;
+            }
+            if (GetCurrentPageLocked(serial) != page)
+            {
+                return false;
+            }
+            var tracked = _folderPathsBySerial.TryGetValue(serial, out var fp) ? fp : new List<int>();
+            return tracked.SequenceEqual(folderPath);
+        }
+    }
+
+    /// <summary>
+    /// True if the deck has a live surface and is currently inside any
+    /// folder. The reserved "back" ImageRefs key is page-independent, so the
+    /// image upload route uses this instead of IsCurrentView to decide
+    /// whether an uploaded back-key image is visible right now.
+    /// </summary>
+    public bool IsShowingAFolder(string serial)
+    {
+        lock (_lock)
+        {
+            if (FindBySerialLocked(serial) is null)
+            {
+                return false;
+            }
+            return _folderPathsBySerial.TryGetValue(serial, out var fp) && fp.Count > 0;
+        }
+    }
+
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(TickMs));
@@ -640,7 +681,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
 
         var slot = view[slotIndex];
         HandleSlotAction(serial, config, page, folderPath, slotIndex, slot);
-        HandlePressVisual(surface, physicalIndex, folderPath, slotIndex, slot);
+        HandlePressVisual(surface, physicalIndex, page, folderPath, slotIndex, slot);
     }
 
     /// <summary>
@@ -683,7 +724,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
 
         var deck = _store.Load().StreamDeck.Decks.TryGetValue(serial, out var d) ? d : null;
-        var (bytes, _) = ResolveSlotImage(serial, folderPath, slotIndex, slot, deck);
+        var (bytes, _) = ResolveSlotImage(serial, page, folderPath, slotIndex, slot, deck);
         if (bytes is not null)
         {
             surface.SetKeyImage(physicalIndex, bytes);
@@ -705,7 +746,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// the tick's duration) but gets no rendered pressed image of its own;
     /// RefreshMonitoringKeys owns that key's pixels.
     /// </summary>
-    private void HandlePressVisual(IStreamDeckSurface surface, int physicalIndex, List<int> folderPath, int slotIndex, DeckSlot slot)
+    private void HandlePressVisual(IStreamDeckSurface surface, int physicalIndex, int page, List<int> folderPath, int slotIndex, DeckSlot slot)
     {
         if (slot.Folder is not null || slot.Action?.Type == "page")
         {
@@ -720,7 +761,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
 
         var deck = _store.Load().StreamDeck.Decks.TryGetValue(serial, out var d) ? d : null;
-        var (bytes, hash) = ResolveSlotImage(serial, folderPath, slotIndex, slot, deck);
+        var (bytes, hash) = ResolveSlotImage(serial, page, folderPath, slotIndex, slot, deck);
         if (bytes is null || hash is null)
         {
             return;
@@ -760,13 +801,17 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// <summary>
     /// Resolves the wire bytes currently mapped to a leaf/toggle slot (state
     /// "0" or "1", matching PushCurrentView's per-key resolution) plus the
-    /// content hash they were stored under, or (null, null) when unmapped.
+    /// content hash they were stored under, keyed by the page-qualified v2
+    /// ImageRefs path (DeckConfigNavigation.BuildImageRefSlotPath) - or
+    /// (null, null) when unmapped. A legacy pre-v2 key never matches here,
+    /// so it renders as unmapped until the next editor sync re-uploads it
+    /// under its v2 key.
     /// </summary>
-    private (byte[]? Bytes, string? Hash) ResolveSlotImage(string serial, List<int> folderPath, int slotIndex, DeckSlot slot, PhysicalDeckSettings? deck)
+    private (byte[]? Bytes, string? Hash) ResolveSlotImage(string serial, int page, List<int> folderPath, int slotIndex, DeckSlot slot, PhysicalDeckSettings? deck)
     {
         var latchKey = BuildLatchKey(serial, folderPath, slotIndex);
         var state = slot.Action?.Type == "toggle" && _executor.IsToggleOn(slot.Action.State, latchKey) ? "1" : "0";
-        var slotPath = DeckConfigNavigation.BuildSlotPath(folderPath, slotIndex);
+        var slotPath = DeckConfigNavigation.BuildImageRefSlotPath(page, folderPath, slotIndex);
         var hash = deck is not null && deck.ImageRefs.TryGetValue($"{slotPath}/{state}", out var h) ? h : null;
         var bytes = hash is not null ? _imageCache.Load(serial, hash) : null;
         return (bytes, hash);
@@ -1256,7 +1301,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
                 continue;
             }
 
-            var (bytes, _) = ResolveSlotImage(surface.Serial, folderPath, slotIndex, slot, deck);
+            var (bytes, _) = ResolveSlotImage(surface.Serial, page, folderPath, slotIndex, slot, deck);
             if (bytes is not null)
             {
                 surface.SetKeyImage(key, bytes);
