@@ -44,6 +44,15 @@ public sealed class KeebHub : IDisposable
     /// <summary>Per-side settle around a 0x06 settings write (HYTE reference: "fw will crash otherwise").</summary>
     private const int SettingsWriteSettleMs = 20;
 
+    /// <summary>
+    /// Settle after arming a multi-page write/read (vendor KeebTKLCommand waits
+    /// 20 ms after every 0xF2/0xF3 header with the note "fw will crash otherwise").
+    /// </summary>
+    private const int PageBurstSettleMs = 20;
+
+    /// <summary>Vendor writes macro (0xF3) pages with a 20 ms pause after each page; layer (0xF2) pages need none.</summary>
+    private const int MacroInterPageDelayMs = 20;
+
     public KeebHub(IHidEnumerator hid)
     {
         _hid = hid;
@@ -199,15 +208,32 @@ public sealed class KeebHub : IDisposable
             var dev = _device!;
             try
             {
-                if (!dev.SetFeature(KeebProtocol.SettingsReadFeature)) return null;
+                if (!dev.SetFeature(KeebProtocol.SettingsReadFeature))
+                {
+                    RecordWriteFailureLocked("settings-read-feature");
+                    return null;
+                }
                 var buf = new byte[KeebLayout.PageSize];
                 var n = dev.Read(buf, 250);
-                return n > 0 ? buf.AsSpan(0, n).ToArray() : null;
+                if (n <= 0)
+                {
+                    // A late response could still land on this handle and be
+                    // consumed by the next read as stale data; drop the handle
+                    // (same guard as ReadLayerRaw). Also counts toward the
+                    // failure threshold so an unplugged keeb that only ever
+                    // fails reads still tears down.
+                    ServiceLog.Error("[keeb] settings read timed out; dropping interface");
+                    DropDeviceLocked();
+                    return null;
+                }
+                _consecutiveWriteFailures = 0;
+                return buf.AsSpan(0, n).ToArray();
             }
             catch (ObjectDisposedException) { return null; }
             catch (Exception ex)
             {
                 ServiceLog.Error($"[keeb] settings read failed: {ex.GetType().Name}: {ex.Message}");
+                RecordWriteFailureLocked(ex.GetType().Name);
                 return null;
             }
         }
@@ -224,48 +250,75 @@ public sealed class KeebHub : IDisposable
     {
         lock (_io)
         {
-            if (!EnsureConnectedLocked()) return null;
-            var dev = _device!;
-            try
-            {
-                if (!dev.SetFeature(KeebProtocol.LayerFeature(KeebProtocol.Read, profile, layer))) return null;
-                var pages = new byte[KeebProtocol.LayerPageCount * KeebLayout.PageSize];
-                for (var p = 0; p < KeebProtocol.LayerPageCount; p++)
-                {
-                    var buf = new byte[KeebLayout.PageSize];
-                    var n = dev.Read(buf, 250);
-                    if (n <= 0)
-                    {
-                        // Bail mid-burst: late pages could still land on this
-                        // handle and a later ReadSettings would consume one as
-                        // stale data. Drop the handle; the next op re-opens.
-                        ServiceLog.Error($"[keeb] layer read timed out at page {p}; dropping interface");
-                        try { _device?.Dispose(); } catch { /* best effort */ }
-                        _device = null;
-                        return null;
-                    }
-                    if (n < KeebLayout.PageSize)
-                        ServiceLog.Info($"[keeb] layer page {p} short read ({n} bytes)");
-                    System.Array.Copy(buf, 0, pages, p * KeebLayout.PageSize, System.Math.Min(n, KeebLayout.PageSize));
-                }
-                return pages;
-            }
-            catch (ObjectDisposedException) { return null; }
-            catch (Exception ex)
-            {
-                ServiceLog.Error($"[keeb] layer read failed: {ex.GetType().Name}: {ex.Message}");
-                return null;
-            }
+            return ReadPagesLocked(
+                KeebProtocol.LayerFeature(KeebProtocol.Read, profile, layer),
+                KeebProtocol.LayerPageCount, "layer");
         }
     }
 
-    /// <summary>Write a macro's 4 pages (0xF3) for <paramref name="index"/> (0..31).</summary>
-    public bool WriteMacro(int index, byte[] pages)
+    /// <summary>
+    /// Read a macro's raw 4 pages (0x84 F3) for a global firmware slot
+    /// (profile*16 + index). Used to verify an onboard write took.
+    /// </summary>
+    public byte[]? ReadMacroRaw(int slot)
+    {
+        lock (_io)
+        {
+            return ReadPagesLocked(
+                KeebProtocol.MacroFeature(KeebProtocol.Read, slot),
+                KeebMacroCodec.PageCount, "macro");
+        }
+    }
+
+    // Arm a read feature and pull the burst of output-report pages back.
+    // Caller must hold _io. Any page timeout drops the handle: late pages
+    // could still land on it and a later ReadSettings would consume one as
+    // stale data.
+    private byte[]? ReadPagesLocked(byte[] feature, int pageCount, string what)
+    {
+        if (!EnsureConnectedLocked()) return null;
+        var dev = _device!;
+        try
+        {
+            if (!dev.SetFeature(feature))
+            {
+                RecordWriteFailureLocked($"{what}-read-feature");
+                return null;
+            }
+            var pages = new byte[pageCount * KeebLayout.PageSize];
+            for (var p = 0; p < pageCount; p++)
+            {
+                var buf = new byte[KeebLayout.PageSize];
+                var n = dev.Read(buf, 250);
+                if (n <= 0)
+                {
+                    ServiceLog.Error($"[keeb] {what} read timed out at page {p}; dropping interface");
+                    DropDeviceLocked();
+                    return null;
+                }
+                if (n < KeebLayout.PageSize)
+                    ServiceLog.Info($"[keeb] {what} page {p} short read ({n} bytes)");
+                System.Array.Copy(buf, 0, pages, p * KeebLayout.PageSize, System.Math.Min(n, KeebLayout.PageSize));
+            }
+            _consecutiveWriteFailures = 0;
+            return pages;
+        }
+        catch (ObjectDisposedException) { return null; }
+        catch (Exception ex)
+        {
+            ServiceLog.Error($"[keeb] {what} read failed: {ex.GetType().Name}: {ex.Message}");
+            RecordWriteFailureLocked(ex.GetType().Name);
+            return null;
+        }
+    }
+
+    /// <summary>Write a macro's 4 pages (0xF3) for global firmware <paramref name="slot"/> (profile*16 + index, 0..31).</summary>
+    public bool WriteMacro(int slot, byte[] pages)
     {
         lock (_io)
         {
             if (!EnsureConnectedLocked()) return false;
-            return WritePagesLocked(KeebProtocol.MacroFeature(KeebProtocol.Write, index), pages, KeebMacroCodec.PageCount);
+            return WritePagesLocked(KeebProtocol.MacroFeature(KeebProtocol.Write, slot), pages, KeebMacroCodec.PageCount, MacroInterPageDelayMs);
         }
     }
 
@@ -275,7 +328,7 @@ public sealed class KeebHub : IDisposable
         lock (_io)
         {
             if (!EnsureConnectedLocked()) return false;
-            return WritePagesLocked(KeebProtocol.LayerFeature(KeebProtocol.Write, profile, layer), pages, KeebProtocol.LayerPageCount);
+            return WritePagesLocked(KeebProtocol.LayerFeature(KeebProtocol.Write, profile, layer), pages, KeebProtocol.LayerPageCount, 0);
         }
     }
 
@@ -315,14 +368,27 @@ public sealed class KeebHub : IDisposable
             var dev = _device!;
             try
             {
-                if (!dev.SetFeature(KeebProtocol.DeviceInfoRequest)) return false;
+                if (!dev.SetFeature(KeebProtocol.DeviceInfoRequest))
+                {
+                    RecordWriteFailureLocked("device-info-feature");
+                    return false;
+                }
                 var buf = new byte[KeebLayout.PageSize];
                 var n = dev.Read(buf, 200);
-                if (n <= 0) return false;
+                if (n <= 0)
+                {
+                    // Same stale-response hazard as the settings read: a late
+                    // device-info block would be consumed by the next settings
+                    // read and decoded as garbage. Drop the handle.
+                    ServiceLog.Error("[keeb] device-info read timed out; dropping interface");
+                    DropDeviceLocked();
+                    return false;
+                }
                 if (KeebProtocol.ParseDeviceInfo(buf.AsSpan(0, n)) is { } di)
                 {
                     State.FirmwareVersion = di.FirmwareVersion;
                     State.Layout = di.Layout;
+                    _consecutiveWriteFailures = 0;
                     return true;
                 }
                 return false;
@@ -331,17 +397,21 @@ public sealed class KeebHub : IDisposable
         }
     }
 
-    // Arm a feature then push each 65-byte page as one output report. Caller holds _io.
-    private bool WritePagesLocked(byte[] feature, byte[] pages, int pageCount)
+    // Arm a feature, settle, then push each 65-byte page as one output report
+    // (vendor KeebTKLCommand: 20 ms after the 0xF2/0xF3 header or the firmware
+    // crashes; macro pages additionally need 20 ms each). Caller holds _io.
+    private bool WritePagesLocked(byte[] feature, byte[] pages, int pageCount, int interPageDelayMs)
     {
         var dev = _device!;
         try
         {
             if (!dev.SetFeature(feature)) return RecordWriteFailureLocked("feature");
+            System.Threading.Thread.Sleep(PageBurstSettleMs);
             for (var p = 0; p < pageCount; p++)
             {
                 if (!dev.Write(pages.AsSpan(p * KeebLayout.PageSize, KeebLayout.PageSize)))
                     return RecordWriteFailureLocked("page");
+                if (interPageDelayMs > 0) System.Threading.Thread.Sleep(interPageDelayMs);
             }
             _consecutiveWriteFailures = 0;
             return true;
@@ -393,12 +463,19 @@ public sealed class KeebHub : IDisposable
         var n = ++_consecutiveWriteFailures;
         if (n >= ConsecutiveWriteFailureThreshold)
         {
-            ServiceLog.Error($"[keeb] {n} consecutive write failures ({where}) - dropping interface");
-            _consecutiveWriteFailures = 0;
-            try { _device?.Dispose(); } catch { /* best effort */ }
-            _device = null;
+            ServiceLog.Error($"[keeb] {n} consecutive IO failures ({where}) - dropping interface");
+            DropDeviceLocked();
         }
         return false;
+    }
+
+    // Caller must hold _io; disposes the handle inline (not via Disconnect) so
+    // it never needs to re-acquire the lock.
+    private void DropDeviceLocked()
+    {
+        _consecutiveWriteFailures = 0;
+        try { _device?.Dispose(); } catch { /* best effort */ }
+        _device = null;
     }
 
     private static string StableIdFromPath(string path)

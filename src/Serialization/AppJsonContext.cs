@@ -650,12 +650,14 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(GetKeebSettingsResponse))]
 [JsonSerializable(typeof(GetRotaryFunctionsResponse))]
 [JsonSerializable(typeof(SetRotaryWheelsBody))]
-[JsonSerializable(typeof(SetRotarySensitivityBody))]
 [JsonSerializable(typeof(SetFirmwareLightingBody))]
 [JsonSerializable(typeof(SetPassiveLightingBody))]
 [JsonSerializable(typeof(SetGameModeBody))]
 [JsonSerializable(typeof(GetMacroResponse))]
 [JsonSerializable(typeof(SetMacroBody))]
+[JsonSerializable(typeof(SetMacroResponse))]
+[JsonSerializable(typeof(SetLayerKeyBody))]
+[JsonSerializable(typeof(SetLayerKeyResponse))]
 [JsonSerializable(typeof(InputterBody))]
 
 // Displays
