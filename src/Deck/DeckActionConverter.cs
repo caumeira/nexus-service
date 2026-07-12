@@ -125,6 +125,22 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         {
             action.Press = pressEl.GetString();
         }
+        if (root.TryGetProperty("labelText", out var labelTextEl) && labelTextEl.ValueKind == JsonValueKind.String)
+        {
+            action.LabelText = labelTextEl.GetString();
+        }
+        if (root.TryGetProperty("scale", out var scaleEl) && scaleEl.ValueKind == JsonValueKind.String)
+        {
+            action.Scale = scaleEl.GetString();
+        }
+        if (root.TryGetProperty("min", out var minEl) && minEl.ValueKind == JsonValueKind.Number)
+        {
+            action.Min = minEl.GetDouble();
+        }
+        if (root.TryGetProperty("max", out var maxEl) && maxEl.ValueKind == JsonValueKind.Number)
+        {
+            action.Max = maxEl.GetDouble();
+        }
 
         if (root.TryGetProperty("action", out var actionEl))
         {
@@ -238,6 +254,22 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         if (value.Press is not null)
         {
             writer.WriteString("press", value.Press);
+        }
+        if (value.LabelText is not null)
+        {
+            writer.WriteString("labelText", value.LabelText);
+        }
+        if (value.Scale is not null)
+        {
+            writer.WriteString("scale", value.Scale);
+        }
+        if (value.Min is not null)
+        {
+            writer.WriteNumber("min", value.Min.Value);
+        }
+        if (value.Max is not null)
+        {
+            writer.WriteNumber("max", value.Max.Value);
         }
 
         switch (value.Type)

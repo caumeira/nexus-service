@@ -1103,6 +1103,53 @@ public class StreamDeckConnectionWorkerTests
     }
 
     [Fact]
+    public void Tick_MonitoringSlot_PassesLabelTextAndFixedScaleThroughToTheRenderedTile()
+    {
+        HardwareSensor[] Sensors() => new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Clock", Value = 4500f, Formatted = "4500MHz", Parent = new SensorParent() },
+        };
+
+        var legacy = NewFixtures(devicePresent: false);
+        legacy.Sensors.CpuSensors = Sensors();
+        var legacyAction = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "line" };
+        var legacySurface = new SimulatedStreamDeckSurface(Mini, "sim-legacy");
+        legacy.Store.Update(s => s.StreamDeck.Decks["sim-legacy"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = legacyAction } } } } },
+        });
+        using var legacyWorker = NewWorker(legacy, legacySurface);
+        legacyWorker.Tick();
+        var legacyBytes = legacySurface.PeekKeyImage(0);
+
+        var v3 = NewFixtures(devicePresent: false);
+        v3.Sensors.CpuSensors = Sensors();
+        var v3Action = new DeckAction
+        {
+            Type = "monitoring",
+            Category = "cpu",
+            Sensor = "cpu/core0",
+            Style = "line",
+            LabelText = "Custom Label",
+            Scale = "fixed",
+            Min = 0,
+            Max = 10000,
+        };
+        var v3Surface = new SimulatedStreamDeckSurface(Mini, "sim-v3");
+        v3.Store.Update(s => s.StreamDeck.Decks["sim-v3"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = v3Action } } } } },
+        });
+        using var v3Worker = NewWorker(v3, v3Surface);
+        v3Worker.Tick();
+        var v3Bytes = v3Surface.PeekKeyImage(0);
+
+        Assert.NotNull(legacyBytes);
+        Assert.NotNull(v3Bytes);
+        Assert.NotEqual(legacyBytes, v3Bytes);
+    }
+
+    [Fact]
     public void PushCurrentView_NeverClearsALiveMonitoringKey()
     {
         var f = NewFixtures(devicePresent: false);

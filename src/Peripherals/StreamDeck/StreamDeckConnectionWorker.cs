@@ -1167,7 +1167,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
 
         if (sensor is null)
         {
-            name = key.Slot.Label ?? "";
+            name = "";
             valueText = UnresolvedSensorValueText;
             sensorType = "";
             historyForRender = new List<float>();
@@ -1182,7 +1182,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             {
                 historyForRender.Add(MathF.Round(sample, 1));
             }
-            name = !string.IsNullOrEmpty(key.Slot.Label) ? key.Slot.Label! : sensor.Name;
+            name = sensor.Name;
             valueText = sensor.Formatted;
             sensorType = sensor.Type;
         }
@@ -1191,11 +1191,15 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         var input = new MonitoringTileInput
         {
             Name = name,
+            LabelText = action.LabelText,
             ShowName = action.ShowName ?? true,
             ValueText = valueText,
             SensorType = sensorType,
             History = historyForRender,
             Style = MonitoringTileRenderer.ParseStyle(action.Style),
+            Scale = action.Scale,
+            Min = (float?)action.Min,
+            Max = (float?)action.Max,
             AccentColorHex = action.Color,
             BackgroundColorHex = key.Slot.Color,
             TitleFont = title?.Font,
