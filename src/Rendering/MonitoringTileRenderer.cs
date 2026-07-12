@@ -6,6 +6,7 @@ using SixLabors.ImageSharp.Drawing;
 using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
+using DrawingPath = SixLabors.ImageSharp.Drawing.Path;
 
 namespace Nexus.Service.Rendering;
 
@@ -65,6 +66,21 @@ internal static class MonitoringTileRenderer
     private const float LineBandBottom = 0.74f;
     private const float LineBandInsetXFraction = 0.08f;
 
+    /// <summary>Mirrors the SVG fill-opacity nexus-web's DeckMonitoringCell Sparkline defaults to for the line style.</summary>
+    private const float LineFillAlpha = 0.4f;
+    /// <summary>
+    /// nexus-web pins its line stroke to a literal CSS px per surface
+    /// (GAUGE_LINE_THICKNESS in the panel gauge card, DeckMonitoringCell's
+    /// own strokeWidth in the deck cell) - both exactly 2% of their
+    /// Sparkline's width prop. Applied against the key's own pixel size
+    /// here instead of a fixed px count, so it scales across key sizes.
+    /// </summary>
+    private const float LineStrokeThicknessFraction = 0.02f;
+    private const float LineStrokeMinPx = 1f;
+
+    /// <summary>Mirrors the dark-theme --accent-glow-shadow alpha (styles/variables.scss) BackdropGauge.tsx fills with.</summary>
+    private const float BackdropDimAlpha = 0.45f;
+
     /// <summary>Mirrors nexus-web's DeckMonitoringCell SEGMENTS_COUNT.</summary>
     private const int SegmentsCount = 16;
     private const float SegmentsGapFraction = 0.014f;
@@ -102,6 +118,14 @@ internal static class MonitoringTileRenderer
         {
             ctx.Fill(background);
 
+            // Backdrop's history fill spans the whole key face edge to edge,
+            // behind the name/value text (mirrors BackdropGauge.tsx's
+            // absolute inset:0 chart layer), so it draws before the name.
+            if (input.Style == MonitoringTileStyle.Backdrop)
+            {
+                RenderBackdrop(ctx, input, pixelSize, accent, domain);
+            }
+
             if (nameShown)
             {
                 var nameFont = titleFont.CreateFont(titleSizePx, titleFontStyle);
@@ -117,12 +141,11 @@ internal static class MonitoringTileRenderer
                     RenderSegments(ctx, input, pixelSize, accent, domain, nameShown);
                     DrawBottomValue(ctx, input, pixelSize, titleFont, titleColor);
                     break;
-                // nexus-web's DeckMonitoringCell renders Backdrop as the same
-                // history series and graph band as Line, just filled at full
-                // accent opacity with no stroke instead of Line's partial
-                // fill plus stroke; RenderLine already fills at full accent
-                // opacity with no stroke, so the same call covers both.
+                // Backdrop overlays the value big and centered on the graph,
+                // reusing Number's sizing/position, with no bottom value row.
                 case MonitoringTileStyle.Backdrop:
+                    RenderNumber(ctx, input, pixelSize, titleFont, titleColor, nameShown);
+                    break;
                 default:
                     RenderLine(ctx, input, pixelSize, accent, domain, nameShown);
                     DrawBottomValue(ctx, input, pixelSize, titleFont, titleColor);
@@ -143,19 +166,90 @@ internal static class MonitoringTileRenderer
         RenderKit.DrawCentered(ctx, input.ValueText, valueFont, color, new PointF(size / 2f, size * ValueYFraction));
     }
 
-    private static void RenderLine(IImageProcessingContext ctx, MonitoringTileInput input, int size, Color accent, (float Min, float Max) domain, bool nameShown)
+    private static RectangleF ComputeGraphBand(int size, bool nameShown)
     {
         var bandTop = size * (nameShown ? LineBandTopWithName : LineBandTopNoName);
         var bandBottom = size * LineBandBottom;
         var inset = size * LineBandInsetXFraction;
-        var band = new RectangleF(inset, bandTop, size - inset * 2f, bandBottom - bandTop);
+        return new RectangleF(inset, bandTop, size - inset * 2f, bandBottom - bandTop);
+    }
 
-        var normalized = new List<float>(input.History.Count);
-        foreach (var sample in input.History)
+    private static List<float> NormalizeSeries(IReadOnlyList<float> history, (float Min, float Max) domain)
+    {
+        var normalized = new List<float>(history.Count);
+        foreach (var sample in history)
         {
             normalized.Add(Normalize(sample, domain.Min, domain.Max));
         }
-        ctx.Fill(accent, RenderKit.BuildFilledSeries(band, normalized));
+        return normalized;
+    }
+
+    /// <summary>
+    /// Mirrors nexus-web's DeckMonitoringCell 'line' style: a translucent
+    /// accent-fill area topped with a full-opacity accent stroke along the
+    /// series' top edge (the web draws a partial-opacity fill plus a
+    /// strokeColor line; this renderer's fill has no separate stroke
+    /// primitive of its own, so the stroke is drawn as an open path here).
+    /// </summary>
+    private static void RenderLine(IImageProcessingContext ctx, MonitoringTileInput input, int size, Color accent, (float Min, float Max) domain, bool nameShown)
+    {
+        var band = ComputeGraphBand(size, nameShown);
+        var normalized = NormalizeSeries(input.History, domain);
+
+        ctx.Fill(WithAlpha(accent, LineFillAlpha), RenderKit.BuildFilledSeries(band, normalized));
+
+        var topEdge = BuildTopEdge(band, normalized);
+        if (topEdge.Length >= 2)
+        {
+            var thickness = Math.Max(LineStrokeMinPx, size * LineStrokeThicknessFraction);
+            ctx.Draw(Pens.Solid(accent, thickness), new DrawingPath(new LinearLineSegment(topEdge)));
+        }
+    }
+
+    /// <summary>
+    /// Mirrors nexus-web's BackdropGauge.tsx: the full history series filled
+    /// edge to edge across the whole key face, in a dimmed accent rather than
+    /// the bold accent Line/Segments use, with the value overlaid on top
+    /// (see the Backdrop switch case in Render).
+    /// </summary>
+    private static void RenderBackdrop(IImageProcessingContext ctx, MonitoringTileInput input, int size, Color accent, (float Min, float Max) domain)
+    {
+        var band = new RectangleF(0f, 0f, size, size);
+        var normalized = NormalizeSeries(input.History, domain);
+        ctx.Fill(WithAlpha(accent, BackdropDimAlpha), RenderKit.BuildFilledSeries(band, normalized));
+    }
+
+    private static Color WithAlpha(Color color, float alpha)
+    {
+        var pixel = color.ToPixel<Rgba32>();
+        var a = (byte)Math.Round(Math.Clamp(alpha, 0f, 1f) * 255f);
+        return Color.FromPixel(new Rgba32(pixel.R, pixel.G, pixel.B, a));
+    }
+
+    /// <summary>
+    /// The top-edge points of RenderKit.BuildFilledSeries' polygon, open (no
+    /// baseline corners) so it strokes as a line rather than a closed shape.
+    /// Matches that method's x/y math point for point. A single sample draws
+    /// no stroke: nexus-web's Sparkline line path for one point is a bare
+    /// SVG moveto with no line segment to stroke.
+    /// </summary>
+    private static PointF[] BuildTopEdge(RectangleF band, IReadOnlyList<float> normalizedValues)
+    {
+        var n = normalizedValues.Count;
+        if (n <= 1)
+        {
+            return Array.Empty<PointF>();
+        }
+
+        var points = new PointF[n];
+        for (var i = 0; i < n; i++)
+        {
+            var x = band.Left + band.Width * i / (n - 1);
+            var clamped = Math.Clamp(normalizedValues[i], 0f, 1f);
+            var y = band.Bottom - clamped * band.Height;
+            points[i] = new PointF(x, y);
+        }
+        return points;
     }
 
     /// <summary>
@@ -166,14 +260,10 @@ internal static class MonitoringTileRenderer
     /// </summary>
     private static void RenderSegments(IImageProcessingContext ctx, MonitoringTileInput input, int size, Color accent, (float Min, float Max) domain, bool nameShown)
     {
-        var bandTop = size * (nameShown ? LineBandTopWithName : LineBandTopNoName);
-        var bandBottom = size * LineBandBottom;
-        var inset = size * LineBandInsetXFraction;
-        var bandLeft = inset;
-        var bandWidth = size - inset * 2f;
+        var band = ComputeGraphBand(size, nameShown);
 
         var gap = Math.Max(1f, size * SegmentsGapFraction);
-        var segmentWidth = (bandWidth - gap * (SegmentsCount - 1)) / SegmentsCount;
+        var segmentWidth = (band.Width - gap * (SegmentsCount - 1)) / SegmentsCount;
         if (segmentWidth <= 0f)
         {
             return;
@@ -185,8 +275,8 @@ internal static class MonitoringTileRenderer
 
         for (var i = 0; i < SegmentsCount; i++)
         {
-            var x = bandLeft + i * (segmentWidth + gap);
-            var rect = new RectangleF(x, bandTop, segmentWidth, bandBottom - bandTop);
+            var x = band.Left + i * (segmentWidth + gap);
+            var rect = new RectangleF(x, band.Top, segmentWidth, band.Height);
             var color = i < filledCount ? accent : TrackColor;
             // Radius clamps to half the bar's width in BuildRoundedRect, so
             // passing the width itself always yields a full pill at this scale.

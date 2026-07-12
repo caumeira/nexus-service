@@ -194,6 +194,23 @@ public class MonitoringTileRendererTests
         Assert.Equal(80, image.Width);
     }
 
+    [Fact]
+    public void Render_line_style_tolerates_a_single_history_sample()
+    {
+        var input = new MonitoringTileInput
+        {
+            Name = "CPU",
+            ValueText = "42%",
+            SensorType = "Load",
+            History = new List<float> { 42f },
+            Style = MonitoringTileStyle.Line,
+        };
+
+        using var image = MonitoringTileRenderer.Render(input, 80);
+
+        Assert.Equal(80, image.Width);
+    }
+
     [Theory]
     [InlineData(MonitoringTileStyle.Segments)]
     [InlineData(MonitoringTileStyle.Backdrop)]
@@ -262,12 +279,8 @@ public class MonitoringTileRendererTests
         Assert.NotEqual(RenderKit.ToRgb24(line), RenderKit.ToRgb24(segments));
     }
 
-    // nexus-web's DeckMonitoringCell renders Backdrop as the same history
-    // series, domain, and graph band as Line at full accent opacity with no
-    // stroke; RenderLine already renders that way, so the two styles match
-    // pixel for pixel on this renderer.
     [Fact]
-    public void Render_backdrop_matches_line_pixel_for_pixel()
+    public void Render_backdrop_produces_different_pixels_from_line_at_the_same_input()
     {
         static MonitoringTileInput Input(MonitoringTileStyle style) => new()
         {
@@ -281,7 +294,53 @@ public class MonitoringTileRendererTests
         using var line = MonitoringTileRenderer.Render(Input(MonitoringTileStyle.Line), 80);
         using var backdrop = MonitoringTileRenderer.Render(Input(MonitoringTileStyle.Backdrop), 80);
 
-        Assert.Equal(RenderKit.ToRgb24(line), RenderKit.ToRgb24(backdrop));
+        Assert.NotEqual(RenderKit.ToRgb24(line), RenderKit.ToRgb24(backdrop));
+    }
+
+    [Fact]
+    public void Render_backdrop_fills_edge_to_edge_reaching_corners_line_does_not()
+    {
+        // A flat series maxed at the domain ceiling fills Backdrop's whole
+        // key face corner to corner. The sampled corner sits outside Line's
+        // inset middle band and outside both styles' centered text.
+        var maxedHistory = new List<float> { 100f, 100f, 100f, 100f, 100f };
+        static MonitoringTileInput Input(MonitoringTileStyle style, IReadOnlyList<float> history) => new()
+        {
+            Name = "CPU",
+            ValueText = "100%",
+            SensorType = "Load",
+            History = history,
+            Style = style,
+        };
+
+        const int size = 80;
+        const int x = 2;
+        const int y = 78;
+        var offset = (y * size + x) * 4;
+
+        using var line = MonitoringTileRenderer.Render(Input(MonitoringTileStyle.Line, maxedHistory), size);
+        using var backdrop = MonitoringTileRenderer.Render(Input(MonitoringTileStyle.Backdrop, maxedHistory), size);
+
+        var lineRgba = RenderKit.ToRgba32Bytes(line);
+        var backdropRgba = RenderKit.ToRgba32Bytes(backdrop);
+
+        Assert.Equal(0x0e, lineRgba[offset]);
+        Assert.Equal(0x11, lineRgba[offset + 1]);
+        Assert.Equal(0x16, lineRgba[offset + 2]);
+
+        Assert.False(backdropRgba[offset] == 0x0e && backdropRgba[offset + 1] == 0x11 && backdropRgba[offset + 2] == 0x16);
+    }
+
+    [Fact]
+    public void Render_backdrop_draws_the_value_as_a_centered_overlay()
+    {
+        var withValue = new MonitoringTileInput { Name = "CPU", ValueText = "70%", SensorType = "Load", History = History, Style = MonitoringTileStyle.Backdrop };
+        var withoutValue = new MonitoringTileInput { Name = "CPU", ValueText = "", SensorType = "Load", History = History, Style = MonitoringTileStyle.Backdrop };
+
+        using var imageWithValue = MonitoringTileRenderer.Render(withValue, 80);
+        using var imageWithoutValue = MonitoringTileRenderer.Render(withoutValue, 80);
+
+        Assert.NotEqual(RenderKit.ToRgb24(imageWithValue), RenderKit.ToRgb24(imageWithoutValue));
     }
 
     [Theory]
