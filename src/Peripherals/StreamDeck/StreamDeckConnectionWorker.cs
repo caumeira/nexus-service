@@ -432,6 +432,24 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
     }
 
+    /// <summary>Test seam: snapshot of a monitoring key's history ring buffer, or null if no entry exists.</summary>
+    internal IReadOnlyList<float>? MonitoringHistoryForTests(string serial, int page, string slotPath)
+    {
+        lock (_lock)
+        {
+            return _monitoringHistory.TryGetValue(BuildMonitoringKey(serial, page, slotPath), out var history) ? history.ToList() : null;
+        }
+    }
+
+    /// <summary>Test seam: true if a last-pushed-hash entry exists for this monitoring key.</summary>
+    internal bool HasMonitoringHashForTests(string serial, int page, string slotPath)
+    {
+        lock (_lock)
+        {
+            return _monitoringLastHash.ContainsKey(BuildMonitoringKey(serial, page, slotPath));
+        }
+    }
+
     private void ReconcileHidSurfaces()
     {
         var seenPaths = new HashSet<string>();
@@ -1118,16 +1136,26 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _monitoringRoundRobinCursor = (_monitoringRoundRobinCursor + pushCount) % visible.Count;
     }
 
+    /// <summary>
+    /// Does not append while the sensor is unresolved, so a sensor that
+    /// disappears and later returns resumes its graph from the last real
+    /// shape instead of dragging in a zero-trough; an empty buffer stays
+    /// empty until the sensor first resolves.
+    /// </summary>
     private HardwareSensor? SampleMonitoringHistory(MonitoringKeyRef key)
     {
         var action = key.Slot.Action!;
         var sensor = SensorSnapshotResolver.Resolve(_sensors, action.Category ?? "", action.Sensor ?? "");
+        if (sensor is null)
+        {
+            return null;
+        }
         if (!_monitoringHistory.TryGetValue(key.HistoryKey, out var history))
         {
             history = new List<float>(MonitoringHistoryLength);
             _monitoringHistory[key.HistoryKey] = history;
         }
-        history.Add(sensor?.Value ?? 0f);
+        history.Add(sensor.Value);
         if (history.Count > MonitoringHistoryLength)
         {
             history.RemoveAt(0);
@@ -1288,6 +1316,60 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
     }
 
+    /// <summary>
+    /// Drops history/last-pushed-hash entries for this serial whose (page,
+    /// slotPath) no longer resolves to a monitoring-typed slot in the given
+    /// config, so a config edit that deletes or retypes a monitoring slot
+    /// (or deletes a page) does not orphan its ring buffer while the deck
+    /// stays connected. Caller must hold _lock.
+    /// </summary>
+    private void EvictOrphanedMonitoringEntriesForSerial(string serial, DeckConfig config)
+    {
+        var prefix = serial + ":";
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var k in _monitoringHistory.Keys)
+        {
+            if (k.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                keys.Add(k);
+            }
+        }
+        foreach (var k in _monitoringLastHash.Keys)
+        {
+            if (k.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                keys.Add(k);
+            }
+        }
+        foreach (var key in keys)
+        {
+            if (MonitoringKeyStillResolves(config, key, prefix))
+            {
+                continue;
+            }
+            _monitoringHistory.Remove(key);
+            _monitoringLastHash.Remove(key);
+        }
+    }
+
+    /// <summary>Parses a "{serial}:{page}:{slotPath}" monitoring key (see BuildMonitoringKey) and resolves it against config.</summary>
+    private static bool MonitoringKeyStillResolves(DeckConfig config, string historyKey, string serialPrefix)
+    {
+        var remainder = historyKey.AsSpan(serialPrefix.Length);
+        var separator = remainder.IndexOf(':');
+        if (separator < 0 || !int.TryParse(remainder[..separator], out var page))
+        {
+            return false;
+        }
+        var indices = DeckConfigNavigation.ParseSlotPath(remainder[(separator + 1)..].ToString());
+        if (indices is null)
+        {
+            return false;
+        }
+        var slot = DeckConfigNavigation.ResolveSlot(config, page, indices);
+        return slot?.Action?.Type == "monitoring";
+    }
+
     private void PushCurrentView(IStreamDeckSurface surface)
     {
         InvalidateMonitoringHashesForSerial(surface.Serial);
@@ -1298,6 +1380,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         var settings = _store.Load().StreamDeck;
         settings.Decks.TryGetValue(surface.Serial, out var deck);
         var config = deck?.Deck ?? new DeckConfig();
+        EvictOrphanedMonitoringEntriesForSerial(surface.Serial, config);
         var page = ClampCurrentPageLocked(surface.Serial, config);
 
         var view = DeckConfigNavigation.ResolveView(config, page, folderPath);

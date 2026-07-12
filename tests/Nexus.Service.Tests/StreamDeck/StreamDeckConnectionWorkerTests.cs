@@ -1494,6 +1494,184 @@ public class StreamDeckConnectionWorkerTests
         Assert.Equal(callsAfterNav, simulated.SetKeyImageCallCount);
     }
 
+    [Fact]
+    public void SampleMonitoringHistory_SensorGoesUnresolvedThenReturns_DoesNotAppendZeroTrough()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 10f, Formatted = "10%", Parent = new SensorParent() },
+        };
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "line" };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick();
+        worker.Tick();
+        worker.Tick();
+
+        var beforeUnresolved = worker.MonitoringHistoryForTests("sim-0001", 0, "0");
+        Assert.NotNull(beforeUnresolved);
+        Assert.All(beforeUnresolved!, v => Assert.Equal(10f, v));
+        var sampleCount = beforeUnresolved!.Count;
+
+        // The sensor id disappears (device unplugged, id gone). More ticks
+        // than MonitoringHistoryLength so a zero-trough bug would clearly
+        // show as both growth and altered values.
+        f.Sensors.CpuSensors = Array.Empty<HardwareSensor>();
+        for (var i = 0; i < 45; i++)
+        {
+            worker.Tick();
+        }
+
+        var whileUnresolved = worker.MonitoringHistoryForTests("sim-0001", 0, "0");
+        Assert.NotNull(whileUnresolved);
+        Assert.Equal(sampleCount, whileUnresolved!.Count);
+        Assert.All(whileUnresolved!, v => Assert.Equal(10f, v));
+
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 55f, Formatted = "55%", Parent = new SensorParent() },
+        };
+        worker.Tick();
+
+        var afterResolved = worker.MonitoringHistoryForTests("sim-0001", 0, "0");
+        Assert.NotNull(afterResolved);
+        Assert.Equal(sampleCount + 1, afterResolved!.Count);
+        Assert.Equal(55f, afterResolved![^1]);
+    }
+
+    [Fact]
+    public void SampleMonitoringHistory_NeverResolved_HistoryStaysEmpty()
+    {
+        var f = NewFixtures(devicePresent: false); // no CpuSensors configured: "cpu/missing" never resolves
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/missing", Style = "number" };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        for (var i = 0; i < 5; i++)
+        {
+            worker.Tick();
+        }
+
+        Assert.Null(worker.MonitoringHistoryForTests("sim-0001", 0, "0"));
+    }
+
+    /// <summary>
+    /// The deck-config PUT route saves the new config then calls RefreshView
+    /// (PushCurrentView) while the deck stays connected - the eviction path
+    /// under test must run there, not only on disconnect.
+    /// </summary>
+    [Fact]
+    public void PushCurrentView_ConfigEditRetypesAMonitoringSlot_EvictsItsHistoryAndHash_SurvivingSlotHistoryUntouched()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 7f, Formatted = "7%", Parent = new SensorParent() },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+                            new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+                        },
+                    },
+                },
+            },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick();
+        worker.Tick();
+        worker.Tick();
+
+        var survivorHistoryBefore = worker.MonitoringHistoryForTests("sim-0001", 0, "0");
+        Assert.NotNull(survivorHistoryBefore);
+        Assert.NotNull(worker.MonitoringHistoryForTests("sim-0001", 0, "1"));
+        Assert.True(worker.HasMonitoringHashForTests("sim-0001", 0, "1"));
+
+        // Config edit retypes slot 1 away from monitoring, as the deck-config
+        // PUT route's persisted change would.
+        f.Store.Update(s =>
+        {
+            s.StreamDeck.Decks["sim-0001"].Deck.Pages[0].Slots[1] =
+                new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://example.com" } };
+        });
+        worker.RefreshView("sim-0001");
+
+        Assert.Null(worker.MonitoringHistoryForTests("sim-0001", 0, "1"));
+        Assert.False(worker.HasMonitoringHashForTests("sim-0001", 0, "1"));
+
+        // RefreshView's own PushCurrentView call inline-samples every still-
+        // visible monitoring slot (see the PushCurrentView monitoring-slot
+        // branch), so slot 0 gains exactly one more sample - it must not be
+        // reset to a fresh single-sample buffer by the eviction pass.
+        var survivorHistoryAfter = worker.MonitoringHistoryForTests("sim-0001", 0, "0");
+        Assert.NotNull(survivorHistoryAfter);
+        Assert.Equal(survivorHistoryBefore!.Count + 1, survivorHistoryAfter!.Count);
+        for (var i = 0; i < survivorHistoryBefore.Count; i++)
+        {
+            Assert.Equal(survivorHistoryBefore[i], survivorHistoryAfter[i]);
+        }
+    }
+
+    /// <summary>Deleting a page orphans that page's monitoring entries the same way retyping a slot does; ResolveSlot returns null once the page index is out of range.</summary>
+    [Fact]
+    public void PushCurrentView_ConfigEditDeletesAPage_EvictsThatPagesMonitoringHistory()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 3f, Formatted = "3%", Parent = new SensorParent() },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "page", Op = "next" } } } },
+                    new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } } } },
+                },
+            },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        Assert.True(worker.SetNav("sim-0001", 1, Array.Empty<int>()));
+        worker.Tick();
+        worker.Tick();
+        Assert.NotNull(worker.MonitoringHistoryForTests("sim-0001", 1, "0"));
+
+        // Config edit deletes page 1; the deck's tracked current page (still
+        // 1 at this point) will clamp back to 0 once PushCurrentView runs.
+        f.Store.Update(s =>
+        {
+            s.StreamDeck.Decks["sim-0001"].Deck.Pages.RemoveAt(1);
+        });
+        worker.RefreshView("sim-0001");
+
+        Assert.Null(worker.MonitoringHistoryForTests("sim-0001", 1, "0"));
+    }
+
     private sealed class MutableUsbEnumerator : IUsbEnumerator
     {
         public List<UsbDeviceEntry> Devices { get; } = new();
