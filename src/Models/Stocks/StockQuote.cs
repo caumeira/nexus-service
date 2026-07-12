@@ -22,7 +22,7 @@ public sealed class StockQuote
 
 public sealed class StockQuotesResponse
 {
-    /// <summary>Effective range actually used (falls back to "1d" for an unrecognized request value).</summary>
+    /// <summary>Effective range actually used (falls back to the default range for an unrecognized request value).</summary>
     public string Range { get; set; } = "";
     public List<StockQuote> Quotes { get; set; } = new();
 }

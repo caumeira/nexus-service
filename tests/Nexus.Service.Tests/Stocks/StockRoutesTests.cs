@@ -56,4 +56,22 @@ public sealed class StockRoutesTests
 
         Assert.Equal(new[] { "^DJI", "^IXIC", "^GSPC", "EURUSD=X", "AAPL", "GOOG" }, result);
     }
+
+    [Fact]
+    public void ResolveSymbols_dedups_case_insensitive_duplicates_preserving_first_seen_order()
+    {
+        var result = StockRoutes.ResolveSymbols("AAPL,aapl,AAPL,^DJI,^dji");
+
+        Assert.Equal(new[] { "AAPL", "^DJI" }, result);
+    }
+
+    [Fact]
+    public void ResolveSymbols_caps_at_twelve_after_dedup_not_before()
+    {
+        var many = string.Join(',', Enumerable.Range(0, 20).Select(i => "AAPL"));
+
+        var result = StockRoutes.ResolveSymbols(many);
+
+        Assert.Equal(new[] { "AAPL" }, result);
+    }
 }

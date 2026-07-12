@@ -6,7 +6,7 @@ using Nexus.Service.Platform.Stocks;
 
 namespace Nexus.Service.Routes;
 
-public static class StockRoutes
+public static partial class StockRoutes
 {
     private const string DefaultSymbols = "^DJI,^IXIC,^GSPC,EURUSD=X,AAPL,GOOG";
     private const string SymbolPattern = @"^[A-Za-z0-9^.=\-]{1,12}$";
@@ -16,6 +16,9 @@ public static class StockRoutes
     {
         "1d", "5d", "1mo", "3mo", "6mo", "1y",
     };
+
+    [GeneratedRegex(SymbolPattern)]
+    private static partial Regex SymbolRegex();
 
     public static void MapStockEndpoints(this WebApplication app)
     {
@@ -34,15 +37,22 @@ public static class StockRoutes
     {
         var raw = string.IsNullOrWhiteSpace(symbols) ? DefaultSymbols : symbols;
         var result = new List<string>(MaxSymbols);
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         foreach (var part in raw.Split(','))
         {
             var trimmed = part.Trim();
-            if (trimmed.Length == 0 || !Regex.IsMatch(trimmed, SymbolPattern))
+            if (trimmed.Length == 0 || !SymbolRegex().IsMatch(trimmed))
             {
                 continue;
             }
 
-            result.Add(trimmed);
+            var normalized = trimmed.ToUpperInvariant();
+            if (!seen.Add(normalized))
+            {
+                continue;
+            }
+
+            result.Add(normalized);
             if (result.Count == MaxSymbols)
             {
                 break;

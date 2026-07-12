@@ -204,4 +204,66 @@ public sealed class YahooStockQuoteProviderTests
         Assert.Null(quote.PriceHint);
         Assert.Empty(quote.Series);
     }
+
+    [Fact]
+    public async Task GetQuotesAsync_dedups_case_insensitive_duplicates_to_one_upstream_fetch()
+    {
+        using var server = new StubYahooServer { ResponseFactory = _ => HttpOk(AaplChartJson) };
+        var provider = new YahooStockQuoteProvider(new SingleClientFactory(), $"http://127.0.0.1:{server.Port}");
+
+        var response = await provider.GetQuotesAsync(new[] { "AAPL", "aapl", "AAPL" }, "1d");
+
+        var quote = Assert.Single(response.Quotes);
+        Assert.Equal("AAPL", quote.Symbol);
+        Assert.Equal(1, server.RequestCount);
+    }
+
+    [Fact]
+    public async Task Concurrent_calls_for_the_same_symbol_coalesce_into_one_upstream_fetch()
+    {
+        using var server = new StubYahooServer
+        {
+            // Widens the coalescing window so both concurrent calls below
+            // observe the cache/in-flight miss before either completes its
+            // fetch, rather than racing on real scheduling alone.
+            ResponseFactory = _ =>
+            {
+                Thread.Sleep(50);
+                return HttpOk(AaplChartJson);
+            },
+        };
+        var provider = new YahooStockQuoteProvider(new SingleClientFactory(), $"http://127.0.0.1:{server.Port}");
+
+        var first = provider.GetQuotesAsync(new[] { "AAPL" }, "1d");
+        var second = provider.GetQuotesAsync(new[] { "AAPL" }, "1d");
+        var results = await Task.WhenAll(first, second);
+
+        Assert.Equal(213.25, results[0].Quotes[0].Price);
+        Assert.Equal(213.25, results[1].Quotes[0].Price);
+        Assert.Equal(1, server.RequestCount);
+    }
+
+    [Fact]
+    public async Task Cache_evicts_oldest_entry_first_when_over_cap()
+    {
+        using var server = new StubYahooServer { ResponseFactory = _ => HttpOk(AaplChartJson) };
+        var provider = new YahooStockQuoteProvider(
+            new SingleClientFactory(), $"http://127.0.0.1:{server.Port}",
+            dailyTtl: TimeSpan.FromMinutes(10), otherRangeTtl: TimeSpan.FromMinutes(10), staleServeTtl: TimeSpan.FromHours(2),
+            cacheCap: 2);
+
+        await provider.GetQuotesAsync(new[] { "AAA" }, "1d");
+        await provider.GetQuotesAsync(new[] { "BBB" }, "1d");
+        await provider.GetQuotesAsync(new[] { "CCC" }, "1d");
+        Assert.Equal(3, server.RequestCount);
+
+        // AAA is the oldest-fetched entry and the cap is 2, so it was
+        // evicted on CCC's write-back and must be refetched.
+        await provider.GetQuotesAsync(new[] { "AAA" }, "1d");
+        Assert.Equal(4, server.RequestCount);
+
+        // CCC is the newest entry and must still be cached.
+        await provider.GetQuotesAsync(new[] { "CCC" }, "1d");
+        Assert.Equal(4, server.RequestCount);
+    }
 }

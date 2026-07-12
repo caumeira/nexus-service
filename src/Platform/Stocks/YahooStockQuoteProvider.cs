@@ -13,17 +13,25 @@ namespace Nexus.Service.Platform.Stocks;
 /// Stock/index quote provider backed by Yahoo Finance's undocumented chart
 /// endpoint (no API key). Yahoo's chart endpoint is single-symbol only, so
 /// <see cref="GetQuotesAsync"/> fans out one request per symbol concurrently.
+/// Symbols are folded to uppercase invariant and deduplicated before
+/// fanning out, so case-variant spellings of the same symbol share one
+/// cache entry and one upstream fetch.
 ///
 /// The per-symbol cache lock is released before the HTTP fetch and
 /// re-acquired only to read the snapshot and to write the result back -
 /// unlike a lock held across the whole fetch, this lets concurrent symbols
 /// in one request fetch in parallel instead of queuing behind a single
 /// shared lock. A re-check on write-back avoids clobbering a fresher entry
-/// another caller already wrote while this fetch was in flight.
+/// another caller already wrote while this fetch was in flight. Concurrent
+/// callers racing on the same (symbol, range) key coalesce onto a single
+/// in-flight fetch instead of each firing an upstream request. The cache is
+/// capped: each write prunes entries past the stale-serve window, then
+/// evicts the oldest-fetched entries if still over the cap.
 /// </summary>
 public sealed class YahooStockQuoteProvider : IStockQuoteProvider
 {
     private const string DefaultBaseUrl = "https://query1.finance.yahoo.com";
+    private const int DefaultCacheCap = 256;
 
     private static readonly TimeSpan DefaultDailyTtl = TimeSpan.FromSeconds(60);
     private static readonly TimeSpan DefaultOtherRangeTtl = TimeSpan.FromSeconds(300);
@@ -34,8 +42,10 @@ public sealed class YahooStockQuoteProvider : IStockQuoteProvider
     private readonly TimeSpan _dailyTtl;
     private readonly TimeSpan _otherRangeTtl;
     private readonly TimeSpan _staleServeTtl;
+    private readonly int _cacheCap;
 
     private readonly Dictionary<(string Symbol, string Range), (StockQuote Quote, DateTime FetchedUtc)> _cache = new();
+    private readonly Dictionary<(string Symbol, string Range), Task<StockQuote>> _inFlight = new();
     private readonly SemaphoreSlim _lock = new(1, 1);
 
     public YahooStockQuoteProvider(IHttpClientFactory http)
@@ -50,25 +60,28 @@ public sealed class YahooStockQuoteProvider : IStockQuoteProvider
     {
     }
 
-    // Test-only ctor: overridable cache TTLs so a test can force an entry
-    // past its primary TTL (and into the stale-serve window) without a real
-    // multi-minute sleep.
+    // Test-only ctor: overridable cache TTLs and cap so a test can force an
+    // entry past its primary TTL (into the stale-serve window) or past the
+    // eviction cap without a real multi-minute sleep or hundreds of fetches.
     internal YahooStockQuoteProvider(
-        IHttpClientFactory http, string baseUrl, TimeSpan dailyTtl, TimeSpan otherRangeTtl, TimeSpan staleServeTtl)
+        IHttpClientFactory http, string baseUrl, TimeSpan dailyTtl, TimeSpan otherRangeTtl, TimeSpan staleServeTtl,
+        int cacheCap = DefaultCacheCap)
     {
         _http = http;
         _baseUrl = baseUrl;
         _dailyTtl = dailyTtl;
         _otherRangeTtl = otherRangeTtl;
         _staleServeTtl = staleServeTtl;
+        _cacheCap = cacheCap;
     }
 
     public async Task<StockQuotesResponse> GetQuotesAsync(IReadOnlyList<string> symbols, string range)
     {
+        var normalized = NormalizeSymbols(symbols);
         try
         {
-            var tasks = new List<Task<StockQuote>>(symbols.Count);
-            foreach (var symbol in symbols)
+            var tasks = new List<Task<StockQuote>>(normalized.Count);
+            foreach (var symbol in normalized)
             {
                 tasks.Add(GetOneAsync(symbol, range));
             }
@@ -78,13 +91,31 @@ public sealed class YahooStockQuoteProvider : IStockQuoteProvider
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[stocks] failed: {ex.Message}");
-            var quotes = new List<StockQuote>(symbols.Count);
-            foreach (var symbol in symbols)
+            var quotes = new List<StockQuote>(normalized.Count);
+            foreach (var symbol in normalized)
             {
                 quotes.Add(new StockQuote { Symbol = symbol });
             }
             return new StockQuotesResponse { Range = range, Quotes = quotes };
         }
+    }
+
+    // Case-insensitive symbols are the same real quote (AAPL == aapl): fold
+    // to uppercase invariant so they share one cache entry, one upstream
+    // fetch, and one entry in the response, preserving first-seen order.
+    private static List<string> NormalizeSymbols(IReadOnlyList<string> symbols)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<string>(symbols.Count);
+        foreach (var symbol in symbols)
+        {
+            var normalized = symbol.ToUpperInvariant();
+            if (seen.Add(normalized))
+            {
+                result.Add(normalized);
+            }
+        }
+        return result;
     }
 
     private async Task<StockQuote> GetOneAsync(string symbol, string range)
@@ -94,6 +125,9 @@ public sealed class YahooStockQuoteProvider : IStockQuoteProvider
             var key = (Symbol: symbol, Range: range);
             var ttl = range == "1d" ? _dailyTtl : _otherRangeTtl;
 
+            Task<StockQuote>? existingFetch = null;
+            TaskCompletionSource<StockQuote>? owned = null;
+
             await _lock.WaitAsync().ConfigureAwait(false);
             try
             {
@@ -101,43 +135,128 @@ public sealed class YahooStockQuoteProvider : IStockQuoteProvider
                 {
                     return cached.Quote;
                 }
+
+                if (!_inFlight.TryGetValue(key, out existingFetch))
+                {
+                    owned = new TaskCompletionSource<StockQuote>(TaskCreationOptions.RunContinuationsAsynchronously);
+                    _inFlight[key] = owned.Task;
+                }
             }
             finally
             {
                 _lock.Release();
             }
 
-            var fetched = await FetchQuoteAsync(symbol, range).ConfigureAwait(false);
+            if (existingFetch is not null)
+            {
+                return await existingFetch.ConfigureAwait(false);
+            }
 
+            return await RunOwnedFetchAsync(key, symbol, range, ttl, owned!).ConfigureAwait(false);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[stocks] {symbol} failed: {ex.Message}");
+            return new StockQuote { Symbol = symbol };
+        }
+    }
+
+    // Only the caller that registered the in-flight task performs the fetch;
+    // concurrent callers for the same (symbol, range) key observe it in
+    // _inFlight and await this same task instead of firing a second upstream
+    // request. _lock guards only the map/cache bookkeeping, never the
+    // awaited HTTP fetch, so distinct symbols still fetch in parallel.
+    private async Task<StockQuote> RunOwnedFetchAsync(
+        (string Symbol, string Range) key, string symbol, string range, TimeSpan ttl, TaskCompletionSource<StockQuote> owned)
+    {
+        try
+        {
+            var result = await FetchAndUpdateCacheAsync(key, symbol, range, ttl).ConfigureAwait(false);
+            owned.TrySetResult(result);
+            return result;
+        }
+        catch (Exception ex)
+        {
+            owned.TrySetException(ex);
+            throw;
+        }
+        finally
+        {
             await _lock.WaitAsync().ConfigureAwait(false);
             try
             {
-                var now = DateTime.UtcNow;
-                if (fetched is not null)
-                {
-                    if (!_cache.TryGetValue(key, out var raced) || (now - raced.FetchedUtc) >= ttl)
-                    {
-                        _cache[key] = (fetched, now);
-                    }
-                    return fetched;
-                }
-
-                if (_cache.TryGetValue(key, out var stale) && (now - stale.FetchedUtc) < _staleServeTtl)
-                {
-                    return stale.Quote;
-                }
-
-                return new StockQuote { Symbol = symbol };
+                _inFlight.Remove(key);
             }
             finally
             {
                 _lock.Release();
             }
         }
-        catch (Exception ex)
+    }
+
+    private async Task<StockQuote> FetchAndUpdateCacheAsync(
+        (string Symbol, string Range) key, string symbol, string range, TimeSpan ttl)
+    {
+        var fetched = await FetchQuoteAsync(symbol, range).ConfigureAwait(false);
+
+        await _lock.WaitAsync().ConfigureAwait(false);
+        try
         {
-            Console.Error.WriteLine($"[stocks] {symbol} failed: {ex.Message}");
+            var now = DateTime.UtcNow;
+            if (fetched is not null)
+            {
+                if (!_cache.TryGetValue(key, out var raced) || (now - raced.FetchedUtc) >= ttl)
+                {
+                    WriteCacheLocked(key, fetched, now);
+                }
+                return fetched;
+            }
+
+            if (_cache.TryGetValue(key, out var stale) && (now - stale.FetchedUtc) < _staleServeTtl)
+            {
+                return stale.Quote;
+            }
+
             return new StockQuote { Symbol = symbol };
+        }
+        finally
+        {
+            _lock.Release();
+        }
+    }
+
+    // Caller must hold _lock. Prunes entries past the stale-serve window,
+    // then evicts the oldest-fetched entries first if still over the cap.
+    private void WriteCacheLocked((string Symbol, string Range) key, StockQuote quote, DateTime fetchedUtc)
+    {
+        var cutoff = fetchedUtc - _staleServeTtl;
+        List<(string Symbol, string Range)>? expired = null;
+        foreach (var entry in _cache)
+        {
+            if (entry.Value.FetchedUtc < cutoff)
+            {
+                (expired ??= new List<(string Symbol, string Range)>()).Add(entry.Key);
+            }
+        }
+        if (expired is not null)
+        {
+            foreach (var expiredKey in expired)
+            {
+                _cache.Remove(expiredKey);
+            }
+        }
+
+        _cache[key] = (quote, fetchedUtc);
+
+        var overflow = _cache.Count - _cacheCap;
+        if (overflow > 0)
+        {
+            var oldest = new List<KeyValuePair<(string Symbol, string Range), (StockQuote Quote, DateTime FetchedUtc)>>(_cache);
+            oldest.Sort((a, b) => a.Value.FetchedUtc.CompareTo(b.Value.FetchedUtc));
+            for (var i = 0; i < overflow; i++)
+            {
+                _cache.Remove(oldest[i].Key);
+            }
         }
     }
 
@@ -152,7 +271,7 @@ public sealed class YahooStockQuoteProvider : IStockQuoteProvider
 
             var interval = IntervalFor(range);
             var url = $"{_baseUrl}/v8/finance/chart/{Uri.EscapeDataString(symbol)}?range={range}&interval={interval}";
-            var resp = await client.GetAsync(url).ConfigureAwait(false);
+            using var resp = await client.GetAsync(url).ConfigureAwait(false);
             if (!resp.IsSuccessStatusCode)
             {
                 Console.Error.WriteLine($"[stocks] {symbol} returned {(int)resp.StatusCode}");
