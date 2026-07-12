@@ -928,6 +928,12 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
+    public static IServiceCollection AddNexusStocks(this IServiceCollection services)
+    {
+        services.AddSingleton<Nexus.Service.Platform.Stocks.IStockQuoteProvider, Nexus.Service.Platform.Stocks.YahooStockQuoteProvider>();
+        return services;
+    }
+
     public static IServiceCollection AddNexusPeripherals(this IServiceCollection services)
     {
 #if WINDOWS
