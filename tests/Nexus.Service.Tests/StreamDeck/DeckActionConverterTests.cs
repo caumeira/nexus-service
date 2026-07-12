@@ -423,6 +423,42 @@ public class DeckActionConverterTests
     }
 
     [Fact]
+    public void Monitoring_V3FieldsPresent_RoundTrips()
+    {
+        var json = "{\"type\":\"monitoring\",\"category\":\"cpu\",\"sensor\":\"summary/cpu-temp\",\"style\":\"line\","
+            + "\"labelText\":\"Core Temp\",\"scale\":\"fixed\",\"min\":20,\"max\":90}";
+        var a = Deserialize(json);
+        Assert.Equal("Core Temp", a.LabelText);
+        Assert.Equal("fixed", a.Scale);
+        Assert.Equal(20, a.Min);
+        Assert.Equal(90, a.Max);
+
+        var b = RoundTrip(a);
+        Assert.Equal(a.LabelText, b.LabelText);
+        Assert.Equal(a.Scale, b.Scale);
+        Assert.Equal(a.Min, b.Min);
+        Assert.Equal(a.Max, b.Max);
+    }
+
+    [Fact]
+    public void Monitoring_V3FieldsAbsent_DefaultToNullAndBehaveAsLegacy()
+    {
+        var a = Deserialize("{\"type\":\"monitoring\",\"category\":\"cpu\",\"sensor\":\"summary/cpu-usage\",\"style\":\"line\"}");
+        Assert.Null(a.LabelText);
+        Assert.Null(a.Scale);
+        Assert.Null(a.Min);
+        Assert.Null(a.Max);
+
+        var raw = JsonSerializer.Serialize(a, AppJsonContext.Default.DeckAction);
+        using var doc = JsonDocument.Parse(raw);
+        var root = doc.RootElement;
+        Assert.False(root.TryGetProperty("labelText", out _));
+        Assert.False(root.TryGetProperty("scale", out _));
+        Assert.False(root.TryGetProperty("min", out _));
+        Assert.False(root.TryGetProperty("max", out _));
+    }
+
+    [Fact]
     public void PersistenceJsonContext_UsesTheSameConverter()
     {
         var json = "{\"type\":\"power\",\"action\":\"sleep\"}";

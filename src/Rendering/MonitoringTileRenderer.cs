@@ -14,21 +14,29 @@ public enum MonitoringTileStyle { Line, Segments, Backdrop, Number }
 
 /// <summary>
 /// Everything <see cref="MonitoringTileRenderer.Render"/> needs to draw one
-/// tile, already resolved by the caller (slot label vs sensor display name,
-/// title-style overrides vs deck defaults). History is the sample buffer to
+/// tile, already resolved by the caller (title-style overrides vs deck
+/// defaults) except the LabelText-vs-Name and fixed-vs-adaptive domain
+/// choices, which Render itself resolves. History is the sample buffer to
 /// plot, oldest first, with the current reading as its last entry; an empty
 /// buffer renders a blank graph with the current reading treated as 0.
 /// </summary>
 public sealed class MonitoringTileInput
 {
+    /// <summary>The sensor's own display name, shown at top when LabelText is unset or empty.</summary>
     public string Name { get; init; } = "";
+    /// <summary>Custom top label overriding Name. Empty or null falls back to Name.</summary>
+    public string? LabelText { get; init; }
     public bool ShowName { get; init; } = true;
     /// <summary>The sensor's service-formatted display string (HardwareSensor.Formatted). Never reformatted here.</summary>
     public string ValueText { get; init; } = "";
-    /// <summary>HardwareSensor.Type (Load, Temperature, Clock, ...), selects the graph/arc domain.</summary>
+    /// <summary>HardwareSensor.Type (Load, Temperature, Clock, ...), selects the graph/arc domain when Scale is not fixed.</summary>
     public string SensorType { get; init; } = "";
     public IReadOnlyList<float> History { get; init; } = Array.Empty<float>();
     public MonitoringTileStyle Style { get; init; } = MonitoringTileStyle.Line;
+    /// <summary>"fixed" pins the graph/fill domain to [Min,Max]; anything else (including null) is adaptive.</summary>
+    public string? Scale { get; init; }
+    public float? Min { get; init; }
+    public float? Max { get; init; }
     public string? AccentColorHex { get; init; }
     public string? BackgroundColorHex { get; init; }
     /// <summary>"default" | "arial" | "georgia" | "courierNew", matching nexus-web's DECK_TITLE_FONTS ids. Null/unrecognized falls back to the platform default.</summary>
@@ -111,8 +119,9 @@ internal static class MonitoringTileRenderer
         var titleFont = ResolveTitleFont(input.TitleFont);
         var titleFontStyle = ResolveFontStyle(input.TitleBold, input.TitleItalic);
         var titleSizePx = TitlePixelSize(input.TitleSize, pixelSize);
-        var nameShown = input.ShowName && !string.IsNullOrEmpty(input.Name);
-        var domain = ResolveDomain(input.SensorType, input.History);
+        var displayName = string.IsNullOrEmpty(input.LabelText) ? input.Name : input.LabelText;
+        var nameShown = input.ShowName && !string.IsNullOrEmpty(displayName);
+        var domain = ResolveDomain(input);
 
         image.Mutate(ctx =>
         {
@@ -129,7 +138,7 @@ internal static class MonitoringTileRenderer
             if (nameShown)
             {
                 var nameFont = titleFont.CreateFont(titleSizePx, titleFontStyle);
-                RenderKit.DrawCentered(ctx, input.Name, nameFont, titleColor, new PointF(pixelSize / 2f, pixelSize * NameYFraction));
+                RenderKit.DrawCentered(ctx, displayName!, nameFont, titleColor, new PointF(pixelSize / 2f, pixelSize * NameYFraction));
             }
 
             switch (input.Style)
@@ -335,6 +344,32 @@ internal static class MonitoringTileRenderer
             var unitY = centerY + size * NumberBigFontFraction * 0.62f;
             RenderKit.DrawCentered(ctx, unitText, unitFont, color, new PointF(size / 2f, unitY));
         }
+    }
+
+    /// <summary>
+    /// A valid fixed scale ([min,max] both set, finite, max greater than min)
+    /// wins outright; otherwise falls back to the sensorType/history adaptive
+    /// rules. Governs the segments/backdrop fill and the line/backdrop series
+    /// axis; the number style does not consume a domain.
+    /// </summary>
+    internal static (float Min, float Max) ResolveDomain(MonitoringTileInput input) =>
+        TryFixedDomain(input.Scale, input.Min, input.Max, out var fixedDomain)
+            ? fixedDomain
+            : ResolveDomain(input.SensorType, input.History);
+
+    private static bool TryFixedDomain(string? scale, float? min, float? max, out (float Min, float Max) domain)
+    {
+        domain = default;
+        if (scale != "fixed" || min is null || max is null)
+        {
+            return false;
+        }
+        if (!float.IsFinite(min.Value) || !float.IsFinite(max.Value) || max.Value <= min.Value)
+        {
+            return false;
+        }
+        domain = (min.Value, max.Value);
+        return true;
     }
 
     /// <summary>

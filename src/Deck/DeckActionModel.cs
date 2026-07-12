@@ -65,14 +65,23 @@ public sealed class DeckAction
     public string? Category { get; set; }
     /// <summary>monitoring: a concrete HardwareSensor.Id, never the "Temperature" preferred-temp sentinel.</summary>
     public string? Sensor { get; set; }
-    /// <summary>monitoring: line | radial | number.</summary>
+    /// <summary>monitoring: line | segments | backdrop | number. Legacy "radial" reads as segments, never written back.</summary>
     public string? Style { get; set; }
-    /// <summary>monitoring: graph/arc accent hex color. Unset falls back to MonitoringTileRenderer.DefaultAccent.</summary>
+    /// <summary>monitoring: line/segments/backdrop accent hex color. Unset falls back to MonitoringTileRenderer.DefaultAccent.</summary>
     public string? Color { get; set; }
     /// <summary>monitoring: shows the sensor name label at top. Unset falls back to true.</summary>
     public bool? ShowName { get; set; }
     /// <summary>monitoring: none | taskManager | monitoringPage. Unset falls back to none.</summary>
     public string? Press { get; set; }
+
+    /// <summary>monitoring: custom top label. Unset or empty falls back to the sensor's display name.</summary>
+    public string? LabelText { get; set; }
+    /// <summary>monitoring: adaptive | fixed. Unset falls back to adaptive, the existing pinned domain rules.</summary>
+    public string? Scale { get; set; }
+    /// <summary>monitoring: fixed-scale range floor. Ignored unless Scale is fixed and Max is a greater finite value.</summary>
+    public double? Min { get; set; }
+    /// <summary>monitoring: fixed-scale range ceiling. Ignored unless Scale is fixed and Min is a lesser finite value.</summary>
+    public double? Max { get; set; }
 }
 
 public sealed class DeckSystemAction
