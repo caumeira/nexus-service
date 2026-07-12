@@ -2,13 +2,14 @@ using System;
 using System.Collections.Generic;
 using SixLabors.Fonts;
 using SixLabors.ImageSharp;
+using SixLabors.ImageSharp.Drawing;
 using SixLabors.ImageSharp.Drawing.Processing;
 using SixLabors.ImageSharp.PixelFormats;
 using SixLabors.ImageSharp.Processing;
 
 namespace Nexus.Service.Rendering;
 
-public enum MonitoringTileStyle { Line, Radial, Number }
+public enum MonitoringTileStyle { Line, Segments, Backdrop, Number }
 
 /// <summary>
 /// Everything <see cref="MonitoringTileRenderer.Render"/> needs to draw one
@@ -64,15 +65,26 @@ internal static class MonitoringTileRenderer
     private const float LineBandBottom = 0.74f;
     private const float LineBandInsetXFraction = 0.08f;
 
-    private const float RadialBandTopWithName = 0.26f;
-    private const float RadialBandTopNoName = 0.08f;
-    private const float RadialBandBottom = 0.76f;
-    private const float RadialThicknessFraction = 0.22f;
-    private const float RadialStartDeg = 135f;
-    private const float RadialSweepDeg = 270f;
+    /// <summary>Mirrors nexus-web's DeckMonitoringCell SEGMENTS_COUNT.</summary>
+    private const int SegmentsCount = 16;
+    private const float SegmentsGapFraction = 0.014f;
 
     private const float NumberBigFontFraction = 0.30f;
     private const float NumberUnitFontFraction = 0.11f;
+
+    /// <summary>
+    /// Maps a persisted deck action style string to a render style. Legacy
+    /// "radial" (the arc style segments replaced) reads as Segments but is
+    /// never written back; unrecognized or absent values fall back to Line.
+    /// </summary>
+    internal static MonitoringTileStyle ParseStyle(string? style) => style switch
+    {
+        "segments" => MonitoringTileStyle.Segments,
+        "radial" => MonitoringTileStyle.Segments,
+        "backdrop" => MonitoringTileStyle.Backdrop,
+        "number" => MonitoringTileStyle.Number,
+        _ => MonitoringTileStyle.Line,
+    };
 
     public static Image<Rgba32> Render(MonitoringTileInput input, int pixelSize)
     {
@@ -101,10 +113,16 @@ internal static class MonitoringTileRenderer
                 case MonitoringTileStyle.Number:
                     RenderNumber(ctx, input, pixelSize, titleFont, titleColor, nameShown);
                     break;
-                case MonitoringTileStyle.Radial:
-                    RenderRadial(ctx, input, pixelSize, accent, domain, nameShown);
+                case MonitoringTileStyle.Segments:
+                    RenderSegments(ctx, input, pixelSize, accent, domain, nameShown);
                     DrawBottomValue(ctx, input, pixelSize, titleFont, titleColor);
                     break;
+                // nexus-web's DeckMonitoringCell renders Backdrop as the same
+                // history series and graph band as Line, just filled at full
+                // accent opacity with no stroke instead of Line's partial
+                // fill plus stroke; RenderLine already fills at full accent
+                // opacity with no stroke, so the same call covers both.
+                case MonitoringTileStyle.Backdrop:
                 default:
                     RenderLine(ctx, input, pixelSize, accent, domain, nameShown);
                     DrawBottomValue(ctx, input, pixelSize, titleFont, titleColor);
@@ -140,22 +158,73 @@ internal static class MonitoringTileRenderer
         ctx.Fill(accent, RenderKit.BuildFilledSeries(band, normalized));
     }
 
-    private static void RenderRadial(IImageProcessingContext ctx, MonitoringTileInput input, int size, Color accent, (float Min, float Max) domain, bool nameShown)
+    /// <summary>
+    /// Mirrors nexus-web's DeckMonitoringCell: a row of SegmentsCount
+    /// pill-shaped bars across the graph band, filled left to right by the
+    /// current reading's fill fraction. Reuses the Line band position so the
+    /// middle graph area lines up across styles.
+    /// </summary>
+    private static void RenderSegments(IImageProcessingContext ctx, MonitoringTileInput input, int size, Color accent, (float Min, float Max) domain, bool nameShown)
     {
-        var bandTop = size * (nameShown ? RadialBandTopWithName : RadialBandTopNoName);
-        var bandBottom = size * RadialBandBottom;
-        var bandHeight = bandBottom - bandTop;
-        var center = new PointF(size / 2f, bandTop + bandHeight / 2f);
-        var outerRadius = Math.Min(size * 0.42f, bandHeight / 2f);
-        var innerRadius = outerRadius * (1f - RadialThicknessFraction);
+        var bandTop = size * (nameShown ? LineBandTopWithName : LineBandTopNoName);
+        var bandBottom = size * LineBandBottom;
+        var inset = size * LineBandInsetXFraction;
+        var bandLeft = inset;
+        var bandWidth = size - inset * 2f;
+
+        var gap = Math.Max(1f, size * SegmentsGapFraction);
+        var segmentWidth = (bandWidth - gap * (SegmentsCount - 1)) / SegmentsCount;
+        if (segmentWidth <= 0f)
+        {
+            return;
+        }
 
         var current = input.History.Count > 0 ? input.History[^1] : 0f;
-        var fraction = RadialFraction(current, domain);
+        var fraction = FillFraction(current, domain);
+        var filledCount = (int)Math.Clamp(MathF.Round(fraction * SegmentsCount, MidpointRounding.AwayFromZero), 0f, (float)SegmentsCount);
 
-        ctx.Fill(TrackColor, RenderKit.BuildRingSegment(center, innerRadius, outerRadius, RadialStartDeg, RadialStartDeg + RadialSweepDeg));
-        if (fraction > 0f)
+        for (var i = 0; i < SegmentsCount; i++)
         {
-            ctx.Fill(accent, RenderKit.BuildRingSegment(center, innerRadius, outerRadius, RadialStartDeg, RadialStartDeg + RadialSweepDeg * fraction));
+            var x = bandLeft + i * (segmentWidth + gap);
+            var rect = new RectangleF(x, bandTop, segmentWidth, bandBottom - bandTop);
+            var color = i < filledCount ? accent : TrackColor;
+            // Radius clamps to half the bar's width in BuildRoundedRect, so
+            // passing the width itself always yields a full pill at this scale.
+            ctx.Fill(color, BuildRoundedRect(rect, segmentWidth));
+        }
+    }
+
+    /// <summary>
+    /// Builds a rounded-rectangle polygon from manual corner arcs, the same
+    /// approach RenderKit.BuildRingSegment uses, rather than depending on a
+    /// PathBuilder rounded-rect overload. Radius clamps to half the shorter
+    /// side, so a bar narrower than twice the requested radius renders as a
+    /// full pill.
+    /// </summary>
+    private static IPath BuildRoundedRect(RectangleF rect, float radius)
+    {
+        var maxRadius = Math.Max(0f, Math.Min(rect.Width, rect.Height) / 2f);
+        var r = Math.Clamp(radius, 0f, maxRadius);
+        if (r <= 0f)
+        {
+            return new RectangularPolygon(rect);
+        }
+
+        var points = new List<PointF>();
+        AddCornerArc(points, rect.Right - r, rect.Top + r, -90f, r);
+        AddCornerArc(points, rect.Right - r, rect.Bottom - r, 0f, r);
+        AddCornerArc(points, rect.Left + r, rect.Bottom - r, 90f, r);
+        AddCornerArc(points, rect.Left + r, rect.Top + r, 180f, r);
+        return new Polygon(new LinearLineSegment(points.ToArray()));
+    }
+
+    private static void AddCornerArc(List<PointF> points, float cx, float cy, float startDeg, float radius, int segments = 4)
+    {
+        for (var i = 0; i <= segments; i++)
+        {
+            var deg = startDeg + 90f * i / segments;
+            var rad = deg * MathF.PI / 180f;
+            points.Add(new PointF(cx + radius * MathF.Cos(rad), cy + radius * MathF.Sin(rad)));
         }
     }
 
@@ -223,12 +292,13 @@ internal static class MonitoringTileRenderer
     }
 
     /// <summary>
-    /// The radial arc fills by value/domainMax (not a min/max normalization
-    /// like the line graph's y-axis), so a fixed 0-100 domain reads as a true
-    /// percent-of-100 gauge. A degenerate domain still renders a neutral
-    /// mid-fill rather than 0 or 100.
+    /// Single-value fill fraction for value-fill styles (Segments' filled
+    /// count): value/domainMax, not a min/max normalization like the line
+    /// graph's y-axis, so a fixed 0-100 domain reads as a true percent-of-100
+    /// fill. A degenerate domain still renders a neutral mid-fill rather than
+    /// 0 or 100.
     /// </summary>
-    internal static float RadialFraction(float value, (float Min, float Max) domain)
+    internal static float FillFraction(float value, (float Min, float Max) domain)
     {
         if (domain.Max <= domain.Min)
         {

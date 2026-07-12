@@ -917,12 +917,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             ValueText = valueText,
             SensorType = sensorType,
             History = historyForRender,
-            Style = action.Style switch
-            {
-                "radial" => MonitoringTileStyle.Radial,
-                "number" => MonitoringTileStyle.Number,
-                _ => MonitoringTileStyle.Line,
-            },
+            Style = MonitoringTileRenderer.ParseStyle(action.Style),
             AccentColorHex = action.Color,
             BackgroundColorHex = key.Slot.Color,
             TitleFont = title?.Font,
