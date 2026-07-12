@@ -5,13 +5,14 @@ using System.Runtime.Versioning;
 using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Platform;
 using Nexus.Service.Serialization;
 
 namespace Nexus.Service.Helper.Domains;
 
 public sealed class FileDialogRequest
 {
-    public bool PickFolder { get; set; }
+    public FileDialogPickMode Mode { get; set; }
     /// <summary>Folder path for dialog.openFolder; unused by dialog.pick.</summary>
     public string Path { get; set; } = "";
 }
@@ -60,7 +61,7 @@ public static class FileDialogCommands
         return result.Ok;
     }
 
-    public static async Task<FileDialogResult> PickAsync(HelperRegistry r, bool folder, CancellationToken ct = default)
+    public static async Task<FileDialogResult> PickAsync(HelperRegistry r, FileDialogPickMode mode, CancellationToken ct = default)
     {
         var conn = r.GetAny();
         if (conn is null)
@@ -70,7 +71,7 @@ public static class FileDialogCommands
 
         var result = await conn.SendCommandAsync(
             PickType,
-            new FileDialogRequest { PickFolder = folder },
+            new FileDialogRequest { Mode = mode },
             AppJsonContext.Default.FileDialogRequest,
             timeoutMs: TimeoutMs,
             ct: ct).ConfigureAwait(false);
@@ -102,7 +103,7 @@ public sealed class FileDialogHandler
             var req = env.Payload is null
                 ? new FileDialogRequest()
                 : JsonSerializer.Deserialize(env.Payload.Value, AppJsonContext.Default.FileDialogRequest) ?? new FileDialogRequest();
-            var result = await Platform.Windows.NativeFileDialog.ShowAsync(req.PickFolder).ConfigureAwait(false);
+            var result = await Platform.Windows.NativeFileDialog.ShowAsync(req.Mode).ConfigureAwait(false);
             return new HelperResult
             {
                 Id = env.Id ?? "",

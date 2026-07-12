@@ -43,6 +43,7 @@ public sealed class GalleryRoutesTests : IDisposable
     private readonly Microsoft.AspNetCore.Mvc.Testing.WebApplicationFactory<Program> _factory;
     private readonly string _tempDir;
     private readonly string _photosDir;
+    private readonly StubPicker _picker = new();
 
     public GalleryRoutesTests()
     {
@@ -59,17 +60,24 @@ public sealed class GalleryRoutesTests : IDisposable
                 services.AddSingleton(new GalleryLibrary(galleryRoot));
                 // The real picker opens an OS dialog; tests stub it and only
                 // exercise the route plumbing + auth tier.
-                services.RemoveAll<IGalleryDialogPicker>();
-                services.AddSingleton<IGalleryDialogPicker>(new StubPicker());
+                services.RemoveAll<IFileDialogPicker>();
+                services.AddSingleton<IFileDialogPicker>(_picker);
             }));
     }
 
-    private sealed class StubPicker : IGalleryDialogPicker
+    /// <summary>Records the mode it was invoked with so a test can assert the
+    /// gallery route maps <c>{folder}</c> to the right <see cref="FileDialogPickMode"/>.</summary>
+    private sealed class StubPicker : IFileDialogPicker
     {
         public static readonly List<string> StubPaths = new() { "/stub/a.png", "/stub/b.png" };
 
-        public Task<GalleryPickResponse> PickAsync(bool folder, CancellationToken ct) =>
-            Task.FromResult(new GalleryPickResponse { Paths = StubPaths });
+        public FileDialogPickMode? LastMode { get; private set; }
+
+        public Task<FileDialogPickResult> PickAsync(FileDialogPickMode mode, CancellationToken ct)
+        {
+            LastMode = mode;
+            return Task.FromResult(new FileDialogPickResult { Paths = StubPaths });
+        }
     }
 
     public void Dispose()
@@ -181,6 +189,17 @@ public sealed class GalleryRoutesTests : IDisposable
         var parsed = await ReadAs(res, AppJsonContext.Default.GalleryPickResponse);
         Assert.False(parsed!.Error);
         Assert.Equal(StubPicker.StubPaths, parsed.Paths);
+        // Unchanged gallery behavior: files (Folder=false) still request the
+        // image-filter multiselect mode, not the deck Browse any-file mode.
+        Assert.Equal(FileDialogPickMode.ImagesMultiSelect, _picker.LastMode);
+    }
+
+    [Fact]
+    public async Task Pick_Folder_UsesFolderMode()
+    {
+        var res = await DesktopClient().PostAsJsonAsync("/gallery/pick", new GalleryPickBody { Folder = true });
+        Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+        Assert.Equal(FileDialogPickMode.Folder, _picker.LastMode);
     }
 
     // ── Exclusions ───────────────────────────────────────────────────────────
