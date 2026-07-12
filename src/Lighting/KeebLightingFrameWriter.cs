@@ -138,6 +138,7 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
     private void TickSoftwareEffect(NexusSettings settings, RgbColor?[]? reactive, bool mask)
     {
         var disabled = settings.Devices.DisabledLightingDevices;
+        var undriven = settings.Devices.UndrivenLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         // The keeb software stream brightness is min(global, per-zone). The
@@ -156,9 +157,12 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
         var zones = Nexus.Service.Lighting.Zones.ZoneResolution.Resolve(structure, settings);
         Nexus.Service.Lighting.Zones.SegmentFrameComposer.EnsureBuffers(structure, ref _segmentBuffers);
         var touched = Nexus.Service.Lighting.Zones.SegmentFrameComposer.Compose(
-            structure, zones, devices, disabled, prefs, globalBrightness, 1.0, nowTicks, _identify, _segmentBuffers);
+            structure, zones, devices, disabled, undriven, prefs, globalBrightness, 1.0, nowTicks, _identify, _segmentBuffers);
 
-        if (touched[KeebZoneSupport.KeysSegment])
+        // Keys and underglow stream over separate HID reports, so each segment
+        // can be handed back to firmware independently: a fully undriven
+        // segment simply isn't written this tick.
+        if (touched[KeebZoneSupport.KeysSegment] && !undriven.Contains(hubId + KeebLightingDeviceProvider.KeysSuffix))
         {
             if (reactive != null)
             {
@@ -166,7 +170,7 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
             }
             _hub.WriteKeyboard(_segmentBuffers[KeebZoneSupport.KeysSegment]);
         }
-        if (touched[KeebZoneSupport.UnderglowSegment])
+        if (touched[KeebZoneSupport.UnderglowSegment] && !undriven.Contains(hubId + KeebLightingDeviceProvider.UnderglowSuffix))
         {
             _hub.WriteSurround(_segmentBuffers[KeebZoneSupport.UnderglowSegment]);
         }

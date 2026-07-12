@@ -129,6 +129,10 @@ public sealed class RgbBridge : IDisposable
     // Only touched inside OnFrame which the engine serialises, so a plain HashSet
     // is safe here.
     private readonly HashSet<int> _touchedPhysicals = new();
+    // Reused across frames - physical index -> true when every zone frame
+    // mapped to it is undriven, so the whole physical device is skipped
+    // rather than pushed. Only touched inside OnFrame.
+    private readonly Dictionary<int, bool> _physFullyUndriven = new();
 
     private readonly IReadOnlyList<ILightingFrameContributor> _frameContributors;
     private readonly Nexus.Service.Lighting.Mappings.ContributorFrameLayouts _contributorLayouts;
@@ -633,7 +637,12 @@ public sealed class RgbBridge : IDisposable
                 }
             }
 
-            // Apply direct mode to any device we haven't seen yet.
+            // Apply direct mode to any device we haven't seen yet. A fully
+            // undriven device is skipped (and left out of _directModeApplied)
+            // so its firmware/vendor lighting stays live; the next refresh
+            // tick retries, so re-enabling driven claims it within one
+            // refresh interval without a service restart.
+            var settingsSnapshot = _store.Load();
             foreach (var dev in devices)
             {
                 bool isNew;
@@ -643,6 +652,11 @@ public sealed class RgbBridge : IDisposable
                 }
 
                 if (!isNew)
+                {
+                    continue;
+                }
+
+                if (OpenRgbZoneSupport.IsFullyUndriven(dev, settingsSnapshot))
                 {
                     continue;
                 }
@@ -723,7 +737,6 @@ public sealed class RgbBridge : IDisposable
             // the physical buffer.
             var existingFrames = _engine.Devices;
             var framesList = new List<DeviceFrame>(devices.Count);
-            var settingsSnapshot = _store.Load();
             var layouts = settingsSnapshot.Lighting.DeviceLayouts;
             int logicalOrdinal = 0;
             int cardSlot = 0;
@@ -1240,11 +1253,24 @@ public sealed class RgbBridge : IDisposable
         var settings = _store.Load();
         var disabled = settings.Devices.DisabledLightingDevices;
         var disabledCount = disabled.Count;
+        var undriven = settings.Devices.UndrivenLightingDevices;
+        var undrivenCount = undriven.Count;
         var devicePrefs = settings.Devices.LightingDevicePrefs;
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var nowTicks = DateTime.UtcNow.Ticks;
 
         _touchedPhysicals.Clear();
+        _physFullyUndriven.Clear();
+        if (undrivenCount > 0)
+        {
+            foreach (var df in deviceFrames)
+            {
+                var zoneUndriven = undriven.Contains(df.Id);
+                _physFullyUndriven[df.PhysicalIndex] = _physFullyUndriven.TryGetValue(df.PhysicalIndex, out var allSoFar)
+                    ? allSoFar && zoneUndriven
+                    : zoneUndriven;
+            }
+        }
 
         var deviceCount = frame[pos++];
         for (int d = 0; d < deviceCount && pos + 3 <= frame.Length; d++)
@@ -1279,7 +1305,14 @@ public sealed class RgbBridge : IDisposable
                 continue;
             }
 
-            var isOff = disabledCount > 0 && disabled.Contains(dev.Id);
+            if (undrivenCount > 0 && _physFullyUndriven.TryGetValue(dev.PhysicalIndex, out var physUndriven) && physUndriven)
+            {
+                pos += rgbSize;
+                continue;
+            }
+
+            var isOff = (disabledCount > 0 && disabled.Contains(dev.Id))
+                || (undrivenCount > 0 && undriven.Contains(dev.Id));
             var hasIdentify = _identifyOverrides.TryGetValue(dev.Id, out var idOverride)
                 && nowTicks < idOverride.expirationTicks;
             if (!hasIdentify && idOverride.expirationTicks != 0)

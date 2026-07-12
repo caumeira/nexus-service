@@ -95,6 +95,7 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
 
         var settings = _store.Load();
         var disabled = settings.Devices.DisabledLightingDevices;
+        var undriven = settings.Devices.UndrivenLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var nowTicks = DateTime.UtcNow.Ticks;
@@ -105,11 +106,20 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
         var effectiveBrightness = Math.Min(globalBrightness, portCap);
 
         var totalLeds = 0;
+        var anyChannel = false;
+        var hubFullyUndriven = true;
         foreach (var dev in hubDevices)
         {
-            if (dev.LedCount > 0) totalLeds += dev.LedCount;
+            if (dev.LedCount <= 0) continue;
+            totalLeds += dev.LedCount;
+            anyChannel = true;
+            if (hubFullyUndriven && !undriven.Contains($"corsair:ch{dev.Channel}")) hubFullyUndriven = false;
         }
         if (totalLeds == 0) return;
+
+        // Every channel undriven: leave the whole hub alone so firmware /
+        // vendor lighting can take over.
+        if (anyChannel && hubFullyUndriven) return;
 
         var totalBytes = totalLeds * 3;
         if (_wireBuf.Length < totalBytes) _wireBuf = new byte[Math.Max(totalBytes, 512)];
@@ -123,7 +133,7 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
             var zones = ZoneResolution.Resolve(structure, settings);
             SegmentFrameComposer.EnsureBuffers(structure, ref _segBuf);
             SegmentFrameComposer.Compose(
-                structure, zones, devices, disabled, prefs, effectiveBrightness, 1.0, nowTicks, _identify, _segBuf);
+                structure, zones, devices, disabled, undriven, prefs, effectiveBrightness, 1.0, nowTicks, _identify, _segBuf);
 
             // Segment 0 holds all LEDs for this device; copy as R,G,B (no swap).
             var buf = _segBuf[0];

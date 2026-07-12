@@ -91,6 +91,16 @@ public sealed class Galahad2LightingFrameWriter : IHostedService, IDisposable
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var brightnessRaw    = (byte)Math.Clamp((int)Math.Round(Math.Min((double)ls.Brightness, globalBrightness * 4.0)), 0, 4);
 
+        // Both rings share one wire packet, so a partial undriven state can't
+        // be split off - only leave the AIO alone entirely once every ring is.
+        var undriven = settings.Devices.UndrivenLightingDevices;
+        if (undriven.Count > 0
+            && undriven.Contains("lianli-aio:ring:inner")
+            && undriven.Contains("lianli-aio:ring:outer"))
+        {
+            return;
+        }
+
         if (ls.Mode == "canvas")
         {
             _lastFirmwareSig = null;

@@ -503,6 +503,14 @@ public sealed class SmartLightProvider : ILightingDeviceProvider, ILightingFrame
 
     private void PushStaticFrom(string id, NexusSettings s)
     {
+        // Undriven: submit nothing at all, not even On=false - the light is
+        // meant to keep whatever state its own app/scene left it in.
+        if (s.Devices.UndrivenLightingDevices.Contains(id))
+        {
+            _streamedStatic.TryRemove(id, out _);
+            return;
+        }
+
         // Control can run before BuildFrames populated the cache (e.g. right
         // after pairing) - resolve a snapshot so SubmitFrame has a device.
         if (!_cache.TryGetValue(id, out var dev))

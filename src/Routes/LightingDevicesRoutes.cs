@@ -278,6 +278,20 @@ public static partial class DevicesRoutes
             ld.SetPower(body.Id, body.On);
             return ApiResponse.Ok();
         });
+        // Undriven ids are pure persisted state - no provider owns a "not driven"
+        // action, so this writes the shared store directly rather than dispatching
+        // through ILightingDeviceProvider. Nudge RgbBridge to reclaim direct mode
+        // immediately on re-enable rather than waiting for its poll cadence.
+        app.MapPost("/devices/lighting-devices/driven", (
+            SetLightingDeviceDrivenBody body,
+            Nexus.Service.Persistence.IConfigStore store,
+            Nexus.Service.Lighting.Rgb.RgbBridge? bridge) =>
+        {
+            Nexus.Service.Lighting.LightingDrivenState.SetDriven(body.Id, body.Driven, store);
+            if (body.Driven)
+            { bridge?.RequestTopologyRefresh(); }
+            return ApiResponse.Ok();
+        });
         app.MapPost("/devices/lighting-devices/brightness", (SetLightingDeviceBrightness body, ILightingDeviceProvider ld) =>
         {
             ld.SetBrightness(body.Id, body.Brightness);

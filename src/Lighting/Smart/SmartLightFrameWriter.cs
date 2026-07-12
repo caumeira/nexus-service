@@ -95,6 +95,7 @@ public sealed class SmartLightFrameWriter : IHostedService, IDisposable
 
         var settings = _store.Load();
         var disabled = settings.Devices.DisabledLightingDevices;
+        var undriven = settings.Devices.UndrivenLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var global = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var streamed = false;
@@ -105,6 +106,7 @@ public sealed class SmartLightFrameWriter : IHostedService, IDisposable
             if (!_provider.Owns(frame.Id)) continue;
             if (frame.LedCount <= 0) continue;
             if (disabled.Contains(frame.Id)) continue;
+            if (undriven.Contains(frame.Id)) continue;
 
             var devBrightness = prefs.TryGetValue(frame.Id, out var pref) ? pref.Brightness : 100;
             var b01 = Math.Min(Math.Clamp(devBrightness, 0, 100) / 100f, global);

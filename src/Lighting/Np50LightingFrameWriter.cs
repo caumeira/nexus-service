@@ -112,6 +112,7 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
 
         var settings = _store.Load();
         var disabled = settings.Devices.DisabledLightingDevices;
+        var undriven = settings.Devices.UndrivenLightingDevices;
         var devicePrefs = settings.Devices.LightingDevicePrefs;
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var nowTicks = DateTime.UtcNow.Ticks;
@@ -123,16 +124,24 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
         // that order without sorting.
         _logoFrame = null;
         foreach (var l in _stripsByPort) l.Clear();
+        var anyNp50Frame = false;
+        var hubFullyUndriven = true;
         for (var i = 0; i < devices.Length; i++)
         {
             var dev = devices[i];
             if (!IsNp50Id(dev.Id)) continue;
             if (dev.LedCount <= 0) continue;
+            anyNp50Frame = true;
+            if (hubFullyUndriven && !undriven.Contains(dev.Id)) hubFullyUndriven = false;
             var (port, isLogo) = ClassifyId(dev.Id);
             if (isLogo) { _logoFrame = dev; continue; }
             if (port < 1 || port > Np50Protocol.PortCount) continue;
             _stripsByPort[port - 1].Add(dev);
         }
+
+        // Every zone undriven: leave the hub alone entirely so firmware /
+        // vendor lighting can take over. No port writes at all this tick.
+        if (anyNp50Frame && hubFullyUndriven) return;
 
         // Always emit the full 4-port cycle (HYTE's CoolingHubBaseController.SendToHardware
         // iterates devicePort 0..3 regardless of which channels are populated).
@@ -154,7 +163,7 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
                 {
                     CopyIntoBuffer(_portBuffers[p - 1]!, dstIdx, _logoFrame,
                         Math.Min(_logoFrame.LedCount, Np50LightingDeviceProvider.LogoLedCount),
-                        settings, disabled, devicePrefs, globalBrightness, nowTicks);
+                        settings, disabled, undriven, devicePrefs, globalBrightness, nowTicks);
                     dstIdx += Np50LightingDeviceProvider.LogoLedCount;
                 }
                 if (strips is not null)
@@ -162,7 +171,7 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
                     foreach (var strip in strips)
                     {
                         CopyIntoBuffer(_portBuffers[p - 1]!, dstIdx, strip, strip.LedCount,
-                            settings, disabled, devicePrefs, globalBrightness, nowTicks);
+                            settings, disabled, undriven, devicePrefs, globalBrightness, nowTicks);
                         dstIdx += strip.LedCount;
                     }
                 }
@@ -179,11 +188,11 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
     }
 
     private void CopyIntoBuffer(RgbColor[] dst, int dstStart, DeviceFrame frame, int writeLen,
-        NexusSettings settings, IReadOnlyList<string> disabled,
+        NexusSettings settings, IReadOnlyList<string> disabled, IReadOnlyList<string> undriven,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         float globalBrightness, long nowTicks)
     {
-        var brightnessMul = ComputeBrightnessMul(frame.Id, disabled, prefs, globalBrightness);
+        var brightnessMul = ComputeBrightnessMul(frame.Id, disabled, undriven, prefs, globalBrightness);
         var hasIdentify = TryGetActiveIdentify(frame.Id, nowTicks, out var startTicks);
         FillBufferSlice(dst, dstStart, frame.LedBytes, writeLen, brightnessMul, hasIdentify, startTicks, nowTicks);
     }
@@ -205,12 +214,16 @@ public sealed class Np50LightingFrameWriter : IHostedService, IDisposable
         return int.TryParse(after.Slice(0, colon), out var port) ? (port, false) : (0, false);
     }
 
-    private double ComputeBrightnessMul(string id, IReadOnlyList<string> disabled,
+    private double ComputeBrightnessMul(string id, IReadOnlyList<string> disabled, IReadOnlyList<string> undriven,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs, float globalBrightness)
     {
         if (disabled.Count > 0)
         {
             foreach (var d in disabled) if (d == id) return 0.0;
+        }
+        if (undriven.Count > 0)
+        {
+            foreach (var u in undriven) if (u == id) return 0.0;
         }
         int devBrightness;
         try { devBrightness = prefs.TryGetValue(id, out var pref) ? pref.Brightness : 100; }
