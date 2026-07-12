@@ -24,7 +24,7 @@
     "backgroundOpacity": 0.4,
     "widgetOpacity": 1,
     "widgetLabels": false,
-    "widgetBlur": true,
+    "widgetBlur": false,
     "layouts": {
       "desktop": {
         "layoutSchemaVersion": 2,
