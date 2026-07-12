@@ -32,7 +32,8 @@ internal sealed class FakeInputterProvider : Nexus.Service.Peripherals.Keeb.IInp
 internal sealed class FakeClipboardProvider : Nexus.Service.Platform.Clipboard.IClipboardProvider
 {
     public string? Last;
-    public bool SetText(string text) { Last = text; return true; }
+    public bool ShouldFail;
+    public bool SetText(string text) { Last = text; return !ShouldFail; }
 }
 
 internal sealed class FakeSystemPowerProvider : Nexus.Service.Platform.Power.ISystemPowerProvider
@@ -254,6 +255,7 @@ public sealed class DeckActionExecutorTests : IDisposable
         Assert.True(_inputter.Last.Strokes[0].Shift);
         Assert.Equal("keydown", _inputter.Last.Strokes[0].Type);
         Assert.Equal("keyup", _inputter.Last.Strokes[1].Type);
+        Assert.Equal(("ok", (string?)null), _executor.LastOutcome);
     }
 
     [Fact]
@@ -270,6 +272,21 @@ public sealed class DeckActionExecutorTests : IDisposable
         Assert.Equal("hello world", _clipboard.Last);
         Assert.NotNull(_inputter.Last);
         Assert.Equal(2, _inputter.Last!.Strokes.Count);
+        Assert.Equal(("ok", (string?)null), _executor.LastOutcome);
+    }
+
+    /// <summary>
+    /// SendTextAsync's ApiResponse.Fail must not be silently discarded: the
+    /// paste chord is skipped and the dispatch reports outcome=failed with
+    /// the response's own error text, not outcome=ok.
+    /// </summary>
+    [Fact]
+    public async Task Text_ClipboardSetFails_ReportsFailedOutcomeAndSkipsThePaste()
+    {
+        _clipboard.ShouldFail = true;
+        await Run(new DeckAction { Type = "text", Text = "hello world" });
+        Assert.Null(_inputter.Last);
+        Assert.Equal(("failed", "clipboard unavailable"), _executor.LastOutcome);
     }
 
     [Fact]
@@ -455,6 +472,7 @@ public sealed class DeckActionExecutorTests : IDisposable
     public async Task UnknownActionType_DoesNotThrow()
     {
         await Run(new DeckAction { Type = "not-a-real-type" });
+        Assert.Equal(("unknown", (string?)null), _executor.LastOutcome);
     }
 
     [Fact]

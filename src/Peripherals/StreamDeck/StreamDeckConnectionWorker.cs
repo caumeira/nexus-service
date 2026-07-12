@@ -101,8 +101,31 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private readonly Dictionary<string, List<float>> _monitoringHistory = new(StringComparer.Ordinal);
     /// <summary>Per "{serial}:{page}:{slotPath}" last-pushed render hash, so an unchanged-looking tile is not re-pushed over HID every tick.</summary>
     private readonly Dictionary<string, uint> _monitoringLastHash = new(StringComparer.Ordinal);
+    /// <summary>
+    /// Per "{serial}:{page}:{slotPath}" last-pushed wire bytes, alongside
+    /// _monitoringLastHash. HandlePressVisual renders a pressed inset from
+    /// this on key-down; HandleKeyUp restores it verbatim on release rather
+    /// than waiting for the next tick. Cleared everywhere _monitoringLastHash
+    /// entries are removed, except ForceMonitoringKeyRefresh: that drops only
+    /// the hash (to force a repaint even on an unchanged reading) and keeps
+    /// the bytes, so a pressed inset stays renderable for a key pressed again
+    /// before the next tick's repaint lands.
+    /// </summary>
+    private readonly Dictionary<string, byte[]> _monitoringLastPushedBytes = new(StringComparer.Ordinal);
     /// <summary>Cursor into the current tick's visible-monitoring-key list, so a push-capped tick advances fairly across ticks instead of starving keys past the cap.</summary>
     private int _monitoringRoundRobinCursor;
+
+    /// <summary>
+    /// Monitoring keys (by historyKey) already sampled and pushed inline by a
+    /// PushCurrentView call within the current Tick(), so RefreshMonitoringKeys
+    /// later in the same Tick() does not sample them a second time - a second
+    /// sample changes a history-length-sensitive style's rendered pixels even
+    /// though the reading did not change, forcing a redundant re-push. Cleared
+    /// at the start of every Tick(); a PushCurrentView call between ticks (nav,
+    /// SetNav, RefreshView) leaves an entry that the next Tick() clears before
+    /// RefreshMonitoringKeys runs, so it never suppresses a real periodic sample.
+    /// </summary>
+    private readonly HashSet<string> _monitoringPaintedThisTick = new(StringComparer.Ordinal);
 
     private readonly TimeProvider _clock;
 
@@ -329,6 +352,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
                 return;
             }
 
+            _monitoringPaintedThisTick.Clear();
             RegisterSimulatedIfNeeded();
             ReconcileHidSurfaces();
             PumpSimulatedInput();
@@ -416,6 +440,24 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         lock (_lock)
         {
             return _folderPathsBySerial.ContainsKey(serial) || _lastInputAt.ContainsKey(serial) || _asleep.ContainsKey(serial) || _currentPageBySerial.ContainsKey(serial);
+        }
+    }
+
+    /// <summary>Test seam: snapshot of a monitoring key's history ring buffer, or null if no entry exists.</summary>
+    internal IReadOnlyList<float>? MonitoringHistoryForTests(string serial, int page, string slotPath)
+    {
+        lock (_lock)
+        {
+            return _monitoringHistory.TryGetValue(BuildMonitoringKey(serial, page, slotPath), out var history) ? history.ToList() : null;
+        }
+    }
+
+    /// <summary>Test seam: true if a last-pushed-hash entry exists for this monitoring key.</summary>
+    internal bool HasMonitoringHashForTests(string serial, int page, string slotPath)
+    {
+        lock (_lock)
+        {
+            return _monitoringLastHash.ContainsKey(BuildMonitoringKey(serial, page, slotPath));
         }
     }
 
@@ -719,6 +761,11 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
 
         if (slot.Action?.Type == "monitoring")
         {
+            var monitoringKey = BuildMonitoringKey(serial, page, DeckConfigNavigation.BuildSlotPath(folderPath, slotIndex));
+            if (_monitoringLastPushedBytes.TryGetValue(monitoringKey, out var originalBytes))
+            {
+                surface.SetKeyImage(physicalIndex, originalBytes);
+            }
             ForceMonitoringKeyRefresh(serial, page, folderPath, slotIndex);
             return;
         }
@@ -743,8 +790,9 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// folder/page-nav key, since PushCurrentView already repainted it with
     /// the new view - there is nothing on that key left to show pressed. A
     /// monitoring key is marked held (so RefreshMonitoringKeys skips it for
-    /// the tick's duration) but gets no rendered pressed image of its own;
-    /// RefreshMonitoringKeys owns that key's pixels.
+    /// the tick's duration) and gets a pressed inset rendered from
+    /// _monitoringLastPushedBytes, its own last-rendered tile - silently
+    /// skipped if the tile has never been rendered yet.
     /// </summary>
     private void HandlePressVisual(IStreamDeckSurface surface, int physicalIndex, int page, List<int> folderPath, int slotIndex, DeckSlot slot)
     {
@@ -757,6 +805,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         MarkKeyHeld(serial, physicalIndex);
         if (slot.Action?.Type == "monitoring")
         {
+            PushMonitoringPressedVariant(surface, physicalIndex, page, folderPath, slotIndex, slot);
             return;
         }
 
@@ -767,7 +816,34 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             return;
         }
 
-        var pressed = GetOrRenderPressedVariant(hash, bytes, surface.Model, slot.Color);
+        var pressed = GetOrRenderPressedVariant(hash, bytes, surface.Model);
+        if (pressed is not null)
+        {
+            surface.SetKeyImage(physicalIndex, pressed);
+        }
+    }
+
+    /// <summary>
+    /// Renders and pushes a monitoring key's pressed inset from its own
+    /// last-rendered tile. The pressed-cache key folds in a content hash
+    /// (not just the monitoring key) since, unlike an uploaded image, a
+    /// monitoring tile's bytes change every tick; falls back to hashing
+    /// bytes on the spot when ForceMonitoringKeyRefresh has dropped the
+    /// tracked hash (see _monitoringLastPushedBytes) rather than requiring
+    /// both to be present.
+    /// </summary>
+    private void PushMonitoringPressedVariant(IStreamDeckSurface surface, int physicalIndex, int page, List<int> folderPath, int slotIndex, DeckSlot slot)
+    {
+        var monitoringKey = BuildMonitoringKey(surface.Serial, page, DeckConfigNavigation.BuildSlotPath(folderPath, slotIndex));
+        if (!_monitoringLastPushedBytes.TryGetValue(monitoringKey, out var bytes))
+        {
+            return;
+        }
+        var hash = _monitoringLastHash.TryGetValue(monitoringKey, out var trackedHash)
+            ? trackedHash
+            : ComputeFnv1aHash(bytes);
+
+        var pressed = GetOrRenderPressedVariant($"{monitoringKey}:{hash:x8}", bytes, surface.Model);
         if (pressed is not null)
         {
             surface.SetKeyImage(physicalIndex, pressed);
@@ -824,7 +900,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private readonly LinkedList<string> _pressedImageLru = new();
 
     /// <summary>Renders (or returns the cached) pushed-in variant of a source key image, keyed by the source's content hash so a given upload is scaled/re-encoded at most once.</summary>
-    private byte[]? GetOrRenderPressedVariant(string hash, byte[] sourceWireBytes, StreamDeckModel model, string? backgroundColorHex)
+    private byte[]? GetOrRenderPressedVariant(string hash, byte[] sourceWireBytes, StreamDeckModel model)
     {
         if (_pressedImageCache.TryGetValue(hash, out var cached))
         {
@@ -833,7 +909,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             return cached;
         }
 
-        var rendered = RenderPressedVariant(sourceWireBytes, model, backgroundColorHex);
+        var rendered = RenderPressedVariant(sourceWireBytes, model);
         if (rendered is null)
         {
             return null;
@@ -850,7 +926,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         return rendered;
     }
 
-    private static byte[]? RenderPressedVariant(byte[] wireBytes, StreamDeckModel model, string? backgroundColorHex)
+    private static byte[]? RenderPressedVariant(byte[] wireBytes, StreamDeckModel model)
     {
         if (model.ImageFormat == StreamDeckImageFormat.None)
         {
@@ -859,7 +935,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         try
         {
             using var decoded = Image.Load<Rgba32>(wireBytes);
-            using var pressed = PressedKeyRenderer.Render(decoded, backgroundColorHex);
+            using var pressed = PressedKeyRenderer.Render(decoded);
             return model.ImageFormat switch
             {
                 StreamDeckImageFormat.Bmp => BmpEncoder.Encode(RenderKit.ToRgb24(pressed), pressed.Width, pressed.Height),
@@ -1069,7 +1145,19 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
                     continue;
                 }
                 var slotPath = DeckConfigNavigation.BuildSlotPath(folderPath, slotIndex);
-                visible.Add(new MonitoringKeyRef(surface, key, BuildMonitoringKey(surface.Serial, page, slotPath), slot, deck.Orientation));
+                var historyKey = BuildMonitoringKey(surface.Serial, page, slotPath);
+                if (_monitoringPaintedThisTick.Contains(historyKey))
+                {
+                    // A PushCurrentView call earlier in this same Tick()
+                    // already sampled and pushed this key (a connect or a
+                    // simulated-deck nav both run inside Tick()); sampling it
+                    // again here would add a second sample within the same
+                    // instant, which changes a history-length-sensitive
+                    // style's rendered pixels even though the reading has
+                    // not changed and forces a redundant re-push.
+                    continue;
+                }
+                visible.Add(new MonitoringKeyRef(surface, key, historyKey, slot, deck.Orientation));
             }
         }
 
@@ -1093,16 +1181,26 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _monitoringRoundRobinCursor = (_monitoringRoundRobinCursor + pushCount) % visible.Count;
     }
 
+    /// <summary>
+    /// Does not append while the sensor is unresolved, so a sensor that
+    /// disappears and later returns resumes its graph from the last real
+    /// shape instead of dragging in a zero-trough; an empty buffer stays
+    /// empty until the sensor first resolves.
+    /// </summary>
     private HardwareSensor? SampleMonitoringHistory(MonitoringKeyRef key)
     {
         var action = key.Slot.Action!;
         var sensor = SensorSnapshotResolver.Resolve(_sensors, action.Category ?? "", action.Sensor ?? "");
+        if (sensor is null)
+        {
+            return null;
+        }
         if (!_monitoringHistory.TryGetValue(key.HistoryKey, out var history))
         {
             history = new List<float>(MonitoringHistoryLength);
             _monitoringHistory[key.HistoryKey] = history;
         }
-        history.Add(sensor?.Value ?? 0f);
+        history.Add(sensor.Value);
         if (history.Count > MonitoringHistoryLength)
         {
             history.RemoveAt(0);
@@ -1114,26 +1212,16 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private const string UnresolvedSensorValueText = "--";
 
     /// <summary>
-    /// Renders and pushes one monitoring key, skipping the HID write when the
-    /// encoded wire bytes hash the same as the last push (a pixel-identical
-    /// tile - quantizing the history before render is what makes that hash
-    /// stable tick over tick for an unchanged reading). A sensor that no
-    /// longer resolves renders a placeholder tile rather than being skipped,
-    /// so a stale image from a previous view is not left on the key forever.
-    /// Never touches ImageRefs/StreamDeckImageCache - monitoring frames
-    /// change every tick and are pushed as in-memory bytes. Skips the push
-    /// (sampling already happened in SampleMonitoringHistory) while the key
-    /// is physically held, so the tick never races HandlePressVisual/HandleKeyUp
-    /// for the same pixels; ForceMonitoringKeyRefresh drops the last-pushed
-    /// hash on release so the next tick repaints it regardless.
+    /// Builds the tile content for a monitoring key: name/value/history text
+    /// resolved for the given sensor reading (or the unresolved placeholder
+    /// shape when sensor is null), plus the slot's style/domain/title
+    /// overrides. Name and ValueText mirror nexus-web's DeckMonitoringCell
+    /// (DeckMonitoringFormat.ResolveLabel/ResolveValueText) so the physical
+    /// key and the touch-panel tile read the same for the same sensor.
+    /// Shared by the pass-1 placeholder (sensor null) and the real render.
     /// </summary>
-    private void PushMonitoringKey(MonitoringKeyRef key, HardwareSensor? sensor)
+    private MonitoringTileInput BuildMonitoringTileInput(MonitoringKeyRef key, HardwareSensor? sensor)
     {
-        if (IsKeyHeld(key.Surface.Serial, key.KeyIndex))
-        {
-            return;
-        }
-
         var action = key.Slot.Action!;
         string name;
         string valueText;
@@ -1157,13 +1245,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             {
                 historyForRender.Add(MathF.Round(sample, 1));
             }
-            name = sensor.Name;
-            valueText = sensor.Formatted;
+            name = DeckMonitoringFormat.ResolveLabel(action.Category, sensor.Name);
+            valueText = DeckMonitoringFormat.ResolveValueText(sensor);
             sensorType = sensor.Type;
         }
 
         var title = key.Slot.Title;
-        var input = new MonitoringTileInput
+        return new MonitoringTileInput
         {
             Name = name,
             LabelText = action.LabelText,
@@ -1183,11 +1271,14 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             TitleItalic = title?.Italic ?? false,
             TitleColorHex = title?.Color,
         };
+    }
 
-        var model = key.Surface.Model;
+    /// <summary>Renders a tile input to this surface's wire bytes (oriented, transformed, encoded), or null when the encode fails or does not fit the model's wire length.</summary>
+    private static byte[]? RenderMonitoringTileWireBytes(MonitoringTileInput input, StreamDeckModel model, int orientation)
+    {
         using var rendered = MonitoringTileRenderer.Render(input, model.KeyPixelSize);
         var raw = new DeckRawImage(rendered.Width, rendered.Height, RenderKit.ToRgba32Bytes(rendered));
-        var oriented = DeckKeyTransformer.ApplyOrientation(raw, key.Orientation);
+        var oriented = DeckKeyTransformer.ApplyOrientation(raw, orientation);
         var transformed = DeckKeyTransformer.ApplyKeyTransform(oriented, DeckKeyTransformer.ParseTransform(model.Transform));
 
         byte[] wireBytes;
@@ -1201,7 +1292,57 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             };
         }
 
-        if (wireBytes.Length == 0 || !model.IsValidWireImageLength(wireBytes.Length))
+        return wireBytes.Length == 0 || !model.IsValidWireImageLength(wireBytes.Length) ? null : wireBytes;
+    }
+
+    /// <summary>
+    /// Pushes the same unresolved-sensor placeholder BuildMonitoringTileInput
+    /// renders for a null sensor - a background-filled tile honoring
+    /// slot.Color, no name/value/history - as an immediate first-pass repaint
+    /// on navigation, so a monitoring key never shows the previous view's
+    /// pixels while the real tile's sensor sample + render (pass 2) is still
+    /// pending. Unconditional: no hash check, no _monitoringLastHash/
+    /// _monitoringLastPushedBytes update - the very next PushMonitoringKey
+    /// call for this same key overwrites both.
+    /// </summary>
+    private void PushMonitoringPlaceholder(MonitoringKeyRef key)
+    {
+        if (IsKeyHeld(key.Surface.Serial, key.KeyIndex))
+        {
+            return;
+        }
+        var input = BuildMonitoringTileInput(key, sensor: null);
+        var wireBytes = RenderMonitoringTileWireBytes(input, key.Surface.Model, key.Orientation);
+        if (wireBytes is not null)
+        {
+            key.Surface.SetKeyImage(key.KeyIndex, wireBytes);
+        }
+    }
+
+    /// <summary>
+    /// Renders and pushes one monitoring key, skipping the HID write when the
+    /// encoded wire bytes hash the same as the last push (a pixel-identical
+    /// tile - quantizing the history before render is what makes that hash
+    /// stable tick over tick for an unchanged reading). A sensor that no
+    /// longer resolves renders a placeholder tile rather than being skipped,
+    /// so a stale image from a previous view is not left on the key forever.
+    /// Never touches ImageRefs/StreamDeckImageCache - monitoring frames
+    /// change every tick and are pushed as in-memory bytes. Skips the push
+    /// (sampling already happened in SampleMonitoringHistory) while the key
+    /// is physically held, so the tick never races HandlePressVisual/HandleKeyUp
+    /// for the same pixels; ForceMonitoringKeyRefresh drops the last-pushed
+    /// hash on release so the next tick repaints it regardless.
+    /// </summary>
+    private void PushMonitoringKey(MonitoringKeyRef key, HardwareSensor? sensor)
+    {
+        if (IsKeyHeld(key.Surface.Serial, key.KeyIndex))
+        {
+            return;
+        }
+
+        var input = BuildMonitoringTileInput(key, sensor);
+        var wireBytes = RenderMonitoringTileWireBytes(input, key.Surface.Model, key.Orientation);
+        if (wireBytes is null)
         {
             return;
         }
@@ -1215,6 +1356,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         if (key.Surface.SetKeyImage(key.KeyIndex, wireBytes))
         {
             _monitoringLastHash[key.HistoryKey] = hash;
+            _monitoringLastPushedBytes[key.HistoryKey] = wireBytes;
         }
     }
 
@@ -1260,7 +1402,63 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         foreach (var k in _monitoringLastHash.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
         {
             _monitoringLastHash.Remove(k);
+            _monitoringLastPushedBytes.Remove(k);
         }
+    }
+
+    /// <summary>
+    /// Drops history/last-pushed-hash entries for this serial whose (page,
+    /// slotPath) no longer resolves to a monitoring-typed slot in the given
+    /// config, so a config edit that deletes or retypes a monitoring slot
+    /// (or deletes a page) does not orphan its ring buffer while the deck
+    /// stays connected. Caller must hold _lock.
+    /// </summary>
+    private void EvictOrphanedMonitoringEntriesForSerial(string serial, DeckConfig config)
+    {
+        var prefix = serial + ":";
+        var keys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var k in _monitoringHistory.Keys)
+        {
+            if (k.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                keys.Add(k);
+            }
+        }
+        foreach (var k in _monitoringLastHash.Keys)
+        {
+            if (k.StartsWith(prefix, StringComparison.Ordinal))
+            {
+                keys.Add(k);
+            }
+        }
+        foreach (var key in keys)
+        {
+            if (MonitoringKeyStillResolves(config, key, prefix))
+            {
+                continue;
+            }
+            _monitoringHistory.Remove(key);
+            _monitoringLastHash.Remove(key);
+            _monitoringLastPushedBytes.Remove(key);
+        }
+    }
+
+    /// <summary>Parses a "{serial}:{page}:{slotPath}" monitoring key (see BuildMonitoringKey) and resolves it against config.</summary>
+    private static bool MonitoringKeyStillResolves(DeckConfig config, string historyKey, string serialPrefix)
+    {
+        var remainder = historyKey.AsSpan(serialPrefix.Length);
+        var separator = remainder.IndexOf(':');
+        if (separator < 0 || !int.TryParse(remainder[..separator], out var page))
+        {
+            return false;
+        }
+        var indices = DeckConfigNavigation.ParseSlotPath(remainder[(separator + 1)..].ToString());
+        if (indices is null)
+        {
+            return false;
+        }
+        var slot = DeckConfigNavigation.ResolveSlot(config, page, indices);
+        return slot?.Action?.Type == "monitoring";
     }
 
     private void PushCurrentView(IStreamDeckSurface surface)
@@ -1273,6 +1471,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         var settings = _store.Load().StreamDeck;
         settings.Decks.TryGetValue(surface.Serial, out var deck);
         var config = deck?.Deck ?? new DeckConfig();
+        EvictOrphanedMonitoringEntriesForSerial(surface.Serial, config);
         var page = ClampCurrentPageLocked(surface.Serial, config);
 
         var view = DeckConfigNavigation.ResolveView(config, page, folderPath);
@@ -1284,6 +1483,15 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
 
         var inFolder = folderPath.Count > 0;
+        var monitoringKeys = new List<MonitoringKeyRef>();
+
+        // Pass 1: every key goes out immediately in key order - static images
+        // (or ClearKey) for leaf/toggle/folder slots, and an empty
+        // placeholder (no sensor sample, so no per-key sensor-lookup cost)
+        // for a monitoring slot - so the whole view goes clean the instant a
+        // nav lands, instead of later keys sitting on the previous view's
+        // pixels while earlier keys' sensor sample + render (pass 2, below)
+        // are still running.
         for (var key = 0; key < surface.Model.KeyCount; key++)
         {
             if (inFolder && key == 0)
@@ -1300,8 +1508,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             }
             if (slot.Action?.Type == "monitoring")
             {
-                // RefreshMonitoringKeys owns this key's pixels and repaints it
-                // on the next tick; clearing it here would stomp a live render.
+                var slotPath = DeckConfigNavigation.BuildSlotPath(folderPath, slotIndex);
+                var keyRef = new MonitoringKeyRef(surface, key, BuildMonitoringKey(surface.Serial, page, slotPath), slot, deck?.Orientation ?? 0);
+                PushMonitoringPlaceholder(keyRef);
+                monitoringKeys.Add(keyRef);
                 continue;
             }
 
@@ -1314,6 +1524,18 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             {
                 surface.ClearKey(key);
             }
+        }
+
+        // Pass 2: sample and render the real monitoring content onto the
+        // now-blank tiles. The invalidation call above already dropped every
+        // monitoring key's last-pushed hash, so PushMonitoringKey always
+        // repaints regardless of whether the sampled reading matches the
+        // prior view's.
+        foreach (var keyRef in monitoringKeys)
+        {
+            var sensor = SampleMonitoringHistory(keyRef);
+            PushMonitoringKey(keyRef, sensor);
+            _monitoringPaintedThisTick.Add(keyRef.HistoryKey);
         }
     }
 
@@ -1381,6 +1603,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
                 {
                     continue;
                 }
+                RestoreBrightnessAndResetBeforeDisconnect(surface);
                 StopInputReader(key);
                 surface.Dispose();
             }
@@ -1393,9 +1616,64 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _heldKeysBySerial.Clear();
             _monitoringHistory.Clear();
             _monitoringLastHash.Clear();
+            _monitoringLastPushedBytes.Clear();
             if (hadSurfaces)
             {
                 BroadcastDecksChanged(null);
+            }
+        }
+    }
+
+    /// <summary>Never a literal 0% - the deck may be blanked at runtime brightness 0 by ApplySleepAfterIdle even though its persisted setting is not.</summary>
+    private const int MinDisconnectBrightness = 1;
+
+    /// <summary>
+    /// Restores persisted brightness and fires a firmware Reset() (the
+    /// built-in Elgato boot logo), so a deck shows something static instead
+    /// of freezing on its last live frame. Caller must hold _lock; shared by
+    /// DisconnectAll (deck torn down after) and ResetConnectedSurfacesForShutdown
+    /// (deck left tracked, for a fast process exit); both run during host
+    /// shutdown, so it must stay fast.
+    /// </summary>
+    private void RestoreBrightnessAndResetBeforeDisconnect(IStreamDeckSurface surface)
+    {
+        var settings = _store.Load().StreamDeck;
+        settings.Decks.TryGetValue(surface.Serial, out var deck);
+        var brightness = Math.Clamp(deck?.Brightness ?? PhysicalDeckSettings.DefaultBrightness, MinDisconnectBrightness, 100);
+        surface.SetBrightness(brightness);
+        surface.Reset();
+        ServiceLog.Info($"[streamdeck] reset before disconnect (serial={surface.Serial})");
+    }
+
+    /// <summary>
+    /// Restores brightness and fires a firmware Reset() on every connected
+    /// real surface without tearing down tracked state. FastServiceShutdown
+    /// calls this on a real Windows quit (SCM stop, /service/stop, tray shut
+    /// down, factory reset, GPU-change restart): that path exits via
+    /// Environment.Exit after a bounded concurrent teardown and never runs
+    /// ExecuteAsync's post-loop DisconnectAll, so without this the deck would
+    /// otherwise freeze on its last live frame instead of showing the boot
+    /// logo. Exception-safe per deck so one wedged surface does not block the
+    /// others under the shutdown's hard timeout.
+    /// </summary>
+    public void ResetConnectedSurfacesForShutdown()
+    {
+        lock (_lock)
+        {
+            foreach (var (key, surface) in _surfaces)
+            {
+                if (key == SimulatedKey)
+                {
+                    continue;
+                }
+                try
+                {
+                    RestoreBrightnessAndResetBeforeDisconnect(surface);
+                }
+                catch (Exception ex)
+                {
+                    ServiceLog.Warn($"[streamdeck] shutdown reset failed serial={surface.Serial}: {ex.Message}");
+                }
             }
         }
     }

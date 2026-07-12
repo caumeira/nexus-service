@@ -172,6 +172,65 @@ public sealed class StreamDeckRoutesTests : IDisposable
         }
     }
 
+    /// <summary>The web deck page opens at the worker's actual tracked view (not always page 0/root), so a connected deck's summary must carry it.</summary>
+    [Fact]
+    public async Task GetDecks_ConnectedDeck_ReportsTheWorkersTrackedCurrentPageAndFolderPath()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var worker = factory.Services.GetRequiredService<StreamDeckConnectionWorker>();
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            Assert.True(worker.SetSimulatedModel(mini.ProductId));
+            var serial = worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey].Serial;
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            store.Update(s => s.StreamDeck.Decks[serial] = new PhysicalDeckSettings
+            {
+                ProductId = mini.ProductId,
+                Deck = new DeckConfig
+                {
+                    Pages =
+                    {
+                        new DeckPage(),
+                        new DeckPage { Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot() } } } } },
+                    },
+                },
+            });
+            Assert.True(worker.SetNav(serial, 1, new[] { 0 }));
+
+            var res = await client.GetAsync("/streamdeck/decks");
+            Assert.True(res.IsSuccessStatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var entry = doc.RootElement.GetProperty("decks").EnumerateArray().Single(d => d.GetProperty("serial").GetString() == serial);
+
+            Assert.Equal(1, entry.GetProperty("currentPage").GetInt32());
+            var folderPath = entry.GetProperty("folderPath").EnumerateArray().Select(e => e.GetInt32()).ToArray();
+            Assert.Equal(new[] { 0 }, folderPath);
+        }
+    }
+
+    /// <summary>A persisted deck with no live surface has no tracked worker state, so it reports the same default (root, page 0) OnSurfaceConnected would seed on reconnect.</summary>
+    [Fact]
+    public async Task GetDecks_DisconnectedDeck_ReportsDefaultPageAndEmptyFolderPath()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            store.Update(s => s.StreamDeck.Decks["OFFLINE-SERIAL"] = new PhysicalDeckSettings { ProductId = mini.ProductId });
+
+            var res = await client.GetAsync("/streamdeck/decks");
+            Assert.True(res.IsSuccessStatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var entry = doc.RootElement.GetProperty("decks").EnumerateArray().Single(d => d.GetProperty("serial").GetString() == "OFFLINE-SERIAL");
+
+            Assert.Equal(0, entry.GetProperty("currentPage").GetInt32());
+            Assert.Empty(entry.GetProperty("folderPath").EnumerateArray());
+        }
+    }
+
     [Fact]
     public async Task GetConfig_WithNoPersistedDeck_ReturnsAnEmptyConfig()
     {

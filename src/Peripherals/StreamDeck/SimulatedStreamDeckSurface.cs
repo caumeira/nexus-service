@@ -33,6 +33,8 @@ public sealed class SimulatedStreamDeckSurface : IStreamDeckSurface
     public int ResetCount { get; private set; }
     /// <summary>Test hook: total successful SetKeyImage calls, so a test can prove a hash-unchanged push was skipped rather than merely re-rendering the same bytes.</summary>
     public int SetKeyImageCallCount { get; private set; }
+    /// <summary>Test hook: key index of every successful SetKeyImage call, in call order, so a test can prove a multi-pass repaint's push ordering (e.g. every key's placeholder before any key's real content).</summary>
+    public List<int> SetKeyImageOrder { get; } = new();
 
     public SimulatedStreamDeckSurface(StreamDeckModel model, string serial)
     {
@@ -65,6 +67,7 @@ public sealed class SimulatedStreamDeckSurface : IStreamDeckSurface
             }
             _keyImages[keyIndex] = wireBytes.ToArray();
             SetKeyImageCallCount++;
+            SetKeyImageOrder.Add(keyIndex);
             return true;
         }
     }

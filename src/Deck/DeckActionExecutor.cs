@@ -80,10 +80,14 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         _deckSurface = deckSurface;
     }
 
+    /// <summary>Test seam: the most recent dispatch's outcome ("ok" | "unknown" | "failed") and, for a failure, its error text - mirrors the [streamdeck] dispatch log line without needing a console-capture harness.</summary>
+    internal (string Outcome, string? Error) LastOutcome { get; private set; }
+
     public async Task ExecuteAsync(DeckAction? action, string serial, int keyIndex, string latchKey, CancellationToken ct)
     {
         if (action is null || string.IsNullOrEmpty(action.Type))
         {
+            LastOutcome = ("unknown", null);
             ServiceLog.Info($"[streamdeck] dispatch serial={serial} key={keyIndex} type=none outcome=unknown");
             return;
         }
@@ -96,9 +100,11 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         }
         catch (Exception ex)
         {
+            LastOutcome = ("failed", ex.Message);
             ServiceLog.Error($"[streamdeck] dispatch serial={serial} key={keyIndex} type={action.Type} outcome=failed ({ex.Message})");
             return;
         }
+        LastOutcome = (outcome, null);
         ServiceLog.Info($"[streamdeck] dispatch serial={serial} key={keyIndex} type={action.Type} outcome={outcome}");
     }
 
@@ -140,8 +146,14 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
                 await DispatchHotkeyAsync(action.Keys ?? "").ConfigureAwait(false);
                 return DispatchOutcome.Ok;
             case "text":
-                await _system.SendTextAsync(action.Text ?? "").ConfigureAwait(false);
+            {
+                var response = await _system.SendTextAsync(action.Text ?? "").ConfigureAwait(false);
+                if (response.Error)
+                {
+                    throw new InvalidOperationException(response.Msg);
+                }
                 return DispatchOutcome.Ok;
+            }
             case "power":
                 DispatchPower(action.PowerAction);
                 return DispatchOutcome.Ok;
@@ -294,7 +306,7 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         {
             return;
         }
-        await _system.SendKeysAsync(new SendKeysBody
+        var response = await _system.SendKeysAsync(new SendKeysBody
         {
             Key = parsed.Value.Key,
             Ctrl = parsed.Value.Ctrl,
@@ -302,6 +314,10 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
             Alt = parsed.Value.Alt,
             Meta = parsed.Value.Meta,
         }).ConfigureAwait(false);
+        if (response.Error)
+        {
+            throw new InvalidOperationException(response.Msg);
+        }
     }
 
     private void DispatchPower(string? powerAction)

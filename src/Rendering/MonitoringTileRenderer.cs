@@ -22,7 +22,7 @@ public enum MonitoringTileStyle { Line, Segments, Backdrop, Number }
 /// </summary>
 public sealed class MonitoringTileInput
 {
-    /// <summary>The sensor's own display name, shown at top when LabelText is unset or empty.</summary>
+    /// <summary>Default top label (already device-prefixed, e.g. "CPU Total"), shown when LabelText is unset or empty.</summary>
     public string Name { get; init; } = "";
     /// <summary>Custom top label overriding Name. Empty or null falls back to Name.</summary>
     public string? LabelText { get; init; }
