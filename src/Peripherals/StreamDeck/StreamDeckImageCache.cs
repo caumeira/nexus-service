@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Security.Cryptography;
 
@@ -8,11 +9,21 @@ namespace Nexus.Service.Peripherals.StreamDeck;
 /// Content-addressed disk cache for uploaded key-image bytes:
 /// <c>%ProgramData%\Nexus\streamdeck\&lt;serial&gt;\&lt;contentHash&gt;.bin</c>.
 /// Lets a reconnect or service restart re-push a deck's keys without the web
-/// editor re-uploading anything.
+/// editor re-uploading anything. Also keeps a bounded in-memory copy per
+/// serial so a repeat repaint of a page/folder view (StreamDeckConnectionWorker.
+/// PushCurrentView, run synchronously on a key's own input-reader thread for
+/// every configured slot in view) never re-hits disk for an already-seen
+/// hash - the file system access was otherwise unconditional on every call.
 /// </summary>
 public sealed class StreamDeckImageCache
 {
+    /// <summary>Covers a full XL (32 keys) toggle set (two states each) across a couple of pages without unbounded growth.</summary>
+    private const int MemoryCacheCapacityPerSerial = 128;
+
     private readonly string _root;
+    private readonly object _memoryLock = new();
+    private readonly Dictionary<string, Dictionary<string, byte[]>> _memoryBySerial = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, LinkedList<string>> _memoryLruBySerial = new(StringComparer.Ordinal);
 
     public StreamDeckImageCache() : this(DefaultRoot())
     {
@@ -85,19 +96,34 @@ public sealed class StreamDeckImageCache
         }
         Directory.CreateDirectory(Path.GetDirectoryName(path)!);
         File.WriteAllBytes(path, bytes);
+        CacheInMemory(serial, hash, bytes);
     }
 
-    /// <summary>Returns the cached bytes, or null when never stored, the serial is invalid, or the cache was wiped.</summary>
+    /// <summary>Returns the cached bytes, or null when never stored, the serial is invalid, or the cache was wiped. Serves from the in-memory copy when present; a disk hit backfills it.</summary>
     public byte[]? Load(string serial, string hash)
     {
         if (!IsValidSerial(serial))
         {
             return null;
         }
+        lock (_memoryLock)
+        {
+            if (_memoryBySerial.TryGetValue(serial, out var cache) && cache.TryGetValue(hash, out var cached))
+            {
+                TouchLruLocked(serial, hash);
+                return cached;
+            }
+        }
         try
         {
             var path = PathFor(serial, hash);
-            return File.Exists(path) ? File.ReadAllBytes(path) : null;
+            if (!File.Exists(path))
+            {
+                return null;
+            }
+            var bytes = File.ReadAllBytes(path);
+            CacheInMemory(serial, hash, bytes);
+            return bytes;
         }
         catch
         {
@@ -119,6 +145,49 @@ public sealed class StreamDeckImageCache
         catch
         {
             /* best effort */
+        }
+        lock (_memoryLock)
+        {
+            _memoryBySerial.TryGetValue(serial, out var cache);
+            cache?.Remove(hash);
+            _memoryLruBySerial.TryGetValue(serial, out var lru);
+            lru?.Remove(hash);
+        }
+    }
+
+    private void CacheInMemory(string serial, string hash, byte[] bytes)
+    {
+        lock (_memoryLock)
+        {
+            if (!_memoryBySerial.TryGetValue(serial, out var cache))
+            {
+                cache = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+                _memoryBySerial[serial] = cache;
+            }
+            if (!_memoryLruBySerial.TryGetValue(serial, out var lru))
+            {
+                lru = new LinkedList<string>();
+                _memoryLruBySerial[serial] = lru;
+            }
+            cache[hash] = bytes;
+            lru.Remove(hash);
+            lru.AddLast(hash);
+            while (cache.Count > MemoryCacheCapacityPerSerial)
+            {
+                var oldest = lru.First!.Value;
+                lru.RemoveFirst();
+                cache.Remove(oldest);
+            }
+        }
+    }
+
+    // Caller holds _memoryLock.
+    private void TouchLruLocked(string serial, string hash)
+    {
+        if (_memoryLruBySerial.TryGetValue(serial, out var lru))
+        {
+            lru.Remove(hash);
+            lru.AddLast(hash);
         }
     }
 
