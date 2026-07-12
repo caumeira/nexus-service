@@ -714,7 +714,7 @@ public sealed class PhysicalDeckSettings
     /// <summary>Empty falls back to the model name.</summary>
     public string Name { get; set; } = "";
     public int Brightness { get; set; } = DefaultBrightness;
-    /// <summary>User rotation composed on top of the model's wire Transform, in quarter-turn degree steps. The web renders key bitmaps; the service only persists this.</summary>
+    /// <summary>User rotation composed on top of the model's wire Transform, in quarter-turn degree steps. Applied by both the web-rendered key bitmaps and the service's own monitoring tile renders.</summary>
     public int Orientation { get; set; }
     /// <summary>Seconds of no key input before the deck blanks the display. A non-positive value disables sleep-after.</summary>
     public int SleepAfterSeconds { get; set; }
@@ -722,6 +722,19 @@ public sealed class PhysicalDeckSettings
     public int ProductId { get; set; }
     public DeckConfig Deck { get; set; } = new();
     /// <summary>Keyed by "{slotPath}/{state}" (state "0" or "1" for a toggle); value is the cached image's content hash.</summary>
+    public Dictionary<string, string> ImageRefs { get; set; } = new();
+    // Named snapshots of Deck + ImageRefs. Capped by the route layer.
+    public List<DeckPreset> Presets { get; set; } = new();
+    // Preset the live Deck was last loaded from; null = none selected.
+    public string? ActivePresetId { get; set; }
+}
+
+/// <summary>One named snapshot of a deck's config and uploaded-image references, for POST/activate under /streamdeck/decks/{serial}/presets.</summary>
+public sealed class DeckPreset
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public DeckConfig Deck { get; set; } = new();
     public Dictionary<string, string> ImageRefs { get; set; } = new();
 }
 

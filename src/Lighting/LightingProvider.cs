@@ -12,6 +12,7 @@ using Nexus.Service.Media;
 using Nexus.Service.Models.Lighting;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
+using Nexus.Service.Rendering;
 using Nexus.Service.Sockets;
 
 namespace Nexus.Service.Lighting;
@@ -351,7 +352,7 @@ public sealed class LightingProvider : ILightingProvider, IDisposable
             { effect.Dispose(); }
             catch { }
         }
-        var bytes = Engine.Gpu.BmpEncoder.Encode(canvas.Pixels, canvas.Width, canvas.Height);
+        var bytes = BmpEncoder.Encode(canvas.Pixels, canvas.Width, canvas.Height);
         _thumbnailCache[cacheKey] = (tag, bytes);
         return (bytes, tag);
     }

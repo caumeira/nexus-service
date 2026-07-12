@@ -951,38 +951,25 @@ public sealed class TryxPanoramaHub : IDisposable
     /// if the group is unknown or the id isn't currently reported.</summary>
     private string ResolveSensorValue(string device, string sensorId)
     {
-        foreach (var sensor in GetDeviceSensors(device))
-        {
-            if (sensor.Id == sensorId)
-            {
-                return FormatSensorValue(sensor);
-            }
-        }
-        return "--";
+        // "fps" needs IFpsProvider, which SensorSnapshotResolver does not depend
+        // on, so it stays resolved here directly; every other device routes
+        // through the shared resolver (also used by the deck monitoring tiles).
+        var sensor = device == "fps"
+            ? FindById(_fps.GetComponent().Sensors, sensorId)
+            : SensorSnapshotResolver.Resolve(_sensors, device, sensorId);
+        return sensor is null ? "--" : FormatSensorValue(sensor);
     }
 
-    private IReadOnlyList<HardwareSensor> GetDeviceSensors(string device) => device switch
+    private static HardwareSensor? FindById(IReadOnlyList<HardwareSensor> sensors, string id)
     {
-        "cpu" => _sensors.GetCpuSensors(),
-        "gpu" => GetPrimaryGpuSensors(),
-        "memory" => _sensors.GetMemorySensors(),
-        "motherboard" => _sensors.GetMotherboardSensors(),
-        // includeSmart: false - the overlay only ever showed the DriveInfo
-        // logical-volume Used/Free/Usage subset, never the LHM SMART rows.
-        "storage" => FlattenSensors(_sensors.GetStorageComponents(includeSmart: false).Values),
-        "network" => FlattenSensors(_sensors.GetSensorExtras().Nics),
-        "fps" => _fps.GetComponent().Sensors,
-        _ => Array.Empty<HardwareSensor>(),
-    };
-
-    private static IReadOnlyList<HardwareSensor> FlattenSensors(IEnumerable<HardwareComponent> components)
-    {
-        var list = new List<HardwareSensor>();
-        foreach (var component in components)
+        for (var i = 0; i < sensors.Count; i++)
         {
-            list.AddRange(component.Sensors);
+            if (sensors[i].Id == id)
+            {
+                return sensors[i];
+            }
         }
-        return list;
+        return null;
     }
 
     // Units match the monitoring widgets' own formatting for each LHM sensor type

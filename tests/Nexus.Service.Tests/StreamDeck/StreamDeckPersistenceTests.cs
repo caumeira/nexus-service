@@ -263,6 +263,64 @@ public class StreamDeckImageCacheTests : IDisposable
     {
         _cache.Evict("SERIAL-1", "0000000000000000000000000000000000000000000000000000000000000000");
     }
+
+    [Fact]
+    public void Load_SecondCall_ServesFromMemoryWithoutTouchingDiskAgain()
+    {
+        var bytes = new byte[] { 1, 2, 3 };
+        var hash = StreamDeckImageCache.Hash(bytes);
+        _cache.Store("SERIAL-1", hash, bytes);
+        Assert.Equal(bytes, _cache.Load("SERIAL-1", hash));
+
+        // Delete the file out from under the cache. If Load still hits disk
+        // on every call, this second Load returns null; if it is served from
+        // the in-memory copy Store/Load populate, it still returns the bytes.
+        File.Delete(Path.Combine(_tempDir, "SERIAL-1", hash + ".bin"));
+
+        Assert.Equal(bytes, _cache.Load("SERIAL-1", hash));
+    }
+
+    [Fact]
+    public void Load_ColdDiskHit_BackfillsTheMemoryCache()
+    {
+        var bytes = new byte[] { 4, 4, 4 };
+        var hash = StreamDeckImageCache.Hash(bytes);
+        // Write directly to disk, bypassing Store, so the first Load is a
+        // genuine cold miss that has to backfill the memory cache itself.
+        var dir = Path.Combine(_tempDir, "SERIAL-1");
+        Directory.CreateDirectory(dir);
+        File.WriteAllBytes(Path.Combine(dir, hash + ".bin"), bytes);
+
+        Assert.Equal(bytes, _cache.Load("SERIAL-1", hash));
+
+        File.Delete(Path.Combine(dir, hash + ".bin"));
+        Assert.Equal(bytes, _cache.Load("SERIAL-1", hash));
+    }
+
+    [Fact]
+    public void MemoryCache_IsBoundedPerSerial_OldestHashEvictsFirst()
+    {
+        // One more than the per-serial capacity: the first hash stored must
+        // fall out of the memory cache once the last one is stored.
+        var hashes = new List<string>();
+        for (var i = 0; i < 129; i++)
+        {
+            var bytes = BitConverter.GetBytes(i);
+            var hash = StreamDeckImageCache.Hash(bytes);
+            hashes.Add(hash);
+            _cache.Store("SERIAL-1", hash, bytes);
+        }
+
+        // Deleting every file on disk means a Load can only succeed if the
+        // memory cache still holds that hash.
+        foreach (var hash in hashes)
+        {
+            File.Delete(Path.Combine(_tempDir, "SERIAL-1", hash + ".bin"));
+        }
+
+        Assert.Null(_cache.Load("SERIAL-1", hashes[0]));
+        Assert.NotNull(_cache.Load("SERIAL-1", hashes[^1]));
+    }
 }
 
 /// <summary>

@@ -18,11 +18,10 @@ public sealed class SendKeysBody
     public List<MacroStroke> Strokes { get; set; } = new();
 }
 
-/// <summary>Type/paste text. <see cref="Paste"/> uses the clipboard-then-paste path (Unicode-reliable).</summary>
+/// <summary>Type text via the deck/panel text action: sets the clipboard, then injects a paste chord.</summary>
 public sealed class SendTextBody
 {
     public string Text { get; set; } = "";
-    public bool Paste { get; set; } = true;
 }
 
 /// <summary>Open a local file or folder with the OS default handler.</summary>

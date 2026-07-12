@@ -68,11 +68,10 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         {
             action.Text = textEl.GetString();
         }
-        if (root.TryGetProperty("paste", out var pasteEl) &&
-            (pasteEl.ValueKind == JsonValueKind.True || pasteEl.ValueKind == JsonValueKind.False))
-        {
-            action.Paste = pasteEl.GetBoolean();
-        }
+        // A legacy "paste" key (pre-simplification text actions always
+        // pasted-or-typed based on this flag) is intentionally never read -
+        // the text action now always pastes, so old configs load fine with
+        // the key silently dropped.
         if (root.TryGetProperty("deviceId", out var deviceIdEl) && deviceIdEl.ValueKind == JsonValueKind.String)
         {
             action.DeviceId = deviceIdEl.GetString();
@@ -100,6 +99,31 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         if (root.TryGetProperty("keysB", out var keysBEl) && keysBEl.ValueKind == JsonValueKind.String)
         {
             action.KeysB = keysBEl.GetString();
+        }
+        if (root.TryGetProperty("category", out var categoryEl) && categoryEl.ValueKind == JsonValueKind.String)
+        {
+            action.Category = categoryEl.GetString();
+        }
+        if (root.TryGetProperty("sensor", out var sensorEl) && sensorEl.ValueKind == JsonValueKind.String)
+        {
+            action.Sensor = sensorEl.GetString();
+        }
+        if (root.TryGetProperty("style", out var styleEl) && styleEl.ValueKind == JsonValueKind.String)
+        {
+            action.Style = styleEl.GetString();
+        }
+        if (root.TryGetProperty("color", out var colorEl) && colorEl.ValueKind == JsonValueKind.String)
+        {
+            action.Color = colorEl.GetString();
+        }
+        if (root.TryGetProperty("showName", out var showNameEl) &&
+            (showNameEl.ValueKind == JsonValueKind.True || showNameEl.ValueKind == JsonValueKind.False))
+        {
+            action.ShowName = showNameEl.GetBoolean();
+        }
+        if (root.TryGetProperty("press", out var pressEl) && pressEl.ValueKind == JsonValueKind.String)
+        {
+            action.Press = pressEl.GetString();
         }
 
         if (root.TryGetProperty("action", out var actionEl))
@@ -163,10 +187,6 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         {
             writer.WriteString("text", value.Text);
         }
-        if (value.Paste is not null)
-        {
-            writer.WriteBoolean("paste", value.Paste.Value);
-        }
         if (value.DeviceId is not null)
         {
             writer.WriteString("deviceId", value.DeviceId);
@@ -194,6 +214,30 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         if (value.KeysB is not null)
         {
             writer.WriteString("keysB", value.KeysB);
+        }
+        if (value.Category is not null)
+        {
+            writer.WriteString("category", value.Category);
+        }
+        if (value.Sensor is not null)
+        {
+            writer.WriteString("sensor", value.Sensor);
+        }
+        if (value.Style is not null)
+        {
+            writer.WriteString("style", value.Style);
+        }
+        if (value.Color is not null)
+        {
+            writer.WriteString("color", value.Color);
+        }
+        if (value.ShowName is not null)
+        {
+            writer.WriteBoolean("showName", value.ShowName.Value);
+        }
+        if (value.Press is not null)
+        {
+            writer.WriteString("press", value.Press);
         }
 
         switch (value.Type)

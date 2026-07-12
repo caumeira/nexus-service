@@ -19,7 +19,7 @@ public sealed class DeckAction
     /// <summary>
     /// launchApp | openFile | openFolder | openUrl | system | hotkey | text |
     /// power | audioOutput | audioInput | nexus | sequence | toggle | page |
-    /// pageIndicator | deckBrightness | deckSleep | hotkeySwitch.
+    /// pageIndicator | deckBrightness | deckSleep | hotkeySwitch | monitoring.
     /// </summary>
     public string Type { get; set; } = "";
 
@@ -31,8 +31,8 @@ public sealed class DeckAction
     public DeckNexusAction? NexusAction { get; set; }
 
     public string? Keys { get; set; }
+    /// <summary>text: always pastes immediately (clipboard set + paste chord injection).</summary>
     public string? Text { get; set; }
-    public bool? Paste { get; set; }
 
     /// <summary>lock | sleep | shutdown | restart | logout.</summary>
     public string? PowerAction { get; set; }
@@ -60,6 +60,19 @@ public sealed class DeckAction
     public string? KeysA { get; set; }
     /// <summary>hotkeySwitch: second combo, alternated with KeysA on each press.</summary>
     public string? KeysB { get; set; }
+
+    /// <summary>monitoring: quick | cpu | gpu | memory | motherboard | storage.</summary>
+    public string? Category { get; set; }
+    /// <summary>monitoring: a concrete HardwareSensor.Id, never the "Temperature" preferred-temp sentinel.</summary>
+    public string? Sensor { get; set; }
+    /// <summary>monitoring: line | radial | number.</summary>
+    public string? Style { get; set; }
+    /// <summary>monitoring: graph/arc accent hex color. Unset falls back to MonitoringTileRenderer.DefaultAccent.</summary>
+    public string? Color { get; set; }
+    /// <summary>monitoring: shows the sensor name label at top. Unset falls back to true.</summary>
+    public bool? ShowName { get; set; }
+    /// <summary>monitoring: none | taskManager | monitoringPage. Unset falls back to none.</summary>
+    public string? Press { get; set; }
 }
 
 public sealed class DeckSystemAction

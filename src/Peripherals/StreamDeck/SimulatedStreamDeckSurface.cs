@@ -31,6 +31,8 @@ public sealed class SimulatedStreamDeckSurface : IStreamDeckSurface
     public bool IsConnected => _connected;
     public int Brightness { get; private set; } = 100;
     public int ResetCount { get; private set; }
+    /// <summary>Test hook: total successful SetKeyImage calls, so a test can prove a hash-unchanged push was skipped rather than merely re-rendering the same bytes.</summary>
+    public int SetKeyImageCallCount { get; private set; }
 
     public SimulatedStreamDeckSurface(StreamDeckModel model, string serial)
     {
@@ -62,6 +64,7 @@ public sealed class SimulatedStreamDeckSurface : IStreamDeckSurface
                 return false;
             }
             _keyImages[keyIndex] = wireBytes.ToArray();
+            SetKeyImageCallCount++;
             return true;
         }
     }

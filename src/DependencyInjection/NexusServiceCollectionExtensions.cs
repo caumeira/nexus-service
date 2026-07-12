@@ -508,7 +508,8 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Persistence.IConfigStore>(),
                 sp.GetRequiredService<Nexus.Service.Deck.IDeckActionExecutor>(),
                 sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckImageCache>(),
-                sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>()));
+                sp.GetRequiredService<Nexus.Service.Sockets.MultiplexHub>(),
+                sp.GetRequiredService<Nexus.Service.Sensors.ISensorProvider>()));
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>());
 
         // Lian Li Uni Hub SL-Infinity: HID connection worker + lighting + cooling.

@@ -229,6 +229,10 @@ internal static class WindowsUserHelper
             onOpenDeviceManager: () => Platform.Windows.ForegroundNudge.OpenFileOverApp("devmgmt.msc")
         ).Register(handlerRegistry);
         new SystemHandler().Register(handlerRegistry);
+        // Runs in the user session, so SendInput reaches the interactive
+        // desktop (the deck hotkey/hotkeySwitch actions and the
+        // /system/input/keys route otherwise land on the Session-0 desktop).
+        new InputHandler().Register(handlerRegistry);
         new ProfileListHandler(payload =>
         {
             var items = new List<(string Id, string Name)>(payload.Profiles.Count);

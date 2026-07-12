@@ -1,4 +1,6 @@
 using System;
+using System.Security.Cryptography;
+using Microsoft.Net.Http.Headers;
 using Nexus.Service.Activity;
 using Nexus.Service.Activity.Storage;
 using Nexus.Service.Auth;
@@ -111,7 +113,7 @@ public static class ActivityRoutes
             }
             return Results.Ok(new GetAllShortcutsResponse { Shortcuts = new(s.GetAll()) });
         }).AllowPanel();
-        app.MapGet("/shortcuts/icon", (string? targetId, IShortcutsProvider s) =>
+        app.MapGet("/shortcuts/icon", (string? targetId, HttpContext ctx, IShortcutsProvider s) =>
         {
             if (string.IsNullOrEmpty(targetId))
             {
@@ -119,7 +121,19 @@ public static class ActivityRoutes
             }
 
             var bytes = s.GetIcon(targetId);
-            return bytes.Length == 0 ? Results.NotFound() : Results.File(bytes, "image/png");
+            if (bytes.Length == 0)
+            {
+                return Results.NotFound();
+            }
+
+            // Content hash as the ETag: Results.File's entityTag param drives the
+            // framework's own conditional-GET handling, so a matching
+            // If-None-Match short-circuits to a bodyless 304 - the deck page and
+            // WebView2 stop re-downloading icons that have not changed.
+            var hash = Convert.ToHexString(SHA256.HashData(bytes))[..16].ToLowerInvariant();
+            var etag = new EntityTagHeaderValue($"\"{hash}\"");
+            ctx.Response.Headers.CacheControl = "private, max-age=3600, must-revalidate";
+            return Results.File(bytes, "image/png", entityTag: etag);
         }).AllowPanel();
         app.MapPost("/shortcuts/launch", (string? targetId, IShortcutsProvider s) =>
             s.Launch(targetId ?? "") ? ApiResponse.Ok() : ApiResponse.Fail("Not found")).AllowPanel();

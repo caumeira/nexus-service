@@ -66,6 +66,7 @@ public class AuthRequestPolicyTests
         AssertPanelAllowedRoute(app, "POST", "/system/open-settings");
         AssertPanelAllowedRoute(app, "POST", "/system/open-url");
         AssertPanelAllowedRoute(app, "POST", "/system/open-path");
+        AssertPanelAllowedRoute(app, "POST", "/system/open-task-manager");
         AssertPanelAllowedRoute(app, "POST", "/system/power/lock");
         AssertPanelAllowedRoute(app, "POST", "/system/power/sleep");
         AssertPanelAllowedRoute(app, "GET", "/system/audio/devices");
