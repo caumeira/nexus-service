@@ -1367,7 +1367,7 @@ public class StreamDeckConnectionWorkerTests
                     {
                         Slots =
                         {
-                            new DeckSlot { Label = "PageZero", Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+                            new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number", LabelText = "PageZero" } },
                             new DeckSlot { Action = new DeckAction { Type = "page", Op = "next" } },
                         },
                     },
@@ -1375,7 +1375,7 @@ public class StreamDeckConnectionWorkerTests
                     {
                         Slots =
                         {
-                            new DeckSlot { Label = "PageOne", Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+                            new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number", LabelText = "PageOne" } },
                             new DeckSlot { Action = new DeckAction { Type = "page", Op = "prev" } },
                         },
                     },
