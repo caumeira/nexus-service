@@ -219,9 +219,9 @@ public sealed class RealKeebProvider : IKeebProvider
             error = "layer verify read failed";
             return false;
         }
-        if (!readback.AsSpan().SequenceEqual(pages))
+        if (!KeebLayerCodec.DataEquals(readback, pages, KeebLayerCodec.PageCount))
         {
-            ServiceLog.Error($"[keeb] layer verify mismatch p{profile} l{layer}: wrote {Convert.ToHexString(pages)[..64]}… read {Convert.ToHexString(readback)[..64]}…");
+            ServiceLog.Error($"[keeb] layer verify mismatch p{profile} l{layer}: {KeebLayerCodec.DescribeMismatch(pages, readback, KeebLayerCodec.PageCount)}");
             error = "layer verify mismatch - the keyboard did not accept the table";
             return false;
         }
@@ -418,8 +418,12 @@ public sealed class RealKeebProvider : IKeebProvider
                 if (!_hub.WriteMacro(slot, built.Pages))
                     return MacroFail("macro write failed", built);
                 var readback = _hub.ReadMacroRaw(slot);
-                if (readback is null || !readback.AsSpan().SequenceEqual(built.Pages))
+                if (readback is null || !KeebLayerCodec.DataEquals(readback, built.Pages, KeebMacroCodec.PageCount, KeebMacroCodec.ReservedTailBytes))
+                {
+                    if (readback is not null)
+                        ServiceLog.Error($"[keeb] macro verify mismatch slot {slot}: {KeebLayerCodec.DescribeMismatch(built.Pages, readback, KeebMacroCodec.PageCount, KeebMacroCodec.ReservedTailBytes)}");
                     return MacroFail("macro verify mismatch - the keyboard did not accept it", built);
+                }
                 wrote = true;
             }
             _store.Update(s => s.Keeb.Macros[slot] = doc);

@@ -53,6 +53,18 @@ public sealed class KeebHub : IDisposable
     /// <summary>Vendor writes macro (0xF3) pages with a 20 ms pause after each page; layer (0xF2) pages need none.</summary>
     private const int MacroInterPageDelayMs = 20;
 
+    /// <summary>
+    /// Settle after a full layer/macro page write before anything re-arms the
+    /// interface: the vendor driver sleeps 50 ms between a table write and its
+    /// read-back (SuoaiKeebTKLController ChangeKey/SetMacro) while the
+    /// firmware commits to flash; a read armed inside that window is swallowed.
+    /// </summary>
+    private const int OnboardCommitSettleMs = 50;
+
+    /// <summary>Read-burst pacing per the vendor driver: 20 ms after arming, 5 ms between pages.</summary>
+    private const int ReadArmSettleMs = 20;
+    private const int ReadInterPageDelayMs = 5;
+
     public KeebHub(IHidEnumerator hid)
     {
         _hid = hid;
@@ -82,7 +94,12 @@ public sealed class KeebHub : IDisposable
         var chosen = FindVendorInterface(_hid);
         if (chosen is null) return false;
 
-        var dev = _hid.Open(chosen.Path);
+        // Overlapped so Read honors its timeout: the firmware silently swallows
+        // a read armed while it is busy (e.g. committing a just-written layer
+        // table to flash), and a synchronous read would then block forever
+        // INSIDE _io, wedging every keeb operation including the RGB stream.
+        // With a real timeout the read fails cleanly and the handle recycles.
+        var dev = _hid.Open(chosen.Path, forInput: true);
         if (dev is null)
         {
             ServiceLog.Error($"[keeb] open failed for {chosen.Path}");
@@ -285,9 +302,11 @@ public sealed class KeebHub : IDisposable
                 RecordWriteFailureLocked($"{what}-read-feature");
                 return null;
             }
+            System.Threading.Thread.Sleep(ReadArmSettleMs);
             var pages = new byte[pageCount * KeebLayout.PageSize];
             for (var p = 0; p < pageCount; p++)
             {
+                if (p > 0) System.Threading.Thread.Sleep(ReadInterPageDelayMs);
                 var buf = new byte[KeebLayout.PageSize];
                 var n = dev.Read(buf, 250);
                 if (n <= 0)
@@ -318,7 +337,9 @@ public sealed class KeebHub : IDisposable
         lock (_io)
         {
             if (!EnsureConnectedLocked()) return false;
-            return WritePagesLocked(KeebProtocol.MacroFeature(KeebProtocol.Write, slot), pages, KeebMacroCodec.PageCount, MacroInterPageDelayMs);
+            var ok = WritePagesLocked(KeebProtocol.MacroFeature(KeebProtocol.Write, slot), pages, KeebMacroCodec.PageCount, MacroInterPageDelayMs);
+            if (ok) System.Threading.Thread.Sleep(OnboardCommitSettleMs);
+            return ok;
         }
     }
 
@@ -328,7 +349,9 @@ public sealed class KeebHub : IDisposable
         lock (_io)
         {
             if (!EnsureConnectedLocked()) return false;
-            return WritePagesLocked(KeebProtocol.LayerFeature(KeebProtocol.Write, profile, layer), pages, KeebProtocol.LayerPageCount, 0);
+            var ok = WritePagesLocked(KeebProtocol.LayerFeature(KeebProtocol.Write, profile, layer), pages, KeebProtocol.LayerPageCount, 0);
+            if (ok) System.Threading.Thread.Sleep(OnboardCommitSettleMs);
+            return ok;
         }
     }
 

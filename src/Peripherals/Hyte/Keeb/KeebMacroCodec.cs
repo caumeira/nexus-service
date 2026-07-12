@@ -22,6 +22,14 @@ public static class KeebMacroCodec
     public const int PageCount = 4;
     public const int DataBytes = PageCount * KeebLayout.PageDataSize; // 256
 
+    /// <summary>
+    /// The firmware stamps its AA AA 55 55 factory sentinel into the final 4
+    /// bytes of the stored macro block (bench-verified: a written macro reads
+    /// back with the tail replaced). Never encode into them, and ignore them
+    /// on write→readback verification.
+    /// </summary>
+    public const int ReservedTailBytes = 4;
+
     /// <summary>Longest encodable per-action delay: 65535 units of 10 ms.</summary>
     public const int MaxDurationMs = ushort.MaxValue * 10;
 
@@ -70,13 +78,13 @@ public static class KeebMacroCodec
 
             if (units <= MaxInlineDelayUnits)
             {
-                if (pos + 2 > DataBytes - 2) { result.Truncated = true; break; }
+                if (pos + 2 > DataBytes - 2 - ReservedTailBytes) { result.Truncated = true; break; }
                 data[pos++] = (byte)((release ? ReleaseBit : 0) | (byte)units);
                 data[pos++] = hid;
             }
             else
             {
-                if (pos + 4 > DataBytes - 2) { result.Truncated = true; break; }
+                if (pos + 4 > DataBytes - 2 - ReservedTailBytes) { result.Truncated = true; break; }
                 data[pos++] = (byte)((release ? ReleaseBit : 0) | ExtendedDelayMarker);
                 data[pos++] = hid;
                 data[pos++] = (byte)(units & 0xFF);

@@ -157,11 +157,12 @@ public class KeebMacroCodecTests
         var r = KeebMacroCodec.Build(doc);
         Assert.True(r.Truncated);
         var data = AllData(r.Pages);
-        // Terminator [00,00] fits inside the 256-byte stream.
-        Assert.Equal(0x00, data[KeebMacroCodec.DataBytes - 2]);
-        Assert.Equal(0x00, data[KeebMacroCodec.DataBytes - 1]);
+        // The firmware-reserved tail (sentinel area) stays untouched and the
+        // terminator fits before it.
+        for (var i = KeebMacroCodec.DataBytes - KeebMacroCodec.ReservedTailBytes; i < KeebMacroCodec.DataBytes; i++)
+            Assert.Equal(0x00, data[i]);
         // The stream is packed right up to the budget.
-        Assert.NotEqual(0x00, data[KeebMacroCodec.DataBytes - 4]);
+        Assert.NotEqual(0x00, data[KeebMacroCodec.DataBytes - KeebMacroCodec.ReservedTailBytes - 4]);
     }
 
     [Fact]
