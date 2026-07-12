@@ -1004,6 +1004,15 @@ public class StreamDeckConnectionWorkerTests
         return snapshot;
     }
 
+    private static bool ImageEquals(byte[]? a, byte[]? b)
+    {
+        if (a is null || b is null)
+        {
+            return a is null && b is null;
+        }
+        return a.AsSpan().SequenceEqual(b);
+    }
+
     [Fact]
     public void Tick_MonitoringSlot_RendersAndPushesAValidWireImage_WithoutTouchingImageRefsOrTheCache()
     {
@@ -1177,6 +1186,14 @@ public class StreamDeckConnectionWorkerTests
         Assert.NotNull(simulated.PeekKeyImage(0));
     }
 
+    /// <summary>
+    /// PushCurrentView paints every visible monitoring key immediately on
+    /// connect (an uncapped nav-style repaint - see the PushCurrentView
+    /// monitoring-slot branch), so the round-robin cap only bites once the
+    /// view is already established and a later value change needs every key
+    /// re-rendered. "number" style renders from ValueText alone, so its wire
+    /// bytes stay stable across ticks unless the sensor value itself changes.
+    /// </summary>
     [Fact]
     public void Tick_MoreMonitoringKeysThanTheCap_RoundRobinsAcrossTicks()
     {
@@ -1185,14 +1202,12 @@ public class StreamDeckConnectionWorkerTests
         {
             new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 1f, Formatted = "1%", Parent = new SensorParent() },
         };
-        // One more monitoring slot than the per-tick push cap and than the
-        // Mini's key count can hold, so the last one is held back on tick 1.
+        // One more monitoring slot than the per-tick push cap.
         var slots = new List<DeckSlot>();
         for (var i = 0; i < Mini.KeyCount - 1; i++)
         {
-            slots.Add(new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "line" } });
+            slots.Add(new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } });
         }
-        var lastKeyIndex = slots.Count - 1;
         var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
         f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
         {
@@ -1201,11 +1216,38 @@ public class StreamDeckConnectionWorkerTests
         using var worker = NewWorker(f, simulated);
 
         worker.Tick();
-        Assert.Null(simulated.PeekKeyImage(lastKeyIndex));
+        var baseline = SnapshotKeyImages(simulated, slots.Count);
+        for (var i = 0; i < slots.Count; i++)
+        {
+            Assert.NotNull(baseline[i]);
+        }
+
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 99f, Formatted = "99%", Parent = new SensorParent() },
+        };
+        worker.Tick();
+        var afterOneTick = SnapshotKeyImages(simulated, slots.Count);
+        var updated = 0;
+        for (var i = 0; i < slots.Count; i++)
+        {
+            if (!ImageEquals(baseline[i], afterOneTick[i]))
+            {
+                updated++;
+            }
+        }
+        Assert.Equal(MonitoringPushCapPerTickForTests, updated);
 
         worker.Tick();
-        Assert.NotNull(simulated.PeekKeyImage(lastKeyIndex));
+        var afterTwoTicks = SnapshotKeyImages(simulated, slots.Count);
+        for (var i = 0; i < slots.Count; i++)
+        {
+            Assert.False(ImageEquals(baseline[i], afterTwoTicks[i]));
+        }
     }
+
+    /// <summary>Mirrors StreamDeckConnectionWorker's private MonitoringPushCapPerTick, which the test project cannot see directly.</summary>
+    private const int MonitoringPushCapPerTickForTests = 4;
 
     /// <summary>
     /// While a monitoring key is physically held, RefreshMonitoringKeys must
@@ -1249,6 +1291,160 @@ public class StreamDeckConnectionWorkerTests
 
         Assert.NotEqual(initial, simulated.PeekKeyImage(0));
         Assert.True(simulated.SetKeyImageCallCount > callsBeforeHold);
+    }
+
+    /// <summary>
+    /// Regression for the reported bug: pressing a page-nav key that reveals
+    /// a monitoring slot must not leave the previous page's tile up. A single
+    /// Tick() both processes the physical press (PumpSimulatedInput mirrors
+    /// a real HID input report) and, via that press's own PushCurrentView
+    /// call, repaints the newly visible key before this tick's monitoring
+    /// pass ever runs.
+    /// </summary>
+    [Fact]
+    public void Tick_NavigatingToAMonitoringSlot_PaintsItInTheSamePushCurrentViewPass()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot { Label = "PageZero", Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+                            new DeckSlot { Action = new DeckAction { Type = "page", Op = "next" } },
+                        },
+                    },
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot { Label = "PageOne", Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+                            new DeckSlot { Action = new DeckAction { Type = "page", Op = "prev" } },
+                        },
+                    },
+                },
+            },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick();
+        var pageZeroImage = simulated.PeekKeyImage(0);
+        Assert.NotNull(pageZeroImage);
+
+        simulated.Poke(1, true);
+        worker.Tick();
+
+        var pageOneImage = simulated.PeekKeyImage(0);
+        Assert.NotNull(pageOneImage);
+        Assert.NotEqual(pageZeroImage, pageOneImage);
+    }
+
+    /// <summary>Same nav path, but the landing key's sensor id never resolves - it must still get a placeholder, never the departing page's pixels.</summary>
+    [Fact]
+    public void Tick_NavigatingToAnUnresolvedMonitoringSlot_PushesAPlaceholderNotStalePixels()
+    {
+        var f = NewFixtures(devicePresent: false); // no CpuSensors configured: "cpu/missing" never resolves
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot { Label = "PageZero", Action = new DeckAction { Type = "openUrl", Url = "https://page0.example.com" } },
+                            new DeckSlot { Action = new DeckAction { Type = "page", Op = "next" } },
+                        },
+                    },
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/missing", Style = "number" } },
+                            new DeckSlot { Action = new DeckAction { Type = "page", Op = "prev" } },
+                        },
+                    },
+                },
+            },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+        Assert.Null(simulated.PeekKeyImage(0)); // page 0's slot has no ImageRef
+
+        simulated.Poke(1, true);
+        worker.Tick();
+
+        var bytes = simulated.PeekKeyImage(0);
+        Assert.NotNull(bytes);
+        Assert.True(Mini.IsValidWireImageLength(bytes!.Length));
+    }
+
+    /// <summary>
+    /// The inline nav repaint and that same tick's own RefreshMonitoringKeys
+    /// pass must record one coherent last-pushed hash - not push twice for
+    /// the nav, and not push again on the next tick while the reading is
+    /// unchanged.
+    /// </summary>
+    [Fact]
+    public void Tick_NavigatingToAMonitoringSlot_TheFollowingTickDoesNotRepushAnUnchangedTile()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://page0.example.com" } },
+                            new DeckSlot { Action = new DeckAction { Type = "page", Op = "next" } },
+                        },
+                    },
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+                            new DeckSlot { Action = new DeckAction { Type = "page", Op = "prev" } },
+                        },
+                    },
+                },
+            },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+        var callsBeforeNav = simulated.SetKeyImageCallCount;
+
+        simulated.Poke(1, true);
+        worker.Tick();
+        simulated.Poke(1, false);
+        worker.Tick();
+        var callsAfterNav = simulated.SetKeyImageCallCount;
+        Assert.Equal(callsBeforeNav + 1, callsAfterNav);
+
+        worker.Tick();
+        Assert.Equal(callsAfterNav, simulated.SetKeyImageCallCount);
     }
 
     private sealed class MutableUsbEnumerator : IUsbEnumerator

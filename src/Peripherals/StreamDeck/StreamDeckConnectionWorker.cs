@@ -104,6 +104,18 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// <summary>Cursor into the current tick's visible-monitoring-key list, so a push-capped tick advances fairly across ticks instead of starving keys past the cap.</summary>
     private int _monitoringRoundRobinCursor;
 
+    /// <summary>
+    /// Monitoring keys (by historyKey) already sampled and pushed inline by a
+    /// PushCurrentView call within the current Tick(), so RefreshMonitoringKeys
+    /// later in the same Tick() does not sample them a second time - a second
+    /// sample changes a history-length-sensitive style's rendered pixels even
+    /// though the reading did not change, forcing a redundant re-push. Cleared
+    /// at the start of every Tick(); a PushCurrentView call between ticks (nav,
+    /// SetNav, RefreshView) leaves an entry that the next Tick() clears before
+    /// RefreshMonitoringKeys runs, so it never suppresses a real periodic sample.
+    /// </summary>
+    private readonly HashSet<string> _monitoringPaintedThisTick = new(StringComparer.Ordinal);
+
     private readonly TimeProvider _clock;
 
     public StreamDeckConnectionWorker(
@@ -329,6 +341,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
                 return;
             }
 
+            _monitoringPaintedThisTick.Clear();
             RegisterSimulatedIfNeeded();
             ReconcileHidSurfaces();
             PumpSimulatedInput();
@@ -1069,7 +1082,19 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
                     continue;
                 }
                 var slotPath = DeckConfigNavigation.BuildSlotPath(folderPath, slotIndex);
-                visible.Add(new MonitoringKeyRef(surface, key, BuildMonitoringKey(surface.Serial, page, slotPath), slot, deck.Orientation));
+                var historyKey = BuildMonitoringKey(surface.Serial, page, slotPath);
+                if (_monitoringPaintedThisTick.Contains(historyKey))
+                {
+                    // A PushCurrentView call earlier in this same Tick()
+                    // already sampled and pushed this key (a connect or a
+                    // simulated-deck nav both run inside Tick()); sampling it
+                    // again here would add a second sample within the same
+                    // instant, which changes a history-length-sensitive
+                    // style's rendered pixels even though the reading has
+                    // not changed and forces a redundant re-push.
+                    continue;
+                }
+                visible.Add(new MonitoringKeyRef(surface, key, historyKey, slot, deck.Orientation));
             }
         }
 
@@ -1296,8 +1321,17 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             }
             if (slot.Action?.Type == "monitoring")
             {
-                // RefreshMonitoringKeys owns this key's pixels and repaints it
-                // on the next tick; clearing it here would stomp a live render.
+                // Rendered inline (not skipped) so a nav landing on this key
+                // never shows the previous view's pixels for the tick before
+                // RefreshMonitoringKeys next runs. The invalidation call
+                // above already dropped this key's last-pushed hash, so
+                // PushMonitoringKey below always repaints regardless of
+                // whether the sampled reading matches the prior view's.
+                var slotPath = DeckConfigNavigation.BuildSlotPath(folderPath, slotIndex);
+                var keyRef = new MonitoringKeyRef(surface, key, BuildMonitoringKey(surface.Serial, page, slotPath), slot, deck?.Orientation ?? 0);
+                var sensor = SampleMonitoringHistory(keyRef);
+                PushMonitoringKey(keyRef, sensor);
+                _monitoringPaintedThisTick.Add(keyRef.HistoryKey);
                 continue;
             }
 
