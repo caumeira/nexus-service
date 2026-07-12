@@ -41,6 +41,10 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
     // Last firmware-mode signature committed to hardware; null = nothing sent yet.
     private int? _lastFirmwareSig;
 
+    // Per-device resolved zones for the firmware-mode sig/commit pair, reused
+    // each tick so they resolve once instead of once per call site.
+    private readonly List<IReadOnlyList<ResolvedZone>> _firmwareZonesByDevice = new();
+
     // Raw RGB scratch for one channel: MaxFansPerPort fans * LedsPerFanPerChannel * 3 bytes.
     private readonly byte[] _channelBuf =
         new byte[LianLiProtocol.MaxFansPerPort * LianLiProtocol.LedsPerFanPerChannel * 3];
@@ -159,13 +163,19 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         }
 
         var undriven = settings.Devices.UndrivenLightingDevices;
-        var sig = ComputeFirmwareSig(ls, globalBrightness, composed, settings.Devices.DisabledLightingDevices, undriven, settings);
+        _firmwareZonesByDevice.Clear();
+        foreach (var device in composed)
+        {
+            _firmwareZonesByDevice.Add(ZoneResolution.Resolve(device.Structure, settings));
+        }
+
+        var sig = ComputeFirmwareSig(ls, globalBrightness, composed, settings.Devices.DisabledLightingDevices, undriven, _firmwareZonesByDevice);
         if (_lastFirmwareSig.HasValue && sig == _lastFirmwareSig.Value)
         {
             return;
         }
 
-        CommitFirmwareMode(ls, mode, globalBrightness, composed, settings.Devices.DisabledLightingDevices, undriven, settings);
+        CommitFirmwareMode(ls, mode, globalBrightness, composed, settings.Devices.DisabledLightingDevices, undriven, _firmwareZonesByDevice);
         _lastFirmwareSig = sig;
     }
 
@@ -184,7 +194,7 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         {
             var structure = device.Structure;
             var zones = ZoneResolution.Resolve(structure, settings);
-            if (zones.Count > 0 && IsComposedDeviceFullyUndriven(zones, undriven))
+            if (ZoneResolution.IsFullyUndriven(zones, undriven))
             {
                 // Every zone of this fan group is undriven: leave its two
                 // channels alone entirely rather than streaming a black frame.
@@ -227,15 +237,15 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         List<ComposedDevice> composed,
         IReadOnlyList<string> disabled,
         IReadOnlyList<string> undriven,
-        NexusSettings settings)
+        List<IReadOnlyList<ResolvedZone>> zonesByDevice)
     {
         var speedByte = LianLiLightingModes.SpeedCodes[Math.Clamp(ls.Speed, 0, 4)];
         var dirByte = LianLiLightingModes.DirectionByte(ls.Direction);
 
-        foreach (var device in composed)
+        for (var i = 0; i < composed.Count; i++)
         {
-            var zones = ZoneResolution.Resolve(device.Structure, settings);
-            if (zones.Count > 0 && IsComposedDeviceFullyUndriven(zones, undriven))
+            var device = composed[i];
+            if (ZoneResolution.IsFullyUndriven(zonesByDevice[i], undriven))
             {
                 // Every zone of this fan group is undriven: skip its channel
                 // commits entirely rather than committing at brightness zero.
@@ -290,22 +300,6 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         }
         var idx = (int)Math.Round(Math.Min((double)ls.Brightness, globalBrightness * 4.0));
         return LianLiLightingModes.BrightnessCodes[Math.Clamp(idx, 0, 4)];
-    }
-
-    private static bool IsComposedDeviceFullyUndriven(IReadOnlyList<ResolvedZone> zones, IReadOnlyList<string> undriven)
-    {
-        if (undriven.Count == 0)
-        {
-            return false;
-        }
-        foreach (var zone in zones)
-        {
-            if (!undriven.Contains(zone.Id))
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     private static bool IsDeviceDisabled(ComposedDevice device, IReadOnlyList<string> disabled)
@@ -404,7 +398,7 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         List<ComposedDevice> composed,
         IReadOnlyList<string> disabled,
         IReadOnlyList<string> undriven,
-        NexusSettings settings)
+        List<IReadOnlyList<ResolvedZone>> zonesByDevice)
     {
         var hc = new HashCode();
         hc.Add(ls.Mode);
@@ -414,10 +408,10 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         {
             hc.Add(c);
         }
-        foreach (var device in composed)
+        for (var i = 0; i < composed.Count; i++)
         {
-            var zones = ZoneResolution.Resolve(device.Structure, settings);
-            var skipped = zones.Count > 0 && IsComposedDeviceFullyUndriven(zones, undriven);
+            var device = composed[i];
+            var skipped = ZoneResolution.IsFullyUndriven(zonesByDevice[i], undriven);
             hc.Add(skipped);
             if (skipped)
             {

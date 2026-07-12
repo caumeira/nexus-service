@@ -161,8 +161,11 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
 
         // Keys and underglow stream over separate HID reports, so each segment
         // can be handed back to firmware independently: a fully undriven
-        // segment simply isn't written this tick.
-        if (touched[KeebZoneSupport.KeysSegment] && !undriven.Contains(hubId + KeebLightingDeviceProvider.KeysSuffix))
+        // segment simply isn't written this tick. Checked against the live
+        // resolved zones (not the default card ids) so a custom partition's
+        // zone ids still gate the write correctly.
+        if (touched[KeebZoneSupport.KeysSegment]
+            && !Nexus.Service.Lighting.Zones.ZoneResolution.IsSegmentFullyUndriven(zones, KeebZoneSupport.KeysSegment, undriven))
         {
             if (reactive != null)
             {
@@ -170,7 +173,8 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
             }
             _hub.WriteKeyboard(_segmentBuffers[KeebZoneSupport.KeysSegment]);
         }
-        if (touched[KeebZoneSupport.UnderglowSegment] && !undriven.Contains(hubId + KeebLightingDeviceProvider.UnderglowSuffix))
+        if (touched[KeebZoneSupport.UnderglowSegment]
+            && !Nexus.Service.Lighting.Zones.ZoneResolution.IsSegmentFullyUndriven(zones, KeebZoneSupport.UnderglowSegment, undriven))
         {
             _hub.WriteSurround(_segmentBuffers[KeebZoneSupport.UnderglowSegment]);
         }

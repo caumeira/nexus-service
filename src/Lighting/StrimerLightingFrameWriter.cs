@@ -141,9 +141,8 @@ public sealed class StrimerLightingFrameWriter : IHostedService, IDisposable
             atxStructure, atxZones, devices, disabled, undriven, prefs, globalBrightness, 1.0, nowTicks, _identify, _atxSegBuf);
         for (var s = 0; s < StrimerProtocol.AtxZoneCount; s++)
         {
-            // Undriven strips still receive the wire header (this device has no
-            // firmware/onboard fallback to hand back to), but a fully undriven
-            // strip skips the color/commit pair so it stops updating entirely.
+            // A fully undriven strip skips its color/commit pair entirely,
+            // so it stops updating rather than going black.
             if (undriven.Count > 0 && undriven.Contains($"strimer:atx:z{s}")) continue;
             var zone = StrimerProtocol.AtxZone(s);
             FillLedBuf(_atxSegBuf[s], StrimerProtocol.AtxLedsPerZone);

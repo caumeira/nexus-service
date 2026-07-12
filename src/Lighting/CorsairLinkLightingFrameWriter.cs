@@ -38,6 +38,12 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
     // Scratch buffer for the concatenated wire frame; resized on demand.
     private byte[] _wireBuf = Array.Empty<byte>();
 
+    // Per-tick structure/zone resolution, cleared and repopulated each Tick so
+    // the undriven check and the wire-building pass share one resolve per
+    // device instead of resolving zones twice.
+    private readonly List<DeviceStructure> _tickStructures = new();
+    private readonly List<IReadOnlyList<ResolvedZone>> _tickZones = new();
+
     public CorsairLinkLightingFrameWriter(
         LightingEngine engine, CorsairLinkHub hub, IConfigStore store, Np50IdentifyTracker identify)
     {
@@ -108,12 +114,19 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
         var totalLeds = 0;
         var anyChannel = false;
         var hubFullyUndriven = true;
+        _tickStructures.Clear();
+        _tickZones.Clear();
         foreach (var dev in hubDevices)
         {
             if (dev.LedCount <= 0) continue;
             totalLeds += dev.LedCount;
             anyChannel = true;
-            if (hubFullyUndriven && !undriven.Contains($"corsair:ch{dev.Channel}")) hubFullyUndriven = false;
+            var id = $"corsair:ch{dev.Channel}";
+            var structure = CorsairLinkLightingDeviceProvider.BuildStructure(id, dev);
+            var zones = ZoneResolution.Resolve(structure, settings);
+            _tickStructures.Add(structure);
+            _tickZones.Add(zones);
+            if (hubFullyUndriven && !ZoneResolution.IsFullyUndriven(zones, undriven)) hubFullyUndriven = false;
         }
         if (totalLeds == 0) return;
 
@@ -125,12 +138,13 @@ public sealed class CorsairLinkLightingFrameWriter : IHostedService, IDisposable
         if (_wireBuf.Length < totalBytes) _wireBuf = new byte[Math.Max(totalBytes, 512)];
 
         var wireOffset = 0;
+        var devIdx = 0;
         foreach (var dev in hubDevices)
         {
             if (dev.LedCount <= 0) continue;
-            var id = $"corsair:ch{dev.Channel}";
-            var structure = CorsairLinkLightingDeviceProvider.BuildStructure(id, dev);
-            var zones = ZoneResolution.Resolve(structure, settings);
+            var structure = _tickStructures[devIdx];
+            var zones = _tickZones[devIdx];
+            devIdx++;
             SegmentFrameComposer.EnsureBuffers(structure, ref _segBuf);
             SegmentFrameComposer.Compose(
                 structure, zones, devices, disabled, undriven, prefs, effectiveBrightness, 1.0, nowTicks, _identify, _segBuf);

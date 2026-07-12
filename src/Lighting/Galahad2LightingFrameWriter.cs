@@ -91,8 +91,10 @@ public sealed class Galahad2LightingFrameWriter : IHostedService, IDisposable
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var brightnessRaw    = (byte)Math.Clamp((int)Math.Round(Math.Min((double)ls.Brightness, globalBrightness * 4.0)), 0, 4);
 
-        // Both rings share one wire packet, so a partial undriven state can't
-        // be split off - only leave the AIO alone entirely once every ring is.
+        // Both rings share one wire packet: only leave the AIO alone entirely
+        // once every ring is undriven. A single undriven ring stays on the
+        // wire (TickCanvas blacks its color slot; the shared packet can't
+        // omit it without also silencing the still-driven ring).
         var undriven = settings.Devices.UndrivenLightingDevices;
         if (undriven.Count > 0
             && undriven.Contains("lianli-aio:ring:inner")
@@ -104,7 +106,7 @@ public sealed class Galahad2LightingFrameWriter : IHostedService, IDisposable
         if (ls.Mode == "canvas")
         {
             _lastFirmwareSig = null;
-            TickCanvas(brightnessRaw);
+            TickCanvas(brightnessRaw, undriven);
             return;
         }
 
@@ -125,7 +127,7 @@ public sealed class Galahad2LightingFrameWriter : IHostedService, IDisposable
         _lastFirmwareSig = sig;
     }
 
-    private void TickCanvas(byte brightnessRaw)
+    private void TickCanvas(byte brightnessRaw, System.Collections.Generic.IReadOnlyList<string> undriven)
     {
         var devices = _engine.Devices;
         byte innerR = 0, innerG = 0, innerB = 0;
@@ -142,6 +144,14 @@ public sealed class Galahad2LightingFrameWriter : IHostedService, IDisposable
                 var b = frame.LedBytes;
                 outerR = b[0]; outerG = b[1]; outerB = b[2];
             }
+        }
+        if (undriven.Count > 0 && undriven.Contains("lianli-aio:ring:inner"))
+        {
+            innerR = 0; innerG = 0; innerB = 0;
+        }
+        if (undriven.Count > 0 && undriven.Contains("lianli-aio:ring:outer"))
+        {
+            outerR = 0; outerG = 0; outerB = 0;
         }
 
         if (_lastWasCanvas

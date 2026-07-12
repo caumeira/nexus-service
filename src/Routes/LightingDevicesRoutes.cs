@@ -280,16 +280,23 @@ public static partial class DevicesRoutes
         });
         // Undriven ids are pure persisted state - no provider owns a "not driven"
         // action, so this writes the shared store directly rather than dispatching
-        // through ILightingDeviceProvider. Nudge RgbBridge to reclaim direct mode
-        // immediately on re-enable rather than waiting for its poll cadence.
+        // through ILightingDeviceProvider. On re-enable, nudge RgbBridge to
+        // reclaim direct mode immediately rather than waiting for its poll
+        // cadence, and re-push a smart light's static color: while no effect
+        // runs nothing else re-pushes it (effect mode recovers on its own
+        // writer tick once the id drops out of the undriven list).
         app.MapPost("/devices/lighting-devices/driven", (
             SetLightingDeviceDrivenBody body,
             Nexus.Service.Persistence.IConfigStore store,
-            Nexus.Service.Lighting.Rgb.RgbBridge? bridge) =>
+            Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
+            Nexus.Service.Lighting.Smart.SmartLightProvider smart) =>
         {
             Nexus.Service.Lighting.LightingDrivenState.SetDriven(body.Id, body.Driven, store);
             if (body.Driven)
-            { bridge?.RequestTopologyRefresh(); }
+            {
+                bridge?.RequestTopologyRefresh();
+                smart.RestoreStatic(body.Id);
+            }
             return ApiResponse.Ok();
         });
         app.MapPost("/devices/lighting-devices/brightness", (SetLightingDeviceBrightness body, ILightingDeviceProvider ld) =>

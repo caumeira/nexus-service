@@ -12,7 +12,7 @@ public static class LightingDrivenState
 {
     /// <summary>
     /// Write id's driven state, replacing the list reference rather than
-    /// mutating in place so the 30fps frame writers reading it lock-free
+    /// mutating in place so the frame-rate writers reading it lock-free
     /// never observe a torn state.
     /// </summary>
     public static void SetDriven(string id, bool driven, IConfigStore store)

@@ -89,13 +89,12 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
 
         // Every port undriven: leave the hub alone entirely so it drops back
         // to its firmware animation. When mirrored, the single mirror id
-        // stands in for all four physical ports.
+        // stands in for every physical port.
         if (undriven.Count > 0)
         {
             var fullyUndriven = mirror
                 ? undriven.Contains(SmartHubLightingDeviceProvider.MirrorId(hubId))
-                : undriven.Contains($"{hubId}:port1") && undriven.Contains($"{hubId}:port2")
-                    && undriven.Contains($"{hubId}:port3") && undriven.Contains($"{hubId}:port4");
+                : AllPortsUndriven(hubId, undriven);
             if (fullyUndriven) return;
         }
 
@@ -108,6 +107,18 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
             var id = mirror ? SmartHubLightingDeviceProvider.MirrorId(hubId) : $"{hubId}:port{channel}";
             TryPushZone(devices, id, channel, disabled, undriven, prefs, globalBrightness, nowTicks);
         }
+    }
+
+    private static bool AllPortsUndriven(string hubId, System.Collections.Generic.IReadOnlyList<string> undriven)
+    {
+        for (var channel = 1; channel <= SmartHubProtocol.ArgbPortCount; channel++)
+        {
+            if (!undriven.Contains($"{hubId}:port{channel}"))
+            {
+                return false;
+            }
+        }
+        return true;
     }
 
     private void TryPushZone(DeviceFrame[] devices, string id, int channel,

@@ -173,7 +173,7 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
             liveMacs.Add(macHex);
 
             var zones = ZoneResolution.Resolve(structure, settings);
-            if (zones.Count > 0 && IsChainFullyUndriven(zones, undriven))
+            if (ZoneResolution.IsFullyUndriven(zones, undriven))
             {
                 // Every zone of this chain is undriven: stop streaming to it
                 // so its reactive/onboard mode can take over.
@@ -256,22 +256,6 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
                 _lastPushTicks.Remove(mac);
             }
         }
-    }
-
-    private static bool IsChainFullyUndriven(IReadOnlyList<ResolvedZone> zones, IReadOnlyList<string> undriven)
-    {
-        if (undriven.Count == 0)
-        {
-            return false;
-        }
-        foreach (var zone in zones)
-        {
-            if (!undriven.Contains(zone.Id))
-            {
-                return false;
-            }
-        }
-        return true;
     }
 
     private void EnsureWireBuffer(int totalLeds)

@@ -133,6 +133,16 @@ public sealed class RgbBridge : IDisposable
     // mapped to it is undriven, so the whole physical device is skipped
     // rather than pushed. Only touched inside OnFrame.
     private readonly Dictionary<int, bool> _physFullyUndriven = new();
+    // Ids of this bridge's own OpenRGB frames as of the last refresh, set
+    // once per RefreshDevicesAsync before contributor frames are appended.
+    // Contributor frames (NP50, Keeb, hubs) reuse PhysicalIndex = their
+    // engine ordinal, which can collide with a real OpenRGB device index
+    // once first-party-owned devices are skipped from seeding; this set
+    // keeps the undriven aggregation below restricted to real OpenRGB
+    // frames so a driven contributor can't veto an undriven OpenRGB device
+    // sharing its index. Replaced wholesale (never mutated) so OnFrame reads
+    // it without synchronization.
+    private HashSet<string> _bridgeFrameIds = new(StringComparer.Ordinal);
 
     private readonly IReadOnlyList<ILightingFrameContributor> _frameContributors;
     private readonly Nexus.Service.Lighting.Mappings.ContributorFrameLayouts _contributorLayouts;
@@ -794,6 +804,13 @@ public sealed class RgbBridge : IDisposable
                 }
             }
 
+            var bridgeFrameIds = new HashSet<string>(framesList.Count, StringComparer.Ordinal);
+            foreach (var f in framesList)
+            {
+                bridgeFrameIds.Add(f.Id);
+            }
+            _bridgeFrameIds = bridgeFrameIds;
+
             // Pre-resolve the zone layout of contributor devices that expose
             // structures (keeb) so each contributed frame's user overrides
             // resolve through its zone's segment slices.
@@ -1260,17 +1277,7 @@ public sealed class RgbBridge : IDisposable
         var nowTicks = DateTime.UtcNow.Ticks;
 
         _touchedPhysicals.Clear();
-        _physFullyUndriven.Clear();
-        if (undrivenCount > 0)
-        {
-            foreach (var df in deviceFrames)
-            {
-                var zoneUndriven = undriven.Contains(df.Id);
-                _physFullyUndriven[df.PhysicalIndex] = _physFullyUndriven.TryGetValue(df.PhysicalIndex, out var allSoFar)
-                    ? allSoFar && zoneUndriven
-                    : zoneUndriven;
-            }
-        }
+        ComputeFullyUndrivenPhysicals(deviceFrames, _bridgeFrameIds, undriven, _physFullyUndriven);
 
         var deviceCount = frame[pos++];
         for (int d = 0; d < deviceCount && pos + 3 <= frame.Length; d++)
@@ -1388,6 +1395,40 @@ public sealed class RgbBridge : IDisposable
             {
                 _ = _controller.PushFrameAsync(physIdx, buf);
             }
+        }
+    }
+
+    /// <summary>
+    /// Fills <paramref name="result"/> (cleared first) with physical index ->
+    /// true when every bridge-built zone frame mapped to it is undriven.
+    /// Frames whose id is absent from <paramref name="bridgeFrameIds"/> are
+    /// skipped: a contributor frame's PhysicalIndex can collide with a real
+    /// OpenRGB device index once first-party-owned devices are excluded from
+    /// seeding, and a driven contributor must not veto an undriven OpenRGB
+    /// device sharing that index. Static and bridge-free so tests cover it
+    /// with fake frame data.
+    /// </summary>
+    internal static void ComputeFullyUndrivenPhysicals(
+        IReadOnlyList<DeviceFrame> deviceFrames,
+        IReadOnlySet<string> bridgeFrameIds,
+        IReadOnlyList<string> undriven,
+        Dictionary<int, bool> result)
+    {
+        result.Clear();
+        if (undriven.Count == 0)
+        {
+            return;
+        }
+        foreach (var df in deviceFrames)
+        {
+            if (!bridgeFrameIds.Contains(df.Id))
+            {
+                continue;
+            }
+            var zoneUndriven = undriven.Contains(df.Id);
+            result[df.PhysicalIndex] = result.TryGetValue(df.PhysicalIndex, out var allSoFar)
+                ? allSoFar && zoneUndriven
+                : zoneUndriven;
         }
     }
 
