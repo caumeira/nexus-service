@@ -476,6 +476,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
             sp.GetRequiredService<Nexus.Service.Lighting.Engine.LightingEngine>(),
             sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>(),
+            sp.GetRequiredService<Nexus.Service.Peripherals.Keeb.IKeebProvider>(),
             sp.GetRequiredService<Nexus.Service.Lighting.KeebLightingDeviceProvider>()));
         services.AddHostedService<Nexus.Service.Peripherals.Hyte.Keeb.KeebInputWorker>();
 

@@ -342,19 +342,29 @@ public sealed class KeebSettings
 {
     public string RotaryLeft { get; set; } = InstallDefaults.Keeb.RotaryLeft;
     public string RotaryRight { get; set; } = InstallDefaults.Keeb.RotaryRight;
-    public List<KeebRotaryAppOverride> RotaryApps { get; set; } = new();
-    public string RotarySensitivity { get; set; } = InstallDefaults.Keeb.RotarySensitivity;
 
     public KeebGameMode GameMode { get; set; } = new();
     public KeebFirmwareLighting FirmwareLighting { get; set; } = new();
+    // Keyed by the GLOBAL firmware macro slot (profile*16 + panel index).
     public Dictionary<int, KeebMacroDocument> Macros { get; set; } = new();
+
+    // Per-cell key remaps, applied over the pristine layer tables below.
+    public List<KeebKeyOverride> KeyOverrides { get; set; } = new();
+    // Factory 0xF2 tables captured from the device before Nexus's first write,
+    // keyed "<layout>|<profile>|<layer>", value = hex of the 520-byte page
+    // buffer. The base for every layer write and the reset-to-default source.
+    public Dictionary<string, string> PristineLayers { get; set; } = new();
 }
 
-public sealed class KeebRotaryAppOverride
+public sealed class KeebKeyOverride
 {
-    public string TargetId { get; set; } = "";
-    public string Left { get; set; } = "";
-    public string Right { get; set; } = "";
+    public int Profile { get; set; }
+    public int Layer { get; set; }
+    public int X { get; set; }
+    public int Y { get; set; }
+    public string Mode { get; set; } = "";
+    public string Function { get; set; } = "";
+    public int? Input { get; set; }
 }
 
 public sealed class KeebGameMode
@@ -375,7 +385,6 @@ public sealed class KeebFirmwareLighting
     public bool KeyReactiveMask { get; set; } = InstallDefaults.Keeb.FirmwareLighting.KeyReactiveMask;
     public string KeyReactiveMode { get; set; } = InstallDefaults.Keeb.FirmwareLighting.KeyReactiveMode;
     public RgbaColor KeyReactiveColor { get; set; } = new();
-    public bool KeyIndicator { get; set; }
 }
 
 public sealed class KeebMacroDocument
@@ -389,11 +398,6 @@ public sealed class KeebMacroKey
     public string Key { get; set; } = "";
     public int Duration { get; set; }
     public string Type { get; set; } = "KeyDown";
-    public string Category { get; set; } = "";
-    public bool Meta { get; set; }
-    public bool Ctrl { get; set; }
-    public bool Alt { get; set; }
-    public bool Shift { get; set; }
 }
 
 public sealed class CoolingSettings
