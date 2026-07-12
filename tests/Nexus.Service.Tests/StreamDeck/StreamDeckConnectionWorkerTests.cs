@@ -873,6 +873,124 @@ public class StreamDeckConnectionWorkerTests
     }
 
     /// <summary>
+    /// A monitoring key now gets the same push-in feedback a leaf action
+    /// gets, rendered from its own last-pushed tile. Key-up must restore the
+    /// original tile immediately (its own explicit SetKeyImage call), not
+    /// merely rely on the same tick's later RefreshMonitoringKeys pass -
+    /// asserted by requiring two separate SetKeyImage calls on release
+    /// (the explicit restore, plus the normal repaint ForceMonitoringKeyRefresh
+    /// still triggers), not one.
+    /// </summary>
+    [Fact]
+    public void HandleKeyDown_MonitoringSlot_PushesAPressedVariant_KeyUpRestoresTheOriginalTileImmediately()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+        var original = simulated.PeekKeyImage(0);
+        Assert.NotNull(original);
+
+        simulated.Poke(0, true);
+        worker.Tick();
+        var pressed = simulated.PeekKeyImage(0);
+        Assert.NotNull(pressed);
+        Assert.NotEqual(original, pressed);
+
+        var callsBeforeRelease = simulated.SetKeyImageCallCount;
+        simulated.Poke(0, false);
+        worker.Tick();
+
+        Assert.Equal(2, simulated.SetKeyImageCallCount - callsBeforeRelease);
+        Assert.Equal(original, simulated.PeekKeyImage(0));
+    }
+
+    /// <summary>
+    /// ForceMonitoringKeyRefresh (called from HandleKeyUp) drops only the
+    /// tracked hash, not the bytes, precisely so a re-press before the next
+    /// tick's repaint still has something to render an inset from. All three
+    /// transitions land in one Tick() call (SimulatedStreamDeckSurface drains
+    /// its whole queue), so RefreshMonitoringKeys never runs in between to
+    /// repopulate the hash on its own.
+    /// </summary>
+    [Fact]
+    public void HandleKeyDown_MonitoringSlot_RepressedBeforeTheNextTick_StillShowsAPressedInset()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+        var original = simulated.PeekKeyImage(0);
+
+        simulated.Poke(0, true);
+        simulated.Poke(0, false);
+        simulated.Poke(0, true);
+        worker.Tick();
+
+        var pressedAgain = simulated.PeekKeyImage(0);
+        Assert.NotNull(pressedAgain);
+        Assert.NotEqual(original, pressedAgain);
+    }
+
+    /// <summary>
+    /// A monitoring key never rendered yet has nothing in
+    /// _monitoringLastPushedBytes for HandlePressVisual to render an inset
+    /// from - skipped silently, no exception, no SetKeyImage call. The
+    /// config is added to the store AFTER the connect tick (bypassing
+    /// PushCurrentView/RefreshView, which would otherwise render it inline)
+    /// so HandleKeyDown resolves a real monitoring slot whose tile genuinely
+    /// has never been painted. RefreshMonitoringKeys, later in the same
+    /// tick, would normally paint it first-time, but the key is already
+    /// marked held by then, so it skips too - proving the guard, not a race.
+    /// </summary>
+    [Fact]
+    public void HandleKeyDown_MonitoringSlotNeverRendered_SkipsSilentlyWithNoPressedImage()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        using var worker = NewWorker(f, simulated);
+        worker.Tick(); // connects with no persisted deck config - root view stays empty
+        Assert.Null(simulated.PeekKeyImage(0));
+        var callsBeforeHold = simulated.SetKeyImageCallCount;
+
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages = { new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } } } } },
+            },
+        });
+
+        var exception = Record.Exception(() =>
+        {
+            simulated.Poke(0, true);
+            worker.Tick();
+        });
+
+        Assert.Null(exception);
+        Assert.Equal(callsBeforeHold, simulated.SetKeyImageCallCount);
+        Assert.Null(simulated.PeekKeyImage(0));
+    }
+
+    /// <summary>
     /// Image-refs v2: the key is page-qualified, so two pages that each use
     /// slot 0 at their own root resolve their own distinct uploaded image
     /// instead of one page's upload overwriting the other's.
@@ -1299,11 +1417,14 @@ public class StreamDeckConnectionWorkerTests
     /// <summary>
     /// While a monitoring key is physically held, RefreshMonitoringKeys must
     /// skip pushing it (avoiding a race with the pressed overlay) even though
-    /// sampling still runs every tick; release forces a fresh push regardless
-    /// of the hash-skip optimization, so the tile catches up immediately.
+    /// sampling still runs every tick - the only push during the hold is
+    /// HandlePressVisual's own pressed inset, rendered from the key's last
+    /// tile (still the pre-hold 10% reading, not the changed 90% one).
+    /// Release forces a fresh push regardless of the hash-skip optimization,
+    /// so the tile catches up immediately.
     /// </summary>
     [Fact]
-    public void MonitoringSlot_HeldDuringATick_SkipsThePush_ReleaseForcesAFreshOne()
+    public void MonitoringSlot_HeldDuringATick_OnlyThePressedInsetPushes_ReleaseForcesAFreshOne()
     {
         var f = NewFixtures(devicePresent: false);
         f.Sensors.CpuSensors = new[]
@@ -1330,14 +1451,16 @@ public class StreamDeckConnectionWorkerTests
         simulated.Poke(0, true);
         worker.Tick();
 
-        Assert.Equal(initial, simulated.PeekKeyImage(0));
-        Assert.Equal(callsBeforeHold, simulated.SetKeyImageCallCount);
+        var pressed = simulated.PeekKeyImage(0);
+        Assert.NotEqual(initial, pressed);
+        Assert.Equal(callsBeforeHold + 1, simulated.SetKeyImageCallCount);
 
         simulated.Poke(0, false);
         worker.Tick();
 
         Assert.NotEqual(initial, simulated.PeekKeyImage(0));
-        Assert.True(simulated.SetKeyImageCallCount > callsBeforeHold);
+        Assert.NotEqual(pressed, simulated.PeekKeyImage(0));
+        Assert.True(simulated.SetKeyImageCallCount > callsBeforeHold + 1);
     }
 
     /// <summary>
@@ -1670,6 +1793,93 @@ public class StreamDeckConnectionWorkerTests
         worker.RefreshView("sim-0001");
 
         Assert.Null(worker.MonitoringHistoryForTests("sim-0001", 1, "0"));
+    }
+
+    /// <summary>
+    /// DisconnectAll (driven here via the feature gate turning off, the same
+    /// path service shutdown takes) restores the deck's persisted brightness
+    /// and fires a firmware Reset() on every real surface before tearing it
+    /// down, so it shows the built-in Elgato boot logo instead of freezing
+    /// on its last live frame.
+    /// </summary>
+    [Fact]
+    public void DisconnectAll_RealSurface_RestoresBrightnessAndResetsBeforeTeardown()
+    {
+        var f = NewFixtures(devicePresent: true);
+        AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
+        f.Store.Update(s => s.StreamDeck.Decks["SERIAL-1"] = new PhysicalDeckSettings { Brightness = 55 });
+        using var worker = NewWorker(f);
+        worker.Tick();
+        var dev = (MockStreamDeckHidDevice)f.Hid.DevicesByPath["path-1"];
+        dev.FeatureWrites.Clear(); // drop the connect-time brightness write
+
+        f.Gate.SetEnabled("streamdeck", false);
+        worker.Tick();
+
+        Assert.Contains(StreamDeckProtocol.BuildBrightnessFeature(55), dev.FeatureWrites);
+        Assert.Contains(StreamDeckProtocol.BuildResetFeature(), dev.FeatureWrites);
+        Assert.True(dev.Disposed);
+    }
+
+    /// <summary>The simulated deck is a shared DI singleton other routes hold a reference to; DisconnectAll must never reset or dispose it.</summary>
+    [Fact]
+    public void DisconnectAll_SkipsTheSimulatedSurface_NeverResetsIt()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        f.Gate.SetEnabled("streamdeck", false);
+        worker.Tick();
+
+        Assert.True(simulated.IsConnected);
+        Assert.Equal(0, simulated.ResetCount);
+    }
+
+    /// <summary>A second DisconnectAll pass (e.g. the gate staying off across ticks) finds an already-empty surface set and does nothing further.</summary>
+    [Fact]
+    public void DisconnectAll_CalledAgainWithNothingConnected_IsANoOp()
+    {
+        var f = NewFixtures(devicePresent: true);
+        AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
+        using var worker = NewWorker(f);
+        worker.Tick();
+        var dev = (MockStreamDeckHidDevice)f.Hid.DevicesByPath["path-1"];
+
+        f.Gate.SetEnabled("streamdeck", false);
+        worker.Tick();
+        var writesAfterFirstDisconnect = dev.FeatureWrites.Count;
+        Assert.True(dev.Disposed);
+        Assert.Empty(worker.Surfaces);
+
+        worker.Tick();
+
+        Assert.Equal(writesAfterFirstDisconnect, dev.FeatureWrites.Count);
+        Assert.Empty(worker.Surfaces);
+    }
+
+    /// <summary>An unplug (or a dead read handle) removes the surface without ever resetting it - a vanished device cannot be written to.</summary>
+    [Fact]
+    public void Tick_DeviceUnplugged_DoesNotResetTheSurface()
+    {
+        var f = NewFixtures(devicePresent: false);
+        AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
+        var usb = new MutableUsbEnumerator();
+        usb.Devices.Add(new UsbDeviceEntry { VendorId = StreamDeckModels.VendorId, ProductId = Mini.ProductId });
+        var presence = new HardwarePresence(usb);
+        using var worker = new StreamDeckConnectionWorker(f.Hid, presence, f.Gate, f.Store, f.Executor, f.ImageCache, f.Hub, f.Sensors);
+
+        worker.Tick();
+        var dev = (MockStreamDeckHidDevice)f.Hid.DevicesByPath["path-1"];
+        dev.FeatureWrites.Clear();
+
+        usb.Devices.Clear();
+        f.Hid.ByProductId.Clear();
+        worker.Tick();
+
+        Assert.DoesNotContain(StreamDeckProtocol.BuildResetFeature(), dev.FeatureWrites);
+        Assert.True(dev.Disposed);
     }
 
     private sealed class MutableUsbEnumerator : IUsbEnumerator
