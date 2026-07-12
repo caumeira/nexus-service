@@ -816,7 +816,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             return;
         }
 
-        var pressed = GetOrRenderPressedVariant(hash, bytes, surface.Model, slot.Color);
+        var pressed = GetOrRenderPressedVariant(hash, bytes, surface.Model);
         if (pressed is not null)
         {
             surface.SetKeyImage(physicalIndex, pressed);
@@ -843,7 +843,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             ? trackedHash
             : ComputeFnv1aHash(bytes);
 
-        var pressed = GetOrRenderPressedVariant($"{monitoringKey}:{hash:x8}", bytes, surface.Model, slot.Color);
+        var pressed = GetOrRenderPressedVariant($"{monitoringKey}:{hash:x8}", bytes, surface.Model);
         if (pressed is not null)
         {
             surface.SetKeyImage(physicalIndex, pressed);
@@ -900,7 +900,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private readonly LinkedList<string> _pressedImageLru = new();
 
     /// <summary>Renders (or returns the cached) pushed-in variant of a source key image, keyed by the source's content hash so a given upload is scaled/re-encoded at most once.</summary>
-    private byte[]? GetOrRenderPressedVariant(string hash, byte[] sourceWireBytes, StreamDeckModel model, string? backgroundColorHex)
+    private byte[]? GetOrRenderPressedVariant(string hash, byte[] sourceWireBytes, StreamDeckModel model)
     {
         if (_pressedImageCache.TryGetValue(hash, out var cached))
         {
@@ -909,7 +909,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             return cached;
         }
 
-        var rendered = RenderPressedVariant(sourceWireBytes, model, backgroundColorHex);
+        var rendered = RenderPressedVariant(sourceWireBytes, model);
         if (rendered is null)
         {
             return null;
@@ -926,7 +926,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         return rendered;
     }
 
-    private static byte[]? RenderPressedVariant(byte[] wireBytes, StreamDeckModel model, string? backgroundColorHex)
+    private static byte[]? RenderPressedVariant(byte[] wireBytes, StreamDeckModel model)
     {
         if (model.ImageFormat == StreamDeckImageFormat.None)
         {
@@ -935,7 +935,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         try
         {
             using var decoded = Image.Load<Rgba32>(wireBytes);
-            using var pressed = PressedKeyRenderer.Render(decoded, backgroundColorHex);
+            using var pressed = PressedKeyRenderer.Render(decoded);
             return model.ImageFormat switch
             {
                 StreamDeckImageFormat.Bmp => BmpEncoder.Encode(RenderKit.ToRgb24(pressed), pressed.Width, pressed.Height),
