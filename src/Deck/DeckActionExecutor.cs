@@ -137,10 +137,10 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
                 }
                 return DispatchOutcome.Ok;
             case "hotkey":
-                DispatchHotkey(action.Keys ?? "");
+                await DispatchHotkeyAsync(action.Keys ?? "").ConfigureAwait(false);
                 return DispatchOutcome.Ok;
             case "text":
-                _system.SendText(action.Text ?? "");
+                await _system.SendTextAsync(action.Text ?? "").ConfigureAwait(false);
                 return DispatchOutcome.Ok;
             case "power":
                 DispatchPower(action.PowerAction);
@@ -175,7 +175,7 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
                 _deckSurface.Value.PutAsleep(serial);
                 return DispatchOutcome.Ok;
             case "hotkeySwitch":
-                DispatchHotkeySwitch(action, latchKey);
+                await DispatchHotkeySwitchAsync(action, latchKey).ConfigureAwait(false);
                 return DispatchOutcome.Ok;
             case "monitoring":
                 DispatchMonitoringPress(action.Press);
@@ -237,14 +237,14 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
     /// per-key in-memory latch the "internal" toggle state uses, then sends
     /// the chosen combo through the same path the "hotkey" action uses.
     /// </summary>
-    private void DispatchHotkeySwitch(DeckAction action, string latchKey)
+    private async Task DispatchHotkeySwitchAsync(DeckAction action, string latchKey)
     {
         var sendB = _latches.TryGetValue(latchKey, out var flip) && flip;
         _latches[latchKey] = !sendB;
         var keys = sendB ? action.KeysB : action.KeysA;
         if (!string.IsNullOrEmpty(keys))
         {
-            DispatchHotkey(keys);
+            await DispatchHotkeyAsync(keys).ConfigureAwait(false);
         }
     }
 
@@ -287,21 +287,21 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         }
     }
 
-    private void DispatchHotkey(string keys)
+    private async Task DispatchHotkeyAsync(string keys)
     {
         var parsed = ParseHotkey(keys);
         if (parsed is null)
         {
             return;
         }
-        _system.SendKeys(new SendKeysBody
+        await _system.SendKeysAsync(new SendKeysBody
         {
             Key = parsed.Value.Key,
             Ctrl = parsed.Value.Ctrl,
             Shift = parsed.Value.Shift,
             Alt = parsed.Value.Alt,
             Meta = parsed.Value.Meta,
-        });
+        }).ConfigureAwait(false);
     }
 
     private void DispatchPower(string? powerAction)

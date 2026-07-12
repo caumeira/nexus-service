@@ -68,11 +68,10 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         {
             action.Text = textEl.GetString();
         }
-        if (root.TryGetProperty("paste", out var pasteEl) &&
-            (pasteEl.ValueKind == JsonValueKind.True || pasteEl.ValueKind == JsonValueKind.False))
-        {
-            action.Paste = pasteEl.GetBoolean();
-        }
+        // A legacy "paste" key (pre-simplification text actions always
+        // pasted-or-typed based on this flag) is intentionally never read -
+        // the text action now always pastes, so old configs load fine with
+        // the key silently dropped.
         if (root.TryGetProperty("deviceId", out var deviceIdEl) && deviceIdEl.ValueKind == JsonValueKind.String)
         {
             action.DeviceId = deviceIdEl.GetString();
@@ -187,10 +186,6 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         if (value.Text is not null)
         {
             writer.WriteString("text", value.Text);
-        }
-        if (value.Paste is not null)
-        {
-            writer.WriteBoolean("paste", value.Paste.Value);
         }
         if (value.DeviceId is not null)
         {

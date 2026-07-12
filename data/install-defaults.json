@@ -22,9 +22,9 @@
     "backgroundEffect": "aurora",
     "backgroundTemplate": 0,
     "backgroundOpacity": 0.4,
-    "widgetOpacity": 1,
+    "widgetOpacity": 0.5,
     "widgetLabels": false,
-    "widgetBlur": true,
+    "widgetBlur": false,
     "layouts": {
       "desktop": {
         "layoutSchemaVersion": 2,

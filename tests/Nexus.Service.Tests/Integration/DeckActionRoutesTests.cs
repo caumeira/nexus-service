@@ -31,6 +31,12 @@ public class DeckActionRoutesTests
         public void Send(InputterBody body) => Last = body;
     }
 
+    private sealed class FakeClipboard : Nexus.Service.Platform.Clipboard.IClipboardProvider
+    {
+        public string? Last;
+        public bool SetText(string text) { Last = text; return true; }
+    }
+
     private sealed class FakePower : ISystemPowerProvider
     {
         public string? Called;
@@ -55,6 +61,7 @@ public class DeckActionRoutesTests
     }
 
     private readonly FakeInputter _inputter = new();
+    private readonly FakeClipboard _clipboard = new();
     private readonly FakePower _power = new();
     private readonly FakeAudio _audio = new();
 
@@ -65,6 +72,8 @@ public class DeckActionRoutesTests
             {
                 s.RemoveAll<IInputterProvider>();
                 s.AddSingleton<IInputterProvider>(_inputter);
+                s.RemoveAll<Nexus.Service.Platform.Clipboard.IClipboardProvider>();
+                s.AddSingleton<Nexus.Service.Platform.Clipboard.IClipboardProvider>(_clipboard);
                 s.RemoveAll<ISystemPowerProvider>();
                 s.AddSingleton<ISystemPowerProvider>(_power);
                 s.RemoveAll<IAudioDeviceProvider>();
@@ -106,6 +115,47 @@ public class DeckActionRoutesTests
             var text = await res.Content.ReadAsStringAsync();
             Assert.Contains("\"error\":true", text);
             Assert.Null(_inputter.Last);
+        }
+    }
+
+    [Fact]
+    public async Task InputKeys_requires_auth()
+    {
+        var (factory, _) = Boot();
+        using (factory)
+        {
+            var anon = factory.CreateClient();
+            var res = await anon.PostAsync("/system/input/keys", Json("{\"key\":\"KeyM\"}"));
+            Assert.False(res.IsSuccessStatusCode);
+            Assert.Null(_inputter.Last);
+        }
+    }
+
+    [Fact]
+    public async Task InputText_SetsClipboardAndPastes()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var res = await client.PostAsync("/system/input/text", Json("{\"text\":\"hello\"}"));
+            Assert.True(res.IsSuccessStatusCode);
+            Assert.Equal("hello", _clipboard.Last);
+            Assert.NotNull(_inputter.Last);
+            Assert.Equal(2, _inputter.Last!.Strokes.Count);
+            Assert.Equal("KeyV", _inputter.Last.Strokes[0].Key);
+        }
+    }
+
+    [Fact]
+    public async Task InputText_requires_auth()
+    {
+        var (factory, _) = Boot();
+        using (factory)
+        {
+            var anon = factory.CreateClient();
+            var res = await anon.PostAsync("/system/input/text", Json("{\"text\":\"hello\"}"));
+            Assert.False(res.IsSuccessStatusCode);
+            Assert.Null(_clipboard.Last);
         }
     }
 
