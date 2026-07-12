@@ -1171,13 +1171,15 @@ public class StreamDeckConnectionWorkerTests
         });
         using var worker = NewWorker(f, simulated);
 
+        // Connect drives PushCurrentView's two-pass repaint for the one
+        // monitoring slot: an empty placeholder, then the real tile.
         worker.Tick();
-        Assert.Equal(1, simulated.SetKeyImageCallCount);
+        Assert.Equal(2, simulated.SetKeyImageCallCount);
 
         worker.Tick();
         worker.Tick();
 
-        Assert.Equal(1, simulated.SetKeyImageCallCount);
+        Assert.Equal(2, simulated.SetKeyImageCallCount);
     }
 
     [Fact]
@@ -1211,13 +1213,16 @@ public class StreamDeckConnectionWorkerTests
         });
         using var worker = NewWorker(f, simulated);
 
+        // Connect drives PushCurrentView's two-pass repaint: pass 1's empty
+        // placeholder and pass 2's unresolved-sensor render happen to be
+        // pixel-identical here, but pass 1 never hash-checks, so both push.
         worker.Tick();
-        Assert.Equal(1, simulated.SetKeyImageCallCount);
+        Assert.Equal(2, simulated.SetKeyImageCallCount);
 
         worker.Tick();
         worker.Tick();
 
-        Assert.Equal(1, simulated.SetKeyImageCallCount);
+        Assert.Equal(2, simulated.SetKeyImageCallCount);
     }
 
     [Fact]
@@ -1563,10 +1568,55 @@ public class StreamDeckConnectionWorkerTests
     }
 
     /// <summary>
-    /// The inline nav repaint and that same tick's own RefreshMonitoringKeys
-    /// pass must record one coherent last-pushed hash - not push twice for
-    /// the nav, and not push again on the next tick while the reading is
-    /// unchanged.
+    /// Regression for the reported bug: on a view with more than one
+    /// monitoring key, PushCurrentView must push every key's empty
+    /// placeholder (pass 1) before any key's real content (pass 2) - so the
+    /// whole view goes clean instantly on nav, instead of an earlier key's
+    /// expensive sample+render delaying a later key's placeholder while it
+    /// still shows the previous view's pixels.
+    /// </summary>
+    [Fact]
+    public void PushCurrentView_MultipleMonitoringKeys_PushesEveryPlaceholderBeforeAnyRealContent()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 10f, Formatted = "10%", Parent = new SensorParent() },
+        };
+        var slots = new List<DeckSlot>
+        {
+            new() { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+            new() { Action = new DeckAction { Type = "openUrl", Url = "https://example.com" } },
+            new() { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = slots } } },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick(); // connect drives one PushCurrentView call
+
+        var monitoringPushes = new List<int>();
+        foreach (var key in simulated.SetKeyImageOrder)
+        {
+            if (key == 0 || key == 2)
+            {
+                monitoringPushes.Add(key);
+            }
+        }
+        // Both keys' placeholders (pass 1) precede both keys' real content
+        // (pass 2) - never key 0's real content ahead of key 2's placeholder.
+        Assert.Equal(new[] { 0, 2, 0, 2 }, monitoringPushes);
+    }
+
+    /// <summary>
+    /// The nav's own PushCurrentView pushes twice for the monitoring key (an
+    /// empty placeholder, then the real tile - see PushCurrentView's two-pass
+    /// repaint), and that same tick's own RefreshMonitoringKeys pass must not
+    /// push a third time for the nav, nor push again on the next tick while
+    /// the reading is unchanged.
     /// </summary>
     [Fact]
     public void Tick_NavigatingToAMonitoringSlot_TheFollowingTickDoesNotRepushAnUnchangedTile()
@@ -1611,7 +1661,7 @@ public class StreamDeckConnectionWorkerTests
         simulated.Poke(1, false);
         worker.Tick();
         var callsAfterNav = simulated.SetKeyImageCallCount;
-        Assert.Equal(callsBeforeNav + 1, callsAfterNav);
+        Assert.Equal(callsBeforeNav + 2, callsAfterNav);
 
         worker.Tick();
         Assert.Equal(callsAfterNav, simulated.SetKeyImageCallCount);
@@ -1819,6 +1869,35 @@ public class StreamDeckConnectionWorkerTests
         Assert.Contains(StreamDeckProtocol.BuildBrightnessFeature(55), dev.FeatureWrites);
         Assert.Contains(StreamDeckProtocol.BuildResetFeature(), dev.FeatureWrites);
         Assert.True(dev.Disposed);
+    }
+
+    /// <summary>
+    /// FastServiceShutdown's real-quit path (SCM stop, /service/stop, tray
+    /// shut down) resolves the worker and calls this directly - it must
+    /// reset every connected real surface, skip the simulated one, and
+    /// leave tracked state intact (unlike DisconnectAll, nothing tears the
+    /// surface down since the process is exiting anyway).
+    /// </summary>
+    [Fact]
+    public void ResetConnectedSurfacesForShutdown_ResetsRealSurfaces_SkipsSimulated_LeavesStateTracked()
+    {
+        var f = NewFixtures(devicePresent: true);
+        AddMiniDevice(f.Hid, "path-1", "SERIAL-1");
+        f.Store.Update(s => s.StreamDeck.Decks["SERIAL-1"] = new PhysicalDeckSettings { Brightness = 55 });
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+        var dev = (MockStreamDeckHidDevice)f.Hid.DevicesByPath["path-1"];
+        dev.FeatureWrites.Clear(); // drop the connect-time brightness write
+
+        worker.ResetConnectedSurfacesForShutdown();
+
+        Assert.Contains(StreamDeckProtocol.BuildBrightnessFeature(55), dev.FeatureWrites);
+        Assert.Contains(StreamDeckProtocol.BuildResetFeature(), dev.FeatureWrites);
+        Assert.False(dev.Disposed);
+        Assert.Equal(0, simulated.ResetCount);
+        Assert.True(simulated.IsConnected);
+        Assert.Equal(2, worker.Surfaces.Count);
     }
 
     /// <summary>The simulated deck is a shared DI singleton other routes hold a reference to; DisconnectAll must never reset or dispose it.</summary>

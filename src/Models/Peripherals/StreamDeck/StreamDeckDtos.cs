@@ -34,6 +34,10 @@ public sealed class StreamDeckSummaryDto
     public string? Warning { get; set; }
     /// <summary>ConflictAppCatalog id to pass to POST /conflicts/kill when Warning is set; null otherwise.</summary>
     public string? ConflictAppId { get; set; }
+    /// <summary>Current page index (0-based), same semantics as StreamDeckChangedFrame.Page; 0 when the deck has no tracked live state (disconnected).</summary>
+    public int CurrentPage { get; set; }
+    /// <summary>Current folder path, same semantics as StreamDeckChangedFrame.FolderPath; empty (root) when the deck has no tracked live state (disconnected).</summary>
+    public List<int> FolderPath { get; set; } = new();
 }
 
 public sealed class GetStreamDecksResponse

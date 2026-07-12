@@ -678,10 +678,12 @@ return 0;
 #if WINDOWS
 // Do only what the OS won't do on process exit, concurrently under one hard
 // cap: persist debounced settings + dirty profile, release fans (the hubs hold
-// the last commanded PWM with no failsafe), and reap the cross-session UI the
-// kill-job can't hold (overlay host + tray helper). A wedged hub or a
-// disconnected helper can't push the exit past the cap; everything else - the
-// sockets, serial, HID, GPU, OpenRGB - dies with the process.
+// the last commanded PWM with no failsafe), reset any connected Stream Deck
+// (it holds its last-pushed frame with no failsafe either), and reap the
+// cross-session UI the kill-job can't hold (overlay host + tray helper). A
+// wedged hub, deck, or disconnected helper can't push the exit past the cap;
+// everything else - the sockets, serial, remaining HID, GPU, OpenRGB - dies
+// with the process.
 static void FastServiceShutdown(WebApplication app)
 {
     var sp = app.Services;
@@ -695,6 +697,7 @@ static void FastServiceShutdown(WebApplication app)
             try { sp.GetService<Nexus.Service.Cloud.CloudProfileSyncService>()?.FlushPendingSyncBlocking(TimeSpan.FromMilliseconds(1000)); } catch { }
         }),
         Task.Run(() => { try { sp.GetService<IFanControlProvider>()?.ReleaseAll(); } catch { } }),
+        Task.Run(() => { try { sp.GetService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>()?.ResetConnectedSurfacesForShutdown(); } catch { } }),
         Task.Run(() => FastWindowsUiTeardown(sp)),
     }, millisecondsTimeout: 1500);
     Console.Error.WriteLine($"[shutdown] fast teardown {(done ? "complete" : "TIMED OUT")} in {sw.ElapsedMilliseconds}ms");
