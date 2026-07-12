@@ -994,6 +994,17 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Platform.Displays.DisplayTopologyWatcher>();
         services.AddHostedService(sp =>
             sp.GetRequiredService<Nexus.Service.Platform.Displays.DisplayTopologyWatcher>());
+        // Touch-mapping guard: repairs a touch digitizer mis-associated with
+        // the wrong monitor. Detection needs the same user-session APIs as
+        // topology; the registry write and devnode restart are session-
+        // independent, so only the snapshot source is helper-backed.
+        services.AddSingleton<Nexus.Service.Platform.Displays.ITouchMapSnapshotSource,
+            Nexus.Service.Platform.Displays.HelperTouchMapSnapshotSource>();
+        services.AddSingleton<Nexus.Service.Platform.Displays.IDigimonRegistryWriter,
+            Nexus.Service.Platform.Displays.WindowsDigimonRegistryWriter>();
+        services.AddSingleton<Nexus.Service.Platform.Displays.ITouchDigitizerDevnodeRestarter,
+            Nexus.Service.Platform.Displays.WindowsTouchDigitizerDevnodeRestarter>();
+        services.AddHostedService<Nexus.Service.Platform.Displays.TouchMappingGuardService>();
         // Screen-mirror frames also flow through the helper - DXGI desktop
         // duplication is Session 0-blind, so the helper captures + downsamples
         // and pushes canvas-resolution RGB24 over the pipe.
@@ -1028,7 +1039,17 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Platform.DefaultMonitorEnumerator>();
         services.AddSingleton<Nexus.Service.Platform.Displays.IDisplayOrientationProvider,
             Nexus.Service.Platform.Displays.NoopDisplayOrientationProvider>();
+        // No touch-mapping mechanism outside Windows; the stub snapshot
+        // source always reports "no helper", so TouchMappingGuard stays a
+        // permanent no-op and never reaches the registry writer/restarter.
+        services.AddSingleton<Nexus.Service.Platform.Displays.ITouchMapSnapshotSource,
+            Nexus.Service.Platform.Displays.StubTouchMapSnapshotSource>();
+        services.AddSingleton<Nexus.Service.Platform.Displays.IDigimonRegistryWriter,
+            Nexus.Service.Platform.Displays.NullDigimonRegistryWriter>();
+        services.AddSingleton<Nexus.Service.Platform.Displays.ITouchDigitizerDevnodeRestarter,
+            Nexus.Service.Platform.Displays.NullTouchDigitizerDevnodeRestarter>();
 #endif
+        services.AddSingleton<Nexus.Service.Platform.Displays.TouchMappingGuard>();
         services.AddSingleton<Nexus.Service.Platform.Displays.DisplayBrightnessController>();
         services.AddSingleton<Nexus.Service.Platform.Displays.DisplayTopologyService>();
         return services;
