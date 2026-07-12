@@ -72,10 +72,10 @@ public sealed class ProfileManager : IDisposable
             }
 
             // PrimaryProfileId defaults to the active profile so the
-            // hardware-bound shared categories (the field-initializer default
-            // on NexusSettings.SharedCategories: keeb/y70/devices) resolve
-            // to a valid source on day one. Repaired on every boot in case the
-            // Primary was deleted while the service was off.
+            // day-one default-Shared category (device, per the
+            // NexusSettings.SharedCategories field initializer) resolves to a
+            // valid source. Repaired on every boot in case the Primary was
+            // deleted while the service was off.
             _store.Update(s =>
             {
                 if (string.IsNullOrEmpty(s.PrimaryProfileId) ||
@@ -94,6 +94,23 @@ public sealed class ProfileManager : IDisposable
                     .Distinct()
                     .ToList();
             });
+
+            // Pre-device profile files carry an empty StreamDeck block
+            // (Device predates this sharing category); without seeding,
+            // the first profile switch after upgrade would load that empty
+            // block and wipe the user's live Stream Deck bindings. Seeds
+            // only when no profile file already carries a deck, so a fresh
+            // install and a machine with genuine per-profile deck data are
+            // both left untouched.
+            var root = _store.Load();
+            if (root.StreamDeck?.Decks?.Count > 0 &&
+                !_manifest.Profiles.Any(p => ReadProfileFile(p.Id)?.StreamDeck?.Decks?.Count > 0))
+            {
+                foreach (var p in _manifest.Profiles)
+                {
+                    UpdateProfileFile(p.Id, new[] { ProfileSharing.Device }, root);
+                }
+            }
 
             // Every settings mutation marks the active profile dirty so the
             // background flush picks it up. Without this, lighting/cooling/
@@ -720,13 +737,13 @@ public sealed class ProfileManager : IDisposable
 
     private void LoadProfileIntoSettings(string profileId)
     {
-        // Profile JSONs only carry per-profile data (Lighting, Cooling, and
-        // the Theme + Dashboard subsets of Ui). Hardware-bound state
-        // (Keeb, Y70, Devices, every Panel* field on Ui, the OS tray/status
-        // toggles) lives at NexusSettings root and follows the device,
-        // not the active profile - so we do not copy those sections from
-        // the profile file. They keep whatever the canonical settings.json
-        // already loaded into in-memory.
+        // Profile JSONs only carry per-profile data (Lighting, Cooling,
+        // Device, and the Theme + Dashboard subsets of Ui). Hardware-bound
+        // state (Keeb, Y70, Devices, every Panel* field on Ui, the OS
+        // tray/status toggles) lives at NexusSettings root and follows the
+        // device, not the active profile - so we do not copy those sections
+        // from the profile file. They keep whatever the canonical
+        // settings.json already loaded into in-memory.
         var data = ReadProfileFile(profileId);
         if (data == null)
         {
@@ -753,6 +770,7 @@ public sealed class ProfileManager : IDisposable
             // residual flags. Always copy both categories.
             ProfileSharing.ApplyCategory(s, data, ProfileSharing.Theme);
             ProfileSharing.ApplyCategory(s, data, ProfileSharing.Dashboard);
+            ProfileSharing.ApplyCategory(s, data, ProfileSharing.Device);
 
             // Pre-v11 profiles carry widget types under the legacy
             // marketplace: prefix; rewrite after the category copies so the
@@ -831,6 +849,7 @@ public sealed class ProfileManager : IDisposable
             Auth = source.Auth,
             Lighting = source.Lighting,
             Cooling = source.Cooling,
+            StreamDeck = source.StreamDeck,
             Keeb = source.Keeb,
             Y70 = source.Y70,
             Devices = source.Devices,
