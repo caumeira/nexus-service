@@ -126,6 +126,9 @@ public sealed class WindowsInputter : IInputterProvider
     private const ushort VK_MENU = 0x12;
     private const ushort VK_LWIN = 0x5B;
 
+    // SendInput validates cbSize against the OS INPUT layout: 40 bytes on
+    // x64 (4-byte type, 4 alignment, 32-byte union sized by MOUSEINPUT).
+    // Any other size fails the whole call with 0 events queued.
     [StructLayout(LayoutKind.Sequential)]
     private struct INPUT
     {
@@ -141,7 +144,7 @@ public sealed class WindowsInputter : IInputterProvider
         public uint dwFlags;
         public uint time;
         public IntPtr dwExtraInfo;
-        private readonly IntPtr _pad1, _pad2; // union padding to match MOUSEINPUT size
+        private readonly IntPtr _pad; // pads the 24 keyboard bytes to MOUSEINPUT's 32
     }
 
     [DllImport("user32.dll", SetLastError = true)]
