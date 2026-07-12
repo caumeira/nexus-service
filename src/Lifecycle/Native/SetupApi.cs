@@ -137,7 +137,7 @@ internal static partial class SetupApi
         IntPtr requiredSize,
         ref SP_DEVINFO_DATA deviceInfoData);
 
-    [LibraryImport("setupapi.dll", SetLastError = true)]
+    [LibraryImport("setupapi.dll", SetLastError = true, EntryPoint = "SetupDiSetClassInstallParamsW")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool SetupDiSetClassInstallParams(
         IntPtr deviceInfoSet,
