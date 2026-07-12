@@ -64,17 +64,14 @@ public sealed class WindowsClipboardProvider : IClipboardProvider
     public bool SetText(string text)
     {
         if (!OperatingSystem.IsWindows()) return false;
-        try
+        var exitCode = ShellExecutor.RunWithStdinExit("powershell", text ?? "", 4000, out var stderr,
+            "-NoProfile", "-Command", "$input | Set-Clipboard");
+        if (exitCode != 0)
         {
-            ShellExecutor.RunWithStdin("powershell", text ?? "", 4000,
-                "-NoProfile", "-Command", "$input | Set-Clipboard");
-            return true;
-        }
-        catch (Exception ex)
-        {
-            ServiceLog.Warn($"[clipboard-win] Set-Clipboard failed: {ex.Message}");
+            ServiceLog.Warn($"[clipboard-win] Set-Clipboard exited {exitCode}: {stderr.Trim()}");
             return false;
         }
+        return true;
     }
 }
 

@@ -43,7 +43,7 @@ public static class StreamDeckRoutes
             {
                 seenSerials.Add(surface.Serial);
                 settings.Decks.TryGetValue(surface.Serial, out var deck);
-                response.Decks.Add(BuildSummary(surface, deck, warning, conflictAppId));
+                response.Decks.Add(BuildSummary(worker, surface, deck, warning, conflictAppId));
             }
 
             // Persisted decks with no live surface (unplugged, or never seen
@@ -78,6 +78,8 @@ public static class StreamDeckRoutes
                     FirmwareVersion = "",
                     Warning = null,
                     ConflictAppId = null,
+                    CurrentPage = worker.GetCurrentPage(serial),
+                    FolderPath = worker.GetFolderPath(serial).ToList(),
                 });
             }
             return response;
@@ -512,7 +514,7 @@ public static class StreamDeckRoutes
             var surface = worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey];
             store.Load().StreamDeck.Decks.TryGetValue(surface.Serial, out var deck);
             return Results.Json(
-                BuildSummary(surface, deck, warning: null, conflictAppId: null),
+                BuildSummary(worker, surface, deck, warning: null, conflictAppId: null),
                 AppJsonContext.Default.StreamDeckSummaryDto);
         }).LocalhostOnly();
 
@@ -526,7 +528,7 @@ public static class StreamDeckRoutes
 
     /// <summary>Shared DTO builder for GET /streamdeck/decks and the dev-tools simulate route.</summary>
     private static StreamDeckSummaryDto BuildSummary(
-        IStreamDeckSurface surface, PhysicalDeckSettings? deck, string? warning, string? conflictAppId) => new()
+        StreamDeckConnectionWorker worker, IStreamDeckSurface surface, PhysicalDeckSettings? deck, string? warning, string? conflictAppId) => new()
     {
         Serial = surface.Serial,
         Model = surface.Model.Name,
@@ -545,6 +547,8 @@ public static class StreamDeckRoutes
         FirmwareVersion = surface.FirmwareVersion,
         Warning = warning,
         ConflictAppId = conflictAppId,
+        CurrentPage = worker.GetCurrentPage(surface.Serial),
+        FolderPath = worker.GetFolderPath(surface.Serial).ToList(),
     };
 
     private static string FormatName(StreamDeckImageFormat format) => format switch

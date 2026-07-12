@@ -15,8 +15,8 @@ namespace Nexus.Service.Rendering;
 /// </summary>
 internal static class PressedKeyRenderer
 {
-    /// <summary>Matches the Elgato Stream Deck software's own push-in inset.</summary>
-    internal const float PressScale = 0.88f;
+    /// <summary>User-tuned push-in inset amount.</summary>
+    internal const float PressScale = 0.80f;
 
     private static readonly Color DefaultBackground = Color.ParseHex("0e1116");
 
