@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Platform;
@@ -14,6 +15,10 @@ public enum TouchMappingPassResult
     Repaired,
     Failed,
 }
+
+/// <summary>Detail is a short machine-readable reason, populated on Failed
+/// ("devnode-restart-failed", "verify-timeout"); empty otherwise.</summary>
+public sealed record TouchMappingPassOutcome(TouchMappingPassResult Result, string Detail = "");
 
 /// <summary>
 /// Detects and repairs a mis-mapped touch digitizer: Windows can associate a
@@ -55,9 +60,12 @@ public sealed class TouchMappingGuard
     /// <summary>
     /// One detect-and-repair pass. Serialized against concurrent callers (the
     /// background trigger and the manual route can fire close together) so
-    /// two passes never race a registry write.
+    /// two passes never race a registry write. A panel can expose multiple
+    /// mismatched digitizer collections in one pass; all are repaired before
+    /// verification, and the result reflects the whole set (Repaired only if
+    /// every one of them verifies).
     /// </summary>
-    public async Task<TouchMappingPassResult> RunPassAsync(CancellationToken ct = default)
+    public async Task<TouchMappingPassOutcome> RunPassAsync(CancellationToken ct = default)
     {
         await _gate.WaitAsync(ct).ConfigureAwait(false);
         try
@@ -66,52 +74,63 @@ public sealed class TouchMappingGuard
             if (snapshot is null)
             {
                 Log("no helper connected; skipping");
-                return TouchMappingPassResult.NoHelper;
+                return new TouchMappingPassOutcome(TouchMappingPassResult.NoHelper);
             }
 
-            var (outcome, plan) = TouchMappingDecision.Decide(snapshot);
+            var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
             switch (outcome)
             {
                 case TouchMappingOutcome.NoPanel:
                     Log("no catalog touch panel display attached; no-op");
-                    return TouchMappingPassResult.NoPanel;
+                    return new TouchMappingPassOutcome(TouchMappingPassResult.NoPanel);
                 case TouchMappingOutcome.NoDigitizer:
                     Log("catalog panel attached but its digitizer is not present; no-op");
-                    return TouchMappingPassResult.NoDigitizer;
+                    return new TouchMappingPassOutcome(TouchMappingPassResult.NoDigitizer);
                 case TouchMappingOutcome.AlreadyCorrect:
                     Log("digitizer already mapped to its panel display; no-op");
-                    return TouchMappingPassResult.AlreadyCorrect;
+                    return new TouchMappingPassOutcome(TouchMappingPassResult.AlreadyCorrect);
             }
 
-            var repairPlan = plan!;
-            Log($"mismatch detected, repairing: digitizer '{repairPlan.DigitizerInterfacePath}' -> display '{repairPlan.PanelDisplayId}'");
-            _registryWriter.Write(repairPlan.DigitizerInterfacePath, repairPlan.PanelMonitorInterfacePath);
-            if (!_devnodeRestarter.Restart(repairPlan.DigitizerInterfacePath))
+            var anyRestartFailed = false;
+            foreach (var repairPlan in plans)
             {
-                Log("devnode restart failed");
-                return TouchMappingPassResult.Failed;
+                Log($"mismatch detected, repairing: digitizer '{repairPlan.DigitizerInterfacePath}' -> display '{repairPlan.PanelDisplayId}'");
+                _registryWriter.Write(repairPlan.DigitizerInterfacePath, repairPlan.PanelMonitorInterfacePath);
+                if (!_devnodeRestarter.Restart(repairPlan.DigitizerInterfacePath))
+                {
+                    Log($"devnode restart failed for digitizer '{repairPlan.DigitizerInterfacePath}'");
+                    anyRestartFailed = true;
+                }
             }
+            if (anyRestartFailed)
+                return new TouchMappingPassOutcome(TouchMappingPassResult.Failed, "devnode-restart-failed");
 
             // The registry write alone is inert; Windows only re-reads the
             // mapping at digitizer arrival (bench-proven, see
             // plans/touch-mapping-auto-repair.md section 4a). The restart is
             // sub-second on the bench but carries no completion signal this
             // process can await, so poll the bounded window instead.
+            var pending = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var repairPlan in plans) pending.Add(repairPlan.DigitizerInterfacePath);
+
             var deadline = DateTime.UtcNow + _verifyTimeout;
-            while (DateTime.UtcNow < deadline)
+            while (DateTime.UtcNow < deadline && pending.Count > 0)
             {
                 await Task.Delay(_verifyPollInterval, ct).ConfigureAwait(false);
                 var verify = await _snapshotSource.GetSnapshotAsync(ct).ConfigureAwait(false);
                 if (verify is null) continue;
-                var (verifyOutcome, _) = TouchMappingDecision.Decide(verify);
-                if (verifyOutcome == TouchMappingOutcome.AlreadyCorrect)
-                {
-                    Log("repair verified");
-                    return TouchMappingPassResult.Repaired;
-                }
+                var (_, stillMismatched) = TouchMappingDecision.Decide(verify);
+                var stillPending = new HashSet<string>(StringComparer.Ordinal);
+                foreach (var repairPlan in stillMismatched) stillPending.Add(repairPlan.DigitizerInterfacePath);
+                pending.IntersectWith(stillPending);
+            }
+            if (pending.Count == 0)
+            {
+                Log("repair verified");
+                return new TouchMappingPassOutcome(TouchMappingPassResult.Repaired);
             }
             Log("repair could not be verified within the timeout");
-            return TouchMappingPassResult.Failed;
+            return new TouchMappingPassOutcome(TouchMappingPassResult.Failed, "verify-timeout");
         }
         finally
         {

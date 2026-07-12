@@ -155,7 +155,7 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
                     var info = new MONITORINFOEX { cbSize = (uint)Marshal.SizeOf<MONITORINFOEX>() };
                     if (!GetMonitorInfoW(hMonitor, ref info)) return true;
                     var (id, _, _, _, _) = WindowsDisplayIdentity.ResolveIdentity(info.szDevice);
-                    monitorsById[hMonitor] = (id, WindowsDisplayIdentity.ReadMonitorDeviceId(info.szDevice));
+                    monitorsById[hMonitor] = (id, WindowsDisplayIdentity.ReadMonitorInterfacePath(info.szDevice));
                 }
                 catch (Exception ex)
                 {
@@ -168,6 +168,10 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
             var snapshot = new TouchMapSnapshot();
             foreach (var (id, monitorInterfacePath) in monitorsById.Values)
             {
+                // A non-interface DeviceID (older driver, no EDD_GET_DEVICE_INTERFACE_NAME
+                // support) cannot be written to Digimon; drop the display from
+                // the snapshot rather than let the guard match it.
+                if (!monitorInterfacePath.StartsWith(@"\\?\", StringComparison.Ordinal)) continue;
                 snapshot.Displays.Add(new TouchMapDisplayInfo { Id = id, MonitorInterfacePath = monitorInterfacePath });
             }
 

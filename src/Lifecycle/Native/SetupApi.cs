@@ -31,6 +31,11 @@ internal static partial class SetupApi
 
     internal static readonly IntPtr INVALID_HANDLE_VALUE = new(-1);
 
+    // SetupDiGetDeviceInterfaceDetailW with a NULL detail buffer always
+    // returns FALSE + this error; it is the documented way to resolve only
+    // the owning SP_DEVINFO_DATA without a detail-data allocation.
+    internal const int ERROR_INSUFFICIENT_BUFFER = 122;
+
     [StructLayout(LayoutKind.Sequential)]
     internal struct SP_DEVINFO_DATA
     {

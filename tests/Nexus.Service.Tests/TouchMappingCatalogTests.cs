@@ -73,10 +73,10 @@ public sealed class TouchMappingCatalogTests
             new List<TouchMapDisplayInfo> { new() { Id = "d1", MonitorInterfacePath = OtherMonitorPath } },
             new List<TouchMapDigitizerInfo>());
 
-        var (outcome, plan) = TouchMappingDecision.Decide(snapshot);
+        var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
 
         Assert.Equal(TouchMappingOutcome.NoPanel, outcome);
-        Assert.Null(plan);
+        Assert.Empty(plans);
     }
 
     [Fact]
@@ -86,10 +86,10 @@ public sealed class TouchMappingCatalogTests
             new List<TouchMapDisplayInfo> { new() { Id = "y70-1", MonitorInterfacePath = Y70MonitorPath } },
             new List<TouchMapDigitizerInfo>());
 
-        var (outcome, plan) = TouchMappingDecision.Decide(snapshot);
+        var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
 
         Assert.Equal(TouchMappingOutcome.NoDigitizer, outcome);
-        Assert.Null(plan);
+        Assert.Empty(plans);
     }
 
     [Fact]
@@ -117,10 +117,10 @@ public sealed class TouchMappingCatalogTests
                 new() { InterfacePath = Y70DigitizerPath, AssociatedDisplayId = "y70-1" },
             });
 
-        var (outcome, plan) = TouchMappingDecision.Decide(snapshot);
+        var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
 
         Assert.Equal(TouchMappingOutcome.AlreadyCorrect, outcome);
-        Assert.Null(plan);
+        Assert.Empty(plans);
     }
 
     [Fact]
@@ -133,11 +133,11 @@ public sealed class TouchMappingCatalogTests
                 new() { InterfacePath = Y70DigitizerPath, AssociatedDisplayId = "primary-monitor" },
             });
 
-        var (outcome, plan) = TouchMappingDecision.Decide(snapshot);
+        var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
 
         Assert.Equal(TouchMappingOutcome.NeedsRepair, outcome);
-        Assert.NotNull(plan);
-        Assert.Equal(Y70DigitizerPath, plan!.DigitizerInterfacePath);
+        var plan = Assert.Single(plans);
+        Assert.Equal(Y70DigitizerPath, plan.DigitizerInterfacePath);
         Assert.Equal("y70-1", plan.PanelDisplayId);
         Assert.Equal(Y70MonitorPath, plan.PanelMonitorInterfacePath);
     }
@@ -155,5 +155,46 @@ public sealed class TouchMappingCatalogTests
         var (outcome, _) = TouchMappingDecision.Decide(snapshot);
 
         Assert.Equal(TouchMappingOutcome.NeedsRepair, outcome);
+    }
+
+    [Fact]
+    public void Decide_evaluates_every_matching_digitizer_independently()
+    {
+        const string secondCollectionPath =
+            @"\\?\HID#VID_27C0&PID_0859&MI_00&Col02#a&2d89150c&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        var snapshot = Snapshot(
+            new List<TouchMapDisplayInfo> { new() { Id = "y70-1", MonitorInterfacePath = Y70MonitorPath } },
+            new List<TouchMapDigitizerInfo>
+            {
+                new() { InterfacePath = Y70DigitizerPath, AssociatedDisplayId = "y70-1" },
+                new() { InterfacePath = secondCollectionPath, AssociatedDisplayId = "primary-monitor" },
+            });
+
+        var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
+
+        Assert.Equal(TouchMappingOutcome.NeedsRepair, outcome);
+        var plan = Assert.Single(plans);
+        Assert.Equal(secondCollectionPath, plan.DigitizerInterfacePath);
+    }
+
+    [Fact]
+    public void Decide_repairs_every_mismatched_digitizer_when_none_are_already_correct()
+    {
+        const string secondCollectionPath =
+            @"\\?\HID#VID_27C0&PID_0859&MI_00&Col02#a&2d89150c&0&0000#{4d1e55b2-f16f-11cf-88cb-001111000030}";
+        var snapshot = Snapshot(
+            new List<TouchMapDisplayInfo> { new() { Id = "y70-1", MonitorInterfacePath = Y70MonitorPath } },
+            new List<TouchMapDigitizerInfo>
+            {
+                new() { InterfacePath = Y70DigitizerPath, AssociatedDisplayId = "primary-monitor" },
+                new() { InterfacePath = secondCollectionPath, AssociatedDisplayId = "primary-monitor" },
+            });
+
+        var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
+
+        Assert.Equal(TouchMappingOutcome.NeedsRepair, outcome);
+        Assert.Equal(2, plans.Count);
+        Assert.Contains(plans, p => p.DigitizerInterfacePath == Y70DigitizerPath);
+        Assert.Contains(plans, p => p.DigitizerInterfacePath == secondCollectionPath);
     }
 }

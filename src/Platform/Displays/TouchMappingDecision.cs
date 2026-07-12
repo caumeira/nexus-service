@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Nexus.Service.Models.Displays;
 
 namespace Nexus.Service.Platform.Displays;
@@ -19,35 +20,38 @@ public sealed record TouchMappingRepairPlan(
 /// <summary>
 /// Pure decision matrix over a touch-mapping snapshot: whether a catalog
 /// panel is attached, whether its digitizer is present, and whether the
-/// current OS association already matches. No I/O - TouchMappingGuard is the
-/// only caller that acts on the result.
+/// current OS association already matches. A physical panel can expose
+/// multiple digitizer HID collections, each with its own Digimon value, so
+/// every catalog-matching digitizer is evaluated independently. No I/O -
+/// TouchMappingGuard is the only caller that acts on the result.
 /// </summary>
 public static class TouchMappingDecision
 {
-    public static (TouchMappingOutcome Outcome, TouchMappingRepairPlan? Plan) Decide(TouchMapSnapshot snapshot)
+    public static (TouchMappingOutcome Outcome, IReadOnlyList<TouchMappingRepairPlan> Plans) Decide(TouchMapSnapshot snapshot)
     {
+        var plans = new List<TouchMappingRepairPlan>();
+        var matchedPanel = false;
+        var matchedDigitizer = false;
+
         foreach (var display in snapshot.Displays)
         {
             var entry = TouchPanelCatalog.MatchDisplay(display.MonitorInterfacePath);
             if (entry is null) continue;
+            matchedPanel = true;
 
-            TouchMapDigitizerInfo? digitizer = null;
             foreach (var candidate in snapshot.Digitizers)
             {
-                if (TouchPanelCatalog.MatchesDigitizer(entry, candidate.InterfacePath))
-                {
-                    digitizer = candidate;
-                    break;
-                }
+                if (!TouchPanelCatalog.MatchesDigitizer(entry, candidate.InterfacePath)) continue;
+                matchedDigitizer = true;
+
+                if (string.Equals(candidate.AssociatedDisplayId, display.Id, StringComparison.Ordinal)) continue;
+
+                plans.Add(new TouchMappingRepairPlan(candidate.InterfacePath, display.Id, display.MonitorInterfacePath));
             }
-            if (digitizer is null) return (TouchMappingOutcome.NoDigitizer, null);
-
-            if (string.Equals(digitizer.AssociatedDisplayId, display.Id, StringComparison.Ordinal))
-                return (TouchMappingOutcome.AlreadyCorrect, null);
-
-            return (TouchMappingOutcome.NeedsRepair,
-                new TouchMappingRepairPlan(digitizer.InterfacePath, display.Id, display.MonitorInterfacePath));
         }
-        return (TouchMappingOutcome.NoPanel, null);
+
+        if (!matchedPanel) return (TouchMappingOutcome.NoPanel, plans);
+        if (!matchedDigitizer) return (TouchMappingOutcome.NoDigitizer, plans);
+        return (plans.Count > 0 ? TouchMappingOutcome.NeedsRepair : TouchMappingOutcome.AlreadyCorrect, plans);
     }
 }

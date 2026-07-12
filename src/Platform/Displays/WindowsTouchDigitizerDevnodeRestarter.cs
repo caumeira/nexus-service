@@ -45,8 +45,12 @@ public sealed class WindowsTouchDigitizerDevnodeRestarter : ITouchDigitizerDevno
             if (!SetupApi.SetupDiGetDeviceInterfaceDetailForInfoData(
                     deviceInfoSet, ref ifaceData, IntPtr.Zero, 0, IntPtr.Zero, ref devInfoData))
             {
-                ServiceLog.Error($"[touch-map] SetupDiGetDeviceInterfaceDetail failed: {Marshal.GetLastWin32Error()}");
-                return false;
+                var error = Marshal.GetLastWin32Error();
+                if (error != SetupApi.ERROR_INSUFFICIENT_BUFFER)
+                {
+                    ServiceLog.Error($"[touch-map] SetupDiGetDeviceInterfaceDetail failed: {error}");
+                    return false;
+                }
             }
 
             var propChange = new SetupApi.SP_PROPCHANGE_PARAMS
