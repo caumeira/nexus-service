@@ -6,6 +6,7 @@ using Nexus.Service.Auth;
 using Nexus.Service.Gallery;
 using Nexus.Service.Media;
 using Nexus.Service.Models.Gallery;
+using Nexus.Service.Platform;
 using Nexus.Service.Sockets;
 
 namespace Nexus.Service.Routes;
@@ -91,9 +92,21 @@ public static class GalleryRoutes
         // Native OS file/folder picker on the host PC. Desktop-tier only and
         // deliberately NOT relayed - the dialog opens on the host's screen.
         // RequestAborted flows in so closing the page abandons the wait (and
-        // kills the dialog child process on macOS/Linux).
-        app.MapPost("/gallery/pick", async (GalleryPickBody body, IGalleryDialogPicker picker, HttpContext ctx) =>
-            await picker.PickAsync(body.Folder, ctx.RequestAborted));
+        // kills the dialog child process on macOS/Linux). IFileDialogPicker
+        // is shared with /system/pick-path (SystemRoutes.cs); this route
+        // always requests the image-filter multiselect mode.
+        app.MapPost("/gallery/pick", async (GalleryPickBody body, IFileDialogPicker picker, HttpContext ctx) =>
+        {
+            var mode = body.Folder ? FileDialogPickMode.Folder : FileDialogPickMode.ImagesMultiSelect;
+            var result = await picker.PickAsync(mode, ctx.RequestAborted);
+            return new GalleryPickResponse
+            {
+                Paths = result.Paths,
+                Cancelled = result.Cancelled,
+                Error = result.Error,
+                Msg = result.Msg,
+            };
+        });
     }
 
     private static string ContentTypeFor(string path) =>

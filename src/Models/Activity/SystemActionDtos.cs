@@ -30,6 +30,18 @@ public sealed class OpenPathBody
     public string Path { get; set; } = "";
 }
 
+/// <summary>Request for the native file/folder picker dialog.</summary>
+public sealed class PickPathBody
+{
+    public bool Folder { get; set; }
+}
+
+/// <summary>Picked absolute path, or null when the user cancelled the dialog.</summary>
+public sealed class PickPathResponse
+{
+    public string? Path { get; set; }
+}
+
 /// <summary>OS accent colour as #RRGGBB, or empty when unavailable (e.g. served
 /// only on Linux, where the dashboard browser has no native accent push).</summary>
 public sealed class SystemAccentResponse

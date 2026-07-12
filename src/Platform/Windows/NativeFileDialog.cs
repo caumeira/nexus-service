@@ -40,7 +40,7 @@ public static unsafe class NativeFileDialog
 
     private static int s_active;
 
-    public static Task<FileDialogResult> ShowAsync(bool pickFolder)
+    public static Task<FileDialogResult> ShowAsync(FileDialogPickMode mode)
     {
         if (Interlocked.CompareExchange(ref s_active, 1, 0) != 0)
         {
@@ -52,7 +52,7 @@ public static unsafe class NativeFileDialog
         {
             try
             {
-                tcs.TrySetResult(Show(pickFolder));
+                tcs.TrySetResult(Show(mode));
             }
             catch (Exception ex)
             {
@@ -72,7 +72,7 @@ public static unsafe class NativeFileDialog
         return tcs.Task;
     }
 
-    private static FileDialogResult Show(bool pickFolder)
+    private static FileDialogResult Show(FileDialogPickMode mode)
     {
         var hrInit = CoInitializeEx(IntPtr.Zero, CoInitApartmentThreaded);
         var needUninit = hrInit >= 0;
@@ -85,13 +85,18 @@ public static unsafe class NativeFileDialog
             {
                 Marshal.ThrowExceptionForHR(GetOptions(dlg, out var opts));
                 opts |= FosForceFilesystem | FosPathMustExist | FosFileMustExist;
-                opts |= pickFolder ? FosPickFolders : FosAllowMultiselect;
+                opts |= mode switch
+                {
+                    FileDialogPickMode.Folder => FosPickFolders,
+                    FileDialogPickMode.ImagesMultiSelect => FosAllowMultiselect,
+                    _ => 0u,
+                };
                 Marshal.ThrowExceptionForHR(SetOptions(dlg, opts));
 
                 IntPtr filterName = IntPtr.Zero, filterSpec = IntPtr.Zero, specArray = IntPtr.Zero;
                 try
                 {
-                    if (!pickFolder)
+                    if (mode == FileDialogPickMode.ImagesMultiSelect)
                     {
                         // One COMDLG_FILTERSPEC entry: { LPCWSTR name, LPCWSTR spec }.
                         filterName = Marshal.StringToHGlobalUni(ImageFilterName);

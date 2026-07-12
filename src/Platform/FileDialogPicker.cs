@@ -5,22 +5,42 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
-using Nexus.Service.Models.Gallery;
-using Nexus.Service.Platform;
 #if LINUX
 using Nexus.Service.Platform.Linux;
 #endif
 
-namespace Nexus.Service.Gallery;
+namespace Nexus.Service.Platform;
 
-public interface IGalleryDialogPicker
+/// <summary>
+/// Which OS-native dialog <see cref="IFileDialogPicker.PickAsync"/> shows.
+/// <see cref="Folder"/> picks a single directory (gallery + deck Browse);
+/// <see cref="AnyFileSingle"/> picks one file with no type filter (deck
+/// Browse); <see cref="ImagesMultiSelect"/> picks one or more image files
+/// (gallery only).
+/// </summary>
+public enum FileDialogPickMode
 {
-    Task<GalleryPickResponse> PickAsync(bool folder, CancellationToken ct);
+    ImagesMultiSelect,
+    AnyFileSingle,
+    Folder,
+}
+
+public sealed class FileDialogPickResult
+{
+    public List<string> Paths { get; set; } = new();
+    public bool Cancelled { get; set; }
+    public bool Error { get; set; }
+    public string Msg { get; set; } = "";
+}
+
+public interface IFileDialogPicker
+{
+    Task<FileDialogPickResult> PickAsync(FileDialogPickMode mode, CancellationToken ct);
 }
 
 /// <summary>
 /// Opens the OS-native file/folder picker on the host PC and returns the
-/// chosen absolute paths. The dialog always appears on the host machine -
+/// chosen absolute path(s). The dialog always appears on the host machine -
 /// browsers never expose real filesystem paths, so a remote dashboard
 /// triggering this sees the dialog open on the PC. One dialog at a time.
 ///
@@ -30,20 +50,24 @@ public interface IGalleryDialogPicker
 /// Nexus.app, so osascript's `choose file`/`choose folder` works directly.
 /// Linux: the root daemon spawns zenity/kdialog inside the user's session
 /// via the setpriv wrapper (same trick as the screencast helper).
+///
+/// Shared across the gallery (image multiselect / folder) and the deck
+/// action openFile/openFolder Browse buttons (any-file single-select /
+/// folder).
 /// </summary>
-public sealed class GalleryDialogPicker : IGalleryDialogPicker
+public sealed class FileDialogPicker : IFileDialogPicker
 {
     private const int DialogTimeoutMs = 600_000;
 
     private readonly IServiceProvider _services;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
-    public GalleryDialogPicker(IServiceProvider services)
+    public FileDialogPicker(IServiceProvider services)
     {
         _services = services;
     }
 
-    public async Task<GalleryPickResponse> PickAsync(bool folder, CancellationToken ct)
+    public async Task<FileDialogPickResult> PickAsync(FileDialogPickMode mode, CancellationToken ct)
     {
         if (!await _gate.WaitAsync(0, ct))
         {
@@ -54,17 +78,17 @@ public sealed class GalleryDialogPicker : IGalleryDialogPicker
         {
             if (OperatingSystem.IsWindows())
             {
-                return await PickWindowsAsync(folder, ct);
+                return await PickWindowsAsync(mode, ct);
             }
 
             if (OperatingSystem.IsMacOS())
             {
-                return await PickMacAsync(folder, ct);
+                return await PickMacAsync(mode, ct);
             }
 
             if (OperatingSystem.IsLinux())
             {
-                return await PickLinuxAsync(folder, ct);
+                return await PickLinuxAsync(mode, ct);
             }
 
             return Fail("native dialogs are not supported on this platform");
@@ -75,7 +99,7 @@ public sealed class GalleryDialogPicker : IGalleryDialogPicker
         }
     }
 
-    private async Task<GalleryPickResponse> PickWindowsAsync(bool folder, CancellationToken ct)
+    private async Task<FileDialogPickResult> PickWindowsAsync(FileDialogPickMode mode, CancellationToken ct)
     {
 #if WINDOWS
         var registry = _services.GetService<Helper.HelperRegistry>();
@@ -84,67 +108,80 @@ public sealed class GalleryDialogPicker : IGalleryDialogPicker
             return Fail("user-session helper unavailable");
         }
 
-        var result = await Helper.Domains.FileDialogCommands.PickAsync(registry, folder, ct).ConfigureAwait(false);
+        var result = await Helper.Domains.FileDialogCommands.PickAsync(registry, mode, ct).ConfigureAwait(false);
         if (result.Error is not null)
         {
             return Fail(result.Error);
         }
 
         return result.Cancelled
-            ? new GalleryPickResponse { Cancelled = true }
-            : new GalleryPickResponse { Paths = result.Paths };
+            ? new FileDialogPickResult { Cancelled = true }
+            : new FileDialogPickResult { Paths = result.Paths };
 #else
         await Task.CompletedTask;
         return Fail("not built for windows");
 #endif
     }
 
-    private static async Task<GalleryPickResponse> PickMacAsync(bool folder, CancellationToken ct)
+    private static async Task<FileDialogPickResult> PickMacAsync(FileDialogPickMode mode, CancellationToken ct)
     {
         // osascript exits non-zero on user cancel ("User canceled. (-128)");
         // ShellExecutor surfaces that as empty stdout, which maps to Cancelled.
         // "tell me to activate" fronts the chooser - without it the dialog can
         // open behind the Nexus window.
-        var script = folder
-            ? "tell me to activate\n"
-              + "return POSIX path of (choose folder with prompt \"Add a folder to the Nexus gallery\")"
-            : "tell me to activate\n"
-              + "set out to \"\"\n"
-              + "repeat with f in (choose file with prompt \"Add images to the Nexus gallery\" of type {\"public.image\"} with multiple selections allowed)\n"
-              + "set out to out & POSIX path of f & \"\\n\"\n"
-              + "end repeat\n"
-              + "return out";
+        var script = mode switch
+        {
+            FileDialogPickMode.Folder =>
+                "tell me to activate\n"
+                + "return POSIX path of (choose folder with prompt \"Choose a folder\")",
+            FileDialogPickMode.AnyFileSingle =>
+                "tell me to activate\n"
+                + "return POSIX path of (choose file with prompt \"Choose a file\")",
+            _ =>
+                "tell me to activate\n"
+                + "set out to \"\"\n"
+                + "repeat with f in (choose file with prompt \"Add images to the Nexus gallery\" of type {\"public.image\"} with multiple selections allowed)\n"
+                + "set out to out & POSIX path of f & \"\\n\"\n"
+                + "end repeat\n"
+                + "return out",
+        };
         var stdout = await ShellExecutor.RunAsync("/usr/bin/osascript", DialogTimeoutMs, ct, "-e", script).ConfigureAwait(false);
         return FromLines(stdout);
     }
 
 #if LINUX
-    private static async Task<GalleryPickResponse> PickLinuxAsync(bool folder, CancellationToken ct)
+    private static async Task<FileDialogPickResult> PickLinuxAsync(FileDialogPickMode mode, CancellationToken ct)
     {
         string tool;
         List<string> args;
         if (ToolExists("zenity"))
         {
             tool = "zenity";
-            args = folder
-                ? new List<string> { "--file-selection", "--directory" }
-                : new List<string>
+            args = mode switch
+            {
+                FileDialogPickMode.Folder => new List<string> { "--file-selection", "--directory" },
+                FileDialogPickMode.AnyFileSingle => new List<string> { "--file-selection" },
+                _ => new List<string>
                 {
                     "--file-selection", "--multiple", "--separator=\n",
                     "--file-filter=Images | *.jpg *.jpeg *.png *.webp *.gif *.bmp *.avif",
-                };
+                },
+            };
         }
         else if (ToolExists("kdialog"))
         {
             tool = "kdialog";
-            args = folder
-                ? new List<string> { "--getexistingdirectory", "." }
-                : new List<string>
+            args = mode switch
+            {
+                FileDialogPickMode.Folder => new List<string> { "--getexistingdirectory", "." },
+                FileDialogPickMode.AnyFileSingle => new List<string> { "--getopenfilename", "." },
+                _ => new List<string>
                 {
                     "--getopenfilename", ".",
                     "Image files (*.jpg *.jpeg *.png *.webp *.gif *.bmp *.avif)",
                     "--multiple", "--separate-output",
-                };
+                },
+            };
         }
         else
         {
@@ -160,11 +197,11 @@ public sealed class GalleryDialogPicker : IGalleryDialogPicker
     private static bool ToolExists(string tool) =>
         !string.IsNullOrWhiteSpace(ShellExecutor.Run("which", tool));
 #else
-    private static Task<GalleryPickResponse> PickLinuxAsync(bool folder, CancellationToken ct) =>
+    private static Task<FileDialogPickResult> PickLinuxAsync(FileDialogPickMode mode, CancellationToken ct) =>
         Task.FromResult(Fail("not built for linux"));
 #endif
 
-    private static GalleryPickResponse FromLines(string stdout)
+    private static FileDialogPickResult FromLines(string stdout)
     {
         var paths = stdout
             .Split('\n')
@@ -172,10 +209,10 @@ public sealed class GalleryDialogPicker : IGalleryDialogPicker
             .Where(l => l.Length > 0 && Path.IsPathFullyQualified(l))
             .ToList();
         return paths.Count == 0
-            ? new GalleryPickResponse { Cancelled = true }
-            : new GalleryPickResponse { Paths = paths };
+            ? new FileDialogPickResult { Cancelled = true }
+            : new FileDialogPickResult { Paths = paths };
     }
 
-    private static GalleryPickResponse Fail(string msg) =>
+    private static FileDialogPickResult Fail(string msg) =>
         new() { Error = true, Msg = msg };
 }

@@ -85,6 +85,19 @@ public static class SystemRoutes
         app.MapPost("/system/open-path", (OpenPathBody body, Nexus.Service.Actions.SystemActions actions) =>
             actions.OpenPathAsync(body.Path ?? "")).AllowPanel();
 
+        // Native OS file/folder picker for the deck action Browse button
+        // (openFile/openFolder ActionFields). Desktop-tier only - no
+        // AllowPanel, and deliberately absent from RelayHttpAllowlist.cs -
+        // the dialog opens on the host's screen, so it must stay unreachable
+        // from a paired panel session or a relayed remote connection.
+        app.MapPost("/system/pick-path", async (PickPathBody body, IFileDialogPicker picker, HttpContext ctx) =>
+        {
+            var mode = body.Folder ? FileDialogPickMode.Folder : FileDialogPickMode.AnyFileSingle;
+            var result = await picker.PickAsync(mode, ctx.RequestAborted);
+            var path = result.Cancelled || result.Error || result.Paths.Count == 0 ? null : result.Paths[0];
+            return Results.Ok(new PickPathResponse { Path = path });
+        });
+
         app.MapPost("/system/open-task-manager", (Nexus.Service.Actions.SystemActions actions) =>
             actions.OpenTaskManager() ? ApiResponse.Ok() : ApiResponse.Fail("failed to open task manager")).AllowPanel();
 

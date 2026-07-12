@@ -695,6 +695,8 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(SendKeysBody))]
 [JsonSerializable(typeof(SendTextBody))]
 [JsonSerializable(typeof(OpenPathBody))]
+[JsonSerializable(typeof(PickPathBody))]
+[JsonSerializable(typeof(PickPathResponse))]
 [JsonSerializable(typeof(AudioDevice))]
 [JsonSerializable(typeof(List<AudioDevice>))]
 [JsonSerializable(typeof(AudioDeviceList))]

@@ -13,9 +13,12 @@ public class MonitoringTileRendererTests
     [InlineData(MonitoringTileStyle.Line, 72)]
     [InlineData(MonitoringTileStyle.Line, 80)]
     [InlineData(MonitoringTileStyle.Line, 96)]
-    [InlineData(MonitoringTileStyle.Radial, 72)]
-    [InlineData(MonitoringTileStyle.Radial, 80)]
-    [InlineData(MonitoringTileStyle.Radial, 96)]
+    [InlineData(MonitoringTileStyle.Segments, 72)]
+    [InlineData(MonitoringTileStyle.Segments, 80)]
+    [InlineData(MonitoringTileStyle.Segments, 96)]
+    [InlineData(MonitoringTileStyle.Backdrop, 72)]
+    [InlineData(MonitoringTileStyle.Backdrop, 80)]
+    [InlineData(MonitoringTileStyle.Backdrop, 96)]
     [InlineData(MonitoringTileStyle.Number, 72)]
     [InlineData(MonitoringTileStyle.Number, 80)]
     [InlineData(MonitoringTileStyle.Number, 96)]
@@ -38,8 +41,40 @@ public class MonitoringTileRendererTests
     }
 
     [Theory]
+    [InlineData(MonitoringTileStyle.Line, 72)]
+    [InlineData(MonitoringTileStyle.Line, 80)]
+    [InlineData(MonitoringTileStyle.Line, 96)]
+    [InlineData(MonitoringTileStyle.Segments, 72)]
+    [InlineData(MonitoringTileStyle.Segments, 80)]
+    [InlineData(MonitoringTileStyle.Segments, 96)]
+    [InlineData(MonitoringTileStyle.Backdrop, 72)]
+    [InlineData(MonitoringTileStyle.Backdrop, 80)]
+    [InlineData(MonitoringTileStyle.Backdrop, 96)]
+    [InlineData(MonitoringTileStyle.Number, 72)]
+    [InlineData(MonitoringTileStyle.Number, 80)]
+    [InlineData(MonitoringTileStyle.Number, 96)]
+    public void Render_produces_a_non_empty_image_buffer_at_all_key_tile_sizes(MonitoringTileStyle style, int pixelSize)
+    {
+        var input = new MonitoringTileInput
+        {
+            Name = "CPU Usage",
+            ValueText = "70%",
+            SensorType = "Load",
+            History = History,
+            Style = style,
+        };
+
+        using var image = MonitoringTileRenderer.Render(input, pixelSize);
+        var rgba = RenderKit.ToRgba32Bytes(image);
+
+        Assert.NotEmpty(rgba);
+        Assert.Equal(pixelSize * pixelSize * 4, rgba.Length);
+    }
+
+    [Theory]
     [InlineData(MonitoringTileStyle.Line)]
-    [InlineData(MonitoringTileStyle.Radial)]
+    [InlineData(MonitoringTileStyle.Segments)]
+    [InlineData(MonitoringTileStyle.Backdrop)]
     [InlineData(MonitoringTileStyle.Number)]
     public void Render_encodes_as_a_valid_gen1_bmp_at_the_mini_key_size(MonitoringTileStyle style)
     {
@@ -65,7 +100,8 @@ public class MonitoringTileRendererTests
 
     [Theory]
     [InlineData(MonitoringTileStyle.Line, 0x0080)] // MK.2: 72px JPEG
-    [InlineData(MonitoringTileStyle.Radial, 0x006c)] // XL: 96px JPEG
+    [InlineData(MonitoringTileStyle.Segments, 0x006c)] // XL: 96px JPEG
+    [InlineData(MonitoringTileStyle.Backdrop, 0x006c)]
     [InlineData(MonitoringTileStyle.Number, 0x0080)]
     public void Render_encodes_as_a_valid_gen2_jpeg(MonitoringTileStyle style, int productId)
     {
@@ -105,6 +141,25 @@ public class MonitoringTileRendererTests
         Assert.Equal(80, image.Width);
     }
 
+    [Theory]
+    [InlineData(MonitoringTileStyle.Segments)]
+    [InlineData(MonitoringTileStyle.Backdrop)]
+    public void Render_tolerates_empty_history_for_the_new_styles(MonitoringTileStyle style)
+    {
+        var input = new MonitoringTileInput
+        {
+            Name = "CPU",
+            ValueText = "0%",
+            SensorType = "Load",
+            History = System.Array.Empty<float>(),
+            Style = style,
+        };
+
+        using var image = MonitoringTileRenderer.Render(input, 80);
+
+        Assert.Equal(80, image.Width);
+    }
+
     [Fact]
     public void Render_tolerates_a_single_history_sample()
     {
@@ -114,7 +169,7 @@ public class MonitoringTileRendererTests
             ValueText = "42%",
             SensorType = "Load",
             History = new List<float> { 42f },
-            Style = MonitoringTileStyle.Radial,
+            Style = MonitoringTileStyle.Segments,
         };
 
         using var image = MonitoringTileRenderer.Render(input, 80);
@@ -132,6 +187,42 @@ public class MonitoringTileRendererTests
             SensorType = "Clock",
             History = new List<float> { 4200f, 4200f, 4200f },
             Style = MonitoringTileStyle.Line,
+        };
+
+        using var image = MonitoringTileRenderer.Render(input, 80);
+
+        Assert.Equal(80, image.Width);
+    }
+
+    [Fact]
+    public void Render_line_style_tolerates_a_single_history_sample()
+    {
+        var input = new MonitoringTileInput
+        {
+            Name = "CPU",
+            ValueText = "42%",
+            SensorType = "Load",
+            History = new List<float> { 42f },
+            Style = MonitoringTileStyle.Line,
+        };
+
+        using var image = MonitoringTileRenderer.Render(input, 80);
+
+        Assert.Equal(80, image.Width);
+    }
+
+    [Theory]
+    [InlineData(MonitoringTileStyle.Segments)]
+    [InlineData(MonitoringTileStyle.Backdrop)]
+    public void Render_tolerates_a_degenerate_domain_for_the_new_styles(MonitoringTileStyle style)
+    {
+        var input = new MonitoringTileInput
+        {
+            Name = "Clock",
+            ValueText = "4200MHz",
+            SensorType = "Clock",
+            History = new List<float> { 4200f, 4200f, 4200f },
+            Style = style,
         };
 
         using var image = MonitoringTileRenderer.Render(input, 80);
@@ -170,6 +261,88 @@ public class MonitoringTileRendererTests
         Assert.Equal(96, image.Width);
     }
 
+    [Fact]
+    public void Render_segments_produces_different_pixels_from_line_at_the_same_input()
+    {
+        static MonitoringTileInput Input(MonitoringTileStyle style) => new()
+        {
+            Name = "CPU",
+            ValueText = "70%",
+            SensorType = "Load",
+            History = History,
+            Style = style,
+        };
+
+        using var line = MonitoringTileRenderer.Render(Input(MonitoringTileStyle.Line), 80);
+        using var segments = MonitoringTileRenderer.Render(Input(MonitoringTileStyle.Segments), 80);
+
+        Assert.NotEqual(RenderKit.ToRgb24(line), RenderKit.ToRgb24(segments));
+    }
+
+    [Fact]
+    public void Render_backdrop_produces_different_pixels_from_line_at_the_same_input()
+    {
+        static MonitoringTileInput Input(MonitoringTileStyle style) => new()
+        {
+            Name = "CPU",
+            ValueText = "70%",
+            SensorType = "Load",
+            History = History,
+            Style = style,
+        };
+
+        using var line = MonitoringTileRenderer.Render(Input(MonitoringTileStyle.Line), 80);
+        using var backdrop = MonitoringTileRenderer.Render(Input(MonitoringTileStyle.Backdrop), 80);
+
+        Assert.NotEqual(RenderKit.ToRgb24(line), RenderKit.ToRgb24(backdrop));
+    }
+
+    [Fact]
+    public void Render_backdrop_fills_edge_to_edge_reaching_corners_line_does_not()
+    {
+        // A flat series maxed at the domain ceiling fills Backdrop's whole
+        // key face corner to corner. The sampled corner sits outside Line's
+        // inset middle band and outside both styles' centered text.
+        var maxedHistory = new List<float> { 100f, 100f, 100f, 100f, 100f };
+        static MonitoringTileInput Input(MonitoringTileStyle style, IReadOnlyList<float> history) => new()
+        {
+            Name = "CPU",
+            ValueText = "100%",
+            SensorType = "Load",
+            History = history,
+            Style = style,
+        };
+
+        const int size = 80;
+        const int x = 2;
+        const int y = 78;
+        var offset = (y * size + x) * 4;
+
+        using var line = MonitoringTileRenderer.Render(Input(MonitoringTileStyle.Line, maxedHistory), size);
+        using var backdrop = MonitoringTileRenderer.Render(Input(MonitoringTileStyle.Backdrop, maxedHistory), size);
+
+        var lineRgba = RenderKit.ToRgba32Bytes(line);
+        var backdropRgba = RenderKit.ToRgba32Bytes(backdrop);
+
+        Assert.Equal(0x0e, lineRgba[offset]);
+        Assert.Equal(0x11, lineRgba[offset + 1]);
+        Assert.Equal(0x16, lineRgba[offset + 2]);
+
+        Assert.False(backdropRgba[offset] == 0x0e && backdropRgba[offset + 1] == 0x11 && backdropRgba[offset + 2] == 0x16);
+    }
+
+    [Fact]
+    public void Render_backdrop_draws_the_value_as_a_centered_overlay()
+    {
+        var withValue = new MonitoringTileInput { Name = "CPU", ValueText = "70%", SensorType = "Load", History = History, Style = MonitoringTileStyle.Backdrop };
+        var withoutValue = new MonitoringTileInput { Name = "CPU", ValueText = "", SensorType = "Load", History = History, Style = MonitoringTileStyle.Backdrop };
+
+        using var imageWithValue = MonitoringTileRenderer.Render(withValue, 80);
+        using var imageWithoutValue = MonitoringTileRenderer.Render(withoutValue, 80);
+
+        Assert.NotEqual(RenderKit.ToRgb24(imageWithValue), RenderKit.ToRgb24(imageWithoutValue));
+    }
+
     [Theory]
     [InlineData("Load")]
     [InlineData("Temperature")]
@@ -193,22 +366,52 @@ public class MonitoringTileRendererTests
     }
 
     [Fact]
-    public void RadialFraction_DividesByDomainMaxRatherThanMinMaxNormalizing()
+    public void FillFraction_DividesByDomainMaxRatherThanMinMaxNormalizing()
     {
         var domain = (Min: 100f, Max: 200f);
 
-        Assert.Equal(0.75f, MonitoringTileRenderer.RadialFraction(150f, domain));
+        Assert.Equal(0.75f, MonitoringTileRenderer.FillFraction(150f, domain));
     }
 
     [Fact]
-    public void RadialFraction_ClampsAboveDomainMax()
+    public void FillFraction_ClampsAboveDomainMax()
     {
-        Assert.Equal(1f, MonitoringTileRenderer.RadialFraction(500f, (Min: 0f, Max: 100f)));
+        Assert.Equal(1f, MonitoringTileRenderer.FillFraction(500f, (Min: 0f, Max: 100f)));
     }
 
     [Fact]
-    public void RadialFraction_DegenerateDomainRendersNeutralFill()
+    public void FillFraction_DegenerateDomainRendersNeutralFill()
     {
-        Assert.Equal(0.5f, MonitoringTileRenderer.RadialFraction(50f, (Min: 10f, Max: 10f)));
+        Assert.Equal(0.5f, MonitoringTileRenderer.FillFraction(50f, (Min: 10f, Max: 10f)));
+    }
+
+    [Theory]
+    [InlineData("segments")]
+    [InlineData("radial")]
+    public void ParseStyle_SegmentsAndLegacyRadialBothMapToSegments(string style)
+    {
+        Assert.Equal(MonitoringTileStyle.Segments, MonitoringTileRenderer.ParseStyle(style));
+    }
+
+    [Fact]
+    public void ParseStyle_MapsBackdrop()
+    {
+        Assert.Equal(MonitoringTileStyle.Backdrop, MonitoringTileRenderer.ParseStyle("backdrop"));
+    }
+
+    [Fact]
+    public void ParseStyle_MapsNumber()
+    {
+        Assert.Equal(MonitoringTileStyle.Number, MonitoringTileRenderer.ParseStyle("number"));
+    }
+
+    [Theory]
+    [InlineData("line")]
+    [InlineData("")]
+    [InlineData(null)]
+    [InlineData("unknown-future-style")]
+    public void ParseStyle_UnknownOrAbsentValuesFallBackToLine(string? style)
+    {
+        Assert.Equal(MonitoringTileStyle.Line, MonitoringTileRenderer.ParseStyle(style));
     }
 }

@@ -792,6 +792,156 @@ public class StreamDeckConnectionWorkerTests
         Assert.Equal(0, worker.GetCurrentPage("never-connected"));
     }
 
+    /// <summary>
+    /// Physical push-in feedback (Elgato-software parity): key-down pushes a
+    /// scaled-and-inset variant of the key's uploaded image immediately, and
+    /// key-up restores the exact original bytes.
+    /// </summary>
+    [Fact]
+    public void HandleKeyDown_LeafActionWithUploadedImage_PushesAPressedVariant_KeyUpRestoresTheOriginal()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        var original = StreamDeckProtocol.BuildBlankBmp(Mini.KeyPixelSize);
+        var hash = StreamDeckImageCache.Hash(original);
+        f.ImageCache.Store("sim-0001", hash, original);
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://example.com" } } } } } },
+            ImageRefs = { ["0/0"] = hash },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+        Assert.Equal(original, simulated.PeekKeyImage(0));
+
+        simulated.Poke(0, true);
+        worker.Tick();
+        var pressed = simulated.PeekKeyImage(0);
+        Assert.NotNull(pressed);
+        Assert.NotEqual(original, pressed);
+        // Same wire dimensions (re-encoded at the source's own size), so the
+        // difference is pixel content (the background inset), not a resize
+        // that would desync from the model's fixed wire image length.
+        Assert.Equal(original.Length, pressed!.Length);
+
+        simulated.Poke(0, false);
+        worker.Tick();
+        Assert.Equal(original, simulated.PeekKeyImage(0));
+    }
+
+    [Fact]
+    public void HandleKeyDown_TwoSlotsSharingTheSameUploadedImage_ProduceByteIdenticalPressedVariants()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        var original = StreamDeckProtocol.BuildBlankBmp(Mini.KeyPixelSize);
+        var hash = StreamDeckImageCache.Hash(original);
+        f.ImageCache.Store("sim-0001", hash, original);
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://a.example.com" } },
+                            new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://b.example.com" } },
+                        },
+                    },
+                },
+            },
+            ImageRefs = { ["0/0"] = hash, ["1/0"] = hash },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        simulated.Poke(0, true);
+        worker.Tick();
+        var pressedA = simulated.PeekKeyImage(0);
+        simulated.Poke(0, false);
+        worker.Tick();
+
+        simulated.Poke(1, true);
+        worker.Tick();
+        var pressedB = simulated.PeekKeyImage(1);
+
+        Assert.NotNull(pressedA);
+        Assert.Equal(pressedA, pressedB);
+    }
+
+    [Fact]
+    public void HandleKeyDown_OnAPageNavKey_MatchesAPureNavRepaintWithNoExtraPressedPush()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = TwoPageDeckSettings());
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        var beforeNav = simulated.SetKeyImageCallCount;
+        worker.SetNav("sim-0001", 1, Array.Empty<int>());
+        var navOnlyDelta = simulated.SetKeyImageCallCount - beforeNav;
+        var navOnlyImages = SnapshotKeyImages(simulated, Mini.KeyCount);
+
+        worker.SetNav("sim-0001", 0, Array.Empty<int>());
+
+        var beforePress = simulated.SetKeyImageCallCount;
+        simulated.Poke(0, true); // page 0 slot 0 is "page next" (TwoPageDeckSettings)
+        worker.Tick();
+        var pressDelta = simulated.SetKeyImageCallCount - beforePress;
+        var pressImages = SnapshotKeyImages(simulated, Mini.KeyCount);
+
+        Assert.Equal(1, worker.GetCurrentPage("sim-0001"));
+        Assert.Equal(navOnlyDelta, pressDelta);
+        Assert.Equal(navOnlyImages, pressImages);
+    }
+
+    [Fact]
+    public void HandleKeyDown_OnAFolderSlot_MatchesAPureNavRepaintWithNoExtraPressedPush()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages = { new DeckPage { Slots = { new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot() } } } } } },
+            },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+
+        var beforeNav = simulated.SetKeyImageCallCount;
+        worker.SetNav("sim-0001", 0, new[] { 0 });
+        var navOnlyDelta = simulated.SetKeyImageCallCount - beforeNav;
+        var navOnlyImages = SnapshotKeyImages(simulated, Mini.KeyCount);
+
+        worker.SetNav("sim-0001", 0, Array.Empty<int>());
+
+        var beforePress = simulated.SetKeyImageCallCount;
+        simulated.Poke(0, true); // the only root slot: a folder
+        worker.Tick();
+        var pressDelta = simulated.SetKeyImageCallCount - beforePress;
+        var pressImages = SnapshotKeyImages(simulated, Mini.KeyCount);
+
+        Assert.Equal(new[] { 0 }, worker.GetFolderPath("sim-0001"));
+        Assert.Equal(navOnlyDelta, pressDelta);
+        Assert.Equal(navOnlyImages, pressImages);
+    }
+
+    private static byte[]?[] SnapshotKeyImages(SimulatedStreamDeckSurface surface, int keyCount)
+    {
+        var snapshot = new byte[]?[keyCount];
+        for (var i = 0; i < keyCount; i++)
+        {
+            snapshot[i] = surface.PeekKeyImage(i);
+        }
+        return snapshot;
+    }
+
     [Fact]
     public void Tick_MonitoringSlot_RendersAndPushesAValidWireImage_WithoutTouchingImageRefsOrTheCache()
     {
@@ -993,6 +1143,50 @@ public class StreamDeckConnectionWorkerTests
 
         worker.Tick();
         Assert.NotNull(simulated.PeekKeyImage(lastKeyIndex));
+    }
+
+    /// <summary>
+    /// While a monitoring key is physically held, RefreshMonitoringKeys must
+    /// skip pushing it (avoiding a race with the pressed overlay) even though
+    /// sampling still runs every tick; release forces a fresh push regardless
+    /// of the hash-skip optimization, so the tile catches up immediately.
+    /// </summary>
+    [Fact]
+    public void MonitoringSlot_HeldDuringATick_SkipsThePush_ReleaseForcesAFreshOne()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 10f, Formatted = "10%", Parent = new SensorParent() },
+        };
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick();
+        var initial = simulated.PeekKeyImage(0);
+        Assert.NotNull(initial);
+        var callsBeforeHold = simulated.SetKeyImageCallCount;
+
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 90f, Formatted = "90%", Parent = new SensorParent() },
+        };
+        simulated.Poke(0, true);
+        worker.Tick();
+
+        Assert.Equal(initial, simulated.PeekKeyImage(0));
+        Assert.Equal(callsBeforeHold, simulated.SetKeyImageCallCount);
+
+        simulated.Poke(0, false);
+        worker.Tick();
+
+        Assert.NotEqual(initial, simulated.PeekKeyImage(0));
+        Assert.True(simulated.SetKeyImageCallCount > callsBeforeHold);
     }
 
     private sealed class MutableUsbEnumerator : IUsbEnumerator
