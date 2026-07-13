@@ -57,4 +57,21 @@ public static class TouchPanelCatalog
         }
         return false;
     }
+
+    /// <summary>
+    /// True when the digitizer matches any catalog entry's VID/PID, regardless
+    /// of whether that entry's panel display is currently attached. The
+    /// generic touch-mapping tier uses this to exclude a catalog digitizer
+    /// even when its own panel is absent, so it never gets inferred onto a
+    /// different touch-expected display.
+    /// </summary>
+    public static bool IsKnownDigitizer(string digitizerInterfacePath)
+    {
+        if (string.IsNullOrEmpty(digitizerInterfacePath)) return false;
+        foreach (var entry in Entries)
+        {
+            if (MatchesDigitizer(entry, digitizerInterfacePath)) return true;
+        }
+        return false;
+    }
 }

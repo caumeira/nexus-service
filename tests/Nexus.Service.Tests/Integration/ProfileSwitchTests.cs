@@ -192,4 +192,57 @@ public class ProfileSwitchTests : IDisposable
     {
         Assert.Null(_profiles.ExportProfileJson(id));
     }
+
+    [Fact]
+    public void SwitchProfile_WithDevicePerProfile_LoadsTargetProfilesStreamDeck()
+    {
+        var activeId = _profiles.GetActiveEntry()!.Id;
+        // Device defaults to Shared; opt out so each profile's deck can
+        // diverge, matching how a user would configure per-profile decks.
+        _profiles.SetCategoryShared(ProfileSharing.Device, shared: false);
+
+        _store.Update(s => s.StreamDeck.Decks = new() { ["SN-DEFAULT"] = new PhysicalDeckSettings { Name = "Default Deck" } });
+        _store.FlushNow();
+        _profiles.SaveActiveProfile();
+
+        var second = _profiles.CreateProfile("Second");
+        _store.Update(s => s.StreamDeck.Decks = new() { ["SN-SECOND"] = new PhysicalDeckSettings { Name = "Second Deck" } });
+        _store.FlushNow();
+        _profiles.SaveActiveProfile();
+
+        _profiles.SwitchProfile(activeId);
+        var afterDefault = _store.Load();
+        Assert.True(afterDefault.StreamDeck.Decks.ContainsKey("SN-DEFAULT"));
+        Assert.False(afterDefault.StreamDeck.Decks.ContainsKey("SN-SECOND"));
+
+        _profiles.SwitchProfile(second.Id);
+        var afterSecond = _store.Load();
+        Assert.True(afterSecond.StreamDeck.Decks.ContainsKey("SN-SECOND"));
+        Assert.False(afterSecond.StreamDeck.Decks.ContainsKey("SN-DEFAULT"));
+    }
+
+    [Fact]
+    public void SwitchProfile_WithDevicePerProfile_LoadsTargetProfilesKeeb()
+    {
+        var activeId = _profiles.GetActiveEntry()!.Id;
+        // Device defaults to Shared; opt out so each profile's keeb settings
+        // can diverge, matching how a user would configure per-profile keeb
+        // personalization.
+        _profiles.SetCategoryShared(ProfileSharing.Device, shared: false);
+
+        _store.Update(s => s.Keeb.RotaryLeft = "Volume");
+        _store.FlushNow();
+        _profiles.SaveActiveProfile();
+
+        var second = _profiles.CreateProfile("Second");
+        _store.Update(s => s.Keeb.RotaryLeft = "Scroll");
+        _store.FlushNow();
+        _profiles.SaveActiveProfile();
+
+        _profiles.SwitchProfile(activeId);
+        Assert.Equal("Volume", _store.Load().Keeb.RotaryLeft);
+
+        _profiles.SwitchProfile(second.Id);
+        Assert.Equal("Scroll", _store.Load().Keeb.RotaryLeft);
+    }
 }

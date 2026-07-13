@@ -2,6 +2,7 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
+using Nexus.Service.Devices.Detection.Native;
 using Nexus.Service.Models.Displays;
 
 namespace Nexus.Service.Platform.Displays;
@@ -147,15 +148,15 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
         var previousContext = TrySetPerMonitorAwareV2();
         try
         {
-            var monitorsById = new Dictionary<IntPtr, (string Id, string MonitorInterfacePath)>();
+            var monitorsById = new Dictionary<IntPtr, (string Id, string Manufacturer, string Model, string MonitorInterfacePath)>();
             bool Cb(IntPtr hMonitor, IntPtr _, IntPtr __, IntPtr ___)
             {
                 try
                 {
                     var info = new MONITORINFOEX { cbSize = (uint)Marshal.SizeOf<MONITORINFOEX>() };
                     if (!GetMonitorInfoW(hMonitor, ref info)) return true;
-                    var (id, _, _, _, _) = WindowsDisplayIdentity.ResolveIdentity(info.szDevice);
-                    monitorsById[hMonitor] = (id, WindowsDisplayIdentity.ReadMonitorInterfacePath(info.szDevice));
+                    var (id, _, manufacturer, model, _) = WindowsDisplayIdentity.ResolveIdentity(info.szDevice);
+                    monitorsById[hMonitor] = (id, manufacturer, model, WindowsDisplayIdentity.ReadMonitorInterfacePath(info.szDevice));
                 }
                 catch (Exception ex)
                 {
@@ -166,13 +167,19 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
             EnumDisplayMonitors(IntPtr.Zero, IntPtr.Zero, Cb, IntPtr.Zero);
 
             var snapshot = new TouchMapSnapshot();
-            foreach (var (id, monitorInterfacePath) in monitorsById.Values)
+            foreach (var (id, manufacturer, model, monitorInterfacePath) in monitorsById.Values)
             {
                 // A non-interface DeviceID (older driver, no EDD_GET_DEVICE_INTERFACE_NAME
                 // support) cannot be written to Digimon; drop the display from
                 // the snapshot rather than let the guard match it.
                 if (!monitorInterfacePath.StartsWith(@"\\?\", StringComparison.Ordinal)) continue;
-                snapshot.Displays.Add(new TouchMapDisplayInfo { Id = id, MonitorInterfacePath = monitorInterfacePath });
+                snapshot.Displays.Add(new TouchMapDisplayInfo
+                {
+                    Id = id,
+                    MonitorInterfacePath = monitorInterfacePath,
+                    Manufacturer = manufacturer,
+                    Model = model,
+                });
             }
 
             uint count = 0;
@@ -195,6 +202,7 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
                             InterfacePath = interfacePath,
                             ProductString = devices[i].productString ?? "",
                             AssociatedDisplayId = associatedId,
+                            IsUsbAttached = CfgMgr32.HasUsbAncestor(interfacePath),
                         });
                     }
                 }
