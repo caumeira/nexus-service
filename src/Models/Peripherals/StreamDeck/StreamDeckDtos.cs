@@ -72,15 +72,41 @@ public sealed class StreamDeckImageUploadResponse
 public sealed class StreamDeckChangedFrame
 {
     public long Revision { get; set; }
-    /// <summary>"decks" | "config" | "nav" | "press".</summary>
+    /// <summary>"decks" | "config" | "nav" | "press" | "editRequest".</summary>
     public string Kind { get; set; } = "";
     public string? Serial { get; set; }
-    /// <summary>Current page index, for "nav".</summary>
+    /// <summary>Current page index, for "nav" and "editRequest".</summary>
     public int? Page { get; set; }
-    /// <summary>Current folder path, for "nav" and "press".</summary>
+    /// <summary>Current folder path, for "nav", "press", and "editRequest".</summary>
     public List<int>? FolderPath { get; set; }
-    /// <summary>Logical slot index within the current folder view, for "press".</summary>
+    /// <summary>Logical slot index within the current folder view, for "press" and "editRequest".</summary>
     public int? KeyIndex { get; set; }
+    /// <summary>One-shot id (creation epoch ms) for "editRequest", so a client consumes each blank-key hold once across the live frame and the boot-time GET.</summary>
+    public long? Token { get; set; }
+}
+
+/// <summary>
+/// A pending blank-key hold-to-edit intent, served by GET
+/// /streamdeck/pending-edit so a freshly-opened dashboard can navigate to the
+/// deck's editor and select the held key.
+/// </summary>
+public sealed class StreamDeckPendingEditDto
+{
+    public string Serial { get; set; } = "";
+    public int Page { get; set; }
+    public List<int> FolderPath { get; set; } = new();
+    /// <summary>Logical slot index within the current folder view, same semantics as StreamDeckChangedFrame.KeyIndex.</summary>
+    public int KeyIndex { get; set; }
+    /// <summary>Matches the "editRequest" frame's Token; the client dedupes on it.</summary>
+    public long Token { get; set; }
+}
+
+/// <summary>GET /streamdeck/pending-edit envelope; Edit is null when no intent is pending (or the pending one has aged out).</summary>
+public sealed class StreamDeckPendingEditResponse
+{
+    // Always serialize; null = nothing pending. WhenWritingNull would omit it.
+    [JsonIgnore(Condition = JsonIgnoreCondition.Never)]
+    public StreamDeckPendingEditDto? Edit { get; set; }
 }
 
 public sealed class StreamDeckSimPressBody

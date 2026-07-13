@@ -49,6 +49,9 @@ internal sealed class FakeDeckActionExecutor : IDeckActionExecutor
     }
 
     public bool IsToggleOn(DeckToggleState? state, string latchKey) => _latches.TryGetValue(latchKey, out var v) && v;
+
+    public int OpenAppCount;
+    public void OpenApp() => Interlocked.Increment(ref OpenAppCount);
 }
 
 /// <summary>Minimal settable ISensorProvider for monitoring-tile push tests.</summary>
