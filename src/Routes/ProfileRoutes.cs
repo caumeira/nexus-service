@@ -218,7 +218,7 @@ public static class ProfileRoutes
                 counts[category] = category switch
                 {
                     ProfileSharing.Lighting => s.Lighting.LayoutPresets.Count,
-                    ProfileSharing.Device => s.StreamDeck.Decks.Values.Sum(d => d.Presets.Count),
+                    ProfileSharing.Device => CountDeckPresets(s.StreamDeck),
                     _ => 0,
                 };
             }
@@ -229,6 +229,33 @@ public static class ProfileRoutes
                 AllCategories = new List<string>(ProfileSharing.All),
                 Counts = counts,
             };
+
+            // Decks is a plain Dictionary mutated under the config-store lock on
+            // deck hotplug; this handler reads it lock-free, so a structural
+            // change during enumeration throws InvalidOperationException. Retry
+            // the rare mid-enumeration race instead of 500ing the sharing page.
+            // Enumerate the values directly rather than via ToArray: the
+            // enumerator throws InvalidOperationException on a concurrent
+            // add/remove, whereas ValueCollection.CopyTo (ToArray's fast path)
+            // throws ArgumentException / leaves null slots the catch would miss.
+            static int CountDeckPresets(StreamDeckSettings streamDeck)
+            {
+                for (var attempt = 0; ; attempt++)
+                {
+                    try
+                    {
+                        var total = 0;
+                        foreach (var deck in streamDeck.Decks.Values)
+                        {
+                            total += deck.Presets.Count;
+                        }
+                        return total;
+                    }
+                    catch (InvalidOperationException) when (attempt < 3)
+                    {
+                    }
+                }
+            }
         });
 
         app.MapPut("/profiles/sharing/primary", (SetPrimaryBody body, ProfileManager pm, MultiplexHub hub) =>
