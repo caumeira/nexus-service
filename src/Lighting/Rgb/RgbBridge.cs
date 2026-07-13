@@ -135,13 +135,9 @@ public sealed class RgbBridge : IDisposable
     private readonly Dictionary<int, bool> _physFullyUndriven = new();
     // Ids of this bridge's own OpenRGB frames as of the last refresh, set
     // once per RefreshDevicesAsync before contributor frames are appended.
-    // Contributor frames (NP50, Keeb, hubs) reuse PhysicalIndex = their
-    // engine ordinal, which can collide with a real OpenRGB device index
-    // once first-party-owned devices are skipped from seeding; this set
-    // keeps the undriven aggregation below restricted to real OpenRGB
-    // frames so a driven contributor can't veto an undriven OpenRGB device
-    // sharing its index. Replaced wholesale (never mutated) so OnFrame reads
-    // it without synchronization.
+    // See ComputeFullyUndrivenPhysicals for why this filter is needed.
+    // Replaced wholesale (never mutated) so OnFrame reads it without
+    // synchronization.
     private HashSet<string> _bridgeFrameIds = new(StringComparer.Ordinal);
 
     private readonly IReadOnlyList<ILightingFrameContributor> _frameContributors;

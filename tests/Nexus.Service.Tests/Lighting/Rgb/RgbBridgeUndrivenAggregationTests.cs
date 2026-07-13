@@ -4,12 +4,8 @@ using Nexus.Service.Lighting.Rgb;
 namespace Nexus.Service.Tests.Lighting.Rgb;
 
 /// <summary>
-/// <see cref="RgbBridge.ComputeFullyUndrivenPhysicals"/> must ignore
-/// contributor frames when deciding whether a physical OpenRGB device is
-/// fully undriven. Contributor frames (NP50, Keeb, hubs) default their
-/// PhysicalIndex to their engine ordinal, which can collide with a real
-/// OpenRGB device index once first-party-owned devices are excluded from
-/// seeding.
+/// See <see cref="RgbBridge.ComputeFullyUndrivenPhysicals"/> for why
+/// contributor frames must be excluded from the undriven aggregation.
 /// </summary>
 public class RgbBridgeUndrivenAggregationTests
 {
