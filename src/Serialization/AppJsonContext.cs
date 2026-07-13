@@ -1038,6 +1038,16 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Deck.DeckToggleState))]
 [JsonSerializable(typeof(Nexus.Service.Deck.DeckSequenceStep))]
 [JsonSerializable(typeof(List<Nexus.Service.Deck.DeckSequenceStep>))]
+// Deck key icon image store (POST/GET /deck/images)
+[JsonSerializable(typeof(Nexus.Service.Models.Deck.DeckImageUploadResponse))]
+// Elgato Stream Deck profile import
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.ElgatoProfileSummaryDto))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Peripherals.StreamDeck.ElgatoProfileSummaryDto>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.ElgatoProfilesResponse))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.ElgatoUnmappedEntry))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Peripherals.StreamDeck.ElgatoUnmappedEntry>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.ElgatoImportReport))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.ImportElgatoProfileResponse))]
 
 // Metadata-only: skips the per-type generated fast-path writer, a large AOT
 // code cost across this context's roots; serialization runs through the
