@@ -282,6 +282,12 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayAssignmentDto))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayAssignmentsResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Displays.DisplayRotationBody))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.TouchMapDigitizerInfo))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Displays.TouchMapDigitizerInfo>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.TouchMapDisplayInfo))]
+[JsonSerializable(typeof(List<Nexus.Service.Models.Displays.TouchMapDisplayInfo>))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.TouchMapSnapshot))]
+[JsonSerializable(typeof(Nexus.Service.Models.Displays.TouchMappingRepairResponse))]
 
 // Streamed panels (off-screen render in the overlay, H.264 to a USB device).
 [JsonSerializable(typeof(Nexus.Service.Models.Panel.StreamAssignmentDto))]
@@ -803,6 +809,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.DisplayTopologyRequest))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.DisplayTopologyResult))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.DisplaysChangedPayload))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.TouchMapRequest))]
 // Screen mirror
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorStartPayload))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ScreenMirrorStopPayload))]

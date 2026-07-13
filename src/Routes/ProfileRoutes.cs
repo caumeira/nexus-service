@@ -212,11 +212,22 @@ public static class ProfileRoutes
         app.MapGet("/profiles/sharing", (IConfigStore store) =>
         {
             var s = store.Load();
+            var counts = new Dictionary<string, int>();
+            foreach (var category in ProfileSharing.All)
+            {
+                counts[category] = category switch
+                {
+                    ProfileSharing.Lighting => s.Lighting.LayoutPresets.Count,
+                    ProfileSharing.Device => s.StreamDeck.Decks.Values.Sum(d => d.Presets.Count),
+                    _ => 0,
+                };
+            }
             return new SharingResponse
             {
                 PrimaryProfileId = s.PrimaryProfileId,
                 SharedCategories = new List<string>(s.SharedCategories),
                 AllCategories = new List<string>(ProfileSharing.All),
+                Counts = counts,
             };
         });
 
