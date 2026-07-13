@@ -6,7 +6,7 @@ namespace Nexus.Service.Tests.Lighting.Zones;
 
 /// <summary>
 /// Partition changes drop the device's per-zone state (prefs, canvas
-/// layouts, applied mappings, groups, power, driven, auto-apply veto) for the
+/// layouts, applied mappings, groups, power, controlled, auto-apply veto) for the
 /// outgoing card ids while keeping device-scoped state (segment-local
 /// overrides, aspect ratio, segment LED counts) and other devices untouched.
 /// </summary>
@@ -27,7 +27,7 @@ public class ZoneStateDropTests
             settings.Devices.LedGroups[id] = new List<MappingGroup> { new() { Name = "g" } };
             settings.Devices.MappingAutoApplyDeclined.Add(id);
             settings.Devices.DisabledLightingDevices.Add(id);
-            settings.Devices.UndrivenLightingDevices.Add(id);
+            settings.Devices.UncontrolledLightingDevices.Add(id);
         }
         settings.Devices.DeviceLedOverrides["keeb:SER1"] = new()
         {
@@ -52,7 +52,7 @@ public class ZoneStateDropTests
             Assert.False(settings.Devices.LedGroups.ContainsKey(id));
             Assert.DoesNotContain(id, settings.Devices.MappingAutoApplyDeclined);
             Assert.DoesNotContain(id, settings.Devices.DisabledLightingDevices);
-            Assert.DoesNotContain(id, settings.Devices.UndrivenLightingDevices);
+            Assert.DoesNotContain(id, settings.Devices.UncontrolledLightingDevices);
         }
 
         // The unrelated device's state survives.
@@ -60,7 +60,7 @@ public class ZoneStateDropTests
         Assert.True(settings.Lighting.DeviceLayouts.ContainsKey(Other));
         Assert.True(settings.Devices.AppliedMappings.ContainsKey(Other));
         Assert.Contains(Other, settings.Devices.DisabledLightingDevices);
-        Assert.Contains(Other, settings.Devices.UndrivenLightingDevices);
+        Assert.Contains(Other, settings.Devices.UncontrolledLightingDevices);
     }
 
     [Fact]

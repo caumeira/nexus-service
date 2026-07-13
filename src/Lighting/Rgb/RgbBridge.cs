@@ -130,12 +130,12 @@ public sealed class RgbBridge : IDisposable
     // is safe here.
     private readonly HashSet<int> _touchedPhysicals = new();
     // Reused across frames - physical index -> true when every zone frame
-    // mapped to it is undriven, so the whole physical device is skipped
+    // mapped to it is uncontrolled, so the whole physical device is skipped
     // rather than pushed. Only touched inside OnFrame.
-    private readonly Dictionary<int, bool> _physFullyUndriven = new();
+    private readonly Dictionary<int, bool> _physFullyUncontrolled = new();
     // Ids of this bridge's own OpenRGB frames as of the last refresh, set
     // once per RefreshDevicesAsync before contributor frames are appended.
-    // See ComputeFullyUndrivenPhysicals for why this filter is needed.
+    // See ComputeFullyUncontrolledPhysicals for why this filter is needed.
     // Replaced wholesale (never mutated) so OnFrame reads it without
     // synchronization.
     private HashSet<string> _bridgeFrameIds = new(StringComparer.Ordinal);
@@ -644,9 +644,9 @@ public sealed class RgbBridge : IDisposable
             }
 
             // Apply direct mode to any device we haven't seen yet. A fully
-            // undriven device is skipped (and left out of _directModeApplied)
+            // uncontrolled device is skipped (and left out of _directModeApplied)
             // so its firmware/vendor lighting stays live; the next refresh
-            // tick retries, so re-enabling driven claims it within one
+            // tick retries, so re-enabling controlled claims it within one
             // refresh interval without a service restart.
             var settingsSnapshot = _store.Load();
             foreach (var dev in devices)
@@ -662,7 +662,7 @@ public sealed class RgbBridge : IDisposable
                     continue;
                 }
 
-                if (OpenRgbZoneSupport.IsFullyUndriven(dev, settingsSnapshot))
+                if (OpenRgbZoneSupport.IsFullyUncontrolled(dev, settingsSnapshot))
                 {
                     continue;
                 }
@@ -1266,14 +1266,14 @@ public sealed class RgbBridge : IDisposable
         var settings = _store.Load();
         var disabled = settings.Devices.DisabledLightingDevices;
         var disabledCount = disabled.Count;
-        var undriven = settings.Devices.UndrivenLightingDevices;
-        var undrivenCount = undriven.Count;
+        var uncontrolled = settings.Devices.UncontrolledLightingDevices;
+        var uncontrolledCount = uncontrolled.Count;
         var devicePrefs = settings.Devices.LightingDevicePrefs;
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var nowTicks = DateTime.UtcNow.Ticks;
 
         _touchedPhysicals.Clear();
-        ComputeFullyUndrivenPhysicals(deviceFrames, _bridgeFrameIds, undriven, _physFullyUndriven);
+        ComputeFullyUncontrolledPhysicals(deviceFrames, _bridgeFrameIds, uncontrolled, _physFullyUncontrolled);
 
         var deviceCount = frame[pos++];
         for (int d = 0; d < deviceCount && pos + 3 <= frame.Length; d++)
@@ -1309,14 +1309,14 @@ public sealed class RgbBridge : IDisposable
                 continue;
             }
 
-            if (undrivenCount > 0 && _physFullyUndriven.TryGetValue(dev.PhysicalIndex, out var physUndriven) && physUndriven)
+            if (uncontrolledCount > 0 && _physFullyUncontrolled.TryGetValue(dev.PhysicalIndex, out var physUncontrolled) && physUncontrolled)
             {
                 pos += rgbSize;
                 continue;
             }
 
             var isOff = (disabledCount > 0 && disabled.Contains(dev.Id))
-                || (undrivenCount > 0 && undriven.Contains(dev.Id));
+                || (uncontrolledCount > 0 && uncontrolled.Contains(dev.Id));
             var hasIdentify = _identifyOverrides.TryGetValue(dev.Id, out var idOverride)
                 && nowTicks < idOverride.expirationTicks;
             if (!hasIdentify && idOverride.expirationTicks != 0)
@@ -1410,19 +1410,19 @@ public sealed class RgbBridge : IDisposable
 
     /// <summary>
     /// Fills <paramref name="result"/> (cleared first) with physical index ->
-    /// true when every bridge-built zone frame mapped to it is undriven.
+    /// true when every bridge-built zone frame mapped to it is uncontrolled.
     /// Frames whose id is absent from <paramref name="bridgeFrameIds"/> are
-    /// skipped: see <see cref="IsBridgeFrame"/> for why a driven contributor
-    /// must not veto an undriven OpenRGB device sharing its index.
+    /// skipped: see <see cref="IsBridgeFrame"/> for why a controlled contributor
+    /// must not veto an uncontrolled OpenRGB device sharing its index.
     /// </summary>
-    internal static void ComputeFullyUndrivenPhysicals(
+    internal static void ComputeFullyUncontrolledPhysicals(
         IReadOnlyList<DeviceFrame> deviceFrames,
         IReadOnlySet<string> bridgeFrameIds,
-        IReadOnlyList<string> undriven,
+        IReadOnlyList<string> uncontrolled,
         Dictionary<int, bool> result)
     {
         result.Clear();
-        if (undriven.Count == 0)
+        if (uncontrolled.Count == 0)
         {
             return;
         }
@@ -1432,10 +1432,10 @@ public sealed class RgbBridge : IDisposable
             {
                 continue;
             }
-            var zoneUndriven = undriven.Contains(df.Id);
+            var zoneUncontrolled = uncontrolled.Contains(df.Id);
             result[df.PhysicalIndex] = result.TryGetValue(df.PhysicalIndex, out var allSoFar)
-                ? allSoFar && zoneUndriven
-                : zoneUndriven;
+                ? allSoFar && zoneUncontrolled
+                : zoneUncontrolled;
         }
     }
 

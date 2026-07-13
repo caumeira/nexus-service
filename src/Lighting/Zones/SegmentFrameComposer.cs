@@ -30,7 +30,7 @@ public static class SegmentFrameComposer
         IReadOnlyList<ResolvedZone> zones,
         IReadOnlyList<DeviceFrame> frames,
         IReadOnlyList<string> disabled,
-        IReadOnlyList<string> undriven,
+        IReadOnlyList<string> uncontrolled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         float globalBrightness,
         double masterMul,
@@ -60,7 +60,7 @@ public static class SegmentFrameComposer
             // The keeb firmware-brightness level (masterMul, set by the knob and
             // the Settings slider) multiplies the per-zone software level, which the
             // global master brightness caps: effective = min(global, zone) * masterMul.
-            var mul = ComputeBrightnessMul(zone.Id, disabled, undriven, prefs, globalBrightness) * masterMul;
+            var mul = ComputeBrightnessMul(zone.Id, disabled, uncontrolled, prefs, globalBrightness) * masterMul;
             var identifying = false;
             var identifyOn = false;
             if (identify is not null && identify.TryGetActive(zone.Id, nowTicks, out var startTicks))
@@ -135,12 +135,12 @@ public static class SegmentFrameComposer
 
     /// <summary>Combined off-switch + per-card brightness capped by the master
     /// level: a card never renders brighter than master (min(device/100, global)).
-    /// An undriven zone renders black too - the shared hardware transport means
+    /// An uncontrolled zone renders black too - the shared hardware transport means
     /// only the whole physical device can be handed back to firmware, so a
-    /// zone-level undriven flag on a device with driven siblings just blacks it.</summary>
+    /// zone-level uncontrolled flag on a device with controlled siblings just blacks it.</summary>
     public static double ComputeBrightnessMul(string id,
         IReadOnlyList<string> disabled,
-        IReadOnlyList<string> undriven,
+        IReadOnlyList<string> uncontrolled,
         IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         float globalBrightness)
     {
@@ -151,9 +151,9 @@ public static class SegmentFrameComposer
                 return 0.0;
             }
         }
-        for (var i = 0; i < undriven.Count; i++)
+        for (var i = 0; i < uncontrolled.Count; i++)
         {
-            if (undriven[i] == id)
+            if (uncontrolled[i] == id)
             {
                 return 0.0;
             }

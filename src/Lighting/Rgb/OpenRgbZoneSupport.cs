@@ -107,11 +107,11 @@ public static class OpenRgbZoneSupport
         return structure;
     }
 
-    /// <summary>True when every card this device would emit is in the undriven set, so the whole physical device should be left off direct mode / skipped on push. Mirrors the card-id derivation in <see cref="BuildCards"/>.</summary>
-    public static bool IsFullyUndriven(RgbDevice d, NexusSettings settings)
+    /// <summary>True when every card this device would emit is in the uncontrolled set, so the whole physical device should be left off direct mode / skipped on push. Mirrors the card-id derivation in <see cref="BuildCards"/>.</summary>
+    public static bool IsFullyUncontrolled(RgbDevice d, NexusSettings settings)
     {
-        var undriven = settings.Devices.UndrivenLightingDevices;
-        if (undriven.Count == 0)
+        var uncontrolled = settings.Devices.UncontrolledLightingDevices;
+        if (uncontrolled.Count == 0)
         {
             return false;
         }
@@ -124,7 +124,7 @@ public static class OpenRgbZoneSupport
 
         if (isDefault && !isSplitMotherboard)
         {
-            return undriven.Contains(baseId);
+            return uncontrolled.Contains(baseId);
         }
 
         if (isDefault)
@@ -135,7 +135,7 @@ public static class OpenRgbZoneSupport
             }
             for (var z = 0; z < d.Zones.Count; z++)
             {
-                if (!undriven.Contains($"{baseId}-{z}"))
+                if (!uncontrolled.Contains($"{baseId}-{z}"))
                 {
                     return false;
                 }
@@ -149,7 +149,7 @@ public static class OpenRgbZoneSupport
         }
         foreach (var zone in zones)
         {
-            if (!undriven.Contains(zone.Id))
+            if (!uncontrolled.Contains(zone.Id))
             {
                 return false;
             }

@@ -79,7 +79,7 @@ public sealed class QSeriesLightingFrameWriter : IHostedService, IDisposable
 
         var settings = _store.Load();
         var id = _hub.DeviceId;
-        if (settings.Devices.UndrivenLightingDevices.Contains(id)) return;
+        if (settings.Devices.UncontrolledLightingDevices.Contains(id)) return;
 
         var devices = _engine.Devices;
         DeviceFrame? frame = null;

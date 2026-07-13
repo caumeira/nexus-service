@@ -4,23 +4,23 @@ using Nexus.Service.Persistence;
 namespace Nexus.Service.Lighting;
 
 /// <summary>
-/// Persists the "driven" flag for lighting device ids. No provider owns this
-/// action - undriven is pure persisted state every frame writer consults, so
+/// Persists the "controlled" flag for lighting device ids. No provider owns this
+/// action - uncontrolled is pure persisted state every frame writer consults, so
 /// the mutation lives here rather than on <see cref="Devices.ILightingDeviceProvider"/>.
 /// </summary>
-public static class LightingDrivenState
+public static class LightingControlledState
 {
     /// <summary>
-    /// Write id's driven state, replacing the list reference rather than
+    /// Write id's controlled state, replacing the list reference rather than
     /// mutating in place so the frame-rate writers reading it lock-free
     /// never observe a torn state.
     /// </summary>
-    public static void SetDriven(string id, bool driven, IConfigStore store)
+    public static void SetControlled(string id, bool controlled, IConfigStore store)
     {
         store.Update(s =>
         {
-            var current = s.Devices.UndrivenLightingDevices;
-            if (driven)
+            var current = s.Devices.UncontrolledLightingDevices;
+            if (controlled)
             {
                 if (!current.Contains(id))
                 {
@@ -34,7 +34,7 @@ public static class LightingDrivenState
                         next.Add(x);
                     }
                 }
-                s.Devices.UndrivenLightingDevices = next;
+                s.Devices.UncontrolledLightingDevices = next;
             }
             else
             {
@@ -45,7 +45,7 @@ public static class LightingDrivenState
                 var next = new List<string>(current.Count + 1);
                 next.AddRange(current);
                 next.Add(id);
-                s.Devices.UndrivenLightingDevices = next;
+                s.Devices.UncontrolledLightingDevices = next;
             }
         });
     }

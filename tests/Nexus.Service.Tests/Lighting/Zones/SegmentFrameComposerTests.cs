@@ -64,7 +64,7 @@ public class SegmentFrameComposerTests
         var touched = SegmentFrameComposer.Compose(
             structure, zones, new[] { keys, underglow },
             disabled: new List<string>(),
-            undriven: new List<string>(),
+            uncontrolled: new List<string>(),
             prefs: new Dictionary<string, LightingDevicePreference>(),
             globalBrightness: 1f, masterMul: 1.0, nowTicks: DateTime.UtcNow.Ticks, identify: null, buffers);
 
@@ -143,7 +143,7 @@ public class SegmentFrameComposerTests
     }
 
     [Fact]
-    public void Undriven_zone_goes_black()
+    public void Uncontrolled_zone_goes_black()
     {
         var structure = KeebZoneSupport.BuildStructure(HubId);
         var zones = ZoneResolution.Resolve(structure, new NexusSettings());
