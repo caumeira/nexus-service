@@ -516,6 +516,7 @@ app.MapDevicesEndpoints();
 app.MapPeripheralEndpoints();
 app.MapKeebEndpoints();
 app.MapStreamDeckEndpoints();
+app.MapDeckImageEndpoints();
 app.MapDisplayEndpoints();
 app.MapActivityEndpoints();
 app.MapLifecycleEndpoints();

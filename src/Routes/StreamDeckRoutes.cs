@@ -12,6 +12,7 @@ using Nexus.Service.Models.Peripherals.StreamDeck;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Peripherals.StreamDeck;
+using Nexus.Service.Peripherals.StreamDeck.ElgatoImport;
 using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
 
@@ -329,13 +330,21 @@ public static class StreamDeckRoutes
                     return;
                 }
                 var id = Guid.NewGuid().ToString("n");
-                created = new DeckPreset
-                {
-                    Id = id,
-                    Name = body.Name,
-                    Deck = DeepCopyDeckConfig(deck.Deck),
-                    ImageRefs = new Dictionary<string, string>(deck.ImageRefs),
-                };
+                created = body.Config is not null
+                    ? new DeckPreset
+                    {
+                        Id = id,
+                        Name = body.Name,
+                        Deck = DeepCopyDeckConfig(body.Config),
+                        ImageRefs = new Dictionary<string, string>(),
+                    }
+                    : new DeckPreset
+                    {
+                        Id = id,
+                        Name = body.Name,
+                        Deck = DeepCopyDeckConfig(deck.Deck),
+                        ImageRefs = new Dictionary<string, string>(deck.ImageRefs),
+                    };
                 deck.Presets.Add(created);
                 deck.ActivePresetId = id;
             });
@@ -497,6 +506,52 @@ public static class StreamDeckRoutes
             return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
         }).LocalhostOnly();
 
+        // Elgato Stream Deck profile import: read-only against the local
+        // Elgato software's own store. Never persists anything - the caller
+        // decides whether to save the returned config as a preset via
+        // POST /streamdeck/decks/{serial}/presets with its Config field.
+        app.MapGet("/streamdeck/elgato/profiles", (ElgatoProfileLocator locator) =>
+        {
+            var (status, root) = locator.Resolve();
+            var response = new ElgatoProfilesResponse { Status = ElgatoStatusName(status) };
+            if (status == ElgatoStoreStatus.Ok && root is not null)
+            {
+                foreach (var profile in ElgatoProfileReader.ReadProfiles(root))
+                {
+                    var (_, _, label) = ElgatoModelCatalog.Resolve(profile.Model, profile.MaxColSeen, profile.MaxRowSeen);
+                    response.Profiles.Add(new ElgatoProfileSummaryDto
+                    {
+                        Id = profile.Id,
+                        Name = profile.Name,
+                        Model = profile.Model,
+                        ModelLabel = label,
+                        PageCount = profile.TopPageIds.Count,
+                        KeyCount = ElgatoProfileReader.CountKeys(profile),
+                    });
+                }
+            }
+            return Results.Json(response, AppJsonContext.Default.ElgatoProfilesResponse);
+        }).LocalhostOnly();
+
+        app.MapPost("/streamdeck/elgato/profiles/{id}/import", (
+            string id, ElgatoProfileLocator locator, ElgatoProfileTranslator translator) =>
+        {
+            var (status, root) = locator.Resolve();
+            if (status != ElgatoStoreStatus.Ok || root is null)
+            {
+                return Results.NotFound();
+            }
+            var profile = ElgatoProfileReader.ReadProfiles(root).Find(p => p.Id == id);
+            if (profile is null)
+            {
+                return Results.NotFound();
+            }
+            var (config, report) = translator.Translate(profile);
+            return Results.Json(
+                new ImportElgatoProfileResponse { Config = config, Report = report },
+                AppJsonContext.Default.ImportElgatoProfileResponse);
+        }).LocalhostOnly();
+
         // Stream Deck simulator (in-memory fake deck, no HID hardware). Served
         // in every build, not compile-gated: the web enables the simulator UI
         // whenever its dev-tools flag is on, which includes `vite dev`
@@ -610,6 +665,13 @@ public static class StreamDeckRoutes
         StreamDeckImageFormat.Bmp => "bmp",
         StreamDeckImageFormat.Jpeg => "jpeg",
         _ => "",
+    };
+
+    private static string ElgatoStatusName(ElgatoStoreStatus status) => status switch
+    {
+        ElgatoStoreStatus.Ok => "ok",
+        ElgatoStoreStatus.UnsupportedVersion => "unsupportedVersion",
+        _ => "notFound",
     };
 
     /// <summary>Normalizes any degree value to the nearest cardinal (quarter-turn) rotation, wrapping past a full turn.</summary>

@@ -425,6 +425,8 @@ public sealed class CoolingSettings
     public string ActivePreset { get; set; } = InstallDefaults.Cooling.ActivePreset;
     /// <summary>Last-known custom mapping of fan channel id -> curve id. Empty entries mean the fan was on BIOS Control. Used to restore custom assignments when leaving Silent/Balanced/Performance/Off.</summary>
     public Dictionary<string, string> CustomFanCurveAssignments { get; set; } = new();
+    /// <summary>Snapshot of <see cref="ManualSpeeds"/> taken when leaving the Custom preset, keyed by channel id. Restored (and re-driven) when Custom is re-applied - the manual-fan counterpart of <see cref="CustomFanCurveAssignments"/>, and the only copy that survives the Off preset's per-channel release.</summary>
+    public Dictionary<string, int> CustomManualSpeeds { get; set; } = new();
     /// <summary>User-defined display order for fan channels in the Cooling view. Nullable so a partial POST /preferences that omits this field doesn't clobber the saved order.</summary>
     public List<string>? FanChannelOrder { get; set; }
     /// <summary>User-chosen sensor id for the CPU "temperature" reading shown across the Cooling page, Monitoring dashboard, and Cooling widget. Storage layer: null = auto (UI falls back to its default picker), non-null = pinned sensor id. The patch layer collapses an inbound empty string to null on write so the persisted JSON only ever holds null or a real id.</summary>

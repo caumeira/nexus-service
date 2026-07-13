@@ -164,6 +164,8 @@ public sealed class GetDeckPresetsResponse
 public sealed class CreateDeckPresetBody
 {
     public string Name { get; set; } = "";
+    /// <summary>When present, the preset is created from this config (deep-copied) instead of a snapshot of the deck's live config - the Elgato importer's path.</summary>
+    public DeckConfig? Config { get; set; }
 }
 
 public sealed class CreateDeckPresetResponse

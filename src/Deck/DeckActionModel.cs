@@ -148,7 +148,7 @@ public sealed class DeckToggleState
 
 public sealed class DeckIcon
 {
-    /// <summary>lucide | emoji | app.</summary>
+    /// <summary>lucide | emoji | app | image -> the uploaded image id (sha256 hex), served from /deck/images/{id}.</summary>
     public string Kind { get; set; } = "";
     public string Value { get; set; } = "";
 }

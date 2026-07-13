@@ -345,9 +345,9 @@ public sealed class CurveEngine : BackgroundService
     /// hardware as their channels become drivable. Runs every tick: hub
     /// channels connect seconds after boot and LHM discovery can return a
     /// partial channel list at first, so a one-shot restore pass misses
-    /// late channels. Ids owned by a curve output are skipped - the curve
-    /// drives them; the entry is a stale leftover from before the fan was
-    /// attached.
+    /// late channels. Ids owned by a curve output are skipped and re-armed:
+    /// the curve drives them for now, and the saved duty must replay when
+    /// the curve releases the channel (leaving a preset for Custom).
     /// </summary>
     private void ReplayManualDuties(NexusSettings settings, HashSet<string> present, HashSet<string> curveOwned)
     {
@@ -387,11 +387,12 @@ public sealed class CurveEngine : BackgroundService
                     _manualReplayed.Remove(kv.Key);
                     continue;
                 }
-                if (!_manualReplayed.Add(kv.Key))
+                if (curveOwned.Contains(kv.Key))
                 {
+                    _manualReplayed.Remove(kv.Key);
                     continue;
                 }
-                if (curveOwned.Contains(kv.Key))
+                if (!_manualReplayed.Add(kv.Key))
                 {
                     continue;
                 }
