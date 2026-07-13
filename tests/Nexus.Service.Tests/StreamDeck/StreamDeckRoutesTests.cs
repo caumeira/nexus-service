@@ -155,6 +155,115 @@ public sealed class StreamDeckRoutesTests : IDisposable
         }
     }
 
+    /// <summary>The dev-tools model picker's dropdown is populated from this route; it must list every catalog model so any deck size can be simulated.</summary>
+    [Fact]
+    public async Task GetDevModels_ListsEveryCatalogModel()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var res = await client.GetAsync("/streamdeck/dev/models");
+            Assert.True(res.IsSuccessStatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            var models = doc.RootElement.GetProperty("models");
+            Assert.Equal(StreamDeckModels.All.Count, models.GetArrayLength());
+
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            var entry = models.EnumerateArray().Single(m => m.GetProperty("productId").GetInt32() == mini.ProductId);
+            Assert.Equal(mini.Name, entry.GetProperty("name").GetString());
+            Assert.Equal(mini.Rows, entry.GetProperty("rows").GetInt32());
+            Assert.Equal(mini.Columns, entry.GetProperty("cols").GetInt32());
+            Assert.Equal(mini.KeyCount, entry.GetProperty("keyCount").GetInt32());
+        }
+    }
+
+    [Fact]
+    public async Task PostSimulate_KnownModel_ConnectsADeck_ThenDeleteClearsIt()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            var post = await client.PostAsync("/streamdeck/dev/simulate", Json($"{{\"productId\":{mini.ProductId}}}"));
+            Assert.True(post.IsSuccessStatusCode);
+            using (var doc = JsonDocument.Parse(await post.Content.ReadAsStringAsync()))
+            {
+                Assert.True(doc.RootElement.GetProperty("connected").GetBoolean());
+                Assert.Equal(mini.Name, doc.RootElement.GetProperty("model").GetString());
+            }
+
+            var worker = factory.Services.GetRequiredService<StreamDeckConnectionWorker>();
+            Assert.True(worker.Surfaces.ContainsKey(StreamDeckConnectionWorker.SimulatedKey));
+
+            var del = await client.DeleteAsync("/streamdeck/dev/simulate");
+            Assert.True(del.IsSuccessStatusCode);
+            Assert.False(worker.Surfaces.ContainsKey(StreamDeckConnectionWorker.SimulatedKey));
+        }
+    }
+
+    [Fact]
+    public async Task PostSimulate_UnknownModel_Returns400()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var res = await client.PostAsync("/streamdeck/dev/simulate", Json("{\"productId\":57005}")); // 0xDEAD
+            Assert.Equal(HttpStatusCode.BadRequest, res.StatusCode);
+        }
+    }
+
+    [Fact]
+    public async Task PostSimPress_PokesTheSimulatedSurface_ButNoOpsWithoutOne()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var noSim = await client.PostAsync("/streamdeck/dev/sim-press", Json("{\"keyIndex\":0,\"pressed\":true}"));
+            Assert.True(noSim.IsSuccessStatusCode);
+            using (var doc = JsonDocument.Parse(await noSim.Content.ReadAsStringAsync()))
+            {
+                Assert.True(doc.RootElement.GetProperty("error").GetBoolean());
+            }
+
+            var worker = factory.Services.GetRequiredService<StreamDeckConnectionWorker>();
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            Assert.True(worker.SetSimulatedModel(mini.ProductId));
+
+            var pressed = await client.PostAsync("/streamdeck/dev/sim-press", Json("{\"keyIndex\":0,\"pressed\":true}"));
+            Assert.True(pressed.IsSuccessStatusCode);
+            using (var doc = JsonDocument.Parse(await pressed.Content.ReadAsStringAsync()))
+            {
+                Assert.False(doc.RootElement.GetProperty("error").GetBoolean());
+            }
+        }
+    }
+
+    /// <summary>A simulated deck is ephemeral: disconnecting must purge its persisted `sim-` record so it does not linger as an offline deck (which kept the web sim toggle stuck "on").</summary>
+    [Fact]
+    public async Task DeleteSimulate_PurgesThePersistedSimRecord()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            Assert.True((await client.PostAsync("/streamdeck/dev/simulate", Json($"{{\"productId\":{mini.ProductId}}}"))).IsSuccessStatusCode);
+            var worker = factory.Services.GetRequiredService<StreamDeckConnectionWorker>();
+            var serial = worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey].Serial;
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            store.Update(s => s.StreamDeck.Decks[serial] = new PhysicalDeckSettings { ProductId = mini.ProductId, Name = "Sim" });
+            Assert.True(store.Load().StreamDeck.Decks.ContainsKey(serial));
+
+            Assert.True((await client.DeleteAsync("/streamdeck/dev/simulate")).IsSuccessStatusCode);
+
+            Assert.False(store.Load().StreamDeck.Decks.ContainsKey(serial));
+            var res = await client.GetAsync("/streamdeck/decks");
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            Assert.DoesNotContain(doc.RootElement.GetProperty("decks").EnumerateArray(),
+                d => d.GetProperty("serial").GetString() == serial);
+        }
+    }
+
     [Fact]
     public async Task GetDecks_UnknownPersistedProductId_IsSkippedRatherThanBroken()
     {

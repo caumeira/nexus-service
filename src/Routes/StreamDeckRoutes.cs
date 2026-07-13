@@ -20,9 +20,9 @@ namespace Nexus.Service.Routes;
 /// <summary>
 /// Stream Deck REST contract (plan streamdeck-support.md §5.5). Every route
 /// is LocalhostOnly - a physical deck is a desktop configuration surface, not
-/// something a paired phone panel touches. test-pattern and the DEV_TOOLS
-/// dev/* routes (sim-press, simulate, models) are additive bench tooling,
-/// not part of the desktop contract the web editor drives.
+/// something a paired phone panel touches. test-pattern and the dev/* routes
+/// (sim-press, simulate, models) are additive bench/simulator tooling, not
+/// part of the desktop contract the web editor drives.
 /// </summary>
 public static class StreamDeckRoutes
 {
@@ -475,7 +475,14 @@ public static class StreamDeckRoutes
             return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
         }).LocalhostOnly();
 
-#if DEV_TOOLS
+        // Stream Deck simulator (in-memory fake deck, no HID hardware). Served
+        // in every build, not compile-gated: the web enables the simulator UI
+        // whenever its dev-tools flag is on, which includes `vite dev`
+        // (import.meta.env.DEV) - a state with no compile-time service
+        // counterpart to gate on. LocalhostOnly, and a release web bundle
+        // strips the simulator row, so these have no reachable UI there;
+        // nothing constructs a SimulatedStreamDeckSurface until a route is
+        // called.
         app.MapPost("/streamdeck/dev/sim-press", (StreamDeckSimPressBody body, StreamDeckConnectionWorker worker) =>
         {
             if (worker.Surfaces.TryGetValue(StreamDeckConnectionWorker.SimulatedKey, out var sim)
@@ -518,12 +525,37 @@ public static class StreamDeckRoutes
                 AppJsonContext.Default.StreamDeckSummaryDto);
         }).LocalhostOnly();
 
-        app.MapDelete("/streamdeck/dev/simulate", (StreamDeckConnectionWorker worker) =>
+        app.MapDelete("/streamdeck/dev/simulate", (
+            StreamDeckConnectionWorker worker, IConfigStore store, StreamDeckImageCache cache) =>
         {
             worker.ClearSimulatedModel();
+            // A simulated deck is ephemeral, but interacting with it (config /
+            // image PUTs) persists a `sim-<pid>` record. Left behind, GET
+            // /streamdeck/decks re-lists it as an offline deck, so the sim
+            // never fully disconnects. Purge every sim- record and evict its
+            // images on disconnect.
+            var evict = new List<(string Serial, string Hash)>();
+            store.Update(s =>
+            {
+                foreach (var serial in s.StreamDeck.Decks.Keys.Where(k => k.StartsWith("sim-", StringComparison.Ordinal)).ToList())
+                {
+                    var deck = s.StreamDeck.Decks[serial];
+                    var hashes = deck.ImageRefs.Values
+                        .Concat(deck.Presets.SelectMany(p => p.ImageRefs.Values))
+                        .Distinct();
+                    foreach (var hash in hashes)
+                    {
+                        evict.Add((serial, hash));
+                    }
+                    s.StreamDeck.Decks.Remove(serial);
+                }
+            });
+            foreach (var (serial, hash) in evict)
+            {
+                cache.Evict(serial, hash);
+            }
             return ApiResponse.Ok();
         }).LocalhostOnly();
-#endif
     }
 
     /// <summary>Shared DTO builder for GET /streamdeck/decks and the dev-tools simulate route.</summary>

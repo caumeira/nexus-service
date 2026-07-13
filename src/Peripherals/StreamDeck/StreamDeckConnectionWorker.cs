@@ -380,10 +380,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// unrecognized product id. Callable from an HTTP route thread
     /// concurrently with the tick thread; takes _lock itself. Registers the
     /// new surface immediately, so it appears in Surfaces/GET
-    /// /streamdeck/decks without waiting for the next tick. Only the DI
-    /// wiring and the routes that call this are dev-gated - like
-    /// SimulatedStreamDeckSurface itself, this method compiles and is tested
-    /// unconditionally.
+    /// /streamdeck/decks without waiting for the next tick. In production the
+    /// only caller is the localhost-only /streamdeck/dev/simulate route (a
+    /// release web bundle exposes no UI to reach it); unit tests call it
+    /// directly.
     /// </summary>
     public bool SetSimulatedModel(int productId)
     {

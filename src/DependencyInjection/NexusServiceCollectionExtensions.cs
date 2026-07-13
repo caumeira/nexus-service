@@ -484,9 +484,10 @@ public static class NexusServiceCollectionExtensions
         // 2026-07-10). Peripheral, not lighting - no frame contributor, no
         // 30 Hz tick; see plans/streamdeck-support.md Phase 0/1. The
         // connection worker always starts with no simulated deck; the
-        // DEV_TOOLS-only /streamdeck/dev/simulate route picks a model at
+        // localhost-only /streamdeck/dev/simulate route picks a model at
         // runtime via StreamDeckConnectionWorker.SetSimulatedModel, so a
-        // release build never constructs a SimulatedStreamDeckSurface at all.
+        // running app constructs a SimulatedStreamDeckSurface only if that
+        // route is called (a release web bundle exposes no UI to call it).
         services.AddSingleton<Nexus.Service.Peripherals.StreamDeck.StreamDeckImageCache>();
         // Lazy so resolving it does not construct StreamDeckConnectionWorker
         // right away - DeckActionExecutor needs it for deckBrightness/deckSleep,
