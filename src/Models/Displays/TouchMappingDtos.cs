@@ -14,6 +14,13 @@ public sealed class TouchMapDigitizerInfo
     public string ProductString { get; set; } = "";
     /// <summary>Display id currently associated by Windows; "" when unassociated.</summary>
     public string AssociatedDisplayId { get; set; } = "";
+    /// <summary>
+    /// True when the digitizer's devnode has a USB ancestor (CfgMgr32
+    /// devnode-parentage walk). False for a laptop-integrated I2C/ACPI
+    /// digitizer, and false when the walk itself fails - the generic
+    /// touch-mapping tier treats both the same (fail closed).
+    /// </summary>
+    public bool IsUsbAttached { get; set; }
 }
 
 /// <summary>
@@ -26,6 +33,14 @@ public sealed class TouchMapDisplayInfo
 {
     public string Id { get; set; } = "";
     public string MonitorInterfacePath { get; set; } = "";
+    /// <summary>
+    /// EDID PnP identity split the same way WindowsDisplayIdentity.ResolveIdentity
+    /// does (3-letter EISA manufacturer id, hex model code); "" when
+    /// unresolved. Lets the generic touch-mapping tier match KnownPanelDisplays
+    /// without re-parsing MonitorInterfacePath.
+    /// </summary>
+    public string Manufacturer { get; set; } = "";
+    public string Model { get; set; } = "";
 }
 
 /// <summary>Digitizer/display association snapshot for the touch-mapping guard.</summary>
