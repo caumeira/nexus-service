@@ -514,6 +514,11 @@ public static class NexusServiceCollectionExtensions
                 sp.GetRequiredService<Nexus.Service.Sensors.ISensorProvider>()));
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>());
 
+        // Elgato Stream Deck profile import: read-only against the local
+        // Elgato software's own store, never touching a physical deck.
+        services.AddSingleton<Nexus.Service.Peripherals.StreamDeck.ElgatoImport.ElgatoProfileLocator>();
+        services.AddSingleton<Nexus.Service.Peripherals.StreamDeck.ElgatoImport.ElgatoProfileTranslator>();
+
         // Lian Li Uni Hub SL-Infinity: HID connection worker + lighting + cooling.
         services.AddSingleton<Nexus.Service.Peripherals.LianLi.LianLiHub>();
         services.AddSingleton<Nexus.Service.Cooling.LianLiCoolingProvider>();
@@ -1182,6 +1187,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<ProfileManager>();
         services.AddSingleton<Nexus.Service.Media.MediaLibrary>();
         services.AddSingleton<Nexus.Service.Panel.PanelBgLibrary>();
+        services.AddSingleton<Nexus.Service.Deck.DeckImageStore>();
         services.AddSingleton<Nexus.Service.Gallery.GalleryLibrary>();
         // Also consumed by /system/pick-path (SystemRoutes.cs), not just gallery.
         services.AddSingleton<Nexus.Service.Platform.IFileDialogPicker, Nexus.Service.Platform.FileDialogPicker>();
