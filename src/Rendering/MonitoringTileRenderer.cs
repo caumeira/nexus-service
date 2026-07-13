@@ -27,7 +27,7 @@ public sealed class MonitoringTileInput
     /// <summary>Custom top label overriding Name. Empty or null falls back to Name.</summary>
     public string? LabelText { get; init; }
     public bool ShowName { get; init; } = true;
-    /// <summary>The sensor's service-formatted display string (HardwareSensor.Formatted). Never reformatted here.</summary>
+    /// <summary>The value already formatted for display (unit-scaled, temp-unit converted, number-format localized by the caller). Never reformatted here.</summary>
     public string ValueText { get; init; } = "";
     /// <summary>HardwareSensor.Type (Load, Temperature, Clock, ...), selects the graph/arc domain when Scale is not fixed.</summary>
     public string SensorType { get; init; } = "";

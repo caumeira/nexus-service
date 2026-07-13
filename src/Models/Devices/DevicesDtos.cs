@@ -199,6 +199,8 @@ public class LightingDevice
     public string Type { get; set; } = "";
     public string IconType { get; set; } = "";
     public bool LedsOn { get; set; }
+    /// <summary>False when the user marked this device not driven: Nexus stops pushing frames to it entirely so firmware/vendor lighting can take over. Distinct from <see cref="LedsOn"/> (power off still streams black).</summary>
+    public bool Driven { get; set; } = true;
     public int Brightness { get; set; }
     public float Hue { get; set; }
     public float Saturation { get; set; }
@@ -234,6 +236,7 @@ public class GetLightingDevicesResponse
 
 public class SetDisabledLedsBody { public List<string> Devices { get; set; } = new(); }
 public class SetLightingDevicePowerBody { public string Id { get; set; } = ""; public bool On { get; set; } }
+public class SetLightingDeviceDrivenBody { public string Id { get; set; } = ""; public bool Driven { get; set; } }
 public class SetLightingDeviceBrightness { public string Id { get; set; } = ""; public int Brightness { get; set; } }
 public class SetLightingDeviceHue { public string Id { get; set; } = ""; public float Hue { get; set; } }
 public class SetLightingDeviceSaturation { public string Id { get; set; } = ""; public float Saturation { get; set; } }

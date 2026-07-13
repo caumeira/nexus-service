@@ -257,6 +257,55 @@ public static class ZoneResolution
         return offset + first.Start;
     }
 
+    /// <summary>True when every one of a device's currently resolved zones is in the undriven set, so the whole physical device can be handed back to firmware. Works under a custom partition because it checks the live resolved zone ids rather than a provider's default card id.</summary>
+    public static bool IsFullyUndriven(IReadOnlyList<ResolvedZone> zones, IReadOnlyList<string> undriven)
+    {
+        if (zones.Count == 0 || undriven.Count == 0)
+        {
+            return false;
+        }
+        foreach (var zone in zones)
+        {
+            if (!undriven.Contains(zone.Id))
+            {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /// <summary>True when every currently resolved zone touching a segment is undriven, so that segment's own wire write can be skipped. False when no zone touches the segment (nothing to write either way) or any touching zone (including one spanning other segments) is still driven.</summary>
+    public static bool IsSegmentFullyUndriven(IReadOnlyList<ResolvedZone> zones, int segment, IReadOnlyList<string> undriven)
+    {
+        if (undriven.Count == 0)
+        {
+            return false;
+        }
+        var touchesSegment = false;
+        foreach (var zone in zones)
+        {
+            var touches = false;
+            foreach (var slice in zone.Slices)
+            {
+                if (slice.Segment == segment)
+                {
+                    touches = true;
+                    break;
+                }
+            }
+            if (!touches)
+            {
+                continue;
+            }
+            touchesSegment = true;
+            if (!undriven.Contains(zone.Id))
+            {
+                return false;
+            }
+        }
+        return touchesSegment;
+    }
+
     /// <summary>The segment a zone wholly covers when it is a single whole-resizable-segment zone (rule 2 shape); negative otherwise.</summary>
     public static int WholeResizableSegment(DeviceStructure structure, ResolvedZone zone)
     {
