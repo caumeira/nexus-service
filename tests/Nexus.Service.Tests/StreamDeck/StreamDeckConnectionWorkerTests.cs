@@ -1182,6 +1182,93 @@ public class StreamDeckConnectionWorkerTests
         Assert.Equal(2, simulated.SetKeyImageCallCount);
     }
 
+    /// <summary>
+    /// The rendered tile for a Temperature sensor differs between Units.MonitoringTempUnit
+    /// "c" and "f" for the same reading, proving BuildMonitoringTileInput actually
+    /// threads the preference into DeckMonitoringFormat.ResolveValueText's text
+    /// (and so into the rendered pixels), not just leaving the service-formatted
+    /// Celsius string on the physical key regardless of the app preference.
+    /// </summary>
+    [Fact]
+    public void Tick_MonitoringSlot_TemperatureSensor_RendersDifferentTextForCelsiusVsFahrenheit()
+    {
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" };
+
+        var celsiusFixtures = NewFixtures(devicePresent: false);
+        celsiusFixtures.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Temperature", Value = 65.3f, Units = "°C", Formatted = "65.3 °C", Parent = new SensorParent() },
+        };
+        var celsiusSurface = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        celsiusFixtures.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        // Both workers stay alive (using var, not a nested block) until the
+        // bytes are captured: worker Dispose() resets the surface, which
+        // clears its key images, so reading PeekKeyImage after disposal would
+        // see a blanked tile instead of the rendered one.
+        using var celsiusWorker = NewWorker(celsiusFixtures, celsiusSurface);
+        celsiusWorker.Tick();
+        var celsiusBytes = celsiusSurface.PeekKeyImage(0);
+
+        var fahrenheitFixtures = NewFixtures(devicePresent: false);
+        fahrenheitFixtures.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Temperature", Value = 65.3f, Units = "°C", Formatted = "65.3 °C", Parent = new SensorParent() },
+        };
+        var fahrenheitSurface = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        fahrenheitFixtures.Store.Update(s =>
+        {
+            s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+            {
+                Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+            };
+            s.Units.MonitoringTempUnit = "f";
+        });
+        using var fahrenheitWorker = NewWorker(fahrenheitFixtures, fahrenheitSurface);
+        fahrenheitWorker.Tick();
+        var fahrenheitBytes = fahrenheitSurface.PeekKeyImage(0);
+
+        Assert.NotNull(celsiusBytes);
+        Assert.NotNull(fahrenheitBytes);
+        Assert.False(ImageEquals(celsiusBytes, fahrenheitBytes));
+    }
+
+    /// <summary>
+    /// A monitoring key that already settled on a hash-skip (no push while
+    /// the reading is unchanged) must still repaint the very next tick after
+    /// Units.MonitoringTempUnit changes: the rendered ValueText changes even
+    /// though the underlying sensor reading did not, so the wire-bytes hash
+    /// changes too and the push is not masked by the unchanged-reading skip.
+    /// </summary>
+    [Fact]
+    public void Tick_MonitoringSlot_TempUnitPreferenceChangesMidSession_RepaintsWithoutAValueChange()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Temperature", Value = 65.3f, Units = "°C", Formatted = "65.3 °C", Parent = new SensorParent() },
+        };
+        var action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = action } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick();
+        worker.Tick();
+        worker.Tick();
+        Assert.Equal(2, simulated.SetKeyImageCallCount);
+
+        f.Store.Update(s => s.Units.MonitoringTempUnit = "f");
+        worker.Tick();
+
+        Assert.True(simulated.SetKeyImageCallCount > 2);
+    }
+
     [Fact]
     public void Tick_MonitoringSlot_UnresolvedSensor_RendersAPlaceholderInsteadOfLeavingTheKeyBlank()
     {

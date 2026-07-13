@@ -79,7 +79,7 @@ public sealed class KeebLightingFrameWriter : IHostedService, IDisposable
             try { Tick(); }
             catch (Exception ex)
             {
-                Console.Error.WriteLine($"[keeb-lighting-writer] tick exception: {ex.GetType().Name}: {ex.Message}");
+                Nexus.Service.Platform.ServiceLog.Error($"[keeb-lighting-writer] tick exception: {ex.GetType().Name}: {ex.Message}");
             }
             try { if (!await timer.WaitForNextTickAsync(ct).ConfigureAwait(false)) break; }
             catch (OperationCanceledException) { break; }
