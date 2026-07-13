@@ -1294,6 +1294,7 @@ public sealed class RgbBridge : IDisposable
                 { dev = deviceFrames[i]; break; }
             }
             if (dev is null || dev.LedCount <= 0
+                || !IsBridgeFrame(dev, _bridgeFrameIds)
                 || !_physBuffers.TryGetValue(dev.PhysicalIndex, out var buffer) || buffer is null)
             {
                 pos += rgbSize;
@@ -1395,14 +1396,23 @@ public sealed class RgbBridge : IDisposable
     }
 
     /// <summary>
+    /// True when a wire-frame-matched DeviceFrame is one of this bridge's own
+    /// OpenRGB frames. A contributor frame (NP50, Keeb, hubs) can share its
+    /// PhysicalIndex with a real OpenRGB device once first-party-owned
+    /// devices are excluded from seeding or a motherboard splits into zone
+    /// frames; without this check its bytes would land in that device's
+    /// buffer and push to the wrong hardware. Static and bridge-free so
+    /// tests cover it with fake frame data.
+    /// </summary>
+    internal static bool IsBridgeFrame(DeviceFrame dev, IReadOnlySet<string> bridgeFrameIds) =>
+        bridgeFrameIds.Contains(dev.Id);
+
+    /// <summary>
     /// Fills <paramref name="result"/> (cleared first) with physical index ->
     /// true when every bridge-built zone frame mapped to it is undriven.
     /// Frames whose id is absent from <paramref name="bridgeFrameIds"/> are
-    /// skipped: a contributor frame's PhysicalIndex can collide with a real
-    /// OpenRGB device index once first-party-owned devices are excluded from
-    /// seeding, and a driven contributor must not veto an undriven OpenRGB
-    /// device sharing that index. Static and bridge-free so tests cover it
-    /// with fake frame data.
+    /// skipped: see <see cref="IsBridgeFrame"/> for why a driven contributor
+    /// must not veto an undriven OpenRGB device sharing its index.
     /// </summary>
     internal static void ComputeFullyUndrivenPhysicals(
         IReadOnlyList<DeviceFrame> deviceFrames,
