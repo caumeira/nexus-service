@@ -1,4 +1,7 @@
+using System.Diagnostics;
+using System.Threading;
 using Nexus.Service.Auth;
+using Nexus.Service.Lifecycle;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Displays;
 using Nexus.Service.Models.Panel;
@@ -6,6 +9,8 @@ using Nexus.Service.Models.Peripherals.Y70;
 using Nexus.Service.Panel;
 using Nexus.Service.Peripherals.QSeries;
 using Nexus.Service.Peripherals.Y70;
+using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 using Nexus.Service.Platform.Displays;
 using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
@@ -14,6 +19,12 @@ namespace Nexus.Service.Routes;
 
 public static class DisplayRoutes
 {
+#if WINDOWS
+    // Guards the setup-wizard route below: a second POST while MultiDigiMon
+    // is already running must not spawn another instance/poll.
+    private static int _touchWizardActive;
+#endif
+
     public static void MapDisplayEndpoints(this WebApplication app)
     {
         // Y70
@@ -188,5 +199,86 @@ public static class DisplayRoutes
                 : Results.BadRequest(result);
         }).AllowPanel();
 
+        // Touch-mapping guard: runs a detect-and-repair pass synchronously.
+        // Also the manual entry point the auto-repair guard's background
+        // triggers (helper connect, displays-changed) call into.
+        app.MapPost("/displays/touch-mapping/repair", async (TouchMappingGuard guard, CancellationToken ct) =>
+        {
+            var outcome = await guard.RunPassAsync(ct);
+            var status = outcome.Result switch
+            {
+                TouchMappingPassResult.Repaired => "repaired",
+                TouchMappingPassResult.AlreadyCorrect => "alreadyCorrect",
+                TouchMappingPassResult.NoPanel => "noPanel",
+                TouchMappingPassResult.NoDigitizer => "noDigitizer",
+                TouchMappingPassResult.NoHelper => "noHelper",
+                _ => "failed",
+            };
+            return Results.Json(
+                new TouchMappingRepairResponse { Status = status, Detail = outcome.Detail },
+                AppJsonContext.Default.TouchMappingRepairResponse);
+        });
+
+        // Manual fallback: launches the OS wizard (Control Panel > Tablet PC
+        // Settings > Setup, now only reachable via MultiDigiMon.exe -touch on
+        // current Windows) for the rare case the auto-repair guard can't
+        // resolve the mapping itself. The kiosk is hidden first because the
+        // wizard's identifying-tap prompt renders on the panel.
+        app.MapPost("/displays/touch-mapping/setup-wizard", (
+            IConfigStore store,
+            PanelKioskLauncher kiosk) =>
+        {
+#if WINDOWS
+            if (!OperatingSystem.IsWindows())
+                return Results.UnprocessableEntity(ApiResponse.Fail("touch setup is only available on Windows"));
+
+            if (Interlocked.CompareExchange(ref _touchWizardActive, 1, 0) != 0)
+                return Results.Conflict(ApiResponse.Fail("touch setup wizard is already running"));
+
+            kiosk.Close();
+            var wizardPath = Path.Combine(Environment.SystemDirectory, "MultiDigiMon.exe");
+            var launched = UserHelperBootstrapper.RunInUserSession(
+                $"\"{wizardPath}\" -touch", "touch-setup-wizard", "NexusTouchSetupWizard");
+            if (!launched)
+            {
+                Interlocked.Exchange(ref _touchWizardActive, 0);
+                return Results.UnprocessableEntity(ApiResponse.Fail("no active console user session"));
+            }
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var deadline = DateTime.UtcNow + TimeSpan.FromMinutes(5);
+                    // No completion signal for a process launched in a different
+                    // session; poll for exit, bounded by the same window the
+                    // wizard's own UI would time out a stuck user interaction in.
+                    while (DateTime.UtcNow < deadline)
+                    {
+                        await Task.Delay(1000);
+                        if (Process.GetProcessesByName("MultiDigiMon").Length == 0) break;
+                    }
+                    if (Process.GetProcessesByName("MultiDigiMon").Length == 0)
+                    {
+                        if (store.Load().Panel.AutoLaunch) kiosk.Launch();
+                    }
+                    else
+                    {
+                        // Still mid-calibration past the deadline: relaunching
+                        // the kiosk would paint it over the identify prompt.
+                        // The next autoLaunch trigger brings the kiosk back.
+                        ServiceLog.Info("[touch-map] setup wizard still running past the poll deadline; leaving kiosk closed");
+                    }
+                }
+                finally
+                {
+                    Interlocked.Exchange(ref _touchWizardActive, 0);
+                }
+            });
+            return Results.Json(ApiResponse.Ok("touch setup wizard launched"), AppJsonContext.Default.ApiResponse, statusCode: 202);
+#else
+            return Results.UnprocessableEntity(ApiResponse.Fail("touch setup is only available on Windows"));
+#endif
+        });
     }
 }
