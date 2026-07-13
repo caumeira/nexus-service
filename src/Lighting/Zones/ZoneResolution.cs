@@ -257,16 +257,16 @@ public static class ZoneResolution
         return offset + first.Start;
     }
 
-    /// <summary>True when every one of a device's currently resolved zones is in the undriven set, so the whole physical device can be handed back to firmware. Works under a custom partition because it checks the live resolved zone ids rather than a provider's default card id.</summary>
-    public static bool IsFullyUndriven(IReadOnlyList<ResolvedZone> zones, IReadOnlyList<string> undriven)
+    /// <summary>True when every one of a device's currently resolved zones is in the uncontrolled set, so the whole physical device can be handed back to firmware. Works under a custom partition because it checks the live resolved zone ids rather than a provider's default card id.</summary>
+    public static bool IsFullyUncontrolled(IReadOnlyList<ResolvedZone> zones, IReadOnlyList<string> uncontrolled)
     {
-        if (zones.Count == 0 || undriven.Count == 0)
+        if (zones.Count == 0 || uncontrolled.Count == 0)
         {
             return false;
         }
         foreach (var zone in zones)
         {
-            if (!undriven.Contains(zone.Id))
+            if (!uncontrolled.Contains(zone.Id))
             {
                 return false;
             }
@@ -274,10 +274,10 @@ public static class ZoneResolution
         return true;
     }
 
-    /// <summary>True when every currently resolved zone touching a segment is undriven, so that segment's own wire write can be skipped. False when no zone touches the segment (nothing to write either way) or any touching zone (including one spanning other segments) is still driven.</summary>
-    public static bool IsSegmentFullyUndriven(IReadOnlyList<ResolvedZone> zones, int segment, IReadOnlyList<string> undriven)
+    /// <summary>True when every currently resolved zone touching a segment is uncontrolled, so that segment's own wire write can be skipped. False when no zone touches the segment (nothing to write either way) or any touching zone (including one spanning other segments) is still controlled.</summary>
+    public static bool IsSegmentFullyUncontrolled(IReadOnlyList<ResolvedZone> zones, int segment, IReadOnlyList<string> uncontrolled)
     {
-        if (undriven.Count == 0)
+        if (uncontrolled.Count == 0)
         {
             return false;
         }
@@ -298,7 +298,7 @@ public static class ZoneResolution
                 continue;
             }
             touchesSegment = true;
-            if (!undriven.Contains(zone.Id))
+            if (!uncontrolled.Contains(zone.Id))
             {
                 return false;
             }

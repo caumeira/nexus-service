@@ -38,6 +38,8 @@ internal sealed class SpyDeckActionExecutor : IDeckActionExecutor
     }
 
     public bool IsToggleOn(DeckToggleState? state, string latchKey) => false;
+
+    public void OpenApp() { }
 }
 
 /// <summary>

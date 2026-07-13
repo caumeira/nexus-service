@@ -111,8 +111,17 @@ public sealed class CurveEngine : BackgroundService
         {
             // Idle cooling config: skip the per-tick channel enumeration
             // (on Windows it costs an LHM update + re-discovery).
+            ForgetWritesNotOwned(null);
             return;
         }
+
+        var owned = CurveOwnedIds(curves);
+
+        // A dedup record for a channel no curve references anymore would
+        // suppress the first write after the fan is re-attached: a hub can
+        // reset (losing its duty state) while unreferenced, and an
+        // unchanged duty would then dedup away the re-drive.
+        ForgetWritesNotOwned(owned);
 
         // Channels the providers can drive right now. Hub channels appear
         // seconds after boot (USB connect) and LHM discovery can surface a
@@ -124,7 +133,7 @@ public sealed class CurveEngine : BackgroundService
             present.Add(ch.Id);
         }
 
-        ReplayManualDuties(settings, present);
+        ReplayManualDuties(settings, present, owned);
 
         if (curves.Count == 0)
         {
@@ -340,7 +349,7 @@ public sealed class CurveEngine : BackgroundService
     /// drives them; the entry is a stale leftover from before the fan was
     /// attached.
     /// </summary>
-    private void ReplayManualDuties(NexusSettings settings, HashSet<string> present)
+    private void ReplayManualDuties(NexusSettings settings, HashSet<string> present, HashSet<string> curveOwned)
     {
         var manual = settings.Cooling.ManualSpeeds;
         if (manual.Count == 0)
@@ -369,7 +378,6 @@ public sealed class CurveEngine : BackgroundService
         // re-records the entry via IConfigStore.Update, whose OnChanged
         // handlers must not run while the replay lock is held.
         List<(string Id, int Duty)>? toApply = null;
-        HashSet<string>? curveOwned = null;
         lock (_manualReplayed)
         {
             foreach (var kv in snapshot)
@@ -383,7 +391,6 @@ public sealed class CurveEngine : BackgroundService
                 {
                     continue;
                 }
-                curveOwned ??= CurveOwnedIds(settings.Cooling.Curves);
                 if (curveOwned.Contains(kv.Key))
                 {
                     continue;
@@ -419,6 +426,40 @@ public sealed class CurveEngine : BackgroundService
     private void ForgetWrite(string channelId)
     {
         lock (_lastWrite) { _lastWrite.Remove(channelId); }
+    }
+
+    /// <summary>Drop dedup records for channels not owned by any curve
+    /// (null = no curves, drop all), so a fan re-attached later is driven
+    /// on its first tick even at an unchanged duty.</summary>
+    private void ForgetWritesNotOwned(HashSet<string>? owned)
+    {
+        lock (_lastWrite)
+        {
+            if (_lastWrite.Count == 0)
+            {
+                return;
+            }
+            if (owned is null || owned.Count == 0)
+            {
+                _lastWrite.Clear();
+                return;
+            }
+            List<string>? stale = null;
+            foreach (var id in _lastWrite.Keys)
+            {
+                if (!owned.Contains(id))
+                {
+                    (stale ??= new()).Add(id);
+                }
+            }
+            if (stale is not null)
+            {
+                foreach (var id in stale)
+                {
+                    _lastWrite.Remove(id);
+                }
+            }
+        }
     }
 
     // Atomic check-and-reserve: returns true and records the write iff the

@@ -95,18 +95,18 @@ public sealed class Galahad2LightingFrameWriter : IHostedService, IDisposable
         var brightnessRaw    = (byte)Math.Clamp((int)Math.Round(Math.Min((double)ls.Brightness, globalBrightness * 4.0)), 0, 4);
 
         // Both rings share one wire packet: only leave the AIO alone entirely
-        // once every ring is undriven. A single undriven ring stays on the
+        // once every ring is uncontrolled. A single uncontrolled ring stays on the
         // wire (TickCanvas blacks its color slot; the shared packet can't
-        // omit it without also silencing the still-driven ring). Clearing
+        // omit it without also silencing the still-controlled ring). Clearing
         // both caches forces a resend on the next tick after re-enabling,
         // rather than waiting on a color or setting change that may never
         // come while an external app owns the AIO. Resolved against the
         // live zones (not the default ring ids) so a persisted custom
         // partition still gates correctly.
-        var undriven = settings.Devices.UndrivenLightingDevices;
+        var uncontrolled = settings.Devices.UncontrolledLightingDevices;
         var structure = _provider.BuildStructure();
         var zones = ZoneResolution.Resolve(structure, settings);
-        if (ZoneResolution.IsFullyUndriven(zones, undriven))
+        if (ZoneResolution.IsFullyUncontrolled(zones, uncontrolled))
         {
             _lastFirmwareSig = null;
             _lastWasCanvas   = false;
@@ -116,7 +116,7 @@ public sealed class Galahad2LightingFrameWriter : IHostedService, IDisposable
         if (ls.Mode == "canvas")
         {
             _lastFirmwareSig = null;
-            TickCanvas(brightnessRaw, zones, undriven);
+            TickCanvas(brightnessRaw, zones, uncontrolled);
             return;
         }
 
@@ -137,7 +137,7 @@ public sealed class Galahad2LightingFrameWriter : IHostedService, IDisposable
         _lastFirmwareSig = sig;
     }
 
-    private void TickCanvas(byte brightnessRaw, System.Collections.Generic.IReadOnlyList<ResolvedZone> zones, System.Collections.Generic.IReadOnlyList<string> undriven)
+    private void TickCanvas(byte brightnessRaw, System.Collections.Generic.IReadOnlyList<ResolvedZone> zones, System.Collections.Generic.IReadOnlyList<string> uncontrolled)
     {
         var devices = _engine.Devices;
         byte innerR = 0, innerG = 0, innerB = 0;
@@ -155,11 +155,11 @@ public sealed class Galahad2LightingFrameWriter : IHostedService, IDisposable
                 outerR = b[0]; outerG = b[1]; outerB = b[2];
             }
         }
-        if (ZoneResolution.IsSegmentFullyUndriven(zones, Galahad2LightingDeviceProvider.InnerSegment, undriven))
+        if (ZoneResolution.IsSegmentFullyUncontrolled(zones, Galahad2LightingDeviceProvider.InnerSegment, uncontrolled))
         {
             innerR = 0; innerG = 0; innerB = 0;
         }
-        if (ZoneResolution.IsSegmentFullyUndriven(zones, Galahad2LightingDeviceProvider.OuterSegment, undriven))
+        if (ZoneResolution.IsSegmentFullyUncontrolled(zones, Galahad2LightingDeviceProvider.OuterSegment, uncontrolled))
         {
             outerR = 0; outerG = 0; outerB = 0;
         }

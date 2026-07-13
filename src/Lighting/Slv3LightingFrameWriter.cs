@@ -143,7 +143,7 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
         var settings = _store.Load();
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var disabled = settings.Devices.DisabledLightingDevices;
-        var undriven = settings.Devices.UndrivenLightingDevices;
+        var uncontrolled = settings.Devices.UncontrolledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var nowTicks = _nowTicks();
 
@@ -173,15 +173,15 @@ public sealed class Slv3LightingFrameWriter : IHostedService, IDisposable
             liveMacs.Add(macHex);
 
             var zones = ZoneResolution.Resolve(structure, settings);
-            if (ZoneResolution.IsFullyUndriven(zones, undriven))
+            if (ZoneResolution.IsFullyUncontrolled(zones, uncontrolled))
             {
-                // Every zone of this chain is undriven: stop streaming to it
+                // Every zone of this chain is uncontrolled: stop streaming to it
                 // so its reactive/onboard mode can take over.
                 continue;
             }
             SegmentFrameComposer.EnsureBuffers(structure, ref _segmentBuffers);
             SegmentFrameComposer.Compose(
-                structure, zones, devices, disabled, undriven, prefs, globalBrightness, 1.0, nowTicks, _identify, _segmentBuffers);
+                structure, zones, devices, disabled, uncontrolled, prefs, globalBrightness, 1.0, nowTicks, _identify, _segmentBuffers);
 
             // Ring length is family-dependent; it must match the provider's
             // structure for this chain or the fan-major interleave below

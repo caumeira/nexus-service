@@ -543,7 +543,7 @@ public sealed class DevicesSettings
 {
     public List<string> DisabledLightingDevices { get; set; } = new();
     /// <summary>Ids Nexus stops pushing frames to entirely, so firmware/vendor lighting can take over. Distinct from <see cref="DisabledLightingDevices"/>, which still streams black.</summary>
-    public List<string> UndrivenLightingDevices { get; set; } = new();
+    public List<string> UncontrolledLightingDevices { get; set; } = new();
     /// <summary>Handler ids the user explicitly opted out of (Nexus Control off). Overrides the brand default; a Hyte/iBUYPOWER handler absent here stays on.</summary>
     public List<string> NexusControlDisabled { get; set; } = new();
     /// <summary>Handler ids the user explicitly opted into (Nexus Control on). Overrides the brand default; a third-party handler absent here stays off.</summary>

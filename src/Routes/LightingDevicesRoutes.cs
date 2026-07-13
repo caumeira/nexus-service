@@ -278,21 +278,22 @@ public static partial class DevicesRoutes
             ld.SetPower(body.Id, body.On);
             return ApiResponse.Ok();
         });
-        // Undriven ids are pure persisted state - no provider owns a "not driven"
-        // action, so this writes the shared store directly rather than dispatching
-        // through ILightingDeviceProvider. On re-enable, nudge RgbBridge to
-        // reclaim direct mode immediately rather than waiting for its poll
-        // cadence, and re-push a smart light's static color: while no effect
-        // runs nothing else re-pushes it (effect mode recovers on its own
-        // writer tick once the id drops out of the undriven list).
-        app.MapPost("/devices/lighting-devices/driven", (
-            SetLightingDeviceDrivenBody body,
+        // Uncontrolled ids are pure persisted state - no provider owns a "not
+        // controlled" action, so this writes the shared store directly rather
+        // than dispatching through ILightingDeviceProvider. On re-enable,
+        // nudge RgbBridge to reclaim direct mode immediately rather than
+        // waiting for its poll cadence, and re-push a smart light's static
+        // color: while no effect runs nothing else re-pushes it (effect mode
+        // recovers on its own writer tick once the id drops out of the
+        // uncontrolled list).
+        app.MapPost("/devices/lighting-devices/controlled", (
+            SetLightingDeviceControlledBody body,
             Nexus.Service.Persistence.IConfigStore store,
             Nexus.Service.Lighting.Rgb.RgbBridge? bridge,
             Nexus.Service.Lighting.Smart.SmartLightProvider smart) =>
         {
-            Nexus.Service.Lighting.LightingDrivenState.SetDriven(body.Id, body.Driven, store);
-            if (body.Driven)
+            Nexus.Service.Lighting.LightingControlledState.SetControlled(body.Id, body.Controlled, store);
+            if (body.Controlled)
             {
                 bridge?.RequestTopologyRefresh();
                 smart.RestoreStatic(body.Id);

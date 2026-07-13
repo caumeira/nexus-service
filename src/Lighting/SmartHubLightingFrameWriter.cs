@@ -79,7 +79,7 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
         // Firmware animation drives the ports; streaming would overwrite it.
         if (settings.Devices.SmartHubFirmwareControl) return;
         var disabled = settings.Devices.DisabledLightingDevices;
-        var undriven = settings.Devices.UndrivenLightingDevices;
+        var uncontrolled = settings.Devices.UncontrolledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var nowTicks = DateTime.UtcNow.Ticks;
@@ -87,15 +87,15 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
         var hubId = _hub.DeviceId;
         var mirror = SmartHubLightingDeviceProvider.ReadMirror(settings, hubId);
 
-        // Every port undriven: leave the hub alone entirely so it drops back
+        // Every port uncontrolled: leave the hub alone entirely so it drops back
         // to its firmware animation. When mirrored, the single mirror id
         // stands in for every physical port.
-        if (undriven.Count > 0)
+        if (uncontrolled.Count > 0)
         {
-            var fullyUndriven = mirror
-                ? undriven.Contains(SmartHubLightingDeviceProvider.MirrorId(hubId))
-                : AllPortsUndriven(hubId, undriven);
-            if (fullyUndriven) return;
+            var fullyUncontrolled = mirror
+                ? uncontrolled.Contains(SmartHubLightingDeviceProvider.MirrorId(hubId))
+                : AllPortsUncontrolled(hubId, uncontrolled);
+            if (fullyUncontrolled) return;
         }
 
         // Push every port every tick - even ports with zero declared LEDs get
@@ -105,15 +105,15 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
         for (var channel = 1; channel <= SmartHubProtocol.ArgbPortCount; channel++)
         {
             var id = mirror ? SmartHubLightingDeviceProvider.MirrorId(hubId) : $"{hubId}:port{channel}";
-            TryPushZone(devices, id, channel, disabled, undriven, prefs, globalBrightness, nowTicks);
+            TryPushZone(devices, id, channel, disabled, uncontrolled, prefs, globalBrightness, nowTicks);
         }
     }
 
-    private static bool AllPortsUndriven(string hubId, System.Collections.Generic.IReadOnlyList<string> undriven)
+    private static bool AllPortsUncontrolled(string hubId, System.Collections.Generic.IReadOnlyList<string> uncontrolled)
     {
         for (var channel = 1; channel <= SmartHubProtocol.ArgbPortCount; channel++)
         {
-            if (!undriven.Contains($"{hubId}:port{channel}"))
+            if (!uncontrolled.Contains($"{hubId}:port{channel}"))
             {
                 return false;
             }
@@ -123,7 +123,7 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
 
     private void TryPushZone(DeviceFrame[] devices, string id, int channel,
         System.Collections.Generic.IReadOnlyList<string> disabled,
-        System.Collections.Generic.IReadOnlyList<string> undriven,
+        System.Collections.Generic.IReadOnlyList<string> uncontrolled,
         System.Collections.Generic.IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         float globalBrightness, long nowTicks)
     {
@@ -131,7 +131,7 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
         for (var i = 0; i < devices.Length; i++)
         { if (devices[i].Id == id) { frame = devices[i]; break; } }
         var ledCount = frame is null ? 0 : frame.LedCount;
-        var brightnessMul = ComputeBrightnessMul(id, disabled, undriven, prefs, globalBrightness);
+        var brightnessMul = ComputeBrightnessMul(id, disabled, uncontrolled, prefs, globalBrightness);
         var hasIdentify = _identify.TryGetActive(id, nowTicks, out var startTicks);
 
         var idx = channel - 1;
@@ -148,7 +148,7 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
 
     private static double ComputeBrightnessMul(string id,
         System.Collections.Generic.IReadOnlyList<string> disabled,
-        System.Collections.Generic.IReadOnlyList<string> undriven,
+        System.Collections.Generic.IReadOnlyList<string> uncontrolled,
         System.Collections.Generic.IReadOnlyDictionary<string, LightingDevicePreference> prefs,
         float globalBrightness)
     {
@@ -156,9 +156,9 @@ public sealed class SmartHubLightingFrameWriter : IHostedService, IDisposable
         {
             foreach (var d in disabled) if (d == id) return 0.0;
         }
-        if (undriven.Count > 0)
+        if (uncontrolled.Count > 0)
         {
-            foreach (var u in undriven) if (u == id) return 0.0;
+            foreach (var u in uncontrolled) if (u == id) return 0.0;
         }
         int devBrightness;
         try { devBrightness = prefs.TryGetValue(id, out var pref) ? pref.Brightness : 100; }

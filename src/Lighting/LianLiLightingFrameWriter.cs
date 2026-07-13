@@ -162,20 +162,20 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
             return;
         }
 
-        var undriven = settings.Devices.UndrivenLightingDevices;
+        var uncontrolled = settings.Devices.UncontrolledLightingDevices;
         _firmwareZonesByDevice.Clear();
         foreach (var device in composed)
         {
             _firmwareZonesByDevice.Add(ZoneResolution.Resolve(device.Structure, settings));
         }
 
-        var sig = ComputeFirmwareSig(ls, globalBrightness, composed, settings.Devices.DisabledLightingDevices, undriven, _firmwareZonesByDevice);
+        var sig = ComputeFirmwareSig(ls, globalBrightness, composed, settings.Devices.DisabledLightingDevices, uncontrolled, _firmwareZonesByDevice);
         if (_lastFirmwareSig.HasValue && sig == _lastFirmwareSig.Value)
         {
             return;
         }
 
-        CommitFirmwareMode(ls, mode, globalBrightness, composed, settings.Devices.DisabledLightingDevices, undriven, _firmwareZonesByDevice);
+        CommitFirmwareMode(ls, mode, globalBrightness, composed, settings.Devices.DisabledLightingDevices, uncontrolled, _firmwareZonesByDevice);
         _lastFirmwareSig = sig;
     }
 
@@ -186,7 +186,7 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         List<ComposedDevice> composed)
     {
         var disabled = settings.Devices.DisabledLightingDevices;
-        var undriven = settings.Devices.UndrivenLightingDevices;
+        var uncontrolled = settings.Devices.UncontrolledLightingDevices;
         var prefs = settings.Devices.LightingDevicePrefs;
         var nowTicks = DateTime.UtcNow.Ticks;
 
@@ -194,15 +194,15 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         {
             var structure = device.Structure;
             var zones = ZoneResolution.Resolve(structure, settings);
-            if (ZoneResolution.IsFullyUndriven(zones, undriven))
+            if (ZoneResolution.IsFullyUncontrolled(zones, uncontrolled))
             {
-                // Every zone of this fan group is undriven: leave its two
+                // Every zone of this fan group is uncontrolled: leave its two
                 // channels alone entirely rather than streaming a black frame.
                 continue;
             }
             SegmentFrameComposer.EnsureBuffers(structure, ref _segmentBuffers);
             SegmentFrameComposer.Compose(
-                structure, zones, devices, disabled, undriven, prefs, globalBrightness, 1.0, nowTicks, _identify, _segmentBuffers);
+                structure, zones, devices, disabled, uncontrolled, prefs, globalBrightness, 1.0, nowTicks, _identify, _segmentBuffers);
 
             for (var seg = 0; seg < structure.Segments.Count; seg++)
             {
@@ -236,7 +236,7 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         float globalBrightness,
         List<ComposedDevice> composed,
         IReadOnlyList<string> disabled,
-        IReadOnlyList<string> undriven,
+        IReadOnlyList<string> uncontrolled,
         List<IReadOnlyList<ResolvedZone>> zonesByDevice)
     {
         var speedByte = LianLiLightingModes.SpeedCodes[Math.Clamp(ls.Speed, 0, 4)];
@@ -245,9 +245,9 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         for (var i = 0; i < composed.Count; i++)
         {
             var device = composed[i];
-            if (ZoneResolution.IsFullyUndriven(zonesByDevice[i], undriven))
+            if (ZoneResolution.IsFullyUncontrolled(zonesByDevice[i], uncontrolled))
             {
-                // Every zone of this fan group is undriven: skip its channel
+                // Every zone of this fan group is uncontrolled: skip its channel
                 // commits entirely rather than committing at brightness zero.
                 continue;
             }
@@ -397,7 +397,7 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         float globalBrightness,
         List<ComposedDevice> composed,
         IReadOnlyList<string> disabled,
-        IReadOnlyList<string> undriven,
+        IReadOnlyList<string> uncontrolled,
         List<IReadOnlyList<ResolvedZone>> zonesByDevice)
     {
         var hc = new HashCode();
@@ -411,7 +411,7 @@ public sealed class LianLiLightingFrameWriter : IHostedService, IDisposable
         for (var i = 0; i < composed.Count; i++)
         {
             var device = composed[i];
-            var skipped = ZoneResolution.IsFullyUndriven(zonesByDevice[i], undriven);
+            var skipped = ZoneResolution.IsFullyUncontrolled(zonesByDevice[i], uncontrolled);
             hc.Add(skipped);
             if (skipped)
             {

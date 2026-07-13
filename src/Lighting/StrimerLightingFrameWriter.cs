@@ -127,7 +127,7 @@ public sealed class StrimerLightingFrameWriter : IHostedService, IDisposable
         var brightnessByte = ComputeBrightnessByte(ls.Brightness, globalBrightness);
 
         var disabled = settings.Devices.DisabledLightingDevices;
-        var undriven = settings.Devices.UndrivenLightingDevices;
+        var uncontrolled = settings.Devices.UncontrolledLightingDevices;
         var prefs    = settings.Devices.LightingDevicePrefs;
         var nowTicks = DateTime.UtcNow.Ticks;
 
@@ -138,12 +138,12 @@ public sealed class StrimerLightingFrameWriter : IHostedService, IDisposable
         var atxZones     = ZoneResolution.Resolve(atxStructure, settings);
         SegmentFrameComposer.EnsureBuffers(atxStructure, ref _atxSegBuf);
         SegmentFrameComposer.Compose(
-            atxStructure, atxZones, devices, disabled, undriven, prefs, globalBrightness, 1.0, nowTicks, _identify, _atxSegBuf);
+            atxStructure, atxZones, devices, disabled, uncontrolled, prefs, globalBrightness, 1.0, nowTicks, _identify, _atxSegBuf);
         for (var s = 0; s < StrimerProtocol.AtxZoneCount; s++)
         {
-            // A fully undriven strip skips its color/commit pair entirely,
+            // A fully uncontrolled strip skips its color/commit pair entirely,
             // so it stops updating rather than going black.
-            if (undriven.Count > 0 && undriven.Contains($"strimer:atx:z{s}")) continue;
+            if (uncontrolled.Count > 0 && uncontrolled.Contains($"strimer:atx:z{s}")) continue;
             var zone = StrimerProtocol.AtxZone(s);
             FillLedBuf(_atxSegBuf[s], StrimerProtocol.AtxLedsPerZone);
             _hub.SendColorData(zone, _ledBuf.AsSpan(0, StrimerProtocol.AtxLedsPerZone * 3));
@@ -155,10 +155,10 @@ public sealed class StrimerLightingFrameWriter : IHostedService, IDisposable
         var gpuZones     = ZoneResolution.Resolve(gpuStructure, settings);
         SegmentFrameComposer.EnsureBuffers(gpuStructure, ref _gpuSegBuf);
         SegmentFrameComposer.Compose(
-            gpuStructure, gpuZones, devices, disabled, undriven, prefs, globalBrightness, 1.0, nowTicks, _identify, _gpuSegBuf);
+            gpuStructure, gpuZones, devices, disabled, uncontrolled, prefs, globalBrightness, 1.0, nowTicks, _identify, _gpuSegBuf);
         for (var s = 0; s < StrimerProtocol.GpuZoneCount; s++)
         {
-            if (undriven.Count > 0 && undriven.Contains($"strimer:gpu:z{s}")) continue;
+            if (uncontrolled.Count > 0 && uncontrolled.Contains($"strimer:gpu:z{s}")) continue;
             var zone = StrimerProtocol.GpuZone(s);
             FillLedBuf(_gpuSegBuf[s], StrimerProtocol.GpuLedsPerZone);
             _hub.SendColorData(zone, _ledBuf.AsSpan(0, StrimerProtocol.GpuLedsPerZone * 3));
