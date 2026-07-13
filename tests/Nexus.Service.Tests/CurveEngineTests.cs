@@ -147,6 +147,29 @@ public class CurveEngineTests
     }
 
     [Fact]
+    public void ManualReplay_RefiresAfterCurveReleasesChannel()
+    {
+        // A preset apply attaches the fan to a curve, then leaving the preset
+        // for Custom detaches it. Curve ownership must re-arm the replay latch
+        // so the saved manual duty comes back when the curve lets go.
+        var (engine, fans, store) = Build();
+        store.Update(s => s.Cooling.ManualSpeeds["x"] = 60);
+        fans.Present.Add("x");
+        engine.Tick();
+        Assert.Equal(new[] { ("x", 60) }, fans.ManualSet);
+
+        store.Update(s => s.Cooling.Curves.Add(FlatCurve("x", 40)));
+        engine.Tick();
+        Assert.Single(fans.ManualSet);
+        Assert.Equal(new[] { ("x", 40) }, fans.Driven);
+
+        store.Update(s => s.Cooling.Curves.First(c => c.Id == "c-x").Outputs.Clear());
+        engine.Tick();
+        Assert.Equal(2, fans.ManualSet.Count);
+        Assert.Equal(("x", 60), fans.ManualSet[1]);
+    }
+
+    [Fact]
     public void ManualReplay_ReconnectReplays()
     {
         var (engine, fans, store) = Build();
