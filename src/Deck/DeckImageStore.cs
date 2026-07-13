@@ -68,9 +68,29 @@ public sealed class DeckImageStore
         }
         var id = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
         var path = Path.Combine(_rootDir, id + ext);
-        if (!File.Exists(path))
+        if (File.Exists(path))
         {
-            File.WriteAllBytes(path, bytes);
+            return id;
+        }
+        // Write to a unique temp file then rename into place: a reader never
+        // sees a half-written content-addressed file, and two concurrent
+        // uploads of identical bytes resolve to the same final path without a
+        // sharing violation (the rename loser's identical file is discarded).
+        var tmp = Path.Combine(_rootDir, id + "." + Path.GetRandomFileName() + ".tmp");
+        try
+        {
+            File.WriteAllBytes(tmp, bytes);
+            File.Move(tmp, path);
+        }
+        catch (IOException) when (File.Exists(path))
+        {
+        }
+        finally
+        {
+            if (File.Exists(tmp))
+            {
+                File.Delete(tmp);
+            }
         }
         return id;
     }

@@ -24,6 +24,15 @@ public static class DeckImageRoutes
                 return Results.BadRequest(new DeckImageUploadResponse { Error = true, Msg = "Expected multipart/form-data" });
             }
 
+            // Reject before ReadFormAsync buffers the body: the framework's
+            // multipart limit (~128MB) would otherwise let a body far over the
+            // per-image cap be spooled to disk before the length check below.
+            // The envelope allowance covers the multipart boundary + headers.
+            if (req.ContentLength is > DeckImageStore.MaxBytes + 16 * 1024)
+            {
+                return Results.BadRequest(new DeckImageUploadResponse { Error = true, Msg = "File too large" });
+            }
+
             var form = await req.ReadFormAsync();
             var file = form.Files.FirstOrDefault();
             if (file is null || file.Length == 0)

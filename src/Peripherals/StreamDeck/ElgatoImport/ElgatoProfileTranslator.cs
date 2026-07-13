@@ -251,9 +251,24 @@ public sealed class ElgatoProfileTranslator
         try
         {
             var flat = FlattenPage(childPage, cols, rows, profile, reportPageNumber, ancestorStack, report);
-            // Physical key 0 is Nexus's own reserved Back key at every
-            // folder depth; the folder's own slot list starts at key 1.
-            var folderSlots = flat.Count > 0 ? flat.GetRange(1, flat.Count - 1) : new List<DeckSlot>();
+            // Nexus reserves folder key 0 for its own Back key, so one Elgato
+            // cell must drop out. Elgato places backtoparent at (0,0), but find
+            // its real position rather than assume index 0, so a folder with a
+            // genuine action at (0,0) keeps it.
+            var backIndex = 0;
+            foreach (var kv in childPage.Actions)
+            {
+                if (kv.Value.Uuid == ElgatoActionTypes.BackToParent && kv.Key.Col < cols && kv.Key.Row < rows)
+                {
+                    backIndex = kv.Key.Row * cols + kv.Key.Col;
+                    break;
+                }
+            }
+            var folderSlots = new List<DeckSlot>(flat);
+            if (folderSlots.Count > 0 && backIndex < folderSlots.Count)
+            {
+                folderSlots.RemoveAt(backIndex);
+            }
             slot.Folder = new DeckFolder { Slots = folderSlots };
             return (slot, true, null, null);
         }
