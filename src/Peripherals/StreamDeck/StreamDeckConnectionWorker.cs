@@ -47,6 +47,15 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
 {
     private const int TickMs = 1000;
 
+    /// <summary>Elapsed hold on a blank key before the open-editor intent fires.</summary>
+    private const int HoldToEditMs = 700;
+    /// <summary>Fill-ring frame interval while a blank key is held.</summary>
+    private const int HoldFrameMs = 50;
+    /// <summary>Distinct fill-ring frames the hold animation quantizes to (0..HoldRingSteps), bounding the per-model render cache.</summary>
+    private const int HoldRingSteps = 24;
+    /// <summary>How long a fired hold-to-edit intent stays served by GET /streamdeck/pending-edit before it ages out (covers the app cold-launch window).</summary>
+    private static readonly TimeSpan PendingEditTtl = TimeSpan.FromSeconds(20);
+
     internal const string SimulatedKey = "sim";
 
     /// <summary>Round-robin cap on rendered+pushed monitoring keys per tick; sampling (history append) is unbounded.</summary>
@@ -96,6 +105,32 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
 
     /// <summary>Per-deck (keyed by serial) physical key indices HandlePressVisual marked held (key-down seen, matching key-up not yet seen). Gates HandleKeyUp's restore/refresh and RefreshMonitoringKeys' per-key push skip.</summary>
     private readonly Dictionary<string, HashSet<int>> _heldKeysBySerial = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Per-deck (keyed by serial) in-progress blank-key hold-to-edit, at most
+    /// one per deck. Written on the input thread (StartHoldEdit / key-up) and
+    /// on the animation loop (AnimateHolds fill + fire), all under _lock.
+    /// </summary>
+    private readonly Dictionary<string, HoldEditState> _activeHolds = new(StringComparer.OrdinalIgnoreCase);
+    /// <summary>Lock-free hint so the animation loop skips taking _lock every frame when no hold is in progress; the authoritative check is _activeHolds under _lock.</summary>
+    private volatile bool _anyHoldActive;
+    /// <summary>Rendered fill-ring wire bytes keyed by "{productId}:{orientation}:{frameIndex}"; a given model/orientation renders each frame at most once.</summary>
+    private readonly Dictionary<string, byte[]> _holdFrameCache = new(StringComparer.Ordinal);
+    /// <summary>The most recent fired hold-to-edit intent, or null; served (within PendingEditTtl) by GET /streamdeck/pending-edit. Guarded by _lock.</summary>
+    private DeckPendingEdit? _pendingEdit;
+
+    private sealed class HoldEditState
+    {
+        public int PhysicalIndex;
+        public int Page;
+        public List<int> FolderPath = new();
+        public int SlotIndex;
+        public DateTimeOffset StartedAt;
+        public int LastFrameIndex = -1;
+    }
+
+    /// <summary>A fired blank-key hold-to-edit intent. Token is the creation epoch ms; the web dedupes the live frame against the boot GET on it.</summary>
+    internal readonly record struct DeckPendingEdit(string Serial, int Page, IReadOnlyList<int> FolderPath, int SlotIndex, long Token, DateTimeOffset CreatedAt);
 
     /// <summary>Per "{serial}:{page}:{slotPath}" monitoring key sample history, oldest first, capped at MonitoringHistoryLength. Page-qualified because BuildSlotPath is not itself unique across a deck's pages.</summary>
     private readonly Dictionary<string, List<float>> _monitoringHistory = new(StringComparer.Ordinal);
@@ -322,6 +357,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
+        var animation = AnimateLoopAsync(stoppingToken);
         using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(TickMs));
         while (!stoppingToken.IsCancellationRequested)
         {
@@ -333,7 +369,28 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             try { await timer.WaitForNextTickAsync(stoppingToken); }
             catch (OperationCanceledException) { break; }
         }
+        await animation.ConfigureAwait(false);
         DisconnectAll();
+    }
+
+    /// <summary>
+    /// Fast frame clock for in-progress blank-key holds, separate from the
+    /// 1-second reconcile Tick so the fill ring animates smoothly. Skips
+    /// taking _lock while no hold is active (the _anyHoldActive hint).
+    /// </summary>
+    private async Task AnimateLoopAsync(CancellationToken stoppingToken)
+    {
+        using var timer = new PeriodicTimer(TimeSpan.FromMilliseconds(HoldFrameMs));
+        while (!stoppingToken.IsCancellationRequested)
+        {
+            try { if (_anyHoldActive) { AnimateHolds(); } }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[streamdeck-conn] hold animation exception: {ex.GetType().Name}: {ex.Message}");
+            }
+            try { await timer.WaitForNextTickAsync(stoppingToken); }
+            catch (OperationCanceledException) { break; }
+        }
     }
 
     /// <summary>
@@ -430,6 +487,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _asleep.Remove(existing.Serial);
         _currentPageBySerial.Remove(existing.Serial);
         _heldKeysBySerial.Remove(existing.Serial);
+        RemoveHoldLocked(existing.Serial);
         RemoveMonitoringStateForSerial(existing.Serial);
         BroadcastDecksChanged(existing.Serial);
     }
@@ -512,6 +570,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _asleep.Remove(serial);
             _currentPageBySerial.Remove(serial);
             _heldKeysBySerial.Remove(serial);
+            RemoveHoldLocked(serial);
             RemoveMonitoringStateForSerial(serial);
             BroadcastDecksChanged(serial);
         }
@@ -716,12 +775,22 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         var slotIndex = inFolder ? physicalIndex - 1 : physicalIndex;
         var config = LoadConfig(serial);
         var view = DeckConfigNavigation.ResolveView(config, page, folderPath);
-        if (view is null || slotIndex < 0 || slotIndex >= view.Count)
+        if (view is null || slotIndex < 0)
         {
             return;
         }
 
-        var slot = view[slotIndex];
+        // A blank key (an empty slot, or a physical key past the configured
+        // slots - both show nothing) starts a hold-to-edit instead of the
+        // no-op a press on nothing used to be: hold to open the editor at this
+        // key. Any real action/folder/page slot keeps its existing behavior.
+        var slot = slotIndex < view.Count ? view[slotIndex] : null;
+        if (slot is null || (slot.Action is null && slot.Folder is null))
+        {
+            StartHoldEdit(surface, physicalIndex, page, folderPath, slotIndex);
+            return;
+        }
+
         HandleSlotAction(serial, config, page, folderPath, slotIndex, slot);
         HandlePressVisual(surface, physicalIndex, page, folderPath, slotIndex, slot);
     }
@@ -737,6 +806,14 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private void HandleKeyUp(IStreamDeckSurface surface, int physicalIndex)
     {
         var serial = surface.Serial;
+        // Released before the hold-to-edit fired: drop the fill ring and go
+        // back to blank. A hold that already fired is no longer tracked here
+        // (AnimateHolds cleared it and blanked the key), so it falls through.
+        if (TryEndHoldEdit(serial, physicalIndex))
+        {
+            surface.ClearKey(physicalIndex);
+            return;
+        }
         if (!UnmarkKeyHeld(serial, physicalIndex))
         {
             return;
@@ -1283,6 +1360,12 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private static byte[]? RenderMonitoringTileWireBytes(MonitoringTileInput input, StreamDeckModel model, int orientation)
     {
         using var rendered = MonitoringTileRenderer.Render(input, model.KeyPixelSize);
+        return DeckImageToWireBytes(rendered, model, orientation);
+    }
+
+    /// <summary>Orients (user rotation), applies the model's fixed wire transform, and encodes a square rendered key image to this model's wire bytes, or null when the encode fails or the length does not fit the model.</summary>
+    private static byte[]? DeckImageToWireBytes(Image<Rgba32> rendered, StreamDeckModel model, int orientation)
+    {
         var raw = new DeckRawImage(rendered.Width, rendered.Height, RenderKit.ToRgba32Bytes(rendered));
         var oriented = DeckKeyTransformer.ApplyOrientation(raw, orientation);
         var transformed = DeckKeyTransformer.ApplyKeyTransform(oriented, DeckKeyTransformer.ParseTransform(model.Transform));
@@ -1592,6 +1675,173 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private static string BuildLatchKey(string serial, IReadOnlyList<int> folderPath, int slotIndex) =>
         $"{serial}:{string.Join('.', folderPath)}:{slotIndex}";
 
+    /// <summary>
+    /// Advances every in-progress blank-key hold by one animation frame:
+    /// fills the ring toward HoldToEditMs, and once elapsed reaches it, fires
+    /// the open-editor intent and blanks the key. Public so tests step it
+    /// deterministically with a manual clock, like Tick(). A hold whose
+    /// surface has vanished is dropped.
+    /// </summary>
+    public void AnimateHolds()
+    {
+        lock (_lock)
+        {
+            if (_activeHolds.Count == 0)
+            {
+                _anyHoldActive = false;
+                return;
+            }
+            var now = _clock.GetUtcNow();
+            foreach (var serial in _activeHolds.Keys.ToList())
+            {
+                var hold = _activeHolds[serial];
+                var surface = FindBySerialLocked(serial);
+                if (surface is null || !surface.IsConnected)
+                {
+                    RemoveHoldLocked(serial);
+                    continue;
+                }
+                var fraction = (float)Math.Clamp((now - hold.StartedAt).TotalMilliseconds / HoldToEditMs, 0.0, 1.0);
+                if (fraction >= 1f)
+                {
+                    FireHoldEdit(surface, hold);
+                    surface.ClearKey(hold.PhysicalIndex);
+                    RemoveHoldLocked(serial);
+                    continue;
+                }
+                var frameIndex = (int)(fraction * HoldRingSteps);
+                if (frameIndex != hold.LastFrameIndex)
+                {
+                    PushHoldFrame(surface, hold.PhysicalIndex, frameIndex);
+                    hold.LastFrameIndex = frameIndex;
+                }
+            }
+        }
+    }
+
+    /// <summary>Begins a blank-key hold: shows the fill ring's first frame and starts the animation clock. Caller holds _lock (input path).</summary>
+    private void StartHoldEdit(IStreamDeckSurface surface, int physicalIndex, int page, List<int> folderPath, int slotIndex)
+    {
+        var serial = surface.Serial;
+        // A hold already in progress on a different key of this deck (a second
+        // finger) is abandoned; only the newest key drives the ring.
+        _activeHolds[serial] = new HoldEditState
+        {
+            PhysicalIndex = physicalIndex,
+            Page = page,
+            FolderPath = new List<int>(folderPath),
+            SlotIndex = slotIndex,
+            StartedAt = _clock.GetUtcNow(),
+            LastFrameIndex = 0,
+        };
+        _anyHoldActive = true;
+        PushHoldFrame(surface, physicalIndex, 0);
+    }
+
+    /// <summary>Drops an in-progress (not-yet-fired) hold for this exact key, returning true if one was tracked. Caller holds _lock.</summary>
+    private bool TryEndHoldEdit(string serial, int physicalIndex)
+    {
+        if (_activeHolds.TryGetValue(serial, out var hold) && hold.PhysicalIndex == physicalIndex)
+        {
+            RemoveHoldLocked(serial);
+            return true;
+        }
+        return false;
+    }
+
+    private void RemoveHoldLocked(string serial)
+    {
+        _activeHolds.Remove(serial);
+        _anyHoldActive = _activeHolds.Count > 0;
+    }
+
+    /// <summary>
+    /// Records the pending-edit intent, broadcasts the live "editRequest"
+    /// frame, and opens/focuses the app off this thread (OpenApp may block on
+    /// an interactive-session launch). Caller holds _lock.
+    /// </summary>
+    private void FireHoldEdit(IStreamDeckSurface surface, HoldEditState hold)
+    {
+        var serial = surface.Serial;
+        var token = _clock.GetUtcNow().ToUnixTimeMilliseconds();
+        _pendingEdit = new DeckPendingEdit(serial, hold.Page, new List<int>(hold.FolderPath), hold.SlotIndex, token, _clock.GetUtcNow());
+        BroadcastEditRequest(serial, hold.Page, hold.FolderPath, hold.SlotIndex, token);
+        ServiceLog.Info($"[streamdeck] hold-to-edit fired serial={serial} page={hold.Page} slot={hold.SlotIndex}");
+        LastHoldFireTask = Task.Run(() =>
+        {
+            try { _executor.OpenApp(); }
+            catch (Exception ex) { ServiceLog.Warn($"[streamdeck] hold-to-edit open-app failed serial={serial}: {ex.Message}"); }
+        });
+    }
+
+    /// <summary>Test seam: the most recent fire-and-forget OpenApp dispatch, so a test can await the app-open side effect.</summary>
+    internal Task? LastHoldFireTask { get; private set; }
+
+    private void PushHoldFrame(IStreamDeckSurface surface, int physicalIndex, int frameIndex)
+    {
+        var orientation = _store.Load().StreamDeck.Decks.TryGetValue(surface.Serial, out var deck) ? deck.Orientation : 0;
+        var bytes = GetOrRenderHoldFrame(surface.Model, orientation, frameIndex);
+        if (bytes is not null)
+        {
+            surface.SetKeyImage(physicalIndex, bytes);
+        }
+    }
+
+    private byte[]? GetOrRenderHoldFrame(StreamDeckModel model, int orientation, int frameIndex)
+    {
+        if (model.ImageFormat == StreamDeckImageFormat.None)
+        {
+            return null;
+        }
+        var cacheKey = $"{model.ProductId}:{orientation}:{frameIndex}";
+        if (_holdFrameCache.TryGetValue(cacheKey, out var cached))
+        {
+            return cached;
+        }
+        var fraction = (float)frameIndex / HoldRingSteps;
+        try
+        {
+            using var rendered = DeckHoldPromptRenderer.Render(fraction, model.KeyPixelSize);
+            var bytes = DeckImageToWireBytes(rendered, model, orientation);
+            if (bytes is not null)
+            {
+                _holdFrameCache[cacheKey] = bytes;
+            }
+            return bytes;
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Warn($"[streamdeck] hold-frame render failed: {ex.Message}");
+            return null;
+        }
+    }
+
+    /// <summary>Reads the current pending blank-key hold-to-edit intent, or false when none is pending or the last one has aged past PendingEditTtl.</summary>
+    internal bool TryGetPendingEdit(out DeckPendingEdit edit)
+    {
+        lock (_lock)
+        {
+            if (_pendingEdit is { } pending && _clock.GetUtcNow() - pending.CreatedAt < PendingEditTtl)
+            {
+                edit = pending;
+                return true;
+            }
+            edit = default;
+            return false;
+        }
+    }
+
+    private void BroadcastEditRequest(string serial, int page, List<int> folderPath, int keyIndex, long token) =>
+        PanelTopics.BroadcastStreamDeck(_hub, new StreamDeckChangedFrame
+        {
+            Kind = "editRequest",
+            Serial = serial,
+            Page = page,
+            FolderPath = new List<int>(folderPath),
+            KeyIndex = keyIndex,
+            Token = token,
+        });
+
     private void BroadcastDecksChanged(string? serial) =>
         PanelTopics.BroadcastStreamDeck(_hub, new StreamDeckChangedFrame { Kind = "decks", Serial = serial });
 
@@ -1623,6 +1873,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _asleep.Clear();
             _currentPageBySerial.Clear();
             _heldKeysBySerial.Clear();
+            _activeHolds.Clear();
+            _anyHoldActive = false;
             _monitoringHistory.Clear();
             _monitoringLastHash.Clear();
             _monitoringLastPushedBytes.Clear();
