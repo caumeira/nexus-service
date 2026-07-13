@@ -39,8 +39,8 @@ public sealed class ElgatoProfileTranslatorTests : IDisposable
     {
         var (_, report) = _translator.Translate(ReadFixtureProfile());
         Assert.Equal(29, report.TotalKeys);
-        Assert.Equal(19, report.MappedKeys);
-        Assert.Equal(13, report.Unmapped.Count);
+        Assert.Equal(20, report.MappedKeys);
+        Assert.Equal(12, report.Unmapped.Count);
     }
 
     [Fact]
@@ -64,13 +64,43 @@ public sealed class ElgatoProfileTranslatorTests : IDisposable
     }
 
     [Fact]
-    public void Translate_UnmappablePunctuationHotkey_IsPlaceholderWithReason()
+    public void Translate_PeriodHotkey_NowMapsInsteadOfBeingUnmappablePunctuation()
     {
         var (config, report) = _translator.Translate(ReadFixtureProfile());
         var slot = Slot(config, 0, 2, 0);
-        Assert.Null(slot.Action);
+        Assert.NotNull(slot.Action);
+        Assert.Equal("hotkey", slot.Action!.Type);
+        Assert.Equal("meta+.", slot.Action.Keys);
         Assert.Equal("Dot", slot.Label);
-        Assert.Contains(report.Unmapped, e => e.Page == 1 && e.Position == "2,0" && e.Reason == "hotkey");
+        Assert.DoesNotContain(report.Unmapped, e => e.Page == 1 && e.Position == "2,0");
+    }
+
+    [Fact]
+    public void Translate_Hotkey_PrintScreenQtKeyDecodesToThePrintScreenToken()
+    {
+        var images = new DeckImageStore(Path.Combine(Path.GetTempPath(), "nexus-elgato-printscreen-" + Guid.NewGuid().ToString("N")[..8]));
+        var translator = new ElgatoProfileTranslator(images);
+        var profile = new ElgatoProfile { Model = "20GAI9901" };
+        var page = new ElgatoPageData();
+        var settingsJson = """
+        {
+          "Hotkeys": [
+            {"KeyModifiers": 8, "QTKeyCode": 16777225},
+            {"KeyModifiers": 0, "QTKeyCode": 33554431},
+            {"KeyModifiers": 0, "QTKeyCode": 33554431},
+            {"KeyModifiers": 0, "QTKeyCode": 33554431}
+          ]
+        }
+        """;
+        var settings = JsonDocument.Parse(settingsJson).RootElement.Clone();
+        page.Actions[(0, 0)] = new ElgatoActionData { Uuid = "com.elgato.streamdeck.system.hotkey", Name = "Full Screen Snip", Settings = settings };
+        profile.TopPageIds.Add("only");
+        profile.PagesById["only"] = page;
+
+        var (config, _) = translator.Translate(profile);
+        var slot = config.Pages[0].Slots[0];
+        Assert.Equal("hotkey", slot.Action!.Type);
+        Assert.Equal("meta+printscreen", slot.Action.Keys);
     }
 
     [Fact]

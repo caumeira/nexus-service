@@ -105,6 +105,7 @@ public sealed class WindowsInputter : IInputterProvider
             "NumLock" => 0x90,
             "ScrollLock" => 0x91,
             "PrintScreen" => 0x2C,
+            "Period" => 0xBE, // VK_OEM_PERIOD
             "Pause" => 0x13,
             "ContextMenu" => 0x5D,
             "MediaPlayPause" => 0xB3,

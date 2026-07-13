@@ -604,6 +604,8 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
             "down" => "ArrowDown",
             "left" => "ArrowLeft",
             "right" => "ArrowRight",
+            "." => "Period",
+            "printscreen" => "PrintScreen",
             _ => "",
         };
     }

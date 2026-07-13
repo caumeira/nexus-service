@@ -266,6 +266,23 @@ public sealed class DeckActionExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task Hotkey_PrintScreen_ParsesToThePrintScreenKey()
+    {
+        await Run(new DeckAction { Type = "hotkey", Keys = "printscreen" });
+        Assert.NotNull(_inputter.Last);
+        Assert.Equal("PrintScreen", _inputter.Last!.Strokes[0].Key);
+    }
+
+    [Fact]
+    public async Task Hotkey_MetaPeriod_ParsesToThePeriodKeyWithMeta()
+    {
+        await Run(new DeckAction { Type = "hotkey", Keys = "meta+." });
+        Assert.NotNull(_inputter.Last);
+        Assert.Equal("Period", _inputter.Last!.Strokes[0].Key);
+        Assert.True(_inputter.Last.Strokes[0].Meta);
+    }
+
+    [Fact]
     public async Task Text_SetsClipboardAndPastes()
     {
         await Run(new DeckAction { Type = "text", Text = "hello world" });

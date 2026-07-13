@@ -471,6 +471,10 @@ public sealed class ElgatoProfileTranslator
         {
             return "space";
         }
+        if (code == 0x2E)
+        {
+            return ".";
+        }
         if (code is >= 0x01000030 and <= 0x01000047)
         {
             return "f" + (code - 0x01000030 + 1);
@@ -484,6 +488,7 @@ public sealed class ElgatoProfileTranslator
             0x01000005 => "enter",
             0x01000006 => "insert",
             0x01000007 => "delete",
+            0x01000009 => "printscreen",
             0x01000010 => "home",
             0x01000011 => "end",
             0x01000012 => "left",
