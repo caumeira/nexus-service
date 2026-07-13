@@ -404,6 +404,28 @@
             }
           ],
           "UUID": "com.elgato.cpu.cpu"
+        },
+        "0,2": {
+          "ActionID": "action-plugin-no-visual",
+          "LinkedTitle": false,
+          "Name": "CPU Meter",
+          "Resources": null,
+          "Settings": {},
+          "State": 0,
+          "States": [
+            {
+              "Title": "",
+              "ShowTitle": true,
+              "TitleAlignment": "middle",
+              "TitleColor": "#ffffff",
+              "FontFamily": "",
+              "FontSize": 17,
+              "FontStyle": "",
+              "FontUnderline": false,
+              "OutlineThickness": 2
+            }
+          ],
+          "UUID": "com.moeilijk.lhm.reading"
         }
       },
       "Type": "Keypad"

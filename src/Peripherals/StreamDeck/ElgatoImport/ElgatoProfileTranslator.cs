@@ -101,7 +101,17 @@ public sealed class ElgatoProfileTranslator
 
             report.TotalKeys++;
             var built = BuildSlot(action, profile, cols, rows, reportPageNumber, ancestorStack, report);
-            slots[row * cols + col] = built.Slot;
+            var slot = built.Slot;
+            if (!built.Mapped && slot.Action is null && slot.Folder is null
+                && string.IsNullOrEmpty(slot.Label) && slot.Icon is null
+                && !string.IsNullOrEmpty(action.Name))
+            {
+                // A placeholder for an untranslatable key that carried neither
+                // title nor image would render as an empty slot; surface the
+                // Elgato action name so the user can find and rebind it.
+                slot.Label = action.Name;
+            }
+            slots[row * cols + col] = slot;
             if (built.Mapped)
             {
                 report.MappedKeys++;

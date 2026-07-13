@@ -38,9 +38,9 @@ public sealed class ElgatoProfileTranslatorTests : IDisposable
     public void Translate_ReportsTotalAndMappedKeysAcrossAllPagesAndFolders()
     {
         var (_, report) = _translator.Translate(ReadFixtureProfile());
-        Assert.Equal(28, report.TotalKeys);
+        Assert.Equal(29, report.TotalKeys);
         Assert.Equal(19, report.MappedKeys);
-        Assert.Equal(12, report.Unmapped.Count);
+        Assert.Equal(13, report.Unmapped.Count);
     }
 
     [Fact]
@@ -185,6 +185,17 @@ public sealed class ElgatoProfileTranslatorTests : IDisposable
         Assert.Null(slot.Icon);
         Assert.Equal("CPU", slot.Label);
         Assert.Contains(report.Unmapped, e => e.Page == 1 && e.Position == "4,2" && e.Reason == "plugin" && e.Detail == "com.moeilijk.lhm.reading");
+    }
+
+    [Fact]
+    public void Translate_PluginActionWithoutTitleOrImage_FallsBackToActionName()
+    {
+        var (config, report) = _translator.Translate(ReadFixtureProfile());
+        var slot = Slot(config, 1, 0, 2);
+        Assert.Null(slot.Action);
+        Assert.Null(slot.Icon);
+        Assert.Equal("CPU Meter", slot.Label);
+        Assert.Contains(report.Unmapped, e => e.Page == 2 && e.Position == "0,2" && e.Reason == "plugin");
     }
 
     [Fact]

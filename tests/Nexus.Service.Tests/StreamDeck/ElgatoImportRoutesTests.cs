@@ -103,7 +103,7 @@ public sealed class ElgatoImportRoutesTests : IDisposable
             Assert.Equal("20GAA9901", p.GetProperty("model").GetString());
             Assert.Equal("Stream Deck", p.GetProperty("modelLabel").GetString());
             Assert.Equal(3, p.GetProperty("pageCount").GetInt32());
-            Assert.Equal(28, p.GetProperty("keyCount").GetInt32());
+            Assert.Equal(29, p.GetProperty("keyCount").GetInt32());
         }
     }
 
@@ -140,9 +140,9 @@ public sealed class ElgatoImportRoutesTests : IDisposable
             using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
             var root = doc.RootElement;
             var report = root.GetProperty("report");
-            Assert.Equal(28, report.GetProperty("totalKeys").GetInt32());
+            Assert.Equal(29, report.GetProperty("totalKeys").GetInt32());
             Assert.Equal(19, report.GetProperty("mappedKeys").GetInt32());
-            Assert.Equal(12, report.GetProperty("unmapped").GetArrayLength());
+            Assert.Equal(13, report.GetProperty("unmapped").GetArrayLength());
             var config = root.GetProperty("config");
             Assert.Equal(2, config.GetProperty("pages").GetArrayLength());
 

@@ -76,9 +76,9 @@ public sealed class ElgatoProfileReaderTests
     public void CountKeys_CountsAcrossTopPagesAndFolders()
     {
         var profile = ElgatoProfileReader.ReadBundle(Path.Combine(ProfilesV3Root, "TESTBUNDLE.sdProfile"))!;
-        // 14 (page-one, minus 1 tutorial tile) + 10 (page-two) + 2 (folder-a,
+        // 14 (page-one, minus 1 tutorial tile) + 11 (page-two) + 2 (folder-a,
         // minus its backtoparent) + 2 (folder-b, minus its backtoparent).
-        Assert.Equal(28, ElgatoProfileReader.CountKeys(profile));
+        Assert.Equal(29, ElgatoProfileReader.CountKeys(profile));
     }
 
     [Fact]
