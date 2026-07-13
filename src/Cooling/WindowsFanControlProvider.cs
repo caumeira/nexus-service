@@ -27,7 +27,6 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
     private readonly IConfigStore _config;
     private List<ChannelMapping>? _channels;
     private readonly object _discoveryLock = new();
-    private bool _manualSpeedsRestored;
     private bool _lhmWarmedUp;
     // Total warmup time budget across the whole process lifetime. Per-call
     // warmup stops at 1.5s; if motherboard SubHardware still hasn't shown up,
@@ -182,7 +181,10 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
             catch { /* swallow */ }
         }
         _softwareControlled.Clear();
-        _config.Update(s => s.Cooling.ManualSpeeds.Clear());
+        // Cooling.ManualSpeeds is preserved: ReleaseAll runs on shutdown and
+        // profile switch, where the persisted intent must survive so
+        // CurveEngine's replay can re-apply it. The explicit per-fan BIOS
+        // choice goes through ReleaseFan, which removes its entry.
     }
 
     // ── Calibration ──
@@ -271,34 +273,15 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
         // see the full topology. The cost is one LHM.Update plus a couple of
         // Linq passes per call; both are already in GetFanChannels' budget.
         //
-        // RestoreSavedManualSpeeds is gated so it runs exactly once, the
-        // first time discovery returns at least one channel. Otherwise every
-        // call would re-apply persisted speeds and fight concurrent edits.
+        // Persisted manual duties are replayed by CurveEngine as channels
+        // appear (presence-gated, per-channel), not here: a one-shot restore
+        // pass keyed to the first non-empty discovery missed every channel
+        // the partial first enumeration didn't include.
         lock (_discoveryLock)
         {
-            var fresh = DiscoverChannels();
-            if (!_manualSpeedsRestored && fresh.Count > 0)
-            {
-                RestoreSavedManualSpeeds(fresh);
-                _manualSpeedsRestored = true;
-            }
-            _channels = fresh;
+            _channels = DiscoverChannels();
             return _channels;
         }
-    }
-
-    private void RestoreSavedManualSpeeds(List<ChannelMapping> mappings)
-    {
-        var saved = _config.Load().Cooling.ManualSpeeds;
-        foreach (var (channelId, speed) in saved)
-        {
-            var mapping = mappings.FirstOrDefault(m => m.Id == channelId);
-            if (mapping is null) continue;
-            mapping.ControlSensor.Control.SetSoftware(speed);
-            _softwareControlled.Add(channelId);
-        }
-        if (saved.Count > 0)
-            ServiceLog.Info($"[fan-control] restored {saved.Count} manual fan speed(s) from config");
     }
 
     private List<ChannelMapping> DiscoverChannels()
