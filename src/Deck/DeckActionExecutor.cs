@@ -113,6 +113,8 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         return TryLiveQuery(state, out var liveOn) ? liveOn : _latches.TryGetValue(latchKey, out var flip) && flip;
     }
 
+    public void OpenApp() => _system.OpenDashboard();
+
     private async Task<DispatchOutcome> DispatchAsync(DeckAction action, string serial, string latchKey, CancellationToken ct)
     {
         switch (action.Type)

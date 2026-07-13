@@ -157,6 +157,28 @@ public static class StreamDeckRoutes
                 : ApiResponse.Fail("deck not found");
         }).LocalhostOnly();
 
+        // A blank-key hold-to-edit that fired while the app was closed lands
+        // here on the freshly-opened dashboard, which navigates to the deck's
+        // editor and selects the held key. Not cleared on read (multiple
+        // dashboard readers must all see it); the intent ages out on its own
+        // after PendingEditTtl, and the client dedupes on Token.
+        app.MapGet("/streamdeck/pending-edit", (StreamDeckConnectionWorker worker) =>
+        {
+            var response = new StreamDeckPendingEditResponse();
+            if (worker.TryGetPendingEdit(out var edit))
+            {
+                response.Edit = new StreamDeckPendingEditDto
+                {
+                    Serial = edit.Serial,
+                    Page = edit.Page,
+                    FolderPath = edit.FolderPath.ToList(),
+                    KeyIndex = edit.SlotIndex,
+                    Token = edit.Token,
+                };
+            }
+            return Results.Json(response, AppJsonContext.Default.StreamDeckPendingEditResponse);
+        }).LocalhostOnly();
+
         app.MapPut("/streamdeck/decks/{serial}/images/{slotPath}/{state}", async (
             string serial, string slotPath, string state, HttpRequest req,
             StreamDeckImageCache cache, IConfigStore store, StreamDeckConnectionWorker worker, CancellationToken ct) =>
