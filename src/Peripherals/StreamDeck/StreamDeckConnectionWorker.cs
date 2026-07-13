@@ -1101,7 +1101,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// </summary>
     private void RefreshMonitoringKeys()
     {
-        var settings = _store.Load().StreamDeck;
+        var snapshot = _store.Load();
+        var settings = snapshot.StreamDeck;
+        var tempUnit = snapshot.Units.MonitoringTempUnit;
+        var numberFormat = snapshot.Units.NumberFormat;
         var visible = new List<MonitoringKeyRef>();
 
         foreach (var surface in _surfaces.Values)
@@ -1176,7 +1179,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         for (var i = 0; i < pushCount; i++)
         {
             var idx = (_monitoringRoundRobinCursor + i) % visible.Count;
-            PushMonitoringKey(visible[idx], sampled[idx]);
+            PushMonitoringKey(visible[idx], sampled[idx], tempUnit, numberFormat);
         }
         _monitoringRoundRobinCursor = (_monitoringRoundRobinCursor + pushCount) % visible.Count;
     }
@@ -1217,10 +1220,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// shape when sensor is null), plus the slot's style/domain/title
     /// overrides. Name and ValueText mirror nexus-web's DeckMonitoringCell
     /// (DeckMonitoringFormat.ResolveLabel/ResolveValueText) so the physical
-    /// key and the touch-panel tile read the same for the same sensor.
-    /// Shared by the pass-1 placeholder (sensor null) and the real render.
+    /// key and the touch-panel tile read the same for the same sensor;
+    /// tempUnit/numberFormat are the caller's single-snapshot read of
+    /// Units.MonitoringTempUnit/NumberFormat, matching useUnitPrefs() on the
+    /// web side. Shared by the pass-1 placeholder (sensor null) and the real
+    /// render.
     /// </summary>
-    private MonitoringTileInput BuildMonitoringTileInput(MonitoringKeyRef key, HardwareSensor? sensor)
+    private MonitoringTileInput BuildMonitoringTileInput(MonitoringKeyRef key, HardwareSensor? sensor, string tempUnit, string numberFormat)
     {
         var action = key.Slot.Action!;
         string name;
@@ -1246,7 +1252,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
                 historyForRender.Add(MathF.Round(sample, 1));
             }
             name = DeckMonitoringFormat.ResolveLabel(action.Category, sensor.Name);
-            valueText = DeckMonitoringFormat.ResolveValueText(sensor);
+            valueText = DeckMonitoringFormat.ResolveValueText(sensor, tempUnit, numberFormat);
             sensorType = sensor.Type;
         }
 
@@ -1305,13 +1311,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// _monitoringLastPushedBytes update - the very next PushMonitoringKey
     /// call for this same key overwrites both.
     /// </summary>
-    private void PushMonitoringPlaceholder(MonitoringKeyRef key)
+    private void PushMonitoringPlaceholder(MonitoringKeyRef key, string tempUnit, string numberFormat)
     {
         if (IsKeyHeld(key.Surface.Serial, key.KeyIndex))
         {
             return;
         }
-        var input = BuildMonitoringTileInput(key, sensor: null);
+        var input = BuildMonitoringTileInput(key, sensor: null, tempUnit, numberFormat);
         var wireBytes = RenderMonitoringTileWireBytes(input, key.Surface.Model, key.Orientation);
         if (wireBytes is not null)
         {
@@ -1333,14 +1339,14 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// for the same pixels; ForceMonitoringKeyRefresh drops the last-pushed
     /// hash on release so the next tick repaints it regardless.
     /// </summary>
-    private void PushMonitoringKey(MonitoringKeyRef key, HardwareSensor? sensor)
+    private void PushMonitoringKey(MonitoringKeyRef key, HardwareSensor? sensor, string tempUnit, string numberFormat)
     {
         if (IsKeyHeld(key.Surface.Serial, key.KeyIndex))
         {
             return;
         }
 
-        var input = BuildMonitoringTileInput(key, sensor);
+        var input = BuildMonitoringTileInput(key, sensor, tempUnit, numberFormat);
         var wireBytes = RenderMonitoringTileWireBytes(input, key.Surface.Model, key.Orientation);
         if (wireBytes is null)
         {
@@ -1468,7 +1474,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         {
             folderPath = new List<int>();
         }
-        var settings = _store.Load().StreamDeck;
+        var snapshot = _store.Load();
+        var settings = snapshot.StreamDeck;
+        var tempUnit = snapshot.Units.MonitoringTempUnit;
+        var numberFormat = snapshot.Units.NumberFormat;
         settings.Decks.TryGetValue(surface.Serial, out var deck);
         var config = deck?.Deck ?? new DeckConfig();
         EvictOrphanedMonitoringEntriesForSerial(surface.Serial, config);
@@ -1510,7 +1519,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             {
                 var slotPath = DeckConfigNavigation.BuildSlotPath(folderPath, slotIndex);
                 var keyRef = new MonitoringKeyRef(surface, key, BuildMonitoringKey(surface.Serial, page, slotPath), slot, deck?.Orientation ?? 0);
-                PushMonitoringPlaceholder(keyRef);
+                PushMonitoringPlaceholder(keyRef, tempUnit, numberFormat);
                 monitoringKeys.Add(keyRef);
                 continue;
             }
@@ -1534,7 +1543,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         foreach (var keyRef in monitoringKeys)
         {
             var sensor = SampleMonitoringHistory(keyRef);
-            PushMonitoringKey(keyRef, sensor);
+            PushMonitoringKey(keyRef, sensor, tempUnit, numberFormat);
             _monitoringPaintedThisTick.Add(keyRef.HistoryKey);
         }
     }

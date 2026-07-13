@@ -129,6 +129,16 @@ public sealed class RgbBridge : IDisposable
     // Only touched inside OnFrame which the engine serialises, so a plain HashSet
     // is safe here.
     private readonly HashSet<int> _touchedPhysicals = new();
+    // Reused across frames - physical index -> true when every zone frame
+    // mapped to it is undriven, so the whole physical device is skipped
+    // rather than pushed. Only touched inside OnFrame.
+    private readonly Dictionary<int, bool> _physFullyUndriven = new();
+    // Ids of this bridge's own OpenRGB frames as of the last refresh, set
+    // once per RefreshDevicesAsync before contributor frames are appended.
+    // See ComputeFullyUndrivenPhysicals for why this filter is needed.
+    // Replaced wholesale (never mutated) so OnFrame reads it without
+    // synchronization.
+    private HashSet<string> _bridgeFrameIds = new(StringComparer.Ordinal);
 
     private readonly IReadOnlyList<ILightingFrameContributor> _frameContributors;
     private readonly Nexus.Service.Lighting.Mappings.ContributorFrameLayouts _contributorLayouts;
@@ -633,7 +643,12 @@ public sealed class RgbBridge : IDisposable
                 }
             }
 
-            // Apply direct mode to any device we haven't seen yet.
+            // Apply direct mode to any device we haven't seen yet. A fully
+            // undriven device is skipped (and left out of _directModeApplied)
+            // so its firmware/vendor lighting stays live; the next refresh
+            // tick retries, so re-enabling driven claims it within one
+            // refresh interval without a service restart.
+            var settingsSnapshot = _store.Load();
             foreach (var dev in devices)
             {
                 bool isNew;
@@ -643,6 +658,11 @@ public sealed class RgbBridge : IDisposable
                 }
 
                 if (!isNew)
+                {
+                    continue;
+                }
+
+                if (OpenRgbZoneSupport.IsFullyUndriven(dev, settingsSnapshot))
                 {
                     continue;
                 }
@@ -723,7 +743,6 @@ public sealed class RgbBridge : IDisposable
             // the physical buffer.
             var existingFrames = _engine.Devices;
             var framesList = new List<DeviceFrame>(devices.Count);
-            var settingsSnapshot = _store.Load();
             var layouts = settingsSnapshot.Lighting.DeviceLayouts;
             int logicalOrdinal = 0;
             int cardSlot = 0;
@@ -780,6 +799,13 @@ public sealed class RgbBridge : IDisposable
                     logicalOrdinal++;
                 }
             }
+
+            var bridgeFrameIds = new HashSet<string>(framesList.Count, StringComparer.Ordinal);
+            foreach (var f in framesList)
+            {
+                bridgeFrameIds.Add(f.Id);
+            }
+            _bridgeFrameIds = bridgeFrameIds;
 
             // Pre-resolve the zone layout of contributor devices that expose
             // structures (keeb) so each contributed frame's user overrides
@@ -1240,11 +1266,14 @@ public sealed class RgbBridge : IDisposable
         var settings = _store.Load();
         var disabled = settings.Devices.DisabledLightingDevices;
         var disabledCount = disabled.Count;
+        var undriven = settings.Devices.UndrivenLightingDevices;
+        var undrivenCount = undriven.Count;
         var devicePrefs = settings.Devices.LightingDevicePrefs;
         var globalBrightness = Math.Clamp(settings.Lighting.GlobalBrightness, 0f, 1f);
         var nowTicks = DateTime.UtcNow.Ticks;
 
         _touchedPhysicals.Clear();
+        ComputeFullyUndrivenPhysicals(deviceFrames, _bridgeFrameIds, undriven, _physFullyUndriven);
 
         var deviceCount = frame[pos++];
         for (int d = 0; d < deviceCount && pos + 3 <= frame.Length; d++)
@@ -1279,7 +1308,14 @@ public sealed class RgbBridge : IDisposable
                 continue;
             }
 
-            var isOff = disabledCount > 0 && disabled.Contains(dev.Id);
+            if (undrivenCount > 0 && _physFullyUndriven.TryGetValue(dev.PhysicalIndex, out var physUndriven) && physUndriven)
+            {
+                pos += rgbSize;
+                continue;
+            }
+
+            var isOff = (disabledCount > 0 && disabled.Contains(dev.Id))
+                || (undrivenCount > 0 && undriven.Contains(dev.Id));
             var hasIdentify = _identifyOverrides.TryGetValue(dev.Id, out var idOverride)
                 && nowTicks < idOverride.expirationTicks;
             if (!hasIdentify && idOverride.expirationTicks != 0)
@@ -1355,6 +1391,40 @@ public sealed class RgbBridge : IDisposable
             {
                 _ = _controller.PushFrameAsync(physIdx, buf);
             }
+        }
+    }
+
+    /// <summary>
+    /// Fills <paramref name="result"/> (cleared first) with physical index ->
+    /// true when every bridge-built zone frame mapped to it is undriven.
+    /// Frames whose id is absent from <paramref name="bridgeFrameIds"/> are
+    /// skipped: a contributor frame's PhysicalIndex can collide with a real
+    /// OpenRGB device index once first-party-owned devices are excluded from
+    /// seeding, and a driven contributor must not veto an undriven OpenRGB
+    /// device sharing that index. Static and bridge-free so tests cover it
+    /// with fake frame data.
+    /// </summary>
+    internal static void ComputeFullyUndrivenPhysicals(
+        IReadOnlyList<DeviceFrame> deviceFrames,
+        IReadOnlySet<string> bridgeFrameIds,
+        IReadOnlyList<string> undriven,
+        Dictionary<int, bool> result)
+    {
+        result.Clear();
+        if (undriven.Count == 0)
+        {
+            return;
+        }
+        foreach (var df in deviceFrames)
+        {
+            if (!bridgeFrameIds.Contains(df.Id))
+            {
+                continue;
+            }
+            var zoneUndriven = undriven.Contains(df.Id);
+            result[df.PhysicalIndex] = result.TryGetValue(df.PhysicalIndex, out var allSoFar)
+                ? allSoFar && zoneUndriven
+                : zoneUndriven;
         }
     }
 
