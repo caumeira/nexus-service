@@ -57,7 +57,10 @@ public class ProfileSwitchTests : IDisposable
         public readonly ConcurrentQueue<(string ChannelId, int DutyPercent)> Writes = new();
         public float Temperature { get; set; } = 60f;
 
-        public IReadOnlyList<FanChannel> GetFanChannels() => Array.Empty<FanChannel>();
+        // CurveEngine only drives channels the provider reports as present,
+        // so the fake must surface the fan the test curves target.
+        public IReadOnlyList<FanChannel> GetFanChannels() =>
+            new[] { new FanChannel { Id = "fan-1", Name = "fan-1" } };
         public IReadOnlyList<TemperatureSource> GetTemperatureSources() => Array.Empty<TemperatureSource>();
         public float? ReadTemperature(string sensorId) => Temperature;
         public int SetFanSpeed(string channelId, int dutyPercent)
