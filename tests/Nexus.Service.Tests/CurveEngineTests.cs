@@ -54,8 +54,8 @@ public class CurveEngineTests
 
     private static CurveDocument FlatCurve(string outputId, int speed) => new()
     {
-        Id = "c1",
-        Name = "c1",
+        Id = "c-" + outputId,
+        Name = "c-" + outputId,
         Type = "Flat",
         Input = new CurveInputDocument { Id = "t", Type = "Temperature" },
         Outputs = { new CurveOutputDocument { Id = outputId, Type = "Fan" } },
@@ -211,6 +211,51 @@ public class CurveEngineTests
         var manual = store.Load().Cooling.ManualSpeeds;
         Assert.False(manual.ContainsKey("x"));
         Assert.Equal(55, manual["p"]);
+    }
+
+    [Fact]
+    public void CurveOutput_DetachedThenReattached_IsRedrivenAtUnchangedDuty()
+    {
+        // A dedup record must not outlive the curve attachment: the hub can
+        // reset (losing duty state) while no curve references the fan, and
+        // the stale record would then suppress the re-attach write.
+        var (engine, fans, store) = Build();
+        store.Update(s => s.Cooling.Curves.Add(FlatCurve("x", 40)));
+        fans.Present.Add("x");
+        engine.Tick();
+        Assert.Single(fans.Driven);
+
+        // Detach: replace the curve set with one that does not reference x.
+        store.Update(s =>
+        {
+            s.Cooling.Curves.Clear();
+            s.Cooling.Curves.Add(FlatCurve("y", 40));
+        });
+        engine.Tick();
+
+        store.Update(s => s.Cooling.Curves.Add(FlatCurve("x", 40)));
+        engine.Tick();
+        Assert.Equal(2, fans.Driven.Count(w => w.Id == "x"));
+    }
+
+    [Fact]
+    public void CurveOutput_AllCurvesDeleted_DedupClearsForReattach()
+    {
+        // Zero-curves path: every dedup record is orphaned and must clear,
+        // including through the idle early-out (no curves, no manual).
+        var (engine, fans, store) = Build();
+        store.Update(s => s.Cooling.Curves.Add(FlatCurve("x", 40)));
+        fans.Present.Add("x");
+        engine.Tick();
+        Assert.Single(fans.Driven);
+
+        store.Update(s => s.Cooling.Curves.Clear());
+        engine.Tick();
+
+        store.Update(s => s.Cooling.Curves.Add(FlatCurve("x", 40)));
+        engine.Tick();
+        Assert.Equal(2, fans.Driven.Count);
+        Assert.Equal(("x", 40), fans.Driven[1]);
     }
 
     [Fact]
