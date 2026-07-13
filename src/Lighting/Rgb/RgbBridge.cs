@@ -1397,12 +1397,13 @@ public sealed class RgbBridge : IDisposable
 
     /// <summary>
     /// True when a wire-frame-matched DeviceFrame is one of this bridge's own
-    /// OpenRGB frames. A contributor frame (NP50, Keeb, hubs) can share its
-    /// PhysicalIndex with a real OpenRGB device once first-party-owned
-    /// devices are excluded from seeding or a motherboard splits into zone
-    /// frames; without this check its bytes would land in that device's
-    /// buffer and push to the wrong hardware. Static and bridge-free so
-    /// tests cover it with fake frame data.
+    /// OpenRGB frames. A contributor frame (NP50, Keeb, hubs) defaults its
+    /// PhysicalIndex to the engine ordinal, which can equal a real OpenRGB
+    /// device index once first-party-owned devices are excluded from seeding;
+    /// without this check its bytes would land in that device's buffer and
+    /// push to the wrong hardware. Keyed on frame id, not physical index,
+    /// because split-motherboard zone frames legitimately share one physical
+    /// index. Static and bridge-free so tests cover it with fake frame data.
     /// </summary>
     internal static bool IsBridgeFrame(DeviceFrame dev, IReadOnlySet<string> bridgeFrameIds) =>
         bridgeFrameIds.Contains(dev.Id);
