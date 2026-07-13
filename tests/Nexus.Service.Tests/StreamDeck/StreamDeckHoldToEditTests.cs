@@ -107,6 +107,34 @@ public sealed class StreamDeckHoldToEditTests : IDisposable
     }
 
     [Fact]
+    public void Hold_MultipleBlankKeys_EachAnimatesAndClearsIndependently()
+    {
+        // An empty page: every physical key is blank.
+        ConnectWith(new DeckConfig { Pages = { new DeckPage() } });
+
+        _simulated.Poke(0, true);
+        _worker.Tick();
+        _simulated.Poke(1, true);
+        _worker.Tick();
+        Assert.True(_worker.HasActiveHold("sim-0001", 0));
+        Assert.True(_worker.HasActiveHold("sim-0001", 1));
+        Assert.NotNull(_simulated.PeekKeyImage(0));
+        Assert.NotNull(_simulated.PeekKeyImage(1));
+
+        // Releasing one key clears only its ring; the other keeps animating.
+        _simulated.Poke(0, false);
+        _worker.Tick();
+        Assert.False(_worker.HasActiveHold("sim-0001", 0));
+        Assert.Null(_simulated.PeekKeyImage(0));
+        Assert.True(_worker.HasActiveHold("sim-0001", 1));
+
+        _simulated.Poke(1, false);
+        _worker.Tick();
+        Assert.False(_worker.HasActiveHold("sim-0001", 1));
+        Assert.Null(_simulated.PeekKeyImage(1));
+    }
+
+    [Fact]
     public async Task Hold_ConfiguredActionKey_DispatchesInsteadOfHolding()
     {
         var action = new DeckAction { Type = "openUrl", Url = "https://example.com" };

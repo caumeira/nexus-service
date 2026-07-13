@@ -107,11 +107,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private readonly Dictionary<string, HashSet<int>> _heldKeysBySerial = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Per-deck (keyed by serial) in-progress blank-key hold-to-edit, at most
-    /// one per deck. Written on the input thread (StartHoldEdit / key-up) and
-    /// on the animation loop (AnimateHolds fill + fire), all under _lock.
+    /// In-progress blank-key holds, per deck (serial) then per physical key, so
+    /// several blank keys held at once each animate and clear independently.
+    /// Written on the input thread (StartHoldEdit / key-up) and on the animation
+    /// loop (AnimateHolds fill + fire), all under _lock. An empty inner map is
+    /// never left behind - its serial entry is removed with it.
     /// </summary>
-    private readonly Dictionary<string, HoldEditState> _activeHolds = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Dictionary<string, Dictionary<int, HoldEditState>> _activeHolds = new(StringComparer.OrdinalIgnoreCase);
     /// <summary>Lock-free hint so the animation loop skips taking _lock every frame when no hold is in progress; the authoritative check is _activeHolds under _lock.</summary>
     private volatile bool _anyHoldActive;
     /// <summary>Rendered fill-ring wire bytes keyed by "{productId}:{orientation}:{frameIndex}"; a given model/orientation renders each frame at most once.</summary>
@@ -121,7 +123,6 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
 
     private sealed class HoldEditState
     {
-        public int PhysicalIndex;
         public int Page;
         public List<int> FolderPath = new();
         public int SlotIndex;
@@ -487,7 +488,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _asleep.Remove(existing.Serial);
         _currentPageBySerial.Remove(existing.Serial);
         _heldKeysBySerial.Remove(existing.Serial);
-        RemoveHoldLocked(existing.Serial);
+        RemoveAllHoldsForSerial(existing.Serial);
         RemoveMonitoringStateForSerial(existing.Serial);
         BroadcastDecksChanged(existing.Serial);
     }
@@ -570,7 +571,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _asleep.Remove(serial);
             _currentPageBySerial.Remove(serial);
             _heldKeysBySerial.Remove(serial);
-            RemoveHoldLocked(serial);
+            RemoveAllHoldsForSerial(serial);
             RemoveMonitoringStateForSerial(serial);
             BroadcastDecksChanged(serial);
         }
@@ -1706,28 +1707,37 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             var now = _clock.GetUtcNow();
             foreach (var serial in _activeHolds.Keys.ToList())
             {
-                var hold = _activeHolds[serial];
+                var holds = _activeHolds[serial];
                 var surface = FindBySerialLocked(serial);
                 if (surface is null || !surface.IsConnected)
                 {
-                    RemoveHoldLocked(serial);
+                    _activeHolds.Remove(serial);
                     continue;
                 }
-                var fraction = (float)Math.Clamp((now - hold.StartedAt).TotalMilliseconds / HoldToEditMs, 0.0, 1.0);
-                if (fraction >= 1f)
+                foreach (var physicalIndex in holds.Keys.ToList())
                 {
-                    FireHoldEdit(surface, hold);
-                    surface.ClearKey(hold.PhysicalIndex);
-                    RemoveHoldLocked(serial);
-                    continue;
+                    var hold = holds[physicalIndex];
+                    var fraction = (float)Math.Clamp((now - hold.StartedAt).TotalMilliseconds / HoldToEditMs, 0.0, 1.0);
+                    if (fraction >= 1f)
+                    {
+                        FireHoldEdit(surface, hold);
+                        surface.ClearKey(physicalIndex);
+                        holds.Remove(physicalIndex);
+                        continue;
+                    }
+                    var frameIndex = (int)(fraction * HoldRingSteps);
+                    if (frameIndex != hold.LastFrameIndex)
+                    {
+                        PushHoldFrame(surface, physicalIndex, frameIndex);
+                        hold.LastFrameIndex = frameIndex;
+                    }
                 }
-                var frameIndex = (int)(fraction * HoldRingSteps);
-                if (frameIndex != hold.LastFrameIndex)
+                if (holds.Count == 0)
                 {
-                    PushHoldFrame(surface, hold.PhysicalIndex, frameIndex);
-                    hold.LastFrameIndex = frameIndex;
+                    _activeHolds.Remove(serial);
                 }
             }
+            _anyHoldActive = _activeHolds.Count > 0;
         }
     }
 
@@ -1735,11 +1745,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private void StartHoldEdit(IStreamDeckSurface surface, int physicalIndex, int page, List<int> folderPath, int slotIndex)
     {
         var serial = surface.Serial;
-        // A hold already in progress on a different key of this deck (a second
-        // finger) is abandoned; only the newest key drives the ring.
-        _activeHolds[serial] = new HoldEditState
+        if (!_activeHolds.TryGetValue(serial, out var holds))
         {
-            PhysicalIndex = physicalIndex,
+            holds = new Dictionary<int, HoldEditState>();
+            _activeHolds[serial] = holds;
+        }
+        holds[physicalIndex] = new HoldEditState
+        {
             Page = page,
             FolderPath = new List<int>(folderPath),
             SlotIndex = slotIndex,
@@ -1753,18 +1765,33 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// <summary>Drops an in-progress (not-yet-fired) hold for this exact key, returning true if one was tracked. Caller holds _lock.</summary>
     private bool TryEndHoldEdit(string serial, int physicalIndex)
     {
-        if (_activeHolds.TryGetValue(serial, out var hold) && hold.PhysicalIndex == physicalIndex)
+        if (!_activeHolds.TryGetValue(serial, out var holds) || !holds.Remove(physicalIndex))
         {
-            RemoveHoldLocked(serial);
-            return true;
+            return false;
         }
-        return false;
+        if (holds.Count == 0)
+        {
+            _activeHolds.Remove(serial);
+        }
+        _anyHoldActive = _activeHolds.Count > 0;
+        return true;
     }
 
-    private void RemoveHoldLocked(string serial)
+    private void RemoveAllHoldsForSerial(string serial)
     {
-        _activeHolds.Remove(serial);
-        _anyHoldActive = _activeHolds.Count > 0;
+        if (_activeHolds.Remove(serial))
+        {
+            _anyHoldActive = _activeHolds.Count > 0;
+        }
+    }
+
+    /// <summary>Test seam: true if a blank-key hold is currently animating on this exact key.</summary>
+    internal bool HasActiveHold(string serial, int physicalIndex)
+    {
+        lock (_lock)
+        {
+            return _activeHolds.TryGetValue(serial, out var holds) && holds.ContainsKey(physicalIndex);
+        }
     }
 
     /// <summary>
