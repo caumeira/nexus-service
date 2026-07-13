@@ -21,6 +21,7 @@ internal static class ElgatoActionTypes
     public const string Routine2 = "com.elgato.streamdeck.multiactions.routine2";
     public const string MultiActionLegacy = "com.elgato.streamdeck.multiactions.multiaction";
     public const string LhmReading = "com.moeilijk.lhm.reading";
+    public const string Weather = "com.elgato.weather.weather";
     public const string TutorialPrefix = "com.elgato.tutorial.";
     public const string BuiltinPrefix = "com.elgato.streamdeck.";
 

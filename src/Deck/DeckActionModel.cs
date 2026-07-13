@@ -19,7 +19,8 @@ public sealed class DeckAction
     /// <summary>
     /// launchApp | openFile | openFolder | openUrl | system | hotkey | text |
     /// power | audioOutput | audioInput | nexus | sequence | toggle | page |
-    /// pageIndicator | deckBrightness | deckSleep | hotkeySwitch | monitoring.
+    /// pageIndicator | deckBrightness | deckSleep | hotkeySwitch | monitoring |
+    /// weather.
     /// </summary>
     public string Type { get; set; } = "";
 
@@ -82,6 +83,17 @@ public sealed class DeckAction
     public double? Min { get; set; }
     /// <summary>monitoring: fixed-scale range ceiling. Ignored unless Scale is fixed and Min is a lesser finite value.</summary>
     public double? Max { get; set; }
+
+    /// <summary>weather: manual location latitude. Unset falls back to IP geolocation.</summary>
+    public double? Lat { get; set; }
+    /// <summary>weather: manual location longitude. Unset falls back to IP geolocation.</summary>
+    public double? Lon { get; set; }
+    /// <summary>weather: manual location display label. Unset falls back to the provider's IP-derived label.</summary>
+    public string? City { get; set; }
+    /// <summary>weather: manual location ISO 3166-1 alpha-2 country code, used for the auto C/F unit pick.</summary>
+    public string? Cc { get; set; }
+    /// <summary>weather: C | F | auto. Unset falls back to auto.</summary>
+    public string? Units { get; set; }
 }
 
 public sealed class DeckSystemAction

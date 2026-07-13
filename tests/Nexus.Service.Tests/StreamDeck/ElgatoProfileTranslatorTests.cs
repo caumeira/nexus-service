@@ -428,4 +428,54 @@ public sealed class ElgatoProfileTranslatorTests : IDisposable
         var slot = config.Pages[0].Slots[0];
         Assert.Equal("openFolder", slot.Action!.Type);
     }
+
+    [Fact]
+    public void Translate_Weather_ParsesNestedLocationAndDefaultsUnitsToAuto()
+    {
+        var images = new DeckImageStore(Path.Combine(Path.GetTempPath(), "nexus-elgato-weather-" + Guid.NewGuid().ToString("N")[..8]));
+        var translator = new ElgatoProfileTranslator(images);
+        var profile = new ElgatoProfile { Model = "20GAI9901" };
+        var page = new ElgatoPageData();
+        var settingsJson = JsonSerializer.Serialize(new
+        {
+            city = "Fallback City",
+            location = new { lat = 37.7749, lon = -122.4194, country = "US", city = "San Francisco" },
+        });
+        var settings = JsonDocument.Parse(settingsJson).RootElement.Clone();
+        page.Actions[(0, 0)] = new ElgatoActionData { Uuid = "com.elgato.weather.weather", Name = "Weather", Settings = settings };
+        profile.TopPageIds.Add("only");
+        profile.PagesById["only"] = page;
+
+        var (config, report) = translator.Translate(profile);
+        var slot = config.Pages[0].Slots[0];
+        Assert.Equal("weather", slot.Action!.Type);
+        Assert.Equal(37.7749, slot.Action.Lat);
+        Assert.Equal(-122.4194, slot.Action.Lon);
+        Assert.Equal("San Francisco", slot.Action.City);
+        Assert.Equal("US", slot.Action.Cc);
+        Assert.Equal("auto", slot.Action.Units);
+        Assert.DoesNotContain(report.Unmapped, e => e.Position == "0,0");
+    }
+
+    [Fact]
+    public void Translate_Weather_FallsBackToTopLevelCityWhenLocationMissing()
+    {
+        var images = new DeckImageStore(Path.Combine(Path.GetTempPath(), "nexus-elgato-weather-fallback-" + Guid.NewGuid().ToString("N")[..8]));
+        var translator = new ElgatoProfileTranslator(images);
+        var profile = new ElgatoProfile { Model = "20GAI9901" };
+        var page = new ElgatoPageData();
+        var settingsJson = JsonSerializer.Serialize(new { city = "Fallback City" });
+        var settings = JsonDocument.Parse(settingsJson).RootElement.Clone();
+        page.Actions[(0, 0)] = new ElgatoActionData { Uuid = "com.elgato.weather.weather", Name = "Weather", Settings = settings };
+        profile.TopPageIds.Add("only");
+        profile.PagesById["only"] = page;
+
+        var (config, _) = translator.Translate(profile);
+        var slot = config.Pages[0].Slots[0];
+        Assert.Equal("weather", slot.Action!.Type);
+        Assert.Null(slot.Action.Lat);
+        Assert.Null(slot.Action.Lon);
+        Assert.Equal("Fallback City", slot.Action.City);
+        Assert.Equal("auto", slot.Action.Units);
+    }
 }

@@ -1,5 +1,7 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -9,9 +11,11 @@ using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Models.Peripherals.StreamDeck;
 using Nexus.Service.Models.Sensors;
+using Nexus.Service.Models.Weather;
 using Nexus.Service.Peripherals.Hid;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
+using Nexus.Service.Platform.Weather;
 using Nexus.Service.Rendering;
 using Nexus.Service.Sensors;
 using Nexus.Service.Sockets;
@@ -62,6 +66,20 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private const int MonitoringPushCapPerTick = 4;
     private const int MonitoringHistoryLength = 40;
 
+    /// <summary>Round-robin cap on rendered+pushed weather keys per tick, mirroring MonitoringPushCapPerTick.</summary>
+    private const int WeatherPushCapPerTick = 4;
+    /// <summary>
+    /// Local re-fetch cadence, on top of OpenMeteoWeatherProvider's own cache -
+    /// avoids an async round trip through the provider every tick for a value
+    /// that changes on the order of minutes.
+    /// </summary>
+    private static readonly TimeSpan WeatherRefreshInterval = TimeSpan.FromMinutes(15);
+    /// <summary>ISO 3166-1 alpha-2 codes for the small set of Fahrenheit-default countries/territories.</summary>
+    private static readonly HashSet<string> FahrenheitCountryCodes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "US", "BS", "BZ", "KY", "LR", "PW", "FM", "MH",
+    };
+
     private readonly IHidEnumerator _hid;
     private readonly HardwarePresence _presence;
     private readonly DeviceControlGate _gate;
@@ -70,6 +88,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private readonly StreamDeckImageCache _imageCache;
     private readonly MultiplexHub _hub;
     private readonly ISensorProvider _sensors;
+    private readonly IWeatherProvider? _weather;
 
     /// <summary>
     /// The dev-tools bench simulated deck, if any. Mutable (not just
@@ -163,6 +182,15 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// </summary>
     private readonly HashSet<string> _monitoringPaintedThisTick = new(StringComparer.Ordinal);
 
+    /// <summary>Last-fetched snapshot per weather cache key ("auto" or "{lat},{lon}"), refreshed off the tick thread by PushWeatherKey.</summary>
+    private readonly ConcurrentDictionary<string, WeatherSnapshot> _weatherCache = new(StringComparer.Ordinal);
+    /// <summary>Fetch timestamp per weather cache key, gating WeatherRefreshInterval.</summary>
+    private readonly ConcurrentDictionary<string, DateTimeOffset> _weatherFetchedAt = new(StringComparer.Ordinal);
+    /// <summary>Weather cache keys with a background fetch already in flight, so a slow tick or provider round trip never stacks duplicate fetches for the same location. Guarded by _lock.</summary>
+    private readonly HashSet<string> _weatherFetchInFlight = new(StringComparer.Ordinal);
+    /// <summary>Cursor into the current tick's visible-weather-key list, mirroring _monitoringRoundRobinCursor.</summary>
+    private int _weatherRoundRobinCursor;
+
     private readonly TimeProvider _clock;
 
     public StreamDeckConnectionWorker(
@@ -175,7 +203,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         MultiplexHub hub,
         ISensorProvider sensors,
         SimulatedStreamDeckSurface? simulated = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        IWeatherProvider? weather = null)
     {
         _hid = hid;
         _presence = presence;
@@ -187,6 +216,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _sensors = sensors;
         _simulated = simulated;
         _clock = clock ?? TimeProvider.System;
+        _weather = weather;
     }
 
     /// <summary>A snapshot of every currently tracked surface, keyed by HID path (or "sim" for the simulated deck).</summary>
@@ -416,6 +446,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             PumpSimulatedInput();
             ApplySleepAfterIdle();
             RefreshMonitoringKeys();
+            RefreshWeatherKeys();
         }
     }
 
@@ -1155,6 +1186,189 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             PushCurrentView(surface);
         }
         BroadcastNav(serial, next, new List<int>());
+    }
+
+    /// <summary>A weather slot visible on a connected, awake deck this tick.</summary>
+    private readonly struct WeatherKeyRef
+    {
+        public readonly IStreamDeckSurface Surface;
+        public readonly int KeyIndex;
+        public readonly DeckSlot Slot;
+        public readonly int Orientation;
+
+        public WeatherKeyRef(IStreamDeckSurface surface, int keyIndex, DeckSlot slot, int orientation)
+        {
+            Surface = surface;
+            KeyIndex = keyIndex;
+            Slot = slot;
+            Orientation = orientation;
+        }
+    }
+
+    /// <summary>
+    /// Collects every visible weather key and renders a capped, round-robin
+    /// subset over HID from the local weather cache. Tick() runs under
+    /// _lock, so a live HTTP round trip is never awaited here - a stale or
+    /// missing cache entry instead kicks off a detached background fetch and
+    /// this tick renders nothing for that key until a snapshot lands. No-op
+    /// when no weather provider is wired (e.g. a unit test fixture that never
+    /// passes one).
+    /// </summary>
+    private void RefreshWeatherKeys()
+    {
+        if (_weather is null)
+        {
+            return;
+        }
+
+        var settings = _store.Load().StreamDeck;
+        var visible = new List<WeatherKeyRef>();
+
+        foreach (var surface in _surfaces.Values)
+        {
+            if (!surface.IsConnected)
+            {
+                continue;
+            }
+            if (_asleep.TryGetValue(surface.Serial, out var asleep) && asleep)
+            {
+                continue;
+            }
+            if (!settings.Decks.TryGetValue(surface.Serial, out var deck))
+            {
+                continue;
+            }
+            var config = deck.Deck;
+            var page = ClampCurrentPageLocked(surface.Serial, config);
+            var folderPath = _folderPathsBySerial.TryGetValue(surface.Serial, out var fp) ? fp : new List<int>();
+            var view = DeckConfigNavigation.ResolveView(config, page, folderPath);
+            if (view is null)
+            {
+                continue;
+            }
+
+            var inFolder = folderPath.Count > 0;
+            for (var key = 0; key < surface.Model.KeyCount; key++)
+            {
+                if (inFolder && key == 0)
+                {
+                    continue;
+                }
+                var slotIndex = inFolder ? key - 1 : key;
+                if (slotIndex < 0 || slotIndex >= view.Count)
+                {
+                    continue;
+                }
+                var slot = view[slotIndex];
+                if (slot.Action?.Type != "weather")
+                {
+                    continue;
+                }
+                visible.Add(new WeatherKeyRef(surface, key, slot, deck.Orientation));
+            }
+        }
+
+        if (visible.Count == 0)
+        {
+            return;
+        }
+
+        var pushCount = Math.Min(WeatherPushCapPerTick, visible.Count);
+        for (var i = 0; i < pushCount; i++)
+        {
+            var idx = (_weatherRoundRobinCursor + i) % visible.Count;
+            PushWeatherKey(visible[idx]);
+        }
+        _weatherRoundRobinCursor = (_weatherRoundRobinCursor + pushCount) % visible.Count;
+    }
+
+    /// <summary>Matches OpenMeteoWeatherProvider's own cache-key convention: "auto" for the IP-geolocated path, "{lat},{lon}" for a manual location.</summary>
+    private static string WeatherCacheKey(DeckAction action) =>
+        action.Lat is not null && action.Lon is not null ? $"{action.Lat},{action.Lon}" : "auto";
+
+    /// <summary>
+    /// Renders and pushes one weather key from the local cache, kicking off
+    /// a background refetch when the cached snapshot is stale or missing.
+    /// Caller must hold _lock; the spawned fetch runs detached and only
+    /// re-takes _lock afterward to clear its in-flight marker.
+    /// </summary>
+    private void PushWeatherKey(WeatherKeyRef key)
+    {
+        var action = key.Slot.Action!;
+        var cacheKey = WeatherCacheKey(action);
+        var stale = !_weatherFetchedAt.TryGetValue(cacheKey, out var fetchedAt) ||
+            (_clock.GetUtcNow() - fetchedAt) >= WeatherRefreshInterval;
+
+        if (stale && _weatherFetchInFlight.Add(cacheKey))
+        {
+            var lat = action.Lat;
+            var lon = action.Lon;
+            var city = action.City;
+            var cc = action.Cc;
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var fetched = await _weather!.GetCurrentAsync(lat, lon, city, cc).ConfigureAwait(false);
+                    _weatherCache[cacheKey] = fetched;
+                    _weatherFetchedAt[cacheKey] = _clock.GetUtcNow();
+                }
+                catch (Exception ex)
+                {
+                    ServiceLog.Warn($"[streamdeck] weather fetch failed: {ex.Message}");
+                }
+                finally
+                {
+                    lock (_lock)
+                    {
+                        _weatherFetchInFlight.Remove(cacheKey);
+                    }
+                }
+            });
+        }
+
+        if (!_weatherCache.TryGetValue(cacheKey, out var snapshot))
+        {
+            return;
+        }
+
+        var input = BuildWeatherTileInput(snapshot, action, key.Slot);
+        var wireBytes = RenderWeatherTileWireBytes(input, key.Surface.Model, key.Orientation);
+        if (wireBytes is not null)
+        {
+            key.Surface.SetKeyImage(key.KeyIndex, wireBytes);
+        }
+    }
+
+    private static WeatherTileInput BuildWeatherTileInput(WeatherSnapshot snapshot, DeckAction action, DeckSlot slot)
+    {
+        var unit = ResolveWeatherUnit(action.Units, snapshot.CountryCode);
+        var temperature = unit == "F" ? snapshot.TemperatureF : snapshot.TemperatureC;
+        var temperatureText = temperature is null
+            ? ""
+            : $"{Math.Round(temperature.Value).ToString(CultureInfo.InvariantCulture)}°{unit}";
+        return new WeatherTileInput
+        {
+            TemperatureText = temperatureText,
+            LocationLabel = string.IsNullOrEmpty(action.City) ? snapshot.LocationLabel : action.City,
+            WeatherCode = snapshot.WeatherCode,
+            BackgroundColorHex = slot.Color,
+        };
+    }
+
+    /// <summary>"auto" (or unset) picks Fahrenheit for the small set of Fahrenheit-default countries (FahrenheitCountryCodes), Celsius otherwise; "F"/"C" are explicit.</summary>
+    private static string ResolveWeatherUnit(string? units, string countryCode) => units switch
+    {
+        "F" => "F",
+        "C" => "C",
+        _ => FahrenheitCountryCodes.Contains(countryCode) ? "F" : "C",
+    };
+
+    /// <summary>Renders a weather tile input to this surface's wire bytes, mirroring RenderMonitoringTileWireBytes.</summary>
+    private static byte[]? RenderWeatherTileWireBytes(WeatherTileInput input, StreamDeckModel model, int orientation)
+    {
+        using var rendered = WeatherTileRenderer.Render(input, model.KeyPixelSize);
+        return DeckImageToWireBytes(rendered, model, orientation);
     }
 
     /// <summary>A monitoring slot visible on a connected, awake deck this tick.</summary>

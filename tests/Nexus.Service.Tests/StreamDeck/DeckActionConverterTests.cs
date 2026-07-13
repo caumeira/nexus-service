@@ -459,6 +459,46 @@ public class DeckActionConverterTests
     }
 
     [Fact]
+    public void Weather_AllFieldsPresent_RoundTrips()
+    {
+        var json = "{\"type\":\"weather\",\"lat\":37.7749,\"lon\":-122.4194,\"city\":\"San Francisco\",\"cc\":\"US\",\"units\":\"F\"}";
+        var a = Deserialize(json);
+        Assert.Equal("weather", a.Type);
+        Assert.Equal(37.7749, a.Lat);
+        Assert.Equal(-122.4194, a.Lon);
+        Assert.Equal("San Francisco", a.City);
+        Assert.Equal("US", a.Cc);
+        Assert.Equal("F", a.Units);
+
+        var b = RoundTrip(a);
+        Assert.Equal(a.Lat, b.Lat);
+        Assert.Equal(a.Lon, b.Lon);
+        Assert.Equal(a.City, b.City);
+        Assert.Equal(a.Cc, b.Cc);
+        Assert.Equal(a.Units, b.Units);
+    }
+
+    [Fact]
+    public void Weather_OptionalFieldsOmitted_DefaultToNullAndDoNotSerialize()
+    {
+        var a = Deserialize("{\"type\":\"weather\"}");
+        Assert.Null(a.Lat);
+        Assert.Null(a.Lon);
+        Assert.Null(a.City);
+        Assert.Null(a.Cc);
+        Assert.Null(a.Units);
+
+        var raw = JsonSerializer.Serialize(a, AppJsonContext.Default.DeckAction);
+        using var doc = JsonDocument.Parse(raw);
+        var root = doc.RootElement;
+        Assert.False(root.TryGetProperty("lat", out _));
+        Assert.False(root.TryGetProperty("lon", out _));
+        Assert.False(root.TryGetProperty("city", out _));
+        Assert.False(root.TryGetProperty("cc", out _));
+        Assert.False(root.TryGetProperty("units", out _));
+    }
+
+    [Fact]
     public void PersistenceJsonContext_UsesTheSameConverter()
     {
         var json = "{\"type\":\"power\",\"action\":\"sleep\"}";

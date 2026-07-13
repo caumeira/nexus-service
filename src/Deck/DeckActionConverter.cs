@@ -141,6 +141,26 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         {
             action.Max = maxEl.GetDouble();
         }
+        if (root.TryGetProperty("lat", out var latEl) && latEl.ValueKind == JsonValueKind.Number)
+        {
+            action.Lat = latEl.GetDouble();
+        }
+        if (root.TryGetProperty("lon", out var lonEl) && lonEl.ValueKind == JsonValueKind.Number)
+        {
+            action.Lon = lonEl.GetDouble();
+        }
+        if (root.TryGetProperty("city", out var cityEl) && cityEl.ValueKind == JsonValueKind.String)
+        {
+            action.City = cityEl.GetString();
+        }
+        if (root.TryGetProperty("cc", out var ccEl) && ccEl.ValueKind == JsonValueKind.String)
+        {
+            action.Cc = ccEl.GetString();
+        }
+        if (root.TryGetProperty("units", out var unitsEl) && unitsEl.ValueKind == JsonValueKind.String)
+        {
+            action.Units = unitsEl.GetString();
+        }
 
         if (root.TryGetProperty("action", out var actionEl))
         {
@@ -270,6 +290,26 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         if (value.Max is not null)
         {
             writer.WriteNumber("max", value.Max.Value);
+        }
+        if (value.Lat is not null)
+        {
+            writer.WriteNumber("lat", value.Lat.Value);
+        }
+        if (value.Lon is not null)
+        {
+            writer.WriteNumber("lon", value.Lon.Value);
+        }
+        if (value.City is not null)
+        {
+            writer.WriteString("city", value.City);
+        }
+        if (value.Cc is not null)
+        {
+            writer.WriteString("cc", value.Cc);
+        }
+        if (value.Units is not null)
+        {
+            writer.WriteString("units", value.Units);
         }
 
         switch (value.Type)

@@ -407,6 +407,13 @@ public sealed class DeckActionExecutorTests : IDisposable
     }
 
     [Fact]
+    public async Task Weather_IsADisplayOnlyNoOpThatReportsOk()
+    {
+        await Run(new DeckAction { Type = "weather", City = "Boston", Units = "auto" });
+        Assert.Equal(("ok", (string?)null), _executor.LastOutcome);
+    }
+
+    [Fact]
     public async Task Nexus_RgbEffect_StartsAnimateWithStartAnimateDefaults()
     {
         await Run(new DeckAction { Type = "nexus", NexusAction = new DeckNexusAction { Op = "rgbEffect", Effect = "rainbow" } });

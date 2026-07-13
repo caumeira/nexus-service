@@ -194,6 +194,8 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
             case "monitoring":
                 DispatchMonitoringPress(action.Press);
                 return DispatchOutcome.Ok;
+            case "weather":
+                return DispatchOutcome.Ok;
             default:
                 // "page" is worker-handled (StreamDeckConnectionWorker
                 // intercepts it before ever reaching the executor) and

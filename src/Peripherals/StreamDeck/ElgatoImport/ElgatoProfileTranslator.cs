@@ -382,9 +382,44 @@ public sealed class ElgatoProfileTranslator
                 return (new DeckAction { Type = "page", Op = "prev" }, null, null);
             case ElgatoActionTypes.LhmReading:
                 return BuildLhmReadingAction(action);
+            case ElgatoActionTypes.Weather:
+                return BuildWeatherAction(action);
             default:
                 return (null, null, null);
         }
+    }
+
+    /// <summary>Reads Kanali's nested location object first (lat/lon/city/country), falling back to the top-level city when location is absent. Always mapped, units default to auto so the key follows the host's own C/F preference.</summary>
+    private static (DeckAction?, string?, string?) BuildWeatherAction(ElgatoActionData action)
+    {
+        double? lat = null;
+        double? lon = null;
+        string? city = null;
+        string? country = null;
+        if (action.Settings.ValueKind == JsonValueKind.Object &&
+            action.Settings.TryGetProperty("location", out var locationEl) &&
+            locationEl.ValueKind == JsonValueKind.Object)
+        {
+            lat = ElgatoJson.GetDouble(locationEl, "lat");
+            lon = ElgatoJson.GetDouble(locationEl, "lon");
+            city = ElgatoJson.GetString(locationEl, "city");
+            country = ElgatoJson.GetString(locationEl, "country");
+        }
+        if (string.IsNullOrEmpty(city))
+        {
+            city = ElgatoJson.GetString(action.Settings, "city");
+        }
+
+        var deckAction = new DeckAction
+        {
+            Type = "weather",
+            Lat = lat,
+            Lon = lon,
+            City = city,
+            Cc = country,
+            Units = "auto",
+        };
+        return (deckAction, null, null);
     }
 
     /// <summary>
