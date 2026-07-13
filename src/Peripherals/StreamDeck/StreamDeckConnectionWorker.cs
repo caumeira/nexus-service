@@ -781,12 +781,14 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             return;
         }
 
-        // A blank key (an empty slot, or a physical key past the configured
-        // slots - both show nothing) starts a hold-to-edit instead of the
-        // no-op a press on nothing used to be: hold to open the editor at this
-        // key. Any real action/folder/page slot keeps its existing behavior.
+        // A blank (off) key - a key past the configured slots, or an empty slot
+        // with no action, folder, or color (IsBlankOffSlot, the same keys that
+        // render off) - starts a hold-to-edit instead of the no-op a press on
+        // nothing used to be. A key with an action, folder, or decorative color
+        // keeps its existing press behavior (so a colored key restores its fill
+        // on release rather than being stranded on the ring frame).
         var slot = slotIndex < view.Count ? view[slotIndex] : null;
-        if (slot is null || (slot.Action is null && slot.Folder is null))
+        if (slot is null || IsBlankOffSlot(slot))
         {
             StartHoldEdit(surface, physicalIndex, page, folderPath, slotIndex);
             return;

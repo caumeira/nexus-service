@@ -156,6 +156,23 @@ public sealed class StreamDeckHoldToEditTests : IDisposable
     }
 
     [Fact]
+    public void Hold_ColorOnlyKey_DoesNotStartHold()
+    {
+        // A color-only decorative key (no action) is not "blank off": pressing
+        // it must not start the ring, so it keeps its fill instead of being
+        // stranded on the ring frame.
+        ConnectWith(new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Color = "#ff0000" } } } } });
+
+        _simulated.Poke(0, true);
+        _worker.Tick();
+        Assert.False(_worker.HasActiveHold("sim-0001", 0));
+
+        _clock.Advance(TimeSpan.FromSeconds(1));
+        _worker.AnimateHolds();
+        Assert.False(_worker.TryGetPendingEdit(out _));
+    }
+
+    [Fact]
     public void Hold_KeyPastConfiguredSlots_FiresForThatSlotIndex()
     {
         // An empty page: every physical key is blank (past the 0 configured
@@ -239,8 +256,9 @@ public sealed class DeckHoldPromptRendererTests
                 var row = accessor.GetRowSpan(y);
                 for (var x = 0; x < row.Length; x++)
                 {
-                    // The accent has a high blue and a low red; the white
-                    // pencil has all channels high, the black background none.
+                    // The accent fill has a high blue and a low red; the black
+                    // background and faint track ring do not, so this counts
+                    // only the filled arc.
                     if (row[x].B >= 200 && row[x].R <= 160)
                     {
                         count++;
