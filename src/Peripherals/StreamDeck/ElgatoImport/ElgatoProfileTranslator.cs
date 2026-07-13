@@ -483,7 +483,10 @@ public sealed class ElgatoProfileTranslator
         {
             return null;
         }
-        var isDir = path.EndsWith('/') || path.EndsWith('\\') || (Path.IsPathRooted(path) && Directory.Exists(path));
+        // A .app bundle is a directory on disk, but the OS "open" launches it
+        // like a file - never route it to openFolder.
+        var isDir = !path.EndsWith(".app", StringComparison.OrdinalIgnoreCase) &&
+            (path.EndsWith('/') || path.EndsWith('\\') || (Path.IsPathRooted(path) && Directory.Exists(path)));
         return new DeckAction { Type = isDir ? "openFolder" : "openFile", Path = path };
     }
 
