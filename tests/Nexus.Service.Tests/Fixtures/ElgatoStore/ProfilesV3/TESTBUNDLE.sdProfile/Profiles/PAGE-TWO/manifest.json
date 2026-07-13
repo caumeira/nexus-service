@@ -425,7 +425,7 @@
               "OutlineThickness": 2
             }
           ],
-          "UUID": "com.moeilijk.lhm.reading"
+          "UUID": "com.example.cpumeter.gauge"
         }
       },
       "Type": "Keypad"

@@ -380,9 +380,65 @@ public sealed class ElgatoProfileTranslator
                 return (new DeckAction { Type = "page", Op = "next" }, null, null);
             case ElgatoActionTypes.PagePrevious:
                 return (new DeckAction { Type = "page", Op = "prev" }, null, null);
+            case ElgatoActionTypes.LhmReading:
+                return BuildLhmReadingAction(action);
             default:
                 return (null, null, null);
         }
+    }
+
+    /// <summary>
+    /// Best-effort map: the LHM plugin key carries no Nexus sensor id, only a
+    /// per-machine sensorUid path, so this can only guess the category and
+    /// leave Sensor empty for the web's self-heal seed to resolve. Always
+    /// mapped (never a failure reason) since a category guess plus an empty
+    /// sensor is still a usable starting point.
+    /// </summary>
+    private static (DeckAction?, string?, string?) BuildLhmReadingAction(ElgatoActionData action)
+    {
+        var sensorUid = ElgatoJson.GetString(action.Settings, "sensorUid") ?? "";
+        var deckAction = new DeckAction
+        {
+            Type = "monitoring",
+            Category = ResolveLhmCategory(sensorUid),
+            Sensor = "",
+            Style = "number",
+            Min = ElgatoJson.GetDouble(action.Settings, "min"),
+            Max = ElgatoJson.GetDouble(action.Settings, "max"),
+        };
+        return (deckAction, null, "monitoringSensor");
+    }
+
+    /// <summary>Maps LHM's hardware-tree sensorUid prefix to a deck monitoring category; an unrecognized or absent prefix falls to the quick summary set.</summary>
+    private static string ResolveLhmCategory(string sensorUid)
+    {
+        if (sensorUid.StartsWith("/amdcpu", StringComparison.OrdinalIgnoreCase) ||
+            sensorUid.StartsWith("/intelcpu", StringComparison.OrdinalIgnoreCase))
+        {
+            return "cpu";
+        }
+        if (sensorUid.StartsWith("/gpu", StringComparison.OrdinalIgnoreCase))
+        {
+            return "gpu";
+        }
+        if (sensorUid.StartsWith("/ram", StringComparison.OrdinalIgnoreCase))
+        {
+            return "memory";
+        }
+        if (sensorUid.StartsWith("/nvme", StringComparison.OrdinalIgnoreCase) ||
+            sensorUid.StartsWith("/hdd", StringComparison.OrdinalIgnoreCase) ||
+            sensorUid.StartsWith("/ssd", StringComparison.OrdinalIgnoreCase) ||
+            sensorUid.StartsWith("/storage", StringComparison.OrdinalIgnoreCase))
+        {
+            return "storage";
+        }
+        if (sensorUid.StartsWith("/lpc", StringComparison.OrdinalIgnoreCase) ||
+            sensorUid.StartsWith("/mobo", StringComparison.OrdinalIgnoreCase) ||
+            sensorUid.StartsWith("/superio", StringComparison.OrdinalIgnoreCase))
+        {
+            return "motherboard";
+        }
+        return "quick";
     }
 
     private static (DeckAction?, string?, string?) BuildHotkeyAction(ElgatoActionData action)

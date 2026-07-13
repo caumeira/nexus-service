@@ -39,7 +39,7 @@ public sealed class ElgatoProfileTranslatorTests : IDisposable
     {
         var (_, report) = _translator.Translate(ReadFixtureProfile());
         Assert.Equal(29, report.TotalKeys);
-        Assert.Equal(20, report.MappedKeys);
+        Assert.Equal(21, report.MappedKeys);
         Assert.Equal(12, report.Unmapped.Count);
     }
 
@@ -207,14 +207,56 @@ public sealed class ElgatoProfileTranslatorTests : IDisposable
     }
 
     [Fact]
-    public void Translate_PluginActionWithoutImage_IsPlaceholderKeepingLabel()
+    public void Translate_Lhm_MapsToMonitoringWithCategoryMinMaxAndKeepsLabel()
     {
         var (config, report) = _translator.Translate(ReadFixtureProfile());
         var slot = Slot(config, 0, 4, 2);
-        Assert.Null(slot.Action);
+        Assert.Equal("monitoring", slot.Action!.Type);
+        Assert.Equal("cpu", slot.Action.Category);
+        Assert.Equal("", slot.Action.Sensor);
+        Assert.Equal("number", slot.Action.Style);
+        Assert.Equal(0, slot.Action.Min);
+        Assert.Equal(100, slot.Action.Max);
         Assert.Null(slot.Icon);
         Assert.Equal("CPU", slot.Label);
-        Assert.Contains(report.Unmapped, e => e.Page == 1 && e.Position == "4,2" && e.Reason == "plugin" && e.Detail == "com.moeilijk.lhm.reading");
+        Assert.Contains(report.Unmapped, e => e.Page == 1 && e.Position == "4,2" && e.Reason == "monitoringSensor");
+    }
+
+    [Theory]
+    [InlineData("/amdcpu/0", "cpu")]
+    [InlineData("/intelcpu/0", "cpu")]
+    [InlineData("/GPU/nvidia/0", "gpu")]
+    [InlineData("/ram/0", "memory")]
+    [InlineData("/nvme/0", "storage")]
+    [InlineData("/hdd/0", "storage")]
+    [InlineData("/ssd/0", "storage")]
+    [InlineData("/storage/0", "storage")]
+    [InlineData("/lpc/nct6798d/0", "motherboard")]
+    [InlineData("/mobo/0", "motherboard")]
+    [InlineData("/superio/0", "motherboard")]
+    [InlineData("/battery/0", "quick")]
+    [InlineData("", "quick")]
+    public void Translate_Lhm_ResolvesCategoryFromSensorUidPrefix(string sensorUid, string expectedCategory)
+    {
+        var images = new DeckImageStore(Path.Combine(Path.GetTempPath(), "nexus-elgato-lhm-" + Guid.NewGuid().ToString("N")[..8]));
+        var translator = new ElgatoProfileTranslator(images);
+        var profile = new ElgatoProfile { Model = "20GAI9901" };
+        var page = new ElgatoPageData();
+        var settingsJson = JsonSerializer.Serialize(new { sensorUid, min = 10, max = 90 });
+        var settings = JsonDocument.Parse(settingsJson).RootElement.Clone();
+        page.Actions[(0, 0)] = new ElgatoActionData { Uuid = "com.moeilijk.lhm.reading", Name = "Reading", Settings = settings };
+        profile.TopPageIds.Add("only");
+        profile.PagesById["only"] = page;
+
+        var (config, report) = translator.Translate(profile);
+        var slot = config.Pages[0].Slots[0];
+        Assert.Equal("monitoring", slot.Action!.Type);
+        Assert.Equal(expectedCategory, slot.Action.Category);
+        Assert.Equal("", slot.Action.Sensor);
+        Assert.Equal("number", slot.Action.Style);
+        Assert.Equal(10, slot.Action.Min);
+        Assert.Equal(90, slot.Action.Max);
+        Assert.Contains(report.Unmapped, e => e.Reason == "monitoringSensor");
     }
 
     [Fact]

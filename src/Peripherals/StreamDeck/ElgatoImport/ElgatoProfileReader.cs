@@ -20,6 +20,7 @@ internal static class ElgatoActionTypes
     public const string BackToParent = "com.elgato.streamdeck.profile.backtoparent";
     public const string Routine2 = "com.elgato.streamdeck.multiactions.routine2";
     public const string MultiActionLegacy = "com.elgato.streamdeck.multiactions.multiaction";
+    public const string LhmReading = "com.moeilijk.lhm.reading";
     public const string TutorialPrefix = "com.elgato.tutorial.";
     public const string BuiltinPrefix = "com.elgato.streamdeck.";
 
@@ -39,6 +40,12 @@ internal static class ElgatoJson
     public static int? GetInt(JsonElement obj, string prop) =>
         obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(prop, out var el) &&
         el.ValueKind == JsonValueKind.Number && el.TryGetInt32(out var v)
+            ? v
+            : null;
+
+    public static double? GetDouble(JsonElement obj, string prop) =>
+        obj.ValueKind == JsonValueKind.Object && obj.TryGetProperty(prop, out var el) &&
+        el.ValueKind == JsonValueKind.Number && el.TryGetDouble(out var v)
             ? v
             : null;
 

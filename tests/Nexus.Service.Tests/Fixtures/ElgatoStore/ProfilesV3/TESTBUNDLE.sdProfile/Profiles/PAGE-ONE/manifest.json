@@ -555,7 +555,12 @@
           "LinkedTitle": false,
           "Name": "CPU Temp",
           "Resources": null,
-          "Settings": {},
+          "Settings": {
+            "sensorUid": "/amdcpu/0",
+            "readingLabel": "Core #1",
+            "min": 0,
+            "max": 100
+          },
           "State": 0,
           "States": [
             {
