@@ -11,9 +11,11 @@ namespace Nexus.Service.Persistence;
 /// block; Dashboard copies the desktop-side per-profile state (monitoring view
 /// state, fan-channel order, the desktop dashboard layout, overlay floating
 /// widgets, conflict-alert toggle); Device copies the entire
-/// <see cref="StreamDeckSettings"/> block, making Stream Deck bindings
-/// profile-scoped instead of workstation-global. Panel cosmetics + AutoLaunch
-/// live at the NexusSettings root under <see cref="PanelSettings"/>; they're
+/// <see cref="StreamDeckSettings"/> and <see cref="KeebSettings"/> blocks,
+/// making Stream Deck bindings and keyboard personalization (macros, key
+/// overrides, rotary, game mode, firmware lighting, layers) profile-scoped
+/// instead of workstation-global. Panel cosmetics + AutoLaunch live at the
+/// NexusSettings root under <see cref="PanelSettings"/>; they're
 /// workstation-level (they describe how panel devices look and behave, not the
 /// active profile) so they are NEVER copied via sharing.
 /// </summary>
@@ -74,6 +76,7 @@ public static class ProfileSharing
                 break;
             case Device:
                 target.StreamDeck = source.StreamDeck;
+                target.Keeb = source.Keeb;
                 break;
         }
     }
@@ -104,6 +107,7 @@ public static class ProfileSharing
                 break;
             case Device:
                 target.StreamDeck = new StreamDeckSettings();
+                target.Keeb = new KeebSettings();
                 break;
         }
     }

@@ -220,4 +220,29 @@ public class ProfileSwitchTests : IDisposable
         Assert.True(afterSecond.StreamDeck.Decks.ContainsKey("SN-SECOND"));
         Assert.False(afterSecond.StreamDeck.Decks.ContainsKey("SN-DEFAULT"));
     }
+
+    [Fact]
+    public void SwitchProfile_WithDevicePerProfile_LoadsTargetProfilesKeeb()
+    {
+        var activeId = _profiles.GetActiveEntry()!.Id;
+        // Device defaults to Shared; opt out so each profile's keeb settings
+        // can diverge, matching how a user would configure per-profile keeb
+        // personalization.
+        _profiles.SetCategoryShared(ProfileSharing.Device, shared: false);
+
+        _store.Update(s => s.Keeb.RotaryLeft = "Volume");
+        _store.FlushNow();
+        _profiles.SaveActiveProfile();
+
+        var second = _profiles.CreateProfile("Second");
+        _store.Update(s => s.Keeb.RotaryLeft = "Scroll");
+        _store.FlushNow();
+        _profiles.SaveActiveProfile();
+
+        _profiles.SwitchProfile(activeId);
+        Assert.Equal("Volume", _store.Load().Keeb.RotaryLeft);
+
+        _profiles.SwitchProfile(second.Id);
+        Assert.Equal("Scroll", _store.Load().Keeb.RotaryLeft);
+    }
 }

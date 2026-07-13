@@ -5,11 +5,14 @@ namespace Nexus.Service.Tests.Integration;
 /// <summary>
 /// Covers the one-time Initialize() seed that protects pre-device profile
 /// files from a data-loss switch: those files were written before the
-/// "device" sharing category existed, so their StreamDeck block is stale
-/// (always empty) even though the live settings.json may carry a real deck.
-/// Each test writes profiles.json / profile-*.json / settings.json directly
-/// (bypassing ProfileManager) to reproduce that pre-upgrade on-disk state,
-/// then constructs a fresh ProfileManager over it.
+/// "device" sharing category (Stream Deck + Keeb) existed, so their
+/// StreamDeck/Keeb blocks are stale defaults even though the live
+/// settings.json may carry real values. Gated by the
+/// <see cref="NexusSettings.DeviceCategorySeeded"/> marker rather than
+/// content, so it runs exactly once regardless of what any profile file
+/// already holds. Each test writes profiles.json / profile-*.json /
+/// settings.json directly (bypassing ProfileManager) to reproduce that
+/// pre-upgrade on-disk state, then constructs a fresh ProfileManager over it.
 /// </summary>
 public class ProfileManagerDeviceSeedTests : IDisposable
 {
@@ -43,7 +46,7 @@ public class ProfileManagerDeviceSeedTests : IDisposable
         File.ReadAllText(Path.Combine(_tempDir, $"profile-{id}.json"));
 
     [Fact]
-    public void Initialize_SeedsRootDeckIntoEveryProfileFile_WhenNoneCarryADeck()
+    public void Initialize_SeedsRootStreamDeckAndKeebIntoEveryProfileFile_WhenMarkerNotSet()
     {
         WriteManifest("p1", "p1", "p2");
         WriteProfileFile("p1", "{}");
@@ -51,7 +54,8 @@ public class ProfileManagerDeviceSeedTests : IDisposable
         File.WriteAllText(_settingsPath, $$"""
         {
           "schemaVersion": {{NexusSettings.CurrentSchemaVersion}},
-          "streamDeck": { "decks": { "SN-ROOT": { "name": "Root Deck" } } }
+          "streamDeck": { "decks": { "SN-ROOT": { "name": "Root Deck" } } },
+          "keeb": { "rotaryLeft": "Volume" }
         }
         """);
 
@@ -63,6 +67,9 @@ public class ProfileManagerDeviceSeedTests : IDisposable
 
             Assert.Contains("\"SN-ROOT\"", ReadProfileFile("p1"));
             Assert.Contains("\"SN-ROOT\"", ReadProfileFile("p2"));
+            Assert.Contains("\"Volume\"", ReadProfileFile("p1"));
+            Assert.Contains("\"Volume\"", ReadProfileFile("p2"));
+            Assert.True(store.Load().DeviceCategorySeeded);
         }
         finally
         {
@@ -72,11 +79,14 @@ public class ProfileManagerDeviceSeedTests : IDisposable
     }
 
     [Fact]
-    public void Initialize_DoesNotSeed_WhenAnyProfileAlreadyCarriesADeck()
+    public void Initialize_SeedsEvenWhenAProfileAlreadyCarriesADivergentDeck()
     {
+        // Marker-gated, not content-guarded: a profile with its own device
+        // data still gets overwritten by the one-time seed, since the marker
+        // means this is the FIRST boot on a release that introduces Keeb into
+        // the device category.
         WriteManifest("p1", "p1", "p2");
         WriteProfileFile("p1", "{}");
-        // p2 already carries its own, genuinely-divergent deck.
         WriteProfileFile("p2", """{ "streamDeck": { "decks": { "SN-OWN": { "name": "P2 Own Deck" } } } }""");
         File.WriteAllText(_settingsPath, $$"""
         {
@@ -91,12 +101,10 @@ public class ProfileManagerDeviceSeedTests : IDisposable
         {
             pm.Initialize();
 
-            // p1 stays untouched (no seed at all when any profile diverges).
-            Assert.DoesNotContain("SN-ROOT", ReadProfileFile("p1"));
-            // p2 keeps its own deck, not overwritten by the root deck.
+            Assert.Contains("SN-ROOT", ReadProfileFile("p1"));
             var p2Json = ReadProfileFile("p2");
-            Assert.Contains("SN-OWN", p2Json);
-            Assert.DoesNotContain("SN-ROOT", p2Json);
+            Assert.Contains("SN-ROOT", p2Json);
+            Assert.DoesNotContain("SN-OWN", p2Json);
         }
         finally
         {
@@ -106,14 +114,16 @@ public class ProfileManagerDeviceSeedTests : IDisposable
     }
 
     [Fact]
-    public void Initialize_DoesNotSeed_WhenRootHasNoDeck()
+    public void Initialize_DoesNotReSeed_WhenMarkerAlreadySet()
     {
-        WriteManifest("p1", "p1", "p2");
+        WriteManifest("p1", "p1");
         WriteProfileFile("p1", "{}");
-        WriteProfileFile("p2", "{}");
         File.WriteAllText(_settingsPath, $$"""
         {
-          "schemaVersion": {{NexusSettings.CurrentSchemaVersion}}
+          "schemaVersion": {{NexusSettings.CurrentSchemaVersion}},
+          "deviceCategorySeeded": true,
+          "streamDeck": { "decks": { "SN-ROOT": { "name": "Root Deck" } } },
+          "keeb": { "rotaryLeft": "Volume" }
         }
         """);
 
@@ -123,8 +133,10 @@ public class ProfileManagerDeviceSeedTests : IDisposable
         {
             pm.Initialize();
 
-            Assert.DoesNotContain("decks", ReadProfileFile("p1"));
-            Assert.DoesNotContain("decks", ReadProfileFile("p2"));
+            // The marker was already set, so root's live values must NOT be
+            // stamped into the profile file - it stays exactly what it was.
+            Assert.DoesNotContain("SN-ROOT", ReadProfileFile("p1"));
+            Assert.DoesNotContain("Volume", ReadProfileFile("p1"));
         }
         finally
         {
@@ -132,4 +144,5 @@ public class ProfileManagerDeviceSeedTests : IDisposable
             store.Dispose();
         }
     }
+
 }

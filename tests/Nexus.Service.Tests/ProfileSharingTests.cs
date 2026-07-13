@@ -38,6 +38,22 @@ public class ProfileSharingTests
     }
 
     [Fact]
+    public void ApplyCategory_Device_ReplacesTargetKeebWithSources()
+    {
+        var source = new NexusSettings();
+        source.Keeb.RotaryLeft = "Volume";
+        source.Keeb.GameMode.AltF4 = true;
+
+        var target = new NexusSettings();
+        target.Keeb.RotaryLeft = "Scroll";
+
+        ProfileSharing.ApplyCategory(target, source, ProfileSharing.Device);
+
+        Assert.Equal("Volume", target.Keeb.RotaryLeft);
+        Assert.True(target.Keeb.GameMode.AltF4);
+    }
+
+    [Fact]
     public void ApplyCategory_Device_LeavesOtherCategoriesOnTargetUntouched()
     {
         var source = new NexusSettings();
@@ -60,5 +76,18 @@ public class ProfileSharingTests
         ProfileSharing.ResetCategory(target, ProfileSharing.Device);
 
         Assert.Empty(target.StreamDeck.Decks);
+    }
+
+    [Fact]
+    public void ResetCategory_Device_ClearsKeebToFreshDefault()
+    {
+        var target = new NexusSettings();
+        target.Keeb.RotaryLeft = "Volume";
+        target.Keeb.GameMode.AltF4 = true;
+
+        ProfileSharing.ResetCategory(target, ProfileSharing.Device);
+
+        Assert.Equal(new KeebSettings().RotaryLeft, target.Keeb.RotaryLeft);
+        Assert.False(target.Keeb.GameMode.AltF4);
     }
 }

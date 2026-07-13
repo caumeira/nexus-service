@@ -95,21 +95,19 @@ public sealed class ProfileManager : IDisposable
                     .ToList();
             });
 
-            // Pre-device profile files carry an empty StreamDeck block
-            // (Device predates this sharing category); without seeding,
-            // the first profile switch after upgrade would load that empty
-            // block and wipe the user's live Stream Deck bindings. Seeds
-            // only when no profile file already carries a deck, so a fresh
-            // install and a machine with genuine per-profile deck data are
-            // both left untouched.
+            // Pre-device profile files carry default StreamDeck+Keeb blocks
+            // (Device predates both); this seeds root's live values into
+            // every profile file exactly once so the first switch after
+            // upgrade does not wipe them. The marker gates only this initial
+            // seed - blocks added to the device category later are not covered.
             var root = _store.Load();
-            if (root.StreamDeck?.Decks?.Count > 0 &&
-                !_manifest.Profiles.Any(p => ReadProfileFile(p.Id)?.StreamDeck?.Decks?.Count > 0))
+            if (!root.DeviceCategorySeeded)
             {
                 foreach (var p in _manifest.Profiles)
                 {
                     UpdateProfileFile(p.Id, new[] { ProfileSharing.Device }, root);
                 }
+                _store.Update(s => s.DeviceCategorySeeded = true);
             }
 
             // Every settings mutation marks the active profile dirty so the
@@ -738,9 +736,10 @@ public sealed class ProfileManager : IDisposable
     private void LoadProfileIntoSettings(string profileId)
     {
         // Profile JSONs only carry per-profile data (Lighting, Cooling,
-        // Device, and the Theme + Dashboard subsets of Ui). Hardware-bound
-        // state (Keeb, Y70, Devices, every Panel* field on Ui, the OS
-        // tray/status toggles) lives at NexusSettings root and follows the
+        // Device, and the Theme + Dashboard subsets of Ui). Keeb is now
+        // profile-scoped via the Device category (ApplyCategory below).
+        // Hardware-bound state (Y70, Devices, every Panel* field on Ui, the
+        // OS tray/status toggles) lives at NexusSettings root and follows the
         // device, not the active profile - so we do not copy those sections
         // from the profile file. They keep whatever the canonical
         // settings.json already loaded into in-memory.
