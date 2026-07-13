@@ -951,6 +951,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _monitoringLastHash.Remove(BuildMonitoringKey(serial, page, slotPath));
     }
 
+    /// <summary>An unassigned key: no action, no folder, and no explicit background color, so it renders off (blank black) rather than an uploaded fill. A color-only slot stays a decorative colored key.</summary>
+    private static bool IsBlankOffSlot(DeckSlot slot) =>
+        slot.Action is null && slot.Folder is null && string.IsNullOrEmpty(slot.Color);
+
     /// <summary>
     /// Resolves the wire bytes currently mapped to a leaf/toggle slot (state
     /// "0" or "1", matching PushCurrentView's per-key resolution) plus the
@@ -1604,6 +1608,14 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
                 var keyRef = new MonitoringKeyRef(surface, key, BuildMonitoringKey(surface.Serial, page, slotPath), slot, deck?.Orientation ?? 0);
                 PushMonitoringPlaceholder(keyRef, tempUnit, numberFormat);
                 monitoringKeys.Add(keyRef);
+                continue;
+            }
+            // An unassigned key renders off (black), matching the deck's own
+            // firmware, instead of the category-default fill the editor uploads
+            // for an empty slot.
+            if (IsBlankOffSlot(slot))
+            {
+                surface.ClearKey(key);
                 continue;
             }
 

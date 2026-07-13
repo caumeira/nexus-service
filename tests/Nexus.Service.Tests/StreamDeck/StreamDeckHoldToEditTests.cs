@@ -30,6 +30,7 @@ public sealed class StreamDeckHoldToEditTests : IDisposable
     private readonly FakeDeckActionExecutor _executor = new();
     private readonly FakeSensorProvider _sensors = new();
     private readonly ManualTimeProvider _clock = new(DateTimeOffset.UtcNow);
+    private readonly StreamDeckImageCache _imageCache;
     private readonly SimulatedStreamDeckSurface _simulated;
     private readonly StreamDeckConnectionWorker _worker;
 
@@ -39,9 +40,9 @@ public sealed class StreamDeckHoldToEditTests : IDisposable
         var presence = new HardwarePresence(new FixedUsbEnumerator());
         var gate = new DeviceControlGate(_store);
         gate.SetEnabled("streamdeck", true);
-        var imageCache = new StreamDeckImageCache(_imageCacheDir);
+        _imageCache = new StreamDeckImageCache(_imageCacheDir);
         _worker = new StreamDeckConnectionWorker(
-            new FakeWorkerHidEnumerator(), presence, gate, _store, _executor, imageCache, new MultiplexHub(), _sensors,
+            new FakeWorkerHidEnumerator(), presence, gate, _store, _executor, _imageCache, new MultiplexHub(), _sensors,
             _simulated, _clock);
     }
 
@@ -140,6 +141,46 @@ public sealed class StreamDeckHoldToEditTests : IDisposable
 
         Assert.True(_worker.TryGetPendingEdit(out var edit));
         Assert.Equal(3, edit.SlotIndex);
+    }
+
+    [Fact]
+    public void PushCurrentView_UnassignedKey_RendersOffDespiteUploadedImage()
+    {
+        // An empty, colorless slot with a stale uploaded fill (what the editor
+        // used to push for a blank key) must still render off (black), not grey.
+        var bytes = new byte[] { 9, 8, 7, 6 };
+        var hash = StreamDeckImageCache.Hash(bytes);
+        _imageCache.Store("sim-0001", hash, bytes);
+        _store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Brightness = 80,
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot() } } } },
+            ImageRefs = { ["0.0/0"] = hash },
+        });
+
+        _worker.Tick();
+
+        Assert.Null(_simulated.PeekKeyImage(0));
+    }
+
+    [Fact]
+    public void PushCurrentView_ColoredKey_KeepsUploadedFill()
+    {
+        // A color-only slot (no action) is a decorative key, not "off": it keeps
+        // its uploaded fill.
+        var bytes = new byte[] { 9, 8, 7, 6 };
+        var hash = StreamDeckImageCache.Hash(bytes);
+        _imageCache.Store("sim-0001", hash, bytes);
+        _store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Brightness = 80,
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Color = "#ff0000" } } } } },
+            ImageRefs = { ["0.0/0"] = hash },
+        });
+
+        _worker.Tick();
+
+        Assert.Equal(bytes, _simulated.PeekKeyImage(0));
     }
 
     [Fact]
