@@ -94,7 +94,8 @@ public sealed class TouchMappingGuard
             var anyRestartFailed = false;
             foreach (var repairPlan in plans)
             {
-                Log($"mismatch detected, repairing: digitizer '{repairPlan.DigitizerInterfacePath}' -> display '{repairPlan.PanelDisplayId}'");
+                var tierLabel = repairPlan.Tier == TouchMappingTier.Generic ? "generic tier" : "catalog tier";
+                Log($"{tierLabel}: mismatch detected, repairing: digitizer '{repairPlan.DigitizerInterfacePath}' -> display '{repairPlan.PanelDisplayId}'");
                 _registryWriter.Write(repairPlan.DigitizerInterfacePath, repairPlan.PanelMonitorInterfacePath);
                 if (!_devnodeRestarter.Restart(repairPlan.DigitizerInterfacePath))
                 {
