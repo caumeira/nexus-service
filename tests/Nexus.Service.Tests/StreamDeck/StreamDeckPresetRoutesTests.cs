@@ -448,6 +448,35 @@ public sealed class StreamDeckPresetRoutesTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task Activate_opensPageOne_evenWhenThePresetAlsoHasThatPage()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var worker = factory.Services.GetRequiredService<StreamDeckConnectionWorker>();
+            var mini = StreamDeckModels.ByProductId(0x0063)!;
+            Assert.True(worker.SetSimulatedModel(mini.ProductId));
+            var serial = worker.Surfaces[StreamDeckConnectionWorker.SimulatedKey].Serial;
+
+            // A three-page preset - so page 2 stays valid after activation and
+            // the reset is a genuine reset, not the clamp the case above covers.
+            var threePages = """{"config":{"pages":[{"slots":[]},{"slots":[]},{"slots":[]}]}}""";
+            await client.PutAsync($"/streamdeck/decks/{serial}/config", Json(threePages));
+            var createRes = await client.PostAsync($"/streamdeck/decks/{serial}/presets", Json("""{"name":"Three"}"""));
+            using var createDoc = JsonDocument.Parse(await createRes.Content.ReadAsStringAsync());
+            var id = createDoc.RootElement.GetProperty("preset").GetProperty("id").GetString()!;
+
+            var navRes = await client.PostAsync($"/streamdeck/decks/{serial}/nav", Json("""{"page":2,"folderPath":[]}"""));
+            Assert.True(navRes.IsSuccessStatusCode);
+            Assert.Equal(2, worker.GetCurrentPage(serial));
+
+            var res = await client.PostAsync($"/streamdeck/decks/{serial}/presets/{id}/activate", null);
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+            Assert.Equal(0, worker.GetCurrentPage(serial));
+        }
+    }
+
     // ---- eviction respects presets ----
 
     [Fact]

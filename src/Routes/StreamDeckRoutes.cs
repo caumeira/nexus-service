@@ -501,7 +501,10 @@ public static class StreamDeckRoutes
                     cache.Evict(serial, h);
                 }
             }
-            worker.RefreshView(serial);
+            // Switching preset opens the new layout on page 1, not wherever the
+            // previous preset was left (a folder or a later page); SetNav resets
+            // page + folder path to the top and pushes the fresh view.
+            worker.SetNav(serial, 0, System.Array.Empty<int>());
             PanelTopics.BroadcastStreamDeck(hub, new StreamDeckChangedFrame { Kind = "config", Serial = serial });
             return Results.Json(ApiResponse.Ok(), AppJsonContext.Default.ApiResponse);
         }).LocalhostOnly();
