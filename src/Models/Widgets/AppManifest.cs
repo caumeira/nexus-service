@@ -86,7 +86,7 @@ public sealed class AppManifest
     /// <summary>
     /// True when this app should be treated as installed + active at first boot
     /// (OEM pre-install) rather than waiting for a user "install" of the bundled
-    /// copy. Honored only for bundled apps; ignored on user/dev copies.
+    /// copy. Honored only for bundled apps; ignored on user copies.
     /// </summary>
     [JsonPropertyName("preinstalled")]
     public bool Preinstalled { get; set; }
@@ -94,7 +94,7 @@ public sealed class AppManifest
     /// <summary>
     /// Optional device-driver block: declares a native sidecar executable the host
     /// fetches from the app store and runs. Honored only for a <b>bundled</b> app
-    /// (the registry drops it from user/dev installs); the widget facet always
+    /// (the registry drops it from user installs); the widget facet always
     /// loads regardless. See <c>plans/third-party-app-sdk.md</c> §"Raw .exe".
     /// </summary>
     [JsonPropertyName("driver")]

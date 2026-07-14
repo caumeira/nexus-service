@@ -348,7 +348,6 @@ public static class AppRoutes
 
         var source = entry.Source switch
         {
-            AppInstallPaths.Source.Dev => "dev",
             AppInstallPaths.Source.User => "user",
             AppInstallPaths.Source.Bundled => "bundled",
             _ => "unknown",
@@ -376,8 +375,10 @@ public static class AppRoutes
             Sizes = new List<string>(entry.Manifest.Sizes),
             DefaultSize = entry.Manifest.DefaultSize,
             Source = source,
-            Trusted = entry.Source != AppInstallPaths.Source.Dev,
-            // Preinstall is an OEM bake-in honored only for bundled apps; a user/dev
+            // Kept for wire compatibility; no root is signature-verified, so it
+            // carries no trust signal.
+            Trusted = true,
+            // Preinstall is an OEM bake-in honored only for bundled apps; a user
             // copy of the same id is a deliberate user choice, not a pre-install.
             Preinstalled = entry.Manifest.Preinstalled && entry.Source == AppInstallPaths.Source.Bundled && oemMatch,
         };
