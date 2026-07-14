@@ -1294,6 +1294,7 @@ public static class NexusServiceCollectionExtensions
 #endif
         services.AddSingleton<Nexus.Service.Panel.PanelPhonePairingService>();
         services.AddSingleton<Nexus.Service.Panel.PanelDeviceRegistry>();
+        services.AddSingleton<Nexus.Service.Panel.PanelAutoPromotion>();
 
         // Streamed panels: panels rendered off-screen by the overlay's stream
         // engine and piped as H.264 to USB display devices through swappable

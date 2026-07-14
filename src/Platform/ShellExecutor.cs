@@ -189,8 +189,15 @@ public static class ShellExecutor
             if (proc is null)
                 return -1;
 
-            proc.StandardInput.Write(stdin);
-            proc.StandardInput.Close();
+            // A process that exits before consuming stdin (e.g. `sh -c 'exit 3'`)
+            // closes the pipe, so the write faults with a broken pipe; that is not
+            // a failure - fall through to read the real exit code.
+            try
+            {
+                proc.StandardInput.Write(stdin);
+                proc.StandardInput.Close();
+            }
+            catch (System.IO.IOException) { }
 
             var errTask = proc.StandardError.ReadToEndAsync();
             var outTask = proc.StandardOutput.ReadToEndAsync();
