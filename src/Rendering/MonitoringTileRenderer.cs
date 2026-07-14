@@ -336,14 +336,23 @@ internal static class MonitoringTileRenderer
         }
         var centerY = size * (nameShown ? 0.58f : 0.52f);
         var bigFont = font.CreateFont(size * NumberBigFontFraction, FontStyle.Bold);
-        RenderKit.DrawCentered(ctx, numberText, bigFont, color, new PointF(size / 2f, centerY));
-
-        if (unitText.Length > 0)
+        if (unitText.Length == 0)
         {
-            var unitFont = font.CreateFont(size * NumberUnitFontFraction, FontStyle.Regular);
-            var unitY = centerY + size * NumberBigFontFraction * 0.62f;
-            RenderKit.DrawCentered(ctx, unitText, unitFont, color, new PointF(size / 2f, unitY));
+            RenderKit.DrawCentered(ctx, numberText, bigFont, color, new PointF(size / 2f, centerY));
+            return;
         }
+
+        // Value + unit sit on one line, the unit small and immediately after
+        // the value (bottom-aligned), the pair centered as a group.
+        var unitFont = font.CreateFont(size * NumberUnitFontFraction, FontStyle.Regular);
+        var numSize = TextMeasurer.MeasureSize(numberText, new TextOptions(bigFont));
+        var unitSize = TextMeasurer.MeasureSize(unitText, new TextOptions(unitFont));
+        var gap = size * 0.015f;
+        var groupLeft = size / 2f - (numSize.Width + gap + unitSize.Width) / 2f;
+        RenderKit.DrawCentered(ctx, numberText, bigFont, color, new PointF(groupLeft + numSize.Width / 2f, centerY));
+        var unitCenterX = groupLeft + numSize.Width + gap + unitSize.Width / 2f;
+        var unitCenterY = centerY + numSize.Height / 2f - unitSize.Height / 2f;
+        RenderKit.DrawCentered(ctx, unitText, unitFont, color, new PointF(unitCenterX, unitCenterY));
     }
 
     /// <summary>
