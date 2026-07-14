@@ -907,7 +907,11 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// </summary>
     private void HandlePressVisual(IStreamDeckSurface surface, int physicalIndex, int page, List<int> folderPath, int slotIndex, DeckSlot slot)
     {
-        if (slot.Folder is not null || slot.Action?.Type == "page")
+        // Weather is display-only and its live tile is server-rendered straight
+        // to the HID (no stored slot image), so the pressed-inset-from-slot-image
+        // path below would push a blank inset and flash the key. Skip it, like
+        // folder/page keys whose down edge already gave their own feedback.
+        if (slot.Folder is not null || slot.Action?.Type is "page" or "weather")
         {
             return;
         }
