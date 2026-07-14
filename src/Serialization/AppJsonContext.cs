@@ -711,6 +711,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<AudioDevice>))]
 [JsonSerializable(typeof(AudioDeviceList))]
 [JsonSerializable(typeof(SetAudioDefaultBody))]
+[JsonSerializable(typeof(PlayAudioBody))]
 [JsonSerializable(typeof(GetAllShortcutsResponse))]
 [JsonSerializable(typeof(GetShortcutResponse))]
 [JsonSerializable(typeof(Nexus.Service.Activity.IconCacheMeta))]

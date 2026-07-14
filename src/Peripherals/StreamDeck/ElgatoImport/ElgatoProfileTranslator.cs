@@ -384,9 +384,24 @@ public sealed class ElgatoProfileTranslator
                 return BuildLhmReadingAction(action);
             case ElgatoActionTypes.Weather:
                 return BuildWeatherAction(action);
+            case ElgatoActionTypes.PlayAudio:
+                return BuildPlayAudioAction(action);
             default:
                 return (null, null, null);
         }
+    }
+
+    /// <summary>Always mapped, even with no configured file: an empty path still gives the user a bound key they can point at a sound, noted so they know to finish configuring it.</summary>
+    private static (DeckAction?, string?, string?) BuildPlayAudioAction(ElgatoActionData action)
+    {
+        var path = ElgatoJson.GetString(action.Settings, "path") ?? "";
+        var deckAction = new DeckAction
+        {
+            Type = "playAudio",
+            Path = path,
+            Volume = ElgatoJson.GetInt(action.Settings, "volume"),
+        };
+        return (deckAction, null, path.Length == 0 ? "audioPath" : null);
     }
 
     /// <summary>Reads Kanali's nested location object first (lat/lon/city/country), falling back to the top-level city when location is absent. Always mapped, units default to auto so the key follows the host's own C/F preference.</summary>

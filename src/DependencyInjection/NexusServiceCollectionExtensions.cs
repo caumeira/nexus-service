@@ -499,6 +499,7 @@ public static class NexusServiceCollectionExtensions
         // dispatch, or the test-press route) triggered it.
         services.AddSingleton(sp => new System.Lazy<Nexus.Service.Deck.IDeckSurfaceControl>(
             () => sp.GetRequiredService<Nexus.Service.Peripherals.StreamDeck.StreamDeckConnectionWorker>()));
+        services.AddSingleton<Nexus.Service.Audio.AudioFilePlayer>();
         services.AddSingleton<Nexus.Service.Deck.DeckActionExecutor>();
         services.AddSingleton<Nexus.Service.Deck.IDeckActionExecutor>(sp =>
             sp.GetRequiredService<Nexus.Service.Deck.DeckActionExecutor>());

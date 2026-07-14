@@ -224,7 +224,8 @@ public sealed class DeckActionExecutorTests : IDisposable
 
         _executor = new DeckActionExecutor(
             system, _lightingDevices, _lighting, _fans, _store, _profiles, _y70, displayBrightness, _media, hub,
-            new Lazy<Nexus.Service.Deck.IDeckSurfaceControl>(() => _deckSurface));
+            new Lazy<Nexus.Service.Deck.IDeckSurfaceControl>(() => _deckSurface),
+            new Nexus.Service.Audio.AudioFilePlayer());
     }
 
     public void Dispose()
@@ -410,6 +411,15 @@ public sealed class DeckActionExecutorTests : IDisposable
     public async Task Weather_IsADisplayOnlyNoOpThatReportsOk()
     {
         await Run(new DeckAction { Type = "weather", City = "Boston", Units = "auto" });
+        Assert.Equal(("ok", (string?)null), _executor.LastOutcome);
+    }
+
+    // Uses a missing path - AudioFilePlayer's own File.Exists gate makes this
+    // a safe no-op, the same reasoning as OpenFile_WithMissingPath_IsANoOp.
+    [Fact]
+    public async Task PlayAudio_WithMissingPath_ReportsOkWithoutThrowing()
+    {
+        await Run(new DeckAction { Type = "playAudio", Path = "/does/not/exist.wav", Volume = 50 });
         Assert.Equal(("ok", (string?)null), _executor.LastOutcome);
     }
 

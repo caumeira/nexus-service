@@ -30,7 +30,7 @@ public sealed class ElgatoUnmappedEntry
     /// <summary>"col,row" within whichever grid the key lives in (the top page, or a folder's own grid); empty for a whole-page note.</summary>
     public string Position { get; set; } = "";
     public string Name { get; set; } = "";
-    /// <summary>hotkey | open | website | text | media | plugin | unsupported | multiStep | encoder | pageLimit | hotkeyExtraSlots | textEnterIgnored | monitoringSensor.</summary>
+    /// <summary>hotkey | open | website | text | media | plugin | unsupported | multiStep | encoder | pageLimit | hotkeyExtraSlots | textEnterIgnored | monitoringSensor | audioPath.</summary>
     public string Reason { get; set; } = "";
     public string? Detail { get; set; }
 }

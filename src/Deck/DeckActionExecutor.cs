@@ -6,6 +6,7 @@ using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Actions;
 using Nexus.Service.Activity;
+using Nexus.Service.Audio;
 using Nexus.Service.Cooling;
 using Nexus.Service.Devices;
 using Nexus.Service.Lighting;
@@ -44,6 +45,7 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
     private readonly IMediaProvider _media;
     private readonly MultiplexHub _hub;
     private readonly Lazy<IDeckSurfaceControl> _deckSurface;
+    private readonly AudioFilePlayer _audioPlayer;
 
     /// <summary>
     /// In-memory only, matching the web widget's per-tab <c>useState</c>
@@ -65,7 +67,8 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         DisplayBrightnessController displayBrightness,
         IMediaProvider media,
         MultiplexHub hub,
-        Lazy<IDeckSurfaceControl> deckSurface)
+        Lazy<IDeckSurfaceControl> deckSurface,
+        AudioFilePlayer audioPlayer)
     {
         _system = system;
         _lightingDevices = lightingDevices;
@@ -78,6 +81,7 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
         _media = media;
         _hub = hub;
         _deckSurface = deckSurface;
+        _audioPlayer = audioPlayer;
     }
 
     /// <summary>Test seam: the most recent dispatch's outcome ("ok" | "unknown" | "failed") and, for a failure, its error text - mirrors the [streamdeck] dispatch log line without needing a console-capture harness.</summary>
@@ -195,6 +199,9 @@ public sealed class DeckActionExecutor : IDeckActionExecutor
                 DispatchMonitoringPress(action.Press);
                 return DispatchOutcome.Ok;
             case "weather":
+                return DispatchOutcome.Ok;
+            case "playAudio":
+                _audioPlayer.Play(action.Path, action.Volume);
                 return DispatchOutcome.Ok;
             default:
                 // "page" is worker-handled (StreamDeckConnectionWorker

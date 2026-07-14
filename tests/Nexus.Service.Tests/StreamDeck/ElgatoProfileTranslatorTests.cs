@@ -39,8 +39,8 @@ public sealed class ElgatoProfileTranslatorTests : IDisposable
     {
         var (_, report) = _translator.Translate(ReadFixtureProfile());
         Assert.Equal(29, report.TotalKeys);
-        Assert.Equal(21, report.MappedKeys);
-        Assert.Equal(12, report.Unmapped.Count);
+        Assert.Equal(22, report.MappedKeys);
+        Assert.Equal(10, report.Unmapped.Count);
     }
 
     [Fact]
@@ -335,23 +335,30 @@ public sealed class ElgatoProfileTranslatorTests : IDisposable
     }
 
     [Fact]
-    public void Translate_Routine2_PartiallyTranslatableGroup_KeepsWorkingStepsAndNotes()
+    public void Translate_Routine2_BothStepsNowTranslatableAfterPlayAudioSupport()
     {
         var (config, report) = _translator.Translate(ReadFixtureProfile());
         var slot = Slot(config, 1, 2, 0);
         Assert.Equal("sequence", slot.Action!.Type);
-        Assert.Single(slot.Action.Steps!);
-        Assert.Equal("https://example.org", slot.Action.Steps![0].Action.Url);
-        Assert.Contains(report.Unmapped, e => e.Page == 2 && e.Position == "2,0" && e.Reason == "multiStep");
+        Assert.Equal(2, slot.Action.Steps!.Count);
+        Assert.Equal("openUrl", slot.Action.Steps[0].Action.Type);
+        Assert.Equal("https://example.org", slot.Action.Steps[0].Action.Url);
+        Assert.Equal("playAudio", slot.Action.Steps[1].Action.Type);
+        Assert.Equal("/Users/test/sounds/airhorn.wav", slot.Action.Steps[1].Action.Path);
+        Assert.Equal(80, slot.Action.Steps[1].Action.Volume);
+        Assert.DoesNotContain(report.Unmapped, e => e.Page == 2 && e.Position == "2,0");
     }
 
     [Fact]
-    public void Translate_Routine2_NoTranslatableSteps_IsPlaceholder()
+    public void Translate_Routine2_UnconfiguredPlayAudioStepStillMaps()
     {
         var (config, report) = _translator.Translate(ReadFixtureProfile());
         var slot = Slot(config, 1, 3, 0);
-        Assert.Null(slot.Action);
-        Assert.Contains(report.Unmapped, e => e.Page == 2 && e.Position == "3,0" && e.Reason == "multiStep");
+        Assert.Equal("sequence", slot.Action!.Type);
+        Assert.Single(slot.Action.Steps!);
+        Assert.Equal("playAudio", slot.Action.Steps![0].Action.Type);
+        Assert.Equal("", slot.Action.Steps[0].Action.Path);
+        Assert.DoesNotContain(report.Unmapped, e => e.Page == 2 && e.Position == "3,0");
     }
 
     [Fact]
@@ -477,5 +484,45 @@ public sealed class ElgatoProfileTranslatorTests : IDisposable
         Assert.Null(slot.Action.Lon);
         Assert.Equal("Fallback City", slot.Action.City);
         Assert.Equal("auto", slot.Action.Units);
+    }
+
+    [Fact]
+    public void Translate_PlayAudio_WithPath_MapsWithVolumeAndNoNote()
+    {
+        var images = new DeckImageStore(Path.Combine(Path.GetTempPath(), "nexus-elgato-playaudio-" + Guid.NewGuid().ToString("N")[..8]));
+        var translator = new ElgatoProfileTranslator(images);
+        var profile = new ElgatoProfile { Model = "20GAI9901" };
+        var page = new ElgatoPageData();
+        var settingsJson = JsonSerializer.Serialize(new { path = "C:\\sounds\\ding.wav", volume = 65 });
+        var settings = JsonDocument.Parse(settingsJson).RootElement.Clone();
+        page.Actions[(0, 0)] = new ElgatoActionData { Uuid = "com.elgato.streamdeck.soundboard.playaudio", Name = "Ding", Settings = settings };
+        profile.TopPageIds.Add("only");
+        profile.PagesById["only"] = page;
+
+        var (config, report) = translator.Translate(profile);
+        var slot = config.Pages[0].Slots[0];
+        Assert.Equal("playAudio", slot.Action!.Type);
+        Assert.Equal("C:\\sounds\\ding.wav", slot.Action.Path);
+        Assert.Equal(65, slot.Action.Volume);
+        Assert.DoesNotContain(report.Unmapped, e => e.Reason == "audioPath");
+    }
+
+    [Fact]
+    public void Translate_PlayAudio_WithoutPath_MapsUnconfiguredWithNote()
+    {
+        var images = new DeckImageStore(Path.Combine(Path.GetTempPath(), "nexus-elgato-playaudio-empty-" + Guid.NewGuid().ToString("N")[..8]));
+        var translator = new ElgatoProfileTranslator(images);
+        var profile = new ElgatoProfile { Model = "20GAI9901" };
+        var page = new ElgatoPageData();
+        var settings = JsonDocument.Parse("{}").RootElement.Clone();
+        page.Actions[(0, 0)] = new ElgatoActionData { Uuid = "com.elgato.streamdeck.soundboard.playaudio", Name = "Empty Sound", Settings = settings };
+        profile.TopPageIds.Add("only");
+        profile.PagesById["only"] = page;
+
+        var (config, report) = translator.Translate(profile);
+        var slot = config.Pages[0].Slots[0];
+        Assert.Equal("playAudio", slot.Action!.Type);
+        Assert.Equal("", slot.Action.Path);
+        Assert.Contains(report.Unmapped, e => e.Reason == "audioPath");
     }
 }

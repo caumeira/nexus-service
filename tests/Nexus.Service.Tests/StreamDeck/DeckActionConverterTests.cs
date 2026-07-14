@@ -499,6 +499,32 @@ public class DeckActionConverterTests
     }
 
     [Fact]
+    public void PlayAudio_WithVolume_RoundTrips()
+    {
+        var json = "{\"type\":\"playAudio\",\"path\":\"C:\\\\sounds\\\\ding.wav\",\"volume\":65}";
+        var a = Deserialize(json);
+        Assert.Equal("playAudio", a.Type);
+        Assert.Equal("C:\\sounds\\ding.wav", a.Path);
+        Assert.Equal(65, a.Volume);
+
+        var b = RoundTrip(a);
+        Assert.Equal(a.Path, b.Path);
+        Assert.Equal(a.Volume, b.Volume);
+    }
+
+    [Fact]
+    public void PlayAudio_WithoutVolume_DefaultsToNullAndDoesNotSerialize()
+    {
+        var a = Deserialize("{\"type\":\"playAudio\",\"path\":\"\"}");
+        Assert.Equal("", a.Path);
+        Assert.Null(a.Volume);
+
+        var raw = JsonSerializer.Serialize(a, AppJsonContext.Default.DeckAction);
+        using var doc = JsonDocument.Parse(raw);
+        Assert.False(doc.RootElement.TryGetProperty("volume", out _));
+    }
+
+    [Fact]
     public void PersistenceJsonContext_UsesTheSameConverter()
     {
         var json = "{\"type\":\"power\",\"action\":\"sleep\"}";

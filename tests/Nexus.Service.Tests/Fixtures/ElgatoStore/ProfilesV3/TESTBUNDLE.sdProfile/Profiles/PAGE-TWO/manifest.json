@@ -199,7 +199,10 @@
                   "LinkedTitle": false,
                   "Name": "Air Horn",
                   "Resources": null,
-                  "Settings": {},
+                  "Settings": {
+                    "path": "/Users/test/sounds/airhorn.wav",
+                    "volume": 80
+                  },
                   "State": 0,
                   "States": [
                     {

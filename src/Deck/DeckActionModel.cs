@@ -20,7 +20,7 @@ public sealed class DeckAction
     /// launchApp | openFile | openFolder | openUrl | system | hotkey | text |
     /// power | audioOutput | audioInput | nexus | sequence | toggle | page |
     /// pageIndicator | deckBrightness | deckSleep | hotkeySwitch | monitoring |
-    /// weather.
+    /// weather | playAudio.
     /// </summary>
     public string Type { get; set; } = "";
 
@@ -94,6 +94,9 @@ public sealed class DeckAction
     public string? Cc { get; set; }
     /// <summary>weather: C | F | auto. Unset falls back to auto.</summary>
     public string? Units { get; set; }
+
+    /// <summary>playAudio: playback volume percent, 0-100. Unset falls back to AudioFilePlayer's default.</summary>
+    public int? Volume { get; set; }
 }
 
 public sealed class DeckSystemAction

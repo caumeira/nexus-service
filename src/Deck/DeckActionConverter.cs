@@ -161,6 +161,10 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         {
             action.Units = unitsEl.GetString();
         }
+        if (root.TryGetProperty("volume", out var volumeEl) && volumeEl.ValueKind == JsonValueKind.Number)
+        {
+            action.Volume = volumeEl.GetInt32();
+        }
 
         if (root.TryGetProperty("action", out var actionEl))
         {
@@ -310,6 +314,10 @@ public sealed class DeckActionConverter : JsonConverter<DeckAction>
         if (value.Units is not null)
         {
             writer.WriteString("units", value.Units);
+        }
+        if (value.Volume is not null)
+        {
+            writer.WriteNumber("volume", value.Volume.Value);
         }
 
         switch (value.Type)
