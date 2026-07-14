@@ -422,9 +422,10 @@ public static class StreamDeckRoutes
         }).LocalhostOnly();
 
         app.MapDelete("/streamdeck/decks/{serial}/presets/{id}", (
-            string serial, string id, IConfigStore store, StreamDeckImageCache cache) =>
+            string serial, string id, IConfigStore store, StreamDeckConnectionWorker worker, MultiplexHub hub, StreamDeckImageCache cache) =>
         {
             string? activeId = null;
+            var promoted = false;
             List<string>? evictHashes = null;
             store.Update(s =>
             {
@@ -436,7 +437,21 @@ public static class StreamDeckRoutes
                 deck.Presets.RemoveAll(p => p.Id == id);
                 if (deck.ActivePresetId == id)
                 {
-                    deck.ActivePresetId = null;
+                    // Deleting the active preset promotes the first remaining one
+                    // and applies its layout to the live deck, rather than leaving
+                    // nothing selected. Falls to null only when none remain.
+                    var next = deck.Presets.Count > 0 ? deck.Presets[0] : null;
+                    if (next is not null)
+                    {
+                        deck.Deck = DeepCopyDeckConfig(next.Deck);
+                        deck.ImageRefs = new Dictionary<string, string>(next.ImageRefs);
+                        deck.ActivePresetId = next.Id;
+                        promoted = true;
+                    }
+                    else
+                    {
+                        deck.ActivePresetId = null;
+                    }
                 }
                 activeId = deck.ActivePresetId;
                 if (removed is not null)
@@ -453,6 +468,11 @@ public static class StreamDeckRoutes
                 {
                     cache.Evict(serial, h);
                 }
+            }
+            if (promoted)
+            {
+                worker.SetNav(serial, 0, System.Array.Empty<int>());
+                PanelTopics.BroadcastStreamDeck(hub, new StreamDeckChangedFrame { Kind = "config", Serial = serial });
             }
             return Results.Json(
                 new DeleteDeckPresetResponse { ActiveId = activeId },

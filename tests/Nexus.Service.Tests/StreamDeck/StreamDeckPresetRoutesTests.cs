@@ -266,6 +266,37 @@ public sealed class StreamDeckPresetRoutesTests : IDisposable
     }
 
     [Fact]
+    public async Task Delete_active_preset_promotes_the_first_remaining_and_applies_its_config()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            // P1 saves a one-page layout; then a two-page layout is created as P2.
+            await client.PutAsync("/streamdeck/decks/SERIAL-1/config", Json("""{"config":{"pages":[{"slots":[]}]}}"""));
+            var p1Res = await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"P1"}"""));
+            using var p1Doc = JsonDocument.Parse(await p1Res.Content.ReadAsStringAsync());
+            var p1Id = p1Doc.RootElement.GetProperty("preset").GetProperty("id").GetString()!;
+            await client.PutAsync("/streamdeck/decks/SERIAL-1/config", Json("""{"config":{"pages":[{"slots":[]},{"slots":[]}]}}"""));
+            var p2Res = await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"P2"}"""));
+            using var p2Doc = JsonDocument.Parse(await p2Res.Content.ReadAsStringAsync());
+            Assert.Equal("P2", p2Doc.RootElement.GetProperty("preset").GetProperty("name").GetString());
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var p2Id = store.Load().StreamDeck.Decks["SERIAL-1"].ActivePresetId;
+
+            // Deleting the active P2 promotes P1 and applies its one-page layout.
+            var res = await client.DeleteAsync($"/streamdeck/decks/SERIAL-1/presets/{p2Id}");
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            Assert.Equal(p1Id, doc.RootElement.GetProperty("activeId").GetString());
+
+            var deck = store.Load().StreamDeck.Decks["SERIAL-1"];
+            Assert.Equal(p1Id, deck.ActivePresetId);
+            Assert.Single(deck.Deck.Pages);
+        }
+    }
+
+    [Fact]
     public async Task Delete_non_active_preset_leaves_activeId()
     {
         var (factory, client) = Boot();
