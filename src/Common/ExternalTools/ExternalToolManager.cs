@@ -283,11 +283,11 @@ public sealed class ExternalToolManager : IHostedService, IToolResolver
             // Machine-scope so the LocalSystem service owns the cache, like the
             // firmware store.
             var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            return Path.Combine(programData, "Nexus", "tools");
+            return Path.Combine(programData, "Nexus", "drivers");
         }
         var xdg = Environment.GetEnvironmentVariable("XDG_CACHE_HOME");
         if (string.IsNullOrEmpty(xdg))
             xdg = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".cache");
-        return Path.Combine(xdg, "Nexus", "tools");
+        return Path.Combine(xdg, "Nexus", "drivers");
     }
 }

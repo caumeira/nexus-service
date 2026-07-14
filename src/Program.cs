@@ -133,6 +133,17 @@ if (!serviceMode && !testHost)
 using var _singleInstance = singleInstance;
 Nexus.Service.Lifecycle.BootTimer.Mark("after single-instance mutex");
 
+// TEMPORARY (remove ~2026-07-20 with DataLayoutMigration): migrate the flat data
+// layout to the grouped devices/ + media/ layout before any store resolves its
+// directory (a store must not create the new target ahead of the move). One-shot
+// and idempotent; skipped for the test/openapi hosts so doc generation never
+// touches a dev's data.
+if (!testHost)
+{
+    Nexus.Service.Lifecycle.DataLayoutMigration.Run();
+    Nexus.Service.Lifecycle.BootTimer.Mark("after DataLayoutMigration");
+}
+
 // Cold-start self-elevation: when the user double-clicks the EXE while no
 // service is running and we're not yet elevated, prompt for UAC and let the
 // elevated child take over the mutex. The manifest is asInvoker, so this is

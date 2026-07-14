@@ -21,7 +21,7 @@ public sealed class DeckImageStore
     private readonly string _rootDir;
 
     public DeckImageStore()
-        : this(Path.Combine(MediaLibrary.ResolveDefaultRoot(), "Nexus", "deck-images"))
+        : this(MediaLibrary.MediaStoreDir("deck-images"))
     {
     }
 

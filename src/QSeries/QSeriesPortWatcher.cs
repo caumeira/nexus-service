@@ -38,7 +38,7 @@ namespace Nexus.Service.QSeries;
 /// offline (a USB-level reset that restarts device-side adbd), plus an optional
 /// promote to adb-over-TCP when the panel has a LAN IP (dormant on stock touch-less
 /// units that can't enter WiFi creds), persisted to
-/// <c>%ProgramData%\Nexus\qseries-transports.json</c>.
+/// <c>&lt;data-root&gt;/Nexus/devices/transports/qseries-transports.json</c>.
 ///
 /// Every pass is idempotent: an already-applied reverse / already-promoted device
 /// is left alone, and adb-server-down / device-detached turn into no-ops that
