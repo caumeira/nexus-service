@@ -1344,9 +1344,11 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     {
         var unit = ResolveWeatherUnit(action.Units, snapshot.CountryCode);
         var temperature = unit == "F" ? snapshot.TemperatureF : snapshot.TemperatureC;
+        // Degree only, no unit letter - matches nexus-web formatTemp so the key
+        // reads the same as DeckWeatherCell (the C/F choice already selected the value).
         var temperatureText = temperature is null
             ? ""
-            : $"{Math.Round(temperature.Value).ToString(CultureInfo.InvariantCulture)}°{unit}";
+            : $"{Math.Round(temperature.Value).ToString(CultureInfo.InvariantCulture)}°";
         return new WeatherTileInput
         {
             TemperatureText = temperatureText,

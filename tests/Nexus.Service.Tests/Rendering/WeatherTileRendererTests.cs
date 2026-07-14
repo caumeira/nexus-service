@@ -15,7 +15,7 @@ public class WeatherTileRendererTests
     {
         var input = new WeatherTileInput
         {
-            TemperatureText = "72°F",
+            TemperatureText = "72°",
             LocationLabel = "San Francisco",
             WeatherCode = weatherCode,
         };
@@ -24,6 +24,31 @@ public class WeatherTileRendererTests
 
         Assert.Equal(pixelSize, image.Width);
         Assert.Equal(pixelSize, image.Height);
+    }
+
+    [Fact]
+    public void Render_resolvesTheLucideIcon_forEveryConditionGroup()
+    {
+        // Every mapped WMO group must resolve an embedded lucide glyph (a
+        // missing resource would silently drop the icon), plus the unknown
+        // fallback. Renders larger than background => the glyph drew.
+        foreach (var code in new[] { 0, 1, 2, 3, 45, 51, 61, 71, 80, 95, -1 })
+        {
+            var input = new WeatherTileInput { WeatherCode = code };
+            using var image = WeatherTileRenderer.Render(input, 96);
+            var lit = 0;
+            image.ProcessPixelRows(accessor =>
+            {
+                for (var y = 0; y < accessor.Height; y++)
+                {
+                    foreach (ref var px in accessor.GetRowSpan(y))
+                    {
+                        if (px.R > 40 || px.G > 40 || px.B > 40) { lit++; }
+                    }
+                }
+            });
+            Assert.True(lit > 0, $"weather code {code} rendered no glyph");
+        }
     }
 
     [Fact]

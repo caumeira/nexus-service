@@ -121,6 +121,7 @@ public sealed partial class AudioFilePlayer
         }
         finally
         {
+            _externalProcess.Dispose();
             _externalProcess = null;
         }
     }
@@ -133,6 +134,14 @@ public sealed partial class AudioFilePlayer
     /// </summary>
     private static void PlayWindows(string path, int volumePercent)
     {
+        // The path is interpolated into the quoted MCI open-command token; a
+        // double quote is the only char that could break out of it. It is also
+        // an invalid Windows path char (so File.Exists already rejects it), but
+        // guard explicitly so PlayWindows is safe regardless of the call path.
+        if (path.Contains('"'))
+        {
+            return;
+        }
         SendMci($"close {MciAlias}");
         var deviceType = string.Equals(Path.GetExtension(path), ".wav", StringComparison.OrdinalIgnoreCase)
             ? "waveaudio"
