@@ -24,6 +24,10 @@ internal static partial class CfgMgr32
     // this only guards against an unexpected devnode-tree cycle.
     private const int MaxAncestorWalkHops = 16;
 
+    // Sibling-walk bound for GetUsbHubSiblingInstanceIds: a hub's child list
+    // is a handful of ports, this only guards against an unexpected cycle.
+    private const int MaxHubChildWalkHops = 32;
+
     // devpropdef.h: DEVPROP_TYPE_STRING
     private const uint DevPropTypeString = 0x00000012;
 
@@ -99,6 +103,12 @@ internal static partial class CfgMgr32
 
     [LibraryImport("cfgmgr32.dll")]
     private static partial uint CM_Get_Parent(out uint pdnDevInst, uint dnDevInst, uint ulFlags);
+
+    [LibraryImport("cfgmgr32.dll")]
+    private static partial uint CM_Get_Child(out uint pdnDevInst, uint dnDevInst, uint ulFlags);
+
+    [LibraryImport("cfgmgr32.dll")]
+    private static partial uint CM_Get_Sibling(out uint pdnDevInst, uint dnDevInst, uint ulFlags);
 
     [LibraryImport("cfgmgr32.dll")]
     internal static partial uint CM_Register_Notification(
@@ -231,6 +241,80 @@ internal static partial class CfgMgr32
             devInst = parent;
         }
         return false;
+    }
+
+    /// <summary>
+    /// Instance ids of the devices sharing a USB hub with the device
+    /// interface's nearest hub-port ancestor (its siblings, not itself).
+    /// Walks CM_Get_Parent from the interface's devnode to the first USB
+    /// ancestor whose instance id has no "&amp;MI_" segment (a composite
+    /// device's per-interface function nodes carry that segment, the
+    /// composite device attached to the hub port itself does not), takes
+    /// that node's parent (the hub), then walks CM_Get_Child/CM_Get_Sibling
+    /// over the hub's children. Distinguishes descriptor-identical devices on
+    /// different physical hubs (e.g. two panels using the same touch
+    /// controller chip) by what else shares their internal hub. Empty on any
+    /// walk failure - callers must not treat that as "definitely no sibling".
+    /// </summary>
+    internal static unsafe List<string> GetUsbHubSiblingInstanceIds(string deviceInterfacePath)
+    {
+        var result = new List<string>();
+        var instanceId = GetInterfaceInstanceId(deviceInterfacePath);
+        if (instanceId.Length == 0 || LocateDevNode(instanceId, out var devInst) != CR_SUCCESS)
+        {
+            return result;
+        }
+
+        uint hubPortDevInst = 0;
+        var foundHubPort = false;
+        for (var hop = 0; hop < MaxAncestorWalkHops; hop++)
+        {
+            var currentId = hop == 0 ? instanceId : GetStringProperty(devInst, DEVPKEY_Device_InstanceId);
+            if (currentId.Length == 0)
+            {
+                return result;
+            }
+            var backslash = currentId.IndexOf('\\');
+            var enumerator = backslash > 0 ? currentId[..backslash] : currentId;
+            if (enumerator.Equals("USB", StringComparison.OrdinalIgnoreCase)
+                && currentId.IndexOf("&MI_", StringComparison.OrdinalIgnoreCase) < 0)
+            {
+                hubPortDevInst = devInst;
+                foundHubPort = true;
+                break;
+            }
+            if (CM_Get_Parent(out var parent, devInst, 0) != CR_SUCCESS)
+            {
+                return result;
+            }
+            devInst = parent;
+        }
+        if (!foundHubPort || CM_Get_Parent(out var hub, hubPortDevInst, 0) != CR_SUCCESS)
+        {
+            return result;
+        }
+
+        if (CM_Get_Child(out var child, hub, 0) != CR_SUCCESS)
+        {
+            return result;
+        }
+        for (var hop = 0; hop < MaxHubChildWalkHops; hop++)
+        {
+            if (child != hubPortDevInst)
+            {
+                var childId = GetStringProperty(child, DEVPKEY_Device_InstanceId);
+                if (childId.Length > 0)
+                {
+                    result.Add(childId);
+                }
+            }
+            if (CM_Get_Sibling(out var sibling, child, 0) != CR_SUCCESS)
+            {
+                break;
+            }
+            child = sibling;
+        }
+        return result;
     }
 
     private static unsafe string GetInterfaceInstanceId(string deviceInterfacePath)
