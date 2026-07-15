@@ -55,6 +55,15 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(10);
 
     /// <summary>
+    /// Floor on the gap between ticks. A wake can otherwise run them back to
+    /// back, and <see cref="MaxHomePinAttemptsPerAttach"/> is an attempt budget
+    /// sized to the poll cadence rather than to wall clock, so unspaced ticks
+    /// would spend it in seconds. Also bounds adb churn on the USB-FFS link
+    /// during a cold panel boot.
+    /// </summary>
+    private static readonly TimeSpan MinTickSpacing = TimeSpan.FromSeconds(1);
+
+    /// <summary>
     /// <c>ro.product.model</c> values that mark a Q-series panel. THICC_Q_Series is
     /// a legacy pre-release model name, kept so a firmware downgrade still matches.
     /// </summary>
@@ -208,6 +217,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            var tickStart = Stopwatch.GetTimestamp();
             try
             {
                 await TickAsync(stoppingToken);
@@ -221,8 +231,17 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 ServiceLog.Error($"[qseries-port-watcher] tick failed: {ex.GetType().Name}: {ex.Message}");
             }
 
-            try { await Task.Delay(PollInterval, stoppingToken); }
-            catch (TaskCanceledException) { break; }
+            var floor = MinTickSpacing - Stopwatch.GetElapsedTime(tickStart);
+            if (floor > TimeSpan.Zero)
+            {
+                try { await Task.Delay(floor, stoppingToken); }
+                catch (OperationCanceledException) { break; }
+            }
+
+            // The timeout carries the keep-alive cadence for work that has no
+            // signal; a wake returns early so a setting change applies now.
+            try { await _wake.WaitAsync(PollInterval, stoppingToken); }
+            catch (OperationCanceledException) { break; }
         }
     }
 
@@ -1022,9 +1041,24 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private int _orientationDirty;
 
+    /// <summary>
+    /// Wakes the tick loop out of its poll wait; the adb calls stay on the tick
+    /// thread, which owns the transport. Counting, so a release while a tick is
+    /// already running persists and the following wait returns at once. A
+    /// consumer-reset primitive would drop that wake.
+    /// </summary>
+    private readonly SemaphoreSlim _wake = new(0, 1);
+
     /// <summary>Called from POST /qseries/rotation to apply a changed setting
     /// on the next tick instead of the next physical attach.</summary>
-    internal void AnnounceOrientationChange() => Interlocked.Exchange(ref _orientationDirty, 1);
+    internal void AnnounceOrientationChange()
+    {
+        Interlocked.Exchange(ref _orientationDirty, 1);
+        // Full means a wake is already pending; the tick it triggers reads the
+        // flag set above, so dropping this release loses nothing.
+        try { _wake.Release(); }
+        catch (SemaphoreFullException) { }
+    }
 
     /// <summary>
     /// Last adb transport id per serial. A change (same serial) is the reliable reseat
