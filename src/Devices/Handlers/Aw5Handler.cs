@@ -4,11 +4,11 @@ using System.Linq;
 namespace Nexus.Service.Devices.Handlers;
 
 /// <summary>
-/// iBUYPOWER AW5 AIO cooler. Recognition only: the cooler is driven by the
-/// vendor's own driver .exe, which the service fetches and launches from the
-/// com.ibuypower.control app's driver manifest block (see DriverAutoLaunchWorker).
-/// Nexus never opens the device, so this handler reports presence from USB
-/// enumeration alone and offers no control surface.
+/// iBUYPOWER AW5 AIO cooler. The cooler is driven by the vendor's own driver .exe,
+/// which the service fetches and launches from the com.ibuypower.control app's
+/// driver manifest block (see DriverAutoLaunchWorker). Nexus never opens the device,
+/// so presence comes from USB enumeration alone; the Nexus Control gate starts and
+/// stops the vendor process rather than a port claim.
 /// </summary>
 public sealed class Aw5Handler : IDeviceHandler
 {
@@ -29,8 +29,12 @@ public sealed class Aw5Handler : IDeviceHandler
         new UsbId(IbpVid, 0x0407), // CoolerMaster
     };
 
-    /// <summary>The vendor driver owns the device; the Nexus Control gate has nothing to gate.</summary>
-    public bool SupportsNexusControl => false;
+    /// <summary>
+    /// Nexus never claims the device, but the gate still governs the vendor driver
+    /// process: off stops the .exe, on lets it run. DriverAutoLaunchWorker honors it
+    /// via the app's <c>deviceId</c>.
+    /// </summary>
+    public bool SupportsNexusControl => true;
 
     public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices)
         => detectedDevices.Any(d => Identifiers.Any(id => id.VendorId == d.VendorId && id.ProductId == d.ProductId));

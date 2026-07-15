@@ -126,6 +126,14 @@ public sealed class AppManifestDriver
     [JsonPropertyName("toolId")]
     public string ToolId { get; set; } = "";
 
+    /// <summary>
+    /// <see cref="Nexus.Service.Devices.IDeviceHandler.Id"/> of the device this driver
+    /// drives, so the handler's Nexus Control gate also governs the driver process.
+    /// Null leaves the driver ungated: it runs whenever its device is present.
+    /// </summary>
+    [JsonPropertyName("deviceId")]
+    public string? DeviceId { get; set; }
+
     /// <summary>USB match that triggers the driver (vendor + product ids, hex strings).</summary>
     [JsonPropertyName("match")]
     public AppManifestDriverMatch? Match { get; set; }
