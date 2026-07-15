@@ -49,6 +49,11 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
     private const int SettingsReadTimeoutMs = 2500;
     // One rewrite pass is enough in practice; the second is a backstop.
     private const int RestoreVerifyAttempts = 2;
+    // The helper's read loop starts just after Connected fires, so the first
+    // attempt usually races it; these cover that gap without pretending a
+    // fixed delay is a readiness signal.
+    private const int HelperReplayAttempts = 5;
+    private const int HelperReplayGapMs = 400;
 
     private readonly IHidEnumerator _hid;
     private readonly HardwarePresence _presence;
@@ -97,13 +102,40 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
     }
 
 #if WINDOWS
-    private void OnHelperConnected(Nexus.Service.Helper.HelperConnection _)
+    private void OnHelperConnected(Nexus.Service.Helper.HelperConnection connection)
     {
         byte? code;
         lock (_applyGate) code = _unapplied;
-        if (code is not null) HandleOrientation(code.Value);
+        if (code is null) return;
+        // HelperConnection.RunAsync raises Connected from inside
+        // registry.Register, BEFORE it starts the read loop that delivers
+        // command replies. Applying inline here sends the rpc into a
+        // connection nothing is reading yet, so it always times out ("helper
+        // rpc failed") and blocks the read loop from starting for the whole
+        // timeout. Hand off so Register returns and the loop comes up first.
+        _ = Task.Run(() => ReplayWhenHelperServesAsync(code.Value));
     }
 #endif
+
+
+    /// <summary>
+    /// Replays the unapplied orientation once the helper can actually serve
+    /// the rpc. Connected only means the hello handshake landed; the read loop
+    /// that delivers replies starts a moment later, and there is no signal for
+    /// it. HandleOrientation keeps _unapplied set whenever an apply fails, so
+    /// retry a few times and stop as soon as it clears.
+    /// </summary>
+    private async Task ReplayWhenHelperServesAsync(byte code)
+    {
+        for (var attempt = 0; attempt < HelperReplayAttempts; attempt++)
+        {
+            HandleOrientation(code);
+            lock (_applyGate) { if (_unapplied is null) return; }
+            try { await Task.Delay(HelperReplayGapMs).ConfigureAwait(false); }
+            catch { return; }
+        }
+        ServiceLog.Warn($"[xeneon-orient] helper replay gave up after {HelperReplayAttempts} attempts (code={code})");
+    }
 
     public override void Dispose()
     {
