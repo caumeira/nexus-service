@@ -206,6 +206,32 @@ public sealed class PanelDeviceRegistry
         return changed;
     }
 
+    /// <summary>
+    /// Merges the given Xeneon Edge control values into the display's
+    /// persisted snapshot; fields left null in <paramref name="settings"/>
+    /// keep their stored value unchanged (a POST that only sets one control
+    /// must not blank the other five).
+    /// </summary>
+    public void UpdateXeneonEdgeSettings(string displayId, XeneonEdgeSettingsDto settings)
+    {
+        if (string.IsNullOrWhiteSpace(displayId)) return;
+        _store.Update(s =>
+        {
+            foreach (var record in s.PanelDevices.Values)
+            {
+                if (!string.Equals(record.DisplayId, displayId, StringComparison.Ordinal)) continue;
+                record.XeneonEdgeSettings ??= new XeneonEdgeSettingsDto();
+                if (settings.Brightness.HasValue) record.XeneonEdgeSettings.Brightness = settings.Brightness;
+                if (settings.Backlight.HasValue) record.XeneonEdgeSettings.Backlight = settings.Backlight;
+                if (settings.Contrast.HasValue) record.XeneonEdgeSettings.Contrast = settings.Contrast;
+                if (settings.Red.HasValue) record.XeneonEdgeSettings.Red = settings.Red;
+                if (settings.Green.HasValue) record.XeneonEdgeSettings.Green = settings.Green;
+                if (settings.Blue.HasValue) record.XeneonEdgeSettings.Blue = settings.Blue;
+                return;
+            }
+        });
+    }
+
     private static bool CapabilitiesEqual(PanelDeviceCapabilities? a, PanelDeviceCapabilities? b)
     {
         if (ReferenceEquals(a, b)) return true;
@@ -342,6 +368,10 @@ public sealed class PanelDeviceRegistry
             // records; the Y70 kiosk uses the global preference.
             if (patch.ReserveMonitor.HasValue && !string.IsNullOrEmpty(record.DisplayId))
                 record.ReserveMonitor = patch.ReserveMonitor.Value;
+            // AutoOrient only makes sense for display-bound records (the
+            // sensor worker resolves a record by DisplayId).
+            if (patch.AutoOrient.HasValue && !string.IsNullOrEmpty(record.DisplayId))
+                record.AutoOrient = patch.AutoOrient.Value;
             // Capabilities on display-bound records are owned by the topology
             // sync (rebuilt from OS facts); a client value would ping-pong
             // with the next sync pass.
@@ -425,6 +455,18 @@ public sealed class PanelDeviceRegistry
             Capabilities = r.Capabilities,
             DisplayId = r.DisplayId,
             ReserveMonitor = r.ReserveMonitor,
+            AutoOrient = r.AutoOrient,
+            XeneonEdgeSettings = r.XeneonEdgeSettings is null
+                ? null
+                : new XeneonEdgeSettingsDto
+                {
+                    Brightness = r.XeneonEdgeSettings.Brightness,
+                    Backlight = r.XeneonEdgeSettings.Backlight,
+                    Contrast = r.XeneonEdgeSettings.Contrast,
+                    Red = r.XeneonEdgeSettings.Red,
+                    Green = r.XeneonEdgeSettings.Green,
+                    Blue = r.XeneonEdgeSettings.Blue,
+                },
             Enabled = r.Enabled,
         };
     }

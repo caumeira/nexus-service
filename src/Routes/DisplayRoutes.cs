@@ -7,6 +7,7 @@ using Nexus.Service.Models.Displays;
 using Nexus.Service.Models.Panel;
 using Nexus.Service.Models.Peripherals.Y70;
 using Nexus.Service.Panel;
+using Nexus.Service.Peripherals.Corsair.XeneonEdge;
 using Nexus.Service.Peripherals.QSeries;
 using Nexus.Service.Peripherals.Y70;
 using Nexus.Service.Persistence;
@@ -197,6 +198,129 @@ public static class DisplayRoutes
             return result.Status == DisplayBrightnessWriteStatuses.Applied
                 ? Results.Ok(result)
                 : Results.BadRequest(result);
+        }).AllowPanel();
+
+        // Corsair Xeneon Edge native settings (brightness/backlight/contrast/
+        // RGB) over its vendor HID channel. Replaces the generic DDC path
+        // above for this family - see DisplayBrightnessController.IsXeneonEdge.
+        app.MapGet("/displays/{id}/xeneon-settings", async (
+            string id,
+            PanelDeviceRegistry registry,
+            XeneonEdgeOrientationWorker xeneon,
+            CancellationToken ct) =>
+        {
+            var record = registry.FindByDisplayId(id);
+            if (record is null || record.Capabilities?.Family != KnownPanelDisplays.XeneonEdgeFamily)
+                return Results.NotFound(ApiResponse.Fail("not a Xeneon Edge panel"));
+
+            var block = await xeneon.ReadSettingsAsync(ct);
+            if (block is null)
+                return Results.UnprocessableEntity(ApiResponse.Fail("could not read the panel's settings"));
+
+            var dto = new XeneonEdgeSettingsDto
+            {
+                Brightness = block.Value.Brightness,
+                Backlight = block.Value.Backlight,
+                Contrast = block.Value.Contrast,
+                Red = block.Value.Red,
+                Green = block.Value.Green,
+                Blue = block.Value.Blue,
+            };
+            registry.UpdateXeneonEdgeSettings(id, dto);
+            return Results.Json(dto, AppJsonContext.Default.XeneonEdgeSettingsDto);
+        }).AllowPanel();
+
+        app.MapPost("/displays/{id}/xeneon-settings", async (
+            string id,
+            XeneonEdgeSettingsDto body,
+            PanelDeviceRegistry registry,
+            XeneonEdgeOrientationWorker xeneon,
+            MultiplexHub hub,
+            CancellationToken ct) =>
+        {
+            var record = registry.FindByDisplayId(id);
+            if (record is null || record.Capabilities?.Family != KnownPanelDisplays.XeneonEdgeFamily)
+                return Results.NotFound(ApiResponse.Fail("not a Xeneon Edge panel"));
+
+            var applied = new XeneonEdgeSettingsDto();
+            var wrote = false;
+
+            if (body.Brightness.HasValue)
+            {
+                var v = await xeneon.SetControlAsync(XeneonEdgeControl.Brightness, body.Brightness.Value, ct);
+                if (v is null) return Results.UnprocessableEntity(ApiResponse.Fail("failed to set brightness"));
+                applied.Brightness = v;
+                wrote = true;
+            }
+            if (body.Backlight.HasValue)
+            {
+                var v = await xeneon.SetControlAsync(XeneonEdgeControl.Backlight, body.Backlight.Value, ct);
+                if (v is null) return Results.UnprocessableEntity(ApiResponse.Fail("failed to set backlight"));
+                applied.Backlight = v;
+                wrote = true;
+            }
+            if (body.Contrast.HasValue)
+            {
+                var v = await xeneon.SetControlAsync(XeneonEdgeControl.Contrast, body.Contrast.Value, ct);
+                if (v is null) return Results.UnprocessableEntity(ApiResponse.Fail("failed to set contrast"));
+                applied.Contrast = v;
+                wrote = true;
+            }
+            if (body.Red.HasValue)
+            {
+                var v = await xeneon.SetControlAsync(XeneonEdgeControl.Red, body.Red.Value, ct);
+                if (v is null) return Results.UnprocessableEntity(ApiResponse.Fail("failed to set red"));
+                applied.Red = v;
+                wrote = true;
+            }
+            if (body.Green.HasValue)
+            {
+                var v = await xeneon.SetControlAsync(XeneonEdgeControl.Green, body.Green.Value, ct);
+                if (v is null) return Results.UnprocessableEntity(ApiResponse.Fail("failed to set green"));
+                applied.Green = v;
+                wrote = true;
+            }
+            if (body.Blue.HasValue)
+            {
+                var v = await xeneon.SetControlAsync(XeneonEdgeControl.Blue, body.Blue.Value, ct);
+                if (v is null) return Results.UnprocessableEntity(ApiResponse.Fail("failed to set blue"));
+                applied.Blue = v;
+                wrote = true;
+            }
+
+            if (!wrote)
+                return Results.BadRequest(ApiResponse.Fail("no settings provided"));
+
+            registry.UpdateXeneonEdgeSettings(id, applied);
+            PanelTopics.BroadcastPanelDevice(hub, record.Id);
+            return Results.Json(applied, AppJsonContext.Default.XeneonEdgeSettingsDto);
+        }).AllowPanel();
+
+        // Restores the panel's factory RGB colors only - brightness/backlight/
+        // contrast are untouched (see XeneonEdgeProtocol.BuildRestoreColorsCommand).
+        app.MapPost("/displays/{id}/xeneon-settings/restore-colors", async (
+            string id,
+            PanelDeviceRegistry registry,
+            XeneonEdgeOrientationWorker xeneon,
+            MultiplexHub hub,
+            CancellationToken ct) =>
+        {
+            var record = registry.FindByDisplayId(id);
+            if (record is null || record.Capabilities?.Family != KnownPanelDisplays.XeneonEdgeFamily)
+                return Results.NotFound(ApiResponse.Fail("not a Xeneon Edge panel"));
+
+            if (!await xeneon.RestoreColorsAsync(ct))
+                return Results.UnprocessableEntity(ApiResponse.Fail("restore failed"));
+
+            var dto = new XeneonEdgeSettingsDto
+            {
+                Red = XeneonEdgeDefaults.Red,
+                Green = XeneonEdgeDefaults.Green,
+                Blue = XeneonEdgeDefaults.Blue,
+            };
+            registry.UpdateXeneonEdgeSettings(id, dto);
+            PanelTopics.BroadcastPanelDevice(hub, record.Id);
+            return Results.Json(dto, AppJsonContext.Default.XeneonEdgeSettingsDto);
         }).AllowPanel();
 
         // Touch-mapping guard: runs a detect-and-repair pass synchronously.

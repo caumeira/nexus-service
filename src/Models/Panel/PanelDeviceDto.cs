@@ -65,6 +65,19 @@ public sealed class PanelDeviceRecord
     /// </summary>
     public bool? ReserveMonitor { get; set; }
     /// <summary>
+    /// Follow the panel's hardware orientation sensor and apply the matching
+    /// Windows display rotation (currently the Corsair Xeneon Edge only).
+    /// Display-bound records only; null = default (true).
+    /// </summary>
+    public bool? AutoOrient { get; set; }
+    /// <summary>
+    /// Last known Corsair Xeneon Edge native display settings (vendor HID),
+    /// applied/read through /displays/{id}/xeneon-settings. Display-bound
+    /// xeneon-edge records only; a control's field is null until it has been
+    /// read or set at least once through Nexus.
+    /// </summary>
+    public XeneonEdgeSettingsDto? XeneonEdgeSettings { get; set; }
+    /// <summary>
     /// Whether this display-bound panel is currently turned ON (kiosk
     /// hosted). Turning a monitor's panel off keeps the record - layout,
     /// theme, and settings persist through off/on cycles; promote
@@ -110,6 +123,22 @@ public sealed class PanelDeviceCapabilities
 }
 
 /// <summary>
+/// Corsair Xeneon Edge native display settings. Used both as the persisted
+/// snapshot on <see cref="PanelDeviceRecord.XeneonEdgeSettings"/> and as the
+/// GET/POST body for /displays/{id}/xeneon-settings - a POST only carries
+/// the fields being changed, the rest are left null and untouched.
+/// </summary>
+public sealed class XeneonEdgeSettingsDto
+{
+    public int? Brightness { get; set; }
+    public int? Backlight { get; set; }
+    public int? Contrast { get; set; }
+    public int? Red { get; set; }
+    public int? Green { get; set; }
+    public int? Blue { get; set; }
+}
+
+/// <summary>
 /// Partial update body for POST /panel/devices/{id}. Every field is
 /// nullable so the handler can tell "client left this out" from "client
 /// explicitly cleared this".
@@ -139,6 +168,8 @@ public sealed class PanelDevicePatch
     public bool? AccentSyncWithDesktop { get; set; }
     /// <summary>Display-bound records only; ignored for other panels.</summary>
     public bool? ReserveMonitor { get; set; }
+    /// <summary>Display-bound records only; ignored for other panels.</summary>
+    public bool? AutoOrient { get; set; }
     public PanelDeviceCapabilities? Capabilities { get; set; }
 }
 
