@@ -1309,6 +1309,19 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Panel.PanelDeviceRegistry>();
         services.AddSingleton<Nexus.Service.Panel.PanelAutoPromotion>();
 
+        // Corsair Xeneon Edge auto-orientation + native settings: reads the
+        // panel's hardware orientation sensor over vendor HID and applies the
+        // matching Windows display rotation. Cross-platform HID read like the
+        // Keeb workers; the apply side degrades to a no-op off Windows via
+        // NoopDisplayOrientationProvider. Registered as a plain singleton
+        // (in addition to IHostedService below) so the /displays/{id}/xeneon-
+        // settings routes can resolve it directly to reach
+        // ReadSettingsAsync/SetControlAsync - it is the single owner of the
+        // HID handle those calls must serialize through.
+        services.AddSingleton<Nexus.Service.Peripherals.Corsair.XeneonEdge.XeneonEdgeOrientationWorker>();
+        services.AddHostedService(sp =>
+            sp.GetRequiredService<Nexus.Service.Peripherals.Corsair.XeneonEdge.XeneonEdgeOrientationWorker>());
+
         // Streamed panels: panels rendered off-screen by the overlay's stream
         // engine and piped as H.264 to USB display devices through swappable
         // IStreamedPanelTransport implementations. The D213 reference device

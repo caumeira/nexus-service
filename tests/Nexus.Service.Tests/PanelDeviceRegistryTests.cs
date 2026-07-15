@@ -117,4 +117,17 @@ public sealed class PanelDeviceRegistryTests : IDisposable
 
         Assert.Null(record.WidgetPadding);
     }
+
+    [Fact]
+    public void UpdateXeneonEdgeSettings_PartialUpdate_DoesNotClobberOtherStoredControls()
+    {
+        var (display, _) = _registry.AllocateForDisplay("DISP-XENEON", "Xeneon Edge", Caps(PanelSurfaces.Monitor));
+        _registry.UpdateXeneonEdgeSettings(display.DisplayId!, new XeneonEdgeSettingsDto { Brightness = 50, Red = 151 });
+
+        _registry.UpdateXeneonEdgeSettings(display.DisplayId!, new XeneonEdgeSettingsDto { Brightness = 80 });
+
+        var fetched = _registry.Get(display.Id);
+        Assert.Equal(80, fetched!.XeneonEdgeSettings!.Brightness);
+        Assert.Equal(151, fetched.XeneonEdgeSettings!.Red);
+    }
 }
