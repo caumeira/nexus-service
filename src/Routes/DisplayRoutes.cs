@@ -5,6 +5,7 @@ using Nexus.Service.Lifecycle;
 using Nexus.Service.Models;
 using Nexus.Service.Models.Displays;
 using Nexus.Service.Models.Panel;
+using Nexus.Service.Models.Peripherals.QSeries;
 using Nexus.Service.Models.Peripherals.Y70;
 using Nexus.Service.Panel;
 using Nexus.Service.Peripherals.Corsair.XeneonEdge;
@@ -53,6 +54,24 @@ public static class DisplayRoutes
         {
             y.SetToggle(body.Toggle);
             return new Y70BrightnessResponse { Brightness = 20 };
+        }).AllowPanel();
+
+        // Q-series (Q60/Q80) - 180 degree flip only, no landscape.
+        app.MapGet("/qseries/rotation", (IConfigStore store) => new QSeriesRotationParams
+        {
+            Orientation = store.Load().QSeries.Orientation,
+        }).AllowPanel();
+        app.MapPost("/qseries/rotation", (QSeriesRotationParams body, IConfigStore store, IServiceProvider sp) =>
+        {
+            if (body.Orientation is null)
+                return Results.Ok(ApiResponse.Ok());
+            if (body.Orientation != DisplayOrientations.Portrait && body.Orientation != DisplayOrientations.PortraitFlipped)
+                return Results.BadRequest(ApiResponse.Fail($"unknown orientation '{body.Orientation}'"));
+            store.Update(s => s.QSeries.Orientation = body.Orientation);
+            // The watcher is Windows-only (see AddNexusPanel), so GetService is
+            // null off Windows; the setting still persists there.
+            sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>()?.AnnounceOrientationChange();
+            return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
 
         // System monitors (external DDC/CI + internal panels)

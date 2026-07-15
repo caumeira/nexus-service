@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -51,22 +52,37 @@ public sealed class DriverAutoLaunchWorker : BackgroundService
     private readonly ExternalToolManager _tools;
     private readonly IUsbEnumerator _usb;
     private readonly DeviceControlGate _gate;
+    private readonly IReadOnlyList<IDriverGateStopHook> _stopHooks;
     private readonly Func<DateTime> _utcNow;
     private readonly Dictionary<string, BackoffState> _backoff = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _launchedVariant = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _absentTicks = new(StringComparer.Ordinal);
 
-    public DriverAutoLaunchWorker(AppRegistry apps, ExternalToolManager tools, IUsbEnumerator usb, DeviceControlGate gate)
-        : this(apps, tools, usb, gate, () => DateTime.UtcNow) { }
+    public DriverAutoLaunchWorker(AppRegistry apps, ExternalToolManager tools, IUsbEnumerator usb, DeviceControlGate gate,
+        IEnumerable<IDriverGateStopHook> stopHooks)
+        : this(apps, tools, usb, gate, stopHooks, () => DateTime.UtcNow) { }
 
     /// <summary>Test seam: inject the clock the backoff schedule reads.</summary>
-    internal DriverAutoLaunchWorker(AppRegistry apps, ExternalToolManager tools, IUsbEnumerator usb, DeviceControlGate gate, Func<DateTime> utcNow)
+    internal DriverAutoLaunchWorker(AppRegistry apps, ExternalToolManager tools, IUsbEnumerator usb, DeviceControlGate gate,
+        IEnumerable<IDriverGateStopHook> stopHooks, Func<DateTime> utcNow)
     {
         _apps = apps;
         _tools = tools;
         _usb = usb;
         _gate = gate;
+        _stopHooks = stopHooks.ToList();
         _utcNow = utcNow;
+    }
+
+    /// <summary>A hook that throws must not kill the tick - its work is best-effort cleanup.</summary>
+    private void RunStopHook(string deviceId)
+    {
+        foreach (var h in _stopHooks)
+        {
+            if (!string.Equals(h.DeviceId, deviceId, StringComparison.Ordinal)) continue;
+            try { h.OnGatedOff(); }
+            catch (Exception ex) { ServiceLog.Warn($"[driver-autolaunch] stop hook {deviceId}: {ex.GetType().Name}: {ex.Message}"); }
+        }
     }
 
     private sealed class BackoffState
@@ -112,8 +128,12 @@ public sealed class DriverAutoLaunchWorker : BackgroundService
                 // streak that exists to survive one.
                 if (_tools.GetStatus(driver.ToolId) == ToolStatus.Running)
                 {
-                    _tools.Terminate(driver.ToolId);
+                    var gone = _tools.Terminate(driver.ToolId);
                     _launchedVariant.Remove(driver.ToolId);
+                    // Only on the off transition, and only once the kill is
+                    // confirmed: the hook touches the device, so a driver that
+                    // outlived its kill would leave two writers on it.
+                    if (gone) RunStopHook(driver.DeviceId);
                 }
                 _absentTicks.Remove(driver.ToolId);
                 _backoff.Remove(driver.ToolId);

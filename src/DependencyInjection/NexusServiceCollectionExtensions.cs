@@ -1240,6 +1240,7 @@ public static class NexusServiceCollectionExtensions
             sp.GetRequiredService<Nexus.Service.Common.ExternalTools.ExternalToolManager>());
         // Auto-launches each installed bundled driver app's binary when its device
         // is present (runs at boot, pre-login).
+        services.AddSingleton<Nexus.Service.Common.ExternalTools.IDriverGateStopHook, Nexus.Service.Peripherals.Aw5.Aw5PanelBlanker>();
         services.AddHostedService<Nexus.Service.Common.ExternalTools.DriverAutoLaunchWorker>();
         return services;
     }
@@ -1259,6 +1260,7 @@ public static class NexusServiceCollectionExtensions
                     sp.GetRequiredService<Nexus.Service.Devices.Detection.HardwarePresence>(),
                     sp.GetRequiredService<Nexus.Service.Panel.PanelDeviceRegistry>(),
                     sp.GetRequiredService<Nexus.Service.Devices.DeviceControlGate>(),
+                    sp.GetRequiredService<IConfigStore>(),
                     sp.GetRequiredService<Nexus.Service.Common.ExternalTools.IAdbDeviceRegistry>(),
                     sp.GetService<Nexus.Service.Panel.PanelTunnelMonitor>()));
             services.AddHostedService(sp =>

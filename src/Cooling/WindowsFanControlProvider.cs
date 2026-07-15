@@ -43,10 +43,24 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
     // which itself only runs under _discoveryLock via EnsureDiscovered().
     private HashSet<string> _lastLoggedChannelIds = new(StringComparer.Ordinal);
 
+    // Fans leased by an in-flight calibration, with the control state each held
+    // when the lease was taken. A leased fan ignores every other duty write, and
+    // the calibrator only writes while it still holds the lease - so the ramp
+    // measures the duty it commanded and nothing else, and revoking the lease
+    // (ReleaseAll, on shutdown or a profile switch) aborts the run. Both
+    // directions are enforced here, at the write path, so no caller can opt out.
+    private readonly Dictionary<string, (ChannelMapping Mapping, ControlMode Mode, float Value)> _calibrationLease = new(StringComparer.Ordinal);
+    private readonly object _calibrationLock = new();
+
     public WindowsFanControlProvider(LhmComputer lhm, IConfigStore config)
     {
         _lhm = lhm;
         _config = config;
+    }
+
+    private bool IsLeasedForCalibration(string channelId)
+    {
+        lock (_calibrationLock) return _calibrationLease.ContainsKey(channelId);
     }
 
     // ── IFanControlProvider ──
@@ -140,6 +154,10 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
     public int SetFanSpeed(string channelId, int dutyPercent)
     {
         var clamped = Math.Clamp(dutyPercent, 0, 100);
+        // Dropped whole, not just the hardware write: recording ManualSpeeds
+        // here would outlive the lease and contradict the state the calibration
+        // restores.
+        if (IsLeasedForCalibration(channelId)) return clamped;
         var mappings = EnsureDiscovered();
         var mapping = mappings.FirstOrDefault(m => m.Id == channelId);
         if (mapping is null) return clamped;
@@ -153,6 +171,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
     public void DriveFanSpeed(string channelId, int dutyPercent)
     {
         var clamped = Math.Clamp(dutyPercent, 0, 100);
+        if (IsLeasedForCalibration(channelId)) return;
         var mappings = EnsureDiscovered();
         var mapping = mappings.FirstOrDefault(m => m.Id == channelId);
         if (mapping is null) return;
@@ -163,6 +182,7 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
 
     public void ReleaseFan(string channelId)
     {
+        if (IsLeasedForCalibration(channelId)) return;
         var mappings = EnsureDiscovered();
         var mapping = mappings.FirstOrDefault(m => m.Id == channelId);
         if (mapping is null) return;
@@ -174,6 +194,10 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
 
     public void ReleaseAll()
     {
+        // Revoke without restoring, before the loop below: this runs on shutdown
+        // and profile switch, where every fan must end on BIOS control. Revoking
+        // also stops an in-flight ramp from re-driving a fan after it is released.
+        EndCalibrationLease(restorePriorState: false);
         var mappings = EnsureDiscovered();
         foreach (var m in mappings)
         {
@@ -199,40 +223,103 @@ public sealed class WindowsFanControlProvider : IFanControlProvider, ICoolingPro
             ? mappings
             : mappings.Where(m => fanIds.Contains(m.Id)).ToList();
 
-        var calibrator = new FanCalibrator(_lhm);
-        var tasks = toCalibrate.Select(m =>
-            calibrator.CalibrateOneAsync(m.Id, m.ControlSensor, m.FanSensor, progress, ct));
+        FanCalibration[] results;
+        BeginCalibrationLease(toCalibrate);
+        try
+        {
+            var tasks = toCalibrate.Select(m => FanCalibrator.CalibrateOneAsync(
+                m.Id,
+                duty => WriteCalibrationDuty(m, duty),
+                () => ReadCalibrationRpm(m),
+                progress,
+                ct));
 
-        var results = await Task.WhenAll(tasks);
+            results = await Task.WhenAll(tasks);
+        }
+        finally
+        {
+            EndCalibrationLease(restorePriorState: true);
+        }
 
+        // Entries for fans that no longer enumerate are left alone: they are
+        // inert, since the only reader looks each one up by a live channel's id.
+        // Pruning them is not safe - LHM activates a fan sensor only once its
+        // tach reports, so a fan that is merely stopped is indistinguishable
+        // from one that is gone.
         _config.Update(s =>
         {
             foreach (var r in results)
                 s.Cooling.FanCalibrations[r.FanId] = r;
-
-            // Prune calibrations for headers that are no longer discovered (a
-            // chip re-enumeration can remap or drop a header), so stale entries
-            // stop surfacing in the results list. Scoped to device roots that
-            // WERE enumerated this pass (id up to "/control/"): a stale channel
-            // is pruned only when its device is present but that specific
-            // channel is gone - so a transient total miss of a device (LHM
-            // hiccup) never nukes its still-valid calibrations. Hub fans never
-            // calibrate, so their keys never appear here.
-            static string RootOf(string id)
-            {
-                var i = id.IndexOf("/control/", StringComparison.Ordinal);
-                return i >= 0 ? id[..i] : id;
-            }
-            var live = new HashSet<string>(mappings.Select(m => m.Id));
-            var liveRoots = new HashSet<string>(mappings.Select(m => RootOf(m.Id)));
-            var stale = s.Cooling.FanCalibrations.Keys
-                .Where(k => !live.Contains(k) && liveRoots.Contains(RootOf(k)))
-                .ToList();
-            foreach (var k in stale)
-                s.Cooling.FanCalibrations.Remove(k);
         });
 
         return results;
+    }
+
+    /// <summary>Takes the fans, recording the control state each held so the run
+    /// can hand it back - which is what keeps _softwareControlled truthful across
+    /// a calibration without any bookkeeping of its own. Single-flight:
+    /// CalibrationRunner.Start admits one run at a time.</summary>
+    private void BeginCalibrationLease(IReadOnlyList<ChannelMapping> toCalibrate)
+    {
+        // Snapshot before taking the lock so a throw mid-read cannot leave fans
+        // half-leased, which would silently swallow every later write to them.
+        var snapshot = new Dictionary<string, (ChannelMapping, ControlMode, float)>(toCalibrate.Count, StringComparer.Ordinal);
+        foreach (var m in toCalibrate)
+        {
+            var control = m.ControlSensor.Control;
+            snapshot[m.Id] = (m, control.ControlMode, control.SoftwareValue);
+        }
+
+        lock (_calibrationLock)
+        {
+            _calibrationLease.Clear();
+            foreach (var (id, entry) in snapshot) _calibrationLease[id] = entry;
+        }
+    }
+
+    /// <summary>Hands the fans back. Idempotent: ReleaseAll revokes a live lease
+    /// before CalibrateAsync's finally reaches it, and the second call no-ops.</summary>
+    private void EndCalibrationLease(bool restorePriorState)
+    {
+        (ChannelMapping Mapping, ControlMode Mode, float Value)[] leased;
+        lock (_calibrationLock)
+        {
+            if (_calibrationLease.Count == 0) return;
+            leased = _calibrationLease.Values.ToArray();
+            _calibrationLease.Clear();
+        }
+
+        if (!restorePriorState) return;
+
+        foreach (var (mapping, mode, value) in leased)
+        {
+            try
+            {
+                if (mode == ControlMode.Software) mapping.ControlSensor.Control.SetSoftware(value);
+                else mapping.ControlSensor.Control.SetDefault();
+            }
+            catch { /* a header that vanished mid-ramp must not strand the others */ }
+        }
+    }
+
+    private void WriteCalibrationDuty(ChannelMapping mapping, int duty)
+    {
+        lock (_calibrationLock)
+        {
+            // Revoked mid-ramp by ReleaseAll (shutdown or profile switch).
+            // Aborting rather than skipping the write is what keeps the run from
+            // completing: the remaining steps would sample whatever now drives
+            // the fan and persist that over a valid calibration.
+            if (!_calibrationLease.ContainsKey(mapping.Id))
+                throw new OperationCanceledException($"calibration lease revoked for {mapping.Id}");
+            mapping.ControlSensor.Control.SetSoftware(Math.Clamp(duty, 0, 100));
+        }
+    }
+
+    private int ReadCalibrationRpm(ChannelMapping mapping)
+    {
+        _lhm.Update(TimeSpan.FromMilliseconds(100));
+        return (int)(mapping.FanSensor.Value ?? 0f);
     }
 
     // ── ICoolingProvider ──

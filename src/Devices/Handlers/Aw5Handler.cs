@@ -14,7 +14,10 @@ public sealed class Aw5Handler : IDeviceHandler
 {
     private const int IbpVid = 0x3402;
 
-    public string Id => "aw5";
+    /// <summary>Shared with the panel blanker. The app manifest's deviceId must match it by hand - that one lives in nexus-apps.</summary>
+    public const string HandlerId = "aw5";
+
+    public string Id => HandlerId;
     public string Name => "iBUYPOWER AW5";
     public string Category => "cooler";
 

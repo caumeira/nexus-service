@@ -82,6 +82,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             registry, manager,
             new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }),
             OpenGate(),
+            Array.Empty<IDriverGateStopHook>(),
             () => now);
 
         await worker.RunOnceAsync(CancellationToken.None);
@@ -126,6 +127,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             registry, manager,
             new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }),
             OpenGate(),
+            Array.Empty<IDriverGateStopHook>(),
             () => now);
 
         await worker.RunOnceAsync(CancellationToken.None);
@@ -299,7 +301,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             new(_root, AppInstallPaths.Source.Bundled),
         });
         var manager = new ExternalToolManager(new HttpClient(new ExplodingHandler()), _cache);
-        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate);
+        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate, Array.Empty<IDriverGateStopHook>());
 
         await worker.RunOnceAsync(CancellationToken.None);
         Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
@@ -340,19 +342,101 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         manager.TerminateAll();
     }
 
+    [Fact]
+    public async Task Gating_off_fires_the_stop_hook_once_after_the_driver_is_gone()
+    {
+        // The hook writes to the device (the AW5 blanks its panel), so it must run
+        // only once the vendor process is gone - and not again on every later tick,
+        // which would reopen the device every 5s for as long as the switch is off.
+        if (OperatingSystem.IsWindows()) return; // real child process; Unix only
+
+        var runs = WriteDriverApp(withDriverBinary: true, deviceId: "acme");
+        var gate = OpenGate();
+        var pid = 0;
+        var hook = new SpyHook("acme", () => pid);
+        var (worker, manager) = Build(
+            new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }), gate, new IDriverGateStopHook[] { hook });
+
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+        Assert.Equal(0, hook.Calls);
+        pid = await LastRunPidAsync(runs, "VariantB");
+
+        gate.SetEnabled("acme", false);
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(1, hook.Calls);
+        // The hook writes to the device, so the vendor process must already be gone
+        // when it runs - checked by pid, the only handle that sees this child.
+        Assert.False(hook.SawLiveDriver, "the hook ran while the vendor driver was still alive");
+
+        // Still off, still on the bus: the transition already happened.
+        await worker.RunOnceAsync(CancellationToken.None);
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(1, hook.Calls);
+
+        // Back on, then off again - a second transition fires it again.
+        gate.SetEnabled("acme", true);
+        await worker.RunOnceAsync(CancellationToken.None);
+        pid = await LastRunPidAsync(runs, "VariantB");
+        gate.SetEnabled("acme", false);
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(2, hook.Calls);
+        Assert.False(hook.SawLiveDriver, "the hook ran while the vendor driver was still alive");
+
+        manager.TerminateAll();
+    }
+
+    [Fact]
+    public async Task Unplugging_does_not_fire_the_stop_hook()
+    {
+        // Nothing to clean up on hardware that left; the hook would only fail.
+        if (OperatingSystem.IsWindows()) return; // real child process; Unix only
+
+        WriteDriverApp(withDriverBinary: true, deviceId: "acme");
+        var hook = new SpyHook("acme", () => 0);
+        var usb = new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 });
+        var (worker, manager) = Build(usb, OpenGate(), new IDriverGateStopHook[] { hook });
+
+        await worker.RunOnceAsync(CancellationToken.None);
+        usb.SetBus();
+        for (var i = 0; i < DriverAutoLaunchWorker.AbsentTicksBeforeStop; i++) await worker.RunOnceAsync(CancellationToken.None);
+
+        Assert.NotEqual(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+        Assert.Equal(0, hook.Calls);
+    }
+
+    /// <summary>
+    /// Records whether the driver was already dead each time it ran. Checks the pid,
+    /// not a process name: a shebang script runs under the interpreter's name, so
+    /// GetProcessesByName can never see it and would assert nothing.
+    /// </summary>
+    private sealed class SpyHook : IDriverGateStopHook
+    {
+        private readonly Func<int> _pid;
+        public SpyHook(string deviceId, Func<int> pid) { DeviceId = deviceId; _pid = pid; }
+        public string DeviceId { get; }
+        public int Calls { get; private set; }
+        public bool SawLiveDriver { get; private set; }
+        public void OnGatedOff()
+        {
+            Calls++;
+            if (IsAlive(_pid())) SawLiveDriver = true;
+        }
+    }
+
     /// <summary>A gate with no explicit choices: every handler falls back to its brand default (on).</summary>
     private static DeviceControlGate OpenGate() => new(new InMemoryConfigStore());
 
     // ── Harness ──
 
-    private (DriverAutoLaunchWorker worker, ExternalToolManager manager) Build(IUsbEnumerator usb, DeviceControlGate? gate = null)
+    private (DriverAutoLaunchWorker worker, ExternalToolManager manager) Build(IUsbEnumerator usb, DeviceControlGate? gate = null, IDriverGateStopHook[]? hooks = null)
     {
         var registry = new AppRegistry(() => new List<AppInstallPaths.Root>
         {
             new(_root, AppInstallPaths.Source.Bundled),
         });
         var manager = new ExternalToolManager(new HttpClient(new ExplodingHandler()), _cache);
-        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate ?? OpenGate());
+        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate ?? OpenGate(), hooks ?? Array.Empty<IDriverGateStopHook>());
         return (worker, manager);
     }
 
