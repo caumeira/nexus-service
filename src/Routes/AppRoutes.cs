@@ -375,9 +375,6 @@ public static class AppRoutes
             Sizes = new List<string>(entry.Manifest.Sizes),
             DefaultSize = entry.Manifest.DefaultSize,
             Source = source,
-            // Kept for wire compatibility; no root is signature-verified, so it
-            // carries no trust signal.
-            Trusted = true,
             // Preinstall is an OEM bake-in honored only for bundled apps; a user
             // copy of the same id is a deliberate user choice, not a pre-install.
             Preinstalled = entry.Manifest.Preinstalled && entry.Source == AppInstallPaths.Source.Bundled && oemMatch,

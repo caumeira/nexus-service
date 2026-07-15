@@ -7,9 +7,14 @@ namespace Nexus.Service.Tests;
 
 /// <summary>
 /// The generic touch-mapping tier: single-USB-digitizer inference for a
-/// touch-expected display that has no catalog digitizer entry (e.g. the
-/// Xeneon Edge, whose digitizer VID/PID hasn't been captured - see
-/// TouchPanelCatalog). Runs only when the catalog tier produced no plan.
+/// touch-expected display whose attached digitizer doesn't match any
+/// catalog VID/PID (a not-yet-catalogued touch panel). Runs only when the
+/// catalog tier produced no plan. Uses the Xeneon Edge's real EDID identity
+/// as the touch-expected display and a generic (non-Xeneon) digitizer VID/PID
+/// as the stand-in uncatalogued digitizer - the Xeneon Edge's actual
+/// digitizer (VID_27C0&amp;PID_0859) is itself a catalog entry, so the display
+/// is now always a matched catalog panel; see TouchMappingCatalogTests for
+/// the Xeneon Edge digitizer's own companion-hub disambiguation.
 /// </summary>
 public sealed class TouchMappingGenericTierTests
 {
@@ -67,7 +72,10 @@ public sealed class TouchMappingGenericTierTests
 
         var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
 
-        Assert.Equal(TouchMappingOutcome.NoPanel, outcome);
+        // The Xeneon Edge display is itself a catalog entry, so the coarse
+        // outcome is NoDigitizer (a catalog panel is attached, no digitizer
+        // resolved to it), not NoPanel.
+        Assert.Equal(TouchMappingOutcome.NoDigitizer, outcome);
         Assert.Empty(plans);
     }
 
@@ -83,7 +91,7 @@ public sealed class TouchMappingGenericTierTests
 
         var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
 
-        Assert.Equal(TouchMappingOutcome.NoPanel, outcome);
+        Assert.Equal(TouchMappingOutcome.NoDigitizer, outcome);
         Assert.Empty(plans);
     }
 
@@ -105,16 +113,18 @@ public sealed class TouchMappingGenericTierTests
 
         var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
 
-        Assert.Equal(TouchMappingOutcome.NoPanel, outcome);
+        Assert.Equal(TouchMappingOutcome.NoDigitizer, outcome);
         Assert.Empty(plans);
     }
 
     [Fact]
     public void Generic_tier_skips_a_catalog_known_digitizer_even_when_its_own_panel_is_absent()
     {
-        // Y70 digitizer present (catalog VID/PID) but the Y70 display itself
-        // is not attached; a different touch-expected display (Xeneon Edge)
-        // is. The lone USB digitizer must not be inferred onto it.
+        // The Y70's digitizer (catalog VID/PID, no companion sibling) is
+        // present but the Y70 display itself is not attached; a different
+        // touch-expected display (Xeneon Edge) is. The lone USB digitizer
+        // must not be inferred onto it even though it fails the Xeneon
+        // Edge catalog entry's companion-hub check (no sibling recorded).
         var snapshot = Snapshot(
             new List<TouchMapDisplayInfo> { XeneonEdgeDisplay("xeneon-1") },
             new List<TouchMapDigitizerInfo>
@@ -124,7 +134,7 @@ public sealed class TouchMappingGenericTierTests
 
         var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
 
-        Assert.Equal(TouchMappingOutcome.NoPanel, outcome);
+        Assert.Equal(TouchMappingOutcome.NoDigitizer, outcome);
         Assert.Empty(plans);
     }
 
@@ -157,10 +167,11 @@ public sealed class TouchMappingGenericTierTests
 
         var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
 
-        // Xeneon Edge is not a TouchPanelCatalog entry, so the catalog tier's
-        // own bookkeeping never sees a matched panel here; the coarse outcome
-        // stays NoPanel even though nothing needs repairing (no plan either way).
-        Assert.Equal(TouchMappingOutcome.NoPanel, outcome);
+        // The Xeneon Edge display is a TouchPanelCatalog entry, so the
+        // catalog tier's bookkeeping sees a matched panel here; the generic
+        // digitizer never matches its VID/PID, so the coarse outcome is
+        // NoDigitizer even though nothing needs repairing (no plan either way).
+        Assert.Equal(TouchMappingOutcome.NoDigitizer, outcome);
         Assert.Empty(plans);
     }
 
@@ -216,7 +227,10 @@ public sealed class TouchMappingGenericTierTests
 
         var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
 
-        Assert.Equal(TouchMappingOutcome.NoPanel, outcome);
+        // InvalidMonitorPath still contains the "CRXED00" fragment, so the
+        // catalog tier matches the panel; the generic tier's own interface-path
+        // guard is what keeps it from producing a plan.
+        Assert.Equal(TouchMappingOutcome.NoDigitizer, outcome);
         Assert.Empty(plans);
     }
 }

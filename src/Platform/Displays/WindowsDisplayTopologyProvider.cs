@@ -203,6 +203,7 @@ public sealed class WindowsDisplayTopologyProvider : IDisplayTopologyProvider
                             ProductString = devices[i].productString ?? "",
                             AssociatedDisplayId = associatedId,
                             IsUsbAttached = CfgMgr32.HasUsbAncestor(interfacePath),
+                            CompanionHardwareIds = CfgMgr32.GetUsbHubSiblingInstanceIds(interfacePath),
                         });
                     }
                 }

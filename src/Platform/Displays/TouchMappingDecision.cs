@@ -33,23 +33,27 @@ public sealed record TouchMappingRepairPlan(
 /// every catalog-matching digitizer is evaluated independently. No I/O -
 /// TouchMappingGuard is the only caller that acts on the result.
 ///
+/// A digitizer whose USB descriptor (VID/PID) collides with another catalog
+/// entry's is disambiguated by TouchPanelCatalog's companion-hub check (see
+/// TouchPanelCatalogEntry.CompanionUsbIds): a companion-scoped entry always
+/// wins that digitizer over an unscoped entry with the same VID/PID.
+///
 /// A second, generic tier runs only when the catalog tier found nothing to
 /// repair: on a box with exactly one USB-attached touch digitizer and
 /// exactly one touch-expected display (a curated KnownPanelDisplays entry or
 /// a Y70-EDID match) that digitizer isn't already mapped to, it infers the
-/// pairing without needing the digitizer's VID/PID in the catalog. This
-/// covers panels like the Xeneon Edge whose digitizer identity hasn't been
-/// captured. A digitizer already in the catalog is excluded from this tier
-/// even when its own panel is absent, so it never gets inferred onto a
-/// different touch-expected display (see plans/touch-mapping-auto-repair.md).
+/// pairing without needing the digitizer's VID/PID in the catalog at all. A
+/// digitizer already in the catalog is excluded from this tier even when its
+/// own panel is absent, so it never gets inferred onto a different
+/// touch-expected display (see plans/touch-mapping-auto-repair.md).
 ///
 /// The "exactly one" counts include catalog digitizers and catalog displays,
-/// not just generic ones: a box with a Y70 (catalog) and a Xeneon Edge
-/// (generic) attached at once has two USB digitizers and two touch-expected
-/// displays, so the generic tier stays out even though the pairing looks
-/// unambiguous. This keeps the ambiguity gate conservative rather than
-/// threading catalog/generic exclusion through the counts too; multi-panel
-/// rigs stay catalog-tier-plus-manual-button, same as multi-digitizer rigs.
+/// not just generic ones: a box with two catalog panels attached at once has
+/// two USB digitizers and two touch-expected displays, so the generic tier
+/// stays out even though a pairing might look unambiguous. This keeps the
+/// ambiguity gate conservative rather than threading catalog/generic
+/// exclusion through the counts too; multi-panel rigs stay
+/// catalog-tier-plus-manual-button, same as multi-digitizer rigs.
 /// </summary>
 public static class TouchMappingDecision
 {
@@ -67,7 +71,13 @@ public static class TouchMappingDecision
 
             foreach (var candidate in snapshot.Digitizers)
             {
-                if (!TouchPanelCatalog.MatchesDigitizer(entry, candidate.InterfacePath)) continue;
+                if (!TouchPanelCatalog.MatchesDigitizer(entry, candidate)) continue;
+                // Most-specific-wins: an unscoped entry (e.g. y70) never
+                // claims a digitizer a companion-scoped entry (e.g.
+                // xeneon-edge) has already confirmed via its hub sibling,
+                // even though their VID/PIDs collide (descriptor-identical
+                // digitizer chips on different panels).
+                if (!entry.IsCompanionScoped && TouchPanelCatalog.IsClaimedByCompanionScopedEntry(candidate)) continue;
                 matchedDigitizer = true;
 
                 if (string.Equals(candidate.AssociatedDisplayId, display.Id, StringComparison.Ordinal)) continue;
@@ -120,8 +130,8 @@ public static class TouchMappingDecision
 
     /// <summary>
     /// True when a display is a panel model the guard expects to be
-    /// touch-capable: either a Y70 (catalog EDID match) or another curated
-    /// KnownPanelDisplays entry with Touch=true (e.g. Xeneon Edge). Uses the
+    /// touch-capable: either a TouchPanelCatalog EDID match or another
+    /// curated KnownPanelDisplays entry with Touch=true. Uses the
     /// Manufacturer/Model the snapshot already carries (the same PnP split
     /// WindowsDisplayIdentity.ResolveIdentity computes) rather than
     /// re-parsing MonitorInterfacePath.
