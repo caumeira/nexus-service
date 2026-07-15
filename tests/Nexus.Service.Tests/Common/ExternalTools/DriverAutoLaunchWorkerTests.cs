@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Net;
 using System.Net.Http;
@@ -162,6 +163,127 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         Assert.Equal(expected, CountRuns(marker));
     }
 
+    [Fact]
+    public async Task Unplugging_the_device_stops_its_driver()
+    {
+        if (OperatingSystem.IsWindows()) return; // real child process; Unix only
+
+        var runs = WriteDriverApp(withDriverBinary: true);
+        var usb = new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 });
+        var (worker, manager) = Build(usb);
+
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+        var pid = await LastRunPidAsync(runs, "VariantB");
+
+        // The driver binds to the device it was launched for; with the device gone
+        // it drives nothing, so it must not outlive the unplug. Terminate clears its
+        // bookkeeping before killing, so assert on the process, not on GetStatus.
+        usb.SetBus();
+        for (var i = 0; i < DriverAutoLaunchWorker.AbsentTicksBeforeStop; i++) await worker.RunOnceAsync(CancellationToken.None);
+        Assert.NotEqual(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+        await AssertExitsAsync(pid, "the driver process outlived the unplug");
+
+        // Plugging it back in brings the driver back, with no restart.
+        usb.SetBus(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 });
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+
+        manager.TerminateAll();
+    }
+
+    [Fact]
+    public async Task A_single_absent_tick_does_not_kill_a_healthy_driver()
+    {
+        // A partial enumeration caches as fresh, and killing this driver is not
+        // recoverable without a replug - so absence must be corroborated.
+        if (OperatingSystem.IsWindows()) return; // real child process; Unix only
+
+        var runs = WriteDriverApp(withDriverBinary: true);
+        var usb = new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 });
+        var (worker, manager) = Build(usb);
+
+        await worker.RunOnceAsync(CancellationToken.None);
+        var pid = await LastRunPidAsync(runs, "VariantB");
+
+        usb.SetBus(); // one bad scan
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+        Assert.True(IsAlive(pid), "one absent tick must not kill the driver");
+
+        // The device was there all along: the streak resets and nothing is disturbed.
+        usb.SetBus(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 });
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+        Assert.True(IsAlive(pid), "the original driver must not have been restarted");
+        Assert.Equal(1, CountRuns(runs));
+
+        manager.TerminateAll();
+    }
+
+    /// <summary>Pid of the newest recorded run, so a test asserts the process, not the bookkeeping.</summary>
+    private static async Task<int> LastRunPidAsync(string marker, string variant)
+    {
+        await WaitForLastRunAsync(marker, variant);
+        var parts = File.ReadAllLines(marker)[^1].Split(' ');
+        return int.Parse(parts[1]);
+    }
+
+    private static bool IsAlive(int pid)
+    {
+        try
+        {
+            using var p = Process.GetProcessById(pid);
+            return !p.HasExited;
+        }
+        catch (ArgumentException) { return false; } // no such process
+    }
+
+    private static async Task AssertExitsAsync(int pid, string because)
+    {
+        for (var i = 0; i < 100 && IsAlive(pid); i++) await Task.Delay(50);
+        Assert.False(IsAlive(pid), because);
+    }
+
+    [Fact]
+    public async Task Swapping_to_another_variant_replaces_the_running_driver()
+    {
+        if (OperatingSystem.IsWindows()) return; // real child process; Unix only
+
+        // Both variants share one toolId, so a status check alone reports the
+        // stale driver as healthy and the swapped-in device never gets its own.
+        var runs = WriteDriverApp(withDriverBinary: true, secondVariant: true);
+        var usb = new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }); // VariantB
+        var (worker, manager) = Build(usb);
+
+        await worker.RunOnceAsync(CancellationToken.None);
+        var bPid = await LastRunPidAsync(runs, "VariantB");
+
+        usb.SetBus(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0003 }); // VariantC
+        await worker.RunOnceAsync(CancellationToken.None);
+
+        Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+        await WaitForLastRunAsync(runs, "VariantC");
+        // The outgoing driver must be dead, not merely untracked: two drivers on one
+        // present cooler is the failure this reconcile exists to prevent.
+        await AssertExitsAsync(bPid, "the swapped-out driver survived alongside the new one");
+
+        manager.TerminateAll();
+    }
+
+    /// <summary>Each variant's script announces itself; wait for the newest line to name it.</summary>
+    private static async Task WaitForLastRunAsync(string marker, string expected)
+    {
+        for (var i = 0; i < 200; i++)
+        {
+            var lines = File.Exists(marker) ? File.ReadAllLines(marker) : Array.Empty<string>();
+            if (lines.Length > 0 && lines[^1].StartsWith(expected + " ", StringComparison.Ordinal)) return;
+            await Task.Delay(50);
+        }
+        var last = File.Exists(marker) ? string.Join(",", File.ReadAllLines(marker)) : "<no file>";
+        Assert.Fail($"expected last run to be {expected}; saw [{last}]");
+    }
+
     // ── Harness ──
 
     private (DriverAutoLaunchWorker worker, ExternalToolManager manager) Build(IUsbEnumerator usb)
@@ -175,8 +297,8 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         return (worker, manager);
     }
 
-    /// <summary>Returns the path the driver appends one line to per run.</summary>
-    private string WriteDriverApp(bool withDriverBinary, bool exitAfterLaunch = false)
+    /// <summary>Returns the path each launched variant appends its own name to.</summary>
+    private string WriteDriverApp(bool withDriverBinary, bool exitAfterLaunch = false, bool secondVariant = false)
     {
         var dir = Path.Combine(_root, "com.example.cooler");
         Directory.CreateDirectory(dir);
@@ -192,27 +314,38 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         var runMarker = Path.Combine(_root, "runs.txt");
         if (!withDriverBinary) return runMarker;
 
-        var variantDir = Path.Combine(dir, "drivers", "VariantB"); // matches PID 0x0002
+        WriteVariant(dir, "VariantB", runMarker, exitAfterLaunch); // matches PID 0x0002
+        if (secondVariant) WriteVariant(dir, "VariantC", runMarker, false); // matches PID 0x0003
+        return runMarker;
+    }
+
+    /// <summary>
+    /// One pinned per-variant binary. Each variant ships its own file name, as the
+    /// real driver store does, so adoption-by-image-name cannot confuse two of them.
+    /// </summary>
+    private static void WriteVariant(string appDir, string variant, string runMarker, bool exitAfterLaunch)
+    {
+        var variantDir = Path.Combine(appDir, "drivers", variant);
         Directory.CreateDirectory(variantDir);
-        var sleeper = Path.Combine(variantDir, "sleeper.sh");
+        var fileName = "sleeper-" + variant.ToLowerInvariant() + ".sh";
+        var script = Path.Combine(variantDir, fileName);
         // The crash-loop driver must still be alive when the worker reads its
         // status right after Process.Start, or the tick that clears the backoff
         // never runs and the test passes against the bug.
-        var body = exitAfterLaunch
-            ? "#!/bin/sh\necho run >> \"" + runMarker + "\"\nsleep 1\nexit 1\n"
-            : "#!/bin/sh\nsleep 30\n";
-        File.WriteAllText(sleeper, body);
+        var tail = exitAfterLaunch ? "sleep 1\nexit 1\n" : "sleep 30\n";
+        // Each run records "<variant> <pid>": a shebang script's process name is the
+        // interpreter, so the pid is the only reliable handle on the child.
+        File.WriteAllText(script, "#!/bin/sh\necho " + variant + " $$ >> \"" + runMarker + "\"\n" + tail);
         if (!OperatingSystem.IsWindows())
         {
-            File.SetUnixFileMode(sleeper,
+            File.SetUnixFileMode(script,
                 UnixFileMode.UserRead | UnixFileMode.UserWrite | UnixFileMode.UserExecute |
                 UnixFileMode.GroupRead | UnixFileMode.GroupExecute |
                 UnixFileMode.OtherRead | UnixFileMode.OtherExecute);
         }
-        var payload = File.ReadAllBytes(sleeper);
+        var payload = File.ReadAllBytes(script);
         File.WriteAllText(Path.Combine(variantDir, "bundled.json"),
-            "{\"fileName\":\"sleeper.sh\",\"sha256\":\"" + Sha256Hex(payload) + "\",\"size\":" + payload.Length + "}");
-        return runMarker;
+            "{\"fileName\":\"" + fileName + "\",\"sha256\":\"" + Sha256Hex(payload) + "\",\"size\":" + payload.Length + "}");
     }
 
     private static string Sha256Hex(byte[] bytes)
@@ -223,9 +356,11 @@ public class DriverAutoLaunchWorkerTests : IDisposable
 
     private sealed class StubUsb : IUsbEnumerator
     {
-        private readonly List<UsbDeviceEntry> _devices;
+        private List<UsbDeviceEntry> _devices;
         public StubUsb(params UsbDeviceEntry[] devices) => _devices = new List<UsbDeviceEntry>(devices);
         public List<UsbDeviceEntry> Enumerate() => _devices;
+        /// <summary>Rewrite the bus, standing in for an unplug or a variant swap.</summary>
+        public void SetBus(params UsbDeviceEntry[] devices) => _devices = new List<UsbDeviceEntry>(devices);
     }
 
     private sealed class ExplodingHandler : HttpMessageHandler
