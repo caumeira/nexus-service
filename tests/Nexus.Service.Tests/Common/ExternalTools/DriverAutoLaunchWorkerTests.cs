@@ -81,6 +81,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         var worker = new DriverAutoLaunchWorker(
             registry, manager,
             new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }),
+            OpenGate(),
             () => now);
 
         await worker.RunOnceAsync(CancellationToken.None);
@@ -124,6 +125,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         var worker = new DriverAutoLaunchWorker(
             registry, manager,
             new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }),
+            OpenGate(),
             () => now);
 
         await worker.RunOnceAsync(CancellationToken.None);
@@ -284,21 +286,78 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         Assert.Fail($"expected last run to be {expected}; saw [{last}]");
     }
 
+    [Fact]
+    public async Task Nexus_control_off_stops_the_driver_and_on_starts_it_again()
+    {
+        if (OperatingSystem.IsWindows()) return; // real child process; Unix only
+
+        var runs = WriteDriverApp(withDriverBinary: true, deviceId: "acme");
+        var gate = OpenGate();
+        var usb = new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 });
+        var registry = new AppRegistry(() => new List<AppInstallPaths.Root>
+        {
+            new(_root, AppInstallPaths.Source.Bundled),
+        });
+        var manager = new ExternalToolManager(new HttpClient(new ExplodingHandler()), _cache);
+        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate);
+
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+        var pid = await LastRunPidAsync(runs, "VariantB");
+
+        // Off means the vendor process stops, not merely that Nexus ignores it.
+        gate.SetEnabled("acme", false);
+        await worker.RunOnceAsync(CancellationToken.None);
+        await AssertExitsAsync(pid, "Nexus Control off did not stop the driver");
+
+        // And it stays stopped while off - the device is still on the bus.
+        await worker.RunOnceAsync(CancellationToken.None);
+        await AssertStillAsync(runs, 1);
+
+        gate.SetEnabled("acme", true);
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+        await WaitForRunsAsync(runs, 2);
+
+        manager.TerminateAll();
+    }
+
+    [Fact]
+    public async Task Driver_naming_no_device_is_ungated()
+    {
+        // Most driver apps name no deviceId; a gate entry for some other handler
+        // must never stop them.
+        if (OperatingSystem.IsWindows()) return; // real child process; Unix only
+
+        WriteDriverApp(withDriverBinary: true); // no deviceId
+        var gate = OpenGate();
+        gate.SetEnabled("acme", false);
+        var (worker, manager) = Build(new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }), gate);
+
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+
+        manager.TerminateAll();
+    }
+
+    /// <summary>A gate with no explicit choices: every handler falls back to its brand default (on).</summary>
+    private static DeviceControlGate OpenGate() => new(new InMemoryConfigStore());
+
     // ── Harness ──
 
-    private (DriverAutoLaunchWorker worker, ExternalToolManager manager) Build(IUsbEnumerator usb)
+    private (DriverAutoLaunchWorker worker, ExternalToolManager manager) Build(IUsbEnumerator usb, DeviceControlGate? gate = null)
     {
         var registry = new AppRegistry(() => new List<AppInstallPaths.Root>
         {
             new(_root, AppInstallPaths.Source.Bundled),
         });
         var manager = new ExternalToolManager(new HttpClient(new ExplodingHandler()), _cache);
-        var worker = new DriverAutoLaunchWorker(registry, manager, usb);
+        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate ?? OpenGate());
         return (worker, manager);
     }
 
     /// <summary>Returns the path each launched variant appends its own name to.</summary>
-    private string WriteDriverApp(bool withDriverBinary, bool exitAfterLaunch = false, bool secondVariant = false)
+    private string WriteDriverApp(bool withDriverBinary, bool exitAfterLaunch = false, bool secondVariant = false, string? deviceId = null)
     {
         var dir = Path.Combine(_root, "com.example.cooler");
         Directory.CreateDirectory(dir);
@@ -306,7 +365,9 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         File.WriteAllText(Path.Combine(dir, "manifest.json"),
             "{\"schema\":\"nexus.app/1\",\"id\":\"com.example.cooler\",\"name\":\"Cooler\",\"version\":\"1.0.0\"," +
             "\"min_nexus_version\":\"0.42.0\",\"runtime\":\"sdk\",\"surfaces\":[\"dashboard\"],\"sizes\":[\"2x2\"]," +
-            "\"capabilities\":{},\"driver\":{\"toolId\":\"acme-cooler\",\"match\":{\"vid\":\"1234\",\"pids\":[\"0001\",\"0002\",\"0003\"]}," +
+            "\"capabilities\":{},\"driver\":{\"toolId\":\"acme-cooler\"," +
+            (deviceId is null ? "" : "\"deviceId\":\"" + deviceId + "\",") +
+            "\"match\":{\"vid\":\"1234\",\"pids\":[\"0001\",\"0002\",\"0003\"]}," +
             "\"variants\":{\"0001\":\"VariantA\",\"0002\":\"VariantB\",\"0003\":\"VariantC\"}," +
             "\"manifestUrlBase\":\"https://assets.hellonexus.com/acme_cooler\"," +
             "\"filePattern\":\"MyDriver*.exe\",\"launch\":{\"session\":\"system\",\"hidden\":true}}}");

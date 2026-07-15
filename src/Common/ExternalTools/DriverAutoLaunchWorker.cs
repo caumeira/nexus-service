@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Platform;
 using Nexus.Service.Widgets;
@@ -38,31 +39,33 @@ public sealed class DriverAutoLaunchWorker : BackgroundService
     // the tool runs, so a late publish or a hot-plug still recovers unattended.
     private const int BackoffMaxMs = 300_000;
 
-    // Consecutive absent ticks before a running driver is stopped. Deliberately
-    // generous: a premature kill costs a physical replug (bench-observed on the
-    // AW5 - a killed driver then exits 259 on every relaunch until the machine
-    // reboots), while a late one costs nothing, since the device is already gone.
-    // A swap does not wait on this - it reconciles the moment the new variant
-    // appears - so the margin is free.
+    // Consecutive absent ticks before a running driver is stopped, so a scan that
+    // silently dropped a devnode cannot kill a healthy driver. Deliberately
+    // generous: a kill provoked by a false reading is unrecoverable on some
+    // hardware without a replug, while a late one costs nothing since the device
+    // is already gone. Only guards absence - a variant swap and the Nexus Control
+    // gate both act at once, being facts rather than readings.
     internal const int AbsentTicksBeforeStop = 6;
 
     private readonly AppRegistry _apps;
     private readonly ExternalToolManager _tools;
     private readonly IUsbEnumerator _usb;
+    private readonly DeviceControlGate _gate;
     private readonly Func<DateTime> _utcNow;
     private readonly Dictionary<string, BackoffState> _backoff = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _launchedVariant = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _absentTicks = new(StringComparer.Ordinal);
 
-    public DriverAutoLaunchWorker(AppRegistry apps, ExternalToolManager tools, IUsbEnumerator usb)
-        : this(apps, tools, usb, () => DateTime.UtcNow) { }
+    public DriverAutoLaunchWorker(AppRegistry apps, ExternalToolManager tools, IUsbEnumerator usb, DeviceControlGate gate)
+        : this(apps, tools, usb, gate, () => DateTime.UtcNow) { }
 
     /// <summary>Test seam: inject the clock the backoff schedule reads.</summary>
-    internal DriverAutoLaunchWorker(AppRegistry apps, ExternalToolManager tools, IUsbEnumerator usb, Func<DateTime> utcNow)
+    internal DriverAutoLaunchWorker(AppRegistry apps, ExternalToolManager tools, IUsbEnumerator usb, DeviceControlGate gate, Func<DateTime> utcNow)
     {
         _apps = apps;
         _tools = tools;
         _usb = usb;
+        _gate = gate;
         _utcNow = utcNow;
     }
 
@@ -99,6 +102,23 @@ public sealed class DriverAutoLaunchWorker : BackgroundService
         {
             var driver = entry.Manifest.Driver;
             if (driver is null) continue;
+
+            // The device's Nexus Control gate governs its driver process too: turning
+            // the device off stops the vendor binary, it does not just stop Nexus from
+            // talking to it. A driver naming no deviceId is ungated.
+            if (driver.DeviceId is not null && !_gate.IsEnabled(driver.DeviceId))
+            {
+                // The user's choice is not a flaky scan, so it skips the absence
+                // streak that exists to survive one.
+                if (_tools.GetStatus(driver.ToolId) == ToolStatus.Running)
+                {
+                    _tools.Terminate(driver.ToolId);
+                    _launchedVariant.Remove(driver.ToolId);
+                }
+                _absentTicks.Remove(driver.ToolId);
+                _backoff.Remove(driver.ToolId);
+                continue;
+            }
 
             // Resolved every tick, before the running check, so the bus stays the
             // authority. Costs a read of the shared cached enumeration plus string

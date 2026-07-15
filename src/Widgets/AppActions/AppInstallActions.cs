@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Microsoft.Extensions.DependencyInjection;
 using Nexus.Service.Common.ExternalTools;
+using Nexus.Service.Devices;
 using Nexus.Service.Devices.Detection;
 using Nexus.Service.Models.Widgets;
 using Nexus.Service.Serialization;
@@ -134,6 +135,20 @@ public static class AppInstallActions
             }
 
             var driver = entry.Manifest.Driver;
+
+            // The device's Nexus Control gate governs this driver too, and the
+            // auto-launch worker would terminate anything started behind its back
+            // within a tick - so refuse rather than start a process that is killed
+            // seconds later while it holds the device.
+            if (driver.DeviceId is not null
+                && !services.GetRequiredService<DeviceControlGate>().IsEnabled(driver.DeviceId))
+            {
+                var gated = new AppInstallTriggerDto { Started = false, Reason = "nexus-control-off" };
+                var gatedJson = JsonSerializer.Serialize(gated, AppJsonContext.Default.AppInstallTriggerDto);
+                using var gatedDoc = JsonDocument.Parse(gatedJson);
+                return gatedDoc.RootElement.Clone();
+            }
+
             var variant = FirstValue(driver.Variants) ?? "default";
             var spec = DriverToolSpecFactory.Build(driver, variant, entry.RootPath);
 
