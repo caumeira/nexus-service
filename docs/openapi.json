@@ -1053,7 +1053,7 @@
         }
       }
     },
-    "/cooling/calibrations": {
+    "/cooling/calibration/results": {
       "get": {
         "tags": [
           "Nexus"
