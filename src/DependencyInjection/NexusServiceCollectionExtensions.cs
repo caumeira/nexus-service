@@ -1241,7 +1241,17 @@ public static class NexusServiceCollectionExtensions
         // Auto-launches each installed bundled driver app's binary when its device
         // is present (runs at boot, pre-login).
         services.AddSingleton<Nexus.Service.Common.ExternalTools.IDriverGateStopHook, Nexus.Service.Peripherals.Aw5.Aw5PanelBlanker>();
+        // false: the AW5 is driven natively below, and its vendor binary would be a
+        // second writer on the same HID. Flip to true to restore the vendor path,
+        // which stands the native worker down.
+        services.AddSingleton(new Nexus.Service.Common.ExternalTools.DriverExePolicy(enabled: false));
         services.AddHostedService<Nexus.Service.Common.ExternalTools.DriverAutoLaunchWorker>();
+
+        // Drives the AW5 pump displays in place of the vendor driver .exe. Exactly one
+        // of the two runs; DriverExeSupport picks which.
+        services.AddSingleton<Nexus.Service.Peripherals.Aw5.Aw5Hub>();
+        services.AddSingleton<Nexus.Service.Peripherals.Aw5.Aw5SensorReader>();
+        services.AddHostedService<Nexus.Service.Peripherals.Aw5.Aw5PanelWorker>();
         return services;
     }
 

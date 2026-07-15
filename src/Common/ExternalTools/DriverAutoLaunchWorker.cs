@@ -53,24 +53,26 @@ public sealed class DriverAutoLaunchWorker : BackgroundService
     private readonly IUsbEnumerator _usb;
     private readonly DeviceControlGate _gate;
     private readonly IReadOnlyList<IDriverGateStopHook> _stopHooks;
+    private readonly DriverExePolicy _driverExe;
     private readonly Func<DateTime> _utcNow;
     private readonly Dictionary<string, BackoffState> _backoff = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _launchedVariant = new(StringComparer.Ordinal);
     private readonly Dictionary<string, int> _absentTicks = new(StringComparer.Ordinal);
 
     public DriverAutoLaunchWorker(AppRegistry apps, ExternalToolManager tools, IUsbEnumerator usb, DeviceControlGate gate,
-        IEnumerable<IDriverGateStopHook> stopHooks)
-        : this(apps, tools, usb, gate, stopHooks, () => DateTime.UtcNow) { }
+        IEnumerable<IDriverGateStopHook> stopHooks, DriverExePolicy driverExe)
+        : this(apps, tools, usb, gate, stopHooks, driverExe, () => DateTime.UtcNow) { }
 
     /// <summary>Test seam: inject the clock the backoff schedule reads.</summary>
     internal DriverAutoLaunchWorker(AppRegistry apps, ExternalToolManager tools, IUsbEnumerator usb, DeviceControlGate gate,
-        IEnumerable<IDriverGateStopHook> stopHooks, Func<DateTime> utcNow)
+        IEnumerable<IDriverGateStopHook> stopHooks, DriverExePolicy driverExe, Func<DateTime> utcNow)
     {
         _apps = apps;
         _tools = tools;
         _usb = usb;
         _gate = gate;
         _stopHooks = stopHooks.ToList();
+        _driverExe = driverExe;
         _utcNow = utcNow;
     }
 
@@ -118,6 +120,11 @@ public sealed class DriverAutoLaunchWorker : BackgroundService
         {
             var driver = entry.Manifest.Driver;
             if (driver is null) continue;
+
+            // Nexus drives this device itself; a vendor process would be a second
+            // writer on its HID. Nothing to reconcile, so this skips before the
+            // bus read rather than after it.
+            if (_driverExe.IsBlocked(driver)) continue;
 
             // The device's Nexus Control gate governs its driver process too: turning
             // the device off stops the vendor binary, it does not just stop Nexus from

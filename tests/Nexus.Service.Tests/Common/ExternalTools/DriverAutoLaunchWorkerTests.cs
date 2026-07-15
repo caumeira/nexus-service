@@ -17,6 +17,12 @@ namespace Nexus.Service.Tests.Common.ExternalTools;
 
 public class DriverAutoLaunchWorkerTests : IDisposable
 {
+    /// <summary>
+    /// These suites are the vendor driver path's coverage, so they enable it. It ships
+    /// disabled (the AW5 is driven natively); see DriverExePolicy.
+    /// </summary>
+    private static readonly DriverExePolicy VendorDriverOn = new(enabled: true);
+
     private readonly string _root;
     private readonly string _cache;
 
@@ -83,6 +89,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }),
             OpenGate(),
             Array.Empty<IDriverGateStopHook>(),
+            VendorDriverOn,
             () => now);
 
         await worker.RunOnceAsync(CancellationToken.None);
@@ -128,6 +135,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }),
             OpenGate(),
             Array.Empty<IDriverGateStopHook>(),
+            VendorDriverOn,
             () => now);
 
         await worker.RunOnceAsync(CancellationToken.None);
@@ -301,7 +309,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             new(_root, AppInstallPaths.Source.Bundled),
         });
         var manager = new ExternalToolManager(new HttpClient(new ExplodingHandler()), _cache);
-        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate, Array.Empty<IDriverGateStopHook>());
+        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate, Array.Empty<IDriverGateStopHook>(), VendorDriverOn);
 
         await worker.RunOnceAsync(CancellationToken.None);
         Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
@@ -436,7 +444,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             new(_root, AppInstallPaths.Source.Bundled),
         });
         var manager = new ExternalToolManager(new HttpClient(new ExplodingHandler()), _cache);
-        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate ?? OpenGate(), hooks ?? Array.Empty<IDriverGateStopHook>());
+        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate ?? OpenGate(), hooks ?? Array.Empty<IDriverGateStopHook>(), VendorDriverOn);
         return (worker, manager);
     }
 

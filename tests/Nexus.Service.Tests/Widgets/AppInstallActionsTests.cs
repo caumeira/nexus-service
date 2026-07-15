@@ -90,6 +90,9 @@ public class AppInstallActionsTests : IDisposable
         services.AddSingleton(adbRegistry ?? new AdbDeviceRegistry());
         services.AddSingleton<IUsbEnumerator, StubUsbEnumerator>();
         services.AddSingleton<IToolInstallStrategy, HostExeInstallStrategy>();
+        // This suite is the vendor driver path's coverage, so it enables it. It ships
+        // disabled (the AW5 is driven natively); see DriverExePolicy.
+        services.AddSingleton(new DriverExePolicy(enabled: true));
         return services.BuildServiceProvider();
     }
 
