@@ -295,7 +295,7 @@ public class ExternalToolManagerTests : IDisposable
             return Task.CompletedTask;
         }
         public ToolStatus GetStatus(string toolId) => _status;
-        public void Terminate(string toolId) => TerminateCount++;
+        public bool Terminate(string toolId) { TerminateCount++; return true; }
         public void TerminateAll() { }
     }
 }

@@ -187,11 +187,17 @@ public sealed class ExternalToolManager : IHostedService, IToolResolver
         return strategy.LaunchAsync(spec, this, ct);
     }
 
-    /// <summary>Tear down a single tool on whichever strategy owns it.</summary>
-    public void Terminate(string toolId)
+    /// <summary>
+    /// Tear down a single tool on whichever strategy owns it. True only when a
+    /// strategy confirms the process is gone - a caller that then touches the
+    /// device relies on this to know it is the only writer.
+    /// </summary>
+    public bool Terminate(string toolId)
     {
+        var gone = false;
         foreach (var strategy in _strategies.Values)
-            strategy.Terminate(toolId);
+            gone |= strategy.Terminate(toolId);
+        return gone;
     }
 
     /// <summary>Tear down every tracked tool. Called from <see cref="StopAsync"/>,
