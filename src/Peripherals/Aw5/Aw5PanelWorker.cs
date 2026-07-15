@@ -99,7 +99,9 @@ public sealed class Aw5PanelWorker : BackgroundService
         }
         _wasGatedOn = true;
 
-        if (++_ticksSinceDiscover >= RediscoverEveryTicks)
+        // Tested before the increment: pre-incrementing the int.MaxValue seed
+        // overflows to int.MinValue and the scan never runs at all.
+        if (_ticksSinceDiscover >= RediscoverEveryTicks)
         {
             _ticksSinceDiscover = 0;
             _panels = _hub.Discover();
@@ -110,6 +112,7 @@ public sealed class Aw5PanelWorker : BackgroundService
                 _loggedPanels = _panels.Count;
             }
         }
+        _ticksSinceDiscover++;
         if (_panels.Count == 0) return;
 
         var reading = _reader.Read();
