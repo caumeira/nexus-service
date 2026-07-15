@@ -177,13 +177,16 @@ public static class DisplayRoutes
                 return Results.Unauthorized();
             if (!DisplayOrientations.IsValid(body.Orientation))
                 return Results.BadRequest(ApiResponse.Fail($"unknown orientation '{body.Orientation}'"));
-            var (ok, error) = orientation.SetDisplayOrientation(id, body.Orientation);
+            // Looked up before applying so the cover (if any) can use this
+            // panel's own background colour instead of the black fallback.
+            var record = registry.FindByDisplayId(id);
+            var coverColorHex = PanelDeviceRegistry.ResolveCoverBackgroundHex(record);
+            var (ok, error) = orientation.SetDisplayOrientation(id, body.Orientation, coverColorHex);
             if (!ok)
                 return Results.BadRequest(ApiResponse.Fail(string.IsNullOrEmpty(error) ? "rotation failed" : error));
             // Settings permanence: remember the applied orientation on the
             // bound record (when this display is a panel), same model as the
             // Y70's persisted orientation.
-            var record = registry.FindByDisplayId(id);
             if (record is not null)
             {
                 registry.UpdateDisplayOrientation(id, body.Orientation);

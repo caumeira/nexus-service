@@ -259,6 +259,24 @@ public sealed class PanelDeviceRegistry
         return null;
     }
 
+    /// <summary>
+    /// Solid "#rrggbb" colour that best represents this panel's current
+    /// background, for callers that need to blend with it without importing
+    /// the full theme stack (the display-rotation cover). Prefers the light
+    /// slot only when the panel's own ThemeMode is explicitly "light";
+    /// ThemeSyncWithDesktop / "system" resolution is client-side only and is
+    /// not replicated here. Empty when the panel has neither slot set.
+    /// </summary>
+    public static string ResolveCoverBackgroundHex(PanelDeviceRecord? record)
+    {
+        if (record is null) return "";
+        var preferLight = string.Equals(record.ThemeMode, "light", StringComparison.OrdinalIgnoreCase);
+        var color = preferLight
+            ? record.BackgroundColorLight ?? record.BackgroundColor
+            : record.BackgroundColor ?? record.BackgroundColorLight;
+        return color ?? "";
+    }
+
     /// <summary>Active displayId -> panelDeviceId bindings (kiosk reconcile
     /// input). Disabled panels keep their record but host no kiosk.</summary>
     public IReadOnlyList<(string DisplayId, string PanelDeviceId, bool ReserveMonitor)> ListAssignments()

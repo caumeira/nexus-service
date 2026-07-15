@@ -295,7 +295,8 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
                 return;
             }
 
-            var (ok, error) = _orientation.SetDisplayOrientation(displayId, mapped);
+            var coverColorHex = PanelDeviceRegistry.ResolveCoverBackgroundHex(record);
+            var (ok, error) = _orientation.SetDisplayOrientation(displayId, mapped, coverColorHex);
             if (ok)
             {
                 _unapplied = null;

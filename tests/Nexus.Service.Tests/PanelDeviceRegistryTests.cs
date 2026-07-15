@@ -130,4 +130,58 @@ public sealed class PanelDeviceRegistryTests : IDisposable
         Assert.Equal(80, fetched!.XeneonEdgeSettings!.Brightness);
         Assert.Equal(151, fetched.XeneonEdgeSettings!.Red);
     }
+
+    [Fact]
+    public void ResolveCoverBackgroundHex_NullRecord_ReturnsEmpty()
+    {
+        Assert.Equal("", PanelDeviceRegistry.ResolveCoverBackgroundHex(null));
+    }
+
+    [Fact]
+    public void ResolveCoverBackgroundHex_NoColoursSet_ReturnsEmpty()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
+
+        Assert.Equal("", PanelDeviceRegistry.ResolveCoverBackgroundHex(record));
+    }
+
+    [Fact]
+    public void ResolveCoverBackgroundHex_DefaultThemeMode_PrefersTheDarkSlot()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch
+        {
+            BackgroundColor = "#1f0d36",
+            BackgroundColorLight = "#f3e8ff",
+        });
+
+        Assert.Equal("#1f0d36", PanelDeviceRegistry.ResolveCoverBackgroundHex(patched));
+    }
+
+    [Fact]
+    public void ResolveCoverBackgroundHex_ExplicitLightThemeMode_PrefersTheLightSlot()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch
+        {
+            ThemeMode = "light",
+            BackgroundColor = "#1f0d36",
+            BackgroundColorLight = "#f3e8ff",
+        });
+
+        Assert.Equal("#f3e8ff", PanelDeviceRegistry.ResolveCoverBackgroundHex(patched));
+    }
+
+    [Fact]
+    public void ResolveCoverBackgroundHex_LightThemeModeButOnlyDarkSlotSet_FallsBackToTheDarkSlot()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch
+        {
+            ThemeMode = "light",
+            BackgroundColor = "#1f0d36",
+        });
+
+        Assert.Equal("#1f0d36", PanelDeviceRegistry.ResolveCoverBackgroundHex(patched));
+    }
 }

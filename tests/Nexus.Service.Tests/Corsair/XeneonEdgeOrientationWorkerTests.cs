@@ -70,15 +70,15 @@ internal sealed class FakeXeneonHidEnumerator : IHidEnumerator
 
 internal sealed class FakeDisplayOrientationProvider : IDisplayOrientationProvider
 {
-    public List<(string DisplayId, string Orientation)> Calls { get; } = new();
+    public List<(string DisplayId, string Orientation, string CoverColorHex)> Calls { get; } = new();
     public bool NextOk { get; set; } = true;
     public string NextError { get; set; } = "";
 
     public (bool Ok, string Error) SetY70Orientation(string orientation) => (true, "");
 
-    public (bool Ok, string Error) SetDisplayOrientation(string displayId, string orientation)
+    public (bool Ok, string Error) SetDisplayOrientation(string displayId, string orientation, string coverColorHex)
     {
-        Calls.Add((displayId, orientation));
+        Calls.Add((displayId, orientation, coverColorHex));
         return (NextOk, NextError);
     }
 }
@@ -193,6 +193,41 @@ public sealed class XeneonEdgeOrientationWorkerTests
         Assert.Equal(DisplayId, call.DisplayId);
         Assert.Equal(DisplayOrientations.Landscape, call.Orientation);
         Assert.Equal(DisplayOrientations.Landscape, f.Registry.FindByDisplayId(DisplayId)!.Capabilities!.Orientation);
+    }
+
+    [Fact]
+    public void Tick_OrientationChange_ThreadsThePanelsBackgroundColourAsTheCoverColour()
+    {
+        var f = NewFixtures(devicePresent: true);
+        var record = PromoteXeneonEdge(f.Registry);
+        f.Registry.Patch(record.Id, new PanelDevicePatch { BackgroundColor = "#082617" });
+        var device = new MockXeneonHidDevice();
+        AddDevice(f.Hid, device);
+        var worker = NewWorker(f);
+        worker.Tick();
+
+        device.PendingReads.Enqueue(OrientationReport(0));
+        worker.Tick();
+
+        var call = Assert.Single(f.Orientation.Calls);
+        Assert.Equal("#082617", call.CoverColorHex);
+    }
+
+    [Fact]
+    public void Tick_OrientationChange_NoBackgroundColourSet_ThreadsAnEmptyCoverColour()
+    {
+        var f = NewFixtures(devicePresent: true);
+        PromoteXeneonEdge(f.Registry);
+        var device = new MockXeneonHidDevice();
+        AddDevice(f.Hid, device);
+        var worker = NewWorker(f);
+        worker.Tick();
+
+        device.PendingReads.Enqueue(OrientationReport(0));
+        worker.Tick();
+
+        var call = Assert.Single(f.Orientation.Calls);
+        Assert.Equal("", call.CoverColorHex);
     }
 
     [Fact]
