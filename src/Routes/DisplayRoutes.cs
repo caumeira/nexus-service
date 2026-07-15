@@ -226,6 +226,7 @@ public static class DisplayRoutes
             string id,
             PanelDeviceRegistry registry,
             XeneonEdgeOrientationWorker xeneon,
+            MultiplexHub hub,
             CancellationToken ct) =>
         {
             var record = registry.FindByDisplayId(id);
@@ -246,6 +247,7 @@ public static class DisplayRoutes
                 Blue = block.Value.Blue,
             };
             registry.UpdateXeneonEdgeSettings(id, dto);
+            PanelTopics.BroadcastPanelDevice(hub, record.Id);
             return Results.Json(dto, AppJsonContext.Default.XeneonEdgeSettingsDto);
         }).AllowPanel();
 
@@ -264,45 +266,58 @@ public static class DisplayRoutes
             var applied = new XeneonEdgeSettingsDto();
             var wrote = false;
 
+            // Persists whatever DID apply before reporting a failure: a
+            // partial batch (e.g. brightness landed, contrast failed) must
+            // not leave the snapshot showing the pre-request brightness too.
+            IResult Fail(string message)
+            {
+                if (wrote)
+                {
+                    registry.UpdateXeneonEdgeSettings(id, applied);
+                    PanelTopics.BroadcastPanelDevice(hub, record.Id);
+                }
+                return Results.UnprocessableEntity(ApiResponse.Fail(message));
+            }
+
             if (body.Brightness.HasValue)
             {
                 var v = await xeneon.SetControlAsync(XeneonEdgeControl.Brightness, body.Brightness.Value, ct);
-                if (v is null) return Results.UnprocessableEntity(ApiResponse.Fail("failed to set brightness"));
+                if (v is null) return Fail("failed to set brightness");
                 applied.Brightness = v;
                 wrote = true;
             }
             if (body.Backlight.HasValue)
             {
                 var v = await xeneon.SetControlAsync(XeneonEdgeControl.Backlight, body.Backlight.Value, ct);
-                if (v is null) return Results.UnprocessableEntity(ApiResponse.Fail("failed to set backlight"));
+                if (v is null) return Fail("failed to set backlight");
                 applied.Backlight = v;
                 wrote = true;
             }
             if (body.Contrast.HasValue)
             {
                 var v = await xeneon.SetControlAsync(XeneonEdgeControl.Contrast, body.Contrast.Value, ct);
-                if (v is null) return Results.UnprocessableEntity(ApiResponse.Fail("failed to set contrast"));
+                if (v is null) return Fail("failed to set contrast");
                 applied.Contrast = v;
                 wrote = true;
             }
             if (body.Red.HasValue)
             {
                 var v = await xeneon.SetControlAsync(XeneonEdgeControl.Red, body.Red.Value, ct);
-                if (v is null) return Results.UnprocessableEntity(ApiResponse.Fail("failed to set red"));
+                if (v is null) return Fail("failed to set red");
                 applied.Red = v;
                 wrote = true;
             }
             if (body.Green.HasValue)
             {
                 var v = await xeneon.SetControlAsync(XeneonEdgeControl.Green, body.Green.Value, ct);
-                if (v is null) return Results.UnprocessableEntity(ApiResponse.Fail("failed to set green"));
+                if (v is null) return Fail("failed to set green");
                 applied.Green = v;
                 wrote = true;
             }
             if (body.Blue.HasValue)
             {
                 var v = await xeneon.SetControlAsync(XeneonEdgeControl.Blue, body.Blue.Value, ct);
-                if (v is null) return Results.UnprocessableEntity(ApiResponse.Fail("failed to set blue"));
+                if (v is null) return Fail("failed to set blue");
                 applied.Blue = v;
                 wrote = true;
             }
@@ -315,8 +330,10 @@ public static class DisplayRoutes
             return Results.Json(applied, AppJsonContext.Default.XeneonEdgeSettingsDto);
         }).AllowPanel();
 
-        // Restores the panel's factory RGB colors only - brightness/backlight/
-        // contrast are untouched (see XeneonEdgeProtocol.BuildRestoreColorsCommand).
+        // Restores all six controls (brightness/backlight/contrast/RGB) to
+        // their factory values - the panel's own 0xff command only covers
+        // RGB, so XeneonEdgeOrientationWorker.RestoreDefaultsAsync writes
+        // each control individually.
         app.MapPost("/displays/{id}/xeneon-settings/restore-defaults", async (
             string id,
             PanelDeviceRegistry registry,

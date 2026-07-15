@@ -24,7 +24,7 @@ namespace Nexus.Service.Peripherals.Corsair.XeneonEdge;
 ///
 /// Also the single owner of the settings-write/settings-read request/reply
 /// exchange (msgid 0x0e/0x0f) exposed to routes via <see cref="ReadSettingsAsync"/>
-/// / <see cref="SetControlAsync"/> / <see cref="RestoreColorsAsync"/>. A second
+/// / <see cref="SetControlAsync"/> / <see cref="RestoreDefaultsAsync"/>. A second
 /// concurrent HID handle to the same device is allowed by Windows (each open
 /// handle gets its own copy of every interrupt-IN report), but a second
 /// concurrent *reader* on THIS <see cref="IHidDevice"/> instance is not: Read()
@@ -37,7 +37,15 @@ namespace Nexus.Service.Peripherals.Corsair.XeneonEdge;
 /// for, and awaits a <see cref="TaskCompletionSource{T}"/> that <see cref="Tick"/>
 /// completes the next time it reads a report carrying that msgid. Concurrent
 /// settings requests are serialized by <see cref="_settingsSemaphore"/> so only
-/// one command is outstanding at a time and a reply can never be misattributed.
+/// one command is outstanding at a time; a generation counter on the pending
+/// slot (see <see cref="RequestAsync"/>) keeps a straggling device reply for a
+/// timed-out request from being handed to whatever request arms next.
+///
+/// Orientation applies (the helper RPC in <see cref="ApplyOnce"/>) never run on
+/// this loop thread: they are dispatched through <see cref="EnqueueApply"/>, a
+/// single-flight queue that coalesces to the latest code, so the loop keeps
+/// demuxing settings replies while an apply (up to several seconds, see
+/// <see cref="ApplyOnce"/>) is in flight.
 /// </summary>
 public sealed class XeneonEdgeOrientationWorker : BackgroundService
 {
@@ -49,10 +57,19 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
     private const int SettingsReadTimeoutMs = 2500;
     // One rewrite pass is enough in practice; the second is a backstop.
     private const int RestoreVerifyAttempts = 2;
+    // A timed-out request's device reply can still be in flight (a marginal
+    // link can delay an ack well past SetAckTimeoutMs). Hold that request's
+    // pending slot open for this long so a straggler lands there - a safe
+    // no-op against an already-cancelled tcs - instead of on whatever
+    // request arms next. Brightness/Backlight/Contrast share group 0x02 and
+    // Red/Green/Blue share 0x03, and the ack does not echo item, so nothing
+    // downstream can tell a stale same-group ack from a real one.
+    private const int StaleReplyDrainMs = 1000;
     // The helper's read loop starts just after Connected fires, so the first
-    // attempt usually races it; these cover that gap without pretending a
-    // fixed delay is a readiness signal.
-    private const int HelperReplayAttempts = 5;
+    // replay attempt usually races it; a failed attempt costs up to the
+    // helper RPC's own timeout (OrientationDomain's displayOrientation.set,
+    // 4000ms) before the gap, so keep the attempt count small.
+    private const int HelperReplayAttempts = 2;
     private const int HelperReplayGapMs = 400;
 
     private readonly IHidEnumerator _hid;
@@ -65,8 +82,17 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
     private readonly object _pendingGate = new();
     private readonly SemaphoreSlim _settingsSemaphore = new(1, 1);
     private IHidDevice? _reader;
+
+    // Settings request/reply demux (msgid 0x0e/0x0f). See RequestAsync.
     private byte _pendingMsgId;
+    private int _pendingGeneration;
     private TaskCompletionSource<byte[]>? _pendingReply;
+    private TaskCompletionSource<bool>? _pendingStaleSignal;
+
+    // Orientation apply queue: single-flight, latest-code-wins. See EnqueueApply.
+    private bool _applyRunning;
+    private byte? _pendingApplyCode;
+    private TaskCompletionSource? _applyIdle;
     /// <summary>Last code whose apply failed, replayed once the helper arrives.</summary>
     private byte? _unapplied;
 #if WINDOWS
@@ -89,56 +115,64 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
         _registry = registry;
         _orientation = orientation;
         _hub = hub;
+        // The panel reports orientation once, on change. The service opens the
+        // HID device seconds before the user-session helper connects, and the
+        // matching panel record can appear even later (auto-promotion runs off
+        // a separately debounced topology event) - so the first report's apply
+        // can fail before either exists, and no further report arrives until
+        // someone physically turns the panel. Replay the unapplied code on
+        // whichever of those two signals arrives.
+        _registry.DisplayRecordReady += OnDisplayRecordReady;
 #if WINDOWS
         _helpers = helpers;
-        // The panel reports orientation once, on change. The service opens the
-        // HID device seconds before the user-session helper connects, so the
-        // first report's apply fails ("no helper connected") and no further
-        // report arrives until someone physically turns the panel - leaving the
-        // display stuck at whatever Windows booted into. Replay the unapplied
-        // code when the helper lands.
         if (_helpers is not null) _helpers.Connected += OnHelperConnected;
 #endif
     }
 
 #if WINDOWS
-    private void OnHelperConnected(Nexus.Service.Helper.HelperConnection connection)
-    {
-        byte? code;
-        lock (_applyGate) code = _unapplied;
-        if (code is null) return;
-        // HelperConnection.RunAsync raises Connected from inside
-        // registry.Register, BEFORE it starts the read loop that delivers
-        // command replies. Applying inline here sends the rpc into a
-        // connection nothing is reading yet, so it always times out ("helper
-        // rpc failed") and blocks the read loop from starting for the whole
-        // timeout. Hand off so Register returns and the loop comes up first.
-        _ = Task.Run(() => ReplayWhenHelperServesAsync(code.Value));
-    }
+    private void OnHelperConnected(Nexus.Service.Helper.HelperConnection connection) => TriggerReplay();
 #endif
 
+    private void OnDisplayRecordReady(PanelDeviceRecord record) => TriggerReplay();
 
     /// <summary>
-    /// Replays the unapplied orientation once the helper can actually serve
-    /// the rpc. Connected only means the hello handshake landed; the read loop
-    /// that delivers replies starts a moment later, and there is no signal for
-    /// it. HandleOrientation keeps _unapplied set whenever an apply fails, so
-    /// retry a few times and stop as soon as it clears.
+    /// Kicks off a replay attempt when there is something to replay. Cheap to
+    /// call from either trigger: this read never blocks (the apply queue's
+    /// helper RPC never runs under <see cref="_applyGate"/>), unlike a direct
+    /// call into the apply itself would.
     /// </summary>
-    private async Task ReplayWhenHelperServesAsync(byte code)
+    private void TriggerReplay()
+    {
+        lock (_applyGate) { if (_unapplied is null) return; }
+        _ = Task.Run(ReplayWhenHelperServesAsync);
+    }
+
+    /// <summary>
+    /// Replays the last-unapplied orientation once a trigger (helper connect
+    /// or a panel record appearing) fires. Re-reads <see cref="_unapplied"/>
+    /// at the top of every attempt instead of a captured code: if a real
+    /// sensor report lands and applies successfully during the retry gap, it
+    /// must win, not get overwritten by a stale replay of what it just
+    /// superseded.
+    /// </summary>
+    private async Task ReplayWhenHelperServesAsync()
     {
         for (var attempt = 0; attempt < HelperReplayAttempts; attempt++)
         {
-            HandleOrientation(code);
+            byte? code;
+            lock (_applyGate) { code = _unapplied; }
+            if (code is null) return;
+            await EnqueueApply(code.Value).ConfigureAwait(false);
             lock (_applyGate) { if (_unapplied is null) return; }
             try { await Task.Delay(HelperReplayGapMs).ConfigureAwait(false); }
             catch { return; }
         }
-        ServiceLog.Warn($"[xeneon-orient] helper replay gave up after {HelperReplayAttempts} attempts (code={code})");
+        ServiceLog.Warn($"[xeneon-orient] helper replay gave up after {HelperReplayAttempts} attempts");
     }
 
     public override void Dispose()
     {
+        _registry.DisplayRecordReady -= OnDisplayRecordReady;
 #if WINDOWS
         if (_helpers is not null) _helpers.Connected -= OnHelperConnected;
 #endif
@@ -221,19 +255,34 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
     private bool TryDeliverPendingReply(byte[] buf, int n)
     {
         TaskCompletionSource<byte[]>? pending;
+        TaskCompletionSource<bool>? staleSignal;
         byte expectedMsgId;
+        int generation;
         lock (_pendingGate)
         {
             pending = _pendingReply;
+            staleSignal = _pendingStaleSignal;
             expectedMsgId = _pendingMsgId;
+            generation = _pendingGeneration;
         }
         if (pending is null || n < 2 || buf[1] != expectedMsgId) return false;
 
         lock (_pendingGate)
         {
-            if (ReferenceEquals(_pendingReply, pending)) _pendingReply = null;
+            if (_pendingGeneration == generation)
+            {
+                _pendingReply = null;
+                _pendingStaleSignal = null;
+            }
         }
-        pending.TrySetResult(buf.AsSpan(0, n).ToArray());
+        if (!pending.TrySetResult(buf.AsSpan(0, n).ToArray()))
+        {
+            // The waiter already gave up (timed out): this is a straggling
+            // device reply for an abandoned request, not a match for
+            // whatever arms next. Signal the drain so that request's grace
+            // wait ends now instead of riding out its full window.
+            staleSignal?.TrySetResult(true);
+        }
         return true;
     }
 
@@ -267,49 +316,114 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
         return true;
     }
 
-    private void HandleOrientation(byte code)
+    private void HandleOrientation(byte code) => _ = EnqueueApply(code);
+
+    /// <summary>
+    /// Queues an orientation apply, coalescing with whatever is already
+    /// waiting: only the latest code survives when one lands while another
+    /// is in flight (the panel reports absolute state, not deltas, so the
+    /// newest report always wins - and each apply can cost seconds, so
+    /// applying every intermediate report would only delay converging on
+    /// the true current state). Applies never run concurrently with each
+    /// other; a single background loop drains the queue one code at a time.
+    /// Returns a task that completes once the queue has drained back to
+    /// idle (which may cover a code coalesced in after this call), so a
+    /// caller that needs to observe the outcome (the replay loop) can await
+    /// a real signal instead of polling.
+    /// </summary>
+    private Task EnqueueApply(byte code)
     {
         lock (_applyGate)
         {
-            var mapped = XeneonEdgeProtocol.ResolveOrientation(code);
-            if (mapped is null)
+            _pendingApplyCode = code;
+            _applyIdle ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            var idle = _applyIdle;
+            if (!_applyRunning)
             {
-                ServiceLog.Warn($"[xeneon-orient] unknown sensor code={code}");
-                return;
+                _applyRunning = true;
+                _ = Task.Run(RunApplyLoop);
             }
-
-            var found = FindActiveRecord();
-            if (found is null)
-            {
-                // The panel record can appear after auto-promotion; keep the code
-                // so the next apply attempt is against the real orientation.
-                _unapplied = code;
-                ServiceLog.Info($"[xeneon-orient] code={code} -> {mapped} (no attached xeneon edge panel)");
-                return;
-            }
-            var (record, displayId) = found.Value;
-            if (record.AutoOrient == false)
-            {
-                _unapplied = null;
-                ServiceLog.Info($"[xeneon-orient] code={code} -> {mapped} ignored (AutoOrient off) displayId={displayId}");
-                return;
-            }
-
-            var (ok, error) = _orientation.SetDisplayOrientation(displayId, mapped);
-            if (ok)
-            {
-                _unapplied = null;
-                // Settings permanence: same model as the manual
-                // /displays/{id}/rotation route (DisplayRoutes.cs).
-                _registry.UpdateDisplayOrientation(displayId, mapped);
-                PanelTopics.BroadcastPanelDevice(_hub, record.Id);
-            }
-            else
-            {
-                _unapplied = code;
-            }
-            ServiceLog.Info($"[xeneon-orient] code={code} -> {mapped} ok={ok} detail='{error}' displayId={displayId}");
+            return idle.Task;
         }
+    }
+
+    private void RunApplyLoop()
+    {
+        while (true)
+        {
+            byte code;
+            lock (_applyGate)
+            {
+                if (_pendingApplyCode is not byte next)
+                {
+                    _applyRunning = false;
+                    var idle = _applyIdle;
+                    _applyIdle = null;
+                    idle?.TrySetResult();
+                    return;
+                }
+                _pendingApplyCode = null;
+                code = next;
+            }
+            try
+            {
+                ApplyOnce(code);
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Error($"[xeneon-orient] apply exception: {ex.GetType().Name}: {ex.Message}");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Resolves, records, and (when a matching auto-orienting panel exists)
+    /// applies one orientation code. Always runs off <see cref="RunApplyLoop"/>
+    /// on a background task, never on the HID reader thread:
+    /// <see cref="IDisplayOrientationProvider.SetDisplayOrientation"/> is a
+    /// blocking helper RPC (up to 4s), and the reader must keep demuxing
+    /// settings replies while it is in flight.
+    /// </summary>
+    private void ApplyOnce(byte code)
+    {
+        var mapped = XeneonEdgeProtocol.ResolveOrientation(code);
+        if (mapped is null)
+        {
+            ServiceLog.Warn($"[xeneon-orient] unknown sensor code={code}");
+            return;
+        }
+
+        var found = FindActiveRecord();
+        if (found is null)
+        {
+            // The panel record can appear after auto-promotion; keep the code
+            // so the next apply attempt is against the real orientation.
+            lock (_applyGate) { _unapplied = code; }
+            ServiceLog.Info($"[xeneon-orient] code={code} -> {mapped} (no attached xeneon edge panel)");
+            return;
+        }
+        var (record, displayId) = found.Value;
+        if (record.AutoOrient == false)
+        {
+            lock (_applyGate) { _unapplied = null; }
+            ServiceLog.Info($"[xeneon-orient] code={code} -> {mapped} ignored (AutoOrient off) displayId={displayId}");
+            return;
+        }
+
+        var (ok, error) = _orientation.SetDisplayOrientation(displayId, mapped);
+        if (ok)
+        {
+            lock (_applyGate) { _unapplied = null; }
+            // Settings permanence: same model as the manual
+            // /displays/{id}/rotation route (DisplayRoutes.cs).
+            _registry.UpdateDisplayOrientation(displayId, mapped);
+            PanelTopics.BroadcastPanelDevice(_hub, record.Id);
+        }
+        else
+        {
+            lock (_applyGate) { _unapplied = code; }
+        }
+        ServiceLog.Info($"[xeneon-orient] code={code} -> {mapped} ok={ok} detail='{error}' displayId={displayId}");
     }
 
     private (PanelDeviceRecord Record, string DisplayId)? FindActiveRecord()
@@ -331,15 +445,21 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
             try { _reader?.Dispose(); } catch { }
             _reader = null;
         }
-        // Fail fast instead of leaving a settings caller waiting out its
-        // whole timeout for a reply that can no longer arrive.
         TaskCompletionSource<byte[]>? pending;
+        TaskCompletionSource<bool>? staleSignal;
         lock (_pendingGate)
         {
             pending = _pendingReply;
+            staleSignal = _pendingStaleSignal;
             _pendingReply = null;
+            _pendingStaleSignal = null;
         }
+        // Fail fast instead of leaving a settings caller waiting out its
+        // whole timeout for a reply that can no longer arrive; also releases
+        // a request's stale-reply drain immediately, since a torn-down
+        // connection cannot deliver the straggler it was waiting for.
         pending?.TrySetCanceled();
+        staleSignal?.TrySetResult(false);
     }
 
     /// <summary>
@@ -373,7 +493,6 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
         return ackValue;
     }
 
-    /// <summary>Restores the panel's factory RGB colors (brightness/backlight/contrast untouched).</summary>
     /// <summary>
     /// Restores every control to its factory value. The panel's own 0xff
     /// command only covers RGB, so each control is written individually.
@@ -393,7 +512,10 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
             if (await SetControlAsync(control, value, ct).ConfigureAwait(false) is null) return false;
         }
 
-        for (var attempt = 0; attempt < RestoreVerifyAttempts; attempt++)
+        // RestoreVerifyAttempts rewrite passes, each followed by a verifying
+        // read - the loop always ends on a read, so the LAST rewrite gets
+        // checked too instead of being assumed to have failed.
+        for (var attempt = 0; ; attempt++)
         {
             var block = await ReadSettingsAsync(ct).ConfigureAwait(false);
             if (block is null) return false;
@@ -402,6 +524,7 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
                 .Where(d => XeneonEdgeControls.Read(block.Value, d.Control) != d.Value)
                 .ToList();
             if (stale.Count == 0) return true;
+            if (attempt >= RestoreVerifyAttempts) return false;
 
             ServiceLog.Info($"[xeneon-orient] restore: {stale.Count} control(s) did not take, rewriting ({string.Join(",", stale.Select(s => s.Control))})");
             foreach (var (control, value) in stale)
@@ -409,57 +532,88 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
                 if (await SetControlAsync(control, value, ct).ConfigureAwait(false) is null) return false;
             }
         }
-        return false;
     }
 
     /// <summary>
     /// Writes <paramref name="command"/> and awaits the loop thread's next
     /// matching-msgid read (see <see cref="TryDeliverPendingReply"/>).
     /// Serialized by <see cref="_settingsSemaphore"/> so only one command is
-    /// outstanding at a time and a reply can never be misattributed.
+    /// outstanding at a time. On timeout the pending slot is not released
+    /// immediately: <see cref="DrainStaleReplyThenReleaseAsync"/> holds it for
+    /// a bounded grace window so a late device reply for THIS request cannot
+    /// be handed to whatever request arms next.
     /// </summary>
     private async Task<byte[]?> RequestAsync(byte[] command, byte expectedMsgId, int timeoutMs, CancellationToken ct)
     {
         await _settingsSemaphore.WaitAsync(ct).ConfigureAwait(false);
+        var tcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var staleSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        int generation;
+        lock (_pendingGate)
+        {
+            generation = ++_pendingGeneration;
+            _pendingMsgId = expectedMsgId;
+            _pendingReply = tcs;
+            _pendingStaleSignal = staleSignal;
+        }
+
+        bool wrote;
+        lock (_readerGate)
+        {
+            wrote = _reader is not null && _reader.Write(command);
+        }
+        if (!wrote)
+        {
+            ClearPendingSlot(generation);
+            ReleaseSettingsSemaphore();
+            return null;
+        }
+
+        using var timeoutCts = new CancellationTokenSource(timeoutMs);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
+        using var registration = linked.Token.Register(() => tcs.TrySetCanceled());
         try
         {
-            var tcs = new TaskCompletionSource<byte[]>(TaskCreationOptions.RunContinuationsAsynchronously);
-            lock (_pendingGate)
-            {
-                _pendingMsgId = expectedMsgId;
-                _pendingReply = tcs;
-            }
-
-            bool wrote;
-            lock (_readerGate)
-            {
-                wrote = _reader is not null && _reader.Write(command);
-            }
-            if (!wrote)
-            {
-                lock (_pendingGate) { if (ReferenceEquals(_pendingReply, tcs)) _pendingReply = null; }
-                return null;
-            }
-
-            using var timeoutCts = new CancellationTokenSource(timeoutMs);
-            using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct, timeoutCts.Token);
-            using var registration = linked.Token.Register(() => tcs.TrySetCanceled());
-            try
-            {
-                return await tcs.Task.ConfigureAwait(false);
-            }
-            catch (OperationCanceledException)
-            {
-                return null;
-            }
-            finally
-            {
-                lock (_pendingGate) { if (ReferenceEquals(_pendingReply, tcs)) _pendingReply = null; }
-            }
+            var result = await tcs.Task.ConfigureAwait(false);
+            ClearPendingSlot(generation);
+            ReleaseSettingsSemaphore();
+            return result;
         }
-        finally
+        catch (OperationCanceledException)
         {
-            _settingsSemaphore.Release();
+            // The device's reply for this request may still be in flight.
+            // Hold this generation's slot open for a bounded drain instead of
+            // releasing the semaphore now - see StaleReplyDrainMs.
+            _ = DrainStaleReplyThenReleaseAsync(generation, staleSignal);
+            return null;
         }
+    }
+
+    private void ClearPendingSlot(int generation)
+    {
+        lock (_pendingGate)
+        {
+            if (_pendingGeneration != generation) return;
+            _pendingReply = null;
+            _pendingStaleSignal = null;
+        }
+    }
+
+    private void ReleaseSettingsSemaphore()
+    {
+        // A request's drain can still be running when Dispose runs (shutdown
+        // mid-request); releasing a disposed semaphore is expected there,
+        // not a bug to surface.
+        try { _settingsSemaphore.Release(); }
+        catch (ObjectDisposedException) { }
+    }
+
+    private async Task DrainStaleReplyThenReleaseAsync(int generation, TaskCompletionSource<bool> staleSignal)
+    {
+        using var cts = new CancellationTokenSource(StaleReplyDrainMs);
+        try { await staleSignal.Task.WaitAsync(cts.Token).ConfigureAwait(false); }
+        catch (OperationCanceledException) { }
+        ClearPendingSlot(generation);
+        ReleaseSettingsSemaphore();
     }
 }

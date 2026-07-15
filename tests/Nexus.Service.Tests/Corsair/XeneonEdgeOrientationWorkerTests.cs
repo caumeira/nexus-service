@@ -73,11 +73,17 @@ internal sealed class FakeDisplayOrientationProvider : IDisplayOrientationProvid
     public List<(string DisplayId, string Orientation)> Calls { get; } = new();
     public bool NextOk { get; set; } = true;
     public string NextError { get; set; } = "";
+    /// <summary>When set, SetDisplayOrientation blocks on this until released - lets a test pin the apply queue mid-flight, standing in for the real helper RPC's latency.</summary>
+    public ManualResetEventSlim? BlockUntil { get; set; }
+    /// <summary>Signaled the instant a call enters SetDisplayOrientation, before it waits on BlockUntil - lets a test know the call has actually started (Task.Run dispatch timing is otherwise unobservable).</summary>
+    public ManualResetEventSlim? Entered { get; set; }
 
     public (bool Ok, string Error) SetY70Orientation(string orientation) => (true, "");
 
     public (bool Ok, string Error) SetDisplayOrientation(string displayId, string orientation)
     {
+        Entered?.Set();
+        BlockUntil?.Wait();
         Calls.Add((displayId, orientation));
         return (NextOk, NextError);
     }
@@ -177,7 +183,7 @@ public sealed class XeneonEdgeOrientationWorkerTests
     }
 
     [Fact]
-    public void Tick_OrientationChange_AppliesTheMappedOrientationAndPersistsIt()
+    public async Task Tick_OrientationChange_AppliesTheMappedOrientationAndPersistsIt()
     {
         var f = NewFixtures(devicePresent: true);
         PromoteXeneonEdge(f.Registry);
@@ -188,6 +194,10 @@ public sealed class XeneonEdgeOrientationWorkerTests
 
         device.PendingReads.Enqueue(OrientationReport(0)); // -> Landscape
         worker.Tick();
+
+        // The apply runs off the reader thread (a background queue), so it
+        // may not have landed the instant Tick() returns.
+        await WaitForOrientationCalls(f.Orientation, 1);
 
         var call = Assert.Single(f.Orientation.Calls);
         Assert.Equal(DisplayId, call.DisplayId);
@@ -380,6 +390,22 @@ public sealed class XeneonEdgeOrientationWorkerTests
         }
     }
 
+    /// <summary>
+    /// Waits until the orientation provider has recorded <paramref name="expected"/>
+    /// calls. Orientation applies run on a background queue (off the reader
+    /// thread), so Tick() returning is not proof the apply has landed yet.
+    /// </summary>
+    private static async Task WaitForOrientationCalls(FakeDisplayOrientationProvider orientation, int expected)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (orientation.Calls.Count < expected)
+        {
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException($"expected {expected} orientation call(s), saw {orientation.Calls.Count}");
+            await Task.Delay(5);
+        }
+    }
+
     [Fact]
     public async Task RestoreDefaultsAsync_WritesEveryControlAtItsFactoryValue()
     {
@@ -430,7 +456,7 @@ public sealed class XeneonEdgeOrientationWorkerTests
     }
 
     [Fact]
-    public void Tick_OrientationReport_StillAppliesWhileNoSettingsRequestIsPending()
+    public async Task Tick_OrientationReport_StillAppliesWhileNoSettingsRequestIsPending()
     {
         // Guards against the settings reply-demux swallowing unrelated
         // reports: an orientation push must still apply normally.
@@ -444,7 +470,156 @@ public sealed class XeneonEdgeOrientationWorkerTests
         device.PendingReads.Enqueue(OrientationReport(0));
         worker.Tick();
 
+        await WaitForOrientationCalls(f.Orientation, 1);
         Assert.Single(f.Orientation.Calls);
+    }
+
+    [Fact]
+    public async Task SetControlAsync_StaleReplyAfterTimeout_DoesNotSatisfyTheNextRequest()
+    {
+        // Brightness/Contrast share group 0x02 and the ack does not echo
+        // item, so a stale brightness ack landing on a subsequent contrast
+        // request is otherwise indistinguishable from a real contrast ack.
+        var f = NewFixtures(devicePresent: true);
+        var device = new MockXeneonHidDevice();
+        AddDevice(f.Hid, device);
+        var worker = NewWorker(f);
+        worker.Tick(); // opens + arms
+
+        var first = worker.SetControlAsync(XeneonEdgeControl.Brightness, 10, CancellationToken.None);
+        await WaitForWriteCount(device, 2); // arm + brightness write
+        Assert.Null(await first); // no reply is ever queued for it: it times out
+
+        // The next request cannot arm until the timed-out one's drain
+        // window clears, so this call blocks behind it.
+        var second = worker.SetControlAsync(XeneonEdgeControl.Contrast, 77, CancellationToken.None);
+
+        // Brightness's device reply finally shows up, late - it must land
+        // on the abandoned brightness request, not the pending contrast one.
+        device.PendingReads.Enqueue(SetAckReport(group: 0x02, value: 10));
+        worker.Tick();
+
+        await WaitForWriteCount(device, 3); // the drain clears and contrast's write goes out
+        device.PendingReads.Enqueue(SetAckReport(group: 0x02, value: 77));
+        worker.Tick();
+
+        Assert.Equal(77, await second);
+    }
+
+    [Fact]
+    public async Task Tick_OrientationReportsWhileApplyInFlight_CoalescesToTheLatestCodeOnly()
+    {
+        // Applies must not run concurrently, and only the newest code
+        // survives when reports queue up behind an in-flight apply (the
+        // panel reports absolute state, not deltas).
+        var f = NewFixtures(devicePresent: true);
+        PromoteXeneonEdge(f.Registry);
+        var device = new MockXeneonHidDevice();
+        AddDevice(f.Hid, device);
+        using var gate = new ManualResetEventSlim(false);
+        using var entered = new ManualResetEventSlim(false);
+        f.Orientation.BlockUntil = gate;
+        f.Orientation.Entered = entered;
+        var worker = NewWorker(f);
+        worker.Tick(); // opens + arms
+
+        device.PendingReads.Enqueue(OrientationReport(0)); // -> Landscape
+        worker.Tick();
+        // Task.Run's dispatch timing is otherwise unobservable: without this,
+        // the two reports below could both coalesce before the first apply
+        // ever reaches the provider, applying only the last of the three.
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+
+        // Two more reports land while the first apply is still in flight;
+        // only the last (PortraitFlipped) should ever reach the provider.
+        device.PendingReads.Enqueue(OrientationReport(1)); // -> Portrait
+        worker.Tick();
+        device.PendingReads.Enqueue(OrientationReport(3)); // -> PortraitFlipped
+        worker.Tick();
+
+        gate.Set();
+
+        await WaitForOrientationCalls(f.Orientation, 2);
+        Assert.Equal(2, f.Orientation.Calls.Count);
+        Assert.Equal(DisplayOrientations.Landscape, f.Orientation.Calls[0].Orientation);
+        Assert.Equal(DisplayOrientations.PortraitFlipped, f.Orientation.Calls[1].Orientation);
+    }
+
+    [Fact]
+    public async Task DisplayRecordReady_ReplaysAnUnappliedOrientationOnceTheRecordIsReady()
+    {
+        // Mirrors a hot-plug where the panel record only appears after
+        // auto-promotion, with the helper already connected - its Connected
+        // event never fires again to trigger a replay, so PanelDeviceRegistry
+        // must be the one that does.
+        var f = NewFixtures(devicePresent: true);
+        var record = PromoteXeneonEdge(f.Registry);
+        var device = new MockXeneonHidDevice();
+        AddDevice(f.Hid, device);
+        f.Orientation.NextOk = false;
+        var worker = NewWorker(f);
+        worker.Tick(); // opens + arms
+
+        device.PendingReads.Enqueue(OrientationReport(1)); // -> Portrait
+        worker.Tick();
+        await WaitForOrientationCalls(f.Orientation, 1); // first attempt fails
+
+        f.Orientation.NextOk = true;
+        // Re-enabling the record fires PanelDeviceRegistry.DisplayRecordReady,
+        // the same signal a fresh auto-promotion raises.
+        f.Registry.DisablePanelForDisplay(DisplayId);
+        f.Registry.AllocateForDisplay(DisplayId, "Xeneon Edge", record.Capabilities);
+
+        await WaitForOrientationCalls(f.Orientation, 2);
+        Assert.Equal(DisplayOrientations.Portrait, f.Orientation.Calls[1].Orientation);
+        Assert.Equal(DisplayOrientations.Portrait, f.Registry.FindByDisplayId(DisplayId)!.Capabilities!.Orientation);
+    }
+
+    [Fact]
+    public async Task ReplayWhenHelperServes_DoesNotReapplyAStaleCodeOverARealRotationThatSupersededIt()
+    {
+        // The replay loop must re-read the unapplied code on every attempt
+        // instead of closing over the one captured when it started: a real
+        // rotation that lands (and applies successfully) during the retry
+        // gap must win, not get overwritten by a stale replay of the code
+        // it just superseded.
+        var f = NewFixtures(devicePresent: true);
+        var record = PromoteXeneonEdge(f.Registry);
+        var device = new MockXeneonHidDevice();
+        AddDevice(f.Hid, device);
+        f.Orientation.NextOk = false; // every apply fails for now
+        var worker = NewWorker(f);
+        worker.Tick(); // opens + arms
+
+        // First attempt: fails, _unapplied = Landscape (code 0).
+        device.PendingReads.Enqueue(OrientationReport(0));
+        worker.Tick();
+        await WaitForOrientationCalls(f.Orientation, 1);
+
+        // Trigger the replay loop via a record-ready signal (re-enable, the
+        // same mechanism a hot-plug's auto-promotion fires).
+        f.Registry.DisablePanelForDisplay(DisplayId);
+        f.Registry.AllocateForDisplay(DisplayId, "Xeneon Edge", record.Capabilities);
+
+        // Replay's own first attempt also fails (still _unapplied = 0),
+        // then it sleeps HelperReplayGapMs before its second attempt.
+        await WaitForOrientationCalls(f.Orientation, 2);
+
+        // A real rotation lands and succeeds during that gap - it must win.
+        f.Orientation.NextOk = true;
+        device.PendingReads.Enqueue(OrientationReport(1)); // -> Portrait
+        worker.Tick();
+        await WaitForOrientationCalls(f.Orientation, 3);
+        Assert.Equal(DisplayOrientations.Portrait, f.Orientation.Calls[2].Orientation);
+
+        // Let the replay's gap (HelperReplayGapMs) fully elapse so its
+        // second attempt (or lack of one) settles before asserting.
+        await Task.Delay(600);
+
+        // The replay must have re-read _unapplied (now cleared) and
+        // stopped, not reapplied its stale captured Landscape over Portrait.
+        Assert.Equal(3, f.Orientation.Calls.Count);
+        Assert.Equal(DisplayOrientations.Portrait, f.Registry.FindByDisplayId(DisplayId)!.Capabilities!.Orientation);
     }
 
     private sealed class InMemoryConfigStore : IConfigStore
