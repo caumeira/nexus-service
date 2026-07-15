@@ -18,7 +18,7 @@ public sealed record Aw5PanelTarget(Aw5Variant Variant, string Path, string? Ser
 ///
 /// Only valid while no vendor driver runs. The vendor binary and this hub would be
 /// two writers on one HID; the driver .exe path is disabled for exactly this reason
-/// (see DriverExeSupport).
+/// (see DriverExePolicy).
 /// </summary>
 public sealed class Aw5Hub : IDisposable
 {

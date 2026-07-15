@@ -1248,7 +1248,7 @@ public static class NexusServiceCollectionExtensions
         services.AddHostedService<Nexus.Service.Common.ExternalTools.DriverAutoLaunchWorker>();
 
         // Drives the AW5 pump displays in place of the vendor driver .exe. Exactly one
-        // of the two runs; DriverExeSupport picks which.
+        // of the two runs; DriverExePolicy picks which.
         services.AddSingleton<Nexus.Service.Peripherals.Aw5.Aw5Hub>();
         services.AddSingleton<Nexus.Service.Peripherals.Aw5.Aw5SensorReader>();
         services.AddHostedService<Nexus.Service.Peripherals.Aw5.Aw5PanelWorker>();

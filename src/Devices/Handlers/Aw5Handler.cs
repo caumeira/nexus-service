@@ -4,11 +4,11 @@ using System.Linq;
 namespace Nexus.Service.Devices.Handlers;
 
 /// <summary>
-/// iBUYPOWER AW5 AIO cooler. The cooler is driven by the vendor's own driver .exe,
-/// which the service fetches and launches from the com.ibuypower.control app's
-/// driver manifest block (see DriverAutoLaunchWorker). Nexus never opens the device,
-/// so presence comes from USB enumeration alone; the Nexus Control gate starts and
-/// stops the vendor process rather than a port claim.
+/// iBUYPOWER AW5 AIO cooler. Nexus drives the pump display itself
+/// (<see cref="Nexus.Service.Peripherals.Aw5.Aw5PanelWorker"/>); the vendor driver
+/// .exe the app manifest still describes is dormant (see DriverExePolicy). Presence
+/// comes from USB enumeration rather than the panel handle, so a cooler shows in the
+/// device list whether or not its display is being written.
 /// </summary>
 public sealed class Aw5Handler : IDeviceHandler
 {
@@ -33,15 +33,14 @@ public sealed class Aw5Handler : IDeviceHandler
     };
 
     /// <summary>
-    /// Nexus never claims the device, but the gate still governs the vendor driver
-    /// process: off stops the .exe, on lets it run. DriverAutoLaunchWorker honors it
-    /// via the app's <c>deviceId</c>.
+    /// Off stops Nexus writing to the panels and blanks what it can; on resumes.
+    /// Keyed on this handler id, so one toggle covers both variants.
     /// </summary>
     public bool SupportsNexusControl => true;
 
     public bool IsConnected(IReadOnlyList<UsbDeviceEntry> detectedDevices)
         => detectedDevices.Any(d => Identifiers.Any(id => id.VendorId == d.VendorId && id.ProductId == d.ProductId));
 
-    /// <summary>Empty: reading it would mean opening a device the vendor driver holds.</summary>
+    /// <summary>Empty: neither variant's panel report carries a firmware version.</summary>
     public string GetFirmwareVersion() => "";
 }

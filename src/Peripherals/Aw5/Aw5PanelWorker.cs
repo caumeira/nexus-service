@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -22,8 +23,16 @@ namespace Nexus.Service.Peripherals.Aw5;
 /// </summary>
 public sealed class Aw5PanelWorker : BackgroundService
 {
-    /// <summary>Off the startup critical path, and long enough for the sensor stack to have sampled once.</summary>
+    /// <summary>Off the startup critical path. An unsampled sensor stack reads as 0, which the panel renders harmlessly.</summary>
     private const int InitialDelayMs = 2000;
+
+    /// <summary>
+    /// Ticks between bus scans. Discovery walks every HID interface on the box, so
+    /// doing it per tick would sweep the bus once a second forever, on machines with
+    /// no AW5 too. The tick rate is the panel's keep-alive; hot-plug latency is not,
+    /// and ~5s matches the other device connection workers.
+    /// </summary>
+    private const int RediscoverEveryTicks = 5;
 
     private readonly Aw5Hub _hub;
     private readonly Aw5SensorReader _reader;
@@ -31,6 +40,8 @@ public sealed class Aw5PanelWorker : BackgroundService
     private readonly DriverExePolicy _driverExe;
     private bool _wasGatedOn;
     private int _loggedPanels = -1;
+    private IReadOnlyList<Aw5PanelTarget> _panels = Array.Empty<Aw5PanelTarget>();
+    private int _ticksSinceDiscover = int.MaxValue;
 
     public Aw5PanelWorker(Aw5Hub hub, Aw5SensorReader reader, DeviceControlGate gate, DriverExePolicy driverExe)
     {
@@ -70,31 +81,38 @@ public sealed class Aw5PanelWorker : BackgroundService
 
     internal async Task TickAsync(CancellationToken ct)
     {
-        var panels = _hub.Discover();
-        _hub.CloseAbsent(panels);
-
-        if (panels.Count != _loggedPanels)
-        {
-            if (panels.Count > 0) ServiceLog.Info($"[aw5] driving {panels.Count} panel(s) natively");
-            _loggedPanels = panels.Count;
-        }
-        if (panels.Count == 0) return;
-
+        // Gate first: a bus scan is the expensive part of a tick, and a device the
+        // user switched off needs neither the scan nor the frames.
         if (!_gate.IsEnabled(Aw5Handler.HandlerId))
         {
-            // Only on the on->off edge: blanking every tick would fight nothing and
-            // spam a device the user asked Nexus to leave alone.
+            // Only on the on->off edge: blanking every tick would spam a device the
+            // user asked Nexus to leave alone.
             if (_wasGatedOn)
             {
-                foreach (var p in panels) _hub.Blank(p);
+                foreach (var p in _panels) _hub.Blank(p);
                 _hub.CloseAll();
+                _panels = Array.Empty<Aw5PanelTarget>();
+                _ticksSinceDiscover = int.MaxValue;
                 _wasGatedOn = false;
             }
             return;
         }
         _wasGatedOn = true;
 
+        if (++_ticksSinceDiscover >= RediscoverEveryTicks)
+        {
+            _ticksSinceDiscover = 0;
+            _panels = _hub.Discover();
+            _hub.CloseAbsent(_panels);
+            if (_panels.Count != _loggedPanels)
+            {
+                if (_panels.Count > 0) ServiceLog.Info($"[aw5] driving {_panels.Count} panel(s) natively");
+                _loggedPanels = _panels.Count;
+            }
+        }
+        if (_panels.Count == 0) return;
+
         var reading = _reader.Read();
-        foreach (var p in panels) await _hub.RenderAsync(p, reading, ct);
+        for (var i = 0; i < _panels.Count; i++) await _hub.RenderAsync(_panels[i], reading, ct);
     }
 }
