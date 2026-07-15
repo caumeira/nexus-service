@@ -26,7 +26,10 @@ public static class AppInstallActions
             var toolManager = services.GetRequiredService<ExternalToolManager>();
             var adbRegistry = services.GetRequiredService<IAdbDeviceRegistry>();
 
-            if (!appRegistry.TryGet(appId, out var entry) || entry.Manifest.Driver is null)
+            // A blocked driver is reported as having no install block at all, so the
+            // app page offers no button for a path the service will refuse.
+            if (!appRegistry.TryGet(appId, out var entry) || entry.Manifest.Driver is null
+                || services.GetRequiredService<DriverExePolicy>().IsBlocked(entry.Manifest.Driver))
             {
                 var empty = new AppInstallStatusDto { HasInstall = false, State = "notrunning" };
                 var emptyJson = JsonSerializer.Serialize(empty, AppJsonContext.Default.AppInstallStatusDto);
@@ -135,6 +138,14 @@ public static class AppInstallActions
             }
 
             var driver = entry.Manifest.Driver;
+
+            if (services.GetRequiredService<DriverExePolicy>().IsBlocked(driver))
+            {
+                var blocked = new AppInstallTriggerDto { Started = false, Reason = "driver-exe-disabled" };
+                var blockedJson = JsonSerializer.Serialize(blocked, AppJsonContext.Default.AppInstallTriggerDto);
+                using var blockedDoc = JsonDocument.Parse(blockedJson);
+                return blockedDoc.RootElement.Clone();
+            }
 
             // The device's Nexus Control gate governs this driver too, and the
             // auto-launch worker would terminate anything started behind its back
