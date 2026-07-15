@@ -516,6 +516,15 @@ public sealed class QSeriesSettings
 {
     /// <summary>"Portrait" or "PortraitFlipped" - the Q60/Q80 panel has no landscape mode.</summary>
     public string Orientation { get; set; } = Nexus.Service.Models.Displays.DisplayOrientations.Portrait;
+
+    /// <summary>0-100, mapped to the 0-255 byte `settings put system screen_brightness` expects.</summary>
+    public int Brightness { get; set; } = 100;
+
+    public bool ScreenOff { get; set; }
+
+    /// <summary>When true, the panel screen sleeps when Windows suspends (or
+    /// shuts down) and wakes on resume.</summary>
+    public bool SleepWithHost { get; set; } = true;
 }
 
 /// <summary>Persisted shape of one Tryx overlay item; see

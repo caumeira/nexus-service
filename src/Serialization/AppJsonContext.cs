@@ -676,6 +676,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Y70ToggleScreenResponse))]
 [JsonSerializable(typeof(Y70ToggleScreenParams))]
 [JsonSerializable(typeof(QSeriesRotationParams))]
+[JsonSerializable(typeof(QSeriesDisplayParams))]
 
 // Activity
 [JsonSerializable(typeof(FocusSession))]
