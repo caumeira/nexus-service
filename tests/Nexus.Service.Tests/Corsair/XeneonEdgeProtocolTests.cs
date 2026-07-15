@@ -174,16 +174,6 @@ public class XeneonEdgeProtocolTests
     }
 
     [Fact]
-    public void BuildRestoreColorsCommand_UsesGroupFfItem00Value00()
-    {
-        var cmd = XeneonEdgeProtocol.BuildRestoreColorsCommand();
-
-        Assert.Equal(0xff, cmd[6]);
-        Assert.Equal(0x00, cmd[7]);
-        Assert.Equal(0x00, cmd[8]);
-    }
-
-    [Fact]
     public void TryParseSettingsBlock_ValidReport_ParsesAllSixControlsInBlockOrder()
     {
         var report = SettingsBlockReport(brightness: 50, backlight: 100, contrast: 50, red: 151, green: 127, blue: 139);

@@ -27,6 +27,15 @@ public sealed class PanelDeviceRegistry
         _store = store;
     }
 
+    /// <summary>
+    /// Raised after AllocateForDisplay creates or re-enables a display-bound
+    /// record. Lets a device-specific worker whose own presence signal
+    /// (e.g. USB attach) can arrive before the matching panel record exists
+    /// (auto-promotion runs off a separately debounced topology event)
+    /// retry once the record is there, instead of polling for it.
+    /// </summary>
+    public event Action<PanelDeviceRecord>? DisplayRecordReady;
+
     public PanelDeviceRecord Allocate(string? displayName, PanelDeviceCapabilities? capabilities)
     {
         var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
@@ -122,7 +131,12 @@ public sealed class PanelDeviceRegistry
         // Panel on/off is rare and must survive an immediate service exit -
         // a write lost to the flush debounce would silently undo the toggle.
         _store.FlushNow();
-        if (result is not null) return (result, activated);
+        if (result is not null)
+        {
+            if (activated) DisplayRecordReady?.Invoke(result);
+            return (result, activated);
+        }
+        DisplayRecordReady?.Invoke(record);
         return (record, true);
     }
 

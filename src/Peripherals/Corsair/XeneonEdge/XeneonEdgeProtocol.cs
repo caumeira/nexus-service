@@ -57,10 +57,6 @@ public static class XeneonEdgeProtocol
     private const int AckValueOffset = 8;
     private const byte AckOk = 0x01;
 
-    /// <summary>Restore-default-colors command coordinates (does not touch brightness/backlight/contrast).</summary>
-    public const byte GroupRestoreColors = 0xff;
-    public const byte ItemRestoreColors = 0x00;
-
     /// <summary>Arms the orientation push stream: <c>01 11 00 00 00 00</c> + zero pad to 64.</summary>
     public static byte[] BuildOrientationQuery()
     {
@@ -105,10 +101,6 @@ public static class XeneonEdgeProtocol
         buf[SetValueOffset] = value;
         return buf;
     }
-
-    /// <summary>Restores the panel's factory RGB colors; leaves brightness/backlight/contrast untouched.</summary>
-    public static byte[] BuildRestoreColorsCommand() =>
-        BuildSetCommand(GroupRestoreColors, ItemRestoreColors, 0x00);
 
     /// <summary>
     /// Parses a 0x0e settings-block reply. <paramref name="block"/> is only
