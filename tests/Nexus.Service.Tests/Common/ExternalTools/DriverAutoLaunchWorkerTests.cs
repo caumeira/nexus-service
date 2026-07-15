@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Net;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Threading;
@@ -62,6 +63,105 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         Assert.NotEqual(ToolStatus.Running, manager.GetStatus("acme-cooler"));
     }
 
+    [Fact]
+    public async Task Unresolvable_driver_backs_off_instead_of_refetching_every_tick()
+    {
+        // The device is present but its variant has no published payload (a real
+        // case: an OEM ships the cooler before the binary lands). Without a
+        // backoff this re-fetches the manifest every 5s for the life of the box.
+        WriteDriverApp(withDriverBinary: false);
+        var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var http = new CountingHandler();
+        var registry = new AppRegistry(() => new List<AppInstallPaths.Root>
+        {
+            new(_root, AppInstallPaths.Source.Bundled),
+        });
+        var manager = new ExternalToolManager(new HttpClient(http), _cache);
+        var worker = new DriverAutoLaunchWorker(
+            registry, manager,
+            new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }),
+            () => now);
+
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(1, http.Calls);
+
+        // Same instant: inside the backoff window, so the tick costs nothing.
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(1, http.Calls);
+
+        // Failure 1 schedules one tick out - a transient blip retries promptly.
+        now = now.AddMilliseconds(5000);
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(2, http.Calls);
+
+        // Failure 2 doubles the wait, so one further tick is not enough.
+        now = now.AddMilliseconds(5000);
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(2, http.Calls);
+
+        now = now.AddMilliseconds(5000);
+        await worker.RunOnceAsync(CancellationToken.None);
+        Assert.Equal(3, http.Calls);
+    }
+
+    [Fact]
+    public async Task Driver_that_dies_after_launch_backs_off_instead_of_relaunching_every_tick()
+    {
+        // Bench-hit: the AW5 vendor driver exited seconds after start and the
+        // worker respawned it every 5s forever. The launch SUCCEEDS here, so the
+        // tool reads Running for an instant - the driver must outlive the
+        // post-launch status read, or this passes against the bug it guards.
+        if (OperatingSystem.IsWindows()) return; // real child process; Unix only
+
+        var runs = WriteDriverApp(withDriverBinary: true, exitAfterLaunch: true);
+        var now = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var registry = new AppRegistry(() => new List<AppInstallPaths.Root>
+        {
+            new(_root, AppInstallPaths.Source.Bundled),
+        });
+        var manager = new ExternalToolManager(new HttpClient(new ExplodingHandler()), _cache);
+        var worker = new DriverAutoLaunchWorker(
+            registry, manager,
+            new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }),
+            () => now);
+
+        await worker.RunOnceAsync(CancellationToken.None);
+        await WaitForRunsAsync(runs, 1);
+
+        // Wait for the child to die - the state the tick after a launch sees.
+        for (var i = 0; i < 200 && manager.GetStatus("acme-cooler") == ToolStatus.Running; i++)
+            await Task.Delay(50);
+        Assert.NotEqual(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+
+        // Still inside the backoff window the launch opened: no respawn.
+        await worker.RunOnceAsync(CancellationToken.None);
+        await AssertStillAsync(runs, 1);
+
+        // Past the window, it retries - a crash-loop escalates, it does not stop.
+        now = now.AddMilliseconds(5000);
+        await worker.RunOnceAsync(CancellationToken.None);
+        await WaitForRunsAsync(runs, 2);
+    }
+
+    private static int CountRuns(string marker)
+        => File.Exists(marker) ? File.ReadAllLines(marker).Length : 0;
+
+    /// <summary>The child appends its marker asynchronously; wait for it rather than racing it.</summary>
+    private static async Task WaitForRunsAsync(string marker, int expected)
+    {
+        for (var i = 0; i < 200 && CountRuns(marker) < expected; i++)
+            await Task.Delay(50);
+        Assert.Equal(expected, CountRuns(marker));
+    }
+
+    /// <summary>Hold long enough that a respawn would have recorded itself, then assert none did.</summary>
+    private static async Task AssertStillAsync(string marker, int expected)
+    {
+        for (var i = 0; i < 40 && CountRuns(marker) <= expected; i++)
+            await Task.Delay(50);
+        Assert.Equal(expected, CountRuns(marker));
+    }
+
     // ── Harness ──
 
     private (DriverAutoLaunchWorker worker, ExternalToolManager manager) Build(IUsbEnumerator usb)
@@ -75,7 +175,8 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         return (worker, manager);
     }
 
-    private void WriteDriverApp(bool withDriverBinary)
+    /// <summary>Returns the path the driver appends one line to per run.</summary>
+    private string WriteDriverApp(bool withDriverBinary, bool exitAfterLaunch = false)
     {
         var dir = Path.Combine(_root, "com.example.cooler");
         Directory.CreateDirectory(dir);
@@ -88,12 +189,19 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             "\"manifestUrlBase\":\"https://assets.hellonexus.com/acme_cooler\"," +
             "\"filePattern\":\"MyDriver*.exe\",\"launch\":{\"session\":\"system\",\"hidden\":true}}}");
 
-        if (!withDriverBinary) return;
+        var runMarker = Path.Combine(_root, "runs.txt");
+        if (!withDriverBinary) return runMarker;
 
         var variantDir = Path.Combine(dir, "drivers", "VariantB"); // matches PID 0x0002
         Directory.CreateDirectory(variantDir);
         var sleeper = Path.Combine(variantDir, "sleeper.sh");
-        File.WriteAllText(sleeper, "#!/bin/sh\nsleep 30\n");
+        // The crash-loop driver must still be alive when the worker reads its
+        // status right after Process.Start, or the tick that clears the backoff
+        // never runs and the test passes against the bug.
+        var body = exitAfterLaunch
+            ? "#!/bin/sh\necho run >> \"" + runMarker + "\"\nsleep 1\nexit 1\n"
+            : "#!/bin/sh\nsleep 30\n";
+        File.WriteAllText(sleeper, body);
         if (!OperatingSystem.IsWindows())
         {
             File.SetUnixFileMode(sleeper,
@@ -104,6 +212,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         var payload = File.ReadAllBytes(sleeper);
         File.WriteAllText(Path.Combine(variantDir, "bundled.json"),
             "{\"fileName\":\"sleeper.sh\",\"sha256\":\"" + Sha256Hex(payload) + "\",\"size\":" + payload.Length + "}");
+        return runMarker;
     }
 
     private static string Sha256Hex(byte[] bytes)
@@ -123,5 +232,18 @@ public class DriverAutoLaunchWorkerTests : IDisposable
     {
         protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
             => throw new InvalidOperationException("auto-launch must not hit the network in these tests");
+    }
+
+    /// <summary>Counts manifest fetches and 404s them, mirroring an unpublished variant.</summary>
+    private sealed class CountingHandler : HttpMessageHandler
+    {
+        private int _calls;
+        public int Calls => Volatile.Read(ref _calls);
+
+        protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            Interlocked.Increment(ref _calls);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.NotFound));
+        }
     }
 }

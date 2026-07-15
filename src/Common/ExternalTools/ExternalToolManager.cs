@@ -194,7 +194,9 @@ public sealed class ExternalToolManager : IHostedService, IToolResolver
             strategy.Terminate(toolId);
     }
 
-    /// <summary>Tear down every tracked tool. Called from <see cref="StopAsync"/>.</summary>
+    /// <summary>Tear down every tracked tool. Called from <see cref="StopAsync"/>,
+    /// and directly from the Windows fast-shutdown path, which runs no hosted
+    /// StopAsync - without that call the tools outlive the service.</summary>
     public void TerminateAll()
     {
         foreach (var strategy in _strategies.Values)
