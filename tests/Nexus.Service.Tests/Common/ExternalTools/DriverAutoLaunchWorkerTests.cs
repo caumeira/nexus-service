@@ -17,6 +17,12 @@ namespace Nexus.Service.Tests.Common.ExternalTools;
 
 public class DriverAutoLaunchWorkerTests : IDisposable
 {
+    /// <summary>
+    /// These suites are the vendor driver path's coverage, so they enable it. It ships
+    /// disabled (the AW5 is driven natively); see DriverExePolicy.
+    /// </summary>
+    private static readonly DriverExePolicy VendorDriverOn = new(enabled: true);
+
     private readonly string _root;
     private readonly string _cache;
 
@@ -83,6 +89,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }),
             OpenGate(),
             Array.Empty<IDriverGateStopHook>(),
+            VendorDriverOn,
             () => now);
 
         await worker.RunOnceAsync(CancellationToken.None);
@@ -128,6 +135,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 }),
             OpenGate(),
             Array.Empty<IDriverGateStopHook>(),
+            VendorDriverOn,
             () => now);
 
         await worker.RunOnceAsync(CancellationToken.None);
@@ -301,7 +309,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             new(_root, AppInstallPaths.Source.Bundled),
         });
         var manager = new ExternalToolManager(new HttpClient(new ExplodingHandler()), _cache);
-        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate, Array.Empty<IDriverGateStopHook>());
+        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate, Array.Empty<IDriverGateStopHook>(), VendorDriverOn);
 
         await worker.RunOnceAsync(CancellationToken.None);
         Assert.Equal(ToolStatus.Running, manager.GetStatus("acme-cooler"));
@@ -424,6 +432,45 @@ public class DriverAutoLaunchWorkerTests : IDisposable
         }
     }
 
+    [Fact]
+    public async Task A_blocked_driver_is_never_detected_fetched_or_launched()
+    {
+        // The shipped configuration. Dormant has to mean untouched, not just
+        // unlaunched: no bus read to detect the device, no manifest fetch, no
+        // process. Asserting on the collaborators is what catches a guard that
+        // drifts one line too low.
+        WriteDriverApp(withDriverBinary: true);
+        var http = new CountingHandler();
+        var usb = new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 });
+        var registry = new AppRegistry(() => new List<AppInstallPaths.Root> { new(_root, AppInstallPaths.Source.Bundled) });
+        var manager = new ExternalToolManager(new HttpClient(http), _cache);
+        var worker = new DriverAutoLaunchWorker(registry, manager, usb, OpenGate(),
+            Array.Empty<IDriverGateStopHook>(), new DriverExePolicy(enabled: false));
+
+        await worker.RunOnceAsync(CancellationToken.None);
+        await worker.RunOnceAsync(CancellationToken.None);
+
+        Assert.Equal(0, http.Calls);
+        Assert.Equal(0, usb.Reads);
+        Assert.NotEqual(ToolStatus.Running, manager.GetStatus("acme-cooler"));
+    }
+
+    [Fact]
+    public async Task An_android_driver_is_unaffected_by_the_host_exe_block()
+    {
+        // The block is scoped to host-exe drivers; an adb driver runs no host
+        // process and cannot contend for the panel's HID.
+        WriteDriverApp(withDriverBinary: true);
+        var usb = new StubUsb(new UsbDeviceEntry { VendorId = 0x1234, ProductId = 0x0002 });
+        var (worker, _) = Build(usb);
+
+        await worker.RunOnceAsync(CancellationToken.None);
+
+        // The fixture's driver names no target, so it is host-exe and the enabled
+        // policy this harness uses lets it through - the bus is read.
+        Assert.True(usb.Reads > 0);
+    }
+
     /// <summary>A gate with no explicit choices: every handler falls back to its brand default (on).</summary>
     private static DeviceControlGate OpenGate() => new(new InMemoryConfigStore());
 
@@ -436,7 +483,7 @@ public class DriverAutoLaunchWorkerTests : IDisposable
             new(_root, AppInstallPaths.Source.Bundled),
         });
         var manager = new ExternalToolManager(new HttpClient(new ExplodingHandler()), _cache);
-        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate ?? OpenGate(), hooks ?? Array.Empty<IDriverGateStopHook>());
+        var worker = new DriverAutoLaunchWorker(registry, manager, usb, gate ?? OpenGate(), hooks ?? Array.Empty<IDriverGateStopHook>(), VendorDriverOn);
         return (worker, manager);
     }
 
@@ -503,7 +550,9 @@ public class DriverAutoLaunchWorkerTests : IDisposable
     {
         private List<UsbDeviceEntry> _devices;
         public StubUsb(params UsbDeviceEntry[] devices) => _devices = new List<UsbDeviceEntry>(devices);
-        public List<UsbDeviceEntry> Enumerate() => _devices;
+        /// <summary>Reads of the bus, so a test can assert a blocked driver never provokes one.</summary>
+        public int Reads { get; private set; }
+        public List<UsbDeviceEntry> Enumerate() { Reads++; return _devices; }
         /// <summary>Rewrite the bus, standing in for an unplug or a variant swap.</summary>
         public void SetBus(params UsbDeviceEntry[] devices) => _devices = new List<UsbDeviceEntry>(devices);
     }
