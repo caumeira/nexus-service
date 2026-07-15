@@ -21,6 +21,14 @@ public sealed class TouchMapDigitizerInfo
     /// touch-mapping tier treats both the same (fail closed).
     /// </summary>
     public bool IsUsbAttached { get; set; }
+    /// <summary>
+    /// Instance ids of the devices sharing a USB hub with this digitizer's
+    /// nearest hub-port ancestor (CfgMgr32.GetUsbHubSiblingInstanceIds).
+    /// Disambiguates descriptor-identical digitizers on different panels by
+    /// what else shares their internal hub (see TouchPanelCatalogEntry.CompanionUsbIds).
+    /// Empty when the walk fails or the digitizer has no such sibling.
+    /// </summary>
+    public List<string> CompanionHardwareIds { get; set; } = new();
 }
 
 /// <summary>
