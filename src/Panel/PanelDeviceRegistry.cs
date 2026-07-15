@@ -332,6 +332,8 @@ public sealed class PanelDeviceRegistry
                 record.WidgetLabels = patch.WidgetLabels.Value;
             if (patch.WidgetBlur.HasValue)
                 record.WidgetBlur = patch.WidgetBlur.Value;
+            if (patch.WidgetPadding is not null)
+                record.WidgetPadding = NullIfEmpty(patch.WidgetPadding);
             if (patch.ThemeSyncWithDesktop.HasValue)
                 record.ThemeSyncWithDesktop = patch.ThemeSyncWithDesktop.Value;
             if (patch.AccentSyncWithDesktop.HasValue)
@@ -415,6 +417,7 @@ public sealed class PanelDeviceRegistry
             WidgetOpacity = r.WidgetOpacity,
             WidgetLabels = r.WidgetLabels,
             WidgetBlur = r.WidgetBlur,
+            WidgetPadding = r.WidgetPadding,
             ThemeSyncWithDesktop = r.ThemeSyncWithDesktop,
             AccentSyncWithDesktop = r.AccentSyncWithDesktop,
             FirstSeenAt = r.FirstSeenAt,

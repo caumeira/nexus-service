@@ -43,6 +43,8 @@ public sealed class PanelDeviceRecord
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }
     public bool? WidgetBlur { get; set; }
+    /// <summary>"none" | "small" | "large". Null defaults to "small" client-side.</summary>
+    public string? WidgetPadding { get; set; }
     public bool? ThemeSyncWithDesktop { get; set; }
     public bool? AccentSyncWithDesktop { get; set; }
     public long FirstSeenAt { get; set; }
@@ -132,6 +134,7 @@ public sealed class PanelDevicePatch
     public double? WidgetOpacity { get; set; }
     public bool? WidgetLabels { get; set; }
     public bool? WidgetBlur { get; set; }
+    public string? WidgetPadding { get; set; }
     public bool? ThemeSyncWithDesktop { get; set; }
     public bool? AccentSyncWithDesktop { get; set; }
     /// <summary>Display-bound records only; ignored for other panels.</summary>

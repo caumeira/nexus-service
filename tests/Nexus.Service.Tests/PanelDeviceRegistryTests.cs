@@ -81,4 +81,40 @@ public sealed class PanelDeviceRegistryTests : IDisposable
         Assert.True(string.IsNullOrEmpty(allocated.DisplayId));
         Assert.Equal(2, _registry.List().Count);
     }
+
+    [Fact]
+    public void Patch_WidgetPadding_RoundTripsThroughGet()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Phone));
+
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch { WidgetPadding = "large" });
+        var fetched = _registry.Get(record.Id);
+
+        Assert.Equal("large", patched!.WidgetPadding);
+        Assert.Equal("large", fetched!.WidgetPadding);
+    }
+
+    [Fact]
+    public void Patch_OmittedWidgetPadding_DoesNotClobberStoredValue()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Phone));
+        _registry.Patch(record.Id, new PanelDevicePatch { WidgetPadding = "none" });
+
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch { DisplayName = "Renamed" });
+
+        Assert.Equal("none", patched!.WidgetPadding);
+        Assert.Equal("Renamed", patched.DisplayName);
+    }
+
+    /// <summary>
+    /// The service stores null until explicitly patched, same as WidgetOpacity/
+    /// WidgetLabels/WidgetBlur; the "small" default is applied client-side.
+    /// </summary>
+    [Fact]
+    public void Allocate_WidgetPadding_AbsentIsNullNotServerDefaulted()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Phone));
+
+        Assert.Null(record.WidgetPadding);
+    }
 }
