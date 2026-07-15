@@ -24,7 +24,6 @@ public sealed class AppInstalledListing
     public List<string> Sizes { get; set; } = new();
     public string? DefaultSize { get; set; }
     public string Source { get; set; } = ""; // "user" | "bundled"
-    public bool Trusted { get; set; }        // wire compat; no root is signature-verified, so always true
     public bool Preinstalled { get; set; }   // OEM bake-in: active at first boot, no user install
 }
 
