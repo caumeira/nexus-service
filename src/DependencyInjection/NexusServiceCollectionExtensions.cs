@@ -707,6 +707,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Y70Handler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.KeebHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.FanHubHandler>();
+        services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Aw5Handler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.Np50Handler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.SmartHubHandler>();
         services.AddSingleton<IDeviceHandler, Nexus.Service.Devices.Handlers.LianLiHandler>();

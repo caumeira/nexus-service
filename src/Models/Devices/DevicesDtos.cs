@@ -15,7 +15,7 @@ public sealed class DeviceListItem
     public string FirmwareType { get; set; } = "";
     /// <summary>True when Nexus is allowed to claim/control this device. False means Nexus still detects it but never opens its port/handle.</summary>
     public bool NexusControlEnabled { get; set; } = true;
-    /// <summary>True only for first-party handlers whose connection worker honors the gate. Plugin-contributed handlers manage their own hardware, so the on/off switch does not apply and the UI hides it.</summary>
+    /// <summary>True only for first-party handlers that claim their device through a gate-honoring connection worker. False when the on/off switch would gate nothing - a plugin handler managing its own hardware, or a first-party handler that only reports presence - and the UI hides it.</summary>
     public bool SupportsNexusControl { get; set; }
     /// <summary>True for a Nexus Control device driving non-Hyte/iBUYPOWER hardware (experimental support). Drives the "Experimental" badge in the UI. Always false when SupportsNexusControl is false.</summary>
     public bool Experimental { get; set; }
