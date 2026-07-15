@@ -363,23 +363,70 @@ public sealed class XeneonEdgeOrientationWorkerTests
         Assert.Null(await task);
     }
 
-    [Fact]
-    public async Task RestoreColorsAsync_HappyPath_ReturnsTrue()
+
+    /// <summary>
+    /// Waits until the worker has issued <paramref name="expected"/> writes.
+    /// Polls rather than sleeps a fixed span: the write lands on a pool
+    /// continuation, so there is no signal to await from the test side.
+    /// </summary>
+    private static async Task WaitForWriteCount(MockXeneonHidDevice device, int expected)
     {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (device.Writes.Count < expected)
+        {
+            if (DateTime.UtcNow > deadline)
+                throw new TimeoutException($"expected {expected} writes, saw {device.Writes.Count}");
+            await Task.Delay(5);
+        }
+    }
+
+    [Fact]
+    public async Task RestoreDefaultsAsync_WritesEveryControlAtItsFactoryValue()
+    {
+        // The panel's own 0xff command only restores RGB, so a full restore
+        // writes all six controls individually.
         var f = NewFixtures(devicePresent: true);
         var device = new MockXeneonHidDevice();
         AddDevice(f.Hid, device);
         var worker = NewWorker(f);
         worker.Tick();
 
-        var task = worker.RestoreColorsAsync(CancellationToken.None);
-        device.PendingReads.Enqueue(SetAckReport(group: XeneonEdgeProtocol.GroupRestoreColors, value: 0x00));
+        var task = worker.RestoreDefaultsAsync(CancellationToken.None);
+        for (var i = 0; i < XeneonEdgeDefaults.All.Length; i++)
+        {
+            var (control, value) = XeneonEdgeDefaults.All[i];
+            var coords = XeneonEdgeControls.Coords[control];
+            // Each control is awaited in turn and the continuation that issues
+            // the next write runs on the pool, so wait for that write to land
+            // before acking it: acking early leaves no pending request and the
+            // reply is dropped.
+            await WaitForWriteCount(device, i + 2);
+            device.PendingReads.Enqueue(SetAckReport(group: coords.Group, value: (byte)value));
+            worker.Tick();
+        }
+
+        // The restore verifies itself against a settings read: an ack only says
+        // the panel received the write, so serve a block showing every control
+        // landed on its factory value.
+        await WaitForWriteCount(device, XeneonEdgeDefaults.All.Length + 2);
+        device.PendingReads.Enqueue(SettingsBlockReport(
+            brightness: XeneonEdgeDefaults.Brightness, backlight: XeneonEdgeDefaults.Backlight,
+            contrast: XeneonEdgeDefaults.Contrast, red: XeneonEdgeDefaults.Red,
+            green: XeneonEdgeDefaults.Green, blue: XeneonEdgeDefaults.Blue));
         worker.Tick();
 
         Assert.True(await task);
-        var sent = device.Writes[1];
-        Assert.Equal(XeneonEdgeProtocol.GroupRestoreColors, sent[6]);
-        Assert.Equal(XeneonEdgeProtocol.ItemRestoreColors, sent[7]);
+        // Writes[0] is the arm; the six restores follow in XeneonEdgeDefaults.All order.
+        var sent = device.Writes.Skip(1).Take(XeneonEdgeDefaults.All.Length).ToList();
+        Assert.Equal(XeneonEdgeDefaults.All.Length, sent.Count);
+        for (var i = 0; i < XeneonEdgeDefaults.All.Length; i++)
+        {
+            var (control, value) = XeneonEdgeDefaults.All[i];
+            var coords = XeneonEdgeControls.Coords[control];
+            Assert.Equal(coords.Group, sent[i][6]);
+            Assert.Equal(coords.Item, sent[i][7]);
+            Assert.Equal((byte)value, sent[i][8]);
+        }
     }
 
     [Fact]

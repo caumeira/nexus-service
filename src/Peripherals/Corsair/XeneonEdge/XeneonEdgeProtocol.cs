@@ -196,6 +196,18 @@ public readonly record struct XeneonEdgeControlCoords(byte Group, byte Item, int
 /// <summary>Bench-measured (group, item, block index, range) per control. See <see cref="XeneonEdgeProtocol"/>.</summary>
 public static class XeneonEdgeControls
 {
+    /// <summary>Reads one control's current value out of a parsed settings block.</summary>
+    public static int Read(XeneonEdgeSettingsBlock block, XeneonEdgeControl control) => control switch
+    {
+        XeneonEdgeControl.Brightness => block.Brightness,
+        XeneonEdgeControl.Backlight => block.Backlight,
+        XeneonEdgeControl.Contrast => block.Contrast,
+        XeneonEdgeControl.Red => block.Red,
+        XeneonEdgeControl.Green => block.Green,
+        XeneonEdgeControl.Blue => block.Blue,
+        _ => -1,
+    };
+
     public static readonly IReadOnlyDictionary<XeneonEdgeControl, XeneonEdgeControlCoords> Coords =
         new Dictionary<XeneonEdgeControl, XeneonEdgeControlCoords>
         {
@@ -217,4 +229,15 @@ public static class XeneonEdgeDefaults
     public const int Red = 151;
     public const int Green = 127;
     public const int Blue = 139;
+
+    /// <summary>Every control paired with its factory value, for a full restore.</summary>
+    public static readonly (XeneonEdgeControl Control, int Value)[] All =
+    {
+        (XeneonEdgeControl.Brightness, Brightness),
+        (XeneonEdgeControl.Backlight, Backlight),
+        (XeneonEdgeControl.Contrast, Contrast),
+        (XeneonEdgeControl.Red, Red),
+        (XeneonEdgeControl.Green, Green),
+        (XeneonEdgeControl.Blue, Blue),
+    };
 }

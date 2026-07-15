@@ -317,7 +317,7 @@ public static class DisplayRoutes
 
         // Restores the panel's factory RGB colors only - brightness/backlight/
         // contrast are untouched (see XeneonEdgeProtocol.BuildRestoreColorsCommand).
-        app.MapPost("/displays/{id}/xeneon-settings/restore-colors", async (
+        app.MapPost("/displays/{id}/xeneon-settings/restore-defaults", async (
             string id,
             PanelDeviceRegistry registry,
             XeneonEdgeOrientationWorker xeneon,
@@ -328,11 +328,14 @@ public static class DisplayRoutes
             if (record is null || record.Capabilities?.Family != KnownPanelDisplays.XeneonEdgeFamily)
                 return Results.NotFound(ApiResponse.Fail("not a Xeneon Edge panel"));
 
-            if (!await xeneon.RestoreColorsAsync(ct))
+            if (!await xeneon.RestoreDefaultsAsync(ct))
                 return Results.UnprocessableEntity(ApiResponse.Fail("restore failed"));
 
             var dto = new XeneonEdgeSettingsDto
             {
+                Brightness = XeneonEdgeDefaults.Brightness,
+                Backlight = XeneonEdgeDefaults.Backlight,
+                Contrast = XeneonEdgeDefaults.Contrast,
                 Red = XeneonEdgeDefaults.Red,
                 Green = XeneonEdgeDefaults.Green,
                 Blue = XeneonEdgeDefaults.Blue,

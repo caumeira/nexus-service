@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
@@ -46,6 +47,8 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
     // every ReadTimeoutMs; the settings-block reply is itself ~1s slow.
     private const int SetAckTimeoutMs = 1000;
     private const int SettingsReadTimeoutMs = 2500;
+    // One rewrite pass is enough in practice; the second is a backstop.
+    private const int RestoreVerifyAttempts = 2;
 
     private readonly IHidEnumerator _hid;
     private readonly HardwarePresence _presence;
@@ -339,11 +342,42 @@ public sealed class XeneonEdgeOrientationWorker : BackgroundService
     }
 
     /// <summary>Restores the panel's factory RGB colors (brightness/backlight/contrast untouched).</summary>
-    public async Task<bool> RestoreColorsAsync(CancellationToken ct)
+    /// <summary>
+    /// Restores every control to its factory value. The panel's own 0xff
+    /// command only covers RGB, so each control is written individually.
+    ///
+    /// The write is then verified against a settings read and any control that
+    /// did not land is rewritten. A 0x0f ack means the panel received the
+    /// command, not that it committed it: a burst of writes intermittently
+    /// leaves some controls at their old value despite every ack arriving
+    /// (bench-observed on T1, both a stale-value and a fully-correct outcome
+    /// from the identical burst). Verifying is the only reliable signal, so it
+    /// is done rather than pacing the writes against a guessed delay.
+    /// </summary>
+    public async Task<bool> RestoreDefaultsAsync(CancellationToken ct)
     {
-        var command = XeneonEdgeProtocol.BuildRestoreColorsCommand();
-        var reply = await RequestAsync(command, XeneonEdgeProtocol.MsgIdSet, SetAckTimeoutMs, ct).ConfigureAwait(false);
-        return reply is not null && XeneonEdgeProtocol.TryParseSetAck(reply, out _, out _);
+        foreach (var (control, value) in XeneonEdgeDefaults.All)
+        {
+            if (await SetControlAsync(control, value, ct).ConfigureAwait(false) is null) return false;
+        }
+
+        for (var attempt = 0; attempt < RestoreVerifyAttempts; attempt++)
+        {
+            var block = await ReadSettingsAsync(ct).ConfigureAwait(false);
+            if (block is null) return false;
+
+            var stale = XeneonEdgeDefaults.All
+                .Where(d => XeneonEdgeControls.Read(block.Value, d.Control) != d.Value)
+                .ToList();
+            if (stale.Count == 0) return true;
+
+            ServiceLog.Info($"[xeneon-orient] restore: {stale.Count} control(s) did not take, rewriting ({string.Join(",", stale.Select(s => s.Control))})");
+            foreach (var (control, value) in stale)
+            {
+                if (await SetControlAsync(control, value, ct).ConfigureAwait(false) is null) return false;
+            }
+        }
+        return false;
     }
 
     /// <summary>
