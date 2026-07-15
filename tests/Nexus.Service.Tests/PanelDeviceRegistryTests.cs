@@ -87,28 +87,28 @@ public sealed class PanelDeviceRegistryTests : IDisposable
     {
         var record = _registry.Allocate(null, Caps(PanelSurfaces.Phone));
 
-        var patched = _registry.Patch(record.Id, new PanelDevicePatch { WidgetPadding = "large" });
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch { WidgetPadding = 80 });
         var fetched = _registry.Get(record.Id);
 
-        Assert.Equal("large", patched!.WidgetPadding);
-        Assert.Equal("large", fetched!.WidgetPadding);
+        Assert.Equal(80, patched!.WidgetPadding);
+        Assert.Equal(80, fetched!.WidgetPadding);
     }
 
     [Fact]
     public void Patch_OmittedWidgetPadding_DoesNotClobberStoredValue()
     {
         var record = _registry.Allocate(null, Caps(PanelSurfaces.Phone));
-        _registry.Patch(record.Id, new PanelDevicePatch { WidgetPadding = "none" });
+        _registry.Patch(record.Id, new PanelDevicePatch { WidgetPadding = 0 });
 
         var patched = _registry.Patch(record.Id, new PanelDevicePatch { DisplayName = "Renamed" });
 
-        Assert.Equal("none", patched!.WidgetPadding);
+        Assert.Equal(0, patched!.WidgetPadding);
         Assert.Equal("Renamed", patched.DisplayName);
     }
 
     /// <summary>
     /// The service stores null until explicitly patched, same as WidgetOpacity/
-    /// WidgetLabels/WidgetBlur; the "small" default is applied client-side.
+    /// WidgetLabels/WidgetBlur; the default percent is applied client-side.
     /// </summary>
     [Fact]
     public void Allocate_WidgetPadding_AbsentIsNullNotServerDefaulted()
