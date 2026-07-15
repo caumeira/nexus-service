@@ -14,6 +14,7 @@ using Nexus.Service.Models.Lighting;
 using Nexus.Service.Models.Obs;
 using Nexus.Service.Models.Peripherals;
 using Nexus.Service.Models.Peripherals.Keeb;
+using Nexus.Service.Models.Peripherals.QSeries;
 using Nexus.Service.Models.Peripherals.Y70;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Models.Steam;
@@ -674,6 +675,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Y70BrightnessParams))]
 [JsonSerializable(typeof(Y70ToggleScreenResponse))]
 [JsonSerializable(typeof(Y70ToggleScreenParams))]
+[JsonSerializable(typeof(QSeriesRotationParams))]
 
 // Activity
 [JsonSerializable(typeof(FocusSession))]

@@ -33,6 +33,7 @@ public sealed class NexusSettings
     public KeebSettings Keeb { get; set; } = new();
     public CoolingSettings Cooling { get; set; } = new();
     public Y70Settings Y70 { get; set; } = new();
+    public QSeriesSettings QSeries { get; set; } = new();
     public TryxSettings Tryx { get; set; } = new();
     public DevicesSettings Devices { get; set; } = new();
     public SmartLightsSettings SmartLights { get; set; } = new();
@@ -509,6 +510,12 @@ public sealed class Y70Settings
     /// <summary>When true, the effective orientation applied to hardware is
     /// always PortraitFlipped regardless of <see cref="Orientation"/>.</summary>
     public bool ForceOrientation { get; set; } = InstallDefaults.Y70.ForceOrientation;
+}
+
+public sealed class QSeriesSettings
+{
+    /// <summary>"Portrait" or "PortraitFlipped" - the Q60/Q80 panel has no landscape mode.</summary>
+    public string Orientation { get; set; } = Nexus.Service.Models.Displays.DisplayOrientations.Portrait;
 }
 
 /// <summary>Persisted shape of one Tryx overlay item; see

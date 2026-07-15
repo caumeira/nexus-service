@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Sockets;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using AdvancedSharpAdbClient;
@@ -17,6 +18,7 @@ using Nexus.Service.Devices.Detection;
 using Nexus.Service.Models.Panel;
 using Nexus.Service.Panel;
 using Nexus.Service.Peripherals.Hyte.QSeriesCooler;
+using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 
 namespace Nexus.Service.QSeries;
@@ -94,6 +96,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private readonly QSeriesTransportStore _transportStore;
     private readonly HardwarePresence _presence;
     private readonly DeviceControlGate _gate;
+    private readonly IConfigStore _configStore;
 
     /// <summary>
     /// Tunnel liveness monitor; when active, its inbound-activity timestamp is
@@ -176,16 +179,17 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly Dictionary<string, DateTimeOffset> _lastRecoveryByInstanceId = new(StringComparer.Ordinal);
 
-    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, IAdbDeviceRegistry? deviceRegistry = null, Nexus.Service.Panel.PanelTunnelMonitor? tunnelMonitor = null)
-        : this(servicePort, presence, panelDevices, gate, new QSeriesTransportStore(), deviceRegistry, tunnelMonitor) { }
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, IConfigStore configStore, IAdbDeviceRegistry? deviceRegistry = null, Nexus.Service.Panel.PanelTunnelMonitor? tunnelMonitor = null)
+        : this(servicePort, presence, panelDevices, gate, configStore, new QSeriesTransportStore(), deviceRegistry, tunnelMonitor) { }
 
     /// <summary>Test seam: inject a store pointing at a tmp path.</summary>
-    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, QSeriesTransportStore transportStore, IAdbDeviceRegistry? deviceRegistry = null, Nexus.Service.Panel.PanelTunnelMonitor? tunnelMonitor = null)
+    public QSeriesPortWatcher(int servicePort, HardwarePresence presence, PanelDeviceRegistry panelDevices, DeviceControlGate gate, IConfigStore configStore, QSeriesTransportStore transportStore, IAdbDeviceRegistry? deviceRegistry = null, Nexus.Service.Panel.PanelTunnelMonitor? tunnelMonitor = null)
     {
         _servicePort = servicePort;
         _presence = presence;
         _panelDevices = panelDevices;
         _gate = gate;
+        _configStore = configStore;
         _deviceRegistry = deviceRegistry;
         _tunnelMonitor = tunnelMonitor;
         _deviceSpec = $"tcp:{servicePort}";
@@ -289,6 +293,16 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     private async Task TickAsync(CancellationToken ct)
     {
+        // Cross-thread signal from POST /qseries/rotation: force every attached
+        // serial to re-apply this tick instead of waiting for a re-attach. The
+        // failure counter resets with the latch, or a serial already at the
+        // attempt cap would re-latch after a single retry.
+        if (Interlocked.Exchange(ref _orientationDirty, 0) == 1)
+        {
+            _orientationAppliedThisRun.Clear();
+            _orientationFailuresBySerial.Clear();
+        }
+
         // Nexus Control off skips the whole pass: no reverse-tunnel or am-start
         // churn. Existing reverse forwards are left alone rather than torn down,
         // since a proactive adb teardown call risks the USB-FFS wedge documented
@@ -411,6 +425,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
             await EnsureReverseAsync(device, ct);
             await EnsureQshellForegroundAsync(device, ct);
+            await ReassertPanelOrientationAsync(device, ct);
             RegisterDeviceTarget(device.Serial);
             await SyncDeviceClockAsync(device, ct);
             await TryEscalateRebootAsync(device, ct);
@@ -442,6 +457,15 @@ public sealed class QSeriesPortWatcher : BackgroundService
         foreach (var key in _homePinFailuresBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
         {
             _homePinFailuresBySerial.Remove(key);
+        }
+        // user_rotation does not survive a panel reboot, so a re-attach must re-apply.
+        foreach (var key in _orientationAppliedThisRun.Where(k => !seenSerials.Contains(k)).ToList())
+        {
+            _orientationAppliedThisRun.Remove(key);
+        }
+        foreach (var key in _orientationFailuresBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
+        {
+            _orientationFailuresBySerial.Remove(key);
         }
         // Re-arm the grace anchor on detach. _escalationRebootCountBySerial and
         // _lastEscalationRebootBySerial are deliberately NOT cleared here - like
@@ -972,6 +996,37 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private const int MaxHomePinAttemptsPerAttach = 18;
 
     /// <summary>
+    /// Serials whose panel orientation has been re-asserted this attach.
+    /// <c>user_rotation</c> does not survive a panel reboot (unlike
+    /// <c>set-fix-to-user-rotation</c> and <c>accelerometer_rotation</c>, which
+    /// persist), so a re-attach must re-apply. Cleared on detach and whenever
+    /// <see cref="AnnounceOrientationChange"/> flags a live setting change.
+    /// </summary>
+    private readonly HashSet<string> _orientationAppliedThisRun = new(StringComparer.Ordinal);
+
+    /// <summary>Serial -> consecutive failed orientation-apply attempts this
+    /// attach; bounds the un-latch retry below. Cleared on success and on detach.</summary>
+    private readonly Dictionary<string, int> _orientationFailuresBySerial = new(StringComparer.Ordinal);
+
+    /// <summary>Orientation apply attempts per attach before giving up. Sized
+    /// like <see cref="MaxHomePinAttemptsPerAttach"/>.</summary>
+    private const int MaxOrientationAttemptsPerAttach = 18;
+
+    /// <summary>
+    /// Set by <see cref="AnnounceOrientationChange"/> from a request thread; 1
+    /// means the next tick must clear <see cref="_orientationAppliedThisRun"/>
+    /// before its device loop, so a live setting change takes effect without
+    /// waiting for a re-attach. Interlocked because the per-attach HashSets
+    /// above are tick-thread-only and must never be touched from a request
+    /// thread.
+    /// </summary>
+    private int _orientationDirty;
+
+    /// <summary>Called from POST /qseries/rotation to apply a changed setting
+    /// on the next tick instead of the next physical attach.</summary>
+    internal void AnnounceOrientationChange() => Interlocked.Exchange(ref _orientationDirty, 1);
+
+    /// <summary>
     /// Last adb transport id per serial. A change (same serial) is the reliable reseat
     /// signal the 10 s poll otherwise misses; see TickAsync.
     /// </summary>
@@ -1178,6 +1233,106 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     internal static bool SetHomeActivityTook(string output) =>
         output.Contains("Success", StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>
+    /// Re-assert the stored panel orientation, once per attach. qshell is
+    /// pinned as the panel's default HOME, and Android does not rotate the
+    /// launcher stack; without <c>set-fix-to-user-rotation enabled</c> the
+    /// locked rotation is recorded (<c>mUserRotation</c>) but the display
+    /// itself never turns. All three commands print no output on success, so
+    /// the panel is read back to confirm it reached the requested rotation.
+    /// </summary>
+    private async Task ReassertPanelOrientationAsync(DeviceData device, CancellationToken ct)
+    {
+        if (!_orientationAppliedThisRun.Add(device.Serial)) return;
+
+        var orientation = _configStore.Load().QSeries.Orientation;
+        var userRotation = ToUserRotation(orientation);
+        try
+        {
+            // Any output from these is a failure ("Can't find service: window"
+            // early in panel boot, on a clean exit), so it carries the retry's
+            // only diagnostic.
+            var applyOutput = new StringBuilder();
+            foreach (var command in new[]
+            {
+                "settings put system accelerometer_rotation 0",
+                "cmd window set-fix-to-user-rotation enabled",
+                $"cmd window set-user-rotation lock {userRotation}",
+            })
+            {
+                var receiver = new ConsoleOutputReceiver();
+                await _client.ExecuteShellCommandAsync(device, command, receiver, ct);
+                var text = receiver.ToString().Trim();
+                if (text.Length > 0) applyOutput.Append(text).Append("; ");
+            }
+
+            var readback = new ConsoleOutputReceiver();
+            await _client.ExecuteShellCommandAsync(
+                device, "dumpsys window displays | grep mCurrentRotation", readback, ct);
+            var output = readback.ToString().Trim();
+
+            if (PanelOrientationTook(output, userRotation))
+            {
+                _orientationFailuresBySerial.Remove(device.Serial);
+                ServiceLog.Info(
+                    $"[qseries-port-watcher] {device.Serial}: applied orientation {orientation} (userRotation={userRotation}, {output})");
+            }
+            else
+            {
+                RecordOrientationFailure(device.Serial, $"{applyOutput}{output}");
+            }
+        }
+        catch (Exception ex) when (!ct.IsCancellationRequested)
+        {
+            RecordOrientationFailure(device.Serial, ex.GetType().Name);
+        }
+    }
+
+    /// <summary>
+    /// Bounded orientation retry: un-latch so the next tick retries, log the
+    /// first failure only, and at the attempt cap leave the serial latched (no
+    /// further shell calls or lines until re-attach). Early in panel boot
+    /// <c>cmd window</c> answers "Can't find service: window" with a clean
+    /// exit, so only checking for exceptions would latch the apply as done
+    /// without it ever landing.
+    /// </summary>
+    private void RecordOrientationFailure(string serial, string detail)
+    {
+        _orientationFailuresBySerial.TryGetValue(serial, out var failures);
+        _orientationFailuresBySerial[serial] = failures + 1;
+        if (failures + 1 >= MaxOrientationAttemptsPerAttach)
+        {
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {serial}: panel orientation kept failing ({detail}); giving up until re-attach");
+            return;
+        }
+        _orientationAppliedThisRun.Remove(serial);
+        if (failures == 0)
+        {
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {serial}: panel orientation did not take ({detail}); retrying (suppressing repeats)");
+        }
+    }
+
+    /// <summary>180 degree flip only: Portrait maps to Android user_rotation 0,
+    /// PortraitFlipped to 2. Both are portrait, so the panel resolution is
+    /// unchanged and there is no axis swap to account for.</summary>
+    internal static int ToUserRotation(string orientation) =>
+        orientation == Nexus.Service.Models.Displays.DisplayOrientations.PortraitFlipped ? 2 : 0;
+
+    /// <summary>
+    /// True when <c>dumpsys window displays | grep mCurrentRotation</c> shows
+    /// the rotation the requested user_rotation should produce.
+    /// <c>ROTATION_0</c> is not a substring of <c>ROTATION_180</c>, so a plain
+    /// Contains distinguishes them without parsing the value. This confirms the
+    /// panel reached the requested rotation, not that the commands ran: for
+    /// Portrait the expected value is also the panel's boot rotation, so a
+    /// silent no-op reads as success. A flip away from Portrait re-runs all
+    /// three commands and is verified.
+    /// </summary>
+    internal static bool PanelOrientationTook(string dumpsysOutput, int userRotation) =>
+        dumpsysOutput.Contains(userRotation == 0 ? "ROTATION_0" : "ROTATION_180", StringComparison.Ordinal);
 
     /// <summary>
     /// A reseat (same serial, new transport id) leaves a degraded USB-FFS link that
