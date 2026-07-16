@@ -375,6 +375,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             if (_knownQSeriesSerials.Count == 0) return;
             if (!_configStore.Load().QSeries.SleepWithHost) return;
+            Interlocked.Exchange(ref _displayRecordStale, 1);
             foreach (var serial in _knownQSeriesSerials.ToArray())
             {
                 // One panel is known by both its USB serial and, once promoted,
@@ -398,8 +399,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
         try
         {
             // Resume races the USB stack re-enumerating, so this one-shot can
-            // miss. Announcing hands the state to the tick loop's readback-
-            // verified retry, which is what actually guarantees it lands.
+            // miss. Marking the record stale first, then announcing, hands the
+            // state to the tick loop's readback-verified retry, which is what
+            // actually guarantees it lands.
+            Interlocked.Exchange(ref _displayRecordStale, 1);
             AnnounceDisplayChange();
 
             if (_knownQSeriesSerials.Count == 0) return;
@@ -445,10 +448,18 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     private async Task TickAsync(CancellationToken ct)
     {
+        // A power hook drove the screen from the SystemEvents thread, so the
+        // record no longer matches the panel and the diff below would skip the
+        // very command needed to undo it.
+        if (Interlocked.Exchange(ref _displayRecordStale, 0) == 1)
+        {
+            _lastAppliedBySerial.Clear();
+        }
+
         // Cross-thread signal from POST /qseries/rotation or /qseries/display:
         // force every attached serial to re-apply this tick instead of waiting
-        // for a re-attach. The failure counter resets with the latch, or a
-        // serial already at the attempt cap would re-latch after a single retry.
+        // for a re-attach. The retry deadline resets with the latch, or a serial
+        // that already exhausted its window would re-latch after one retry.
         if (Interlocked.Exchange(ref _displayDirty, 0) == 1)
         {
             _displayAppliedThisRun.Clear();
@@ -1155,12 +1166,6 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// un-latch retry below. Cleared on success and on detach.</summary>
     private readonly Dictionary<string, DateTimeOffset> _homePinFirstFailureBySerial = new(StringComparer.Ordinal);
 
-    /// <summary>
-    /// How long a failing pin keeps retrying before giving up until re-attach.
-    /// Matches <see cref="EscalationGrace"/> so it spans the slowest legitimate
-    /// "package service not yet up" boot window.
-    /// </summary>
-    private static readonly TimeSpan HomePinRetryWindow = EscalationGrace;
 
     /// <summary>
     /// Serials whose display state (orientation, brightness, screen power)
@@ -1188,9 +1193,6 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly Dictionary<string, AppliedDisplayState> _lastAppliedBySerial = new(StringComparer.Ordinal);
 
-    /// <summary>How long a failing display apply keeps retrying before giving
-    /// up until re-attach. Sized like <see cref="HomePinRetryWindow"/>.</summary>
-    private static readonly TimeSpan DisplayRetryWindow = EscalationGrace;
 
     /// <summary>
     /// Set by <see cref="AnnounceDisplayChange"/> from a request thread; 1
@@ -1201,6 +1203,13 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// thread.
     /// </summary>
     private int _displayDirty;
+
+    /// <summary>
+    /// Set when a power hook drives the panel's screen from the SystemEvents
+    /// pump thread. Interlocked because <see cref="_lastAppliedBySerial"/> it
+    /// invalidates is tick-thread-only.
+    /// </summary>
+    private int _displayRecordStale;
 
     /// <summary>
     /// Wakes the tick loop out of its poll wait; the adb calls stay on the tick
@@ -1400,9 +1409,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     /// <summary>
     /// Bounded pin retry: un-latch so the next tick retries, log the first
-    /// failure only, and at the attempt cap leave the serial latched (no further
-    /// shell calls or lines until re-attach). A persistently failing pin - boot
-    /// transient or not - must not shell out and log every tick until detach.
+    /// failure only, and once the window elapses leave the serial latched (no
+    /// further shell calls or lines until re-attach). A persistently failing pin
+    /// - boot transient or not - must not shell out and log every tick until
+    /// detach.
     /// </summary>
     private void RecordHomePinFailure(string serial, string detail)
     {
@@ -1415,7 +1425,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 $"[qseries-port-watcher] {serial}: set-home-activity did not take ({detail}); retrying (suppressing repeats)");
             return;
         }
-        if (now - firstFailure >= HomePinRetryWindow)
+        // EscalationGrace spans the slowest legitimate "package service
+        // not yet up" boot window.
+        if (now - firstFailure >= EscalationGrace)
         {
             ServiceLog.Info(
                 $"[qseries-port-watcher] {serial}: set-home-activity kept failing ({detail}); giving up until re-attach");
@@ -1454,9 +1466,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
         // Without a record of what this panel already has, its state is unknown
         // (a reboot resets user_rotation) so everything is pushed. Afterwards
-        // only the settings that changed go over the wire: the full set is five
-        // commands plus three readbacks, one of which dumps 27 KB, against two
-        // round trips for a lone brightness nudge.
+        // only the settings that changed go over the wire; re-asserting the full
+        // set costs several adb round trips, one of which dumps 27 KB, where a
+        // lone brightness nudge needs two.
         var known = _lastAppliedBySerial.TryGetValue(device.Serial, out var last);
         var doOrientation = !known || last.Orientation != qseries.Orientation;
         var doBrightness = !known || last.Brightness != qseries.Brightness;
@@ -1555,8 +1567,8 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
     /// <summary>
     /// Bounded display-apply retry: un-latch so the next tick retries, log the
-    /// first failure only, and at the attempt cap leave the serial latched (no
-    /// further shell calls or lines until re-attach). Early in panel boot
+    /// first failure only, and once the window elapses leave the serial latched
+    /// (no further shell calls or lines until re-attach). Early in panel boot
     /// <c>cmd</c> and <c>settings</c> answer "Can't find service: X" with a
     /// clean exit, so only checking for exceptions would latch the apply as
     /// done without it ever landing.
@@ -1572,7 +1584,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 $"[qseries-port-watcher] {serial}: display state did not take ({detail}); retrying (suppressing repeats)");
             return;
         }
-        if (now - firstFailure >= DisplayRetryWindow)
+        // EscalationGrace spans the slowest legitimate "Can't find service"
+        // boot window.
+        if (now - firstFailure >= EscalationGrace)
         {
             ServiceLog.Info(
                 $"[qseries-port-watcher] {serial}: display state kept failing ({detail}); giving up until re-attach");
