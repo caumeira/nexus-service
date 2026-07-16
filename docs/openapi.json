@@ -15981,6 +15981,12 @@
               "string"
             ]
           },
+          "backgroundFrost": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
           "widgetOpacity": {
             "pattern": "^-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?$",
             "type": [
@@ -15991,12 +15997,6 @@
             "format": "double"
           },
           "widgetLabels": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
-          "widgetBlur": {
             "type": [
               "null",
               "boolean"
@@ -16363,9 +16363,6 @@
             "format": "double"
           },
           "widgetLabels": {
-            "type": "boolean"
-          },
-          "widgetBlur": {
             "type": "boolean"
           },
           "layouts": {
