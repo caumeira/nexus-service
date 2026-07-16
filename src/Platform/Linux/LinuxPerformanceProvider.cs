@@ -11,22 +11,46 @@ namespace Nexus.Service.Platform.Linux;
 /// and memory from /proc/meminfo - both pure-syscall reads, no subprocesses.
 /// GPU sampling is deliberately skipped here (covered by LinuxSensorProvider via
 /// nvidia-smi) because this provider is called on the monitoring hot path.
+///
+/// This is a singleton shared by every 1Hz caller (MonitoringBroadcaster,
+/// MetricsSampler). Concurrent calls close together in time reuse the last
+/// computed snapshot instead of each taking a delta off the same tick pair,
+/// which would split one interval's ticks across two callers and corrupt
+/// both percentages; the lock also keeps the tick-delta read/write atomic
+/// against interleaved callers.
 /// </summary>
 public sealed class LinuxPerformanceProvider : IPerformanceProvider
 {
+    private static readonly TimeSpan SampleFloor = TimeSpan.FromMilliseconds(250);
+
+    private readonly object _lock = new();
     private ulong _prevIdle;
     private ulong _prevTotal;
     private bool _hasPrev;
+    private PerformanceSnapshot? _cached;
+    private long _cachedAtTicks = -1;
 
     public Task<PerformanceSnapshot> SampleAsync(CancellationToken ct = default)
     {
-        return Task.FromResult(new PerformanceSnapshot
+        lock (_lock)
         {
-            Cpu = ReadCpuPercent(),
-            Memory = ReadMemoryPercent(),
-            Gpu = null,
-            Source = "Linux:proc",
-        });
+            var nowTicks = Environment.TickCount64;
+            if (_cached is { } cached && _cachedAtTicks >= 0 && nowTicks - _cachedAtTicks < SampleFloor.TotalMilliseconds)
+            {
+                return Task.FromResult(cached);
+            }
+
+            var snapshot = new PerformanceSnapshot
+            {
+                Cpu = ReadCpuPercent(),
+                Memory = ReadMemoryPercent(),
+                Gpu = null,
+                Source = "Linux:proc",
+            };
+            _cached = snapshot;
+            _cachedAtTicks = nowTicks;
+            return Task.FromResult(snapshot);
+        }
     }
 
     private double? ReadCpuPercent()

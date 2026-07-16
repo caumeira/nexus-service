@@ -32,6 +32,14 @@ public sealed record GpuHealthSnapshot(bool Supported, IReadOnlyList<GpuInfo> Gp
     public static readonly GpuHealthSnapshot Unsupported = new(false, Array.Empty<GpuInfo>());
 }
 
+/// <summary>What TemperatureRollup consumes from a GPU health source - narrow
+/// enough to substitute a stub in tests instead of constructing the real
+/// NVML-backed monitor.</summary>
+public interface IGpuHealthSource
+{
+    GpuHealthSnapshot Snapshot(bool forceRefresh = false);
+}
+
 /// <summary>
 /// NVML-backed GPU health monitor: temperature, power draw, and clocks
 /// throttle/violation counters for every NVIDIA GPU. Windows-only (nvml.dll is
@@ -46,7 +54,7 @@ public sealed record GpuHealthSnapshot(bool Supported, IReadOnlyList<GpuInfo> Gp
 /// unsupported and only retries once per hour, so a GPU-less box never repeatedly
 /// pays the native-load cost.
 /// </summary>
-public sealed class GpuHealthMonitor
+public sealed class GpuHealthMonitor : IGpuHealthSource
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan InitRetryInterval = TimeSpan.FromHours(1);

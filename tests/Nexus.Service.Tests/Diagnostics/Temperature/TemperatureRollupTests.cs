@@ -9,21 +9,15 @@ using Nexus.Service.Diagnostics.Temperature;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Sensors;
 using Xunit;
-#if WINDOWS
-using Nexus.Service.Platform;
-#endif
 
 namespace Nexus.Service.Tests.Diagnostics.Temperature;
 
 /// <summary>
 /// Tick-level coverage for TemperatureRollup: MetricsSampler drives Tick()
-/// at 1Hz externally, so this class carries no BackgroundService of its
-/// own. GpuHealthMonitor and SmartHealthMonitor are hardware-gated with no
-/// test seam, so these tests run them for real: off Windows (this suite's
-/// environment) both report unsupported, so the component-count assertions
-/// below only exercise the CPU/RAM path - that mirrors the coverage
-/// available in production too, since GpuHealthMonitor self-gates on
-/// OperatingSystem.IsWindows().
+/// externally, so this class carries no BackgroundService of its own.
+/// IGpuHealthSource/ISmartHealthSource narrow what TemperatureRollup
+/// consumes from GpuHealthMonitor/SmartHealthMonitor, so tests stub them
+/// instead of constructing the real NVML/LhmComputer-backed monitors.
 /// </summary>
 public class TemperatureRollupTests
 {
@@ -53,6 +47,18 @@ public class TemperatureRollupTests
         public Task ReadyAsync(CancellationToken ct = default) => Task.CompletedTask;
     }
 
+    private sealed class StubGpuHealthSource : IGpuHealthSource
+    {
+        public GpuHealthSnapshot Result { get; set; } = GpuHealthSnapshot.Unsupported;
+        public GpuHealthSnapshot Snapshot(bool forceRefresh = false) => Result;
+    }
+
+    private sealed class StubSmartHealthSource : ISmartHealthSource
+    {
+        public SmartSnapshot Result { get; set; } = new() { Supported = false, Drives = Array.Empty<SmartDriveInfo>() };
+        public SmartSnapshot Snapshot() => Result;
+    }
+
     private static HardwareSensor Sensor(string name, string type, float value) => new()
     {
         Id = $"test/{name}",
@@ -62,22 +68,10 @@ public class TemperatureRollupTests
         Parent = new SensorParent { Id = "test", Name = "test" },
     };
 
-    // SmartHealthMonitor's constructor differs by platform (Windows needs a
-    // live LhmComputer, which spawns real hardware init - unsafe to construct
-    // in a unit test); off Windows it is parameterless. Mirrors the same
-    // conditional construction AddNexusDiagnostics already does at DI time.
-    private static SmartHealthMonitor CreateSmartHealthMonitor()
-    {
-#if WINDOWS
-        return new SmartHealthMonitor(new LhmComputer());
-#else
-        return new SmartHealthMonitor();
-#endif
-    }
-
     private static TemperatureRollup CreateRollup(
-        StubSensors sensors, InMemoryTemperatureHistoryStore store) =>
-        new(sensors, new GpuHealthMonitor(), CreateSmartHealthMonitor(), store);
+        StubSensors sensors, InMemoryTemperatureHistoryStore store,
+        StubGpuHealthSource? gpu = null, StubSmartHealthSource? smart = null) =>
+        new(sensors, gpu ?? new StubGpuHealthSource(), smart ?? new StubSmartHealthSource(), store);
 
     [Fact]
     public void Tick_accumulates_cpu_reading_but_does_not_flush_before_the_bucket_rolls_over()
@@ -148,6 +142,56 @@ public class TemperatureRollupTests
     }
 
     [Fact]
+    public void Tick_reads_gpu_temperature_keyed_by_uuid_when_gpu_health_is_supported()
+    {
+        var sensors = new StubSensors();
+        var store = new InMemoryTemperatureHistoryStore();
+        var gpu = new StubGpuHealthSource
+        {
+            Result = new GpuHealthSnapshot(true, new[]
+            {
+                new GpuInfo("RTX 5080", "560.1", 62.5, 220, new GpuThrottleInfo(Array.Empty<string>(), null, null, null, null), "GPU-abc123"),
+            }),
+        };
+        var rollup = CreateRollup(sensors, store, gpu: gpu);
+
+        rollup.Tick(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        rollup.Tick(new DateTime(2026, 1, 1, 0, 5, 0, DateTimeKind.Utc));
+
+        var row = Assert.Single(store.Query(0, long.MaxValue));
+        Assert.Equal("gpu:GPU-abc123", row.ComponentId);
+        Assert.Equal("gpu", row.Kind);
+        Assert.Equal(62.5, row.AvgC);
+    }
+
+    [Fact]
+    public void Tick_reads_storage_temperature_when_smart_health_is_supported()
+    {
+        var sensors = new StubSensors();
+        var store = new InMemoryTemperatureHistoryStore();
+        var smart = new StubSmartHealthSource
+        {
+            Result = new SmartSnapshot
+            {
+                Supported = true,
+                Drives = new[]
+                {
+                    new SmartDriveInfo { Id = "storage:serial1", Name = "Samsung 990 Pro", TemperatureC = 45.0 },
+                },
+            },
+        };
+        var rollup = CreateRollup(sensors, store, smart: smart);
+
+        rollup.Tick(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+        rollup.Tick(new DateTime(2026, 1, 1, 0, 5, 0, DateTimeKind.Utc));
+
+        var row = Assert.Single(store.Query(0, long.MaxValue));
+        Assert.Equal("storage:serial1", row.ComponentId);
+        Assert.Equal("storage", row.Kind);
+        Assert.Equal(45.0, row.AvgC);
+    }
+
+    [Fact]
     public void RunStartupMigration_does_not_throw_when_gpu_health_is_unsupported()
     {
         var sensors = new StubSensors();
@@ -157,5 +201,29 @@ public class TemperatureRollupTests
         rollup.RunStartupMigration();
 
         Assert.Empty(store.Query(0, long.MaxValue));
+    }
+
+    [Fact]
+    public void RunStartupMigration_rekeys_a_legacy_index_id_to_the_gpu_uuid()
+    {
+        var sensors = new StubSensors();
+        var store = new InMemoryTemperatureHistoryStore();
+        store.UpsertBuckets(new[]
+        {
+            new TemperatureBucketRow("gpu:0", "gpu", "RTX 5080", 1000, 55, 60, 10),
+        });
+        var gpu = new StubGpuHealthSource
+        {
+            Result = new GpuHealthSnapshot(true, new[]
+            {
+                new GpuInfo("RTX 5080", "560.1", 62.5, 220, new GpuThrottleInfo(Array.Empty<string>(), null, null, null, null), "GPU-abc123"),
+            }),
+        };
+        var rollup = CreateRollup(sensors, store, gpu: gpu);
+
+        rollup.RunStartupMigration();
+
+        var row = Assert.Single(store.Query(0, long.MaxValue));
+        Assert.Equal("gpu:GPU-abc123", row.ComponentId);
     }
 }

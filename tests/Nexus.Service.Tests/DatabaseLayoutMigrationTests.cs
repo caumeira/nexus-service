@@ -73,6 +73,40 @@ public sealed class DatabaseLayoutMigrationTests : IDisposable
     }
 
     [Fact]
+    public void MoveDatabase_treats_a_zero_length_target_db_as_unmigrated_and_overwrites_it()
+    {
+        // Simulates a store resolving its directory ahead of this migration
+        // (testHost does not skip hosted-service startup) and creating an
+        // empty file at the target path before any schema write lands.
+        var oldDb = P("temperature.db");
+        var newDb = P("db", "temperature.db");
+        File.WriteAllText(oldDb, "REAL DATA");
+        Directory.CreateDirectory(Path.GetDirectoryName(newDb)!);
+        File.WriteAllBytes(newDb, Array.Empty<byte>());
+
+        Execute(new[] { new Entry(oldDb, newDb) });
+
+        Assert.Equal("REAL DATA", File.ReadAllText(newDb));
+        Assert.False(File.Exists(oldDb));
+    }
+
+    [Fact]
+    public void MoveDatabase_treats_a_zero_length_target_sidecar_as_unmigrated_and_overwrites_it()
+    {
+        var oldDb = P("temperature.db");
+        var newDb = P("db", "temperature.db");
+        File.WriteAllText(oldDb, "DB");
+        File.WriteAllText(oldDb + "-wal", "REAL WAL");
+        Directory.CreateDirectory(Path.GetDirectoryName(newDb)!);
+        File.WriteAllBytes(newDb + "-wal", Array.Empty<byte>());
+
+        Execute(new[] { new Entry(oldDb, newDb) });
+
+        Assert.Equal("REAL WAL", File.ReadAllText(newDb + "-wal"));
+        Assert.False(File.Exists(oldDb + "-wal"));
+    }
+
+    [Fact]
     public void MoveDatabase_noop_when_the_old_db_is_missing()
     {
         var oldDb = P("does-not-exist.db");

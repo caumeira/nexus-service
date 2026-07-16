@@ -9,12 +9,12 @@ using Nexus.Service.Sensors;
 namespace Nexus.Service.Monitoring.History;
 
 /// <summary>
-/// Always-on 1Hz background sampler: reads one MetricSample per tick into
+/// Always-on background sampler: reads one MetricSample per tick into
 /// MetricsSampleBuffer, flushes the buffered tail to IMetricsHistoryStore
 /// every MetricsHistory.FlushSeconds ticks, and drives TemperatureRollup's
-/// 5-minute-bucket Tick on the same cadence - TemperatureRollup itself runs
-/// no background loop of its own. PeriodicTimer do/while shape with a
-/// per-tick try/catch.
+/// bucketed Tick on the same cadence - TemperatureRollup itself runs no
+/// background loop of its own. PeriodicTimer do/while shape with a per-tick
+/// try/catch.
 /// </summary>
 public sealed class MetricsSampler : BackgroundService
 {

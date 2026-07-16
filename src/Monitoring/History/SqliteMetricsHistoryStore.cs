@@ -48,12 +48,14 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
         lock (_writeLock)
         {
             using var tx = _connection.BeginTransaction();
+            var pendingGpuKeys = new Dictionary<string, long>(StringComparer.Ordinal);
+            var pendingFanKeys = new Dictionary<string, long>(StringComparer.Ordinal);
 
             if (samples.Count > 0)
             {
                 InsertScalars(tx, samples);
-                InsertGpuReadings(tx, samples);
-                InsertFanReadings(tx, samples);
+                InsertGpuReadings(tx, samples, pendingGpuKeys);
+                InsertFanReadings(tx, samples, pendingFanKeys);
             }
 
             if (pruneCutoffSec is { } cutoff)
@@ -62,6 +64,22 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
             }
 
             tx.Commit();
+
+            // Only fold newly resolved surrogate keys into the permanent
+            // cache once the transaction that inserted their gpu_series/
+            // fan_series row has actually committed - caching them earlier
+            // would survive a rollback and point at a series row that was
+            // never persisted, so every later query for that entity would
+            // silently return nothing (foreign_keys=OFF, so the dangling
+            // reference never errors).
+            foreach (var (id, key) in pendingGpuKeys)
+            {
+                _gpuKeys[id] = key;
+            }
+            foreach (var (id, key) in pendingFanKeys)
+            {
+                _fanKeys[id] = key;
+            }
         }
     }
 
@@ -202,7 +220,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
         }
     }
 
-    private void InsertGpuReadings(SqliteTransaction tx, IReadOnlyList<MetricSample> samples)
+    private void InsertGpuReadings(
+        SqliteTransaction tx, IReadOnlyList<MetricSample> samples, Dictionary<string, long> pendingKeys)
     {
         using var cmd = _connection.CreateCommand();
         cmd.Transaction = tx;
@@ -220,7 +239,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
             foreach (var g in s.Gpus)
             {
                 pTs.Value = s.TsSec;
-                pGpu.Value = ResolveGpuKey(tx, g.GpuId, g.Name);
+                pGpu.Value = ResolveGpuKey(tx, g.GpuId, g.Name, pendingKeys);
                 pLoad.Value = ScaleX10(g.LoadPercent);
                 pTemp.Value = ScaleX10(g.TempC);
                 cmd.ExecuteNonQuery();
@@ -228,7 +247,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
         }
     }
 
-    private void InsertFanReadings(SqliteTransaction tx, IReadOnlyList<MetricSample> samples)
+    private void InsertFanReadings(
+        SqliteTransaction tx, IReadOnlyList<MetricSample> samples, Dictionary<string, long> pendingKeys)
     {
         using var cmd = _connection.CreateCommand();
         cmd.Transaction = tx;
@@ -246,7 +266,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
             foreach (var f in s.Fans)
             {
                 pTs.Value = s.TsSec;
-                pFan.Value = ResolveFanKey(tx, f.FanId, f.Name);
+                pFan.Value = ResolveFanKey(tx, f.FanId, f.Name, pendingKeys);
                 pRpm.Value = (object?)f.Rpm ?? DBNull.Value;
                 pDuty.Value = (object?)f.Duty ?? DBNull.Value;
                 cmd.ExecuteNonQuery();
@@ -266,11 +286,15 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
         }
     }
 
-    private long ResolveGpuKey(SqliteTransaction tx, string gpuId, string name)
+    private long ResolveGpuKey(SqliteTransaction tx, string gpuId, string name, Dictionary<string, long> pendingKeys)
     {
         if (_gpuKeys.TryGetValue(gpuId, out var cached))
         {
             return cached;
+        }
+        if (pendingKeys.TryGetValue(gpuId, out var pending))
+        {
+            return pending;
         }
 
         using var cmd = _connection.CreateCommand();
@@ -283,15 +307,19 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
         cmd.Parameters.AddWithValue("$id", gpuId);
         cmd.Parameters.AddWithValue("$name", name);
         var key = Convert.ToInt64(cmd.ExecuteScalar());
-        _gpuKeys[gpuId] = key;
+        pendingKeys[gpuId] = key;
         return key;
     }
 
-    private long ResolveFanKey(SqliteTransaction tx, string fanId, string name)
+    private long ResolveFanKey(SqliteTransaction tx, string fanId, string name, Dictionary<string, long> pendingKeys)
     {
         if (_fanKeys.TryGetValue(fanId, out var cached))
         {
             return cached;
+        }
+        if (pendingKeys.TryGetValue(fanId, out var pending))
+        {
+            return pending;
         }
 
         using var cmd = _connection.CreateCommand();
@@ -304,7 +332,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
         cmd.Parameters.AddWithValue("$id", fanId);
         cmd.Parameters.AddWithValue("$name", name);
         var key = Convert.ToInt64(cmd.ExecuteScalar());
-        _fanKeys[fanId] = key;
+        pendingKeys[fanId] = key;
         return key;
     }
 
@@ -372,7 +400,6 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
                 temp_x10 INTEGER,
                 PRIMARY KEY (ts, gpu)
             ) WITHOUT ROWID;
-            CREATE INDEX IF NOT EXISTS ix_gpu_seconds_ts ON gpu_seconds(ts);
 
             CREATE TABLE IF NOT EXISTS fan_series (
                 key    INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -386,7 +413,6 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
                 duty INTEGER,
                 PRIMARY KEY (ts, fan)
             ) WITHOUT ROWID;
-            CREATE INDEX IF NOT EXISTS ix_fan_seconds_ts ON fan_seconds(ts);
 
             CREATE TABLE IF NOT EXISTS schema_meta (
                 key   TEXT PRIMARY KEY,

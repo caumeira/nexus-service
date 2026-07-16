@@ -10,9 +10,6 @@ using Nexus.Service.Models.Sensors;
 using Nexus.Service.Monitoring.History;
 using Nexus.Service.Sensors;
 using Xunit;
-#if WINDOWS
-using Nexus.Service.Platform;
-#endif
 
 namespace Nexus.Service.Tests.Monitoring.History;
 
@@ -73,25 +70,22 @@ public class MetricsSamplerTests
         public void Dispose() { }
     }
 
-    // Mirrors TemperatureRollupTests' platform-conditional construction:
-    // SmartHealthMonitor needs a live LhmComputer on Windows only.
-    private static SmartHealthMonitor CreateSmartHealthMonitor()
+    private sealed class StubGpuHealthSource : IGpuHealthSource
     {
-#if WINDOWS
-        return new SmartHealthMonitor(new LhmComputer());
-#else
-        return new SmartHealthMonitor();
-#endif
+        public GpuHealthSnapshot Snapshot(bool forceRefresh = false) => GpuHealthSnapshot.Unsupported;
     }
 
-    private static MetricsSampler CreateSampler(
-        StubMetricsSource source, RecordingMetricsHistoryStore store, MetricsSampleBuffer? buffer = null)
+    private sealed class StubSmartHealthSource : ISmartHealthSource
     {
-        var rollup = new TemperatureRollup(
-            new StubSensors(), new GpuHealthMonitor(), CreateSmartHealthMonitor(),
-            new InMemoryTemperatureHistoryStore());
-        return new MetricsSampler(new StubSensors(), source, buffer ?? new MetricsSampleBuffer(), store, rollup);
+        public SmartSnapshot Snapshot() => new() { Supported = false, Drives = Array.Empty<SmartDriveInfo>() };
     }
+
+    private static TemperatureRollup CreateRollup() =>
+        new(new StubSensors(), new StubGpuHealthSource(), new StubSmartHealthSource(), new InMemoryTemperatureHistoryStore());
+
+    private static MetricsSampler CreateSampler(
+        StubMetricsSource source, RecordingMetricsHistoryStore store, MetricsSampleBuffer? buffer = null) =>
+        new(new StubSensors(), source, buffer ?? new MetricsSampleBuffer(), store, CreateRollup());
 
     [Fact]
     public async Task Tick_AppendsOneSampleToTheBuffer_PerCall()
@@ -206,9 +200,7 @@ public class MetricsSamplerTests
         var source = new ThrowingMetricsSource();
         var store = new RecordingMetricsHistoryStore();
         var buffer = new MetricsSampleBuffer();
-        var rollup = new TemperatureRollup(
-            new StubSensors(), new GpuHealthMonitor(), CreateSmartHealthMonitor(), new InMemoryTemperatureHistoryStore());
-        var sampler = new MetricsSampler(new StubSensors(), source, buffer, store, rollup);
+        var sampler = new MetricsSampler(new StubSensors(), source, buffer, store, CreateRollup());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sampler.Tick(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), CancellationToken.None));

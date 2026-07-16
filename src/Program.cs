@@ -149,9 +149,16 @@ if (!testHost)
 {
     Nexus.Service.Lifecycle.DataLayoutMigration.Run();
     Nexus.Service.Lifecycle.BootTimer.Mark("after DataLayoutMigration");
-    Nexus.Service.Lifecycle.DatabaseLayoutMigration.Run();
-    Nexus.Service.Lifecycle.BootTimer.Mark("after DatabaseLayoutMigration");
 }
+
+// Runs unconditionally, including under testHost: testHost only suppresses
+// the migration above, not hosted-service startup, so MetricsSampler's
+// dependency chain still resolves ITemperatureHistoryStore / IScreenTimeStore
+// under a test host and could otherwise create an empty file at the target
+// path ahead of this migration. Idempotent - see DatabaseLayoutMigration for
+// how a stray empty target is handled.
+Nexus.Service.Lifecycle.DatabaseLayoutMigration.Run();
+Nexus.Service.Lifecycle.BootTimer.Mark("after DatabaseLayoutMigration");
 
 // Cold-start self-elevation: when the user double-clicks the EXE while no
 // service is running and we're not yet elevated, prompt for UAC and let the

@@ -8,12 +8,11 @@ using Nexus.Service.Sensors;
 namespace Nexus.Service.Diagnostics.Temperature;
 
 /// <summary>
-/// Rolls up CPU/GPU/storage/RAM temperatures into 5-minute buckets and
+/// Rolls up CPU/GPU/storage/RAM temperatures into fixed-width buckets and
 /// flushes one bucket per component to ITemperatureHistoryStore on rollover.
-/// Absorbed by MetricsSampler as the 90-day temperature tier alongside the
-/// 1Hz/7-day metrics.db series: MetricsSampler drives Tick() every 30th tick
-/// (its own flush cadence) instead of this class running its own
-/// BackgroundService loop.
+/// Serves as the long-retention temperature tier alongside metrics.db's
+/// shorter-retention series: MetricsSampler drives Tick() on its own flush
+/// cadence instead of this class running its own BackgroundService loop.
 /// </summary>
 public sealed class TemperatureRollup
 {
@@ -31,8 +30,8 @@ public sealed class TemperatureRollup
     private static readonly TimeSpan PruneInterval = TimeSpan.FromDays(1);
 
     private readonly ISensorProvider _sensors;
-    private readonly GpuHealthMonitor _gpu;
-    private readonly SmartHealthMonitor _smart;
+    private readonly IGpuHealthSource _gpu;
+    private readonly ISmartHealthSource _smart;
     private readonly ITemperatureHistoryStore _store;
     private readonly TemperatureBucketAccumulator _accumulator = new();
 
@@ -40,7 +39,7 @@ public sealed class TemperatureRollup
     private DateTime _lastPruneUtc = DateTime.MinValue;
 
     public TemperatureRollup(
-        ISensorProvider sensors, GpuHealthMonitor gpu, SmartHealthMonitor smart, ITemperatureHistoryStore store)
+        ISensorProvider sensors, IGpuHealthSource gpu, ISmartHealthSource smart, ITemperatureHistoryStore store)
     {
         _sensors = sensors;
         _gpu = gpu;

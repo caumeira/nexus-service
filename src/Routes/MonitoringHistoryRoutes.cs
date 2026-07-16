@@ -44,8 +44,16 @@ public static class MonitoringHistoryRoutes
 
             try
             {
-                var dbSamples = store.Query(fromSec, toSec);
+                // Buffer read first: a flush landing between the two calls
+                // commits its samples to the store and then RemoveThroughs
+                // them out of the buffer, so querying the store first could
+                // miss those seconds in both reads. Reading the tail before
+                // the store guarantees any sample dropped from the tail by
+                // an intervening flush is already visible in the store read
+                // that follows; MergeSamples's tail-wins-by-ts dedup handles
+                // the overlap either way.
                 var tailSamples = buffer.SnapshotRange(fromSec, toSec);
+                var dbSamples = store.Query(fromSec, toSec);
                 var adapterLuids = ResolveGpuAdapterLuids(sensors);
                 var response = BuildHistoryResponse(
                     dbSamples, tailSamples, fromSec, toSec, clampedMaxPoints, seriesFilter, adapterLuids);

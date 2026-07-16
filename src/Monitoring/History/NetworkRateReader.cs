@@ -39,8 +39,8 @@ public sealed class NetworkRateReader
     }
 
     /// <summary>Pure delta math: null on the first read (lastTicks &lt; 0),
-    /// a non-positive or &gt;5s elapsed gap, or a negative byte delta (NIC
-    /// counter reset, e.g. adapter re-enumerated).</summary>
+    /// a non-positive or over-threshold elapsed gap (MaxElapsedMs), or a
+    /// negative byte delta (NIC counter reset, e.g. adapter re-enumerated).</summary>
     internal static NetworkRate ComputeRate(
         long lastTicks, long lastBytesIn, long lastBytesOut,
         long nowTicks, long nowBytesIn, long nowBytesOut)

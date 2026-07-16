@@ -9,14 +9,16 @@ namespace Nexus.Service.Lifecycle;
 /// Permanent migration: moves temperature.db and screentime.db (plus their
 /// -wal/-shm sidecars) from the flat config root into the dedicated db/
 /// subfolder every ADO.NET store now shares (NexusDataPaths.DatabaseDir()).
-/// Runs immediately after DataLayoutMigration.Run(), before any store opens
-/// its file, so a store never creates the new (empty) target ahead of the
-/// move.
+/// Called unconditionally from Program.cs, before DI registration - but a
+/// store can still resolve its directory ahead of this call (a hosted
+/// service chain that is not itself gated the same way this migration is),
+/// so a zero-length file at the target path is treated as unmigrated rather
+/// than trusted as a completed move.
 ///
 /// Idempotent and best-effort like DataLayoutMigration: a database whose
-/// target .db already exists is skipped, and one that fails partway is
-/// logged and retried on the next boot (the old file is left in place, never
-/// deleted).
+/// target .db already exists and is non-empty is skipped, and one that fails
+/// partway is logged and retried on the next boot (the old file is left in
+/// place, never deleted).
 /// </summary>
 internal static class DatabaseLayoutMigration
 {
@@ -60,7 +62,7 @@ internal static class DatabaseLayoutMigration
     // .db without it, which would silently drop the unmoved sidecar's data.
     private static void MoveDatabase(string oldDbPath, string newDbPath)
     {
-        if (File.Exists(newDbPath) || !File.Exists(oldDbPath))
+        if (!File.Exists(oldDbPath) || IsMigratedTarget(newDbPath))
         {
             return;
         }
@@ -73,18 +75,35 @@ internal static class DatabaseLayoutMigration
             {
                 var oldSidecar = oldDbPath + suffix;
                 var newSidecar = newDbPath + suffix;
-                if (File.Exists(oldSidecar) && !File.Exists(newSidecar))
+                if (File.Exists(oldSidecar) && !IsMigratedTarget(newSidecar))
                 {
+                    DeleteIfEmpty(newSidecar);
                     File.Move(oldSidecar, newSidecar);
                 }
             }
 
+            DeleteIfEmpty(newDbPath);
             File.Move(oldDbPath, newDbPath);
             Console.WriteLine($"[db-layout-migration] moved {oldDbPath} -> {newDbPath}");
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[db-layout-migration] {oldDbPath} failed (retried next boot): {ex.GetType().Name}: {ex.Message}");
+        }
+    }
+
+    // A store racing ahead of this migration creates its file empty (schema
+    // writes happen after Open()), so a zero-length file at path is that
+    // race, not a completed move - IsMigratedTarget reports it as unmigrated
+    // so the real data still at the old path can take its place.
+    private static bool IsMigratedTarget(string path) =>
+        File.Exists(path) && new FileInfo(path).Length > 0;
+
+    private static void DeleteIfEmpty(string path)
+    {
+        if (File.Exists(path) && new FileInfo(path).Length == 0)
+        {
+            File.Delete(path);
         }
     }
 }

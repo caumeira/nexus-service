@@ -70,13 +70,21 @@ public sealed record SmartNvmeWire
     public ulong DataUnitsWrittenBytes { get; init; }
 }
 
+/// <summary>What TemperatureRollup consumes from a SMART health source -
+/// narrow enough to substitute a stub in tests instead of constructing the
+/// real LhmComputer-backed monitor.</summary>
+public interface ISmartHealthSource
+{
+    SmartSnapshot Snapshot();
+}
+
 #if WINDOWS
 /// <summary>
 /// Polls LhmComputer's storage hardware for SMART/NVMe health, lazily, at
 /// most once per RefreshInterval. Never throws out of Snapshot(); a drive
 /// that fails to read is skipped and warned about once (not once per poll).
 /// </summary>
-public sealed class SmartHealthMonitor
+public sealed class SmartHealthMonitor : ISmartHealthSource
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromMinutes(10);
 
@@ -282,7 +290,7 @@ public sealed class SmartHealthMonitor
 }
 #else
 /// <summary>Non-Windows stub: SMART/NVMe health has no cross-platform reader, so every call reports unsupported.</summary>
-public sealed class SmartHealthMonitor
+public sealed class SmartHealthMonitor : ISmartHealthSource
 {
     public SmartSnapshot Snapshot() => new() { Supported = false, Drives = Array.Empty<SmartDriveInfo>() };
 

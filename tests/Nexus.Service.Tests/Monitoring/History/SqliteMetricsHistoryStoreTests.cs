@@ -181,6 +181,38 @@ public class SqliteMetricsHistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public void Append_RollsBackSurrogateKeyResolution_WhenTheTransactionFails()
+    {
+        // fan-a resolves a real surrogate key before fan-b's NULL name (not
+        // null in the FanReading record itself, but forced null! here) hits
+        // fan_series.name's NOT NULL constraint and aborts the whole
+        // transaction, including fan-a's otherwise-valid insert.
+        var failingSample = new MetricSample(0, null, null, null, null, null,
+            Array.Empty<GpuReading>(),
+            new[]
+            {
+                new FanReading("fan-a", "Fan A", 1000, 50),
+                new FanReading("fan-b", null!, 1100, 60),
+            });
+
+        Assert.ThrowsAny<Exception>(() => _store.Append(new[] { failingSample }, null));
+
+        // A cache entry surviving the rollback would point fan-a's key at a
+        // fan_series row that no longer exists; a subsequent Append must
+        // resolve a fresh, working key instead of reusing a dangling one.
+        var retrySample = new MetricSample(1, null, null, null, null, null,
+            Array.Empty<GpuReading>(),
+            new[] { new FanReading("fan-a", "Fan A", 1200, 70) });
+        _store.Append(new[] { retrySample }, null);
+
+        var row = Assert.Single(_store.Query(0, 10_000));
+        Assert.Equal(1, row.TsSec);
+        var fan = Assert.Single(row.Fans);
+        Assert.Equal("fan-a", fan.FanId);
+        Assert.Equal(1200, fan.Rpm);
+    }
+
+    [Fact]
     public void Append_EmptyList_WithNoCutoff_IsANoOp()
     {
         _store.Append(Array.Empty<MetricSample>(), null);

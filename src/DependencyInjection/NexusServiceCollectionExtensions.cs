@@ -286,9 +286,19 @@ public static class NexusServiceCollectionExtensions
                 return new Nexus.Service.Diagnostics.Temperature.InMemoryTemperatureHistoryStore();
             }
         });
+        // GpuHealthMonitor / SmartHealthMonitor stay registered under their
+        // concrete types too (DiagnosticsHealthRoutes takes them directly);
+        // these interface registrations resolve to the same singleton
+        // instances so TemperatureRollup shares state with the rest of
+        // diagnostics rather than getting a second GPU/SMART monitor.
+        services.AddSingleton<Nexus.Service.Diagnostics.Gpu.IGpuHealthSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Diagnostics.Gpu.GpuHealthMonitor>());
+        services.AddSingleton<Nexus.Service.Diagnostics.Storage.ISmartHealthSource>(
+            sp => sp.GetRequiredService<Nexus.Service.Diagnostics.Storage.SmartHealthMonitor>());
+
         // Plain singleton, not hosted: MetricsSampler drives Tick() on its own
-        // 1Hz loop (every 30th tick) instead of TemperatureRollup running its
-        // own BackgroundService.
+        // sampling loop, at its own flush cadence, instead of TemperatureRollup
+        // running its own BackgroundService.
         services.AddSingleton<Nexus.Service.Diagnostics.Temperature.TemperatureRollup>();
 
         services.AddSingleton<Nexus.Service.Diagnostics.DiagnosticsHealthModel>();
