@@ -56,6 +56,27 @@ public class PrivacyAccessWatcherTests
     }
 
     [Fact]
+    public void Tick_ClosesADisappearedOpenSession_AtThisTicksTime()
+    {
+        var reader = new StubRegistryReader
+        {
+            NextSnapshot = new[] { new PrivacyAccessRawEntry("webcam", "app.exe", StartFileTime, 0) },
+        };
+        var store = new RecordingSessionStore();
+        var watcher = new PrivacyAccessWatcher(reader, store);
+        var firstTickUtc = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        watcher.Tick(firstTickUtc);
+
+        reader.NextSnapshot = Array.Empty<PrivacyAccessRawEntry>(); // user logged off
+        var secondTickUtc = firstTickUtc.AddSeconds(30);
+        watcher.Tick(secondTickUtc);
+
+        Assert.Equal(2, store.Upserts.Count); // the open from the first tick, then the close
+        var close = Assert.Single(store.Upserts, u => u.End is not null);
+        Assert.Equal(new DateTimeOffset(secondTickUtc).ToUnixTimeSeconds(), close.End);
+    }
+
+    [Fact]
     public void Tick_DoesNotUpsertAgain_WhenNothingChangedBetweenPolls()
     {
         var reader = new StubRegistryReader

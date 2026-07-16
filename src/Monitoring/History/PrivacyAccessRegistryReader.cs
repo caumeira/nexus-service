@@ -37,7 +37,7 @@ public sealed class PrivacyAccessRegistryReader : IPrivacyAccessRegistryReader
 
     public IReadOnlyList<PrivacyAccessRawEntry> ReadAll()
     {
-        var sid = ConsoleUserSid.Resolve();
+        var sid = ConsoleUserSid.Resolve(ConsentStoreSubPath);
         if (sid is null)
         {
             return Array.Empty<PrivacyAccessRawEntry>();

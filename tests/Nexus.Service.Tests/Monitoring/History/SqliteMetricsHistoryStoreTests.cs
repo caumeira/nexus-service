@@ -289,19 +289,41 @@ public class SqliteMetricsHistoryStoreTests : IDisposable
     }
 
     [Fact]
-    public void PrivacyPrune_DeletesOnlyClosedSessionsEndingBeforeTheCutoff()
+    public void PrivacyPrune_DeletesClosedSessionsEndingBeforeTheCutoff()
     {
         _store.Upsert("microphone", "app.exe", 1000, 1080);   // closed, old -> pruned
         _store.Upsert("microphone", "app2.exe", 5000, 5080);  // closed, recent -> kept
-        _store.Upsert("microphone", "app3.exe", 500, null);   // open, old start -> kept regardless
 
         PrivacyStore.PruneOlderThan(2000);
 
         var rows = PrivacyStore.Query(0, long.MaxValue);
-        Assert.Equal(2, rows.Count);
-        Assert.DoesNotContain(rows, r => r.AppId == "app.exe");
-        Assert.Contains(rows, r => r.AppId == "app2.exe");
-        Assert.Contains(rows, r => r.AppId == "app3.exe" && r.EndUtcSec == null);
+        var row = Assert.Single(rows);
+        Assert.Equal("app2.exe", row.AppId);
+    }
+
+    // A backstop for a session that never got a proper close recorded
+    // (PrivacyAccessTransitions handles the reachable orphan cases
+    // directly - this test targets rows that predate that fix, or any
+    // future path it doesn't cover).
+    [Fact]
+    public void PrivacyPrune_DeletesAnOpenSessionWhoseStartPredatesTheCutoff()
+    {
+        _store.Upsert("microphone", "app.exe", 500, null);
+
+        PrivacyStore.PruneOlderThan(2000);
+
+        Assert.Empty(PrivacyStore.Query(0, long.MaxValue));
+    }
+
+    [Fact]
+    public void PrivacyPrune_KeepsAnOpenSessionWhoseStartIsWithinRetention()
+    {
+        _store.Upsert("microphone", "app.exe", 5000, null);
+
+        PrivacyStore.PruneOlderThan(2000);
+
+        var row = Assert.Single(PrivacyStore.Query(0, long.MaxValue));
+        Assert.Null(row.EndUtcSec);
     }
 
     [Fact]

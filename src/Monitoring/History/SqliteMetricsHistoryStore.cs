@@ -482,7 +482,16 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         lock (_writeLock)
         {
             using var cmd = _connection.CreateCommand();
-            cmd.CommandText = "DELETE FROM privacy_sessions WHERE end_utc IS NOT NULL AND end_utc < $cutoff;";
+            // An open row (end_utc NULL) past retention by its start is
+            // pruned too - a safety net for a session that never got a
+            // proper close recorded (PrivacyAccessTransitions handles the
+            // reachable cases directly; this is the backstop for any it
+            // doesn't, e.g. an orphan already on disk from before that fix).
+            cmd.CommandText = """
+                DELETE FROM privacy_sessions
+                WHERE (end_utc IS NOT NULL AND end_utc < $cutoff)
+                   OR (end_utc IS NULL AND start_utc < $cutoff);
+            """;
             cmd.Parameters.AddWithValue("$cutoff", cutoffSec);
             cmd.ExecuteNonQuery();
         }

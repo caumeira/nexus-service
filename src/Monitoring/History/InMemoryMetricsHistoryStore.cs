@@ -76,7 +76,10 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
     {
         lock (_lock)
         {
-            var stale = _privacySessions.Where(kv => kv.Value.EndUtcSec is { } end && end < cutoffSec)
+            // An open session (EndUtcSec null) past retention by its start is
+            // pruned too - see SqliteMetricsHistoryStore's PruneOlderThan.
+            var stale = _privacySessions.Where(kv =>
+                    kv.Value.EndUtcSec is { } end ? end < cutoffSec : kv.Value.StartUtcSec < cutoffSec)
                 .Select(kv => kv.Key).ToList();
             foreach (var key in stale)
             {

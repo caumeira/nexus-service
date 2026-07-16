@@ -70,7 +70,7 @@ public sealed class PrivacyAccessWatcher : BackgroundService
     internal void Tick(DateTime nowUtc)
     {
         var snapshot = _reader.ReadAll();
-        var updates = _transitions.Advance(snapshot);
+        var updates = _transitions.Advance(snapshot, new DateTimeOffset(nowUtc).ToUnixTimeSeconds());
         foreach (var update in updates)
         {
             _store.Upsert(update.Capability, update.AppId, update.StartUtcSec, update.EndUtcSec);

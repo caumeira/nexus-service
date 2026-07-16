@@ -1,7 +1,8 @@
 #if WINDOWS
-using System;
+using System.Collections.Generic;
 using System.IO;
 using Microsoft.Win32;
+using Nexus.Service.Platform;
 
 namespace Nexus.Service.Lifecycle;
 
@@ -14,10 +15,44 @@ internal static class ConsoleUserSid
 {
     private const string ProfileListPath = @"SOFTWARE\Microsoft\Windows NT\CurrentVersion\ProfileList";
 
-    public static string? Resolve()
+    // Warn once per failure streak, not once per call - Resolve runs on a
+    // poll cadence, and a resolve failure is expected transiently around
+    // profile-load races. A success clears this so the next real streak
+    // still gets its own warning.
+    private static bool _warnedThisStreak;
+
+    /// <summary>Resolves the console user's SID, requiring that
+    /// requiredSubPath (relative to the SID's hive root) is present and
+    /// loaded - a caller-specific existence check, since a SID that maps to
+    /// an unmounted or wrong profile is indistinguishable from a correct one
+    /// without checking the path the caller actually needs. Returns null
+    /// (no console user, no unique profile match, or the hive/path isn't
+    /// there) and, other than the no-console-user case, warns once per
+    /// failure streak.</summary>
+    public static string? Resolve(string requiredSubPath)
     {
         var username = UserHelperBootstrapper.ResolveActiveConsoleUsername();
-        return string.IsNullOrEmpty(username) ? null : ResolveForUsername(username);
+        if (string.IsNullOrEmpty(username))
+        {
+            return null;
+        }
+
+        var sid = ResolveForUsername(username);
+        if (sid is null)
+        {
+            WarnResolveFailure($"no unique ProfileList match for console user '{username}'");
+            return null;
+        }
+
+        using var hive = Registry.Users.OpenSubKey($@"{sid}\{requiredSubPath}");
+        if (hive is null)
+        {
+            WarnResolveFailure($"SID {sid}'s {requiredSubPath} hive is unloaded or empty");
+            return null;
+        }
+
+        _warnedThisStreak = false;
+        return sid;
     }
 
     // ProfileList maps a profile folder name (e.g. "C:\Users\Nicola") to the
@@ -30,6 +65,7 @@ internal static class ConsoleUserSid
             return null;
         }
 
+        var profiles = new List<(string Sid, string ProfileUsername)>();
         foreach (var sid in profileList.GetSubKeyNames())
         {
             using var profile = profileList.OpenSubKey(sid);
@@ -37,13 +73,19 @@ internal static class ConsoleUserSid
             {
                 continue;
             }
-            var profileUsername = Path.GetFileName(imagePath.TrimEnd('\\'));
-            if (string.Equals(profileUsername, username, StringComparison.OrdinalIgnoreCase))
-            {
-                return sid;
-            }
+            profiles.Add((sid, Path.GetFileName(imagePath.TrimEnd('\\'))));
         }
-        return null;
+        return ConsoleUserSidMatcher.Match(profiles, username);
+    }
+
+    private static void WarnResolveFailure(string reason)
+    {
+        if (_warnedThisStreak)
+        {
+            return;
+        }
+        _warnedThisStreak = true;
+        ServiceLog.Warn($"[console-user-sid] {reason}");
     }
 }
 #endif
