@@ -32,6 +32,10 @@ public sealed class PanelDeviceRecord
     /// </summary>
     public Dictionary<string, int>? BackgroundTemplates { get; set; }
     public double? BackgroundOpacity { get; set; }
+    /// <summary>Background layer on/off. False renders the panel page fully
+    /// transparent so a kiosk-hosted panel (y70 / promoted monitor) shows the
+    /// Windows desktop through. Null = enabled.</summary>
+    public bool? BackgroundEnabled { get; set; }
     /// <summary>Selected background-media asset id (PanelBgLibrary) for THIS
     /// panel; null = none. Only set for local panels (y70 / q-series).</summary>
     public string? BackgroundMediaId { get; set; }
@@ -158,6 +162,7 @@ public sealed class PanelDevicePatch
     /// (effect key → preset index). The client sends the whole map.</summary>
     public Dictionary<string, int>? BackgroundTemplates { get; set; }
     public double? BackgroundOpacity { get; set; }
+    public bool? BackgroundEnabled { get; set; }
     public string? BackgroundMediaId { get; set; }
     public string? BackgroundMediaType { get; set; }
     public double? WidgetOpacity { get; set; }
@@ -230,6 +235,15 @@ public sealed class GalleryChangedFrame
 }
 
 public sealed class MediaLibraryChangedFrame
+{
+    public long Revision { get; set; }
+}
+
+/// <summary>
+/// Multiplex frame: the console user's desktop wallpaper changed. Panels in
+/// wallpaper-background mode refetch <c>GET /panel/desktop-wallpaper</c>.
+/// </summary>
+public sealed class DesktopWallpaperChangedFrame
 {
     public long Revision { get; set; }
 }

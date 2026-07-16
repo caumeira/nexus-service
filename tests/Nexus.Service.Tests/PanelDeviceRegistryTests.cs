@@ -119,6 +119,38 @@ public sealed class PanelDeviceRegistryTests : IDisposable
     }
 
     [Fact]
+    public void Patch_BackgroundEnabled_RoundTripsThroughGet()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
+
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch { BackgroundEnabled = false });
+        var fetched = _registry.Get(record.Id);
+
+        Assert.False(patched!.BackgroundEnabled);
+        Assert.False(fetched!.BackgroundEnabled);
+    }
+
+    [Fact]
+    public void Patch_OmittedBackgroundEnabled_DoesNotClobberStoredValue()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
+        _registry.Patch(record.Id, new PanelDevicePatch { BackgroundEnabled = false });
+
+        var patched = _registry.Patch(record.Id, new PanelDevicePatch { DisplayName = "Renamed" });
+
+        Assert.False(patched!.BackgroundEnabled);
+    }
+
+    /// <summary>Null until explicitly patched; enabled is the client-side default.</summary>
+    [Fact]
+    public void Allocate_BackgroundEnabled_AbsentIsNullNotServerDefaulted()
+    {
+        var record = _registry.Allocate(null, Caps(PanelSurfaces.Monitor));
+
+        Assert.Null(record.BackgroundEnabled);
+    }
+
+    [Fact]
     public void UpdateXeneonEdgeSettings_PartialUpdate_DoesNotClobberOtherStoredControls()
     {
         var (display, _) = _registry.AllocateForDisplay("DISP-XENEON", "Xeneon Edge", Caps(PanelSurfaces.Monitor));
