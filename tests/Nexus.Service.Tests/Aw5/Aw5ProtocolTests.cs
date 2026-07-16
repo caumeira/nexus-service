@@ -221,6 +221,31 @@ public class Aw5ProtocolTests
         Assert.Equal(expected, Aw5Protocol.Notches(value, min, max));
     }
 
+    [Theory]
+    [InlineData(0, 0)]      // no reading at all: the only case that empties the bar
+    [InlineData(1, 1)]
+    [InlineData(15, 1)]
+    [InlineData(50, 3)]
+    [InlineData(100, 6)]
+    public void Notches_keep_one_segment_lit_for_any_non_zero_reading(int loadPct, int expected)
+    {
+        // A running CPU idling under the first step must not render an empty bar:
+        // empty has to mean "no reading", not "low reading".
+        Assert.Equal(expected, Aw5Protocol.Notches(loadPct, 0, 100));
+    }
+
+    [Fact]
+    public void Notches_stay_linear_and_shared_across_all_three_readings()
+    {
+        // One scale, three ranges: the same helper drives temp, clock and load so a
+        // change to the curve cannot drift between them.
+        Assert.Equal(1, Aw5Protocol.Notches(20, 20, 90));    // temp floor
+        Assert.Equal(6, Aw5Protocol.Notches(90, 20, 90));    // temp ceiling
+        Assert.Equal(1, Aw5Protocol.Notches(800, 800, 5000));
+        Assert.Equal(6, Aw5Protocol.Notches(5000, 800, 5000));
+        Assert.Equal(3, Aw5Protocol.Notches(50, 0, 100));    // midpoint
+    }
+
     [Fact]
     public void CoolerMaster_notches_never_exceed_the_panel_range()
     {
