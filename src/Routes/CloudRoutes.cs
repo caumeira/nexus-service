@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Net.Http;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -24,6 +25,7 @@ public static class CloudRoutes
     private const long MaxAvatarBytes = 5 * 1024 * 1024;
     private static readonly string[] AllowedAvatarContentTypes = { "image/png", "image/jpeg", "image/webp" };
     private const long MaxBenchmarkSubmitBytes = 256 * 1024;
+    private const long MaxDevicePutBytes = 64 * 1024;
 
     public static void MapCloudEndpoints(this WebApplication app)
     {
@@ -206,6 +208,58 @@ public static class CloudRoutes
             }
             return Results.Text(result.Value!.Body, result.Value.ContentType, statusCode: result.StatusCode);
         });
+
+        // Thin forwarders for the dashboard's device-management UI: same raw
+        // passthrough shape as /cloud/benchmarks/submit, no local DTO, bearer
+        // attached when signed in.
+        app.MapGet("/cloud/account/devices", async (CloudAccountService accounts, ICloudApiClient api, CancellationToken ct) =>
+        {
+            var result = await ForwardDeviceRequestAsync(accounts, api, HttpMethod.Get, "/account/devices", null, ct).ConfigureAwait(false);
+            if (!result.Success)
+            {
+                return CloudApiFailure(result.StatusCode, result.ErrorCode, result.ErrorMessage, result.Offline);
+            }
+            return Results.Text(result.Value!.Body, result.Value.ContentType, statusCode: result.StatusCode);
+        });
+
+        app.MapPut("/cloud/account/devices/{installId}", async (string installId, HttpRequest req, CloudAccountService accounts, ICloudApiClient api, CancellationToken ct) =>
+        {
+            var (bytes, tooLarge) = await ReadBoundedAsync(req.Body, MaxDevicePutBytes, ct).ConfigureAwait(false);
+            if (tooLarge)
+            {
+                return Results.BadRequest(ApiResponse.Fail("Device update too large."));
+            }
+            var rawJson = bytes is null || bytes.Length == 0 ? "{}" : Encoding.UTF8.GetString(bytes);
+            var path = "/account/devices/" + Uri.EscapeDataString(installId);
+
+            var result = await ForwardDeviceRequestAsync(accounts, api, HttpMethod.Put, path, rawJson, ct).ConfigureAwait(false);
+            if (!result.Success)
+            {
+                return CloudApiFailure(result.StatusCode, result.ErrorCode, result.ErrorMessage, result.Offline);
+            }
+            return Results.Text(result.Value!.Body, result.Value.ContentType, statusCode: result.StatusCode);
+        });
+
+        app.MapDelete("/cloud/account/devices/{installId}", async (string installId, CloudAccountService accounts, ICloudApiClient api, CancellationToken ct) =>
+        {
+            var path = "/account/devices/" + Uri.EscapeDataString(installId);
+            var result = await ForwardDeviceRequestAsync(accounts, api, HttpMethod.Delete, path, null, ct).ConfigureAwait(false);
+            if (!result.Success)
+            {
+                return CloudApiFailure(result.StatusCode, result.ErrorCode, result.ErrorMessage, result.Offline);
+            }
+            return Results.Text(result.Value!.Body, result.Value.ContentType, statusCode: result.StatusCode);
+        });
+    }
+
+    /// <summary>Attaches the active account's bearer when signed in; forwards anonymously otherwise, leaving upstream to reject with its own status.</summary>
+    private static Task<CloudApiResult<CloudRawResponse>> ForwardDeviceRequestAsync(
+        CloudAccountService accounts, ICloudApiClient api, HttpMethod method, string path, string? rawJsonBody, CancellationToken ct)
+    {
+        var accountId = accounts.ActiveAccountId;
+        return accountId is null
+            ? api.SendRawAsync(method, path, rawJsonBody, null, ct)
+            : accounts.WithAuthAsync(accountId, token => api.SendRawAsync(method, path, rawJsonBody, token, ct), ct);
     }
 
     /// <summary>Reads a request body up to maxBytes, checking the running total after every chunk so a chunked upload (no Content-Length) never buffers unbounded memory before the size check runs.</summary>
