@@ -84,8 +84,8 @@ public class NetworkRateReaderTests
 
         var second = reader.Read();
         // Real NIC counters only increase (or stay flat) between two live
-        // reads a moment apart - not asserting an exact value, just that the
-        // reader produced *some* non-throwing result on live counters.
+        // reads a moment apart, so this asserts the reader produced a
+        // non-negative result rather than an exact value.
         Assert.True(second.InBytesPerSec is null || second.InBytesPerSec >= 0);
     }
 }

@@ -19,8 +19,7 @@ namespace Nexus.Service.Tests.Monitoring.History;
 /// <summary>
 /// Drives MetricsSampler through its internal Tick(DateTime, CancellationToken)
 /// seam - the BackgroundService loop itself (PeriodicTimer, ReadyAsync wait)
-/// is not under test here, same split TemperatureSampler's tests would have
-/// used had any existed. A RecordingMetricsHistoryStore stands in for the
+/// is not under test here. A RecordingMetricsHistoryStore stands in for the
 /// real SQLite store so flush cadence and prune cutoffs are assertable
 /// without touching disk.
 /// </summary>

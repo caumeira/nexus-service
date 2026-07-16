@@ -18,9 +18,9 @@ public readonly record struct NetworkRate(double? InBytesPerSec, double? OutByte
 /// </summary>
 public sealed class NetworkRateReader
 {
-    // A reading gap wider than this (missed tick, system suspend) means the
-    // delta no longer reflects a 1-second rate, so the read is discarded
-    // instead of reported as a rate spike/trough.
+    // A reading gap wider than this (missed tick, system suspend) makes the
+    // byte delta span more than the assumed 1-second window, so the read is
+    // discarded instead of reported as a rate spike/trough.
     private const long MaxElapsedMs = 5000;
 
     private long _lastTicks = -1;

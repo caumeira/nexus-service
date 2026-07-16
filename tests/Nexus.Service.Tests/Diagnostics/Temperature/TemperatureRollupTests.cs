@@ -16,14 +16,14 @@ using Nexus.Service.Platform;
 namespace Nexus.Service.Tests.Diagnostics.Temperature;
 
 /// <summary>
-/// Tick-level coverage for TemperatureRollup, the extraction of what was
-/// TemperatureSampler's tick body (no BackgroundService shell here anymore -
-/// MetricsSampler drives it). GpuHealthMonitor and SmartHealthMonitor are
-/// hardware-gated with no test seam, so these tests run them for real: off
-/// Windows (this suite's environment) both report unsupported, so the
-/// component-count assertions below only exercise the CPU/RAM path - that
-/// mirrors the coverage available in production too, since GpuHealthMonitor
-/// self-gates on OperatingSystem.IsWindows().
+/// Tick-level coverage for TemperatureRollup: MetricsSampler drives Tick()
+/// at 1Hz externally, so this class carries no BackgroundService of its
+/// own. GpuHealthMonitor and SmartHealthMonitor are hardware-gated with no
+/// test seam, so these tests run them for real: off Windows (this suite's
+/// environment) both report unsupported, so the component-count assertions
+/// below only exercise the CPU/RAM path - that mirrors the coverage
+/// available in production too, since GpuHealthMonitor self-gates on
+/// OperatingSystem.IsWindows().
 /// </summary>
 public class TemperatureRollupTests
 {

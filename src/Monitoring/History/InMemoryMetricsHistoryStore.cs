@@ -7,8 +7,8 @@ namespace Nexus.Service.Monitoring.History;
 /// Non-persistent fallback used when the SQLite file can't be opened, and in
 /// unit tests. Self-bounds to a rolling ~3h window on every Append rather
 /// than relying on the hourly pruneCutoffSec cadence SqliteMetricsHistoryStore
-/// needs to avoid a write burst every tick - an in-memory ring has no such
-/// cost, so it just always keeps the newest RingWindowSeconds.
+/// needs to avoid a write burst every tick - an in-memory ring always keeps
+/// the newest RingWindowSeconds regardless of that cadence.
 /// </summary>
 public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore
 {
