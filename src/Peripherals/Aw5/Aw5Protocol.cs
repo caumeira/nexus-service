@@ -57,7 +57,17 @@ public static class Aw5Protocol
     /// <summary>Vendor cadence. The panel accepts any rate; this one is known good.</summary>
     public const int CoolerMasterCycleMs = 2400;
 
-    /// <summary>Bar-graph notches flanking each CoolerMaster reading. The host sends the count, so the scale is ours.</summary>
+    /// <summary>
+    /// Bar-graph notches flanking each CoolerMaster reading. The host sends the count,
+    /// so the scale is ours; the bar reads as roughly six segments on the glass.
+    ///
+    /// The vendor's own frames reach 10 for load and 7 for clock, and its counts fit
+    /// 2 + 2*floor(load/15) exactly across 30 captured frames. Sending that was tried
+    /// and reverted: it lights 4 bars at 15% load, which is plainly too full on a bar
+    /// this size. So the vendor's bytes are not a plain segment count, and the capture
+    /// cannot tell us what they are - only the glass can. Do not "correct" this scale
+    /// to match the capture again without first counting lit segments on hardware.
+    /// </summary>
     public const int CoolerMasterMaxNotches = 6;
 
     /// <summary>Panel clamps the frequency readout at four digits.</summary>
@@ -169,12 +179,16 @@ public static class Aw5Protocol
         return f;
     }
 
-    /// <summary>Maps a reading onto the panel's 0-6 bar, clamped at both ends.</summary>
+    /// <summary>
+    /// Maps a reading onto the panel's bar, linearly, clamped at both ends. Only a
+    /// true zero empties the bar: a running CPU idling below the first step still
+    /// lights one segment, so an empty bar means "no reading", not "low reading".
+    /// </summary>
     internal static byte Notches(int value, int min, int max)
     {
-        if (max <= min) return 0;
+        if (value <= 0 || max <= min) return 0;
         var span = (double)(max - min);
         var scaled = (value - min) / span * CoolerMasterMaxNotches;
-        return (byte)Math.Clamp((int)Math.Round(scaled), 0, CoolerMasterMaxNotches);
+        return (byte)Math.Clamp((int)Math.Round(scaled), 1, CoolerMasterMaxNotches);
     }
 }

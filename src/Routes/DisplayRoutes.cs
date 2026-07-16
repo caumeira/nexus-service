@@ -70,7 +70,34 @@ public static class DisplayRoutes
             store.Update(s => s.QSeries.Orientation = body.Orientation);
             // The watcher is Windows-only (see AddNexusPanel), so GetService is
             // null off Windows; the setting still persists there.
-            sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>()?.AnnounceOrientationChange();
+            sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>()?.AnnounceDisplayChange();
+            return Results.Ok(ApiResponse.Ok());
+        }).AllowPanel();
+
+        app.MapGet("/qseries/display", (IConfigStore store) =>
+        {
+            var qseries = store.Load().QSeries;
+            return new QSeriesDisplayParams
+            {
+                Brightness = qseries.Brightness,
+                ScreenOff = qseries.ScreenOff,
+                SleepWithHost = qseries.SleepWithHost,
+            };
+        }).AllowPanel();
+        app.MapPost("/qseries/display", (QSeriesDisplayParams body, IConfigStore store, IServiceProvider sp) =>
+        {
+            if (body.Brightness is int brightness && (brightness < 0 || brightness > 100))
+                return Results.BadRequest(ApiResponse.Fail("brightness must be between 0 and 100"));
+            if (body.Brightness is null && body.ScreenOff is null && body.SleepWithHost is null)
+                return Results.Ok(ApiResponse.Ok());
+
+            store.Update(s =>
+            {
+                if (body.Brightness is int b) s.QSeries.Brightness = b;
+                if (body.ScreenOff is bool off) s.QSeries.ScreenOff = off;
+                if (body.SleepWithHost is bool sleepWithHost) s.QSeries.SleepWithHost = sleepWithHost;
+            });
+            sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>()?.AnnounceDisplayChange();
             return Results.Ok(ApiResponse.Ok());
         }).AllowPanel();
 
