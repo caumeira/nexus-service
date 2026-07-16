@@ -29,6 +29,7 @@ public sealed class FakeCloudApiClient : ICloudApiClient
     public int GetProfileCalls;
     public int PutProfileCalls;
     public int DeleteProfileCalls;
+    public int PostRawCalls;
 
     public Func<CloudRegisterRequest, CloudApiResult<CloudVoid>> OnRegister = _ => CloudApiResult<CloudVoid>.NetworkError("not wired");
     public Func<CloudLoginRequest, CloudApiResult<CloudAuthSession>> OnLogin = _ => CloudApiResult<CloudAuthSession>.NetworkError("not wired");
@@ -47,6 +48,8 @@ public sealed class FakeCloudApiClient : ICloudApiClient
     public Func<string, string, CloudApiResult<CloudProfileDto>> OnGetProfile = (_, _) => CloudApiResult<CloudProfileDto>.NetworkError("not wired");
     public Func<string, string, CloudPutProfileRequest, CloudApiResult<CloudPutProfileResult>> OnPutProfile = (_, _, _) => CloudApiResult<CloudPutProfileResult>.NetworkError("not wired");
     public Func<string, string, CloudApiResult<CloudVoid>> OnDeleteProfile = (_, _) => CloudApiResult<CloudVoid>.Ok(CloudVoid.Instance);
+    public Func<string, string, string?, CloudApiResult<CloudRawResponse>> OnPostRaw =
+        (_, body, _) => CloudApiResult<CloudRawResponse>.Ok(new CloudRawResponse { Body = body });
 
     public Task<CloudApiResult<CloudVoid>> RegisterAsync(CloudRegisterRequest body, CancellationToken ct)
     { RegisterCalls++; return Task.FromResult(OnRegister(body)); }
@@ -95,6 +98,9 @@ public sealed class FakeCloudApiClient : ICloudApiClient
 
     public Task<CloudApiResult<CloudVoid>> DeleteProfileAsync(string accessToken, string profileId, CancellationToken ct)
     { DeleteProfileCalls++; return Task.FromResult(OnDeleteProfile(accessToken, profileId)); }
+
+    public Task<CloudApiResult<CloudRawResponse>> PostRawAsync(string path, string rawJsonBody, string? accessToken, CancellationToken ct)
+    { PostRawCalls++; return Task.FromResult(OnPostRaw(path, rawJsonBody, accessToken)); }
 }
 
 internal sealed class InMemoryConfigStore : Nexus.Service.Persistence.IConfigStore

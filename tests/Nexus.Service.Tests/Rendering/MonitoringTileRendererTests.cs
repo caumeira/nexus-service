@@ -385,6 +385,28 @@ public class MonitoringTileRendererTests
         Assert.Equal(0.5f, MonitoringTileRenderer.FillFraction(50f, (Min: 10f, Max: 10f)));
     }
 
+    /// <summary>A non-degenerate domain (Max greater than Min) whose Max is exactly 0 (e.g. Min negative) must not divide by it - value/0 reaches Math.Clamp as NaN, which Clamp passes through unclamped.</summary>
+    [Fact]
+    public void FillFraction_NonDegenerateDomainWithZeroMax_RendersZeroNotNaN()
+    {
+        Assert.Equal(0f, MonitoringTileRenderer.FillFraction(-2f, (Min: -5f, Max: 0f)));
+    }
+
+    [Fact]
+    public void FillFraction_NonFiniteMaxRendersZero()
+    {
+        Assert.Equal(0f, MonitoringTileRenderer.FillFraction(50f, (Min: 0f, Max: float.PositiveInfinity)));
+    }
+
+    /// <summary>Every comparison against NaN is false, so a `Max &lt;= Min` guard would miss a NaN bound and fall through to dividing by it; `!(Max &gt; Min)` catches it as degenerate instead.</summary>
+    [Theory]
+    [InlineData(float.NaN, 100f)]
+    [InlineData(0f, float.NaN)]
+    public void FillFraction_NaNDomainBoundRendersNeutralFill(float min, float max)
+    {
+        Assert.Equal(0.5f, MonitoringTileRenderer.FillFraction(50f, (Min: min, Max: max)));
+    }
+
     [Theory]
     [InlineData("segments")]
     [InlineData("radial")]
