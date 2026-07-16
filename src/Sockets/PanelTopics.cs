@@ -131,6 +131,21 @@ public static class PanelTopics
     }
 
     /// <summary>
+    /// The console user's desktop wallpaper changed. Panels rendering the
+    /// wallpaper background refetch GET /panel/desktop-wallpaper.
+    /// </summary>
+    public const string DesktopWallpaper = "desktopWallpaper";
+
+    public static void BroadcastDesktopWallpaper(MultiplexHub hub)
+    {
+        if (!hub.TopicHasSubscribers(DesktopWallpaper))
+            return;
+        var frame = new DesktopWallpaperChangedFrame { Revision = Now() };
+        var env = WsEnvelope.Build(DesktopWallpaper, frame, AppJsonContext.Default.DesktopWallpaperChangedFrame);
+        _ = hub.BroadcastTopicAsync(DesktopWallpaper, env);
+    }
+
+    /// <summary>
     /// Lighting media library mutated (item imported, committed, or deleted).
     /// Subscribers refetch GET /media/library.
     /// </summary>

@@ -240,6 +240,15 @@ public sealed class MediaLibraryChangedFrame
 }
 
 /// <summary>
+/// Multiplex frame: the console user's desktop wallpaper changed. Panels in
+/// wallpaper-background mode refetch <c>GET /panel/desktop-wallpaper</c>.
+/// </summary>
+public sealed class DesktopWallpaperChangedFrame
+{
+    public long Revision { get; set; }
+}
+
+/// <summary>
 /// Multiplex frame: the host's network address changed (VPN toggle, Wi-Fi↔wired
 /// switch, DHCP renew), so any displayed pairing QR now embeds a stale LAN IP.
 /// Subscribers re-fetch <c>GET /panel/phone/pair-qr</c> to mint a fresh QR for
