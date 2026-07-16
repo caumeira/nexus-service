@@ -251,11 +251,11 @@ public static class PanelRoutes
         // client busts via a revision query param on wallpaper-change frames.
         app.MapGet("/panel/desktop-wallpaper", (HttpContext ctx, int? width, int? height) =>
         {
-            var resolved = DesktopWallpaperProvider.TryResolve(width ?? 0, height ?? 0);
-            if (resolved is null)
+            var path = DesktopWallpaperProvider.TryResolve(width ?? 0, height ?? 0);
+            if (path is null)
                 return Results.NotFound(ApiResponse.Fail("wallpaper unavailable"));
             ctx.Response.Headers.CacheControl = "no-cache";
-            return Results.File(resolved.Value.Path, "image/jpeg");
+            return Results.File(path, "image/jpeg");
         }).AllowPanel();
 
         app.MapGet("/panel/devices", (PanelDeviceRegistry registry, Platform.Displays.DisplayTopologyService topology) =>

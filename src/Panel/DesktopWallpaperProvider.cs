@@ -1,6 +1,5 @@
 using System;
 using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
@@ -18,29 +17,45 @@ namespace Nexus.Service.Panel;
 /// </summary>
 public static class DesktopWallpaperProvider
 {
-    public static (string Path, DateTime MTimeUtc)? TryResolve(int width, int height)
+    public static string? TryResolve(int width, int height)
     {
         var themes = ResolveThemesDir();
         if (themes is null) return null;
-        // The shell writes a per-monitor crop for each attached resolution:
-        // CachedFiles\CachedImage_{w}_{h}_POS{n}.jpg. An exact resolution
-        // match is the panel monitor's own crop; otherwise serve the full
-        // transcoded image and let the client cover-fit it (the same crop the
-        // shell's default Fill style produces).
+        // The shell caches a per-monitor crop of that monitor's own wallpaper
+        // as CachedFiles\CachedImage_{w}_{h}_POS{n}.jpg. Prefer the crop
+        // nearest the requested resolution (client-side DPI rounding can land
+        // a few px off the native mode); ties go to the newest write. Beyond
+        // the tolerance, serve the full transcoded image and let the client
+        // cover-fit it - the same crop the shell's default Fill style makes.
         if (width > 0 && height > 0)
         {
             var cached = Path.Combine(themes, "CachedFiles");
             if (Directory.Exists(cached))
             {
-                var match = Directory.EnumerateFiles(cached, $"CachedImage_{width}_{height}_*.jpg")
-                    .OrderByDescending(File.GetLastWriteTimeUtc)
-                    .FirstOrDefault();
-                if (match is not null) return (match, File.GetLastWriteTimeUtc(match));
+                string? best = null;
+                var bestScore = int.MaxValue;
+                var bestWrite = DateTime.MinValue;
+                foreach (var f in Directory.EnumerateFiles(cached, "CachedImage_*.jpg"))
+                {
+                    var parts = Path.GetFileNameWithoutExtension(f).Split('_');
+                    if (parts.Length < 4
+                        || !int.TryParse(parts[1], out var w)
+                        || !int.TryParse(parts[2], out var h))
+                        continue;
+                    var score = Math.Abs(w - width) + Math.Abs(h - height);
+                    var write = File.GetLastWriteTimeUtc(f);
+                    if (score < bestScore || (score == bestScore && write > bestWrite))
+                    {
+                        bestScore = score;
+                        bestWrite = write;
+                        best = f;
+                    }
+                }
+                if (best is not null && bestScore <= 8) return best;
             }
         }
         var transcoded = Path.Combine(themes, "TranscodedWallpaper");
-        if (File.Exists(transcoded)) return (transcoded, File.GetLastWriteTimeUtc(transcoded));
-        return null;
+        return File.Exists(transcoded) ? transcoded : null;
     }
 
     internal static string? ResolveThemesDir()
@@ -48,9 +63,10 @@ public static class DesktopWallpaperProvider
         if (!OperatingSystem.IsWindows()) return null;
         var user = ResolveActiveConsoleUsername();
         if (string.IsNullOrEmpty(user)) return null;
-        // Profile-on-C assumption: matches every supported install; a relocated
-        // ProfilesDirectory resolves to null and the endpoint 404s (panel keeps
-        // its theme backdrop).
+        // Profile folder == WTS username holds for local accounts; renamed or
+        // collision-suffixed profiles resolve to null and the endpoint 404s
+        // (the panel keeps its theme backdrop). ProfileList\{SID} is the exact
+        // source if that population ever matters.
         var dir = Path.Combine(@"C:\Users", user, @"AppData\Roaming\Microsoft\Windows\Themes");
         return Directory.Exists(dir) ? dir : null;
     }
@@ -85,16 +101,18 @@ public static class DesktopWallpaperProvider
 
 /// <summary>
 /// Broadcasts <see cref="PanelTopics.DesktopWallpaper"/> when the console
-/// user's wallpaper changes (the shell rewrites TranscodedWallpaper and the
-/// CachedFiles crops on every change). The themes dir only resolves once a
-/// user is logged on, so arming retries on a slow cadence - same deferral the
-/// helper bootstrapper needs at boot.
+/// user's wallpaper changes. The themes dir only resolves once a user is
+/// logged on, and can move on a console-user switch, so every poll pass
+/// re-resolves and re-arms when the dir changed or the watcher faulted
+/// (FileSystemWatcher stops raising events permanently after an Error).
 /// </summary>
-public sealed class DesktopWallpaperWatcher : BackgroundService, IDisposable
+public sealed class DesktopWallpaperWatcher : BackgroundService
 {
     private readonly MultiplexHub _hub;
     private FileSystemWatcher? _watcher;
-    private long _lastBroadcastTick;
+    private string? _watchedDir;
+    private volatile bool _watcherFaulted;
+    private Timer? _debounce;
 
     public DesktopWallpaperWatcher(MultiplexHub hub)
     {
@@ -104,22 +122,26 @@ public sealed class DesktopWallpaperWatcher : BackgroundService, IDisposable
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {
         if (!OperatingSystem.IsWindows()) return;
+        _debounce = new Timer(_ => PanelTopics.BroadcastDesktopWallpaper(_hub));
         while (!stoppingToken.IsCancellationRequested)
         {
-            if (_watcher is null)
+            var themes = DesktopWallpaperProvider.ResolveThemesDir();
+            if (themes is not null
+                && (_watcher is null || _watcherFaulted
+                    || !string.Equals(_watchedDir, themes, StringComparison.OrdinalIgnoreCase)))
             {
-                var themes = DesktopWallpaperProvider.ResolveThemesDir();
-                if (themes is not null)
+                try
                 {
-                    try
-                    {
-                        _watcher = Arm(themes);
-                        ServiceLog.Info($"[wallpaper-watch] armed on {themes}");
-                    }
-                    catch (Exception ex)
-                    {
-                        ServiceLog.Warn($"[wallpaper-watch] arm failed: {ex.Message}");
-                    }
+                    _watcher?.Dispose();
+                    _watcher = Arm(themes);
+                    _watchedDir = themes;
+                    _watcherFaulted = false;
+                    ServiceLog.Info($"[wallpaper-watch] armed on {themes}");
+                }
+                catch (Exception ex)
+                {
+                    _watcher = null;
+                    ServiceLog.Warn($"[wallpaper-watch] arm failed: {ex.Message}");
                 }
             }
             await Task.Delay(TimeSpan.FromSeconds(60), stoppingToken);
@@ -136,24 +158,25 @@ public sealed class DesktopWallpaperWatcher : BackgroundService, IDisposable
         watcher.Changed += (_, _) => OnThemesMutated();
         watcher.Created += (_, _) => OnThemesMutated();
         watcher.Renamed += (_, _) => OnThemesMutated();
+        watcher.Error += (_, _) => { _watcherFaulted = true; };
         watcher.EnableRaisingEvents = true;
         return watcher;
     }
 
-    // One wallpaper change mutates several files; collapse the burst to one
-    // broadcast per 2s window. Subscribers just refetch, so a dropped trailing
-    // event only delays the refresh to the next change.
+    // The shell rewrites TranscodedWallpaper plus every CachedFiles crop over
+    // a multi-second burst; a broadcast on the FIRST event makes clients
+    // refetch a mid-write or previous crop (bench-hit: Personalization theme
+    // change served the prior wallpaper). Trailing edge: every event re-arms
+    // the timer, so the broadcast fires only once the burst has gone quiet.
     private void OnThemesMutated()
     {
-        var now = Environment.TickCount64;
-        if (now - Interlocked.Read(ref _lastBroadcastTick) < 2000) return;
-        Interlocked.Exchange(ref _lastBroadcastTick, now);
-        PanelTopics.BroadcastDesktopWallpaper(_hub);
+        _debounce?.Change(TimeSpan.FromMilliseconds(2500), Timeout.InfiniteTimeSpan);
     }
 
     public override void Dispose()
     {
         _watcher?.Dispose();
+        _debounce?.Dispose();
         base.Dispose();
     }
 }
