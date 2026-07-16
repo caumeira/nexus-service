@@ -41,7 +41,6 @@ public static class InstallDefaultsRoutes
                 },
                 Monitoring = new MonitoringSettings
                 {
-                    ShowAverage = s.Monitoring.ShowAverage,
                     ShowMacStatusBarIcon = s.Monitoring.ShowMacStatusBarIcon,
                     ShowWindowsTrayIcon = s.Monitoring.ShowWindowsTrayIcon,
                 },

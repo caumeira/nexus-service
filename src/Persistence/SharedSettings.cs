@@ -33,7 +33,6 @@ public sealed class ThemeSettings
 
 public sealed class MonitoringSettings
 {
-    public bool ShowAverage { get; set; } = true;
     public bool ShowMacStatusBarIcon { get; set; } = true;
     public bool ShowWindowsTrayIcon { get; set; } = true;
     /// <summary>IDs of sections collapsed on the Monitoring "Detailed" tab. Empty list = every section expanded. The SPA writes the full list on every toggle so the persisted state matches the current UI exactly.</summary>
@@ -291,7 +290,6 @@ public sealed class OverlaySettingsPatch
 
 public sealed class MonitoringSettingsPatch
 {
-    public bool? ShowAverage { get; set; }
     public bool? ShowMacStatusBarIcon { get; set; }
     public bool? ShowWindowsTrayIcon { get; set; }
     public List<string>? DetailedCollapsed { get; set; }

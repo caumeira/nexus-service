@@ -15190,9 +15190,6 @@
       "MonitoringSettings": {
         "type": "object",
         "properties": {
-          "showAverage": {
-            "type": "boolean"
-          },
           "showMacStatusBarIcon": {
             "type": "boolean"
           },
@@ -15210,12 +15207,6 @@
       "MonitoringSettingsPatch": {
         "type": "object",
         "properties": {
-          "showAverage": {
-            "type": [
-              "null",
-              "boolean"
-            ]
-          },
           "showMacStatusBarIcon": {
             "type": [
               "null",

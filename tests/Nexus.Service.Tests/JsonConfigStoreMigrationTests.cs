@@ -34,7 +34,7 @@ public class JsonConfigStoreMigrationTests : IDisposable
           "theme": { "themeMode": "dark", "accentColor": "#aabbcc", "language": "en" },
           "panel": { "autoLaunch": true, "themeMode": "system" },
           "overlay": { "enabled": true, "scale": 120 },
-          "monitoring": { "showAverage": true }
+          "monitoring": { "showMacStatusBarIcon": true }
         }
         """;
         File.WriteAllText(_settingsPath, v5Json);
