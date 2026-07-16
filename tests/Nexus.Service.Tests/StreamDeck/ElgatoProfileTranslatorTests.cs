@@ -3,6 +3,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using Nexus.Service.Deck;
+using Nexus.Service.Models.Peripherals.StreamDeck;
 using Nexus.Service.Peripherals.StreamDeck.ElgatoImport;
 using Xunit;
 
@@ -207,24 +208,37 @@ public sealed class ElgatoProfileTranslatorTests : IDisposable
     }
 
     [Fact]
-    public void Translate_Lhm_MapsToMonitoringWithCategoryMinMaxAndKeepsLabel()
+    public void Translate_Lhm_MapsToMonitoringWithCategoryAndKeepsLabel()
     {
         var (config, report) = _translator.Translate(ReadFixtureProfile());
         var slot = Slot(config, 0, 4, 2);
         Assert.Equal("monitoring", slot.Action!.Type);
         Assert.Equal("cpu", slot.Action.Category);
         Assert.Equal("", slot.Action.Sensor);
-        Assert.Equal("number", slot.Action.Style);
-        Assert.Equal(0, slot.Action.Min);
-        Assert.Equal(100, slot.Action.Max);
+        Assert.Equal("line", slot.Action.Style);
         Assert.Null(slot.Icon);
         Assert.Equal("CPU", slot.Label);
         Assert.Contains(report.Unmapped, e => e.Page == 1 && e.Position == "4,2" && e.Reason == "monitoringSensor");
     }
 
+    private static (DeckConfig Config, ElgatoImportReport Report) TranslateSingleLhmSlot(object settingsPayload)
+    {
+        var images = new DeckImageStore(Path.Combine(Path.GetTempPath(), "nexus-elgato-lhm-" + Guid.NewGuid().ToString("N")[..8]));
+        var translator = new ElgatoProfileTranslator(images);
+        var profile = new ElgatoProfile { Model = "20GAI9901" };
+        var page = new ElgatoPageData();
+        var settingsJson = JsonSerializer.Serialize(settingsPayload);
+        var settings = JsonDocument.Parse(settingsJson).RootElement.Clone();
+        page.Actions[(0, 0)] = new ElgatoActionData { Uuid = "com.moeilijk.lhm.reading", Name = "Reading", Settings = settings };
+        profile.TopPageIds.Add("only");
+        profile.PagesById["only"] = page;
+        return translator.Translate(profile);
+    }
+
     [Theory]
     [InlineData("/amdcpu/0", "cpu")]
     [InlineData("/intelcpu/0", "cpu")]
+    [InlineData("/gpu-nvidia/0", "gpu")]
     [InlineData("/GPU/nvidia/0", "gpu")]
     [InlineData("/ram/0", "memory")]
     [InlineData("/nvme/0", "storage")]
@@ -238,24 +252,37 @@ public sealed class ElgatoProfileTranslatorTests : IDisposable
     [InlineData("", "quick")]
     public void Translate_Lhm_ResolvesCategoryFromSensorUidPrefix(string sensorUid, string expectedCategory)
     {
-        var images = new DeckImageStore(Path.Combine(Path.GetTempPath(), "nexus-elgato-lhm-" + Guid.NewGuid().ToString("N")[..8]));
-        var translator = new ElgatoProfileTranslator(images);
-        var profile = new ElgatoProfile { Model = "20GAI9901" };
-        var page = new ElgatoPageData();
-        var settingsJson = JsonSerializer.Serialize(new { sensorUid, min = 10, max = 90 });
-        var settings = JsonDocument.Parse(settingsJson).RootElement.Clone();
-        page.Actions[(0, 0)] = new ElgatoActionData { Uuid = "com.moeilijk.lhm.reading", Name = "Reading", Settings = settings };
-        profile.TopPageIds.Add("only");
-        profile.PagesById["only"] = page;
-
-        var (config, report) = translator.Translate(profile);
+        var (config, report) = TranslateSingleLhmSlot(new { sensorUid, min = 10, max = 90 });
         var slot = config.Pages[0].Slots[0];
         Assert.Equal("monitoring", slot.Action!.Type);
         Assert.Equal(expectedCategory, slot.Action.Category);
         Assert.Equal("", slot.Action.Sensor);
-        Assert.Equal("number", slot.Action.Style);
-        Assert.Equal(10, slot.Action.Min);
-        Assert.Equal(90, slot.Action.Max);
+        Assert.Equal("line", slot.Action.Style);
+        Assert.Contains(report.Unmapped, e => e.Reason == "monitoringSensor");
+    }
+
+    /// <summary>
+    /// The verbatim settings payload com.moeilijk.lhm writes (captured from a
+    /// real ProfilesV3 store): the sensor leaf lives in readingId/readingLabel,
+    /// neither of which is a HardwareSensor.Id, and sensorUid is hardware-level.
+    /// </summary>
+    [Fact]
+    public void Translate_Lhm_RealPluginPayload_LeavesSensorEmptyAndDropsPluginRange()
+    {
+        var (config, report) = TranslateSingleLhmSlot(new
+        {
+            sensorUid = "/amdcpu/0",
+            readingId = "1387652014",
+            readingLabel = "Core #1",
+            min = 40,
+            max = 62,
+        });
+        var slot = config.Pages[0].Slots[0];
+        Assert.Equal("cpu", slot.Action!.Category);
+        Assert.Equal("", slot.Action.Sensor);
+        Assert.Null(slot.Action.Scale);
+        Assert.Null(slot.Action.Min);
+        Assert.Null(slot.Action.Max);
         Assert.Contains(report.Unmapped, e => e.Reason == "monitoringSensor");
     }
 

@@ -1497,7 +1497,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private HardwareSensor? SampleMonitoringHistory(MonitoringKeyRef key)
     {
         var action = key.Slot.Action!;
-        var sensor = SensorSnapshotResolver.Resolve(_sensors, action.Category ?? "", action.Sensor ?? "");
+        var sensor = SensorSnapshotResolver.ResolveOrDefault(_sensors, action.Category ?? "", action.Sensor ?? "");
         if (sensor is null)
         {
             return null;

@@ -438,11 +438,18 @@ public sealed class ElgatoProfileTranslator
     }
 
     /// <summary>
-    /// Best-effort map: the LHM plugin key carries no Nexus sensor id, only a
-    /// per-machine sensorUid path, so this can only guess the category and
-    /// leave Sensor empty for the web's self-heal seed to resolve. Always
-    /// mapped (never a failure reason) since a category guess plus an empty
-    /// sensor is still a usable starting point.
+    /// The com.moeilijk.lhm plugin pins a reading by (sensorUid, readingId),
+    /// where sensorUid is the hardware-level LHM identifier ("/amdcpu/0") and
+    /// readingId is an opaque value minted by its own lhm-bridge.exe. Neither
+    /// is a HardwareSensor.Id, and the sibling readingLabel ("Core #1") is
+    /// ambiguous across sensor types, so the sensor cannot be derived here;
+    /// Sensor stays empty and SensorSnapshotResolver.ResolveOrDefault lands
+    /// the category default until the user picks one. The plugin's min/max are
+    /// dropped with it: they bound a reading that was never imported, and
+    /// would seed the inspector's fixed-range fields the moment a user sets
+    /// that scale. Style is the deck's own default rather than the plugin's
+    /// number readout, since the fallback reading suits a trend. Always mapped
+    /// (never a failure reason) - the category guess is a usable start.
     /// </summary>
     private static (DeckAction?, string?, string?) BuildLhmReadingAction(ElgatoActionData action)
     {
@@ -452,9 +459,7 @@ public sealed class ElgatoProfileTranslator
             Type = "monitoring",
             Category = ResolveLhmCategory(sensorUid),
             Sensor = "",
-            Style = "number",
-            Min = ElgatoJson.GetDouble(action.Settings, "min"),
-            Max = ElgatoJson.GetDouble(action.Settings, "max"),
+            Style = "line",
         };
         return (deckAction, null, "monitoringSensor");
     }
