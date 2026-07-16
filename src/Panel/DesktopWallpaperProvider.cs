@@ -41,7 +41,9 @@ public static class DesktopWallpaperProvider
                     if (parts.Length < 4
                         || !int.TryParse(parts[1], out var w)
                         || !int.TryParse(parts[2], out var h))
+                    {
                         continue;
+                    }
                     var score = Math.Abs(w - width) + Math.Abs(h - height);
                     var write = File.GetLastWriteTimeUtc(f);
                     if (score < bestScore || (score == bestScore && write > bestWrite))
@@ -170,7 +172,10 @@ public sealed class DesktopWallpaperWatcher : BackgroundService
     // the timer, so the broadcast fires only once the burst has gone quiet.
     private void OnThemesMutated()
     {
-        _debounce?.Change(TimeSpan.FromMilliseconds(2500), Timeout.InfiniteTimeSpan);
+        // FSW handlers run on threadpool threads and Dispose does not wait for
+        // them, so a late event can race the timer's disposal at shutdown.
+        try { _debounce?.Change(TimeSpan.FromMilliseconds(2500), Timeout.InfiniteTimeSpan); }
+        catch (ObjectDisposedException) { }
     }
 
     public override void Dispose()
