@@ -1,8 +1,8 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Runtime.InteropServices;
 using Microsoft.Data.Sqlite;
+using Nexus.Service.Persistence;
 
 namespace Nexus.Service.Diagnostics.Temperature;
 
@@ -15,9 +15,6 @@ namespace Nexus.Service.Diagnostics.Temperature;
 /// </summary>
 public sealed class SqliteTemperatureHistoryStore : ITemperatureHistoryStore
 {
-    private static readonly object InitLock = new();
-    private static bool _sqliteInitialized;
-
     private readonly string _dbPath;
     private readonly SqliteConnection _connection;
     private readonly object _writeLock = new();
@@ -27,17 +24,7 @@ public sealed class SqliteTemperatureHistoryStore : ITemperatureHistoryStore
     public SqliteTemperatureHistoryStore(string dbPath)
     {
         _dbPath = dbPath;
-        EnsureSqliteBundleInitialized();
-
-        var dir = Path.GetDirectoryName(dbPath);
-        if (!string.IsNullOrEmpty(dir))
-        {
-            Directory.CreateDirectory(dir);
-        }
-
-        _connection = new SqliteConnection($"Data Source={dbPath}");
-        _connection.Open();
-        ApplyPragmas();
+        _connection = SqliteStores.OpenConnection(dbPath);
         EnsureSchema();
     }
 
@@ -225,17 +212,6 @@ public sealed class SqliteTemperatureHistoryStore : ITemperatureHistoryStore
         catch { }
     }
 
-    private void ApplyPragmas()
-    {
-        using var cmd = _connection.CreateCommand();
-        cmd.CommandText = """
-            PRAGMA journal_mode=WAL;
-            PRAGMA synchronous=NORMAL;
-            PRAGMA foreign_keys=OFF;
-        """;
-        cmd.ExecuteNonQuery();
-    }
-
     private void EnsureSchema()
     {
         using var cmd = _connection.CreateCommand();
@@ -262,42 +238,6 @@ public sealed class SqliteTemperatureHistoryStore : ITemperatureHistoryStore
         cmd.ExecuteNonQuery();
     }
 
-    private static void EnsureSqliteBundleInitialized()
-    {
-        if (_sqliteInitialized)
-        {
-            return;
-        }
-        lock (InitLock)
-        {
-            if (_sqliteInitialized)
-            {
-                return;
-            }
-            SQLitePCL.Batteries_V2.Init();
-            _sqliteInitialized = true;
-        }
-    }
-
-    private static string ResolveDatabasePath()
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            return Path.Combine(home, "Library", "Application Support", "Nexus", "temperature.db");
-        }
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            // Machine-scope DB: the service runs as LocalSystem, so user-scoped
-            // LocalApplicationData would resolve under system32\config\systemprofile.
-            var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-            return Path.Combine(programData, "Nexus", "temperature.db");
-        }
-        var xdg = Environment.GetEnvironmentVariable("XDG_CONFIG_HOME");
-        if (string.IsNullOrEmpty(xdg))
-        {
-            xdg = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".config");
-        }
-        return Path.Combine(xdg, "Nexus", "temperature.db");
-    }
+    private static string ResolveDatabasePath() =>
+        Path.Combine(NexusDataPaths.DatabaseDir(), "temperature.db");
 }

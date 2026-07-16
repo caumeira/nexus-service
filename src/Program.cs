@@ -149,6 +149,8 @@ if (!testHost)
 {
     Nexus.Service.Lifecycle.DataLayoutMigration.Run();
     Nexus.Service.Lifecycle.BootTimer.Mark("after DataLayoutMigration");
+    Nexus.Service.Lifecycle.DatabaseLayoutMigration.Run();
+    Nexus.Service.Lifecycle.BootTimer.Mark("after DatabaseLayoutMigration");
 }
 
 // Cold-start self-elevation: when the user double-clicks the EXE while no
