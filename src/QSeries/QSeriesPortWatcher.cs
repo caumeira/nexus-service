@@ -588,6 +588,14 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 var reseated = _transportIdBySerial.TryGetValue(device.Serial, out var lastTransportId)
                     && lastTransportId != transportId;
                 _transportIdBySerial[device.Serial] = transportId;
+                if (reseated)
+                {
+                    // The panel re-enumerated, so it may have rebooted back to
+                    // user_rotation 0 without a tick ever seeing it offline. The
+                    // confirmed-state record cannot be trusted across that.
+                    _lastAppliedBySerial.Remove(device.Serial);
+                    _displayAppliedThisRun.Remove(device.Serial);
+                }
                 if (reseated && await TryRebootOnReseatAsync(device, lastTransportId!, transportId, ct))
                     continue; // device is rebooting; skip the reverse/qshell passes this tick
             }
@@ -627,8 +635,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             _homePinFailuresBySerial.Remove(key);
         }
-        // None of orientation, brightness, or screen power are known to survive
-        // a panel reboot, so a re-attach must re-apply all three.
+        // user_rotation does not survive a panel reboot (brightness does), so a
+        // re-attach re-applies. Dropping the confirmed-state record with the
+        // latch is what forces that apply to push everything rather than diff
+        // against a panel that may have rebooted underneath us.
         foreach (var key in _displayAppliedThisRun.Where(k => !seenSerials.Contains(k)).ToList())
         {
             _displayAppliedThisRun.Remove(key);
@@ -636,6 +646,10 @@ public sealed class QSeriesPortWatcher : BackgroundService
         foreach (var key in _displayFailuresBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
         {
             _displayFailuresBySerial.Remove(key);
+        }
+        foreach (var key in _lastAppliedBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
+        {
+            _lastAppliedBySerial.Remove(key);
         }
         // Re-arm the grace anchor on detach. _escalationRebootCountBySerial and
         // _lastEscalationRebootBySerial are deliberately NOT cleared here - like
@@ -1181,6 +1195,16 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// attach; bounds the un-latch retry below. Cleared on success and on detach.</summary>
     private readonly Dictionary<string, int> _displayFailuresBySerial = new(StringComparer.Ordinal);
 
+    /// <summary>Display state last confirmed on the panel.</summary>
+    private readonly record struct AppliedDisplayState(string Orientation, int Brightness, bool ScreenOff);
+
+    /// <summary>
+    /// Serial -> the state its last readback confirmed, so an apply only sends
+    /// what changed. Dropped on detach, on any failed apply, and whenever the
+    /// panel reboots, since the next apply must then push everything.
+    /// </summary>
+    private readonly Dictionary<string, AppliedDisplayState> _lastAppliedBySerial = new(StringComparer.Ordinal);
+
     /// <summary>Display apply attempts per attach before giving up. Sized
     /// like <see cref="MaxHomePinAttemptsPerAttach"/>.</summary>
     private const int MaxDisplayAttemptsPerAttach = 18;
@@ -1442,20 +1466,35 @@ public sealed class QSeriesPortWatcher : BackgroundService
         var userRotation = ToUserRotation(qseries.Orientation);
         var brightnessByte = PercentToBrightnessByte(qseries.Brightness);
         var wantAwake = !qseries.ScreenOff;
+
+        // Without a record of what this panel already has, its state is unknown
+        // (a reboot resets user_rotation) so everything is pushed. Afterwards
+        // only the settings that changed go over the wire: the full set is five
+        // commands plus three readbacks, one of which dumps 27 KB, against two
+        // round trips for a lone brightness nudge.
+        var known = _lastAppliedBySerial.TryGetValue(device.Serial, out var last);
+        var doOrientation = !known || last.Orientation != qseries.Orientation;
+        var doBrightness = !known || last.Brightness != qseries.Brightness;
+        var doScreen = !known || last.ScreenOff != qseries.ScreenOff;
+        if (!doOrientation && !doBrightness && !doScreen) return;
+
         try
         {
+            var commands = new List<string>(5);
+            if (doOrientation)
+            {
+                commands.Add("settings put system accelerometer_rotation 0");
+                commands.Add("cmd window set-fix-to-user-rotation enabled");
+                commands.Add($"cmd window set-user-rotation lock {userRotation}");
+            }
+            if (doBrightness) commands.Add($"settings put system screen_brightness {brightnessByte}");
+            if (doScreen) commands.Add($"input keyevent {(wantAwake ? KeyeventWakeup : KeyeventSleep)}");
+
             // Any output from these is a failure ("Can't find service: window"
             // early in panel boot, on a clean exit), so it carries the retry's
             // only diagnostic.
             var applyOutput = new StringBuilder();
-            foreach (var command in new[]
-            {
-                "settings put system accelerometer_rotation 0",
-                "cmd window set-fix-to-user-rotation enabled",
-                $"cmd window set-user-rotation lock {userRotation}",
-                $"settings put system screen_brightness {brightnessByte}",
-                $"input keyevent {(wantAwake ? KeyeventWakeup : KeyeventSleep)}",
-            })
+            foreach (var command in commands)
             {
                 var receiver = new ConsoleOutputReceiver();
                 await _client.ExecuteShellCommandAsync(device, command, receiver, ct);
@@ -1463,35 +1502,60 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 if (text.Length > 0) applyOutput.Append(text).Append("; ");
             }
 
-            var rotationReadback = new ConsoleOutputReceiver();
-            await _client.ExecuteShellCommandAsync(
-                device, "dumpsys window displays | grep mCurrentRotation", rotationReadback, ct);
-            var rotationOutput = rotationReadback.ToString().Trim();
+            var rotationOutput = "";
+            var rotationOk = true;
+            if (doOrientation)
+            {
+                var rotationReadback = new ConsoleOutputReceiver();
+                await _client.ExecuteShellCommandAsync(
+                    device, "dumpsys window displays | grep mCurrentRotation", rotationReadback, ct);
+                rotationOutput = rotationReadback.ToString().Trim();
+                rotationOk = PanelOrientationTook(rotationOutput, userRotation);
+            }
 
-            // No /sys/class/backlight and dumpsys display exposes no brightness
-            // field on this panel, so `settings get` is the only readback.
-            var brightnessReadback = new ConsoleOutputReceiver();
-            await _client.ExecuteShellCommandAsync(
-                device, "settings get system screen_brightness", brightnessReadback, ct);
-            var brightnessOutput = brightnessReadback.ToString().Trim();
+            var brightnessOutput = "";
+            var brightnessOk = true;
+            if (doBrightness)
+            {
+                // No /sys/class/backlight and dumpsys display exposes no
+                // brightness field on this panel, so `settings get` is the only
+                // readback.
+                var brightnessReadback = new ConsoleOutputReceiver();
+                await _client.ExecuteShellCommandAsync(
+                    device, "settings get system screen_brightness", brightnessReadback, ct);
+                brightnessOutput = brightnessReadback.ToString().Trim();
+                brightnessOk = PanelBrightnessTook(brightnessOutput, brightnessByte);
+            }
 
-            var powerReadback = new ConsoleOutputReceiver();
-            await _client.ExecuteShellCommandAsync(
-                device, "dumpsys power | grep mWakefulness=", powerReadback, ct);
-            var powerOutput = powerReadback.ToString().Trim();
-
-            var rotationOk = PanelOrientationTook(rotationOutput, userRotation);
-            var brightnessOk = PanelBrightnessTook(brightnessOutput, brightnessByte);
-            var powerOk = PanelScreenPowerTook(powerOutput, wantAwake);
+            var powerOutput = "";
+            var powerOk = true;
+            if (doScreen)
+            {
+                var powerReadback = new ConsoleOutputReceiver();
+                await _client.ExecuteShellCommandAsync(
+                    device, "dumpsys power | grep mWakefulness=", powerReadback, ct);
+                powerOutput = powerReadback.ToString().Trim();
+                powerOk = PanelScreenPowerTook(powerOutput, wantAwake);
+            }
 
             if (rotationOk && brightnessOk && powerOk)
             {
                 _displayFailuresBySerial.Remove(device.Serial);
-                ServiceLog.Info(
-                    $"[qseries-port-watcher] {device.Serial}: applied display state orientation={qseries.Orientation} (userRotation={userRotation}, {rotationOutput}) brightness={qseries.Brightness}% (byte={brightnessByte}, {brightnessOutput}) screen={(wantAwake ? "on" : "off")} ({powerOutput})");
+                _lastAppliedBySerial[device.Serial] =
+                    new AppliedDisplayState(qseries.Orientation, qseries.Brightness, qseries.ScreenOff);
+                var applied = string.Join(" ", new[]
+                {
+                    doOrientation ? $"orientation={qseries.Orientation} (userRotation={userRotation}, {rotationOutput})" : null,
+                    doBrightness ? $"brightness={qseries.Brightness}% (byte={brightnessByte}, {brightnessOutput})" : null,
+                    doScreen ? $"screen={(wantAwake ? "on" : "off")} ({powerOutput})" : null,
+                }.Where(p => p is not null));
+                ServiceLog.Info($"[qseries-port-watcher] {device.Serial}: applied display state {applied}");
             }
             else
             {
+                // The panel diverged from the record, so the next attempt pushes
+                // everything rather than trusting the diff.
+                _lastAppliedBySerial.Remove(device.Serial);
                 RecordDisplayFailure(
                     device.Serial,
                     $"rotation-ok={rotationOk} brightness-ok={brightnessOk} power-ok={powerOk} {applyOutput}{rotationOutput}; {brightnessOutput}; {powerOutput}");
@@ -1499,6 +1563,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         }
         catch (Exception ex) when (!ct.IsCancellationRequested)
         {
+            _lastAppliedBySerial.Remove(device.Serial);
             RecordDisplayFailure(device.Serial, ex.GetType().Name);
         }
     }
