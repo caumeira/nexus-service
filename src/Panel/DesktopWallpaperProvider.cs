@@ -157,24 +157,31 @@ public sealed class DesktopWallpaperWatcher : BackgroundService
             IncludeSubdirectories = true,
             NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName,
         };
-        watcher.Changed += (_, _) => OnThemesMutated();
-        watcher.Created += (_, _) => OnThemesMutated();
-        watcher.Renamed += (_, _) => OnThemesMutated();
+        watcher.Changed += (_, e) => OnThemesMutated(e.Name);
+        watcher.Created += (_, e) => OnThemesMutated(e.Name);
+        watcher.Renamed += (_, e) => OnThemesMutated(e.Name);
         watcher.Error += (_, _) => { _watcherFaulted = true; };
         watcher.EnableRaisingEvents = true;
         return watcher;
     }
 
-    // The shell rewrites TranscodedWallpaper plus every CachedFiles crop over
-    // a multi-second burst; a broadcast on the FIRST event makes clients
-    // refetch a mid-write or previous crop (bench-hit: Personalization theme
-    // change served the prior wallpaper). Trailing edge: every event re-arms
-    // the timer, so the broadcast fires only once the burst has gone quiet.
-    private void OnThemesMutated()
+    // Only the files the endpoint serves re-arm the debounce. A theme change
+    // also writes slideshow/theme metadata for several seconds; keying the
+    // trailing edge on ALL Themes-dir events postponed the broadcast well past
+    // the wallpaper write and made the panel lag the desktop (bench-hit).
+    // Filtered to the served files, the trailing window only has to outlast
+    // one file's write.
+    private void OnThemesMutated(string? name)
     {
+        var file = name is null ? "" : Path.GetFileName(name);
+        if (!file.Equals("TranscodedWallpaper", StringComparison.OrdinalIgnoreCase)
+            && !file.StartsWith("CachedImage_", StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
         // FSW handlers run on threadpool threads and Dispose does not wait for
         // them, so a late event can race the timer's disposal at shutdown.
-        try { _debounce?.Change(TimeSpan.FromMilliseconds(2500), Timeout.InfiniteTimeSpan); }
+        try { _debounce?.Change(TimeSpan.FromMilliseconds(600), Timeout.InfiniteTimeSpan); }
         catch (ObjectDisposedException) { }
     }
 
