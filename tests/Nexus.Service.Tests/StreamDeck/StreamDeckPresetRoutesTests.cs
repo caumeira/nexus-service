@@ -160,6 +160,114 @@ public sealed class StreamDeckPresetRoutesTests : IDisposable
         }
     }
 
+    [Theory]
+    [InlineData("Gaming")]
+    [InlineData("gaming")]
+    [InlineData("  GAMING  ")]
+    public async Task Create_returns_409_for_a_name_colliding_with_an_existing_preset(string collidingName)
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"Gaming"}"""));
+
+            var res = await client.PostAsync(
+                "/streamdeck/decks/SERIAL-1/presets",
+                Json("{\"name\":\"" + collidingName + "\"}"));
+
+            Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            Assert.Equal("preset_name_taken", doc.RootElement.GetProperty("msg").GetString());
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            Assert.Single(store.Load().StreamDeck.Decks["SERIAL-1"].Presets);
+        }
+    }
+
+    [Fact]
+    public async Task Create_with_a_unique_name_succeeds()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"Gaming"}"""));
+
+            var res = await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"Streaming"}"""));
+
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            Assert.Equal(2, store.Load().StreamDeck.Decks["SERIAL-1"].Presets.Count);
+        }
+    }
+
+    [Fact]
+    public async Task Create_with_config_and_a_unique_name_succeeds_import_path_unaffected()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"Gaming"}"""));
+
+            var importBody = """{"name":"Imported Profile","config":{"pages":[{"slots":[{"label":"X"}]}]}}""";
+            var res = await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json(importBody));
+
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            Assert.Equal("Imported Profile", doc.RootElement.GetProperty("preset").GetProperty("name").GetString());
+        }
+    }
+
+    [Fact]
+    public async Task Create_returns_409_when_the_first_preset_was_created_with_surrounding_whitespace()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var first = await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"  Gaming  "}"""));
+            Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+            var res = await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"Gaming"}"""));
+
+            Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            Assert.Equal("preset_name_taken", doc.RootElement.GetProperty("msg").GetString());
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            Assert.Single(store.Load().StreamDeck.Decks["SERIAL-1"].Presets);
+        }
+    }
+
+    [Fact]
+    public async Task Create_with_null_name_does_not_throw_and_succeeds()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var res = await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":null}"""));
+
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            Assert.Single(store.Load().StreamDeck.Decks["SERIAL-1"].Presets);
+        }
+    }
+
+    [Fact]
+    public async Task Create_with_empty_name_succeeds_even_when_another_empty_named_preset_exists()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            var first = await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":""}"""));
+            Assert.Equal(HttpStatusCode.OK, first.StatusCode);
+
+            var second = await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":""}"""));
+            Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            Assert.Equal(2, store.Load().StreamDeck.Decks["SERIAL-1"].Presets.Count);
+        }
+    }
+
     // ---- PUT update ----
 
     [Fact]
@@ -238,6 +346,140 @@ public sealed class StreamDeckPresetRoutesTests : IDisposable
                 "/streamdeck/decks/NEVER-SEEN/presets/some-id",
                 Json("""{"name":"X"}"""));
             Assert.Equal(HttpStatusCode.NotFound, res.StatusCode);
+        }
+    }
+
+    [Theory]
+    [InlineData("Streaming")]
+    [InlineData("streaming")]
+    [InlineData("  STREAMING  ")]
+    public async Task Put_rename_returns_409_for_a_name_colliding_with_another_preset(string collidingName)
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"Gaming"}"""));
+            await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"Streaming"}"""));
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var gamingId = store.Load().StreamDeck.Decks["SERIAL-1"].Presets.Single(p => p.Name == "Gaming").Id;
+
+            var res = await client.PutAsync(
+                $"/streamdeck/decks/SERIAL-1/presets/{gamingId}",
+                Json("{\"name\":\"" + collidingName + "\"}"));
+
+            Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            Assert.Equal("preset_name_taken", doc.RootElement.GetProperty("msg").GetString());
+
+            Assert.Equal("Gaming", store.Load().StreamDeck.Decks["SERIAL-1"].Presets.Single(p => p.Id == gamingId).Name);
+        }
+    }
+
+    [Fact]
+    public async Task Put_rename_to_its_own_current_name_succeeds()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"Gaming"}"""));
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var id = store.Load().StreamDeck.Decks["SERIAL-1"].Presets[0].Id;
+
+            var res = await client.PutAsync(
+                $"/streamdeck/decks/SERIAL-1/presets/{id}",
+                Json("""{"name":"GAMING"}"""));
+
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+            Assert.Equal("GAMING", store.Load().StreamDeck.Decks["SERIAL-1"].Presets[0].Name);
+        }
+    }
+
+    [Fact]
+    public async Task Put_rename_returns_409_when_a_sibling_preset_was_renamed_with_surrounding_whitespace()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"A"}"""));
+            await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"B"}"""));
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var aId = store.Load().StreamDeck.Decks["SERIAL-1"].Presets.Single(p => p.Name == "A").Id;
+            var bId = store.Load().StreamDeck.Decks["SERIAL-1"].Presets.Single(p => p.Name == "B").Id;
+
+            var renameA = await client.PutAsync(
+                $"/streamdeck/decks/SERIAL-1/presets/{aId}",
+                Json("""{"name":"  Streaming  "}"""));
+            Assert.Equal(HttpStatusCode.OK, renameA.StatusCode);
+
+            var res = await client.PutAsync(
+                $"/streamdeck/decks/SERIAL-1/presets/{bId}",
+                Json("""{"name":"Streaming"}"""));
+
+            Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            Assert.Equal("preset_name_taken", doc.RootElement.GetProperty("msg").GetString());
+            Assert.Equal("B", store.Load().StreamDeck.Decks["SERIAL-1"].Presets.Single(p => p.Id == bId).Name);
+        }
+    }
+
+    [Fact]
+    public async Task Put_rename_with_saveCurrent_returns_409_and_does_not_bake_the_live_snapshot()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PutAsync(
+                "/streamdeck/decks/SERIAL-1/config",
+                Json("""{"config":{"pages":[{"slots":[{"label":"Original"}]}]}}"""));
+            await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"Gaming"}"""));
+            var createOtherRes = await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"Other"}"""));
+            using var createOtherDoc = JsonDocument.Parse(await createOtherRes.Content.ReadAsStringAsync());
+            var otherId = createOtherDoc.RootElement.GetProperty("preset").GetProperty("id").GetString()!;
+
+            // Live config diverges after both presets were saved, so a baked
+            // snapshot would be observable as "Live" instead of "Original".
+            await client.PutAsync(
+                "/streamdeck/decks/SERIAL-1/config",
+                Json("""{"config":{"pages":[{"slots":[{"label":"Live"}]}]}}"""));
+
+            var res = await client.PutAsync(
+                $"/streamdeck/decks/SERIAL-1/presets/{otherId}",
+                Json("""{"name":"Gaming","saveCurrent":true}"""));
+
+            Assert.Equal(HttpStatusCode.Conflict, res.StatusCode);
+            using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+            Assert.Equal("preset_name_taken", doc.RootElement.GetProperty("msg").GetString());
+
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var preset = store.Load().StreamDeck.Decks["SERIAL-1"].Presets.Single(p => p.Id == otherId);
+            Assert.Equal("Other", preset.Name);
+            Assert.Equal("Original", preset.Deck.Pages[0].Slots[0].Label);
+        }
+    }
+
+    [Fact]
+    public async Task Put_saveCurrent_with_empty_name_is_unaffected_by_other_preset_names()
+    {
+        var (factory, client) = Boot();
+        using (factory)
+        {
+            await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"Gaming"}"""));
+            await client.PostAsync("/streamdeck/decks/SERIAL-1/presets", Json("""{"name":"Streaming"}"""));
+            var store = factory.Services.GetRequiredService<IConfigStore>();
+            var gamingId = store.Load().StreamDeck.Decks["SERIAL-1"].Presets.Single(p => p.Name == "Gaming").Id;
+
+            await client.PutAsync(
+                "/streamdeck/decks/SERIAL-1/config",
+                Json("""{"config":{"pages":[{"slots":[{"label":"Live"}]}]}}"""));
+
+            var res = await client.PutAsync(
+                $"/streamdeck/decks/SERIAL-1/presets/{gamingId}",
+                Json("""{"saveCurrent":true}"""));
+
+            Assert.Equal(HttpStatusCode.OK, res.StatusCode);
+            var preset = store.Load().StreamDeck.Decks["SERIAL-1"].Presets.Single(p => p.Id == gamingId);
+            Assert.Equal("Gaming", preset.Name);
+            Assert.Equal("Live", preset.Deck.Pages[0].Slots[0].Label);
         }
     }
 
