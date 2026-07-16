@@ -1,6 +1,6 @@
 # Network Transport and Polling Inventory
 
-Current as of 2026-07-10. This document inventories the network traffic that
+Current as of 2026-07-16. This document inventories the network traffic that
 the app sends today between the desktop dashboard, the panel surfaces, and the
 local service, focused on transport semantics: cadence, WebSocket topics,
 multiplex behavior, snapshot-on-subscribe, and auth/reconnect. The exhaustive
@@ -238,6 +238,7 @@ Other slow / event-driven topics (e.g. `prefs`, `lighting`, `cooling`,
 | `system/accent` | event-driven on OS accent color change, Linux only | `{hex: string}` | `SystemAccentSync` | Live OS accent colour sync (watches the XDG portal). |
 | `transfer` | event-driven when a phone-to-PC transfer lands | event payload rides the frame directly | `TransferToasts` | No canonical resource to refetch; the payload is the notification. |
 | `update` | event-driven when an update becomes available or finishes staging | `{revision: long}` | dashboard `sidebar` | Push-driven refetch of `GET /update/status` instead of waiting out the sidebar's 60s poll. |
+| `streamdeckTiles` | `StreamDeckConnectionWorker` | event-driven per-tile on a wire-hash change, capped at 4 monitoring and 4 weather tiles per tick round-robin; no snapshot registry - a fresh subscriber clears every tracked hash so the following tick(s) re-broadcast every visible tile | `StreamDeckDevicePage` Customize tab | Live JPEG render of a visible monitoring/weather Stream Deck key, pixel-identical to what the physical key shows; broadcast only while subscribed. |
 
 Notes:
 

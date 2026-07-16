@@ -260,5 +260,24 @@ public static class PanelTopics
         _ = hub.BroadcastTopicAsync(StreamDeck, env);
     }
 
+    /// <summary>
+    /// Live per-key JPEG render for a monitoring/weather Stream Deck tile,
+    /// the same pixels pushed to the physical key. The Customize tab's editor
+    /// preview subscribes while open; no snapshot provider is registered, so
+    /// StreamDeckConnectionWorker re-broadcasts every visible tile itself on
+    /// the topic's 0-&gt;1 subscriber transition.
+    /// </summary>
+    public const string StreamDeckTiles = "streamdeckTiles";
+
+    public static void BroadcastStreamDeckTile(MultiplexHub hub, Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckTileFrame frame)
+    {
+        if (!hub.TopicHasSubscribers(StreamDeckTiles))
+        {
+            return;
+        }
+        var env = WsEnvelope.Build(StreamDeckTiles, frame, AppJsonContext.Default.StreamDeckTileFrame);
+        _ = hub.BroadcastTopicAsync(StreamDeckTiles, env);
+    }
+
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 }

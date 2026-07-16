@@ -1014,6 +1014,7 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckConfigEnvelope))]
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckImageUploadResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckChangedFrame))]
+[JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckTileFrame))]
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckPendingEditDto))]
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckPendingEditResponse))]
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSimPressBody))]

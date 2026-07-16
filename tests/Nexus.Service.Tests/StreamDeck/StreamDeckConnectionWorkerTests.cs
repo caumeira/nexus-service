@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Deck;
@@ -2049,6 +2051,225 @@ public class StreamDeckConnectionWorkerTests
 
         Assert.DoesNotContain(StreamDeckProtocol.BuildResetFeature(), dev.FeatureWrites);
         Assert.True(dev.Disposed);
+    }
+
+    private static List<(string Topic, byte[] Payload)> CaptureBroadcasts(MultiplexHub hub)
+    {
+        var captured = new List<(string Topic, byte[] Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) => captured.Add((topic, payload.ToArray()));
+        return captured;
+    }
+
+    private static JsonElement TileFramePayload((string Topic, byte[] Payload) captured)
+    {
+        using var doc = JsonDocument.Parse(captured.Payload);
+        return doc.RootElement.GetProperty("d").Clone();
+    }
+
+    [Fact]
+    public void PushMonitoringKey_SubscriberPresent_BroadcastsStreamdeckTilesFrame_ForRootSlot()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 10f, Formatted = "10%", Parent = new SensorParent() },
+        };
+        var slots = new List<DeckSlot>
+        {
+            new(), new(), new(),
+            new() { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = slots } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        using var sub = f.Hub.AddTestSubscription(PanelTopics.StreamDeckTiles);
+
+        worker.Tick(); // connect - establishes the baseline hash, uncaptured
+        var captured = CaptureBroadcasts(f.Hub);
+
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 90f, Formatted = "90%", Parent = new SensorParent() },
+        };
+        worker.Tick();
+
+        var tiles = captured.Where(c => c.Topic == PanelTopics.StreamDeckTiles).ToList();
+        var tile = Assert.Single(tiles);
+        var d = TileFramePayload(tile);
+        Assert.Equal("sim-0001", d.GetProperty("serial").GetString());
+        Assert.Equal(0, d.GetProperty("page").GetInt32());
+        Assert.Equal("3", d.GetProperty("slotPath").GetString());
+        Assert.Equal("image/jpeg", d.GetProperty("mime").GetString());
+        var bytes = Convert.FromBase64String(d.GetProperty("data").GetString()!);
+        Assert.True(bytes.Length > 2);
+        Assert.Equal(0xFF, bytes[0]);
+        Assert.Equal(0xD8, bytes[1]);
+    }
+
+    /// <summary>Same contract as the root-slot case, but the visible key lives inside a folder - slotPath must be the folder-slots-array-index dot-chain ("3.2"), never the page-prefixed ImageRefs form ("0.3.2").</summary>
+    [Fact]
+    public void PushMonitoringKey_SubscriberPresent_BroadcastsStreamdeckTilesFrame_ForFolderNestedSlot()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 10f, Formatted = "10%", Parent = new SensorParent() },
+        };
+        var folderSlots = new List<DeckSlot>
+        {
+            new(), new(),
+            new() { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+        };
+        var rootSlots = new List<DeckSlot>
+        {
+            new(), new(), new(),
+            new() { Folder = new DeckFolder { Slots = folderSlots } },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = rootSlots } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        using var sub = f.Hub.AddTestSubscription(PanelTopics.StreamDeckTiles);
+
+        worker.Tick(); // connect at root
+        Assert.True(worker.SetNav("sim-0001", 0, new[] { 3 })); // into the folder at root slot 3
+        var captured = CaptureBroadcasts(f.Hub);
+
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 90f, Formatted = "90%", Parent = new SensorParent() },
+        };
+        worker.Tick();
+
+        var tiles = captured.Where(c => c.Topic == PanelTopics.StreamDeckTiles).ToList();
+        var tile = Assert.Single(tiles);
+        var d = TileFramePayload(tile);
+        Assert.Equal(0, d.GetProperty("page").GetInt32());
+        Assert.Equal("3.2", d.GetProperty("slotPath").GetString());
+    }
+
+    [Fact]
+    public void PushMonitoringKey_UnchangedReading_DoesNotRebroadcast()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var slots = new List<DeckSlot> { new() { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } } };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = slots } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        using var sub = f.Hub.AddTestSubscription(PanelTopics.StreamDeckTiles);
+
+        worker.Tick(); // connect - establishes the hash, uncaptured
+        var captured = CaptureBroadcasts(f.Hub);
+
+        worker.Tick(); // sensor unchanged - same quantized reading, same rendered pixels
+
+        Assert.DoesNotContain(captured, c => c.Topic == PanelTopics.StreamDeckTiles);
+    }
+
+    /// <summary>No subscriber means no streamdeckTiles broadcast. The source also gates the JPEG encode itself behind the same TopicHasSubscribers check, but that is not independently observable from this test.</summary>
+    [Fact]
+    public void PushMonitoringKey_NoSubscribers_DoesNotBroadcast()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 10f, Formatted = "10%", Parent = new SensorParent() },
+        };
+        var slots = new List<DeckSlot> { new() { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } } };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = slots } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        var captured = CaptureBroadcasts(f.Hub);
+
+        worker.Tick(); // connect
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 90f, Formatted = "90%", Parent = new SensorParent() },
+        };
+        worker.Tick(); // reading changes, but nobody subscribed to streamdeckTiles
+
+        Assert.DoesNotContain(captured, c => c.Topic == PanelTopics.StreamDeckTiles);
+    }
+
+    /// <summary>The topic carries no snapshot provider, so a fresh subscriber only sees frames the worker itself re-broadcasts on the 0-&gt;1 transition; both visible tiles must land within the very next tick even with unchanged readings.</summary>
+    [Fact]
+    public void StreamdeckTiles_SubscriberJoins_RebroadcastsAllVisibleTilesWithinOneTick()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 10f, Formatted = "10%", Parent = new SensorParent() },
+        };
+        var slots = new List<DeckSlot>
+        {
+            new() { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+            new() { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "line" } },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = slots } } },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick(); // connect, no subscriber yet - nothing broadcasts
+        var captured = CaptureBroadcasts(f.Hub);
+
+        using var sub = f.Hub.AddTestSubscription(PanelTopics.StreamDeckTiles); // 0 -> 1 transition
+        worker.Tick(); // sensor unchanged - the subscribe-triggered hash clear is what forces this
+
+        var slotPaths = captured
+            .Where(c => c.Topic == PanelTopics.StreamDeckTiles)
+            .Select(c => TileFramePayload(c).GetProperty("slotPath").GetString())
+            .OrderBy(p => p, StringComparer.Ordinal)
+            .ToList();
+        Assert.Equal(new[] { "0", "1" }, slotPaths);
+    }
+
+    /// <summary>The reserved Back key (physical key 0 at folder depth &gt; 0) is never a resolvable DeckSlot and is rendered by PushBackKey, not PushMonitoringPlaceholder/PushMonitoringKey - it must never appear as a streamdeckTiles slotPath.</summary>
+    [Fact]
+    public void StreamdeckTiles_NeverEmitsForTheReservedBackSlot()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 10f, Formatted = "10%", Parent = new SensorParent() },
+        };
+        var folderSlots = new List<DeckSlot>
+        {
+            new() { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+        };
+        var rootSlots = new List<DeckSlot> { new() { Folder = new DeckFolder { Slots = folderSlots } } };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = rootSlots } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        using var sub = f.Hub.AddTestSubscription(PanelTopics.StreamDeckTiles);
+        var captured = CaptureBroadcasts(f.Hub);
+
+        worker.Tick(); // connect at root
+        Assert.True(worker.SetNav("sim-0001", 0, new[] { 0 })); // into the folder - key 0 becomes Back
+
+        var tiles = captured.Where(c => c.Topic == PanelTopics.StreamDeckTiles).ToList();
+        Assert.NotEmpty(tiles); // the folder's own monitoring slot did broadcast
+        Assert.All(tiles, t => Assert.NotEqual("back", TileFramePayload(t).GetProperty("slotPath").GetString()));
     }
 
     private sealed class MutableUsbEnumerator : IUsbEnumerator

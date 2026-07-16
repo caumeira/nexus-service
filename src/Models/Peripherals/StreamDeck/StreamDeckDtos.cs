@@ -86,6 +86,23 @@ public sealed class StreamDeckChangedFrame
 }
 
 /// <summary>
+/// Multiplex frame for the "streamdeckTiles" topic: one live monitoring or
+/// weather key render, the same pixels pushed to the physical key. Broadcast
+/// only while the topic has a subscriber. SlotPath is page-relative
+/// (DeckConfigNavigation.BuildSlotPath - "3", "3.2"), never the page-prefixed
+/// ImageRefs form.
+/// </summary>
+public sealed class StreamDeckTileFrame
+{
+    public string Serial { get; set; } = "";
+    public int Page { get; set; }
+    public string SlotPath { get; set; } = "";
+    public string Mime { get; set; } = "image/jpeg";
+    /// <summary>Base64-encoded JPEG, upright: no orientation or model wire transform applied.</summary>
+    public string Data { get; set; } = "";
+}
+
+/// <summary>
 /// A pending blank-key hold-to-edit intent, served by GET
 /// /streamdeck/pending-edit so a freshly-opened dashboard can navigate to the
 /// deck's editor and select the held key.

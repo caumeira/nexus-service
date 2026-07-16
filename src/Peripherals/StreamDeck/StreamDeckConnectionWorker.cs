@@ -191,6 +191,14 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// <summary>Cursor into the current tick's visible-weather-key list, mirroring _monitoringRoundRobinCursor.</summary>
     private int _weatherRoundRobinCursor;
 
+    /// <summary>
+    /// Per "{serial}:{page}:{slotPath}" last-broadcast wire hash for weather
+    /// tiles, gating the streamdeckTiles preview the same way _monitoringLastHash
+    /// gates monitoring - independent of the physical HID push, which weather
+    /// still repaints unconditionally every round-robin turn.
+    /// </summary>
+    private readonly Dictionary<string, uint> _weatherLastHash = new(StringComparer.Ordinal);
+
     private readonly TimeProvider _clock;
 
     public StreamDeckConnectionWorker(
@@ -217,6 +225,32 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _simulated = simulated;
         _clock = clock ?? TimeProvider.System;
         _weather = weather;
+        _hub.OnTopicFirstSubscriber += OnStreamDeckTilesFirstSubscriber;
+    }
+
+    /// <summary>
+    /// The streamdeckTiles topic carries no snapshot provider, so a fresh
+    /// subscriber (e.g. the Customize tab opening) would otherwise see
+    /// nothing until some tile's pixels next change. Dropping every
+    /// last-broadcast hash on the 0-&gt;1 transition makes RefreshMonitoringKeys/
+    /// RefreshWeatherKeys treat every visible tile as changed, but each still
+    /// pushes only up to MonitoringPushCapPerTick/WeatherPushCapPerTick tiles
+    /// per type per tick round-robin, so a deck with more visible tiles than
+    /// the cap takes several ticks to fully repaint. Every one of those pushes
+    /// also re-repaints the physical key even where its pixels did not
+    /// change; that redundant HID write is an accepted cost of this path.
+    /// </summary>
+    private void OnStreamDeckTilesFirstSubscriber(string topic)
+    {
+        if (!string.Equals(topic, PanelTopics.StreamDeckTiles, StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+        lock (_lock)
+        {
+            _monitoringLastHash.Clear();
+            _weatherLastHash.Clear();
+        }
     }
 
     /// <summary>A snapshot of every currently tracked surface, keyed by HID path (or "sim" for the simulated deck).</summary>
@@ -1199,13 +1233,21 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         public readonly int KeyIndex;
         public readonly DeckSlot Slot;
         public readonly int Orientation;
+        public readonly int Page;
+        /// <summary>Page-relative slotPath (DeckConfigNavigation.BuildSlotPath), for the streamdeckTiles broadcast.</summary>
+        public readonly string SlotPath;
+        /// <summary>"{serial}:{page}:{slotPath}", gating _weatherLastHash the same way MonitoringKeyRef.HistoryKey gates _monitoringLastHash.</summary>
+        public readonly string TileKey;
 
-        public WeatherKeyRef(IStreamDeckSurface surface, int keyIndex, DeckSlot slot, int orientation)
+        public WeatherKeyRef(IStreamDeckSurface surface, int keyIndex, DeckSlot slot, int orientation, int page, string slotPath, string tileKey)
         {
             Surface = surface;
             KeyIndex = keyIndex;
             Slot = slot;
             Orientation = orientation;
+            Page = page;
+            SlotPath = slotPath;
+            TileKey = tileKey;
         }
     }
 
@@ -1268,7 +1310,8 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
                 {
                     continue;
                 }
-                visible.Add(new WeatherKeyRef(surface, key, slot, deck.Orientation));
+                var slotPath = DeckConfigNavigation.BuildSlotPath(folderPath, slotIndex);
+                visible.Add(new WeatherKeyRef(surface, key, slot, deck.Orientation, page, slotPath, $"{surface.Serial}:{page}:{slotPath}"));
             }
         }
 
@@ -1337,10 +1380,26 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
 
         var input = BuildWeatherTileInput(snapshot, action, key.Slot);
-        var wireBytes = RenderWeatherTileWireBytes(input, key.Surface.Model, key.Orientation);
-        if (wireBytes is not null)
+        var (rendered, wireBytes) = RenderWeatherTile(input, key.Surface.Model, key.Orientation);
+        using (rendered)
         {
+            if (wireBytes is null)
+            {
+                return;
+            }
             key.Surface.SetKeyImage(key.KeyIndex, wireBytes);
+
+            if (!_hub.TopicHasSubscribers(PanelTopics.StreamDeckTiles))
+            {
+                return;
+            }
+            var hash = ComputeFnv1aHash(wireBytes);
+            if (_weatherLastHash.TryGetValue(key.TileKey, out var lastHash) && lastHash == hash)
+            {
+                return;
+            }
+            _weatherLastHash[key.TileKey] = hash;
+            BroadcastTile(key.Surface.Serial, key.Page, key.SlotPath, RenderKit.EncodeJpeg(rendered));
         }
     }
 
@@ -1370,11 +1429,19 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _ => FahrenheitCountryCodes.Contains(countryCode) ? "F" : "C",
     };
 
-    /// <summary>Renders a weather tile input to this surface's wire bytes, mirroring RenderMonitoringTileWireBytes.</summary>
-    private static byte[]? RenderWeatherTileWireBytes(WeatherTileInput input, StreamDeckModel model, int orientation)
+    /// <summary>Renders a weather tile input once, mirroring RenderMonitoringTile: returns the rendered upright image (caller must dispose) plus this surface's wire bytes derived from it.</summary>
+    private static (Image<Rgba32> Rendered, byte[]? WireBytes) RenderWeatherTile(WeatherTileInput input, StreamDeckModel model, int orientation)
     {
-        using var rendered = WeatherTileRenderer.Render(input, model.KeyPixelSize);
-        return DeckImageToWireBytes(rendered, model, orientation);
+        var rendered = WeatherTileRenderer.Render(input, model.KeyPixelSize);
+        try
+        {
+            return (rendered, DeckImageToWireBytes(rendered, model, orientation));
+        }
+        catch
+        {
+            rendered.Dispose();
+            throw;
+        }
     }
 
     /// <summary>A monitoring slot visible on a connected, awake deck this tick.</summary>
@@ -1385,14 +1452,19 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         public readonly string HistoryKey;
         public readonly DeckSlot Slot;
         public readonly int Orientation;
+        public readonly int Page;
+        /// <summary>Page-relative slotPath (DeckConfigNavigation.BuildSlotPath), for the streamdeckTiles broadcast.</summary>
+        public readonly string SlotPath;
 
-        public MonitoringKeyRef(IStreamDeckSurface surface, int keyIndex, string historyKey, DeckSlot slot, int orientation)
+        public MonitoringKeyRef(IStreamDeckSurface surface, int keyIndex, string historyKey, DeckSlot slot, int orientation, int page, string slotPath)
         {
             Surface = surface;
             KeyIndex = keyIndex;
             HistoryKey = historyKey;
             Slot = slot;
             Orientation = orientation;
+            Page = page;
+            SlotPath = slotPath;
         }
     }
 
@@ -1464,7 +1536,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
                     // not changed and forces a redundant re-push.
                     continue;
                 }
-                visible.Add(new MonitoringKeyRef(surface, key, historyKey, slot, deck.Orientation));
+                visible.Add(new MonitoringKeyRef(surface, key, historyKey, slot, deck.Orientation, page, slotPath));
             }
         }
 
@@ -1583,11 +1655,26 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         };
     }
 
-    /// <summary>Renders a tile input to this surface's wire bytes (oriented, transformed, encoded), or null when the encode fails or does not fit the model's wire length.</summary>
-    private static byte[]? RenderMonitoringTileWireBytes(MonitoringTileInput input, StreamDeckModel model, int orientation)
+    /// <summary>
+    /// Renders a tile input once and returns both the rendered upright image
+    /// (caller must dispose) and this surface's wire bytes (oriented,
+    /// transformed, encoded) derived from it, or a null WireBytes when the
+    /// encode fails or does not fit the model's wire length. The caller
+    /// encodes the returned image directly for the streamdeckTiles broadcast
+    /// so a tile is never rendered twice per key per tick.
+    /// </summary>
+    private static (Image<Rgba32> Rendered, byte[]? WireBytes) RenderMonitoringTile(MonitoringTileInput input, StreamDeckModel model, int orientation)
     {
-        using var rendered = MonitoringTileRenderer.Render(input, model.KeyPixelSize);
-        return DeckImageToWireBytes(rendered, model, orientation);
+        var rendered = MonitoringTileRenderer.Render(input, model.KeyPixelSize);
+        try
+        {
+            return (rendered, DeckImageToWireBytes(rendered, model, orientation));
+        }
+        catch
+        {
+            rendered.Dispose();
+            throw;
+        }
     }
 
     /// <summary>Orients (user rotation), applies the model's fixed wire transform, and encodes a square rendered key image to this model's wire bytes, or null when the encode fails or the length does not fit the model.</summary>
@@ -1619,7 +1706,9 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// pixels while the real tile's sensor sample + render (pass 2) is still
     /// pending. Unconditional: no hash check, no _monitoringLastHash/
     /// _monitoringLastPushedBytes update - the very next PushMonitoringKey
-    /// call for this same key overwrites both.
+    /// call for this same key overwrites both. Broadcasts the same placeholder
+    /// frame on streamdeckTiles when subscribed, since it is what the
+    /// hardware shows during pass 1.
     /// </summary>
     private void PushMonitoringPlaceholder(MonitoringKeyRef key, string tempUnit, string numberFormat)
     {
@@ -1628,10 +1717,18 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             return;
         }
         var input = BuildMonitoringTileInput(key, sensor: null, tempUnit, numberFormat);
-        var wireBytes = RenderMonitoringTileWireBytes(input, key.Surface.Model, key.Orientation);
-        if (wireBytes is not null)
+        var (rendered, wireBytes) = RenderMonitoringTile(input, key.Surface.Model, key.Orientation);
+        using (rendered)
         {
+            if (wireBytes is null)
+            {
+                return;
+            }
             key.Surface.SetKeyImage(key.KeyIndex, wireBytes);
+            if (_hub.TopicHasSubscribers(PanelTopics.StreamDeckTiles))
+            {
+                BroadcastTile(key.Surface.Serial, key.Page, key.SlotPath, RenderKit.EncodeJpeg(rendered));
+            }
         }
     }
 
@@ -1647,7 +1744,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// (sampling already happened in SampleMonitoringHistory) while the key
     /// is physically held, so the tick never races HandlePressVisual/HandleKeyUp
     /// for the same pixels; ForceMonitoringKeyRefresh drops the last-pushed
-    /// hash on release so the next tick repaints it regardless.
+    /// hash on release so the next tick repaints it regardless. Broadcasts the
+    /// same render on streamdeckTiles exactly when the hash changes and the
+    /// topic has a subscriber, so a hash-unchanged tick never re-encodes a
+    /// JPEG that would only be discarded.
     /// </summary>
     private void PushMonitoringKey(MonitoringKeyRef key, HardwareSensor? sensor, string tempUnit, string numberFormat)
     {
@@ -1657,22 +1757,29 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
 
         var input = BuildMonitoringTileInput(key, sensor, tempUnit, numberFormat);
-        var wireBytes = RenderMonitoringTileWireBytes(input, key.Surface.Model, key.Orientation);
-        if (wireBytes is null)
+        var (rendered, wireBytes) = RenderMonitoringTile(input, key.Surface.Model, key.Orientation);
+        using (rendered)
         {
-            return;
-        }
+            if (wireBytes is null)
+            {
+                return;
+            }
 
-        var hash = ComputeFnv1aHash(wireBytes);
-        if (_monitoringLastHash.TryGetValue(key.HistoryKey, out var lastHash) && lastHash == hash)
-        {
-            return;
-        }
+            var hash = ComputeFnv1aHash(wireBytes);
+            if (_monitoringLastHash.TryGetValue(key.HistoryKey, out var lastHash) && lastHash == hash)
+            {
+                return;
+            }
 
-        if (key.Surface.SetKeyImage(key.KeyIndex, wireBytes))
-        {
-            _monitoringLastHash[key.HistoryKey] = hash;
-            _monitoringLastPushedBytes[key.HistoryKey] = wireBytes;
+            if (key.Surface.SetKeyImage(key.KeyIndex, wireBytes))
+            {
+                _monitoringLastHash[key.HistoryKey] = hash;
+                _monitoringLastPushedBytes[key.HistoryKey] = wireBytes;
+                if (_hub.TopicHasSubscribers(PanelTopics.StreamDeckTiles))
+                {
+                    BroadcastTile(key.Surface.Serial, key.Page, key.SlotPath, RenderKit.EncodeJpeg(rendered));
+                }
+            }
         }
     }
 
@@ -1702,6 +1809,10 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _monitoringHistory.Remove(k);
         }
         InvalidateMonitoringHashesForSerial(serial);
+        foreach (var k in _weatherLastHash.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+        {
+            _weatherLastHash.Remove(k);
+        }
     }
 
     /// <summary>
@@ -1719,6 +1830,22 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         {
             _monitoringLastHash.Remove(k);
             _monitoringLastPushedBytes.Remove(k);
+        }
+    }
+
+    /// <summary>
+    /// Drops last-broadcast weather hashes for this serial, mirroring
+    /// InvalidateMonitoringHashesForSerial - PushCurrentView calls this on
+    /// every nav/config change so the next RefreshWeatherKeys tick re-broadcasts
+    /// every visible weather tile even though weather's own physical HID push
+    /// (unlike monitoring's) has no hash gate to invalidate.
+    /// </summary>
+    private void InvalidateWeatherHashesForSerial(string serial)
+    {
+        var prefix = serial + ":";
+        foreach (var k in _weatherLastHash.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+        {
+            _weatherLastHash.Remove(k);
         }
     }
 
@@ -1780,6 +1907,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private void PushCurrentView(IStreamDeckSurface surface)
     {
         InvalidateMonitoringHashesForSerial(surface.Serial);
+        InvalidateWeatherHashesForSerial(surface.Serial);
         if (!_folderPathsBySerial.TryGetValue(surface.Serial, out var folderPath))
         {
             folderPath = new List<int>();
@@ -1828,7 +1956,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             if (slot.Action?.Type == "monitoring")
             {
                 var slotPath = DeckConfigNavigation.BuildSlotPath(folderPath, slotIndex);
-                var keyRef = new MonitoringKeyRef(surface, key, BuildMonitoringKey(surface.Serial, page, slotPath), slot, deck?.Orientation ?? 0);
+                var keyRef = new MonitoringKeyRef(surface, key, BuildMonitoringKey(surface.Serial, page, slotPath), slot, deck?.Orientation ?? 0, page, slotPath);
                 PushMonitoringPlaceholder(keyRef, tempUnit, numberFormat);
                 monitoringKeys.Add(keyRef);
                 continue;
@@ -2112,6 +2240,15 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private void BroadcastPress(string serial, List<int> folderPath, int keyIndex) =>
         PanelTopics.BroadcastStreamDeck(_hub, new StreamDeckChangedFrame { Kind = "press", Serial = serial, FolderPath = folderPath, KeyIndex = keyIndex });
 
+    private void BroadcastTile(string serial, int page, string slotPath, byte[] jpeg) =>
+        PanelTopics.BroadcastStreamDeckTile(_hub, new StreamDeckTileFrame
+        {
+            Serial = serial,
+            Page = page,
+            SlotPath = slotPath,
+            Data = Convert.ToBase64String(jpeg),
+        });
+
     private void DisconnectAll()
     {
         lock (_lock)
@@ -2139,6 +2276,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _monitoringHistory.Clear();
             _monitoringLastHash.Clear();
             _monitoringLastPushedBytes.Clear();
+            _weatherLastHash.Clear();
             if (hadSurfaces)
             {
                 BroadcastDecksChanged(null);
@@ -2203,6 +2341,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// <summary>Stops every input reader thread and disposes tracked surfaces, so neither a container disposal nor a test-scoped worker leaks a background thread.</summary>
     public override void Dispose()
     {
+        _hub.OnTopicFirstSubscriber -= OnStreamDeckTilesFirstSubscriber;
         DisconnectAll();
         base.Dispose();
     }
