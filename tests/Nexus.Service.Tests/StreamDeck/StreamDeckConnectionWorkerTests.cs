@@ -1382,11 +1382,201 @@ public class StreamDeckConnectionWorkerTests
         worker.Tick();
         Assert.NotNull(simulated.PeekKeyImage(0));
 
-        // RefreshView drives the same PushCurrentView a nav/config change does;
-        // it must not blank the monitoring key.
+        // RefreshView drives PushCurrentView with viewChanged=false; it must
+        // not blank the monitoring key the way a real navigation would.
         worker.RefreshView("sim-0001");
 
         Assert.NotNull(simulated.PeekKeyImage(0));
+    }
+
+    /// <summary>
+    /// Regression for the reported flicker bug: editing an unrelated static
+    /// key's config (as the deck-config PUT route's debounced saves do on
+    /// every keystroke) must not touch a live monitoring tile whose reading
+    /// has not changed - no placeholder blank, no redundant HID write.
+    /// </summary>
+    [Fact]
+    public void RefreshView_UnrelatedStaticKeyEdit_LeavesAnUnchangedMonitoringTileAlone()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        var original = StreamDeckProtocol.BuildBlankBmp(Mini.KeyPixelSize);
+        var hash = StreamDeckImageCache.Hash(original);
+        f.ImageCache.Store("sim-0001", hash, original);
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            // "number" style renders from ValueText alone, so its wire
+                            // bytes stay stable across ticks unless the sensor value changes.
+                            new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+                            new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://example.com" } },
+                        },
+                    },
+                },
+            },
+            ImageRefs = { ["0.1/0"] = hash },
+        });
+        using var worker = NewWorker(f, simulated);
+        using var sub = f.Hub.AddTestSubscription(PanelTopics.StreamDeckTiles);
+
+        worker.Tick(); // connect - both keys settle
+        var beforeMonitoringBytes = simulated.PeekKeyImage(0);
+        Assert.NotNull(beforeMonitoringBytes);
+        var callsBefore = simulated.SetKeyImageCallCount;
+        var captured = CaptureBroadcasts(f.Hub);
+
+        // The unrelated static key's own edit (e.g. a color drag), as the PUT
+        // config route would apply, with the monitoring reading unchanged.
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"].Deck.Pages[0].Slots[1].Color = "#ff0000");
+        worker.RefreshView("sim-0001");
+
+        // Only the static key's own unconditional pass-1 re-blit writes to
+        // HID - the monitoring tile's unchanged pixels never get re-pushed.
+        Assert.Equal(callsBefore + 1, simulated.SetKeyImageCallCount);
+        Assert.Equal(beforeMonitoringBytes, simulated.PeekKeyImage(0));
+
+        // The broadcast hash was cleared regardless (the editor's own frame
+        // cache can be stale after undo/redo), so the tile still re-sends
+        // once - never a blank placeholder followed by the real content.
+        var tiles = captured.Where(c => c.Topic == PanelTopics.StreamDeckTiles).ToList();
+        Assert.Single(tiles);
+    }
+
+    /// <summary>
+    /// The monitoring key's own config change (e.g. its background color) is
+    /// exactly the case a same-view refresh must still repaint - the pixels
+    /// actually changed, so PushMonitoringKey's own hash compare pushes it
+    /// within the same tick, without needing PushCurrentView's invalidation.
+    /// </summary>
+    [Fact]
+    public void RefreshView_MonitoringKeysOwnConfigChange_StillPushesToHidAndRebroadcastsWithinTheTick()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        using var sub = f.Hub.AddTestSubscription(PanelTopics.StreamDeckTiles);
+
+        worker.Tick();
+        var beforeBytes = simulated.PeekKeyImage(0);
+        Assert.NotNull(beforeBytes);
+        var callsBefore = simulated.SetKeyImageCallCount;
+        var captured = CaptureBroadcasts(f.Hub);
+
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"].Deck.Pages[0].Slots[0].Color = "#00ff00");
+        worker.RefreshView("sim-0001");
+
+        Assert.Equal(callsBefore + 1, simulated.SetKeyImageCallCount);
+        Assert.NotEqual(beforeBytes, simulated.PeekKeyImage(0));
+
+        var tiles = captured.Where(c => c.Topic == PanelTopics.StreamDeckTiles).ToList();
+        Assert.Single(tiles);
+    }
+
+    /// <summary>A slot retyped to monitoring by a same-view refresh must show its real tile from the same call, never the departing slot type's stale pixels.</summary>
+    [Fact]
+    public void RefreshView_SlotBecomesMonitoring_RendersTheRealTileInTheSameCall()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://example.com" } } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+        Assert.Null(simulated.PeekKeyImage(0)); // no uploaded image for the leaf slot
+
+        f.Store.Update(s =>
+            s.StreamDeck.Decks["sim-0001"].Deck.Pages[0].Slots[0] =
+                new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } });
+        worker.RefreshView("sim-0001");
+
+        var bytes = simulated.PeekKeyImage(0);
+        Assert.NotNull(bytes);
+        Assert.True(Mini.IsValidWireImageLength(bytes!.Length));
+    }
+
+    /// <summary>A slot retyped away from monitoring by a same-view refresh gets its static image/ClearKey from pass 1, unconditional on viewChanged.</summary>
+    [Fact]
+    public void RefreshView_SlotStopsBeingMonitoring_ClearsTheKeyFromPassOne()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } } } } } },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick();
+        Assert.NotNull(simulated.PeekKeyImage(0));
+
+        f.Store.Update(s =>
+            s.StreamDeck.Decks["sim-0001"].Deck.Pages[0].Slots[0] =
+                new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://example.com" } }); // no ImageRef uploaded
+        worker.RefreshView("sim-0001");
+
+        Assert.Null(simulated.PeekKeyImage(0));
+    }
+
+    /// <summary>
+    /// Weather has no stored slot image and no HID hash gate of its own
+    /// (RenderWeatherKeys repaints it unconditionally on its own round-robin
+    /// cadence), so pass 1 must not clear it on a same-view refresh - there
+    /// is nothing to immediately repaint it until the next Tick(). A real
+    /// navigation still flushes it, matching monitoring's placeholder intent.
+    /// </summary>
+    [Fact]
+    public void RefreshView_WeatherKey_LeavesLivePixelsAlone_ButNavigationStillClearsIt()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages = { new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "weather" } } } } },
+            },
+        });
+        using var worker = NewWorker(f, simulated); // no IWeatherProvider wired - RefreshWeatherKeys never repaints on Tick()
+        worker.Tick();
+        Assert.Null(simulated.PeekKeyImage(0));
+
+        // Stand in for a real weather tile RefreshWeatherKeys would have
+        // already pushed once a provider resolved a snapshot.
+        simulated.SetKeyImage(0, new byte[] { 1, 2, 3 });
+
+        worker.RefreshView("sim-0001");
+        Assert.Equal(new byte[] { 1, 2, 3 }, simulated.PeekKeyImage(0));
+
+        Assert.True(worker.SetNav("sim-0001", 0, Array.Empty<int>()));
+        Assert.Null(simulated.PeekKeyImage(0));
     }
 
     [Fact]
@@ -1938,6 +2128,120 @@ public class StreamDeckConnectionWorkerTests
     }
 
     /// <summary>
+    /// Regression: a config edit that deletes the currently displayed page
+    /// moves ClampCurrentPageLocked's resolved page away from the tracked
+    /// one even though RefreshView's call site passes viewChanged=false.
+    /// PushCurrentView must detect the mismatch and escalate to a real view
+    /// change, so the landing view's weather key is cleared and its
+    /// monitoring key gets the placeholder-then-real two-pass repaint
+    /// instead of only the real content pushed once.
+    /// </summary>
+    [Fact]
+    public void RefreshView_ConfigDeletesTheCurrentlyDisplayedPage_EscalatesToAFullViewChange()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+                            new DeckSlot { Action = new DeckAction { Type = "weather" } },
+                        },
+                    },
+                    new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "page", Op = "prev" } } } },
+                },
+            },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick(); // connect at page 0
+
+        Assert.True(worker.SetNav("sim-0001", 1, Array.Empty<int>()));
+        Assert.Equal(1, worker.GetCurrentPage("sim-0001"));
+
+        // Stand in for a live weather tile the deck would already be showing.
+        simulated.SetKeyImage(1, new byte[] { 9, 9, 9 });
+        var writesBefore = simulated.SetKeyImageOrder.Count;
+
+        // Deletes page 1, the currently displayed page, then a same-view
+        // refresh (viewChanged=false at the call site) - as the deck-config
+        // PUT route applies an edit.
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"].Deck.Pages.RemoveAt(1));
+        worker.RefreshView("sim-0001");
+
+        Assert.Equal(0, worker.GetCurrentPage("sim-0001")); // clamped back onto page 0
+
+        // The weather key on the landing view was cleared, not left showing
+        // the departed page's foreign pixels.
+        Assert.Null(simulated.PeekKeyImage(1));
+
+        // The monitoring key got the placeholder-then-real two-pass repaint
+        // a real view change gets, not a single same-view repaint.
+        var monitoringWritesDuringRefresh = simulated.SetKeyImageOrder.Skip(writesBefore).Count(k => k == 0);
+        Assert.Equal(2, monitoringWritesDuringRefresh);
+    }
+
+    /// <summary>
+    /// Regression: a config edit that removes the folder currently being
+    /// shown makes ResolveView return null for the tracked folder path, and
+    /// PushCurrentView's own fallback resets it to root - a same-view
+    /// refresh landing on a different view the same way a deleted page does.
+    /// </summary>
+    [Fact]
+    public void RefreshView_ConfigRemovesTheDisplayedFolder_EscalatesToAFullViewChange()
+    {
+        var f = NewFixtures(devicePresent: false);
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage
+                    {
+                        Slots =
+                        {
+                            new DeckSlot { Folder = new DeckFolder { Slots = { new DeckSlot { Action = new DeckAction { Type = "weather" } } } } },
+                            new DeckSlot { Action = new DeckAction { Type = "weather" } },
+                        },
+                    },
+                },
+            },
+        });
+        using var worker = NewWorker(f, simulated);
+        worker.Tick(); // connect at root
+
+        Assert.True(worker.SetNav("sim-0001", 0, new[] { 0 })); // into the folder
+        Assert.Equal(new[] { 0 }, worker.GetFolderPath("sim-0001"));
+
+        // Stand in for the folder's own live weather tile at physical key 1.
+        simulated.SetKeyImage(1, new byte[] { 9, 9, 9 });
+
+        // Retypes slot 0 away from a folder - the config edit removes the
+        // folder the deck is currently showing - then a same-view refresh.
+        f.Store.Update(s =>
+            s.StreamDeck.Decks["sim-0001"].Deck.Pages[0].Slots[0] =
+                new DeckSlot { Action = new DeckAction { Type = "openUrl", Url = "https://example.com" } });
+        worker.RefreshView("sim-0001");
+
+        Assert.Empty(worker.GetFolderPath("sim-0001"));
+        // Root slot 1 is a weather slot too - cleared, not left showing the
+        // departed folder's foreign pixels.
+        Assert.Null(simulated.PeekKeyImage(1));
+    }
+
+    /// <summary>
     /// DisconnectAll (driven here via the feature gate turning off, the same
     /// path service shutdown takes) restores the deck's persisted brightness
     /// and fires a firmware Reset() on every real surface before tearing it
@@ -2239,6 +2543,90 @@ public class StreamDeckConnectionWorkerTests
             .OrderBy(p => p, StringComparer.Ordinal)
             .ToList();
         Assert.Equal(new[] { "0", "1" }, slotPaths);
+    }
+
+    /// <summary>Mirrors the subscriber-join broadcast test above, but on "number"-style tiles (stable wire bytes across ticks) so a zero-HID-write assertion cannot be confused with a legitimate history-driven render change.</summary>
+    [Fact]
+    public void StreamdeckTiles_SubscriberJoins_RebroadcastsVisibleTilesWithZeroHidWrites()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 10f, Formatted = "10%", Parent = new SensorParent() },
+        };
+        var slots = new List<DeckSlot>
+        {
+            new() { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+            new() { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig { Pages = { new DeckPage { Slots = slots } } },
+        });
+        using var worker = NewWorker(f, simulated);
+
+        worker.Tick(); // connect, no subscriber yet
+        var callsBeforeSubscribe = simulated.SetKeyImageCallCount;
+        var captured = CaptureBroadcasts(f.Hub);
+
+        using var sub = f.Hub.AddTestSubscription(PanelTopics.StreamDeckTiles); // 0 -> 1 transition
+        worker.Tick(); // sensor unchanged - the subscribe-triggered broadcast-hash clear is what forces this
+
+        Assert.Equal(callsBeforeSubscribe, simulated.SetKeyImageCallCount);
+
+        var slotPaths = captured
+            .Where(c => c.Topic == PanelTopics.StreamDeckTiles)
+            .Select(c => TileFramePayload(c).GetProperty("slotPath").GetString())
+            .OrderBy(p => p, StringComparer.Ordinal)
+            .ToList();
+        Assert.Equal(new[] { "0", "1" }, slotPaths);
+    }
+
+    /// <summary>
+    /// A real navigation, unlike a same-view refresh, still invalidates
+    /// every monitoring HID hash for the whole serial (not only the newly
+    /// visible slot) and still broadcasts the placeholder frame before the
+    /// real one.
+    /// </summary>
+    [Fact]
+    public void SetNav_BroadcastsPlaceholderThenReal_AndInvalidatesEveryMonitoringHidHashForTheSerial()
+    {
+        var f = NewFixtures(devicePresent: false);
+        f.Sensors.CpuSensors = new[]
+        {
+            new HardwareSensor { Id = "cpu/core0", Name = "Core 0", Type = "Load", Value = 42f, Formatted = "42%", Parent = new SensorParent() },
+        };
+        var simulated = new SimulatedStreamDeckSurface(Mini, "sim-0001");
+        f.Store.Update(s => s.StreamDeck.Decks["sim-0001"] = new PhysicalDeckSettings
+        {
+            Deck = new DeckConfig
+            {
+                Pages =
+                {
+                    new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } } } },
+                    new DeckPage { Slots = { new DeckSlot { Action = new DeckAction { Type = "monitoring", Category = "cpu", Sensor = "cpu/core0", Style = "number" } } } },
+                },
+            },
+        });
+        using var worker = NewWorker(f, simulated);
+        using var sub = f.Hub.AddTestSubscription(PanelTopics.StreamDeckTiles);
+
+        worker.Tick(); // connect at page 0
+        Assert.True(worker.HasMonitoringHashForTests("sim-0001", 0, "0"));
+
+        var captured = CaptureBroadcasts(f.Hub);
+        Assert.True(worker.SetNav("sim-0001", 1, Array.Empty<int>()));
+
+        // Page 0's HID hash is gone too, even though its slot is not visible
+        // anymore - a real nav invalidates every monitoring hash for the
+        // serial, not only the newly visible slot's.
+        Assert.False(worker.HasMonitoringHashForTests("sim-0001", 0, "0"));
+        Assert.True(worker.HasMonitoringHashForTests("sim-0001", 1, "0"));
+
+        var tiles = captured.Where(c => c.Topic == PanelTopics.StreamDeckTiles).ToList();
+        Assert.Equal(2, tiles.Count); // pass 1's placeholder frame, then pass 2's real content
+        Assert.All(tiles, t => Assert.Equal("0", TileFramePayload(t).GetProperty("slotPath").GetString()));
     }
 
     /// <summary>The reserved Back key (physical key 0 at folder depth &gt; 0) is never a resolvable DeckSlot and is rendered by PushBackKey, not PushMonitoringPlaceholder/PushMonitoringKey - it must never appear as a streamdeckTiles slotPath.</summary>
