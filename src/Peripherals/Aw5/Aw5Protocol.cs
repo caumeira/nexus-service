@@ -179,12 +179,16 @@ public static class Aw5Protocol
         return f;
     }
 
-    /// <summary>Maps a reading onto the panel's 0-6 bar, clamped at both ends.</summary>
+    /// <summary>
+    /// Maps a reading onto the panel's bar, linearly, clamped at both ends. Only a
+    /// true zero empties the bar: a running CPU idling below the first step still
+    /// lights one segment, so an empty bar means "no reading", not "low reading".
+    /// </summary>
     internal static byte Notches(int value, int min, int max)
     {
-        if (max <= min) return 0;
+        if (value <= 0 || max <= min) return 0;
         var span = (double)(max - min);
         var scaled = (value - min) / span * CoolerMasterMaxNotches;
-        return (byte)Math.Clamp((int)Math.Round(scaled), 0, CoolerMasterMaxNotches);
+        return (byte)Math.Clamp((int)Math.Round(scaled), 1, CoolerMasterMaxNotches);
     }
 }
