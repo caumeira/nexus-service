@@ -58,14 +58,17 @@ public static class Aw5Protocol
     public const int CoolerMasterCycleMs = 2400;
 
     /// <summary>
-    /// Ceiling for the CoolerMaster's bar-graph notch counts. The vendor's own frames
-    /// reach 10, so the 6 that was here truncated the top of every bar. Bench: sweeping
-    /// a notch byte 0..255 with the readings pinned changes nothing measurable on the
-    /// glass (0 vs 255 sits inside camera noise), so what these bytes render is
-    /// unconfirmed on this panel; the counts below reproduce what the vendor sent for
-    /// the same readings rather than a scale invented here.
+    /// Bar-graph notches flanking each CoolerMaster reading. The host sends the count,
+    /// so the scale is ours; the bar reads as roughly six segments on the glass.
+    ///
+    /// The vendor's own frames reach 10 for load and 7 for clock, and its counts fit
+    /// 2 + 2*floor(load/15) exactly across 30 captured frames. Sending that was tried
+    /// and reverted: it lights 4 bars at 15% load, which is plainly too full on a bar
+    /// this size. So the vendor's bytes are not a plain segment count, and the capture
+    /// cannot tell us what they are - only the glass can. Do not "correct" this scale
+    /// to match the capture again without first counting lit segments on hardware.
     /// </summary>
-    public const int CoolerMasterMaxNotches = 14;
+    public const int CoolerMasterMaxNotches = 6;
 
     /// <summary>Panel clamps the frequency readout at four digits.</summary>
     private const int CoolerMasterMaxMhz = 9999;
@@ -156,9 +159,9 @@ public static class Aw5Protocol
         f[4] = (byte)(mhz & 0xFF);
         f[5] = (byte)tempC;
 
-        f[9] = TempNotches(tempC);
-        f[10] = ClockNotches(mhz);
-        f[11] = LoadNotches(loadPct);
+        f[9] = Notches(tempC, 20, 90);
+        f[10] = Notches(mhz, 800, 5000);
+        f[11] = Notches(loadPct, 0, 100);
 
         f[12] = 0xF9;
         return f;
@@ -176,32 +179,12 @@ public static class Aw5Protocol
         return f;
     }
 
-    // Fitted to the vendor's captured frames (aw5_load.pcap / aw5_cm.pcap: 30 panel
-    // frames, each carrying its readings beside the notch counts the vendor chose for
-    // them). The three are not one linear scale over a shared range, so each gets its
-    // own function.
-
-    /// <summary>
-    /// One notch per 5C from 18C. Reproduces every captured vendor sample exactly
-    /// (28 -> 2, 32 -> 3, 37 -> 4, 53 -> 7).
-    /// </summary>
-    internal static byte TempNotches(int tempC)
-        => Clamp((int)Math.Round((tempC - 18) / 5.0));
-
-    /// <summary>
-    /// Two notches per 15% band. The vendor's counts step rather than ramp, and are
-    /// always even (8 -> 2, 15 -> 4, 30 -> 6, 65 -> 10); no linear map fits them.
-    /// </summary>
-    internal static byte LoadNotches(int loadPct)
-        => Clamp(2 + 2 * (Math.Clamp(loadPct, 0, 100) / 15));
-
-    /// <summary>
-    /// One notch per 700 MHz, offset by one: 2275 -> 4, 3158 -> 5, 4333 -> 7. One
-    /// captured frame disagrees, as several do - the vendor's counts lag its readings,
-    /// so no function reproduces every frame.
-    /// </summary>
-    internal static byte ClockNotches(int mhz)
-        => Clamp(Math.Max(0, mhz) / 700 + 1);
-
-    private static byte Clamp(int notches) => (byte)Math.Clamp(notches, 0, CoolerMasterMaxNotches);
+    /// <summary>Maps a reading onto the panel's 0-6 bar, clamped at both ends.</summary>
+    internal static byte Notches(int value, int min, int max)
+    {
+        if (max <= min) return 0;
+        var span = (double)(max - min);
+        var scaled = (value - min) / span * CoolerMasterMaxNotches;
+        return (byte)Math.Clamp((int)Math.Round(scaled), 0, CoolerMasterMaxNotches);
+    }
 }
