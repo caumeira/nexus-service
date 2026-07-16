@@ -380,6 +380,8 @@ public sealed class PanelDeviceRegistry
                 record.BackgroundTemplates = new Dictionary<string, int>(patch.BackgroundTemplates);
             if (patch.BackgroundOpacity.HasValue)
                 record.BackgroundOpacity = patch.BackgroundOpacity.Value;
+            if (patch.BackgroundEnabled.HasValue)
+                record.BackgroundEnabled = patch.BackgroundEnabled.Value;
             if (patch.BackgroundMediaId is not null)
                 record.BackgroundMediaId = NullIfEmpty(patch.BackgroundMediaId);
             if (patch.BackgroundMediaType is not null)
@@ -474,6 +476,7 @@ public sealed class PanelDeviceRegistry
                 ? null
                 : new Dictionary<string, int>(r.BackgroundTemplates),
             BackgroundOpacity = r.BackgroundOpacity,
+            BackgroundEnabled = r.BackgroundEnabled,
             BackgroundMediaId = r.BackgroundMediaId,
             BackgroundMediaType = r.BackgroundMediaType,
             WidgetOpacity = r.WidgetOpacity,

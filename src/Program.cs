@@ -396,6 +396,9 @@ Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusCloud");
 builder.Services.AddHostedService<Nexus.Service.Discovery.MdnsAdvertiser>();
 Nexus.Service.Lifecycle.BootTimer.Mark("after MdnsAdvertiser register");
 
+// Wallpaper-change push for panels rendering the desktop-wallpaper background.
+builder.Services.AddHostedService<Nexus.Service.Panel.DesktopWallpaperWatcher>();
+
 // Emit mode starts the host far enough to register endpoints for the OpenAPI
 // document (WebApplication defers that to StartAsync); drop every hosted service
 // so no background device work runs during that start.

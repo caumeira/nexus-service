@@ -228,7 +228,7 @@ public sealed class XeneonEdgeOrientationWorkerTests
     }
 
     [Fact]
-    public void Tick_OrientationChange_NoBackgroundColourSet_ThreadsAnEmptyCoverColour()
+    public async Task Tick_OrientationChange_NoBackgroundColourSet_ThreadsAnEmptyCoverColour()
     {
         var f = NewFixtures(devicePresent: true);
         PromoteXeneonEdge(f.Registry);
@@ -239,6 +239,10 @@ public sealed class XeneonEdgeOrientationWorkerTests
 
         device.PendingReads.Enqueue(OrientationReport(0));
         worker.Tick();
+
+        // The apply runs off the reader thread (a background queue), so it
+        // may not have landed the instant Tick() returns.
+        await WaitForOrientationCalls(f.Orientation, 1);
 
         var call = Assert.Single(f.Orientation.Calls);
         Assert.Equal("", call.CoverColorHex);

@@ -192,12 +192,14 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     private int _weatherRoundRobinCursor;
 
     /// <summary>
-    /// Per "{serial}:{page}:{slotPath}" last-broadcast wire hash for weather
-    /// tiles, gating the streamdeckTiles preview the same way _monitoringLastHash
-    /// gates monitoring - independent of the physical HID push, which weather
-    /// still repaints unconditionally every round-robin turn.
+    /// Per "{serial}:{page}:{slotPath}" last-broadcast wire hash, shared by
+    /// monitoring and weather tiles, gating the streamdeckTiles preview
+    /// independently of each tile type's own HID push. Monitoring's physical
+    /// push has its own separate gate (_monitoringLastHash); weather's
+    /// physical push has no hash gate at all and repaints unconditionally
+    /// every round-robin turn.
     /// </summary>
-    private readonly Dictionary<string, uint> _weatherLastHash = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, uint> _tileBroadcastHash = new(StringComparer.Ordinal);
 
     private readonly TimeProvider _clock;
 
@@ -233,12 +235,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// subscriber (e.g. the Customize tab opening) would otherwise see
     /// nothing until some tile's pixels next change. Dropping every
     /// last-broadcast hash on the 0-&gt;1 transition makes RefreshMonitoringKeys/
-    /// RefreshWeatherKeys treat every visible tile as changed, but each still
-    /// pushes only up to MonitoringPushCapPerTick/WeatherPushCapPerTick tiles
-    /// per type per tick round-robin, so a deck with more visible tiles than
-    /// the cap takes several ticks to fully repaint. Every one of those pushes
-    /// also re-repaints the physical key even where its pixels did not
-    /// change; that redundant HID write is an accepted cost of this path.
+    /// RefreshWeatherKeys treat every visible tile as changed for the
+    /// broadcast, while leaving each tile's own HID hash untouched - so a
+    /// subscriber joining never causes a redundant physical re-push, only a
+    /// re-encode and re-send of pixels the key already shows. Each tile type
+    /// still pushes only up to MonitoringPushCapPerTick/WeatherPushCapPerTick
+    /// per tick round-robin, so a deck with more visible tiles than the cap
+    /// takes several ticks to fully repaint the editor.
     /// </summary>
     private void OnStreamDeckTilesFirstSubscriber(string topic)
     {
@@ -248,8 +251,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         }
         lock (_lock)
         {
-            _monitoringLastHash.Clear();
-            _weatherLastHash.Clear();
+            _tileBroadcastHash.Clear();
         }
     }
 
@@ -329,7 +331,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             if (surface is not null)
             {
                 WakeIfAsleep(surface);
-                PushCurrentView(surface);
+                PushCurrentView(surface, viewChanged: true);
             }
             return true;
         }
@@ -366,7 +368,13 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// </summary>
     internal Task? LastDispatchTask { get; private set; }
 
-    /// <summary>Re-pushes cached key images for a deck's current folder view. Call after a config or image-ref mutation.</summary>
+    /// <summary>
+    /// Re-pushes cached key images for a deck's current folder view. Call
+    /// after a config or image-ref mutation. A same-view refresh, not a
+    /// navigation - see PushCurrentView's viewChanged parameter: a live
+    /// monitoring or weather tile's current pixels are left alone instead of
+    /// being blanked and repainted.
+    /// </summary>
     public void RefreshView(string serial)
     {
         lock (_lock)
@@ -374,7 +382,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             var surface = FindBySerialLocked(serial);
             if (surface is not null)
             {
-                PushCurrentView(surface);
+                PushCurrentView(surface, viewChanged: false);
             }
         }
     }
@@ -680,7 +688,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         _asleep[surface.Serial] = false;
         _folderPathsBySerial[surface.Serial] = new List<int>();
         _currentPageBySerial[surface.Serial] = 0;
-        PushCurrentView(surface);
+        PushCurrentView(surface, viewChanged: true);
         BroadcastDecksChanged(surface.Serial);
     }
 
@@ -833,7 +841,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             var popped = new List<int>(folderPath);
             popped.RemoveAt(popped.Count - 1);
             _folderPathsBySerial[serial] = popped;
-            PushCurrentView(surface);
+            PushCurrentView(surface, viewChanged: true);
             BroadcastNav(serial, page, popped);
             return;
         }
@@ -1162,7 +1170,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             var pushSurface = FindBySerialLocked(serial);
             if (pushSurface is not null)
             {
-                PushCurrentView(pushSurface);
+                PushCurrentView(pushSurface, viewChanged: true);
             }
             BroadcastNav(serial, page, pushed);
             return;
@@ -1221,7 +1229,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         var surface = FindBySerialLocked(serial);
         if (surface is not null)
         {
-            PushCurrentView(surface);
+            PushCurrentView(surface, viewChanged: true);
         }
         BroadcastNav(serial, next, new List<int>());
     }
@@ -1236,7 +1244,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         public readonly int Page;
         /// <summary>Page-relative slotPath (DeckConfigNavigation.BuildSlotPath), for the streamdeckTiles broadcast.</summary>
         public readonly string SlotPath;
-        /// <summary>"{serial}:{page}:{slotPath}", gating _weatherLastHash the same way MonitoringKeyRef.HistoryKey gates _monitoringLastHash.</summary>
+        /// <summary>"{serial}:{page}:{slotPath}", the shared _tileBroadcastHash key - same format as MonitoringKeyRef.HistoryKey.</summary>
         public readonly string TileKey;
 
         public WeatherKeyRef(IStreamDeckSurface surface, int keyIndex, DeckSlot slot, int orientation, int page, string slotPath, string tileKey)
@@ -1394,11 +1402,11 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
                 return;
             }
             var hash = ComputeFnv1aHash(wireBytes);
-            if (_weatherLastHash.TryGetValue(key.TileKey, out var lastHash) && lastHash == hash)
+            if (_tileBroadcastHash.TryGetValue(key.TileKey, out var lastHash) && lastHash == hash)
             {
                 return;
             }
-            _weatherLastHash[key.TileKey] = hash;
+            _tileBroadcastHash[key.TileKey] = hash;
             BroadcastTile(key.Surface.Serial, key.Page, key.SlotPath, RenderKit.EncodeJpeg(rendered));
         }
     }
@@ -1704,11 +1712,14 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     /// slot.Color, no name/value/history - as an immediate first-pass repaint
     /// on navigation, so a monitoring key never shows the previous view's
     /// pixels while the real tile's sensor sample + render (pass 2) is still
-    /// pending. Unconditional: no hash check, no _monitoringLastHash/
-    /// _monitoringLastPushedBytes update - the very next PushMonitoringKey
-    /// call for this same key overwrites both. Broadcasts the same placeholder
-    /// frame on streamdeckTiles when subscribed, since it is what the
-    /// hardware shows during pass 1.
+    /// pending. Called only for a real view change (PushCurrentView's
+    /// viewChanged); a same-view config refresh skips it, since the key
+    /// already shows correct pixels and blanking it would be the flash this
+    /// method exists to avoid. Unconditional: no hash check, no
+    /// _monitoringLastHash/_monitoringLastPushedBytes update - the very next
+    /// PushMonitoringKey call for this same key overwrites both. Broadcasts
+    /// the same placeholder frame on streamdeckTiles when subscribed, since
+    /// it is what the hardware shows during pass 1 of a navigation.
     /// </summary>
     private void PushMonitoringPlaceholder(MonitoringKeyRef key, string tempUnit, string numberFormat)
     {
@@ -1733,21 +1744,25 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     }
 
     /// <summary>
-    /// Renders and pushes one monitoring key, skipping the HID write when the
-    /// encoded wire bytes hash the same as the last push (a pixel-identical
-    /// tile - quantizing the history before render is what makes that hash
-    /// stable tick over tick for an unchanged reading). A sensor that no
-    /// longer resolves renders a placeholder tile rather than being skipped,
-    /// so a stale image from a previous view is not left on the key forever.
-    /// Never touches ImageRefs/StreamDeckImageCache - monitoring frames
-    /// change every tick and are pushed as in-memory bytes. Skips the push
-    /// (sampling already happened in SampleMonitoringHistory) while the key
-    /// is physically held, so the tick never races HandlePressVisual/HandleKeyUp
-    /// for the same pixels; ForceMonitoringKeyRefresh drops the last-pushed
-    /// hash on release so the next tick repaints it regardless. Broadcasts the
-    /// same render on streamdeckTiles exactly when the hash changes and the
-    /// topic has a subscriber, so a hash-unchanged tick never re-encodes a
-    /// JPEG that would only be discarded.
+    /// Renders one monitoring key and pushes it to HID and/or streamdeckTiles
+    /// independently, each gated by its own hash. The physical write is
+    /// skipped when the encoded wire bytes hash the same as the last HID
+    /// push (_monitoringLastHash) - quantizing the history before render is
+    /// what makes that hash stable tick over tick for an unchanged reading.
+    /// The broadcast is skipped when the wire bytes hash the same as the
+    /// last broadcast (_tileBroadcastHash); PushCurrentView clears only that
+    /// hash on a same-view refresh and OnStreamDeckTilesFirstSubscriber
+    /// clears only that hash on a new subscriber, so either can force a
+    /// re-broadcast without a redundant HID write, and neither hash forces
+    /// the other's push. A sensor that no longer resolves renders a
+    /// placeholder tile rather than being skipped, so a stale image from a
+    /// previous view is not left on the key forever. Never touches
+    /// ImageRefs/StreamDeckImageCache - monitoring frames change every tick
+    /// and are pushed as in-memory bytes. Skips entirely (sampling already
+    /// happened in SampleMonitoringHistory) while the key is physically
+    /// held, so the tick never races HandlePressVisual/HandleKeyUp for the
+    /// same pixels; ForceMonitoringKeyRefresh drops the last-pushed HID hash
+    /// on release so the next tick repaints it regardless.
     /// </summary>
     private void PushMonitoringKey(MonitoringKeyRef key, HardwareSensor? sensor, string tempUnit, string numberFormat)
     {
@@ -1766,20 +1781,27 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             }
 
             var hash = ComputeFnv1aHash(wireBytes);
-            if (_monitoringLastHash.TryGetValue(key.HistoryKey, out var lastHash) && lastHash == hash)
+            var hidUnchanged = _monitoringLastHash.TryGetValue(key.HistoryKey, out var lastHidHash) && lastHidHash == hash;
+            if (!hidUnchanged)
+            {
+                if (!key.Surface.SetKeyImage(key.KeyIndex, wireBytes))
+                {
+                    return;
+                }
+                _monitoringLastHash[key.HistoryKey] = hash;
+                _monitoringLastPushedBytes[key.HistoryKey] = wireBytes;
+            }
+
+            if (!_hub.TopicHasSubscribers(PanelTopics.StreamDeckTiles))
             {
                 return;
             }
-
-            if (key.Surface.SetKeyImage(key.KeyIndex, wireBytes))
+            if (_tileBroadcastHash.TryGetValue(key.HistoryKey, out var lastBroadcastHash) && lastBroadcastHash == hash)
             {
-                _monitoringLastHash[key.HistoryKey] = hash;
-                _monitoringLastPushedBytes[key.HistoryKey] = wireBytes;
-                if (_hub.TopicHasSubscribers(PanelTopics.StreamDeckTiles))
-                {
-                    BroadcastTile(key.Surface.Serial, key.Page, key.SlotPath, RenderKit.EncodeJpeg(rendered));
-                }
+                return;
             }
+            _tileBroadcastHash[key.HistoryKey] = hash;
+            BroadcastTile(key.Surface.Serial, key.Page, key.SlotPath, RenderKit.EncodeJpeg(rendered));
         }
     }
 
@@ -1809,19 +1831,19 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _monitoringHistory.Remove(k);
         }
         InvalidateMonitoringHashesForSerial(serial);
-        foreach (var k in _weatherLastHash.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
-        {
-            _weatherLastHash.Remove(k);
-        }
+        InvalidateTileBroadcastHashesForSerial(serial);
     }
 
     /// <summary>
-    /// Drops last-pushed hashes for this serial so the next RefreshMonitoringKeys
-    /// tick repaints every visible monitoring key even if its quantized reading
-    /// is unchanged from before the view changed. Without this, a key that goes
-    /// monitoring -> non-monitoring -> monitoring again across a nav/config
-    /// change keeps whatever foreign image PushCurrentView (or the other page's
-    /// monitoring render) last put on it, because the hash still matches.
+    /// Drops last-pushed HID hashes for this serial so the next
+    /// RefreshMonitoringKeys tick repaints every visible monitoring key even
+    /// if its quantized reading is unchanged from before the view changed.
+    /// Without this, a key that goes monitoring -&gt; non-monitoring -&gt;
+    /// monitoring again across a nav change keeps whatever foreign image
+    /// PushCurrentView (or the other page's monitoring render) last put on
+    /// it, because the hash still matches. Called only for a real view
+    /// change (PushCurrentView's viewChanged) - a same-view refresh leaves
+    /// these intact so an unchanged tile is not re-pushed over HID.
     /// </summary>
     private void InvalidateMonitoringHashesForSerial(string serial)
     {
@@ -1834,18 +1856,20 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
     }
 
     /// <summary>
-    /// Drops last-broadcast weather hashes for this serial, mirroring
-    /// InvalidateMonitoringHashesForSerial - PushCurrentView calls this on
-    /// every nav/config change so the next RefreshWeatherKeys tick re-broadcasts
-    /// every visible weather tile even though weather's own physical HID push
-    /// (unlike monitoring's) has no hash gate to invalidate.
+    /// Drops last-broadcast tile hashes (monitoring and weather share
+    /// _tileBroadcastHash) for this serial, so the next push re-broadcasts
+    /// every visible tile on streamdeckTiles even when its own HID hash is
+    /// unchanged. PushCurrentView calls this on every nav and every
+    /// same-view refresh, since either can leave the editor's client-side
+    /// frame cache needing a re-send (see RefreshView's callers). Weather's
+    /// physical HID push has no hash gate to invalidate in the first place.
     /// </summary>
-    private void InvalidateWeatherHashesForSerial(string serial)
+    private void InvalidateTileBroadcastHashesForSerial(string serial)
     {
         var prefix = serial + ":";
-        foreach (var k in _weatherLastHash.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
+        foreach (var k in _tileBroadcastHash.Keys.Where(k => k.StartsWith(prefix, StringComparison.Ordinal)).ToList())
         {
-            _weatherLastHash.Remove(k);
+            _tileBroadcastHash.Remove(k);
         }
     }
 
@@ -1904,10 +1928,32 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         return slot?.Action?.Type == "monitoring";
     }
 
-    private void PushCurrentView(IStreamDeckSurface surface)
+    /// <summary>
+    /// Repaints every key of a deck's current view. viewChanged is true for
+    /// a real navigation (SetNav, folder/page nav, connect) and false for a
+    /// same-view config refresh (RefreshView). A real change invalidates
+    /// every monitoring key's HID hash and lets pass 1 blank a monitoring
+    /// slot's placeholder / a weather slot's key, so no key sits on a stale
+    /// previous view's pixels. A refresh leaves monitoring/weather HID
+    /// hashes and pixels untouched - each tile's own per-tick hash compare
+    /// still catches a content change - while every leaf/toggle/folder/
+    /// blank slot still repaints from its current config, since an edit to
+    /// exactly that key is the common reason RefreshView was called. A
+    /// same-view refresh can still land on a different view than the caller
+    /// thought - a config edit deleting the currently tracked page or the
+    /// folder being shown - and escalates to viewChanged=true below once
+    /// that is detected, so the landing view gets the same treatment a real
+    /// navigation would (deleting a middle page, which shifts other slots'
+    /// indices without moving the tracked page number itself, is not
+    /// detected here and is left to each tile's own per-tick hash compare).
+    /// Either case clears the broadcast-only hash (_tileBroadcastHash) so
+    /// the editor gets a fresh frame even when the physical pixels never
+    /// changed - its own frame cache can be cleared client-side by undo/
+    /// redo/reset/preset-delete.
+    /// </summary>
+    private void PushCurrentView(IStreamDeckSurface surface, bool viewChanged)
     {
-        InvalidateMonitoringHashesForSerial(surface.Serial);
-        InvalidateWeatherHashesForSerial(surface.Serial);
+        var entryPage = GetCurrentPageLocked(surface.Serial);
         if (!_folderPathsBySerial.TryGetValue(surface.Serial, out var folderPath))
         {
             folderPath = new List<int>();
@@ -1922,23 +1968,36 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
         var page = ClampCurrentPageLocked(surface.Serial, config);
 
         var view = DeckConfigNavigation.ResolveView(config, page, folderPath);
+        var folderPathReset = false;
         if (view is null)
         {
             folderPath = new List<int>();
             _folderPathsBySerial[surface.Serial] = folderPath;
             view = DeckConfigNavigation.ResolveView(config, page, folderPath) ?? new List<DeckSlot>();
+            folderPathReset = true;
         }
+
+        var effectiveViewChanged = viewChanged || page != entryPage || folderPathReset;
+        if (effectiveViewChanged)
+        {
+            InvalidateMonitoringHashesForSerial(surface.Serial);
+        }
+        InvalidateTileBroadcastHashesForSerial(surface.Serial);
 
         var inFolder = folderPath.Count > 0;
         var monitoringKeys = new List<MonitoringKeyRef>();
 
-        // Pass 1: every key goes out immediately in key order - static images
-        // (or ClearKey) for leaf/toggle/folder slots, and an empty
-        // placeholder (no sensor sample, so no per-key sensor-lookup cost)
-        // for a monitoring slot - so the whole view goes clean the instant a
-        // nav lands, instead of later keys sitting on the previous view's
-        // pixels while earlier keys' sensor sample + render (pass 2, below)
-        // are still running.
+        // Pass 1: every key goes out immediately in key order. Static images
+        // (or ClearKey) for leaf/toggle/folder slots always repaint, since a
+        // same-view refresh is commonly an edit to exactly one of them. A
+        // monitoring slot's empty placeholder and a weather slot's ClearKey
+        // fire only on effectiveViewChanged - so the whole view goes clean
+        // the instant a nav (or an escalated refresh) lands instead of
+        // sitting on the previous view's pixels while pass 2 (below) samples
+        // and renders. On a plain same-view refresh both are left untouched:
+        // their current pixels are already correct, and weather has no
+        // pass-2 repaint here to immediately replace a blank with - its
+        // round-robin runs on the normal tick cadence.
         for (var key = 0; key < surface.Model.KeyCount; key++)
         {
             if (inFolder && key == 0)
@@ -1957,8 +2016,19 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             {
                 var slotPath = DeckConfigNavigation.BuildSlotPath(folderPath, slotIndex);
                 var keyRef = new MonitoringKeyRef(surface, key, BuildMonitoringKey(surface.Serial, page, slotPath), slot, deck?.Orientation ?? 0, page, slotPath);
-                PushMonitoringPlaceholder(keyRef, tempUnit, numberFormat);
+                if (effectiveViewChanged)
+                {
+                    PushMonitoringPlaceholder(keyRef, tempUnit, numberFormat);
+                }
                 monitoringKeys.Add(keyRef);
+                continue;
+            }
+            if (slot.Action?.Type == "weather")
+            {
+                if (effectiveViewChanged)
+                {
+                    surface.ClearKey(key);
+                }
                 continue;
             }
             // An unassigned key renders off (black), matching the deck's own
@@ -1981,11 +2051,14 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             }
         }
 
-        // Pass 2: sample and render the real monitoring content onto the
-        // now-blank tiles. The invalidation call above already dropped every
-        // monitoring key's last-pushed hash, so PushMonitoringKey always
-        // repaints regardless of whether the sampled reading matches the
-        // prior view's.
+        // Pass 2: sample and render the real monitoring content for every
+        // still-visible monitoring key, regardless of effectiveViewChanged.
+        // When true, pass 1 above already blanked every key here with its
+        // placeholder and invalidated its HID hash, so PushMonitoringKey
+        // always repaints. When false, the key's pixels are already correct,
+        // so PushMonitoringKey's own hash compare decides whether a physical
+        // write is needed - the sample still always happens so history stays
+        // continuous.
         foreach (var keyRef in monitoringKeys)
         {
             var sensor = SampleMonitoringHistory(keyRef);
@@ -2276,7 +2349,7 @@ public sealed class StreamDeckConnectionWorker : BackgroundService, IDeckSurface
             _monitoringHistory.Clear();
             _monitoringLastHash.Clear();
             _monitoringLastPushedBytes.Clear();
-            _weatherLastHash.Clear();
+            _tileBroadcastHash.Clear();
             if (hadSurfaces)
             {
                 BroadcastDecksChanged(null);
