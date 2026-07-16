@@ -59,7 +59,8 @@ is called out here:
   proxying (`/tryx/cloud/*`) and local media upload/select. No WebSocket
   topic.
 - `/cloud/*` - online account registration/login/sync endpoints
-  (`nexus-api`-backed). No WebSocket topic.
+  (`nexus-api`-backed), plus device reporting/management and the
+  `/cloud/benchmarks/submit` leaderboard forwarder. No WebSocket topic.
 - `/home-assistant/*` - Home Assistant entity config and control. Introduces
   the `homeAssistant` multiplex topic (see below).
 - `/rtc/offer` - WebRTC DataChannel direct P2P signaling: the phone posts an
