@@ -299,6 +299,35 @@ public static class NexusServiceCollectionExtensions
         return services;
     }
 
+    /// <summary>
+    /// The metrics history recording pipeline: GET /monitoring/history's
+    /// backing store plus the always-on 1Hz sampler. Depends on
+    /// IPerformanceProvider (AddNexusCore), ISensorProvider (AddNexusSensors),
+    /// IFanControlProvider (AddNexusCooling), and TemperatureRollup
+    /// (AddNexusDiagnostics) having already been registered.
+    /// </summary>
+    public static IServiceCollection AddNexusMonitoringHistory(this IServiceCollection services)
+    {
+        services.AddSingleton<Nexus.Service.Monitoring.History.NetworkRateReader>();
+        services.AddSingleton<Nexus.Service.Monitoring.History.IMetricsSource, Nexus.Service.Monitoring.History.SystemMetricsSource>();
+        services.AddSingleton<Nexus.Service.Monitoring.History.MetricsSampleBuffer>();
+        services.AddSingleton<Nexus.Service.Monitoring.History.IMetricsHistoryStore>(_ =>
+        {
+            try
+            {
+                return new Nexus.Service.Monitoring.History.SqliteMetricsHistoryStore();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[metrics-history-store] sqlite unavailable, using in-memory: {ex.Message}");
+                return new Nexus.Service.Monitoring.History.InMemoryMetricsHistoryStore();
+            }
+        });
+        services.AddSingleton<Nexus.Service.Monitoring.History.MetricsSampler>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Monitoring.History.MetricsSampler>());
+        return services;
+    }
+
     public static IServiceCollection AddNexusLighting(this IServiceCollection services)
     {
         services.AddSingleton<LightingEngine>();

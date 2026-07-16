@@ -1007,6 +1007,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.OpenEventViewerResponse))]
 [JsonSerializable(typeof(Nexus.Service.Routes.OpenDeviceManagerResponse))]
 
+// Metrics history (GET /monitoring/history)
+[JsonSerializable(typeof(Nexus.Service.Monitoring.History.MetricPoint))]
+[JsonSerializable(typeof(Nexus.Service.Routes.MetricSeriesWire))]
+[JsonSerializable(typeof(Nexus.Service.Routes.MetricsHistoryResponse))]
+
 // Stream Deck
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSummaryDto))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSummaryDto>))]
