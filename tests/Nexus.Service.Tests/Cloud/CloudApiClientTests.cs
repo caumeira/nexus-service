@@ -174,6 +174,118 @@ public sealed class CloudApiClientTests
     }
 
     [Fact]
+    public async Task SendRawAsync_get_omits_body_and_forwards_method_and_bearer()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var requestTask = Task.Run(async () =>
+        {
+            using var accepted = await listener.AcceptTcpClientAsync();
+            using var stream = accepted.GetStream();
+            var request = await ReadHttpRequestAsync(stream);
+            const string body = "[{\"installId\":\"a\"}]";
+            var bodyBytes = System.Text.Encoding.UTF8.GetBytes(body);
+            var response = $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n{body}";
+            await stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(response));
+            return request;
+        });
+
+        try
+        {
+            var client = new CloudApiClient(new SingleClientFactory(), $"http://127.0.0.1:{port}", TimeSpan.FromSeconds(5));
+
+            var result = await client.SendRawAsync(HttpMethod.Get, "/account/devices", null, "access-tok-1", CancellationToken.None);
+
+            var request = await requestTask;
+            Assert.Contains("GET /account/devices", request);
+            Assert.Contains("Authorization: Bearer access-tok-1", request);
+            Assert.DoesNotContain("Content-Length:", request);
+
+            Assert.True(result.Success);
+            Assert.Equal(200, result.StatusCode);
+            Assert.Equal("[{\"installId\":\"a\"}]", result.Value!.Body);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task SendRawAsync_put_forwards_method_path_and_body()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var requestTask = Task.Run(async () =>
+        {
+            using var accepted = await listener.AcceptTcpClientAsync();
+            using var stream = accepted.GetStream();
+            var request = await ReadHttpRequestAsync(stream);
+            const string body = "{\"ok\":true}";
+            var bodyBytes = System.Text.Encoding.UTF8.GetBytes(body);
+            var response = $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n{body}";
+            await stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(response));
+            return request;
+        });
+
+        try
+        {
+            var client = new CloudApiClient(new SingleClientFactory(), $"http://127.0.0.1:{port}", TimeSpan.FromSeconds(5));
+
+            var result = await client.SendRawAsync(HttpMethod.Put, "/account/devices/install-1", "{\"hostname\":\"pc\"}", "access-tok-2", CancellationToken.None);
+
+            var request = await requestTask;
+            Assert.Contains("PUT /account/devices/install-1", request);
+            Assert.Contains("Authorization: Bearer access-tok-2", request);
+            Assert.Contains("{\"hostname\":\"pc\"}", request);
+
+            Assert.True(result.Success);
+            Assert.Equal(200, result.StatusCode);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task SendRawAsync_delete_returns_upstream_204_with_empty_body()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var requestTask = Task.Run(async () =>
+        {
+            using var accepted = await listener.AcceptTcpClientAsync();
+            using var stream = accepted.GetStream();
+            var request = await ReadHttpRequestAsync(stream);
+            var response = "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n";
+            await stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(response));
+            return request;
+        });
+
+        try
+        {
+            var client = new CloudApiClient(new SingleClientFactory(), $"http://127.0.0.1:{port}", TimeSpan.FromSeconds(5));
+
+            var result = await client.SendRawAsync(HttpMethod.Delete, "/account/devices/install-1", null, "access-tok-3", CancellationToken.None);
+
+            var request = await requestTask;
+            Assert.Contains("DELETE /account/devices/install-1", request);
+
+            Assert.True(result.Success);
+            Assert.Equal(204, result.StatusCode);
+            Assert.Equal("", result.Value!.Body);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
     public async Task Avatar_upload_posts_multipart_field_named_file()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);

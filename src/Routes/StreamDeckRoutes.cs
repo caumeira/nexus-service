@@ -316,6 +316,7 @@ public static class StreamDeckRoutes
             string serial, CreateDeckPresetBody body, IConfigStore store) =>
         {
             bool capped = false;
+            bool nameTaken = false;
             DeckPreset? created = null;
             store.Update(s =>
             {
@@ -329,19 +330,26 @@ public static class StreamDeckRoutes
                     capped = true;
                     return;
                 }
+                var trimmedName = string.IsNullOrEmpty(body.Name) ? "" : body.Name.Trim();
+                if (trimmedName.Length > 0
+                    && deck.Presets.Any(p => string.Equals(p.Name, trimmedName, StringComparison.OrdinalIgnoreCase)))
+                {
+                    nameTaken = true;
+                    return;
+                }
                 var id = Guid.NewGuid().ToString("n");
                 created = body.Config is not null
                     ? new DeckPreset
                     {
                         Id = id,
-                        Name = body.Name,
+                        Name = trimmedName,
                         Deck = DeepCopyDeckConfig(body.Config),
                         ImageRefs = new Dictionary<string, string>(),
                     }
                     : new DeckPreset
                     {
                         Id = id,
-                        Name = body.Name,
+                        Name = trimmedName,
                         Deck = DeepCopyDeckConfig(deck.Deck),
                         ImageRefs = new Dictionary<string, string>(deck.ImageRefs),
                     };
@@ -354,6 +362,13 @@ public static class StreamDeckRoutes
                     ApiResponse.Fail("Deck preset cap of 10 reached"),
                     AppJsonContext.Default.ApiResponse,
                     statusCode: 400);
+            }
+            if (nameTaken)
+            {
+                return Results.Json(
+                    ApiResponse.Fail("preset_name_taken"),
+                    AppJsonContext.Default.ApiResponse,
+                    statusCode: 409);
             }
             return Results.Json(
                 new CreateDeckPresetResponse { Preset = ToPresetDto(created!), ActiveId = created!.Id },
@@ -387,6 +402,7 @@ public static class StreamDeckRoutes
                     statusCode: 404);
             }
 
+            bool nameTaken = false;
             List<string>? evictHashes = null;
             store.Update(s =>
             {
@@ -401,7 +417,14 @@ public static class StreamDeckRoutes
                 }
                 if (!string.IsNullOrEmpty(body.Name))
                 {
-                    p.Name = body.Name;
+                    var trimmedName = body.Name.Trim();
+                    if (trimmedName.Length > 0
+                        && deck.Presets.Any(x => x.Id != id && string.Equals(x.Name, trimmedName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        nameTaken = true;
+                        return;
+                    }
+                    p.Name = trimmedName;
                 }
                 if (body.SaveCurrent)
                 {
@@ -411,6 +434,13 @@ public static class StreamDeckRoutes
                     evictHashes = previousHashes.Where(h => !IsHashReferenced(deck, h, null)).ToList();
                 }
             });
+            if (nameTaken)
+            {
+                return Results.Json(
+                    ApiResponse.Fail("preset_name_taken"),
+                    AppJsonContext.Default.ApiResponse,
+                    statusCode: 409);
+            }
             if (evictHashes is not null)
             {
                 foreach (var h in evictHashes)
