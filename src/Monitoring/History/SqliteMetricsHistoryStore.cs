@@ -15,9 +15,11 @@ namespace Nexus.Service.Monitoring.History;
 /// columns - x10 fixed point halves storage versus REAL). gpu_seconds and
 /// fan_seconds are narrow (ts, entity) pairs keyed by a small integer
 /// surrogate resolved from gpu_series/fan_series, so the per-second rows
-/// never repeat a string id.
+/// never repeat a string id. privacy_sessions is unrelated to 1Hz sampling
+/// (PrivacyAccessWatcher writes it, on its own transition-driven cadence)
+/// but shares this connection and lock since its write rate is low.
 /// </summary>
-public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
+public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySessionStore
 {
     private readonly string _dbPath;
     private readonly SqliteConnection _connection;
@@ -414,6 +416,15 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
                 PRIMARY KEY (ts, fan)
             ) WITHOUT ROWID;
 
+            CREATE TABLE IF NOT EXISTS privacy_sessions (
+                app_id     TEXT NOT NULL,
+                capability TEXT NOT NULL,
+                start_utc  INTEGER NOT NULL,
+                end_utc    INTEGER,
+                UNIQUE(app_id, capability, start_utc)
+            );
+            CREATE INDEX IF NOT EXISTS ix_privacy_sessions_start ON privacy_sessions(start_utc);
+
             CREATE TABLE IF NOT EXISTS schema_meta (
                 key   TEXT PRIMARY KEY,
                 value TEXT NOT NULL
@@ -421,6 +432,60 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore
             INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('version', '1');
         """;
         cmd.ExecuteNonQuery();
+    }
+
+    public void Upsert(string capability, string appId, long startUtcSec, long? endUtcSec)
+    {
+        lock (_writeLock)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                INSERT INTO privacy_sessions (app_id, capability, start_utc, end_utc)
+                VALUES ($app, $cap, $start, $end)
+                ON CONFLICT(app_id, capability, start_utc) DO UPDATE SET end_utc = excluded.end_utc;
+            """;
+            cmd.Parameters.AddWithValue("$app", appId);
+            cmd.Parameters.AddWithValue("$cap", capability);
+            cmd.Parameters.AddWithValue("$start", startUtcSec);
+            cmd.Parameters.AddWithValue("$end", (object?)endUtcSec ?? DBNull.Value);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    IReadOnlyList<PrivacySession> IPrivacySessionStore.Query(long fromSec, long toSec)
+    {
+        lock (_writeLock)
+        {
+            var result = new List<PrivacySession>();
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT app_id, capability, start_utc, end_utc
+                FROM privacy_sessions
+                WHERE start_utc <= $to AND (end_utc IS NULL OR end_utc >= $from)
+                ORDER BY start_utc ASC;
+            """;
+            cmd.Parameters.AddWithValue("$from", fromSec);
+            cmd.Parameters.AddWithValue("$to", toSec);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(new PrivacySession(
+                    reader.GetString(0), reader.GetString(1), reader.GetInt64(2),
+                    reader.IsDBNull(3) ? null : reader.GetInt64(3)));
+            }
+            return result;
+        }
+    }
+
+    void IPrivacySessionStore.PruneOlderThan(long cutoffSec)
+    {
+        lock (_writeLock)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = "DELETE FROM privacy_sessions WHERE end_utc IS NOT NULL AND end_utc < $cutoff;";
+            cmd.Parameters.AddWithValue("$cutoff", cutoffSec);
+            cmd.ExecuteNonQuery();
+        }
     }
 
     private static string ResolveDatabasePath() =>

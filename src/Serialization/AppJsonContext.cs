@@ -1012,6 +1012,10 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.MetricSeriesWire))]
 [JsonSerializable(typeof(Nexus.Service.Routes.MetricsHistoryResponse))]
 
+// Privacy access sessions (GET /monitoring/privacy)
+[JsonSerializable(typeof(Nexus.Service.Routes.PrivacySessionWire))]
+[JsonSerializable(typeof(Nexus.Service.Routes.PrivacyAccessResponse))]
+
 // Stream Deck
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSummaryDto))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSummaryDto>))]

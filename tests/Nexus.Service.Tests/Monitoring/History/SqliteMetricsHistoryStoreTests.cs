@@ -219,4 +219,101 @@ public class SqliteMetricsHistoryStoreTests : IDisposable
 
         Assert.Empty(_store.Query(0, long.MaxValue));
     }
+
+    private IPrivacySessionStore PrivacyStore => _store;
+
+    [Fact]
+    public void PrivacyUpsert_ThenQuery_RoundTripsAnOpenSession()
+    {
+        _store.Upsert("microphone", "app.exe", 1000, null);
+
+        var row = Assert.Single(PrivacyStore.Query(0, 10_000));
+        Assert.Equal("app.exe", row.AppId);
+        Assert.Equal("microphone", row.Capability);
+        Assert.Equal(1000, row.StartUtcSec);
+        Assert.Null(row.EndUtcSec);
+    }
+
+    [Fact]
+    public void PrivacyUpsert_SameAppCapabilityStart_ClosesTheOpenSessionInPlace()
+    {
+        _store.Upsert("microphone", "app.exe", 1000, null);
+
+        _store.Upsert("microphone", "app.exe", 1000, 1080);
+
+        var row = Assert.Single(PrivacyStore.Query(0, 10_000));
+        Assert.Equal(1000, row.StartUtcSec);
+        Assert.Equal(1080, row.EndUtcSec);
+    }
+
+    [Fact]
+    public void PrivacyUpsert_DifferentStart_IsASeparateSession()
+    {
+        _store.Upsert("microphone", "app.exe", 1000, 1080);
+        _store.Upsert("microphone", "app.exe", 2000, null);
+
+        var rows = PrivacyStore.Query(0, 10_000);
+        Assert.Equal(2, rows.Count);
+    }
+
+    [Fact]
+    public void PrivacyQuery_ExcludesSessionsOutsideTheWindow()
+    {
+        _store.Upsert("microphone", "app.exe", 1000, 1080);
+        _store.Upsert("microphone", "app.exe", 5000, 5080);
+
+        var rows = PrivacyStore.Query(2000, 4000);
+
+        Assert.Empty(rows);
+    }
+
+    [Fact]
+    public void PrivacyQuery_IncludesAnOpenSession_EvenWhenItStartedBeforeTheWindow()
+    {
+        _store.Upsert("microphone", "app.exe", 100, null);
+
+        var rows = PrivacyStore.Query(5000, 10_000);
+
+        var row = Assert.Single(rows);
+        Assert.Null(row.EndUtcSec);
+    }
+
+    [Fact]
+    public void PrivacyQuery_ExcludesAnOpenSession_WhenItStartsAfterTheWindow()
+    {
+        _store.Upsert("microphone", "app.exe", 20_000, null);
+
+        var rows = PrivacyStore.Query(0, 10_000);
+
+        Assert.Empty(rows);
+    }
+
+    [Fact]
+    public void PrivacyPrune_DeletesOnlyClosedSessionsEndingBeforeTheCutoff()
+    {
+        _store.Upsert("microphone", "app.exe", 1000, 1080);   // closed, old -> pruned
+        _store.Upsert("microphone", "app2.exe", 5000, 5080);  // closed, recent -> kept
+        _store.Upsert("microphone", "app3.exe", 500, null);   // open, old start -> kept regardless
+
+        PrivacyStore.PruneOlderThan(2000);
+
+        var rows = PrivacyStore.Query(0, long.MaxValue);
+        Assert.Equal(2, rows.Count);
+        Assert.DoesNotContain(rows, r => r.AppId == "app.exe");
+        Assert.Contains(rows, r => r.AppId == "app2.exe");
+        Assert.Contains(rows, r => r.AppId == "app3.exe" && r.EndUtcSec == null);
+    }
+
+    [Fact]
+    public void PrivacySessions_SurviveReopen()
+    {
+        _store.Upsert("webcam", "app.exe", 1000, 1080);
+        _store.Dispose();
+
+        _store = new SqliteMetricsHistoryStore(_dbPath);
+
+        var row = Assert.Single(PrivacyStore.Query(0, 10_000));
+        Assert.Equal("webcam", row.Capability);
+        Assert.Equal(1080, row.EndUtcSec);
+    }
 }

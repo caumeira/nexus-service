@@ -19,6 +19,10 @@ namespace Nexus.Service.Routes;
 /// milliseconds. Pinned cross-repo contract with nexus-web's
 /// useMetricHistory/monitoringHistory.ts - series ids, kinds, and the
 /// {t, avg, max} point shape must not change on one side alone.
+///
+/// GET /monitoring/privacy: which apps accessed microphone/webcam/location/
+/// screen-capture, as sessions overlapping the requested window. Unsupported
+/// off Windows (PrivacyAccessWatcher only runs there).
 /// </summary>
 public static class MonitoringHistoryRoutes
 {
@@ -63,6 +67,32 @@ public static class MonitoringHistoryRoutes
             {
                 ServiceLog.Warn($"[monitoring-history] query failed: {ex.Message}");
                 return Results.Ok(new MetricsHistoryResponse { Supported = false });
+            }
+        }).AllowPanel();
+
+        app.MapGet("/monitoring/privacy", (long? from, long? to, IPrivacySessionStore store) =>
+        {
+            if (from is null || to is null || to < from)
+            {
+                return Results.BadRequest(ApiResponse.Fail("from and to are required and to must be >= from"));
+            }
+
+            if (!OperatingSystem.IsWindows())
+            {
+                return Results.Ok(new PrivacyAccessResponse { Supported = false });
+            }
+
+            try
+            {
+                var fromSec = from.Value / 1000;
+                var toSec = to.Value / 1000;
+                var sessions = store.Query(fromSec, toSec);
+                return Results.Ok(BuildPrivacyResponse(sessions, fromSec, toSec));
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Warn($"[monitoring-privacy] query failed: {ex.Message}");
+                return Results.Ok(new PrivacyAccessResponse { Supported = false });
             }
         }).AllowPanel();
     }
@@ -281,6 +311,29 @@ public static class MonitoringHistoryRoutes
             Avg = wholeNumbers ? Math.Round(p.Avg) : Math.Round(p.Avg, 1),
             Max = wholeNumbers ? Math.Round(p.Max) : Math.Round(p.Max, 1),
         }).ToList();
+
+    // Sessions are filtered here (not left solely to the store's own WHERE
+    // clause) so this stays a pure, directly testable overlap check: an open
+    // session (EndUtcSec null) overlaps whenever its start is at or before
+    // toSec, since it has no upper bound yet.
+    internal static PrivacyAccessResponse BuildPrivacyResponse(
+        IReadOnlyList<PrivacySession> sessions, long fromSec, long toSec) =>
+        new()
+        {
+            Supported = true,
+            RetentionDays = PrivacyAccess.RetentionDays,
+            Sessions = sessions
+                .Where(s => s.StartUtcSec <= toSec && (s.EndUtcSec is null || s.EndUtcSec >= fromSec))
+                .OrderBy(s => s.StartUtcSec)
+                .Select(s => new PrivacySessionWire
+                {
+                    App = s.AppId,
+                    Capability = s.Capability,
+                    Start = s.StartUtcSec * 1000,
+                    End = s.EndUtcSec is { } end ? end * 1000 : null,
+                })
+                .ToList(),
+        };
 }
 
 // ----- Wire response wrappers -----
@@ -300,4 +353,19 @@ public sealed record MetricsHistoryResponse
     public int RetentionDays { get; init; } = MetricsHistory.RetentionDays;
     public int StepSeconds { get; init; }
     public IReadOnlyList<MetricSeriesWire> Series { get; init; } = Array.Empty<MetricSeriesWire>();
+}
+
+public sealed record PrivacySessionWire
+{
+    public string App { get; init; } = "";
+    public string Capability { get; init; } = "";
+    public long Start { get; init; }
+    public long? End { get; init; }
+}
+
+public sealed record PrivacyAccessResponse
+{
+    public bool Supported { get; init; } = true;
+    public int RetentionDays { get; init; } = PrivacyAccess.RetentionDays;
+    public IReadOnlyList<PrivacySessionWire> Sessions { get; init; } = Array.Empty<PrivacySessionWire>();
 }

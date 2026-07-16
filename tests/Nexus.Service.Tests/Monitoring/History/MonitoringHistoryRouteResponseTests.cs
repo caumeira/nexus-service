@@ -175,4 +175,101 @@ public class MonitoringHistoryRouteResponseTests
 
         Assert.DoesNotContain(response.Series, s => s.Kind is "gpu" or "gpu-temp" or "fan" or "fan-duty");
     }
+
+    [Fact]
+    public void BuildPrivacyResponse_ReportsRetentionDays()
+    {
+        var response = MonitoringHistoryRoutes.BuildPrivacyResponse(Array.Empty<PrivacySession>(), 0, 1000);
+
+        Assert.True(response.Supported);
+        Assert.Equal(PrivacyAccess.RetentionDays, response.RetentionDays);
+    }
+
+    [Fact]
+    public void BuildPrivacyResponse_ConvertsSecondsToMilliseconds()
+    {
+        var sessions = new[] { new PrivacySession("app.exe", "microphone", 1000, 1080) };
+
+        var response = MonitoringHistoryRoutes.BuildPrivacyResponse(sessions, 0, 2000);
+
+        var session = Assert.Single(response.Sessions);
+        Assert.Equal("app.exe", session.App);
+        Assert.Equal("microphone", session.Capability);
+        Assert.Equal(1_000_000, session.Start);
+        Assert.Equal(1_080_000, session.End);
+    }
+
+    [Fact]
+    public void BuildPrivacyResponse_KeepsAnOpenSessionsEndAsNull()
+    {
+        var sessions = new[] { new PrivacySession("app.exe", "webcam", 1000, null) };
+
+        var response = MonitoringHistoryRoutes.BuildPrivacyResponse(sessions, 0, 2000);
+
+        Assert.Null(Assert.Single(response.Sessions).End);
+    }
+
+    [Fact]
+    public void BuildPrivacyResponse_ExcludesAClosedSessionEntirelyBeforeTheWindow()
+    {
+        var sessions = new[] { new PrivacySession("app.exe", "microphone", 100, 200) };
+
+        var response = MonitoringHistoryRoutes.BuildPrivacyResponse(sessions, 1000, 2000);
+
+        Assert.Empty(response.Sessions);
+    }
+
+    [Fact]
+    public void BuildPrivacyResponse_ExcludesAClosedSessionEntirelyAfterTheWindow()
+    {
+        var sessions = new[] { new PrivacySession("app.exe", "microphone", 5000, 5100) };
+
+        var response = MonitoringHistoryRoutes.BuildPrivacyResponse(sessions, 0, 1000);
+
+        Assert.Empty(response.Sessions);
+    }
+
+    [Fact]
+    public void BuildPrivacyResponse_IncludesAClosedSessionThatPartiallyOverlapsTheWindow()
+    {
+        var sessions = new[] { new PrivacySession("app.exe", "microphone", 500, 1500) };
+
+        var response = MonitoringHistoryRoutes.BuildPrivacyResponse(sessions, 1000, 2000);
+
+        Assert.Single(response.Sessions);
+    }
+
+    [Fact]
+    public void BuildPrivacyResponse_IncludesAnOpenSession_WhenItStartsBeforeTheWindowEnd()
+    {
+        var sessions = new[] { new PrivacySession("app.exe", "webcam", 100, null) };
+
+        var response = MonitoringHistoryRoutes.BuildPrivacyResponse(sessions, 5000, 10_000);
+
+        Assert.Single(response.Sessions);
+    }
+
+    [Fact]
+    public void BuildPrivacyResponse_ExcludesAnOpenSession_WhenItStartsAfterTheWindowEnd()
+    {
+        var sessions = new[] { new PrivacySession("app.exe", "webcam", 20_000, null) };
+
+        var response = MonitoringHistoryRoutes.BuildPrivacyResponse(sessions, 0, 10_000);
+
+        Assert.Empty(response.Sessions);
+    }
+
+    [Fact]
+    public void BuildPrivacyResponse_OrdersSessionsByStart()
+    {
+        var sessions = new[]
+        {
+            new PrivacySession("app.exe", "microphone", 2000, 2100),
+            new PrivacySession("app.exe", "microphone", 1000, 1100),
+        };
+
+        var response = MonitoringHistoryRoutes.BuildPrivacyResponse(sessions, 0, 10_000);
+
+        Assert.Equal(new long[] { 1_000_000, 2_000_000 }, response.Sessions.Select(s => s.Start).ToArray());
+    }
 }

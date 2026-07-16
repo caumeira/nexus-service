@@ -311,10 +311,12 @@ public static class NexusServiceCollectionExtensions
 
     /// <summary>
     /// The metrics history recording pipeline: GET /monitoring/history's
-    /// backing store plus the always-on 1Hz sampler. Depends on
-    /// IPerformanceProvider (AddNexusCore), ISensorProvider (AddNexusSensors),
-    /// IFanControlProvider (AddNexusCooling), and TemperatureRollup
-    /// (AddNexusDiagnostics) having already been registered.
+    /// backing store plus the always-on 1Hz sampler, and GET
+    /// /monitoring/privacy's backing store plus the Windows-only privacy
+    /// access watcher (self-gates off Windows; registered unconditionally).
+    /// Depends on IPerformanceProvider (AddNexusCore), ISensorProvider
+    /// (AddNexusSensors), IFanControlProvider (AddNexusCooling), and
+    /// TemperatureRollup (AddNexusDiagnostics) having already been registered.
     /// </summary>
     public static IServiceCollection AddNexusMonitoringHistory(this IServiceCollection services)
     {
@@ -335,6 +337,16 @@ public static class NexusServiceCollectionExtensions
         });
         services.AddSingleton<Nexus.Service.Monitoring.History.MetricsSampler>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Monitoring.History.MetricsSampler>());
+
+        // IPrivacySessionStore resolves the same singleton instance as
+        // IMetricsHistoryStore (both interfaces land on one concrete store),
+        // sharing its connection and lock rather than opening a second one.
+        services.AddSingleton<Nexus.Service.Monitoring.History.IPrivacyAccessRegistryReader,
+            Nexus.Service.Monitoring.History.PrivacyAccessRegistryReader>();
+        services.AddSingleton<Nexus.Service.Monitoring.History.IPrivacySessionStore>(sp =>
+            (Nexus.Service.Monitoring.History.IPrivacySessionStore)sp.GetRequiredService<Nexus.Service.Monitoring.History.IMetricsHistoryStore>());
+        services.AddSingleton<Nexus.Service.Monitoring.History.PrivacyAccessWatcher>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Monitoring.History.PrivacyAccessWatcher>());
         return services;
     }
 

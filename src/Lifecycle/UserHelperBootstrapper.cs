@@ -139,7 +139,7 @@ internal static class UserHelperBootstrapper
         Console.WriteLine($"[{logTag}] launched {nexusArg} as {username}");
     }
 
-    private static string ResolveActiveConsoleUsername()
+    internal static string ResolveActiveConsoleUsername()
     {
         var sessionId = WTSGetActiveConsoleSessionId();
         if (sessionId == 0xFFFFFFFF) return string.Empty;
