@@ -208,26 +208,60 @@ public class Aw5ProtocolTests
         for (var i = 1; i < f.Length; i++) Assert.Equal(0, f[i]);
     }
 
+    // Each row is a real vendor frame from aw5_load.pcap / aw5_cm.pcap: the readings
+    // it carried, and the notch counts it chose for them. Pinning the vendor's own
+    // output is the only ground truth available - sweeping a notch byte 0..255 on the
+    // bench changes nothing measurable on the glass, so what these render is unknown.
     [Theory]
-    [InlineData(0, 0, 100, 0)]
-    [InlineData(50, 0, 100, 3)]
-    [InlineData(100, 0, 100, 6)]
-    [InlineData(-20, 0, 100, 0)]
-    [InlineData(400, 0, 100, 6)]
-    public void Notches_scale_and_clamp_to_the_panels_six_bars(int value, int min, int max, int expected)
+    [InlineData(28, 2)]
+    [InlineData(29, 2)]
+    [InlineData(32, 3)]
+    [InlineData(34, 3)]
+    [InlineData(37, 4)]
+    [InlineData(53, 7)]
+    public void CoolerMaster_temp_notches_match_the_vendor(int tempC, int expected)
+        => Assert.Equal(expected, Aw5Protocol.TempNotches(tempC));
+
+    [Theory]
+    [InlineData(8, 2)]
+    [InlineData(14, 2)]
+    [InlineData(15, 4)]
+    [InlineData(29, 4)]
+    [InlineData(30, 6)]
+    [InlineData(34, 6)]
+    [InlineData(65, 10)]
+    [InlineData(69, 10)]
+    public void CoolerMaster_load_notches_match_the_vendor(int loadPct, int expected)
+        => Assert.Equal(expected, Aw5Protocol.LoadNotches(loadPct));
+
+    [Theory]
+    [InlineData(2275, 4)]
+    [InlineData(3158, 5)]
+    [InlineData(4333, 7)]
+    public void CoolerMaster_clock_notches_match_the_vendor(int mhz, int expected)
+        => Assert.Equal(expected, Aw5Protocol.ClockNotches(mhz));
+
+    [Fact]
+    public void CoolerMaster_notches_reach_past_six()
     {
-        // Bench: a 7 renders as a full bar, so the panel clamps too; overshooting it
-        // is silently indistinguishable from a correct 6.
-        Assert.Equal(expected, Aw5Protocol.Notches(value, min, max));
+        // The vendor sends 10 for load and 7 for clock. A 6 ceiling silently truncated
+        // the top of every bar, and was taken on faith from a spec that never checked.
+        Assert.Equal(10, Aw5Protocol.LoadNotches(65));
+        Assert.True(Aw5Protocol.TempNotches(88) > 6);
     }
 
     [Fact]
-    public void CoolerMaster_notches_never_exceed_the_panel_range()
+    public void CoolerMaster_notches_stay_inside_the_ceiling_at_the_extremes()
     {
-        var f = Aw5Protocol.BuildCoolerMasterFrame(loadPct: 100, mhz: 9999, tempC: 255);
+        var hot = Aw5Protocol.BuildCoolerMasterFrame(loadPct: 100, mhz: 9999, tempC: 255);
+        Assert.InRange(hot[9], 0, Aw5Protocol.CoolerMasterMaxNotches);
+        Assert.InRange(hot[10], 0, Aw5Protocol.CoolerMasterMaxNotches);
+        Assert.InRange(hot[11], 0, Aw5Protocol.CoolerMasterMaxNotches);
 
-        Assert.InRange(f[9], 0, Aw5Protocol.CoolerMasterMaxNotches);
-        Assert.InRange(f[10], 0, Aw5Protocol.CoolerMasterMaxNotches);
-        Assert.InRange(f[11], 0, Aw5Protocol.CoolerMasterMaxNotches);
+        // A cold/idle box must not wrap a notch byte negative.
+        var cold = Aw5Protocol.BuildCoolerMasterFrame(loadPct: 0, mhz: 0, tempC: 0);
+        Assert.InRange(cold[9], 0, Aw5Protocol.CoolerMasterMaxNotches);
+        Assert.InRange(cold[10], 0, Aw5Protocol.CoolerMasterMaxNotches);
+        Assert.InRange(cold[11], 0, Aw5Protocol.CoolerMasterMaxNotches);
     }
 }
