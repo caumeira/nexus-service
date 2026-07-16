@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Models.Displays;
 using Nexus.Service.Platform;
 
 namespace Nexus.Service.Platform.Displays;
@@ -37,22 +38,27 @@ public sealed class TouchMappingGuard
     private readonly ITouchMapSnapshotSource _snapshotSource;
     private readonly IDigimonRegistryWriter _registryWriter;
     private readonly ITouchDigitizerDevnodeRestarter _devnodeRestarter;
+    private readonly IEdgeSwipePolicy? _edgeSwipePolicy;
     private readonly TimeSpan _verifyTimeout;
     private readonly TimeSpan _verifyPollInterval;
     private readonly SemaphoreSlim _gate = new(1, 1);
 
     /// <summary>verifyTimeout/verifyPollInterval override the bench-derived
-    /// defaults for tests; production callers (DI) always get the defaults.</summary>
+    /// defaults for tests; production callers (DI) always get the defaults.
+    /// edgeSwipePolicy is optional so non-Windows hosts (no registration)
+    /// resolve to the parameter default.</summary>
     public TouchMappingGuard(
         ITouchMapSnapshotSource snapshotSource,
         IDigimonRegistryWriter registryWriter,
         ITouchDigitizerDevnodeRestarter devnodeRestarter,
+        IEdgeSwipePolicy? edgeSwipePolicy = null,
         TimeSpan? verifyTimeout = null,
         TimeSpan? verifyPollInterval = null)
     {
         _snapshotSource = snapshotSource;
         _registryWriter = registryWriter;
         _devnodeRestarter = devnodeRestarter;
+        _edgeSwipePolicy = edgeSwipePolicy;
         _verifyTimeout = verifyTimeout ?? DefaultVerifyTimeout;
         _verifyPollInterval = verifyPollInterval ?? DefaultVerifyPollInterval;
     }
@@ -78,6 +84,7 @@ public sealed class TouchMappingGuard
             }
 
             var (outcome, plans) = TouchMappingDecision.Decide(snapshot);
+            AssertEdgeSwipePolicy(snapshot);
             switch (outcome)
             {
                 case TouchMappingOutcome.NoPanel:
@@ -136,6 +143,28 @@ public sealed class TouchMappingGuard
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Edge-swipe suppression rides display presence, not the repair
+    /// outcome: any touch-expected display attached means Windows edge
+    /// overlays would open over the kiosk glass, whatever state the
+    /// digitizer mapping is in. Failures are logged on their own so they
+    /// are never misattributed to the mapping pass.
+    /// </summary>
+    private void AssertEdgeSwipePolicy(TouchMapSnapshot snapshot)
+    {
+        if (_edgeSwipePolicy is null) return;
+        if (!TouchMappingDecision.HasTouchExpectedDisplay(snapshot)) return;
+        try
+        {
+            if (_edgeSwipePolicy.EnsureDisabled())
+                Log("edge-swipe policy set (AllowEdgeSwipe=0); applies at next logon/explorer restart");
+        }
+        catch (Exception ex)
+        {
+            Log($"edge-swipe policy write failed: {ex.Message}");
         }
     }
 

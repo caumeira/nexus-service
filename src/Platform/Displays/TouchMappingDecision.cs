@@ -129,6 +129,23 @@ public static class TouchMappingDecision
     }
 
     /// <summary>
+    /// True when any attached display is a touch-expected panel model. Drives
+    /// the edge-swipe policy: display presence alone is the signal, whatever
+    /// state the digitizer enumeration or OS mapping is in (an
+    /// already-correct generic-tier box reports NoPanel from Decide, and a
+    /// companion-mismatched catalog digitizer reports NoDigitizer - both
+    /// still have touch glass attached).
+    /// </summary>
+    public static bool HasTouchExpectedDisplay(TouchMapSnapshot snapshot)
+    {
+        foreach (var display in snapshot.Displays)
+        {
+            if (IsTouchExpected(display)) return true;
+        }
+        return false;
+    }
+
+    /// <summary>
     /// True when a display is a panel model the guard expects to be
     /// touch-capable: either a TouchPanelCatalog EDID match or another
     /// curated KnownPanelDisplays entry with Touch=true. Uses the
