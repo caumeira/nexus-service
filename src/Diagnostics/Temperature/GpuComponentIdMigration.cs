@@ -7,7 +7,7 @@ namespace Nexus.Service.Diagnostics.Temperature;
 /// <summary>
 /// Re-keys legacy enumeration-index GPU temperature rows to the current
 /// UUID-based id, so a GPU with prior history does not show as two series in
-/// /diagnostics/temperatures. Runs once at TemperatureSampler startup, per
+/// /diagnostics/temperatures. Runs once at TemperatureRollup startup, per
 /// resolved GPU.
 /// </summary>
 public static class GpuComponentIdMigration

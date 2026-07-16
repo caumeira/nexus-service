@@ -16,7 +16,7 @@ public sealed record GpuThrottleInfo(
 
 /// <summary>Per-GPU health readout. RecentTdrCount is intentionally absent -
 /// the integrator fills it in from the event monitor. Uuid is not part of the
-/// wire contract (GpuInfoWire omits it); TemperatureSampler uses it to key
+/// wire contract (GpuInfoWire omits it); TemperatureRollup uses it to key
 /// temperature history on something stable across reboots and driver
 /// updates, unlike the enumeration-index id used elsewhere.</summary>
 public sealed record GpuInfo(

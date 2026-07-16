@@ -8,7 +8,7 @@ namespace Nexus.Service.Diagnostics.Temperature;
 public sealed record TemperaturePoint(long T, double Avg, double Max);
 
 /// <summary>A sustained-high-temperature window for one component. Kind is
-/// cpu/gpu/storage/ram (the same values TemperatureSampler tags each row
+/// cpu/gpu/storage/ram (the same values TemperatureRollup tags each row
 /// with); it gates which DiagnosticsSettings.Components flag applies to this
 /// episode.</summary>
 public sealed record TemperatureEpisode(
@@ -73,7 +73,7 @@ public static class TemperatureInsights
         IReadOnlyList<TemperatureBucketRow> rows,
         IReadOnlyDictionary<string, double>? thresholdOverrides = null)
     {
-        var bucketMs = TemperatureSampler.BucketMinutes * 60_000L;
+        var bucketMs = TemperatureRollup.BucketMinutes * 60_000L;
         var episodes = new List<TemperatureEpisode>();
 
         foreach (var group in rows.GroupBy(r => r.ComponentId))
@@ -150,7 +150,7 @@ public static class TemperatureInsights
     /// </summary>
     public static IReadOnlyList<TemperatureBucketRow> MergeToWidth(IReadOnlyList<TemperatureBucketRow> rows, long widthMs)
     {
-        const long rawBucketMs = TemperatureSampler.BucketMinutes * 60_000L;
+        const long rawBucketMs = TemperatureRollup.BucketMinutes * 60_000L;
         if (rows.Count == 0 || widthMs <= rawBucketMs)
         {
             return rows;

@@ -7,7 +7,7 @@ namespace Nexus.Service.Tests.Diagnostics.Temperature;
 
 public class TemperatureBucketAccumulatorTests
 {
-    private const long BucketMs = TemperatureSampler.BucketMinutes * 60_000L;
+    private const long BucketMs = TemperatureRollup.BucketMinutes * 60_000L;
 
     private static (string, string, string, double) Reading(string id, double valueC, string kind = "cpu", string name = "CPU") =>
         (id, kind, name, valueC);

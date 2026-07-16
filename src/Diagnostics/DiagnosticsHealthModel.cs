@@ -269,7 +269,7 @@ public sealed class DiagnosticsHealthModel
         DateTime generatedAtUtc,
         DiagnosticsSettings diagnostics)
     {
-        var recencyMinutes = Math.Max(TemperatureSampler.BucketMinutes, diagnostics.WarningLingerMinutes);
+        var recencyMinutes = Math.Max(TemperatureRollup.BucketMinutes, diagnostics.WarningLingerMinutes);
         var cutoffUtc = generatedAtUtc.AddMinutes(-recencyMinutes);
         var recentEpisodes = tempEpisodes
             .Where(e => e.EndUtc >= cutoffUtc && e.StartUtc <= generatedAtUtc)

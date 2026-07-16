@@ -262,7 +262,7 @@ public static class DiagnosticsHealthRoutes
         if (!string.IsNullOrWhiteSpace(date))
         {
             if (!TemperatureDayWindow.TryResolve(
-                    date, DateTimeOffset.UtcNow, TimeZoneInfo.Local, TemperatureSampler.RetentionDays,
+                    date, DateTimeOffset.UtcNow, TimeZoneInfo.Local, TemperatureRollup.RetentionDays,
                     out fromUtcMs, out toUtcMs, out error))
             {
                 return false;
@@ -342,7 +342,7 @@ public static class DiagnosticsHealthRoutes
         {
             Supported = true,
             BucketMinutes = tierWidthMinutes,
-            RetentionDays = TemperatureSampler.RetentionDays,
+            RetentionDays = TemperatureRollup.RetentionDays,
             Series = series,
             Episodes = episodes,
         };
@@ -610,8 +610,8 @@ public sealed record TemperatureSeriesWire
 public sealed record TemperatureHistoryResponse
 {
     public bool Supported { get; init; }
-    public int BucketMinutes { get; init; } = Nexus.Service.Diagnostics.Temperature.TemperatureSampler.BucketMinutes;
-    public int RetentionDays { get; init; } = Nexus.Service.Diagnostics.Temperature.TemperatureSampler.RetentionDays;
+    public int BucketMinutes { get; init; } = Nexus.Service.Diagnostics.Temperature.TemperatureRollup.BucketMinutes;
+    public int RetentionDays { get; init; } = Nexus.Service.Diagnostics.Temperature.TemperatureRollup.RetentionDays;
     public IReadOnlyList<TemperatureSeriesWire> Series { get; init; } = Array.Empty<TemperatureSeriesWire>();
     public IReadOnlyList<TemperatureEpisode> Episodes { get; init; } = Array.Empty<TemperatureEpisode>();
 }

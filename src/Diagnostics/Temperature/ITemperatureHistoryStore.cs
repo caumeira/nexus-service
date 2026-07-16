@@ -4,15 +4,15 @@ using System.Collections.Generic;
 namespace Nexus.Service.Diagnostics.Temperature;
 
 /// <summary>One bucket for one component. BucketUtcMs is the bucket's start,
-/// aligned to TemperatureSampler.BucketMinutes; AvgC/MaxC/Samples are derived
-/// from every reading TemperatureSampler took at its tick cadence during
+/// aligned to TemperatureRollup.BucketMinutes; AvgC/MaxC/Samples are derived
+/// from every reading TemperatureRollup took at its tick cadence during
 /// that bucket.</summary>
 public sealed record TemperatureBucketRow(
     string ComponentId, string Kind, string Name, long BucketUtcMs,
     double AvgC, double MaxC, int Samples);
 
 /// <summary>
-/// Persistent store for temperature history buckets. TemperatureSampler is the
+/// Persistent store for temperature history buckets. TemperatureRollup is the
 /// only writer (one flush per component per completed bucket); GET
 /// /diagnostics/temperatures and the DiagnosticsHealthModel sustained-high
 /// check are the readers.

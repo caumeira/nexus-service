@@ -9,7 +9,7 @@ namespace Nexus.Service.Tests.Diagnostics;
 
 public class TemperatureRouteResponseTests
 {
-    private const long BucketMs = TemperatureSampler.BucketMinutes * 60_000L;
+    private const long BucketMs = TemperatureRollup.BucketMinutes * 60_000L;
     private static readonly long T0Ms =
         new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
 
@@ -36,7 +36,7 @@ public class TemperatureRouteResponseTests
 
         var response = DiagnosticsHealthRoutes.BuildTemperatureResponse(rows, tierWidthMinutes: 5);
 
-        Assert.Equal(TemperatureSampler.RetentionDays, response.RetentionDays);
+        Assert.Equal(TemperatureRollup.RetentionDays, response.RetentionDays);
     }
 
     [Fact]

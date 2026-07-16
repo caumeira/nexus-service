@@ -8,7 +8,7 @@ namespace Nexus.Service.Tests.Diagnostics.Temperature;
 
 public class TemperatureInsightsTests
 {
-    private const long BucketMs = TemperatureSampler.BucketMinutes * 60_000L;
+    private const long BucketMs = TemperatureRollup.BucketMinutes * 60_000L;
     private static readonly DateTime T0 = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly long T0Ms = new DateTimeOffset(T0).ToUnixTimeMilliseconds();
 

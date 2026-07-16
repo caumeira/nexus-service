@@ -286,8 +286,10 @@ public static class NexusServiceCollectionExtensions
                 return new Nexus.Service.Diagnostics.Temperature.InMemoryTemperatureHistoryStore();
             }
         });
-        services.AddSingleton<Nexus.Service.Diagnostics.Temperature.TemperatureSampler>();
-        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Diagnostics.Temperature.TemperatureSampler>());
+        // Plain singleton, not hosted: MetricsSampler drives Tick() on its own
+        // 1Hz loop (every 30th tick) instead of TemperatureRollup running its
+        // own BackgroundService.
+        services.AddSingleton<Nexus.Service.Diagnostics.Temperature.TemperatureRollup>();
 
         services.AddSingleton<Nexus.Service.Diagnostics.DiagnosticsHealthModel>();
         services.AddSingleton<Nexus.Service.Diagnostics.DiagnosticsAlertService>();

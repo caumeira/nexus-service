@@ -1,8 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading;
-using System.Threading.Tasks;
-using Microsoft.Extensions.Hosting;
 using Nexus.Service.Diagnostics.Gpu;
 using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Platform;
@@ -11,12 +8,14 @@ using Nexus.Service.Sensors;
 namespace Nexus.Service.Diagnostics.Temperature;
 
 /// <summary>
-/// Samples CPU/GPU/storage/RAM temperatures on its own tick cadence from
-/// existing read paths (no new hardware I/O) and flushes one bucket per
-/// component to ITemperatureHistoryStore on rollover. Mirrors
-/// HeartbeatService's PeriodicTimer do/while shape with a per-tick try/catch.
+/// Rolls up CPU/GPU/storage/RAM temperatures into 5-minute buckets and
+/// flushes one bucket per component to ITemperatureHistoryStore on rollover.
+/// Absorbed by MetricsSampler as the 90-day temperature tier alongside the
+/// 1Hz/7-day metrics.db series: MetricsSampler drives Tick() every 30th tick
+/// (its own flush cadence) instead of this class running its own
+/// BackgroundService loop.
 /// </summary>
-public sealed class TemperatureSampler : BackgroundService
+public sealed class TemperatureRollup
 {
     /// <summary>Bucket width in minutes; shared with TemperatureInsights for
     /// bucket-adjacency checks and with the route response's bucketMinutes field.</summary>
@@ -28,13 +27,8 @@ public sealed class TemperatureSampler : BackgroundService
 
     private const long BucketMs = BucketMinutes * 60_000L;
 
-    private static readonly TimeSpan TickInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan RetentionWindow = TimeSpan.FromDays(RetentionDays);
     private static readonly TimeSpan PruneInterval = TimeSpan.FromDays(1);
-
-    // Bounds the wait for ISensorProvider.ReadyAsync so a platform whose
-    // hardware enumeration never signals ready still starts sampling.
-    private static readonly TimeSpan StartupReadyTimeout = TimeSpan.FromSeconds(60);
 
     private readonly ISensorProvider _sensors;
     private readonly GpuHealthMonitor _gpu;
@@ -45,7 +39,7 @@ public sealed class TemperatureSampler : BackgroundService
     private string? _cpuName;
     private DateTime _lastPruneUtc = DateTime.MinValue;
 
-    public TemperatureSampler(
+    public TemperatureRollup(
         ISensorProvider sensors, GpuHealthMonitor gpu, SmartHealthMonitor smart, ITemperatureHistoryStore store)
     {
         _sensors = sensors;
@@ -54,54 +48,19 @@ public sealed class TemperatureSampler : BackgroundService
         _store = store;
     }
 
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    /// <summary>Re-keys legacy enumeration-index GPU temperature rows to the
+    /// current UUID-based id (GpuComponentIdMigration). Runs once, called by
+    /// MetricsSampler after its bounded ISensorProvider.ReadyAsync wait so
+    /// GPU UUIDs are resolvable.</summary>
+    public void RunStartupMigration()
     {
-        try
-        {
-            await _sensors.ReadyAsync(stoppingToken).WaitAsync(StartupReadyTimeout, stoppingToken).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            return;
-        }
-        catch (TimeoutException)
-        {
-            // Sensor enumeration is still warming up; sample anyway on the
-            // schedule below rather than block forever.
-        }
-
         try
         {
             GpuComponentIdMigration.Migrate(_store, ResolveGpusWithUuid());
         }
         catch (Exception ex)
         {
-            ServiceLog.Warn($"[temp-sampler] gpu id migration failed: {ex.Message}");
-        }
-
-        using var timer = new PeriodicTimer(TickInterval);
-        do
-        {
-            try
-            {
-                Tick(DateTime.UtcNow);
-            }
-            catch (Exception ex)
-            {
-                ServiceLog.Warn($"[temp-sampler] tick failed: {ex.Message}");
-            }
-        } while (await WaitAsync(timer, stoppingToken).ConfigureAwait(false));
-    }
-
-    private static async Task<bool> WaitAsync(PeriodicTimer timer, CancellationToken ct)
-    {
-        try
-        {
-            return await timer.WaitForNextTickAsync(ct).ConfigureAwait(false);
-        }
-        catch (OperationCanceledException)
-        {
-            return false;
+            ServiceLog.Warn($"[temp-rollup] gpu id migration failed: {ex.Message}");
         }
     }
 
@@ -152,7 +111,7 @@ public sealed class TemperatureSampler : BackgroundService
         }
         catch (Exception ex)
         {
-            ServiceLog.Warn($"[temp-sampler] prune failed: {ex.Message}");
+            ServiceLog.Warn($"[temp-rollup] prune failed: {ex.Message}");
         }
     }
 
