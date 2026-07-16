@@ -58,15 +58,6 @@ public sealed class QSeriesPortWatcher : BackgroundService
     private static readonly TimeSpan PollInterval = TimeSpan.FromSeconds(10);
 
     /// <summary>
-    /// Floor on the gap between ticks. A wake can otherwise run them back to
-    /// back, and <see cref="MaxHomePinAttemptsPerAttach"/> is an attempt budget
-    /// sized to the poll cadence rather than to wall clock, so unspaced ticks
-    /// would spend it in seconds. Also bounds adb churn on the USB-FFS link
-    /// during a cold panel boot.
-    /// </summary>
-    private static readonly TimeSpan MinTickSpacing = TimeSpan.FromSeconds(1);
-
-    /// <summary>
     /// <c>ro.product.model</c> values that mark a Q-series panel. THICC_Q_Series is
     /// a legacy pre-release model name, kept so a firmware downgrade still matches.
     /// </summary>
@@ -244,7 +235,6 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            var tickStart = Stopwatch.GetTimestamp();
             try
             {
                 await TickAsync(stoppingToken);
@@ -256,13 +246,6 @@ public sealed class QSeriesPortWatcher : BackgroundService
                 // in TickAsync before any adb call, so reaching here means a Q-series
                 // is present but its adb path genuinely failed - a real error.
                 ServiceLog.Error($"[qseries-port-watcher] tick failed: {ex.GetType().Name}: {ex.Message}");
-            }
-
-            var floor = MinTickSpacing - Stopwatch.GetElapsedTime(tickStart);
-            if (floor > TimeSpan.Zero)
-            {
-                try { await Task.Delay(floor, stoppingToken); }
-                catch (OperationCanceledException) { break; }
             }
 
             // The timeout carries the keep-alive cadence for work that has no
@@ -469,7 +452,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
         if (Interlocked.Exchange(ref _displayDirty, 0) == 1)
         {
             _displayAppliedThisRun.Clear();
-            _displayFailuresBySerial.Clear();
+            _displayFirstFailureBySerial.Clear();
         }
 
         // Nexus Control off skips the whole pass: no reverse-tunnel or am-start
@@ -631,9 +614,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             _homePinnedThisRun.Remove(key);
         }
-        foreach (var key in _homePinFailuresBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
+        foreach (var key in _homePinFirstFailureBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
         {
-            _homePinFailuresBySerial.Remove(key);
+            _homePinFirstFailureBySerial.Remove(key);
         }
         // user_rotation does not survive a panel reboot (brightness does), so a
         // re-attach re-applies. Dropping the confirmed-state record with the
@@ -643,9 +626,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
         {
             _displayAppliedThisRun.Remove(key);
         }
-        foreach (var key in _displayFailuresBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
+        foreach (var key in _displayFirstFailureBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
         {
-            _displayFailuresBySerial.Remove(key);
+            _displayFirstFailureBySerial.Remove(key);
         }
         foreach (var key in _lastAppliedBySerial.Keys.Where(k => !seenSerials.Contains(k)).ToList())
         {
@@ -1168,16 +1151,16 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly HashSet<string> _homePinnedThisRun = new(StringComparer.Ordinal);
 
-    /// <summary>Serial -> consecutive failed pin attempts this attach; bounds the
+    /// <summary>Serial -> when the pin first failed this attach; bounds the
     /// un-latch retry below. Cleared on success and on detach.</summary>
-    private readonly Dictionary<string, int> _homePinFailuresBySerial = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, DateTimeOffset> _homePinFirstFailureBySerial = new(StringComparer.Ordinal);
 
     /// <summary>
-    /// Pin attempts per attach before giving up. Sized like
-    /// <see cref="EscalationGrace"/>: at the poll cadence the attempts span past
-    /// the slowest legitimate "package service not yet up" boot window.
+    /// How long a failing pin keeps retrying before giving up until re-attach.
+    /// Matches <see cref="EscalationGrace"/> so it spans the slowest legitimate
+    /// "package service not yet up" boot window.
     /// </summary>
-    private const int MaxHomePinAttemptsPerAttach = 18;
+    private static readonly TimeSpan HomePinRetryWindow = EscalationGrace;
 
     /// <summary>
     /// Serials whose display state (orientation, brightness, screen power)
@@ -1191,9 +1174,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly HashSet<string> _displayAppliedThisRun = new(StringComparer.Ordinal);
 
-    /// <summary>Serial -> consecutive failed display-apply attempts this
-    /// attach; bounds the un-latch retry below. Cleared on success and on detach.</summary>
-    private readonly Dictionary<string, int> _displayFailuresBySerial = new(StringComparer.Ordinal);
+    /// <summary>Serial -> when the display apply first failed this attach;
+    /// bounds the un-latch retry below. Cleared on success and on detach.</summary>
+    private readonly Dictionary<string, DateTimeOffset> _displayFirstFailureBySerial = new(StringComparer.Ordinal);
 
     /// <summary>Display state last confirmed on the panel.</summary>
     private readonly record struct AppliedDisplayState(string Orientation, int Brightness, bool ScreenOff);
@@ -1205,9 +1188,9 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private readonly Dictionary<string, AppliedDisplayState> _lastAppliedBySerial = new(StringComparer.Ordinal);
 
-    /// <summary>Display apply attempts per attach before giving up. Sized
-    /// like <see cref="MaxHomePinAttemptsPerAttach"/>.</summary>
-    private const int MaxDisplayAttemptsPerAttach = 18;
+    /// <summary>How long a failing display apply keeps retrying before giving
+    /// up until re-attach. Sized like <see cref="HomePinRetryWindow"/>.</summary>
+    private static readonly TimeSpan DisplayRetryWindow = EscalationGrace;
 
     /// <summary>
     /// Set by <see cref="AnnounceDisplayChange"/> from a request thread; 1
@@ -1397,7 +1380,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
             var output = receiver.ToString().Trim();
             if (SetHomeActivityTook(output))
             {
-                _homePinFailuresBySerial.Remove(device.Serial);
+                _homePinFirstFailureBySerial.Remove(device.Serial);
                 ServiceLog.Info(
                     $"[qseries-port-watcher] {device.Serial}: re-pinned default HOME to qshell ({output})");
             }
@@ -1423,20 +1406,22 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private void RecordHomePinFailure(string serial, string detail)
     {
-        _homePinFailuresBySerial.TryGetValue(serial, out var failures);
-        _homePinFailuresBySerial[serial] = failures + 1;
-        if (failures + 1 >= MaxHomePinAttemptsPerAttach)
+        var now = DateTimeOffset.UtcNow;
+        if (!_homePinFirstFailureBySerial.TryGetValue(serial, out var firstFailure))
+        {
+            _homePinFirstFailureBySerial[serial] = now;
+            _homePinnedThisRun.Remove(serial);
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {serial}: set-home-activity did not take ({detail}); retrying (suppressing repeats)");
+            return;
+        }
+        if (now - firstFailure >= HomePinRetryWindow)
         {
             ServiceLog.Info(
                 $"[qseries-port-watcher] {serial}: set-home-activity kept failing ({detail}); giving up until re-attach");
             return;
         }
         _homePinnedThisRun.Remove(serial);
-        if (failures == 0)
-        {
-            ServiceLog.Info(
-                $"[qseries-port-watcher] {serial}: set-home-activity did not take ({detail}); retrying (suppressing repeats)");
-        }
     }
 
     /// <summary>
@@ -1540,7 +1525,7 @@ public sealed class QSeriesPortWatcher : BackgroundService
 
             if (rotationOk && brightnessOk && powerOk)
             {
-                _displayFailuresBySerial.Remove(device.Serial);
+                _displayFirstFailureBySerial.Remove(device.Serial);
                 _lastAppliedBySerial[device.Serial] =
                     new AppliedDisplayState(qseries.Orientation, qseries.Brightness, qseries.ScreenOff);
                 var applied = string.Join(" ", new[]
@@ -1578,20 +1563,22 @@ public sealed class QSeriesPortWatcher : BackgroundService
     /// </summary>
     private void RecordDisplayFailure(string serial, string detail)
     {
-        _displayFailuresBySerial.TryGetValue(serial, out var failures);
-        _displayFailuresBySerial[serial] = failures + 1;
-        if (failures + 1 >= MaxDisplayAttemptsPerAttach)
+        var now = DateTimeOffset.UtcNow;
+        if (!_displayFirstFailureBySerial.TryGetValue(serial, out var firstFailure))
+        {
+            _displayFirstFailureBySerial[serial] = now;
+            _displayAppliedThisRun.Remove(serial);
+            ServiceLog.Info(
+                $"[qseries-port-watcher] {serial}: display state did not take ({detail}); retrying (suppressing repeats)");
+            return;
+        }
+        if (now - firstFailure >= DisplayRetryWindow)
         {
             ServiceLog.Info(
                 $"[qseries-port-watcher] {serial}: display state kept failing ({detail}); giving up until re-attach");
             return;
         }
         _displayAppliedThisRun.Remove(serial);
-        if (failures == 0)
-        {
-            ServiceLog.Info(
-                $"[qseries-port-watcher] {serial}: display state did not take ({detail}); retrying (suppressing repeats)");
-        }
     }
 
     /// <summary>180 degree flip only: Portrait maps to Android user_rotation 0,
