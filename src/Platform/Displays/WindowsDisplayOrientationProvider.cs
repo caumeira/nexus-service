@@ -32,9 +32,9 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
         // No cover: the Y70 kiosk reconciles its bounds through a slower,
         // separate path (two service HTTP round-trips, not the in-process
         // refit promoted-monitor kiosks use - see nexus-overlay
-        // PanelKioskWindow's WM_DISPLAYCHANGE handling), so RotationCoverHoldMs
-        // would not span its repaint and a black cover would just add its own
-        // visible flash.
+        // PanelKioskWindow's WM_DISPLAYCHANGE handling), so the hold would not
+        // span its repaint and a black cover would just add its own visible
+        // flash.
         return ApplyToAdapter(device, orientation, coverColorHex: null);
     }
 
@@ -91,10 +91,11 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
 
         // Only an axis swap exposes new desktop area at the monitor's origin;
         // a 180-degree flip keeps the same rect, so there is nothing to cover.
-        var cover = IntPtr.Zero;
+        RotationCover? cover = null;
+        Log($"apply {device} {fromOrientation}->{dmdo} swapsAxes={swapsAxes} cover={(coverColorHex is null ? "disabled" : "requested")}");
         if (swapsAxes && coverColorHex is not null)
         {
-            cover = TryCreateRotationCover(
+            cover = RotationCover.Start(
                 device, devMode.dmPositionX, devMode.dmPositionY,
                 oldWidth, oldHeight, devMode.dmPelsWidth, devMode.dmPelsHeight,
                 coverColorHex);
@@ -102,20 +103,9 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
         try
         {
             var rc = ChangeDisplaySettingsExW(device, ref devMode, IntPtr.Zero, CDS_UPDATEREGISTRY, IntPtr.Zero);
-            if (cover != IntPtr.Zero && rc == DISP_CHANGE_SUCCESSFUL)
-            {
-                // Measured against nothing on this box (no hardware here) -
-                // reasoned from nexus-overlay's refit path (77286d1): a bounds
-                // change on an already-live kiosk drives SetWindowPos ->
-                // WM_SIZE -> Ctrl_put_Bounds on the SAME already-painted
-                // WebView2 controller, no destroy/renavigate/first-paint. A
-                // resize-only reflow of already-rendered content is a small
-                // number of compositor frames (60Hz = ~16.7ms/frame); this is
-                // a short margin over that, not a hardware bench number -
-                // shorten it if a live rotation shows the cover outlasting
-                // the repaint.
-                Thread.Sleep(RotationCoverHoldMs);
-            }
+            // Nothing rotated, so the cover has nothing to hide and would just
+            // blank the panel for the rest of its hold.
+            if (rc != DISP_CHANGE_SUCCESSFUL) cover?.Abort();
             return rc switch
             {
                 DISP_CHANGE_SUCCESSFUL => (true, $"applied {orientation} from={fromOrientation} set={devMode.dmPelsWidth}x{devMode.dmPelsHeight}"),
@@ -128,18 +118,132 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
                 _                       => (false, $"unknown DISP_CHANGE {rc}"),
             };
         }
-        finally
+        catch
         {
-            // Every exit path (including an exception above) must reach this,
-            // or a stuck cover blanks the panel until the helper restarts.
-            if (cover != IntPtr.Zero)
+            cover?.Abort();
+            throw;
+        }
+    }
+
+    /// <summary>
+    /// How long the cover stays up across a rotation. Every signal Windows
+    /// offers for "the rotation happened" fires immediately - the
+    /// ChangeDisplaySettingsEx return, EnumDisplaySettings, the window's clip
+    /// box, and WM_DISPLAYCHANGE were all measured at &lt;=31ms on the bench
+    /// (Xeneon Edge, T1) - but the screen itself does not carry the new mode
+    /// until ~870ms, with the panel drawing its own content ~130ms after that.
+    /// There is nothing to wait on, so this spans the measured worst case. It
+    /// runs on the cover's own thread, so it does not delay the rotation call.
+    /// </summary>
+    private const int CoverHoldMs = 1300;
+
+    /// <summary>Repaint cadence while the cover is held.</summary>
+    private const int CoverRepaintIntervalMs = 33;
+
+    /// <summary>
+    /// Cap on waiting for the cover thread to get its window up before the
+    /// rotation goes ahead. Creation is a handful of Win32 calls (bench: the
+    /// cover was up ~5ms after the rotation request reached the helper), so
+    /// this only bounds a thread that never got scheduled.
+    /// </summary>
+    private const int CoverStartTimeoutMs = 500;
+
+    /// <summary>
+    /// Owns the cover window on a thread of its own for a whole rotation.
+    /// Two constraints force this: a window can only be destroyed by the thread
+    /// that created it, so the hold and the teardown have to share a thread;
+    /// and the hold must not run on the caller's, because that caller is the
+    /// helper RPC the rotation route blocks on before broadcasting the panel's
+    /// new orientation (and it is the helper's only pipe reader, so every other
+    /// helper RPC queues behind it too).
+    /// </summary>
+    private sealed class RotationCover
+    {
+        // Not disposed: on the start-timeout path the cover thread still has a
+        // Set() to make, and disposing under it would throw on that thread.
+        private readonly ManualResetEventSlim _up = new(false);
+        private volatile bool _abort;
+        private volatile bool _created;
+
+        /// <summary>
+        /// Returns a cover whose window is already up, so the rotation cannot
+        /// outrun it; null if the window was not created, or was not up within
+        /// <see cref="CoverStartTimeoutMs"/>. Either way the cover tears itself
+        /// down - a null return means the caller has nothing left to abort.
+        /// </summary>
+        public static RotationCover? Start(
+            string device, int x, int y, uint oldWidth, uint oldHeight, uint newWidth, uint newHeight, string colorHex)
+        {
+            var cover = new RotationCover();
+            new Thread(() => cover.Run(device, x, y, oldWidth, oldHeight, newWidth, newHeight, colorHex))
             {
-                DestroyRotationCover(cover);
+                IsBackground = true,
+                Name = "nexus-rotation-cover",
+            }.Start();
+            if (!cover._up.Wait(CoverStartTimeoutMs))
+            {
+                // Abandoning it without this leaves a cover that comes up after
+                // the rotation and blanks the panel for the whole hold, with no
+                // handle left to stop it: the rotation goes uncovered AND the
+                // panel goes dark, the inverse of the point of the cover.
+                cover.Abort();
+                Log($"cover skipped: window not up within {CoverStartTimeoutMs}ms");
+                return null;
+            }
+            return cover._created ? cover : null;
+        }
+
+        /// <summary>Tears the cover down early; the rotation did not take.</summary>
+        public void Abort() => _abort = true;
+
+        private void Run(
+            string device, int x, int y, uint oldWidth, uint oldHeight, uint newWidth, uint newHeight, string colorHex)
+        {
+            try
+            {
+                var hwnd = TryCreateRotationCover(device, x, y, oldWidth, oldHeight, newWidth, newHeight, colorHex);
+                _created = hwnd != IntPtr.Zero;
+                _up.Set();
+                if (hwnd == IntPtr.Zero) return;
+                try
+                {
+                    // Aborted before the hold means Start gave up waiting and the
+                    // caller never took this cover; holding it would blank the
+                    // panel behind the caller's back.
+                    if (_abort)
+                    {
+                        Log("cover dropped: aborted before hold");
+                        return;
+                    }
+                    var start = Environment.TickCount64;
+                    long displayChangeAt = -1;
+                    // Repaint on a cadence: the rotation reallocates the display
+                    // surfaces partway through and discards whatever was painted
+                    // before, so no single paint survives it.
+                    while (!_abort && Environment.TickCount64 - start < CoverHoldMs)
+                    {
+                        PaintCover(hwnd);
+                        if (displayChangeAt < 0 && DisplayChangeSeen(hwnd)) displayChangeAt = Environment.TickCount64 - start;
+                        PumpFor(CoverRepaintIntervalMs);
+                    }
+                    Log($"cover held: {Environment.TickCount64 - start}ms displayChangeAt={displayChangeAt}ms abort={_abort}");
+                }
+                finally
+                {
+                    DestroyRotationCover(hwnd);
+                }
+            }
+            catch (Exception ex)
+            {
+                // This is the thread's entry point, so an escape takes the whole
+                // helper process down rather than failing one rotation.
+                Log($"cover thread failed: {ex.GetType().Name} {ex.Message}");
             }
         }
     }
 
-    private const int RotationCoverHoldMs = 120;
+    /// <summary>True once the cover's WndProc has taken a WM_DISPLAYCHANGE.</summary>
+    private static bool DisplayChangeSeen(IntPtr cover) => GetWindowLongPtrW(cover, DisplayChangeSlot) != IntPtr.Zero;
 
     private static bool TryParseOrientation(string value, out uint dmdo)
     {
@@ -207,16 +311,21 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
     private static IntPtr TryCreateRotationCover(
         string device, int x, int y, uint oldWidth, uint oldHeight, uint newWidth, uint newHeight, string coverColorHex)
     {
+        // Held so the catch can tear down a window this method created but has
+        // not handed back yet; cleared once ownership passes to the caller.
+        var created = IntPtr.Zero;
         try
         {
             var width = (int)Math.Max(oldWidth, newWidth);
             var height = (int)Math.Max(oldHeight, newHeight);
             if (UnionHitsAnotherMonitor(device, x, y, x + width, y + height))
             {
+                Log($"cover skipped: union ({x},{y}) {width}x{height} hits another monitor");
                 return IntPtr.Zero;
             }
             if (!EnsureCoverWindowClassRegistered())
             {
+                Log($"cover skipped: RegisterClassEx failed err={Marshal.GetLastWin32Error()}");
                 return IntPtr.Zero;
             }
 
@@ -225,17 +334,53 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
                 CoverWindowClassName, "", WS_POPUP,
                 x, y, width, height,
                 IntPtr.Zero, IntPtr.Zero, GetModuleHandleW(null), IntPtr.Zero);
-            if (hwnd == IntPtr.Zero) return IntPtr.Zero;
+            if (hwnd == IntPtr.Zero)
+            {
+                Log($"cover skipped: CreateWindowEx failed err={Marshal.GetLastWin32Error()}");
+                return IntPtr.Zero;
+            }
+            created = hwnd;
 
+            // The colour rides on the window rather than a static so concurrent
+            // rotations cannot paint each other's cover; WndProc reads it back
+            // per message. DestroyRotationCover owns deleting it.
+            var brush = CreateSolidBrush(ToColorRef(coverColorHex));
+            SetLastError(0);
+            if (SetWindowLongPtrW(hwnd, GWLP_USERDATA, brush) == IntPtr.Zero
+                && Marshal.GetLastWin32Error() != 0)
+            {
+                // Nothing holds the brush handle but this call, and every paint
+                // reads it back from the window, so a cover that lost it would
+                // hold up a stock-black window for the whole rotation and look
+                // like a working cover on a dark panel.
+                Log($"cover skipped: SetWindowLongPtr failed err={Marshal.GetLastWin32Error()}");
+                DeleteObject(brush);
+                DestroyWindow(hwnd);
+                return IntPtr.Zero;
+            }
             SetWindowPos(hwnd, HWND_TOPMOST, x, y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
-            PaintCover(hwnd, width, height, coverColorHex);
+            PaintCover(hwnd);
+            Log($"cover up: ({x},{y}) {width}x{height} color={(coverColorHex.Length == 0 ? "black" : coverColorHex)}");
+            created = IntPtr.Zero;
             return hwnd;
         }
-        catch
+        catch (Exception ex)
         {
+            Log($"cover skipped: {ex.GetType().Name} {ex.Message}");
+            // ApplyToAdapter's finally only tears down a cover it was handed, so
+            // a throw after the window is shown would strand a fullscreen
+            // topmost window over the panel until the helper restarts.
+            if (created != IntPtr.Zero) DestroyRotationCover(created);
             return IntPtr.Zero;
         }
     }
+
+    /// <summary>
+    /// Cover decisions land in the helper's log: this provider only ever runs
+    /// inside the user-session helper, and a silently skipped cover is
+    /// indistinguishable on-glass from one that never painted.
+    /// </summary>
+    private static void Log(string message) => HelperLog.Write($"[rotation] {message}");
 
     /// <summary>True when the given rect overlaps any monitor OTHER than <paramref name="device"/>.</summary>
     private static bool UnionHitsAnotherMonitor(string device, int left, int top, int right, int bottom)
@@ -258,22 +403,50 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
         return hit;
     }
 
-    private static void PaintCover(IntPtr hwnd, int width, int height, string coverColorHex)
+    /// <summary>
+    /// Fills whatever part of the cover is on a monitor right now. A window DC
+    /// is clipped to the window's visible region, so a call made before the
+    /// rotation cannot reach the strip it is about to expose however large a
+    /// rect it passes; the cadence calls after it are what fill the strip.
+    /// </summary>
+    private static void PaintCover(IntPtr hwnd)
     {
-        var brush = CreateSolidBrush(ToColorRef(coverColorHex));
+        var brush = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+        if (brush == IntPtr.Zero || !GetClientRect(hwnd, out var rect)) return;
         var hdc = GetDC(hwnd);
-        if (hdc != IntPtr.Zero)
+        if (hdc == IntPtr.Zero) return;
+        FillRect(hdc, ref rect, brush);
+        ReleaseDC(hwnd, hdc);
+    }
+
+    /// <summary>
+    /// Dispatches messages for <paramref name="milliseconds"/>. The cover
+    /// window is owned by this thread, so its paints only run while this
+    /// pumps - a plain sleep here leaves the newly exposed strip unpainted
+    /// for the whole hold, which is the flash the cover exists to prevent.
+    /// </summary>
+    private static void PumpFor(int milliseconds)
+    {
+        var deadline = Environment.TickCount64 + milliseconds;
+        while (true)
         {
-            var rect = new RECT { Left = 0, Top = 0, Right = width, Bottom = height };
-            FillRect(hdc, ref rect, brush);
-            ReleaseDC(hwnd, hdc);
+            while (PeekMessageW(out var msg, IntPtr.Zero, 0, 0, PM_REMOVE))
+            {
+                TranslateMessage(ref msg);
+                DispatchMessageW(ref msg);
+            }
+            var remaining = deadline - Environment.TickCount64;
+            if (remaining <= 0) return;
+            // Wakes on the next message or the deadline, whichever lands first.
+            MsgWaitForMultipleObjectsEx(0, IntPtr.Zero, (uint)remaining, QS_ALLINPUT, 0);
         }
-        DeleteObject(brush);
     }
 
     private static void DestroyRotationCover(IntPtr hwnd)
     {
+        var brush = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
         try { DestroyWindow(hwnd); } catch { }
+        if (brush != IntPtr.Zero) DeleteObject(brush);
     }
 
     /// <summary>"#rrggbb" to a COLORREF (0x00bbggrr); unparsable or empty falls back to opaque black.</summary>
@@ -313,6 +486,7 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
                 cbSize = Marshal.SizeOf<WNDCLASSEX>(),
                 lpfnWndProc = _pinnedCoverProc,
                 lpszClassName = CoverWindowClassName,
+                cbWndExtra = IntPtr.Size,
                 hInstance = GetModuleHandleW(null),
                 hbrBackground = GetStockObject(BLACK_BRUSH),
             };
@@ -322,8 +496,31 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
         }
     }
 
+    /// <summary>
+    /// Erases with the cover colour rather than the class brush, so a region
+    /// that only becomes visible after the mode change (the exposed strip)
+    /// comes up in the panel's background colour instead of the desktop
+    /// showing through an unpainted window.
+    /// </summary>
     private static IntPtr CoverWndProc(IntPtr hwnd, uint msg, IntPtr wParam, IntPtr lParam)
-        => DefWindowProcW(hwnd, msg, wParam, lParam);
+    {
+        if (msg == WM_DISPLAYCHANGE)
+        {
+            // Marks the instant the new display surfaces are live: paints made
+            // before this land on the outgoing surface and are dropped.
+            SetWindowLongPtrW(hwnd, DisplayChangeSlot, new IntPtr(1));
+        }
+        if (msg == WM_ERASEBKGND)
+        {
+            var brush = GetWindowLongPtrW(hwnd, GWLP_USERDATA);
+            if (brush != IntPtr.Zero && GetClientRect(hwnd, out var rect))
+            {
+                FillRect(wParam, ref rect, brush);
+                return new IntPtr(1);
+            }
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+    }
 
     // -- Win32 ---------------------------------------------------------------
 
@@ -361,7 +558,27 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
     private const uint SWP_NOACTIVATE = 0x0010;
     private const uint SWP_SHOWWINDOW = 0x0040;
     private const int BLACK_BRUSH = 4;
+    private const uint WM_ERASEBKGND = 0x0014;
+    private const uint WM_DISPLAYCHANGE = 0x007E;
+    // Per-window slot (cbWndExtra) holding the WM_DISPLAYCHANGE flag, so
+    // concurrent rotations cannot observe each other's cover.
+    private const int DisplayChangeSlot = 0;
+    private const int GWLP_USERDATA = -21;
+    private const uint PM_REMOVE = 0x0001;
+    private const uint QS_ALLINPUT = 0x04FF;
     private static readonly IntPtr HWND_TOPMOST = new(-1);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct MSG
+    {
+        public IntPtr hwnd;
+        public uint message;
+        public IntPtr wParam;
+        public IntPtr lParam;
+        public uint time;
+        public int ptX;
+        public int ptY;
+    }
 
     [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
     private struct MONITORINFOEX
@@ -459,10 +676,13 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern IntPtr GetModuleHandleW(string? lpModuleName);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("kernel32.dll")]
+    private static extern void SetLastError(uint dwErrCode);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern ushort RegisterClassExW(ref WNDCLASSEX lpwcx);
 
-    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     private static extern IntPtr CreateWindowExW(
         int dwExStyle, string lpClassName, string lpWindowName, int dwStyle,
         int x, int y, int nWidth, int nHeight,
@@ -494,5 +714,29 @@ public sealed class WindowsDisplayOrientationProvider : IDisplayOrientationProvi
 
     [DllImport("gdi32.dll")]
     private static extern IntPtr GetStockObject(int fnObject);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetClientRect(IntPtr hWnd, out RECT lpRect);
+
+    // SetWindowLongPtrW/GetWindowLongPtrW are exported by name only on 64-bit
+    // user32; this build is x64/arm64 only.
+    [DllImport("user32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    private static extern IntPtr SetWindowLongPtrW(IntPtr hWnd, int nIndex, IntPtr dwNewLong);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr GetWindowLongPtrW(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern bool PeekMessageW(out MSG lpMsg, IntPtr hWnd, uint wMsgFilterMin, uint wMsgFilterMax, uint wRemoveMsg);
+
+    [DllImport("user32.dll")]
+    private static extern bool TranslateMessage(ref MSG lpMsg);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    private static extern IntPtr DispatchMessageW(ref MSG lpMsg);
+
+    [DllImport("user32.dll")]
+    private static extern uint MsgWaitForMultipleObjectsEx(
+        uint nCount, IntPtr pHandles, uint dwMilliseconds, uint dwWakeMask, uint dwFlags);
 }
 #endif

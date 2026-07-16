@@ -61,6 +61,118 @@ public sealed class CloudApiClientTests
         }
     }
 
+    /// <summary>Reads one HTTP/1.1 request off <paramref name="stream"/> (headers + Content-Length body) and returns it as raw text.</summary>
+    private static async Task<string> ReadHttpRequestAsync(NetworkStream stream)
+    {
+        var buffer = new byte[16384];
+        var request = new System.Text.StringBuilder();
+        while (!request.ToString().Contains("\r\n\r\n"))
+        {
+            var read = await stream.ReadAsync(buffer);
+            if (read == 0)
+            {
+                break;
+            }
+            request.Append(System.Text.Encoding.UTF8.GetString(buffer, 0, read));
+        }
+
+        var text = request.ToString();
+        var headerEnd = text.IndexOf("\r\n\r\n", StringComparison.Ordinal);
+        var headerBlock = text.Substring(0, headerEnd);
+        var bodySoFar = text.Length - (headerEnd + 4);
+        var clMatch = System.Text.RegularExpressions.Regex.Match(headerBlock, @"Content-Length:\s*(\d+)", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        var contentLength = clMatch.Success ? int.Parse(clMatch.Groups[1].Value) : 0;
+        while (bodySoFar < contentLength)
+        {
+            var read = await stream.ReadAsync(buffer);
+            if (read == 0)
+            {
+                break;
+            }
+            text += System.Text.Encoding.UTF8.GetString(buffer, 0, read);
+            bodySoFar += read;
+        }
+        return text;
+    }
+
+    [Fact]
+    public async Task PostRawAsync_forwards_body_and_bearer_returns_upstream_status_and_body_verbatim()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var requestTask = Task.Run(async () =>
+        {
+            using var accepted = await listener.AcceptTcpClientAsync();
+            using var stream = accepted.GetStream();
+            var request = await ReadHttpRequestAsync(stream);
+            // A non-2xx upstream status must still come back as Success - the
+            // forwarder relays whatever the server actually said.
+            const string body = "{\"code\":\"validation_error\",\"message\":\"bad score\"}";
+            var bodyBytes = System.Text.Encoding.UTF8.GetBytes(body);
+            var response = $"HTTP/1.1 400 Bad Request\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n{body}";
+            await stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(response));
+            return request;
+        });
+
+        try
+        {
+            var client = new CloudApiClient(new SingleClientFactory(), $"http://127.0.0.1:{port}", TimeSpan.FromSeconds(5));
+
+            var result = await client.PostRawAsync("/benchmarks/submit", "{\"composite\":950}", "access-tok-1", CancellationToken.None);
+
+            var request = await requestTask;
+            Assert.Contains("POST /benchmarks/submit", request);
+            Assert.Contains("Authorization: Bearer access-tok-1", request);
+            Assert.Contains("{\"composite\":950}", request);
+
+            Assert.True(result.Success);
+            Assert.Equal(400, result.StatusCode);
+            Assert.Equal("{\"code\":\"validation_error\",\"message\":\"bad score\"}", result.Value!.Body);
+            Assert.Equal("application/json", result.Value.ContentType);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
+    [Fact]
+    public async Task PostRawAsync_withoutAccessToken_omitsAuthorizationHeader()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var requestTask = Task.Run(async () =>
+        {
+            using var accepted = await listener.AcceptTcpClientAsync();
+            using var stream = accepted.GetStream();
+            var request = await ReadHttpRequestAsync(stream);
+            const string body = "{\"ok\":true}";
+            var bodyBytes = System.Text.Encoding.UTF8.GetBytes(body);
+            var response = $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {bodyBytes.Length}\r\nConnection: close\r\n\r\n{body}";
+            await stream.WriteAsync(System.Text.Encoding.UTF8.GetBytes(response));
+            return request;
+        });
+
+        try
+        {
+            var client = new CloudApiClient(new SingleClientFactory(), $"http://127.0.0.1:{port}", TimeSpan.FromSeconds(5));
+
+            var result = await client.PostRawAsync("/benchmarks/submit", "{}", null, CancellationToken.None);
+
+            var request = await requestTask;
+            Assert.DoesNotContain("Authorization:", request);
+            Assert.True(result.Success);
+            Assert.Equal(200, result.StatusCode);
+            Assert.Equal("{\"ok\":true}", result.Value!.Body);
+        }
+        finally
+        {
+            listener.Stop();
+        }
+    }
+
     [Fact]
     public async Task Avatar_upload_posts_multipart_field_named_file()
     {
