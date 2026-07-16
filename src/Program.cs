@@ -88,6 +88,13 @@ string? emitOpenApiPath = null;
 var testHost = Environment.GetEnvironmentVariable("NEXUS_TEST_HOST") == "1"
     || emitOpenApiPath is not null;
 
+// Hold LhmComputer's background Open until the boot-time PawnIO check has
+// run, so a driver installed or repaired this boot is visible to SuperIO
+// enumeration immediately. Armed only where WireAppWindowAndPawnIo will
+// signal it; the test host and non-Windows platforms never wait.
+if (OperatingSystem.IsWindows() && !testHost)
+    Nexus.Service.Lifecycle.PawnIoBootGate.Arm();
+
 // Root system daemon (full hardware access) adopts the active user's session
 // env - D-Bus, runtime dir, config home, display - so the tray, MPRIS media,
 // volume, and dashboard launcher keep working. No-op for a --user install.
