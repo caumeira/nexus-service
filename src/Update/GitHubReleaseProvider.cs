@@ -141,6 +141,11 @@ public sealed class GitHubReleaseProvider : IUpdateSource
             if (trimmed.Length < 66) continue;
             var hash = trimmed[..64];
             var rest = trimmed[64..].TrimStart();
+            // sha256sum output marks a binary-mode entry with a leading '*' and
+            // may list the file with a './' path prefix (Ollama's sums do both
+            // forms); neither is part of the asset name.
+            if (rest.StartsWith('*')) rest = rest[1..];
+            if (rest.StartsWith("./", StringComparison.Ordinal)) rest = rest[2..];
             if (string.Equals(rest, filename, StringComparison.OrdinalIgnoreCase))
             {
                 return hash.ToLowerInvariant();

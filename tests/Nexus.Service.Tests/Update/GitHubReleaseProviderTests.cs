@@ -55,6 +55,23 @@ public sealed class GitHubReleaseProviderTests
     }
 
     [Fact]
+    public void ParseSha256Sums_strips_dot_slash_path_prefix()
+    {
+        // Ollama's sha256sum.txt lists every asset with a './' prefix.
+        var content = $"{Hash64}  ./ollama-windows-arm64.zip\n";
+        var hash = GitHubReleaseProvider.ParseSha256Sums(content, "ollama-windows-arm64.zip");
+        Assert.Equal(Hash64, hash);
+    }
+
+    [Fact]
+    public void ParseSha256Sums_strips_binary_mode_asterisk()
+    {
+        var content = $"{Hash64} *ollama-darwin.tgz\n";
+        var hash = GitHubReleaseProvider.ParseSha256Sums(content, "ollama-darwin.tgz");
+        Assert.Equal(Hash64, hash);
+    }
+
+    [Fact]
     public void ParseSha256Sums_empty_content_returns_null()
     {
         var hash = GitHubReleaseProvider.ParseSha256Sums("", "Nexus-Setup.exe");
