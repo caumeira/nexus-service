@@ -38,8 +38,20 @@ public static class MetricsHistory
     /// of FlushSeconds so every flush carries a whole number of app ticks.</summary>
     public const int AppSampleIntervalSeconds = 5;
 
-    /// <summary>Apps kept per metric per app-usage sampling tick.</summary>
-    public const int TopAppsPerSample = 15;
+    /// <summary>Apps recorded per metric per app-usage sampling tick: every
+    /// app with a reading above AppUsageEpsilon, ranked by usage and capped
+    /// at this many. Sized so a mid-ranked, intermittently-fluctuating app
+    /// stays inside the cap on effectively every tick instead of dropping in
+    /// and out around a narrower one (see AppUsageStorageEstimateTests for
+    /// the measured 7-day metrics.db footprint this cap implies).</summary>
+    public const int TopAppsPerSample = 64;
+
+    /// <summary>Floor an app's reading must exceed to be recorded at all.
+    /// Zero: excludes only an exact-zero reading (the common case for an
+    /// idle background process at 1-second CPU sampling), so the cap above
+    /// is spent on apps with any measured activity rather than padding out
+    /// with true zeros.</summary>
+    public const double AppUsageEpsilon = 0.0;
 
     /// <summary>Default apps returned by GET /monitoring/history/apps when
     /// maxApps is not specified.</summary>

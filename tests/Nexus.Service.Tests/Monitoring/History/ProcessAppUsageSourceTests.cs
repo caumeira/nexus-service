@@ -99,7 +99,7 @@ public class ProcessAppUsageSourceTests
     public void Sample_LimitsEachMetricToTopAppsPerSample()
     {
         var (source, processes, _, _) = Build();
-        var procs = Enumerable.Range(0, MetricsHistory.TopAppsPerSample + 5)
+        var procs = Enumerable.Range(1, MetricsHistory.TopAppsPerSample + 5)
             .Select(i => Proc($"app{i}", cpu: i, mem: i))
             .ToList();
         processes.SetProcessesForTest(procs);
@@ -108,7 +108,58 @@ public class ProcessAppUsageSourceTests
 
         Assert.Equal(MetricsHistory.TopAppsPerSample, cpu.Apps.Count);
         // The highest-cpu app (last one generated) wins the top slot.
-        Assert.Equal($"app{MetricsHistory.TopAppsPerSample + 4}", cpu.Apps.First().Name);
+        Assert.Equal($"app{MetricsHistory.TopAppsPerSample + 5}", cpu.Apps.First().Name);
+    }
+
+    [Fact]
+    public void Sample_RecordsEveryMidRankApp_UpToTheRaisedCap()
+    {
+        // A count comfortably above the old top-15 cap but under the
+        // current one: every one of them must appear, not just the
+        // historical top 15 - this is the gap the raised cap closes for a
+        // mid-ranked, intermittently-fluctuating process.
+        var (source, processes, _, _) = Build();
+        var procs = Enumerable.Range(1, 30)
+            .Select(i => Proc($"app{i}", cpu: i, mem: i))
+            .ToList();
+        processes.SetProcessesForTest(procs);
+
+        var cpu = source.Sample().Single(m => m.Metric == "cpu");
+
+        Assert.Equal(30, cpu.Apps.Count);
+        Assert.Contains(cpu.Apps, a => a.Name == "app15");
+    }
+
+    [Fact]
+    public void Sample_ExcludesAnAppWithExactlyZeroCpu_EvenWithRoomUnderTheCap()
+    {
+        var (source, processes, _, _) = Build();
+        processes.SetProcessesForTest(new[]
+        {
+            Proc("idle.exe", cpu: 0, mem: 10),
+            Proc("active.exe", cpu: 5, mem: 10),
+        });
+
+        var cpu = source.Sample().Single(m => m.Metric == "cpu");
+
+        Assert.DoesNotContain(cpu.Apps, a => a.Name == "idle.exe");
+        Assert.Contains(cpu.Apps, a => a.Name == "active.exe");
+    }
+
+    [Fact]
+    public void Sample_ExcludesAnAppWithExactlyZeroMemory_EvenWithRoomUnderTheCap()
+    {
+        var (source, processes, _, _) = Build();
+        processes.SetProcessesForTest(new[]
+        {
+            Proc("empty.exe", cpu: 1, mem: 0),
+            Proc("active.exe", cpu: 1, mem: 10),
+        });
+
+        var mem = source.Sample().Single(m => m.Metric == "memory");
+
+        Assert.DoesNotContain(mem.Apps, a => a.Name == "empty.exe");
+        Assert.Contains(mem.Apps, a => a.Name == "active.exe");
     }
 
     [Fact]

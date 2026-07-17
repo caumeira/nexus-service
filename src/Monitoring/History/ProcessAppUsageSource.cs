@@ -8,17 +8,18 @@ namespace Nexus.Service.Monitoring.History;
 
 /// <summary>
 /// Production IAppUsageSource: reduces the already-live ProcessMonitor /
-/// GpuProcessMonitor snapshots to the top MetricsHistory.TopAppsPerSample
-/// apps per metric. Both monitors already sample on their own always-on
-/// loop (kept alive via SetDemand); this only reads their latest snapshot
-/// and aggregates by process name (ProcessMonitor is per-pid on Windows,
-/// not grouped - see ProcessAggregation). GPU per-process entries are
-/// attributed to a metric id ("gpu:&lt;gid&gt;") via the same AdapterLuid
-/// the scalar gpu series already resolves - which means re-reading
-/// ISensorProvider.GetGpus() every tick, the same call SystemMetricsSource
-/// already makes every second; LhmComputer's own throttle absorbs the
-/// actual hardware re-poll, so this adds no new hardware I/O, only a
-/// redundant in-process LUID-matching pass.
+/// GpuProcessMonitor snapshots to every app above
+/// MetricsHistory.AppUsageEpsilon for each metric, capped at
+/// MetricsHistory.TopAppsPerSample. Both monitors already sample on their
+/// own always-on loop (kept alive via SetDemand); this only reads their
+/// latest snapshot and aggregates by process name (ProcessMonitor is
+/// per-pid on Windows, not grouped - see ProcessAggregation). GPU
+/// per-process entries are attributed to a metric id ("gpu:&lt;gid&gt;")
+/// via the same AdapterLuid the scalar gpu series already resolves -
+/// which means re-reading ISensorProvider.GetGpus() every tick, the same
+/// call SystemMetricsSource already makes every second; LhmComputer's own
+/// throttle absorbs the actual hardware re-poll, so this adds no new
+/// hardware I/O, only a redundant in-process LUID-matching pass.
 /// </summary>
 public sealed class ProcessAppUsageSource : IAppUsageSource
 {
@@ -52,6 +53,7 @@ public sealed class ProcessAppUsageSource : IAppUsageSource
             var grouped = ProcessAggregation.GroupByName(procs).Values;
 
             var cpuTop = grouped
+                .Where(a => a.CpuPercent > MetricsHistory.AppUsageEpsilon)
                 .OrderByDescending(a => a.CpuPercent)
                 .Take(MetricsHistory.TopAppsPerSample)
                 .Select(a => new AppUsagePoint(a.Name, a.CpuPercent, null))
@@ -59,6 +61,7 @@ public sealed class ProcessAppUsageSource : IAppUsageSource
             result.Add(new AppMetricSample("cpu", cpuTop));
 
             var memTop = grouped
+                .Where(a => a.MemoryMb > MetricsHistory.AppUsageEpsilon)
                 .OrderByDescending(a => a.MemoryMb)
                 .Take(MetricsHistory.TopAppsPerSample)
                 .Select(a => new AppUsagePoint(a.Name, a.MemoryMb, null))
