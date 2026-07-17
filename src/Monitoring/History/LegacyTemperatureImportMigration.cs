@@ -12,12 +12,11 @@ namespace Nexus.Service.Monitoring.History;
 /// temperature pipeline lands; never deletes temperature.db afterward, so a
 /// failed or partial import always has the source data to retry against.
 ///
-/// Both tables share the same 5-minute bucket width
-/// (MetricsHistory.TempBucketMinutes matches the retired
-/// TemperatureRollup.BucketMinutes), so this is a straight column-mapped
-/// copy - avg_c/max_c convert to the x10 fixed-point columns the unified
-/// schema uses, bucket_utc (ms) becomes bucket_ts (seconds) - with no
-/// resampling.
+/// Both tables share the same bucket width (MetricsHistory.TempBucketMinutes
+/// matches the retired TemperatureRollup.BucketMinutes), so this is a
+/// straight column-mapped copy - avg_c/max_c convert to the x10 fixed-point
+/// columns the unified schema uses, bucket_utc (ms) becomes bucket_ts
+/// (seconds) - with no resampling.
 /// </summary>
 internal static class LegacyTemperatureImportMigration
 {

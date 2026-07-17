@@ -61,8 +61,8 @@ public class TemperatureDayWindowTests
         Assert.True(ok);
         Assert.Null(error);
         Assert.Equal(new DateTimeOffset(2026, 7, 1, 0, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds(), fromMs);
-        // toMs is inclusive (matches ITemperatureHistoryStore.Query), so it is
-        // the last millisecond of the day, not the next day's midnight.
+        // toMs is inclusive (matches IMetricsHistoryStore.QueryTemperatureBuckets),
+        // so it is the last millisecond of the day, not the next day's midnight.
         Assert.Equal(new DateTimeOffset(2026, 7, 2, 0, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds() - 1, toMs);
     }
 

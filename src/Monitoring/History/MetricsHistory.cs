@@ -22,10 +22,10 @@ public static class MetricsHistory
     public const int TempRetentionDays = 90;
 
     /// <summary>Bucket width (minutes) of the temp_buckets rollup - wider than
-    /// the 1-minute metric_minutes/gpu_minutes/fan_minutes rollup so a
-    /// TempRetentionDays-wide query scans a fifth of the rows, since no
-    /// temperature chart tier ever needs finer than 5 minutes (see
-    /// TemperatureInsights.TierWidthMinutesFor). Mirrored as
+    /// the metric_minutes/gpu_minutes/fan_minutes rollup so a
+    /// TempRetentionDays-wide query scans proportionally fewer rows, since no
+    /// temperature chart tier ever requests a narrower resolution (see
+    /// TemperatureInsights.TierWidthMinutesFor's floor). Mirrored as
     /// TemperatureInsights.NativeBucketMinutes for callers outside this
     /// namespace.</summary>
     public const int TempBucketMinutes = 5;

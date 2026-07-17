@@ -96,9 +96,9 @@ public class PrivacyAccessWatcherTests
     public void Tick_Prunes_OnTheFirstTick()
     {
         // _lastPruneUtc starts at DateTime.MinValue, so the very first tick
-        // is always "over an hour" since the last prune - mirrors
-        // TemperatureRollup.MaybePrune enforcing retention immediately on a
-        // fresh start rather than waiting a full hour after boot.
+        // is always "over an hour" since the last prune - retention is
+        // enforced immediately on a fresh start rather than waiting a full
+        // hour after boot.
         var reader = new StubRegistryReader();
         var store = new RecordingSessionStore();
         var watcher = new PrivacyAccessWatcher(reader, store);

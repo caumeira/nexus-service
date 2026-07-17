@@ -29,11 +29,11 @@ namespace Nexus.Service.Monitoring.History;
 /// table: it has no non-temperature columns to keep narrow, and a flat id is
 /// what GET /diagnostics/temperatures and TemperatureInsights already
 /// consume (see TemperatureBucketRow) with no join needed to read it back.
-/// Its bucket width (TemperatureInsights.NativeBucketMinutes, 5) is wider
-/// than metric_minutes/gpu_minutes/fan_minutes' 1-minute rollup on purpose:
-/// at TempRetentionDays' 90-day window, a 1-minute width would scan 5x the
-/// rows for the same query with no chart benefit (TierWidthMinutesFor never
-/// asks for finer than 5 minutes).
+/// Its bucket width (MetricsHistory.TempBucketMinutes) is wider than
+/// metric_minutes/gpu_minutes/fan_minutes' 1-minute rollup on purpose: at
+/// TempRetentionDays' window, a 1-minute width would scan proportionally
+/// more rows for the same query with no chart benefit - TierWidthMinutesFor
+/// never asks for a tier narrower than the native bucket width.
 ///
 /// app_cpu_seconds / app_mem_seconds / app_gpu_seconds are per-app usage
 /// history, sampled on MetricsHistory.AppSampleIntervalSeconds's sub-cadence:

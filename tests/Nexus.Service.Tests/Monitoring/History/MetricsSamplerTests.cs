@@ -205,9 +205,9 @@ public class MetricsSamplerTests
     public async Task Tick_RequestsAPrune_OnTheFirstFlush()
     {
         // _lastPruneUtc starts at DateTime.MinValue, so the very first flush
-        // is always "over an hour" since the last prune - mirrors
-        // TemperatureRollup.MaybePrune enforcing retention immediately on a
-        // fresh start rather than waiting a full hour after boot.
+        // is always "over an hour" since the last prune - retention is
+        // enforced immediately on a fresh start rather than waiting a full
+        // hour after boot.
         var source = new StubMetricsSource();
         var store = new RecordingMetricsHistoryStore();
         var sampler = CreateSampler(source, store);
