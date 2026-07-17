@@ -345,13 +345,19 @@ public static class MonitoringHistoryRoutes
         return result;
     }
 
-    // "cpu"/"memory" (and a specific "gpu:<id>") match the tick's one sample
-    // with that exact metric id, same as before this helper existed. Bare
-    // "gpu" instead aggregates every "gpu:<id>" sample in the tick, mirroring
+    // "cpu"/"memory" (and a specific "gpu:<id>"/"vram:<id>") match the
+    // tick's one sample with that exact metric id, same as before this
+    // helper existed. Bare "gpu"/"vram" instead aggregate every matching
+    // "gpu:<id>"/"vram:<id>" sample in the tick, mirroring
     // SqliteMetricsHistoryStore/InMemoryMetricsHistoryStore's unfiltered
-    // app_gpu_seconds query on the persisted side.
+    // app_gpu_seconds/app_vram_seconds query on the persisted side.
     internal static AppMetricSample? ResolveTailMetric(AppUsageTick tick, string series) =>
-        series == "gpu" ? AggregateGpuMetrics(tick) : tick.Metrics.FirstOrDefault(m => m.Metric == series);
+        series switch
+        {
+            "gpu" => AggregateGpuMetrics(tick),
+            "vram" => AggregateVramMetrics(tick),
+            _ => tick.Metrics.FirstOrDefault(m => m.Metric == series),
+        };
 
     // Sums each app's value (and vram) across every per-adapter gpu:<id>
     // sample in one tick, so a process using two adapters reads as one
@@ -388,6 +394,40 @@ public static class MonitoringHistoryRoutes
 
         var points = order.Select(name => new AppUsagePoint(name, sums[name].Value, sums[name].Vram)).ToList();
         return new AppMetricSample("gpu", points);
+    }
+
+    // Sums each app's value across every per-adapter vram:<id> sample in one
+    // tick, the vram counterpart of AggregateGpuMetrics. The reading itself
+    // is the VRAM value (no side-channel VramMb to also sum), so each point
+    // carries a null VramMb.
+    internal static AppMetricSample? AggregateVramMetrics(AppUsageTick tick)
+    {
+        var vramSamples = tick.Metrics.Where(m => m.Metric.StartsWith("vram:", StringComparison.Ordinal)).ToList();
+        if (vramSamples.Count == 0)
+        {
+            return null;
+        }
+
+        var order = new List<string>();
+        var sums = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+        foreach (var sample in vramSamples)
+        {
+            foreach (var a in sample.Apps)
+            {
+                if (sums.TryGetValue(a.Name, out var acc))
+                {
+                    sums[a.Name] = acc + a.Value;
+                }
+                else
+                {
+                    sums[a.Name] = a.Value;
+                    order.Add(a.Name);
+                }
+            }
+        }
+
+        var points = order.Select(name => new AppUsagePoint(name, sums[name], null)).ToList();
+        return new AppMetricSample("vram", points);
     }
 
     // Db points and the buffered tail can overlap at the flush boundary;

@@ -35,15 +35,18 @@ namespace Nexus.Service.Monitoring.History;
 /// more rows for the same query with no chart benefit - TierWidthMinutesFor
 /// never asks for a tier narrower than the native bucket width.
 ///
-/// app_cpu_seconds / app_mem_seconds / app_gpu_seconds are per-app usage
-/// history, sampled on MetricsHistory.AppSampleIntervalSeconds's sub-cadence:
-/// three narrow tables, one per metric, instead of a single (ts, app, metric)
-/// table - avoids a repeated TEXT metric discriminator per row at the row
-/// counts this table reaches (MetricsHistory.TopAppsPerSample apps per
-/// metric per tick, retained for MetricsHistory.RetentionDays), and lets
-/// each metric's read query hit a purpose-built PK/index with no filter
-/// predicate on metric. app_gpu_seconds reuses gpu_series' surrogate key
-/// rather than minting a duplicate GPU id mapping.
+/// app_cpu_seconds / app_mem_seconds / app_gpu_seconds / app_vram_seconds are
+/// per-app usage history, sampled on MetricsHistory.AppSampleIntervalSeconds's
+/// sub-cadence: four narrow tables, one per metric, instead of a single (ts,
+/// app, metric) table - avoids a repeated TEXT metric discriminator per row
+/// at the row counts this table reaches (MetricsHistory.TopAppsPerSample
+/// apps per metric per tick, retained for MetricsHistory.RetentionDays), and
+/// lets each metric's read query hit a purpose-built PK/index with no filter
+/// predicate on metric. app_gpu_seconds/app_vram_seconds reuse gpu_series'
+/// surrogate key rather than minting a duplicate GPU id mapping;
+/// app_vram_seconds is ranked independently by VRAM rather than piggybacking
+/// on app_gpu_seconds' own vram_mb column, since a process can hold
+/// significant VRAM while nearly idle on that adapter.
 /// </summary>
 public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySessionStore, IAppUsageHistoryStore
 {
@@ -1183,6 +1186,15 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             ) WITHOUT ROWID;
             CREATE INDEX IF NOT EXISTS ix_app_gpu_seconds_gpu_app_ts ON app_gpu_seconds(gpu, app, ts);
 
+            CREATE TABLE IF NOT EXISTS app_vram_seconds (
+                ts       INTEGER NOT NULL,
+                app      INTEGER NOT NULL,
+                gpu      INTEGER NOT NULL,
+                value_mb INTEGER,
+                PRIMARY KEY (ts, app, gpu)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS ix_app_vram_seconds_gpu_app_ts ON app_vram_seconds(gpu, app, ts);
+
             CREATE TABLE IF NOT EXISTS privacy_sessions (
                 app_id     TEXT NOT NULL,
                 capability TEXT NOT NULL,
@@ -1498,6 +1510,14 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         var gpuValue = AddParam(gpuCmd, "$value");
         var gpuVram = AddParam(gpuCmd, "$vram");
 
+        using var vramCmd = _connection.CreateCommand();
+        vramCmd.Transaction = tx;
+        vramCmd.CommandText = "INSERT OR REPLACE INTO app_vram_seconds (ts, app, gpu, value_mb) VALUES ($ts, $app, $gpu, $value);";
+        var vramTs = AddParam(vramCmd, "$ts");
+        var vramApp = AddParam(vramCmd, "$app");
+        var vramGpu = AddParam(vramCmd, "$gpu");
+        var vramValue = AddParam(vramCmd, "$value");
+
         foreach (var tick in ticks)
         {
             foreach (var metric in tick.Metrics)
@@ -1545,11 +1565,29 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                         gpuCmd.ExecuteNonQuery();
                     }
                 }
+                else if (metric.Metric.StartsWith("vram:", StringComparison.Ordinal))
+                {
+                    var gid = metric.Metric[5..];
+                    // Same gpu_series dependency as the "gpu:" branch above:
+                    // a gid with no scalar row this flush has no app rows.
+                    if (!_gpuKeys.TryGetValue(gid, out var gpuKey))
+                    {
+                        continue;
+                    }
+                    foreach (var a in metric.Apps)
+                    {
+                        vramTs.Value = tick.TsSec;
+                        vramApp.Value = ResolveAppKey(tx, a.Name, pendingAppKeys);
+                        vramGpu.Value = gpuKey;
+                        vramValue.Value = ScaleWhole(a.Value);
+                        vramCmd.ExecuteNonQuery();
+                    }
+                }
             }
         }
     }
 
-    private static readonly string[] AppSecondsTables = { "app_cpu_seconds", "app_mem_seconds", "app_gpu_seconds" };
+    private static readonly string[] AppSecondsTables = { "app_cpu_seconds", "app_mem_seconds", "app_gpu_seconds", "app_vram_seconds" };
 
     private IReadOnlyList<long> PruneApps(SqliteTransaction tx, long cutoffSec)
     {
@@ -1570,7 +1608,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 SELECT key FROM app_series
                 WHERE key NOT IN (SELECT app FROM app_cpu_seconds)
                   AND key NOT IN (SELECT app FROM app_mem_seconds)
-                  AND key NOT IN (SELECT app FROM app_gpu_seconds);
+                  AND key NOT IN (SELECT app FROM app_gpu_seconds)
+                  AND key NOT IN (SELECT app FROM app_vram_seconds);
             """;
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
@@ -1655,21 +1694,29 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 return Array.Empty<AppWindowStat>();
             }
 
+            // app_gpu_seconds/app_vram_seconds carry a gpu dimension: a
+            // bare query (gpuFilter empty) can have more than one adapter's
+            // row per (app, ts); pre-aggregating in the "pt" subquery
+            // collapses those to one summed value per tick before ranking,
+            // so MAX reflects the combined-adapter peak in a single tick
+            // rather than one adapter's peak in isolation. A specific
+            // gpu:<id>/vram:<id> query already has at most one row per
+            // (app, ts), so the pre-aggregation is a no-op there; cpu/memory
+            // never have an adapter dimension and keep the direct query.
+            // value_mb (vram) is already whole MB, unlike value_x10's
+            // fixed-point percent, so its divisor is 1 rather than 10.
+            var isMultiAdapter = table is "app_gpu_seconds" or "app_vram_seconds";
+            var valueColumn = table == "app_vram_seconds" ? "value_mb" : "value_x10";
+            var scaleSql = table == "app_vram_seconds" ? "1.0" : "10.0";
+            var scaleDivisor = table == "app_vram_seconds" ? 1.0 : 10.0;
+
             using var cmd = _connection.CreateCommand();
-            // A bare-gpu query (gpuFilter empty) can have more than one
-            // adapter's row per (app, ts); pre-aggregating in the "pt"
-            // subquery collapses those to one summed value per tick before
-            // ranking, so MAX reflects the combined-adapter peak in a single
-            // tick rather than one adapter's peak in isolation. A specific
-            // gpu:<id> query already has at most one row per (app, ts), so
-            // the pre-aggregation is a no-op there; cpu/memory never have
-            // more than one adapter dimension and keep the direct query.
-            cmd.CommandText = table == "app_gpu_seconds"
+            cmd.CommandText = isMultiAdapter
                 ? $"""
-                    SELECT se.name, SUM(pt.v), MAX(pt.v) / 10.0
+                    SELECT se.name, SUM(pt.v), MAX(pt.v) / {scaleSql}
                     FROM (
-                        SELECT ts, app, SUM(value_x10) AS v
-                        FROM app_gpu_seconds
+                        SELECT ts, app, SUM({valueColumn}) AS v
+                        FROM {table}
                         WHERE {gpuFilter}ts BETWEEN $from AND $to
                         GROUP BY ts, app
                     ) pt
@@ -1679,12 +1726,12 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                     LIMIT $limit;
                 """
                 : $"""
-                    SELECT se.name, SUM(t.value_x10), MAX(t.value_x10) / 10.0
+                    SELECT se.name, SUM(t.{valueColumn}), MAX(t.{valueColumn}) / {scaleSql}
                     FROM {table} t
                     JOIN app_series se ON se.key = t.app
                     WHERE {gpuFilter}t.ts BETWEEN $from AND $to
                     GROUP BY t.app
-                    ORDER BY SUM(t.value_x10) DESC
+                    ORDER BY SUM(t.{valueColumn}) DESC
                     LIMIT $limit;
                 """;
             if (gpuKey is { } gk)
@@ -1700,7 +1747,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             while (reader.Read())
             {
                 var sum = reader.GetInt64(1);
-                result.Add(new AppWindowStat(reader.GetString(0), sum / (expectedTicks * 10.0), reader.GetDouble(2)));
+                result.Add(new AppWindowStat(reader.GetString(0), sum / (expectedTicks * scaleDivisor), reader.GetDouble(2)));
             }
             return result;
         }
@@ -1747,18 +1794,27 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             }
 
             var isGpu = table == "app_gpu_seconds";
+            var isVram = table == "app_vram_seconds";
             var gpuFilter = gpuKey is not null ? "gpu = $gpu AND " : "";
 
             using var cmd = _connection.CreateCommand();
-            // See QueryTopApps: a bare-gpu query (gpuFilter empty) can have
-            // more than one adapter's row per (app, ts), so GROUP BY ts sums
-            // them into the single point per tick the caller expects. A
-            // specific gpu:<id> query already has at most one row per ts, so
-            // the grouping is a no-op there.
+            // See QueryTopApps: a bare-gpu/bare-vram query (gpuFilter empty)
+            // can have more than one adapter's row per (app, ts), so GROUP BY
+            // ts sums them into the single point per tick the caller
+            // expects. A specific gpu:<id>/vram:<id> query already has at
+            // most one row per ts, so the grouping is a no-op there.
             cmd.CommandText = isGpu
                 ? $"""
                     SELECT ts, SUM(value_x10), SUM(vram_mb)
                     FROM app_gpu_seconds
+                    WHERE {gpuFilter}app = $app AND ts BETWEEN $from AND $to
+                    GROUP BY ts
+                    ORDER BY ts ASC;
+                """
+                : isVram
+                ? $"""
+                    SELECT ts, SUM(value_mb)
+                    FROM app_vram_seconds
                     WHERE {gpuFilter}app = $app AND ts BETWEEN $from AND $to
                     GROUP BY ts
                     ORDER BY ts ASC;
@@ -1781,6 +1837,13 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
+                if (isVram)
+                {
+                    double? mb = reader.IsDBNull(1) ? null : reader.GetInt64(1);
+                    result.Add(new AppRawPoint(reader.GetInt64(0), mb, null));
+                    continue;
+                }
+
                 var value = UnscaleX10(reader, 1);
                 double? vram = isGpu && !reader.IsDBNull(2) ? reader.GetInt32(2) : null;
                 result.Add(new AppRawPoint(reader.GetInt64(0), value, vram));
@@ -1801,7 +1864,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             using var cmd = _connection.CreateCommand();
             // MIN(ts) over a table with no rows for this app yields NULL, not
             // zero rows - the outer MIN(ts) ignores those and only comes back
-            // NULL itself when the app is in none of the three tables.
+            // NULL itself when the app is in none of the four tables.
             cmd.CommandText = """
                 SELECT MIN(ts) FROM (
                     SELECT MIN(ts) AS ts FROM app_cpu_seconds WHERE app = $app
@@ -1809,6 +1872,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                     SELECT MIN(ts) FROM app_mem_seconds WHERE app = $app
                     UNION ALL
                     SELECT MIN(ts) FROM app_gpu_seconds WHERE app = $app
+                    UNION ALL
+                    SELECT MIN(ts) FROM app_vram_seconds WHERE app = $app
                 );
             """;
             cmd.Parameters.AddWithValue("$app", appKey);
@@ -1817,14 +1882,14 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         }
     }
 
-    // "cpu"/"memory" resolve directly; "gpu:<gid>" resolves through the
-    // existing gpu_series cache so app rows and scalar gpu rows always agree
-    // on which surrogate key a gid maps to. A gid never seen by the scalar
-    // path (no gpu_series row) yields a null table - there is nothing to
-    // query, not an error. Bare "gpu" (no adapter id) also resolves to
-    // app_gpu_seconds with a null key, the same way cpu/memory never filter
-    // by adapter - QueryTopApps/QueryAppSeries then aggregate across every
-    // adapter per app instead of filtering to one.
+    // "cpu"/"memory" resolve directly; "gpu:<gid>"/"vram:<gid>" resolve
+    // through the existing gpu_series cache so app rows and scalar gpu rows
+    // always agree on which surrogate key a gid maps to. A gid never seen by
+    // the scalar path (no gpu_series row) yields a null table - there is
+    // nothing to query, not an error. Bare "gpu"/"vram" (no adapter id) also
+    // resolve to their table with a null key, the same way cpu/memory never
+    // filter by adapter - QueryTopApps/QueryAppSeries then aggregate across
+    // every adapter per app instead of filtering to one.
     private (string? Table, long? GpuKey) ResolveMetricTable(string metric)
     {
         if (metric == "cpu")
@@ -1843,6 +1908,15 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         {
             var gid = metric[4..];
             return _gpuKeys.TryGetValue(gid, out var key) ? ("app_gpu_seconds", key) : (null, null);
+        }
+        if (metric == "vram")
+        {
+            return ("app_vram_seconds", null);
+        }
+        if (metric.StartsWith("vram:", StringComparison.Ordinal))
+        {
+            var gid = metric[5..];
+            return _gpuKeys.TryGetValue(gid, out var key) ? ("app_vram_seconds", key) : (null, null);
         }
         return (null, null);
     }

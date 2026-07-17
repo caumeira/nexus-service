@@ -5,7 +5,7 @@ namespace Nexus.Service.Monitoring.History;
 /// <summary>
 /// Memoizes GET /monitoring/process-info's firstSeenMs per app name for the
 /// life of the service. Retention pruning can push the true earliest sample
-/// later over time as older rows age out; re-running the three-table
+/// later over time as older rows age out; re-running the multi-table
 /// MIN(ts) scan on every request to track that drift is not worth it for a
 /// value only used to say "roughly how long has Nexus seen this app".
 /// </summary>

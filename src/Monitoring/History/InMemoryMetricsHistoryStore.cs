@@ -281,15 +281,20 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
     }
 
     // "cpu"/"memory" match the single sample with that exact metric id, same
-    // as before. Bare "gpu" (no adapter id) instead matches every "gpu:<id>"
-    // sample in the tick, so a process using two adapters is summed across
-    // them - the in-memory mirror of SqliteMetricsHistoryStore's unfiltered
-    // app_gpu_seconds query.
+    // as before. Bare "gpu"/"vram" (no adapter id) instead matches every
+    // "gpu:<id>"/"vram:<id>" sample in the tick, so a process using two
+    // adapters is summed across them - the in-memory mirror of
+    // SqliteMetricsHistoryStore's unfiltered app_gpu_seconds/app_vram_seconds
+    // query.
     private static IEnumerable<AppMetricSample> ResolveMetricSamples(AppUsageTick tick, string metric)
     {
         if (metric == "gpu")
         {
             return tick.Metrics.Where(m => m.Metric.StartsWith("gpu:", StringComparison.Ordinal));
+        }
+        if (metric == "vram")
+        {
+            return tick.Metrics.Where(m => m.Metric.StartsWith("vram:", StringComparison.Ordinal));
         }
         var single = tick.Metrics.FirstOrDefault(m => m.Metric == metric);
         return single is null ? Enumerable.Empty<AppMetricSample>() : new[] { single };

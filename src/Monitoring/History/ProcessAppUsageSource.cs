@@ -19,7 +19,10 @@ namespace Nexus.Service.Monitoring.History;
 /// which means re-reading ISensorProvider.GetGpus() every tick, the same
 /// call SystemMetricsSource already makes every second; LhmComputer's own
 /// throttle absorbs the actual hardware re-poll, so this adds no new
-/// hardware I/O, only a redundant in-process LUID-matching pass.
+/// hardware I/O, only a redundant in-process LUID-matching pass. Each
+/// adapter also contributes a "vram:&lt;gid&gt;" sample, ranked by
+/// DedicatedMb rather than GpuPercent - a process can hold significant
+/// VRAM while nearly idle, so the two rankings can select different apps.
 /// </summary>
 public sealed class ProcessAppUsageSource : IAppUsageSource
 {
@@ -85,6 +88,14 @@ public sealed class ProcessAppUsageSource : IAppUsageSource
                     .Select(e => new AppUsagePoint(e.Name, e.GpuPercent, e.DedicatedMb))
                     .ToList();
                 result.Add(new AppMetricSample($"gpu:{gid}", top));
+
+                var vramTop = group
+                    .Where(e => e.DedicatedMb > MetricsHistory.AppUsageEpsilon)
+                    .OrderByDescending(e => e.DedicatedMb)
+                    .Take(MetricsHistory.TopAppsPerSample)
+                    .Select(e => new AppUsagePoint(e.Name, e.DedicatedMb, null))
+                    .ToList();
+                result.Add(new AppMetricSample($"vram:{gid}", vramTop));
             }
         }
 

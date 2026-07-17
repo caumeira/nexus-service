@@ -195,4 +195,75 @@ public class ProcessAppUsageSourceTests
 
         Assert.DoesNotContain(result, m => m.Metric.StartsWith("gpu:", StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Sample_MapsGpuEntries_ToVramMetricId_ViaMatchingAdapterLuid()
+    {
+        var (source, _, gpuProcesses, sensors) = Build();
+        sensors.Gpus.Add(new GpuReadout { Id = "/gpu-nvidia/0", Name = "RTX 5080", AdapterLuid = "10:20" });
+        gpuProcesses.SetSnapshotForTest(new[]
+        {
+            new GpuProcessEntry { Name = "game.exe", GpuPercent = 40, DedicatedMb = 2048, AdapterLuid = "10:20" },
+        });
+
+        var vram = source.Sample().Single(m => m.Metric == "vram:gpu-nvidia-0");
+
+        var entry = vram.Apps.Single();
+        Assert.Equal("game.exe", entry.Name);
+        Assert.Equal(2048, entry.Value);
+        Assert.Null(entry.VramMb);
+    }
+
+    [Fact]
+    public void Sample_RanksVramMetric_ByDedicatedMb_IndependentlyOfGpuPercent()
+    {
+        // "idle-hog" barely touches the GPU but holds far more VRAM than
+        // "busy-light" - the vram ranking must put it first even though the
+        // gpu (load) ranking would not.
+        var (source, _, gpuProcesses, sensors) = Build();
+        sensors.Gpus.Add(new GpuReadout { Id = "/gpu-nvidia/0", Name = "RTX 5080", AdapterLuid = "10:20" });
+        gpuProcesses.SetSnapshotForTest(new[]
+        {
+            new GpuProcessEntry { Name = "idle-hog", GpuPercent = 1, DedicatedMb = 4096, AdapterLuid = "10:20" },
+            new GpuProcessEntry { Name = "busy-light", GpuPercent = 50, DedicatedMb = 100, AdapterLuid = "10:20" },
+        });
+
+        var vram = source.Sample().Single(m => m.Metric == "vram:gpu-nvidia-0");
+        var gpu = source.Sample().Single(m => m.Metric == "gpu:gpu-nvidia-0");
+
+        Assert.Equal("idle-hog", vram.Apps.First().Name);
+        Assert.Equal("busy-light", gpu.Apps.First().Name);
+    }
+
+    [Fact]
+    public void Sample_ExcludesAnEntryWithExactlyZeroDedicatedMb_FromTheVramMetric()
+    {
+        var (source, _, gpuProcesses, sensors) = Build();
+        sensors.Gpus.Add(new GpuReadout { Id = "/gpu-nvidia/0", Name = "RTX 5080", AdapterLuid = "10:20" });
+        gpuProcesses.SetSnapshotForTest(new[]
+        {
+            new GpuProcessEntry { Name = "no-vram.exe", GpuPercent = 5, DedicatedMb = 0, AdapterLuid = "10:20" },
+            new GpuProcessEntry { Name = "some-vram.exe", GpuPercent = 5, DedicatedMb = 10, AdapterLuid = "10:20" },
+        });
+
+        var vram = source.Sample().Single(m => m.Metric == "vram:gpu-nvidia-0");
+
+        Assert.DoesNotContain(vram.Apps, a => a.Name == "no-vram.exe");
+        Assert.Contains(vram.Apps, a => a.Name == "some-vram.exe");
+    }
+
+    [Fact]
+    public void Sample_SkipsVramEntries_WhenAdapterLuidHasNoMatchingScalarGpu()
+    {
+        var (source, _, gpuProcesses, sensors) = Build();
+        sensors.Gpus.Add(new GpuReadout { Id = "/gpu-nvidia/0", Name = "RTX 5080", AdapterLuid = "10:20" });
+        gpuProcesses.SetSnapshotForTest(new[]
+        {
+            new GpuProcessEntry { Name = "game.exe", GpuPercent = 40, DedicatedMb = 2048, AdapterLuid = "99:99" },
+        });
+
+        var result = source.Sample();
+
+        Assert.DoesNotContain(result, m => m.Metric.StartsWith("vram:", StringComparison.Ordinal));
+    }
 }

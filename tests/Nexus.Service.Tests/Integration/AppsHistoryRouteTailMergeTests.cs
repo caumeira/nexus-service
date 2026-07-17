@@ -131,6 +131,41 @@ public sealed class AppsHistoryRouteTailMergeTests : IDisposable
     }
 
     [Fact]
+    public async Task BareVramSeries_AggregatesTailTicksAcrossAdapters()
+    {
+        var appBuffer = _factory.Services.GetRequiredService<AppSampleBuffer>();
+        appBuffer.Append(new AppUsageTick(5000, new[]
+        {
+            new AppMetricSample("vram:gpu-nvidia-0", new[] { new AppUsagePoint("game.exe", 1000, null) }),
+            new AppMetricSample("vram:gpu-amd-0", new[] { new AppUsagePoint("game.exe", 500, null) }),
+        }));
+
+        var res = await Client().GetAsync("/monitoring/history/apps?from=0&to=6000000&series=vram");
+
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var apps = doc.RootElement.GetProperty("apps");
+        Assert.Equal(1, apps.GetArrayLength());
+        var app = apps[0];
+        Assert.Equal("game.exe", app.GetProperty("name").GetString());
+        Assert.Equal(1500, app.GetProperty("avg").GetDouble());
+    }
+
+    [Fact]
+    public async Task ProcessFilter_WorksForVramSeries()
+    {
+        _store.SampledTicks = new List<long> { 1000 };
+        _store.Series["game.exe"] = new List<AppRawPoint> { new(1000, 2048, null) };
+
+        var res = await Client().GetAsync("/monitoring/history/apps?from=0&to=6000000&series=vram&process=game.exe");
+
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var apps = doc.RootElement.GetProperty("apps");
+        Assert.Equal(1, apps.GetArrayLength());
+        Assert.Equal("game.exe", apps[0].GetProperty("name").GetString());
+        Assert.Equal(2048, apps[0].GetProperty("avg").GetDouble());
+    }
+
+    [Fact]
     public async Task ProcessFilter_ReturnsExactlyThatProcess_BypassingTopN()
     {
         // "top.exe" would win the top-N ranking outright; the slideout asks

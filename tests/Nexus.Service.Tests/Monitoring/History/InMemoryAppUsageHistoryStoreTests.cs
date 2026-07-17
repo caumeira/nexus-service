@@ -105,4 +105,62 @@ public class InMemoryAppUsageHistoryStoreTests
 
         Assert.Equal(new long[] { 1000 }, ticks);
     }
+
+    private static AppUsageTick MultiAdapterVramTick(
+        long ts, string gid0, (string Name, double Value) app0, string gid1, (string Name, double Value) app1) =>
+        new(ts, new[]
+        {
+            new AppMetricSample($"vram:{gid0}", new[] { new AppUsagePoint(app0.Name, app0.Value, null) }),
+            new AppMetricSample($"vram:{gid1}", new[] { new AppUsagePoint(app1.Name, app1.Value, null) }),
+        });
+
+    [Fact]
+    public void QueryTopApps_BareVram_SumsAnAppsValueAcrossTwoAdapters()
+    {
+        var store = new InMemoryMetricsHistoryStore();
+        store.Append(new[] { MultiAdapterVramTick(1000, "gpu-0", ("game.exe", 1500), "gpu-1", ("game.exe", 500)) }, null);
+
+        var app = Assert.Single(store.QueryTopApps("vram", 0, 10_000, 15));
+
+        Assert.Equal("game.exe", app.Name);
+        Assert.Equal(2000, app.Avg);
+        Assert.Equal(2000, app.Max);
+    }
+
+    [Fact]
+    public void QueryTopApps_SpecificVramId_StillFiltersToThatAdapterOnly()
+    {
+        var store = new InMemoryMetricsHistoryStore();
+        store.Append(new[] { MultiAdapterVramTick(1000, "gpu-0", ("game.exe", 1500), "gpu-1", ("game.exe", 500)) }, null);
+
+        var app = Assert.Single(store.QueryTopApps("vram:gpu-0", 0, 10_000, 15));
+
+        Assert.Equal(1500, app.Avg);
+    }
+
+    [Fact]
+    public void QueryAppSeries_BareVram_SumsPerTickAcrossAdapters()
+    {
+        var store = new InMemoryMetricsHistoryStore();
+        store.Append(new[] { MultiAdapterVramTick(1000, "gpu-0", ("game.exe", 1500), "gpu-1", ("game.exe", 500)) }, null);
+
+        var point = Assert.Single(store.QueryAppSeries("vram", "game.exe", 0, 10_000));
+
+        Assert.Equal(1000, point.TsSec);
+        Assert.Equal(2000, point.Value);
+    }
+
+    [Fact]
+    public void QuerySampledTicks_BareVram_CountsATick_WithActivityOnOnlyOneAdapter()
+    {
+        var store = new InMemoryMetricsHistoryStore();
+        store.Append(new[]
+        {
+            new AppUsageTick(1000, new[] { new AppMetricSample("vram:gpu-0", new[] { new AppUsagePoint("game.exe", 1500, null) }) }),
+        }, null);
+
+        var ticks = store.QuerySampledTicks("vram", 0, 10_000);
+
+        Assert.Equal(new long[] { 1000 }, ticks);
+    }
 }

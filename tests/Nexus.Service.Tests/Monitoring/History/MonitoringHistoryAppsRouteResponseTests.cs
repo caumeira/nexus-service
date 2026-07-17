@@ -240,6 +240,78 @@ public class MonitoringHistoryAppsRouteResponseTests
     }
 
     [Fact]
+    public void AggregateVramMetrics_SumsAnAppsValueAcrossAdapters()
+    {
+        var tick = new AppUsageTick(1000, new[]
+        {
+            new AppMetricSample("vram:gpu-nvidia-0", new[] { new AppUsagePoint("game.exe", 1000, null) }),
+            new AppMetricSample("vram:gpu-amd-0", new[] { new AppUsagePoint("game.exe", 500, null) }),
+        });
+
+        var merged = MonitoringHistoryRoutes.AggregateVramMetrics(tick);
+
+        var point = Assert.Single(merged!.Apps);
+        Assert.Equal("game.exe", point.Name);
+        Assert.Equal(1500, point.Value);
+        Assert.Null(point.VramMb);
+    }
+
+    [Fact]
+    public void AggregateVramMetrics_KeepsAppsSeenOnOnlyOneAdapterSeparate()
+    {
+        var tick = new AppUsageTick(1000, new[]
+        {
+            new AppMetricSample("vram:gpu-nvidia-0", new[] { new AppUsagePoint("game.exe", 1000, null) }),
+            new AppMetricSample("vram:gpu-amd-0", new[] { new AppUsagePoint("other.exe", 200, null) }),
+        });
+
+        var merged = MonitoringHistoryRoutes.AggregateVramMetrics(tick);
+
+        Assert.Equal(2, merged!.Apps.Count);
+        Assert.Equal(1000, merged.Apps.Single(a => a.Name == "game.exe").Value);
+        Assert.Equal(200, merged.Apps.Single(a => a.Name == "other.exe").Value);
+    }
+
+    [Fact]
+    public void AggregateVramMetrics_ReturnsNull_WhenTheTickHasNoVramSample()
+    {
+        var tick = new AppUsageTick(1000, new[]
+        {
+            new AppMetricSample("gpu:gpu-nvidia-0", new[] { new AppUsagePoint("app.exe", 10, null) }),
+        });
+
+        Assert.Null(MonitoringHistoryRoutes.AggregateVramMetrics(tick));
+    }
+
+    [Fact]
+    public void ResolveTailMetric_ForBareVramSeries_AggregatesEveryAdapterSample()
+    {
+        var tick = new AppUsageTick(1000, new[]
+        {
+            new AppMetricSample("vram:gpu-nvidia-0", new[] { new AppUsagePoint("game.exe", 1000, null) }),
+            new AppMetricSample("vram:gpu-amd-0", new[] { new AppUsagePoint("game.exe", 500, null) }),
+        });
+
+        var resolved = MonitoringHistoryRoutes.ResolveTailMetric(tick, "vram");
+
+        Assert.Equal(1500, Assert.Single(resolved!.Apps).Value);
+    }
+
+    [Fact]
+    public void ResolveTailMetric_ForASpecificVramSeries_MatchesOnlyThatAdapter()
+    {
+        var tick = new AppUsageTick(1000, new[]
+        {
+            new AppMetricSample("vram:gpu-nvidia-0", new[] { new AppUsagePoint("game.exe", 1000, null) }),
+            new AppMetricSample("vram:gpu-amd-0", new[] { new AppUsagePoint("game.exe", 500, null) }),
+        });
+
+        var resolved = MonitoringHistoryRoutes.ResolveTailMetric(tick, "vram:gpu-nvidia-0");
+
+        Assert.Equal(1000, Assert.Single(resolved!.Apps).Value);
+    }
+
+    [Fact]
     public void MergeAppTail_MergesDbPointsWithTailPoints_TailWinningOnOverlap()
     {
         var dbPoints = new[] { new AppRawPoint(1000, 10, null) };

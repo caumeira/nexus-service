@@ -94,4 +94,63 @@ public sealed class AppUsageStorageEstimateTests : IDisposable
         Assert.True(projectedBytes < 800_000_000,
             $"projected {MetricsHistory.RetentionDays}-day storage {projectedBytes / 1_000_000.0:F1} MB exceeds the budget");
     }
+
+    /// <summary>
+    /// app_vram_seconds carries the same gpu dimension as app_gpu_seconds and
+    /// is excluded from the strict budget projection above for the same
+    /// reason: concurrent GPU-active processes are bounded well below
+    /// TopAppsPerSample in practice. This measures both the worst case (every
+    /// tick saturates the cap, one row per app per adapter) and a realistic
+    /// concurrent-app count, so the actual per-app storage add is known
+    /// rather than assumed.
+    /// </summary>
+    [Fact]
+    public void VramRow_MeasuresWorstCaseAndRealisticDailyStorage()
+    {
+        const int simulatedTicks = 500;
+        var random = new Random(1);
+
+        var scalarSample = new MetricSample(1_000_000, null, null, null, null, null,
+            new[] { new GpuReading("gpu-0", "RTX 5080", "", 50, 60) }, Array.Empty<FanReading>());
+        _store.Append(new[] { scalarSample }, null);
+
+        for (var t = 0; t < simulatedTicks; t++)
+        {
+            var ts = 1_000_000 + t * (long)MetricsHistory.AppSampleIntervalSeconds;
+            var vramApps = Enumerable.Range(0, MetricsHistory.TopAppsPerSample)
+                .Select(i => new AppUsagePoint($"app{i}.exe", random.Next(1, 20_000), null))
+                .ToList();
+            _store.Append(new[] { new AppUsageTick(ts, new[] { new AppMetricSample("vram:gpu-0", vramApps) }) }, null);
+        }
+
+        var bytesForSimulatedWindow = new FileInfo(_dbPath).Length;
+        var rowsWritten = (long)simulatedTicks * MetricsHistory.TopAppsPerSample;
+        var bytesPerRow = bytesForSimulatedWindow / (double)rowsWritten;
+
+        var ticksPerDay = 86_400 / MetricsHistory.AppSampleIntervalSeconds;
+
+        var worstCaseRowsPerDay = (long)ticksPerDay * MetricsHistory.TopAppsPerSample;
+        var worstCaseBytesPerDay = bytesPerRow * worstCaseRowsPerDay;
+
+        const int realisticConcurrentGpuApps = 8;
+        var realisticRowsPerDay = (long)ticksPerDay * realisticConcurrentGpuApps;
+        var realisticBytesPerDay = bytesPerRow * realisticRowsPerDay;
+
+        _output.WriteLine($"measured: {bytesForSimulatedWindow} bytes / {rowsWritten} rows = {bytesPerRow:F1} bytes/row");
+        _output.WriteLine(
+            $"worst case (every tick saturates cap={MetricsHistory.TopAppsPerSample}): " +
+            $"{worstCaseBytesPerDay / 1_000_000.0:F2} MB/day, " +
+            $"{worstCaseBytesPerDay * MetricsHistory.RetentionDays / 1_000_000.0:F1} MB over {MetricsHistory.RetentionDays} days");
+        _output.WriteLine(
+            $"realistic ({realisticConcurrentGpuApps} concurrent GPU-active apps): " +
+            $"{realisticBytesPerDay / 1_000.0:F1} KB/day, " +
+            $"{realisticBytesPerDay * MetricsHistory.RetentionDays / 1_000_000.0:F2} MB over {MetricsHistory.RetentionDays} days");
+
+        // Same generous-ceiling intent as the cpu+mem projection above: this
+        // fails loudly if TopAppsPerSample is raised without re-checking the
+        // vram table's worst-case cost too.
+        Assert.True(worstCaseBytesPerDay * MetricsHistory.RetentionDays < 800_000_000,
+            $"projected {MetricsHistory.RetentionDays}-day worst-case storage " +
+            $"{worstCaseBytesPerDay * MetricsHistory.RetentionDays / 1_000_000.0:F1} MB exceeds the budget");
+    }
 }
