@@ -123,6 +123,9 @@ public class MetricsSamplerTests
 
         public IReadOnlyList<AppRawPoint> QueryAppSeries(string metric, string appName, long fromSec, long toSec) =>
             Array.Empty<AppRawPoint>();
+
+        public IReadOnlyList<long> QuerySampledTicks(string metric, long fromSec, long toSec) =>
+            Array.Empty<long>();
     }
 
     private sealed class StubGpuHealthSource : IGpuHealthSource

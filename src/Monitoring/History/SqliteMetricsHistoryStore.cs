@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using Microsoft.Data.Sqlite;
 using Nexus.Service.Persistence;
 
@@ -37,7 +38,11 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
 
     private readonly Dictionary<string, long> _gpuKeys = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _fanKeys = new(StringComparer.Ordinal);
-    private readonly Dictionary<string, long> _appKeys = new(StringComparer.Ordinal);
+    // OrdinalIgnoreCase matches app_series.name's COLLATE NOCASE and
+    // ProcessAggregation/ResolveExecutablePath's name comparisons - a
+    // process name observed with differing case must resolve to the same
+    // app row, not fragment into a second one.
+    private readonly Dictionary<string, long> _appKeys = new(StringComparer.OrdinalIgnoreCase);
 
     public SqliteMetricsHistoryStore() : this(ResolveDatabasePath()) { }
 
@@ -69,6 +74,9 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 InsertScalars(tx, samples);
                 InsertGpuReadings(tx, samples, pendingGpuKeys);
                 InsertFanReadings(tx, samples, pendingFanKeys);
+                UpsertScalarRollup(tx, samples);
+                UpsertGpuRollup(tx, samples, pendingGpuKeys);
+                UpsertFanRollup(tx, samples, pendingFanKeys);
             }
 
             if (pruneCutoffSec is { } cutoff)
@@ -183,105 +191,237 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         }
     }
 
+    // The rollup is minute-aligned, so it can only serve a step that is a
+    // whole multiple of a minute - every MetricsHistory.StepLadderSeconds
+    // rung at or above that width already is, so MonitoringHistoryRoutes'
+    // DecimatedPathMinStepSeconds means the *FromRaw variants below are
+    // unreached from the real ladder and stay only as a defensive fallback
+    // for a non-ladder step, exercised directly by DecimatedHistoryStoreTests
+    // rather than through the route.
+    private static bool IsRollupEligible(int stepSeconds) => stepSeconds >= 60 && stepSeconds % 60 == 0;
+
     public IReadOnlyList<ScalarDecimatedSlot> QueryScalarsDecimated(long fromSec, long toSec, int stepSeconds)
     {
         lock (_writeLock)
         {
-            using var cmd = _connection.CreateCommand();
-            cmd.CommandText = """
-                SELECT (ts / $step) * $step AS slot,
-                       AVG(cpu_x10) / 10.0, MAX(cpu_x10) / 10.0,
-                       AVG(mem_x10) / 10.0, MAX(mem_x10) / 10.0,
-                       AVG(net_in_bps), MAX(net_in_bps),
-                       AVG(net_out_bps), MAX(net_out_bps),
-                       AVG(cpu_temp_x10) / 10.0, MAX(cpu_temp_x10) / 10.0
-                FROM metric_seconds
-                WHERE ts BETWEEN $from AND $to
-                GROUP BY slot
-                ORDER BY slot;
-            """;
-            cmd.Parameters.AddWithValue("$step", stepSeconds);
-            cmd.Parameters.AddWithValue("$from", fromSec);
-            cmd.Parameters.AddWithValue("$to", toSec);
-
-            var result = new List<ScalarDecimatedSlot>();
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                result.Add(new ScalarDecimatedSlot(
-                    reader.GetInt64(0),
-                    NullableDouble(reader, 1), NullableDouble(reader, 2),
-                    NullableDouble(reader, 3), NullableDouble(reader, 4),
-                    NullableDouble(reader, 5), NullableDouble(reader, 6),
-                    NullableDouble(reader, 7), NullableDouble(reader, 8),
-                    NullableDouble(reader, 9), NullableDouble(reader, 10)));
-            }
-            return result;
+            return IsRollupEligible(stepSeconds)
+                ? QueryScalarsDecimatedFromRollup(fromSec, toSec, stepSeconds)
+                : QueryScalarsDecimatedFromRaw(fromSec, toSec, stepSeconds);
         }
+    }
+
+    private IReadOnlyList<ScalarDecimatedSlot> QueryScalarsDecimatedFromRaw(long fromSec, long toSec, int stepSeconds)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT (ts / $step) * $step AS slot,
+                   AVG(cpu_x10) / 10.0, MAX(cpu_x10) / 10.0,
+                   AVG(mem_x10) / 10.0, MAX(mem_x10) / 10.0,
+                   AVG(net_in_bps), MAX(net_in_bps),
+                   AVG(net_out_bps), MAX(net_out_bps),
+                   AVG(cpu_temp_x10) / 10.0, MAX(cpu_temp_x10) / 10.0
+            FROM metric_seconds
+            WHERE ts BETWEEN $from AND $to
+            GROUP BY slot
+            ORDER BY slot;
+        """;
+        cmd.Parameters.AddWithValue("$step", stepSeconds);
+        cmd.Parameters.AddWithValue("$from", fromSec);
+        cmd.Parameters.AddWithValue("$to", toSec);
+
+        var result = new List<ScalarDecimatedSlot>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(new ScalarDecimatedSlot(
+                reader.GetInt64(0),
+                NullableDouble(reader, 1), NullableDouble(reader, 2),
+                NullableDouble(reader, 3), NullableDouble(reader, 4),
+                NullableDouble(reader, 5), NullableDouble(reader, 6),
+                NullableDouble(reader, 7), NullableDouble(reader, 8),
+                NullableDouble(reader, 9), NullableDouble(reader, 10)));
+        }
+        return result;
+    }
+
+    private IReadOnlyList<ScalarDecimatedSlot> QueryScalarsDecimatedFromRollup(long fromSec, long toSec, int stepSeconds)
+    {
+        // ts_min is a minute floor, but from/to are arbitrary caller
+        // seconds, so a tight ts_min BETWEEN from AND to drops a whole
+        // minute whenever its floor lands before from even though part of
+        // that minute is inside the window - the filter below is an
+        // overlap test (does [ts_min, ts_min+59] intersect [from, to]),
+        // matching a minute-granularity source's actual coverage.
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT (ts_min / $step) * $step AS slot,
+                   SUM(cpu_sum_x10) * 1.0 / SUM(cpu_cnt) / 10.0, MAX(cpu_max_x10) / 10.0,
+                   SUM(mem_sum_x10) * 1.0 / SUM(mem_cnt) / 10.0, MAX(mem_max_x10) / 10.0,
+                   SUM(net_in_sum) * 1.0 / SUM(net_in_cnt), MAX(net_in_max),
+                   SUM(net_out_sum) * 1.0 / SUM(net_out_cnt), MAX(net_out_max),
+                   SUM(cpu_temp_sum_x10) * 1.0 / SUM(cpu_temp_cnt) / 10.0, MAX(cpu_temp_max_x10) / 10.0
+            FROM metric_minutes
+            WHERE ts_min + 59 >= $from AND ts_min <= $to
+            GROUP BY slot
+            ORDER BY slot;
+        """;
+        cmd.Parameters.AddWithValue("$step", stepSeconds);
+        cmd.Parameters.AddWithValue("$from", fromSec);
+        cmd.Parameters.AddWithValue("$to", toSec);
+
+        var result = new List<ScalarDecimatedSlot>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(new ScalarDecimatedSlot(
+                reader.GetInt64(0),
+                NullableDouble(reader, 1), NullableDouble(reader, 2),
+                NullableDouble(reader, 3), NullableDouble(reader, 4),
+                NullableDouble(reader, 5), NullableDouble(reader, 6),
+                NullableDouble(reader, 7), NullableDouble(reader, 8),
+                NullableDouble(reader, 9), NullableDouble(reader, 10)));
+        }
+        return result;
     }
 
     public IReadOnlyList<GpuDecimatedSlot> QueryGpuDecimated(long fromSec, long toSec, int stepSeconds)
     {
         lock (_writeLock)
         {
-            using var cmd = _connection.CreateCommand();
-            cmd.CommandText = """
-                SELECT (gs.ts / $step) * $step AS slot, se.gpu_id, se.name,
-                       AVG(gs.load_x10) / 10.0, MAX(gs.load_x10) / 10.0,
-                       AVG(gs.temp_x10) / 10.0, MAX(gs.temp_x10) / 10.0
-                FROM gpu_seconds gs
-                JOIN gpu_series se ON se.key = gs.gpu
-                WHERE gs.ts BETWEEN $from AND $to
-                GROUP BY slot, gs.gpu
-                ORDER BY se.gpu_id, slot;
-            """;
-            cmd.Parameters.AddWithValue("$step", stepSeconds);
-            cmd.Parameters.AddWithValue("$from", fromSec);
-            cmd.Parameters.AddWithValue("$to", toSec);
-
-            var result = new List<GpuDecimatedSlot>();
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                result.Add(new GpuDecimatedSlot(
-                    reader.GetString(1), reader.GetString(2), reader.GetInt64(0),
-                    NullableDouble(reader, 3), NullableDouble(reader, 4),
-                    NullableDouble(reader, 5), NullableDouble(reader, 6)));
-            }
-            return result;
+            return IsRollupEligible(stepSeconds)
+                ? QueryGpuDecimatedFromRollup(fromSec, toSec, stepSeconds)
+                : QueryGpuDecimatedFromRaw(fromSec, toSec, stepSeconds);
         }
+    }
+
+    private IReadOnlyList<GpuDecimatedSlot> QueryGpuDecimatedFromRaw(long fromSec, long toSec, int stepSeconds)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT (gs.ts / $step) * $step AS slot, se.gpu_id, se.name,
+                   AVG(gs.load_x10) / 10.0, MAX(gs.load_x10) / 10.0,
+                   AVG(gs.temp_x10) / 10.0, MAX(gs.temp_x10) / 10.0
+            FROM gpu_seconds gs
+            JOIN gpu_series se ON se.key = gs.gpu
+            WHERE gs.ts BETWEEN $from AND $to
+            GROUP BY slot, gs.gpu
+            ORDER BY se.gpu_id, slot;
+        """;
+        cmd.Parameters.AddWithValue("$step", stepSeconds);
+        cmd.Parameters.AddWithValue("$from", fromSec);
+        cmd.Parameters.AddWithValue("$to", toSec);
+
+        var result = new List<GpuDecimatedSlot>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(new GpuDecimatedSlot(
+                reader.GetString(1), reader.GetString(2), reader.GetInt64(0),
+                NullableDouble(reader, 3), NullableDouble(reader, 4),
+                NullableDouble(reader, 5), NullableDouble(reader, 6)));
+        }
+        return result;
+    }
+
+    private IReadOnlyList<GpuDecimatedSlot> QueryGpuDecimatedFromRollup(long fromSec, long toSec, int stepSeconds)
+    {
+        // See QueryScalarsDecimatedFromRollup: an overlap test, not a tight
+        // BETWEEN, since ts_min is a minute floor.
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT (gm.ts_min / $step) * $step AS slot, se.gpu_id, se.name,
+                   SUM(gm.load_sum_x10) * 1.0 / SUM(gm.load_cnt) / 10.0, MAX(gm.load_max_x10) / 10.0,
+                   SUM(gm.temp_sum_x10) * 1.0 / SUM(gm.temp_cnt) / 10.0, MAX(gm.temp_max_x10) / 10.0
+            FROM gpu_minutes gm
+            JOIN gpu_series se ON se.key = gm.gpu
+            WHERE gm.ts_min + 59 >= $from AND gm.ts_min <= $to
+            GROUP BY slot, gm.gpu
+            ORDER BY se.gpu_id, slot;
+        """;
+        cmd.Parameters.AddWithValue("$step", stepSeconds);
+        cmd.Parameters.AddWithValue("$from", fromSec);
+        cmd.Parameters.AddWithValue("$to", toSec);
+
+        var result = new List<GpuDecimatedSlot>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(new GpuDecimatedSlot(
+                reader.GetString(1), reader.GetString(2), reader.GetInt64(0),
+                NullableDouble(reader, 3), NullableDouble(reader, 4),
+                NullableDouble(reader, 5), NullableDouble(reader, 6)));
+        }
+        return result;
     }
 
     public IReadOnlyList<FanDecimatedSlot> QueryFanDecimated(long fromSec, long toSec, int stepSeconds)
     {
         lock (_writeLock)
         {
-            using var cmd = _connection.CreateCommand();
-            cmd.CommandText = """
-                SELECT (fs.ts / $step) * $step AS slot, se.fan_id, se.name,
-                       AVG(fs.rpm), MAX(fs.rpm),
-                       AVG(fs.duty), MAX(fs.duty)
-                FROM fan_seconds fs
-                JOIN fan_series se ON se.key = fs.fan
-                WHERE fs.ts BETWEEN $from AND $to
-                GROUP BY slot, fs.fan
-                ORDER BY se.fan_id, slot;
-            """;
-            cmd.Parameters.AddWithValue("$step", stepSeconds);
-            cmd.Parameters.AddWithValue("$from", fromSec);
-            cmd.Parameters.AddWithValue("$to", toSec);
-
-            var result = new List<FanDecimatedSlot>();
-            using var reader = cmd.ExecuteReader();
-            while (reader.Read())
-            {
-                result.Add(new FanDecimatedSlot(
-                    reader.GetString(1), reader.GetString(2), reader.GetInt64(0),
-                    NullableDouble(reader, 3), NullableDouble(reader, 4),
-                    NullableDouble(reader, 5), NullableDouble(reader, 6)));
-            }
-            return result;
+            return IsRollupEligible(stepSeconds)
+                ? QueryFanDecimatedFromRollup(fromSec, toSec, stepSeconds)
+                : QueryFanDecimatedFromRaw(fromSec, toSec, stepSeconds);
         }
+    }
+
+    private IReadOnlyList<FanDecimatedSlot> QueryFanDecimatedFromRaw(long fromSec, long toSec, int stepSeconds)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT (fs.ts / $step) * $step AS slot, se.fan_id, se.name,
+                   AVG(fs.rpm), MAX(fs.rpm),
+                   AVG(fs.duty), MAX(fs.duty)
+            FROM fan_seconds fs
+            JOIN fan_series se ON se.key = fs.fan
+            WHERE fs.ts BETWEEN $from AND $to
+            GROUP BY slot, fs.fan
+            ORDER BY se.fan_id, slot;
+        """;
+        cmd.Parameters.AddWithValue("$step", stepSeconds);
+        cmd.Parameters.AddWithValue("$from", fromSec);
+        cmd.Parameters.AddWithValue("$to", toSec);
+
+        var result = new List<FanDecimatedSlot>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(new FanDecimatedSlot(
+                reader.GetString(1), reader.GetString(2), reader.GetInt64(0),
+                NullableDouble(reader, 3), NullableDouble(reader, 4),
+                NullableDouble(reader, 5), NullableDouble(reader, 6)));
+        }
+        return result;
+    }
+
+    private IReadOnlyList<FanDecimatedSlot> QueryFanDecimatedFromRollup(long fromSec, long toSec, int stepSeconds)
+    {
+        // See QueryScalarsDecimatedFromRollup: an overlap test, not a tight
+        // BETWEEN, since ts_min is a minute floor.
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            SELECT (fm.ts_min / $step) * $step AS slot, se.fan_id, se.name,
+                   SUM(fm.rpm_sum) * 1.0 / SUM(fm.rpm_cnt), MAX(fm.rpm_max),
+                   SUM(fm.duty_sum) * 1.0 / SUM(fm.duty_cnt), MAX(fm.duty_max)
+            FROM fan_minutes fm
+            JOIN fan_series se ON se.key = fm.fan
+            WHERE fm.ts_min + 59 >= $from AND fm.ts_min <= $to
+            GROUP BY slot, fm.fan
+            ORDER BY se.fan_id, slot;
+        """;
+        cmd.Parameters.AddWithValue("$step", stepSeconds);
+        cmd.Parameters.AddWithValue("$from", fromSec);
+        cmd.Parameters.AddWithValue("$to", toSec);
+
+        var result = new List<FanDecimatedSlot>();
+        using var reader = cmd.ExecuteReader();
+        while (reader.Read())
+        {
+            result.Add(new FanDecimatedSlot(
+                reader.GetString(1), reader.GetString(2), reader.GetInt64(0),
+                NullableDouble(reader, 3), NullableDouble(reader, 4),
+                NullableDouble(reader, 5), NullableDouble(reader, 6)));
+        }
+        return result;
     }
 
     private static double? NullableDouble(SqliteDataReader reader, int ordinal) =>
@@ -391,6 +531,273 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         }
     }
 
+    // One upsert per (minute, entity) touched by this flush's samples - at
+    // most MetricsHistory.FlushSeconds/60 rounded up per table, never one
+    // row per raw second. sum/cnt (not a running avg) is the accumulated
+    // shape so a later flush landing in the same minute can add its own
+    // batch's contribution without needing to unmerge a prior average;
+    // avg is only ever computed at read time as sum/cnt. cnt gates the
+    // read-time division (SQLite divide-by-zero yields NULL), so a sum
+    // left at a phantom 0 by COALESCE when both the existing row and this
+    // batch had no data for a field never surfaces - only cnt has to be
+    // trustworthy, and it always is (never itself COALESCEd).
+    private sealed class ScalarRollupAccumulator
+    {
+        public double? CpuSum; public int CpuCnt; public double? CpuMax;
+        public double? MemSum; public int MemCnt; public double? MemMax;
+        public double? NetInSum; public int NetInCnt; public double? NetInMax;
+        public double? NetOutSum; public int NetOutCnt; public double? NetOutMax;
+        public double? TempSum; public int TempCnt; public double? TempMax;
+
+        public void Add(MetricSample s)
+        {
+            AddField(s.CpuPercent, ref CpuSum, ref CpuCnt, ref CpuMax);
+            AddField(s.MemoryPercent, ref MemSum, ref MemCnt, ref MemMax);
+            AddField(s.NetInBytesPerSec, ref NetInSum, ref NetInCnt, ref NetInMax);
+            AddField(s.NetOutBytesPerSec, ref NetOutSum, ref NetOutCnt, ref NetOutMax);
+            AddField(s.CpuTempC, ref TempSum, ref TempCnt, ref TempMax);
+        }
+    }
+
+    private sealed class GpuRollupAccumulator
+    {
+        public double? LoadSum; public int LoadCnt; public double? LoadMax;
+        public double? TempSum; public int TempCnt; public double? TempMax;
+
+        public void Add(GpuReading g)
+        {
+            AddField(g.LoadPercent, ref LoadSum, ref LoadCnt, ref LoadMax);
+            AddField(g.TempC, ref TempSum, ref TempCnt, ref TempMax);
+        }
+    }
+
+    private sealed class FanRollupAccumulator
+    {
+        public double? RpmSum; public int RpmCnt; public double? RpmMax;
+        public double? DutySum; public int DutyCnt; public double? DutyMax;
+
+        public void Add(FanReading f)
+        {
+            AddField(f.Rpm, ref RpmSum, ref RpmCnt, ref RpmMax);
+            AddField(f.Duty, ref DutySum, ref DutyCnt, ref DutyMax);
+        }
+    }
+
+    private static void AddField(double? value, ref double? sum, ref int cnt, ref double? max)
+    {
+        if (value is not { } v)
+        {
+            return;
+        }
+        sum = (sum ?? 0) + v;
+        cnt++;
+        max = max is { } m ? Math.Max(m, v) : v;
+    }
+
+    private static void AddField(int? value, ref double? sum, ref int cnt, ref double? max) =>
+        AddField((double?)value, ref sum, ref cnt, ref max);
+
+    private static long ResolveKnownKey(string id, Dictionary<string, long> cache, Dictionary<string, long> pendingKeys) =>
+        cache.TryGetValue(id, out var key) ? key : pendingKeys[id];
+
+    private void UpsertScalarRollup(SqliteTransaction tx, IReadOnlyList<MetricSample> samples)
+    {
+        var byMinute = new Dictionary<long, ScalarRollupAccumulator>();
+        foreach (var s in samples)
+        {
+            var minute = s.TsSec / 60 * 60;
+            if (!byMinute.TryGetValue(minute, out var acc))
+            {
+                acc = new ScalarRollupAccumulator();
+                byMinute[minute] = acc;
+            }
+            acc.Add(s);
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO metric_minutes (
+                ts_min, cpu_sum_x10, cpu_cnt, cpu_max_x10,
+                mem_sum_x10, mem_cnt, mem_max_x10,
+                net_in_sum, net_in_cnt, net_in_max,
+                net_out_sum, net_out_cnt, net_out_max,
+                cpu_temp_sum_x10, cpu_temp_cnt, cpu_temp_max_x10)
+            VALUES ($ts, $cpuSum, $cpuCnt, $cpuMax, $memSum, $memCnt, $memMax,
+                    $netInSum, $netInCnt, $netInMax, $netOutSum, $netOutCnt, $netOutMax,
+                    $tempSum, $tempCnt, $tempMax)
+            ON CONFLICT(ts_min) DO UPDATE SET
+                cpu_sum_x10 = COALESCE(cpu_sum_x10, 0) + COALESCE(excluded.cpu_sum_x10, 0),
+                cpu_cnt = cpu_cnt + excluded.cpu_cnt,
+                cpu_max_x10 = MAX(COALESCE(cpu_max_x10, excluded.cpu_max_x10), COALESCE(excluded.cpu_max_x10, cpu_max_x10)),
+                mem_sum_x10 = COALESCE(mem_sum_x10, 0) + COALESCE(excluded.mem_sum_x10, 0),
+                mem_cnt = mem_cnt + excluded.mem_cnt,
+                mem_max_x10 = MAX(COALESCE(mem_max_x10, excluded.mem_max_x10), COALESCE(excluded.mem_max_x10, mem_max_x10)),
+                net_in_sum = COALESCE(net_in_sum, 0) + COALESCE(excluded.net_in_sum, 0),
+                net_in_cnt = net_in_cnt + excluded.net_in_cnt,
+                net_in_max = MAX(COALESCE(net_in_max, excluded.net_in_max), COALESCE(excluded.net_in_max, net_in_max)),
+                net_out_sum = COALESCE(net_out_sum, 0) + COALESCE(excluded.net_out_sum, 0),
+                net_out_cnt = net_out_cnt + excluded.net_out_cnt,
+                net_out_max = MAX(COALESCE(net_out_max, excluded.net_out_max), COALESCE(excluded.net_out_max, net_out_max)),
+                cpu_temp_sum_x10 = COALESCE(cpu_temp_sum_x10, 0) + COALESCE(excluded.cpu_temp_sum_x10, 0),
+                cpu_temp_cnt = cpu_temp_cnt + excluded.cpu_temp_cnt,
+                cpu_temp_max_x10 = MAX(COALESCE(cpu_temp_max_x10, excluded.cpu_temp_max_x10), COALESCE(excluded.cpu_temp_max_x10, cpu_temp_max_x10));
+        """;
+        var pTs = AddParam(cmd, "$ts");
+        var pCpuSum = AddParam(cmd, "$cpuSum");
+        var pCpuCnt = AddParam(cmd, "$cpuCnt");
+        var pCpuMax = AddParam(cmd, "$cpuMax");
+        var pMemSum = AddParam(cmd, "$memSum");
+        var pMemCnt = AddParam(cmd, "$memCnt");
+        var pMemMax = AddParam(cmd, "$memMax");
+        var pNetInSum = AddParam(cmd, "$netInSum");
+        var pNetInCnt = AddParam(cmd, "$netInCnt");
+        var pNetInMax = AddParam(cmd, "$netInMax");
+        var pNetOutSum = AddParam(cmd, "$netOutSum");
+        var pNetOutCnt = AddParam(cmd, "$netOutCnt");
+        var pNetOutMax = AddParam(cmd, "$netOutMax");
+        var pTempSum = AddParam(cmd, "$tempSum");
+        var pTempCnt = AddParam(cmd, "$tempCnt");
+        var pTempMax = AddParam(cmd, "$tempMax");
+
+        foreach (var (minute, acc) in byMinute)
+        {
+            pTs.Value = minute;
+            pCpuSum.Value = ScaleX10(acc.CpuSum);
+            pCpuCnt.Value = acc.CpuCnt;
+            pCpuMax.Value = ScaleX10(acc.CpuMax);
+            pMemSum.Value = ScaleX10(acc.MemSum);
+            pMemCnt.Value = acc.MemCnt;
+            pMemMax.Value = ScaleX10(acc.MemMax);
+            pNetInSum.Value = ScaleWhole(acc.NetInSum);
+            pNetInCnt.Value = acc.NetInCnt;
+            pNetInMax.Value = ScaleWhole(acc.NetInMax);
+            pNetOutSum.Value = ScaleWhole(acc.NetOutSum);
+            pNetOutCnt.Value = acc.NetOutCnt;
+            pNetOutMax.Value = ScaleWhole(acc.NetOutMax);
+            pTempSum.Value = ScaleX10(acc.TempSum);
+            pTempCnt.Value = acc.TempCnt;
+            pTempMax.Value = ScaleX10(acc.TempMax);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void UpsertGpuRollup(SqliteTransaction tx, IReadOnlyList<MetricSample> samples, Dictionary<string, long> pendingGpuKeys)
+    {
+        var byMinuteGpu = new Dictionary<(long Minute, long GpuKey), GpuRollupAccumulator>();
+        foreach (var s in samples)
+        {
+            var minute = s.TsSec / 60 * 60;
+            foreach (var g in s.Gpus)
+            {
+                var mapKey = (minute, ResolveKnownKey(g.GpuId, _gpuKeys, pendingGpuKeys));
+                if (!byMinuteGpu.TryGetValue(mapKey, out var acc))
+                {
+                    acc = new GpuRollupAccumulator();
+                    byMinuteGpu[mapKey] = acc;
+                }
+                acc.Add(g);
+            }
+        }
+        if (byMinuteGpu.Count == 0)
+        {
+            return;
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO gpu_minutes (ts_min, gpu, load_sum_x10, load_cnt, load_max_x10, temp_sum_x10, temp_cnt, temp_max_x10)
+            VALUES ($ts, $gpu, $loadSum, $loadCnt, $loadMax, $tempSum, $tempCnt, $tempMax)
+            ON CONFLICT(ts_min, gpu) DO UPDATE SET
+                load_sum_x10 = COALESCE(load_sum_x10, 0) + COALESCE(excluded.load_sum_x10, 0),
+                load_cnt = load_cnt + excluded.load_cnt,
+                load_max_x10 = MAX(COALESCE(load_max_x10, excluded.load_max_x10), COALESCE(excluded.load_max_x10, load_max_x10)),
+                temp_sum_x10 = COALESCE(temp_sum_x10, 0) + COALESCE(excluded.temp_sum_x10, 0),
+                temp_cnt = temp_cnt + excluded.temp_cnt,
+                temp_max_x10 = MAX(COALESCE(temp_max_x10, excluded.temp_max_x10), COALESCE(excluded.temp_max_x10, temp_max_x10));
+        """;
+        var pTs = AddParam(cmd, "$ts");
+        var pGpu = AddParam(cmd, "$gpu");
+        var pLoadSum = AddParam(cmd, "$loadSum");
+        var pLoadCnt = AddParam(cmd, "$loadCnt");
+        var pLoadMax = AddParam(cmd, "$loadMax");
+        var pTempSum = AddParam(cmd, "$tempSum");
+        var pTempCnt = AddParam(cmd, "$tempCnt");
+        var pTempMax = AddParam(cmd, "$tempMax");
+
+        foreach (var ((minute, gpuKey), acc) in byMinuteGpu)
+        {
+            pTs.Value = minute;
+            pGpu.Value = gpuKey;
+            pLoadSum.Value = ScaleX10(acc.LoadSum);
+            pLoadCnt.Value = acc.LoadCnt;
+            pLoadMax.Value = ScaleX10(acc.LoadMax);
+            pTempSum.Value = ScaleX10(acc.TempSum);
+            pTempCnt.Value = acc.TempCnt;
+            pTempMax.Value = ScaleX10(acc.TempMax);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private void UpsertFanRollup(SqliteTransaction tx, IReadOnlyList<MetricSample> samples, Dictionary<string, long> pendingFanKeys)
+    {
+        var byMinuteFan = new Dictionary<(long Minute, long FanKey), FanRollupAccumulator>();
+        foreach (var s in samples)
+        {
+            var minute = s.TsSec / 60 * 60;
+            foreach (var f in s.Fans)
+            {
+                var mapKey = (minute, ResolveKnownKey(f.FanId, _fanKeys, pendingFanKeys));
+                if (!byMinuteFan.TryGetValue(mapKey, out var acc))
+                {
+                    acc = new FanRollupAccumulator();
+                    byMinuteFan[mapKey] = acc;
+                }
+                acc.Add(f);
+            }
+        }
+        if (byMinuteFan.Count == 0)
+        {
+            return;
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO fan_minutes (ts_min, fan, rpm_sum, rpm_cnt, rpm_max, duty_sum, duty_cnt, duty_max)
+            VALUES ($ts, $fan, $rpmSum, $rpmCnt, $rpmMax, $dutySum, $dutyCnt, $dutyMax)
+            ON CONFLICT(ts_min, fan) DO UPDATE SET
+                rpm_sum = COALESCE(rpm_sum, 0) + COALESCE(excluded.rpm_sum, 0),
+                rpm_cnt = rpm_cnt + excluded.rpm_cnt,
+                rpm_max = MAX(COALESCE(rpm_max, excluded.rpm_max), COALESCE(excluded.rpm_max, rpm_max)),
+                duty_sum = COALESCE(duty_sum, 0) + COALESCE(excluded.duty_sum, 0),
+                duty_cnt = duty_cnt + excluded.duty_cnt,
+                duty_max = MAX(COALESCE(duty_max, excluded.duty_max), COALESCE(excluded.duty_max, duty_max));
+        """;
+        var pTs = AddParam(cmd, "$ts");
+        var pFan = AddParam(cmd, "$fan");
+        var pRpmSum = AddParam(cmd, "$rpmSum");
+        var pRpmCnt = AddParam(cmd, "$rpmCnt");
+        var pRpmMax = AddParam(cmd, "$rpmMax");
+        var pDutySum = AddParam(cmd, "$dutySum");
+        var pDutyCnt = AddParam(cmd, "$dutyCnt");
+        var pDutyMax = AddParam(cmd, "$dutyMax");
+
+        foreach (var ((minute, fanKey), acc) in byMinuteFan)
+        {
+            pTs.Value = minute;
+            pFan.Value = fanKey;
+            pRpmSum.Value = ScaleWhole(acc.RpmSum);
+            pRpmCnt.Value = acc.RpmCnt;
+            pRpmMax.Value = ScaleWhole(acc.RpmMax);
+            pDutySum.Value = ScaleWhole(acc.DutySum);
+            pDutyCnt.Value = acc.DutyCnt;
+            pDutyMax.Value = ScaleWhole(acc.DutyMax);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
     private void Prune(SqliteTransaction tx, long cutoffSec)
     {
         foreach (var table in new[] { "metric_seconds", "gpu_seconds", "fan_seconds" })
@@ -401,7 +808,21 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             cmd.Parameters.AddWithValue("$cutoff", cutoffSec);
             cmd.ExecuteNonQuery();
         }
+
+        foreach (var (table, tsColumn) in RollupTables)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = $"DELETE FROM {table} WHERE {tsColumn} < $cutoff;";
+            cmd.Parameters.AddWithValue("$cutoff", cutoffSec);
+            cmd.ExecuteNonQuery();
+        }
     }
+
+    private static readonly (string Table, string TsColumn)[] RollupTables =
+    {
+        ("metric_minutes", "ts_min"), ("gpu_minutes", "ts_min"), ("fan_minutes", "ts_min"),
+    };
 
     private long ResolveGpuKey(SqliteTransaction tx, string gpuId, string name, Dictionary<string, long> pendingKeys)
     {
@@ -540,9 +961,34 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 PRIMARY KEY (ts, fan)
             ) WITHOUT ROWID;
 
+            CREATE TABLE IF NOT EXISTS metric_minutes (
+                ts_min           INTEGER PRIMARY KEY,
+                cpu_sum_x10      INTEGER, cpu_cnt INTEGER NOT NULL DEFAULT 0, cpu_max_x10 INTEGER,
+                mem_sum_x10      INTEGER, mem_cnt INTEGER NOT NULL DEFAULT 0, mem_max_x10 INTEGER,
+                net_in_sum       INTEGER, net_in_cnt INTEGER NOT NULL DEFAULT 0, net_in_max INTEGER,
+                net_out_sum      INTEGER, net_out_cnt INTEGER NOT NULL DEFAULT 0, net_out_max INTEGER,
+                cpu_temp_sum_x10 INTEGER, cpu_temp_cnt INTEGER NOT NULL DEFAULT 0, cpu_temp_max_x10 INTEGER
+            );
+
+            CREATE TABLE IF NOT EXISTS gpu_minutes (
+                ts_min       INTEGER NOT NULL,
+                gpu          INTEGER NOT NULL,
+                load_sum_x10 INTEGER, load_cnt INTEGER NOT NULL DEFAULT 0, load_max_x10 INTEGER,
+                temp_sum_x10 INTEGER, temp_cnt INTEGER NOT NULL DEFAULT 0, temp_max_x10 INTEGER,
+                PRIMARY KEY (ts_min, gpu)
+            ) WITHOUT ROWID;
+
+            CREATE TABLE IF NOT EXISTS fan_minutes (
+                ts_min   INTEGER NOT NULL,
+                fan      INTEGER NOT NULL,
+                rpm_sum  INTEGER, rpm_cnt INTEGER NOT NULL DEFAULT 0, rpm_max INTEGER,
+                duty_sum INTEGER, duty_cnt INTEGER NOT NULL DEFAULT 0, duty_max INTEGER,
+                PRIMARY KEY (ts_min, fan)
+            ) WITHOUT ROWID;
+
             CREATE TABLE IF NOT EXISTS app_series (
                 key  INTEGER PRIMARY KEY AUTOINCREMENT,
-                name TEXT NOT NULL UNIQUE
+                name TEXT NOT NULL COLLATE NOCASE UNIQUE
             );
 
             CREATE TABLE IF NOT EXISTS app_cpu_seconds (
@@ -664,7 +1110,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         lock (_writeLock)
         {
             using var tx = _connection.BeginTransaction();
-            var pendingAppKeys = new Dictionary<string, long>(StringComparer.Ordinal);
+            var pendingAppKeys = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
+            IReadOnlyList<long>? orphanedAppKeys = null;
 
             if (ticks.Count > 0)
             {
@@ -673,7 +1120,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
 
             if (pruneCutoffSec is { } cutoff)
             {
-                PruneApps(tx, cutoff);
+                orphanedAppKeys = PruneApps(tx, cutoff);
             }
 
             tx.Commit();
@@ -681,6 +1128,18 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             foreach (var (name, key) in pendingAppKeys)
             {
                 _appKeys[name] = key;
+            }
+
+            // A cache entry surviving past its app_series row's deletion
+            // would resolve future inserts for that name to a dangling app
+            // key, making them invisible to QueryTopApps's JOIN.
+            if (orphanedAppKeys is { Count: > 0 })
+            {
+                var evicted = new HashSet<long>(orphanedAppKeys);
+                foreach (var name in _appKeys.Where(kv => evicted.Contains(kv.Value)).Select(kv => kv.Key).ToList())
+                {
+                    _appKeys.Remove(name);
+                }
             }
         }
     }
@@ -761,9 +1220,11 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         }
     }
 
-    private void PruneApps(SqliteTransaction tx, long cutoffSec)
+    private static readonly string[] AppSecondsTables = { "app_cpu_seconds", "app_mem_seconds", "app_gpu_seconds" };
+
+    private IReadOnlyList<long> PruneApps(SqliteTransaction tx, long cutoffSec)
     {
-        foreach (var table in new[] { "app_cpu_seconds", "app_mem_seconds", "app_gpu_seconds" })
+        foreach (var table in AppSecondsTables)
         {
             using var cmd = _connection.CreateCommand();
             cmd.Transaction = tx;
@@ -771,6 +1232,36 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             cmd.Parameters.AddWithValue("$cutoff", cutoffSec);
             cmd.ExecuteNonQuery();
         }
+
+        var orphaned = new List<long>();
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = """
+                SELECT key FROM app_series
+                WHERE key NOT IN (SELECT app FROM app_cpu_seconds)
+                  AND key NOT IN (SELECT app FROM app_mem_seconds)
+                  AND key NOT IN (SELECT app FROM app_gpu_seconds);
+            """;
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                orphaned.Add(reader.GetInt64(0));
+            }
+        }
+        if (orphaned.Count > 0)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = "DELETE FROM app_series WHERE key = $key;";
+            var p = AddParam(cmd, "$key");
+            foreach (var key in orphaned)
+            {
+                p.Value = key;
+                cmd.ExecuteNonQuery();
+            }
+        }
+        return orphaned;
     }
 
     private long ResolveAppKey(SqliteTransaction tx, string name, Dictionary<string, long> pendingKeys)
@@ -786,9 +1277,13 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
 
         using var cmd = _connection.CreateCommand();
         cmd.Transaction = tx;
+        // name = app_series.name (not excluded.name): app_series.name is
+        // COLLATE NOCASE, so a later differently-cased observation of the
+        // same app conflicts here and must keep the first-seen casing
+        // rather than overwrite it every time casing varies.
         cmd.CommandText = """
             INSERT INTO app_series (name) VALUES ($name)
-            ON CONFLICT(name) DO UPDATE SET name = excluded.name
+            ON CONFLICT(name) DO UPDATE SET name = app_series.name
             RETURNING key;
         """;
         cmd.Parameters.AddWithValue("$name", name);
@@ -807,15 +1302,38 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 return Array.Empty<AppWindowStat>();
             }
 
-            using var cmd = _connection.CreateCommand();
             var gpuFilter = gpuKey is not null ? "gpu = $gpu AND " : "";
+
+            // The window average must divide by how many ticks the metric
+            // was actually sampled in [from, to], not by an app's own row
+            // count (rows only exist for ticks the app ranked into the top
+            // N) - otherwise a single spike tick outranks a lower load
+            // sustained across the whole window.
+            long expectedTicks;
+            using (var tickCmd = _connection.CreateCommand())
+            {
+                tickCmd.CommandText = $"SELECT COUNT(DISTINCT ts) FROM {table} WHERE {gpuFilter}ts BETWEEN $from AND $to;";
+                if (gpuKey is { } gk0)
+                {
+                    tickCmd.Parameters.AddWithValue("$gpu", gk0);
+                }
+                tickCmd.Parameters.AddWithValue("$from", fromSec);
+                tickCmd.Parameters.AddWithValue("$to", toSec);
+                expectedTicks = Convert.ToInt64(tickCmd.ExecuteScalar());
+            }
+            if (expectedTicks == 0)
+            {
+                return Array.Empty<AppWindowStat>();
+            }
+
+            using var cmd = _connection.CreateCommand();
             cmd.CommandText = $"""
-                SELECT se.name, AVG(t.value_x10) / 10.0, MAX(t.value_x10) / 10.0
+                SELECT se.name, SUM(t.value_x10), MAX(t.value_x10) / 10.0
                 FROM {table} t
                 JOIN app_series se ON se.key = t.app
                 WHERE {gpuFilter}t.ts BETWEEN $from AND $to
                 GROUP BY t.app
-                ORDER BY AVG(t.value_x10) DESC
+                ORDER BY SUM(t.value_x10) DESC
                 LIMIT $limit;
             """;
             if (gpuKey is { } gk)
@@ -830,7 +1348,38 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             using var reader = cmd.ExecuteReader();
             while (reader.Read())
             {
-                result.Add(new AppWindowStat(reader.GetString(0), reader.GetDouble(1), reader.GetDouble(2)));
+                var sum = reader.GetInt64(1);
+                result.Add(new AppWindowStat(reader.GetString(0), sum / (expectedTicks * 10.0), reader.GetDouble(2)));
+            }
+            return result;
+        }
+    }
+
+    public IReadOnlyList<long> QuerySampledTicks(string metric, long fromSec, long toSec)
+    {
+        lock (_writeLock)
+        {
+            var (table, gpuKey) = ResolveMetricTable(metric);
+            if (table is null)
+            {
+                return Array.Empty<long>();
+            }
+
+            var gpuFilter = gpuKey is not null ? "gpu = $gpu AND " : "";
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = $"SELECT DISTINCT ts FROM {table} WHERE {gpuFilter}ts BETWEEN $from AND $to ORDER BY ts;";
+            if (gpuKey is { } gk)
+            {
+                cmd.Parameters.AddWithValue("$gpu", gk);
+            }
+            cmd.Parameters.AddWithValue("$from", fromSec);
+            cmd.Parameters.AddWithValue("$to", toSec);
+
+            var result = new List<long>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(reader.GetInt64(0));
             }
             return result;
         }

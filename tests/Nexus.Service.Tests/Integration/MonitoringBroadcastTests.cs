@@ -591,6 +591,12 @@ public class MonitoringBroadcastTests
         Assert.False(arr[1].TryGetProperty("startedAtMs", out _)); // null omitted on the wire
     }
 
+    // No WebSocketOptions size limit is configured anywhere in Program.cs
+    // and no other constant caps a text frame's size, so this is a
+    // regression-guard sanity bound (chosen well above any realistic
+    // process-list payload), not an enforced system limit.
+    private const int SanityFrameSizeBytes = 1024 * 1024;
+
     [Fact]
     public async Task Tick_ProcessesTopic_ShipsTheFullList_NotCappedAtTwentyFive()
     {
@@ -610,15 +616,12 @@ public class MonitoringBroadcastTests
         var frame = captured.Single(c => c.Topic == "processes");
         using var doc = System.Text.Json.JsonDocument.Parse(frame.Payload);
         Assert.Equal(count, doc.RootElement.GetProperty("d").GetProperty("processes").GetArrayLength());
-
-        // The full ~300-process frame stays well under the WebSocket
-        // envelope's 1MB cap; this is the measurement backing that claim.
-        Assert.True(frame.Payload.Length < 1024 * 1024,
-            $"processes frame at {count} entries was {frame.Payload.Length} bytes, expected < 1MB");
+        Assert.True(frame.Payload.Length < SanityFrameSizeBytes,
+            $"processes frame at {count} entries was {frame.Payload.Length} bytes, expected < {SanityFrameSizeBytes}");
     }
 
     [Fact]
-    public async Task Tick_CompositeMonitoringTopic_AlsoEmbedsTheFullProcessList_UnderTheOneMbCap()
+    public async Task Tick_CompositeMonitoringTopic_AlsoEmbedsTheFullProcessList_StaysSmall()
     {
         // BuildProcessFrame feeds both the dedicated "processes" topic and
         // the composite "monitoring" frame (every general dashboard
@@ -641,8 +644,8 @@ public class MonitoringBroadcastTests
         var frame = captured.Single(c => c.Topic == "monitoring");
         using var doc = System.Text.Json.JsonDocument.Parse(frame.Payload);
         Assert.Equal(count, doc.RootElement.GetProperty("d").GetProperty("processes").GetProperty("processes").GetArrayLength());
-        Assert.True(frame.Payload.Length < 1024 * 1024,
-            $"composite monitoring frame at {count} processes was {frame.Payload.Length} bytes, expected < 1MB");
+        Assert.True(frame.Payload.Length < SanityFrameSizeBytes,
+            $"composite monitoring frame at {count} processes was {frame.Payload.Length} bytes, expected < {SanityFrameSizeBytes}");
     }
 
     [Fact]

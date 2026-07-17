@@ -43,7 +43,12 @@ public interface IShortcutsProvider
 /// unresolvable.</summary>
 public interface IProcessIconProvider
 {
-    byte[] GetIcon(string exePath);
+    /// <summary>Null means extraction could not even be attempted (e.g. the
+    /// Windows-only helper is not connected yet, or its RPC round trip
+    /// timed out) - a transient condition callers must not cache as a
+    /// negative result. Empty bytes means extraction ran and found no
+    /// icon.</summary>
+    byte[]? GetIcon(string exePath);
 }
 
 public interface INetworkProvider

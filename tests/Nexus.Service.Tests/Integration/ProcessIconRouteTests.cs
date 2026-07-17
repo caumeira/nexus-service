@@ -61,10 +61,10 @@ public sealed class ProcessIconRouteTests : IDisposable
 
     private sealed class FakeProcessIconProvider : IProcessIconProvider
     {
-        public byte[] IconBytes = Array.Empty<byte>();
+        public byte[]? IconBytes = Array.Empty<byte>();
         public int CallCount;
 
-        public byte[] GetIcon(string exePath)
+        public byte[]? GetIcon(string exePath)
         {
             CallCount++;
             return IconBytes;
@@ -99,6 +99,19 @@ public sealed class ProcessIconRouteTests : IDisposable
     }
 
     [Fact]
+    public async Task EmptyIconFromProvider_IsCached_ProviderNotCalledAgain()
+    {
+        SeedProcess("app.exe");
+        _icons.IconBytes = Array.Empty<byte>();
+        var client = Client();
+
+        await client.GetAsync("/monitoring/process-icon?name=app.exe");
+        await client.GetAsync("/monitoring/process-icon?name=app.exe");
+
+        Assert.Equal(1, _icons.CallCount); // a genuine empty result is a real negative, safe to cache
+    }
+
+    [Fact]
     public async Task IconPresent_Returns200_WithEtagAndCacheControl()
     {
         SeedProcess("app.exe");
@@ -124,6 +137,23 @@ public sealed class ProcessIconRouteTests : IDisposable
         await client.GetAsync("/monitoring/process-icon?name=app.exe");
 
         Assert.Equal(1, _icons.CallCount);
+    }
+
+    [Fact]
+    public async Task NullFromProvider_TransportFailure_Is404_ButNotCached()
+    {
+        SeedProcess("app.exe");
+        _icons.IconBytes = null;
+        var client = Client();
+
+        var first = await client.GetAsync("/monitoring/process-icon?name=app.exe");
+        Assert.Equal(HttpStatusCode.NotFound, first.StatusCode);
+
+        _icons.IconBytes = new byte[] { 7, 7, 7 };
+        var second = await client.GetAsync("/monitoring/process-icon?name=app.exe");
+
+        Assert.Equal(HttpStatusCode.OK, second.StatusCode);
+        Assert.Equal(2, _icons.CallCount); // never cached the null, so the provider is retried
     }
 
     [Fact]

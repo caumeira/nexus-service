@@ -22,24 +22,39 @@ public sealed class ProcessIconResult { public byte[] Bytes { get; set; } = Arra
 [SupportedOSPlatform("windows")]
 public static class ProcessIconCommands
 {
-    public static async Task<byte[]> ExtractAsync(HelperRegistry r, string exePath, CancellationToken ct = default)
-        => Read(await InvokeAsync(r, exePath, ct), AppJsonContext.Default.ProcessIconResult)?.Bytes
-           ?? Array.Empty<byte>();
-
-    private static async Task<HelperResult?> InvokeAsync(HelperRegistry r, string exePath, CancellationToken ct)
+    /// <summary>Null means the request could not be answered at all (no
+    /// helper connected yet, or the round trip timed out/disconnected) -
+    /// a transient condition the caller must retry, not cache. Empty bytes
+    /// means the helper genuinely ran extraction and found no icon.</summary>
+    public static async Task<byte[]?> ExtractAsync(HelperRegistry r, string exePath, CancellationToken ct = default)
     {
         var conn = r.GetAny();
-        if (conn is null) return null;
-        return await conn.SendCommandAsync(
+        if (conn is null)
+        {
+            return null;
+        }
+
+        var result = await conn.SendCommandAsync(
             "process-icon.extract", new ProcessIconRequest { ExePath = exePath },
             AppJsonContext.Default.ProcessIconRequest, timeoutMs: 6000, ct: ct).ConfigureAwait(false);
-    }
+        if (!result.Ok)
+        {
+            return null;
+        }
+        if (result.Payload is null)
+        {
+            return Array.Empty<byte>();
+        }
 
-    private static T? Read<T>(HelperResult? r, System.Text.Json.Serialization.Metadata.JsonTypeInfo<T> typeInfo)
-    {
-        if (r is null || !r.Ok || r.Payload is null) return default;
-        try { return JsonSerializer.Deserialize(r.Payload.Value, typeInfo); }
-        catch { return default; }
+        try
+        {
+            var parsed = JsonSerializer.Deserialize(result.Payload.Value, AppJsonContext.Default.ProcessIconResult);
+            return parsed?.Bytes ?? Array.Empty<byte>();
+        }
+        catch
+        {
+            return null;
+        }
     }
 }
 

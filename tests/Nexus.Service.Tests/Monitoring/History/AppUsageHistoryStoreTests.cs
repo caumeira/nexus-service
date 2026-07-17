@@ -76,6 +76,83 @@ public class AppUsageHistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public void QueryTopApps_RanksASustainedLowerLoad_AboveASingleTickSpike()
+    {
+        // "spike" only ever appears in one of five sampled ticks (it fell
+        // out of the top-N the rest of the time); "sustained" appears in
+        // all five at a lower value. Dividing by the app's own row count
+        // would let the single 100% tick outrank the steady 40% load - the
+        // window average must divide by the ticks the metric was actually
+        // sampled, not by how many of them this app happened to rank into.
+        _store.Append(new[]
+        {
+            CpuTick(1000, ("spike", 100), ("sustained", 40)),
+            CpuTick(1005, ("sustained", 40)),
+            CpuTick(1010, ("sustained", 40)),
+            CpuTick(1015, ("sustained", 40)),
+            CpuTick(1020, ("sustained", 40)),
+        }, null);
+
+        var top = _store.QueryTopApps("cpu", 0, 10_000, 15);
+
+        Assert.Equal("sustained", top.First().Name);
+        var sustained = top.Single(a => a.Name == "sustained");
+        Assert.Equal(40, sustained.Avg);
+        var spike = top.Single(a => a.Name == "spike");
+        Assert.Equal(20, spike.Avg); // 100 / 5 sampled ticks, not 100 / 1 own row
+    }
+
+    [Fact]
+    public void QuerySampledTicks_ReturnsDistinctTimestamps_ForTheMetric()
+    {
+        _store.Append(new[] { CpuTick(1000, ("a", 1)), CpuTick(1005, ("a", 1), ("b", 1)) }, null);
+
+        var ticks = _store.QuerySampledTicks("cpu", 0, 10_000);
+
+        Assert.Equal(new long[] { 1000, 1005 }, ticks);
+    }
+
+    [Fact]
+    public void QuerySampledTicks_ReturnsEmpty_ForAnUnrecognizedMetric()
+    {
+        _store.Append(new[] { CpuTick(1000, ("a", 1)) }, null);
+
+        Assert.Empty(_store.QuerySampledTicks("net", 0, 10_000));
+    }
+
+    [Fact]
+    public void ResolveAppKey_TreatsDifferentlyCasedNames_AsTheSameApp()
+    {
+        _store.Append(new[] { CpuTick(1000, ("Chrome.exe", 10)), CpuTick(1005, ("chrome.exe", 30)) }, null);
+
+        var top = _store.QueryTopApps("cpu", 0, 10_000, 15);
+
+        var app = Assert.Single(top);
+        Assert.Equal(20, app.Avg); // both ticks resolved to one app row
+    }
+
+    [Fact]
+    public void ResolveAppKey_KeepsTheFirstSeenCasing_OnALaterConflict()
+    {
+        _store.Append(new[] { CpuTick(1000, ("Chrome.exe", 10)) }, null);
+        _store.Append(new[] { CpuTick(1005, ("chrome.exe", 30)) }, null);
+
+        var app = Assert.Single(_store.QueryTopApps("cpu", 0, 10_000, 15));
+
+        Assert.Equal("Chrome.exe", app.Name);
+    }
+
+    [Fact]
+    public void QueryAppSeries_MatchesByName_CaseInsensitively()
+    {
+        _store.Append(new[] { CpuTick(1000, ("Chrome.exe", 10)) }, null);
+
+        var points = _store.QueryAppSeries("cpu", "CHROME.EXE", 0, 10_000);
+
+        Assert.Single(points);
+    }
+
+    [Fact]
     public void QueryTopApps_ReturnsEmpty_ForAnUnrecognizedMetric()
     {
         _store.Append(new[] { CpuTick(1000, ("app.exe", 10)) }, null);
@@ -132,6 +209,34 @@ public class AppUsageHistoryStoreTests : IDisposable
         _store.Append(new[] { gpuTick }, null);
 
         Assert.Empty(_store.QueryTopApps("gpu:never-scalar-recorded", 0, 10_000, 15));
+    }
+
+    [Fact]
+    public void Append_WithPruneCutoff_ReusesAFreshKey_ForAnAppPrunedEntirelyOutOfTheWindow()
+    {
+        // The app_series row (and its cached key) for "gone.exe" must be
+        // dropped once no sample of it remains - otherwise a later
+        // reappearance of the same name would resolve to a dangling key
+        // and its rows would never show up in QueryTopApps's JOIN.
+        _store.Append(new[] { CpuTick(1000, ("gone.exe", 10)) }, null);
+        _store.Append(Array.Empty<AppUsageTick>(), pruneCutoffSec: 5000);
+
+        _store.Append(new[] { CpuTick(6000, ("gone.exe", 20)) }, null);
+
+        var top = _store.QueryTopApps("cpu", 0, 10_000, 15);
+        var app = Assert.Single(top);
+        Assert.Equal(20, app.Avg);
+    }
+
+    [Fact]
+    public void Append_WithPruneCutoff_KeepsAnAppSeriesRow_WhileAnyTableStillHasSamples()
+    {
+        _store.Append(new[] { CpuTick(1000, ("kept.exe", 10)), CpuTick(9000, ("kept.exe", 30)) }, null);
+
+        _store.Append(Array.Empty<AppUsageTick>(), pruneCutoffSec: 5000);
+
+        var top = _store.QueryTopApps("cpu", 0, 10_000, 15);
+        Assert.Single(top);
     }
 
     [Fact]

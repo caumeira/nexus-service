@@ -15,7 +15,7 @@ public sealed class HelperProcessIconProxy : IProcessIconProvider
 
     public HelperProcessIconProxy(HelperRegistry registry) { _registry = registry; }
 
-    public byte[] GetIcon(string exePath)
+    public byte[]? GetIcon(string exePath)
         => ProcessIconCommands.ExtractAsync(_registry, exePath).GetAwaiter().GetResult();
 }
 #endif

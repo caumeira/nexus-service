@@ -15,20 +15,20 @@ public sealed class ProcessIconCache
     private const int MaxEntries = 200;
 
     private readonly object _lock = new();
-    // Insertion order doubles as recency order: a re-Set on an existing key
-    // removes and re-adds it, so the front of the dictionary is always the
-    // least recently used entry.
-    private readonly Dictionary<string, byte[]> _entries = new();
+    // _order tracks recency: front (First) = most recently used, back
+    // (Last) = least recently used, so eviction always removes Last.
+    private readonly LinkedList<string> _order = new();
+    private readonly Dictionary<string, (LinkedListNode<string> Node, byte[] Bytes)> _entries = new();
 
     public bool TryGet(string exePath, out byte[] bytes)
     {
         lock (_lock)
         {
-            if (_entries.TryGetValue(exePath, out var found))
+            if (_entries.TryGetValue(exePath, out var entry))
             {
-                bytes = found;
-                _entries.Remove(exePath);
-                _entries[exePath] = found;
+                bytes = entry.Bytes;
+                _order.Remove(entry.Node);
+                _order.AddFirst(entry.Node);
                 return true;
             }
         }
@@ -40,13 +40,18 @@ public sealed class ProcessIconCache
     {
         lock (_lock)
         {
-            _entries.Remove(exePath);
-            _entries[exePath] = bytes;
+            if (_entries.TryGetValue(exePath, out var existing))
+            {
+                _order.Remove(existing.Node);
+            }
+            var node = _order.AddFirst(exePath);
+            _entries[exePath] = (node, bytes);
+
             if (_entries.Count > MaxEntries)
             {
-                using var e = _entries.Keys.GetEnumerator();
-                e.MoveNext();
-                _entries.Remove(e.Current);
+                var lru = _order.Last!;
+                _order.RemoveLast();
+                _entries.Remove(lru.Value);
             }
         }
     }

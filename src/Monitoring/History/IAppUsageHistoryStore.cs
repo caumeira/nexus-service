@@ -36,4 +36,9 @@ public interface IAppUsageHistoryStore
     /// <summary>Raw (ts, value, vramMb) rows for one app within metric,
     /// ascending by ts - the input MetricsDecimation.Decimate expects.</summary>
     IReadOnlyList<AppRawPoint> QueryAppSeries(string metric, string appName, long fromSec, long toSec);
+
+    /// <summary>Distinct ts values metric was sampled at within [fromSec,
+    /// toSec], ascending - the persisted-side half of the route's db+tail
+    /// union used to compute a window's expected sample count.</summary>
+    IReadOnlyList<long> QuerySampledTicks(string metric, long fromSec, long toSec);
 }

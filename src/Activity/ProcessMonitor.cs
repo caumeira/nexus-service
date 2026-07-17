@@ -4,6 +4,7 @@ using System.Diagnostics;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
+using Nexus.Service.Monitoring.History;
 using Nexus.Service.Sockets;
 using Microsoft.Extensions.Hosting;
 
@@ -26,10 +27,14 @@ public sealed class ProcessMonitor : BackgroundService
 
     // Bounds growth over a long-running service: every distinct name ever
     // seen (installers, temp tools, updaters) would otherwise accumulate a
-    // permanent entry with no eviction.
+    // permanent entry with no eviction. _pathCacheOrder tracks insertion
+    // order for eviction - Dictionary enumeration order is not reliable
+    // insertion order once removals have happened (a freed slot is reused
+    // by the next insert and can enumerate first, evicting on every insert).
     private const int PathCacheMaxEntries = 500;
     private readonly object _pathCacheLock = new();
     private readonly Dictionary<string, string> _pathCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Queue<string> _pathCacheOrder = new();
 
     // Delta tracking for CPU time (Windows uses TimeSpan, macOS uses nanoseconds).
     private readonly Dictionary<int, (TimeSpan cpuTime, DateTime when)> _winPrev = new();
@@ -83,12 +88,14 @@ public sealed class ProcessMonitor : BackgroundService
         {
             lock (_pathCacheLock)
             {
+                if (!_pathCache.ContainsKey(name))
+                {
+                    _pathCacheOrder.Enqueue(name);
+                }
                 _pathCache[name] = path;
                 if (_pathCache.Count > PathCacheMaxEntries)
                 {
-                    using var e = _pathCache.Keys.GetEnumerator();
-                    e.MoveNext();
-                    _pathCache.Remove(e.Current);
+                    _pathCache.Remove(_pathCacheOrder.Dequeue());
                 }
             }
         }
@@ -108,16 +115,12 @@ public sealed class ProcessMonitor : BackgroundService
         }
     }
 
-    private bool HasSubscribers
+    private bool HasRealSubscribers =>
+        _hub.TopicHasSubscribers("processes") || _hub.TopicHasSubscribers("monitoring");
+
+    private bool HasDemand
     {
-        get
-        {
-            if (_hub.TopicHasSubscribers("processes") || _hub.TopicHasSubscribers("monitoring"))
-            {
-                return true;
-            }
-            lock (_demandGate) { return _demands.Count > 0; }
-        }
+        get { lock (_demandGate) { return _demands.Count > 0; } }
     }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
@@ -126,9 +129,15 @@ public sealed class ProcessMonitor : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
+            // Demand with no real WS subscriber only needs app-history's
+            // own sub-cadence, not the full 1Hz broadcast rate - sampling
+            // every process every second, 24/7, for a consumer that reads
+            // far less often is pure waste on every install that never
+            // opens the processes UI.
+            var hasReal = HasRealSubscribers;
             try
             {
-                if (HasSubscribers)
+                if (hasReal || HasDemand)
                 {
 #if MACOS
                     SampleMacOs();
@@ -142,8 +151,9 @@ public sealed class ProcessMonitor : BackgroundService
                 Console.Error.WriteLine($"[process-monitor] sample failed: {ex.Message}");
             }
 
+            var delayMs = hasReal ? _intervalMs : MetricsHistory.AppSampleIntervalSeconds * 1000;
             try
-            { await Task.Delay(_intervalMs, stoppingToken); }
+            { await Task.Delay(delayMs, stoppingToken); }
             catch (TaskCanceledException) { break; }
         }
     }

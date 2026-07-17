@@ -35,10 +35,14 @@ public static class MonitoringHistoryRoutes
     private const int MaxMaxPoints = 2000;
     private const int DefaultMaxPoints = 600;
 
-    // Smallest MetricsHistory.StepLadderSeconds rung the SQL-side decimated
-    // query path is measured faster at than the raw-pull path; see the
-    // route's usage for the measured numbers behind this value.
-    private const int DecimatedPathMinStepSeconds = 300;
+    // Aligned with the metric_minutes/gpu_minutes/fan_minutes rollup's own
+    // eligibility (SqliteMetricsHistoryStore.IsRollupEligible): below this,
+    // QueryScalarsDecimated falls back to a raw per-second GROUP BY that
+    // measured slower than the raw-pull path at a moderate window, so
+    // narrower requests stay on the untouched BuildHistoryResponse path;
+    // at and above it every request is rollup-served and measured
+    // dramatically faster than raw-pull at every window tested.
+    private const int DecimatedPathMinStepSeconds = 60;
 
     private const int MinMaxApps = 1;
     private const int MaxMaxApps = 100;
@@ -146,7 +150,7 @@ public static class MonitoringHistoryRoutes
 
         app.MapGet("/monitoring/history/apps", (
             long? from, long? to, string? series, int? maxApps, int? maxPoints,
-            IAppUsageHistoryStore appStore, ProcessMonitor processes) =>
+            IAppUsageHistoryStore appStore, AppSampleBuffer appBuffer, ProcessMonitor processes) =>
         {
             if (from is null || to is null || to < from || string.IsNullOrWhiteSpace(series))
             {
@@ -161,12 +165,61 @@ public static class MonitoringHistoryRoutes
                 var clampedMaxApps = Math.Clamp(maxApps ?? MetricsHistory.DefaultMaxApps, MinMaxApps, MaxMaxApps);
                 var clampedMaxPoints = Math.Clamp(maxPoints ?? MetricsHistory.DefaultMaxAppPoints, MinMaxAppPoints, MaxMaxAppPoints);
 
-                var topApps = appStore.QueryTopApps(series, fromSec, toSec, clampedMaxApps);
-                var seriesByApp = new Dictionary<string, IReadOnlyList<AppRawPoint>>(StringComparer.Ordinal);
-                foreach (var stat in topApps)
+                // Db-only ranking is a candidate pool (the tail is at most a
+                // few AppSampleIntervalSeconds ticks, negligible against any
+                // window wide enough for the db side to matter); every
+                // candidate's final avg/max/points is recomputed below from
+                // the db+tail merge, so a db-side ranking miss only costs a
+                // wasted QueryAppSeries call, never a wrong number. Each
+                // candidate is one sequential QueryAppSeries round trip, so
+                // this scales with maxApps (bounded by MaxMaxApps) plus a
+                // handful of tail-only names, not with window width.
+                var dbTopApps = appStore.QueryTopApps(series, fromSec, toSec, clampedMaxApps);
+                var tailForMetric = appBuffer.SnapshotRange(fromSec, toSec)
+                    .Select(t => (t.TsSec, Metric: t.Metrics.FirstOrDefault(m => m.Metric == series)))
+                    .Where(t => t.Metric is not null)
+                    .Select(t => (t.TsSec, Metric: t.Metric!))
+                    .ToList();
+
+                var candidateNames = new HashSet<string>(dbTopApps.Select(a => a.Name), StringComparer.OrdinalIgnoreCase);
+                foreach (var (_, metric) in tailForMetric)
                 {
-                    seriesByApp[stat.Name] = appStore.QueryAppSeries(series, stat.Name, fromSec, toSec);
+                    foreach (var a in metric.Apps)
+                    {
+                        candidateNames.Add(a.Name);
+                    }
                 }
+
+                // Ticks the metric was sampled across db+tail, ts-deduped so
+                // a tick straddling a flush boundary counts once - the same
+                // window-average denominator QueryTopApps uses, extended to
+                // cover ticks the tail has that the db doesn't have yet.
+                var sampledTicks = new HashSet<long>(appStore.QuerySampledTicks(series, fromSec, toSec));
+                foreach (var (ts, _) in tailForMetric)
+                {
+                    sampledTicks.Add(ts);
+                }
+                var expectedTicks = sampledTicks.Count;
+
+                var mergedApps = new List<AppWindowStat>();
+                var seriesByApp = new Dictionary<string, IReadOnlyList<AppRawPoint>>(StringComparer.OrdinalIgnoreCase);
+                if (expectedTicks > 0)
+                {
+                    foreach (var name in candidateNames)
+                    {
+                        var merged = MergeAppTail(appStore.QueryAppSeries(series, name, fromSec, toSec), tailForMetric, name);
+                        if (merged.Count == 0)
+                        {
+                            continue;
+                        }
+                        var sum = merged.Sum(p => p.Value ?? 0);
+                        var max = merged.Max(p => p.Value ?? double.MinValue);
+                        mergedApps.Add(new AppWindowStat(name, sum / expectedTicks, max));
+                        seriesByApp[name] = merged;
+                    }
+                }
+                var topApps = mergedApps.OrderByDescending(a => a.Avg).Take(clampedMaxApps).ToList();
+
                 var liveStartedAt = ResolveLiveStartedAtByName(processes.GetProcesses());
 
                 var response = BuildAppsHistoryResponse(
@@ -201,9 +254,22 @@ public static class MonitoringHistoryRoutes
                 return Results.NotFound();
             }
 
-            if (!cache.TryGet(exePath, out var bytes))
+            byte[] bytes;
+            if (cache.TryGet(exePath, out var cached))
             {
-                bytes = iconProvider.GetIcon(exePath);
+                bytes = cached;
+            }
+            else
+            {
+                var extracted = iconProvider.GetIcon(exePath);
+                if (extracted is null)
+                {
+                    // Extraction could not even be attempted (helper not
+                    // connected yet, RPC timeout) - a transient state, not
+                    // a verdict on this exe; do not cache it as empty.
+                    return Results.NotFound();
+                }
+                bytes = extracted;
                 cache.Set(exePath, bytes);
             }
 
@@ -226,7 +292,11 @@ public static class MonitoringHistoryRoutes
 
     private static IReadOnlyDictionary<string, long> ResolveLiveStartedAtByName(IReadOnlyList<ProcessInfo> procs)
     {
-        var result = new Dictionary<string, long>(StringComparer.Ordinal);
+        // OrdinalIgnoreCase: the app name stored in app_series (the key
+        // BuildAppsHistoryResponse looks up against) keeps whatever casing
+        // was first observed, which need not match the live snapshot's
+        // current casing.
+        var result = new Dictionary<string, long>(StringComparer.OrdinalIgnoreCase);
         foreach (var (name, agg) in ProcessAggregation.GroupByName(procs))
         {
             if (agg.StartedAtMs is { } started)
@@ -235,6 +305,30 @@ public static class MonitoringHistoryRoutes
             }
         }
         return result;
+    }
+
+    // Db points and the buffered tail can overlap at the flush boundary;
+    // the tail wins by ts (same precedence as MergeSamples), and a name
+    // match is case-insensitive to match app_series' COLLATE NOCASE key.
+    internal static List<AppRawPoint> MergeAppTail(
+        IReadOnlyList<AppRawPoint> dbPoints,
+        IReadOnlyList<(long TsSec, AppMetricSample Metric)> tailForMetric,
+        string name)
+    {
+        var map = new SortedDictionary<long, AppRawPoint>();
+        foreach (var p in dbPoints)
+        {
+            map[p.TsSec] = p;
+        }
+        foreach (var (ts, metric) in tailForMetric)
+        {
+            var point = metric.Apps.FirstOrDefault(a => string.Equals(a.Name, name, StringComparison.OrdinalIgnoreCase));
+            if (point is not null)
+            {
+                map[ts] = new AppRawPoint(ts, point.Value, point.VramMb);
+            }
+        }
+        return map.Values.ToList();
     }
 
     // Pure and directly unit-tested: every input is plain data the route

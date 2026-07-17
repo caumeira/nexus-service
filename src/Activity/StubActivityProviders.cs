@@ -36,7 +36,9 @@ public sealed class StubShortcutsProvider : IShortcutsProvider
 
 public sealed class StubProcessIconProvider : IProcessIconProvider
 {
-    public byte[] GetIcon(string exePath) => Array.Empty<byte>();
+    // Unsupported off Windows is a stable platform trait, not a transient
+    // failure - empty (not null) so the route caches it and never retries.
+    public byte[]? GetIcon(string exePath) => Array.Empty<byte>();
 }
 
 public sealed class StubNetworkProvider : INetworkProvider

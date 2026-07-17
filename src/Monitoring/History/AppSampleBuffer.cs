@@ -40,6 +40,15 @@ public sealed class AppSampleBuffer
         }
     }
 
+    /// <summary>Buffered ticks with ts in [fromSec, toSec], oldest first.</summary>
+    public IReadOnlyList<AppUsageTick> SnapshotRange(long fromSec, long toSec)
+    {
+        lock (_lock)
+        {
+            return _ticks.Values.Where(t => t.TsSec >= fromSec && t.TsSec <= toSec).ToList();
+        }
+    }
+
     /// <summary>Drops every buffered tick with ts &lt;= throughSec. Called
     /// after a successful store commit.</summary>
     public void RemoveThrough(long throughSec)

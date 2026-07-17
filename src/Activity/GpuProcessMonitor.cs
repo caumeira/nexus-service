@@ -5,6 +5,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
+using Nexus.Service.Monitoring.History;
 using Nexus.Service.Sensors;
 using Nexus.Service.Sockets;
 #if WINDOWS
@@ -51,16 +52,11 @@ public sealed class GpuProcessMonitor : BackgroundService
         }
     }
 
-    private bool HasSubscribers
+    private bool HasRealSubscribers => _hub.TopicHasSubscribers("gpu-processes");
+
+    private bool HasDemand
     {
-        get
-        {
-            if (_hub.TopicHasSubscribers("gpu-processes"))
-            {
-                return true;
-            }
-            lock (_demandGate) { return _demands.Count > 0; }
-        }
+        get { lock (_demandGate) { return _demands.Count > 0; } }
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -72,7 +68,10 @@ public sealed class GpuProcessMonitor : BackgroundService
         {
             while (!ct.IsCancellationRequested)
             {
-                if (HasSubscribers)
+                // Demand with no real WS subscriber only needs app-history's
+                // own sub-cadence, not the full 1Hz PDH collect rate.
+                var hasReal = HasRealSubscribers;
+                if (hasReal || HasDemand)
                 {
                     if (query == IntPtr.Zero)
                     {
@@ -96,7 +95,8 @@ public sealed class GpuProcessMonitor : BackgroundService
                     _latest = Array.Empty<GpuProcessEntry>();
                 }
 
-                try { await Task.Delay(1000, ct); }
+                var delayMs = hasReal ? 1000 : MetricsHistory.AppSampleIntervalSeconds * 1000;
+                try { await Task.Delay(delayMs, ct); }
                 catch (TaskCanceledException) { break; }
             }
         }
@@ -109,7 +109,8 @@ public sealed class GpuProcessMonitor : BackgroundService
             if (query != IntPtr.Zero) Pdh.Close(query);
         }
 #else
-        _ = HasSubscribers;
+        _ = HasRealSubscribers;
+        _ = HasDemand;
         await Task.CompletedTask;
 #endif
     }

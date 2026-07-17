@@ -218,31 +218,50 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
     {
         lock (_lock)
         {
-            var sums = new Dictionary<string, (double Sum, double Max, int Count)>(StringComparer.Ordinal);
+            // Divides by the ticks the metric was actually sampled in the
+            // window (expectedTicks), not by an app's own row count - see
+            // SqliteMetricsHistoryStore.QueryTopApps for why.
+            var sums = new Dictionary<string, (double Sum, double Max)>(StringComparer.OrdinalIgnoreCase);
+            var expectedTicks = 0;
             foreach (var tick in _appTicks.Values)
             {
                 if (tick.TsSec < fromSec || tick.TsSec > toSec)
                 {
                     continue;
                 }
-                foreach (var m in tick.Metrics)
+                var m = tick.Metrics.FirstOrDefault(x => x.Metric == metric);
+                if (m is null)
                 {
-                    if (m.Metric != metric)
-                    {
-                        continue;
-                    }
-                    foreach (var a in m.Apps)
-                    {
-                        var acc = sums.TryGetValue(a.Name, out var v) ? v : (0, double.MinValue, 0);
-                        sums[a.Name] = (acc.Sum + a.Value, System.Math.Max(acc.Max, a.Value), acc.Count + 1);
-                    }
+                    continue;
                 }
+                expectedTicks++;
+                foreach (var a in m.Apps)
+                {
+                    var acc = sums.TryGetValue(a.Name, out var v) ? v : (0, double.MinValue);
+                    sums[a.Name] = (acc.Sum + a.Value, System.Math.Max(acc.Max, a.Value));
+                }
+            }
+            if (expectedTicks == 0)
+            {
+                return Array.Empty<AppWindowStat>();
             }
 
             return sums
-                .Select(kv => new AppWindowStat(kv.Key, kv.Value.Sum / kv.Value.Count, kv.Value.Max))
+                .Select(kv => new AppWindowStat(kv.Key, kv.Value.Sum / expectedTicks, kv.Value.Max))
                 .OrderByDescending(s => s.Avg)
                 .Take(maxApps)
+                .ToList();
+        }
+    }
+
+    public IReadOnlyList<long> QuerySampledTicks(string metric, long fromSec, long toSec)
+    {
+        lock (_lock)
+        {
+            return _appTicks.Values
+                .Where(t => t.TsSec >= fromSec && t.TsSec <= toSec && t.Metrics.Any(m => m.Metric == metric))
+                .Select(t => t.TsSec)
+                .OrderBy(ts => ts)
                 .ToList();
         }
     }
@@ -266,7 +285,7 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
                     }
                     foreach (var a in m.Apps)
                     {
-                        if (a.Name == appName)
+                        if (string.Equals(a.Name, appName, StringComparison.OrdinalIgnoreCase))
                         {
                             result.Add(new AppRawPoint(tick.TsSec, a.Value, a.VramMb));
                         }

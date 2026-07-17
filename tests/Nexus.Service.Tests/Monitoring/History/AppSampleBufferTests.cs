@@ -36,6 +36,20 @@ public class AppSampleBufferTests
     }
 
     [Fact]
+    public void SnapshotRange_ExcludesTicksOutsideRange()
+    {
+        var buffer = new AppSampleBuffer();
+        buffer.Append(Tick(1000));
+        buffer.Append(Tick(2000));
+        buffer.Append(Tick(3000));
+
+        var range = buffer.SnapshotRange(1500, 2500);
+
+        var only = Assert.Single(range);
+        Assert.Equal(2000, only.TsSec);
+    }
+
+    [Fact]
     public void RemoveThrough_DropsTicksAtOrBeforeTheGivenTs()
     {
         var buffer = new AppSampleBuffer();
