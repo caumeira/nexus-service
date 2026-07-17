@@ -17,8 +17,10 @@ namespace Nexus.Service.Helper;
 /// pushes the set of process ids owning a visible top-level window on a
 /// jittered timer, matching ScreenTimePoller's cadence. Consumed by
 /// WindowsWindowSetProvider for the processes frame's isApp classification.
-/// Sends only on change, plus once on reconnect (the service's in-memory
-/// snapshot resets across a helper restart).
+/// Sends only on change, plus once on reconnect: a service restart wipes
+/// WindowsWindowSetProvider's in-memory snapshot, but this poller's own
+/// _lastSent survives the pipe reconnect that follows, so an unchanged
+/// window set would otherwise never get resent to repopulate it.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class WindowSetPoller : IDisposable
