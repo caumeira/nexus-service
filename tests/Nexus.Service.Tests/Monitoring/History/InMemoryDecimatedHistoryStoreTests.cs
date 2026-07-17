@@ -55,4 +55,27 @@ public class InMemoryDecimatedHistoryStoreTests
         Assert.Equal(1100, slot.RpmAvg);
         Assert.Equal(45, slot.DutyAvg);
     }
+
+    [Fact]
+    public void QueryComponentTempDecimated_AveragesPerComponent()
+    {
+        var store = new InMemoryMetricsHistoryStore();
+        var s1 = new MetricSample(0, null, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>())
+        {
+            ComponentTemps = new[] { new ComponentTempReading("ram:0", "ram", "DIMM A2", 40) },
+        };
+        var s2 = new MetricSample(1, null, null, null, null, null, Array.Empty<GpuReading>(), Array.Empty<FanReading>())
+        {
+            ComponentTemps = new[] { new ComponentTempReading("ram:0", "ram", "DIMM A2", 44) },
+        };
+        store.Append(new[] { s1, s2 }, null);
+
+        var slot = Assert.Single(store.QueryComponentTempDecimated(0, 1, stepSeconds: 10));
+
+        Assert.Equal("ram:0", slot.ComponentId);
+        Assert.Equal("ram", slot.Kind);
+        Assert.Equal("DIMM A2", slot.Name);
+        Assert.Equal(42, slot.Avg);
+        Assert.Equal(44, slot.Max);
+    }
 }
