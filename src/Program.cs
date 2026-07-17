@@ -555,6 +555,7 @@ app.MapLifecycleEndpoints();
 app.MapDiagnosticsEndpoints();
 app.MapDiagnosticsHealthEndpoints();
 app.MapMonitoringHistoryEndpoints();
+app.MapProcessDetailEndpoints();
 app.MapMediaLibraryEndpoints();
 app.MapPanelBgEndpoints();
 app.MapGalleryEndpoints();

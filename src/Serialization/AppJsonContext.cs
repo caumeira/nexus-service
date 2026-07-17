@@ -1029,6 +1029,12 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Routes.PrivacySessionWire))]
 [JsonSerializable(typeof(Nexus.Service.Routes.PrivacyAccessResponse))]
 
+// Process detail (GET /monitoring/process-info, POST /monitoring/process-kill,
+// POST /monitoring/process-open-location)
+[JsonSerializable(typeof(Nexus.Service.Routes.ProcessActionBody))]
+[JsonSerializable(typeof(Nexus.Service.Routes.ProcessInfoResponse))]
+[JsonSerializable(typeof(Nexus.Service.Routes.ProcessKillResponse))]
+
 // Stream Deck
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSummaryDto))]
 [JsonSerializable(typeof(List<Nexus.Service.Models.Peripherals.StreamDeck.StreamDeckSummaryDto>))]
