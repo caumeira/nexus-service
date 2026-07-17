@@ -1426,6 +1426,34 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         }
     }
 
+    public long? QueryFirstSeen(string appName)
+    {
+        lock (_writeLock)
+        {
+            if (!_appKeys.TryGetValue(appName, out var appKey))
+            {
+                return null;
+            }
+
+            using var cmd = _connection.CreateCommand();
+            // MIN(ts) over a table with no rows for this app yields NULL, not
+            // zero rows - the outer MIN(ts) ignores those and only comes back
+            // NULL itself when the app is in none of the three tables.
+            cmd.CommandText = """
+                SELECT MIN(ts) FROM (
+                    SELECT MIN(ts) AS ts FROM app_cpu_seconds WHERE app = $app
+                    UNION ALL
+                    SELECT MIN(ts) FROM app_mem_seconds WHERE app = $app
+                    UNION ALL
+                    SELECT MIN(ts) FROM app_gpu_seconds WHERE app = $app
+                );
+            """;
+            cmd.Parameters.AddWithValue("$app", appKey);
+            var result = cmd.ExecuteScalar();
+            return result is null or DBNull ? null : Convert.ToInt64(result);
+        }
+    }
+
     // "cpu"/"memory" resolve directly; "gpu:<gid>" resolves through the
     // existing gpu_series cache so app rows and scalar gpu rows always agree
     // on which surrogate key a gid maps to. A gid never seen by the scalar

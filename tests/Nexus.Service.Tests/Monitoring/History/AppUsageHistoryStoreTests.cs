@@ -260,6 +260,45 @@ public class AppUsageHistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public void QueryFirstSeen_ReturnsNull_ForAnAppNeverRecorded()
+    {
+        _store.Append(new[] { CpuTick(1000, ("app.exe", 10)) }, null);
+
+        Assert.Null(_store.QueryFirstSeen("never-seen.exe"));
+    }
+
+    [Fact]
+    public void QueryFirstSeen_ReturnsTheEarliestTs_AcrossMultipleTicks()
+    {
+        _store.Append(new[] { CpuTick(5000, ("app.exe", 10)), CpuTick(1000, ("app.exe", 20)) }, null);
+
+        Assert.Equal(1000, _store.QueryFirstSeen("app.exe"));
+    }
+
+    [Fact]
+    public void QueryFirstSeen_TakesTheEarliestAcrossCpuAndGpuTables()
+    {
+        var scalarSample = new MetricSample(1000, null, null, null, null, null,
+            new[] { new GpuReading("gpu-0", "RTX 5080", "", 50, 60) }, Array.Empty<FanReading>());
+        _store.Append(new[] { scalarSample }, null);
+        _store.Append(new[] { CpuTick(9000, ("app.exe", 10)) }, null);
+        _store.Append(new[]
+        {
+            new AppUsageTick(2000, new[] { new AppMetricSample("gpu:gpu-0", new[] { new AppUsagePoint("app.exe", 40, 2048) }) }),
+        }, null);
+
+        Assert.Equal(2000, _store.QueryFirstSeen("app.exe"));
+    }
+
+    [Fact]
+    public void QueryFirstSeen_MatchesByName_CaseInsensitively()
+    {
+        _store.Append(new[] { CpuTick(1000, ("Chrome.exe", 10)) }, null);
+
+        Assert.Equal(1000, _store.QueryFirstSeen("CHROME.EXE"));
+    }
+
+    [Fact]
     public void AppKey_stability_across_reopen()
     {
         _store.Append(new[] { CpuTick(1000, ("app.exe", 10)) }, null);

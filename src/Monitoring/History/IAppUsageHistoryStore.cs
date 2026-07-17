@@ -41,4 +41,9 @@ public interface IAppUsageHistoryStore
     /// toSec], ascending - the persisted-side half of the route's db+tail
     /// union used to compute a window's expected sample count.</summary>
     IReadOnlyList<long> QuerySampledTicks(string metric, long fromSec, long toSec);
+
+    /// <summary>Earliest ts (epoch seconds) this app name appears under any
+    /// metric, or null when the app has never been recorded. Retention
+    /// pruning can push this later over time as older rows age out.</summary>
+    long? QueryFirstSeen(string appName);
 }

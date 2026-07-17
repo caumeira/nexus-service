@@ -296,5 +296,25 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         }
     }
 
+    public long? QueryFirstSeen(string appName)
+    {
+        lock (_lock)
+        {
+            // _appTicks is a SortedDictionary keyed by TsSec, so the first
+            // match in iteration order is already the earliest.
+            foreach (var tick in _appTicks.Values)
+            {
+                foreach (var m in tick.Metrics)
+                {
+                    if (m.Apps.Any(a => string.Equals(a.Name, appName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        return tick.TsSec;
+                    }
+                }
+            }
+            return null;
+        }
+    }
+
     public void Dispose() { }
 }

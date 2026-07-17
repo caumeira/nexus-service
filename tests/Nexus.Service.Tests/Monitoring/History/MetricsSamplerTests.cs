@@ -126,6 +126,8 @@ public class MetricsSamplerTests
 
         public IReadOnlyList<long> QuerySampledTicks(string metric, long fromSec, long toSec) =>
             Array.Empty<long>();
+
+        public long? QueryFirstSeen(string appName) => null;
     }
 
     private sealed class StubGpuHealthSource : IGpuHealthSource

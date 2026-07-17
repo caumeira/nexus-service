@@ -63,6 +63,8 @@ public sealed class AppsHistoryRouteTailMergeTests : IDisposable
             Series.TryGetValue(appName, out var points) ? points : Array.Empty<AppRawPoint>();
 
         public IReadOnlyList<long> QuerySampledTicks(string metric, long fromSec, long toSec) => SampledTicks;
+
+        public long? QueryFirstSeen(string appName) => null;
     }
 
     [Fact]
