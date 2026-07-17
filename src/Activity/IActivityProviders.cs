@@ -37,6 +37,15 @@ public interface IShortcutsProvider
     bool Launch(string targetId);
 }
 
+/// <summary>Extracts a PNG icon for a running process's executable, keyed by
+/// its full path (not a shortcut targetId - a live process rarely has a
+/// matching Start-Menu shortcut). Empty bytes when unsupported or
+/// unresolvable.</summary>
+public interface IProcessIconProvider
+{
+    byte[] GetIcon(string exePath);
+}
+
 public interface INetworkProvider
 {
     IReadOnlyList<NetworkProcessInfo> GetSnapshot();

@@ -827,6 +827,9 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutOneResult))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutIconResult))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ShortcutBoolResult))]
+// Process icons (WindowsIconExtractor runs in the user-session helper)
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProcessIconRequest))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProcessIconResult))]
 // Native file/folder picker (IFileOpenDialog runs in the user-session helper)
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.FileDialogRequest))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.FileDialogResult))]
@@ -1011,6 +1014,11 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(Nexus.Service.Monitoring.History.MetricPoint))]
 [JsonSerializable(typeof(Nexus.Service.Routes.MetricSeriesWire))]
 [JsonSerializable(typeof(Nexus.Service.Routes.MetricsHistoryResponse))]
+
+// Per-app usage history (GET /monitoring/history/apps)
+[JsonSerializable(typeof(Nexus.Service.Routes.AppHistoryPointWire))]
+[JsonSerializable(typeof(Nexus.Service.Routes.AppHistoryEntryWire))]
+[JsonSerializable(typeof(Nexus.Service.Routes.AppUsageHistoryResponse))]
 
 // Privacy access sessions (GET /monitoring/privacy)
 [JsonSerializable(typeof(Nexus.Service.Routes.PrivacySessionWire))]

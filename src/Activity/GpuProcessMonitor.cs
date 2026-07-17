@@ -23,6 +23,8 @@ namespace Nexus.Service.Activity;
 public sealed class GpuProcessMonitor : BackgroundService
 {
     private readonly MultiplexHub _hub;
+    private readonly object _demandGate = new();
+    private readonly HashSet<string> _demands = new(StringComparer.Ordinal);
     // volatile fields cannot be readonly; suppress the IDE0044 false positive.
 #pragma warning disable IDE0044
     private volatile IReadOnlyList<GpuProcessEntry> _latest = Array.Empty<GpuProcessEntry>();
@@ -32,7 +34,34 @@ public sealed class GpuProcessMonitor : BackgroundService
 
     public IReadOnlyList<GpuProcessEntry> GetSnapshot() => _latest;
 
-    private bool HasSubscribers => _hub.TopicHasSubscribers("gpu-processes");
+    /// <summary>Test-only seam: the sampling loop never runs synchronously
+    /// under a unit test, so this stands in for a completed sample.</summary>
+    internal void SetSnapshotForTest(IReadOnlyList<GpuProcessEntry> snapshot) => _latest = snapshot;
+
+    /// <summary>Adds or removes source from the demand set that keeps
+    /// sampling running even with no WebSocket subscriber (the metrics
+    /// history sampler's always-on per-app recording). Idempotent per
+    /// source id, same shape as IFpsProvider.SetDemand.</summary>
+    public void SetDemand(string source, bool wanted)
+    {
+        lock (_demandGate)
+        {
+            if (wanted) _demands.Add(source);
+            else _demands.Remove(source);
+        }
+    }
+
+    private bool HasSubscribers
+    {
+        get
+        {
+            if (_hub.TopicHasSubscribers("gpu-processes"))
+            {
+                return true;
+            }
+            lock (_demandGate) { return _demands.Count > 0; }
+        }
+    }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
     {

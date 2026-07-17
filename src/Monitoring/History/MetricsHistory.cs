@@ -18,6 +18,21 @@ public static class MetricsHistory
     /// flushes of the buffered tail.</summary>
     public const int FlushSeconds = 30;
 
+    /// <summary>Ticks between per-app usage sampling sub-cadence, a divisor
+    /// of FlushSeconds so every flush carries a whole number of app ticks.</summary>
+    public const int AppSampleIntervalSeconds = 5;
+
+    /// <summary>Apps kept per metric per app-usage sampling tick.</summary>
+    public const int TopAppsPerSample = 15;
+
+    /// <summary>Default apps returned by GET /monitoring/history/apps when
+    /// maxApps is not specified.</summary>
+    public const int DefaultMaxApps = 15;
+
+    /// <summary>Default points per app returned by GET /monitoring/history/apps
+    /// when maxPoints is not specified.</summary>
+    public const int DefaultMaxAppPoints = 100;
+
     /// <summary>Decimation step widths in seconds, narrowest first. A query
     /// picks the first step wide enough to keep its point count under the
     /// requested maxPoints (see MetricsDecimation.StepSecondsFor).</summary>

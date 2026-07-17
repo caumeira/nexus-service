@@ -34,6 +34,11 @@ public sealed class StubShortcutsProvider : IShortcutsProvider
     public bool Launch(string targetId) => false;
 }
 
+public sealed class StubProcessIconProvider : IProcessIconProvider
+{
+    public byte[] GetIcon(string exePath) => Array.Empty<byte>();
+}
+
 public sealed class StubNetworkProvider : INetworkProvider
 {
     public IReadOnlyList<NetworkProcessInfo> GetSnapshot() => Array.Empty<NetworkProcessInfo>();

@@ -20,4 +20,41 @@ public interface IMetricsHistoryStore : IDisposable
     /// <summary>Reconstructs samples with ts in [fromSec, toSec], ascending
     /// by ts.</summary>
     IReadOnlyList<MetricSample> Query(long fromSec, long toSec);
+
+    /// <summary>Slot-aggregated (avg/max) scalar fields, one row per slot
+    /// that has data (slot = ts/step*step, matching MetricsDecimation).
+    /// Aggregation runs in the store (SQL GROUP BY for the SQLite
+    /// implementation), avoiding materializing every raw row into C# for a
+    /// wide window - see MonitoringHistoryRoutes' route-level use for when
+    /// this is worth it over Query + MetricsDecimation.Decimate.</summary>
+    IReadOnlyList<ScalarDecimatedSlot> QueryScalarsDecimated(long fromSec, long toSec, int stepSeconds);
+
+    /// <summary>Slot-aggregated per-GPU load/temperature, one row per
+    /// (gpu, slot) that has data.</summary>
+    IReadOnlyList<GpuDecimatedSlot> QueryGpuDecimated(long fromSec, long toSec, int stepSeconds);
+
+    /// <summary>Slot-aggregated per-fan RPM/duty, one row per (fan, slot)
+    /// that has data.</summary>
+    IReadOnlyList<FanDecimatedSlot> QueryFanDecimated(long fromSec, long toSec, int stepSeconds);
 }
+
+/// <summary>One slot's avg/max for every scalar field. A field is null only
+/// when every raw reading in the slot was itself null (source failed that
+/// whole slot), matching MetricSample's "null = source failed" convention.</summary>
+public readonly record struct ScalarDecimatedSlot(
+    long Slot,
+    double? CpuAvg, double? CpuMax,
+    double? MemAvg, double? MemMax,
+    double? NetInAvg, double? NetInMax,
+    double? NetOutAvg, double? NetOutMax,
+    double? CpuTempAvg, double? CpuTempMax);
+
+/// <summary>One GPU's slot-aggregated load/temperature.</summary>
+public readonly record struct GpuDecimatedSlot(
+    string GpuId, string Name, long Slot,
+    double? LoadAvg, double? LoadMax, double? TempAvg, double? TempMax);
+
+/// <summary>One fan channel's slot-aggregated RPM/duty.</summary>
+public readonly record struct FanDecimatedSlot(
+    string FanId, string Name, long Slot,
+    double? RpmAvg, double? RpmMax, double? DutyAvg, double? DutyMax);

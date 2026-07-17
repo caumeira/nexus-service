@@ -60,14 +60,69 @@ public class MetricsSamplerTests
 
     private sealed class RecordingMetricsHistoryStore : IMetricsHistoryStore
     {
+        private readonly List<string>? _sharedCallOrder;
+
+        public RecordingMetricsHistoryStore(List<string>? sharedCallOrder = null) => _sharedCallOrder = sharedCallOrder;
+
         public List<(int Count, long? PruneCutoffSec)> AppendCalls { get; } = new();
 
-        public void Append(IReadOnlyList<MetricSample> samples, long? pruneCutoffSec) =>
+        public void Append(IReadOnlyList<MetricSample> samples, long? pruneCutoffSec)
+        {
             AppendCalls.Add((samples.Count, pruneCutoffSec));
+            _sharedCallOrder?.Add("scalar");
+        }
 
         public IReadOnlyList<MetricSample> Query(long fromSec, long toSec) => Array.Empty<MetricSample>();
 
+        public IReadOnlyList<ScalarDecimatedSlot> QueryScalarsDecimated(long fromSec, long toSec, int stepSeconds) =>
+            Array.Empty<ScalarDecimatedSlot>();
+
+        public IReadOnlyList<GpuDecimatedSlot> QueryGpuDecimated(long fromSec, long toSec, int stepSeconds) =>
+            Array.Empty<GpuDecimatedSlot>();
+
+        public IReadOnlyList<FanDecimatedSlot> QueryFanDecimated(long fromSec, long toSec, int stepSeconds) =>
+            Array.Empty<FanDecimatedSlot>();
+
         public void Dispose() { }
+    }
+
+    private sealed class StubAppUsageSource : IAppUsageSource
+    {
+        public int Calls { get; private set; }
+        public IReadOnlyList<AppMetricSample> NextSample { get; set; } =
+            new[] { new AppMetricSample("cpu", new[] { new AppUsagePoint("app.exe", 10, null) }) };
+
+        public IReadOnlyList<AppMetricSample> Sample()
+        {
+            Calls++;
+            return NextSample;
+        }
+    }
+
+    private sealed class ThrowingAppUsageSource : IAppUsageSource
+    {
+        public IReadOnlyList<AppMetricSample> Sample() => throw new InvalidOperationException("boom");
+    }
+
+    private sealed class RecordingAppUsageHistoryStore : IAppUsageHistoryStore
+    {
+        private readonly List<string>? _sharedCallOrder;
+
+        public RecordingAppUsageHistoryStore(List<string>? sharedCallOrder = null) => _sharedCallOrder = sharedCallOrder;
+
+        public List<(int TickCount, long? PruneCutoffSec)> AppendCalls { get; } = new();
+
+        public void Append(IReadOnlyList<AppUsageTick> ticks, long? pruneCutoffSec)
+        {
+            AppendCalls.Add((ticks.Count, pruneCutoffSec));
+            _sharedCallOrder?.Add("app");
+        }
+
+        public IReadOnlyList<AppWindowStat> QueryTopApps(string metric, long fromSec, long toSec, int maxApps) =>
+            Array.Empty<AppWindowStat>();
+
+        public IReadOnlyList<AppRawPoint> QueryAppSeries(string metric, string appName, long fromSec, long toSec) =>
+            Array.Empty<AppRawPoint>();
     }
 
     private sealed class StubGpuHealthSource : IGpuHealthSource
@@ -84,8 +139,10 @@ public class MetricsSamplerTests
         new(new StubSensors(), new StubGpuHealthSource(), new StubSmartHealthSource(), new InMemoryTemperatureHistoryStore());
 
     private static MetricsSampler CreateSampler(
-        StubMetricsSource source, RecordingMetricsHistoryStore store, MetricsSampleBuffer? buffer = null) =>
-        new(new StubSensors(), source, buffer ?? new MetricsSampleBuffer(), store, CreateRollup());
+        StubMetricsSource source, RecordingMetricsHistoryStore store, MetricsSampleBuffer? buffer = null,
+        IAppUsageSource? appSource = null, AppSampleBuffer? appBuffer = null, IAppUsageHistoryStore? appStore = null) =>
+        new(new StubSensors(), source, buffer ?? new MetricsSampleBuffer(), store, CreateRollup(),
+            appSource ?? new StubAppUsageSource(), appBuffer ?? new AppSampleBuffer(), appStore ?? new RecordingAppUsageHistoryStore());
 
     [Fact]
     public async Task Tick_AppendsOneSampleToTheBuffer_PerCall()
@@ -200,7 +257,8 @@ public class MetricsSamplerTests
         var source = new ThrowingMetricsSource();
         var store = new RecordingMetricsHistoryStore();
         var buffer = new MetricsSampleBuffer();
-        var sampler = new MetricsSampler(new StubSensors(), source, buffer, store, CreateRollup());
+        var sampler = new MetricsSampler(new StubSensors(), source, buffer, store, CreateRollup(),
+            new StubAppUsageSource(), new AppSampleBuffer(), new RecordingAppUsageHistoryStore());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>
             sampler.Tick(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc), CancellationToken.None));
@@ -209,6 +267,87 @@ public class MetricsSamplerTests
         // BackgroundService loop's own try/catch is what applies the
         // once-a-minute warn throttle, not Tick itself).
         Assert.Empty(buffer.PendingSnapshot());
+    }
+
+    [Fact]
+    public async Task Tick_SamplesApps_OnlyEveryAppSampleInterval()
+    {
+        var source = new StubMetricsSource();
+        var appSource = new StubAppUsageSource();
+        var appBuffer = new AppSampleBuffer();
+        var sampler = CreateSampler(source, new RecordingMetricsHistoryStore(), appSource: appSource, appBuffer: appBuffer);
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        for (var i = 0; i < MetricsHistory.AppSampleIntervalSeconds - 1; i++)
+        {
+            await sampler.Tick(start.AddSeconds(i), CancellationToken.None);
+        }
+        Assert.Equal(0, appSource.Calls);
+
+        await sampler.Tick(start.AddSeconds(MetricsHistory.AppSampleIntervalSeconds - 1), CancellationToken.None);
+        Assert.Equal(1, appSource.Calls);
+        Assert.Single(appBuffer.PendingSnapshot());
+    }
+
+    [Fact]
+    public async Task Tick_FlushesEveryAppTickSinceTheLastFlush_OnTheFlushIntervalTick()
+    {
+        var source = new StubMetricsSource();
+        var appStore = new RecordingAppUsageHistoryStore();
+        var appBuffer = new AppSampleBuffer();
+        var sampler = CreateSampler(source, new RecordingMetricsHistoryStore(), appBuffer: appBuffer, appStore: appStore);
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        for (var i = 0; i < MetricsHistory.FlushSeconds; i++)
+        {
+            await sampler.Tick(start.AddSeconds(i), CancellationToken.None);
+        }
+
+        var expectedAppTicks = MetricsHistory.FlushSeconds / MetricsHistory.AppSampleIntervalSeconds;
+        var call = Assert.Single(appStore.AppendCalls);
+        Assert.Equal(expectedAppTicks, call.TickCount);
+        Assert.Empty(appBuffer.PendingSnapshot()); // RemoveThrough ran after the successful flush
+    }
+
+    [Fact]
+    public async Task Tick_DoesNotThrow_WhenTheAppSourceFails_AndScalarFlushStillRuns()
+    {
+        var source = new StubMetricsSource();
+        var store = new RecordingMetricsHistoryStore();
+        var sampler = CreateSampler(source, store, appSource: new ThrowingAppUsageSource());
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        for (var i = 0; i < MetricsHistory.FlushSeconds; i++)
+        {
+            await sampler.Tick(start.AddSeconds(i), CancellationToken.None);
+        }
+
+        // A broken app source must never suppress the core scalar flush.
+        var call = Assert.Single(store.AppendCalls);
+        Assert.Equal(MetricsHistory.FlushSeconds, call.Count);
+    }
+
+    [Fact]
+    public async Task Tick_FlushesTheScalarStore_BeforeTheAppStore_OnEveryFlush()
+    {
+        // Load-bearing for SqliteMetricsHistoryStore.InsertAppRows: an
+        // app_gpu_seconds row resolves its gpu surrogate key from _gpuKeys,
+        // which the scalar Append populates for the tick's GPUs. If the app
+        // store flushed first, a GPU seen only this flush would have no
+        // surrogate key yet and its app rows would be silently dropped.
+        var callOrder = new List<string>();
+        var source = new StubMetricsSource();
+        var store = new RecordingMetricsHistoryStore(callOrder);
+        var appStore = new RecordingAppUsageHistoryStore(callOrder);
+        var sampler = CreateSampler(source, store, appStore: appStore);
+        var start = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+
+        for (var i = 0; i < MetricsHistory.FlushSeconds; i++)
+        {
+            await sampler.Tick(start.AddSeconds(i), CancellationToken.None);
+        }
+
+        Assert.Equal(new[] { "scalar", "app" }, callOrder);
     }
 
     private sealed class ThrowingMetricsSource : IMetricsSource

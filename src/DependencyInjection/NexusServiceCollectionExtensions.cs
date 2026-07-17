@@ -335,6 +335,15 @@ public static class NexusServiceCollectionExtensions
                 return new Nexus.Service.Monitoring.History.InMemoryMetricsHistoryStore();
             }
         });
+
+        // Per-app usage history: IAppUsageHistoryStore resolves the same
+        // singleton instance as IMetricsHistoryStore (both interfaces land on
+        // one concrete store), same pattern as IPrivacySessionStore below.
+        services.AddSingleton<Nexus.Service.Monitoring.History.IAppUsageHistoryStore>(sp =>
+            (Nexus.Service.Monitoring.History.IAppUsageHistoryStore)sp.GetRequiredService<Nexus.Service.Monitoring.History.IMetricsHistoryStore>());
+        services.AddSingleton<Nexus.Service.Monitoring.History.IAppUsageSource, Nexus.Service.Monitoring.History.ProcessAppUsageSource>();
+        services.AddSingleton<Nexus.Service.Monitoring.History.AppSampleBuffer>();
+
         services.AddSingleton<Nexus.Service.Monitoring.History.MetricsSampler>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Monitoring.History.MetricsSampler>());
 
@@ -1149,6 +1158,7 @@ public static class NexusServiceCollectionExtensions
         // Enumeration (Get-StartApps) is per-user and empty from Session 0, so
         // route it through the user-session helper. Launch stays direct (explorer).
         services.AddSingleton<IShortcutsProvider, HelperShortcutsProxy>();
+        services.AddSingleton<IProcessIconProvider, HelperProcessIconProxy>();
         services.AddSingleton<IMediaProvider, WindowsMediaProvider>();
         services.AddSingleton<IVolumeProvider, WindowsVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, WindowsAudioDeviceProvider>();
@@ -1157,6 +1167,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IScreenTimeProvider, MacScreenTimeProvider>();
         services.AddSingleton<IAppDetectionProvider, MacAppDetectionProvider>();
         services.AddSingleton<IShortcutsProvider, MacShortcutsProvider>();
+        services.AddSingleton<IProcessIconProvider, StubProcessIconProvider>();
         services.AddSingleton<IMediaProvider, MacMediaProvider>();
         services.AddSingleton<IVolumeProvider, MacVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, MacAudioDeviceProvider>();
@@ -1167,6 +1178,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IScreenTimeProvider>(sp => sp.GetRequiredService<Nexus.Service.Activity.LinuxScreenTimeProvider>());
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
         services.AddSingleton<IShortcutsProvider, LinuxShortcutsProvider>();
+        services.AddSingleton<IProcessIconProvider, StubProcessIconProvider>();
         services.AddSingleton<ISystemAccentProvider, Nexus.Service.Platform.Linux.LinuxSystemAccentProvider>();
         services.AddSingleton<IMediaProvider, LinuxMediaProvider>();
         services.AddSingleton<IVolumeProvider, LinuxVolumeProvider>();
@@ -1176,11 +1188,13 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IScreenTimeProvider, StubScreenTimeProvider>();
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
         services.AddSingleton<IShortcutsProvider, StubShortcutsProvider>();
+        services.AddSingleton<IProcessIconProvider, StubProcessIconProvider>();
         services.AddSingleton<IMediaProvider, StubMediaProvider>();
         services.AddSingleton<IVolumeProvider, StubVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, StubAudioDeviceProvider>();
         services.AddSingleton<IBeatsProvider, StubBeatsProvider>();
 #endif
+        services.AddSingleton<ProcessIconCache>();
         return services;
     }
 

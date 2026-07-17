@@ -9,15 +9,17 @@ namespace Nexus.Service.Monitoring.History;
 /// Append rather than relying on the hourly pruneCutoffSec cadence
 /// SqliteMetricsHistoryStore needs to avoid a write burst every tick - an
 /// in-memory ring always keeps its window regardless of that cadence. Also
-/// backs privacy sessions for the same fallback reason.
+/// backs privacy sessions and per-app usage history for the same fallback
+/// reason.
 /// </summary>
-public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacySessionStore
+public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacySessionStore, IAppUsageHistoryStore
 {
     private const long RingWindowSeconds = 3 * 60 * 60;
 
     private readonly object _lock = new();
     private readonly SortedDictionary<long, MetricSample> _rows = new();
     private readonly Dictionary<(string AppId, string Capability, long StartUtcSec), PrivacySession> _privacySessions = new();
+    private readonly SortedDictionary<long, AppUsageTick> _appTicks = new();
 
     public void Append(IReadOnlyList<MetricSample> samples, long? pruneCutoffSec)
     {
@@ -53,6 +55,104 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         }
     }
 
+    // The ring holds at most RingWindowSeconds of raw MetricSample rows, so
+    // decimating in C# here (reusing the same MetricsDecimation the SQLite
+    // store's callers use for the RAM tail) costs nothing worth avoiding -
+    // no SQL-side aggregation to fall back to on this fallback store.
+    public IReadOnlyList<ScalarDecimatedSlot> QueryScalarsDecimated(long fromSec, long toSec, int stepSeconds)
+    {
+        lock (_lock)
+        {
+            var rows = _rows.Values.Where(s => s.TsSec >= fromSec && s.TsSec <= toSec).ToList();
+            var cpu = Slots(rows, s => s.CpuPercent, fromSec, toSec, stepSeconds);
+            var mem = Slots(rows, s => s.MemoryPercent, fromSec, toSec, stepSeconds);
+            var netIn = Slots(rows, s => s.NetInBytesPerSec, fromSec, toSec, stepSeconds);
+            var netOut = Slots(rows, s => s.NetOutBytesPerSec, fromSec, toSec, stepSeconds);
+            var temp = Slots(rows, s => s.CpuTempC, fromSec, toSec, stepSeconds);
+
+            var allSlots = new SortedSet<long>(cpu.Keys.Concat(mem.Keys).Concat(netIn.Keys).Concat(netOut.Keys).Concat(temp.Keys));
+            var result = new List<ScalarDecimatedSlot>(allSlots.Count);
+            foreach (var slot in allSlots)
+            {
+                result.Add(new ScalarDecimatedSlot(
+                    slot,
+                    cpu.GetValueOrDefault(slot)?.Avg, cpu.GetValueOrDefault(slot)?.Max,
+                    mem.GetValueOrDefault(slot)?.Avg, mem.GetValueOrDefault(slot)?.Max,
+                    netIn.GetValueOrDefault(slot)?.Avg, netIn.GetValueOrDefault(slot)?.Max,
+                    netOut.GetValueOrDefault(slot)?.Avg, netOut.GetValueOrDefault(slot)?.Max,
+                    temp.GetValueOrDefault(slot)?.Avg, temp.GetValueOrDefault(slot)?.Max));
+            }
+            return result;
+        }
+    }
+
+    public IReadOnlyList<GpuDecimatedSlot> QueryGpuDecimated(long fromSec, long toSec, int stepSeconds)
+    {
+        lock (_lock)
+        {
+            var rows = _rows.Values.Where(s => s.TsSec >= fromSec && s.TsSec <= toSec).ToList();
+            var names = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var s in rows)
+            {
+                foreach (var g in s.Gpus)
+                {
+                    names[g.GpuId] = g.Name;
+                }
+            }
+
+            var result = new List<GpuDecimatedSlot>();
+            foreach (var (gpuId, name) in names)
+            {
+                var load = Slots(rows, s => s.Gpus.FirstOrDefault(g => g.GpuId == gpuId)?.LoadPercent, fromSec, toSec, stepSeconds);
+                var temp = Slots(rows, s => s.Gpus.FirstOrDefault(g => g.GpuId == gpuId)?.TempC, fromSec, toSec, stepSeconds);
+                foreach (var slot in new SortedSet<long>(load.Keys.Concat(temp.Keys)))
+                {
+                    result.Add(new GpuDecimatedSlot(
+                        gpuId, name, slot,
+                        load.GetValueOrDefault(slot)?.Avg, load.GetValueOrDefault(slot)?.Max,
+                        temp.GetValueOrDefault(slot)?.Avg, temp.GetValueOrDefault(slot)?.Max));
+                }
+            }
+            return result;
+        }
+    }
+
+    public IReadOnlyList<FanDecimatedSlot> QueryFanDecimated(long fromSec, long toSec, int stepSeconds)
+    {
+        lock (_lock)
+        {
+            var rows = _rows.Values.Where(s => s.TsSec >= fromSec && s.TsSec <= toSec).ToList();
+            var names = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var s in rows)
+            {
+                foreach (var f in s.Fans)
+                {
+                    names[f.FanId] = f.Name;
+                }
+            }
+
+            var result = new List<FanDecimatedSlot>();
+            foreach (var (fanId, name) in names)
+            {
+                var rpm = Slots(rows, s => (double?)s.Fans.FirstOrDefault(f => f.FanId == fanId)?.Rpm, fromSec, toSec, stepSeconds);
+                var duty = Slots(rows, s => (double?)s.Fans.FirstOrDefault(f => f.FanId == fanId)?.Duty, fromSec, toSec, stepSeconds);
+                foreach (var slot in new SortedSet<long>(rpm.Keys.Concat(duty.Keys)))
+                {
+                    result.Add(new FanDecimatedSlot(
+                        fanId, name, slot,
+                        rpm.GetValueOrDefault(slot)?.Avg, rpm.GetValueOrDefault(slot)?.Max,
+                        duty.GetValueOrDefault(slot)?.Avg, duty.GetValueOrDefault(slot)?.Max));
+                }
+            }
+            return result;
+        }
+    }
+
+    private static Dictionary<long, MetricPoint> Slots(
+        IReadOnlyList<MetricSample> rows, Func<MetricSample, double?> selector, long fromSec, long toSec, int stepSeconds) =>
+        MetricsDecimation.Decimate(rows.Select(s => new MetricSamplePoint(s.TsSec, selector(s))), fromSec, toSec, stepSeconds)
+            .ToDictionary(p => p.T);
+
     public void Upsert(string capability, string appId, long startUtcSec, long? endUtcSec)
     {
         lock (_lock)
@@ -85,6 +185,95 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
             {
                 _privacySessions.Remove(key);
             }
+        }
+    }
+
+    public void Append(IReadOnlyList<AppUsageTick> ticks, long? pruneCutoffSec)
+    {
+        lock (_lock)
+        {
+            foreach (var t in ticks)
+            {
+                _appTicks[t.TsSec] = t;
+            }
+
+            if (_appTicks.Count == 0)
+            {
+                return;
+            }
+
+            var newestTs = _appTicks.Keys.Last();
+            var ringFloor = newestTs - RingWindowSeconds;
+            var floor = pruneCutoffSec is { } cutoff ? System.Math.Max(cutoff, ringFloor) : ringFloor;
+
+            var stale = _appTicks.Keys.Where(ts => ts < floor).ToList();
+            foreach (var ts in stale)
+            {
+                _appTicks.Remove(ts);
+            }
+        }
+    }
+
+    public IReadOnlyList<AppWindowStat> QueryTopApps(string metric, long fromSec, long toSec, int maxApps)
+    {
+        lock (_lock)
+        {
+            var sums = new Dictionary<string, (double Sum, double Max, int Count)>(StringComparer.Ordinal);
+            foreach (var tick in _appTicks.Values)
+            {
+                if (tick.TsSec < fromSec || tick.TsSec > toSec)
+                {
+                    continue;
+                }
+                foreach (var m in tick.Metrics)
+                {
+                    if (m.Metric != metric)
+                    {
+                        continue;
+                    }
+                    foreach (var a in m.Apps)
+                    {
+                        var acc = sums.TryGetValue(a.Name, out var v) ? v : (0, double.MinValue, 0);
+                        sums[a.Name] = (acc.Sum + a.Value, System.Math.Max(acc.Max, a.Value), acc.Count + 1);
+                    }
+                }
+            }
+
+            return sums
+                .Select(kv => new AppWindowStat(kv.Key, kv.Value.Sum / kv.Value.Count, kv.Value.Max))
+                .OrderByDescending(s => s.Avg)
+                .Take(maxApps)
+                .ToList();
+        }
+    }
+
+    public IReadOnlyList<AppRawPoint> QueryAppSeries(string metric, string appName, long fromSec, long toSec)
+    {
+        lock (_lock)
+        {
+            var result = new List<AppRawPoint>();
+            foreach (var tick in _appTicks.Values)
+            {
+                if (tick.TsSec < fromSec || tick.TsSec > toSec)
+                {
+                    continue;
+                }
+                foreach (var m in tick.Metrics)
+                {
+                    if (m.Metric != metric)
+                    {
+                        continue;
+                    }
+                    foreach (var a in m.Apps)
+                    {
+                        if (a.Name == appName)
+                        {
+                            result.Add(new AppRawPoint(tick.TsSec, a.Value, a.VramMb));
+                        }
+                    }
+                }
+            }
+            return result;
         }
     }
 

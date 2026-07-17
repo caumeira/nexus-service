@@ -1,0 +1,97 @@
+using System.Linq;
+using Nexus.Service.Activity;
+using Xunit;
+
+namespace Nexus.Service.Tests.Activity;
+
+public class ProcessAggregationTests
+{
+    private static ProcessInfo Proc(string name, double cpu, double mem, long? startedAtMs = null) =>
+        new() { Name = name, CpuPercent = cpu, MemoryMb = mem, StartedAtMs = startedAtMs };
+
+    [Fact]
+    public void GroupByName_SumsCpuAndMemory_AcrossPidsWithTheSameName()
+    {
+        var procs = new[]
+        {
+            Proc("chrome", cpu: 5, mem: 100),
+            Proc("chrome", cpu: 7, mem: 150),
+        };
+
+        var grouped = ProcessAggregation.GroupByName(procs);
+
+        var chrome = grouped["chrome"];
+        Assert.Equal(12, chrome.CpuPercent);
+        Assert.Equal(250, chrome.MemoryMb);
+    }
+
+    [Fact]
+    public void GroupByName_KeepsEachDistinctNameSeparate()
+    {
+        var procs = new[] { Proc("chrome", cpu: 5, mem: 100), Proc("notepad", cpu: 1, mem: 20) };
+
+        var grouped = ProcessAggregation.GroupByName(procs);
+
+        Assert.Equal(2, grouped.Count);
+    }
+
+    [Fact]
+    public void GroupByName_UsesTheNewestInstancesStartedAtMs_NotTheOldest()
+    {
+        var procs = new[]
+        {
+            Proc("chrome", cpu: 5, mem: 100, startedAtMs: 5000),
+            Proc("chrome", cpu: 7, mem: 150, startedAtMs: 9000),
+        };
+
+        var grouped = ProcessAggregation.GroupByName(procs);
+
+        Assert.Equal(9000, grouped["chrome"].StartedAtMs);
+    }
+
+    [Fact]
+    public void GroupByName_UsesTheNewestInstancesStartedAtMs_RegardlessOfInputOrder()
+    {
+        var procs = new[]
+        {
+            Proc("chrome", cpu: 5, mem: 100, startedAtMs: 9000),
+            Proc("chrome", cpu: 7, mem: 150, startedAtMs: 5000),
+        };
+
+        var grouped = ProcessAggregation.GroupByName(procs);
+
+        Assert.Equal(9000, grouped["chrome"].StartedAtMs);
+    }
+
+    [Fact]
+    public void GroupByName_KeepsAKnownStartedAtMs_WhenAnotherInstanceHasNone()
+    {
+        var procs = new[]
+        {
+            Proc("chrome", cpu: 5, mem: 100, startedAtMs: null),
+            Proc("chrome", cpu: 7, mem: 150, startedAtMs: 5000),
+        };
+
+        var grouped = ProcessAggregation.GroupByName(procs);
+
+        Assert.Equal(5000, grouped["chrome"].StartedAtMs);
+    }
+
+    [Fact]
+    public void GroupByName_StartedAtMsStaysNull_WhenNoInstanceReportsOne()
+    {
+        var procs = new[] { Proc("chrome", cpu: 5, mem: 100) };
+
+        var grouped = ProcessAggregation.GroupByName(procs);
+
+        Assert.Null(grouped["chrome"].StartedAtMs);
+    }
+
+    [Fact]
+    public void GroupByName_ReturnsEmpty_ForAnEmptyInput()
+    {
+        var grouped = ProcessAggregation.GroupByName(System.Array.Empty<ProcessInfo>());
+
+        Assert.Empty(grouped);
+    }
+}

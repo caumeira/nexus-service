@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Sockets;
@@ -20,6 +21,15 @@ public sealed class ProcessMonitor : BackgroundService
     private volatile IReadOnlyList<ProcessInfo> _latest = Array.Empty<ProcessInfo>();
     private int _intervalMs = 1000;
     private readonly MultiplexHub _hub;
+    private readonly object _demandGate = new();
+    private readonly HashSet<string> _demands = new(StringComparer.Ordinal);
+
+    // Bounds growth over a long-running service: every distinct name ever
+    // seen (installers, temp tools, updaters) would otherwise accumulate a
+    // permanent entry with no eviction.
+    private const int PathCacheMaxEntries = 500;
+    private readonly object _pathCacheLock = new();
+    private readonly Dictionary<string, string> _pathCache = new(StringComparer.OrdinalIgnoreCase);
 
     // Delta tracking for CPU time (Windows uses TimeSpan, macOS uses nanoseconds).
     private readonly Dictionary<int, (TimeSpan cpuTime, DateTime when)> _winPrev = new();
@@ -35,8 +45,80 @@ public sealed class ProcessMonitor : BackgroundService
 
     public void SetInterval(int ms) => _intervalMs = Math.Max(200, ms);
 
-    private bool HasSubscribers =>
-        _hub.TopicHasSubscribers("processes") || _hub.TopicHasSubscribers("monitoring");
+    /// <summary>Resolves name (a live process's aggregate name) to the exe
+    /// path of its newest matching pid, for icon extraction. Resolved
+    /// on-demand (not every sampling tick - MainModule enumeration is far
+    /// pricier than the CPU/memory reads every process already pays) and
+    /// cached by name; access-denied on a specific pid is tolerated and
+    /// simply yields no path rather than failing the request. Null when no
+    /// live process matches or the path can't be read.</summary>
+    public string? ResolveExecutablePath(string name)
+    {
+        lock (_pathCacheLock)
+        {
+            if (_pathCache.TryGetValue(name, out var cached))
+            {
+                return cached;
+            }
+        }
+
+        var candidates = _latest.Where(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase));
+        var match = candidates
+            .OrderByDescending(p => p.StartedAtMs ?? 0)
+            .FirstOrDefault();
+        if (match is null)
+        {
+            return null;
+        }
+
+        string? path = null;
+        try
+        {
+            using var proc = Process.GetProcessById(match.Pid);
+            path = proc.MainModule?.FileName;
+        }
+        catch { }
+
+        if (!string.IsNullOrEmpty(path))
+        {
+            lock (_pathCacheLock)
+            {
+                _pathCache[name] = path;
+                if (_pathCache.Count > PathCacheMaxEntries)
+                {
+                    using var e = _pathCache.Keys.GetEnumerator();
+                    e.MoveNext();
+                    _pathCache.Remove(e.Current);
+                }
+            }
+        }
+        return path;
+    }
+
+    /// <summary>Adds or removes source from the demand set that keeps
+    /// sampling running even with no WebSocket subscriber (the metrics
+    /// history sampler's always-on per-app recording). Idempotent per
+    /// source id, same shape as IFpsProvider.SetDemand.</summary>
+    public void SetDemand(string source, bool wanted)
+    {
+        lock (_demandGate)
+        {
+            if (wanted) _demands.Add(source);
+            else _demands.Remove(source);
+        }
+    }
+
+    private bool HasSubscribers
+    {
+        get
+        {
+            if (_hub.TopicHasSubscribers("processes") || _hub.TopicHasSubscribers("monitoring"))
+            {
+                return true;
+            }
+            lock (_demandGate) { return _demands.Count > 0; }
+        }
+    }
 
     protected override async Task ExecuteAsync(CancellationToken stoppingToken)
     {

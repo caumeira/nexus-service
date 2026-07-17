@@ -18,8 +18,18 @@ namespace Nexus.Service.Monitoring.History;
 /// never repeat a string id. privacy_sessions is unrelated to 1Hz sampling
 /// (PrivacyAccessWatcher writes it, on its own transition-driven cadence)
 /// but shares this connection and lock since its write rate is low.
+///
+/// app_cpu_seconds / app_mem_seconds / app_gpu_seconds are per-app usage
+/// history, sampled on MetricsHistory.AppSampleIntervalSeconds's sub-cadence:
+/// three narrow tables, one per metric, instead of a single (ts, app, metric)
+/// table - avoids a repeated TEXT metric discriminator per row at the row
+/// counts this table reaches (MetricsHistory.TopAppsPerSample apps per
+/// metric per tick, retained for MetricsHistory.RetentionDays), and lets
+/// each metric's read query hit a purpose-built PK/index with no filter
+/// predicate on metric. app_gpu_seconds reuses gpu_series' surrogate key
+/// rather than minting a duplicate GPU id mapping.
 /// </summary>
-public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySessionStore
+public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySessionStore, IAppUsageHistoryStore
 {
     private readonly string _dbPath;
     private readonly SqliteConnection _connection;
@@ -27,6 +37,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
 
     private readonly Dictionary<string, long> _gpuKeys = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _fanKeys = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, long> _appKeys = new(StringComparer.Ordinal);
 
     public SqliteMetricsHistoryStore() : this(ResolveDatabasePath()) { }
 
@@ -171,6 +182,110 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             return result;
         }
     }
+
+    public IReadOnlyList<ScalarDecimatedSlot> QueryScalarsDecimated(long fromSec, long toSec, int stepSeconds)
+    {
+        lock (_writeLock)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT (ts / $step) * $step AS slot,
+                       AVG(cpu_x10) / 10.0, MAX(cpu_x10) / 10.0,
+                       AVG(mem_x10) / 10.0, MAX(mem_x10) / 10.0,
+                       AVG(net_in_bps), MAX(net_in_bps),
+                       AVG(net_out_bps), MAX(net_out_bps),
+                       AVG(cpu_temp_x10) / 10.0, MAX(cpu_temp_x10) / 10.0
+                FROM metric_seconds
+                WHERE ts BETWEEN $from AND $to
+                GROUP BY slot
+                ORDER BY slot;
+            """;
+            cmd.Parameters.AddWithValue("$step", stepSeconds);
+            cmd.Parameters.AddWithValue("$from", fromSec);
+            cmd.Parameters.AddWithValue("$to", toSec);
+
+            var result = new List<ScalarDecimatedSlot>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(new ScalarDecimatedSlot(
+                    reader.GetInt64(0),
+                    NullableDouble(reader, 1), NullableDouble(reader, 2),
+                    NullableDouble(reader, 3), NullableDouble(reader, 4),
+                    NullableDouble(reader, 5), NullableDouble(reader, 6),
+                    NullableDouble(reader, 7), NullableDouble(reader, 8),
+                    NullableDouble(reader, 9), NullableDouble(reader, 10)));
+            }
+            return result;
+        }
+    }
+
+    public IReadOnlyList<GpuDecimatedSlot> QueryGpuDecimated(long fromSec, long toSec, int stepSeconds)
+    {
+        lock (_writeLock)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT (gs.ts / $step) * $step AS slot, se.gpu_id, se.name,
+                       AVG(gs.load_x10) / 10.0, MAX(gs.load_x10) / 10.0,
+                       AVG(gs.temp_x10) / 10.0, MAX(gs.temp_x10) / 10.0
+                FROM gpu_seconds gs
+                JOIN gpu_series se ON se.key = gs.gpu
+                WHERE gs.ts BETWEEN $from AND $to
+                GROUP BY slot, gs.gpu
+                ORDER BY se.gpu_id, slot;
+            """;
+            cmd.Parameters.AddWithValue("$step", stepSeconds);
+            cmd.Parameters.AddWithValue("$from", fromSec);
+            cmd.Parameters.AddWithValue("$to", toSec);
+
+            var result = new List<GpuDecimatedSlot>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(new GpuDecimatedSlot(
+                    reader.GetString(1), reader.GetString(2), reader.GetInt64(0),
+                    NullableDouble(reader, 3), NullableDouble(reader, 4),
+                    NullableDouble(reader, 5), NullableDouble(reader, 6)));
+            }
+            return result;
+        }
+    }
+
+    public IReadOnlyList<FanDecimatedSlot> QueryFanDecimated(long fromSec, long toSec, int stepSeconds)
+    {
+        lock (_writeLock)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT (fs.ts / $step) * $step AS slot, se.fan_id, se.name,
+                       AVG(fs.rpm), MAX(fs.rpm),
+                       AVG(fs.duty), MAX(fs.duty)
+                FROM fan_seconds fs
+                JOIN fan_series se ON se.key = fs.fan
+                WHERE fs.ts BETWEEN $from AND $to
+                GROUP BY slot, fs.fan
+                ORDER BY se.fan_id, slot;
+            """;
+            cmd.Parameters.AddWithValue("$step", stepSeconds);
+            cmd.Parameters.AddWithValue("$from", fromSec);
+            cmd.Parameters.AddWithValue("$to", toSec);
+
+            var result = new List<FanDecimatedSlot>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(new FanDecimatedSlot(
+                    reader.GetString(1), reader.GetString(2), reader.GetInt64(0),
+                    NullableDouble(reader, 3), NullableDouble(reader, 4),
+                    NullableDouble(reader, 5), NullableDouble(reader, 6)));
+            }
+            return result;
+        }
+    }
+
+    private static double? NullableDouble(SqliteDataReader reader, int ordinal) =>
+        reader.IsDBNull(ordinal) ? null : reader.GetDouble(ordinal);
 
     public void Dispose()
     {
@@ -358,6 +473,15 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 _fanKeys[reader.GetString(0)] = reader.GetInt64(1);
             }
         }
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = "SELECT name, key FROM app_series;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                _appKeys[reader.GetString(0)] = reader.GetInt64(1);
+            }
+        }
     }
 
     private static object ScaleX10(double? value) =>
@@ -415,6 +539,37 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 duty INTEGER,
                 PRIMARY KEY (ts, fan)
             ) WITHOUT ROWID;
+
+            CREATE TABLE IF NOT EXISTS app_series (
+                key  INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE
+            );
+
+            CREATE TABLE IF NOT EXISTS app_cpu_seconds (
+                ts        INTEGER NOT NULL,
+                app       INTEGER NOT NULL,
+                value_x10 INTEGER,
+                PRIMARY KEY (ts, app)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS ix_app_cpu_seconds_app_ts ON app_cpu_seconds(app, ts);
+
+            CREATE TABLE IF NOT EXISTS app_mem_seconds (
+                ts        INTEGER NOT NULL,
+                app       INTEGER NOT NULL,
+                value_x10 INTEGER,
+                PRIMARY KEY (ts, app)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS ix_app_mem_seconds_app_ts ON app_mem_seconds(app, ts);
+
+            CREATE TABLE IF NOT EXISTS app_gpu_seconds (
+                ts        INTEGER NOT NULL,
+                app       INTEGER NOT NULL,
+                gpu       INTEGER NOT NULL,
+                value_x10 INTEGER,
+                vram_mb   INTEGER,
+                PRIMARY KEY (ts, app, gpu)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS ix_app_gpu_seconds_gpu_app_ts ON app_gpu_seconds(gpu, app, ts);
 
             CREATE TABLE IF NOT EXISTS privacy_sessions (
                 app_id     TEXT NOT NULL,
@@ -495,6 +650,254 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             cmd.Parameters.AddWithValue("$cutoff", cutoffSec);
             cmd.ExecuteNonQuery();
         }
+    }
+
+    // ----- IAppUsageHistoryStore -----
+
+    public void Append(IReadOnlyList<AppUsageTick> ticks, long? pruneCutoffSec)
+    {
+        if (ticks.Count == 0 && pruneCutoffSec is null)
+        {
+            return;
+        }
+
+        lock (_writeLock)
+        {
+            using var tx = _connection.BeginTransaction();
+            var pendingAppKeys = new Dictionary<string, long>(StringComparer.Ordinal);
+
+            if (ticks.Count > 0)
+            {
+                InsertAppRows(tx, ticks, pendingAppKeys);
+            }
+
+            if (pruneCutoffSec is { } cutoff)
+            {
+                PruneApps(tx, cutoff);
+            }
+
+            tx.Commit();
+
+            foreach (var (name, key) in pendingAppKeys)
+            {
+                _appKeys[name] = key;
+            }
+        }
+    }
+
+    private void InsertAppRows(SqliteTransaction tx, IReadOnlyList<AppUsageTick> ticks, Dictionary<string, long> pendingAppKeys)
+    {
+        using var cpuCmd = _connection.CreateCommand();
+        cpuCmd.Transaction = tx;
+        cpuCmd.CommandText = "INSERT OR REPLACE INTO app_cpu_seconds (ts, app, value_x10) VALUES ($ts, $app, $value);";
+        var cpuTs = AddParam(cpuCmd, "$ts");
+        var cpuApp = AddParam(cpuCmd, "$app");
+        var cpuValue = AddParam(cpuCmd, "$value");
+
+        using var memCmd = _connection.CreateCommand();
+        memCmd.Transaction = tx;
+        memCmd.CommandText = "INSERT OR REPLACE INTO app_mem_seconds (ts, app, value_x10) VALUES ($ts, $app, $value);";
+        var memTs = AddParam(memCmd, "$ts");
+        var memApp = AddParam(memCmd, "$app");
+        var memValue = AddParam(memCmd, "$value");
+
+        using var gpuCmd = _connection.CreateCommand();
+        gpuCmd.Transaction = tx;
+        gpuCmd.CommandText = "INSERT OR REPLACE INTO app_gpu_seconds (ts, app, gpu, value_x10, vram_mb) VALUES ($ts, $app, $gpu, $value, $vram);";
+        var gpuTs = AddParam(gpuCmd, "$ts");
+        var gpuApp = AddParam(gpuCmd, "$app");
+        var gpuGpu = AddParam(gpuCmd, "$gpu");
+        var gpuValue = AddParam(gpuCmd, "$value");
+        var gpuVram = AddParam(gpuCmd, "$vram");
+
+        foreach (var tick in ticks)
+        {
+            foreach (var metric in tick.Metrics)
+            {
+                if (metric.Metric == "cpu")
+                {
+                    foreach (var a in metric.Apps)
+                    {
+                        cpuTs.Value = tick.TsSec;
+                        cpuApp.Value = ResolveAppKey(tx, a.Name, pendingAppKeys);
+                        cpuValue.Value = ScaleX10(a.Value);
+                        cpuCmd.ExecuteNonQuery();
+                    }
+                }
+                else if (metric.Metric == "memory")
+                {
+                    foreach (var a in metric.Apps)
+                    {
+                        memTs.Value = tick.TsSec;
+                        memApp.Value = ResolveAppKey(tx, a.Name, pendingAppKeys);
+                        memValue.Value = ScaleX10(a.Value);
+                        memCmd.ExecuteNonQuery();
+                    }
+                }
+                else if (metric.Metric.StartsWith("gpu:", StringComparison.Ordinal))
+                {
+                    var gid = metric.Metric[4..];
+                    // The scalar Append that runs immediately before this one
+                    // in the same flush (MetricsSampler.Flush) resolves
+                    // gpu_series for every GPU that tick's scalar sample saw;
+                    // a gid with no scalar row this flush has no app rows
+                    // either, since both come from the same sensors.GetGpus()
+                    // read - skip rather than guess a name to mint one.
+                    if (!_gpuKeys.TryGetValue(gid, out var gpuKey))
+                    {
+                        continue;
+                    }
+                    foreach (var a in metric.Apps)
+                    {
+                        gpuTs.Value = tick.TsSec;
+                        gpuApp.Value = ResolveAppKey(tx, a.Name, pendingAppKeys);
+                        gpuGpu.Value = gpuKey;
+                        gpuValue.Value = ScaleX10(a.Value);
+                        gpuVram.Value = a.VramMb is { } v ? (object)(long)Math.Round(v) : DBNull.Value;
+                        gpuCmd.ExecuteNonQuery();
+                    }
+                }
+            }
+        }
+    }
+
+    private void PruneApps(SqliteTransaction tx, long cutoffSec)
+    {
+        foreach (var table in new[] { "app_cpu_seconds", "app_mem_seconds", "app_gpu_seconds" })
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.Transaction = tx;
+            cmd.CommandText = $"DELETE FROM {table} WHERE ts < $cutoff;";
+            cmd.Parameters.AddWithValue("$cutoff", cutoffSec);
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    private long ResolveAppKey(SqliteTransaction tx, string name, Dictionary<string, long> pendingKeys)
+    {
+        if (_appKeys.TryGetValue(name, out var cached))
+        {
+            return cached;
+        }
+        if (pendingKeys.TryGetValue(name, out var pending))
+        {
+            return pending;
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO app_series (name) VALUES ($name)
+            ON CONFLICT(name) DO UPDATE SET name = excluded.name
+            RETURNING key;
+        """;
+        cmd.Parameters.AddWithValue("$name", name);
+        var key = Convert.ToInt64(cmd.ExecuteScalar());
+        pendingKeys[name] = key;
+        return key;
+    }
+
+    public IReadOnlyList<AppWindowStat> QueryTopApps(string metric, long fromSec, long toSec, int maxApps)
+    {
+        lock (_writeLock)
+        {
+            var (table, gpuKey) = ResolveMetricTable(metric);
+            if (table is null)
+            {
+                return Array.Empty<AppWindowStat>();
+            }
+
+            using var cmd = _connection.CreateCommand();
+            var gpuFilter = gpuKey is not null ? "gpu = $gpu AND " : "";
+            cmd.CommandText = $"""
+                SELECT se.name, AVG(t.value_x10) / 10.0, MAX(t.value_x10) / 10.0
+                FROM {table} t
+                JOIN app_series se ON se.key = t.app
+                WHERE {gpuFilter}t.ts BETWEEN $from AND $to
+                GROUP BY t.app
+                ORDER BY AVG(t.value_x10) DESC
+                LIMIT $limit;
+            """;
+            if (gpuKey is { } gk)
+            {
+                cmd.Parameters.AddWithValue("$gpu", gk);
+            }
+            cmd.Parameters.AddWithValue("$from", fromSec);
+            cmd.Parameters.AddWithValue("$to", toSec);
+            cmd.Parameters.AddWithValue("$limit", maxApps);
+
+            var result = new List<AppWindowStat>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(new AppWindowStat(reader.GetString(0), reader.GetDouble(1), reader.GetDouble(2)));
+            }
+            return result;
+        }
+    }
+
+    public IReadOnlyList<AppRawPoint> QueryAppSeries(string metric, string appName, long fromSec, long toSec)
+    {
+        lock (_writeLock)
+        {
+            var (table, gpuKey) = ResolveMetricTable(metric);
+            if (table is null || !_appKeys.TryGetValue(appName, out var appKey))
+            {
+                return Array.Empty<AppRawPoint>();
+            }
+
+            var isGpu = table == "app_gpu_seconds";
+            var gpuFilter = gpuKey is not null ? "gpu = $gpu AND " : "";
+            var vramSelect = isGpu ? ", vram_mb" : "";
+
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = $"""
+                SELECT ts, value_x10{vramSelect}
+                FROM {table}
+                WHERE {gpuFilter}app = $app AND ts BETWEEN $from AND $to
+                ORDER BY ts ASC;
+            """;
+            if (gpuKey is { } gk)
+            {
+                cmd.Parameters.AddWithValue("$gpu", gk);
+            }
+            cmd.Parameters.AddWithValue("$app", appKey);
+            cmd.Parameters.AddWithValue("$from", fromSec);
+            cmd.Parameters.AddWithValue("$to", toSec);
+
+            var result = new List<AppRawPoint>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var value = UnscaleX10(reader, 1);
+                double? vram = isGpu && !reader.IsDBNull(2) ? reader.GetInt32(2) : null;
+                result.Add(new AppRawPoint(reader.GetInt64(0), value, vram));
+            }
+            return result;
+        }
+    }
+
+    // "cpu"/"memory" resolve directly; "gpu:<gid>" resolves through the
+    // existing gpu_series cache so app rows and scalar gpu rows always agree
+    // on which surrogate key a gid maps to. A gid never seen by the scalar
+    // path (no gpu_series row) yields a null table - there is nothing to
+    // query, not an error.
+    private (string? Table, long? GpuKey) ResolveMetricTable(string metric)
+    {
+        if (metric == "cpu")
+        {
+            return ("app_cpu_seconds", null);
+        }
+        if (metric == "memory")
+        {
+            return ("app_mem_seconds", null);
+        }
+        if (metric.StartsWith("gpu:", StringComparison.Ordinal))
+        {
+            var gid = metric[4..];
+            return _gpuKeys.TryGetValue(gid, out var key) ? ("app_gpu_seconds", key) : (null, null);
+        }
+        return (null, null);
     }
 
     private static string ResolveDatabasePath() =>

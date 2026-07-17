@@ -205,6 +205,7 @@ internal static class WindowsUserHelper
         new MediaHandler(media.Control, media.GetAlbumArt).Register(handlerRegistry);
         new BrightnessHandler(brightness).Register(handlerRegistry);
         new ShortcutsHandler(new Nexus.Service.Activity.WindowsShortcutsProvider()).Register(handlerRegistry);
+        new ProcessIconHandler(new Nexus.Service.Activity.WindowsIconExtractor()).Register(handlerRegistry);
         new FileDialogHandler().Register(handlerRegistry);
         new MonitorsHandler().Register(handlerRegistry);
         new DisplaysHandler().Register(handlerRegistry);

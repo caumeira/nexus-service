@@ -1,8 +1,13 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.Linq;
+using System.Security.Cryptography;
+using System.Threading;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Net.Http.Headers;
+using Nexus.Service.Activity;
 using Nexus.Service.Auth;
 using Nexus.Service.Models;
 using Nexus.Service.Monitoring.History;
@@ -30,6 +35,23 @@ public static class MonitoringHistoryRoutes
     private const int MaxMaxPoints = 2000;
     private const int DefaultMaxPoints = 600;
 
+    // Smallest MetricsHistory.StepLadderSeconds rung the SQL-side decimated
+    // query path is measured faster at than the raw-pull path; see the
+    // route's usage for the measured numbers behind this value.
+    private const int DecimatedPathMinStepSeconds = 300;
+
+    private const int MinMaxApps = 1;
+    private const int MaxMaxApps = 100;
+    private const int MinMaxAppPoints = 1;
+    private const int MaxMaxAppPoints = 2000;
+
+    // Query-timing log throttle: at most one line per route per this window,
+    // regardless of request volume, so a live scrub session (many requests a
+    // second while dragging) never floods the log.
+    private static readonly TimeSpan TimingLogThrottle = TimeSpan.FromSeconds(5);
+    private static long s_lastHistoryTimingLogTicks;
+    private static long s_lastAppsTimingLogTicks;
+
     public static void MapMonitoringHistoryEndpoints(this WebApplication app)
     {
         app.MapGet("/monitoring/history", (
@@ -45,22 +67,48 @@ public static class MonitoringHistoryRoutes
             var toSec = to.Value / 1000;
             var clampedMaxPoints = Math.Clamp(maxPoints ?? DefaultMaxPoints, MinMaxPoints, MaxMaxPoints);
             var seriesFilter = ParseSeriesFilter(series);
+            var stopwatch = Stopwatch.StartNew();
 
             try
             {
-                // Buffer read first: a flush landing between the two calls
-                // commits its samples to the store and then RemoveThroughs
-                // them out of the buffer, so querying the store first could
-                // miss those seconds in both reads. Reading the tail before
-                // the store guarantees any sample dropped from the tail by
-                // an intervening flush is already visible in the store read
-                // that follows; MergeSamples's tail-wins-by-ts dedup handles
-                // the overlap either way.
-                var tailSamples = buffer.SnapshotRange(fromSec, toSec);
-                var dbSamples = store.Query(fromSec, toSec);
                 var adapterLuids = ResolveGpuAdapterLuids(sensors);
-                var response = BuildHistoryResponse(
-                    dbSamples, tailSamples, fromSec, toSec, clampedMaxPoints, seriesFilter, adapterLuids);
+                var stepSeconds = MetricsDecimation.StepSecondsFor(Math.Max(0, toSec - fromSec), clampedMaxPoints);
+
+                MetricsHistoryResponse response;
+                if (stepSeconds >= DecimatedPathMinStepSeconds)
+                {
+                    // The GROUP BY's own overhead (temp b-tree sort, three
+                    // separate round trips) measurably exceeds the raw path's
+                    // cost at a moderate reduction ratio, and only wins once
+                    // the window is wide enough - DecimatedPathMinStepSeconds
+                    // is picked from that measured crossover, not from "any
+                    // reduction is happening".
+                    var tailSamples = buffer.SnapshotRange(fromSec, toSec);
+                    var dbScalars = store.QueryScalarsDecimated(fromSec, toSec, stepSeconds);
+                    var dbGpu = store.QueryGpuDecimated(fromSec, toSec, stepSeconds);
+                    var dbFan = store.QueryFanDecimated(fromSec, toSec, stepSeconds);
+                    response = BuildDecimatedHistoryResponse(
+                        dbScalars, dbGpu, dbFan, tailSamples, fromSec, toSec, stepSeconds, seriesFilter, adapterLuids);
+                }
+                else
+                {
+                    // Buffer read first: a flush landing between the two calls
+                    // commits its samples to the store and then RemoveThroughs
+                    // them out of the buffer, so querying the store first could
+                    // miss those seconds in both reads. Reading the tail before
+                    // the store guarantees any sample dropped from the tail by
+                    // an intervening flush is already visible in the store read
+                    // that follows; MergeSamples's tail-wins-by-ts dedup handles
+                    // the overlap either way.
+                    var tailSamples = buffer.SnapshotRange(fromSec, toSec);
+                    var dbSamples = store.Query(fromSec, toSec);
+                    response = BuildHistoryResponse(
+                        dbSamples, tailSamples, fromSec, toSec, clampedMaxPoints, seriesFilter, adapterLuids);
+                }
+
+                LogTimingThrottled(
+                    ref s_lastHistoryTimingLogTicks, "monitoring-history",
+                    stopwatch.ElapsedMilliseconds, toSec - fromSec, stepSeconds);
                 return Results.Ok(response);
             }
             catch (Exception ex)
@@ -95,6 +143,345 @@ public static class MonitoringHistoryRoutes
                 return Results.Ok(new PrivacyAccessResponse { Supported = false });
             }
         }).AllowPanel();
+
+        app.MapGet("/monitoring/history/apps", (
+            long? from, long? to, string? series, int? maxApps, int? maxPoints,
+            IAppUsageHistoryStore appStore, ProcessMonitor processes) =>
+        {
+            if (from is null || to is null || to < from || string.IsNullOrWhiteSpace(series))
+            {
+                return Results.BadRequest(ApiResponse.Fail("from, to, and series are required and to must be >= from"));
+            }
+
+            var stopwatch = Stopwatch.StartNew();
+            try
+            {
+                var fromSec = from.Value / 1000;
+                var toSec = to.Value / 1000;
+                var clampedMaxApps = Math.Clamp(maxApps ?? MetricsHistory.DefaultMaxApps, MinMaxApps, MaxMaxApps);
+                var clampedMaxPoints = Math.Clamp(maxPoints ?? MetricsHistory.DefaultMaxAppPoints, MinMaxAppPoints, MaxMaxAppPoints);
+
+                var topApps = appStore.QueryTopApps(series, fromSec, toSec, clampedMaxApps);
+                var seriesByApp = new Dictionary<string, IReadOnlyList<AppRawPoint>>(StringComparer.Ordinal);
+                foreach (var stat in topApps)
+                {
+                    seriesByApp[stat.Name] = appStore.QueryAppSeries(series, stat.Name, fromSec, toSec);
+                }
+                var liveStartedAt = ResolveLiveStartedAtByName(processes.GetProcesses());
+
+                var response = BuildAppsHistoryResponse(
+                    topApps, seriesByApp, liveStartedAt,
+                    isGpuMetric: series.StartsWith("gpu:", StringComparison.Ordinal),
+                    fromSec, toSec, clampedMaxPoints);
+
+                LogTimingThrottled(
+                    ref s_lastAppsTimingLogTicks, "monitoring-history-apps",
+                    stopwatch.ElapsedMilliseconds, toSec - fromSec, topApps.Count);
+                return Results.Ok(response);
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Warn($"[monitoring-history-apps] query failed: {ex.Message}");
+                return Results.Ok(new AppUsageHistoryResponse { Supported = false });
+            }
+        }).AllowPanel();
+
+        app.MapGet("/monitoring/process-icon", (
+            string? name, HttpContext ctx, ProcessMonitor processes,
+            IProcessIconProvider iconProvider, ProcessIconCache cache) =>
+        {
+            if (string.IsNullOrEmpty(name))
+            {
+                return Results.BadRequest();
+            }
+
+            var exePath = processes.ResolveExecutablePath(name);
+            if (exePath is null)
+            {
+                return Results.NotFound();
+            }
+
+            if (!cache.TryGet(exePath, out var bytes))
+            {
+                bytes = iconProvider.GetIcon(exePath);
+                cache.Set(exePath, bytes);
+            }
+
+            if (bytes.Length == 0)
+            {
+                return Results.NotFound();
+            }
+
+            // Content hash as the ETag, same pattern as GET /shortcuts/icon:
+            // Results.File's entityTag drives the framework's conditional-GET
+            // handling, so a matching If-None-Match short-circuits to a
+            // bodyless 304. Icons are immutable per path for this service's
+            // lifetime, so the cache is long-lived.
+            var hash = Convert.ToHexString(SHA256.HashData(bytes))[..16].ToLowerInvariant();
+            var etag = new EntityTagHeaderValue($"\"{hash}\"");
+            ctx.Response.Headers.CacheControl = "private, max-age=86400, immutable";
+            return Results.File(bytes, "image/png", entityTag: etag);
+        }).AllowPanel();
+    }
+
+    private static IReadOnlyDictionary<string, long> ResolveLiveStartedAtByName(IReadOnlyList<ProcessInfo> procs)
+    {
+        var result = new Dictionary<string, long>(StringComparer.Ordinal);
+        foreach (var (name, agg) in ProcessAggregation.GroupByName(procs))
+        {
+            if (agg.StartedAtMs is { } started)
+            {
+                result[name] = started;
+            }
+        }
+        return result;
+    }
+
+    // Pure and directly unit-tested: every input is plain data the route
+    // handler above already fetched (store queries + the live process
+    // snapshot), so this has no I/O of its own.
+    internal static AppUsageHistoryResponse BuildAppsHistoryResponse(
+        IReadOnlyList<AppWindowStat> topApps,
+        IReadOnlyDictionary<string, IReadOnlyList<AppRawPoint>> seriesByApp,
+        IReadOnlyDictionary<string, long> liveStartedAtByName,
+        bool isGpuMetric,
+        long fromSec, long toSec, int maxPoints)
+    {
+        var stepSeconds = MetricsDecimation.StepSecondsFor(Math.Max(0, toSec - fromSec), maxPoints);
+
+        var apps = new List<AppHistoryEntryWire>(topApps.Count);
+        foreach (var stat in topApps)
+        {
+            var raw = seriesByApp.TryGetValue(stat.Name, out var s) ? s : Array.Empty<AppRawPoint>();
+            var points = MetricsDecimation.Decimate(
+                raw.Select(p => new MetricSamplePoint(p.TsSec, p.Value)), fromSec, toSec, stepSeconds);
+
+            double? vramAvgMb = null;
+            if (isGpuMetric)
+            {
+                var vramValues = raw.Where(p => p.VramMb is not null).Select(p => p.VramMb!.Value).ToList();
+                if (vramValues.Count > 0)
+                {
+                    vramAvgMb = Math.Round(vramValues.Average(), 1);
+                }
+            }
+
+            apps.Add(new AppHistoryEntryWire
+            {
+                Name = stat.Name,
+                StartedAtMs = liveStartedAtByName.TryGetValue(stat.Name, out var started) ? started : null,
+                Avg = Math.Round(stat.Avg, 1),
+                Max = Math.Round(stat.Max, 1),
+                VramAvgMb = vramAvgMb,
+                Points = points.Select(p => new AppHistoryPointWire { T = p.T * 1000, Avg = Math.Round(p.Avg, 1) }).ToList(),
+            });
+        }
+
+        return new AppUsageHistoryResponse { Supported = true, Apps = apps };
+    }
+
+    private static void LogTimingThrottled(ref long lastLogTicks, string route, long elapsedMs, long windowSeconds, int contextCount)
+    {
+        var nowTicks = DateTime.UtcNow.Ticks;
+        var last = Interlocked.Read(ref lastLogTicks);
+        if (nowTicks - last < TimingLogThrottle.Ticks)
+        {
+            return;
+        }
+        if (Interlocked.CompareExchange(ref lastLogTicks, nowTicks, last) != last)
+        {
+            return;
+        }
+        ServiceLog.Info($"[{route}] query took {elapsedMs}ms window={windowSeconds}s n={contextCount}");
+    }
+
+    // Wide-window fast path: db slots already carry avg/max per field (SQL
+    // GROUP BY, see IMetricsHistoryStore.QueryScalarsDecimated/QueryGpuDecimated/
+    // QueryFanDecimated), so only the small RAM tail needs C# decimation -
+    // reusing MetricsDecimation.Decimate exactly as the narrow-window path
+    // does. Same MetricsHistoryResponse shape as BuildHistoryResponse; kept
+    // as a separate function rather than folded into it so the existing
+    // raw-sample-based tests and call sites are untouched.
+    internal static MetricsHistoryResponse BuildDecimatedHistoryResponse(
+        IReadOnlyList<ScalarDecimatedSlot> dbScalars,
+        IReadOnlyList<GpuDecimatedSlot> dbGpu,
+        IReadOnlyList<FanDecimatedSlot> dbFan,
+        IReadOnlyList<MetricSample> tailSamples,
+        long fromSec, long toSec, int stepSeconds,
+        IReadOnlySet<string>? seriesFilter,
+        IReadOnlyDictionary<string, string> gpuAdapterLuids)
+    {
+        var series = new List<MetricSeriesWire>();
+
+        AddDecimatedScalarSeries(series, "cpu", "cpu", "CPU",
+            dbScalars.Select(s => (s.Slot, s.CpuAvg, s.CpuMax)), s => s.CpuPercent,
+            tailSamples, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: false);
+        AddDecimatedScalarSeries(series, "memory", "memory", "Memory",
+            dbScalars.Select(s => (s.Slot, s.MemAvg, s.MemMax)), s => s.MemoryPercent,
+            tailSamples, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: false);
+        AddDecimatedScalarSeries(series, "net-in", "net", "Network In",
+            dbScalars.Select(s => (s.Slot, s.NetInAvg, s.NetInMax)), s => s.NetInBytesPerSec,
+            tailSamples, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
+        AddDecimatedScalarSeries(series, "net-out", "net", "Network Out",
+            dbScalars.Select(s => (s.Slot, s.NetOutAvg, s.NetOutMax)), s => s.NetOutBytesPerSec,
+            tailSamples, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: true);
+        AddDecimatedScalarSeries(series, "cpu-temp", "cpu-temp", "CPU Temperature",
+            dbScalars.Select(s => (s.Slot, s.CpuTempAvg, s.CpuTempMax)), s => s.CpuTempC,
+            tailSamples, fromSec, toSec, stepSeconds, seriesFilter, wholeNumbers: false);
+
+        AddDecimatedGpuSeries(series, dbGpu, tailSamples, fromSec, toSec, stepSeconds, seriesFilter, gpuAdapterLuids);
+        AddDecimatedFanSeries(series, dbFan, tailSamples, fromSec, toSec, stepSeconds, seriesFilter);
+
+        return new MetricsHistoryResponse
+        {
+            Supported = true,
+            RetentionDays = MetricsHistory.RetentionDays,
+            StepSeconds = stepSeconds,
+            Series = series,
+        };
+    }
+
+    private static void AddDecimatedScalarSeries(
+        List<MetricSeriesWire> output, string id, string kind, string name,
+        IEnumerable<(long Slot, double? Avg, double? Max)> dbSlots, Func<MetricSample, double?> tailSelector,
+        IReadOnlyList<MetricSample> tailSamples, long fromSec, long toSec, int stepSeconds,
+        IReadOnlySet<string>? filter, bool wholeNumbers)
+    {
+        if (!MatchesFilter(id, kind, filter))
+        {
+            return;
+        }
+
+        var tailPoints = MetricsDecimation.Decimate(
+            tailSamples.Select(s => new MetricSamplePoint(s.TsSec, tailSelector(s))), fromSec, toSec, stepSeconds);
+        var merged = MergeDecimatedSlots(dbSlots, tailPoints);
+
+        output.Add(new MetricSeriesWire { Id = id, Kind = kind, Name = name, Points = ToWirePoints(merged, wholeNumbers) });
+    }
+
+    private static void AddDecimatedGpuSeries(
+        List<MetricSeriesWire> output, IReadOnlyList<GpuDecimatedSlot> dbGpu, IReadOnlyList<MetricSample> tailSamples,
+        long fromSec, long toSec, int stepSeconds, IReadOnlySet<string>? filter,
+        IReadOnlyDictionary<string, string> adapterLuids)
+    {
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var s in dbGpu)
+        {
+            names[s.GpuId] = s.Name;
+        }
+        foreach (var s in tailSamples)
+        {
+            foreach (var g in s.Gpus)
+            {
+                names[g.GpuId] = g.Name;
+            }
+        }
+
+        foreach (var (gpuId, name) in names.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            var luid = adapterLuids.GetValueOrDefault(gpuId);
+            var dbForGpu = dbGpu.Where(s => s.GpuId == gpuId).ToList();
+
+            var loadId = $"gpu:{gpuId}";
+            if (MatchesFilter(loadId, "gpu", filter))
+            {
+                var tailPoints = MetricsDecimation.Decimate(
+                    tailSamples.Select(s => new MetricSamplePoint(s.TsSec, FindGpu(s, gpuId)?.LoadPercent)),
+                    fromSec, toSec, stepSeconds);
+                var merged = MergeDecimatedSlots(dbForGpu.Select(s => (s.Slot, s.LoadAvg, s.LoadMax)), tailPoints);
+                output.Add(new MetricSeriesWire
+                {
+                    Id = loadId,
+                    Kind = "gpu",
+                    Name = name,
+                    AdapterLuid = luid,
+                    Points = ToWirePoints(merged, wholeNumbers: false),
+                });
+            }
+
+            var tempId = $"gpu-temp:{gpuId}";
+            if (MatchesFilter(tempId, "gpu-temp", filter))
+            {
+                var tailPoints = MetricsDecimation.Decimate(
+                    tailSamples.Select(s => new MetricSamplePoint(s.TsSec, FindGpu(s, gpuId)?.TempC)),
+                    fromSec, toSec, stepSeconds);
+                var merged = MergeDecimatedSlots(dbForGpu.Select(s => (s.Slot, s.TempAvg, s.TempMax)), tailPoints);
+                output.Add(new MetricSeriesWire
+                {
+                    Id = tempId,
+                    Kind = "gpu-temp",
+                    Name = name,
+                    AdapterLuid = luid,
+                    Points = ToWirePoints(merged, wholeNumbers: false),
+                });
+            }
+        }
+    }
+
+    private static void AddDecimatedFanSeries(
+        List<MetricSeriesWire> output, IReadOnlyList<FanDecimatedSlot> dbFan, IReadOnlyList<MetricSample> tailSamples,
+        long fromSec, long toSec, int stepSeconds, IReadOnlySet<string>? filter)
+    {
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var s in dbFan)
+        {
+            names[s.FanId] = s.Name;
+        }
+        foreach (var s in tailSamples)
+        {
+            foreach (var f in s.Fans)
+            {
+                names[f.FanId] = f.Name;
+            }
+        }
+
+        foreach (var (fanId, name) in names.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+        {
+            var dbForFan = dbFan.Where(s => s.FanId == fanId).ToList();
+
+            var rpmId = $"fan:{fanId}";
+            if (MatchesFilter(rpmId, "fan", filter))
+            {
+                var tailPoints = MetricsDecimation.Decimate(
+                    tailSamples.Select(s => new MetricSamplePoint(s.TsSec, (double?)FindFan(s, fanId)?.Rpm)),
+                    fromSec, toSec, stepSeconds);
+                var merged = MergeDecimatedSlots(dbForFan.Select(s => (s.Slot, s.RpmAvg, s.RpmMax)), tailPoints);
+                output.Add(new MetricSeriesWire { Id = rpmId, Kind = "fan", Name = name, Points = ToWirePoints(merged, wholeNumbers: true) });
+            }
+
+            var dutyId = $"fan-duty:{fanId}";
+            if (MatchesFilter(dutyId, "fan-duty", filter))
+            {
+                var tailPoints = MetricsDecimation.Decimate(
+                    tailSamples.Select(s => new MetricSamplePoint(s.TsSec, (double?)FindFan(s, fanId)?.Duty)),
+                    fromSec, toSec, stepSeconds);
+                var merged = MergeDecimatedSlots(dbForFan.Select(s => (s.Slot, s.DutyAvg, s.DutyMax)), tailPoints);
+                output.Add(new MetricSeriesWire { Id = dutyId, Kind = "fan-duty", Name = name, Points = ToWirePoints(merged, wholeNumbers: false) });
+            }
+        }
+    }
+
+    // Db slots and the tail can overlap at the flush boundary; the tail wins
+    // whole-slot (not per-second like MergeSamples) since it only ever spans
+    // the buffered tail - at most the window's right edge or two, which is
+    // inherently a live/partial reading either way rather than a fixed
+    // historical average.
+    private static List<MetricPoint> MergeDecimatedSlots(
+        IEnumerable<(long Slot, double? Avg, double? Max)> dbSlots, IReadOnlyList<MetricPoint> tailPoints)
+    {
+        var map = new SortedDictionary<long, MetricPoint>();
+        foreach (var (slot, avg, max) in dbSlots)
+        {
+            if (avg is { } a && max is { } m)
+            {
+                map[slot] = new MetricPoint(slot, a, m);
+            }
+        }
+        foreach (var p in tailPoints)
+        {
+            map[p.T] = p;
+        }
+        return map.Values.ToList();
     }
 
     private static HashSet<string>? ParseSeriesFilter(string? series)
@@ -368,4 +755,28 @@ public sealed record PrivacyAccessResponse
     public bool Supported { get; init; } = true;
     public int RetentionDays { get; init; } = PrivacyAccess.RetentionDays;
     public IReadOnlyList<PrivacySessionWire> Sessions { get; init; } = Array.Empty<PrivacySessionWire>();
+}
+
+public sealed record AppHistoryPointWire
+{
+    public long T { get; init; }
+    public double Avg { get; init; }
+}
+
+public sealed record AppHistoryEntryWire
+{
+    public string Name { get; init; } = "";
+    public long? StartedAtMs { get; init; }
+    public double Avg { get; init; }
+    public double Max { get; init; }
+    /// <summary>Window-average dedicated VRAM in MB; only populated for a
+    /// gpu:&lt;gid&gt; series.</summary>
+    public double? VramAvgMb { get; init; }
+    public IReadOnlyList<AppHistoryPointWire> Points { get; init; } = Array.Empty<AppHistoryPointWire>();
+}
+
+public sealed record AppUsageHistoryResponse
+{
+    public bool Supported { get; init; } = true;
+    public IReadOnlyList<AppHistoryEntryWire> Apps { get; init; } = Array.Empty<AppHistoryEntryWire>();
 }
