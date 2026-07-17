@@ -19,6 +19,8 @@ public class ProcessActionGuardsTests
     [InlineData("smss")]
     [InlineData("svchost")]
     [InlineData("dwm")]
+    [InlineData("System")]
+    [InlineData("Registry")]
     public void IsDenylisted_RefusesTheCriticalSet_CaseInsensitively(string name)
     {
         Assert.True(ProcessActionGuards.IsDenylisted(name));
@@ -32,5 +34,11 @@ public class ProcessActionGuardsTests
     public void IsDenylisted_AllowsEverythingElse(string name)
     {
         Assert.False(ProcessActionGuards.IsDenylisted(name));
+    }
+
+    [Fact]
+    public void IsDenylisted_TrimsSurroundingWhitespace_BeforeMatching()
+    {
+        Assert.True(ProcessActionGuards.IsDenylisted("  Nexus  "));
     }
 }

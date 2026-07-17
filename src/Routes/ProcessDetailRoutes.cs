@@ -33,7 +33,7 @@ public static class ProcessDetailRoutes
     public static void MapProcessDetailEndpoints(this WebApplication app)
     {
         app.MapGet("/monitoring/process-info", async (
-            string? name, ProcessMonitor processes, IProcessDetailProvider detail,
+            string? name, HttpContext ctx, ProcessMonitor processes, IProcessDetailProvider detail,
             ProcessFirstSeenCache firstSeen) =>
         {
             if (string.IsNullOrEmpty(name))
@@ -47,19 +47,27 @@ public static class ProcessDetailRoutes
                 return Results.NotFound();
             }
 
-            var procs = processes.GetProcesses();
-            var live = procs.Where(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)).ToList();
-            var instanceCount = live.Count;
-            var canonicalName = live.Count > 0 ? live[0].Name : name;
-            var startedAtMs = ProcessAggregation.GroupByName(procs).GetValueOrDefault(canonicalName)?.StartedAtMs;
+            try
+            {
+                var procs = processes.GetProcesses();
+                var live = procs.Where(p => string.Equals(p.Name, name, StringComparison.OrdinalIgnoreCase)).ToList();
+                var instanceCount = live.Count;
+                var canonicalName = live.Count > 0 ? live[0].Name : name;
+                var startedAtMs = ProcessAggregation.GroupByName(procs).GetValueOrDefault(canonicalName)?.StartedAtMs;
 
-            var fileDetail = detail.GetFileDetail(path);
-            var sha256 = await detail.ComputeSha256Async(path, CancellationToken.None);
-            var firstSeenMs = firstSeen.Resolve(canonicalName);
+                var fileDetail = detail.GetFileDetail(path);
+                var sha256 = await detail.ComputeSha256Async(path, ctx.RequestAborted);
+                var firstSeenMs = firstSeen.Resolve(canonicalName);
 
-            var response = BuildProcessInfoResponse(
-                canonicalName, path, instanceCount, startedAtMs, fileDetail, sha256, firstSeenMs);
-            return Results.Ok(response);
+                var response = BuildProcessInfoResponse(
+                    canonicalName, path, instanceCount, startedAtMs, fileDetail, sha256, firstSeenMs);
+                return Results.Ok(response);
+            }
+            catch (Exception ex)
+            {
+                ServiceLog.Warn($"[process-info] resolve failed for {name}: {ex.Message}");
+                return Results.Ok(new ProcessInfoResponse { Supported = false, Name = name });
+            }
         });
 
         app.MapPost("/monitoring/process-kill", async (ProcessActionBody? body, IProcessActionsProvider actions) =>
