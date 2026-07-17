@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO;
 using System.Security.Cryptography;
@@ -45,6 +46,12 @@ public sealed class ProcessDetailProvider : IProcessDetailProvider
     private const int HashStreamBufferSize = 81920;
 
     private readonly ProcessHashCache _hashCache;
+
+    // Dedupes concurrent first-time hashes of the same (path, mtime): several
+    // process-info requests for the same uncached exe arriving together share
+    // one hash pass instead of each reading and hashing the file separately.
+    // Same shape as ExternalToolManager's in-flight resolve map.
+    private readonly ConcurrentDictionary<(string Path, long MtimeTicks), Task<string?>> _inFlightHashes = new();
 
     public ProcessDetailProvider(ProcessHashCache hashCache) { _hashCache = hashCache; }
 
@@ -112,6 +119,20 @@ public sealed class ProcessDetailProvider : IProcessDetailProvider
             return null;
         }
 
+        var key = (path, mtimeTicks);
+        var task = _inFlightHashes.GetOrAdd(key, _ => HashAndCacheAsync(path, mtimeTicks, ct));
+        try
+        {
+            return await task.ConfigureAwait(false);
+        }
+        finally
+        {
+            _inFlightHashes.TryRemove(key, out _);
+        }
+    }
+
+    private async Task<string?> HashAndCacheAsync(string path, long mtimeTicks, CancellationToken ct)
+    {
         string hash;
         try
         {

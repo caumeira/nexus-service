@@ -89,7 +89,9 @@ public sealed class ProcessActionsHandler
         registry.Register("process.kill", (env, _) =>
         {
             var name = ReadKillReq(env).Name;
-            var (killed, failed) = string.IsNullOrWhiteSpace(name) ? (0, 0) : ProcessKiller.KillAllCounted(name);
+            var (killed, failed) = ProcessActionGuards.ShouldRefuseKill(name)
+                ? (0, 0)
+                : ProcessKiller.KillAllCounted(name);
             return Reply(env, new ProcessKillResult { Killed = killed, Failed = failed }, AppJsonContext.Default.ProcessKillResult);
         });
 

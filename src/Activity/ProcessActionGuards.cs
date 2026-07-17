@@ -22,4 +22,12 @@ public static class ProcessActionGuards
     };
 
     public static bool IsDenylisted(string processName) => Denylisted.Contains(processName.Trim());
+
+    /// <summary>True when a kill must not even be attempted: name missing,
+    /// or denylisted. Shared by the route (the first check) and the
+    /// helper's process.kill handler (a second, independent check over the
+    /// pipe - the trust model must not rest on the route being the only
+    /// place that refuses).</summary>
+    public static bool ShouldRefuseKill(string? processName) =>
+        string.IsNullOrWhiteSpace(processName) || IsDenylisted(processName);
 }

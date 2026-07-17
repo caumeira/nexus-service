@@ -41,4 +41,26 @@ public class ProcessActionGuardsTests
     {
         Assert.True(ProcessActionGuards.IsDenylisted("  Nexus  "));
     }
+
+    // ShouldRefuseKill is the exact gate the helper's process.kill handler
+    // runs before ever calling ProcessKiller.KillAllCounted (see
+    // ProcessActionsDomain.cs) - the helper cannot be exercised directly
+    // from a portable test (it depends on Windows-only helper-pipe types),
+    // so this pins the shared decision it delegates to instead.
+    [Theory]
+    [InlineData("Nexus")]
+    [InlineData("lsass")]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void ShouldRefuseKill_RefusesMissingOrDenylistedNames(string? name)
+    {
+        Assert.True(ProcessActionGuards.ShouldRefuseKill(name));
+    }
+
+    [Fact]
+    public void ShouldRefuseKill_AllowsAnOrdinaryName()
+    {
+        Assert.False(ProcessActionGuards.ShouldRefuseKill("chrome"));
+    }
 }

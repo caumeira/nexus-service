@@ -7401,6 +7401,83 @@
         }
       }
     },
+    "/monitoring/process-info": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "name",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/monitoring/process-kill": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ProcessActionBody"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/monitoring/process-open-location": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "oneOf": [
+                  {
+                    "type": "null"
+                  },
+                  {
+                    "$ref": "#/components/schemas/ProcessActionBody"
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/media/library": {
       "get": {
         "tags": [
@@ -17136,6 +17213,14 @@
                 "$ref": "#/components/schemas/DiagnosticsSettingsPatch"
               }
             ]
+          }
+        }
+      },
+      "ProcessActionBody": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
           }
         }
       },
