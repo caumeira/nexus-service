@@ -4,6 +4,7 @@ using Nexus.Service.Models.Panel;
 using Nexus.Service.Panel;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
+using Nexus.Service.Platform.Displays;
 using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
 
@@ -317,11 +318,12 @@ public static class PanelRoutes
             return Results.Json(updated, AppJsonContext.Default.PanelDeviceRecord);
         }).AllowPanel();
 
-        // Per-device factory reset: the record returns to its just-allocated
-        // state (layout/theme/background/widget fields reseed from defaults)
-        // and every uploaded media asset is deleted. Identity, display
-        // binding, and capabilities survive. Dashboard-only (service token),
-        // same trust level as deleting the device.
+        // Personalization reset: the record's layout/theme/background/widget
+        // fields return to their just-allocated state (defaults reseed on the
+        // next read) and every uploaded media asset is deleted. Identity,
+        // display binding, capabilities, and hardware-scoped settings
+        // survive. Dashboard-only (service token), same trust level as
+        // deleting the device.
         app.MapPost("/panel/devices/{id}/reset", (string id, HttpContext ctx, PanelDeviceRegistry registry, PanelBgLibrary bgLibrary, MultiplexHub hub, TokenService tokens) =>
         {
             if (!HasServiceToken(ctx, tokens))
@@ -333,6 +335,75 @@ public static class PanelRoutes
                 ServiceLog.Warn($"[panel] reset: media dir for '{id}' could not be fully removed");
             BroadcastDeviceChanged(hub, id);
             return Results.Json(reset, AppJsonContext.Default.PanelDeviceRecord);
+        });
+
+        // Hardware-settings reset: everything the device's Settings tab
+        // drives returns to defaults and is APPLIED to the hardware - Y70
+        // brightness/orientation/screen + panel auto-launch, Q-series
+        // brightness/orientation/screen/sleep-with-host, Xeneon Edge DDC
+        // picture values - plus the record's monitor behavior
+        // (ReserveMonitor/AutoOrient). Personalization is untouched.
+        app.MapPost("/panel/devices/{id}/reset-hardware", async (string id, HttpContext ctx, PanelDeviceRegistry registry, IConfigStore store, IServiceProvider sp, MultiplexHub hub, TokenService tokens, CancellationToken ct) =>
+        {
+            if (!HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+            var record = registry.ResetHardwareSettings(id);
+            if (record is null)
+                return Results.NotFound(ApiResponse.Fail("device not found"));
+
+            var surface = record.Capabilities?.Surface;
+            var family = record.Capabilities?.Family;
+            if (string.Equals(surface, PanelSurfaces.Y70, StringComparison.Ordinal))
+            {
+                var defaults = new Y70Settings();
+                // AutoLaunch is workstation-level and gates every panel
+                // kiosk, but its toggle lives on the Y70 Settings tab and
+                // the Y70 is single-instance per host, so its device reset
+                // owns it. Broadcast so open dashboards see the flip.
+                store.Update(s => s.Panel.AutoLaunch = new PanelSettings().AutoLaunch);
+                PanelTopics.BroadcastPrefs(hub);
+                var y70 = sp.GetRequiredService<Peripherals.Y70.IY70Provider>();
+                y70.SetOrientation(defaults.Orientation);
+                y70.SetForceOrientation(defaults.ForceOrientation);
+                y70.ApplyEffectiveOrientation();
+                y70.SetBrightness(defaults.Brightness);
+                y70.SetToggle(defaults.ScreenOff);
+            }
+            else if (string.Equals(surface, PanelSurfaces.Q60, StringComparison.Ordinal))
+            {
+                // Property initializers carry the install defaults; the
+                // watcher diffs against confirmed state and applies.
+                store.Update(s => s.QSeries = new QSeriesSettings());
+                sp.GetService<Nexus.Service.QSeries.QSeriesPortWatcher>()?.AnnounceDisplayChange();
+            }
+            else if (string.Equals(family, KnownPanelDisplays.XeneonEdgeFamily, StringComparison.Ordinal)
+                && record.DisplayId is { Length: > 0 } displayId)
+            {
+                var xeneon = sp.GetService<Peripherals.Corsair.XeneonEdge.XeneonEdgeOrientationWorker>();
+                if (xeneon is null || !await xeneon.RestoreDefaultsAsync(ct))
+                {
+                    // The record-side reset above already flushed; broadcast
+                    // it so clients don't render a silently reverted record,
+                    // then surface the DDC failure (the POST is idempotent,
+                    // a retry re-runs everything).
+                    BroadcastDeviceChanged(hub, id);
+                    return Results.UnprocessableEntity(ApiResponse.Fail("hardware restore failed"));
+                }
+                registry.UpdateXeneonEdgeSettings(displayId, new XeneonEdgeSettingsDto
+                {
+                    Brightness = Peripherals.Corsair.XeneonEdge.XeneonEdgeDefaults.Brightness,
+                    Backlight = Peripherals.Corsair.XeneonEdge.XeneonEdgeDefaults.Backlight,
+                    Contrast = Peripherals.Corsair.XeneonEdge.XeneonEdgeDefaults.Contrast,
+                    Red = Peripherals.Corsair.XeneonEdge.XeneonEdgeDefaults.Red,
+                    Green = Peripherals.Corsair.XeneonEdge.XeneonEdgeDefaults.Green,
+                    Blue = Peripherals.Corsair.XeneonEdge.XeneonEdgeDefaults.Blue,
+                });
+            }
+            BroadcastDeviceChanged(hub, id);
+            var updated = registry.Get(id);
+            return updated is null
+                ? Results.NotFound(ApiResponse.Fail("device not found"))
+                : Results.Json(updated, AppJsonContext.Default.PanelDeviceRecord);
         });
 
         app.MapDelete("/panel/devices/{id}", (string id, HttpContext ctx, PanelDeviceRegistry registry, PanelBgLibrary bgLibrary, MultiplexHub hub, TokenService tokens) =>

@@ -6305,28 +6305,6 @@
         }
       }
     },
-    "/displays/{id}/xeneon-settings/restore-defaults": {
-      "post": {
-        "tags": [
-          "Nexus"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
     "/displays/touch-mapping/repair": {
       "post": {
         "tags": [
@@ -8882,6 +8860,28 @@
         }
       }
     },
+    "/panel/devices/{id}/reset-hardware": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/panel/streams/assignments": {
       "get": {
         "tags": [
@@ -10348,6 +10348,73 @@
         }
       }
     },
+    "/ai/status": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/config": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AiConfigPatch"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai/token/rotate": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AiStatusResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/rtc/offer": {
       "post": {
         "tags": [
@@ -10381,6 +10448,116 @@
           },
           "kind": {
             "type": "string"
+          }
+        }
+      },
+      "AiCapabilitiesDto": {
+        "type": "object",
+        "properties": {
+          "telemetry": {
+            "type": "boolean"
+          },
+          "cooling": {
+            "type": "boolean"
+          },
+          "lighting": {
+            "type": "boolean"
+          },
+          "profiles": {
+            "type": "boolean"
+          },
+          "history": {
+            "type": "boolean"
+          }
+        }
+      },
+      "AiCapabilitiesPatch": {
+        "type": "object",
+        "properties": {
+          "telemetry": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "cooling": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "lighting": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "profiles": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "history": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          }
+        }
+      },
+      "AiConfigPatch": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": [
+              "null",
+              "boolean"
+            ]
+          },
+          "capabilities": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/AiCapabilitiesPatch"
+              }
+            ]
+          }
+        }
+      },
+      "AiStatusResponse": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "running": {
+            "type": "boolean"
+          },
+          "port": {
+            "pattern": "^-?(?:0|[1-9]\\d*)$",
+            "type": [
+              "integer",
+              "string"
+            ],
+            "format": "int32"
+          },
+          "endpoint": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          },
+          "lastError": {
+            "type": [
+              "null",
+              "string"
+            ]
+          },
+          "capabilities": {
+            "$ref": "#/components/schemas/AiCapabilitiesDto"
           }
         }
       },

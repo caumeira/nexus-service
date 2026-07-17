@@ -81,6 +81,31 @@ public sealed class NexusSettings
 
     /// <summary>Physical Stream Deck bindings, keyed by device serial. Profile-scoped via the <see cref="ProfileSharing.Device"/> sharing category (defaults to Shared, so it behaves like a workstation-global setting until the user opts a profile out).</summary>
     public StreamDeckSettings StreamDeck { get; set; } = new();
+
+    /// <summary>AI Integration (MCP server) configuration. NOT profile-scoped: the listener, its token, and consent toggles are workstation-level.</summary>
+    public AiIntegrationSettings AiIntegration { get; set; } = new();
+}
+
+/// <summary>
+/// AI Integration: an in-process MCP (Model Context Protocol) server an AI
+/// client can connect to for read/write access to this PC's hardware. Master
+/// off by default; while off, <see cref="Nexus.Service.Mcp.McpServerHost"/>
+/// does not bind any port. Each Allow* flag gates one <see cref="Nexus.Service.Mcp.McpCapability"/>
+/// and is read live on every tool call, so a toggle flip takes effect on the
+/// next call with no restart.
+/// </summary>
+public sealed class AiIntegrationSettings
+{
+    public bool Enabled { get; set; }
+    /// <summary>Bearer token the MCP client presents on every request. Minted on first enable; empty until then.</summary>
+    public string Token { get; set; } = "";
+    /// <summary>Loopback port the MCP listener binds. 0 means an ephemeral port (test use only).</summary>
+    public int Port { get; set; } = 9420;
+    public bool AllowTelemetry { get; set; } = true;
+    public bool AllowCooling { get; set; } = true;
+    public bool AllowLighting { get; set; } = true;
+    public bool AllowProfiles { get; set; } = true;
+    public bool AllowHistory { get; set; } = true;
 }
 
 /// <summary>

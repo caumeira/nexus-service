@@ -407,6 +407,8 @@ builder.Services.AddNexusUpdate();
 Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusUpdate");
 builder.Services.AddNexusCloud();
 Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusCloud");
+builder.Services.AddNexusMcp();
+Nexus.Service.Lifecycle.BootTimer.Mark("DI: AddNexusMcp");
 
 // mDNS / Bonjour advertiser for the iOS companion app's Wi-Fi discovery.
 // Reads HttpsPort + SpkiFingerprint + MachineName off PanelPhonePairingService
@@ -572,6 +574,7 @@ app.MapSlv3Endpoints();
 app.MapSlv3LcdEndpoints();
 app.MapUpdateEndpoints();
 app.MapCloudEndpoints();
+app.MapAiEndpoints();
 app.MapWebSocketEndpoints();
 app.MapRtcEndpoints();
 Nexus.Service.Lifecycle.BootTimer.Mark("after route mapping");

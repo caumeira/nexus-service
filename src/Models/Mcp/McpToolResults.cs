@@ -1,0 +1,175 @@
+using System.Collections.Generic;
+using Nexus.Service.Models.Cooling;
+using Nexus.Service.Models.Sensors;
+
+namespace Nexus.Service.Models.Mcp;
+
+/// <summary>Payload for the get_system_overview MCP tool.</summary>
+public sealed class McpSystemOverviewResult
+{
+    public string CpuModel { get; set; } = "";
+    public List<string> GpuModels { get; set; } = new();
+    public string MemoryTotal { get; set; } = "";
+    /// <summary>CPU/GPU/memory temp, usage, and clock in one fixed-order list; see SummarySensors.Build.</summary>
+    public List<HardwareSensor> Summary { get; set; } = new();
+    public List<FanChannel> FanChannels { get; set; } = new();
+    public string ActiveCoolingPreset { get; set; } = "";
+}
+
+/// <summary>Payload for the get_sensors MCP tool.</summary>
+public sealed class McpSensorsResult
+{
+    /// <summary>Echoes the requested device: cpu, gpu, memory, motherboard, or storage.</summary>
+    public string Device { get; set; } = "";
+    public List<HardwareSensor> Sensors { get; set; } = new();
+}
+
+/// <summary>Payload for the get_cooling_state MCP tool.</summary>
+public sealed class McpCoolingStateResult
+{
+    public List<FanChannel> FanChannels { get; set; } = new();
+    public List<TemperatureSource> TemperatureSources { get; set; } = new();
+    public List<Curve> Curves { get; set; } = new();
+    public string ActivePreset { get; set; } = "";
+    public double GlobalSpeedModifier { get; set; }
+}
+
+/// <summary>Payload for the get_lighting_state MCP tool.</summary>
+public sealed class McpLightingStateResult
+{
+    /// <summary>Active sync mode, or the running effect's key when one is live.</summary>
+    public string Sync { get; set; } = "";
+    public string CurrentEffect { get; set; } = "";
+    /// <summary>0..1 master brightness cap.</summary>
+    public float GlobalBrightness { get; set; }
+    /// <summary>Last static color as "#rrggbb".</summary>
+    public string StaticColor { get; set; } = "";
+}
+
+/// <summary>Payload for the apply_cooling_preset MCP tool.</summary>
+public sealed class McpApplyCoolingPresetResult
+{
+    /// <summary>Canonical preset name actually applied.</summary>
+    public string Applied { get; set; } = "";
+}
+
+/// <summary>Payload for the set_global_fan_speed MCP tool.</summary>
+public sealed class McpSetGlobalFanSpeedResult
+{
+    public int Percent { get; set; }
+}
+
+/// <summary>Payload for the set_fan_curve MCP tool.</summary>
+public sealed class McpSetFanCurveResult
+{
+    public string CurveId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public List<string> Outputs { get; set; } = new();
+}
+
+/// <summary>Payload for the apply_lighting_scenario MCP tool.</summary>
+public sealed class McpApplyLightingScenarioResult
+{
+    public string Scenario { get; set; } = "";
+}
+
+/// <summary>Payload for the set_static_color MCP tool.</summary>
+public sealed class McpSetStaticColorResult
+{
+    /// <summary>Echoes the applied color as "#rrggbb".</summary>
+    public string Color { get; set; } = "";
+}
+
+/// <summary>Payload for the set_brightness MCP tool.</summary>
+public sealed class McpSetBrightnessResult
+{
+    public int Percent { get; set; }
+}
+
+/// <summary>Payload for the stop_lighting MCP tool.</summary>
+public sealed class McpStopLightingResult
+{
+    public bool Stopped { get; set; }
+}
+
+/// <summary>Payload for the list_profiles MCP tool.</summary>
+public sealed class McpProfileListResult
+{
+    public List<McpProfileSummary> Profiles { get; set; } = new();
+}
+
+public sealed class McpProfileSummary
+{
+    public string Id { get; set; } = "";
+    public string Name { get; set; } = "";
+    public bool Active { get; set; }
+}
+
+/// <summary>Payload for the apply_profile MCP tool.</summary>
+public sealed class McpApplyProfileResult
+{
+    public string Switched { get; set; } = "";
+    public string Name { get; set; } = "";
+}
+
+/// <summary>One point on a query_sensor_history series.</summary>
+public sealed class McpHistoryPoint
+{
+    /// <summary>Unix milliseconds.</summary>
+    public long T { get; set; }
+    public double Value { get; set; }
+}
+
+/// <summary>Payload for the query_sensor_history MCP tool.</summary>
+public sealed class McpQuerySensorHistoryResult
+{
+    public string SensorId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Unit { get; set; } = "";
+    /// <summary>"raw" | "1m" | "5m" - which tier the points were sourced from.</summary>
+    public string Tier { get; set; } = "";
+    public List<McpHistoryPoint> Points { get; set; } = new();
+}
+
+/// <summary>Min/max/avg/latest for one recorded sensor, part of get_history_summary.</summary>
+public sealed class McpSensorSummary
+{
+    public string SensorId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public string Unit { get; set; } = "";
+    public double Min { get; set; }
+    public double Max { get; set; }
+    public double Avg { get; set; }
+    public double Latest { get; set; }
+    /// <summary>Unix milliseconds of the Latest reading.</summary>
+    public long LatestAtUtc { get; set; }
+    public int Samples { get; set; }
+}
+
+/// <summary>Payload for the get_history_summary MCP tool.</summary>
+public sealed class McpHistorySummaryResult
+{
+    public int Minutes { get; set; }
+    public List<McpSensorSummary> Sensors { get; set; } = new();
+}
+
+/// <summary>One row from query_events.</summary>
+public sealed class McpHistoryEvent
+{
+    /// <summary>Unix milliseconds.</summary>
+    public long TUtc { get; set; }
+    /// <summary>"ai_write" | "lifecycle".</summary>
+    public string Type { get; set; } = "";
+    /// <summary>Tool name for an ai_write event, event name for a lifecycle event.</summary>
+    public string Name { get; set; } = "";
+    public string ArgsJson { get; set; } = "";
+    public bool Success { get; set; }
+    public string? ErrorText { get; set; }
+}
+
+/// <summary>Payload for the query_events MCP tool.</summary>
+public sealed class McpQueryEventsResult
+{
+    public List<McpHistoryEvent> Events { get; set; } = new();
+    public bool Truncated { get; set; }
+}
