@@ -125,6 +125,21 @@ public class AotJsonSafetyTests
         new object[] { typeof(McpHistorySummaryResult) },
         new object[] { typeof(McpHistoryEvent) },
         new object[] { typeof(McpQueryEventsResult) },
+
+        // Local AI assistant
+        new object[] { typeof(AssistantStatusResponse) },
+        new object[] { typeof(AssistantDownloadProgressDto) },
+        new object[] { typeof(AssistantInstalledModelDto) },
+        new object[] { typeof(AssistantCatalogModelDto) },
+        new object[] { typeof(AssistantBusyDto) },
+        new object[] { typeof(AssistantModelPullRequest) },
+        new object[] { typeof(AssistantModelRemoveRequest) },
+        new object[] { typeof(AssistantModelSelectRequest) },
+        new object[] { typeof(AssistantQueryRequest) },
+        new object[] { typeof(AssistantQueryResponse) },
+        new object[] { typeof(AssistantToolRunDto) },
+        new object[] { typeof(AssistantProgressFrame) },
+        new object[] { typeof(AssistantPullProgressDto) },
     };
 
     [Theory]

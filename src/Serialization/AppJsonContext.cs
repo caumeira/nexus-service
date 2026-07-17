@@ -1098,6 +1098,24 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<McpHistoryEvent>))]
 [JsonSerializable(typeof(McpQueryEventsResult))]
 
+// Local AI assistant (managed Ollama runtime + agentic query loop).
+[JsonSerializable(typeof(AssistantStatusResponse))]
+[JsonSerializable(typeof(AssistantDownloadProgressDto))]
+[JsonSerializable(typeof(AssistantInstalledModelDto))]
+[JsonSerializable(typeof(List<AssistantInstalledModelDto>))]
+[JsonSerializable(typeof(AssistantCatalogModelDto))]
+[JsonSerializable(typeof(List<AssistantCatalogModelDto>))]
+[JsonSerializable(typeof(AssistantBusyDto))]
+[JsonSerializable(typeof(AssistantModelPullRequest))]
+[JsonSerializable(typeof(AssistantModelRemoveRequest))]
+[JsonSerializable(typeof(AssistantModelSelectRequest))]
+[JsonSerializable(typeof(AssistantQueryRequest))]
+[JsonSerializable(typeof(AssistantQueryResponse))]
+[JsonSerializable(typeof(AssistantToolRunDto))]
+[JsonSerializable(typeof(List<AssistantToolRunDto>))]
+[JsonSerializable(typeof(AssistantProgressFrame))]
+[JsonSerializable(typeof(AssistantPullProgressDto))]
+
 // Metadata-only: skips the per-type generated fast-path writer, a large AOT
 // code cost across this context's roots; serialization runs through the
 // shared metadata-driven writer instead. Deserialization is metadata-driven

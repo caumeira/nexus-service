@@ -10415,6 +10415,130 @@
         }
       }
     },
+    "/ai/assistant/status": {
+      "get": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/ai/assistant/runtime/install": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/ai/assistant/runtime/remove": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/ai/assistant/model/pull": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantModelPullRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/ai/assistant/model/remove": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantModelRemoveRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/ai/assistant/model/select": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantModelSelectRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/ai/assistant/query": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AssistantQueryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/rtc/offer": {
       "post": {
         "tags": [
@@ -10835,6 +10959,38 @@
         "type": "object",
         "properties": {
           "mappingId": {
+            "type": "string"
+          }
+        }
+      },
+      "AssistantModelPullRequest": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "AssistantModelRemoveRequest": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "AssistantModelSelectRequest": {
+        "type": "object",
+        "properties": {
+          "model": {
+            "type": "string"
+          }
+        }
+      },
+      "AssistantQueryRequest": {
+        "type": "object",
+        "properties": {
+          "prompt": {
             "type": "string"
           }
         }

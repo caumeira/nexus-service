@@ -106,6 +106,15 @@ public sealed class AiIntegrationSettings
     public bool AllowLighting { get; set; } = true;
     public bool AllowProfiles { get; set; } = true;
     public bool AllowHistory { get; set; } = true;
+
+    /// <summary>Active local assistant model id (e.g. "qwen3.5:4b"), or "" when
+    /// none is selected. Runtime install state is derived, not persisted; only
+    /// the user's model choice survives a restart.</summary>
+    public string AssistantActiveModel { get; set; } = "";
+
+    /// <summary>Port the managed (or detected system) Ollama runtime binds.
+    /// 0 means the Ollama default (11434).</summary>
+    public int AssistantRuntimePort { get; set; }
 }
 
 /// <summary>

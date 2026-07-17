@@ -1,3 +1,4 @@
+using System.Net.Http;
 using Nexus.Service.Activity;
 using Nexus.Service.Auth;
 using Nexus.Service.Cooling;
@@ -7,6 +8,7 @@ using Nexus.Service.Fps;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting;
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Mcp.Assistant;
 using Nexus.Service.Obs;
 using Nexus.Service.Peripherals.Keeb;
 using Nexus.Service.Peripherals.QSeries;
@@ -1552,6 +1554,27 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Mcp.McpToolRegistry>();
         services.AddSingleton<Nexus.Service.Mcp.McpServerHost>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Mcp.McpServerHost>());
+        return services;
+    }
+
+    /// <summary>Local AI assistant: managed Ollama runtime + the agentic query
+    /// loop over the MCP tool registry. Depends on AddNexusMcp having already
+    /// registered McpToolRegistry.</summary>
+    public static IServiceCollection AddNexusAssistant(this IServiceCollection services)
+    {
+        services.AddSingleton<OllamaRuntimeManager>(sp =>
+        {
+            var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("OllamaRuntime");
+            // The runtime archive is hundreds of MB and a model pull can be
+            // several GB; the default 100s HttpClient timeout would abort
+            // both mid-transfer (see UpdateDownloader's identical override).
+            http.Timeout = System.Threading.Timeout.InfiniteTimeSpan;
+            var store = sp.GetRequiredService<IConfigStore>();
+            var hub = sp.GetRequiredService<MultiplexHub>();
+            return new OllamaRuntimeManager(http, store, hub);
+        });
+        services.AddHostedService(sp => sp.GetRequiredService<OllamaRuntimeManager>());
+        services.AddSingleton<LocalAssistant>();
         return services;
     }
 }
