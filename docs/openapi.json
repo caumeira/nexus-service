@@ -6305,28 +6305,6 @@
         }
       }
     },
-    "/displays/{id}/xeneon-settings/restore-defaults": {
-      "post": {
-        "tags": [
-          "Nexus"
-        ],
-        "parameters": [
-          {
-            "name": "id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "OK"
-          }
-        }
-      }
-    },
     "/displays/touch-mapping/repair": {
       "post": {
         "tags": [
@@ -8766,6 +8744,28 @@
       }
     },
     "/panel/devices/{id}/reset": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/panel/devices/{id}/reset-hardware": {
       "post": {
         "tags": [
           "Nexus"
