@@ -8765,6 +8765,28 @@
         }
       }
     },
+    "/panel/devices/{id}/reset": {
+      "post": {
+        "tags": [
+          "Nexus"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
     "/panel/streams/assignments": {
       "get": {
         "tags": [

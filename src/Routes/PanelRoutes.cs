@@ -3,6 +3,7 @@ using Nexus.Service.Models;
 using Nexus.Service.Models.Panel;
 using Nexus.Service.Panel;
 using Nexus.Service.Persistence;
+using Nexus.Service.Platform;
 using Nexus.Service.Serialization;
 using Nexus.Service.Sockets;
 
@@ -316,12 +317,34 @@ public static class PanelRoutes
             return Results.Json(updated, AppJsonContext.Default.PanelDeviceRecord);
         }).AllowPanel();
 
-        app.MapDelete("/panel/devices/{id}", (string id, HttpContext ctx, PanelDeviceRegistry registry, MultiplexHub hub, TokenService tokens) =>
+        // Per-device factory reset: the record returns to its just-allocated
+        // state (layout/theme/background/widget fields reseed from defaults)
+        // and every uploaded media asset is deleted. Identity, display
+        // binding, and capabilities survive. Dashboard-only (service token),
+        // same trust level as deleting the device.
+        app.MapPost("/panel/devices/{id}/reset", (string id, HttpContext ctx, PanelDeviceRegistry registry, PanelBgLibrary bgLibrary, MultiplexHub hub, TokenService tokens) =>
+        {
+            if (!HasServiceToken(ctx, tokens))
+                return Results.Unauthorized();
+            var reset = registry.ResetToDefaults(id);
+            if (reset is null)
+                return Results.NotFound(ApiResponse.Fail("device not found"));
+            if (!bgLibrary.DeleteDeviceMedia(id))
+                ServiceLog.Warn($"[panel] reset: media dir for '{id}' could not be fully removed");
+            BroadcastDeviceChanged(hub, id);
+            return Results.Json(reset, AppJsonContext.Default.PanelDeviceRecord);
+        });
+
+        app.MapDelete("/panel/devices/{id}", (string id, HttpContext ctx, PanelDeviceRegistry registry, PanelBgLibrary bgLibrary, MultiplexHub hub, TokenService tokens) =>
         {
             if (!HasServiceToken(ctx, tokens))
                 return Results.Unauthorized();
             if (!registry.Remove(id))
                 return Results.NotFound(ApiResponse.Fail("device not found"));
+            // Single-instance surfaces mint a fresh id on the next allocate,
+            // so a removed device's media dir would be orphaned forever.
+            if (!bgLibrary.DeleteDeviceMedia(id))
+                ServiceLog.Warn($"[panel] remove: media dir for '{id}' could not be fully removed");
             BroadcastDeviceChanged(hub, id);
             return Results.Ok(ApiResponse.Ok("removed"));
         });
