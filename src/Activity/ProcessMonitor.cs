@@ -123,20 +123,171 @@ public sealed class ProcessMonitor : BackgroundService
 
         if (!string.IsNullOrEmpty(path))
         {
-            lock (_pathCacheLock)
+            InsertPathCache(name, path);
+        }
+        return path;
+    }
+
+    private void InsertPathCache(string name, string path)
+    {
+        lock (_pathCacheLock)
+        {
+            if (!_pathCache.ContainsKey(name))
             {
-                if (!_pathCache.ContainsKey(name))
+                _pathCacheOrder.Enqueue(name);
+            }
+            _pathCache[name] = path;
+            if (_pathCache.Count > PathCacheMaxEntries)
+            {
+                _pathCache.Remove(_pathCacheOrder.Dequeue());
+            }
+        }
+    }
+
+    /// <summary>Test-only seam: seeds the name-&gt;path cache directly,
+    /// bypassing real MainModule resolution.</summary>
+    internal void SeedResolvedPathForTest(string name, string path) => InsertPathCache(name, path);
+
+    // Bounded like _pathCache, keyed by exe path (not name) so once resolved,
+    // two names sharing one binary read the same entry. The in-flight dedup
+    // (_metaPending) is keyed by name, not path: two names first seen in the
+    // same tick that share a path can each start one redundant background
+    // resolve before either finishes - harmless, InsertMetaCache is an
+    // idempotent overwrite. Populated only by the background resolver below -
+    // GetProcessMeta only ever reads it.
+    private const int MetaCacheMaxEntries = 500;
+    private const int MetaResolveMaxConcurrency = 4;
+    private readonly object _metaCacheLock = new();
+    private readonly Dictionary<string, ProcessMeta> _metaCache = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Queue<string> _metaCacheOrder = new();
+    private readonly Dictionary<string, Task> _metaPending = new(StringComparer.OrdinalIgnoreCase);
+    private readonly SemaphoreSlim _metaResolveGate = new(MetaResolveMaxConcurrency, MetaResolveMaxConcurrency);
+
+    /// <summary>Publisher and signature status for name's exe. Never blocks:
+    /// a cache miss queues a background resolve (FileVersionInfo company +
+    /// ProcessSignatureChecker, off the calling thread) and returns null
+    /// immediately, so the broadcast tick reads whatever has landed so far.
+    /// Null until the background resolve for that path completes, or when
+    /// the path can never be resolved.</summary>
+    public ProcessMeta? GetProcessMeta(string name)
+    {
+        string? path;
+        lock (_pathCacheLock)
+        {
+            _pathCache.TryGetValue(name, out path);
+        }
+
+        if (path is not null)
+        {
+            lock (_metaCacheLock)
+            {
+                if (_metaCache.TryGetValue(path, out var cached))
                 {
-                    _pathCacheOrder.Enqueue(name);
-                }
-                _pathCache[name] = path;
-                if (_pathCache.Count > PathCacheMaxEntries)
-                {
-                    _pathCache.Remove(_pathCacheOrder.Dequeue());
+                    return cached;
                 }
             }
         }
-        return path;
+
+        _ = EnqueueMetaResolve(name);
+        return null;
+    }
+
+    /// <summary>Test-only seam: awaits the real background resolve queued by
+    /// GetProcessMeta instead of polling, so a resolve-then-assert test is
+    /// deterministic without a sleep.</summary>
+    internal Task ResolveMetaForTestAsync(string name) => EnqueueMetaResolve(name);
+
+    /// <summary>Test-only seam: seeds the path-keyed meta cache directly,
+    /// through the same bounded-insert path production resolves use.</summary>
+    internal void SeedProcessMetaForTest(string exePath, ProcessMeta meta) => InsertMetaCache(exePath, meta);
+
+    /// <summary>Test-only seam: checks the meta cache by path directly,
+    /// without going through a name lookup.</summary>
+    internal bool HasCachedMetaForTest(string exePath)
+    {
+        lock (_metaCacheLock)
+        {
+            return _metaCache.ContainsKey(exePath);
+        }
+    }
+
+    private Task EnqueueMetaResolve(string name)
+    {
+        lock (_metaCacheLock)
+        {
+            if (_metaPending.TryGetValue(name, out var existing))
+            {
+                return existing;
+            }
+            // Task.Run guarantees the resolve (including ResolveExecutablePath's
+            // blocking MainModule read) runs on a pool thread, never inline on
+            // the caller - a bare async call would run synchronously up to its
+            // first genuine await, which SemaphoreSlim.WaitAsync is not when a
+            // slot is free.
+            var task = Task.Run(() => ResolveMetaAsync(name));
+            _metaPending[name] = task;
+            return task;
+        }
+    }
+
+    private async Task ResolveMetaAsync(string name)
+    {
+        await _metaResolveGate.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            var path = ResolveExecutablePath(name);
+            if (string.IsNullOrEmpty(path))
+            {
+                return;
+            }
+
+            lock (_metaCacheLock)
+            {
+                if (_metaCache.ContainsKey(path))
+                {
+                    return;
+                }
+            }
+
+            string? company = null;
+            try
+            {
+                company = FileVersionInfo.GetVersionInfo(path).CompanyName;
+                if (string.IsNullOrWhiteSpace(company))
+                {
+                    company = null;
+                }
+            }
+            catch { /* no VERSIONINFO resource, or unreadable */ }
+
+            var (signed, signerCn) = ProcessSignatureChecker.Check(path);
+            InsertMetaCache(path, new ProcessMeta(company ?? signerCn, signed));
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[process-monitor] meta resolve failed for {name}: {ex.Message}");
+        }
+        finally
+        {
+            lock (_metaCacheLock) { _metaPending.Remove(name); }
+            _metaResolveGate.Release();
+        }
+    }
+
+    private void InsertMetaCache(string path, ProcessMeta meta)
+    {
+        lock (_metaCacheLock)
+        {
+            if (!_metaCache.ContainsKey(path))
+            {
+                _metaCacheOrder.Enqueue(path);
+            }
+            _metaCache[path] = meta;
+            if (_metaCache.Count > MetaCacheMaxEntries)
+            {
+                _metaCache.Remove(_metaCacheOrder.Dequeue());
+            }
+        }
     }
 
     /// <summary>Adds or removes source from the demand set that keeps
@@ -368,6 +519,16 @@ public sealed class ProcessMonitor : BackgroundService
                 }
                 catch { }
 
+                // MainWindowHandle enumerates top-level windows looking for a
+                // match; tolerate a failure the same way as StartTime rather
+                // than dropping the whole entry over it.
+                bool hasWindow = false;
+                try
+                {
+                    hasWindow = proc.MainWindowHandle != IntPtr.Zero;
+                }
+                catch { }
+
                 result.Add(new ProcessInfo
                 {
                     Pid = pid,
@@ -376,6 +537,7 @@ public sealed class ProcessMonitor : BackgroundService
                     MemoryMb = Math.Round(memBytes / (1024.0 * 1024.0), 1),
                     CpuTimeSeconds = Math.Round(cpuTime.TotalSeconds, 1),
                     StartedAtMs = startedAtMs,
+                    HasWindow = hasWindow,
                 });
             }
             catch { }
@@ -418,4 +580,14 @@ public class ProcessInfo
     /// <summary>Process creation time, UTC epoch ms. Null when unavailable
     /// (access denied under LocalSystem, or not read on this platform).</summary>
     public long? StartedAtMs { get; set; }
+    /// <summary>True when this process owns a visible top-level main window
+    /// (Task-Manager-style App vs Background classification). Windows only -
+    /// SampleMacOs has no window-enumeration equivalent, so macOS always
+    /// reports false.</summary>
+    public bool HasWindow { get; set; }
 }
+
+/// <summary>Lazily resolved publisher and signature status for one exe path,
+/// served by ProcessMonitor.GetProcessMeta. Not a wire type itself - its two
+/// fields flow into ProcessEntry.Publisher/Signed.</summary>
+public sealed record ProcessMeta(string? Publisher, string Signed);

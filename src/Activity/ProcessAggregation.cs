@@ -6,8 +6,10 @@ namespace Nexus.Service.Activity;
 /// <summary>One process name's aggregate across every pid ProcessMonitor
 /// currently reports under that name. StartedAtMs is the NEWEST instance's
 /// creation time, not the oldest - a relaunched app should read as freshly
-/// started even while an older instance of the same name lingers.</summary>
-public sealed record ProcessNameAggregate(string Name, double CpuPercent, double MemoryMb, long? StartedAtMs);
+/// started even while an older instance of the same name lingers. HasWindow
+/// is true if any instance under the name owns a visible top-level window -
+/// Task-Manager-style App vs Background classification.</summary>
+public sealed record ProcessNameAggregate(string Name, double CpuPercent, double MemoryMb, long? StartedAtMs, bool HasWindow);
 
 /// <summary>
 /// Groups ProcessMonitor's per-pid snapshot (Windows never aggregates by
@@ -33,11 +35,12 @@ public static class ProcessAggregation
                     CpuPercent = acc.CpuPercent + p.CpuPercent,
                     MemoryMb = acc.MemoryMb + p.MemoryMb,
                     StartedAtMs = NewestOf(acc.StartedAtMs, p.StartedAtMs),
+                    HasWindow = acc.HasWindow || p.HasWindow,
                 };
             }
             else
             {
-                map[p.Name] = new ProcessNameAggregate(p.Name, p.CpuPercent, p.MemoryMb, p.StartedAtMs);
+                map[p.Name] = new ProcessNameAggregate(p.Name, p.CpuPercent, p.MemoryMb, p.StartedAtMs, p.HasWindow);
             }
         }
         return map;

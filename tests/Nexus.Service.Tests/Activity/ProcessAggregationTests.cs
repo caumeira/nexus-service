@@ -6,8 +6,8 @@ namespace Nexus.Service.Tests.Activity;
 
 public class ProcessAggregationTests
 {
-    private static ProcessInfo Proc(string name, double cpu, double mem, long? startedAtMs = null) =>
-        new() { Name = name, CpuPercent = cpu, MemoryMb = mem, StartedAtMs = startedAtMs };
+    private static ProcessInfo Proc(string name, double cpu, double mem, long? startedAtMs = null, bool hasWindow = false) =>
+        new() { Name = name, CpuPercent = cpu, MemoryMb = mem, StartedAtMs = startedAtMs, HasWindow = hasWindow };
 
     [Fact]
     public void GroupByName_SumsCpuAndMemory_AcrossPidsWithTheSameName()
@@ -93,5 +93,43 @@ public class ProcessAggregationTests
         var grouped = ProcessAggregation.GroupByName(System.Array.Empty<ProcessInfo>());
 
         Assert.Empty(grouped);
+    }
+
+    [Fact]
+    public void GroupByName_HasWindowIsTrue_WhenAnyInstanceOwnsAWindow()
+    {
+        var procs = new[]
+        {
+            Proc("chrome", cpu: 5, mem: 100, hasWindow: false),
+            Proc("chrome", cpu: 7, mem: 150, hasWindow: true),
+        };
+
+        var grouped = ProcessAggregation.GroupByName(procs);
+
+        Assert.True(grouped["chrome"].HasWindow);
+    }
+
+    [Fact]
+    public void GroupByName_HasWindowIsFalse_WhenNoInstanceOwnsAWindow()
+    {
+        var procs = new[] { Proc("svchost", cpu: 1, mem: 10, hasWindow: false) };
+
+        var grouped = ProcessAggregation.GroupByName(procs);
+
+        Assert.False(grouped["svchost"].HasWindow);
+    }
+
+    [Fact]
+    public void GroupByName_HasWindowIsTrue_RegardlessOfWhichInstanceComesFirst()
+    {
+        var procs = new[]
+        {
+            Proc("chrome", cpu: 5, mem: 100, hasWindow: true),
+            Proc("chrome", cpu: 7, mem: 150, hasWindow: false),
+        };
+
+        var grouped = ProcessAggregation.GroupByName(procs);
+
+        Assert.True(grouped["chrome"].HasWindow);
     }
 }

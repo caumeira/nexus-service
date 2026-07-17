@@ -120,6 +120,88 @@ public class ProcessMonitorTests
     }
 
     [Fact]
+    public void GetProcessMeta_ReturnsNull_BeforeTheBackgroundResolveCompletes()
+    {
+        var monitor = new ProcessMonitor(new MultiplexHub());
+        monitor.SetProcessesForTest(new[]
+        {
+            new ProcessInfo { Pid = Environment.ProcessId, Name = "app.exe" },
+        });
+
+        var meta = monitor.GetProcessMeta("app.exe");
+
+        Assert.Null(meta);
+    }
+
+    [Fact]
+    public async Task GetProcessMeta_ResolvesPublisherAndSigned_AfterTheBackgroundResolveCompletes()
+    {
+        var monitor = new ProcessMonitor(new MultiplexHub());
+        monitor.SetProcessesForTest(new[]
+        {
+            new ProcessInfo { Pid = Environment.ProcessId, Name = "app.exe" },
+        });
+
+        // First call (from a real broadcast tick) queues the resolve; this
+        // waits for the exact same background task instead of polling.
+        Assert.Null(monitor.GetProcessMeta("app.exe"));
+        await monitor.ResolveMetaForTestAsync("app.exe");
+
+        var meta = monitor.GetProcessMeta("app.exe");
+
+        Assert.NotNull(meta);
+        // Signed is always populated ("unknown" off Windows) - Publisher
+        // depends on the test host's own binary, so only Signed is asserted.
+        Assert.NotNull(meta!.Signed);
+    }
+
+    [Fact]
+    public async Task GetProcessMeta_SharesOneCacheEntry_WhenTwoNamesResolveToTheSameExePath()
+    {
+        var monitor = new ProcessMonitor(new MultiplexHub());
+        monitor.SetProcessesForTest(new[]
+        {
+            new ProcessInfo { Pid = Environment.ProcessId, Name = "alias-one.exe" },
+        });
+        await monitor.ResolveMetaForTestAsync("alias-one.exe");
+        var first = monitor.GetProcessMeta("alias-one.exe");
+
+        monitor.SetProcessesForTest(new[]
+        {
+            new ProcessInfo { Pid = Environment.ProcessId, Name = "alias-two.exe" },
+        });
+        await monitor.ResolveMetaForTestAsync("alias-two.exe");
+        var second = monitor.GetProcessMeta("alias-two.exe");
+
+        Assert.Equal(first, second);
+    }
+
+    [Fact]
+    public async Task GetProcessMeta_StaysNull_WhenNoLiveProcessMatchesTheName()
+    {
+        var monitor = new ProcessMonitor(new MultiplexHub());
+        monitor.SetProcessesForTest(Array.Empty<ProcessInfo>());
+
+        Assert.Null(monitor.GetProcessMeta("never-seen.exe"));
+        await monitor.ResolveMetaForTestAsync("never-seen.exe");
+
+        Assert.Null(monitor.GetProcessMeta("never-seen.exe"));
+    }
+
+    [Fact]
+    public void ProcessMetaCache_EvictsTheOldestPath_PastTheBound()
+    {
+        var monitor = new ProcessMonitor(new MultiplexHub());
+        for (var i = 0; i < 501; i++)
+        {
+            monitor.SeedProcessMetaForTest($"/fake/path{i}.exe", new ProcessMeta($"Publisher {i}", "signed"));
+        }
+
+        Assert.False(monitor.HasCachedMetaForTest("/fake/path0.exe"));
+        Assert.True(monitor.HasCachedMetaForTest("/fake/path500.exe"));
+    }
+
+    [Fact]
     public async Task APriorCompletedWait_DoesNotAbsorbALaterPulse()
     {
         // Each call installs its own TaskCompletionSource under _wakeGate, so

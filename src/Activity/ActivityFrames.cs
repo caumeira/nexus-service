@@ -13,6 +13,16 @@ public sealed class ProcessEntry
     public double MemoryMb { get; set; }
     /// <summary>Process creation time, UTC epoch ms; null when unavailable.</summary>
     public long? StartedAtMs { get; set; }
+    /// <summary>True if any process instance under this name owns a visible
+    /// top-level window - Task-Manager-style App vs Background split.</summary>
+    public bool IsApp { get; set; }
+    /// <summary>Company/publisher name for the exe backing this process
+    /// name, resolved lazily and cached server-side. Null until resolved or
+    /// when unresolvable.</summary>
+    public string? Publisher { get; set; }
+    /// <summary>"signed", "unsigned", or "unknown" (platform can't tell).
+    /// Null until the lazy resolve completes. See ProcessSignatureChecker.</summary>
+    public string? Signed { get; set; }
 }
 
 public sealed class ProcessFrame

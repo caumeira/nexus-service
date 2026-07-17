@@ -423,17 +423,23 @@ public sealed class MonitoringBroadcaster : BackgroundService
     {
         var procs = _processes.GetProcesses();
         var snap = _performance.SampleAsync(ct).GetAwaiter().GetResult();
+        var grouped = ProcessAggregation.GroupByName(procs);
 
         var all = new List<ProcessEntry>(procs.Count);
         for (int i = 0; i < procs.Count; i++)
         {
             var p = procs[i];
+            var isApp = grouped.TryGetValue(p.Name, out var agg) && agg.HasWindow;
+            var meta = _processes.GetProcessMeta(p.Name);
             all.Add(new ProcessEntry
             {
                 Name = p.Name,
                 CpuPercent = p.CpuPercent,
                 MemoryMb = p.MemoryMb,
                 StartedAtMs = p.StartedAtMs,
+                IsApp = isApp,
+                Publisher = meta?.Publisher,
+                Signed = meta?.Signed,
             });
         }
 

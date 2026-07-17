@@ -591,6 +591,118 @@ public class MonitoringBroadcastTests
         Assert.False(arr[1].TryGetProperty("startedAtMs", out _)); // null omitted on the wire
     }
 
+    [Fact]
+    public async Task Tick_ProcessesTopic_CarriesIsAppTrue_WhenAnyInstanceOfTheNameOwnsAWindow()
+    {
+        var hub = new MultiplexHub();
+        var processes = new ProcessMonitor(hub);
+        processes.SetProcessesForTest(new[]
+        {
+            new ProcessInfo { Pid = 1, Name = "app.exe", HasWindow = false },
+            new ProcessInfo { Pid = 2, Name = "app.exe", HasWindow = true },
+            new ProcessInfo { Pid = 3, Name = "background.exe", HasWindow = false },
+        });
+        var broadcaster = BuildBroadcaster(hub, processes: processes);
+        var captured = new List<(string Topic, byte[] Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) => captured.Add((topic, payload.ToArray()));
+
+        using var sub = hub.AddTestSubscription("processes");
+        await broadcaster.Tick(CancellationToken.None);
+
+        var frame = captured.Single(c => c.Topic == "processes");
+        using var doc = System.Text.Json.JsonDocument.Parse(frame.Payload);
+        var arr = doc.RootElement.GetProperty("d").GetProperty("processes");
+
+        // Every row sharing the "app.exe" name reads isApp=true, since one
+        // instance (pid 2) owns a window - the group, not the single pid,
+        // decides the classification.
+        Assert.True(arr[0].GetProperty("isApp").GetBoolean());
+        Assert.True(arr[1].GetProperty("isApp").GetBoolean());
+        Assert.False(arr[2].GetProperty("isApp").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Tick_ProcessesTopic_OmitsPublisherAndSigned_BeforeTheBackgroundResolveCompletes()
+    {
+        var hub = new MultiplexHub();
+        var processes = new ProcessMonitor(hub);
+        processes.SetProcessesForTest(new[]
+        {
+            new ProcessInfo { Pid = 999_999, Name = "unresolvable.exe" }, // not a live pid: path never resolves
+        });
+        var broadcaster = BuildBroadcaster(hub, processes: processes);
+        var captured = new List<(string Topic, byte[] Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) => captured.Add((topic, payload.ToArray()));
+
+        using var sub = hub.AddTestSubscription("processes");
+        await broadcaster.Tick(CancellationToken.None);
+
+        var frame = captured.Single(c => c.Topic == "processes");
+        using var doc = System.Text.Json.JsonDocument.Parse(frame.Payload);
+        var entry = doc.RootElement.GetProperty("d").GetProperty("processes")[0];
+
+        Assert.False(entry.TryGetProperty("publisher", out _));
+        Assert.False(entry.TryGetProperty("signed", out _));
+        Assert.False(entry.GetProperty("isApp").GetBoolean());
+    }
+
+    [Fact]
+    public async Task Tick_ProcessesTopic_CarriesPublisherAndSigned_OnceTheMetaCacheIsWarm()
+    {
+        var hub = new MultiplexHub();
+        var processes = new ProcessMonitor(hub);
+        processes.SetProcessesForTest(new[]
+        {
+            new ProcessInfo { Pid = 1, Name = "app.exe" },
+        });
+        processes.SeedResolvedPathForTest("app.exe", "/Applications/App.app/Contents/MacOS/app");
+        processes.SeedProcessMetaForTest(
+            "/Applications/App.app/Contents/MacOS/app", new ProcessMeta("Example Publisher", "signed"));
+        var broadcaster = BuildBroadcaster(hub, processes: processes);
+        var captured = new List<(string Topic, byte[] Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) => captured.Add((topic, payload.ToArray()));
+
+        using var sub = hub.AddTestSubscription("processes");
+        await broadcaster.Tick(CancellationToken.None);
+
+        var frame = captured.Single(c => c.Topic == "processes");
+        using var doc = System.Text.Json.JsonDocument.Parse(frame.Payload);
+        var entry = doc.RootElement.GetProperty("d").GetProperty("processes")[0];
+
+        Assert.Equal("Example Publisher", entry.GetProperty("publisher").GetString());
+        Assert.Equal("signed", entry.GetProperty("signed").GetString());
+    }
+
+    [Fact]
+    public async Task Tick_ProcessesTopic_StaysWellUnderTheSanityBound_WithPublisherAndSignedPopulated()
+    {
+        // Same 300-process shape as the uncapped-list test above, but with
+        // every row carrying a resolved publisher/signed pair - the realistic
+        // steady-state size once the meta cache has warmed up for every name.
+        var hub = new MultiplexHub();
+        var processes = new ProcessMonitor(hub);
+        const int count = 300;
+        processes.SetProcessesForTest(Enumerable.Range(0, count)
+            .Select(i => new ProcessInfo { Pid = i, Name = $"proc{i}", CpuPercent = 1, MemoryMb = 10 })
+            .ToList());
+        for (var i = 0; i < count; i++)
+        {
+            var path = $"/Applications/App{i}.app/Contents/MacOS/app{i}";
+            processes.SeedResolvedPathForTest($"proc{i}", path);
+            processes.SeedProcessMetaForTest(path, new ProcessMeta("Example Publisher Co.", "signed"));
+        }
+        var broadcaster = BuildBroadcaster(hub, processes: processes);
+        var captured = new List<(string Topic, byte[] Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) => captured.Add((topic, payload.ToArray()));
+
+        using var sub = hub.AddTestSubscription("processes");
+        await broadcaster.Tick(CancellationToken.None);
+
+        var frame = captured.Single(c => c.Topic == "processes");
+        Assert.True(frame.Payload.Length < SanityFrameSizeBytes,
+            $"processes frame at {count} entries with publisher/signed was {frame.Payload.Length} bytes, expected < {SanityFrameSizeBytes}");
+    }
+
     // No WebSocketOptions size limit is configured anywhere in Program.cs
     // and no other constant caps a text frame's size, so this is a
     // regression-guard sanity bound (chosen well above any realistic
