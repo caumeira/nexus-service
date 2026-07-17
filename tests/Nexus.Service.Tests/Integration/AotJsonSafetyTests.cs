@@ -4,6 +4,7 @@ using Nexus.Service.Models;
 using Nexus.Service.Models.Activity;
 using Nexus.Service.Models.Cooling;
 using Nexus.Service.Models.Devices;
+using Nexus.Service.Models.Mcp;
 using Nexus.Service.Models.Monitoring;
 using Nexus.Service.Models.Peripherals;
 using Nexus.Service.Models.Sensors;
@@ -98,6 +99,32 @@ public class AotJsonSafetyTests
         new object[] { typeof(Nexus.Service.Models.Gallery.GalleryPickResponse) },
         new object[] { typeof(Nexus.Service.Models.Gallery.GallerySourcesFile) },
         new object[] { typeof(Nexus.Service.Models.Panel.GalleryChangedFrame) },
+
+        // AI Integration (MCP)
+        new object[] { typeof(AiStatusResponse) },
+        new object[] { typeof(AiCapabilitiesDto) },
+        new object[] { typeof(AiConfigPatch) },
+        new object[] { typeof(AiCapabilitiesPatch) },
+        new object[] { typeof(McpSystemOverviewResult) },
+        new object[] { typeof(McpSensorsResult) },
+        new object[] { typeof(McpCoolingStateResult) },
+        new object[] { typeof(McpLightingStateResult) },
+        new object[] { typeof(McpApplyCoolingPresetResult) },
+        new object[] { typeof(McpSetGlobalFanSpeedResult) },
+        new object[] { typeof(McpSetFanCurveResult) },
+        new object[] { typeof(McpApplyLightingScenarioResult) },
+        new object[] { typeof(McpSetStaticColorResult) },
+        new object[] { typeof(McpSetBrightnessResult) },
+        new object[] { typeof(McpStopLightingResult) },
+        new object[] { typeof(McpProfileListResult) },
+        new object[] { typeof(McpProfileSummary) },
+        new object[] { typeof(McpApplyProfileResult) },
+        new object[] { typeof(McpHistoryPoint) },
+        new object[] { typeof(McpQuerySensorHistoryResult) },
+        new object[] { typeof(McpSensorSummary) },
+        new object[] { typeof(McpHistorySummaryResult) },
+        new object[] { typeof(McpHistoryEvent) },
+        new object[] { typeof(McpQueryEventsResult) },
     };
 
     [Theory]

@@ -11,6 +11,7 @@ using Nexus.Service.Models.Devices;
 using Nexus.Service.Models.Discord;
 using Nexus.Service.Models.Lifecycle;
 using Nexus.Service.Models.Lighting;
+using Nexus.Service.Models.Mcp;
 using Nexus.Service.Models.Obs;
 using Nexus.Service.Models.Peripherals;
 using Nexus.Service.Models.Peripherals.Keeb;
@@ -1056,6 +1057,37 @@ namespace Nexus.Service.Serialization;
 [JsonSerializable(typeof(List<Nexus.Service.Models.Peripherals.StreamDeck.ElgatoUnmappedEntry>))]
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.ElgatoImportReport))]
 [JsonSerializable(typeof(Nexus.Service.Models.Peripherals.StreamDeck.ImportElgatoProfileResponse))]
+
+// AI Integration (MCP) - the /ai/* config surface and the read-only telemetry
+// tool result payloads (serialized separately into a tool call's content[0].text).
+[JsonSerializable(typeof(AiStatusResponse))]
+[JsonSerializable(typeof(AiCapabilitiesDto))]
+[JsonSerializable(typeof(AiConfigPatch))]
+[JsonSerializable(typeof(AiCapabilitiesPatch))]
+[JsonSerializable(typeof(McpSystemOverviewResult))]
+[JsonSerializable(typeof(McpSensorsResult))]
+[JsonSerializable(typeof(McpCoolingStateResult))]
+[JsonSerializable(typeof(McpLightingStateResult))]
+[JsonSerializable(typeof(McpApplyCoolingPresetResult))]
+[JsonSerializable(typeof(McpSetGlobalFanSpeedResult))]
+[JsonSerializable(typeof(McpSetFanCurveResult))]
+[JsonSerializable(typeof(McpApplyLightingScenarioResult))]
+[JsonSerializable(typeof(McpSetStaticColorResult))]
+[JsonSerializable(typeof(McpSetBrightnessResult))]
+[JsonSerializable(typeof(McpStopLightingResult))]
+[JsonSerializable(typeof(McpProfileListResult))]
+[JsonSerializable(typeof(McpProfileSummary))]
+[JsonSerializable(typeof(List<McpProfileSummary>))]
+[JsonSerializable(typeof(McpApplyProfileResult))]
+[JsonSerializable(typeof(McpHistoryPoint))]
+[JsonSerializable(typeof(List<McpHistoryPoint>))]
+[JsonSerializable(typeof(McpQuerySensorHistoryResult))]
+[JsonSerializable(typeof(McpSensorSummary))]
+[JsonSerializable(typeof(List<McpSensorSummary>))]
+[JsonSerializable(typeof(McpHistorySummaryResult))]
+[JsonSerializable(typeof(McpHistoryEvent))]
+[JsonSerializable(typeof(List<McpHistoryEvent>))]
+[JsonSerializable(typeof(McpQueryEventsResult))]
 
 // Metadata-only: skips the per-type generated fast-path writer, a large AOT
 // code cost across this context's roots; serialization runs through the
