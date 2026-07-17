@@ -65,10 +65,27 @@ public sealed class WindowSetPoller : IDisposable
     private HashSet<int> SnapshotWindowedPids()
     {
         var pids = new HashSet<int>();
+
+        // Computed once per poll, not per window: the bounding box of every
+        // monitor, for the off-screen-window exclusion.
+        var virtualLeft = GetSystemMetrics(SmXvirtualscreen);
+        var virtualTop = GetSystemMetrics(SmYvirtualscreen);
+        var virtualRight = virtualLeft + GetSystemMetrics(SmCxvirtualscreen);
+        var virtualBottom = virtualTop + GetSystemMetrics(SmCyvirtualscreen);
+
         _pinnedEnumProc = (hwnd, _) =>
         {
             var owner = GetWindow(hwnd, GwOwner);
-            if (WindowClassification.IsCountableWindow(IsWindowVisible(hwnd), owner))
+            var isToolWindow = (GetWindowLong(hwnd, GwlExstyle) & WsExToolwindow) != 0;
+            var isCloaked = IsCloaked(hwnd);
+            var hasTitle = GetWindowTextLength(hwnd) > 0;
+            var hasOnScreenBounds = GetWindowRect(hwnd, out var rect) &&
+                WindowClassification.HasOnScreenBounds(
+                    rect.Left, rect.Top, rect.Right, rect.Bottom,
+                    virtualLeft, virtualTop, virtualRight, virtualBottom);
+
+            if (WindowClassification.IsCountableWindow(
+                    IsWindowVisible(hwnd), owner, isToolWindow, isCloaked, hasTitle, hasOnScreenBounds))
             {
                 GetWindowThreadProcessId(hwnd, out var pid);
                 if (pid != 0) pids.Add((int)pid);
@@ -79,11 +96,30 @@ public sealed class WindowSetPoller : IDisposable
         return pids;
     }
 
+    // DWMWA_CLOAKED reports non-zero for a window Explorer keeps alive but
+    // never shows (background UWP frames, DWM-hidden helper windows) -
+    // IsWindowVisible alone still reports these as visible.
+    private static bool IsCloaked(IntPtr hwnd)
+    {
+        var hr = DwmGetWindowAttribute(hwnd, DwmwaCloaked, out var cloaked, sizeof(int));
+        return hr == 0 && cloaked != 0;
+    }
+
     public void Dispose() => _timer.Dispose();
 
     private const uint GwOwner = 4;
+    private const int GwlExstyle = -20;
+    private const int WsExToolwindow = 0x00000080;
+    private const int DwmwaCloaked = 14;
+    private const int SmXvirtualscreen = 76;
+    private const int SmYvirtualscreen = 77;
+    private const int SmCxvirtualscreen = 78;
+    private const int SmCyvirtualscreen = 79;
 
     private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct Rect { public int Left, Top, Right, Bottom; }
 
     [DllImport("user32.dll")]
     private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
@@ -96,5 +132,20 @@ public sealed class WindowSetPoller : IDisposable
 
     [DllImport("user32.dll")]
     private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+    [DllImport("user32.dll")]
+    private static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool GetWindowRect(IntPtr hWnd, out Rect rect);
+
+    [DllImport("user32.dll")]
+    private static extern int GetSystemMetrics(int nIndex);
+
+    [DllImport("dwmapi.dll")]
+    private static extern int DwmGetWindowAttribute(IntPtr hwnd, int dwAttribute, out int pvAttribute, int cbAttribute);
 }
 #endif
