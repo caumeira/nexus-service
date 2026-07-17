@@ -104,4 +104,29 @@ public sealed class AppsHistoryRouteTailMergeTests : IDisposable
         Assert.Equal(40, app.GetProperty("avg").GetDouble());
         Assert.Equal(2, app.GetProperty("points").GetArrayLength());
     }
+
+    [Fact]
+    public async Task TailTick_WithNoAppsForTheMetric_DoesNotInflateTheSampledTickCount()
+    {
+        // An AppMetricSample with an empty Apps list would persist zero
+        // app_cpu_seconds rows if flushed, so SqliteMetricsHistoryStore's
+        // QuerySampledTicks would not count it - the tail must agree, or
+        // the reported average would change the instant this tick flushes
+        // even though no real data moved.
+        _store.SampledTicks = new List<long> { 1000 };
+        _store.TopApps = new List<AppWindowStat> { new("app.exe", 40, 40) };
+        _store.Series["app.exe"] = new List<AppRawPoint> { new(1000, 40, null) };
+
+        var appBuffer = _factory.Services.GetRequiredService<AppSampleBuffer>();
+        appBuffer.Append(new AppUsageTick(5000,
+            new[] { new AppMetricSample("cpu", Array.Empty<AppUsagePoint>()) }));
+
+        var res = await Client().GetAsync("/monitoring/history/apps?from=0&to=6000000&series=cpu");
+
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var app = doc.RootElement.GetProperty("apps")[0];
+        // One sampled tick (db=1000 only, the empty tail tick does not
+        // count): 40/1 = 40, not 40/2 = 20.
+        Assert.Equal(40, app.GetProperty("avg").GetDouble());
+    }
 }

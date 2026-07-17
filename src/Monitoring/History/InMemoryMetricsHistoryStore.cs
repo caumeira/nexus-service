@@ -230,7 +230,7 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
                     continue;
                 }
                 var m = tick.Metrics.FirstOrDefault(x => x.Metric == metric);
-                if (m is null)
+                if (m is null || m.Apps.Count == 0)
                 {
                     continue;
                 }
@@ -259,7 +259,8 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         lock (_lock)
         {
             return _appTicks.Values
-                .Where(t => t.TsSec >= fromSec && t.TsSec <= toSec && t.Metrics.Any(m => m.Metric == metric))
+                .Where(t => t.TsSec >= fromSec && t.TsSec <= toSec
+                    && t.Metrics.Any(m => m.Metric == metric && m.Apps.Count > 0))
                 .Select(t => t.TsSec)
                 .OrderBy(ts => ts)
                 .ToList();
