@@ -148,10 +148,15 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         }
     }
 
+    private const long TempBucketSeconds = MetricsHistory.TempBucketMinutes * 60L;
+
     // The ring holds at most RingWindowSeconds of raw MetricSample rows, so
-    // aggregating cpu/gpu/storage/ram temp readings into minute buckets here
+    // aggregating cpu/gpu/storage/ram temp readings into buckets here
     // (rather than maintaining a separate rollup table) costs nothing worth
-    // avoiding, mirroring QueryScalarsDecimated's fallback approach.
+    // avoiding, mirroring QueryScalarsDecimated's fallback approach. Bucketed
+    // at TempBucketSeconds width to match SqliteMetricsHistoryStore's
+    // temp_buckets rollup, so DetectEpisodes' bucket-adjacency check behaves
+    // the same regardless of which store backs it.
     public IReadOnlyList<TemperatureBucketRow> QueryTemperatureBuckets(long fromUtcMs, long toUtcMs)
     {
         var fromSec = fromUtcMs / 1000;
@@ -159,17 +164,17 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
 
         lock (_lock)
         {
-            var buckets = new Dictionary<(string ComponentId, long Minute), (string Kind, string Name, double Sum, double Max, int Count)>();
+            var buckets = new Dictionary<(string ComponentId, long Bucket), (string Kind, string Name, double Sum, double Max, int Count)>();
 
-            void Accumulate(string componentId, string kind, string name, long minute, double value)
+            void Accumulate(string componentId, string kind, string name, long bucket, double value)
             {
-                if (buckets.TryGetValue((componentId, minute), out var acc))
+                if (buckets.TryGetValue((componentId, bucket), out var acc))
                 {
-                    buckets[(componentId, minute)] = (kind, name, acc.Sum + value, System.Math.Max(acc.Max, value), acc.Count + 1);
+                    buckets[(componentId, bucket)] = (kind, name, acc.Sum + value, System.Math.Max(acc.Max, value), acc.Count + 1);
                 }
                 else
                 {
-                    buckets[(componentId, minute)] = (kind, name, value, value, 1);
+                    buckets[(componentId, bucket)] = (kind, name, value, value, 1);
                 }
             }
 
@@ -179,30 +184,30 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
                 {
                     continue;
                 }
-                var minute = s.TsSec / 60 * 60;
+                var bucket = s.TsSec / TempBucketSeconds * TempBucketSeconds;
                 if (s.CpuTempC is { } cpuC)
                 {
-                    Accumulate("cpu", "cpu", string.IsNullOrEmpty(s.CpuName) ? "CPU" : s.CpuName, minute, cpuC);
+                    Accumulate("cpu", "cpu", string.IsNullOrEmpty(s.CpuName) ? "CPU" : s.CpuName, bucket, cpuC);
                 }
                 foreach (var g in s.Gpus)
                 {
                     if (g.TempC is { } gpuC)
                     {
-                        Accumulate($"gpu:{g.GpuId}", "gpu", g.Name, minute, gpuC);
+                        Accumulate($"gpu:{g.GpuId}", "gpu", g.Name, bucket, gpuC);
                     }
                 }
                 foreach (var c in s.ComponentTemps)
                 {
                     if (c.ValueC is { } compC)
                     {
-                        Accumulate(c.ComponentId, c.Kind, c.Name, minute, compC);
+                        Accumulate(c.ComponentId, c.Kind, c.Name, bucket, compC);
                     }
                 }
             }
 
             return buckets
                 .Select(kv => new TemperatureBucketRow(
-                    kv.Key.ComponentId, kv.Value.Kind, kv.Value.Name, kv.Key.Minute * 1000,
+                    kv.Key.ComponentId, kv.Value.Kind, kv.Value.Name, kv.Key.Bucket * 1000,
                     kv.Value.Sum / kv.Value.Count, kv.Value.Max, kv.Value.Count))
                 .OrderBy(r => r.BucketUtcMs)
                 .ToList();

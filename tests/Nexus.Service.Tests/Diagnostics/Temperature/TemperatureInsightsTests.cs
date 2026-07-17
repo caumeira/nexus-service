@@ -223,7 +223,7 @@ public class TemperatureInsightsTests
     [Fact]
     public void MergeToWidth_FourteenDaysOfRawBuckets_MergeToHourlyGrid()
     {
-        var rows = SeriesOf(336 * 60);
+        var rows = SeriesOf(336 * 12);
         var widthMs = TemperatureInsights.TierWidthMinutesFor(336) * 60_000L;
 
         var merged = TemperatureInsights.MergeToWidth(rows, widthMs);
@@ -253,10 +253,9 @@ public class TemperatureInsightsTests
     [Fact]
     public void MergeToWidth_GridPositionsAreStableRegardlessOfWindowStartOffset()
     {
-        // Raw buckets start 58 minutes into what would be an hourly slot (so
-        // the 12-row run crosses the hour boundary) - a window rarely starts
-        // exactly on a tier boundary.
-        var startMs = T0Ms + 58 * BucketMs;
+        // Raw buckets start 10 minutes into what would be an hourly slot - a
+        // window rarely starts exactly on a tier boundary.
+        var startMs = T0Ms + 2 * BucketMs;
         var rows = Enumerable.Range(0, 12)
             .Select(i => new TemperatureBucketRow("cpu", "cpu", "CPU", startMs + i * BucketMs, 50, 55, 10))
             .ToList();

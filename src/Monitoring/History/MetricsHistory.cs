@@ -14,12 +14,21 @@ public static class MetricsHistory
     /// in metrics.db before pruning.</summary>
     public const int RetentionDays = 7;
 
-    /// <summary>Days of temp_minutes rollup rows (cpu/gpu/storage/ram
-    /// temperature, one row per component per minute) kept before pruning.
+    /// <summary>Days of temp_buckets rollup rows (cpu/gpu/storage/ram
+    /// temperature, one row per component per bucket) kept before pruning.
     /// Wider than RetentionDays because temperature is the one series
     /// diagnostics needs a long history for (sustained-high episodes,
     /// day-by-day review); load/net/fan stay at RetentionDays.</summary>
     public const int TempRetentionDays = 90;
+
+    /// <summary>Bucket width (minutes) of the temp_buckets rollup - wider than
+    /// the 1-minute metric_minutes/gpu_minutes/fan_minutes rollup so a
+    /// TempRetentionDays-wide query scans a fifth of the rows, since no
+    /// temperature chart tier ever needs finer than 5 minutes (see
+    /// TemperatureInsights.TierWidthMinutesFor). Mirrored as
+    /// TemperatureInsights.NativeBucketMinutes for callers outside this
+    /// namespace.</summary>
+    public const int TempBucketMinutes = 5;
 
     /// <summary>Ticks (seconds, MetricsSampler runs at 1Hz) between store
     /// flushes of the buffered tail.</summary>

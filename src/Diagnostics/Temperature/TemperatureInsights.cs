@@ -9,7 +9,7 @@ namespace Nexus.Service.Diagnostics.Temperature;
 public sealed record TemperaturePoint(long T, double Avg, double Max);
 
 /// <summary>A sustained-high-temperature window for one component. Kind is
-/// cpu/gpu/storage/ram (the same values the temp_minutes rollup tags each
+/// cpu/gpu/storage/ram (the same values the temp_buckets rollup tags each
 /// row with); it gates which DiagnosticsSettings.Components flag applies to
 /// this episode.</summary>
 public sealed record TemperatureEpisode(
@@ -28,14 +28,16 @@ public static class TemperatureInsights
     public const double StorageThresholdC = 70;
     public const double RamThresholdC = 60;
 
-    /// <summary>Native bucket width (minutes) of the temp_minutes rollup that
+    /// <summary>Native bucket width (minutes) of the temp_buckets rollup that
     /// backs every TemperatureBucketRow this class consumes - used for
     /// bucket-adjacency checks (DetectEpisodes) and as MergeToWidth's no-op
-    /// floor.</summary>
-    public const int NativeBucketMinutes = 1;
+    /// floor. Mirrors MetricsHistory.TempBucketMinutes so callers outside
+    /// Monitoring.History don't need that namespace just for this one
+    /// number.</summary>
+    public const int NativeBucketMinutes = MetricsHistory.TempBucketMinutes;
 
     /// <summary>Days of temperature history retained; mirrors
-    /// MetricsHistory.TempRetentionDays (the temp_minutes rollup's own
+    /// MetricsHistory.TempRetentionDays (the temp_buckets rollup's own
     /// retention) so callers outside Monitoring.History don't need that
     /// namespace just for this one number.</summary>
     public const int RetentionDays = MetricsHistory.TempRetentionDays;

@@ -22,7 +22,7 @@ public class TemperatureRouteResponseTests
     [Fact]
     public void BuildTemperatureResponse_ReportsTheEffectiveTierWidth()
     {
-        var rows = SeriesOf(24 * 60);
+        var rows = SeriesOf(24 * 12);
 
         var response = DiagnosticsHealthRoutes.BuildTemperatureResponse(rows, tierWidthMinutes: 30);
 
@@ -43,8 +43,8 @@ public class TemperatureRouteResponseTests
     [Fact]
     public void BuildTemperatureResponse_MergesSeriesPointsToTheTierWidth()
     {
-        // 14 days of raw 1-min buckets tiered at 60 min -> 336 points.
-        var rows = SeriesOf(336 * 60);
+        // 14 days of raw 5-min buckets tiered at 60 min -> 336 points.
+        var rows = SeriesOf(336 * 12);
 
         var response = DiagnosticsHealthRoutes.BuildTemperatureResponse(rows, tierWidthMinutes: 60);
 
@@ -55,7 +55,7 @@ public class TemperatureRouteResponseTests
     [Fact]
     public void BuildTemperatureResponse_RawTierLeavesOnePointPerBucket()
     {
-        var rows = SeriesOf(100);
+        var rows = SeriesOf(24 * 12);
 
         var response = DiagnosticsHealthRoutes.BuildTemperatureResponse(rows, tierWidthMinutes: TemperatureInsights.NativeBucketMinutes);
 
