@@ -13,10 +13,25 @@ namespace Nexus.Service.Monitoring.History;
 /// failed or partial import always has the source data to retry against.
 ///
 /// Both tables share the same bucket width (MetricsHistory.TempBucketMinutes
-/// matches the retired TemperatureRollup.BucketMinutes), so this is a
-/// straight column-mapped copy - avg_c/max_c convert to the x10 fixed-point
-/// columns the unified schema uses, bucket_utc (ms) becomes bucket_ts
-/// (seconds) - with no resampling.
+/// matches the retired temperature.db pipeline's own bucket width), so every
+/// row maps one-to-one with no resampling across bucket boundaries -
+/// bucket_utc (ms) becomes bucket_ts (seconds), avg_c/max_c convert to the
+/// x10 fixed-point columns. sum_x10 has no legacy source column (the old
+/// schema stored only the average, not a raw sum) and is reconstructed as
+/// avg_c * 10 * samples, which round-trips back to the same avg_c on read
+/// but is not a byte-identical copy of anything that existed before.
+///
+/// GPU rows import under their OLD id (NVML UUID-based, e.g. "gpu:GPU-abc...")
+/// verbatim - this store's live GPU temp now keys off a different,
+/// LHM-sanitized id (SystemMetricsSource -> MetricsHistory.SanitizeId, e.g.
+/// "gpu:gpu-nvidia-0"), matching what gpu_seconds already used for load. A
+/// GPU with prior history therefore renders as two chart series for the
+/// remainder of the 90-day retention window: the imported one under the old
+/// id, and a new one accumulating under the new id from this boot onward.
+/// No id-remapping is attempted - the old GpuComponentIdMigration precedent
+/// re-keyed by matching GPU name, but that requires a live GPU snapshot at
+/// migration time and this migration runs before the sampler has taken one.
+/// The imported series simply ages out after 90 days like any other row.
 /// </summary>
 internal static class LegacyTemperatureImportMigration
 {

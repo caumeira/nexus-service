@@ -1164,11 +1164,12 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
 
     // Runs once (schema_meta version gate): imports the retired
     // temperature.db's temp_buckets rows into this store's own temp_buckets
-    // table (same column shape, same 5-minute width - a straight copy, no
-    // resampling), then leaves temperature.db in place untouched - a partial
-    // or failed import always has the source data to retry from on the next
-    // boot. A box with no temperature.db (fresh install, or one that already
-    // ran this) has nothing to import and just bumps the version.
+    // table (see LegacyTemperatureImportMigration for the column mapping and
+    // the accepted GPU-id discontinuity), then leaves temperature.db in place
+    // untouched - a partial or failed import always has the source data to
+    // retry from on the next boot. A box with no temperature.db (fresh
+    // install, or one that already ran this) has nothing to import and just
+    // bumps the version.
     private const int SchemaVersionTempImport = 3;
 
     private void ImportLegacyTemperatureHistory()
