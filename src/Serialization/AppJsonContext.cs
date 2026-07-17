@@ -830,6 +830,11 @@ namespace Nexus.Service.Serialization;
 // Process icons (WindowsIconExtractor runs in the user-session helper)
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProcessIconRequest))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProcessIconResult))]
+// Process actions (kill / reveal-in-Explorer - run in the user-session helper)
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProcessKillRequest))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProcessKillResult))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProcessOpenLocationRequest))]
+[JsonSerializable(typeof(Nexus.Service.Helper.Domains.ProcessOpenLocationResult))]
 // Native file/folder picker (IFileOpenDialog runs in the user-session helper)
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.FileDialogRequest))]
 [JsonSerializable(typeof(Nexus.Service.Helper.Domains.FileDialogResult))]

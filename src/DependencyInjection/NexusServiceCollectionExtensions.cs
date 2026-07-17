@@ -343,6 +343,7 @@ public static class NexusServiceCollectionExtensions
             (Nexus.Service.Monitoring.History.IAppUsageHistoryStore)sp.GetRequiredService<Nexus.Service.Monitoring.History.IMetricsHistoryStore>());
         services.AddSingleton<Nexus.Service.Monitoring.History.IAppUsageSource, Nexus.Service.Monitoring.History.ProcessAppUsageSource>();
         services.AddSingleton<Nexus.Service.Monitoring.History.AppSampleBuffer>();
+        services.AddSingleton<Nexus.Service.Monitoring.History.ProcessFirstSeenCache>();
 
         services.AddSingleton<Nexus.Service.Monitoring.History.MetricsSampler>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Monitoring.History.MetricsSampler>());
@@ -1159,6 +1160,7 @@ public static class NexusServiceCollectionExtensions
         // route it through the user-session helper. Launch stays direct (explorer).
         services.AddSingleton<IShortcutsProvider, HelperShortcutsProxy>();
         services.AddSingleton<IProcessIconProvider, HelperProcessIconProxy>();
+        services.AddSingleton<IProcessActionsProvider, HelperProcessActionsProxy>();
         services.AddSingleton<IMediaProvider, WindowsMediaProvider>();
         services.AddSingleton<IVolumeProvider, WindowsVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, WindowsAudioDeviceProvider>();
@@ -1168,6 +1170,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IAppDetectionProvider, MacAppDetectionProvider>();
         services.AddSingleton<IShortcutsProvider, MacShortcutsProvider>();
         services.AddSingleton<IProcessIconProvider, StubProcessIconProvider>();
+        services.AddSingleton<IProcessActionsProvider, DirectProcessActionsProvider>();
         services.AddSingleton<IMediaProvider, MacMediaProvider>();
         services.AddSingleton<IVolumeProvider, MacVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, MacAudioDeviceProvider>();
@@ -1179,6 +1182,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
         services.AddSingleton<IShortcutsProvider, LinuxShortcutsProvider>();
         services.AddSingleton<IProcessIconProvider, StubProcessIconProvider>();
+        services.AddSingleton<IProcessActionsProvider, DirectProcessActionsProvider>();
         services.AddSingleton<ISystemAccentProvider, Nexus.Service.Platform.Linux.LinuxSystemAccentProvider>();
         services.AddSingleton<IMediaProvider, LinuxMediaProvider>();
         services.AddSingleton<IVolumeProvider, LinuxVolumeProvider>();
@@ -1189,6 +1193,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IAppDetectionProvider, StubAppDetectionProvider>();
         services.AddSingleton<IShortcutsProvider, StubShortcutsProvider>();
         services.AddSingleton<IProcessIconProvider, StubProcessIconProvider>();
+        services.AddSingleton<IProcessActionsProvider, DirectProcessActionsProvider>();
         services.AddSingleton<IMediaProvider, StubMediaProvider>();
         services.AddSingleton<IVolumeProvider, StubVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, StubAudioDeviceProvider>();

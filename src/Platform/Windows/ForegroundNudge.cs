@@ -101,6 +101,42 @@ public static class ForegroundNudge
     }
 
     /// <summary>
+    /// Open the folder containing <paramref name="filePath"/> in Explorer with
+    /// the file itself selected, and bring the new window to the front. Same
+    /// shape as <see cref="OpenFolderOverApp"/>, but a directory open would
+    /// leave the user hunting for one file among many.
+    /// </summary>
+    public static void OpenFolderAndSelectOverApp(string filePath)
+    {
+        try
+        {
+            var before = SnapshotExplorerWindows();
+            Process.Start(new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"/select,\"{filePath}\"",
+                UseShellExecute = true,
+            });
+
+            ThreadPool.QueueUserWorkItem(_ =>
+            {
+                for (var i = 0; i < 40; i++)
+                {
+                    var fresh = SnapshotExplorerWindows().FirstOrDefault(h => !before.Contains(h));
+                    if (fresh != IntPtr.Zero)
+                    {
+                        TryForeground(fresh);
+                        return;
+                    }
+
+                    Thread.Sleep(100);
+                }
+            });
+        }
+        catch { /* best-effort */ }
+    }
+
+    /// <summary>
     /// Watch for the first visible window created on <paramref name="threadId"/>
     /// (the file dialog on its STA thread) and bring it to the front. Runs on
     /// the thread pool; the dialog thread itself is blocked inside Show().

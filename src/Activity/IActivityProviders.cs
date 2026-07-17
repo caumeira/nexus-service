@@ -51,6 +51,28 @@ public interface IProcessIconProvider
     byte[]? GetIcon(string exePath);
 }
 
+/// <summary>Kill / reveal-in-file-manager actions for a live process, driven
+/// by the monitoring sidebar. Windows routes both through the user-session
+/// helper so the OS enforces the console user's own privileges - the
+/// LocalSystem service never acts on a process directly. macOS/Linux already
+/// run in the user session, so they act directly.</summary>
+public interface IProcessActionsProvider
+{
+    /// <summary>False when there is currently no way to perform an action
+    /// (Windows: no console-user helper connected) - the route surfaces this
+    /// as a 503. Always true on platforms that act directly.</summary>
+    bool IsAvailable { get; }
+
+    /// <summary>Kills every live instance of processName. Killed/Failed count
+    /// individual kill attempts (failed covers e.g. access denied); both are
+    /// 0 when no matching process was found or IsAvailable is false.</summary>
+    Task<(int Killed, int Failed)> KillAsync(string processName);
+
+    /// <summary>Reveals exePath in the OS file manager with the file
+    /// selected. False on failure, including IsAvailable being false.</summary>
+    Task<bool> OpenLocationAsync(string exePath);
+}
+
 public interface INetworkProvider
 {
     IReadOnlyList<NetworkProcessInfo> GetSnapshot();

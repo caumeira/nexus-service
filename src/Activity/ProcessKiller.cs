@@ -37,6 +37,28 @@ public static class ProcessKiller
     }
 
     /// <summary>
+    /// Kills every process matching processName individually, returning how
+    /// many succeeded vs failed (e.g. access denied) rather than a single
+    /// bool - used where the caller must report an exact outcome count.
+    /// </summary>
+    public static (int Killed, int Failed) KillAllCounted(string processName)
+    {
+        Process[] processes;
+        try { processes = Process.GetProcessesByName(processName); }
+        catch { return (0, 0); }
+
+        var killed = 0;
+        var failed = 0;
+        foreach (var proc in processes)
+        {
+            try { proc.Kill(true); proc.WaitForExit(3000); killed++; }
+            catch { failed++; }
+            finally { proc.Dispose(); }
+        }
+        return (killed, failed);
+    }
+
+    /// <summary>
     /// Kills a single process by its PID.
     /// Returns true if the process was found and killed successfully.
     /// </summary>
