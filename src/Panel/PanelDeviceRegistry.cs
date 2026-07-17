@@ -432,14 +432,14 @@ public sealed class PanelDeviceRegistry
     }
 
     /// <summary>
-    /// Return the record to its just-allocated state: layout (including
-    /// single-widget configs), theme, background, and widget fields all
-    /// clear, so defaults reseed on the next read. Identity survives - id,
-    /// name, display binding, capabilities, enabled state, and the persisted
-    /// orientation / Xeneon DDC record, which mirror physical state rather
-    /// than panel customization. Uploaded media is the caller's to delete
-    /// (PanelBgLibrary); the cleared BackgroundMediaId is what unreferences
-    /// it here. Returns null when the id is unknown.
+    /// Personalization reset: layout (including single-widget configs),
+    /// theme, background, and widget fields all clear, so defaults reseed on
+    /// the next read. Identity and hardware-scoped state survive - id, name,
+    /// display binding, capabilities, enabled state, monitor behavior
+    /// (ReserveMonitor/AutoOrient - see <see cref="ResetHardwareSettings"/>),
+    /// and the persisted orientation / Xeneon DDC record. Uploaded media is
+    /// the caller's to delete (PanelBgLibrary); the cleared BackgroundMediaId
+    /// is what unreferences it here. Returns null when the id is unknown.
     /// </summary>
     public PanelDeviceRecord? ResetToDefaults(string id)
     {
@@ -471,13 +471,39 @@ public sealed class PanelDeviceRegistry
             record.WidgetPadding = null;
             record.ThemeSyncWithDesktop = null;
             record.AccentSyncWithDesktop = null;
-            record.ReserveMonitor = null;
-            record.AutoOrient = null;
             record.LastSeenAt = now;
             snapshot = Clone(record);
         });
         // A reset is rare and destructive; it must survive an immediate
         // service exit, same durability rule as the panel on/off toggle.
+        if (snapshot is not null) _store.FlushNow();
+        return snapshot;
+    }
+
+    /// <summary>
+    /// Hardware-scoped counterpart of <see cref="ResetToDefaults"/>: clears
+    /// the record's monitor-behavior fields (ReserveMonitor / AutoOrient,
+    /// null = default on) and the recorded Xeneon DDC values. The route owns
+    /// applying family defaults to the actual hardware; this only resets what
+    /// the record stores. Returns null when the id is unknown.
+    /// </summary>
+    public PanelDeviceRecord? ResetHardwareSettings(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return null;
+
+        PanelDeviceRecord? snapshot = null;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _store.Update(s =>
+        {
+            if (!s.PanelDevices.TryGetValue(id, out var record))
+                return;
+            record.ReserveMonitor = null;
+            record.AutoOrient = null;
+            record.XeneonEdgeSettings = null;
+            record.LastSeenAt = now;
+            snapshot = Clone(record);
+        });
         if (snapshot is not null) _store.FlushNow();
         return snapshot;
     }

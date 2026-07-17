@@ -360,38 +360,6 @@ public static class DisplayRoutes
             return Results.Json(applied, AppJsonContext.Default.XeneonEdgeSettingsDto);
         }).AllowPanel();
 
-        // Restores all six controls (brightness/backlight/contrast/RGB) to
-        // their factory values - the panel's own 0xff command only covers
-        // RGB, so XeneonEdgeOrientationWorker.RestoreDefaultsAsync writes
-        // each control individually.
-        app.MapPost("/displays/{id}/xeneon-settings/restore-defaults", async (
-            string id,
-            PanelDeviceRegistry registry,
-            XeneonEdgeOrientationWorker xeneon,
-            MultiplexHub hub,
-            CancellationToken ct) =>
-        {
-            var record = registry.FindByDisplayId(id);
-            if (record is null || record.Capabilities?.Family != KnownPanelDisplays.XeneonEdgeFamily)
-                return Results.NotFound(ApiResponse.Fail("not a Xeneon Edge panel"));
-
-            if (!await xeneon.RestoreDefaultsAsync(ct))
-                return Results.UnprocessableEntity(ApiResponse.Fail("restore failed"));
-
-            var dto = new XeneonEdgeSettingsDto
-            {
-                Brightness = XeneonEdgeDefaults.Brightness,
-                Backlight = XeneonEdgeDefaults.Backlight,
-                Contrast = XeneonEdgeDefaults.Contrast,
-                Red = XeneonEdgeDefaults.Red,
-                Green = XeneonEdgeDefaults.Green,
-                Blue = XeneonEdgeDefaults.Blue,
-            };
-            registry.UpdateXeneonEdgeSettings(id, dto);
-            PanelTopics.BroadcastPanelDevice(hub, record.Id);
-            return Results.Json(dto, AppJsonContext.Default.XeneonEdgeSettingsDto);
-        }).AllowPanel();
-
         // Touch-mapping guard: runs a detect-and-repair pass synchronously.
         // Also the manual entry point the auto-repair guard's background
         // triggers (helper connect, displays-changed) call into.
