@@ -466,6 +466,39 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         return result;
     }
 
+    // No temp_component_minutes rollup exists (see the class doc), so this
+    // always aggregates the raw table directly, unlike QueryGpuDecimated/
+    // QueryFanDecimated's rollup-eligible fast path.
+    public IReadOnlyList<ComponentTempDecimatedSlot> QueryComponentTempDecimated(long fromSec, long toSec, int stepSeconds)
+    {
+        lock (_writeLock)
+        {
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT (cs.ts / $step) * $step AS slot, se.component_id, se.kind, se.name,
+                       AVG(cs.value_x10) / 10.0, MAX(cs.value_x10) / 10.0
+                FROM temp_component_seconds cs
+                JOIN temp_component_series se ON se.key = cs.component
+                WHERE cs.ts BETWEEN $from AND $to
+                GROUP BY slot, cs.component
+                ORDER BY se.component_id, slot;
+            """;
+            cmd.Parameters.AddWithValue("$step", stepSeconds);
+            cmd.Parameters.AddWithValue("$from", fromSec);
+            cmd.Parameters.AddWithValue("$to", toSec);
+
+            var result = new List<ComponentTempDecimatedSlot>();
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                result.Add(new ComponentTempDecimatedSlot(
+                    reader.GetString(1), reader.GetString(2), reader.GetString(3), reader.GetInt64(0),
+                    NullableDouble(reader, 4), NullableDouble(reader, 5)));
+            }
+            return result;
+        }
+    }
+
     // fromUtcMs/toUtcMs are milliseconds (the wire convention the temperature
     // route already used); temp_buckets.bucket_ts is seconds, matching every
     // other table here, so both bounds are floor-divided rather than rounded -

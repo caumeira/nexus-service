@@ -83,6 +83,9 @@ public class MetricsSamplerTests
         public IReadOnlyList<FanDecimatedSlot> QueryFanDecimated(long fromSec, long toSec, int stepSeconds) =>
             Array.Empty<FanDecimatedSlot>();
 
+        public IReadOnlyList<ComponentTempDecimatedSlot> QueryComponentTempDecimated(long fromSec, long toSec, int stepSeconds) =>
+            Array.Empty<ComponentTempDecimatedSlot>();
+
         public void Dispose() { }
     }
 

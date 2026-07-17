@@ -37,6 +37,13 @@ public interface IMetricsHistoryStore : IDisposable
     /// that has data.</summary>
     IReadOnlyList<FanDecimatedSlot> QueryFanDecimated(long fromSec, long toSec, int stepSeconds);
 
+    /// <summary>Slot-aggregated per-component (storage/ram) temperature, one
+    /// row per (component, slot) that has data. Always aggregates from the
+    /// raw temp_component_seconds table - unlike QueryGpuDecimated/
+    /// QueryFanDecimated, there is no per-minute rollup for these
+    /// components to fast-path a wide window through.</summary>
+    IReadOnlyList<ComponentTempDecimatedSlot> QueryComponentTempDecimated(long fromSec, long toSec, int stepSeconds);
+
     /// <summary>One bucket for one temperature component (cpu / gpu:&lt;id&gt;
     /// / storage:&lt;serial&gt; / ram:&lt;id&gt;), bucket-aligned (see
     /// MetricsHistory.TempBucketMinutes), read from the 90-day temp_buckets
@@ -73,3 +80,8 @@ public readonly record struct GpuDecimatedSlot(
 public readonly record struct FanDecimatedSlot(
     string FanId, string Name, long Slot,
     double? RpmAvg, double? RpmMax, double? DutyAvg, double? DutyMax);
+
+/// <summary>One storage or RAM component's slot-aggregated temperature.</summary>
+public readonly record struct ComponentTempDecimatedSlot(
+    string ComponentId, string Kind, string Name, long Slot,
+    double? Avg, double? Max);

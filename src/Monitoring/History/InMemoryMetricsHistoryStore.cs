@@ -148,6 +148,34 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         }
     }
 
+    public IReadOnlyList<ComponentTempDecimatedSlot> QueryComponentTempDecimated(long fromSec, long toSec, int stepSeconds)
+    {
+        lock (_lock)
+        {
+            var rows = _rows.Values.Where(s => s.TsSec >= fromSec && s.TsSec <= toSec).ToList();
+            var meta = new Dictionary<string, (string Kind, string Name)>(StringComparer.Ordinal);
+            foreach (var s in rows)
+            {
+                foreach (var c in s.ComponentTemps)
+                {
+                    meta[c.ComponentId] = (c.Kind, c.Name);
+                }
+            }
+
+            var result = new List<ComponentTempDecimatedSlot>();
+            foreach (var (componentId, info) in meta)
+            {
+                var value = Slots(rows, s => s.ComponentTemps.FirstOrDefault(c => c.ComponentId == componentId)?.ValueC, fromSec, toSec, stepSeconds);
+                foreach (var slot in value.Keys.OrderBy(k => k))
+                {
+                    var p = value[slot];
+                    result.Add(new ComponentTempDecimatedSlot(componentId, info.Kind, info.Name, slot, p.Avg, p.Max));
+                }
+            }
+            return result;
+        }
+    }
+
     private const long TempBucketSeconds = MetricsHistory.TempBucketMinutes * 60L;
 
     // The ring holds at most RingWindowSeconds of raw MetricSample rows, so
