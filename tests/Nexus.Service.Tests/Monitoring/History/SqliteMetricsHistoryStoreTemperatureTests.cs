@@ -76,6 +76,57 @@ public class SqliteMetricsHistoryStoreTemperatureTests : IDisposable
     }
 
     [Fact]
+    public void Append_then_Query_RoundTripsComponentTemps_KeyedByEntity()
+    {
+        var sample = new MetricSample(1000, null, null, null, null, null,
+            Array.Empty<GpuReading>(), Array.Empty<FanReading>(),
+            ComponentTemps: new[]
+            {
+                new ComponentTempReading("storage:serial1", "storage", "Samsung 990 Pro", 45.0),
+                new ComponentTempReading("ram:0", "ram", "DIMM_A1", 38.0),
+            });
+
+        _store.Append(new[] { sample }, null);
+
+        var row = Assert.Single(_store.Query(0, 10_000));
+        Assert.Equal(2, row.ComponentTemps.Count);
+        var storage = row.ComponentTemps.Single(c => c.ComponentId == "storage:serial1");
+        Assert.Equal("storage", storage.Kind);
+        Assert.Equal("Samsung 990 Pro", storage.Name);
+        Assert.Equal(45.0, storage.ValueC);
+        var ram = row.ComponentTemps.Single(c => c.ComponentId == "ram:0");
+        Assert.Equal("ram", ram.Kind);
+        Assert.Equal(38.0, ram.ValueC);
+    }
+
+    // Store->route seam: Query must populate ComponentTemps for every row in
+    // the window (not just the newest), or the narrow-window route path
+    // (no buffer tail here) renders drive-temp/mem-temp from only whatever a
+    // buffer tail happens to carry.
+    [Fact]
+    public void BuildHistoryResponse_NarrowPath_DriveTempSeries_SpansTheFullWindow_NotJustTheNewestReading()
+    {
+        var t0 = new MetricSample(0, null, null, null, null, null,
+            Array.Empty<GpuReading>(), Array.Empty<FanReading>(),
+            ComponentTemps: new[] { new ComponentTempReading("storage:serial1", "storage", "Samsung 990 Pro", 40.0) });
+        var t1 = new MetricSample(30, null, null, null, null, null,
+            Array.Empty<GpuReading>(), Array.Empty<FanReading>(),
+            ComponentTemps: new[] { new ComponentTempReading("storage:serial1", "storage", "Samsung 990 Pro", 50.0) });
+        _store.Append(new[] { t0, t1 }, null);
+
+        var dbSamples = _store.Query(0, 30);
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(
+            dbSamples, Array.Empty<MetricSample>(), 0, 30, maxPoints: 600,
+            new HashSet<string> { "drive-temp" }, new Dictionary<string, string>());
+
+        var drive = Assert.Single(response.Series);
+        Assert.Equal("drive-temp:storage:serial1", drive.Id);
+        Assert.Equal(2, drive.Points.Count);
+        Assert.Equal(40.0, drive.Points[0].Avg);
+        Assert.Equal(50.0, drive.Points[1].Avg);
+    }
+
+    [Fact]
     public void Append_MultipleTicksInTheSameBucket_AveragesRatherThanReplaces()
     {
         var t0 = new MetricSample(1_000, null, null, null, null, 50,

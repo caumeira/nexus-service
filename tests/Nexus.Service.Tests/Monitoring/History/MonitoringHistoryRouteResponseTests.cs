@@ -252,6 +252,30 @@ public class MonitoringHistoryRouteResponseTests
     }
 
     [Fact]
+    public void BuildHistoryResponse_DriveTempSeries_DisambiguatesASanitizedIdCollision()
+    {
+        // "storage:a/b" and "storage:a-b" both sanitize to "storage:a-b".
+        var db = new[]
+        {
+            ComponentSample(0,
+                new ComponentTempReading("storage:a/b", "storage", "Drive One", 40),
+                new ComponentTempReading("storage:a-b", "storage", "Drive Two", 50)),
+        };
+
+        var response = MonitoringHistoryRoutes.BuildHistoryResponse(db, Array.Empty<MetricSample>(), 0, 0, 600, new HashSet<string> { "drive-temp" }, NoLuids);
+
+        Assert.Equal(2, response.Series.Count);
+        var ids = response.Series.Select(s => s.Id).ToList();
+        Assert.Equal(ids.Count, ids.Distinct().Count());
+
+        var driveTwo = response.Series.Single(s => s.Name == "Drive Two");
+        Assert.Equal("drive-temp:storage:a-b", driveTwo.Id);
+
+        var driveOne = response.Series.Single(s => s.Name == "Drive One");
+        Assert.StartsWith("drive-temp:storage:a-b-", driveOne.Id);
+    }
+
+    [Fact]
     public void BuildHistoryResponse_DriveTempKindFilter_MatchesAllDriveSeries()
     {
         var db = new[]

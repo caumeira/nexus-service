@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.Linq;
 using System.Security.Cryptography;
+using System.Text;
 using System.Threading;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
@@ -646,9 +647,10 @@ public static class MonitoringHistoryRoutes
             }
         }
 
+        var usedDriveIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var (componentId, info) in meta.Where(kv => kv.Value.Kind == "storage").OrderBy(kv => kv.Key, StringComparer.Ordinal))
         {
-            var wireId = $"drive-temp:{MetricsHistory.SanitizeId(componentId)}";
+            var wireId = $"drive-temp:{ResolveUniqueSanitizedId(componentId, usedDriveIds)}";
             if (!MatchesFilter(wireId, "drive-temp", filter))
             {
                 continue;
@@ -661,6 +663,29 @@ public static class MonitoringHistoryRoutes
                 Points = ToWirePoints(pointsForComponent(componentId), wholeNumbers: false),
             });
         }
+    }
+
+    // SanitizeId is not injective (e.g. "storage:a/b" and "storage:a-b" both
+    // sanitize to "storage:a-b"), so two distinct raw component ids could
+    // otherwise collide on the same drive-temp:<id> wire id in one response.
+    // On collision, append a hash of the raw id so the disambiguated id is
+    // stable for that raw id regardless of iteration order or which sibling
+    // claimed the base candidate first.
+    private static string ResolveUniqueSanitizedId(string rawComponentId, HashSet<string> usedIds)
+    {
+        var candidate = MetricsHistory.SanitizeId(rawComponentId);
+        if (usedIds.Add(candidate))
+        {
+            return candidate;
+        }
+
+        var suffix = Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rawComponentId)))[..6].ToLowerInvariant();
+        var disambiguated = $"{candidate}-{suffix}";
+        while (!usedIds.Add(disambiguated))
+        {
+            disambiguated += "x";
+        }
+        return disambiguated;
     }
 
     // Unions every ram component's slots, averaging whichever components
