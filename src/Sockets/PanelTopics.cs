@@ -294,5 +294,22 @@ public static class PanelTopics
         _ = hub.BroadcastTopicAsync(StreamDeckTiles, env);
     }
 
+    /// <summary>
+    /// Local AI assistant runtime/model progress (managed Ollama install,
+    /// download bytes, active model pull). Subscribers use the frame directly
+    /// for live progress bars; GET /ai/assistant/status is the canonical
+    /// resource for everything else.
+    /// </summary>
+    public const string AiAssistant = "aiAssistant";
+
+    public static void BroadcastAiAssistant(MultiplexHub hub, Nexus.Service.Models.Mcp.AssistantProgressFrame frame)
+    {
+        if (!hub.TopicHasSubscribers(AiAssistant))
+            return;
+        frame.Revision = Now();
+        var env = WsEnvelope.Build(AiAssistant, frame, AppJsonContext.Default.AssistantProgressFrame);
+        _ = hub.BroadcastTopicAsync(AiAssistant, env);
+    }
+
     private static long Now() => DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
 }

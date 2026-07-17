@@ -298,6 +298,7 @@ public sealed class ProfileManager : IDisposable
                 current.Auth = null;
                 current.PrimaryProfileId = null;
                 current.SharedCategories = new List<string>();
+                current.AiIntegration = new AiIntegrationSettings();
                 return current;
             }
 
@@ -316,6 +317,7 @@ public sealed class ProfileManager : IDisposable
                     settings.Auth = null;
                     settings.PrimaryProfileId = null;
                     settings.SharedCategories = new List<string>();
+                    settings.AiIntegration = new AiIntegrationSettings();
                 }
                 return settings;
             }
@@ -383,6 +385,7 @@ public sealed class ProfileManager : IDisposable
             data.Auth = null;
             data.PrimaryProfileId = null;
             data.SharedCategories = new List<string>();
+            data.AiIntegration = new AiIntegrationSettings();
 
             var existing = _manifest.Profiles.FirstOrDefault(p => p.Id == id);
             var now = DateTimeOffset.UtcNow.ToString("o");
@@ -521,6 +524,7 @@ public sealed class ProfileManager : IDisposable
                     data.Auth = null;
                     data.PrimaryProfileId = null;
                     data.SharedCategories = new List<string>();
+                    data.AiIntegration = new AiIntegrationSettings();
                     var now = DateTimeOffset.UtcNow.ToString("o");
                     _manifest.Profiles.Add(new ProfileEntry { Id = id, Name = uniqueNames[id], CreatedAt = now, UpdatedAt = now });
                     var json = JsonSerializer.Serialize(data, PersistenceJsonContext.Default.NexusSettings);
@@ -551,6 +555,7 @@ public sealed class ProfileManager : IDisposable
             data.Auth = null;
             data.PrimaryProfileId = null;
             data.SharedCategories = new List<string>();
+            data.AiIntegration = new AiIntegrationSettings();
 
             var trimmed = (name ?? "").Trim();
             if (string.IsNullOrEmpty(trimmed))
@@ -833,6 +838,7 @@ public sealed class ProfileManager : IDisposable
         target.Auth = null;
         target.PrimaryProfileId = null;
         target.SharedCategories = new List<string>();
+        target.AiIntegration = new AiIntegrationSettings();
         target.PanelDevices = new();
 
         var json = JsonSerializer.Serialize(target, PersistenceJsonContext.Default.NexusSettings);

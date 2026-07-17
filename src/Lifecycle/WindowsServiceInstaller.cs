@@ -249,10 +249,11 @@ internal static class WindowsServiceInstaller
 
     /// <summary>
     /// `Nexus.exe --uninstall` entry. Stops + deletes the service, removes the
-    /// firewall rule, Add/Remove entry, Start Menu shortcut, and the install
-    /// dir (best-effort; locked files scheduled for delete-on-reboot). Does
-    /// NOT delete %ProgramData%\Nexus\ by default - pass --purge to wipe user
-    /// data. PawnIO is left installed (harmless and shared with other tools).
+    /// firewall rule, edge-swipe policy, Add/Remove entry, Start Menu shortcut,
+    /// and the install dir (best-effort; locked files scheduled for
+    /// delete-on-reboot). Does NOT delete %ProgramData%\Nexus\ by default -
+    /// pass --purge to wipe user data. PawnIO is left installed (harmless and
+    /// shared with other tools).
     /// </summary>
     public static int RunUninstall(string[] args)
     {
@@ -287,6 +288,12 @@ internal static class WindowsServiceInstaller
         Log("removing firewall rule");
         RunNetsh("advfirewall", "firewall", "delete", "rule",
             $"name=\"{FirewallRuleName}\"");
+
+        // Machine-wide policy TouchMappingGuard sets while a touch panel is
+        // attached; without this it outlives the product.
+        Log("removing edge-swipe policy");
+        try { Platform.Displays.WindowsEdgeSwipePolicy.RemovePolicy(); }
+        catch (Exception ex) { Log($"WARN edge-swipe policy delete failed: {ex.Message}"); }
 
         // The Game Sync shims in System32/SysWOW64 and the CS2 GSI cfg are left
         // in place on uninstall by design. Our shim filenames are the vendor

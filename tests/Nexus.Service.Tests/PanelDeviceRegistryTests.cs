@@ -215,7 +215,7 @@ public sealed class PanelDeviceRegistryTests : IDisposable
     }
 
     [Fact]
-    public void ResetToDefaults_DisplayBound_KeepsBindingAndEnabled_ResetsMonitorSettings()
+    public void ResetToDefaults_DisplayBound_KeepsBindingEnabledAndMonitorSettings()
     {
         var (record, _) = _registry.AllocateForDisplay("DISPLAY-1", "Edge", Caps(PanelSurfaces.Monitor));
         _registry.Patch(record.Id, new PanelDevicePatch { ReserveMonitor = false, AutoOrient = false, BackgroundFrost = "light" });
@@ -225,15 +225,35 @@ public sealed class PanelDeviceRegistryTests : IDisposable
         Assert.NotNull(reset);
         Assert.Equal("DISPLAY-1", reset!.DisplayId);
         Assert.NotEqual(false, reset.Enabled);
-        Assert.Null(reset.ReserveMonitor);
-        Assert.Null(reset.AutoOrient);
+        // Monitor behavior is hardware scope; personalization keeps it.
+        Assert.False(reset.ReserveMonitor);
+        Assert.False(reset.AutoOrient);
         Assert.Null(reset.BackgroundFrost);
+    }
+
+    [Fact]
+    public void ResetHardwareSettings_ClearsMonitorBehavior_KeepsPersonalization()
+    {
+        var (record, _) = _registry.AllocateForDisplay("DISPLAY-1", "Edge", Caps(PanelSurfaces.Monitor));
+        _registry.Patch(record.Id, new PanelDevicePatch { ReserveMonitor = false, AutoOrient = false, BackgroundFrost = "light" });
+        _registry.UpdateXeneonEdgeSettings("DISPLAY-1", new XeneonEdgeSettingsDto { Brightness = 5 });
+
+        var reset = _registry.ResetHardwareSettings(record.Id);
+
+        Assert.NotNull(reset);
+        Assert.Null(reset!.ReserveMonitor);
+        Assert.Null(reset.AutoOrient);
+        Assert.Null(reset.XeneonEdgeSettings);
+        // Personalization is the other scope; hardware reset keeps it.
+        Assert.Equal("light", reset.BackgroundFrost);
+        Assert.Equal("DISPLAY-1", reset.DisplayId);
     }
 
     [Fact]
     public void ResetToDefaults_UnknownId_ReturnsNull()
     {
         Assert.Null(_registry.ResetToDefaults("nope"));
+        Assert.Null(_registry.ResetHardwareSettings("nope"));
     }
 
     /// <summary>Null until explicitly patched; enabled is the client-side default.</summary>
