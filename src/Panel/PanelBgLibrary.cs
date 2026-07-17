@@ -197,6 +197,33 @@ public sealed class PanelBgLibrary
         AtomicJsonFile.Write(Path.Combine(dir, MetaFileName), JsonSerializer.Serialize(item, AppJsonContext.Default.PanelBgItem));
     }
 
+    /// <summary>
+    /// Deletes the device's entire media directory - every uploaded asset
+    /// plus any staged imports. Returns true when nothing remains. The id
+    /// guard keeps a recursive delete from ever resolving outside the media
+    /// root ("", ".", ".."); registry-minted ids are base64url and always
+    /// pass.
+    /// </summary>
+    public bool DeleteDeviceMedia(string deviceId)
+    {
+        if (!IsValidId(deviceId)) return false;
+        var dir = GetDeviceDir(deviceId);
+        if (!Directory.Exists(dir))
+        {
+            return true;
+        }
+
+        try
+        {
+            Directory.Delete(dir, recursive: true);
+            return true;
+        }
+        catch
+        {
+            return !Directory.Exists(dir);
+        }
+    }
+
     public bool DeleteItem(string deviceId, string id)
     {
         if (!IsValidId(id))

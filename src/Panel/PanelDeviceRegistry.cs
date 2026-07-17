@@ -431,6 +431,57 @@ public sealed class PanelDeviceRegistry
         return removed;
     }
 
+    /// <summary>
+    /// Return the record to its just-allocated state: layout (including
+    /// single-widget configs), theme, background, and widget fields all
+    /// clear, so defaults reseed on the next read. Identity survives - id,
+    /// name, display binding, capabilities, enabled state, and the persisted
+    /// orientation / Xeneon DDC record, which mirror physical state rather
+    /// than panel customization. Uploaded media is the caller's to delete
+    /// (PanelBgLibrary); the cleared BackgroundMediaId is what unreferences
+    /// it here. Returns null when the id is unknown.
+    /// </summary>
+    public PanelDeviceRecord? ResetToDefaults(string id)
+    {
+        if (string.IsNullOrWhiteSpace(id))
+            return null;
+
+        PanelDeviceRecord? snapshot = null;
+        var now = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds();
+        _store.Update(s =>
+        {
+            if (!s.PanelDevices.TryGetValue(id, out var record))
+                return;
+            record.Layout = null;
+            record.ThemeMode = null;
+            record.AccentColor = null;
+            record.BackgroundColor = null;
+            record.BackgroundColorLight = null;
+            record.BackgroundMode = null;
+            record.BackgroundEffect = null;
+            record.BackgroundTemplate = null;
+            record.BackgroundTemplates = null;
+            record.BackgroundOpacity = null;
+            record.BackgroundEnabled = null;
+            record.BackgroundMediaId = null;
+            record.BackgroundMediaType = null;
+            record.BackgroundFrost = null;
+            record.WidgetOpacity = null;
+            record.WidgetLabels = null;
+            record.WidgetPadding = null;
+            record.ThemeSyncWithDesktop = null;
+            record.AccentSyncWithDesktop = null;
+            record.ReserveMonitor = null;
+            record.AutoOrient = null;
+            record.LastSeenAt = now;
+            snapshot = Clone(record);
+        });
+        // A reset is rare and destructive; it must survive an immediate
+        // service exit, same durability rule as the panel on/off toggle.
+        if (snapshot is not null) _store.FlushNow();
+        return snapshot;
+    }
+
     private static string DefaultName(long now)
     {
         var when = DateTimeOffset.FromUnixTimeMilliseconds(now).LocalDateTime;

@@ -158,6 +158,84 @@ public sealed class PanelDeviceRegistryTests : IDisposable
         Assert.Null(cleared!.BackgroundFrost);
     }
 
+    [Fact]
+    public void ResetToDefaults_ClearsCustomizations_KeepsIdentity()
+    {
+        var record = _registry.Allocate("My Panel", Caps(PanelSurfaces.Phone));
+        _registry.Patch(record.Id, new PanelDevicePatch
+        {
+            Layout = new PanelLayoutDto { Surface = PanelSurfaces.Phone },
+            ThemeMode = "light",
+            AccentColor = "#8b5cf6",
+            BackgroundColor = "#1f0d36",
+            BackgroundColorLight = "#f3e8ff",
+            BackgroundMode = "shader",
+            BackgroundEffect = "plasma",
+            BackgroundTemplate = 2,
+            BackgroundTemplates = new Dictionary<string, int> { ["plasma"] = 2 },
+            BackgroundOpacity = 0.3,
+            BackgroundEnabled = false,
+            BackgroundMediaId = "asset-1",
+            BackgroundMediaType = "static",
+            BackgroundFrost = "heavy",
+            WidgetOpacity = 0.7,
+            WidgetLabels = true,
+            WidgetPadding = 25,
+            ThemeSyncWithDesktop = false,
+            AccentSyncWithDesktop = false,
+        });
+
+        var reset = _registry.ResetToDefaults(record.Id);
+
+        Assert.NotNull(reset);
+        Assert.Equal(record.Id, reset!.Id);
+        Assert.Equal("My Panel", reset.DisplayName);
+        Assert.Equal(record.FirstSeenAt, reset.FirstSeenAt);
+        Assert.NotNull(reset.Capabilities);
+        Assert.Null(reset.Layout);
+        Assert.Null(reset.ThemeMode);
+        Assert.Null(reset.AccentColor);
+        Assert.Null(reset.BackgroundColor);
+        Assert.Null(reset.BackgroundColorLight);
+        Assert.Null(reset.BackgroundMode);
+        Assert.Null(reset.BackgroundEffect);
+        Assert.Null(reset.BackgroundTemplate);
+        Assert.Null(reset.BackgroundTemplates);
+        Assert.Null(reset.BackgroundOpacity);
+        Assert.Null(reset.BackgroundEnabled);
+        Assert.Null(reset.BackgroundMediaId);
+        Assert.Null(reset.BackgroundMediaType);
+        Assert.Null(reset.BackgroundFrost);
+        Assert.Null(reset.WidgetOpacity);
+        Assert.Null(reset.WidgetLabels);
+        Assert.Null(reset.WidgetPadding);
+        Assert.Null(reset.ThemeSyncWithDesktop);
+        Assert.Null(reset.AccentSyncWithDesktop);
+        Assert.Null(_registry.Get(record.Id)!.Layout);
+    }
+
+    [Fact]
+    public void ResetToDefaults_DisplayBound_KeepsBindingAndEnabled_ResetsMonitorSettings()
+    {
+        var (record, _) = _registry.AllocateForDisplay("DISPLAY-1", "Edge", Caps(PanelSurfaces.Monitor));
+        _registry.Patch(record.Id, new PanelDevicePatch { ReserveMonitor = false, AutoOrient = false, BackgroundFrost = "light" });
+
+        var reset = _registry.ResetToDefaults(record.Id);
+
+        Assert.NotNull(reset);
+        Assert.Equal("DISPLAY-1", reset!.DisplayId);
+        Assert.NotEqual(false, reset.Enabled);
+        Assert.Null(reset.ReserveMonitor);
+        Assert.Null(reset.AutoOrient);
+        Assert.Null(reset.BackgroundFrost);
+    }
+
+    [Fact]
+    public void ResetToDefaults_UnknownId_ReturnsNull()
+    {
+        Assert.Null(_registry.ResetToDefaults("nope"));
+    }
+
     /// <summary>Null until explicitly patched; enabled is the client-side default.</summary>
     [Fact]
     public void Allocate_BackgroundEnabled_AbsentIsNullNotServerDefaulted()

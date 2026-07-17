@@ -1067,6 +1067,12 @@ public static class NexusServiceCollectionExtensions
             Nexus.Service.Platform.Displays.WindowsDigimonRegistryWriter>();
         services.AddSingleton<Nexus.Service.Platform.Displays.ITouchDigitizerDevnodeRestarter,
             Nexus.Service.Platform.Displays.WindowsTouchDigitizerDevnodeRestarter>();
+        // Edge-swipe suppression rides the guard's pass: a touch-expected
+        // display attached means Windows edge overlays would open over the
+        // kiosk glass. Optional on the guard, so non-Windows hosts resolve
+        // without a registration.
+        services.AddSingleton<Nexus.Service.Platform.Displays.IEdgeSwipePolicy,
+            Nexus.Service.Platform.Displays.WindowsEdgeSwipePolicy>();
         services.AddHostedService<Nexus.Service.Platform.Displays.TouchMappingGuardService>();
         // Screen-mirror frames also flow through the helper - DXGI desktop
         // duplication is Session 0-blind, so the helper captures + downsamples
