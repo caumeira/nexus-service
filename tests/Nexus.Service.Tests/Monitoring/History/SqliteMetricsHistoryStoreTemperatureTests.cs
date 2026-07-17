@@ -134,6 +134,45 @@ public class SqliteMetricsHistoryStoreTemperatureTests : IDisposable
         Assert.Equal(40.0, row.AvgC, precision: 5);
     }
 
+    [Fact]
+    public void Append_BackwardDatedReplayIntoAnAgedOutBucket_DoesNotClobberTheRetainedAggregate()
+    {
+        const long bucketStart = 1_000_000_200L; // 5-min (300s) aligned
+        Assert.Equal(0, bucketStart % 300);
+
+        // Original reading lands while the bucket is inside source retention.
+        _store.Append(new[]
+        {
+            new MetricSample(bucketStart, null, null, null, null, 40,
+                Array.Empty<GpuReading>(), Array.Empty<FanReading>()),
+        }, null);
+        var before = Assert.Single(_store.QueryTemperatureBuckets(bucketStart * 1000, bucketStart * 1000));
+        Assert.Equal(40.0, before.AvgC, precision: 5);
+        Assert.Equal(1, before.Samples);
+
+        // An 8-day-later prune moves the source floor past the bucket,
+        // deleting its raw metric_seconds row (the bucket's own temp_buckets
+        // row is still well inside the 90-day tier and survives).
+        var pruneCutoff = bucketStart + 8 * 86_400L;
+        _store.Append(Array.Empty<MetricSample>(), pruneCutoffSec: pruneCutoff);
+        Assert.Empty(_store.Query(bucketStart, bucketStart));
+
+        // A stray reading lands back in the now-aged-out bucket (backward
+        // clock step / replay) in the same flush as a normal current-time
+        // reading.
+        _store.Append(new[]
+        {
+            new MetricSample(bucketStart + 30, null, null, null, null, 99,
+                Array.Empty<GpuReading>(), Array.Empty<FanReading>()),
+            new MetricSample(pruneCutoff + 10_000, null, null, null, null, 55,
+                Array.Empty<GpuReading>(), Array.Empty<FanReading>()),
+        }, null);
+
+        var after = Assert.Single(_store.QueryTemperatureBuckets(bucketStart * 1000, bucketStart * 1000));
+        Assert.Equal(40.0, after.AvgC, precision: 5);
+        Assert.Equal(1, after.Samples);
+    }
+
     // These migration tests use their own isolated directory rather than the
     // class-level _store/_dbPath: that fixture's constructor already boots
     // metrics.db (bumping schema_meta past the import-gate version) before a
@@ -220,6 +259,76 @@ public class SqliteMetricsHistoryStoreTemperatureTests : IDisposable
             using var store = new SqliteMetricsHistoryStore(Path.Combine(dir, "metrics.db"));
 
             Assert.Empty(store.QueryTemperatureBuckets(0, long.MaxValue));
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Constructor_LegacyImportThrows_DoesNotBumpVersion_AndRetriesOnNextBoot()
+    {
+        var dir = CreateIsolatedDir();
+        try
+        {
+            var legacyPath = Path.Combine(dir, "temperature.db");
+            // A valid SQLite file with no temp_buckets table: the import's
+            // SELECT throws "no such table", exercising a genuinely failed
+            // import without depending on SQLite's malformed-file detection.
+            using (var badLegacy = new SqliteConnection($"Data Source={legacyPath}"))
+            {
+                badLegacy.Open();
+                using var cmd = badLegacy.CreateCommand();
+                cmd.CommandText = "CREATE TABLE unrelated (x INTEGER);";
+                cmd.ExecuteNonQuery();
+            }
+
+            var metricsPath = Path.Combine(dir, "metrics.db");
+            using (var store = new SqliteMetricsHistoryStore(metricsPath))
+            {
+                Assert.Empty(store.QueryTemperatureBuckets(0, long.MaxValue));
+            }
+
+            // Replace the broken file with a real one: a later boot must
+            // retry the import rather than treat the failed attempt as done.
+            // Clear Microsoft.Data.Sqlite's connection pool first - otherwise
+            // a reopen at this same path can hand back a pooled native handle
+            // still attached to the deleted file.
+            SqliteConnection.ClearAllPools();
+            File.Delete(legacyPath);
+            var t0Ms = 1_700_000_000_000L;
+            CreateLegacyTemperatureDb(legacyPath, new[] { ("cpu", "cpu", "Legacy CPU", t0Ms, 50.0, 55.0, 10) });
+
+            using var retried = new SqliteMetricsHistoryStore(metricsPath);
+            var row = Assert.Single(retried.QueryTemperatureBuckets(t0Ms - 1, t0Ms + 1));
+            Assert.Equal("Legacy CPU", row.Name);
+        }
+        finally
+        {
+            try { Directory.Delete(dir, recursive: true); } catch { }
+        }
+    }
+
+    [Fact]
+    public void Constructor_SkipsLegacyRowsWithNonPositiveSamples_AvoidingDivideByZero()
+    {
+        var dir = CreateIsolatedDir();
+        try
+        {
+            var t0Ms = 1_700_000_000_000L;
+            CreateLegacyTemperatureDb(Path.Combine(dir, "temperature.db"), new[]
+            {
+                ("cpu", "cpu", "Legacy CPU", t0Ms, 50.0, 55.0, 0),
+                ("storage:legacy1", "storage", "Old SSD", t0Ms, 40.0, 42.5, 8),
+            });
+
+            using var store = new SqliteMetricsHistoryStore(Path.Combine(dir, "metrics.db"));
+
+            var rows = store.QueryTemperatureBuckets(t0Ms - 1, t0Ms + 1);
+            var row = Assert.Single(rows);
+            Assert.Equal("storage:legacy1", row.ComponentId);
+            Assert.False(double.IsNaN(row.AvgC));
         }
         finally
         {

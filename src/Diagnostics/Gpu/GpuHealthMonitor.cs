@@ -15,16 +15,13 @@ public sealed record GpuThrottleInfo(
     long? HwPowerBrakeUs);
 
 /// <summary>Per-GPU health readout. RecentTdrCount is intentionally absent -
-/// the integrator fills it in from the event monitor. Uuid is not part of the
-/// wire contract (GpuInfoWire omits it) - NVML's stable identifier, unaffected
-/// by enumeration-index reordering across reboots and driver updates.</summary>
+/// the integrator fills it in from the event monitor.</summary>
 public sealed record GpuInfo(
     string Name,
     string? DriverVersion,
     double? TemperatureC,
     double? PowerW,
-    GpuThrottleInfo Throttle,
-    string? Uuid = null);
+    GpuThrottleInfo Throttle);
 
 public sealed record GpuHealthSnapshot(bool Supported, IReadOnlyList<GpuInfo> Gpus)
 {
@@ -154,7 +151,6 @@ public sealed class GpuHealthMonitor
     private static GpuInfo ReadDevice(IntPtr device, string? driverVersion)
     {
         var name = NvmlInterop.GetDeviceName(device);
-        var uuid = NvmlInterop.GetUuid(device);
 
         double? tempC = NvmlInterop.GetTemperature(device, out var temp) == NvmlInterop.Success ? temp : null;
         double? powerW = NvmlInterop.GetPowerUsageMilliwatts(device, out var mw) == NvmlInterop.Success ? mw / 1000.0 : null;
@@ -170,7 +166,7 @@ public sealed class GpuHealthMonitor
         long? hwPowerBrakeUs = ReadViolationUs(device, NvmlInterop.PolicyBoardLimit);
 
         var throttle = new GpuThrottleInfo(active, swPowerCapUs, swThermalUs, null, hwPowerBrakeUs);
-        return new GpuInfo(name, driverVersion, tempC, powerW, throttle, uuid);
+        return new GpuInfo(name, driverVersion, tempC, powerW, throttle);
     }
 
     private static long? ReadViolationUs(IntPtr device, int policyType)

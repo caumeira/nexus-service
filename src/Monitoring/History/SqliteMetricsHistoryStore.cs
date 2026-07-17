@@ -60,6 +60,16 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
     // app row, not fragment into a second one.
     private readonly Dictionary<string, long> _appKeys = new(StringComparer.OrdinalIgnoreCase);
 
+    // Oldest ts a temp_buckets rebuild may trust metric_seconds/gpu_seconds/
+    // temp_component_seconds to still hold in full - see UpsertTempBucketsRollup.
+    // Seeded from the raw tables' own minimum at open (state a prior session
+    // already pruned to) and only ever raised by Prune, never re-derived from
+    // live table contents mid-session: a stray old-timestamped sample sits in
+    // metric_seconds the moment InsertScalars writes it, so querying MIN(ts)
+    // after that point would let the very row this guards against widen the
+    // floor back to itself.
+    private long? _sourceFloorSec;
+
     public SqliteMetricsHistoryStore() : this(ResolveDatabasePath()) { }
 
     public SqliteMetricsHistoryStore(string dbPath)
@@ -68,6 +78,15 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         _connection = SqliteStores.OpenConnection(dbPath);
         EnsureSchema();
         LoadKeyCaches();
+        _sourceFloorSec = QueryMinRawSecond();
+    }
+
+    private long? QueryMinRawSecond()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT MIN(ts) FROM metric_seconds;";
+        var result = cmd.ExecuteScalar();
+        return result is null or DBNull ? null : Convert.ToInt64(result);
     }
 
     public string DatabasePath => _dbPath;
@@ -740,18 +759,31 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
     // ram (temp_component_seconds/temp_component_series) into the one
     // long-retention temp_buckets table, rebuilt (never accumulated) per
     // touched bucket like the sibling *_minutes rollups above (just at
-    // TempBucketSeconds width instead of a minute). A HAVING count>0 guard
-    // keeps a bucket with no reading for a given component from writing an
-    // empty row (the component's series/key still exists; it just has
-    // nothing to report that bucket).
+    // TempBucketSeconds width instead of a minute) - idempotent no matter how
+    // many times a given bucket is touched, but ONLY within source retention
+    // (see _sourceFloorSec): a bucket older than that is skipped rather than
+    // rebuilt, since metric_seconds/gpu_seconds/temp_component_seconds no
+    // longer hold its full window and a rebuild there would replace a
+    // complete 90-day aggregate with whatever fragment (often a single
+    // out-of-order sample) source still has. A HAVING count>0 guard keeps a
+    // bucket with no reading for a given component from writing an empty row
+    // (the component's series/key still exists; it just has nothing to
+    // report that bucket).
     private void UpsertTempBucketsRollup(
         SqliteTransaction tx, IReadOnlyList<MetricSample> samples,
         Dictionary<string, long> pendingGpuKeys, Dictionary<string, long> pendingTempComponentKeys)
     {
+        var floor = _sourceFloorSec;
+        bool WithinSourceRetention(long bucketStart) => floor is not { } f || bucketStart >= f;
+
         var buckets = new HashSet<long>();
         foreach (var s in samples)
         {
-            buckets.Add(s.TsSec / TempBucketSeconds * TempBucketSeconds);
+            var bucket = s.TsSec / TempBucketSeconds * TempBucketSeconds;
+            if (WithinSourceRetention(bucket))
+            {
+                buckets.Add(bucket);
+            }
         }
         if (buckets.Count == 0)
         {
@@ -819,6 +851,10 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         foreach (var s in samples)
         {
             var bucket = s.TsSec / TempBucketSeconds * TempBucketSeconds;
+            if (!WithinSourceRetention(bucket))
+            {
+                continue;
+            }
             foreach (var g in s.Gpus)
             {
                 bucketGpuPairs.Add((bucket, ResolveKnownKey(g.GpuId, _gpuKeys, pendingGpuKeys)));
@@ -858,6 +894,12 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             cmd.Parameters.AddWithValue("$cutoff", cutoffSec);
             cmd.ExecuteNonQuery();
         }
+
+        // Raised, never lowered: a later cutoffSec smaller than the current
+        // floor (a backward system clock step feeding MetricsSampler.Flush's
+        // own "now") must not reopen buckets this same field already ruled
+        // unsafe to rebuild.
+        _sourceFloorSec = Math.Max(_sourceFloorSec ?? long.MinValue, cutoffSec);
 
         foreach (var (table, tsColumn) in RollupTables)
         {
@@ -1190,7 +1232,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         catch (Exception ex)
         {
             Console.Error.WriteLine(
-                $"[metrics-history-store] legacy temperature import failed: {ex.GetType().Name}: {ex.Message}");
+                $"[metrics-history-store] legacy temperature import failed (retrying next boot): {ex.GetType().Name}: {ex.Message}");
+            return;
         }
 
         using var cmd = _connection.CreateCommand();

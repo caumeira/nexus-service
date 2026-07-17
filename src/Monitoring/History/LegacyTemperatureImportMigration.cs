@@ -28,10 +28,10 @@ namespace Nexus.Service.Monitoring.History;
 /// GPU with prior history therefore renders as two chart series for the
 /// remainder of the 90-day retention window: the imported one under the old
 /// id, and a new one accumulating under the new id from this boot onward.
-/// No id-remapping is attempted - the old GpuComponentIdMigration precedent
-/// re-keyed by matching GPU name, but that requires a live GPU snapshot at
-/// migration time and this migration runs before the sampler has taken one.
-/// The imported series simply ages out after 90 days like any other row.
+/// No id-remapping is attempted: matching an imported row to its live
+/// counterpart by GPU name would need a live GPU snapshot, and this
+/// migration runs before the sampler has taken one. The imported series
+/// simply ages out after 90 days like any other row.
 /// </summary>
 internal static class LegacyTemperatureImportMigration
 {
@@ -58,8 +58,17 @@ internal static class LegacyTemperatureImportMigration
         var pCnt = AddParam(cmd, "$cnt");
         var pMax = AddParam(cmd, "$max");
 
+        var imported = 0;
         foreach (var row in rows)
         {
+            // samples <= 0 would divide-by-zero into NaN when
+            // QueryTemperatureBuckets reads sum_x10/(cnt*10.0) back, and a
+            // non-finite float crashes the whole JSON envelope on write - skip
+            // rather than trust an unverifiable legacy row.
+            if (row.Samples <= 0)
+            {
+                continue;
+            }
             pTs.Value = row.BucketUtcMs / 1000;
             pId.Value = row.ComponentId;
             pKind.Value = row.Kind;
@@ -68,10 +77,11 @@ internal static class LegacyTemperatureImportMigration
             pCnt.Value = row.Samples;
             pMax.Value = (long)Math.Round(row.MaxC * 10);
             cmd.ExecuteNonQuery();
+            imported++;
         }
         tx.Commit();
 
-        Console.WriteLine($"[metrics-history-store] imported {rows.Count} temp_buckets rows from {legacyDbPath}");
+        Console.WriteLine($"[metrics-history-store] imported {imported} temp_buckets rows from {legacyDbPath}");
     }
 
     internal readonly record struct LegacyBucket(
