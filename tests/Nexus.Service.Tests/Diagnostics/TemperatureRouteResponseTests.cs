@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Diagnostics.Temperature;
+using Nexus.Service.Monitoring.History;
 using Nexus.Service.Routes;
 using Xunit;
 
@@ -9,7 +10,7 @@ namespace Nexus.Service.Tests.Diagnostics;
 
 public class TemperatureRouteResponseTests
 {
-    private const long BucketMs = TemperatureRollup.BucketMinutes * 60_000L;
+    private const long BucketMs = TemperatureInsights.NativeBucketMinutes * 60_000L;
     private static readonly long T0Ms =
         new DateTimeOffset(new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc)).ToUnixTimeMilliseconds();
 
@@ -21,7 +22,7 @@ public class TemperatureRouteResponseTests
     [Fact]
     public void BuildTemperatureResponse_ReportsTheEffectiveTierWidth()
     {
-        var rows = SeriesOf(24 * 12);
+        var rows = SeriesOf(24 * 60);
 
         var response = DiagnosticsHealthRoutes.BuildTemperatureResponse(rows, tierWidthMinutes: 30);
 
@@ -36,14 +37,14 @@ public class TemperatureRouteResponseTests
 
         var response = DiagnosticsHealthRoutes.BuildTemperatureResponse(rows, tierWidthMinutes: 5);
 
-        Assert.Equal(TemperatureRollup.RetentionDays, response.RetentionDays);
+        Assert.Equal(TemperatureInsights.RetentionDays, response.RetentionDays);
     }
 
     [Fact]
     public void BuildTemperatureResponse_MergesSeriesPointsToTheTierWidth()
     {
-        // 14 days of raw 5-min buckets tiered at 60 min -> 336 points.
-        var rows = SeriesOf(336 * 12);
+        // 14 days of raw 1-min buckets tiered at 60 min -> 336 points.
+        var rows = SeriesOf(336 * 60);
 
         var response = DiagnosticsHealthRoutes.BuildTemperatureResponse(rows, tierWidthMinutes: 60);
 
@@ -54,9 +55,9 @@ public class TemperatureRouteResponseTests
     [Fact]
     public void BuildTemperatureResponse_RawTierLeavesOnePointPerBucket()
     {
-        var rows = SeriesOf(24 * 12);
+        var rows = SeriesOf(100);
 
-        var response = DiagnosticsHealthRoutes.BuildTemperatureResponse(rows, tierWidthMinutes: 5);
+        var response = DiagnosticsHealthRoutes.BuildTemperatureResponse(rows, tierWidthMinutes: TemperatureInsights.NativeBucketMinutes);
 
         var series = Assert.Single(response.Series);
         Assert.Equal(rows.Count, series.Points.Count);

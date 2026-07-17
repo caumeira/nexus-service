@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 
 namespace Nexus.Service.Monitoring.History;
@@ -17,11 +18,19 @@ public sealed record GpuReading(
 /// channel only exists in this list because it reported a commanded duty.</summary>
 public sealed record FanReading(string FanId, string Name, int? Rpm, int? Duty);
 
+/// <summary>One storage or RAM component's temperature reading within a
+/// MetricSample. ComponentId is the same stable id used elsewhere for that
+/// component (SmartDriveInfo.Id for storage, "ram:&lt;index&gt;" for RAM);
+/// Kind is "storage" or "ram".</summary>
+public sealed record ComponentTempReading(string ComponentId, string Kind, string Name, double? ValueC);
+
 /// <summary>
 /// One second's worth of system metrics: wall-clock epoch-seconds timestamp
 /// plus nullable scalars (null = that source failed this tick) and the
-/// per-GPU / per-fan reading lists. The unit MetricsSampleBuffer buffers,
-/// IMetricsHistoryStore persists, and GET /monitoring/history serves.
+/// per-GPU / per-fan / per-temp-component reading lists. The unit
+/// MetricsSampleBuffer buffers, IMetricsHistoryStore persists, and GET
+/// /monitoring/history serves. CpuName and ComponentTemps default so every
+/// pre-existing 8-arg construction site keeps compiling.
 /// </summary>
 public sealed record MetricSample(
     long TsSec,
@@ -31,4 +40,9 @@ public sealed record MetricSample(
     double? NetOutBytesPerSec,
     double? CpuTempC,
     IReadOnlyList<GpuReading> Gpus,
-    IReadOnlyList<FanReading> Fans);
+    IReadOnlyList<FanReading> Fans,
+    string? CpuName = null,
+    IReadOnlyList<ComponentTempReading>? ComponentTemps = null)
+{
+    public IReadOnlyList<ComponentTempReading> ComponentTemps { get; init; } = ComponentTemps ?? Array.Empty<ComponentTempReading>();
+}

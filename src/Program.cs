@@ -153,7 +153,7 @@ if (!testHost)
 
 // Runs unconditionally, including under testHost: testHost only suppresses
 // the migration above, not hosted-service startup, so MetricsSampler's
-// dependency chain still resolves ITemperatureHistoryStore / IScreenTimeStore
+// dependency chain still resolves IMetricsHistoryStore / IScreenTimeStore
 // under a test host and could otherwise create an empty file at the target
 // path ahead of this migration. Idempotent - see DatabaseLayoutMigration for
 // how a stray empty target is handled.

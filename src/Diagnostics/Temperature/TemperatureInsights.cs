@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Nexus.Service.Monitoring.History;
 
 namespace Nexus.Service.Diagnostics.Temperature;
 
@@ -8,9 +9,9 @@ namespace Nexus.Service.Diagnostics.Temperature;
 public sealed record TemperaturePoint(long T, double Avg, double Max);
 
 /// <summary>A sustained-high-temperature window for one component. Kind is
-/// cpu/gpu/storage/ram (the same values TemperatureRollup tags each row
-/// with); it gates which DiagnosticsSettings.Components flag applies to this
-/// episode.</summary>
+/// cpu/gpu/storage/ram (the same values the temp_minutes rollup tags each
+/// row with); it gates which DiagnosticsSettings.Components flag applies to
+/// this episode.</summary>
 public sealed record TemperatureEpisode(
     string ComponentId, string Name, DateTime StartUtc, DateTime EndUtc,
     double PeakC, double ThresholdC, string Kind = "");
@@ -18,7 +19,7 @@ public sealed record TemperatureEpisode(
 /// <summary>
 /// Pure analysis over stored temperature buckets: no I/O, fully unit-testable.
 /// Sustained-high detection and chart decimation both operate on
-/// TemperatureBucketRow lists already read from the store.
+/// TemperatureBucketRow lists already read from IMetricsHistoryStore.
 /// </summary>
 public static class TemperatureInsights
 {
@@ -26,6 +27,18 @@ public static class TemperatureInsights
     public const double GpuThresholdC = 85;
     public const double StorageThresholdC = 70;
     public const double RamThresholdC = 60;
+
+    /// <summary>Native bucket width (minutes) of the temp_minutes rollup that
+    /// backs every TemperatureBucketRow this class consumes - used for
+    /// bucket-adjacency checks (DetectEpisodes) and as MergeToWidth's no-op
+    /// floor.</summary>
+    public const int NativeBucketMinutes = 1;
+
+    /// <summary>Days of temperature history retained; mirrors
+    /// MetricsHistory.TempRetentionDays (the temp_minutes rollup's own
+    /// retention) so callers outside Monitoring.History don't need that
+    /// namespace just for this one number.</summary>
+    public const int RetentionDays = MetricsHistory.TempRetentionDays;
 
     // A single above-threshold bucket can be a noisy sample, not sustained
     // heat; requiring more than one in a row filters that out.
@@ -73,7 +86,7 @@ public static class TemperatureInsights
         IReadOnlyList<TemperatureBucketRow> rows,
         IReadOnlyDictionary<string, double>? thresholdOverrides = null)
     {
-        var bucketMs = TemperatureRollup.BucketMinutes * 60_000L;
+        var bucketMs = NativeBucketMinutes * 60_000L;
         var episodes = new List<TemperatureEpisode>();
 
         foreach (var group in rows.GroupBy(r => r.ComponentId))
@@ -150,7 +163,7 @@ public static class TemperatureInsights
     /// </summary>
     public static IReadOnlyList<TemperatureBucketRow> MergeToWidth(IReadOnlyList<TemperatureBucketRow> rows, long widthMs)
     {
-        const long rawBucketMs = TemperatureRollup.BucketMinutes * 60_000L;
+        const long rawBucketMs = NativeBucketMinutes * 60_000L;
         if (rows.Count == 0 || widthMs <= rawBucketMs)
         {
             return rows;

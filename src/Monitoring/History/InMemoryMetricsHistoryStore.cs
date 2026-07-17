@@ -148,6 +148,67 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         }
     }
 
+    // The ring holds at most RingWindowSeconds of raw MetricSample rows, so
+    // aggregating cpu/gpu/storage/ram temp readings into minute buckets here
+    // (rather than maintaining a separate rollup table) costs nothing worth
+    // avoiding, mirroring QueryScalarsDecimated's fallback approach.
+    public IReadOnlyList<TemperatureBucketRow> QueryTemperatureBuckets(long fromUtcMs, long toUtcMs)
+    {
+        var fromSec = fromUtcMs / 1000;
+        var toSec = toUtcMs / 1000;
+
+        lock (_lock)
+        {
+            var buckets = new Dictionary<(string ComponentId, long Minute), (string Kind, string Name, double Sum, double Max, int Count)>();
+
+            void Accumulate(string componentId, string kind, string name, long minute, double value)
+            {
+                if (buckets.TryGetValue((componentId, minute), out var acc))
+                {
+                    buckets[(componentId, minute)] = (kind, name, acc.Sum + value, System.Math.Max(acc.Max, value), acc.Count + 1);
+                }
+                else
+                {
+                    buckets[(componentId, minute)] = (kind, name, value, value, 1);
+                }
+            }
+
+            foreach (var s in _rows.Values)
+            {
+                if (s.TsSec < fromSec || s.TsSec > toSec)
+                {
+                    continue;
+                }
+                var minute = s.TsSec / 60 * 60;
+                if (s.CpuTempC is { } cpuC)
+                {
+                    Accumulate("cpu", "cpu", string.IsNullOrEmpty(s.CpuName) ? "CPU" : s.CpuName, minute, cpuC);
+                }
+                foreach (var g in s.Gpus)
+                {
+                    if (g.TempC is { } gpuC)
+                    {
+                        Accumulate($"gpu:{g.GpuId}", "gpu", g.Name, minute, gpuC);
+                    }
+                }
+                foreach (var c in s.ComponentTemps)
+                {
+                    if (c.ValueC is { } compC)
+                    {
+                        Accumulate(c.ComponentId, c.Kind, c.Name, minute, compC);
+                    }
+                }
+            }
+
+            return buckets
+                .Select(kv => new TemperatureBucketRow(
+                    kv.Key.ComponentId, kv.Value.Kind, kv.Value.Name, kv.Key.Minute * 1000,
+                    kv.Value.Sum / kv.Value.Count, kv.Value.Max, kv.Value.Count))
+                .OrderBy(r => r.BucketUtcMs)
+                .ToList();
+        }
+    }
+
     private static Dictionary<long, MetricPoint> Slots(
         IReadOnlyList<MetricSample> rows, Func<MetricSample, double?> selector, long fromSec, long toSec, int stepSeconds) =>
         MetricsDecimation.Decimate(rows.Select(s => new MetricSamplePoint(s.TsSec, selector(s))), fromSec, toSec, stepSeconds)

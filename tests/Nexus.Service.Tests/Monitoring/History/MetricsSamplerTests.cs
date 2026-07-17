@@ -3,9 +3,6 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
-using Nexus.Service.Diagnostics.Gpu;
-using Nexus.Service.Diagnostics.Storage;
-using Nexus.Service.Diagnostics.Temperature;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Monitoring.History;
 using Nexus.Service.Sensors;
@@ -80,6 +77,9 @@ public class MetricsSamplerTests
         public IReadOnlyList<GpuDecimatedSlot> QueryGpuDecimated(long fromSec, long toSec, int stepSeconds) =>
             Array.Empty<GpuDecimatedSlot>();
 
+        public IReadOnlyList<TemperatureBucketRow> QueryTemperatureBuckets(long fromUtcMs, long toUtcMs) =>
+            Array.Empty<TemperatureBucketRow>();
+
         public IReadOnlyList<FanDecimatedSlot> QueryFanDecimated(long fromSec, long toSec, int stepSeconds) =>
             Array.Empty<FanDecimatedSlot>();
 
@@ -130,23 +130,10 @@ public class MetricsSamplerTests
         public long? QueryFirstSeen(string appName) => null;
     }
 
-    private sealed class StubGpuHealthSource : IGpuHealthSource
-    {
-        public GpuHealthSnapshot Snapshot(bool forceRefresh = false) => GpuHealthSnapshot.Unsupported;
-    }
-
-    private sealed class StubSmartHealthSource : ISmartHealthSource
-    {
-        public SmartSnapshot Snapshot() => new() { Supported = false, Drives = Array.Empty<SmartDriveInfo>() };
-    }
-
-    private static TemperatureRollup CreateRollup() =>
-        new(new StubSensors(), new StubGpuHealthSource(), new StubSmartHealthSource(), new InMemoryTemperatureHistoryStore());
-
     private static MetricsSampler CreateSampler(
         StubMetricsSource source, RecordingMetricsHistoryStore store, MetricsSampleBuffer? buffer = null,
         IAppUsageSource? appSource = null, AppSampleBuffer? appBuffer = null, IAppUsageHistoryStore? appStore = null) =>
-        new(new StubSensors(), source, buffer ?? new MetricsSampleBuffer(), store, CreateRollup(),
+        new(new StubSensors(), source, buffer ?? new MetricsSampleBuffer(), store,
             appSource ?? new StubAppUsageSource(), appBuffer ?? new AppSampleBuffer(), appStore ?? new RecordingAppUsageHistoryStore());
 
     [Fact]
@@ -262,7 +249,7 @@ public class MetricsSamplerTests
         var source = new ThrowingMetricsSource();
         var store = new RecordingMetricsHistoryStore();
         var buffer = new MetricsSampleBuffer();
-        var sampler = new MetricsSampler(new StubSensors(), source, buffer, store, CreateRollup(),
+        var sampler = new MetricsSampler(new StubSensors(), source, buffer, store,
             new StubAppUsageSource(), new AppSampleBuffer(), new RecordingAppUsageHistoryStore());
 
         await Assert.ThrowsAsync<InvalidOperationException>(() =>

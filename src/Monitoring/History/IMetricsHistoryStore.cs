@@ -36,7 +36,21 @@ public interface IMetricsHistoryStore : IDisposable
     /// <summary>Slot-aggregated per-fan RPM/duty, one row per (fan, slot)
     /// that has data.</summary>
     IReadOnlyList<FanDecimatedSlot> QueryFanDecimated(long fromSec, long toSec, int stepSeconds);
+
+    /// <summary>One bucket for one temperature component (cpu / gpu:&lt;id&gt;
+    /// / storage:&lt;serial&gt; / ram:&lt;id&gt;), minute-aligned, read from the
+    /// 90-day temp_minutes rollup - see QueryTemperatureBuckets.</summary>
+    IReadOnlyList<TemperatureBucketRow> QueryTemperatureBuckets(long fromUtcMs, long toUtcMs);
 }
+
+/// <summary>One bucket for one temperature component. BucketUtcMs is the
+/// bucket's start, aligned to MetricsHistory's minute rollup; AvgC/MaxC/Samples
+/// are derived from every 1Hz reading folded into that minute. Shared by
+/// TemperatureInsights (decimation/episode analysis) and the
+/// /diagnostics/temperatures route.</summary>
+public sealed record TemperatureBucketRow(
+    string ComponentId, string Kind, string Name, long BucketUtcMs,
+    double AvgC, double MaxC, int Samples);
 
 /// <summary>One slot's avg/max for every scalar field. A field is null only
 /// when every raw reading in the slot was itself null (source failed that

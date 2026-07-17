@@ -19,6 +19,7 @@ using Nexus.Service.Diagnostics.SystemInfo;
 using Nexus.Service.Diagnostics.Temperature;
 using Nexus.Service.Lighting;
 using Nexus.Service.Models;
+using Nexus.Service.Monitoring.History;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 
@@ -98,7 +99,7 @@ public static class DiagnosticsHealthRoutes
 
         // date (yyyy-MM-dd, service host's local calendar day) takes priority
         // over hours when both are present.
-        app.MapGet("/diagnostics/temperatures", (int? hours, string? date, ITemperatureHistoryStore tempStore) =>
+        app.MapGet("/diagnostics/temperatures", (int? hours, string? date, IMetricsHistoryStore tempStore) =>
         {
             if (!TryResolveTemperatureWindow(hours, date, out var fromUtcMs, out var toUtcMs, out var tierWidthMinutes, out var error))
             {
@@ -262,7 +263,7 @@ public static class DiagnosticsHealthRoutes
         if (!string.IsNullOrWhiteSpace(date))
         {
             if (!TemperatureDayWindow.TryResolve(
-                    date, DateTimeOffset.UtcNow, TimeZoneInfo.Local, TemperatureRollup.RetentionDays,
+                    date, DateTimeOffset.UtcNow, TimeZoneInfo.Local, TemperatureInsights.RetentionDays,
                     out fromUtcMs, out toUtcMs, out error))
             {
                 return false;
@@ -296,11 +297,11 @@ public static class DiagnosticsHealthRoutes
     }
 
     private static IResult QueryTemperatures(
-        ITemperatureHistoryStore tempStore, long fromUtcMs, long toUtcMs, int tierWidthMinutes)
+        IMetricsHistoryStore tempStore, long fromUtcMs, long toUtcMs, int tierWidthMinutes)
     {
         try
         {
-            var rows = tempStore.Query(fromUtcMs, toUtcMs);
+            var rows = tempStore.QueryTemperatureBuckets(fromUtcMs, toUtcMs);
             return Results.Ok(BuildTemperatureResponse(rows, tierWidthMinutes));
         }
         catch (Exception ex)
@@ -342,7 +343,7 @@ public static class DiagnosticsHealthRoutes
         {
             Supported = true,
             BucketMinutes = tierWidthMinutes,
-            RetentionDays = TemperatureRollup.RetentionDays,
+            RetentionDays = TemperatureInsights.RetentionDays,
             Series = series,
             Episodes = episodes,
         };
@@ -610,8 +611,8 @@ public sealed record TemperatureSeriesWire
 public sealed record TemperatureHistoryResponse
 {
     public bool Supported { get; init; }
-    public int BucketMinutes { get; init; } = Nexus.Service.Diagnostics.Temperature.TemperatureRollup.BucketMinutes;
-    public int RetentionDays { get; init; } = Nexus.Service.Diagnostics.Temperature.TemperatureRollup.RetentionDays;
+    public int BucketMinutes { get; init; } = Nexus.Service.Diagnostics.Temperature.TemperatureInsights.NativeBucketMinutes;
+    public int RetentionDays { get; init; } = Nexus.Service.Diagnostics.Temperature.TemperatureInsights.RetentionDays;
     public IReadOnlyList<TemperatureSeriesWire> Series { get; init; } = Array.Empty<TemperatureSeriesWire>();
     public IReadOnlyList<TemperatureEpisode> Episodes { get; init; } = Array.Empty<TemperatureEpisode>();
 }

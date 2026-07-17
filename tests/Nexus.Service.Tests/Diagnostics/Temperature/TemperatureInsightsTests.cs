@@ -2,13 +2,14 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using Nexus.Service.Diagnostics.Temperature;
+using Nexus.Service.Monitoring.History;
 using Xunit;
 
 namespace Nexus.Service.Tests.Diagnostics.Temperature;
 
 public class TemperatureInsightsTests
 {
-    private const long BucketMs = TemperatureRollup.BucketMinutes * 60_000L;
+    private const long BucketMs = TemperatureInsights.NativeBucketMinutes * 60_000L;
     private static readonly DateTime T0 = new(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
     private static readonly long T0Ms = new DateTimeOffset(T0).ToUnixTimeMilliseconds();
 
@@ -222,7 +223,7 @@ public class TemperatureInsightsTests
     [Fact]
     public void MergeToWidth_FourteenDaysOfRawBuckets_MergeToHourlyGrid()
     {
-        var rows = SeriesOf(336 * 12);
+        var rows = SeriesOf(336 * 60);
         var widthMs = TemperatureInsights.TierWidthMinutesFor(336) * 60_000L;
 
         var merged = TemperatureInsights.MergeToWidth(rows, widthMs);
@@ -252,9 +253,10 @@ public class TemperatureInsightsTests
     [Fact]
     public void MergeToWidth_GridPositionsAreStableRegardlessOfWindowStartOffset()
     {
-        // Raw buckets start 10 minutes into what would be an hourly slot - a
-        // window rarely starts exactly on a tier boundary.
-        var startMs = T0Ms + 2 * BucketMs;
+        // Raw buckets start 58 minutes into what would be an hourly slot (so
+        // the 12-row run crosses the hour boundary) - a window rarely starts
+        // exactly on a tier boundary.
+        var startMs = T0Ms + 58 * BucketMs;
         var rows = Enumerable.Range(0, 12)
             .Select(i => new TemperatureBucketRow("cpu", "cpu", "CPU", startMs + i * BucketMs, 50, 55, 10))
             .ToList();

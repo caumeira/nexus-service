@@ -8,6 +8,7 @@ using Nexus.Service.Diagnostics.Memory;
 using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Diagnostics.SystemInfo;
 using Nexus.Service.Diagnostics.Temperature;
+using Nexus.Service.Monitoring.History;
 using Nexus.Service.Persistence;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
@@ -68,7 +69,7 @@ public sealed class DiagnosticsHealthModel
     private readonly MemoryDiagnosticOrchestrator _memDiag;
     private readonly PnpProblemScanner _pnp;
     private readonly ISensorProvider _sensors;
-    private readonly ITemperatureHistoryStore _tempStore;
+    private readonly IMetricsHistoryStore _tempStore;
     private readonly IConfigStore _store;
 
     private readonly object _gate = new();
@@ -83,7 +84,7 @@ public sealed class DiagnosticsHealthModel
         MemoryDiagnosticOrchestrator memDiag,
         PnpProblemScanner pnp,
         ISensorProvider sensors,
-        ITemperatureHistoryStore tempStore,
+        IMetricsHistoryStore tempStore,
         IConfigStore store)
     {
         _smart = smart;
@@ -146,7 +147,7 @@ public sealed class DiagnosticsHealthModel
         {
             var toMs = new DateTimeOffset(nowUtc).ToUnixTimeMilliseconds();
             var fromMs = new DateTimeOffset(nowUtc - TempEpisodeLookback).ToUnixTimeMilliseconds();
-            return _tempStore.Query(fromMs, toMs);
+            return _tempStore.QueryTemperatureBuckets(fromMs, toMs);
         }
         catch (Exception ex)
         {
@@ -269,7 +270,7 @@ public sealed class DiagnosticsHealthModel
         DateTime generatedAtUtc,
         DiagnosticsSettings diagnostics)
     {
-        var recencyMinutes = Math.Max(TemperatureRollup.BucketMinutes, diagnostics.WarningLingerMinutes);
+        var recencyMinutes = Math.Max(TemperatureInsights.NativeBucketMinutes, diagnostics.WarningLingerMinutes);
         var cutoffUtc = generatedAtUtc.AddMinutes(-recencyMinutes);
         var recentEpisodes = tempEpisodes
             .Where(e => e.EndUtc >= cutoffUtc && e.StartUtc <= generatedAtUtc)

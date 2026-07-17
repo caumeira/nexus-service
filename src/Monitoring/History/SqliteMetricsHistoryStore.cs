@@ -9,16 +9,26 @@ namespace Nexus.Service.Monitoring.History;
 
 /// <summary>
 /// SQLite-backed persistent store for metrics.db. One long-lived connection,
-/// one lock serializing reads and writes, WAL mode via SqliteStores (shared
-/// with SqliteTemperatureHistoryStore / SqliteScreenTimeStore).
+/// one lock serializing reads and writes, WAL mode via SqliteStores.
 ///
 /// Schema: metric_seconds is a wide table (one row per second, scaled-int
-/// columns - x10 fixed point halves storage versus REAL). gpu_seconds and
-/// fan_seconds are narrow (ts, entity) pairs keyed by a small integer
-/// surrogate resolved from gpu_series/fan_series, so the per-second rows
-/// never repeat a string id. privacy_sessions is unrelated to 1Hz sampling
-/// (PrivacyAccessWatcher writes it, on its own transition-driven cadence)
-/// but shares this connection and lock since its write rate is low.
+/// columns - x10 fixed point halves storage versus REAL). gpu_seconds,
+/// fan_seconds, and temp_component_seconds are narrow (ts, entity) pairs
+/// keyed by a small integer surrogate resolved from gpu_series/fan_series/
+/// temp_component_series, so the per-second rows never repeat a string id.
+/// privacy_sessions is unrelated to 1Hz sampling (PrivacyAccessWatcher
+/// writes it, on its own transition-driven cadence) but shares this
+/// connection and lock since its write rate is low.
+///
+/// temp_component_series/temp_component_seconds hold storage and RAM
+/// temperature only - CPU temperature already lives in metric_seconds and
+/// GPU temperature in gpu_seconds, both sampled well before this store took
+/// on temperature history. temp_minutes is the single long-retention (see
+/// MetricsHistory.TempRetentionDays) rollup unifying all four temperature
+/// kinds by a plain TEXT component id, rather than a fourth surrogate-key
+/// table: it has no non-temperature columns to keep narrow, and a flat id is
+/// what GET /diagnostics/temperatures and TemperatureInsights already
+/// consume (see TemperatureBucketRow) with no join needed to read it back.
 ///
 /// app_cpu_seconds / app_mem_seconds / app_gpu_seconds are per-app usage
 /// history, sampled on MetricsHistory.AppSampleIntervalSeconds's sub-cadence:
@@ -38,6 +48,7 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
 
     private readonly Dictionary<string, long> _gpuKeys = new(StringComparer.Ordinal);
     private readonly Dictionary<string, long> _fanKeys = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, long> _tempComponentKeys = new(StringComparer.Ordinal);
     // OrdinalIgnoreCase matches app_series.name's COLLATE NOCASE and
     // ProcessAggregation/ResolveExecutablePath's name comparisons - a
     // process name observed with differing case must resolve to the same
@@ -68,15 +79,18 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             using var tx = _connection.BeginTransaction();
             var pendingGpuKeys = new Dictionary<string, long>(StringComparer.Ordinal);
             var pendingFanKeys = new Dictionary<string, long>(StringComparer.Ordinal);
+            var pendingTempComponentKeys = new Dictionary<string, long>(StringComparer.Ordinal);
 
             if (samples.Count > 0)
             {
                 InsertScalars(tx, samples);
                 InsertGpuReadings(tx, samples, pendingGpuKeys);
                 InsertFanReadings(tx, samples, pendingFanKeys);
+                InsertComponentTempReadings(tx, samples, pendingTempComponentKeys);
                 UpsertScalarRollup(tx, samples);
                 UpsertGpuRollup(tx, samples, pendingGpuKeys);
                 UpsertFanRollup(tx, samples, pendingFanKeys);
+                UpsertTempMinutesRollup(tx, samples, pendingGpuKeys, pendingTempComponentKeys);
             }
 
             if (pruneCutoffSec is { } cutoff)
@@ -88,11 +102,11 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
 
             // Only fold newly resolved surrogate keys into the permanent
             // cache once the transaction that inserted their gpu_series/
-            // fan_series row has actually committed - caching them earlier
-            // would survive a rollback and point at a series row that was
-            // never persisted, so every later query for that entity would
-            // silently return nothing (foreign_keys=OFF, so the dangling
-            // reference never errors).
+            // fan_series/temp_component_series row has actually committed -
+            // caching them earlier would survive a rollback and point at a
+            // series row that was never persisted, so every later query for
+            // that entity would silently return nothing (foreign_keys=OFF,
+            // so the dangling reference never errors).
             foreach (var (id, key) in pendingGpuKeys)
             {
                 _gpuKeys[id] = key;
@@ -100,6 +114,10 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             foreach (var (id, key) in pendingFanKeys)
             {
                 _fanKeys[id] = key;
+            }
+            foreach (var (id, key) in pendingTempComponentKeys)
+            {
+                _tempComponentKeys[id] = key;
             }
         }
     }
@@ -424,6 +442,42 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         return result;
     }
 
+    // fromUtcMs/toUtcMs are milliseconds (the wire convention the temperature
+    // route already used); temp_minutes.ts_min is seconds, matching every
+    // other *_minutes table, so both bounds are floor-divided rather than
+    // rounded - a window boundary landing mid-second still includes that
+    // second's bucket.
+    public IReadOnlyList<TemperatureBucketRow> QueryTemperatureBuckets(long fromUtcMs, long toUtcMs)
+    {
+        var fromSec = fromUtcMs / 1000;
+        var toSec = toUtcMs / 1000;
+
+        lock (_writeLock)
+        {
+            var result = new List<TemperatureBucketRow>();
+            using var cmd = _connection.CreateCommand();
+            cmd.CommandText = """
+                SELECT ts_min, component_id, kind, name, sum_x10, cnt, max_x10
+                FROM temp_minutes
+                WHERE ts_min BETWEEN $from AND $to
+                ORDER BY ts_min ASC;
+            """;
+            cmd.Parameters.AddWithValue("$from", fromSec);
+            cmd.Parameters.AddWithValue("$to", toSec);
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                var cnt = reader.GetInt32(5);
+                var sumX10 = reader.GetInt64(4);
+                var maxX10 = reader.GetInt64(6);
+                result.Add(new TemperatureBucketRow(
+                    reader.GetString(1), reader.GetString(2), reader.GetString(3),
+                    reader.GetInt64(0) * 1000, sumX10 / (cnt * 10.0), maxX10 / 10.0, cnt));
+            }
+            return result;
+        }
+    }
+
     private static double? NullableDouble(SqliteDataReader reader, int ordinal) =>
         reader.IsDBNull(ordinal) ? null : reader.GetDouble(ordinal);
 
@@ -526,6 +580,31 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 pFan.Value = ResolveFanKey(tx, f.FanId, f.Name, pendingKeys);
                 pRpm.Value = (object?)f.Rpm ?? DBNull.Value;
                 pDuty.Value = (object?)f.Duty ?? DBNull.Value;
+                cmd.ExecuteNonQuery();
+            }
+        }
+    }
+
+    private void InsertComponentTempReadings(
+        SqliteTransaction tx, IReadOnlyList<MetricSample> samples, Dictionary<string, long> pendingKeys)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT OR REPLACE INTO temp_component_seconds (ts, component, value_x10)
+            VALUES ($ts, $component, $value);
+        """;
+        var pTs = AddParam(cmd, "$ts");
+        var pComponent = AddParam(cmd, "$component");
+        var pValue = AddParam(cmd, "$value");
+
+        foreach (var s in samples)
+        {
+            foreach (var c in s.ComponentTemps)
+            {
+                pTs.Value = s.TsSec;
+                pComponent.Value = ResolveTempComponentKey(tx, c.ComponentId, c.Kind, c.Name, pendingKeys);
+                pValue.Value = ScaleX10(c.ValueC);
                 cmd.ExecuteNonQuery();
             }
         }
@@ -651,9 +730,117 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         }
     }
 
+    // Unifies cpu (metric_seconds) + gpu (gpu_seconds/gpu_series) + storage/
+    // ram (temp_component_seconds/temp_component_series) into the one
+    // long-retention temp_minutes table, rebuilt (never accumulated) per
+    // touched minute like the sibling *_minutes rollups above. A HAVING
+    // count>0 guard keeps a minute with no reading for a given component
+    // from writing an empty row (the component's series/key still exists;
+    // it just has nothing to report that minute).
+    private void UpsertTempMinutesRollup(
+        SqliteTransaction tx, IReadOnlyList<MetricSample> samples,
+        Dictionary<string, long> pendingGpuKeys, Dictionary<string, long> pendingTempComponentKeys)
+    {
+        var minutes = new HashSet<long>();
+        foreach (var s in samples)
+        {
+            minutes.Add(s.TsSec / 60 * 60);
+        }
+        if (minutes.Count == 0)
+        {
+            return;
+        }
+
+        var cpuName = "CPU";
+        foreach (var s in samples)
+        {
+            if (!string.IsNullOrEmpty(s.CpuName))
+            {
+                cpuName = s.CpuName;
+                break;
+            }
+        }
+
+        using var cpuCmd = _connection.CreateCommand();
+        cpuCmd.Transaction = tx;
+        cpuCmd.CommandText = """
+            INSERT OR REPLACE INTO temp_minutes (ts_min, component_id, kind, name, sum_x10, cnt, max_x10)
+            SELECT $ts, 'cpu', 'cpu', $name, SUM(cpu_temp_x10), COUNT(cpu_temp_x10), MAX(cpu_temp_x10)
+            FROM metric_seconds
+            WHERE ts >= $ts AND ts < $ts + 60
+            HAVING COUNT(cpu_temp_x10) > 0;
+        """;
+        var cpuTs = AddParam(cpuCmd, "$ts");
+        var cpuNameParam = AddParam(cpuCmd, "$name");
+        cpuNameParam.Value = cpuName;
+
+        using var gpuCmd = _connection.CreateCommand();
+        gpuCmd.Transaction = tx;
+        gpuCmd.CommandText = """
+            INSERT OR REPLACE INTO temp_minutes (ts_min, component_id, kind, name, sum_x10, cnt, max_x10)
+            SELECT $ts, 'gpu:' || se.gpu_id, 'gpu', se.name,
+                   SUM(gs.temp_x10), COUNT(gs.temp_x10), MAX(gs.temp_x10)
+            FROM gpu_seconds gs
+            JOIN gpu_series se ON se.key = gs.gpu
+            WHERE gs.gpu = $gpu AND gs.ts >= $ts AND gs.ts < $ts + 60
+            GROUP BY se.gpu_id, se.name
+            HAVING COUNT(gs.temp_x10) > 0;
+        """;
+        var gpuTs = AddParam(gpuCmd, "$ts");
+        var gpuKeyParam = AddParam(gpuCmd, "$gpu");
+
+        using var compCmd = _connection.CreateCommand();
+        compCmd.Transaction = tx;
+        compCmd.CommandText = """
+            INSERT OR REPLACE INTO temp_minutes (ts_min, component_id, kind, name, sum_x10, cnt, max_x10)
+            SELECT $ts, se.component_id, se.kind, se.name,
+                   SUM(cs.value_x10), COUNT(cs.value_x10), MAX(cs.value_x10)
+            FROM temp_component_seconds cs
+            JOIN temp_component_series se ON se.key = cs.component
+            WHERE cs.component = $component AND cs.ts >= $ts AND cs.ts < $ts + 60
+            GROUP BY se.component_id, se.kind, se.name
+            HAVING COUNT(cs.value_x10) > 0;
+        """;
+        var compTs = AddParam(compCmd, "$ts");
+        var compKeyParam = AddParam(compCmd, "$component");
+
+        var minuteGpuPairs = new HashSet<(long Minute, long GpuKey)>();
+        var minuteComponentPairs = new HashSet<(long Minute, long ComponentKey)>();
+        foreach (var s in samples)
+        {
+            var minute = s.TsSec / 60 * 60;
+            foreach (var g in s.Gpus)
+            {
+                minuteGpuPairs.Add((minute, ResolveKnownKey(g.GpuId, _gpuKeys, pendingGpuKeys)));
+            }
+            foreach (var c in s.ComponentTemps)
+            {
+                minuteComponentPairs.Add((minute, ResolveKnownKey(c.ComponentId, _tempComponentKeys, pendingTempComponentKeys)));
+            }
+        }
+
+        foreach (var minute in minutes)
+        {
+            cpuTs.Value = minute;
+            cpuCmd.ExecuteNonQuery();
+        }
+        foreach (var (minute, gpuKey) in minuteGpuPairs)
+        {
+            gpuTs.Value = minute;
+            gpuKeyParam.Value = gpuKey;
+            gpuCmd.ExecuteNonQuery();
+        }
+        foreach (var (minute, componentKey) in minuteComponentPairs)
+        {
+            compTs.Value = minute;
+            compKeyParam.Value = componentKey;
+            compCmd.ExecuteNonQuery();
+        }
+    }
+
     private void Prune(SqliteTransaction tx, long cutoffSec)
     {
-        foreach (var table in new[] { "metric_seconds", "gpu_seconds", "fan_seconds" })
+        foreach (var table in new[] { "metric_seconds", "gpu_seconds", "fan_seconds", "temp_component_seconds" })
         {
             using var cmd = _connection.CreateCommand();
             cmd.Transaction = tx;
@@ -668,6 +855,19 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             cmd.Transaction = tx;
             cmd.CommandText = $"DELETE FROM {table} WHERE {tsColumn} < $cutoff;";
             cmd.Parameters.AddWithValue("$cutoff", cutoffSec);
+            cmd.ExecuteNonQuery();
+        }
+
+        // temp_minutes keeps MetricsHistory.TempRetentionDays instead of the
+        // RetentionDays cutoffSec already encodes ("now - RetentionDays"), so
+        // shift it back by the gap between the two retention windows rather
+        // than threading a second now-relative timestamp through Append.
+        var tempCutoffSec = cutoffSec - (MetricsHistory.TempRetentionDays - MetricsHistory.RetentionDays) * 86_400L;
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.Transaction = tx;
+            cmd.CommandText = "DELETE FROM temp_minutes WHERE ts_min < $cutoff;";
+            cmd.Parameters.AddWithValue("$cutoff", tempCutoffSec);
             cmd.ExecuteNonQuery();
         }
     }
@@ -727,6 +927,33 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         return key;
     }
 
+    private long ResolveTempComponentKey(
+        SqliteTransaction tx, string componentId, string kind, string name, Dictionary<string, long> pendingKeys)
+    {
+        if (_tempComponentKeys.TryGetValue(componentId, out var cached))
+        {
+            return cached;
+        }
+        if (pendingKeys.TryGetValue(componentId, out var pending))
+        {
+            return pending;
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = """
+            INSERT INTO temp_component_series (component_id, kind, name) VALUES ($id, $kind, $name)
+            ON CONFLICT(component_id) DO UPDATE SET kind = excluded.kind, name = excluded.name
+            RETURNING key;
+        """;
+        cmd.Parameters.AddWithValue("$id", componentId);
+        cmd.Parameters.AddWithValue("$kind", kind);
+        cmd.Parameters.AddWithValue("$name", name);
+        var key = Convert.ToInt64(cmd.ExecuteScalar());
+        pendingKeys[componentId] = key;
+        return key;
+    }
+
     private void LoadKeyCaches()
     {
         using (var cmd = _connection.CreateCommand())
@@ -745,6 +972,15 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             while (reader.Read())
             {
                 _fanKeys[reader.GetString(0)] = reader.GetInt64(1);
+            }
+        }
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = "SELECT component_id, key FROM temp_component_series;";
+            using var reader = cmd.ExecuteReader();
+            while (reader.Read())
+            {
+                _tempComponentKeys[reader.GetString(0)] = reader.GetInt64(1);
             }
         }
         using (var cmd = _connection.CreateCommand())
@@ -839,6 +1075,31 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
                 PRIMARY KEY (ts_min, fan)
             ) WITHOUT ROWID;
 
+            CREATE TABLE IF NOT EXISTS temp_component_series (
+                key          INTEGER PRIMARY KEY AUTOINCREMENT,
+                component_id TEXT NOT NULL UNIQUE,
+                kind         TEXT NOT NULL,
+                name         TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS temp_component_seconds (
+                ts        INTEGER NOT NULL,
+                component INTEGER NOT NULL,
+                value_x10 INTEGER,
+                PRIMARY KEY (ts, component)
+            ) WITHOUT ROWID;
+
+            CREATE TABLE IF NOT EXISTS temp_minutes (
+                ts_min       INTEGER NOT NULL,
+                component_id TEXT    NOT NULL,
+                kind         TEXT    NOT NULL,
+                name         TEXT    NOT NULL,
+                sum_x10      INTEGER NOT NULL,
+                cnt          INTEGER NOT NULL,
+                max_x10      INTEGER NOT NULL,
+                PRIMARY KEY (ts_min, component_id)
+            ) WITHOUT ROWID;
+            CREATE INDEX IF NOT EXISTS ix_temp_minutes_ts ON temp_minutes(ts_min);
+
             CREATE TABLE IF NOT EXISTS app_series (
                 key  INTEGER PRIMARY KEY AUTOINCREMENT,
                 name TEXT NOT NULL COLLATE NOCASE UNIQUE
@@ -888,7 +1149,49 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         cmd.ExecuteNonQuery();
 
         MigrateAppSeriesToNoCase();
+        ImportLegacyTemperatureHistory();
     }
+
+    // Runs once (schema_meta version gate): imports the retired
+    // temperature.db's temp_buckets rows into temp_minutes, then leaves
+    // temperature.db in place untouched - a partial or failed import always
+    // has the source data to retry from on the next boot. A box with no
+    // temperature.db (fresh install, or one that already ran this) has
+    // nothing to import and just bumps the version.
+    private const int SchemaVersionTempImport = 3;
+
+    private void ImportLegacyTemperatureHistory()
+    {
+        if (ReadSchemaVersion() >= SchemaVersionTempImport)
+        {
+            return;
+        }
+
+        try
+        {
+            var legacyPath = ResolveLegacyTemperatureDbPath();
+            if (File.Exists(legacyPath))
+            {
+                LegacyTemperatureImportMigration.Run(_connection, legacyPath);
+            }
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(
+                $"[metrics-history-store] legacy temperature import failed: {ex.GetType().Name}: {ex.Message}");
+        }
+
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = """
+            INSERT INTO schema_meta (key, value) VALUES ('version', $v)
+            ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+        """;
+        cmd.Parameters.AddWithValue("$v", SchemaVersionTempImport.ToString());
+        cmd.ExecuteNonQuery();
+    }
+
+    private string ResolveLegacyTemperatureDbPath() =>
+        Path.Combine(Path.GetDirectoryName(_dbPath)!, "temperature.db");
 
     // app_series was created without COLLATE NOCASE by an earlier version
     // of this store; CREATE TABLE IF NOT EXISTS above no-ops on a database

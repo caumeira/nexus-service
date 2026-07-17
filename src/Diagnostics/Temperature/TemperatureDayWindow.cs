@@ -8,7 +8,7 @@ namespace Nexus.Service.Diagnostics.Temperature;
 /// validates the date param, then computes the calendar day's UTC bucket range
 /// in the given time zone. No I/O; timeZone and nowUtc are injected so the DST
 /// and validation edges are unit-testable without depending on the host clock.
-/// fromUtcMs/toUtcMs are both inclusive, matching ITemperatureHistoryStore.Query.
+/// fromUtcMs/toUtcMs are both inclusive, matching IMetricsHistoryStore.QueryTemperatureBuckets.
 /// </summary>
 public static class TemperatureDayWindow
 {

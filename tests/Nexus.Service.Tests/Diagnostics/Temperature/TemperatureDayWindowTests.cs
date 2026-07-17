@@ -1,5 +1,6 @@
 using System;
 using Nexus.Service.Diagnostics.Temperature;
+using Nexus.Service.Monitoring.History;
 using Xunit;
 
 namespace Nexus.Service.Tests.Diagnostics.Temperature;
@@ -115,14 +116,19 @@ public class TemperatureDayWindowTests
             "2026-07-01", FixedNowUtc, TimeZoneInfo.Utc, RetentionDays, out var fromMs, out var toMs, out _);
         Assert.True(ok);
 
-        // ITemperatureHistoryStore.Query is inclusive on both ends; a raw
-        // bucket lands exactly at the next day's midnight under continuous
-        // sampling, so toMs must fall short of it or that bucket leaks in.
+        // IMetricsHistoryStore.QueryTemperatureBuckets is inclusive on both
+        // ends; a minute bucket lands exactly at the next day's midnight
+        // under continuous sampling, so toMs must fall short of it or that
+        // bucket leaks in.
         var nextDayFirstBucketMs = new DateTimeOffset(2026, 7, 2, 0, 0, 0, TimeSpan.Zero).ToUnixTimeMilliseconds();
-        var store = new InMemoryTemperatureHistoryStore();
-        store.UpsertBuckets(new[] { new TemperatureBucketRow("cpu", "cpu", "CPU", nextDayFirstBucketMs, 50, 55, 10) });
+        var store = new InMemoryMetricsHistoryStore();
+        store.Append(new[]
+        {
+            new MetricSample(nextDayFirstBucketMs / 1000, null, null, null, null, 50,
+                Array.Empty<GpuReading>(), Array.Empty<FanReading>()),
+        }, null);
 
-        var rows = store.Query(fromMs, toMs);
+        var rows = store.QueryTemperatureBuckets(fromMs, toMs);
 
         Assert.Empty(rows);
     }

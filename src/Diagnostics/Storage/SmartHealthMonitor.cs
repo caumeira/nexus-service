@@ -70,7 +70,7 @@ public sealed record SmartNvmeWire
     public ulong DataUnitsWrittenBytes { get; init; }
 }
 
-/// <summary>What TemperatureRollup consumes from a SMART health source -
+/// <summary>What SystemMetricsSource consumes from a SMART health source -
 /// narrow enough to substitute a stub in tests instead of constructing the
 /// real LhmComputer-backed monitor.</summary>
 public interface ISmartHealthSource

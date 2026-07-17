@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Cooling;
+using Nexus.Service.Diagnostics.Storage;
 using Nexus.Service.Models.Sensors;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
@@ -12,10 +13,12 @@ namespace Nexus.Service.Monitoring.History;
 /// <summary>
 /// Production IMetricsSource: CPU/memory from IPerformanceProvider, network
 /// byte rates from NetworkRateReader, CPU temperature via SummarySensors,
-/// per-GPU load/temperature from ISensorProvider.GetGpus, and per-channel
-/// fan RPM/duty from IFanControlProvider.GetFanChannels - the same
-/// always-on channel state CurveEngine reads at its own 1Hz tick, so this
-/// adds no new hardware polling.
+/// per-GPU load/temperature from ISensorProvider.GetGpus, per-channel fan
+/// RPM/duty from IFanControlProvider.GetFanChannels, and per-drive/per-DIMM
+/// temperature from ISmartHealthSource / ISensorProvider.GetMemorySensors -
+/// the same always-on channel state CurveEngine reads at its own 1Hz tick
+/// (fans) or that diagnostics already polls on its own cache (SMART), so
+/// this adds no new hardware polling cadence.
 ///
 /// Each source below is independently try/caught so one failing read (e.g.
 /// a GPU driver hiccup) nulls only its own MetricSample fields rather than
@@ -27,14 +30,19 @@ public sealed class SystemMetricsSource : IMetricsSource
     private readonly ISensorProvider _sensors;
     private readonly IFanControlProvider _fans;
     private readonly NetworkRateReader _network;
+    private readonly ISmartHealthSource _smart;
+
+    private string? _cpuName;
 
     public SystemMetricsSource(
-        IPerformanceProvider performance, ISensorProvider sensors, IFanControlProvider fans, NetworkRateReader network)
+        IPerformanceProvider performance, ISensorProvider sensors, IFanControlProvider fans,
+        NetworkRateReader network, ISmartHealthSource smart)
     {
         _performance = performance;
         _sensors = sensors;
         _fans = fans;
         _network = network;
+        _smart = smart;
     }
 
     public async Task<MetricSample> SampleAsync(long tsSec, CancellationToken ct)
@@ -95,7 +103,77 @@ public sealed class SystemMetricsSource : IMetricsSource
             ServiceLog.Warn($"[metrics-source] fan read failed: {ex.Message}");
         }
 
-        return new MetricSample(tsSec, cpu, memory, netIn, netOut, cpuTemp, gpus, fans);
+        IReadOnlyList<ComponentTempReading> componentTemps = Array.Empty<ComponentTempReading>();
+        try
+        {
+            componentTemps = ReadComponentTemps();
+        }
+        catch (Exception ex)
+        {
+            ServiceLog.Warn($"[metrics-source] component temp read failed: {ex.Message}");
+        }
+
+        return new MetricSample(tsSec, cpu, memory, netIn, netOut, cpuTemp, gpus, fans, ResolveCpuName(), componentTemps);
+    }
+
+    // Resolved once and kept for the process lifetime: the CPU model never
+    // changes without a reboot.
+    private string ResolveCpuName()
+    {
+        if (_cpuName is not null)
+        {
+            return _cpuName;
+        }
+        try
+        {
+            var model = _sensors.GetCpuModel();
+            _cpuName = string.IsNullOrWhiteSpace(model) ? "CPU" : model;
+        }
+        catch
+        {
+            _cpuName = "CPU";
+        }
+        return _cpuName;
+    }
+
+    // Storage temperature via SmartHealthMonitor's own 10-minute cache (cheap
+    // to call every tick); RAM temperature via ISensorProvider.GetMemorySensors,
+    // filtered to sensors whose name mentions dimm/memory - most boards expose
+    // no memory-class temperature sensor at all, so an empty result here is
+    // normal.
+    private IReadOnlyList<ComponentTempReading> ReadComponentTemps()
+    {
+        var result = new List<ComponentTempReading>();
+
+        var smartSnap = _smart.Snapshot();
+        if (smartSnap.Supported)
+        {
+            foreach (var drive in smartSnap.Drives)
+            {
+                if (drive.TemperatureC is { } driveC)
+                {
+                    result.Add(new ComponentTempReading(drive.Id, "storage", drive.Name, driveC));
+                }
+            }
+        }
+
+        var ramIndex = 0;
+        foreach (var sensor in _sensors.GetMemorySensors())
+        {
+            if (!string.Equals(sensor.Type, "Temperature", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            if (!sensor.Name.Contains("dimm", StringComparison.OrdinalIgnoreCase)
+                && !sensor.Name.Contains("memory", StringComparison.OrdinalIgnoreCase))
+            {
+                continue;
+            }
+            result.Add(new ComponentTempReading($"ram:{ramIndex}", "ram", sensor.Name, sensor.Value));
+            ramIndex++;
+        }
+
+        return result;
     }
 
     private IReadOnlyList<GpuReading> ReadGpus()

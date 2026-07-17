@@ -255,6 +255,11 @@ public static class NexusServiceCollectionExtensions
     /// differs by platform (it holds the shared LhmComputer only on
     /// Windows). Depends on IFanControlProvider (AddNexusCooling) and
     /// ISensorProvider (AddNexusSensors) having already been registered.
+    /// DiagnosticsHealthModel additionally takes IMetricsHistoryStore
+    /// (AddNexusMonitoringHistory, called after this) - registration order
+    /// across AddNexus* calls is immaterial since IServiceCollection only
+    /// accumulates registrations; nothing resolves until the container is
+    /// built.
     /// </summary>
     public static IServiceCollection AddNexusDiagnostics(this IServiceCollection services)
     {
@@ -276,32 +281,15 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<Nexus.Service.Diagnostics.Cooling.CoolingStallFeeder>();
         services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Diagnostics.Cooling.CoolingStallFeeder>());
 
-        services.AddSingleton<Nexus.Service.Diagnostics.Temperature.ITemperatureHistoryStore>(_ =>
-        {
-            try
-            {
-                return new Nexus.Service.Diagnostics.Temperature.SqliteTemperatureHistoryStore();
-            }
-            catch (Exception ex)
-            {
-                Console.Error.WriteLine($"[temperature-store] sqlite unavailable, using in-memory: {ex.Message}");
-                return new Nexus.Service.Diagnostics.Temperature.InMemoryTemperatureHistoryStore();
-            }
-        });
-        // GpuHealthMonitor / SmartHealthMonitor stay registered under their
-        // concrete types too (DiagnosticsHealthRoutes takes them directly);
-        // these interface registrations resolve to the same singleton
-        // instances so TemperatureRollup shares state with the rest of
-        // diagnostics rather than getting a second GPU/SMART monitor.
-        services.AddSingleton<Nexus.Service.Diagnostics.Gpu.IGpuHealthSource>(
-            sp => sp.GetRequiredService<Nexus.Service.Diagnostics.Gpu.GpuHealthMonitor>());
+        // SmartHealthMonitor stays registered under its concrete type too
+        // (DiagnosticsHealthRoutes/DiagnosticsHealthModel take it directly);
+        // this interface registration resolves to the same singleton instance
+        // so SystemMetricsSource (AddNexusMonitoringHistory) shares state
+        // rather than getting a second SMART monitor. Temperature history
+        // itself lives on IMetricsHistoryStore now (AddNexusMonitoringHistory) -
+        // DiagnosticsHealthModel below takes that directly.
         services.AddSingleton<Nexus.Service.Diagnostics.Storage.ISmartHealthSource>(
             sp => sp.GetRequiredService<Nexus.Service.Diagnostics.Storage.SmartHealthMonitor>());
-
-        // Plain singleton, not hosted: MetricsSampler drives Tick() on its own
-        // sampling loop, at its own flush cadence, instead of TemperatureRollup
-        // running its own BackgroundService.
-        services.AddSingleton<Nexus.Service.Diagnostics.Temperature.TemperatureRollup>();
 
         services.AddSingleton<Nexus.Service.Diagnostics.DiagnosticsHealthModel>();
         services.AddSingleton<Nexus.Service.Diagnostics.DiagnosticsAlertService>();
@@ -316,9 +304,12 @@ public static class NexusServiceCollectionExtensions
     /// backing store plus the always-on 1Hz sampler, and GET
     /// /monitoring/privacy's backing store plus the Windows-only privacy
     /// access watcher (self-gates off Windows; registered unconditionally).
-    /// Depends on IPerformanceProvider (AddNexusCore), ISensorProvider
-    /// (AddNexusSensors), IFanControlProvider (AddNexusCooling), and
-    /// TemperatureRollup (AddNexusDiagnostics) having already been registered.
+    /// IMetricsHistoryStore is also GET /diagnostics/temperatures' backing
+    /// store (DiagnosticsHealthModel/DiagnosticsHealthRoutes) - metrics.db is
+    /// the single source for both. Depends on IPerformanceProvider
+    /// (AddNexusCore), ISensorProvider (AddNexusSensors), IFanControlProvider
+    /// (AddNexusCooling), and ISmartHealthSource (AddNexusDiagnostics) having
+    /// already been registered.
     /// </summary>
     public static IServiceCollection AddNexusMonitoringHistory(this IServiceCollection services)
     {
@@ -1536,7 +1527,7 @@ public static class NexusServiceCollectionExtensions
     /// ILightingProvider / LightingEngine (AddNexusLighting), ProfileManager
     /// (AddNexusLifecycle), and MultiplexHub (AddNexusCore) already being
     /// registered. IAiHistoryStore falls back to a no-op store if SQLite can't
-    /// open, the same pattern as ITemperatureHistoryStore in AddNexusDiagnostics.
+    /// open, the same pattern as IMetricsHistoryStore in AddNexusMonitoringHistory.
     /// </summary>
     public static IServiceCollection AddNexusMcp(this IServiceCollection services)
     {

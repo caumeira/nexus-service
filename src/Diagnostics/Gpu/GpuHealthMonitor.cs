@@ -16,9 +16,8 @@ public sealed record GpuThrottleInfo(
 
 /// <summary>Per-GPU health readout. RecentTdrCount is intentionally absent -
 /// the integrator fills it in from the event monitor. Uuid is not part of the
-/// wire contract (GpuInfoWire omits it); TemperatureRollup uses it to key
-/// temperature history on something stable across reboots and driver
-/// updates, unlike the enumeration-index id used elsewhere.</summary>
+/// wire contract (GpuInfoWire omits it) - NVML's stable identifier, unaffected
+/// by enumeration-index reordering across reboots and driver updates.</summary>
 public sealed record GpuInfo(
     string Name,
     string? DriverVersion,
@@ -30,14 +29,6 @@ public sealed record GpuInfo(
 public sealed record GpuHealthSnapshot(bool Supported, IReadOnlyList<GpuInfo> Gpus)
 {
     public static readonly GpuHealthSnapshot Unsupported = new(false, Array.Empty<GpuInfo>());
-}
-
-/// <summary>What TemperatureRollup consumes from a GPU health source - narrow
-/// enough to substitute a stub in tests instead of constructing the real
-/// NVML-backed monitor.</summary>
-public interface IGpuHealthSource
-{
-    GpuHealthSnapshot Snapshot(bool forceRefresh = false);
 }
 
 /// <summary>
@@ -54,7 +45,7 @@ public interface IGpuHealthSource
 /// unsupported and only retries once per hour, so a GPU-less box never repeatedly
 /// pays the native-load cost.
 /// </summary>
-public sealed class GpuHealthMonitor : IGpuHealthSource
+public sealed class GpuHealthMonitor
 {
     private static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(30);
     private static readonly TimeSpan InitRetryInterval = TimeSpan.FromHours(1);

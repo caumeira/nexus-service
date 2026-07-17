@@ -2,7 +2,6 @@ using System;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Hosting;
-using Nexus.Service.Diagnostics.Temperature;
 using Nexus.Service.Platform;
 using Nexus.Service.Sensors;
 
@@ -11,10 +10,8 @@ namespace Nexus.Service.Monitoring.History;
 /// <summary>
 /// Always-on background sampler: reads one MetricSample per tick into
 /// MetricsSampleBuffer, flushes the buffered tail to IMetricsHistoryStore
-/// every MetricsHistory.FlushSeconds ticks, and drives TemperatureRollup's
-/// bucketed Tick on the same cadence - TemperatureRollup itself runs no
-/// background loop of its own. PeriodicTimer do/while shape with a per-tick
-/// try/catch.
+/// every MetricsHistory.FlushSeconds ticks. PeriodicTimer do/while shape
+/// with a per-tick try/catch.
 /// </summary>
 public sealed class MetricsSampler : BackgroundService
 {
@@ -30,7 +27,6 @@ public sealed class MetricsSampler : BackgroundService
     private readonly IMetricsSource _source;
     private readonly MetricsSampleBuffer _buffer;
     private readonly IMetricsHistoryStore _store;
-    private readonly TemperatureRollup _rollup;
     private readonly IAppUsageSource _appSource;
     private readonly AppSampleBuffer _appBuffer;
     private readonly IAppUsageHistoryStore _appStore;
@@ -41,14 +37,13 @@ public sealed class MetricsSampler : BackgroundService
 
     public MetricsSampler(
         ISensorProvider sensors, IMetricsSource source, MetricsSampleBuffer buffer,
-        IMetricsHistoryStore store, TemperatureRollup rollup,
+        IMetricsHistoryStore store,
         IAppUsageSource appSource, AppSampleBuffer appBuffer, IAppUsageHistoryStore appStore)
     {
         _sensors = sensors;
         _source = source;
         _buffer = buffer;
         _store = store;
-        _rollup = rollup;
         _appSource = appSource;
         _appBuffer = appBuffer;
         _appStore = appStore;
@@ -69,8 +64,6 @@ public sealed class MetricsSampler : BackgroundService
             // Sensor enumeration is still warming up; sample anyway on the
             // schedule below rather than block forever.
         }
-
-        _rollup.RunStartupMigration();
 
         using var timer = new PeriodicTimer(TickInterval);
         do
@@ -134,15 +127,6 @@ public sealed class MetricsSampler : BackgroundService
         if (_tickCount % MetricsHistory.FlushSeconds == 0)
         {
             Flush(nowUtc);
-
-            try
-            {
-                _rollup.Tick(nowUtc);
-            }
-            catch (Exception ex)
-            {
-                ServiceLog.Warn($"[metrics-sampler] rollup tick failed: {ex.Message}");
-            }
         }
     }
 

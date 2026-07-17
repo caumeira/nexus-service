@@ -9,7 +9,7 @@ namespace Nexus.Service.Mcp.History;
 
 /// <summary>
 /// SQLite-backed implementation of <see cref="IAiHistoryStore"/>, mirroring
-/// SqliteTemperatureHistoryStore's connection/pragma/schema conventions in its
+/// SqliteMetricsHistoryStore's connection/pragma/schema conventions in its
 /// own database file (ai-history.db). One long-lived connection, one lock
 /// serializing every read and write, WAL mode.
 ///

@@ -6,9 +6,9 @@ namespace Nexus.Service.Persistence;
 
 /// <summary>
 /// Single resolver for the machine-scope config root the service's ADO.NET
-/// stores (temperature, screen time, metrics history) live under. Extracted
-/// from the byte-identical resolvers SqliteTemperatureHistoryStore and
-/// SqliteScreenTimeStore each carried before this shared root existed.
+/// stores (screen time, metrics/temperature history) live under. Extracted
+/// from the byte-identical resolvers each SQLite-backed store carried before
+/// this shared root existed.
 ///
 /// Distinct from MediaLibrary.NexusDataDir(): that resolver targets the DATA
 /// root (XDG_DATA_HOME on Linux) for device media; this one targets the
