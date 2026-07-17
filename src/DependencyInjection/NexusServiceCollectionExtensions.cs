@@ -1200,6 +1200,8 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IBeatsProvider, StubBeatsProvider>();
 #endif
         services.AddSingleton<ProcessIconCache>();
+        services.AddSingleton<ProcessHashCache>();
+        services.AddSingleton<IProcessDetailProvider, ProcessDetailProvider>();
         return services;
     }
 
