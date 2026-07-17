@@ -1158,6 +1158,7 @@ public static class NexusServiceCollectionExtensions
         services.AddSingleton<IVolumeProvider, WindowsVolumeProvider>();
         services.AddSingleton<IAudioDeviceProvider, WindowsAudioDeviceProvider>();
         services.AddSingleton<IBeatsProvider, WasapiLoopbackBeatsProvider>();
+        services.AddSingleton<IWindowSetProvider, WindowsWindowSetProvider>();
 #elif MACOS
         services.AddSingleton<IScreenTimeProvider, MacScreenTimeProvider>();
         services.AddSingleton<IAppDetectionProvider, MacAppDetectionProvider>();

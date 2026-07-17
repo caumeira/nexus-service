@@ -79,6 +79,18 @@ public interface INetworkProvider
     void SetInterval(int ms);
 }
 
+/// <summary>Reports whether a live pid currently owns a visible top-level
+/// window (Task-Manager-style App classification) for ProcessMonitor's
+/// isApp field. LocalSystem in Session 0 cannot enumerate the interactive
+/// desktop's windows, so the only real implementation is Windows-only and
+/// backed by the user-session helper; ProcessMonitor treats an unregistered
+/// provider (non-Windows, or before any helper connects) as "nothing is
+/// windowed" rather than an error.</summary>
+public interface IWindowSetProvider
+{
+    bool IsWindowed(int pid);
+}
+
 public interface IBeatsProvider : IDisposable
 {
     /// <summary>Start capturing audio and analysing beats. Idempotent.</summary>

@@ -22,6 +22,7 @@ public sealed class ProcessMonitor : BackgroundService
     private volatile IReadOnlyList<ProcessInfo> _latest = Array.Empty<ProcessInfo>();
     private int _intervalMs = 1000;
     private readonly MultiplexHub _hub;
+    private readonly IWindowSetProvider? _windowSet;
     private readonly object _demandGate = new();
     private readonly HashSet<string> _demands = new(StringComparer.Ordinal);
 
@@ -53,9 +54,14 @@ public sealed class ProcessMonitor : BackgroundService
     private readonly Dictionary<int, (TimeSpan cpuTime, DateTime when)> _winPrev = new();
     private readonly Dictionary<int, (ulong cpuNs, DateTime when)> _macPrev = new();
 
-    public ProcessMonitor(MultiplexHub hub)
+    /// <summary>windowSet is null on non-Windows and whenever no Windows
+    /// build registers one (no user-session helper connected yet) - HasWindow
+    /// then stays false for every process, matching "nothing is windowed"
+    /// rather than treating the absence as an error.</summary>
+    public ProcessMonitor(MultiplexHub hub, IWindowSetProvider? windowSet = null)
     {
         _hub = hub;
+        _windowSet = windowSet;
         _hub.OnTopicFirstSubscriber += OnTopicFirstSubscriber;
     }
 
@@ -163,6 +169,28 @@ public sealed class ProcessMonitor : BackgroundService
     private readonly Dictionary<string, Task> _metaPending = new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim _metaResolveGate = new(MetaResolveMaxConcurrency, MetaResolveMaxConcurrency);
 
+    // A name whose exe path never resolves (protected/system processes,
+    // common under LocalSystem) would otherwise re-enqueue a Task.Run every
+    // tick forever, each throwing a MainModule access-denied. Cache the
+    // failure per name with a cooldown - long enough to stop the churn,
+    // short enough that a transient resolve failure (a process caught mid
+    // launch) recovers within a session. Bounded the same way as the other
+    // caches in this class.
+    private static readonly TimeSpan MetaResolveFailureCooldown = TimeSpan.FromMinutes(5);
+    private readonly Dictionary<string, DateTime> _metaUnresolvedAt = new(StringComparer.OrdinalIgnoreCase);
+    private readonly Queue<string> _metaUnresolvedOrder = new();
+
+    // Up to MetaResolveMaxConcurrency instances of ResolveMetaAsync run
+    // concurrently on the thread pool, so the test counter below needs an
+    // interlocked increment, not a plain one.
+    private int _metaResolveAttemptsForTest;
+
+    /// <summary>Test-only counter: total ResolveMetaAsync invocations that
+    /// actually ran (excludes attempts EnqueueMetaResolve suppressed via the
+    /// failure cooldown), so a test can confirm the cooldown skipped a
+    /// re-attempt rather than inferring it from timing.</summary>
+    internal int MetaResolveAttemptsForTest => Volatile.Read(ref _metaResolveAttemptsForTest);
+
     /// <summary>Publisher and signature status for name's exe. Never blocks:
     /// a cache miss queues a background resolve (FileVersionInfo company +
     /// ProcessSignatureChecker, off the calling thread) and returns null
@@ -219,6 +247,11 @@ public sealed class ProcessMonitor : BackgroundService
             {
                 return existing;
             }
+            if (_metaUnresolvedAt.TryGetValue(name, out var failedAt) &&
+                DateTime.UtcNow - failedAt < MetaResolveFailureCooldown)
+            {
+                return Task.CompletedTask;
+            }
             // Task.Run guarantees the resolve (including ResolveExecutablePath's
             // blocking MainModule read) runs on a pool thread, never inline on
             // the caller - a bare async call would run synchronously up to its
@@ -232,12 +265,14 @@ public sealed class ProcessMonitor : BackgroundService
 
     private async Task ResolveMetaAsync(string name)
     {
+        Interlocked.Increment(ref _metaResolveAttemptsForTest);
         await _metaResolveGate.WaitAsync().ConfigureAwait(false);
         try
         {
             var path = ResolveExecutablePath(name);
             if (string.IsNullOrEmpty(path))
             {
+                InsertUnresolvedName(name);
                 return;
             }
 
@@ -271,6 +306,28 @@ public sealed class ProcessMonitor : BackgroundService
         {
             lock (_metaCacheLock) { _metaPending.Remove(name); }
             _metaResolveGate.Release();
+        }
+    }
+
+    // Never remove a name from _metaUnresolvedAt on a later successful
+    // resolve: GetProcessMeta short-circuits on a path+meta cache hit before
+    // it ever reaches EnqueueMetaResolve again, so a stale entry here is
+    // inert, not wrong. Removing it here would let a subsequent failure
+    // re-enqueue the same name into _metaUnresolvedOrder, desyncing the
+    // queue from the dict it is meant to bound.
+    private void InsertUnresolvedName(string name)
+    {
+        lock (_metaCacheLock)
+        {
+            if (!_metaUnresolvedAt.ContainsKey(name))
+            {
+                _metaUnresolvedOrder.Enqueue(name);
+            }
+            _metaUnresolvedAt[name] = DateTime.UtcNow;
+            if (_metaUnresolvedAt.Count > MetaCacheMaxEntries)
+            {
+                _metaUnresolvedAt.Remove(_metaUnresolvedOrder.Dequeue());
+            }
         }
     }
 
@@ -470,9 +527,11 @@ public sealed class ProcessMonitor : BackgroundService
 
     /// <summary>
     /// Windows: Process.TotalProcessorTime works reliably via perf counters.
-    /// Delta-based CPU% normalized by elapsed time and core count.
+    /// Delta-based CPU% normalized by elapsed time and core count. Internal
+    /// (not private) so tests can drive the real sampling path directly,
+    /// same seam as WaitForNextSampleAsync.
     /// </summary>
-    private void SampleWindows()
+    internal void SampleWindows()
     {
         var now = DateTime.UtcNow;
         var processes = Process.GetProcesses();
@@ -519,16 +578,6 @@ public sealed class ProcessMonitor : BackgroundService
                 }
                 catch { }
 
-                // MainWindowHandle enumerates top-level windows looking for a
-                // match; tolerate a failure the same way as StartTime rather
-                // than dropping the whole entry over it.
-                bool hasWindow = false;
-                try
-                {
-                    hasWindow = proc.MainWindowHandle != IntPtr.Zero;
-                }
-                catch { }
-
                 result.Add(new ProcessInfo
                 {
                     Pid = pid,
@@ -537,7 +586,7 @@ public sealed class ProcessMonitor : BackgroundService
                     MemoryMb = Math.Round(memBytes / (1024.0 * 1024.0), 1),
                     CpuTimeSeconds = Math.Round(cpuTime.TotalSeconds, 1),
                     StartedAtMs = startedAtMs,
-                    HasWindow = hasWindow,
+                    HasWindow = _windowSet?.IsWindowed(pid) ?? false,
                 });
             }
             catch { }
@@ -580,10 +629,12 @@ public class ProcessInfo
     /// <summary>Process creation time, UTC epoch ms. Null when unavailable
     /// (access denied under LocalSystem, or not read on this platform).</summary>
     public long? StartedAtMs { get; set; }
-    /// <summary>True when this process owns a visible top-level main window
-    /// (Task-Manager-style App vs Background classification). Windows only -
-    /// SampleMacOs has no window-enumeration equivalent, so macOS always
-    /// reports false.</summary>
+    /// <summary>True when this process owns a visible top-level window
+    /// (Task-Manager-style App vs Background classification), from
+    /// IWindowSetProvider. LocalSystem in Session 0 cannot enumerate the
+    /// interactive desktop's windows, so this can never be read via a
+    /// service-side Win32 call - Windows sources it from the user-session
+    /// helper; macOS and an unconnected helper both read false.</summary>
     public bool HasWindow { get; set; }
 }
 

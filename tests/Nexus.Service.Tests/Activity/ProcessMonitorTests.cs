@@ -5,6 +5,13 @@ using Xunit;
 
 namespace Nexus.Service.Tests.Activity;
 
+internal sealed class FakeWindowSetProvider : IWindowSetProvider
+{
+    private readonly HashSet<int> _windowed;
+    public FakeWindowSetProvider(params int[] windowedPids) => _windowed = new HashSet<int>(windowedPids);
+    public bool IsWindowed(int pid) => _windowed.Contains(pid);
+}
+
 public class ProcessMonitorTests
 {
     [Fact]
@@ -117,6 +124,63 @@ public class ProcessMonitorTests
         using var sub = hub.AddTestSubscription("processes");
 
         Assert.False(await waitTask);
+    }
+
+    [Fact]
+    public void SampleWindows_SetsHasWindowTrue_ForAPidTheWindowSetProviderReports()
+    {
+        // The service process cannot see Session-1 windows directly (that is
+        // the whole reason IWindowSetProvider exists) - HasWindow must come
+        // from the injected provider, never from a live Win32 call here.
+        var windowSet = new FakeWindowSetProvider(Environment.ProcessId);
+        var monitor = new ProcessMonitor(new MultiplexHub(), windowSet);
+
+        monitor.SampleWindows();
+
+        var self = monitor.GetProcesses().Single(p => p.Pid == Environment.ProcessId);
+        Assert.True(self.HasWindow);
+    }
+
+    [Fact]
+    public void SampleWindows_SetsHasWindowFalse_WhenNoWindowSetProviderIsRegistered()
+    {
+        var monitor = new ProcessMonitor(new MultiplexHub());
+
+        monitor.SampleWindows();
+
+        var self = monitor.GetProcesses().SingleOrDefault(p => p.Pid == Environment.ProcessId);
+        Assert.NotNull(self);
+        Assert.False(self!.HasWindow);
+    }
+
+    [Fact]
+    public void SampleWindows_SetsHasWindowFalse_ForAPidTheWindowSetProviderDoesNotReport()
+    {
+        var windowSet = new FakeWindowSetProvider(999_999); // some other pid, not this test process
+        var monitor = new ProcessMonitor(new MultiplexHub(), windowSet);
+
+        monitor.SampleWindows();
+
+        var self = monitor.GetProcesses().Single(p => p.Pid == Environment.ProcessId);
+        Assert.False(self.HasWindow);
+    }
+
+    [Fact]
+    public async Task GetProcessMeta_DoesNotReattemptResolve_WithinTheFailureCooldown()
+    {
+        var monitor = new ProcessMonitor(new MultiplexHub());
+        monitor.SetProcessesForTest(new[]
+        {
+            new ProcessInfo { Pid = 999_999, Name = "unresolvable.exe" }, // not a live pid: path never resolves
+        });
+
+        await monitor.ResolveMetaForTestAsync("unresolvable.exe");
+        Assert.Equal(1, monitor.MetaResolveAttemptsForTest);
+
+        Assert.Null(monitor.GetProcessMeta("unresolvable.exe"));
+        await monitor.ResolveMetaForTestAsync("unresolvable.exe");
+
+        Assert.Equal(1, monitor.MetaResolveAttemptsForTest);
     }
 
     [Fact]

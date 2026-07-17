@@ -154,6 +154,7 @@ internal static class WindowsUserHelper
         using var screenTime = new ScreenTimePoller(outbound);
         using var media = new MediaPusher(outbound);
         using var screenCapture = new ScreenCapturePusher(outbound);
+        using var windowSet = new WindowSetPoller(outbound);
         var brightness = new Platform.Displays.WindowsDisplayBrightnessProvider();
 
         // Each domain registers its own envelope handler against this
