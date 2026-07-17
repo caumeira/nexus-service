@@ -114,10 +114,11 @@ public class ProcessAppUsageSourceTests
     [Fact]
     public void Sample_RecordsEveryMidRankApp_UpToTheRaisedCap()
     {
-        // A count comfortably above the old top-15 cap but under the
-        // current one: every one of them must appear, not just the
-        // historical top 15 - this is the gap the raised cap closes for a
-        // mid-ranked, intermittently-fluctuating process.
+        // A count comfortably above the previous cutoff but under the
+        // current cap: every one of them must appear, not just the apps
+        // that would have ranked above that previous cutoff - this is the
+        // gap the raised cap closes for a mid-ranked, intermittently-
+        // fluctuating process.
         var (source, processes, _, _) = Build();
         var procs = Enumerable.Range(1, 30)
             .Select(i => Proc($"app{i}", cpu: i, mem: i))

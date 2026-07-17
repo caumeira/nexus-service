@@ -43,7 +43,8 @@ public static class MetricsHistory
     /// at this many. Sized so a mid-ranked, intermittently-fluctuating app
     /// stays inside the cap on effectively every tick instead of dropping in
     /// and out around a narrower one (see AppUsageStorageEstimateTests for
-    /// the measured 7-day metrics.db footprint this cap implies).</summary>
+    /// the measured RetentionDays-wide metrics.db footprint this cap
+    /// implies).</summary>
     public const int TopAppsPerSample = 64;
 
     /// <summary>Floor an app's reading must exceed to be recorded at all.
