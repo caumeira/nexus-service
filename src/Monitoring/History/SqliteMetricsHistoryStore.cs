@@ -1703,8 +1703,8 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             // gpu:<id>/vram:<id> query already has at most one row per
             // (app, ts), so the pre-aggregation is a no-op there; cpu/memory
             // never have an adapter dimension and keep the direct query.
-            // value_mb (vram) is already whole MB, unlike value_x10's
-            // fixed-point percent, so its divisor is 1 rather than 10.
+            // value_mb (vram) stores whole MB, unlike value_x10's
+            // fixed-point percent encoding, so it needs no unscale divisor.
             var isMultiAdapter = table is "app_gpu_seconds" or "app_vram_seconds";
             var valueColumn = table == "app_vram_seconds" ? "value_mb" : "value_x10";
             var scaleSql = table == "app_vram_seconds" ? "1.0" : "10.0";

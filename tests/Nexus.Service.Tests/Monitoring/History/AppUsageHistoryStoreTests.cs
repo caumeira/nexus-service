@@ -271,6 +271,27 @@ public class AppUsageHistoryStoreTests : IDisposable
     }
 
     [Fact]
+    public void Append_WithPruneCutoff_KeepsAnAppSeriesRow_ForAnAppSeenOnlyInVram()
+    {
+        // "vram-only.exe" never appears in cpu/mem/gpu, only in vram. The
+        // orphan check must treat app_vram_seconds as a "still has samples"
+        // table too, or this app's app_series row is deleted on the first
+        // prune regardless of its still-present vram row, orphaning that
+        // row and dropping the app from QueryTopApps' JOIN.
+        var scalarSample = new MetricSample(1000, null, null, null, null, null,
+            new[] { new GpuReading("gpu-0", "RTX 5080", "", 50, 60) }, Array.Empty<FanReading>());
+        _store.Append(new[] { scalarSample }, null);
+        _store.Append(new[] { VramTick(9000, "gpu-0", ("vram-only.exe", 1000)) }, null);
+
+        _store.Append(Array.Empty<AppUsageTick>(), pruneCutoffSec: 5000);
+
+        var top = _store.QueryTopApps("vram:gpu-0", 0, 10_000, 15);
+        var app = Assert.Single(top);
+        Assert.Equal("vram-only.exe", app.Name);
+        Assert.Equal(1000, app.Avg);
+    }
+
+    [Fact]
     public void Append_WithPruneCutoff_DeletesOlderAppRows()
     {
         _store.Append(new[] { CpuTick(1000, ("app.exe", 10)), CpuTick(5000, ("app.exe", 20)) }, null);

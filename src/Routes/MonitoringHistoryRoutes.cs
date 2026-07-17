@@ -203,7 +203,12 @@ public static class MonitoringHistoryRoutes
                 {
                     // The slideout asks for one specific process, which need
                     // not be in the metric's top-N - bypass ranking entirely
-                    // and answer only for the requested name.
+                    // and answer only for the requested name. QueryAppSeries
+                    // matches case-insensitively but returns no name of its
+                    // own, so the response echoes the requested casing
+                    // rather than the store's canonical (first-seen) casing;
+                    // resolving that would cost a dedicated lookup this path
+                    // exists to avoid.
                     topApps = new List<AppWindowStat>();
                     if (expectedTicks > 0)
                     {
