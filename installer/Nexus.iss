@@ -19,7 +19,8 @@
 ;     by default; see DesktopIconChecked in [Code]).
 ;
 ; Uninstall calls Nexus.exe --uninstall which mirrors the install: stop
-; service, sc delete, remove firewall rule + Add/Remove reg + shortcut.
+; service, sc delete, remove firewall rule + edge-swipe policy + Add/Remove
+; reg + shortcut.
 ; Inno then removes the install dir on top of that.
 
 #define MyAppName "Nexus"

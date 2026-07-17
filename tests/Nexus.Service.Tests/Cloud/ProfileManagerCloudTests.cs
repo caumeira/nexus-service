@@ -49,6 +49,65 @@ public sealed class ProfileManagerCloudTests : IDisposable
     }
 
     [Fact]
+    public void ExportProfileForSync_strips_ai_integration_token()
+    {
+        var activeId = _profiles.GetActiveEntry()!.Id;
+        _store.Update(s => s.AiIntegration = new AiIntegrationSettings { Enabled = true, Token = "super-secret-mcp-token" });
+        _store.FlushNow();
+
+        var export = _profiles.ExportProfileForSync(activeId);
+
+        Assert.NotNull(export);
+        Assert.NotNull(export!.Settings);
+        Assert.False(export.Settings!.AiIntegration.Enabled);
+        Assert.Equal("", export.Settings.AiIntegration.Token);
+    }
+
+    [Fact]
+    public void ExportProfileJson_strips_ai_integration_token()
+    {
+        var activeId = _profiles.GetActiveEntry()!.Id;
+        _store.Update(s => s.AiIntegration = new AiIntegrationSettings { Enabled = true, Token = "super-secret-mcp-token" });
+        _store.FlushNow();
+
+        var json = _profiles.ExportProfileJson(activeId);
+
+        Assert.NotNull(json);
+        Assert.DoesNotContain("super-secret-mcp-token", json);
+    }
+
+    [Fact]
+    public void ExportProfileForSync_of_a_non_active_profile_also_strips_ai_integration_token()
+    {
+        var activeId = _profiles.GetActiveEntry()!.Id;
+        var other = _profiles.CreateProfile("Other");
+        _profiles.SwitchProfile(activeId); // back to Default, "Other" is now the non-active profile
+        _store.Update(s => s.AiIntegration = new AiIntegrationSettings { Enabled = true, Token = "super-secret-mcp-token" });
+        _store.FlushNow();
+
+        var export = _profiles.ExportProfileForSync(other.Id);
+
+        Assert.NotNull(export);
+        Assert.NotNull(export!.Settings);
+        Assert.False(export.Settings!.AiIntegration.Enabled);
+        Assert.Equal("", export.Settings.AiIntegration.Token);
+    }
+
+    [Fact]
+    public void ImportProfileWithId_reactivating_leaves_live_ai_integration_untouched()
+    {
+        var activeId = _profiles.GetActiveEntry()!.Id;
+        _store.Update(s => s.AiIntegration = new AiIntegrationSettings { Enabled = true, Token = "live-mcp-token" });
+        _store.FlushNow();
+
+        var pulled = new NexusSettings();
+        pulled.AiIntegration = new AiIntegrationSettings { Enabled = true, Token = "foreign-mcp-token" };
+        _profiles.ImportProfileWithId(activeId, "Default", pulled);
+
+        Assert.Equal("live-mcp-token", _store.Load().AiIntegration.Token);
+    }
+
+    [Fact]
     public void ExportProfileForSync_excludes_onboarding_completed()
     {
         var activeId = _profiles.GetActiveEntry()!.Id;

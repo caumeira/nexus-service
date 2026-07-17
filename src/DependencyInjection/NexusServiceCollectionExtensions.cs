@@ -1,3 +1,4 @@
+using System.Net.Http;
 using Nexus.Service.Activity;
 using Nexus.Service.Auth;
 using Nexus.Service.Cooling;
@@ -7,6 +8,7 @@ using Nexus.Service.Fps;
 using Nexus.Service.Lifecycle;
 using Nexus.Service.Lighting;
 using Nexus.Service.Lighting.Engine;
+using Nexus.Service.Mcp.Assistant;
 using Nexus.Service.Obs;
 using Nexus.Service.Peripherals.Keeb;
 using Nexus.Service.Peripherals.QSeries;
@@ -1521,6 +1523,79 @@ public static class NexusServiceCollectionExtensions
             services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Helper.HelperPipeServer>());
         }
 #endif
+        return services;
+    }
+
+    /// <summary>
+    /// AI Integration: the read-only telemetry/history and cooling/lighting/profile
+    /// write MCP tools, the consent-gated registry that dispatches them, the
+    /// SQLite-backed history store + recorder + audit sink, and McpServerHost -
+    /// the loopback-only MCP listener, off by default (AiIntegrationSettings
+    /// .Enabled). Depends on IConfigStore (AddNexusCore), ISensorProvider
+    /// (AddNexusSensors), IFanControlProvider / ICurveProvider (AddNexusCooling),
+    /// ILightingProvider / LightingEngine (AddNexusLighting), ProfileManager
+    /// (AddNexusLifecycle), and MultiplexHub (AddNexusCore) already being
+    /// registered. IAiHistoryStore falls back to a no-op store if SQLite can't
+    /// open, the same pattern as ITemperatureHistoryStore in AddNexusDiagnostics.
+    /// </summary>
+    public static IServiceCollection AddNexusMcp(this IServiceCollection services)
+    {
+        services.AddSingleton<Nexus.Service.Mcp.History.IAiHistoryStore>(_ =>
+        {
+            try
+            {
+                return new Nexus.Service.Mcp.History.SqliteAiHistoryStore();
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[ai-history-store] sqlite unavailable, history disabled: {ex.Message}");
+                return new Nexus.Service.Mcp.History.UnavailableAiHistoryStore();
+            }
+        });
+        services.AddSingleton<Nexus.Service.Mcp.History.AiHistoryRecorder>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Mcp.History.AiHistoryRecorder>());
+
+        services.AddSingleton<Nexus.Service.Mcp.IMcpAuditSink, Nexus.Service.Mcp.History.SqliteMcpAuditSink>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetSystemOverviewTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetSensorsTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetCoolingStateTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetLightingStateTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.ApplyCoolingPresetTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.SetGlobalFanSpeedTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.SetFanCurveTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.ApplyLightingScenarioTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.SetStaticColorTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.SetBrightnessTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.StopLightingTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.ListProfilesTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.ApplyProfileTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.QuerySensorHistoryTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.GetHistorySummaryTool>();
+        services.AddSingleton<Nexus.Service.Mcp.IMcpTool, Nexus.Service.Mcp.Tools.QueryEventsTool>();
+        services.AddSingleton<Nexus.Service.Mcp.McpToolRegistry>();
+        services.AddSingleton<Nexus.Service.Mcp.McpServerHost>();
+        services.AddHostedService(sp => sp.GetRequiredService<Nexus.Service.Mcp.McpServerHost>());
+        return services;
+    }
+
+    /// <summary>Local AI assistant: managed Ollama runtime + the agentic query
+    /// loop over the MCP tool registry. Depends on AddNexusMcp having already
+    /// registered McpToolRegistry.</summary>
+    public static IServiceCollection AddNexusAssistant(this IServiceCollection services)
+    {
+        services.AddSingleton<OllamaRuntimeManager>(sp =>
+        {
+            var http = sp.GetRequiredService<IHttpClientFactory>().CreateClient("OllamaRuntime");
+            // The runtime archive is hundreds of MB and a model pull can be
+            // several GB; the default 100s HttpClient timeout would abort
+            // both mid-transfer (see UpdateDownloader's identical override).
+            http.Timeout = System.Threading.Timeout.InfiniteTimeSpan;
+            var store = sp.GetRequiredService<IConfigStore>();
+            var hub = sp.GetRequiredService<MultiplexHub>();
+            return new OllamaRuntimeManager(http, store, hub);
+        });
+        services.AddHostedService(sp => sp.GetRequiredService<OllamaRuntimeManager>());
+        services.AddSingleton<LocalAssistant>();
         return services;
     }
 }

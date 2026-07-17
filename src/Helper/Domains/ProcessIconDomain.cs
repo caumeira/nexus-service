@@ -25,7 +25,7 @@ public static class ProcessIconCommands
     /// <summary>Null means the request could not be answered at all (no
     /// helper connected yet, or the round trip timed out/disconnected) -
     /// a transient condition the caller must retry, not cache. Empty bytes
-    /// means the helper genuinely ran extraction and found no icon.</summary>
+    /// means the helper ran extraction and found no icon.</summary>
     public static async Task<byte[]?> ExtractAsync(HelperRegistry r, string exePath, CancellationToken ct = default)
     {
         var conn = r.GetAny();

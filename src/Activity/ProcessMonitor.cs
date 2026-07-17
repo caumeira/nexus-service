@@ -25,6 +25,19 @@ public sealed class ProcessMonitor : BackgroundService
     private readonly object _demandGate = new();
     private readonly HashSet<string> _demands = new(StringComparer.Ordinal);
 
+    // Wakes ExecuteAsync's delay early when a real subscriber arrives while
+    // the loop is sleeping at the slower demand-only cadence. Each call to
+    // WaitForNextSampleAsync installs its own TaskCompletionSource here
+    // rather than sharing one wait primitive across calls: a SemaphoreSlim's
+    // Release hands off to whichever waiter registered first, so a call
+    // whose delay wins unpulsed would leave a registered waiter that a later,
+    // unrelated pulse could complete instead of the current call's wait.
+    // Giving each call its own TaskCompletionSource, matched by reference
+    // under _wakeGate, has no shared queue for an old call's waiter to
+    // linger in.
+    private readonly object _wakeGate = new();
+    private TaskCompletionSource<bool>? _pendingWake;
+
     // Bounds growth over a long-running service: every distinct name ever
     // seen (installers, temp tools, updaters) would otherwise accumulate a
     // permanent entry with no eviction. _pathCacheOrder tracks insertion
@@ -40,7 +53,31 @@ public sealed class ProcessMonitor : BackgroundService
     private readonly Dictionary<int, (TimeSpan cpuTime, DateTime when)> _winPrev = new();
     private readonly Dictionary<int, (ulong cpuNs, DateTime when)> _macPrev = new();
 
-    public ProcessMonitor(MultiplexHub hub) { _hub = hub; }
+    public ProcessMonitor(MultiplexHub hub)
+    {
+        _hub = hub;
+        _hub.OnTopicFirstSubscriber += OnTopicFirstSubscriber;
+    }
+
+    public override void Dispose()
+    {
+        _hub.OnTopicFirstSubscriber -= OnTopicFirstSubscriber;
+        base.Dispose();
+    }
+
+    private void OnTopicFirstSubscriber(string topic)
+    {
+        if (string.Equals(topic, "processes", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(topic, "monitoring", StringComparison.OrdinalIgnoreCase))
+        {
+            TaskCompletionSource<bool>? pending;
+            lock (_wakeGate)
+            {
+                pending = _pendingWake;
+            }
+            pending?.TrySetResult(true);
+        }
+    }
 
     public IReadOnlyList<ProcessInfo> GetProcesses() => _latest;
 
@@ -129,11 +166,11 @@ public sealed class ProcessMonitor : BackgroundService
 
         while (!stoppingToken.IsCancellationRequested)
         {
-            // Demand with no real WS subscriber only needs app-history's
-            // own sub-cadence, not the full 1Hz broadcast rate - sampling
-            // every process every second, 24/7, for a consumer that reads
-            // far less often is pure waste on every install that never
-            // opens the processes UI.
+            // Demand with no real WS subscriber runs at app-history's own
+            // sub-cadence (MetricsHistory.AppSampleIntervalSeconds) rather
+            // than the full 1Hz broadcast rate - a demand-only consumer
+            // reads at that slower cadence already, so sampling faster
+            // gains it nothing.
             var hasReal = HasRealSubscribers;
             try
             {
@@ -151,11 +188,33 @@ public sealed class ProcessMonitor : BackgroundService
                 Console.Error.WriteLine($"[process-monitor] sample failed: {ex.Message}");
             }
 
+            // WaitForNextSampleAsync lets a real subscriber that arrives
+            // mid-sleep cut this delay short instead of waiting out the
+            // full demand-only interval.
             var delayMs = hasReal ? _intervalMs : MetricsHistory.AppSampleIntervalSeconds * 1000;
-            try
-            { await Task.Delay(delayMs, stoppingToken); }
-            catch (TaskCanceledException) { break; }
+            await WaitForNextSampleAsync(delayMs, stoppingToken);
         }
+    }
+
+    // Returns true when a pulse resolved the wait before delayMs elapsed,
+    // false when the delay won. Task.WhenAny does not throw on
+    // stoppingToken cancellation; the caller's while condition exits.
+    internal async Task<bool> WaitForNextSampleAsync(int delayMs, CancellationToken stoppingToken)
+    {
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_wakeGate)
+        {
+            _pendingWake = tcs;
+        }
+        var winner = await Task.WhenAny(Task.Delay(delayMs, stoppingToken), tcs.Task);
+        lock (_wakeGate)
+        {
+            if (ReferenceEquals(_pendingWake, tcs))
+            {
+                _pendingWake = null;
+            }
+        }
+        return winner == tcs.Task;
     }
 
 #if MACOS

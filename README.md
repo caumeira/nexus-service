@@ -22,12 +22,16 @@ This is the engine of [Nexus](https://hellonexus.com). The other repos are clien
 - **Webcam** - phone-as-webcam: the mobile companion streams its camera into an OS virtual camera device (`Webcam/`, per-OS backends).
 - **Pairing + auth** - local TLS on `:9443` with SPKI-pinned client sessions (the mobile apps and the dashboard), 6-digit pair codes with SAS verification, host-side approval.
 - **Tray + lifecycle** - Windows service install / scheduled-task launcher / system tray. macOS launchd. Linux root systemd daemon that adopts the login session for tray and media. Single-instance, self-elevation when needed.
+- **AI Integration** - an in-process MCP (Model Context Protocol) server, off by default, that lets an AI client read this PC's hardware telemetry and control cooling, lighting, and profiles over a dedicated loopback listener speaking Streamable HTTP (`src/Mcp/`). A bearer token separate from the dashboard's pairing token; per-capability consent (telemetry/cooling/lighting/profiles/history) checked live on every call; every non-read-only call audited to a SQLite-backed history store. Configured from the dashboard via `/ai/status`, `/ai/config`, `/ai/token/rotate` (`Routes/AiRoutes.cs`).
+- **Local AI assistant** - a natural-language query bar backed by a self-managed [Ollama](https://ollama.com) runtime and a small local model (Qwen3.5), off until the user installs it (`src/Mcp/Assistant/`). The service downloads the official portable Ollama archive from GitHub over HTTPS, verifies its SHA-256 against the release's published `sha256sum.txt`, and supervises `ollama serve` as a child process bound to loopback (or detects and reuses an already-installed system Ollama on the default port instead of downloading). Runtime + model data lives under the Nexus data dir's `assistant/` subfolder, never in the installer. A user query builds MCP tool definitions from the same `McpToolRegistry` the MCP listener uses, drives Ollama's tool-calling `/api/chat`, and runs every tool call through the registry so the SAME consent + audit gate applies. Surfaced at `/ai/assistant/*` (`Routes/AiAssistantRoutes.cs`) with live install/download/pull progress on the `aiAssistant` WebSocket topic.
 
 ## Ports
 
 - `9400` HTTP (loopback) - default dashboard + panel transport.
 - `9401` HTTP (loopback, Windows-only) - Q-series panel tunnel listener; the host-side target of the panel's `adb reverse`, so inbound activity there proves the physical panel is alive. Skipped silently if the port is taken.
+- `9420` HTTP (loopback only) - MCP (Model Context Protocol) server for AI Integration, when enabled. Single endpoint `POST /mcp`, its own bearer token, off by default.
 - `9443` HTTPS - pairing and remote panel surfaces, served over a locally generated cert. The SPKI of that cert is what gets pinned by clients.
+- `11434` HTTP (loopback, internal) - the managed (or detected system) Ollama runtime backing the local AI assistant, when installed. Not reachable from outside the service process; the service talks to it over its own HTTP client. Configurable via `AiIntegration.AssistantRuntimePort` in settings.
 - `6742` TCP (loopback, internal) - OpenRGB SDK server (the headless OpenRGB child process).
 
 See `docs/network-transport.md` for the full polling/topic inventory and `docs/openapi.json` for the generated REST route inventory (regenerate with `dotnet run -- --emit-openapi docs/openapi.json`; see Build).
@@ -87,6 +91,7 @@ src/
   Update/             # OTA self-update engine (IUpdateSource, GitHubReleaseProvider, UpdateService poller, UpdateDownloader, UpdateIntegrity, UpdateInstaller)
   Deck/               # shared DeckAction/DeckConfig binding model + headless executor (touch deck widget + physical Stream Deck)
   Actions/            # SystemActions - OS-level actions (input, open-url/path, power, audio, volume) shared by /system/* routes and the deck executor
+  Mcp/                # AI Integration: the MCP (Model Context Protocol) server host, tool registry, read and write tools (telemetry, cooling, lighting, profiles), and the audit/history store; Assistant/ = the local AI assistant (managed Ollama runtime, HTTP client, model catalog, agentic query loop)
   ...                 # supporting subsystems (Devices, Monitoring, Models, Plugins, Telemetry, ...)
 docs/
   openapi.json        # generated REST route inventory (see Build)

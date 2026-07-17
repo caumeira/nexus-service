@@ -210,4 +210,50 @@ public class RollupHistoryStoreTests : IDisposable
         var slot = Assert.Single(_store.QueryScalarsDecimated(0, 59, stepSeconds: 60));
         Assert.Equal(20, slot.CpuAvg);
     }
+
+    [Fact]
+    public void Rollup_DoesNotDoubleCount_WhenATsIsReplayedInASecondFlush()
+    {
+        // A backward clock step can cause the sampler to reobserve and
+        // reflush a ts already committed in an earlier flush. The raw
+        // table dedupes it via INSERT OR REPLACE; the rollup must match -
+        // an additive accumulation would count ts=1 twice here.
+        _store.Append(new[] { Scalars(0, cpu: 10), Scalars(1, cpu: 30) }, null);
+        _store.Append(new[] { Scalars(1, cpu: 30) }, null);
+
+        var slot = Assert.Single(_store.QueryScalarsDecimated(0, 59, stepSeconds: 60));
+
+        Assert.Equal((10 + 30) / 2.0, slot.CpuAvg!.Value, precision: 3);
+    }
+
+    [Fact]
+    public void Rollup_MatchesARawRecompute_WhenAReplayedTsCarriesADifferentReading()
+    {
+        _store.Append(new[] { Scalars(0, cpu: 10), Scalars(1, cpu: 30) }, null);
+        _store.Append(new[] { Scalars(1, cpu: 90) }, null);
+
+        var slot = Assert.Single(_store.QueryScalarsDecimated(0, 59, stepSeconds: 60));
+        var rawRecompute = _store.QueryScalarsDecimated(0, 59, stepSeconds: 2);
+
+        Assert.Equal((10 + 90) / 2.0, slot.CpuAvg!.Value, precision: 3);
+        Assert.Equal(90, slot.CpuMax);
+        Assert.Equal(rawRecompute.Where(s => s.CpuAvg is not null).Average(s => s.CpuAvg!.Value), slot.CpuAvg!.Value, precision: 3);
+    }
+
+    [Fact]
+    public void GpuRollup_DoesNotDoubleCount_WhenATsIsReplayedInASecondFlush()
+    {
+        var s1 = new MetricSample(0, null, null, null, null, null,
+            new[] { new GpuReading("gpu-0", "RTX 5080", "", 10, 40) }, Array.Empty<FanReading>());
+        var s2 = new MetricSample(30, null, null, null, null, null,
+            new[] { new GpuReading("gpu-0", "RTX 5080", "", 50, 44) }, Array.Empty<FanReading>());
+        _store.Append(new[] { s1 }, null);
+        _store.Append(new[] { s2 }, null);
+        _store.Append(new[] { s2 }, null); // s2's ts replayed, unchanged
+
+        var slot = Assert.Single(_store.QueryGpuDecimated(0, 59, stepSeconds: 60));
+
+        Assert.Equal(30, slot.LoadAvg);
+        Assert.Equal(50, slot.LoadMax);
+    }
 }

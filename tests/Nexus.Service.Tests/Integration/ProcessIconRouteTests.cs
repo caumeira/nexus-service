@@ -108,7 +108,7 @@ public sealed class ProcessIconRouteTests : IDisposable
         await client.GetAsync("/monitoring/process-icon?name=app.exe");
         await client.GetAsync("/monitoring/process-icon?name=app.exe");
 
-        Assert.Equal(1, _icons.CallCount); // a genuine empty result is a real negative, safe to cache
+        Assert.Equal(1, _icons.CallCount); // an empty result is a real negative, safe to cache
     }
 
     [Fact]

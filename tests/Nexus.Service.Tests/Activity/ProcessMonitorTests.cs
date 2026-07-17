@@ -77,4 +77,63 @@ public class ProcessMonitorTests
         monitor.SetDemand("app-usage-history", false);
         monitor.SetDemand("app-usage-history", false);
     }
+
+    [Theory]
+    [InlineData("processes")]
+    [InlineData("monitoring")]
+    public async Task FirstSubscriberOnARelevantTopic_ResolvesAPendingWaitViaThePulsePath(string topic)
+    {
+        var hub = new MultiplexHub();
+        var monitor = new ProcessMonitor(hub);
+
+        var waitTask = monitor.WaitForNextSampleAsync(30_000, CancellationToken.None);
+        using var sub = hub.AddTestSubscription(topic);
+
+        var completed = await Task.WhenAny(waitTask, Task.Delay(5000));
+        Assert.Same(waitTask, completed);
+        Assert.True(await waitTask);
+    }
+
+    [Fact]
+    public async Task FirstSubscriberOnAnUnrelatedTopic_DoesNotResolveAPendingWaitEarly()
+    {
+        var hub = new MultiplexHub();
+        var monitor = new ProcessMonitor(hub);
+
+        var waitTask = monitor.WaitForNextSampleAsync(50, CancellationToken.None);
+        using var sub = hub.AddTestSubscription("network");
+
+        Assert.False(await waitTask);
+    }
+
+    [Fact]
+    public async Task Dispose_UnsubscribesFromTheHub_SoALaterSubscriptionDoesNotResolveAPendingWait()
+    {
+        var hub = new MultiplexHub();
+        var monitor = new ProcessMonitor(hub);
+        monitor.Dispose();
+
+        var waitTask = monitor.WaitForNextSampleAsync(50, CancellationToken.None);
+        using var sub = hub.AddTestSubscription("processes");
+
+        Assert.False(await waitTask);
+    }
+
+    [Fact]
+    public async Task APriorCompletedWait_DoesNotAbsorbALaterPulse()
+    {
+        // Each call installs its own TaskCompletionSource under _wakeGate, so
+        // a prior call whose delay won unpulsed leaves nothing behind that
+        // could intercept a pulse meant for a later, still-pending call.
+        var hub = new MultiplexHub();
+        var monitor = new ProcessMonitor(hub);
+        await monitor.WaitForNextSampleAsync(20, CancellationToken.None);
+
+        var waitTask = monitor.WaitForNextSampleAsync(30_000, CancellationToken.None);
+        using var sub = hub.AddTestSubscription("processes");
+
+        var completed = await Task.WhenAny(waitTask, Task.Delay(5000));
+        Assert.Same(waitTask, completed);
+        Assert.True(await waitTask);
+    }
 }

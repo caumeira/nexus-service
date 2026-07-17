@@ -531,175 +531,66 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         }
     }
 
-    // One upsert per (minute, entity) touched by this flush's samples - at
-    // most MetricsHistory.FlushSeconds/60 rounded up per table, never one
-    // row per raw second. sum/cnt (not a running avg) is the accumulated
-    // shape so a later flush landing in the same minute can add its own
-    // batch's contribution without needing to unmerge a prior average;
-    // avg is only ever computed at read time as sum/cnt. cnt gates the
-    // read-time division (SQLite divide-by-zero yields NULL), so a sum
-    // left at a phantom 0 by COALESCE when both the existing row and this
-    // batch had no data for a field never surfaces - only cnt has to be
-    // trustworthy, and it always is (never itself COALESCEd).
-    private sealed class ScalarRollupAccumulator
-    {
-        public double? CpuSum; public int CpuCnt; public double? CpuMax;
-        public double? MemSum; public int MemCnt; public double? MemMax;
-        public double? NetInSum; public int NetInCnt; public double? NetInMax;
-        public double? NetOutSum; public int NetOutCnt; public double? NetOutMax;
-        public double? TempSum; public int TempCnt; public double? TempMax;
-
-        public void Add(MetricSample s)
-        {
-            AddField(s.CpuPercent, ref CpuSum, ref CpuCnt, ref CpuMax);
-            AddField(s.MemoryPercent, ref MemSum, ref MemCnt, ref MemMax);
-            AddField(s.NetInBytesPerSec, ref NetInSum, ref NetInCnt, ref NetInMax);
-            AddField(s.NetOutBytesPerSec, ref NetOutSum, ref NetOutCnt, ref NetOutMax);
-            AddField(s.CpuTempC, ref TempSum, ref TempCnt, ref TempMax);
-        }
-    }
-
-    private sealed class GpuRollupAccumulator
-    {
-        public double? LoadSum; public int LoadCnt; public double? LoadMax;
-        public double? TempSum; public int TempCnt; public double? TempMax;
-
-        public void Add(GpuReading g)
-        {
-            AddField(g.LoadPercent, ref LoadSum, ref LoadCnt, ref LoadMax);
-            AddField(g.TempC, ref TempSum, ref TempCnt, ref TempMax);
-        }
-    }
-
-    private sealed class FanRollupAccumulator
-    {
-        public double? RpmSum; public int RpmCnt; public double? RpmMax;
-        public double? DutySum; public int DutyCnt; public double? DutyMax;
-
-        public void Add(FanReading f)
-        {
-            AddField(f.Rpm, ref RpmSum, ref RpmCnt, ref RpmMax);
-            AddField(f.Duty, ref DutySum, ref DutyCnt, ref DutyMax);
-        }
-    }
-
-    private static void AddField(double? value, ref double? sum, ref int cnt, ref double? max)
-    {
-        if (value is not { } v)
-        {
-            return;
-        }
-        sum = (sum ?? 0) + v;
-        cnt++;
-        max = max is { } m ? Math.Max(m, v) : v;
-    }
-
-    private static void AddField(int? value, ref double? sum, ref int cnt, ref double? max) =>
-        AddField((double?)value, ref sum, ref cnt, ref max);
-
+    // Rebuilds (never accumulates) each touched minute's row from an
+    // aggregate query over the raw per-second table, run after
+    // InsertScalars/InsertGpuReadings/InsertFanReadings inside the same
+    // transaction so the SELECT sees this flush's just-written rows. A
+    // rebuild is idempotent no matter how many times a given ts lands here
+    // (a backward clock step can replay one): the raw table dedupes it via
+    // INSERT OR REPLACE, and the rebuilt row is a fresh aggregate over
+    // whatever rows exist now, not an addition on top of what was already
+    // stored. SUM/MAX/COUNT over a column all ignore NULL rows, so cnt
+    // stays the count of actual readings and sum/max stay unaffected by a
+    // ts with no value for that field.
     private static long ResolveKnownKey(string id, Dictionary<string, long> cache, Dictionary<string, long> pendingKeys) =>
         cache.TryGetValue(id, out var key) ? key : pendingKeys[id];
 
     private void UpsertScalarRollup(SqliteTransaction tx, IReadOnlyList<MetricSample> samples)
     {
-        var byMinute = new Dictionary<long, ScalarRollupAccumulator>();
+        var minutes = new HashSet<long>();
         foreach (var s in samples)
         {
-            var minute = s.TsSec / 60 * 60;
-            if (!byMinute.TryGetValue(minute, out var acc))
-            {
-                acc = new ScalarRollupAccumulator();
-                byMinute[minute] = acc;
-            }
-            acc.Add(s);
+            minutes.Add(s.TsSec / 60 * 60);
         }
 
         using var cmd = _connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT INTO metric_minutes (
+            INSERT OR REPLACE INTO metric_minutes (
                 ts_min, cpu_sum_x10, cpu_cnt, cpu_max_x10,
                 mem_sum_x10, mem_cnt, mem_max_x10,
                 net_in_sum, net_in_cnt, net_in_max,
                 net_out_sum, net_out_cnt, net_out_max,
                 cpu_temp_sum_x10, cpu_temp_cnt, cpu_temp_max_x10)
-            VALUES ($ts, $cpuSum, $cpuCnt, $cpuMax, $memSum, $memCnt, $memMax,
-                    $netInSum, $netInCnt, $netInMax, $netOutSum, $netOutCnt, $netOutMax,
-                    $tempSum, $tempCnt, $tempMax)
-            ON CONFLICT(ts_min) DO UPDATE SET
-                cpu_sum_x10 = COALESCE(cpu_sum_x10, 0) + COALESCE(excluded.cpu_sum_x10, 0),
-                cpu_cnt = cpu_cnt + excluded.cpu_cnt,
-                cpu_max_x10 = MAX(COALESCE(cpu_max_x10, excluded.cpu_max_x10), COALESCE(excluded.cpu_max_x10, cpu_max_x10)),
-                mem_sum_x10 = COALESCE(mem_sum_x10, 0) + COALESCE(excluded.mem_sum_x10, 0),
-                mem_cnt = mem_cnt + excluded.mem_cnt,
-                mem_max_x10 = MAX(COALESCE(mem_max_x10, excluded.mem_max_x10), COALESCE(excluded.mem_max_x10, mem_max_x10)),
-                net_in_sum = COALESCE(net_in_sum, 0) + COALESCE(excluded.net_in_sum, 0),
-                net_in_cnt = net_in_cnt + excluded.net_in_cnt,
-                net_in_max = MAX(COALESCE(net_in_max, excluded.net_in_max), COALESCE(excluded.net_in_max, net_in_max)),
-                net_out_sum = COALESCE(net_out_sum, 0) + COALESCE(excluded.net_out_sum, 0),
-                net_out_cnt = net_out_cnt + excluded.net_out_cnt,
-                net_out_max = MAX(COALESCE(net_out_max, excluded.net_out_max), COALESCE(excluded.net_out_max, net_out_max)),
-                cpu_temp_sum_x10 = COALESCE(cpu_temp_sum_x10, 0) + COALESCE(excluded.cpu_temp_sum_x10, 0),
-                cpu_temp_cnt = cpu_temp_cnt + excluded.cpu_temp_cnt,
-                cpu_temp_max_x10 = MAX(COALESCE(cpu_temp_max_x10, excluded.cpu_temp_max_x10), COALESCE(excluded.cpu_temp_max_x10, cpu_temp_max_x10));
+            SELECT $ts,
+                   SUM(cpu_x10), COUNT(cpu_x10), MAX(cpu_x10),
+                   SUM(mem_x10), COUNT(mem_x10), MAX(mem_x10),
+                   SUM(net_in_bps), COUNT(net_in_bps), MAX(net_in_bps),
+                   SUM(net_out_bps), COUNT(net_out_bps), MAX(net_out_bps),
+                   SUM(cpu_temp_x10), COUNT(cpu_temp_x10), MAX(cpu_temp_x10)
+            FROM metric_seconds
+            WHERE ts >= $ts AND ts < $ts + 60;
         """;
         var pTs = AddParam(cmd, "$ts");
-        var pCpuSum = AddParam(cmd, "$cpuSum");
-        var pCpuCnt = AddParam(cmd, "$cpuCnt");
-        var pCpuMax = AddParam(cmd, "$cpuMax");
-        var pMemSum = AddParam(cmd, "$memSum");
-        var pMemCnt = AddParam(cmd, "$memCnt");
-        var pMemMax = AddParam(cmd, "$memMax");
-        var pNetInSum = AddParam(cmd, "$netInSum");
-        var pNetInCnt = AddParam(cmd, "$netInCnt");
-        var pNetInMax = AddParam(cmd, "$netInMax");
-        var pNetOutSum = AddParam(cmd, "$netOutSum");
-        var pNetOutCnt = AddParam(cmd, "$netOutCnt");
-        var pNetOutMax = AddParam(cmd, "$netOutMax");
-        var pTempSum = AddParam(cmd, "$tempSum");
-        var pTempCnt = AddParam(cmd, "$tempCnt");
-        var pTempMax = AddParam(cmd, "$tempMax");
-
-        foreach (var (minute, acc) in byMinute)
+        foreach (var minute in minutes)
         {
             pTs.Value = minute;
-            pCpuSum.Value = ScaleX10(acc.CpuSum);
-            pCpuCnt.Value = acc.CpuCnt;
-            pCpuMax.Value = ScaleX10(acc.CpuMax);
-            pMemSum.Value = ScaleX10(acc.MemSum);
-            pMemCnt.Value = acc.MemCnt;
-            pMemMax.Value = ScaleX10(acc.MemMax);
-            pNetInSum.Value = ScaleWhole(acc.NetInSum);
-            pNetInCnt.Value = acc.NetInCnt;
-            pNetInMax.Value = ScaleWhole(acc.NetInMax);
-            pNetOutSum.Value = ScaleWhole(acc.NetOutSum);
-            pNetOutCnt.Value = acc.NetOutCnt;
-            pNetOutMax.Value = ScaleWhole(acc.NetOutMax);
-            pTempSum.Value = ScaleX10(acc.TempSum);
-            pTempCnt.Value = acc.TempCnt;
-            pTempMax.Value = ScaleX10(acc.TempMax);
             cmd.ExecuteNonQuery();
         }
     }
 
     private void UpsertGpuRollup(SqliteTransaction tx, IReadOnlyList<MetricSample> samples, Dictionary<string, long> pendingGpuKeys)
     {
-        var byMinuteGpu = new Dictionary<(long Minute, long GpuKey), GpuRollupAccumulator>();
+        var minuteGpuPairs = new HashSet<(long Minute, long GpuKey)>();
         foreach (var s in samples)
         {
             var minute = s.TsSec / 60 * 60;
             foreach (var g in s.Gpus)
             {
-                var mapKey = (minute, ResolveKnownKey(g.GpuId, _gpuKeys, pendingGpuKeys));
-                if (!byMinuteGpu.TryGetValue(mapKey, out var acc))
-                {
-                    acc = new GpuRollupAccumulator();
-                    byMinuteGpu[mapKey] = acc;
-                }
-                acc.Add(g);
+                minuteGpuPairs.Add((minute, ResolveKnownKey(g.GpuId, _gpuKeys, pendingGpuKeys)));
             }
         }
-        if (byMinuteGpu.Count == 0)
+        if (minuteGpuPairs.Count == 0)
         {
             return;
         }
@@ -707,57 +598,35 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         using var cmd = _connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT INTO gpu_minutes (ts_min, gpu, load_sum_x10, load_cnt, load_max_x10, temp_sum_x10, temp_cnt, temp_max_x10)
-            VALUES ($ts, $gpu, $loadSum, $loadCnt, $loadMax, $tempSum, $tempCnt, $tempMax)
-            ON CONFLICT(ts_min, gpu) DO UPDATE SET
-                load_sum_x10 = COALESCE(load_sum_x10, 0) + COALESCE(excluded.load_sum_x10, 0),
-                load_cnt = load_cnt + excluded.load_cnt,
-                load_max_x10 = MAX(COALESCE(load_max_x10, excluded.load_max_x10), COALESCE(excluded.load_max_x10, load_max_x10)),
-                temp_sum_x10 = COALESCE(temp_sum_x10, 0) + COALESCE(excluded.temp_sum_x10, 0),
-                temp_cnt = temp_cnt + excluded.temp_cnt,
-                temp_max_x10 = MAX(COALESCE(temp_max_x10, excluded.temp_max_x10), COALESCE(excluded.temp_max_x10, temp_max_x10));
+            INSERT OR REPLACE INTO gpu_minutes (ts_min, gpu, load_sum_x10, load_cnt, load_max_x10, temp_sum_x10, temp_cnt, temp_max_x10)
+            SELECT $ts, $gpu,
+                   SUM(load_x10), COUNT(load_x10), MAX(load_x10),
+                   SUM(temp_x10), COUNT(temp_x10), MAX(temp_x10)
+            FROM gpu_seconds
+            WHERE gpu = $gpu AND ts >= $ts AND ts < $ts + 60;
         """;
         var pTs = AddParam(cmd, "$ts");
         var pGpu = AddParam(cmd, "$gpu");
-        var pLoadSum = AddParam(cmd, "$loadSum");
-        var pLoadCnt = AddParam(cmd, "$loadCnt");
-        var pLoadMax = AddParam(cmd, "$loadMax");
-        var pTempSum = AddParam(cmd, "$tempSum");
-        var pTempCnt = AddParam(cmd, "$tempCnt");
-        var pTempMax = AddParam(cmd, "$tempMax");
-
-        foreach (var ((minute, gpuKey), acc) in byMinuteGpu)
+        foreach (var (minute, gpuKey) in minuteGpuPairs)
         {
             pTs.Value = minute;
             pGpu.Value = gpuKey;
-            pLoadSum.Value = ScaleX10(acc.LoadSum);
-            pLoadCnt.Value = acc.LoadCnt;
-            pLoadMax.Value = ScaleX10(acc.LoadMax);
-            pTempSum.Value = ScaleX10(acc.TempSum);
-            pTempCnt.Value = acc.TempCnt;
-            pTempMax.Value = ScaleX10(acc.TempMax);
             cmd.ExecuteNonQuery();
         }
     }
 
     private void UpsertFanRollup(SqliteTransaction tx, IReadOnlyList<MetricSample> samples, Dictionary<string, long> pendingFanKeys)
     {
-        var byMinuteFan = new Dictionary<(long Minute, long FanKey), FanRollupAccumulator>();
+        var minuteFanPairs = new HashSet<(long Minute, long FanKey)>();
         foreach (var s in samples)
         {
             var minute = s.TsSec / 60 * 60;
             foreach (var f in s.Fans)
             {
-                var mapKey = (minute, ResolveKnownKey(f.FanId, _fanKeys, pendingFanKeys));
-                if (!byMinuteFan.TryGetValue(mapKey, out var acc))
-                {
-                    acc = new FanRollupAccumulator();
-                    byMinuteFan[mapKey] = acc;
-                }
-                acc.Add(f);
+                minuteFanPairs.Add((minute, ResolveKnownKey(f.FanId, _fanKeys, pendingFanKeys)));
             }
         }
-        if (byMinuteFan.Count == 0)
+        if (minuteFanPairs.Count == 0)
         {
             return;
         }
@@ -765,35 +634,19 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         using var cmd = _connection.CreateCommand();
         cmd.Transaction = tx;
         cmd.CommandText = """
-            INSERT INTO fan_minutes (ts_min, fan, rpm_sum, rpm_cnt, rpm_max, duty_sum, duty_cnt, duty_max)
-            VALUES ($ts, $fan, $rpmSum, $rpmCnt, $rpmMax, $dutySum, $dutyCnt, $dutyMax)
-            ON CONFLICT(ts_min, fan) DO UPDATE SET
-                rpm_sum = COALESCE(rpm_sum, 0) + COALESCE(excluded.rpm_sum, 0),
-                rpm_cnt = rpm_cnt + excluded.rpm_cnt,
-                rpm_max = MAX(COALESCE(rpm_max, excluded.rpm_max), COALESCE(excluded.rpm_max, rpm_max)),
-                duty_sum = COALESCE(duty_sum, 0) + COALESCE(excluded.duty_sum, 0),
-                duty_cnt = duty_cnt + excluded.duty_cnt,
-                duty_max = MAX(COALESCE(duty_max, excluded.duty_max), COALESCE(excluded.duty_max, duty_max));
+            INSERT OR REPLACE INTO fan_minutes (ts_min, fan, rpm_sum, rpm_cnt, rpm_max, duty_sum, duty_cnt, duty_max)
+            SELECT $ts, $fan,
+                   SUM(rpm), COUNT(rpm), MAX(rpm),
+                   SUM(duty), COUNT(duty), MAX(duty)
+            FROM fan_seconds
+            WHERE fan = $fan AND ts >= $ts AND ts < $ts + 60;
         """;
         var pTs = AddParam(cmd, "$ts");
         var pFan = AddParam(cmd, "$fan");
-        var pRpmSum = AddParam(cmd, "$rpmSum");
-        var pRpmCnt = AddParam(cmd, "$rpmCnt");
-        var pRpmMax = AddParam(cmd, "$rpmMax");
-        var pDutySum = AddParam(cmd, "$dutySum");
-        var pDutyCnt = AddParam(cmd, "$dutyCnt");
-        var pDutyMax = AddParam(cmd, "$dutyMax");
-
-        foreach (var ((minute, fanKey), acc) in byMinuteFan)
+        foreach (var (minute, fanKey) in minuteFanPairs)
         {
             pTs.Value = minute;
             pFan.Value = fanKey;
-            pRpmSum.Value = ScaleWhole(acc.RpmSum);
-            pRpmCnt.Value = acc.RpmCnt;
-            pRpmMax.Value = ScaleWhole(acc.RpmMax);
-            pDutySum.Value = ScaleWhole(acc.DutySum);
-            pDutyCnt.Value = acc.DutyCnt;
-            pDutyMax.Value = ScaleWhole(acc.DutyMax);
             cmd.ExecuteNonQuery();
         }
     }
@@ -1032,6 +885,124 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             );
             INSERT OR IGNORE INTO schema_meta (key, value) VALUES ('version', '1');
         """;
+        cmd.ExecuteNonQuery();
+
+        MigrateAppSeriesToNoCase();
+    }
+
+    // app_series was created without COLLATE NOCASE by an earlier version
+    // of this store; CREATE TABLE IF NOT EXISTS above no-ops on a database
+    // that already has the table, so a box that ran that version keeps a
+    // case-sensitive app_series forever without this. Rebuilds app_series
+    // with the NOCASE collation, merging any case-duplicate rows (first-seen
+    // casing wins) and repointing every app_*_seconds row at the merged key.
+    private const int SchemaVersionAppSeriesNoCase = 2;
+
+    private void MigrateAppSeriesToNoCase()
+    {
+        if (ReadSchemaVersion() >= SchemaVersionAppSeriesNoCase)
+        {
+            return;
+        }
+
+        using (var tx = _connection.BeginTransaction())
+        {
+            ExecuteNonQuery(tx, """
+                CREATE TABLE app_series_migrated (
+                    key  INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL COLLATE NOCASE UNIQUE
+                );
+            """);
+            // Ordered by key ascending, so the lowest (earliest-inserted)
+            // key for a case-insensitive name wins the NOCASE UNIQUE
+            // conflict and every later duplicate is skipped, preserving
+            // first-seen casing.
+            ExecuteNonQuery(tx, """
+                INSERT OR IGNORE INTO app_series_migrated (name)
+                SELECT name FROM app_series ORDER BY key ASC;
+            """);
+            ExecuteNonQuery(tx, """
+                CREATE TEMP TABLE app_key_migration_map AS
+                SELECT old_series.key AS old_key, new_series.key AS new_key
+                FROM app_series old_series
+                JOIN app_series_migrated new_series ON old_series.name = new_series.name COLLATE NOCASE;
+            """);
+
+            MigrateAppSecondsTable(tx, "app_cpu_seconds",
+                "ts        INTEGER NOT NULL, app INTEGER NOT NULL, value_x10 INTEGER, PRIMARY KEY (ts, app)",
+                "ts, app, value_x10", "s.ts, m.new_key, s.value_x10");
+            MigrateAppSecondsTable(tx, "app_mem_seconds",
+                "ts        INTEGER NOT NULL, app INTEGER NOT NULL, value_x10 INTEGER, PRIMARY KEY (ts, app)",
+                "ts, app, value_x10", "s.ts, m.new_key, s.value_x10");
+            MigrateAppSecondsTable(tx, "app_gpu_seconds",
+                "ts INTEGER NOT NULL, app INTEGER NOT NULL, gpu INTEGER NOT NULL, value_x10 INTEGER, vram_mb INTEGER, PRIMARY KEY (ts, app, gpu)",
+                "ts, app, gpu, value_x10, vram_mb", "s.ts, m.new_key, s.gpu, s.value_x10, s.vram_mb");
+
+            ExecuteNonQuery(tx, "DROP TABLE app_series;");
+            ExecuteNonQuery(tx, "ALTER TABLE app_series_migrated RENAME TO app_series;");
+            ExecuteNonQuery(tx, "DROP TABLE app_key_migration_map;");
+
+            using (var cmd = _connection.CreateCommand())
+            {
+                cmd.Transaction = tx;
+                cmd.CommandText = """
+                    INSERT INTO schema_meta (key, value) VALUES ('version', $v)
+                    ON CONFLICT(key) DO UPDATE SET value = excluded.value;
+                """;
+                cmd.Parameters.AddWithValue("$v", SchemaVersionAppSeriesNoCase.ToString());
+                cmd.ExecuteNonQuery();
+            }
+
+            tx.Commit();
+        }
+
+        // The app_*_seconds tables were dropped and rebuilt above, taking
+        // their indexes with them; EnsureSchema's own CREATE INDEX IF NOT
+        // EXISTS calls already ran against the now-gone originals, so this
+        // restores them on the rebuilt tables.
+        using (var cmd = _connection.CreateCommand())
+        {
+            cmd.CommandText = """
+                CREATE INDEX IF NOT EXISTS ix_app_cpu_seconds_app_ts ON app_cpu_seconds(app, ts);
+                CREATE INDEX IF NOT EXISTS ix_app_mem_seconds_app_ts ON app_mem_seconds(app, ts);
+                CREATE INDEX IF NOT EXISTS ix_app_gpu_seconds_gpu_app_ts ON app_gpu_seconds(gpu, app, ts);
+            """;
+            cmd.ExecuteNonQuery();
+        }
+    }
+
+    // A repointed (ts, app) or (ts, app, gpu) pair can collide when two
+    // differently-cased rows for the same app landed at the same tick -
+    // INSERT OR REPLACE keeps whichever the SELECT visits last, an
+    // arbitrary but deterministic resolution for what is already an
+    // ambiguous duplicate reading.
+    private void MigrateAppSecondsTable(SqliteTransaction tx, string table, string columnsDdl, string columns, string selectExpr)
+    {
+        var migratedTable = table + "_migrated";
+        ExecuteNonQuery(tx, $"CREATE TABLE {migratedTable} ({columnsDdl}) WITHOUT ROWID;");
+        ExecuteNonQuery(tx, $"""
+            INSERT OR REPLACE INTO {migratedTable} ({columns})
+            SELECT {selectExpr}
+            FROM {table} s
+            JOIN app_key_migration_map m ON s.app = m.old_key;
+        """);
+        ExecuteNonQuery(tx, $"DROP TABLE {table};");
+        ExecuteNonQuery(tx, $"ALTER TABLE {migratedTable} RENAME TO {table};");
+    }
+
+    private int ReadSchemaVersion()
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.CommandText = "SELECT value FROM schema_meta WHERE key = 'version';";
+        var result = cmd.ExecuteScalar();
+        return result is string s && int.TryParse(s, out var v) ? v : 1;
+    }
+
+    private void ExecuteNonQuery(SqliteTransaction tx, string sql)
+    {
+        using var cmd = _connection.CreateCommand();
+        cmd.Transaction = tx;
+        cmd.CommandText = sql;
         cmd.ExecuteNonQuery();
     }
 

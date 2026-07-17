@@ -37,11 +37,12 @@ public static class MonitoringHistoryRoutes
 
     // Aligned with the metric_minutes/gpu_minutes/fan_minutes rollup's own
     // eligibility (SqliteMetricsHistoryStore.IsRollupEligible): below this,
-    // QueryScalarsDecimated falls back to a raw per-second GROUP BY that
-    // measured slower than the raw-pull path at a moderate window, so
+    // QueryScalarsDecimated would fall back to a raw per-second GROUP BY,
+    // which scans more rows than the raw-pull path at a narrow window, so
     // narrower requests stay on the untouched BuildHistoryResponse path;
-    // at and above it every request is rollup-served and measured
-    // dramatically faster than raw-pull at every window tested.
+    // at and above it every request is served from the rollup tier, which
+    // scans a bounded number of pre-aggregated minute rows instead of
+    // every raw second in the window.
     private const int DecimatedPathMinStepSeconds = 60;
 
     private const int MinMaxApps = 1;
@@ -165,6 +166,25 @@ public static class MonitoringHistoryRoutes
                 var clampedMaxApps = Math.Clamp(maxApps ?? MetricsHistory.DefaultMaxApps, MinMaxApps, MaxMaxApps);
                 var clampedMaxPoints = Math.Clamp(maxPoints ?? MetricsHistory.DefaultMaxAppPoints, MinMaxAppPoints, MaxMaxAppPoints);
 
+                // Buffer read first, matching the sibling /monitoring/history
+                // route: a flush landing between the two reads commits its
+                // samples to the store and then RemoveThroughs them out of
+                // the buffer, so reading the store first can miss those
+                // ticks in both reads. Reading the tail first guarantees
+                // anything a subsequent flush drops from the buffer is
+                // already visible in every store read below; MergeAppTail's
+                // tail-wins-by-ts dedup handles the overlap either way.
+                // Apps.Count > 0 matches what the store persists: a tick's
+                // AppMetricSample only ever produces app_*_seconds rows when
+                // it has apps, so a tail tick with none would stop counting
+                // as sampled the moment it flushed - counting it here too
+                // keeps expectedTicks stable across that boundary.
+                var tailForMetric = appBuffer.SnapshotRange(fromSec, toSec)
+                    .Select(t => (t.TsSec, Metric: t.Metrics.FirstOrDefault(m => m.Metric == series)))
+                    .Where(t => t.Metric is not null && t.Metric.Apps.Count > 0)
+                    .Select(t => (t.TsSec, Metric: t.Metric!))
+                    .ToList();
+
                 // Db-only ranking is a candidate pool (the tail is at most a
                 // few AppSampleIntervalSeconds ticks, negligible against any
                 // window wide enough for the db side to matter); every
@@ -175,11 +195,6 @@ public static class MonitoringHistoryRoutes
                 // this scales with maxApps (bounded by MaxMaxApps) plus a
                 // handful of tail-only names, not with window width.
                 var dbTopApps = appStore.QueryTopApps(series, fromSec, toSec, clampedMaxApps);
-                var tailForMetric = appBuffer.SnapshotRange(fromSec, toSec)
-                    .Select(t => (t.TsSec, Metric: t.Metrics.FirstOrDefault(m => m.Metric == series)))
-                    .Where(t => t.Metric is not null)
-                    .Select(t => (t.TsSec, Metric: t.Metric!))
-                    .ToList();
 
                 var candidateNames = new HashSet<string>(dbTopApps.Select(a => a.Name), StringComparer.OrdinalIgnoreCase);
                 foreach (var (_, metric) in tailForMetric)

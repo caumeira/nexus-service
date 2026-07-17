@@ -31,7 +31,37 @@ public sealed class GpuProcessMonitor : BackgroundService
     private volatile IReadOnlyList<GpuProcessEntry> _latest = Array.Empty<GpuProcessEntry>();
 #pragma warning restore IDE0044
 
-    public GpuProcessMonitor(MultiplexHub hub) => _hub = hub;
+    // Wakes ExecuteAsync's delay early when a real subscriber arrives while
+    // the loop is sleeping at the slower demand-only cadence, same shape as
+    // ProcessMonitor's _pendingWake (a fresh TaskCompletionSource per call,
+    // not a shared SemaphoreSlim - see ProcessMonitor for why).
+    private readonly object _wakeGate = new();
+    private TaskCompletionSource<bool>? _pendingWake;
+
+    public GpuProcessMonitor(MultiplexHub hub)
+    {
+        _hub = hub;
+        _hub.OnTopicFirstSubscriber += OnTopicFirstSubscriber;
+    }
+
+    public override void Dispose()
+    {
+        _hub.OnTopicFirstSubscriber -= OnTopicFirstSubscriber;
+        base.Dispose();
+    }
+
+    private void OnTopicFirstSubscriber(string topic)
+    {
+        if (string.Equals(topic, "gpu-processes", StringComparison.OrdinalIgnoreCase))
+        {
+            TaskCompletionSource<bool>? pending;
+            lock (_wakeGate)
+            {
+                pending = _pendingWake;
+            }
+            pending?.TrySetResult(true);
+        }
+    }
 
     public IReadOnlyList<GpuProcessEntry> GetSnapshot() => _latest;
 
@@ -57,6 +87,29 @@ public sealed class GpuProcessMonitor : BackgroundService
     private bool HasDemand
     {
         get { lock (_demandGate) { return _demands.Count > 0; } }
+    }
+
+    // Returns true when a pulse resolved the wait before delayMs elapsed,
+    // false when the delay won. Task.WhenAny does not throw on ct
+    // cancellation; the caller's while condition exits. Kept outside the
+    // WINDOWS-only sampling loop so it compiles and is testable on every
+    // platform, same as _pendingWake and OnTopicFirstSubscriber.
+    internal async Task<bool> WaitForNextSampleAsync(int delayMs, CancellationToken ct)
+    {
+        var tcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        lock (_wakeGate)
+        {
+            _pendingWake = tcs;
+        }
+        var winner = await Task.WhenAny(Task.Delay(delayMs, ct), tcs.Task);
+        lock (_wakeGate)
+        {
+            if (ReferenceEquals(_pendingWake, tcs))
+            {
+                _pendingWake = null;
+            }
+        }
+        return winner == tcs.Task;
     }
 
     protected override async Task ExecuteAsync(CancellationToken ct)
@@ -96,8 +149,7 @@ public sealed class GpuProcessMonitor : BackgroundService
                 }
 
                 var delayMs = hasReal ? 1000 : MetricsHistory.AppSampleIntervalSeconds * 1000;
-                try { await Task.Delay(delayMs, ct); }
-                catch (TaskCanceledException) { break; }
+                await WaitForNextSampleAsync(delayMs, ct);
             }
         }
         catch (Exception ex)
