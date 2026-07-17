@@ -180,7 +180,7 @@ public static class MonitoringHistoryRoutes
                 // as sampled the moment it flushed - counting it here too
                 // keeps expectedTicks stable across that boundary.
                 var tailForMetric = appBuffer.SnapshotRange(fromSec, toSec)
-                    .Select(t => (t.TsSec, Metric: t.Metrics.FirstOrDefault(m => m.Metric == series)))
+                    .Select(t => (t.TsSec, Metric: ResolveTailMetric(t, series)))
                     .Where(t => t.Metric is not null && t.Metric.Apps.Count > 0)
                     .Select(t => (t.TsSec, Metric: t.Metric!))
                     .ToList();
@@ -239,7 +239,7 @@ public static class MonitoringHistoryRoutes
 
                 var response = BuildAppsHistoryResponse(
                     topApps, seriesByApp, liveStartedAt,
-                    isGpuMetric: series.StartsWith("gpu:", StringComparison.Ordinal),
+                    isGpuMetric: series == "gpu" || series.StartsWith("gpu:", StringComparison.Ordinal),
                     fromSec, toSec, clampedMaxPoints);
 
                 LogTimingThrottled(
@@ -320,6 +320,51 @@ public static class MonitoringHistoryRoutes
             }
         }
         return result;
+    }
+
+    // "cpu"/"memory" (and a specific "gpu:<id>") match the tick's one sample
+    // with that exact metric id, same as before this helper existed. Bare
+    // "gpu" instead aggregates every "gpu:<id>" sample in the tick, mirroring
+    // SqliteMetricsHistoryStore/InMemoryMetricsHistoryStore's unfiltered
+    // app_gpu_seconds query on the persisted side.
+    internal static AppMetricSample? ResolveTailMetric(AppUsageTick tick, string series) =>
+        series == "gpu" ? AggregateGpuMetrics(tick) : tick.Metrics.FirstOrDefault(m => m.Metric == series);
+
+    // Sums each app's value (and vram) across every per-adapter gpu:<id>
+    // sample in one tick, so a process using two adapters reads as one
+    // combined value for that tick - the tail-side mirror of QueryTopApps/
+    // QueryAppSeries' SQL pre-aggregation. Null when the tick carries no gpu
+    // sample at all, distinct from an empty Apps list (no gpu-active
+    // process that tick), matching the "no data this tick" vs "sampled with
+    // nothing to report" distinction the store queries already draw.
+    internal static AppMetricSample? AggregateGpuMetrics(AppUsageTick tick)
+    {
+        var gpuSamples = tick.Metrics.Where(m => m.Metric.StartsWith("gpu:", StringComparison.Ordinal)).ToList();
+        if (gpuSamples.Count == 0)
+        {
+            return null;
+        }
+
+        var order = new List<string>();
+        var sums = new Dictionary<string, (double Value, double? Vram)>(StringComparer.OrdinalIgnoreCase);
+        foreach (var sample in gpuSamples)
+        {
+            foreach (var a in sample.Apps)
+            {
+                if (sums.TryGetValue(a.Name, out var acc))
+                {
+                    sums[a.Name] = (acc.Value + a.Value, MetricsHistory.SumNullable(acc.Vram, a.VramMb));
+                }
+                else
+                {
+                    sums[a.Name] = (a.Value, a.VramMb);
+                    order.Add(a.Name);
+                }
+            }
+        }
+
+        var points = order.Select(name => new AppUsagePoint(name, sums[name].Value, sums[name].Vram)).ToList();
+        return new AppMetricSample("gpu", points);
     }
 
     // Db points and the buffered tail can overlap at the flush boundary;

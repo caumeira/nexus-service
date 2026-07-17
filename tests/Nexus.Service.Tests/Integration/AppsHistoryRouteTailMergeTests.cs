@@ -108,6 +108,29 @@ public sealed class AppsHistoryRouteTailMergeTests : IDisposable
     }
 
     [Fact]
+    public async Task BareGpuSeries_AggregatesTailTicksAcrossAdapters()
+    {
+        // No db-side gpu history; the app only ever shows up in the
+        // buffered tail, split across two adapters in the same tick.
+        var appBuffer = _factory.Services.GetRequiredService<AppSampleBuffer>();
+        appBuffer.Append(new AppUsageTick(5000, new[]
+        {
+            new AppMetricSample("gpu:gpu-nvidia-0", new[] { new AppUsagePoint("game.exe", 30, 1000) }),
+            new AppMetricSample("gpu:gpu-amd-0", new[] { new AppUsagePoint("game.exe", 10, 500) }),
+        }));
+
+        var res = await Client().GetAsync("/monitoring/history/apps?from=0&to=6000000&series=gpu");
+
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var apps = doc.RootElement.GetProperty("apps");
+        Assert.Equal(1, apps.GetArrayLength());
+        var app = apps[0];
+        Assert.Equal("game.exe", app.GetProperty("name").GetString());
+        Assert.Equal(40, app.GetProperty("avg").GetDouble());
+        Assert.Equal(1500, app.GetProperty("vramAvgMb").GetDouble());
+    }
+
+    [Fact]
     public async Task TailTick_WithNoAppsForTheMetric_DoesNotInflateTheSampledTickCount()
     {
         // An AppMetricSample with an empty Apps list would persist zero

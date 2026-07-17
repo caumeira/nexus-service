@@ -280,6 +280,21 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         }
     }
 
+    // "cpu"/"memory" match the single sample with that exact metric id, same
+    // as before. Bare "gpu" (no adapter id) instead matches every "gpu:<id>"
+    // sample in the tick, so a process using two adapters is summed across
+    // them - the in-memory mirror of SqliteMetricsHistoryStore's unfiltered
+    // app_gpu_seconds query.
+    private static IEnumerable<AppMetricSample> ResolveMetricSamples(AppUsageTick tick, string metric)
+    {
+        if (metric == "gpu")
+        {
+            return tick.Metrics.Where(m => m.Metric.StartsWith("gpu:", StringComparison.Ordinal));
+        }
+        var single = tick.Metrics.FirstOrDefault(m => m.Metric == metric);
+        return single is null ? Enumerable.Empty<AppMetricSample>() : new[] { single };
+    }
+
     public IReadOnlyList<AppWindowStat> QueryTopApps(string metric, long fromSec, long toSec, int maxApps)
     {
         lock (_lock)
@@ -295,16 +310,28 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
                 {
                     continue;
                 }
-                var m = tick.Metrics.FirstOrDefault(x => x.Metric == metric);
-                if (m is null || m.Apps.Count == 0)
+
+                // Combine every matching sample's apps for this tick first
+                // (a bare "gpu" query spans every adapter; a specific metric
+                // has exactly one sample) so a multi-adapter process sums
+                // per tick before it contributes to the window sum/max.
+                var perTick = new Dictionary<string, double>(StringComparer.OrdinalIgnoreCase);
+                foreach (var m in ResolveMetricSamples(tick, metric))
+                {
+                    foreach (var a in m.Apps)
+                    {
+                        perTick[a.Name] = (perTick.TryGetValue(a.Name, out var v) ? v : 0) + a.Value;
+                    }
+                }
+                if (perTick.Count == 0)
                 {
                     continue;
                 }
                 expectedTicks++;
-                foreach (var a in m.Apps)
+                foreach (var (name, value) in perTick)
                 {
-                    var acc = sums.TryGetValue(a.Name, out var v) ? v : (0, double.MinValue);
-                    sums[a.Name] = (acc.Sum + a.Value, System.Math.Max(acc.Max, a.Value));
+                    var acc = sums.TryGetValue(name, out var v) ? v : (0, double.MinValue);
+                    sums[name] = (acc.Sum + value, System.Math.Max(acc.Max, value));
                 }
             }
             if (expectedTicks == 0)
@@ -326,7 +353,7 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
         {
             return _appTicks.Values
                 .Where(t => t.TsSec >= fromSec && t.TsSec <= toSec
-                    && t.Metrics.Any(m => m.Metric == metric && m.Apps.Count > 0))
+                    && ResolveMetricSamples(t, metric).Any(m => m.Apps.Count > 0))
                 .Select(t => t.TsSec)
                 .OrderBy(ts => ts)
                 .ToList();
@@ -344,19 +371,26 @@ public sealed class InMemoryMetricsHistoryStore : IMetricsHistoryStore, IPrivacy
                 {
                     continue;
                 }
-                foreach (var m in tick.Metrics)
+
+                double? value = null;
+                double? vram = null;
+                var found = false;
+                foreach (var m in ResolveMetricSamples(tick, metric))
                 {
-                    if (m.Metric != metric)
-                    {
-                        continue;
-                    }
                     foreach (var a in m.Apps)
                     {
-                        if (string.Equals(a.Name, appName, StringComparison.OrdinalIgnoreCase))
+                        if (!string.Equals(a.Name, appName, StringComparison.OrdinalIgnoreCase))
                         {
-                            result.Add(new AppRawPoint(tick.TsSec, a.Value, a.VramMb));
+                            continue;
                         }
+                        found = true;
+                        value = (value ?? 0) + a.Value;
+                        vram = MetricsHistory.SumNullable(vram, a.VramMb);
                     }
+                }
+                if (found)
+                {
+                    result.Add(new AppRawPoint(tick.TsSec, value, vram));
                 }
             }
             return result;

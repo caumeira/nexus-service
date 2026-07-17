@@ -162,4 +162,97 @@ public class MonitoringHistoryAppsRouteResponseTests
 
         Assert.True(Assert.Single(response.Apps).Points.Count <= 10);
     }
+
+    [Fact]
+    public void AggregateGpuMetrics_SumsAnAppsValueAcrossAdapters()
+    {
+        var tick = new AppUsageTick(1000, new[]
+        {
+            new AppMetricSample("gpu:gpu-nvidia-0", new[] { new AppUsagePoint("game.exe", 30, 1000) }),
+            new AppMetricSample("gpu:gpu-amd-0", new[] { new AppUsagePoint("game.exe", 10, 500) }),
+        });
+
+        var merged = MonitoringHistoryRoutes.AggregateGpuMetrics(tick);
+
+        var point = Assert.Single(merged!.Apps);
+        Assert.Equal("game.exe", point.Name);
+        Assert.Equal(40, point.Value);
+        Assert.Equal(1500, point.VramMb);
+    }
+
+    [Fact]
+    public void AggregateGpuMetrics_KeepsAppsSeenOnOnlyOneAdapterSeparate()
+    {
+        var tick = new AppUsageTick(1000, new[]
+        {
+            new AppMetricSample("gpu:gpu-nvidia-0", new[] { new AppUsagePoint("game.exe", 30, 1000) }),
+            new AppMetricSample("gpu:gpu-amd-0", new[] { new AppUsagePoint("other.exe", 5, null) }),
+        });
+
+        var merged = MonitoringHistoryRoutes.AggregateGpuMetrics(tick);
+
+        Assert.Equal(2, merged!.Apps.Count);
+        var game = merged.Apps.Single(a => a.Name == "game.exe");
+        Assert.Equal(30, game.Value);
+        Assert.Equal(1000, game.VramMb);
+        var other = merged.Apps.Single(a => a.Name == "other.exe");
+        Assert.Equal(5, other.Value);
+        Assert.Null(other.VramMb);
+    }
+
+    [Fact]
+    public void AggregateGpuMetrics_ReturnsNull_WhenTheTickHasNoGpuSample()
+    {
+        var tick = new AppUsageTick(1000, new[]
+        {
+            new AppMetricSample("cpu", new[] { new AppUsagePoint("app.exe", 10, null) }),
+        });
+
+        Assert.Null(MonitoringHistoryRoutes.AggregateGpuMetrics(tick));
+    }
+
+    [Fact]
+    public void ResolveTailMetric_ForBareGpuSeries_AggregatesEveryAdapterSample()
+    {
+        var tick = new AppUsageTick(1000, new[]
+        {
+            new AppMetricSample("gpu:gpu-nvidia-0", new[] { new AppUsagePoint("game.exe", 30, null) }),
+            new AppMetricSample("gpu:gpu-amd-0", new[] { new AppUsagePoint("game.exe", 10, null) }),
+        });
+
+        var resolved = MonitoringHistoryRoutes.ResolveTailMetric(tick, "gpu");
+
+        Assert.Equal(40, Assert.Single(resolved!.Apps).Value);
+    }
+
+    [Fact]
+    public void ResolveTailMetric_ForASpecificGpuSeries_MatchesOnlyThatAdapter()
+    {
+        var tick = new AppUsageTick(1000, new[]
+        {
+            new AppMetricSample("gpu:gpu-nvidia-0", new[] { new AppUsagePoint("game.exe", 30, null) }),
+            new AppMetricSample("gpu:gpu-amd-0", new[] { new AppUsagePoint("game.exe", 10, null) }),
+        });
+
+        var resolved = MonitoringHistoryRoutes.ResolveTailMetric(tick, "gpu:gpu-nvidia-0");
+
+        Assert.Equal(30, Assert.Single(resolved!.Apps).Value);
+    }
+
+    [Fact]
+    public void MergeAppTail_MergesDbPointsWithTailPoints_TailWinningOnOverlap()
+    {
+        var dbPoints = new[] { new AppRawPoint(1000, 10, null) };
+        var tailForMetric = new List<(long TsSec, AppMetricSample Metric)>
+        {
+            (1000, new AppMetricSample("cpu", new[] { new AppUsagePoint("app.exe", 99, null) })),
+            (1005, new AppMetricSample("cpu", new[] { new AppUsagePoint("app.exe", 20, null) })),
+        };
+
+        var merged = MonitoringHistoryRoutes.MergeAppTail(dbPoints, tailForMetric, "app.exe");
+
+        Assert.Equal(new long[] { 1000, 1005 }, merged.Select(p => p.TsSec));
+        Assert.Equal(99, merged[0].Value); // tail wins over the db's 10 at the same ts
+        Assert.Equal(20, merged[1].Value);
+    }
 }

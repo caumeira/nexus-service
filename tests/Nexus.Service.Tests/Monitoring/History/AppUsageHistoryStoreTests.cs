@@ -29,6 +29,26 @@ public class AppUsageHistoryStoreTests : IDisposable
     private static AppUsageTick CpuTick(long ts, params (string Name, double Value)[] apps) =>
         new(ts, new[] { new AppMetricSample("cpu", apps.Select(a => new AppUsagePoint(a.Name, a.Value, null)).ToList()) });
 
+    private static MetricSample ScalarGpuSample(long ts, string gpuId, string name) =>
+        new(ts, null, null, null, null, null,
+            new[] { new GpuReading(gpuId, name, "", 50, 60) }, Array.Empty<FanReading>());
+
+    private static AppUsageTick GpuTick(long ts, string gid, params (string Name, double Value, double? Vram)[] apps) =>
+        new(ts, new[] { new AppMetricSample($"gpu:{gid}", apps.Select(a => new AppUsagePoint(a.Name, a.Value, a.Vram)).ToList()) });
+
+    // A real tick (ProcessAppUsageSource.Sample) carries every metric -
+    // cpu, memory, and one "gpu:<gid>" sample per adapter - as one
+    // AppMetricSample list on a single AppUsageTick, not as separate ticks
+    // sharing a ts.
+    private static AppUsageTick MultiAdapterGpuTick(
+        long ts, string gid0, (string Name, double Value, double? Vram) app0,
+        string gid1, (string Name, double Value, double? Vram) app1) =>
+        new(ts, new[]
+        {
+            new AppMetricSample($"gpu:{gid0}", new[] { new AppUsagePoint(app0.Name, app0.Value, app0.Vram) }),
+            new AppMetricSample($"gpu:{gid1}", new[] { new AppUsagePoint(app1.Name, app1.Value, app1.Vram) }),
+        });
+
     [Fact]
     public void Append_then_QueryTopApps_RoundTripsCpuValues()
     {
@@ -296,6 +316,74 @@ public class AppUsageHistoryStoreTests : IDisposable
         _store.Append(new[] { CpuTick(1000, ("Chrome.exe", 10)) }, null);
 
         Assert.Equal(1000, _store.QueryFirstSeen("CHROME.EXE"));
+    }
+
+    [Fact]
+    public void QueryTopApps_BareGpu_SumsAnAppsValueAcrossTwoAdapters()
+    {
+        _store.Append(new[] { ScalarGpuSample(1000, "gpu-0", "RTX 5080"), ScalarGpuSample(1000, "gpu-1", "RX 7800") }, null);
+        _store.Append(new[] { MultiAdapterGpuTick(1000, "gpu-0", ("game.exe", 30, null), "gpu-1", ("game.exe", 10, null)) }, null);
+
+        var top = _store.QueryTopApps("gpu", 0, 10_000, 15);
+
+        var app = Assert.Single(top);
+        Assert.Equal("game.exe", app.Name);
+        Assert.Equal(40, app.Avg);
+        Assert.Equal(40, app.Max);
+    }
+
+    [Fact]
+    public void QueryTopApps_BareGpu_MaxReflectsTheCombinedAdapterPeakInASingleTick()
+    {
+        _store.Append(new[] { ScalarGpuSample(1000, "gpu-0", "RTX 5080"), ScalarGpuSample(1000, "gpu-1", "RX 7800") }, null);
+        // Tick 1: 30 + 10 = 40 combined. Tick 2: 5 + 5 = 10 combined. No
+        // single row ever reaches 40, so a per-row MAX (the pre-fix bug)
+        // would report 30, not the combined-adapter peak of 40.
+        _store.Append(new[]
+        {
+            MultiAdapterGpuTick(1000, "gpu-0", ("game.exe", 30, null), "gpu-1", ("game.exe", 10, null)),
+            MultiAdapterGpuTick(1005, "gpu-0", ("game.exe", 5, null), "gpu-1", ("game.exe", 5, null)),
+        }, null);
+
+        var app = Assert.Single(_store.QueryTopApps("gpu", 0, 10_000, 15));
+
+        Assert.Equal(25, app.Avg); // (40 + 10) / 2 ticks
+        Assert.Equal(40, app.Max);
+    }
+
+    [Fact]
+    public void QueryTopApps_SpecificGpuId_StillFiltersToThatAdapterOnly()
+    {
+        _store.Append(new[] { ScalarGpuSample(1000, "gpu-0", "RTX 5080"), ScalarGpuSample(1000, "gpu-1", "RX 7800") }, null);
+        _store.Append(new[] { MultiAdapterGpuTick(1000, "gpu-0", ("game.exe", 30, null), "gpu-1", ("game.exe", 10, null)) }, null);
+
+        var app = Assert.Single(_store.QueryTopApps("gpu:gpu-0", 0, 10_000, 15));
+
+        Assert.Equal(30, app.Avg);
+    }
+
+    [Fact]
+    public void QueryAppSeries_BareGpu_SumsPerTickAcrossAdapters_IncludingVram()
+    {
+        _store.Append(new[] { ScalarGpuSample(1000, "gpu-0", "RTX 5080"), ScalarGpuSample(1000, "gpu-1", "RX 7800") }, null);
+        _store.Append(new[] { MultiAdapterGpuTick(1000, "gpu-0", ("game.exe", 30, 1000), "gpu-1", ("game.exe", 10, 500)) }, null);
+
+        var point = Assert.Single(_store.QueryAppSeries("gpu", "game.exe", 0, 10_000));
+
+        Assert.Equal(1000, point.TsSec);
+        Assert.Equal(40, point.Value);
+        Assert.Equal(1500, point.VramMb);
+    }
+
+    [Fact]
+    public void QuerySampledTicks_BareGpu_CountsATick_WithActivityOnOnlyOneAdapter()
+    {
+        _store.Append(new[] { ScalarGpuSample(1000, "gpu-0", "RTX 5080") }, null);
+        _store.Append(new[] { GpuTick(1000, "gpu-0", ("game.exe", 30, null)) }, null);
+
+        var ticks = _store.QuerySampledTicks("gpu", 0, 10_000);
+
+        Assert.Equal(new long[] { 1000 }, ticks);
     }
 
     [Fact]

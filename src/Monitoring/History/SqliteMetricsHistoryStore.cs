@@ -1656,15 +1656,37 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
             }
 
             using var cmd = _connection.CreateCommand();
-            cmd.CommandText = $"""
-                SELECT se.name, SUM(t.value_x10), MAX(t.value_x10) / 10.0
-                FROM {table} t
-                JOIN app_series se ON se.key = t.app
-                WHERE {gpuFilter}t.ts BETWEEN $from AND $to
-                GROUP BY t.app
-                ORDER BY SUM(t.value_x10) DESC
-                LIMIT $limit;
-            """;
+            // A bare-gpu query (gpuFilter empty) can have more than one
+            // adapter's row per (app, ts); pre-aggregating in the "pt"
+            // subquery collapses those to one summed value per tick before
+            // ranking, so MAX reflects the combined-adapter peak in a single
+            // tick rather than one adapter's peak in isolation. A specific
+            // gpu:<id> query already has at most one row per (app, ts), so
+            // the pre-aggregation is a no-op there; cpu/memory never have
+            // more than one adapter dimension and keep the direct query.
+            cmd.CommandText = table == "app_gpu_seconds"
+                ? $"""
+                    SELECT se.name, SUM(pt.v), MAX(pt.v) / 10.0
+                    FROM (
+                        SELECT ts, app, SUM(value_x10) AS v
+                        FROM app_gpu_seconds
+                        WHERE {gpuFilter}ts BETWEEN $from AND $to
+                        GROUP BY ts, app
+                    ) pt
+                    JOIN app_series se ON se.key = pt.app
+                    GROUP BY pt.app
+                    ORDER BY SUM(pt.v) DESC
+                    LIMIT $limit;
+                """
+                : $"""
+                    SELECT se.name, SUM(t.value_x10), MAX(t.value_x10) / 10.0
+                    FROM {table} t
+                    JOIN app_series se ON se.key = t.app
+                    WHERE {gpuFilter}t.ts BETWEEN $from AND $to
+                    GROUP BY t.app
+                    ORDER BY SUM(t.value_x10) DESC
+                    LIMIT $limit;
+                """;
             if (gpuKey is { } gk)
             {
                 cmd.Parameters.AddWithValue("$gpu", gk);
@@ -1726,15 +1748,27 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
 
             var isGpu = table == "app_gpu_seconds";
             var gpuFilter = gpuKey is not null ? "gpu = $gpu AND " : "";
-            var vramSelect = isGpu ? ", vram_mb" : "";
 
             using var cmd = _connection.CreateCommand();
-            cmd.CommandText = $"""
-                SELECT ts, value_x10{vramSelect}
-                FROM {table}
-                WHERE {gpuFilter}app = $app AND ts BETWEEN $from AND $to
-                ORDER BY ts ASC;
-            """;
+            // See QueryTopApps: a bare-gpu query (gpuFilter empty) can have
+            // more than one adapter's row per (app, ts), so GROUP BY ts sums
+            // them into the single point per tick the caller expects. A
+            // specific gpu:<id> query already has at most one row per ts, so
+            // the grouping is a no-op there.
+            cmd.CommandText = isGpu
+                ? $"""
+                    SELECT ts, SUM(value_x10), SUM(vram_mb)
+                    FROM app_gpu_seconds
+                    WHERE {gpuFilter}app = $app AND ts BETWEEN $from AND $to
+                    GROUP BY ts
+                    ORDER BY ts ASC;
+                """
+                : $"""
+                    SELECT ts, value_x10
+                    FROM {table}
+                    WHERE app = $app AND ts BETWEEN $from AND $to
+                    ORDER BY ts ASC;
+                """;
             if (gpuKey is { } gk)
             {
                 cmd.Parameters.AddWithValue("$gpu", gk);
@@ -1787,7 +1821,10 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
     // existing gpu_series cache so app rows and scalar gpu rows always agree
     // on which surrogate key a gid maps to. A gid never seen by the scalar
     // path (no gpu_series row) yields a null table - there is nothing to
-    // query, not an error.
+    // query, not an error. Bare "gpu" (no adapter id) also resolves to
+    // app_gpu_seconds with a null key, the same way cpu/memory never filter
+    // by adapter - QueryTopApps/QueryAppSeries then aggregate across every
+    // adapter per app instead of filtering to one.
     private (string? Table, long? GpuKey) ResolveMetricTable(string metric)
     {
         if (metric == "cpu")
@@ -1797,6 +1834,10 @@ public sealed class SqliteMetricsHistoryStore : IMetricsHistoryStore, IPrivacySe
         if (metric == "memory")
         {
             return ("app_mem_seconds", null);
+        }
+        if (metric == "gpu")
+        {
+            return ("app_gpu_seconds", null);
         }
         if (metric.StartsWith("gpu:", StringComparison.Ordinal))
         {
