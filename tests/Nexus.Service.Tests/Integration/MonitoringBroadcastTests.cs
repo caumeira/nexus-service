@@ -193,7 +193,8 @@ public class MonitoringBroadcastTests
         MultiplexHub hub,
         StubSensorProvider? sensors = null,
         TrackingFpsProvider? fps = null,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        ProcessMonitor? processes = null)
     {
         // Stub providers for every dependency so Tick can run end-to-end
         // without touching hardware.
@@ -202,7 +203,7 @@ public class MonitoringBroadcastTests
         var network = new StubNetworkProvider();
         var screenTime = new StubScreenTimeProvider();
         var performance = new StubPerformanceProvider();
-        var processes = new ProcessMonitor(hub);
+        processes ??= new ProcessMonitor(hub);
         var gpuProcesses = new GpuProcessMonitor(hub);
         var volume = new StubVolumeProvider();
         return timeProvider is null
@@ -564,6 +565,84 @@ public class MonitoringBroadcastTests
         await broadcaster.Tick(CancellationToken.None);
 
         Assert.Equal(0, sensors.ExtrasReads);
+    }
+
+    [Fact]
+    public async Task Tick_ProcessesTopic_CarriesStartedAtMs()
+    {
+        var hub = new MultiplexHub();
+        var processes = new ProcessMonitor(hub);
+        processes.SetProcessesForTest(new[]
+        {
+            new ProcessInfo { Pid = 1, Name = "app.exe", CpuPercent = 5, MemoryMb = 100, StartedAtMs = 123_456 },
+            new ProcessInfo { Pid = 2, Name = "no-start-time.exe", CpuPercent = 1, MemoryMb = 10 },
+        });
+        var broadcaster = BuildBroadcaster(hub, processes: processes);
+        var captured = new List<(string Topic, byte[] Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) => captured.Add((topic, payload.ToArray()));
+
+        using var sub = hub.AddTestSubscription("processes");
+        await broadcaster.Tick(CancellationToken.None);
+
+        var frame = captured.Single(c => c.Topic == "processes");
+        using var doc = System.Text.Json.JsonDocument.Parse(frame.Payload);
+        var arr = doc.RootElement.GetProperty("d").GetProperty("processes");
+        Assert.Equal(123_456, arr[0].GetProperty("startedAtMs").GetInt64());
+        Assert.False(arr[1].TryGetProperty("startedAtMs", out _)); // null omitted on the wire
+    }
+
+    [Fact]
+    public async Task Tick_ProcessesTopic_ShipsTheFullList_NotCappedAtTwentyFive()
+    {
+        var hub = new MultiplexHub();
+        var processes = new ProcessMonitor(hub);
+        const int count = 300;
+        processes.SetProcessesForTest(Enumerable.Range(0, count)
+            .Select(i => new ProcessInfo { Pid = i, Name = $"proc{i}", CpuPercent = 1, MemoryMb = 10 })
+            .ToList());
+        var broadcaster = BuildBroadcaster(hub, processes: processes);
+        var captured = new List<(string Topic, byte[] Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) => captured.Add((topic, payload.ToArray()));
+
+        using var sub = hub.AddTestSubscription("processes");
+        await broadcaster.Tick(CancellationToken.None);
+
+        var frame = captured.Single(c => c.Topic == "processes");
+        using var doc = System.Text.Json.JsonDocument.Parse(frame.Payload);
+        Assert.Equal(count, doc.RootElement.GetProperty("d").GetProperty("processes").GetArrayLength());
+
+        // The full ~300-process frame stays well under the WebSocket
+        // envelope's 1MB cap; this is the measurement backing that claim.
+        Assert.True(frame.Payload.Length < 1024 * 1024,
+            $"processes frame at {count} entries was {frame.Payload.Length} bytes, expected < 1MB");
+    }
+
+    [Fact]
+    public async Task Tick_CompositeMonitoringTopic_AlsoEmbedsTheFullProcessList_UnderTheOneMbCap()
+    {
+        // BuildProcessFrame feeds both the dedicated "processes" topic and
+        // the composite "monitoring" frame (every general dashboard
+        // subscriber) - the uncapped list ships to composite subscribers
+        // too, so the size claim must hold there as well, not only for a
+        // subscriber requesting "processes" alone.
+        var hub = new MultiplexHub();
+        var processes = new ProcessMonitor(hub);
+        const int count = 300;
+        processes.SetProcessesForTest(Enumerable.Range(0, count)
+            .Select(i => new ProcessInfo { Pid = i, Name = $"proc{i}", CpuPercent = 1, MemoryMb = 10 })
+            .ToList());
+        var broadcaster = BuildBroadcaster(hub, processes: processes);
+        var captured = new List<(string Topic, byte[] Payload)>();
+        hub.OnBroadcastForTest += (topic, payload) => captured.Add((topic, payload.ToArray()));
+
+        using var sub = hub.AddTestSubscription("monitoring");
+        await broadcaster.Tick(CancellationToken.None);
+
+        var frame = captured.Single(c => c.Topic == "monitoring");
+        using var doc = System.Text.Json.JsonDocument.Parse(frame.Payload);
+        Assert.Equal(count, doc.RootElement.GetProperty("d").GetProperty("processes").GetProperty("processes").GetArrayLength());
+        Assert.True(frame.Payload.Length < 1024 * 1024,
+            $"composite monitoring frame at {count} processes was {frame.Payload.Length} bytes, expected < 1MB");
     }
 
     [Fact]

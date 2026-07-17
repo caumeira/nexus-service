@@ -57,7 +57,9 @@ public sealed class MonitoringBroadcaster : BackgroundService
     // before the next Tick runs, so the list is safe to clear-and-refill.
     private readonly List<string> _gpuModelsBuf = new();
 
-    private const int TopProcesses = 25;
+    // Processes has no cap (see BuildProcessFrame) - the full live list is
+    // needed to stop membership churn as apps enter/exit a truncated top-N.
+    // Network keeps its cap: no equivalent requirement has been raised for it.
     private const int TopNetwork = 25;
     private static readonly long ScreenTimeBroadcastIntervalTicks = TimeSpan.FromSeconds(10).Ticks;
 
@@ -422,22 +424,22 @@ public sealed class MonitoringBroadcaster : BackgroundService
         var procs = _processes.GetProcesses();
         var snap = _performance.SampleAsync(ct).GetAwaiter().GetResult();
 
-        var count = Math.Min(procs.Count, TopProcesses);
-        var top = new List<ProcessEntry>(count);
-        for (int i = 0; i < count; i++)
+        var all = new List<ProcessEntry>(procs.Count);
+        for (int i = 0; i < procs.Count; i++)
         {
             var p = procs[i];
-            top.Add(new ProcessEntry
+            all.Add(new ProcessEntry
             {
                 Name = p.Name,
                 CpuPercent = p.CpuPercent,
                 MemoryMb = p.MemoryMb,
+                StartedAtMs = p.StartedAtMs,
             });
         }
 
         return new ProcessFrame
         {
-            Processes = top,
+            Processes = all,
             TotalCpu = snap.Cpu ?? 0,
             TotalMemoryPercent = snap.Memory ?? 0,
         };

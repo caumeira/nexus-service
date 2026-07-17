@@ -11,6 +11,8 @@ public sealed class ProcessEntry
     public string Name { get; set; } = "";
     public double CpuPercent { get; set; }
     public double MemoryMb { get; set; }
+    /// <summary>Process creation time, UTC epoch ms; null when unavailable.</summary>
+    public long? StartedAtMs { get; set; }
 }
 
 public sealed class ProcessFrame

@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Nexus.Service.Sockets;
@@ -29,6 +28,10 @@ public sealed class ProcessMonitor : BackgroundService
     public ProcessMonitor(MultiplexHub hub) { _hub = hub; }
 
     public IReadOnlyList<ProcessInfo> GetProcesses() => _latest;
+
+    /// <summary>Test-only seam: the sampling loop never runs synchronously
+    /// under a unit test, so this stands in for a completed sample.</summary>
+    internal void SetProcessesForTest(IReadOnlyList<ProcessInfo> processes) => _latest = processes;
 
     public void SetInterval(int ms) => _intervalMs = Math.Max(200, ms);
 
@@ -204,6 +207,16 @@ public sealed class ProcessMonitor : BackgroundService
                 }
                 _winPrev[pid] = (cpuTime, now);
 
+                // Running as LocalSystem denies StartTime for some processes
+                // (elevated/protected system processes); leave it null rather
+                // than dropping the whole entry.
+                long? startedAtMs = null;
+                try
+                {
+                    startedAtMs = new DateTimeOffset(proc.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds();
+                }
+                catch { }
+
                 result.Add(new ProcessInfo
                 {
                     Pid = pid,
@@ -211,6 +224,7 @@ public sealed class ProcessMonitor : BackgroundService
                     CpuPercent = Math.Round(cpuPercent, 1),
                     MemoryMb = Math.Round(memBytes / (1024.0 * 1024.0), 1),
                     CpuTimeSeconds = Math.Round(cpuTime.TotalSeconds, 1),
+                    StartedAtMs = startedAtMs,
                 });
             }
             catch { }
@@ -250,4 +264,7 @@ public class ProcessInfo
     public double CpuPercent { get; set; }
     public double MemoryMb { get; set; }
     public double CpuTimeSeconds { get; set; }
+    /// <summary>Process creation time, UTC epoch ms. Null when unavailable
+    /// (access denied under LocalSystem, or not read on this platform).</summary>
+    public long? StartedAtMs { get; set; }
 }
