@@ -131,6 +131,73 @@ public sealed class AppsHistoryRouteTailMergeTests : IDisposable
     }
 
     [Fact]
+    public async Task ProcessFilter_ReturnsExactlyThatProcess_BypassingTopN()
+    {
+        // "top.exe" would win the top-N ranking outright; the slideout asks
+        // for "other.exe" by name, which must come back instead - not the
+        // metric's top app.
+        _store.SampledTicks = new List<long> { 1000 };
+        _store.TopApps = new List<AppWindowStat> { new("top.exe", 90, 90) };
+        _store.Series["top.exe"] = new List<AppRawPoint> { new(1000, 90, null) };
+        _store.Series["other.exe"] = new List<AppRawPoint> { new(1000, 15, null) };
+
+        var res = await Client().GetAsync("/monitoring/history/apps?from=0&to=6000000&series=cpu&process=other.exe");
+
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var apps = doc.RootElement.GetProperty("apps");
+        Assert.Equal(1, apps.GetArrayLength());
+        Assert.Equal("other.exe", apps[0].GetProperty("name").GetString());
+        Assert.Equal(15, apps[0].GetProperty("avg").GetDouble());
+    }
+
+    [Fact]
+    public async Task ProcessFilter_ReturnsEmpty_ForAProcessWithNoDataInTheWindow()
+    {
+        _store.SampledTicks = new List<long> { 1000 };
+        _store.TopApps = new List<AppWindowStat> { new("top.exe", 90, 90) };
+        _store.Series["top.exe"] = new List<AppRawPoint> { new(1000, 90, null) };
+
+        var res = await Client().GetAsync("/monitoring/history/apps?from=0&to=6000000&series=cpu&process=never-seen.exe");
+
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        Assert.Equal(0, doc.RootElement.GetProperty("apps").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task ProcessFilter_StillMergesTheBufferedTail()
+    {
+        _store.SampledTicks = new List<long> { 1000 };
+        _store.Series["app.exe"] = new List<AppRawPoint> { new(1000, 20, null) };
+
+        var appBuffer = _factory.Services.GetRequiredService<AppSampleBuffer>();
+        appBuffer.Append(new AppUsageTick(5000,
+            new[] { new AppMetricSample("cpu", new[] { new AppUsagePoint("app.exe", 60, null) }) }));
+
+        var res = await Client().GetAsync("/monitoring/history/apps?from=0&to=6000000&series=cpu&process=app.exe");
+
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var app = doc.RootElement.GetProperty("apps")[0];
+        // Two sampled ticks total (db=1000, tail=5000): (20+60)/2 = 40.
+        Assert.Equal(40, app.GetProperty("avg").GetDouble());
+        Assert.Equal(2, app.GetProperty("points").GetArrayLength());
+    }
+
+    [Fact]
+    public async Task NoProcessFilter_StillReturnsTheTopNBehavior()
+    {
+        _store.SampledTicks = new List<long> { 1000 };
+        _store.TopApps = new List<AppWindowStat> { new("top.exe", 90, 90) };
+        _store.Series["top.exe"] = new List<AppRawPoint> { new(1000, 90, null) };
+
+        var res = await Client().GetAsync("/monitoring/history/apps?from=0&to=6000000&series=cpu");
+
+        using var doc = JsonDocument.Parse(await res.Content.ReadAsStringAsync());
+        var apps = doc.RootElement.GetProperty("apps");
+        Assert.Equal(1, apps.GetArrayLength());
+        Assert.Equal("top.exe", apps[0].GetProperty("name").GetString());
+    }
+
+    [Fact]
     public async Task TailTick_WithNoAppsForTheMetric_DoesNotInflateTheSampledTickCount()
     {
         // An AppMetricSample with an empty Apps list would persist zero

@@ -150,7 +150,7 @@ public static class MonitoringHistoryRoutes
         }).AllowPanel();
 
         app.MapGet("/monitoring/history/apps", (
-            long? from, long? to, string? series, int? maxApps, int? maxPoints,
+            long? from, long? to, string? series, string? process, int? maxApps, int? maxPoints,
             IAppUsageHistoryStore appStore, AppSampleBuffer appBuffer, ProcessMonitor processes) =>
         {
             if (from is null || to is null || to < from || string.IsNullOrWhiteSpace(series))
@@ -185,26 +185,6 @@ public static class MonitoringHistoryRoutes
                     .Select(t => (t.TsSec, Metric: t.Metric!))
                     .ToList();
 
-                // Db-only ranking is a candidate pool (the tail is at most a
-                // few AppSampleIntervalSeconds ticks, negligible against any
-                // window wide enough for the db side to matter); every
-                // candidate's final avg/max/points is recomputed below from
-                // the db+tail merge, so a db-side ranking miss only costs a
-                // wasted QueryAppSeries call, never a wrong number. Each
-                // candidate is one sequential QueryAppSeries round trip, so
-                // this scales with maxApps (bounded by MaxMaxApps) plus a
-                // handful of tail-only names, not with window width.
-                var dbTopApps = appStore.QueryTopApps(series, fromSec, toSec, clampedMaxApps);
-
-                var candidateNames = new HashSet<string>(dbTopApps.Select(a => a.Name), StringComparer.OrdinalIgnoreCase);
-                foreach (var (_, metric) in tailForMetric)
-                {
-                    foreach (var a in metric.Apps)
-                    {
-                        candidateNames.Add(a.Name);
-                    }
-                }
-
                 // Ticks the metric was sampled across db+tail, ts-deduped so
                 // a tick straddling a flush boundary counts once - the same
                 // window-average denominator QueryTopApps uses, extended to
@@ -216,24 +196,67 @@ public static class MonitoringHistoryRoutes
                 }
                 var expectedTicks = sampledTicks.Count;
 
-                var mergedApps = new List<AppWindowStat>();
+                List<AppWindowStat> topApps;
                 var seriesByApp = new Dictionary<string, IReadOnlyList<AppRawPoint>>(StringComparer.OrdinalIgnoreCase);
-                if (expectedTicks > 0)
+
+                if (!string.IsNullOrWhiteSpace(process))
                 {
-                    foreach (var name in candidateNames)
+                    // The slideout asks for one specific process, which need
+                    // not be in the metric's top-N - bypass ranking entirely
+                    // and answer only for the requested name.
+                    topApps = new List<AppWindowStat>();
+                    if (expectedTicks > 0)
                     {
-                        var merged = MergeAppTail(appStore.QueryAppSeries(series, name, fromSec, toSec), tailForMetric, name);
-                        if (merged.Count == 0)
+                        var merged = MergeAppTail(appStore.QueryAppSeries(series, process, fromSec, toSec), tailForMetric, process);
+                        if (merged.Count > 0)
                         {
-                            continue;
+                            var sum = merged.Sum(p => p.Value ?? 0);
+                            var max = merged.Max(p => p.Value ?? double.MinValue);
+                            topApps.Add(new AppWindowStat(process, sum / expectedTicks, max));
+                            seriesByApp[process] = merged;
                         }
-                        var sum = merged.Sum(p => p.Value ?? 0);
-                        var max = merged.Max(p => p.Value ?? double.MinValue);
-                        mergedApps.Add(new AppWindowStat(name, sum / expectedTicks, max));
-                        seriesByApp[name] = merged;
                     }
                 }
-                var topApps = mergedApps.OrderByDescending(a => a.Avg).Take(clampedMaxApps).ToList();
+                else
+                {
+                    // Db-only ranking is a candidate pool (the tail is at most a
+                    // few AppSampleIntervalSeconds ticks, negligible against any
+                    // window wide enough for the db side to matter); every
+                    // candidate's final avg/max/points is recomputed below from
+                    // the db+tail merge, so a db-side ranking miss only costs a
+                    // wasted QueryAppSeries call, never a wrong number. Each
+                    // candidate is one sequential QueryAppSeries round trip, so
+                    // this scales with maxApps (bounded by MaxMaxApps) plus a
+                    // handful of tail-only names, not with window width.
+                    var dbTopApps = appStore.QueryTopApps(series, fromSec, toSec, clampedMaxApps);
+
+                    var candidateNames = new HashSet<string>(dbTopApps.Select(a => a.Name), StringComparer.OrdinalIgnoreCase);
+                    foreach (var (_, metric) in tailForMetric)
+                    {
+                        foreach (var a in metric.Apps)
+                        {
+                            candidateNames.Add(a.Name);
+                        }
+                    }
+
+                    var mergedApps = new List<AppWindowStat>();
+                    if (expectedTicks > 0)
+                    {
+                        foreach (var name in candidateNames)
+                        {
+                            var merged = MergeAppTail(appStore.QueryAppSeries(series, name, fromSec, toSec), tailForMetric, name);
+                            if (merged.Count == 0)
+                            {
+                                continue;
+                            }
+                            var sum = merged.Sum(p => p.Value ?? 0);
+                            var max = merged.Max(p => p.Value ?? double.MinValue);
+                            mergedApps.Add(new AppWindowStat(name, sum / expectedTicks, max));
+                            seriesByApp[name] = merged;
+                        }
+                    }
+                    topApps = mergedApps.OrderByDescending(a => a.Avg).Take(clampedMaxApps).ToList();
+                }
 
                 var liveStartedAt = ResolveLiveStartedAtByName(processes.GetProcesses());
 
